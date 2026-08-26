@@ -1,0 +1,717 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum ComputerStatus {
+  starting
+  ready
+  unavailable
+  degraded
+}
+
+enum BotStatus {
+  provisioning
+  active
+  archived
+  failed
+}
+
+enum OnboardingStatus {
+  pending
+  queued
+  running
+  completed
+  failed
+  skipped_by_user
+}
+
+enum ConversationContinuity {
+  empty
+  attached
+  detached
+}
+
+enum MessageRole {
+  user
+  assistant
+  system
+}
+
+enum MessageStatus {
+  queued
+  streaming
+  completed
+  failed
+}
+
+enum ChannelKind {
+  bot_dm
+  agent_dm
+  group
+}
+
+enum ChannelMessageSender {
+  user
+  agent
+  system
+}
+
+enum ChannelRoundStatus {
+  queued
+  running
+  completed
+  failed
+}
+
+enum ChannelDeliveryStatus {
+  pending
+  queued
+  processing
+  completed
+  failed
+  skipped
+}
+
+enum RunOrigin {
+  user
+  agent
+  group
+  bootstrap
+  routine
+}
+
+enum RoutineScheduleKind {
+  cron
+  interval
+}
+
+enum RoutineExecutionKind {
+  scheduled
+  test
+}
+
+enum RoutineExecutionStatus {
+  queued
+  running
+  waiting_approval
+  completed
+  failed
+  cancelled
+  skipped
+}
+
+enum RunStatus {
+  queued
+  running
+  waiting_approval
+  completed
+  failed
+  cancelled
+  interrupted
+}
+
+enum InboxStatus {
+  pending
+  processing
+  completed
+  failed
+}
+
+enum InboxDeliveryMode {
+  turn
+  steer
+}
+
+enum OutboxStatus {
+  pending
+  delivering
+  delivered
+  failed
+}
+
+enum RunItemKind {
+  agent_message
+  reasoning
+  command
+  file_change
+  tool
+  compaction
+  error
+}
+
+enum RunItemStatus {
+  pending
+  running
+  waiting_approval
+  completed
+  failed
+  cancelled
+}
+
+enum ApprovalKind {
+  command
+  file_change
+  permissions
+  user_input
+}
+
+enum ApprovalStatus {
+  pending
+  accepted
+  declined
+  cancelled
+  expired
+}
+
+enum IdempotencyStatus {
+  processing
+  completed
+  failed
+}
+
+enum MemoryScope {
+  agent
+  user
+  project
+}
+
+enum MemoryTier {
+  profile
+  log
+  note
+}
+
+enum TodoStatus {
+  pending
+  in_progress
+  completed
+  cancelled
+}
+
+enum SubagentStatus {
+  provisioning
+  queued
+  running
+  completed
+  failed
+  stopped
+}
+
+model Computer {
+  id           String         @id @default(uuid()) @db.Uuid
+  name         String         @default("OpenBot computer")
+  status       ComputerStatus @default(starting)
+  capabilities Json           @default("{}")
+  lastSeenAt   DateTime?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+}
+
+model Bot {
+  id               String       @id @default(uuid()) @db.Uuid
+  name             String
+  title            String       @default("")
+  description      String       @default("")
+  instructions     String       @default("")
+  icon             String       @default("●")
+  color            String       @default("#4f7cff")
+  notificationsEnabled Boolean  @default(true)
+  hiddenFromSidebar Boolean     @default(false)
+  avatarPath       String?
+  defaultDirectory String
+  status           BotStatus    @default(provisioning)
+  onboardingStatus OnboardingStatus @default(pending)
+  onboardingVersion Int         @default(1)
+  onboardingCompletedAt DateTime?
+  provisioningError Json?
+  runtimeProvider   String       @default("pi")
+  runtimeSessionId  String?      @unique
+  runtimeSessionPath String?     @unique
+  conversation     Conversation?
+  messages         Message[]
+  runs             Run[]
+  inboxEvents      InboxEvent[]
+  lease            BotRunLease?
+  channelMemberships ChannelMember[]
+  sentChannelMessages ChannelMessage[] @relation("ChannelMessageSenderBot")
+  initiatedRounds  ChannelRound[]      @relation("ChannelRoundInitiator")
+  channelDeliveries ChannelDelivery[]
+  writtenMemoryFacts MemoryFact[]      @relation("MemoryFactWriter")
+  savedSkills      SavedSkill[]
+  routines         Routine[]
+  projectMemberships ProjectMember[]
+  createdProjects  Project[]           @relation("ProjectCreator")
+  connectorStates  BotConnectorState[]
+  todos            TodoItem[]
+  parentSubagents  Subagent[]           @relation("ParentSubagents")
+  subagentIdentity Subagent?            @relation("ChildSubagent")
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  @@index([status, updatedAt])
+}
+
+model TodoItem {
+  botId      String     @db.Uuid
+  bot        Bot        @relation(fields: [botId], references: [id], onDelete: Cascade)
+  id         String
+  content    String
+  status     TodoStatus
+  position   Int
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+
+  @@id([botId, id])
+  @@unique([botId, position])
+  @@index([botId, status, position])
+}
+
+model Subagent {
+  id               String         @id @default(uuid()) @db.Uuid
+  parentBotId      String         @db.Uuid
+  parentBot        Bot            @relation("ParentSubagents", fields: [parentBotId], references: [id], onDelete: Cascade)
+  childBotId       String         @unique @db.Uuid
+  childBot         Bot            @relation("ChildSubagent", fields: [childBotId], references: [id], onDelete: Cascade)
+  parentRunId      String         @db.Uuid
+  parentChannelId  String         @db.Uuid
+  currentRunId     String?        @unique @db.Uuid
+  launchCallId     String
+  description      String
+  prompt           String
+  subagentType     String
+  model            String?
+  fileAttachments  Json           @default("[]")
+  runInBackground  Boolean        @default(true)
+  status           SubagentStatus @default(provisioning)
+  result           String?
+  error            Json?
+  outputPath       String
+  startedAt        DateTime?
+  completedAt      DateTime?
+  stoppedAt        DateTime?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  @@unique([parentBotId, launchCallId])
+  @@index([parentBotId, status, createdAt])
+  @@index([childBotId, status])
+}
+
+model MemoryFact {
+  id             String      @id @default(uuid()) @db.Uuid
+  namespace      String
+  scope          MemoryScope
+  tier           MemoryTier  @default(log)
+  projectSlug    String?
+  fact           String
+  factHash       String
+  writtenByBotId String?      @db.Uuid
+  writtenByBot   Bot?         @relation("MemoryFactWriter", fields: [writtenByBotId], references: [id], onDelete: SetNull)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@unique([namespace, factHash])
+  @@index([namespace, tier, updatedAt])
+  @@index([writtenByBotId, updatedAt])
+}
+
+model SavedSkill {
+  id          String   @id @default(uuid()) @db.Uuid
+  botId       String   @db.Uuid
+  bot         Bot      @relation(fields: [botId], references: [id], onDelete: Cascade)
+  name        String
+  description String
+  body        String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([botId, name])
+  @@index([botId, updatedAt])
+}
+
+model Routine {
+  id              String              @id @default(uuid()) @db.Uuid
+  botId           String              @db.Uuid
+  bot             Bot                 @relation(fields: [botId], references: [id], onDelete: Cascade)
+  name            String
+  prompt          String
+  scheduleText    String
+  scheduleKind    RoutineScheduleKind
+  cronExpression  String?
+  intervalSeconds Int?
+  timezoneMode    String              @default("installation")
+  timezone        String
+  enabled         Boolean             @default(true)
+  revision        Int                 @default(1)
+  nextRunAt       DateTime?
+  pausedAt        DateTime?
+  deletedAt       DateTime?
+  revisions       RoutineRevision[]
+  executions      RoutineExecution[]
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  @@index([enabled, nextRunAt])
+  @@index([botId, deletedAt, updatedAt])
+}
+
+model RoutineRevision {
+  id              String              @id @default(uuid()) @db.Uuid
+  routineId       String              @db.Uuid
+  routine         Routine             @relation(fields: [routineId], references: [id], onDelete: Cascade)
+  revision        Int
+  name            String
+  prompt          String
+  scheduleText    String
+  scheduleKind    RoutineScheduleKind
+  cronExpression  String?
+  intervalSeconds Int?
+  timezoneMode    String
+  timezone        String
+  enabled         Boolean
+  source          String
+  callId          String?
+  runId           String?             @db.Uuid
+  executions      RoutineExecution[]
+  createdAt       DateTime            @default(now())
+
+  @@unique([routineId, revision])
+}
+
+model RoutineExecution {
+  id                String                 @id @default(uuid()) @db.Uuid
+  routineId         String                 @db.Uuid
+  routine           Routine                @relation(fields: [routineId], references: [id], onDelete: Cascade)
+  routineRevisionId String                 @db.Uuid
+  routineRevision   RoutineRevision        @relation(fields: [routineRevisionId], references: [id], onDelete: Restrict)
+  runId             String?                @unique @db.Uuid
+  run               Run?                   @relation(fields: [runId], references: [id], onDelete: SetNull)
+  kind              RoutineExecutionKind
+  status            RoutineExecutionStatus @default(queued)
+  dedupeKey         String                 @unique
+  scheduledFor      DateTime
+  enqueuedAt        DateTime?
+  startedAt         DateTime?
+  completedAt       DateTime?
+  skipReason        String?
+  error             Json?
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+
+  @@index([routineId, createdAt])
+  @@index([status, createdAt])
+}
+
+model Project {
+  slug           String          @id
+  name           String
+  description    String          @default("")
+  workingDirectory String
+  createdByBotId String?         @db.Uuid
+  createdByBot   Bot?            @relation("ProjectCreator", fields: [createdByBotId], references: [id], onDelete: SetNull)
+  members        ProjectMember[]
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+}
+
+model ProjectMember {
+  projectSlug String   
+  project     Project  @relation(fields: [projectSlug], references: [slug], onDelete: Cascade)
+  botId       String   @db.Uuid
+  bot         Bot      @relation(fields: [botId], references: [id], onDelete: Cascade)
+  joinedAt    DateTime @default(now())
+
+  @@id([projectSlug, botId])
+  @@index([botId, joinedAt])
+}
+
+model BotConnectorState {
+  botId        String   @db.Uuid
+  bot          Bot      @relation(fields: [botId], references: [id], onDelete: Cascade)
+  platform     String
+  connected    Boolean  @default(true)
+  disconnectedAt DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@id([botId, platform])
+  @@index([platform, connected])
+}
+
+model Channel {
+  id          String           @id @default(uuid()) @db.Uuid
+  kind        ChannelKind
+  name        String
+  directKey   String?          @unique
+  workingDirectory String?
+  archivedAt  DateTime?
+  members     ChannelMember[]
+  messages    ChannelMessage[]
+  rounds      ChannelRound[]
+  runs        Run[]
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  @@index([kind, updatedAt])
+}
+
+model ChannelMember {
+  channelId String   @db.Uuid
+  channel   Channel  @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  botId     String   @db.Uuid
+  bot       Bot      @relation(fields: [botId], references: [id], onDelete: Cascade)
+  ordinal   Int
+  createdAt DateTime @default(now())
+
+  @@id([channelId, botId])
+  @@unique([channelId, ordinal])
+  @@index([botId, channelId])
+}
+
+model ChannelMessage {
+  id             String               @id @default(uuid()) @db.Uuid
+  sequence       BigInt               @default(autoincrement())
+  channelId      String               @db.Uuid
+  channel        Channel              @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  sender         ChannelMessageSender
+  senderBotId    String?              @db.Uuid
+  senderBot      Bot?                 @relation("ChannelMessageSenderBot", fields: [senderBotId], references: [id], onDelete: SetNull)
+  sourceRunId    String?              @db.Uuid
+  sourceRun      Run?                 @relation("VisibleRunMessage", fields: [sourceRunId], references: [id], onDelete: SetNull)
+  clientId       String?
+  content        String               @default("")
+  metadata       Json                 @default("{}")
+  triggeredRound ChannelRound?        @relation("RoundTrigger")
+  createdAt      DateTime             @default(now())
+
+  @@unique([channelId, clientId])
+  @@index([channelId, sequence])
+  @@index([senderBotId, createdAt])
+}
+
+model ChannelRound {
+  id             String             @id @default(uuid()) @db.Uuid
+  channelId      String             @db.Uuid
+  channel        Channel            @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  triggerMessageId String           @unique @db.Uuid
+  triggerMessage ChannelMessage     @relation("RoundTrigger", fields: [triggerMessageId], references: [id], onDelete: Cascade)
+  initiatorBotId String?            @db.Uuid
+  initiatorBot   Bot?               @relation("ChannelRoundInitiator", fields: [initiatorBotId], references: [id], onDelete: SetNull)
+  status         ChannelRoundStatus @default(queued)
+  currentOrdinal Int                @default(-1)
+  deliveries     ChannelDelivery[]
+  completedAt    DateTime?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  @@index([channelId, status, createdAt])
+}
+
+model ChannelDelivery {
+  id          String                @id @default(uuid()) @db.Uuid
+  roundId     String                @db.Uuid
+  round       ChannelRound          @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  botId       String                @db.Uuid
+  bot         Bot                   @relation(fields: [botId], references: [id], onDelete: Cascade)
+  ordinal     Int
+  status      ChannelDeliveryStatus @default(pending)
+  run         Run?
+  startedAt   DateTime?
+  completedAt DateTime?
+  error       Json?
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
+
+  @@unique([roundId, botId])
+  @@unique([roundId, ordinal])
+  @@index([botId, status, createdAt])
+}
+
+model Conversation {
+  id             String                 @id @default(uuid()) @db.Uuid
+  botId          String                 @unique @db.Uuid
+  bot            Bot                    @relation(fields: [botId], references: [id], onDelete: Cascade)
+  codexThreadId  String?                @unique
+  codexSessionId String?
+  continuity     ConversationContinuity @default(empty)
+  messages       Message[]
+  runs           Run[]
+  inboxEvents    InboxEvent[]
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+}
+
+model Message {
+  id             String        @id @default(uuid()) @db.Uuid
+  botId          String        @db.Uuid
+  bot            Bot           @relation(fields: [botId], references: [id], onDelete: Cascade)
+  conversationId String        @db.Uuid
+  conversation   Conversation  @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  runId          String?       @db.Uuid
+  run            Run?          @relation("RunMessages", fields: [runId], references: [id], onDelete: SetNull)
+  clientId       String?
+  upstreamItemId String?
+  role           MessageRole
+  content        String        @default("")
+  status         MessageStatus @default(queued)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@unique([conversationId, clientId])
+  @@unique([conversationId, upstreamItemId])
+  @@index([conversationId, createdAt])
+}
+
+model Run {
+  id             String       @id @default(uuid()) @db.Uuid
+  botId          String       @db.Uuid
+  bot            Bot          @relation(fields: [botId], references: [id], onDelete: Cascade)
+  conversationId String       @db.Uuid
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  userMessageId  String       @unique @db.Uuid
+  status         RunStatus    @default(queued)
+  runtimeTurnId  String?
+  origin         RunOrigin    @default(user)
+  channelId      String?      @db.Uuid
+  channel        Channel?     @relation(fields: [channelId], references: [id], onDelete: SetNull)
+  deliveryId     String?      @unique @db.Uuid
+  delivery       ChannelDelivery? @relation(fields: [deliveryId], references: [id], onDelete: SetNull)
+  error          Json?
+  startedAt      DateTime?
+  completedAt    DateTime?
+  messages       Message[]    @relation("RunMessages")
+  visibleMessages ChannelMessage[] @relation("VisibleRunMessage")
+  items          RunItem[]
+  approvals      Approval[]
+  inboxEvents    InboxEvent[]
+  lease          BotRunLease?
+  routineExecution RoutineExecution?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@index([botId, status])
+  @@index([conversationId, createdAt])
+  @@index([channelId, createdAt])
+}
+
+model InboxEvent {
+  id             String       @id @default(uuid()) @db.Uuid
+  botId          String       @db.Uuid
+  bot            Bot          @relation(fields: [botId], references: [id], onDelete: Cascade)
+  conversationId String       @db.Uuid
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  runId          String       @db.Uuid
+  run            Run          @relation(fields: [runId], references: [id], onDelete: Cascade)
+  idempotencyKey String       @unique
+  type           String       
+  payload        Json
+  deliveryMode   InboxDeliveryMode @default(turn)
+  status         InboxStatus  @default(pending)
+  priority       Int          @default(0)
+  attempts       Int          @default(0)
+  availableAt    DateTime     @default(now())
+  claimedAt      DateTime?
+  completedAt    DateTime?
+  error          Json?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@index([botId, status, priority, availableAt, createdAt])
+  @@index([botId, deliveryMode, status])
+}
+
+model BotRunLease {
+  botId      String   @id @db.Uuid
+  bot        Bot      @relation(fields: [botId], references: [id], onDelete: Cascade)
+  runId      String   @unique @db.Uuid
+  run        Run      @relation(fields: [runId], references: [id], onDelete: Cascade)
+  ownerId    String
+  expiresAt  DateTime
+  heartbeatAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model OutboxDelivery {
+  id          String       @id @default(uuid()) @db.Uuid
+  deliveryKey String       @unique
+  topic       String
+  target      String
+  payload     Json
+  status      OutboxStatus @default(pending)
+  attempts    Int          @default(0)
+  availableAt DateTime     @default(now())
+  deliveredAt DateTime?
+  error       Json?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@index([status, availableAt])
+}
+
+model RunItem {
+  id             String        @id @default(uuid()) @db.Uuid
+  runId          String        @db.Uuid
+  run            Run           @relation(fields: [runId], references: [id], onDelete: Cascade)
+  upstreamItemId String?
+  kind           RunItemKind
+  status         RunItemStatus @default(pending)
+  title          String?
+  content        Json          @default("{}")
+  startedAt      DateTime?
+  completedAt    DateTime?
+  approvals      Approval[]
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@unique([runId, upstreamItemId])
+  @@index([runId, createdAt])
+}
+
+model Approval {
+  id                String         @id @default(uuid()) @db.Uuid
+  runId             String         @db.Uuid
+  run               Run            @relation(fields: [runId], references: [id], onDelete: Cascade)
+  runItemId         String?        @db.Uuid
+  runItem           RunItem?       @relation(fields: [runItemId], references: [id], onDelete: SetNull)
+  upstreamRequestId String         @unique
+  requestMethod     String
+  kind              ApprovalKind
+  status            ApprovalStatus @default(pending)
+  details           Json
+  decision          String?
+  resolvedAt        DateTime?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  @@index([runId, status])
+}
+
+model Event {
+  sequence      BigInt   @id @default(autoincrement())
+  topic         String
+  entityId      String?  @db.Uuid
+  schemaVersion Int      @default(1)
+  payload       Json
+  createdAt     DateTime @default(now())
+
+  @@index([topic, sequence])
+}
+
+model IdempotencyRecord {
+  scope       String
+  key         String
+  requestHash String
+  response    Json?
+  status      IdempotencyStatus @default(processing)
+  createdAt   DateTime @default(now())
+  expiresAt   DateTime
+
+  @@id([scope, key])
+  @@index([expiresAt])
+}

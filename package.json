@@ -1,0 +1,34 @@
+{
+  "name": "openbot",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "bun@1.3.8",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev --parallel",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "check": "bun run typecheck && bun run test && bun run build",
+    "db:generate": "bun --filter @openbot/db db:generate",
+    "db:migrate": "bun --filter @openbot/db db:migrate",
+    "db:deploy": "bun --filter @openbot/db db:deploy",
+    "db:studio": "bun --filter @openbot/db db:studio",
+    "compose:up": "bash scripts/compose.sh up --build",
+    "compose:down": "bash scripts/compose.sh down",
+    "desktop": "bun --filter @openbot/desktop dev",
+    "desktop:tailscale": "bash scripts/tailscale-dev.sh",
+    "format": "biome format --write .",
+    "format:check": "biome format ."
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.4.7",
+    "@types/bun": "1.3.8",
+    "turbo": "2.10.11",
+    "typescript": "5.9.3"
+  }
+}

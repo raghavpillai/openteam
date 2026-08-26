@@ -1,0 +1,118 @@
+name: openbot
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: openbot
+      POSTGRES_USER: openbot
+      POSTGRES_PASSWORD: openbot-local-only
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U openbot -d openbot"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+    volumes:
+      - openbot_postgres:/var/lib/postgresql/data
+
+  migrate:
+    build:
+      context: .
+      dockerfile: docker/app.Dockerfile
+      target: migrate
+    environment:
+      DATABASE_URL: postgresql://openbot:openbot-local-only@postgres:5432/openbot
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  computer:
+    build:
+      context: .
+      dockerfile: docker/computer.Dockerfile
+    hostname: openbot
+    environment:
+      OPENBOT_COMPUTER_PORT: 8790
+      OPENBOT_CONTROL_TOKEN: ${OPENBOT_CONTROL_TOKEN:-local-compose-only-change-me}
+      OPENBOT_WORKSPACE_ROOT: /workspace
+      OPENBOT_TIME_ZONE: ${OPENBOT_TIME_ZONE:-UTC}
+      OPENBOT_SERVER_URL: http://server:8787
+      OPENBOT_PI_AGENT_DIR: /home/openbot/.pi/agent
+      OPENBOT_PI_MODEL: ${OPENBOT_PI_MODEL:-gpt-5.5}
+      OPENBOT_PI_THINKING: ${OPENBOT_PI_THINKING:-high}
+    cap_drop: ["ALL"]
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=512m
+    healthcheck:
+      test: ["CMD", "bun", "-e", "const r=await fetch('http://127.0.0.1:8790/health');process.exit(r.ok?0:1)"]
+      interval: 3s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6200-6299:6200-6299"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - openbot_computer_home:/home/openbot
+      - openbot_workspace:/workspace
+
+  server:
+    build:
+      context: .
+      dockerfile: docker/app.Dockerfile
+      target: server
+    environment:
+      DATABASE_URL: postgresql://openbot:openbot-local-only@postgres:5432/openbot
+      OPENBOT_PORT: 8787
+      OPENBOT_COMPUTER_URL: http://computer:8790
+      OPENBOT_CONTROL_TOKEN: ${OPENBOT_CONTROL_TOKEN:-local-compose-only-change-me}
+      OPENBOT_WORKSPACE_ROOT: /workspace
+      OPENBOT_TIME_ZONE: ${OPENBOT_TIME_ZONE:-UTC}
+      OPENBOT_PI_MODEL: ${OPENBOT_PI_MODEL:-gpt-5.5}
+      OPENBOT_SUBAGENT_PER_PARENT_LIMIT: ${OPENBOT_SUBAGENT_PER_PARENT_LIMIT:-4}
+      OPENBOT_SUBAGENT_GLOBAL_LIMIT: ${OPENBOT_SUBAGENT_GLOBAL_LIMIT:-8}
+      OPENBOT_SCREEN_VIEWER_HOST: 127.0.0.1
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      computer:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8787:8787"
+    healthcheck:
+      test: ["CMD", "bun", "-e", "const r=await fetch('http://127.0.0.1:8787/api/v0/health');process.exit(r.ok?0:1)"]
+      interval: 3s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+    volumes:
+      - openbot_workspace:/workspace:ro
+
+  worker:
+    build:
+      context: .
+      dockerfile: docker/app.Dockerfile
+      target: worker
+    environment:
+      DATABASE_URL: postgresql://openbot:openbot-local-only@postgres:5432/openbot
+      OPENBOT_COMPUTER_URL: http://computer:8790
+      OPENBOT_CONTROL_TOKEN: ${OPENBOT_CONTROL_TOKEN:-local-compose-only-change-me}
+      OPENBOT_TIME_ZONE: ${OPENBOT_TIME_ZONE:-UTC}
+      OPENBOT_WORKER_CONCURRENCY: ${OPENBOT_WORKER_CONCURRENCY:-8}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      computer:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  openbot_postgres:
+  openbot_computer_home:
+  openbot_workspace:

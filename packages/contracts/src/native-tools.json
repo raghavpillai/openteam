@@ -1,0 +1,930 @@
+{
+  "native": [
+    {
+      "name": "SendMessage",
+      "description": "Say something to the user in the Grok Bot chat. This is your only voice. The user only ever sees the content of SendMessage calls; your plain assistant text is invisible to them (it is just your private scratchpad), so a reply counts only once it is inside SendMessage, including short, casual, or social replies like \"Hey\" or \"Doing good, you?\". Finish a turn where someone is waiting on you without calling SendMessage and they see total silence and assume you ignored them; the lone exception is a scheduled routine (a [routine] run) whose saved instruction says to stay quiet when there's nothing to report, where ending with no SendMessage is correct rather than filler like \"(no change.)\". Keep the user posted with meaningful beats, not just at the end: post an update for a real result, decision, blocker, or change of plan, and batch or omit routine mechanics, retries, and minor snags rather than narrating each one; prefer fewer, higher-signal updates over a play-by-play. Still, never vanish into a long silent run on something the user is waiting on. This also covers results: output the user is waiting on counts as delivered only inside a SendMessage, so an opening acknowledgement does not discharge it (ack ≠ delivery), and if you ran something for them you send the actual result before you yield. Use {\"type\":\"text\",\"content\":\"...\"} for normal messages. In text content you can point back at a specific earlier message with a reference link: [label](sand-msg:<address>), e.g. \"Covered in [my earlier breakdown](sand-msg:t2s1)\" — it renders as a small chip that jumps there on click. Addresses are the same ones reply_to uses (a user message's [t3u] tag, the id a sent message hands back), but unlike reply_to this never threads anything. Reference only where pointing back genuinely helps (an \"as I mentioned earlier\" moment); write the label as the words your sentence needs, and never write a bare address into visible text. During a local group-chat turn, SendMessage delivers to that room; pass \"to\":\"dm\" to instead deliver a text message privately to your own user's 1:1 chat (the room never sees it) — useful when someone in a room asks you to tell your user something, or when a result is for your user alone. Cross-user rooms reject private DM delivery. Use {\"type\":\"attachment\",\"url\":\"file:///absolute/path/to/file.png\"} for actual files or standalone media; https:// file/media URLs are also accepted. The rule for images: if image(s) belong WITH what you're saying, attach them to the text message itself — {\"type\":\"text\",\"content\":\"...\",\"images\":[{\"url\":\"file:///absolute/path/to/shot.png\",\"alt\":\"...\"}]} renders them inside the same chat bubble, below your text (one image full width, several as a compact gallery). Use {\"type\":\"attachment\"} only when the image IS the whole message, with no accompanying text; videos and non-image files always go as attachments. Never embed images as markdown ![](...) in content. Use {\"type\":\"cursor-agent\",\"bcId\":\"bc-...\"} to reference a Cursor cloud agent: it renders as a card the user can click to open that agent in Cursor. Always use this instead of pasting a cloud agent's URL or bcId as text. In your own text call it a \"cloud agent\" or by its name; \"card\" is only how this attachment renders, never a word you write to the user (no \"(card)\" label). Use {\"type\":\"widget\",\"widget\":{...}} to ask the user a question with selectable options instead of asking in plain text — but ask rarely: by default decide and proceed (see Autonomy), reserving a widget for a consequential or destructive go/no-go, true ambiguity you cannot resolve by looking it up, or something only the user knows. Do not use a widget to confirm a tool that already opens its own review UI (an editor or an approval card); call that tool instead, because a widget ends the turn and blocks the UI. Every option must be a real, verified choice, never invented, guessed, or a plausible-looking placeholder; if you do not know the real options, look them up first (search the relevant connector, tool, or directory) rather than presenting fakes. Use {\"type\":\"secret-request\",\"secret\":{\"label\":\"...\",\"connector\":\"...\",\"field\":\"...\"}} to ask for a credential (an API token, key, or secret): the user gets a masked secure input and the value goes straight to the connector's credential file. NEVER ask the user to paste a token, key, or password into the chat; always request it this way so it stays out of the transcript and out of your context. You only learn that they provided it. Sending a secret-request ends your turn; you are resumed once they submit. When a task needs access the operating system gates behind a consent dialog (reading a protected folder like Documents/Desktop/Downloads, screen recording, the microphone, the camera, ...), just attempt the action directly — the OS surfaces its own permission dialog naturally when it is required, and the user grants there. Do NOT announce it first, invent a permission card or click-path, or promise that \"your system will ask\" — attempt the action and let the real dialog appear. (For a manual desktop step only the user can do — a login, SSO, 2FA, captcha, or payment — use request_box_help instead.) The widget has a prompt, optional helpText, and 1-6 options; each option has a label, an optional value (the text sent back to you when confirmed; defaults to the label), an optional description, and an optional style (\"default\"|\"primary\"|\"danger\"). Set the optional allowCustom: true to also let the user type their own free-text answer instead of picking an option. Set the optional dismissOnMoveOn: true only for low-stakes questions that become moot if the user moves on; the widget then auto-dismisses once they send a newer message without answering. Leave it off (default) for real decisions you still need answered. The user picks an option and its value comes back to you as their reply. In the chat, the resolved card keeps your question and shows their selection checked under it, so phrase the prompt as a natural conversational question (never a menu instruction like \"Pick one of the following\") and give every option a value that reads like a reply the user would actually send. The user can also dismiss the question without answering; you'll be told on your next turn — treat that as a decline and don't re-ask. Example: {\"type\":\"widget\",\"widget\":{\"prompt\":\"Deploy to production?\",\"options\":[{\"label\":\"Deploy\",\"value\":\"Yes, deploy now\",\"style\":\"primary\"},{\"label\":\"Cancel\",\"value\":\"No, hold off\",\"style\":\"danger\"}]}}. When you do genuinely need a decision or confirmation, this widget is how you ask, not plain text. Sending a widget ends your turn; make it your last action and stop, and the user's selection arrives as the next message.",
+      "parameters": {
+        "properties": {
+          "alt": {
+            "description": "Optional. A short description (alt text) of the image for type:attachment — what the image shows. Shown to the user on hover and in the fullscreen viewer.",
+            "type": "string"
+          },
+          "bcId": {
+            "description": "Required when type is cursor-agent. The bcId of the Cursor cloud agent to reference (e.g. bc-xxxxxxxx-...).",
+            "type": "string"
+          },
+          "channel": {
+            "description": "Optional. A connected messaging channel address to deliver this to instead of the in-app Grok Bot chat, shaped platform:chat, the address shown to you in an [inbound] wake. Omit to send to the in-app chat (the default). Only valid with type:text or type:attachment.",
+            "type": "string"
+          },
+          "content": {
+            "description": "Required when type is text. The message to show the user.",
+            "type": "string"
+          },
+          "images": {
+            "description": "Optional, only for type:text. Image(s) that belong with this message; they render inside the same chat bubble, below your text — one image full width, several as a compact gallery. Use whenever you're showing something you're talking about; use type:attachment only for an image that IS the whole message.",
+            "items": {
+              "properties": {
+                "alt": {
+                  "description": "Optional short description of this image, shown on hover and as its fullscreen caption.",
+                  "type": "string"
+                },
+                "url": {
+                  "description": "file:// or https:// URL of the image.",
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": ["url"],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "reply_to": {
+            "description": "Optional. Short address of the prior message this reply threads to (e.g. t3u for the user message in turn 3, t3s1 for your second SendMessage in turn 3). Omit when not threading.",
+            "type": "string"
+          },
+          "secret": {
+            "description": "Required when type is secret-request. Asks the user for a credential through a masked secure input; the value goes straight to the connector's credential file and never reaches you or the chat. You only learn that it was provided.",
+            "properties": {
+              "connector": {
+                "description": "The connector/platform the secret is for. The value is written to that connector's per-agent credential file.",
+                "minLength": 1,
+                "type": "string"
+              },
+              "description": {
+                "description": "Optional short help shown under the label.",
+                "type": "string"
+              },
+              "field": {
+                "description": "The credential field name to store the value under, e.g. \"token\".",
+                "minLength": 1,
+                "type": "string"
+              },
+              "label": {
+                "description": "What credential to ask for, shown as the card title and echoed in the field placeholder (\"Paste your …\"), e.g. \"Slack bot token\".",
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": ["label", "connector", "field"],
+            "type": "object"
+          },
+          "to": {
+            "description": "Optional, only meaningful during a local group-chat turn. Pass \"dm\" to deliver this message privately to YOUR OWN user's 1:1 chat instead of the room; the room never sees it. Only valid with type:text. Cross-user room turns reject this destination. Outside a group-chat turn it is ignored because your user is already the audience.",
+            "enum": ["dm"],
+            "type": "string"
+          },
+          "type": {
+            "description": "text for chat messages, attachment for actual files or standalone media, widget for an interactive question with selectable options, cursor-agent to reference a Cursor cloud agent by its bcId (renders as a card that opens the agent in Cursor on click), secret-request to ask the user for a credential through a secure masked input (never a chat paste).",
+            "enum": ["text", "attachment", "widget", "cursor-agent", "secret-request"],
+            "type": "string"
+          },
+          "url": {
+            "description": "Required when type is attachment. Use file:// for local files or https:// for remote files and standalone media.",
+            "type": "string"
+          },
+          "widget": {
+            "description": "Required when type is widget. A question with selectable options: { prompt, helpText?, options: [{ label, value?, description?, style? }], multiSelect?, allowCustom?, dismissOnMoveOn? }. The user picks one option; its value comes back as their reply, and the chat shows the resolved card with their selection checked under your prompt — so phrase the prompt as a natural question, not a menu instruction. Set multiSelect: true when several options may apply. The user toggles any subset and submits once, and the picked values return together in one reply, one per line. The user can also dismiss the question without answering; you'll be told on your next turn, so treat that as a decline and don't re-ask. Set allowCustom: true to also let the user type their own free-text answer instead of picking an option. Set dismissOnMoveOn: true only for low-stakes questions that become moot if the user moves on (it auto-dismisses once they send a newer message without answering it); leave it off for real decisions you still need answered.",
+            "properties": {
+              "allowCustom": {
+                "description": "When true, the user can type a custom free-text answer instead of choosing one of the options.",
+                "type": "boolean"
+              },
+              "dismissOnMoveOn": {
+                "description": "When true, this widget auto-dismisses (becomes inert, shows a muted Dismissed state) once the user sends a newer message without answering it. Omit/false to keep the question live and answerable indefinitely. Set true only for low-stakes questions that become moot if the user moves on; keep it off for real decisions you still need answered.",
+                "type": "boolean"
+              },
+              "helpText": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "multiSelect": {
+                "description": "When true, several options may apply. The user toggles any subset, then submits once. Picked values return in one reply, one per line.",
+                "type": "boolean"
+              },
+              "options": {
+                "items": {
+                  "properties": {
+                    "description": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "label": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "style": {
+                      "enum": ["default", "primary", "danger"],
+                      "type": "string"
+                    },
+                    "value": {
+                      "description": "Text sent back to you when this option is picked. Defaults to the label. Make it read like something the user would naturally say in reply.",
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": ["label"],
+                  "type": "object"
+                },
+                "maxItems": 6,
+                "minItems": 1,
+                "type": "array"
+              },
+              "prompt": {
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": ["prompt", "options"],
+            "type": "object"
+          }
+        },
+        "required": ["type"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "ReactToMessage",
+      "description": "React to one of the USER's messages with a single emoji tapback (like an iMessage reaction), attributed to you and shown as a small pill on their message. Use this VERY sparingly, only when a reaction is the genuinely natural, human response and a reply would be overkill: they said something funny, shared good news, or a quick 👍 fits better than a sentence. It is NOT a substitute for a real reply when they asked you for something, and you never react just to seem friendly. Only react to the user's own messages (their [t3u]-style address), never your own sends. It toggles: reacting the same emoji to the same message again removes your reaction, which is how you take one back. Fire-and-forget: it doesn't end your turn and returns nothing to act on. Mirror the user — if they don't use emoji, basically never do this.",
+      "parameters": {
+        "properties": {
+          "emoji": {
+            "description": "A single common emoji to react with, e.g. 👍, ❤️, 😂, 🎉.",
+            "maxLength": 16,
+            "minLength": 1,
+            "type": "string"
+          },
+          "message_address": {
+            "description": "The address of the USER message to react to — the [t3u]-style tag shown on their message. Only the user's own messages, never your own sends.",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": ["message_address", "emoji"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "update_state",
+      "description": "Change your OWN durable state: what you remember (own, shared user, or project), the routines you run, the skills you save, your profile and settings, which channels you're connected to, which projects you've joined, and your picture. Prefer this over editing those files with the shell — you still use shell tools to read and grep them.\n\ntarget + action:\n- memory write: save a durable fact (fact, tier, optional scope). scope \"agent\" (default) is your own memory; \"user\" is shared user-memory every assistant should know; \"project\" needs project=<slug> and writes your shard in that project. tier \"profile\" is foundational and kept in mind every turn; \"log\" (default) is dated history; \"note\" fades fast. Facts are deduped.\n- memory forget: drop a fact by its EXACT recorded text (fact, same scope/project). Pair with a write for the corrected version.\n- routine create: save a routine (name, prompt, and either schedule or trigger). prompt is what you do each time it fires, written to your future self.\n- routine update: rewrite an existing one in place (id, plus any of name/prompt/schedule/trigger/enabled you mean to change). Omitted fields keep their current values; it keeps its history.\n- routine pause: (id) disarm one the user wants back later.\n- routine resume: (id) rearm a paused one.\n- routine delete: (id) remove a finite watch as soon as it has done its job.\n- skill write: save or rewrite a reusable skill (name, description, body; id to rewrite). The description is REQUIRED and is what a reader uses to decide whether the skill applies, so write it as \"use this when …\". A skill has no trigger — a saved task that runs on a schedule is a routine.\n- skill delete: (id). Cursor-managed skills can't be edited or deleted.\n- profile set: your name and/or description. For your picture use target avatar.\n- settings set: hidden_from_sidebar, notify_on_updates. Only the fields you pass change.\n- channel disconnect: (platform). The connector closes the live connection within a few seconds.\n- project create: (project slug, name, optional description). Creates the folder + project.md and joins it; if the slug already exists this is create-is-join.\n- project join: (project slug).\n- project leave: (project slug).\n- avatar set: (path to an image on your box or the host — write/download it first, then install it here; a box path under /workspace is fine).\n- avatar clear: back to the default picture.\n\nJust do it and mention it in passing — don't narrate a save or ask permission for an ordinary one. Creating or changing a ROUTINE may ask the user to confirm, since it's the one change that acts while they're away; if it does, they'll see a card and you'll get their answer back as the tool result.",
+      "parameters": {
+        "properties": {
+          "action": {
+            "description": "What to do. memory: write | forget. routine: create | update | pause | resume | delete. skill: write | delete. profile: set. settings: set. channel: disconnect. project: create | join | leave. avatar: set | clear.",
+            "enum": [
+              "write",
+              "forget",
+              "create",
+              "update",
+              "pause",
+              "resume",
+              "delete",
+              "set",
+              "disconnect",
+              "join",
+              "leave",
+              "clear"
+            ],
+            "type": "string"
+          },
+          "body": {
+            "description": "skill write only. The recipe, in markdown.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "description": {
+            "description": "skill write: REQUIRED. One line on when to use the skill. profile: your new description. project create: optional summary.",
+            "type": "string"
+          },
+          "enabled": {
+            "description": "routine create/update only. On create, defaults to true. On update, omit to leave the current arming alone (use pause/resume to toggle).",
+            "type": "boolean"
+          },
+          "fact": {
+            "description": "memory only. The fact, one self-contained sentence. For forget, the EXACT text of the recorded fact (read or grep the relevant memory folder first).",
+            "minLength": 1,
+            "type": "string"
+          },
+          "hidden_from_sidebar": {
+            "description": "settings set only. Removes your row from the user's sidebar; you stay fully functional and reachable through Cmd-K and the Hidden chats manager.",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "The routine's folder or the skill's id. Required for every routine action except create, and for skill delete. Omit on a skill write to create a new one.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "name": {
+            "description": "routine/skill/project create: its name. Required on create and on a skill write; on routine update, omit to keep the current name. profile: your new name.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "notify_on_updates": {
+            "description": "settings set only. The \"Notify me about this assistant\" toggle.",
+            "type": "boolean"
+          },
+          "path": {
+            "description": "avatar set only. Absolute path to an image you already have (write or download it first, with Shell on your own computer or ExternalShell on the user's, then install it here). A path on your box under /workspace is fine — no CopyFromBox needed. png/jpg/webp/gif/svg under 5 MB.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "platform": {
+            "description": "channel disconnect only. The platform to disconnect.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "project": {
+            "description": "Project slug. Required for memory when scope is \"project\", and for every project action.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "prompt": {
+            "description": "routine only. What you should do each time it fires, written to your future self. Write it as an INTENT, not a frozen tool recipe: a connector's schema can change between fires, so describe the goal and let each run look the tool up. Required on create; on update, omit to keep the current prompt.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "schedule": {
+            "description": "routine only. Shorthand for a cron trigger — \"0 7 * * *\", \"@daily\", \"@every 2h\" — interpreted in the user's local time. A clock time the user names is saved as named, so \"8am\" is \"0 8 * * *\" and \"daily at 2\" is \"0 2 * * *\"; only an ask that names no time takes the current minute off the <timestamp>, so asked at 1:32 \"hourly\" is \"32 * * * *\". Use this OR trigger, never both. On update, omit (with trigger) to keep the current fire condition.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "scope": {
+            "description": "memory only. Defaults to agent (your own memory).",
+            "enum": ["agent", "user", "project"],
+            "type": "string"
+          },
+          "target": {
+            "description": "Which part of your own state to change.",
+            "enum": [
+              "memory",
+              "routine",
+              "skill",
+              "profile",
+              "settings",
+              "channel",
+              "project",
+              "avatar"
+            ],
+            "type": "string"
+          },
+          "tier": {
+            "description": "memory write only. Defaults to log. Keep profile small.",
+            "enum": ["profile", "log", "note"],
+            "type": "string"
+          },
+          "trigger": {
+            "anyOf": [
+              {
+                "anyOf": [
+                  {
+                    "properties": {
+                      "schedule": {
+                        "description": "A 5-field cron expression in the user's local time (\"0 7 * * *\"), or a shorthand (@hourly/@daily/@weekly/@monthly, \"@every 30m\"). A clock time the user names is saved as named, so \"8am\" is \"0 8 * * *\" and \"daily at 2\" is \"0 2 * * *\"; only an ask that names no time takes the current minute off the <timestamp>, so asked at 1:32 \"hourly\" is \"32 * * * *\".",
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "type": {
+                        "const": "cron",
+                        "type": "string"
+                      }
+                    },
+                    "required": ["type", "schedule"],
+                    "type": "object"
+                  },
+                  {
+                    "properties": {
+                      "channel": {
+                        "description": "A channel (\"#eng\"), a DM (\"@dana\"), or \"*\" for anywhere.",
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "match": {
+                        "anyOf": [
+                          {
+                            "properties": {
+                              "kind": {
+                                "const": "mention",
+                                "type": "string"
+                              }
+                            },
+                            "required": ["kind"],
+                            "type": "object"
+                          },
+                          {
+                            "properties": {
+                              "keyword": {
+                                "minLength": 1,
+                                "type": "string"
+                              },
+                              "kind": {
+                                "const": "keyword",
+                                "type": "string"
+                              }
+                            },
+                            "required": ["kind", "keyword"],
+                            "type": "object"
+                          },
+                          {
+                            "properties": {
+                              "kind": {
+                                "const": "message",
+                                "type": "string"
+                              }
+                            },
+                            "required": ["kind"],
+                            "type": "object"
+                          },
+                          {
+                            "properties": {
+                              "bySelf": {
+                                "description": "When true, only the user's own reactions fire it — not a colleague's.",
+                                "type": "boolean"
+                              },
+                              "emoji": {
+                                "description": "Normalized short names without colons (\"eyes\", \"white_check_mark\"). Absent or empty means any emoji.",
+                                "items": {
+                                  "minLength": 1,
+                                  "type": "string"
+                                },
+                                "type": "array"
+                              },
+                              "kind": {
+                                "const": "reaction",
+                                "type": "string"
+                              }
+                            },
+                            "required": ["kind"],
+                            "type": "object"
+                          }
+                        ],
+                        "description": "What makes a message count as a match."
+                      },
+                      "type": {
+                        "const": "slack",
+                        "type": "string"
+                      }
+                    },
+                    "required": ["type", "channel", "match"],
+                    "type": "object"
+                  },
+                  {
+                    "properties": {
+                      "ciBranch": {
+                        "description": "REQUIRED when repo-wide events includes ci-passed or ci-failed: the one branch whose settled checks fire them (\"main\"). Omit it when pr is set; that PR scopes CI instead.",
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "events": {
+                        "description": "Which GitHub events fire this routine. For a PR babysitter, use [\"review-requested\", \"review-approved\", \"review-changes-requested\", \"review-commented\", \"pr-comment\", \"inline-review-comment\", \"review-thread-resolved\", \"review-thread-unresolved\", \"pr-pushed\", \"pr-merged\", \"pr-closed\", \"ci-passed\", \"ci-failed\"].",
+                        "items": {
+                          "enum": [
+                            "pr-opened",
+                            "pr-pushed",
+                            "pr-merged",
+                            "pr-closed",
+                            "review-requested",
+                            "review-approved",
+                            "review-changes-requested",
+                            "review-commented",
+                            "pr-comment",
+                            "inline-review-comment",
+                            "review-thread-resolved",
+                            "review-thread-unresolved",
+                            "issue-assigned",
+                            "ci-passed",
+                            "ci-failed"
+                          ],
+                          "type": "string"
+                        },
+                        "minItems": 1,
+                        "type": "array"
+                      },
+                      "pr": {
+                        "description": "Optional pull request number. When set, only events for that PR fire; a listener containing pr-merged or pr-closed deletes itself after that terminal wake finishes.",
+                        "exclusiveMinimum": 0,
+                        "type": "integer"
+                      },
+                      "repo": {
+                        "description": "One concrete \"owner/name\" repo. No wildcards; omit pr for repo-wide events.",
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "type": {
+                        "const": "github",
+                        "type": "string"
+                      },
+                      "userAllowlist": {
+                        "description": "Git usernames that may fire this listener (\"alice\", \"@bob\"). Absent or empty means anyone. Does not apply to ci-passed/ci-failed — CI is never user-gated.",
+                        "items": {
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "type": "array"
+                      }
+                    },
+                    "required": ["type", "repo", "events"],
+                    "type": "object"
+                  },
+                  {
+                    "properties": {
+                      "events": {
+                        "description": "Which Origin events fire this routine. For a PR babysitter, use [\"review-requested\", \"review-approved\", \"review-changes-requested\", \"review-commented\", \"pr-comment\", \"inline-review-comment\", \"review-thread-resolved\", \"review-thread-unresolved\", \"pr-pushed\", \"pr-merged\", \"ci-passed\", \"ci-failed\"].",
+                        "items": {
+                          "enum": [
+                            "pr-opened",
+                            "pr-pushed",
+                            "pr-merged",
+                            "review-requested",
+                            "review-approved",
+                            "review-changes-requested",
+                            "review-commented",
+                            "pr-comment",
+                            "inline-review-comment",
+                            "review-thread-resolved",
+                            "review-thread-unresolved",
+                            "ci-passed",
+                            "ci-failed"
+                          ],
+                          "type": "string"
+                        },
+                        "minItems": 1,
+                        "type": "array"
+                      },
+                      "pr": {
+                        "description": "Optional Origin pull request number. Required for ci-passed/ci-failed; a listener containing pr-merged deletes itself after that merged wake finishes.",
+                        "exclusiveMinimum": 0,
+                        "type": "integer"
+                      },
+                      "repo": {
+                        "description": "One concrete native Origin \"owner/name\" repo. Mirrored repos are rejected; no wildcards.",
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "type": {
+                        "const": "origin",
+                        "type": "string"
+                      },
+                      "userAllowlist": {
+                        "description": "Origin actor IDs in either user-facing or internal numeric form. PR/comment events gate the PR owner; review/reviewer/thread events require both actor and PR owner; CI ignores this list. Missing required identities fail closed.",
+                        "items": {
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "type": "array"
+                      }
+                    },
+                    "required": ["type", "repo", "events"],
+                    "type": "object"
+                  },
+                  {
+                    "properties": {
+                      "blockUnauthenticatedTeamsUsers": {
+                        "description": "When true, messages from unauthenticated Microsoft Teams users do not fire it.",
+                        "type": "boolean"
+                      },
+                      "channelIds": {
+                        "description": "Optional channel filter using Microsoft Teams Graph API channel IDs. Empty or absent means every channel.",
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "messageContains": {
+                        "description": "Optional message text filter. Empty or absent means any message.",
+                        "type": "string"
+                      },
+                      "messageContainsIsRegex": {
+                        "description": "Whether messageContains is a regular expression.",
+                        "type": "boolean"
+                      },
+                      "teamId": {
+                        "description": "One Microsoft Teams Graph API team ID. At least one of teamId or teamIds is required.",
+                        "type": "string"
+                      },
+                      "teamIds": {
+                        "description": "Microsoft Teams Graph API team IDs. At least one of teamId or teamIds is required.",
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "tenantId": {
+                        "description": "The Microsoft Entra tenant ID.",
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "type": {
+                        "const": "microsoftTeams",
+                        "type": "string"
+                      }
+                    },
+                    "required": ["type", "tenantId"],
+                    "type": "object"
+                  },
+                  {
+                    "properties": {
+                      "event": {
+                        "anyOf": [
+                          {
+                            "properties": {
+                              "case": {
+                                "const": "issueCreated",
+                                "description": "Fire when a Linear issue is created.",
+                                "type": "string"
+                              }
+                            },
+                            "required": ["case"],
+                            "type": "object"
+                          },
+                          {
+                            "properties": {
+                              "case": {
+                                "const": "statusChanged",
+                                "description": "Fire when a Linear issue changes status.",
+                                "type": "string"
+                              },
+                              "statusIds": {
+                                "description": "Optional narrowing filter using Linear status UUIDs. Empty or absent means any status.",
+                                "items": {
+                                  "type": "string"
+                                },
+                                "type": "array"
+                              }
+                            },
+                            "required": ["case"],
+                            "type": "object"
+                          },
+                          {
+                            "properties": {
+                              "case": {
+                                "const": "endOfCycle",
+                                "description": "Fire when a Linear cycle ends.",
+                                "type": "string"
+                              },
+                              "cycleIds": {
+                                "description": "Optional narrowing filter using Linear cycle UUIDs. Empty or absent means any cycle.",
+                                "items": {
+                                  "type": "string"
+                                },
+                                "type": "array"
+                              }
+                            },
+                            "required": ["case"],
+                            "type": "object"
+                          }
+                        ],
+                        "description": "Which Linear event fires this routine."
+                      },
+                      "projectIds": {
+                        "description": "Optional narrowing filter using Linear project UUIDs. Empty or absent means any project.",
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "teamIds": {
+                        "description": "Optional narrowing filter using Linear team UUIDs. Empty or absent means any team.",
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "type": {
+                        "const": "linear",
+                        "type": "string"
+                      }
+                    },
+                    "required": ["type", "event"],
+                    "type": "object"
+                  },
+                  {
+                    "properties": {
+                      "event": {
+                        "description": "The Sentry event to watch.",
+                        "properties": {
+                          "case": {
+                            "description": "Which Sentry issue event fires the routine.",
+                            "enum": [
+                              "issueCreated",
+                              "issueResolved",
+                              "issueAssigned",
+                              "issueArchived",
+                              "issueUnresolved",
+                              "issueAny"
+                            ],
+                            "type": "string"
+                          }
+                        },
+                        "required": ["case"],
+                        "type": "object"
+                      },
+                      "projectIds": {
+                        "description": "Optional project ID filter. Empty or absent means any Sentry project.",
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "type": {
+                        "const": "sentry",
+                        "type": "string"
+                      }
+                    },
+                    "required": ["type", "event"],
+                    "type": "object"
+                  },
+                  {
+                    "properties": {
+                      "event": {
+                        "description": "The PagerDuty event to watch.",
+                        "properties": {
+                          "case": {
+                            "description": "Which PagerDuty incident event fires the routine.",
+                            "enum": [
+                              "incidentTriggered",
+                              "incidentAcknowledged",
+                              "incidentResolved",
+                              "incidentEscalated",
+                              "incidentAny"
+                            ],
+                            "type": "string"
+                          }
+                        },
+                        "required": ["case"],
+                        "type": "object"
+                      },
+                      "serviceIds": {
+                        "description": "Optional service ID filter. Empty or absent means any PagerDuty service.",
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "type": {
+                        "const": "pagerduty",
+                        "type": "string"
+                      }
+                    },
+                    "required": ["type", "event"],
+                    "type": "object"
+                  },
+                  {
+                    "properties": {
+                      "type": {
+                        "const": "webhook",
+                        "type": "string"
+                      }
+                    },
+                    "required": ["type"],
+                    "type": "object"
+                  },
+                  {
+                    "properties": {
+                      "listeners": {
+                        "description": "Any one of these fires the same prompt. Origin may mix with cron, Slack, or GitHub, but not with server-only listener types.",
+                        "items": {
+                          "anyOf": [
+                            {
+                              "$ref": "#/properties/trigger/anyOf/0/anyOf/0"
+                            },
+                            {
+                              "$ref": "#/properties/trigger/anyOf/0/anyOf/1"
+                            },
+                            {
+                              "$ref": "#/properties/trigger/anyOf/0/anyOf/2"
+                            },
+                            {
+                              "$ref": "#/properties/trigger/anyOf/0/anyOf/3"
+                            },
+                            {
+                              "$ref": "#/properties/trigger/anyOf/0/anyOf/4"
+                            },
+                            {
+                              "$ref": "#/properties/trigger/anyOf/0/anyOf/5"
+                            },
+                            {
+                              "$ref": "#/properties/trigger/anyOf/0/anyOf/6"
+                            },
+                            {
+                              "$ref": "#/properties/trigger/anyOf/0/anyOf/7"
+                            },
+                            {
+                              "$ref": "#/properties/trigger/anyOf/0/anyOf/8"
+                            }
+                          ]
+                        },
+                        "minItems": 1,
+                        "type": "array"
+                      },
+                      "type": {
+                        "const": "group",
+                        "type": "string"
+                      }
+                    },
+                    "required": ["type", "listeners"],
+                    "type": "object"
+                  }
+                ]
+              },
+              {
+                "description": "Bare-array shorthand for the group form: any one member fires the prompt.",
+                "items": {
+                  "$ref": "#/properties/trigger/anyOf/0/anyOf/9/properties/listeners/items"
+                },
+                "minItems": 1,
+                "type": "array"
+              }
+            ],
+            "description": "What fires the routine. Prefer an event listener (Slack, GitHub, Origin, Microsoft Teams, Linear, Sentry, PagerDuty) over polling on a cron when the event you care about is one of the listed shapes; never pass both this and the schedule argument."
+          }
+        },
+        "required": ["target", "action"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "ExternalShell",
+      "description": "Executes a shell command on the user's computer, the same filesystem ExternalRead acts on. That machine is NOT your own computer: every action there needs the user's approval, so use Shell for anything your own computer can do.\n\nOtherwise identical to Shell: same parameters, same foreground/background and `block_until_ms` semantics, and the same persistent terminal sessions and terminals-folder conventions. All guidance in the Shell tool description applies here, substituting ExternalShell for Shell, ExternalRead for Read, and AwaitExternalShell for AwaitShell.",
+      "parameters": {
+        "properties": {
+          "block_until_ms": {
+            "description": "How long to block and wait for the command to complete before moving it to background (in milliseconds). Defaults to 30000ms (30 seconds). Set to 0 to immediately run the command in the background. The timer includes the shell startup time.",
+            "type": "number"
+          },
+          "command": {
+            "description": "The command to execute",
+            "type": "string"
+          },
+          "description": {
+            "description": "Clear, concise description of what this command does in 5-10 words",
+            "type": "string"
+          },
+          "request_smart_mode_approval": {
+            "description": "Set to true when immediately retrying the exact same command after Auto-review blocks it and you decide the user should approve it through the native approval card.",
+            "type": "boolean"
+          },
+          "smart_mode_block_reason": {
+            "description": "Provide the exact block reason returned by Auto-review in the prior rejection. Required when request_smart_mode_approval is true so the approval card shows the original classifier reason without re-running the classifier.",
+            "type": "string"
+          },
+          "working_directory": {
+            "description": "The absolute path to the working directory to execute the command in (defaults to current directory)",
+            "type": "string"
+          }
+        },
+        "required": ["command"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "ExternalRead",
+      "description": "Reads a file on the user's computer, the same filesystem ExternalShell acts on. That machine is NOT your own computer: it is reached over a connection the user has to approve, so use Read for everything on your own box, including your own files under /home/box.\n\nText files include line numbers and support offset/limit paging. Image files (jpeg/jpg, png, gif, webp) are returned inline so you can see them. PDF files are converted to text.",
+      "parameters": {
+        "properties": {
+          "limit": {
+            "description": "The number of lines to read. Only provide if the file is too large to read at once.",
+            "type": "integer"
+          },
+          "offset": {
+            "description": "The line number to start reading from. Positive values are 1-indexed from the start of the file. Negative values count backwards from the end (e.g. -1 is the last line). Only provide if the file is too large to read at once.",
+            "type": "integer"
+          },
+          "path": {
+            "description": "The absolute path of the file to read.",
+            "type": "string"
+          }
+        },
+        "required": ["path"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "Shell",
+      "description": "Executes a given command in a shell session with optional foreground timeout.\n\nIMPORTANT: This tool is for terminal operations like git, npm, docker, etc. DO NOT use it for file operations (reading, writing, editing, searching, finding files, sleeping) - use the specialized tools for this instead.\n\nBefore executing the command, please follow these steps:\n\n1. Check for Running Processes:\n   - Before starting dev servers or long-running processes that should not be duplicated, search the terminals folder to check if they are already running in existing terminals.\n   - You can use this information to determine which terminal, if any, matches the command you want to run, contains the output from the command you want to inspect, or has changed since you last read them.\n   - Since these are text files, you can read any terminal's contents simply by reading the file.\n2. Directory Verification:\n   - If the command will create new directories or files, first run ls to verify the parent directory exists and is the correct location\n   - For example, before running \"mkdir foo/bar\", first run 'ls' to check that \"foo\" exists and is the intended parent directory\n3. Command Execution:\n   - Always quote file paths that contain spaces with double quotes (e.g., cd \"path with spaces/file.txt\")\n   - Examples of proper quoting:\n     - cd \"/Users/name/My Documents\" (correct)\n     - cd /Users/name/My Documents (incorrect - will fail)\n     - python \"/path/with spaces/script.py\" (correct)\n     - python /path/with spaces/script.py (incorrect - will fail)\n   - After ensuring proper quoting, execute the command.\n   - Capture the output of the command.\n\nUsage notes:\n\n- The command argument is required.\n- The shell starts in the workspace root and is stateful across sequential calls. Current working directory and environment variables persist between calls. Use the `working_directory` parameter to run commands in different directories. Example: to run `npm install` in the `frontend` folder, set `working_directory: \"frontend\"` rather than using `cd frontend && npm install`.\n- It is very helpful if you write a clear, concise description of what this command does in 5-10 words.\n- VERY IMPORTANT: You MUST avoid using search commands like `find` and `grep`.You MUST avoid read tools like `cat`, `head`, and `tail`, and use Read to read files.\n- Don't pipe a command's output through `head`, `tail`, or `sed -n` (or similar) just to limit its length — large output is automatically written to a terminal file that you can read in full, so truncating only risks discarding information you need (especially for long-running commands).\n- If you _still_ need to run `grep`, STOP. ALWAYS USE ripgrep at `rg` first, which all users have pre-installed.\n- When issuing multiple commands:\n  - If the commands are independent and can run in parallel, make multiple Shell tool calls in a single message. For example, if you need to run \"git status\" and \"git diff\", send a single message with two Shell tool calls in parallel.\n  - If the commands depend on each other and must run sequentially, use a single Shell call with '&&' to chain them together (e.g., `git add . && git commit -m \"message\" && git push`). For instance, if one operation must complete before another starts (like mkdir before cp, or git add before git commit), run these operations sequentially instead.\n  - Use ';' only when you need to run commands sequentially but don't care if earlier commands fail\n  - DO NOT use newlines to separate commands (newlines are ok in quoted strings)\n\nDependencies:\n\nWhen adding new dependencies, prefer using the package manager (e.g. npm, pip) to add the latest version. Do not make up dependency versions.\n\n<managing-long-running-commands>\n- Commands that don't complete within `block_until_ms` (default 30000ms / 30 seconds) are moved to background. The command keeps running and output streams to a terminal file. Set `block_until_ms` to 0 to immediately background (use for dev servers, watchers, or any long-running process).\n- You do not need to use '&' at the end of commands.\n- Make sure to set `block_until_ms` to higher than the command's expected runtime. Add some buffer since block_until_ms includes shell startup time; increase buffer next time based on `elapsed_ms` if you chose too low. E.g. if you sleep for 40s, recommended `block_until_ms` is 45s.\n- You'll be notified when the backgrounded command completes. Only poll with `AwaitShell` when the command requires close monitoring — long-running jobs that can silently hang or degrade before completing (training runs, eval runs, deployments, long builds, datagen pipelines, DB migrations, large data transfers). For fire-and-forget commands (tests, installs, dev servers/watchers, short scripts), start them and keep working — you can always poll with `AwaitShell` later if you end up blocked on the result. If under your control, prefer commands that print periodic status updates so close monitoring is effective.\n</managing-long-running-commands>\n\n<committing-changes-with-git>\nOnly create commits when requested by the user. If unclear, ask first. When the user asks you to create a new git commit, follow these steps carefully:\n\nGit Safety Protocol:\n\n- NEVER update the git config\n- NEVER run destructive/irreversible git commands (like push --force, hard reset, etc) unless the user explicitly requests them\n- NEVER skip hooks (--no-verify, --no-gpg-sign, etc) unless the user explicitly requests it\n- NEVER run force push to main/master, warn the user if they request it\n- Avoid git commit --amend. ONLY use --amend when ALL conditions are met:\n  1. User explicitly requested amend, OR commit SUCCEEDED but pre-commit hook auto-modified files that need including\n  2. HEAD commit was created by you in this conversation (verify: git log -1 --format='%an %ae')\n  3. Commit has NOT been pushed to remote (verify: git status shows \"Your branch is ahead\")\n- CRITICAL: If commit FAILED or was REJECTED by hook, NEVER amend - fix the issue and create a NEW commit\n- CRITICAL: If you already pushed to remote, NEVER amend unless the user explicitly requests it (requires force push)\n- NEVER commit changes unless the user explicitly asks you to. It is VERY IMPORTANT to only commit when explicitly asked, otherwise the user will feel that you are being too proactive.\n\n1. You can call multiple tools in a single response. When multiple independent pieces of information are requested, batch your tool calls together for optimal performance. ALWAYS run the following shell commands in parallel, each using the Shell tool:\n   - Run a git status command to see all untracked files.\n   - Run a git diff command to see both staged and unstaged changes that will be committed.\n   - Run a git log command to see recent commit messages, so you can follow this repository's commit message style.\n2. Analyze all staged changes (both previously staged and newly added) and draft a commit message:\n   - Summarize the nature of the changes (eg. new feature, enhancement to an existing feature, bug fix, refactoring, test, docs, etc.). Ensure the message accurately reflects the changes and their purpose (i.e. \"add\" means a wholly new feature, \"update\" means an enhancement to an existing feature, \"fix\" means a bug fix, etc.).\n   - Do not commit files that likely contain secrets (.env, credentials.json, etc). Warn the user if they specifically request to commit those files\n   - Draft a concise (1-2 sentences) commit message that focuses on the \"why\" rather than the \"what\"\n   - Ensure it accurately reflects the changes and their purpose\n3. Run the following commands sequentially:\n   - Add relevant untracked files to the staging area.\n   - Commit the changes with the message.\n   - Run git status after the commit completes to verify success.\n4. If the commit fails due to pre-commit hook, fix the issue and create a NEW commit (see amend rules above)\n\nImportant notes:\n\n- NEVER update the git config\n- NEVER run additional commands to read or explore code, besides git shell commands\n- DO NOT push to the remote repository unless the user explicitly asks you to do so\n- IMPORTANT: Never use git commands with the -i flag (like git rebase -i or git add -i) since they require interactive input which is not supported.\n- If there are no changes to commit (i.e., no untracked files and no modifications), do not create an empty commit\n- In order to ensure good formatting, ALWAYS pass the commit message via a HEREDOC, a la this example:\n\n<example>git commit -m \"$(cat <<'EOF'\nCommit message here.\n\nEOF\n)\"</example>\n</committing-changes-with-git>\n\n<creating-pull-requests>\nUse the gh command via the Shell tool for ALL GitHub-related tasks including working with issues, pull requests, checks, and releases. If given a Github URL use the gh command to get the information needed.\n\nIMPORTANT: When the user asks you to create a pull request, follow these steps carefully:\n\n1. You can call multiple tools in a single response. When multiple independent pieces of information are requested, batch your tool calls together for optimal performance. ALWAYS run the following shell commands in parallel using the Shell tool, in order to understand the current state of the branch since it diverged from the main branch:\n   - Run a git status command to see all untracked files\n   - Run a git diff command to see both staged and unstaged changes that will be committed\n   - Check if the current branch tracks a remote branch and is up to date with the remote, so you know if you need to push to the remote\n   - Run a git log command and `git diff [base-branch]...HEAD` to understand the full commit history for the current branch (from the time it diverged from the base branch)\n2. Analyze all changes that will be included in the pull request, making sure to look at all relevant commits (NOT just the latest commit, but ALL commits that will be included in the pull request!!!), and draft a pull request summary\n3. Run the following commands sequentially:\n   - Create new branch if needed\n   - Push to remote with -u flag if needed\n   - Create PR using gh pr create with the format below. Use a HEREDOC to pass the body to ensure correct formatting.\n\n<example># First, push the branch (with required_permissions: [\"all\"])\ngit push -u origin HEAD\n\n# Then create the PR (with required_permissions: [\"all\"])\ngh pr create --title \"the pr title\" --body \"$(cat <<'EOF'\n## Summary\n<1-3 bullet points>\n\n## Test plan\n[Checklist of TODOs for testing the pull request...]\n\nEOF\n)\"</example>\n\nImportant:\n\n- NEVER update the git config\n- DO NOT use the TodoWrite or Task tools\n- Return the PR URL when you're done, so the user can see it\n</creating-pull-requests>\n\n<other-common-operations>\n- View comments on a Github PR: gh api repos/foo/bar/pulls/123/comments\n</other-common-operations>",
+      "parameters": {
+        "properties": {
+          "block_until_ms": {
+            "description": "How long to block and wait for the command to complete before moving it to background (in milliseconds). Defaults to 30000ms (30 seconds). Set to 0 to immediately run the command in the background. The timer includes the shell startup time.",
+            "type": "number"
+          },
+          "command": {
+            "description": "The command to execute",
+            "type": "string"
+          },
+          "description": {
+            "description": "Clear, concise description of what this command does in 5-10 words",
+            "type": "string"
+          },
+          "request_smart_mode_approval": {
+            "description": "Set to true when immediately retrying the exact same command after Auto-review blocks it and you decide the user should approve it through the native approval card.",
+            "type": "boolean"
+          },
+          "smart_mode_block_reason": {
+            "description": "Provide the exact block reason returned by Auto-review in the prior rejection. Required when request_smart_mode_approval is true so the approval card shows the original classifier reason without re-running the classifier.",
+            "type": "string"
+          },
+          "working_directory": {
+            "description": "The absolute path to the working directory to execute the command in (defaults to current directory)",
+            "type": "string"
+          }
+        },
+        "required": ["command"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "Read",
+      "description": "Reads a file on your own computer (the box), the same filesystem Shell and CopyToBox act on. This is your default surface, including your own files under /home/box.\n\nText files include line numbers and support offset/limit paging. Image files (jpeg/jpg, png, gif, webp) are returned inline so you can see them. PDF files are converted to text.",
+      "parameters": {
+        "properties": {
+          "limit": {
+            "description": "The number of lines to read. Only provide if the file is too large to read at once.",
+            "type": "integer"
+          },
+          "offset": {
+            "description": "The line number to start reading from. Positive values are 1-indexed from the start of the file. Negative values count backwards from the end (e.g. -1 is the last line). Only provide if the file is too large to read at once.",
+            "type": "integer"
+          },
+          "path": {
+            "description": "The absolute path of the file to read.",
+            "type": "string"
+          }
+        },
+        "required": ["path"],
+        "type": "object"
+      }
+    },
+    {
+      "name": "Screenshot",
+      "description": "Capture the current box desktop screen without interacting with it. This tool is read-only. To click, type, scroll, wait, or otherwise drive the desktop, delegate the task to a computerUse subagent. The screenshot is saved to disk; attach that file:// path with SendMessage to show the user.",
+      "parameters": {
+        "description": "No arguments. Captures the current box desktop screen.",
+        "properties": {},
+        "type": "object"
+      }
+    },
+    {
+      "name": "GetDynamicTools",
+      "description": "Discover and inspect tools available through dynamic namespaces, e.g. MCP servers.\n\n1. {\"namespace\":\"<id>\"}: returns full input schemas and full descriptions for every tool in that namespace.\n2. {\"namespace\":\"<id>\",\"toolName\":\"<name>\"}: returns the full schema and full description for one tool.\n3. {\"pattern\":\"<regex>\"}: searches namespace and tool names across all namespaces using RE2 syntax.\n4. {\"namespace\":\"<id>\",\"pattern\":\"<regex>\"}: searches tool names within that namespace.\n5. No arguments: returns the full catalog. Prefer a namespace or pattern when possible.\n\nPattern-search and catalog results shorten long descriptions to 200 characters, ending with \"... [truncated]\". Namespace and single-tool lookups always return the complete description, so fetch the tool directly when you need the full text.\nThe response includes namespaceStatus for MCP-backed namespaces; do not treat namespaces in \"needsAuth\", \"error\", or \"loading\" states as usable.\nAlways call this tool to discover a tool's schema before calling it with CallDynamicTool.\n\nFirst-party Cursor tools: the reserved namespace \"cursor\" lists built-in Cursor tools available on demand (AddMcpServer, AuthenticateMcpServer, AwaitExternalShell, AwaitShell, CheckSubagent, CloudAgent, CopyFromBox, CopyToBox, CreateAgent, CreateChannel, GenerateImage, GetMcpServerStatus, GetPlugin, InstallPlugin, MessageSubagent, RemoveMcpAccount, RenameMcpAccount, request_box_help, RestartMcpServers, SearchPlugins, SendFeedback, SendToAgent, SetMcpInstructions, StopSubagent, Task, TodoWrite, UninstallMcpServer, UninstallPlugin, UpdateAgent, UpdateChannel, WebFetch, WebSearch). Discover their schemas here, then invoke them via CallDynamicTool; they run natively with their own approvals and rendering.\n\nMCP authentication: If an MCP-backed namespace has namespaceStatus \"needsAuth\", its tools are unavailable until that MCP integration is authenticated in the Cursor desktop IDE.",
+      "parameters": {
+        "properties": {
+          "namespace": {
+            "description": "Dynamic namespace to inspect, e.g. an MCP server.",
+            "type": "string"
+          },
+          "pattern": {
+            "description": "RE2 regex pattern to search namespace and tool names (max 256 chars). Optionally combine with namespace to scope the search.",
+            "type": "string"
+          },
+          "toolName": {
+            "description": "Tool name within the namespace. Requires namespace to be set.",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "CallDynamicTool",
+      "description": "Invoke one tool from a dynamic namespace, e.g. an MCP server. IMPORTANT: Always call GetDynamicTools for this namespace/tool before calling to ensure correct parameters. Set mcpDetails only for tools from external MCP namespaces; omit it for first-party tools in the cursor namespace.\n\nExample:\n{\n  \"namespace\": \"my-namespace\",\n  \"toolName\": \"search\",\n  \"mcpDetails\": { \"description\": \"Search the public docs for the example API\" },\n  \"arguments\": { \"query\": \"example\", \"limit\": 10 }\n}",
+      "parameters": {
+        "properties": {
+          "arguments": {
+            "description": "Arguments to pass to the tool, as described by the tool descriptor.",
+            "type": "object"
+          },
+          "mcpDetails": {
+            "description": "MCP-specific call metadata. Set this only when invoking a tool from an external MCP namespace; omit it for first-party tools in the cursor namespace.",
+            "properties": {
+              "description": {
+                "description": "Short plain-language description of what this call will do. One sentence naming the outcome and where it applies (channel, page, file, or service) when known. Do not include tool names, argument keys, or JSON.",
+                "type": "string"
+              },
+              "requestSmartModeApproval": {
+                "description": "Set to true when immediately retrying the exact same MCP call after Auto-review blocks it and you decide the user should approve it through the native approval card.",
+                "type": "boolean"
+              },
+              "smartModeBlockReason": {
+                "description": "Provide the exact block reason returned by Auto-review in the prior rejection. Required when requestSmartModeApproval is true so the approval card shows the original classifier reason without re-running the classifier.",
+                "type": "string"
+              }
+            },
+            "required": ["description"],
+            "type": "object"
+          },
+          "namespace": {
+            "description": "Dynamic namespace hosting the tool, e.g. an MCP server.",
+            "type": "string"
+          },
+          "toolName": {
+            "description": "Name of the tool to invoke.",
+            "type": "string"
+          }
+        },
+        "required": ["namespace", "toolName"],
+        "type": "object"
+      }
+    }
+  ]
+}

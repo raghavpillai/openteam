@@ -1,0 +1,9 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Terminal
+Comment=Open a terminal in the bot workspace
+Exec=openbot-screen-launch terminal
+Icon=org.xfce.terminal
+Terminal=false
+StartupNotify=true

@@ -1,0 +1,11 @@
+node_modules/
+.turbo/
+.env
+.env.local
+dist/
+dist-electron/
+coverage/
+*.log
+.DS_Store
+packages/db/src/generated/
+apps/desktop/release/

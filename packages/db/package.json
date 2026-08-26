@@ -1,0 +1,31 @@
+{
+  "name": "@openbot/db",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./client": "./src/client.ts",
+    "./generated/*": "./src/generated/*"
+  },
+  "scripts": {
+    "build": "bun run db:generate && bun build src/index.ts --outdir dist --target bun --external pg-native",
+    "typecheck": "bun run db:generate && tsc -p tsconfig.json",
+    "test": "bun test --pass-with-no-tests",
+    "db:generate": "prisma generate --config prisma.config.ts",
+    "db:migrate": "prisma migrate dev --config prisma.config.ts",
+    "db:deploy": "prisma migrate deploy --config prisma.config.ts",
+    "db:studio": "prisma studio --config prisma.config.ts"
+  },
+  "dependencies": {
+    "@prisma/adapter-pg": "7.9.1",
+    "@prisma/client": "7.9.1",
+    "dotenv": "17.2.3",
+    "effect": "3.22.1",
+    "pg": "8.16.3",
+    "prisma": "7.9.1"
+  },
+  "devDependencies": {
+    "@types/pg": "8.15.5"
+  }
+}

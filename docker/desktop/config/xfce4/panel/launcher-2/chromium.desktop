@@ -1,0 +1,9 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Chrome
+Comment=Open the bot browser
+Exec=openbot-screen-launch chromium
+Icon=chromium
+Terminal=false
+StartupNotify=true

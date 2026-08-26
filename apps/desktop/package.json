@@ -1,0 +1,78 @@
+{
+  "name": "@openbot/desktop",
+  "version": "0.1.0",
+  "description": "A self-hosted desktop for durable Pi agents backed by OpenAI Codex.",
+  "author": "OpenBot contributors",
+  "private": true,
+  "type": "module",
+  "main": "dist-electron/main.js",
+  "scripts": {
+    "build": "vite build && bun build src/main/index.ts --outfile dist-electron/main.js --target node --format esm --external electron && bun build src/preload/index.ts --outfile dist-electron/preload.js --target node --format esm --external electron",
+    "package": "bun run build && electron-builder --publish never",
+    "dev": "concurrently -k -n renderer,electron \"vite\" \"wait-on tcp:${OPENBOT_DEV_HOST:-127.0.0.1}:5173 && OPENBOT_RENDERER_URL=http://${OPENBOT_DEV_HOST:-127.0.0.1}:5173 electron .\"",
+    "start": "electron .",
+    "typecheck": "bun run scripts/check-renderer-boundary.ts && tsc -p tsconfig.json",
+    "test": "bun test --pass-with-no-tests"
+  },
+  "dependencies": {
+    "@openbot/contracts": "workspace:*",
+    "@streamdown/cjk": "1.0.3",
+    "@streamdown/code": "1.1.1",
+    "@streamdown/math": "1.0.2",
+    "@streamdown/mermaid": "1.0.2",
+    "class-variance-authority": "0.7.1",
+    "clsx": "2.1.1",
+    "lucide-react": "1.34.0",
+    "radix-ui": "1.4.3",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "streamdown": "2.6.0",
+    "tailwind-merge": "3.6.0",
+    "tw-animate-css": "1.4.0",
+    "use-stick-to-bottom": "1.1.6"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "4.3.3",
+    "@types/react": "19.2.8",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "6.1.0",
+    "concurrently": "10.0.5",
+    "electron": "43.4.1",
+    "electron-builder": "26.15.3",
+    "tailwindcss": "4.3.3",
+    "vite": "8.2.2",
+    "wait-on": "9.1.0"
+  },
+  "build": {
+    "appId": "dev.openbot.desktop",
+    "productName": "OpenBot",
+    "asar": true,
+    "npmRebuild": false,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**",
+      "dist-electron/**",
+      "package.json"
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": [
+        "dmg",
+        "zip"
+      ]
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ]
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    },
+    "artifactName": "OpenBot-${version}-${os}-${arch}.${ext}"
+  }
+}

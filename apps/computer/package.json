@@ -1,0 +1,19 @@
+{
+  "name": "@openbot/computer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "bun build src/main.ts --outdir dist --target bun --external @earendil-works/pi-coding-agent",
+    "dev": "bun --watch src/main.ts",
+    "start": "bun dist/main.js",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "bun test --pass-with-no-tests"
+  },
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "0.84.3",
+    "@openbot/contracts": "workspace:*",
+    "effect": "3.22.1",
+    "typebox": "1.3.7"
+  }
+}

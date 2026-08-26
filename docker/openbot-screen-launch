@@ -1,0 +1,33 @@
+#!/bin/sh
+set -eu
+
+screen_cwd=${OPENBOT_SCREEN_CWD:-/workspace}
+browser_profile=${OPENBOT_BROWSER_PROFILE:-/home/openbot/.openbot/chromium/default}
+browser_debug_port=${OPENBOT_BROWSER_DEBUG_PORT:-9222}
+
+case "${1:-}" in
+  chromium)
+    exec chromium \
+      --no-sandbox \
+      --test-type \
+      --disable-dev-shm-usage \
+      --no-first-run \
+      --disable-default-apps \
+      --hide-crash-restore-bubble \
+      --disable-features=Translate \
+      --user-data-dir="$browser_profile" \
+      --remote-debugging-address=127.0.0.1 \
+      --remote-debugging-port="$browser_debug_port" \
+      --new-window about:blank
+    ;;
+  thunar)
+    exec thunar "$screen_cwd"
+    ;;
+  terminal)
+    exec xfce4-terminal --disable-server --working-directory="$screen_cwd"
+    ;;
+  *)
+    echo "usage: openbot-screen-launch chromium|thunar|terminal" >&2
+    exit 2
+    ;;
+esac

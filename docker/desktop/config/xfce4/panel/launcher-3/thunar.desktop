@@ -1,0 +1,9 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Files
+Comment=Browse the bot workspace
+Exec=openbot-screen-launch thunar
+Icon=org.xfce.thunar
+Terminal=false
+StartupNotify=true

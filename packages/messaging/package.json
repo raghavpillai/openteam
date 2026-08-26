@@ -1,0 +1,20 @@
+{
+  "name": "@openbot/messaging",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "bun build src/index.ts --outdir dist --target bun --external pg-native",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "bun test --pass-with-no-tests"
+  },
+  "dependencies": {
+    "@openbot/contracts": "workspace:*",
+    "@openbot/db": "workspace:*",
+    "cron-parser": "5.10.0",
+    "pg-boss": "12.28.0"
+  }
+}

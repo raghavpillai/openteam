@@ -59,6 +59,63 @@ export class RunService {
         const approval = await this.prisma.approval.findUnique({ where: { id: approvalId } });
         if (!approval) throw new ApiError(404, "approval_not_found", "Approval not found");
         if (approval.status !== "pending") return { ok: true, status: approval.status };
+        if (approval.requestMethod === "plugin/tool") {
+          const status: ApprovalStatus =
+            decision === "accept" ? "accepted" : decision === "decline" ? "declined" : "cancelled";
+          const details =
+            approval.details &&
+            typeof approval.details === "object" &&
+            !Array.isArray(approval.details)
+              ? (approval.details as Record<string, unknown>)
+              : {};
+          const connectionId = details.connectionId;
+          const botId = details.botId;
+          const toolName = details.toolName;
+          if (
+            typeof connectionId !== "string" ||
+            typeof botId !== "string" ||
+            typeof toolName !== "string"
+          ) {
+            throw new ApiError(409, "approval_invalid", "Plugin approval details are incomplete");
+          }
+          await this.prisma.$transaction(async (tx) => {
+            await tx.approval.update({
+              where: { id: approvalId },
+              data: { status, decision, resolvedAt: new Date() },
+            });
+            if (decision === "accept") {
+              const existing = await tx.pluginToolPolicy.findFirst({
+                where: { connectionId, botId, toolName },
+              });
+              if (existing) {
+                await tx.pluginToolPolicy.update({
+                  where: { id: existing.id },
+                  data: { decision: "allow" },
+                });
+              } else {
+                await tx.pluginToolPolicy.create({
+                  data: { connectionId, botId, toolName, decision: "allow" },
+                });
+              }
+            }
+            await tx.pluginActivity.create({
+              data: {
+                connectionId,
+                botId,
+                kind: `approval.${status}`,
+                summary: `${toolName} approval ${status}`,
+              },
+            });
+            await appendEvent(tx, "plugin.approval.resolved", approvalId, {
+              approvalId,
+              connectionId,
+              botId,
+              toolName,
+              decision,
+            });
+          });
+          return { ok: true, status };
+        }
         const response = await this.computerFetch("/v1/approvals/resolve", {
           method: "POST",
           body: JSON.stringify({ approvalId: approval.upstreamRequestId, decision }),

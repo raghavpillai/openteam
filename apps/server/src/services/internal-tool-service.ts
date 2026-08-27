@@ -23,6 +23,7 @@ import type { AdministrationService } from "./administration-service";
 import { toError } from "./service-utils";
 import type { SubagentService } from "./subagent-service";
 import type { TodoService } from "./todo-service";
+import type { PluginService } from "./plugin-service";
 
 export class InternalToolService {
   constructor(
@@ -32,7 +33,8 @@ export class InternalToolService {
     private readonly interruptNonUserRun: (runId: string) => Promise<void>,
     private readonly todos: TodoService,
     private readonly subagents: SubagentService,
-    private readonly administration: AdministrationService
+    private readonly administration: AdministrationService,
+    private readonly plugins: PluginService
   ) {}
 
   execute = (request: DynamicToolCallRequest) =>
@@ -82,9 +84,55 @@ export class InternalToolService {
           "CreateChannel",
           "UpdateChannel",
           "SendToAgent",
+          "SearchPlugins",
+          "GetPlugin",
+          "GetMcpServerStatus",
         ]);
         if (childIdentity && parentOnlyTools.has(request.tool)) {
           throw new ApiError(403, "subagent_tool_forbidden", "This tool is parent-agent only");
+        }
+        if (request.tool === "SearchPlugins") {
+          const input =
+            request.arguments && typeof request.arguments === "object"
+              ? (request.arguments as Record<string, unknown>)
+              : {};
+          return this.plugins.searchCatalog(typeof input.query === "string" ? input.query : "");
+        }
+        if (request.tool === "GetPlugin") {
+          const input =
+            request.arguments && typeof request.arguments === "object"
+              ? (request.arguments as Record<string, unknown>)
+              : {};
+          if (typeof input.pluginKey !== "string") {
+            throw new ApiError(400, "plugin_key_required", "pluginKey is required");
+          }
+          return this.plugins.catalogDetail(input.pluginKey);
+        }
+        if (request.tool === "GetMcpServerStatus") {
+          const input =
+            request.arguments && typeof request.arguments === "object"
+              ? (request.arguments as Record<string, unknown>)
+              : {};
+          return this.plugins.connectionStatuses(
+            typeof input.connectionId === "string" ? input.connectionId : undefined
+          );
+        }
+        if (request.tool === "PluginCall") {
+          const input =
+            request.arguments && typeof request.arguments === "object"
+              ? (request.arguments as Record<string, unknown>)
+              : {};
+          if (typeof input.connectionId !== "string" || typeof input.toolName !== "string") {
+            throw new ApiError(400, "invalid_plugin_call", "Plugin call is missing identifiers");
+          }
+          return this.plugins.invoke({
+            connectionId: input.connectionId,
+            botId: request.botId,
+            runId: request.runId,
+            callId: request.callId,
+            toolName: input.toolName,
+            arguments: input.arguments ?? {},
+          });
         }
         if (request.tool === "update_state") {
           return this.durableState.execute(

@@ -1,5 +1,5 @@
-import { readFile, realpath } from "node:fs/promises";
-import { extname, relative, sep } from "node:path";
+import { lstat, readFile, realpath } from "node:fs/promises";
+import { extname, join, relative, sep } from "node:path";
 import { ApiError, type ScreenActionInput, type ScreenStatusView } from "@openbot/contracts";
 import type { PrismaClient } from "@openbot/db";
 import { Effect } from "effect";
@@ -21,11 +21,12 @@ interface ComputerScreenStatus {
 }
 
 type ComputerFetch = (path: string, init: RequestInit) => Promise<Response>;
+const MAX_AVATAR_BYTES = 5 * 1024 * 1024;
 
 export class ScreenService {
   constructor(
     private readonly prisma: PrismaClient,
-    private readonly workspaceRoot: string,
+    private readonly agentDataRoot: string,
     private readonly screenViewerHost: string,
     private readonly computerFetch: ComputerFetch
   ) {}
@@ -76,7 +77,10 @@ export class ScreenService {
         });
         if (!bot?.avatarPath) throw new ApiError(404, "avatar_not_found", "Bot has no avatar");
         const path = await realpath(bot.avatarPath).catch(() => null);
-        const difference = path ? relative(this.workspaceRoot, path) : "..";
+        const expectedRoot = await realpath(join(this.agentDataRoot, "agents", botId)).catch(
+          () => null
+        );
+        const difference = path && expectedRoot ? relative(expectedRoot, path) : "..";
         if (
           !path ||
           difference === "" ||
@@ -85,16 +89,33 @@ export class ScreenService {
         ) {
           throw new ApiError(404, "avatar_not_found", "Bot avatar is unavailable");
         }
-        const contentType =
-          {
-            ".png": "image/png",
-            ".jpg": "image/jpeg",
-            ".jpeg": "image/jpeg",
-            ".webp": "image/webp",
-            ".gif": "image/gif",
-            ".svg": "image/svg+xml",
-          }[extname(path).toLowerCase()] ?? "application/octet-stream";
-        return { bytes: await readFile(path), contentType };
+        const contentType = {
+          ".png": "image/png",
+          ".jpg": "image/jpeg",
+          ".jpeg": "image/jpeg",
+          ".webp": "image/webp",
+          ".gif": "image/gif",
+          ".svg": "image/svg+xml",
+        }[extname(path).toLowerCase()];
+        if (!contentType) {
+          throw new ApiError(404, "avatar_not_found", "Bot avatar is unavailable");
+        }
+        const before = await lstat(path).catch(() => null);
+        if (!before?.isFile() || before.isSymbolicLink() || before.size > MAX_AVATAR_BYTES) {
+          throw new ApiError(404, "avatar_not_found", "Bot avatar is unavailable");
+        }
+        const bytes = await readFile(path);
+        const after = await lstat(path).catch(() => null);
+        if (
+          !after?.isFile() ||
+          after.isSymbolicLink() ||
+          before.ino !== after.ino ||
+          before.size !== after.size ||
+          before.mtimeMs !== after.mtimeMs
+        ) {
+          throw new ApiError(404, "avatar_not_found", "Bot avatar is unavailable");
+        }
+        return { bytes, contentType };
       },
       catch: ScreenService.toError,
     });
@@ -157,7 +178,7 @@ export class ScreenService {
       width: status.width,
       height: status.height,
       display: status.display,
-      viewerUrl: `http://${this.screenViewerHost}:${status.viewerPort}/vnc.html?${query}`,
+      viewerUrl: `http://${this.screenViewerHost}:${status.viewerPort}/openbot.html?${query}`,
       humanTakeover: status.humanTakeover,
       agentInputPaused: status.agentInputPaused,
       apps: status.apps,

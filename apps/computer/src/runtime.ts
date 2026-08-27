@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { extname, isAbsolute, join, relative, resolve } from "node:path";
 import {
@@ -18,43 +18,47 @@ import {
   CallDynamicToolInput,
   CHECK_SUBAGENT_TOOL,
   CheckSubagentInput,
-  COMPUTER_TOOL,
+  COMPUTER_USE_TOOL,
+  ComputerUseInput,
   type ComputerEvent,
   type ComputerSteerRequest,
   type ComputerTurnRequest,
+  CREATE_AGENT_TOOL,
+  CREATE_CHANNEL_TOOL,
+  CreateAgentInput,
+  CreateChannelInput,
   EXTERNAL_READ_TOOL,
   EXTERNAL_SHELL_TOOL,
   GET_DYNAMIC_TOOLS_TOOL,
   GetDynamicToolsInput,
-  CREATE_AGENT_TOOL,
-  CreateAgentInput,
-  CREATE_CHANNEL_TOOL,
-  CreateChannelInput,
+  type InlineImageInput,
+  type PluginDynamicNamespace,
   MESSAGE_SUBAGENT_TOOL,
   MessageSubagentInput,
   NATIVE_TOOLS,
   READ_TOOL,
   ReadToolInput,
   SCREENSHOT_TOOL,
-  ScreenActionInput,
   SEND_TO_AGENT_TOOL,
   SendToAgentInput,
   SHELL_TOOL,
   ShellToolInput,
   STOP_SUBAGENT_TOOL,
   StopSubagentInput,
+  type SubagentType,
   TASK_TOOL,
   TaskInput,
   TODO_WRITE_TOOL,
   TodoWriteInput,
   UPDATE_AGENT_TOOL,
-  UpdateAgentInput,
   UPDATE_CHANNEL_TOOL,
+  UpdateAgentInput,
   UpdateChannelInput,
 } from "@openbot/contracts";
 import { Schema } from "effect";
 import { Type } from "typebox";
 import { AsyncQueue } from "./async-queue";
+import { BROWSER_USE_TOOLS, BrowserUseSession } from "./browser-use";
 import {
   type DynamicNamespaceDefinition,
   type DynamicToolDefinition,
@@ -65,7 +69,7 @@ import { NativeToolExecutor } from "./native-tool-executor";
 import { ScreenBroker } from "./screen-broker";
 
 const OPENBOT_DYNAMIC_DISCOVERY_DESCRIPTION =
-  "Discover and inspect tools available through OpenBot dynamic namespaces. Search by namespace, exact tool name, or bounded regular-expression pattern. Catalog searches abbreviate long descriptions; exact lookups return complete public schemas. Always discover a tool before calling it with CallDynamicTool. The cursor namespace contains only OpenBot's supported TodoWrite, subagent orchestration, agent administration, and channel administration subset.";
+  "Discover and inspect tools available through OpenBot dynamic namespaces. Search by namespace, exact tool name, or bounded regular-expression pattern. Catalog searches abbreviate long descriptions; exact lookups return complete public schemas. Always discover a tool before calling it with CallDynamicTool. The cursor namespace contains OpenBot's supported TodoWrite, read-only plugin management, subagent orchestration, agent administration, and channel administration subset.";
 
 const OPENBOT_DYNAMIC_CALL_DESCRIPTION =
   "Invoke one previously discovered tool from an authorized OpenBot dynamic namespace. The gateway rechecks availability, validates nested arguments against the current schema, and reauthorizes the call at execution time.";
@@ -79,6 +83,7 @@ interface ActiveTurn {
   channelId: string;
   deliveryId: string | null;
   runtimeProfile: "agent" | "subagent";
+  subagentType: SubagentType | null;
   cwd: string;
   turnId: string;
   session: AgentSession | null;
@@ -101,6 +106,7 @@ interface ActiveTurn {
   }>;
   acceptedSteerIds: Set<string>;
   discoveredDynamicTools: Set<string>;
+  pluginNamespaces: readonly PluginDynamicNamespace[];
   attachmentTempDirectories: string[];
 }
 
@@ -125,6 +131,33 @@ interface RuntimeImage {
   data: string;
   mimeType: string;
 }
+
+const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
+const INLINE_IMAGE_PREFIX = /^data:(image\/(?:gif|jpeg|png|webp));base64,/i;
+
+export const decodeInlineImages = (inputs: readonly InlineImageInput[]): RuntimeImage[] =>
+  inputs.slice(0, 8).map((input, index) => {
+    const prefix = INLINE_IMAGE_PREFIX.exec(input.url);
+    if (!prefix?.[1]) throw new Error(`Uploaded image ${index + 1} is not a supported data URL`);
+    const encoded = input.url.slice(prefix[0].length);
+    if (
+      encoded.length === 0 ||
+      encoded.length % 4 !== 0 ||
+      encoded.length > Math.ceil(MAX_IMAGE_BYTES / 3) * 4 ||
+      !/^[A-Za-z0-9+/]*={0,2}$/.test(encoded)
+    ) {
+      throw new Error(`Uploaded image ${index + 1} has invalid base64 data`);
+    }
+    const data = Buffer.from(encoded, "base64");
+    if (data.byteLength > MAX_IMAGE_BYTES) {
+      throw new Error(`Uploaded image ${index + 1} exceeds 20 MB`);
+    }
+    return {
+      type: "image",
+      data: data.toString("base64"),
+      mimeType: prefix[1].toLowerCase(),
+    };
+  });
 
 const IMAGE_MIME_TYPES: Record<string, string> = {
   ".gif": "image/gif",
@@ -257,6 +290,7 @@ export class ComputerRuntime {
     agentDir: this.agentDir,
     controlToken: this.controlToken,
   });
+  private readonly browserUseSessions = new Map<string, BrowserUseSession>();
   private readonly thinkingLevel =
     (process.env.OPENBOT_PI_THINKING as
       | "off"
@@ -316,6 +350,7 @@ export class ComputerRuntime {
       throw new Error(`Bot ${request.botId} already has an active Pi turn`);
     }
 
+    const uploadedImages = decodeInlineImages(request.images ?? []);
     const attachments = await this.loadAttachmentImages(request.cwd, request.fileAttachments ?? []);
 
     const queue = new AsyncQueue<ComputerEvent>();
@@ -326,6 +361,7 @@ export class ComputerRuntime {
       channelId: request.channelId,
       deliveryId: request.deliveryId,
       runtimeProfile: request.runtimeProfile ?? "agent",
+      subagentType: request.subagentType ?? null,
       cwd: request.cwd,
       turnId: request.runId,
       session: null,
@@ -344,6 +380,7 @@ export class ComputerRuntime {
       pendingSteers: [],
       acceptedSteerIds: new Set(),
       discoveredDynamicTools: new Set(),
+      pluginNamespaces: request.dynamicNamespaces ?? [],
       attachmentTempDirectories: attachments.tempDirectories,
     };
 
@@ -362,7 +399,8 @@ export class ComputerRuntime {
 
     if (request.sessionPath) this.attachSession(active);
     queue.push({ type: "turn.started", turnId: active.turnId });
-    void this.execute(active, request.content, attachments.images);
+    const images = [...uploadedImages, ...attachments.images].slice(0, 16);
+    void this.execute(active, request.content, images);
     return queue;
   }
 
@@ -466,9 +504,11 @@ export class ComputerRuntime {
     active.acceptedSteerIds.add(request.inboxId);
     active.pendingSteers.push(pending);
     try {
+      const images = decodeInlineImages(request.images ?? []);
       await active.session.prompt(request.content, {
         source: "rpc",
         streamingBehavior: "steer",
+        ...(images.length ? { images } : {}),
       });
     } catch (error) {
       active.acceptedSteerIds.delete(request.inboxId);
@@ -576,7 +616,7 @@ export class ComputerRuntime {
   }
 
   private customTools(active: ActiveTurn) {
-    return NATIVE_TOOLS.map((tool) =>
+    const native = (tool: (typeof NATIVE_TOOLS)[number]) =>
       defineTool({
         name: tool.name,
         label: tool.name,
@@ -587,11 +627,42 @@ export class ComputerRuntime {
               ? OPENBOT_DYNAMIC_CALL_DESCRIPTION
               : tool.description,
         parameters: Type.Unsafe<Record<string, unknown>>(tool.inputSchema),
-        executionMode: "sequential",
-        execute: (callId, args, signal) =>
+        executionMode: "sequential" as const,
+        execute: (callId: string, args: unknown, signal?: AbortSignal) =>
           this.executeOpenBotTool(active, callId, tool.name, args, signal),
-      })
+      });
+    const workerNativeTools = NATIVE_TOOLS.filter(
+      (tool) => tool.name === SHELL_TOOL.name || tool.name === READ_TOOL.name
     );
+    if (active.subagentType === "computerUse") {
+      return [
+        ...workerNativeTools.map(native),
+        defineTool({
+          name: COMPUTER_USE_TOOL.name,
+          label: COMPUTER_USE_TOOL.name,
+          description: COMPUTER_USE_TOOL.description,
+          parameters: Type.Unsafe<Record<string, unknown>>(COMPUTER_USE_TOOL.inputSchema),
+          executionMode: "sequential",
+          execute: (_callId, args) => this.callComputerUse(active, args),
+        }),
+      ];
+    }
+    if (active.subagentType === "browserUse") {
+      return [
+        ...workerNativeTools.map(native),
+        ...BROWSER_USE_TOOLS.map((tool) =>
+          defineTool({
+            name: tool.name,
+            label: tool.name,
+            description: tool.description,
+            parameters: Type.Unsafe<Record<string, unknown>>(tool.inputSchema),
+            executionMode: "sequential",
+            execute: (_callId, args) => this.callBrowserUse(active, tool.name, args),
+          })
+        ),
+      ];
+    }
+    return NATIVE_TOOLS.map(native);
   }
 
   private async executeOpenBotTool(
@@ -602,10 +673,15 @@ export class ComputerRuntime {
     signal?: AbortSignal
   ): Promise<AgentToolResult<Record<string, unknown>>> {
     if (tool === SHELL_TOOL.name) {
+      const environment =
+        active.subagentType === "computerUse" || active.subagentType === "browserUse"
+          ? await this.screens.commandEnvironment(active.botId, active.cwd)
+          : undefined;
       return this.nativeToolExecutor.shell(
         Schema.decodeUnknownSync(ShellToolInput)(args),
         active.cwd,
-        signal
+        signal,
+        environment
       );
     }
     if (tool === READ_TOOL.name) {
@@ -662,18 +738,23 @@ export class ComputerRuntime {
     return this.callControlPlaneTool(active, callId, tool, args, signal);
   }
 
-  private async callComputer(
+  private async callComputerUse(
     active: ActiveTurn,
     args: unknown
   ): Promise<AgentToolResult<Record<string, unknown>>> {
-    const input = Schema.decodeUnknownSync(ScreenActionInput)(args);
-    await this.screens.act(active.botId, active.cwd, input, "agent");
-    const frame = await this.screens.screenshot(active.botId, active.cwd);
+    const input = Schema.decodeUnknownSync(ComputerUseInput)(args);
+    const { then = [], description: _description, ...first } = input;
+    const actions = [first, ...then];
+    const frame = await this.screens.actComputerUse(active.botId, active.cwd, actions);
+    const directory = join(this.workspaceRoot, "shared", "screenshots");
+    await mkdir(directory, { recursive: true });
+    const path = join(directory, `${active.botId}-computer-${Date.now()}.png`);
+    await writeFile(path, frame, { mode: 0o644 });
     return {
       content: [
         {
           type: "text" as const,
-          text: `Computer action ${input.action} completed.`,
+          text: `Computer completed ${actions.length} action${actions.length === 1 ? "" : "s"}. Final screenshot: ${path}`,
         },
         {
           type: "image" as const,
@@ -681,8 +762,30 @@ export class ComputerRuntime {
           mimeType: "image/png",
         },
       ],
-      details: { action: input.action, width: 1280, height: 800 },
+      details: {
+        actions: actions.map((action) => action.action),
+        width: 1280,
+        height: 800,
+        path,
+      },
     };
+  }
+
+  private async callBrowserUse(
+    active: ActiveTurn,
+    toolName: string,
+    args: unknown
+  ): Promise<AgentToolResult<Record<string, unknown>>> {
+    const endpoint = await this.screens.browserEndpointForAgent(active.botId, active.cwd);
+    let browser = this.browserUseSessions.get(active.botId);
+    if (!browser?.connected) {
+      browser = await BrowserUseSession.connect(
+        endpoint,
+        join(this.workspaceRoot, "shared", "screenshots")
+      );
+      this.browserUseSessions.set(active.botId, browser);
+    }
+    return browser.execute(toolName, args);
   }
 
   private async callControlPlaneTool(
@@ -742,6 +845,73 @@ export class ComputerRuntime {
       ...(active.runtimeProfile === "subagent"
         ? []
         : [
+            {
+              name: "SearchPlugins",
+              description:
+                "Search the bounded OpenBot plugin catalog. This is read-only; installation always requires the user to act in the Plugins UI.",
+              inputSchema: {
+                type: "object",
+                properties: { query: { type: "string", maxLength: 200 } },
+                required: ["query"],
+                additionalProperties: false,
+              },
+              source: "first-party" as const,
+              decodeArguments: (args: unknown) => {
+                const query =
+                  args && typeof args === "object"
+                    ? (args as Record<string, unknown>).query
+                    : undefined;
+                if (typeof query !== "string") throw new Error("query is required");
+                return { query: query.slice(0, 200) };
+              },
+              execute: (turn: ActiveTurn, callId: string, args: unknown, signal?: AbortSignal) =>
+                this.callControlPlaneTool(turn, callId, "SearchPlugins", args, signal),
+            },
+            {
+              name: "GetPlugin",
+              description:
+                "Inspect one catalog or installed plugin, its components, and non-secret connection summary. Read-only.",
+              inputSchema: {
+                type: "object",
+                properties: { pluginKey: { type: "string", maxLength: 200 } },
+                required: ["pluginKey"],
+                additionalProperties: false,
+              },
+              source: "first-party" as const,
+              decodeArguments: (args: unknown) => {
+                const pluginKey =
+                  args && typeof args === "object"
+                    ? (args as Record<string, unknown>).pluginKey
+                    : undefined;
+                if (typeof pluginKey !== "string") throw new Error("pluginKey is required");
+                return { pluginKey: pluginKey.slice(0, 200) };
+              },
+              execute: (turn: ActiveTurn, callId: string, args: unknown, signal?: AbortSignal) =>
+                this.callControlPlaneTool(turn, callId, "GetPlugin", args, signal),
+            },
+            {
+              name: "GetMcpServerStatus",
+              description:
+                "Read current MCP connection health, account aliases, tool counts, and bot-grant counts without exposing credentials.",
+              inputSchema: {
+                type: "object",
+                properties: { connectionId: { type: "string" } },
+                additionalProperties: false,
+              },
+              source: "first-party" as const,
+              decodeArguments: (args: unknown) => {
+                const connectionId =
+                  args && typeof args === "object"
+                    ? (args as Record<string, unknown>).connectionId
+                    : undefined;
+                if (connectionId !== undefined && typeof connectionId !== "string") {
+                  throw new Error("connectionId must be a string");
+                }
+                return connectionId ? { connectionId } : {};
+              },
+              execute: (turn: ActiveTurn, callId: string, args: unknown, signal?: AbortSignal) =>
+                this.callControlPlaneTool(turn, callId, "GetMcpServerStatus", args, signal),
+            },
             {
               name: TASK_TOOL.name,
               description: TASK_TOOL.description,
@@ -820,6 +990,28 @@ export class ComputerRuntime {
             },
           ]),
     ];
+    const pluginNamespaces: Array<DynamicNamespaceDefinition<RuntimeDynamicTool>> =
+      active.pluginNamespaces.map((namespace) => ({
+        name: namespace.name,
+        description: namespace.description,
+        kind: "mcp" as const,
+        namespaceStatus: namespace.namespaceStatus,
+        tools: namespace.tools.map((tool) => ({
+          name: tool.name,
+          description: tool.description,
+          inputSchema: tool.inputSchema,
+          source: tool.source,
+          decodeArguments: (args: unknown) => args,
+          execute: (turn: ActiveTurn, callId: string, args: unknown, signal?: AbortSignal) =>
+            this.callControlPlaneTool(
+              turn,
+              callId,
+              "PluginCall",
+              { connectionId: tool.connectionId, toolName: tool.name, arguments: args },
+              signal
+            ),
+        })),
+      }));
     return [
       {
         name: "openbot",
@@ -846,24 +1038,17 @@ export class ComputerRuntime {
                     this.callControlPlaneTool(turn, callId, SEND_TO_AGENT_TOOL.name, args, signal),
                 },
               ]),
-          {
-            name: COMPUTER_TOOL.name,
-            description: COMPUTER_TOOL.description,
-            inputSchema: COMPUTER_TOOL.inputSchema,
-            source: "first-party",
-            decodeArguments: (args) => Schema.decodeUnknownSync(ScreenActionInput)(args),
-            execute: (active, _callId, args) => this.callComputer(active, args),
-          },
         ],
       },
       {
         name: "cursor",
         description:
-          "The explicitly supported Cursor-compatible TodoWrite, subagent orchestration, agent administration, and channel administration tools.",
+          "OpenBot's supported TodoWrite, read-only plugin management, subagent orchestration, agent administration, and channel administration tools.",
         kind: "first-party",
         namespaceStatus: "ready",
         tools: cursorTools,
       },
+      ...pluginNamespaces,
     ];
   }
 

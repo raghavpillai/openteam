@@ -1,7 +1,5 @@
 import { createHash } from "node:crypto";
-import { Prisma } from "@openbot/db";
-
-const BOT_COLORS = ["#ff7a1a", "#2f8cff", "#8b5cf6", "#14b8a6", "#ec4899", "#22c55e"];
+import type { Prisma } from "@openbot/db";
 
 export const toJson = (value: unknown): Prisma.InputJsonValue =>
   JSON.parse(
@@ -22,11 +20,6 @@ export const slugify = (value: string): string => {
     .replace(/^-|-$/g, "")
     .slice(0, 48);
   return slug || "bot";
-};
-
-export const botColor = (botId: string): string => {
-  const index = Number.parseInt(botId.replaceAll("-", "").slice(0, 8), 16) % BOT_COLORS.length;
-  return BOT_COLORS[index] ?? BOT_COLORS[0]!;
 };
 
 export const appendEvent = (

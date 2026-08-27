@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { ComputerRuntime } from "../src/runtime";
+import { ComputerRuntime, decodeInlineImages } from "../src/runtime";
+
+const INLINE_PNG = "data:image/png;base64,AQID";
 
 describe("live Pi steering", () => {
   test("deduplicates accepted inputs and acknowledges them when Pi inserts the user message", async () => {
@@ -70,5 +72,49 @@ describe("live Pi steering", () => {
         content: "Too late",
       })
     ).rejects.toThrow("Run is not actively processing a Pi turn");
+  });
+
+  test("decodes inline uploads and sends them as structured Pi image content", async () => {
+    expect(decodeInlineImages([{ url: INLINE_PNG }])).toEqual([
+      { type: "image", data: "AQID", mimeType: "image/png" },
+    ]);
+    expect(() => decodeInlineImages([{ url: "data:image/png;base64,not-base64" }])).toThrow(
+      "invalid base64 data"
+    );
+
+    const runtime = new ComputerRuntime();
+    const prompts: Array<{ content: string; options: unknown }> = [];
+    const active = {
+      pendingSteers: [],
+      acceptedSteerIds: new Set<string>(),
+      session: {
+        isStreaming: true,
+        prompt: async (content: string, options: unknown) => {
+          prompts.push({ content, options });
+        },
+      },
+    };
+    const internals = runtime as unknown as {
+      activeByRun: Map<string, typeof active>;
+    };
+    internals.activeByRun.set("run-image", active);
+
+    await runtime.steer("run-image", {
+      inboxId: "inbox-image",
+      clientMessageId: "message-image",
+      content: "Inspect this",
+      images: [{ url: INLINE_PNG }],
+    });
+
+    expect(prompts).toEqual([
+      {
+        content: "Inspect this",
+        options: {
+          source: "rpc",
+          streamingBehavior: "steer",
+          images: [{ type: "image", data: "AQID", mimeType: "image/png" }],
+        },
+      },
+    ]);
   });
 });

@@ -1,13 +1,24 @@
 import type {
   AgentSendMessageInput,
   BotTranscriptView,
+  InlineImageInput,
   ReactToMessageInput,
   SendToAgentInput,
+  SubagentType,
   TranscriptEventView,
 } from "@openbot/contracts";
 import type { Prisma, PrismaClient } from "@openbot/db";
 import { fromPrisma, type PgBoss } from "pg-boss";
 import { resolveTimeZone, timestampUserTurn } from "./timestamps";
+import { AgentDataStore } from "./agent-data";
+
+export { AgentDataStore } from "./agent-data";
+
+export const MAIN_AGENT_GRAPHICAL_DELEGATION_INSTRUCTIONS = [
+  "For browser page interaction, delegate with Task using subagent_type browserUse. For pixel-based browser work or any other desktop-app interaction, delegate with Task using subagent_type computerUse.",
+  "Do not attempt graphical interaction yourself: the main-agent Screenshot tool is read-only, and graphical Computer control is intentionally available only to a computerUse subagent.",
+  "Give the subagent the full goal, exact URLs or app names, inputs, completion criteria, and relevant constraints. Treat its final report as the result of the graphical work.",
+].join(" ");
 
 const PRIORITY = {
   user: 300,
@@ -18,8 +29,56 @@ const PRIORITY = {
 
 const terminalRunStatuses = new Set(["completed", "failed", "cancelled", "interrupted"]);
 
+export const subagentSpecializationInstructions = (type: SubagentType): string => {
+  if (type === "computerUse") {
+    return [
+      "You drive this worker's own 1280x800 Linux desktop with the direct Computer tool. Your other direct tools are Shell and Read.",
+      "Work in a tight see-act-verify loop: inspect the screenshot, act on current coordinates, then inspect the one fresh screenshot returned after the call. The optional then array batches up to nine follow-up actions and returns only the final screen, so batch only steps that require no intermediate visual decision.",
+      "Computer actions are screenshot, click, move, drag, type, key, scroll, and wait. Coordinates use pixels from the top-left. Recover from a missed click before typing, clear pre-filled text before replacing it, and wait for moving or loading UI before targeting it.",
+      "For browser work, launch this screen's Chromium directly at a known URL with `openbot-screen-launch chromium 'https://example.com'`; do not launch another browser or download browser binaries.",
+      "Move bulk or structured data through files and imports instead of typing it field by field. Do not inspect cookies, browser storage, auth headers, password fields, hidden inputs, tokens, or unrelated account data.",
+      "If the task reaches a password, 2FA, CAPTCHA, payment, legal acceptance, or another step that needs a person, stop and identify the exact screen and blocker in your final report so the parent can ask the user to take over.",
+      "Stop as soon as the scoped goal is met or genuinely blocked. Return a concise, self-contained report of what you did, what the screen showed, and the outcome.",
+    ].join("\n");
+  }
+  if (type === "browserUse") {
+    return [
+      "You drive this worker's Chromium at the page level with the direct browser_* tools. Your other direct tools are Shell and Read. Use browser_navigate, browser_snapshot, element-ref actions, scrolling, CDP where allowed, tab management, and screenshots; do not substitute pixel desktop control.",
+      "Take the fastest path to a known destination by navigating directly to its exact URL. Work in a snapshot-act-verify loop: browser_snapshot is the source of truth, refs belong to the latest snapshot for that tab, and you must take a fresh snapshot after a page-changing action instead of reusing stale refs.",
+      "Prefer ref-driven actions to coordinate clicks. Every page-changing browser action returns the resulting page and screenshot; browser_take_screenshot is mainly for an explicit viewport or full-page capture.",
+      "Move bulk or structured data through files and the site's upload/download flow. Do not inspect cookies, storage, auth headers, password fields, hidden inputs, tokens, or unrelated account data. Browser-wide, storage, cookie, cache, permission, target-management, and raw CDP input commands are blocked.",
+      "If the task reaches a password, 2FA, CAPTCHA, payment, legal acceptance, or another step that needs a person, stop and identify the exact site and blocker in your final report so the parent can ask the user to take over.",
+      "Do not loop on a failed approach. Change tactics after a couple of unsuccessful attempts, and stop as soon as the scoped goal is met or genuinely blocked. Return a concise, self-contained report.",
+    ].join("\n");
+  }
+  if (type === "videoReview" || type === "watchVideo") {
+    return "Review the supplied media frames directly. The original video path is also available to Shell and Read when file-based inspection helps.";
+  }
+  return "Use Shell, Read, and the other native tools for general execution on the shared OpenBot computer.";
+};
+
 const json = (value: unknown): Prisma.InputJsonValue =>
   JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
+
+const inlineImagesFromMetadata = (value: unknown): InlineImageInput[] => {
+  if (!value || Array.isArray(value) || typeof value !== "object") return [];
+  const images = (value as Record<string, unknown>).images;
+  if (!Array.isArray(images)) return [];
+  return images
+    .filter(
+      (candidate): candidate is { url: string; alt?: unknown } =>
+        Boolean(candidate) &&
+        typeof candidate === "object" &&
+        typeof (candidate as { url?: unknown }).url === "string" &&
+        (candidate as { url: string }).url.length <= 28_000_000 &&
+        /^data:image\/(?:gif|jpeg|png|webp);base64,/i.test((candidate as { url: string }).url)
+    )
+    .map((candidate) => ({
+      url: candidate.url,
+      ...(typeof candidate.alt === "string" ? { alt: candidate.alt.slice(0, 2_000) } : {}),
+    }))
+    .slice(0, 8);
+};
 
 export interface WakeInput {
   botId: string;
@@ -28,6 +87,7 @@ export interface WakeInput {
   origin: "user" | "agent" | "group" | "bootstrap" | "routine";
   type: string;
   content: string;
+  images?: readonly InlineImageInput[];
   clientId: string;
   priority: number;
   availableAt?: Date;
@@ -55,16 +115,20 @@ export interface SteerDispatch {
   inboxId: string;
   clientMessageId: string;
   content: string;
+  images: InlineImageInput[];
 }
 
 export class AgentMessaging {
   readonly defaultTimeZone: string;
+  readonly agentData: AgentDataStore;
 
   constructor(
     readonly prisma: PrismaClient,
-    readonly boss: PgBoss
+    readonly boss: PgBoss,
+    agentData?: AgentDataStore
   ) {
     this.defaultTimeZone = resolveTimeZone();
+    this.agentData = agentData ?? new AgentDataStore(prisma);
   }
 
   async enqueueWake(tx: Prisma.TransactionClient, input: WakeInput) {
@@ -81,13 +145,21 @@ export class AgentMessaging {
     }
     const messageId = crypto.randomUUID();
     const runId = crypto.randomUUID();
-    const runtimeContent =
+    const baseRuntimeContent =
       input.origin === "bootstrap"
         ? input.content
         : timestampUserTurn(input.content, {
             occurredAt: input.occurredAt,
             timeZone: input.timeZone ?? this.defaultTimeZone,
           });
+    const attachmentPaths = await this.agentData.materializeAttachments(
+      bot.id,
+      input.clientId,
+      input.images ?? []
+    );
+    const runtimeContent = attachmentPaths.length
+      ? `${baseRuntimeContent}\n\nAttached files available on the shared computer:\n${attachmentPaths.map((path) => `- ${path}`).join("\n")}`
+      : baseRuntimeContent;
     const message = await tx.message.create({
       data: {
         id: messageId,
@@ -122,6 +194,7 @@ export class AgentMessaging {
         payload: json({
           messageId,
           content: runtimeContent,
+          images: input.images ?? [],
           clientId: input.clientId,
           channelId: input.channelId,
           deliveryId: input.deliveryId ?? null,
@@ -179,10 +252,18 @@ export class AgentMessaging {
     }
 
     const activeRun = bot.lease?.run;
-    const runtimeContent = timestampUserTurn(input.content, {
+    const baseRuntimeContent = timestampUserTurn(input.content, {
       occurredAt: input.occurredAt,
       timeZone: input.timeZone ?? this.defaultTimeZone,
     });
+    const attachmentPaths = await this.agentData.materializeAttachments(
+      bot.id,
+      input.clientId,
+      input.images ?? []
+    );
+    const runtimeContent = attachmentPaths.length
+      ? `${baseRuntimeContent}\n\nAttached files available on the shared computer:\n${attachmentPaths.map((path) => `- ${path}`).join("\n")}`
+      : baseRuntimeContent;
     const canSteer =
       activeRun?.origin === "user" &&
       activeRun.channelId === input.channelId &&
@@ -230,6 +311,7 @@ export class AgentMessaging {
         payload: json({
           messageId,
           content: runtimeContent,
+          images: input.images ?? [],
           clientId: input.clientId,
           channelId: input.channelId,
           deliveryId: null,
@@ -268,6 +350,7 @@ export class AgentMessaging {
         inboxId: inbox.id,
         clientMessageId: input.clientId,
         content: runtimeContent,
+        images: [...(input.images ?? [])],
       } satisfies SteerDispatch,
       interruptRunId: null,
     };
@@ -638,7 +721,23 @@ export class AgentMessaging {
               ? "User"
               : (message.senderBot?.name ?? (message.sender === "system" ? "System" : "Agent"));
           const address = message.sender === "user" ? ` [t${message.sequence}u]` : "";
-          return `${sender}${address}: ${message.content}`;
+          const metadata =
+            message.metadata &&
+            !Array.isArray(message.metadata) &&
+            typeof message.metadata === "object"
+              ? (message.metadata as Record<string, unknown>)
+              : {};
+          const reply =
+            metadata.replyTo &&
+            typeof metadata.replyTo === "object" &&
+            !Array.isArray(metadata.replyTo)
+              ? (metadata.replyTo as Record<string, unknown>)
+              : null;
+          const replyLine =
+            reply && typeof reply.address === "string" && typeof reply.content === "string"
+              ? `\n[In reply to ${reply.address}: ${JSON.stringify(reply.content)}]`
+              : "";
+          return `${sender}${address}:${replyLine} ${message.content}`;
         });
         const content = [
           `[Group chat: "${round.channel.name}"${otherNames ? ` — with ${otherNames}` : ""}]`,
@@ -657,6 +756,7 @@ export class AgentMessaging {
           origin: "group",
           type: "group.message",
           content,
+          images: inlineImagesFromMetadata(round.triggerMessage.metadata),
           clientId: `group:${round.id}:${delivery.id}`,
           priority: PRIORITY.group,
           occurredAt: round.triggerMessage.createdAt,
@@ -747,10 +847,17 @@ export class AgentMessaging {
     });
     const todoContext = bot.todos.map((todo) => `- [${todo.status}] ${todo.id}: ${todo.content}`);
     if (bot.subagentIdentity) {
+      const specialization = subagentSpecializationInstructions(
+        bot.subagentIdentity.subagentType as SubagentType
+      );
       return [
         `You are ${bot.name}, a durable OpenBot background subagent.`,
         "Your plain final assistant message is delivered privately to your parent agent. Do not call SendMessage or SendToAgent.",
-        "Use GetDynamicTools for graphical Computer control when needed. The cursor namespace exposes TodoWrite only; parent orchestration and administration tools are unavailable.",
+        specialization,
+        bot.subagentIdentity.subagentType === "computerUse" ||
+        bot.subagentIdentity.subagentType === "browserUse"
+          ? "Your tool surface is intentionally specialized; GetDynamicTools, parent orchestration, agent administration, and channel administration are unavailable."
+          : "The cursor namespace exposes TodoWrite only; parent orchestration and administration tools are unavailable.",
         `The computer filesystem is shared. Your working folder is ${bot.defaultDirectory}; shared files live under /workspace/shared.`,
         todoContext.length > 0
           ? `Your durable task list:\n${todoContext.join("\n")}`
@@ -760,67 +867,43 @@ export class AgentMessaging {
         .filter(Boolean)
         .join("\n\n");
     }
+    const agentPrompt = await this.agentData.promptContext(botId);
     const projectMemberships = await this.prisma.projectMember.findMany({
       where: { botId },
       include: { project: true },
       orderBy: { joinedAt: "asc" },
     });
-    const memoryNamespaces = [
-      `agent:${botId}`,
-      "user",
-      ...projectMemberships.map((membership) => `project:${membership.projectSlug}:agent:${botId}`),
-    ];
-    const [peers, groups, profileMemory, logMemory, noteMemory, skills, disconnected, routines] =
-      await Promise.all([
-        this.prisma.bot.findMany({
-          where: { id: { not: botId }, status: "active", hiddenFromSidebar: false },
-          select: { id: true, name: true },
-          orderBy: { createdAt: "asc" },
-        }),
-        this.prisma.channel.findMany({
-          where: {
-            kind: "group",
-            archivedAt: null,
-            members: { some: { botId } },
-          },
-          select: { id: true, name: true, workingDirectory: true },
-          orderBy: { createdAt: "asc" },
-        }),
-        this.prisma.memoryFact.findMany({
-          where: { namespace: { in: memoryNamespaces }, tier: "profile" },
-          orderBy: { updatedAt: "asc" },
-          take: 60,
-        }),
-        this.prisma.memoryFact.findMany({
-          where: { namespace: { in: memoryNamespaces }, tier: "log" },
-          orderBy: { updatedAt: "desc" },
-          take: 40,
-        }),
-        this.prisma.memoryFact.findMany({
-          where: {
-            namespace: { in: memoryNamespaces },
-            tier: "note",
-            updatedAt: { gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1_000) },
-          },
-          orderBy: { updatedAt: "desc" },
-          take: 12,
-        }),
-        this.prisma.savedSkill.findMany({
-          where: { botId },
-          orderBy: { updatedAt: "desc" },
-          take: 20,
-        }),
-        this.prisma.botConnectorState.findMany({
-          where: { botId, connected: false },
-          select: { platform: true },
-          orderBy: { platform: "asc" },
-        }),
-        this.prisma.routine.findMany({
-          where: { botId, deletedAt: null },
-          orderBy: { updatedAt: "desc" },
-          take: 50,
-        }),
-      ]);
+    const [peers, groups, disconnected, routines] = await Promise.all([
+      this.prisma.bot.findMany({
+        where: {
+          id: { not: botId },
+          status: "active",
+          hiddenFromSidebar: false,
+          subagentIdentity: { is: null },
+        },
+        select: { id: true, name: true },
+        orderBy: { createdAt: "asc" },
+      }),
+      this.prisma.channel.findMany({
+        where: {
+          kind: "group",
+          archivedAt: null,
+          members: { some: { botId } },
+        },
+        select: { id: true, name: true, workingDirectory: true },
+        orderBy: { createdAt: "asc" },
+      }),
+      this.prisma.botConnectorState.findMany({
+        where: { botId, connected: false },
+        select: { platform: true },
+        orderBy: { platform: "asc" },
+      }),
+      this.prisma.routine.findMany({
+        where: { botId, deletedAt: null },
+        orderBy: { updatedAt: "desc" },
+        take: 50,
+      }),
+    ]);
     const targets = [
       ...peers.map((peer) => `- Agent ${peer.name}: ${peer.id}`),
       ...groups.map(
@@ -828,17 +911,6 @@ export class AgentMessaging {
           `- Group ${group.name}: ${group.id}${group.workingDirectory ? ` (project folder: ${group.workingDirectory})` : ""}`
       ),
     ];
-    const memory = [...profileMemory, ...logMemory, ...noteMemory];
-    const memoryContext = memory.map((entry) => {
-      const scope = entry.scope === "project" ? `project:${entry.projectSlug}` : entry.scope;
-      return `- [${scope}/${entry.tier}] ${entry.fact}`;
-    });
-    let remainingSkillCharacters = 32_000;
-    const skillContext = skills.map((skill) => {
-      const body = skill.body.slice(0, Math.max(0, Math.min(8_000, remainingSkillCharacters)));
-      remainingSkillCharacters -= body.length;
-      return `### ${skill.name} (${skill.id})\n${skill.description}\n${body}${body.length < skill.body.length ? "\n[body truncated]" : ""}`;
-    });
     const projectContext = projectMemberships.map(
       ({ project }) =>
         `- ${project.name} (${project.slug}): ${project.workingDirectory}${project.description ? ` — ${project.description}` : ""}`
@@ -848,27 +920,29 @@ export class AgentMessaging {
         `- ${routine.name} (${routine.id}): ${routine.enabled ? "active" : "paused"}; ${routine.scheduleText}; next ${routine.nextRunAt?.toISOString() ?? "none"}`
     );
     return [
-      `You are ${bot.name}, a durable OpenBot agent.`,
-      bot.title ? `Your title is: ${bot.title}` : "",
-      bot.description ? `Your description is:\n${bot.description}` : "",
+      agentPrompt.profileSection,
+      agentPrompt.identityAnnouncement,
       "SendMessage is your only user-visible voice. Plain assistant text is internal and never appears in OpenBot chat.",
-      "Use GetDynamicTools with namespace openbot to discover SendToAgent and graphical Computer control. The cursor namespace exposes TodoWrite, Task/CheckSubagent/MessageSubagent/StopSubagent, CreateAgent/UpdateAgent, and CreateChannel/UpdateChannel. Invoke discovered tools with CallDynamicTool. SendToAgent and background Task are asynchronous; never wait or poll for their result in the same turn.",
+      "Use GetDynamicTools with namespace openbot to discover SendToAgent. The cursor namespace exposes TodoWrite, Task/CheckSubagent/MessageSubagent/StopSubagent, CreateAgent/UpdateAgent, and CreateChannel/UpdateChannel. Invoke discovered tools with CallDynamicTool. SendToAgent and background Task are asynchronous; never wait or poll for their result in the same turn.",
+      MAIN_AGENT_GRAPHICAL_DELEGATION_INSTRUCTIONS,
       `Available Task subagent types are executor, videoReview, watchVideo, computerUse, and browserUse. The available subagent model slug is ${process.env.OPENBOT_PI_MODEL ?? "gpt-5.5"}; omit model unless the user explicitly asks for it.`,
       todoContext.length > 0
         ? `Durable task queue (reconcile it with TodoWrite on each wake):\n${todoContext.join("\n")}`
         : "The durable task queue is empty.",
       "In a room wake, speak only when you add something useful. Finishing without SendMessage is a valid silent turn.",
       "Use update_state for durable memory, scheduled routines, skills, profile, settings, connector disconnects, projects, and avatars. It is a write API. The current durable state relevant to you is supplied below on every turn.",
+      `Your authoritative, hand-editable durable state is ${this.agentData.root}/agents/${botId}. It contains profile.json, settings.json, optional instructions.md, an optional canonical avatar.<png|jpg|jpeg|webp|gif|svg> file, Markdown memory, per-bot skills, and automation definitions. Global user memory uses independent writer shards under ${this.agentData.root}/user-memory/by-agent. Project memory is under ${this.agentData.root}/projects/<project>/memory/by-agent/${botId}. Valid edits are imported before each turn. Files are the source of truth; deleting a fact line, avatar file, skill folder, or automation folder deletes that state instead of regenerating it from PostgreSQL.`,
+      `Your effective settings are hiddenFromSidebar=${bot.hiddenFromSidebar}, notifyOnAgentUpdates=${bot.notificationsEnabled}, and dreamingEnabled=${bot.dreamingEnabled}.`,
       `The computer filesystem is shared. Your default working folder is ${bot.defaultDirectory}. Shared cross-bot files belong under /workspace/shared; each group has its own project folder listed below. Folder paths organize work but are not security boundaries.`,
       `Safe peer-readable transcript mirrors live under /home/openbot/agent-data/agent-transcripts/<bot-id>/<bot-id>.jsonl. Read one only when a task-relevant reason requires it. They are redacted reference projections, not private model context or raw Pi session history.`,
       targets.length > 0
         ? `Available SendToAgent targets:\n${targets.join("\n")}`
         : "No peer or group targets are currently available.",
-      memoryContext.length > 0
-        ? `Durable memory (profile first, then recent log and unexpired notes):\n${memoryContext.join("\n")}`
+      agentPrompt.memoryRender
+        ? `Durable memory. Later sections have higher instructional precedence (own > project > user):\n${agentPrompt.memoryRender}`
         : "Durable memory is currently empty.",
-      skillContext.length > 0
-        ? `Saved skills. Apply one when its description matches the task:\n\n${skillContext.join("\n\n")}`
+      agentPrompt.skillRender
+        ? `Saved skills. Apply one when its description matches the task:\n\n${agentPrompt.skillRender}`
         : "No saved skills are currently installed for you.",
       projectContext.length > 0
         ? `Joined projects:\n${projectContext.join("\n")}`
@@ -879,7 +953,9 @@ export class AgentMessaging {
       disconnected.length > 0
         ? `Disconnected connector platforms: ${disconnected.map(({ platform }) => platform).join(", ")}`
         : "No connector platform is marked disconnected.",
-      bot.instructions ? `Bot-specific instructions:\n${bot.instructions}` : "",
+      agentPrompt.warnings.length > 0
+        ? `Agent-data filesystem warnings. Invalid settings/skill/automation edits were preserved and fallback values may be active; fix them before relying on those edits:\n${agentPrompt.warnings.map((warning) => `- ${warning}`).join("\n")}`
+        : "",
     ]
       .filter(Boolean)
       .join("\n\n");
@@ -904,8 +980,13 @@ export class AgentMessaging {
           interruptRunId: null,
         };
       }
-      const source = await tx.bot.findUnique({ where: { id: context.botId } });
-      if (!source || source.status !== "active") throw new Error("Source bot is not active");
+      const source = await tx.bot.findUnique({
+        where: { id: context.botId },
+        include: { subagentIdentity: { select: { id: true } } },
+      });
+      if (!source || source.status !== "active" || source.subagentIdentity) {
+        throw new Error("Source bot is not active");
+      }
       const group = await tx.channel.findFirst({
         where: {
           id: input.target_id,
@@ -954,10 +1035,12 @@ export class AgentMessaging {
       }
       const target = await tx.bot.findUnique({
         where: { id: input.target_id },
+        include: { subagentIdentity: { select: { id: true } } },
       });
       if (
         !target ||
         !["active", "provisioning"].includes(target.status) ||
+        target.subagentIdentity ||
         target.id === source.id
       ) {
         throw new Error("Target agent was not found or is not eligible");
@@ -1104,7 +1187,11 @@ export class AgentMessaging {
         data: {
           topic: "channel.message.reaction",
           entityId: message.id,
-          payload: json({ messageId: message.id, botId: context.botId, ...result }),
+          payload: json({
+            messageId: message.id,
+            botId: context.botId,
+            ...result,
+          }),
         },
       });
       await tx.idempotencyRecord.update({
@@ -1227,9 +1314,18 @@ export class AgentMessaging {
   }
 }
 
+export {
+  appendRoutineRunLedger,
+  nextRoutineRun,
+  normalizeRoutineSchedule,
+  RoutineService,
+} from "./routines";
+export {
+  formatTurnTimestamp,
+  resolveTimeZone,
+  timestampUserTurn,
+} from "./timestamps";
 export { PRIORITY };
-export { RoutineService, nextRoutineRun, normalizeRoutineSchedule } from "./routines";
-export { formatTurnTimestamp, resolveTimeZone, timestampUserTurn } from "./timestamps";
 
 const safeVisibleMetadata = (value: unknown): Record<string, unknown> => {
   if (!value || Array.isArray(value) || typeof value !== "object") return {};

@@ -4,25 +4,28 @@ import {
   type CreateBotInput,
   type CreateGroupInput,
   type DynamicToolCallRequest,
+  type ReactToChannelMessageInput,
   type ScreenActionInput,
   type SendMessageInput,
   type UpdateBotInput,
 } from "@openbot/contracts";
 import { createPrismaClient, type PrismaClient } from "@openbot/db";
-import { AgentMessaging, RoutineService } from "@openbot/messaging";
+import { AgentDataStore, AgentMessaging, RoutineService } from "@openbot/messaging";
 import { Effect } from "effect";
 import { PgBoss } from "pg-boss";
-import { DurableStateService } from "./update-state";
 import { AdministrationService } from "./services/administration-service";
 import { BotService } from "./services/bot-service";
 import { ChannelService } from "./services/channel-service";
 import { InternalToolService } from "./services/internal-tool-service";
+import { PluginService } from "./services/plugin-service";
 import { RunService } from "./services/run-service";
 import { ScreenService } from "./services/screen-service";
+import { SearchService } from "./services/search-service";
 import { appendEvent } from "./services/service-utils";
 import { SnapshotService } from "./services/snapshot-service";
 import { SubagentService } from "./services/subagent-service";
 import { TodoService } from "./services/todo-service";
+import { DurableStateService } from "./update-state";
 
 const COMPUTER_ID = "00000000-0000-0000-0000-000000000001";
 export class AppService {
@@ -32,6 +35,7 @@ export class AppService {
   readonly controlToken: string;
   readonly workspaceRoot: string;
   readonly screenViewerHost: string;
+  readonly agentData: AgentDataStore;
   readonly messaging: AgentMessaging;
   readonly routines: RoutineService;
   readonly durableState: DurableStateService;
@@ -41,8 +45,10 @@ export class AppService {
   readonly subagents: SubagentService;
   readonly todos: TodoService;
   readonly internalTools: InternalToolService;
+  readonly plugins: PluginService;
   readonly runs: RunService;
   readonly screens: ScreenService;
+  readonly searchIndex: SearchService;
   readonly snapshots: SnapshotService;
   private queueReady = false;
 
@@ -54,14 +60,22 @@ export class AppService {
     this.controlToken = process.env.OPENBOT_CONTROL_TOKEN ?? "local-compose-only-change-me";
     this.workspaceRoot = resolve(process.env.OPENBOT_WORKSPACE_ROOT ?? "/workspace");
     this.screenViewerHost = process.env.OPENBOT_SCREEN_VIEWER_HOST ?? "127.0.0.1";
+    this.agentData = new AgentDataStore(this.prisma, {
+      workspaceRoot: this.workspaceRoot,
+    });
     this.screens = new ScreenService(
       this.prisma,
-      this.workspaceRoot,
+      this.agentData.root,
       this.screenViewerHost,
       (path, init) => this.computerFetch(path, init)
     );
-    this.bots = new BotService(this.prisma, this.boss, this.workspaceRoot, (path, init) =>
-      this.computerFetch(path, init)
+    this.searchIndex = new SearchService(this.prisma);
+    this.bots = new BotService(
+      this.prisma,
+      this.boss,
+      this.workspaceRoot,
+      (path, init) => this.computerFetch(path, init),
+      this.agentData
     );
     this.snapshots = new SnapshotService(
       this.prisma,
@@ -69,12 +83,13 @@ export class AppService {
       this.computerUrl,
       () => this.queueReady
     );
-    this.messaging = new AgentMessaging(this.prisma, this.boss);
+    this.messaging = new AgentMessaging(this.prisma, this.boss, this.agentData);
     this.channels = new ChannelService(
       this.prisma,
       this.messaging,
       this.workspaceRoot,
-      (path, init) => this.computerFetch(path, init)
+      (path, init) => this.computerFetch(path, init),
+      this.agentData
     );
     this.runs = new RunService(this.prisma, this.messaging, (path, init) =>
       this.computerFetch(path, init)
@@ -85,7 +100,8 @@ export class AppService {
       this.bots,
       this.messaging,
       this.workspaceRoot,
-      (path, init) => this.computerFetch(path, init)
+      (path, init) => this.computerFetch(path, init),
+      this.agentData
     );
     this.subagents = new SubagentService(
       this.prisma,
@@ -94,7 +110,7 @@ export class AppService {
       this.workspaceRoot,
       (path, init) => this.computerFetch(path, init)
     );
-    this.routines = new RoutineService(this.prisma, this.messaging);
+    this.routines = new RoutineService(this.prisma, this.messaging, this.agentData);
     this.durableState = new DurableStateService(
       this.prisma,
       this.workspaceRoot,
@@ -107,8 +123,10 @@ export class AppService {
           throw new ApiError(503, "computer_unavailable", await response.text());
         }
       },
-      this.routines
+      this.routines,
+      this.agentData
     );
+    this.plugins = new PluginService(this.prisma);
     this.internalTools = new InternalToolService(
       this.prisma,
       this.messaging,
@@ -116,7 +134,8 @@ export class AppService {
       (runId) => this.channels.interruptNonUserRun(runId),
       this.todos,
       this.subagents,
-      this.administration
+      this.administration,
+      this.plugins
     );
     this.boss.on("error", (error) => console.error("pg-boss", error));
   }
@@ -125,6 +144,7 @@ export class AppService {
     Effect.tryPromise({
       try: async () => {
         await this.prisma.$queryRaw`SELECT 1`;
+        await this.agentData.startWatching();
         await this.boss.start();
         await this.boss.createQueue("bot-wake");
         await this.boss.createQueue("bot-provision");
@@ -170,6 +190,7 @@ export class AppService {
 
   close = () =>
     Effect.promise(async () => {
+      await this.agentData.stopWatching();
       await this.boss.stop({ graceful: true });
       await this.prisma.$disconnect();
     });
@@ -204,7 +225,68 @@ export class AppService {
   sendChannelMessage = (channelId: string, input: SendMessageInput) =>
     this.channels.sendGroupMessage(channelId, input);
 
+  reactToMessage = (messageId: string, input: ReactToChannelMessageInput) =>
+    this.channels.reactToMessage(messageId, input);
+
   handleDynamicTool = (request: DynamicToolCallRequest) => this.internalTools.execute(request);
+
+  pluginSettings = () => this.plugins.settings();
+
+  rootSettings = () =>
+    Effect.tryPromise({
+      try: () => this.agentData.loadRootSettings(),
+      catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+    });
+
+  updateSidebarPreferences = (input: unknown) =>
+    Effect.tryPromise({
+      try: () => this.agentData.writeSidebarPreferences(input),
+      catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+    });
+
+  activeAgent = () =>
+    Effect.tryPromise({
+      try: () => this.agentData.loadActiveAgentId(),
+      catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+    });
+
+  setActiveAgent = (activeAgentId: string) =>
+    Effect.tryPromise({
+      try: async () => {
+        await this.agentData.writeActiveAgentId(activeAgentId);
+        return { activeAgentId };
+      },
+      catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+    });
+
+  installPlugin = (pluginKey: string) => this.plugins.install(pluginKey);
+
+  addCustomMcp = (name: string, url: string, alias?: string) =>
+    this.plugins.addCustomMcp(name, url, alias);
+
+  uninstallPlugin = (pluginKey: string) => this.plugins.uninstall(pluginKey);
+
+  connectPlugin = (connectionId: string) => this.plugins.connect(connectionId);
+
+  disconnectPlugin = (connectionId: string) => this.plugins.disconnect(connectionId);
+
+  addPluginAccount = (connectionId: string, alias: string) =>
+    this.plugins.addAccount(connectionId, alias);
+
+  setPluginGrant = (connectionId: string, botId: string, enabled: boolean) =>
+    this.plugins.setGrant(connectionId, botId, enabled);
+
+  setPluginEnablement = (
+    pluginKey: string,
+    botId: string,
+    enabled: boolean,
+    skillsEnabled?: boolean
+  ) => this.plugins.setEnablement(pluginKey, botId, enabled, skillsEnabled);
+
+  setPluginPolicy = (
+    connectionId: string,
+    input: import("@openbot/contracts").SetPluginToolPolicyInput
+  ) => this.plugins.setPolicy(connectionId, input);
 
   cancelRun = (runId: string) => this.runs.cancel(runId);
 
@@ -216,6 +298,9 @@ export class AppService {
   snapshot = () => this.snapshots.full();
 
   clientSnapshot = () => this.snapshots.client();
+
+  search = (query: string, category: import("@openbot/contracts").SearchCategory) =>
+    this.searchIndex.search(query, category);
 
   health = () => this.snapshots.health();
 
@@ -236,7 +321,10 @@ export class AppService {
         },
       });
       await tx.approval.updateMany({
-        where: { status: "pending" },
+        where: {
+          status: "pending",
+          requestMethod: { not: "plugin/tool" },
+        },
         data: { status: "expired", resolvedAt: now },
       });
       await tx.botRunLease.deleteMany({ where: { expiresAt: { lt: now } } });

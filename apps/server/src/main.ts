@@ -1,13 +1,21 @@
 import { timingSafeEqual } from "node:crypto";
 import {
   ApiError,
+  AddCustomMcpInput,
+  ConnectPluginInput,
   CreateBotInput,
   CreateGroupInput,
   DynamicToolCallRequest,
+  InstallPluginInput,
+  ReactToChannelMessageInput,
   ResolveApprovalInput,
   ScreenActionInput,
   ScreenPauseInput,
   ScreenTakeoverInput,
+  SetPluginGrantInput,
+  SetPluginEnablementInput,
+  SetPluginToolPolicyInput,
+  type SearchCategory,
   SendMessageInput,
   UpdateBotInput,
 } from "@openbot/contracts";
@@ -26,6 +34,15 @@ const run = async <A>(effect: Effect.Effect<A, Error>): Promise<A> => {
   return result.right;
 };
 const encoder = new TextEncoder();
+const searchCategories = new Set<SearchCategory>([
+  "all",
+  "messages",
+  "bots",
+  "channels",
+  "files",
+  "links",
+  "routines",
+]);
 
 const authorizedInternal = (request: Request): boolean => {
   const supplied = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? "";
@@ -68,8 +85,109 @@ const server = Bun.serve({
           "server-timing": `snapshot;dur=${(performance.now() - startedAt).toFixed(2)}`,
         });
       }
+      if (request.method === "GET" && path === "/api/search") {
+        const startedAt = performance.now();
+        const categoryValue = url.searchParams.get("category") ?? "all";
+        if (!searchCategories.has(categoryValue as SearchCategory)) {
+          throw new ApiError(400, "invalid_search_category", "Unknown search category");
+        }
+        const results = await run(
+          app.search(url.searchParams.get("q") ?? "", categoryValue as SearchCategory)
+        );
+        return json(results, 200, {
+          "server-timing": `search;dur=${(performance.now() - startedAt).toFixed(2)}`,
+        });
+      }
       if (request.method === "GET" && path === "/api/bots") {
         return json((await run(app.clientSnapshot())).bots);
+      }
+      if (request.method === "GET" && path === "/api/plugins") {
+        return json(await run(app.pluginSettings()));
+      }
+      if (request.method === "GET" && path === "/api/settings") {
+        return json(await run(app.rootSettings()));
+      }
+      if (request.method === "PATCH" && path === "/api/settings/sidebar") {
+        const input = await request.json().catch(() => null);
+        if (!input || typeof input !== "object" || Array.isArray(input)) {
+          throw new ApiError(
+            400,
+            "invalid_sidebar_preferences",
+            "Sidebar preferences must be an object"
+          );
+        }
+        return json(await run(app.updateSidebarPreferences(input)));
+      }
+      if (request.method === "GET" && path === "/api/active-agent") {
+        return json({ activeAgentId: await run(app.activeAgent()) });
+      }
+      if (request.method === "PATCH" && path === "/api/active-agent") {
+        const input = (await request.json().catch(() => null)) as {
+          activeAgentId?: unknown;
+        } | null;
+        if (!input || typeof input.activeAgentId !== "string") {
+          throw new ApiError(400, "invalid_active_agent", "activeAgentId must be a string");
+        }
+        return json(await run(app.setActiveAgent(input.activeAgentId)));
+      }
+      if (request.method === "POST" && path === "/api/plugins/install") {
+        const input = await parseBody(request, InstallPluginInput);
+        return json(await run(app.installPlugin(input.pluginKey)), 201);
+      }
+      if (request.method === "POST" && path === "/api/plugins/custom-mcp") {
+        const input = await parseBody(request, AddCustomMcpInput);
+        return json(await run(app.addCustomMcp(input.name, input.url, input.alias)), 201);
+      }
+      const pluginMatch = path.match(/^\/api\/plugins\/([^/]+)$/);
+      if (request.method === "DELETE" && pluginMatch?.[1]) {
+        return json(await run(app.uninstallPlugin(decodeURIComponent(pluginMatch[1]))));
+      }
+      const pluginEnablementMatch = path.match(/^\/api\/plugins\/([^/]+)\/enablement$/);
+      if (request.method === "POST" && pluginEnablementMatch?.[1]) {
+        const input = await parseBody(request, SetPluginEnablementInput);
+        return json(
+          await run(
+            app.setPluginEnablement(
+              decodeURIComponent(pluginEnablementMatch[1]),
+              input.botId,
+              input.enabled,
+              input.skillsEnabled
+            )
+          )
+        );
+      }
+      const connectionActionMatch = path.match(
+        /^\/api\/plugin-connections\/([^/]+)\/(connect|disconnect)$/
+      );
+      if (request.method === "POST" && connectionActionMatch?.[1]) {
+        if (connectionActionMatch[2] === "connect") {
+          return json(await run(app.connectPlugin(connectionActionMatch[1])));
+        }
+        return json(await run(app.disconnectPlugin(connectionActionMatch[1])));
+      }
+      const connectionAccountMatch = path.match(/^\/api\/plugin-connections\/([^/]+)\/accounts$/);
+      if (request.method === "POST" && connectionAccountMatch?.[1]) {
+        const input = await parseBody(request, ConnectPluginInput);
+        if (!input.alias) throw new ApiError(400, "connection_alias_required", "Alias is required");
+        return json(await run(app.addPluginAccount(connectionAccountMatch[1], input.alias)), 201);
+      }
+      const connectionGrantMatch = path.match(/^\/api\/plugin-connections\/([^/]+)\/grant$/);
+      if (request.method === "POST" && connectionGrantMatch?.[1]) {
+        const input = await parseBody(request, SetPluginGrantInput);
+        return json(
+          await run(app.setPluginGrant(connectionGrantMatch[1], input.botId, input.enabled))
+        );
+      }
+      const connectionPolicyMatch = path.match(/^\/api\/plugin-connections\/([^/]+)\/policy$/);
+      if (request.method === "POST" && connectionPolicyMatch?.[1]) {
+        return json(
+          await run(
+            app.setPluginPolicy(
+              connectionPolicyMatch[1],
+              await parseBody(request, SetPluginToolPolicyInput)
+            )
+          )
+        );
       }
       if (request.method === "POST" && path === "/api/bots") {
         return json(await run(app.createBot(await parseBody(request, CreateBotInput))), 201);
@@ -132,6 +250,7 @@ const server = Bun.serve({
             "content-type": avatar.contentType,
             "cache-control": "private, max-age=31536000, immutable",
             "x-content-type-options": "nosniff",
+            "content-security-policy": "default-src 'none'; sandbox",
           },
         });
       }
@@ -158,6 +277,20 @@ const server = Bun.serve({
             app.sendChannelMessage(
               channelMessageMatch[1],
               await parseBody(request, SendMessageInput)
+            )
+          ),
+          202
+        );
+      }
+      const channelMessageReactionMatch = path.match(
+        /^\/api\/channel-messages\/([^/]+)\/reaction$/
+      );
+      if (request.method === "POST" && channelMessageReactionMatch?.[1]) {
+        return json(
+          await run(
+            app.reactToMessage(
+              channelMessageReactionMatch[1],
+              await parseBody(request, ReactToChannelMessageInput)
             )
           ),
           202

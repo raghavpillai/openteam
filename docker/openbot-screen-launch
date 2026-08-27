@@ -4,6 +4,7 @@ set -eu
 screen_cwd=${OPENBOT_SCREEN_CWD:-/workspace}
 browser_profile=${OPENBOT_BROWSER_PROFILE:-/home/openbot/.openbot/chromium/default}
 browser_debug_port=${OPENBOT_BROWSER_DEBUG_PORT:-9222}
+browser_target=${2:-about:blank}
 
 case "${1:-}" in
   chromium)
@@ -17,8 +18,9 @@ case "${1:-}" in
       --disable-features=Translate \
       --user-data-dir="$browser_profile" \
       --remote-debugging-address=127.0.0.1 \
+      --remote-allow-origins='*' \
       --remote-debugging-port="$browser_debug_port" \
-      --new-window about:blank
+      --new-window "$browser_target"
     ;;
   thunar)
     exec thunar "$screen_cwd"

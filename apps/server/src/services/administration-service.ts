@@ -7,7 +7,7 @@ import {
   type UpdateChannelInput,
 } from "@openbot/contracts";
 import type { PrismaClient } from "@openbot/db";
-import type { AgentMessaging } from "@openbot/messaging";
+import type { AgentDataStore, AgentMessaging } from "@openbot/messaging";
 import { Effect } from "effect";
 import type { BotService } from "./bot-service";
 import { appendEvent, type ComputerFetch, hashRequest, slugify, toJson } from "./service-utils";
@@ -18,7 +18,8 @@ export class AdministrationService {
     private readonly bots: BotService,
     private readonly messaging: AgentMessaging,
     private readonly workspaceRoot: string,
-    private readonly computerFetch: ComputerFetch
+    private readonly computerFetch: ComputerFetch,
+    private readonly agentData: AgentDataStore
   ) {}
 
   async createAgent(parentBotId: string, callId: string, input: CreateAgentInput) {
@@ -39,8 +40,16 @@ export class AdministrationService {
   }
 
   async updateAgent(parentBotId: string, callId: string, input: UpdateAgentInput) {
-    const target = await this.prisma.bot.findUnique({ where: { id: input.agent_id } });
-    if (!target || target.hiddenFromSidebar || target.status === "archived") {
+    const target = await this.prisma.bot.findUnique({
+      where: { id: input.agent_id },
+      include: { subagentIdentity: { select: { id: true } } },
+    });
+    if (
+      !target ||
+      target.hiddenFromSidebar ||
+      target.status === "archived" ||
+      target.subagentIdentity
+    ) {
       throw new ApiError(404, "agent_not_found", "Agent not found");
     }
     if (input.name !== undefined && input.name.trim().length === 0) {
@@ -76,7 +85,12 @@ export class AdministrationService {
       throw new ApiError(400, "channel_too_large", "A channel can have at most six members");
     }
     const active = await this.prisma.bot.findMany({
-      where: { id: { in: memberIds }, status: "active", hiddenFromSidebar: false },
+      where: {
+        id: { in: memberIds },
+        status: "active",
+        hiddenFromSidebar: false,
+        subagentIdentity: { is: null },
+      },
       select: { id: true },
     });
     if (active.length !== memberIds.length) {
@@ -138,7 +152,9 @@ export class AdministrationService {
             kind: "group",
             name: input.name.trim(),
             workingDirectory: directory,
-            members: { create: memberIds.map((botId, ordinal) => ({ botId, ordinal })) },
+            members: {
+              create: memberIds.map((botId, ordinal) => ({ botId, ordinal })),
+            },
           },
           include: { members: { orderBy: { ordinal: "asc" } } },
         });
@@ -183,7 +199,7 @@ export class AdministrationService {
   }
 
   async updateChannel(parentBotId: string, callId: string, input: UpdateChannelInput) {
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`channel:${input.channel_id}`}))`;
       const channel = await tx.channel.findFirst({
         where: {
@@ -206,6 +222,7 @@ export class AdministrationService {
           id: { in: requestedAdds },
           status: "active",
           hiddenFromSidebar: false,
+          subagentIdentity: { is: null },
         },
         select: { id: true },
       });
@@ -219,9 +236,16 @@ export class AdministrationService {
       const previous = channel.members.map(({ botId }) => botId);
       await tx.channelMember.deleteMany({ where: { channelId: channel.id } });
       await tx.channelMember.createMany({
-        data: memberIds.map((botId, ordinal) => ({ channelId: channel.id, botId, ordinal })),
+        data: memberIds.map((botId, ordinal) => ({
+          channelId: channel.id,
+          botId,
+          ordinal,
+        })),
       });
-      await tx.channel.update({ where: { id: channel.id }, data: { updatedAt: new Date() } });
+      await tx.channel.update({
+        where: { id: channel.id },
+        data: { updatedAt: new Date() },
+      });
       await appendEvent(tx, "channel.members_updated_by_agent", channel.id, {
         initiatorBotId: parentBotId,
         callId,
@@ -233,7 +257,13 @@ export class AdministrationService {
       await this.messaging.scheduleTranscriptProjection(tx, [
         ...new Set([...previous, ...memberIds]),
       ]);
-      return { channel_id: channel.id, name: channel.name, member_ids: memberIds };
+      return {
+        channel_id: channel.id,
+        name: channel.name,
+        member_ids: memberIds,
+      };
     });
+    await this.agentData.writeGroupFilesForBot(result.member_ids[0]!);
+    return result;
   }
 }

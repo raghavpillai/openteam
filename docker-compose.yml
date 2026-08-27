@@ -28,6 +28,13 @@ services:
         condition: service_healthy
     restart: "no"
 
+  agent-data-init:
+    image: alpine:3.22
+    command: ["sh", "-c", "chown 10001:10001 /agent-data && chmod 0700 /agent-data"]
+    restart: "no"
+    volumes:
+      - openbot_agent_data:/agent-data
+
   computer:
     build:
       context: .
@@ -42,6 +49,10 @@ services:
       OPENBOT_PI_AGENT_DIR: /home/openbot/.pi/agent
       OPENBOT_PI_MODEL: ${OPENBOT_PI_MODEL:-gpt-5.5}
       OPENBOT_PI_THINKING: ${OPENBOT_PI_THINKING:-high}
+      OPENBOT_AGENT_DATA_ROOT: /home/openbot/agent-data
+    depends_on:
+      agent-data-init:
+        condition: service_completed_successfully
     cap_drop: ["ALL"]
     security_opt:
       - no-new-privileges:true
@@ -60,6 +71,7 @@ services:
       - "host.docker.internal:host-gateway"
     volumes:
       - openbot_computer_home:/home/openbot
+      - openbot_agent_data:/home/openbot/agent-data
       - openbot_workspace:/workspace
 
   server:
@@ -78,6 +90,7 @@ services:
       OPENBOT_SUBAGENT_PER_PARENT_LIMIT: ${OPENBOT_SUBAGENT_PER_PARENT_LIMIT:-4}
       OPENBOT_SUBAGENT_GLOBAL_LIMIT: ${OPENBOT_SUBAGENT_GLOBAL_LIMIT:-8}
       OPENBOT_SCREEN_VIEWER_HOST: 127.0.0.1
+      OPENBOT_AGENT_DATA_ROOT: /home/openbot/agent-data
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -92,6 +105,7 @@ services:
       retries: 30
     restart: unless-stopped
     volumes:
+      - openbot_agent_data:/home/openbot/agent-data
       - openbot_workspace:/workspace:ro
 
   worker:
@@ -105,14 +119,20 @@ services:
       OPENBOT_CONTROL_TOKEN: ${OPENBOT_CONTROL_TOKEN:-local-compose-only-change-me}
       OPENBOT_TIME_ZONE: ${OPENBOT_TIME_ZONE:-UTC}
       OPENBOT_WORKER_CONCURRENCY: ${OPENBOT_WORKER_CONCURRENCY:-8}
+      OPENBOT_WORKSPACE_ROOT: /workspace
+      OPENBOT_AGENT_DATA_ROOT: /home/openbot/agent-data
     depends_on:
       migrate:
         condition: service_completed_successfully
       computer:
         condition: service_healthy
     restart: unless-stopped
+    volumes:
+      - openbot_agent_data:/home/openbot/agent-data
+      - openbot_workspace:/workspace:ro
 
 volumes:
   openbot_postgres:
   openbot_computer_home:
+  openbot_agent_data:
   openbot_workspace:

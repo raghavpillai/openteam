@@ -4,29 +4,30 @@ import {
   type BotTranscriptView,
   type BotView,
   type CreateBotInput,
+  resolveBotAvatarMark,
   type UpdateBotInput,
 } from "@openbot/contracts";
 import { Prisma, type PrismaClient } from "@openbot/db";
-import { buildSafeTranscript } from "@openbot/messaging";
+import { type AgentDataStore, buildSafeTranscript } from "@openbot/messaging";
 import { Effect } from "effect";
 import { fromPrisma, type PgBoss } from "pg-boss";
-import { type BotWithConversation, toBotView } from "./view-mappers";
 import {
   appendEvent,
-  botColor,
   type ComputerFetch,
   hashRequest,
   slugify,
   toError,
   toJson,
 } from "./service-utils";
+import { type BotWithConversation, toBotView } from "./view-mappers";
 
 export class BotService {
   constructor(
     private readonly prisma: PrismaClient,
     private readonly boss: PgBoss,
     private readonly workspaceRoot: string,
-    private readonly computerFetch: ComputerFetch
+    private readonly computerFetch: ComputerFetch,
+    private readonly agentData: AgentDataStore
   ) {}
 
   create = (input: CreateBotInput) =>
@@ -43,6 +44,11 @@ export class BotService {
         const conversationId = crypto.randomUUID();
         const dmChannelId = crypto.randomUUID();
         const name = input.name?.trim() || "New Bot";
+        const avatar = resolveBotAvatarMark({
+          agentId: botId,
+          avatarShape: input.icon,
+          avatarColor: input.color,
+        });
         const directory = resolve(
           this.workspaceRoot,
           "bots",
@@ -69,8 +75,9 @@ export class BotService {
                 title: input.title?.trim() ?? "",
                 description: input.description?.trim() ?? "",
                 instructions: input.instructions?.trim() ?? "",
-                icon: input.icon ?? "●",
-                color: input.color ?? botColor(botId),
+                icon: avatar.shape,
+                color: avatar.color,
+                namedBy: input.name?.trim() ? "user" : "app",
                 notificationsEnabled: input.notificationsEnabled ?? true,
                 defaultDirectory: directory,
                 status: "provisioning",
@@ -87,7 +94,11 @@ export class BotService {
                 members: { create: { botId, ordinal: 0 } },
               },
             });
-            await appendEvent(tx, "bot.created", botId, { botId, conversationId, dmChannelId });
+            await appendEvent(tx, "bot.created", botId, {
+              botId,
+              conversationId,
+              dmChannelId,
+            });
             await this.boss.send(
               "bot-provision",
               { botId },
@@ -120,6 +131,7 @@ export class BotService {
         }
         if (!bot.conversation)
           throw new ApiError(500, "bot_incomplete", "Bot conversation is missing");
+        await this.agentData.projectBot(bot.id);
         return toBotView(bot);
       },
       catch: toError,
@@ -128,8 +140,14 @@ export class BotService {
   update = (botId: string, input: UpdateBotInput) =>
     Effect.tryPromise({
       try: async () => {
-        const existing = await this.prisma.bot.findUnique({ where: { id: botId } });
-        if (!existing) throw new ApiError(404, "bot_not_found", "Bot not found");
+        await this.agentData.reconcileBot(botId);
+        const existing = await this.prisma.bot.findUnique({
+          where: { id: botId },
+          include: { subagentIdentity: { select: { id: true } } },
+        });
+        if (!existing || existing.subagentIdentity) {
+          throw new ApiError(404, "bot_not_found", "Bot not found");
+        }
         const name = input.name?.trim();
         const bot = await this.prisma.$transaction(async (tx) => {
           const updated = await tx.bot.update({
@@ -141,7 +159,9 @@ export class BotService {
               instructions: input.instructions?.trim(),
               icon: input.icon,
               color: input.color,
+              avatarPath: input.icon !== undefined || input.color !== undefined ? null : undefined,
               notificationsEnabled: input.notificationsEnabled,
+              hiddenFromSidebar: input.hiddenFromSidebar,
             },
             include: {
               conversation: true,
@@ -149,7 +169,10 @@ export class BotService {
             },
           });
           if (name) {
-            await tx.channel.updateMany({ where: { directKey: `bot:${botId}` }, data: { name } });
+            await tx.channel.updateMany({
+              where: { directKey: `bot:${botId}` },
+              data: { name },
+            });
           }
           await appendEvent(tx, "bot.updated", botId, {
             botId,
@@ -158,11 +181,14 @@ export class BotService {
               input.title !== undefined ||
               input.description !== undefined ||
               input.instructions !== undefined,
+            settingsChanged:
+              input.notificationsEnabled !== undefined || input.hiddenFromSidebar !== undefined,
           });
           return updated;
         });
         if (!bot.conversation)
           throw new ApiError(500, "bot_incomplete", "Bot conversation is missing");
+        await this.agentData.writeBotFiles(bot.id);
         return toBotView(bot);
       },
       catch: toError,
@@ -172,14 +198,20 @@ export class BotService {
     Effect.tryPromise({
       try: async () => {
         const bot = await this.prisma.$transaction(async (tx) => {
-          const existing = await tx.bot.findUnique({ where: { id: botId } });
-          if (!existing || existing.status === "archived") {
+          const existing = await tx.bot.findUnique({
+            where: { id: botId },
+            include: { subagentIdentity: { select: { id: true } } },
+          });
+          if (!existing || existing.status === "archived" || existing.subagentIdentity) {
             throw new ApiError(404, "bot_not_found", "Bot not found");
           }
           if (existing.status !== "active") {
             await tx.bot.update({
               where: { id: botId },
-              data: { status: "provisioning", provisioningError: Prisma.DbNull },
+              data: {
+                status: "provisioning",
+                provisioningError: Prisma.DbNull,
+              },
             });
             await this.boss.send(
               "bot-provision",
@@ -212,8 +244,11 @@ export class BotService {
   transcript = (botId: string) =>
     Effect.tryPromise({
       try: async (): Promise<BotTranscriptView> => {
-        const bot = await this.prisma.bot.findUnique({ where: { id: botId } });
-        if (!bot || bot.status === "archived") {
+        const bot = await this.prisma.bot.findUnique({
+          where: { id: botId },
+          include: { subagentIdentity: { select: { id: true } } },
+        });
+        if (!bot || bot.status === "archived" || bot.subagentIdentity) {
           throw new ApiError(404, "bot_not_found", "Bot not found");
         }
         return buildSafeTranscript(this.prisma, botId);
@@ -224,8 +259,13 @@ export class BotService {
   archive = (botId: string) =>
     Effect.tryPromise({
       try: async () => {
-        const existing = await this.prisma.bot.findUnique({ where: { id: botId } });
-        if (!existing) throw new ApiError(404, "bot_not_found", "Bot not found");
+        const existing = await this.prisma.bot.findUnique({
+          where: { id: botId },
+          include: { subagentIdentity: { select: { id: true } } },
+        });
+        if (!existing || existing.subagentIdentity) {
+          throw new ApiError(404, "bot_not_found", "Bot not found");
+        }
         const screenResponse = await this.computerFetch(`/v1/screens/${botId}`, {
           method: "DELETE",
           signal: AbortSignal.timeout(10_000),
@@ -234,13 +274,17 @@ export class BotService {
           throw new ApiError(503, "screen_cleanup_failed", await screenResponse.text());
         }
         await this.prisma.$transaction(async (tx) => {
-          await tx.bot.update({ where: { id: botId }, data: { status: "archived" } });
+          await tx.bot.update({
+            where: { id: botId },
+            data: { status: "archived", avatarPath: null },
+          });
           await tx.channel.updateMany({
             where: { directKey: `bot:${botId}` },
             data: { archivedAt: new Date() },
           });
           await appendEvent(tx, "bot.archived", botId, { botId });
         });
+        await this.agentData.deleteAgentFiles(botId);
         return { ok: true };
       },
       catch: toError,

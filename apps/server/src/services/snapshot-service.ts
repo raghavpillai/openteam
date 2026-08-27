@@ -94,7 +94,11 @@ export class SnapshotService {
       try: async (): Promise<ClientSnapshot> => {
         const [bots, channels, cursor, runtime] = await Promise.all([
           this.prisma.bot.findMany({
-            where: { status: { not: "archived" }, hiddenFromSidebar: false },
+            where: {
+              status: { not: "archived" },
+              hiddenFromSidebar: false,
+              subagentIdentity: { is: null },
+            },
             include: {
               conversation: true,
               channelMemberships: {
@@ -107,7 +111,11 @@ export class SnapshotService {
           this.prisma.channel.findMany({
             where: {
               archivedAt: null,
-              members: { some: { bot: { hiddenFromSidebar: false } } },
+              members: {
+                some: {
+                  bot: { hiddenFromSidebar: false, subagentIdentity: { is: null } },
+                },
+              },
             },
             include: { members: { orderBy: { ordinal: "asc" } } },
             orderBy: { updatedAt: "desc" },

@@ -76,7 +76,8 @@ export class NativeToolExecutor {
   async shell(
     input: ShellToolInput,
     cwd: string,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    environment?: NodeJS.ProcessEnv
   ): Promise<AgentToolResult<Record<string, unknown>>> {
     const workingDirectory = localPath(input.working_directory ?? cwd, cwd);
     const directory = await stat(workingDirectory);
@@ -93,7 +94,7 @@ export class NativeToolExecutor {
 
     const child = spawn("/bin/bash", ["-lc", input.command], {
       cwd: workingDirectory,
-      env: process.env,
+      env: environment ?? process.env,
       stdio: ["ignore", "pipe", "pipe"],
     });
     const chunks: Buffer[] = [];
@@ -116,9 +117,9 @@ export class NativeToolExecutor {
       child.once("close", (code) => {
         const elapsedMs = Date.now() - startedAt;
         outputFile.end(
-          `\n\nstatus: completed\nexit_code: ${code ?? "null"}\nelapsed_ms: ${elapsedMs}\n`
+          `\n\nstatus: completed\nexit_code: ${code ?? "null"}\nelapsed_ms: ${elapsedMs}\n`,
+          () => resolveCompletion(code)
         );
-        resolveCompletion(code);
       });
     });
 

@@ -1,5 +1,6 @@
 import type { ComputerEvent } from "@openbot/contracts";
 import type { Prisma, PrismaClient, RunItemKind, RunItemStatus } from "@openbot/db";
+import type { AgentDataStore } from "@openbot/messaging";
 
 const json = (value: unknown): Prisma.InputJsonValue =>
   JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
@@ -33,7 +34,10 @@ const itemStatus = (item: Record<string, unknown>, completed: boolean): RunItemS
 };
 
 export class Projection {
-  constructor(private readonly prisma: PrismaClient) {}
+  constructor(
+    private readonly prisma: PrismaClient,
+    private readonly agentData?: AgentDataStore
+  ) {}
 
   async apply(runId: string, conversationId: string, botId: string, event: ComputerEvent) {
     switch (event.type) {
@@ -217,6 +221,16 @@ export class Projection {
             item,
           });
         });
+        if (completed && item.type === "commandExecution" && typeof item.command === "string") {
+          await this.agentData?.appendAudit(botId, {
+            eventId: upstreamItemId,
+            turnId: event.turnId,
+            type: "shell_command",
+            command: item.command,
+            shellKind: typeof item.shellKind === "string" ? item.shellKind : "unknown",
+            target: "computer",
+          });
+        }
         break;
       }
       case "approval.requested":
@@ -266,6 +280,10 @@ export class Projection {
               content: json(event),
               completedAt: new Date(),
             },
+          });
+          await tx.conversation.update({
+            where: { id: conversationId },
+            data: { compactionEpoch: { increment: 1 } },
           });
           await this.event(tx, "conversation.compacted", conversationId, event);
         });
@@ -327,7 +345,11 @@ export class Projection {
             },
           });
           await tx.approval.updateMany({
-            where: { runId, status: "pending" },
+            where: {
+              runId,
+              status: "pending",
+              requestMethod: { not: "plugin/tool" },
+            },
             data: { status: "expired", resolvedAt: new Date() },
           });
           await this.event(tx, "run.completed", runId, {

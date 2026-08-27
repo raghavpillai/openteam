@@ -1,14 +1,10 @@
 import { createHash } from "node:crypto";
-import { realpath, stat } from "node:fs/promises";
-import { extname, isAbsolute, relative, resolve, sep } from "node:path";
+import { isAbsolute, relative, resolve, sep } from "node:path";
 import { ApiError, type UpdateStateInput } from "@openbot/contracts";
 import { type Prisma, type PrismaClient } from "@openbot/db";
-import type { RoutineService } from "@openbot/messaging";
+import type { AgentDataStore, RoutineService } from "@openbot/messaging";
 
 const PROJECT_SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
-const AVATAR_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"]);
-const MAX_AVATAR_BYTES = 5 * 1024 * 1024;
-
 const requiredText = (
   value: string | undefined,
   field: string,
@@ -30,15 +26,6 @@ const stateError = (target: string, action: string): never => {
   );
 };
 
-const factHash = (fact: string): string => createHash("sha256").update(fact).digest("hex");
-
-const memoryNamespace = (botId: string, scope: "agent" | "user" | "project", project?: string) =>
-  scope === "user"
-    ? "user"
-    : scope === "project"
-      ? `project:${project}:agent:${botId}`
-      : `agent:${botId}`;
-
 const eventPayload = (value: Record<string, unknown>): Prisma.InputJsonValue =>
   JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
 
@@ -51,7 +38,8 @@ export class DurableStateService {
       name: string;
       description: string;
     }) => Promise<void>,
-    private readonly routines: RoutineService
+    private readonly routines: RoutineService,
+    private readonly agentData: AgentDataStore
   ) {}
 
   async execute(
@@ -60,6 +48,7 @@ export class DurableStateService {
     input: UpdateStateInput,
     runId: string | null = null
   ): Promise<Record<string, unknown>> {
+    await this.agentData.reconcileBot(botId);
     const bot = await this.prisma.bot.findUnique({ where: { id: botId } });
     if (!bot || bot.status !== "active") {
       throw new ApiError(404, "bot_not_found", "Active bot not found");
@@ -93,6 +82,7 @@ export class DurableStateService {
 
     try {
       const result = await this.mutate(botId, callId, runId, input);
+      await this.agentData.projectBot(botId);
       await this.prisma.$transaction(async (tx) => {
         await tx.event.create({
           data: {
@@ -134,7 +124,7 @@ export class DurableStateService {
         if (!["create", "update", "pause", "resume", "delete"].includes(input.action)) {
           return stateError(input.target, input.action);
         }
-        return this.routines.mutate(botId, callId, runId, {
+        const routine = await this.routines.mutate(botId, callId, runId, {
           action: input.action as "create" | "update" | "pause" | "resume" | "delete",
           id: input.id,
           name: input.name,
@@ -143,6 +133,14 @@ export class DurableStateService {
           trigger: input.trigger,
           enabled: input.enabled,
         });
+        if (typeof routine.id === "string") {
+          if (input.action === "delete") {
+            await this.agentData.deleteRoutine(botId, routine.id);
+          } else {
+            await this.agentData.writeRoutine(botId, routine.id);
+          }
+        }
+        return routine;
       case "skill":
         return this.skill(botId, input);
       case "profile":
@@ -169,17 +167,16 @@ export class DurableStateService {
         ? this.requireProjectSlug(input.project, input.target, input.action)
         : undefined;
     if (project) await this.requireProjectMembership(botId, project);
-    const namespace = memoryNamespace(botId, scope, project);
-    const hash = factHash(fact);
-
     if (input.action === "forget") {
-      const removed = await this.prisma.memoryFact.deleteMany({
-        where: { namespace, factHash: hash, fact },
+      const removed = await this.agentData.forgetMemory(botId, {
+        scope,
+        projectSlug: project,
+        fact,
       });
       return {
         target: "memory",
         action: "forget",
-        forgotten: removed.count > 0,
+        forgotten: removed.forgotten,
         scope,
         project: project ?? null,
         fact,
@@ -187,28 +184,17 @@ export class DurableStateService {
     }
 
     const tier = input.tier ?? "log";
-    const saved = await this.prisma.memoryFact.upsert({
-      where: { namespace_factHash: { namespace, factHash: hash } },
-      create: {
-        namespace,
-        scope,
-        tier,
-        projectSlug: project,
-        fact,
-        factHash: hash,
-        writtenByBotId: botId,
-      },
-      update: {
-        tier,
-        fact,
-        writtenByBotId: botId,
-      },
+    const saved = await this.agentData.writeMemory(botId, {
+      scope,
+      projectSlug: project,
+      tier,
+      fact,
     });
     return {
       target: "memory",
       action: "write",
-      id: saved.id,
-      saved: true,
+      id: saved.logicalId,
+      saved: saved.saved,
       scope,
       tier,
       project: project ?? null,
@@ -219,8 +205,8 @@ export class DurableStateService {
   private async skill(botId: string, input: UpdateStateInput): Promise<Record<string, unknown>> {
     if (input.action === "delete") {
       const id = requiredText(input.id, "id", input.target, input.action);
-      const removed = await this.prisma.savedSkill.deleteMany({ where: { id, botId } });
-      if (removed.count === 0) {
+      const removed = await this.agentData.deleteSkill(botId, id);
+      if (!removed) {
         throw new ApiError(404, "skill_not_found", "That skill does not belong to this bot");
       }
       return { target: "skill", action: "delete", id, deleted: true };
@@ -230,21 +216,12 @@ export class DurableStateService {
     const name = requiredText(input.name, "name", input.target, input.action);
     const description = requiredText(input.description, "description", input.target, input.action);
     const body = requiredText(input.body, "body", input.target, input.action);
-    if (!/^use this when\b/i.test(description)) {
-      throw new ApiError(
-        400,
-        "skill_description_invalid",
-        'Skill description must start with "use this when" so the agent can select it reliably'
-      );
-    }
-
-    const saved = input.id
-      ? await this.rewriteSkill(botId, input.id, { name, description, body })
-      : await this.prisma.savedSkill.upsert({
-          where: { botId_name: { botId, name } },
-          create: { botId, name, description, body },
-          update: { description, body },
-        });
+    const saved = await this.agentData.writeSkill(botId, {
+      id: input.id,
+      name,
+      description,
+      body,
+    });
     return {
       target: "skill",
       action: "write",
@@ -252,17 +229,6 @@ export class DurableStateService {
       name: saved.name,
       saved: true,
     };
-  }
-
-  private async rewriteSkill(
-    botId: string,
-    id: string,
-    data: { name: string; description: string; body: string }
-  ) {
-    const skill = await this.prisma.savedSkill.findFirst({ where: { id, botId } });
-    if (!skill)
-      throw new ApiError(404, "skill_not_found", "That skill does not belong to this bot");
-    return this.prisma.savedSkill.update({ where: { id }, data });
   }
 
   private async profile(botId: string, input: UpdateStateInput): Promise<Record<string, unknown>> {
@@ -284,10 +250,14 @@ export class DurableStateService {
         select: { id: true, name: true, description: true },
       });
       if (name) {
-        await tx.channel.updateMany({ where: { directKey: `bot:${botId}` }, data: { name } });
+        await tx.channel.updateMany({
+          where: { directKey: `bot:${botId}` },
+          data: { name },
+        });
       }
       return updated;
     });
+    await this.agentData.writeBotFiles(botId, ["profile"]);
     return {
       target: "profile",
       action: "set",
@@ -299,11 +269,15 @@ export class DurableStateService {
 
   private async settings(botId: string, input: UpdateStateInput): Promise<Record<string, unknown>> {
     if (input.action !== "set") return stateError(input.target, input.action);
-    if (input.hidden_from_sidebar === undefined && input.notify_on_updates === undefined) {
+    if (
+      input.hidden_from_sidebar === undefined &&
+      input.notify_on_updates === undefined &&
+      input.dreaming_enabled === undefined
+    ) {
       throw new ApiError(
         400,
         "state_field_required",
-        "settings set requires hidden_from_sidebar and/or notify_on_updates"
+        "settings set requires hidden_from_sidebar, notify_on_updates, and/or dreaming_enabled"
       );
     }
     const settings = await this.prisma.bot.update({
@@ -311,14 +285,21 @@ export class DurableStateService {
       data: {
         hiddenFromSidebar: input.hidden_from_sidebar,
         notificationsEnabled: input.notify_on_updates,
+        dreamingEnabled: input.dreaming_enabled,
       },
-      select: { hiddenFromSidebar: true, notificationsEnabled: true },
+      select: {
+        hiddenFromSidebar: true,
+        notificationsEnabled: true,
+        dreamingEnabled: true,
+      },
     });
+    await this.agentData.writeBotFiles(botId, ["settings"]);
     return {
       target: "settings",
       action: "set",
       hidden_from_sidebar: settings.hiddenFromSidebar,
       notify_on_updates: settings.notificationsEnabled,
+      dreaming_enabled: settings.dreamingEnabled,
       updated: true,
     };
   }
@@ -337,7 +318,12 @@ export class DurableStateService {
       create: { botId, platform, connected: false, disconnectedAt },
       update: { connected: false, disconnectedAt },
     });
-    return { target: "channel", action: "disconnect", platform, disconnected: true };
+    return {
+      target: "channel",
+      action: "disconnect",
+      platform,
+      disconnected: true,
+    };
   }
 
   private async project(botId: string, input: UpdateStateInput): Promise<Record<string, unknown>> {
@@ -349,7 +335,13 @@ export class DurableStateService {
       const removed = await this.prisma.projectMember.deleteMany({
         where: { projectSlug: slug, botId },
       });
-      return { target: "project", action: "leave", project: slug, left: removed.count > 0 };
+      await this.agentData.writeBotFiles(botId, ["projects"]);
+      return {
+        target: "project",
+        action: "leave",
+        project: slug,
+        left: removed.count > 0,
+      };
     }
     if (input.action === "join") {
       const project = await this.prisma.project.findUnique({ where: { slug } });
@@ -359,6 +351,8 @@ export class DurableStateService {
         create: { projectSlug: slug, botId },
         update: {},
       });
+      await this.agentData.writeProjectFile(slug);
+      await this.agentData.writeBotFiles(botId, ["projects"]);
       return {
         target: "project",
         action: "join",
@@ -393,6 +387,8 @@ export class DurableStateService {
       });
       return { project: saved, created: existing === null };
     });
+    await this.agentData.writeProjectFile(slug);
+    await this.agentData.writeBotFiles(botId, ["projects"]);
     return {
       target: "project",
       action: "create",
@@ -406,7 +402,7 @@ export class DurableStateService {
 
   private async avatar(botId: string, input: UpdateStateInput): Promise<Record<string, unknown>> {
     if (input.action === "clear") {
-      await this.prisma.bot.update({ where: { id: botId }, data: { avatarPath: null } });
+      await this.agentData.setAvatarFromPath(botId, null);
       return { target: "avatar", action: "clear", cleared: true };
     }
     if (input.action !== "set") return stateError(input.target, input.action);
@@ -414,27 +410,22 @@ export class DurableStateService {
     if (!isAbsolute(supplied)) {
       throw new ApiError(400, "avatar_path_invalid", "Avatar path must be absolute");
     }
-    const canonical = await realpath(supplied).catch(() => null);
-    if (!canonical || !this.isInsideWorkspace(canonical)) {
+    let saved;
+    try {
+      saved = await this.agentData.setAvatarFromPath(botId, supplied);
+    } catch (error) {
       throw new ApiError(
         400,
         "avatar_path_invalid",
-        `Avatar must be an existing file under ${this.workspaceRoot}`
+        error instanceof Error ? error.message : "Avatar source is invalid"
       );
     }
-    if (!AVATAR_EXTENSIONS.has(extname(canonical).toLowerCase())) {
-      throw new ApiError(400, "avatar_type_invalid", "Avatar must be png, jpg, webp, gif, or svg");
-    }
-    const info = await stat(canonical);
-    if (!info.isFile() || info.size <= 0 || info.size >= MAX_AVATAR_BYTES) {
-      throw new ApiError(400, "avatar_size_invalid", "Avatar must be a non-empty file under 5 MB");
-    }
-    await this.prisma.bot.update({ where: { id: botId }, data: { avatarPath: canonical } });
     return {
       target: "avatar",
       action: "set",
-      path: canonical,
-      bytes: info.size,
+      path: saved.path,
+      resolved_path: saved.resolvedPath,
+      bytes: saved.bytes,
       updated: true,
     };
   }

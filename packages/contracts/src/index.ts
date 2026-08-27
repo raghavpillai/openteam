@@ -2,6 +2,8 @@ import { Schema } from "effect";
 import cursorToolsDocument from "./cursor-tools.json";
 import nativeToolsDocument from "./native-tools.json";
 
+export * from "./bot-avatar";
+
 export interface NativeToolDefinition {
   name: string;
   description: string;
@@ -117,15 +119,38 @@ export const UpdateBotInput = Schema.Struct({
   icon: Schema.optional(Schema.String.pipe(Schema.maxLength(16))),
   color: Schema.optional(Schema.String.pipe(Schema.pattern(/^#[0-9a-fA-F]{6}$/))),
   notificationsEnabled: Schema.optional(Schema.Boolean),
+  hiddenFromSidebar: Schema.optional(Schema.Boolean),
 });
 export type UpdateBotInput = typeof UpdateBotInput.Type;
 
+export const InlineImageInput = Schema.Struct({
+  url: Schema.String.pipe(
+    Schema.maxLength(28_000_000),
+    Schema.pattern(/^data:image\/(?:gif|jpeg|png|webp);base64,/i)
+  ),
+  alt: Schema.optional(Schema.String.pipe(Schema.maxLength(2_000))),
+});
+export type InlineImageInput = typeof InlineImageInput.Type;
+
 export const SendMessageInput = Schema.Struct({
-  content: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(200_000)),
+  content: Schema.String.pipe(Schema.maxLength(200_000)),
+  clientId: Schema.String.pipe(Schema.minLength(8), Schema.maxLength(120)),
+  replyToMessageId: Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(120))),
+  images: Schema.optional(Schema.Array(InlineImageInput).pipe(Schema.maxItems(8))),
+  timeZone: Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(100))),
+}).pipe(
+  Schema.filter((input) => input.content.trim().length > 0 || Boolean(input.images?.length), {
+    message: () => "A message needs text or at least one image",
+  })
+);
+export type SendMessageInput = typeof SendMessageInput.Type;
+
+export const ReactToChannelMessageInput = Schema.Struct({
+  emoji: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(32)),
   clientId: Schema.String.pipe(Schema.minLength(8), Schema.maxLength(120)),
   timeZone: Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(100))),
 });
-export type SendMessageInput = typeof SendMessageInput.Type;
+export type ReactToChannelMessageInput = typeof ReactToChannelMessageInput.Type;
 
 export const CreateGroupInput = Schema.Struct({
   name: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(80)),
@@ -308,6 +333,148 @@ export const CallDynamicToolInput = Schema.Struct({
 });
 export type CallDynamicToolInput = typeof CallDynamicToolInput.Type;
 
+export const PluginToolDescriptor = Schema.Struct({
+  connectionId: Schema.String,
+  name: Schema.String,
+  description: Schema.String,
+  inputSchema: Schema.Record({ key: Schema.String, value: Schema.Unknown }),
+  source: Schema.String,
+});
+export type PluginToolDescriptor = typeof PluginToolDescriptor.Type;
+
+export const PluginDynamicNamespace = Schema.Struct({
+  name: Schema.String,
+  description: Schema.String,
+  namespaceStatus: Schema.Literal("ready", "needsAuth", "error", "loading"),
+  tools: Schema.Array(PluginToolDescriptor),
+});
+export type PluginDynamicNamespace = typeof PluginDynamicNamespace.Type;
+
+export const InstallPluginInput = Schema.Struct({
+  pluginKey: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(160)),
+});
+export type InstallPluginInput = typeof InstallPluginInput.Type;
+
+export const AddCustomMcpInput = Schema.Struct({
+  name: Schema.String.pipe(Schema.minLength(2), Schema.maxLength(100)),
+  url: Schema.String.pipe(Schema.minLength(8), Schema.maxLength(2_000)),
+  alias: Schema.optional(Schema.String.pipe(Schema.minLength(2), Schema.maxLength(80))),
+});
+export type AddCustomMcpInput = typeof AddCustomMcpInput.Type;
+
+export const ConnectPluginInput = Schema.Struct({
+  alias: Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(80))),
+});
+export type ConnectPluginInput = typeof ConnectPluginInput.Type;
+
+export const SetPluginGrantInput = Schema.Struct({
+  botId: Schema.String,
+  enabled: Schema.Boolean,
+});
+export type SetPluginGrantInput = typeof SetPluginGrantInput.Type;
+
+export const SetPluginEnablementInput = Schema.Struct({
+  botId: Schema.String,
+  enabled: Schema.Boolean,
+  skillsEnabled: Schema.optional(Schema.Boolean),
+});
+export type SetPluginEnablementInput = typeof SetPluginEnablementInput.Type;
+
+export const SetPluginToolPolicyInput = Schema.Struct({
+  botId: Schema.NullOr(Schema.String),
+  toolName: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(200)),
+  decision: Schema.Literal("deny", "prompt", "allow"),
+});
+export type SetPluginToolPolicyInput = typeof SetPluginToolPolicyInput.Type;
+
+export interface PluginCatalogToolView {
+  name: string;
+  description: string;
+  risk: "read" | "write" | "destructive";
+  defaultDecision: "deny" | "prompt" | "allow";
+}
+
+export interface PluginCatalogConnectionView {
+  key: string;
+  name: string;
+  transport: "http" | "stdio" | "builtin";
+  auth: "none" | "oauth" | "token";
+  tools: PluginCatalogToolView[];
+}
+
+export interface PluginCatalogSkillView {
+  name: string;
+  description: string;
+}
+
+export interface PluginCatalogItemView {
+  key: string;
+  version: string;
+  name: string;
+  description: string;
+  publisher: string;
+  category: string;
+  featured: boolean;
+  installed: boolean;
+  components: Array<"skills" | "mcp">;
+  connections: PluginCatalogConnectionView[];
+  skills: PluginCatalogSkillView[];
+}
+
+export interface PluginConnectionView {
+  id: string;
+  pluginKey: string;
+  connectorKey: string;
+  name: string;
+  alias: string;
+  transport: "http" | "stdio" | "builtin";
+  auth: "none" | "oauth" | "token";
+  status: "disconnected" | "needs_auth" | "ready" | "error" | "revoked";
+  statusMessage: string | null;
+  instructions: string;
+  tools: PluginCatalogToolView[];
+  grantedBotIds: string[];
+}
+
+export interface PluginInstallView {
+  id: string;
+  pluginKey: string;
+  version: string;
+  name: string;
+  description: string;
+  publisher: string;
+  status: "installed" | "disabled" | "error";
+  installedAt: string;
+  enabledBotIds: string[];
+  hasSkills: boolean;
+  connections: PluginConnectionView[];
+}
+
+export interface PluginActivityView {
+  id: string;
+  pluginKey: string | null;
+  connectionId: string | null;
+  botId: string | null;
+  kind: string;
+  summary: string;
+  createdAt: string;
+}
+
+export interface PluginSettingsView {
+  catalog: PluginCatalogItemView[];
+  installs: PluginInstallView[];
+  connections: PluginConnectionView[];
+  bots: Array<{ id: string; name: string; icon: string; color: string }>;
+  policies: Array<{
+    id: string;
+    connectionId: string;
+    botId: string | null;
+    toolName: string;
+    decision: "deny" | "prompt" | "allow";
+  }>;
+  activity: PluginActivityView[];
+}
+
 export const ScreenActionInput = Schema.Union(
   Schema.Struct({
     action: Schema.Literal("move"),
@@ -349,6 +516,117 @@ export const ScreenActionInput = Schema.Union(
   })
 );
 export type ScreenActionInput = typeof ScreenActionInput.Type;
+
+const ComputerUseActionName = Schema.Literal(
+  "screenshot",
+  "click",
+  "move",
+  "drag",
+  "type",
+  "key",
+  "scroll",
+  "wait"
+);
+const ComputerUseModifier = Schema.Literal(
+  "shift",
+  "ctrl",
+  "alt",
+  "meta",
+  "ctrl+shift",
+  "ctrl+alt",
+  "meta+shift"
+);
+const ComputerUsePoint = Schema.Struct({
+  x: Schema.Number.pipe(Schema.int(), Schema.between(0, 1279)),
+  y: Schema.Number.pipe(Schema.int(), Schema.between(0, 799)),
+});
+const ComputerUseActionFields = {
+  action: ComputerUseActionName,
+  x: Schema.optional(Schema.Number.pipe(Schema.int(), Schema.between(0, 1279))),
+  y: Schema.optional(Schema.Number.pipe(Schema.int(), Schema.between(0, 799))),
+  x2: Schema.optional(Schema.Number.pipe(Schema.int(), Schema.between(0, 1279))),
+  y2: Schema.optional(Schema.Number.pipe(Schema.int(), Schema.between(0, 799))),
+  path: Schema.optional(
+    Schema.Array(ComputerUsePoint).pipe(Schema.minItems(2), Schema.maxItems(100))
+  ),
+  text: Schema.optional(Schema.String.pipe(Schema.maxLength(10_000))),
+  key: Schema.optional(
+    Schema.String.pipe(
+      Schema.minLength(1),
+      Schema.maxLength(80),
+      Schema.pattern(/^[A-Za-z0-9_+-]+$/)
+    )
+  ),
+  button: Schema.optional(Schema.Literal("left", "right", "middle")),
+  count: Schema.optional(Schema.Number.pipe(Schema.int(), Schema.between(1, 3))),
+  modifiers: Schema.optional(ComputerUseModifier),
+  direction: Schema.optional(Schema.Literal("up", "down", "left", "right")),
+  amount: Schema.optional(Schema.Number.pipe(Schema.int(), Schema.between(1, 20))),
+  durationMs: Schema.optional(Schema.Number.pipe(Schema.int(), Schema.between(0, 10_000))),
+};
+
+const validComputerUseAction = (input: {
+  action: typeof ComputerUseActionName.Type;
+  x?: number;
+  y?: number;
+  x2?: number;
+  y2?: number;
+  path?: ReadonlyArray<{ x: number; y: number }>;
+  text?: string;
+  key?: string;
+  direction?: "up" | "down" | "left" | "right";
+  durationMs?: number;
+}): boolean => {
+  const coordinatePair = (input.x === undefined) === (input.y === undefined);
+  switch (input.action) {
+    case "screenshot":
+      return true;
+    case "click":
+    case "move":
+      return coordinatePair;
+    case "drag":
+      return Boolean(
+        (input.path && input.path.length >= 2) ||
+          (input.x !== undefined &&
+            input.y !== undefined &&
+            input.x2 !== undefined &&
+            input.y2 !== undefined)
+      );
+    case "type":
+      return input.text !== undefined;
+    case "key":
+      return input.key !== undefined;
+    case "scroll":
+      return coordinatePair && input.direction !== undefined;
+    case "wait":
+      return input.durationMs !== undefined;
+  }
+};
+
+export const ComputerUseActionInput = Schema.Struct(ComputerUseActionFields).pipe(
+  Schema.filter(validComputerUseAction, {
+    message: () => "Invalid fields for the selected Computer action",
+  })
+);
+export type ComputerUseActionInput = typeof ComputerUseActionInput.Type;
+
+export const ComputerUseInput = Schema.Struct({
+  ...ComputerUseActionFields,
+  then: Schema.optional(
+    Schema.Array(ComputerUseActionInput).pipe(
+      Schema.maxItems(9),
+      Schema.filter((actions) => actions.every((action) => action.action !== "screenshot"), {
+        message: () => "Batched follow-up actions cannot take intermediate screenshots",
+      })
+    )
+  ),
+  description: Schema.optional(Schema.String.pipe(Schema.maxLength(500))),
+}).pipe(
+  Schema.filter(validComputerUseAction, {
+    message: () => "Invalid fields for the selected Computer action",
+  })
+);
+export type ComputerUseInput = typeof ComputerUseInput.Type;
 
 export const ScreenTakeoverInput = Schema.Struct({ active: Schema.Boolean });
 export type ScreenTakeoverInput = typeof ScreenTakeoverInput.Type;
@@ -469,6 +747,7 @@ export const UpdateStateInput = Schema.Struct({
   body: Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(100_000))),
   hidden_from_sidebar: Schema.optional(Schema.Boolean),
   notify_on_updates: Schema.optional(Schema.Boolean),
+  dreaming_enabled: Schema.optional(Schema.Boolean),
   platform: Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(80))),
   path: Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(2_000))),
 });
@@ -509,7 +788,10 @@ export const COMPUTER_TOOL = {
       },
       {
         type: "object",
-        properties: { action: { const: "type" }, text: { type: "string", maxLength: 10000 } },
+        properties: {
+          action: { const: "type" },
+          text: { type: "string", maxLength: 10000 },
+        },
         required: ["action", "text"],
         additionalProperties: false,
       },
@@ -558,6 +840,73 @@ export const COMPUTER_TOOL = {
   },
 } as const;
 
+const computerUseActionProperties = {
+  action: {
+    type: "string",
+    enum: ["screenshot", "click", "move", "drag", "type", "key", "scroll", "wait"],
+  },
+  x: { type: "integer", minimum: 0, maximum: 1279 },
+  y: { type: "integer", minimum: 0, maximum: 799 },
+  x2: { type: "integer", minimum: 0, maximum: 1279 },
+  y2: { type: "integer", minimum: 0, maximum: 799 },
+  path: {
+    type: "array",
+    minItems: 2,
+    maxItems: 100,
+    items: {
+      type: "object",
+      properties: {
+        x: { type: "integer", minimum: 0, maximum: 1279 },
+        y: { type: "integer", minimum: 0, maximum: 799 },
+      },
+      required: ["x", "y"],
+      additionalProperties: false,
+    },
+  },
+  text: { type: "string", maxLength: 10_000 },
+  key: {
+    type: "string",
+    minLength: 1,
+    maxLength: 80,
+    pattern: "^[A-Za-z0-9_+\\-]+$",
+  },
+  button: { type: "string", enum: ["left", "right", "middle"] },
+  count: { type: "integer", minimum: 1, maximum: 3 },
+  modifiers: {
+    type: "string",
+    enum: ["shift", "ctrl", "alt", "meta", "ctrl+shift", "ctrl+alt", "meta+shift"],
+  },
+  direction: { type: "string", enum: ["up", "down", "left", "right"] },
+  amount: { type: "integer", minimum: 1, maximum: 20 },
+  durationMs: { type: "integer", minimum: 0, maximum: 10_000 },
+} as const;
+
+export const COMPUTER_USE_TOOL = {
+  type: "function",
+  name: "Computer",
+  description:
+    "Control this worker's isolated 1280x800 desktop by screenshot, click, move, drag, type, key, scroll, and wait. Coordinates use pixels from the top-left. Every call returns one screenshot after all actions complete. Use then only for steps that need no intermediate visual verification.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      ...computerUseActionProperties,
+      then: {
+        type: "array",
+        maxItems: 9,
+        items: {
+          type: "object",
+          properties: computerUseActionProperties,
+          required: ["action"],
+          additionalProperties: false,
+        },
+      },
+      description: { type: "string", maxLength: 500 },
+    },
+    required: ["action"],
+    additionalProperties: false,
+  },
+} as const;
+
 export const DynamicToolCallRequest = Schema.Struct({
   runId: Schema.String,
   botId: Schema.String,
@@ -587,7 +936,10 @@ export const ComputerTurnRequest = Schema.Struct({
   channelId: Schema.String,
   deliveryId: Schema.NullOr(Schema.String),
   runtimeProfile: Schema.optional(Schema.Literal("agent", "subagent")),
+  subagentType: Schema.optional(SubagentType),
   fileAttachments: Schema.optional(Schema.Array(Schema.String)),
+  images: Schema.optional(Schema.Array(InlineImageInput).pipe(Schema.maxItems(8))),
+  dynamicNamespaces: Schema.optional(Schema.Array(PluginDynamicNamespace)),
 });
 export type ComputerTurnRequest = typeof ComputerTurnRequest.Type;
 
@@ -595,6 +947,7 @@ export const ComputerSteerRequest = Schema.Struct({
   inboxId: Schema.String,
   clientMessageId: Schema.String,
   content: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(200_000)),
+  images: Schema.optional(Schema.Array(InlineImageInput).pipe(Schema.maxItems(8))),
 });
 export type ComputerSteerRequest = typeof ComputerSteerRequest.Type;
 
@@ -631,7 +984,12 @@ export type ComputerEvent =
       details: unknown;
     }
   | { type: "compaction"; turnId: string }
-  | { type: "runtime.error"; turnId?: string; message: string; retrying: boolean }
+  | {
+      type: "runtime.error";
+      turnId?: string;
+      message: string;
+      retrying: boolean;
+    }
   | { type: "turn.completed"; turnId: string; status: string; error?: unknown };
 
 export interface BotView {
@@ -709,6 +1067,44 @@ export interface ChannelMessageView {
   content: string;
   metadata: unknown;
   createdAt: string;
+}
+
+export const SearchResultKind = Schema.Literal(
+  "message",
+  "bot",
+  "channel",
+  "file",
+  "link",
+  "routine"
+);
+export type SearchResultKind = typeof SearchResultKind.Type;
+
+export const SearchCategory = Schema.Literal(
+  "all",
+  "messages",
+  "bots",
+  "channels",
+  "files",
+  "links",
+  "routines"
+);
+export type SearchCategory = typeof SearchCategory.Type;
+
+export interface SearchResultView {
+  id: string;
+  kind: SearchResultKind;
+  title: string;
+  subtitle: string;
+  channelId: string | null;
+  messageId: string | null;
+  botId: string | null;
+  url: string | null;
+  createdAt: string;
+}
+
+export interface SearchResponse {
+  query: string;
+  results: SearchResultView[];
 }
 
 export interface ChannelRoundView {

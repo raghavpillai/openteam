@@ -3,22 +3,21 @@ import {
   ApiError,
   type CheckSubagentInput,
   type MessageSubagentInput,
+  resolveBotAvatarMark,
   type StopSubagentInput,
+  type SubagentType,
   type TaskInput,
 } from "@openbot/contracts";
 import { Prisma, type PrismaClient } from "@openbot/db";
-import type { AgentMessaging, ToolContext } from "@openbot/messaging";
+import {
+  type AgentMessaging,
+  subagentSpecializationInstructions,
+  type ToolContext,
+} from "@openbot/messaging";
 import { Effect } from "effect";
 import { fromPrisma } from "pg-boss";
 import type { RunService } from "./run-service";
-import {
-  appendEvent,
-  botColor,
-  type ComputerFetch,
-  hashRequest,
-  slugify,
-  toJson,
-} from "./service-utils";
+import { appendEvent, type ComputerFetch, hashRequest, slugify, toJson } from "./service-utils";
 
 const ACTIVE_STATUSES = ["provisioning", "queued", "running"] as const;
 
@@ -285,6 +284,7 @@ export class SubagentService {
     }
     const outputPath = `/home/openbot/agent-data/agent-transcripts/${childBotId}/${childBotId}.jsonl`;
     const prompt = this.runtimePrompt(parent.name, type, input);
+    const avatar = resolveBotAvatarMark({ agentId: childBotId });
     return this.prisma.$transaction(async (tx) => {
       await tx.bot.create({
         data: {
@@ -293,8 +293,8 @@ export class SubagentService {
           title: `Subagent (${type})`,
           description: `Background subagent owned by ${parent.name}`,
           instructions: this.childInstructions(context.botId, subagentId, type),
-          icon: "◌",
-          color: botColor(childBotId),
+          icon: avatar.shape,
+          color: avatar.color,
           notificationsEnabled: false,
           hiddenFromSidebar: true,
           defaultDirectory: directory,
@@ -442,19 +442,11 @@ export class SubagentService {
       .join("\n\n");
   }
 
-  private childInstructions(parentBotId: string, subagentId: string, type: string): string {
-    const specialization =
-      type === "computerUse"
-        ? "Drive the graphical desktop with Screenshot and the dynamically discovered Computer tool."
-        : type === "browserUse"
-          ? "Use Screenshot and the dynamically discovered Computer tool to work through Chromium on your graphical desktop."
-          : type === "videoReview" || type === "watchVideo"
-            ? "Review the attached media frames directly. The original video path is also available if shell-based inspection is useful."
-            : "Use Shell, Read, and the other native tools for general execution.";
+  private childInstructions(parentBotId: string, subagentId: string, type: SubagentType): string {
     return [
       `You are a ${type} background subagent with Agent ID ${subagentId}.`,
       `You are owned by parent agent ${parentBotId}.`,
-      specialization,
+      subagentSpecializationInstructions(type),
       "Work autonomously on only the supplied task. You share the same computer and filesystem as the parent.",
       "Your plain final assistant message is your private report to the parent. Do not use SendMessage or SendToAgent.",
       "You cannot launch, inspect, message, or stop other subagents and cannot administer agents or channels.",

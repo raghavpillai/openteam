@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"
+    />
+    <title>OpenBot computer</title>
+    <style>
+      html,
+      body,
+      #screen {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        overflow: hidden;
+        background: #1b1d1f;
+      }
+
+      #screen {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        touch-action: none;
+      }
+
+      #screen canvas {
+        outline: none;
+      }
+    </style>
+    <script type="module">
+      import RFB from "./core/rfb.js";
+
+      const query = new URLSearchParams(window.location.search);
+      const path = query.get("path") ?? "websockify";
+      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+      const socketUrl = new URL(`./${path}`, window.location.href);
+      socketUrl.protocol = protocol;
+
+      const rfb = new RFB(document.getElementById("screen"), socketUrl.toString());
+      rfb.viewOnly = query.get("view_only") === "true";
+      rfb.scaleViewport = true;
+      rfb.resizeSession = false;
+      rfb.focusOnClick = true;
+    </script>
+  </head>
+  <body>
+    <div id="screen" aria-label="OpenBot computer screen"></div>
+  </body>
+</html>

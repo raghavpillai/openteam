@@ -3,25 +3,29 @@ import { Schema } from "effect";
 import {
   CALL_DYNAMIC_TOOL_TOOL,
   COMPUTER_TOOL,
-  ComputerTurnRequest,
+  COMPUTER_USE_TOOL,
+  ComputerUseInput,
   ComputerSteerRequest,
-  CURSOR_TOOLS,
-  CURSOR_TOOL_NAMES,
+  ComputerTurnRequest,
   CreateBotInput,
+  CURSOR_TOOL_NAMES,
+  CURSOR_TOOLS,
   EXTERNAL_READ_TOOL,
   EXTERNAL_SHELL_TOOL,
   GET_DYNAMIC_TOOLS_TOOL,
   NATIVE_TOOLS,
   REACT_TO_MESSAGE_TOOL,
   READ_TOOL,
+  ReactToChannelMessageInput,
   SCREENSHOT_TOOL,
   ScreenActionInput,
   SendMessageInput,
   SHELL_TOOL,
-  UPDATE_STATE_TOOL,
-  UpdateStateInput,
   TaskInput,
   TodoWriteInput,
+  UPDATE_STATE_TOOL,
+  UpdateBotInput,
+  UpdateStateInput,
 } from "../src";
 import cursorToolsDocument from "../src/cursor-tools.json";
 import nativeToolsDocument from "../src/native-tools.json";
@@ -44,9 +48,18 @@ describe("API contracts", () => {
     expect(value).toEqual({ clientRequestId: "create-default-0001" });
   });
 
+  test("accepts hiding a bot from the sidebar", () => {
+    expect(Schema.decodeUnknownSync(UpdateBotInput)({ hiddenFromSidebar: true })).toEqual({
+      hiddenFromSidebar: true,
+    });
+  });
+
   test("rejects an empty message", () => {
     expect(() =>
-      Schema.decodeUnknownSync(SendMessageInput)({ content: "", clientId: "message-1" })
+      Schema.decodeUnknownSync(SendMessageInput)({
+        content: "",
+        clientId: "message-1",
+      })
     ).toThrow();
   });
 
@@ -62,6 +75,64 @@ describe("API contracts", () => {
       clientId: "message-time-zone-1",
       timeZone: "America/New_York",
     });
+  });
+
+  test("accepts replies to durable channel messages", () => {
+    expect(
+      Schema.decodeUnknownSync(SendMessageInput)({
+        content: "Following up",
+        clientId: "message-reply-1",
+        replyToMessageId: "7c68ab56-7cbe-4e52-9634-c73ae971f5cf",
+      })
+    ).toMatchObject({
+      content: "Following up",
+      replyToMessageId: "7c68ab56-7cbe-4e52-9634-c73ae971f5cf",
+    });
+  });
+
+  test("accepts inline image uploads and rejects remote image URLs", () => {
+    const image = { url: "data:image/png;base64,iVBORw0KGgo=" };
+    expect(
+      Schema.decodeUnknownSync(SendMessageInput)({
+        content: "What is in this image?",
+        clientId: "message-image-1",
+        images: [image],
+      })
+    ).toMatchObject({ images: [image] });
+    expect(
+      Schema.decodeUnknownSync(SendMessageInput)({
+        content: "",
+        clientId: "message-image-only-1",
+        images: [image],
+      })
+    ).toMatchObject({ content: "", images: [image] });
+    expect(() =>
+      Schema.decodeUnknownSync(SendMessageInput)({
+        content: "Fetch this",
+        clientId: "message-image-2",
+        images: [{ url: "https://example.com/image.png" }],
+      })
+    ).toThrow();
+  });
+
+  test("validates user reactions to channel messages", () => {
+    expect(
+      Schema.decodeUnknownSync(ReactToChannelMessageInput)({
+        emoji: "❤️",
+        clientId: "reaction-message-1",
+        timeZone: "Asia/Jerusalem",
+      })
+    ).toEqual({
+      emoji: "❤️",
+      clientId: "reaction-message-1",
+      timeZone: "Asia/Jerusalem",
+    });
+    expect(() =>
+      Schema.decodeUnknownSync(ReactToChannelMessageInput)({
+        emoji: "",
+        clientId: "reaction-message-2",
+      })
+    ).toThrow();
   });
 
   test("validates a live steering delivery", () => {
@@ -92,29 +163,93 @@ describe("API contracts", () => {
         channelId: "channel-1",
         deliveryId: null,
         runtimeProfile: "subagent",
+        subagentType: "browserUse",
         fileAttachments: ["/workspace/shared/clip.mp4"],
+        images: [{ url: "data:image/webp;base64,UklGRg==" }],
+        dynamicNamespaces: [
+          {
+            name: "utility_default",
+            description: "Fixture tools",
+            namespaceStatus: "ready",
+            tools: [
+              {
+                connectionId: "connection-1",
+                name: "echo",
+                description: "Echo text",
+                inputSchema: { type: "object" },
+                source: "utility/fixture",
+              },
+            ],
+          },
+        ],
       })
     ).toMatchObject({
       runtimeProfile: "subagent",
+      subagentType: "browserUse",
       fileAttachments: ["/workspace/shared/clip.mp4"],
+      images: [{ url: "data:image/webp;base64,UklGRg==" }],
+      dynamicNamespaces: [{ name: "utility_default" }],
     });
   });
 
   test("validates bounded graphical computer actions", () => {
     expect(
-      Schema.decodeUnknownSync(ScreenActionInput)({ action: "click", x: 640, y: 400 })
+      Schema.decodeUnknownSync(ScreenActionInput)({
+        action: "click",
+        x: 640,
+        y: 400,
+      })
     ).toEqual({ action: "click", x: 640, y: 400 });
     expect(() =>
-      Schema.decodeUnknownSync(ScreenActionInput)({ action: "click", x: 1280, y: 400 })
+      Schema.decodeUnknownSync(ScreenActionInput)({
+        action: "click",
+        x: 1280,
+        y: 400,
+      })
     ).toThrow();
     expect(() =>
-      Schema.decodeUnknownSync(ScreenActionInput)({ action: "key", keys: ["ctrl+l;rm"] })
+      Schema.decodeUnknownSync(ScreenActionInput)({
+        action: "key",
+        keys: ["ctrl+l;rm"],
+      })
     ).toThrow();
   });
 
   test("declares screenshot and structured computer tools", () => {
     expect(SCREENSHOT_TOOL.name).toBe("Screenshot");
     expect(COMPUTER_TOOL.name).toBe("Computer");
+  });
+
+  test("validates the specialized computer-use action sequence", () => {
+    expect(
+      Schema.decodeUnknownSync(ComputerUseInput)({
+        action: "drag",
+        path: [
+          { x: 10, y: 20 },
+          { x: 30, y: 40 },
+        ],
+        then: [
+          { action: "key", key: "ctrl+l" },
+          { action: "type", text: "https://example.com" },
+          { action: "key", key: "Return" },
+        ],
+      }).then
+    ).toHaveLength(3);
+    expect(() =>
+      Schema.decodeUnknownSync(ComputerUseInput)({
+        action: "drag",
+        x: 10,
+        y: 20,
+      })
+    ).toThrow();
+    expect(() =>
+      Schema.decodeUnknownSync(ComputerUseInput)({
+        action: "click",
+        then: [{ action: "screenshot" }],
+      })
+    ).toThrow();
+    expect(COMPUTER_USE_TOOL.name).toBe("Computer");
+    expect(COMPUTER_USE_TOOL.inputSchema.properties.then.maxItems).toBe(9);
   });
 
   test("declares the attachment's ten native tools", () => {
@@ -173,7 +308,11 @@ describe("API contracts", () => {
     expect(
       Schema.decodeUnknownSync(TodoWriteInput)({
         todos: [
-          { id: "investigate", content: "Find the cause", status: "in_progress" },
+          {
+            id: "investigate",
+            content: "Find the cause",
+            status: "in_progress",
+          },
           { id: "verify", content: "Run verification", status: "pending" },
         ],
         merge: false,
@@ -216,6 +355,17 @@ describe("API contracts", () => {
         prompt: "Send a concise morning brief.",
         schedule: "@daily",
       })
-    ).toMatchObject({ target: "routine", action: "create", schedule: "@daily" });
+    ).toMatchObject({
+      target: "routine",
+      action: "create",
+      schedule: "@daily",
+    });
+    expect(
+      Schema.decodeUnknownSync(UpdateStateInput)({
+        target: "settings",
+        action: "set",
+        dreaming_enabled: true,
+      })
+    ).toMatchObject({ dreaming_enabled: true });
   });
 });

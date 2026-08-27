@@ -26,6 +26,7 @@ RUN apt-get update \
     ffmpeg \
     git \
     imagemagick \
+    nodejs \
     novnc \
     poppler-utils \
     ripgrep \
@@ -47,7 +48,7 @@ RUN apt-get update \
   && useradd --uid 10001 --gid 10001 --create-home --shell /bin/bash openbot \
   && mkdir -p /opt/pi /app /workspace /home/openbot/.pi/agent \
   && cd /app \
-  && bun add @earendil-works/pi-coding-agent@0.84.3 \
+    && bun add @earendil-works/pi-coding-agent@0.84.3 playwright-core@1.55.0 \
   && cd /opt/pi \
   && bun add @earendil-works/pi-ai@0.84.3 \
   && ln -s /opt/pi/node_modules/.bin/pi-ai /usr/local/bin/pi-ai \
@@ -58,6 +59,7 @@ COPY --chown=openbot:openbot docker/computer-entrypoint.sh /usr/local/bin/openbo
 COPY --chown=openbot:openbot docker/openbot-pi-login /usr/local/bin/openbot-pi-login
 COPY --chown=openbot:openbot docker/desktop /usr/share/openbot-desktop
 COPY --chown=openbot:openbot docker/openbot-screen-launch /usr/local/bin/openbot-screen-launch
+COPY --chown=openbot:openbot docker/openbot-vnc.html /usr/share/novnc/openbot.html
 RUN convert -size 1280x800 'gradient:#35383c-#151719' /tmp/openbot-wallpaper-base.png \
   && convert -size 1280x800 xc:none \
     -fill none \

@@ -19,6 +19,7 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
     conversationId: string;
     sessionPath: string | null;
     content: string;
+    images?: Array<{ url: string }>;
     channelId: string;
     deliveryId: string | null;
     instructions: string;
@@ -28,6 +29,7 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
     inboxId: string;
     clientMessageId: string;
     content: string;
+    images?: Array<{ url: string }>;
   }
   const seenTurns: TurnInput[] = [];
   const seenSteers: Array<SteerInput & { runId: string }> = [];
@@ -36,10 +38,14 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
   let steerDisposition: "deliver" | "drop" = "deliver";
   let turnNumber = 0;
   let onTurn: (input: TurnInput) => Promise<void> = async () => {};
-  const turnBody = (content: string) =>
-    content.match(
-      /^<timestamp>[^\n]+<\/timestamp>\n<user_query>\n([\s\S]*)\n<\/user_query>$/
-    )?.[1] ?? content;
+  const inlineImage = { url: "data:image/png;base64,AQID" };
+  const turnBody = (content: string) => {
+    const body =
+      content.match(
+        /^<timestamp>[^\n]+<\/timestamp>\n<user_query>\n([\s\S]*?)\n<\/user_query>(?:\n\n[\s\S]*)?$/
+      )?.[1] ?? content;
+    return body.replace(/^\[t\d+u\]\s?/, "");
+  };
   const fakeComputer = Bun.serve({
     hostname: "127.0.0.1",
     port: 0,
@@ -149,6 +155,7 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
   process.env.OPENBOT_COMPUTER_URL = `http://127.0.0.1:${fakeComputer.port}`;
   process.env.OPENBOT_CONTROL_TOKEN = "integration-control-token";
   process.env.OPENBOT_WORKSPACE_ROOT = workspace;
+  process.env.OPENBOT_AGENT_DATA_ROOT = join(workspace, "agent-data");
 
   let app: AppService | null = null;
   let worker: WakeWorker | null = null;
@@ -194,6 +201,7 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
       app.sendMessage(conversationId, {
         content: "first",
         clientId: "client-first-0001",
+        images: [inlineImage],
         timeZone: "Asia/Jerusalem",
       })
     )) as { run: { id: string } };
@@ -201,6 +209,7 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
       app.sendMessage(conversationId, {
         content: "first",
         clientId: "client-first-0001",
+        images: [inlineImage],
         timeZone: "Asia/Jerusalem",
       })
     )) as { run: { id: string } };
@@ -231,14 +240,33 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
     );
     expect(seenTurns.map((turn) => turn.sessionPath)).toEqual([null]);
     expect(seenTurns[0]?.cwd).toBe(bot.defaultDirectory);
+    expect(seenTurns[0]?.images).toEqual([inlineImage]);
     expect(seenTurns[0]?.content).toMatch(
-      /^<timestamp>.+ \(UTC\+3\)<\/timestamp>\n<user_query>\nfirst\n<\/user_query>$/
+      /^<timestamp>.+ \(UTC\+3\)<\/timestamp>\n<user_query>\n\[t\d+u\] first\n<\/user_query>/
+    );
+    expect(seenTurns[0]?.content).toContain(
+      "Attached files available on the shared computer:"
+    );
+    expect(seenTurns[0]?.content).toContain(
+      join(
+        workspace,
+        "agent-data",
+        "agents",
+        bot.id,
+        "attachments",
+        "client-first-0001-1-image.png"
+      )
     );
     expect(
       firstSnapshot.channelMessages.find(
         (message) => message.channelId === bot.dmChannelId && message.sender === "user"
       )?.content
     ).toBe("first");
+    expect(
+      firstSnapshot.channelMessages.find(
+        (message) => message.channelId === bot.dmChannelId && message.sender === "user"
+      )?.metadata
+    ).toMatchObject({ images: [inlineImage] });
     const firstClientSnapshot = await Effect.runPromise(app.clientSnapshot());
     expect("messages" in firstClientSnapshot).toBe(false);
     expect(
@@ -301,6 +329,7 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
       app.sendMessage(conversationId, {
         content: "redirect the active task",
         clientId: "client-steering-inline-0004",
+        images: [inlineImage],
       })
     )) as { run: { id: string } };
     expect(redirected.run.id).toBe(steeringBase.run.id);
@@ -317,6 +346,7 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
       clientMessageId: "client-steering-inline-0004",
     });
     expect(turnBody(seenSteers.at(-1)?.content ?? "")).toBe("redirect the active task");
+    expect(seenSteers.at(-1)?.images).toEqual([inlineImage]);
     const deliveredSteer = await app.prisma.inboxEvent.findUniqueOrThrow({
       where: { idempotencyKey: "client-steering-inline-0004" },
     });
@@ -554,6 +584,7 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
       app.sendChannelMessage(group.id, {
         content: "Give one compact status line.",
         clientId: "client-group-0004",
+        images: [inlineImage],
         timeZone: "Asia/Jerusalem",
       })
     )) as { round: { id: string } };
@@ -589,6 +620,9 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
     const groupTurns = seenTurns.filter((turn) => turn.channelId === group.id);
     expect(groupTurns.map((turn) => turn.botId)).toEqual([bot.id, peer.id, reviewer.id]);
     expect(groupTurns.every((turn) => turn.cwd === group.workingDirectory)).toBe(true);
+    expect(
+      groupTurns.every((turn) => JSON.stringify(turn.images) === JSON.stringify([inlineImage]))
+    ).toBe(true);
     expect(
       groupTurns.every(
         (turn) =>

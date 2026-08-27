@@ -1,8 +1,15 @@
-import type { ComputerEvent, RunOrigin } from "@openbot/contracts";
+import type { ComputerEvent, InlineImageInput, RunOrigin, SubagentType } from "@openbot/contracts";
 import { createPrismaClient, Prisma, type PrismaClient } from "@openbot/db";
-import { AgentMessaging, buildSafeTranscript, RoutineService } from "@openbot/messaging";
+import {
+  AgentDataStore,
+  AgentMessaging,
+  appendRoutineRunLedger,
+  buildSafeTranscript,
+  RoutineService,
+} from "@openbot/messaging";
 import { fromPrisma, type Job, type JobWithMetadata, PgBoss } from "pg-boss";
 import { Projection } from "./projection";
+import { pluginRuntimeContext } from "./plugins";
 
 const LEASE_MS = 2 * 60_000;
 
@@ -25,6 +32,7 @@ interface Claimed {
   conversationId: string;
   ownerId: string;
   content: string;
+  images: InlineImageInput[];
   clientId: string;
   cwd: string;
   instructions: string;
@@ -33,8 +41,26 @@ interface Claimed {
   deliveryId: string | null;
   origin: RunOrigin;
   runtimeProfile: "agent" | "subagent";
+  subagentType: SubagentType | null;
   fileAttachments: string[];
 }
+
+const inlineImages = (value: unknown): InlineImageInput[] => {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter(
+      (candidate): candidate is { url: string; alt?: unknown } =>
+        Boolean(candidate) &&
+        typeof candidate === "object" &&
+        typeof (candidate as { url?: unknown }).url === "string" &&
+        /^data:image\/(?:gif|jpeg|png|webp);base64,/i.test((candidate as { url: string }).url)
+    )
+    .map((candidate) => ({
+      url: candidate.url,
+      ...(typeof candidate.alt === "string" ? { alt: candidate.alt.slice(0, 2_000) } : {}),
+    }))
+    .slice(0, 8);
+};
 
 export const turnCompletionFailure = (
   event: Extract<ComputerEvent, { type: "turn.completed" }>
@@ -56,18 +82,21 @@ export class WakeWorker {
   readonly projection: Projection;
   readonly computerUrl: string;
   readonly controlToken: string;
+  readonly agentData: AgentDataStore;
   readonly messaging: AgentMessaging;
   readonly routines: RoutineService;
+  private routineTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor() {
     const databaseUrl = process.env.DATABASE_URL ?? "";
     this.prisma = createPrismaClient(databaseUrl);
     this.boss = new PgBoss(databaseUrl);
-    this.projection = new Projection(this.prisma);
     this.computerUrl = process.env.OPENBOT_COMPUTER_URL ?? "http://127.0.0.1:8790";
     this.controlToken = process.env.OPENBOT_CONTROL_TOKEN ?? "local-compose-only-change-me";
-    this.messaging = new AgentMessaging(this.prisma, this.boss);
-    this.routines = new RoutineService(this.prisma, this.messaging);
+    this.agentData = new AgentDataStore(this.prisma);
+    this.projection = new Projection(this.prisma, this.agentData);
+    this.messaging = new AgentMessaging(this.prisma, this.boss, this.agentData);
+    this.routines = new RoutineService(this.prisma, this.messaging, this.agentData);
     this.boss.on("error", (error) => console.error("pg-boss", error));
   }
 
@@ -80,6 +109,7 @@ export class WakeWorker {
     await this.boss.schedule("routine-dispatch", "* * * * *");
     await this.messaging.recoverRounds();
     await this.recoverDurableWork();
+    await this.agentData.reconcileAllActiveBots();
     await this.boss.work<WakeData>(
       "bot-wake",
       {
@@ -104,11 +134,18 @@ export class WakeWorker {
       if (job) await this.handleTranscript(job);
     });
     await this.boss.work("routine-dispatch", { batchSize: 1 }, async () => {
+      await this.agentData.reconcileAllActiveBots();
       await this.routines.dispatchDue();
     });
+    this.routineTimer = setInterval(() => {
+      void this.routines.dispatchDue().catch((error) => console.error("routine-dispatch", error));
+    }, 1_000);
+    this.routineTimer.unref();
   }
 
   async stop(): Promise<void> {
+    if (this.routineTimer) clearInterval(this.routineTimer);
+    this.routineTimer = null;
     await this.boss.stop({ graceful: true });
     await this.prisma.$disconnect();
   }
@@ -163,7 +200,9 @@ export class WakeWorker {
         await tx.botRunLease.deleteMany({
           where: { botId: event.botId, expiresAt: { lt: new Date() } },
         });
-        const lease = await tx.botRunLease.findUnique({ where: { botId: event.botId } });
+        const lease = await tx.botRunLease.findUnique({
+          where: { botId: event.botId },
+        });
         if (!lease) {
           await this.messaging.promoteOrphanedSteers(
             tx,
@@ -265,6 +304,7 @@ export class WakeWorker {
         }
         await this.messaging.scheduleTranscriptProjection(tx, [botId]);
       });
+      await this.agentData.projectBot(botId);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       const finalAttempt = job.retryCount >= job.retryLimit;
@@ -295,7 +335,9 @@ export class WakeWorker {
           },
         });
         if (finalAttempt) {
-          const subagent = await tx.subagent.findUnique({ where: { childBotId: botId } });
+          const subagent = await tx.subagent.findUnique({
+            where: { childBotId: botId },
+          });
           if (subagent && !["completed", "failed", "stopped"].includes(subagent.status)) {
             await tx.subagent.update({
               where: { id: subagent.id },
@@ -378,6 +420,7 @@ export class WakeWorker {
         if (!inbox) return null;
         const payload = inbox.payload as {
           content?: string;
+          images?: unknown;
           clientId?: string;
           channelId?: string;
         };
@@ -454,6 +497,7 @@ export class WakeWorker {
           conversationId: inbox.conversationId,
           ownerId,
           content: payload.content,
+          images: inlineImages(payload.images),
           clientId: payload.clientId,
           cwd:
             inbox.run.origin === "group" && inbox.run.channel?.workingDirectory
@@ -465,6 +509,8 @@ export class WakeWorker {
           deliveryId: inbox.run.deliveryId,
           origin: inbox.run.origin,
           runtimeProfile: inbox.bot.subagentIdentity ? "subagent" : "agent",
+          subagentType:
+            (inbox.bot.subagentIdentity?.subagentType as SubagentType | undefined) ?? null,
           fileAttachments: Array.isArray(inbox.bot.subagentIdentity?.fileAttachments)
             ? inbox.bot.subagentIdentity.fileAttachments.filter(
                 (value): value is string => typeof value === "string"
@@ -483,7 +529,13 @@ export class WakeWorker {
     const heartbeat = setInterval(() => void this.heartbeat(claimed), 30_000);
     let completion: Extract<ComputerEvent, { type: "turn.completed" }> | null = null;
     try {
-      const instructions = await this.messaging.platformInstructions(claimed.botId);
+      const [platformInstructions, pluginContext] = await Promise.all([
+        this.messaging.platformInstructions(claimed.botId),
+        pluginRuntimeContext(this.prisma, claimed.botId),
+      ]);
+      // Plugin skills are global/read-only inputs. Bot-owned saved skills are
+      // rendered later by platformInstructions and therefore win on conflict.
+      const instructions = `${pluginContext.skillInstructions}${platformInstructions}`;
       const response = await fetch(`${this.computerUrl}/v1/turns`, {
         method: "POST",
         headers: {
@@ -496,13 +548,16 @@ export class WakeWorker {
           conversationId: claimed.conversationId,
           sessionPath: claimed.sessionPath,
           content: claimed.content,
+          images: claimed.images,
           clientMessageId: claimed.clientId,
           cwd: claimed.cwd,
           instructions,
           channelId: claimed.channelId,
           deliveryId: claimed.deliveryId,
           runtimeProfile: claimed.runtimeProfile,
+          subagentType: claimed.subagentType ?? undefined,
           fileAttachments: claimed.fileAttachments,
+          dynamicNamespaces: pluginContext.dynamicNamespaces,
         }),
         signal: AbortSignal.timeout(24 * 60 * 60_000),
       });
@@ -577,6 +632,8 @@ export class WakeWorker {
         await this.messaging.scheduleTranscriptProjection(tx, [claimed.botId]);
         await this.completeSubagent(tx, claimed);
       });
+      await this.recordMemoryFromRun(claimed);
+      await this.syncRoutineRunFile(claimed.botId, claimed.runId);
       if (claimed.deliveryId) {
         await this.messaging.completeDelivery(claimed.deliveryId, "completed");
       }
@@ -631,7 +688,10 @@ export class WakeWorker {
         data: { status: "failed", error: details, completedAt: new Date() },
       });
       await tx.routineExecution.updateMany({
-        where: { runId: claimed.runId, status: { in: ["queued", "running", "waiting_approval"] } },
+        where: {
+          runId: claimed.runId,
+          status: { in: ["queued", "running", "waiting_approval"] },
+        },
         data: { status: "failed", error: details, completedAt: new Date() },
       });
       if (claimed.origin === "bootstrap") {
@@ -657,7 +717,11 @@ export class WakeWorker {
         }
       }
       await tx.approval.updateMany({
-        where: { runId: claimed.runId, status: "pending" },
+        where: {
+          runId: claimed.runId,
+          status: "pending",
+          requestMethod: { not: "plugin/tool" },
+        },
         data: { status: "expired", resolvedAt: new Date() },
       });
       await this.messaging.promoteUndeliveredSteers(
@@ -678,9 +742,76 @@ export class WakeWorker {
       await this.messaging.scheduleTranscriptProjection(tx, [claimed.botId]);
       await this.failSubagent(tx, claimed, details);
     });
+    await this.syncRoutineRunFile(claimed.botId, claimed.runId);
     if (claimed.deliveryId) {
       await this.messaging.completeDelivery(claimed.deliveryId, "failed", details);
     }
+  }
+
+  private async syncRoutineRunFile(botId: string, runId: string): Promise<void> {
+    const execution = await this.prisma.routineExecution.findUnique({
+      where: { runId },
+      select: {
+        id: true,
+        routineId: true,
+        kind: true,
+        status: true,
+        scheduledFor: true,
+        enqueuedAt: true,
+        startedAt: true,
+        completedAt: true,
+        runId: true,
+        skipReason: true,
+        error: true,
+        routine: { select: { runLedger: true } },
+      },
+    });
+    if (!execution) return;
+    const status =
+      execution.status === "completed"
+        ? "ok"
+        : execution.status === "queued" ||
+            execution.status === "running" ||
+            execution.status === "waiting_approval"
+          ? "running"
+          : "error";
+    await this.prisma.routine.update({
+      where: { id: execution.routineId },
+      data: {
+        runLedger: appendRoutineRunLedger(execution.routine.runLedger, {
+          id: execution.id,
+          trigger: execution.kind === "scheduled" ? "schedule" : "manual",
+          startedAt: (
+            execution.startedAt ??
+            execution.enqueuedAt ??
+            execution.scheduledFor
+          ).getTime(),
+          finishedAt: execution.completedAt?.getTime() ?? null,
+          status,
+          ...(execution.runId ? { coalescedRunIds: [execution.runId] } : {}),
+          ...(execution.skipReason ? { detail: execution.skipReason } : {}),
+          ...(execution.error ? { error: execution.error } : {}),
+        }),
+      },
+    });
+    await this.agentData.writeRoutine(botId, execution.routineId);
+  }
+
+  private async recordMemoryFromRun(claimed: Claimed): Promise<void> {
+    const messages = await this.prisma.message.findMany({
+      where: { runId: claimed.runId, status: "completed" },
+      select: { role: true, content: true, createdAt: true },
+      orderBy: { createdAt: "asc" },
+    });
+    const user = messages.find((message) => message.role === "user");
+    const assistant = [...messages].reverse().find((message) => message.role === "assistant");
+    if (!user || !assistant) return;
+    await this.agentData.recordTurnMemory(claimed.botId, {
+      user: user.content,
+      assistant: assistant.content,
+      hidden: !["user", "group"].includes(claimed.origin),
+      occurredAt: user.createdAt.getTime(),
+    });
   }
 
   private async completeSubagent(tx: Prisma.TransactionClient, claimed: Claimed): Promise<void> {
@@ -695,7 +826,12 @@ export class WakeWorker {
     const result = finalMessage?.content.trim() || "Subagent completed without a text report.";
     await tx.subagent.update({
       where: { id: subagent.id },
-      data: { status: "completed", result, error: Prisma.DbNull, completedAt: new Date() },
+      data: {
+        status: "completed",
+        result,
+        error: Prisma.DbNull,
+        completedAt: new Date(),
+      },
     });
     await tx.event.create({
       data: {
@@ -758,7 +894,9 @@ export class WakeWorker {
     status: "completed" | "failed",
     result: string
   ): Promise<void> {
-    const parent = await tx.bot.findUnique({ where: { id: subagent.parentBotId } });
+    const parent = await tx.bot.findUnique({
+      where: { id: subagent.parentBotId },
+    });
     if (!parent || !["active", "provisioning"].includes(parent.status)) return;
     await this.messaging.enqueueWake(tx, {
       botId: subagent.parentBotId,

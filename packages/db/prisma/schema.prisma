@@ -88,6 +88,7 @@ enum RunOrigin {
 enum RoutineScheduleKind {
   cron
   interval
+  event
 }
 
 enum RoutineExecutionKind {
@@ -202,6 +203,33 @@ enum SubagentStatus {
   stopped
 }
 
+enum PluginInstallStatus {
+  installed
+  disabled
+  error
+}
+
+enum PluginConnectionStatus {
+  disconnected
+  needs_auth
+  ready
+  error
+  revoked
+}
+
+enum PluginToolDecision {
+  deny
+  prompt
+  allow
+}
+
+enum PluginInvocationStatus {
+  running
+  completed
+  failed
+  denied
+}
+
 model Computer {
   id           String         @id @default(uuid()) @db.Uuid
   name         String         @default("OpenBot computer")
@@ -220,8 +248,11 @@ model Bot {
   instructions     String       @default("")
   icon             String       @default("●")
   color            String       @default("#4f7cff")
+  namedBy          String       @default("user")
   notificationsEnabled Boolean  @default(true)
   hiddenFromSidebar Boolean     @default(false)
+  dreamingEnabled     Boolean     @default(false)
+  episodePending      Int         @default(0)
   avatarPath       String?
   defaultDirectory String
   status           BotStatus    @default(provisioning)
@@ -244,12 +275,19 @@ model Bot {
   writtenMemoryFacts MemoryFact[]      @relation("MemoryFactWriter")
   savedSkills      SavedSkill[]
   routines         Routine[]
+  promptSnapshot   AgentPromptSnapshot?
+  fileStates       AgentFileState[]
   projectMemberships ProjectMember[]
   createdProjects  Project[]           @relation("ProjectCreator")
   connectorStates  BotConnectorState[]
   todos            TodoItem[]
   parentSubagents  Subagent[]           @relation("ParentSubagents")
   subagentIdentity Subagent?            @relation("ChildSubagent")
+  pluginEnablements BotPluginEnablement[]
+  pluginConnectionGrants BotPluginConnectionGrant[]
+  pluginToolPolicies PluginToolPolicy[]
+  pluginActivities PluginActivity[]
+  pluginInvocations PluginInvocation[]
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt
 
@@ -310,12 +348,19 @@ model MemoryFact {
   projectSlug    String?
   fact           String
   factHash       String
+  logicalId      String      @default("")
+  sourcePath     String      @default("")
+  sourceOrdinal  Int         @default(0)
+  sourceLine     Int         @default(0)
+  importance     Float       @default(1)
+  origin         String      @default("legacy")
   writtenByBotId String?      @db.Uuid
   writtenByBot   Bot?         @relation("MemoryFactWriter", fields: [writtenByBotId], references: [id], onDelete: SetNull)
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
-  @@unique([namespace, factHash])
+  @@unique([namespace, sourcePath, sourceOrdinal])
+  @@index([namespace, logicalId, createdAt])
   @@index([namespace, tier, updatedAt])
   @@index([writtenByBotId, updatedAt])
 }
@@ -324,13 +369,16 @@ model SavedSkill {
   id          String   @id @default(uuid()) @db.Uuid
   botId       String   @db.Uuid
   bot         Bot      @relation(fields: [botId], references: [id], onDelete: Cascade)
+  slug        String
   name        String
   description String
   body        String
+  frontmatter Json     @default("{}")
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  @@unique([botId, name])
+  @@unique([botId, slug])
+  @@index([botId, name])
   @@index([botId, updatedAt])
 }
 
@@ -338,8 +386,12 @@ model Routine {
   id              String              @id @default(uuid()) @db.Uuid
   botId           String              @db.Uuid
   bot             Bot                 @relation(fields: [botId], references: [id], onDelete: Cascade)
+  slug            String
   name            String
   prompt          String
+  trigger         Json                @default("{}")
+  triggerPresentation Json?
+  provenance      String              @default("untrusted")
   scheduleText    String
   scheduleKind    RoutineScheduleKind
   cronExpression  String?
@@ -349,8 +401,12 @@ model Routine {
   enabled         Boolean             @default(true)
   revision        Int                 @default(1)
   nextRunAt       DateTime?
+  lastRunAt       DateTime?
   pausedAt        DateTime?
   deletedAt       DateTime?
+  pendingNotices  Json                @default("[]")
+  raisedNotices   Json                @default("[]")
+  runLedger       Json                @default("[]")
   revisions       RoutineRevision[]
   executions      RoutineExecution[]
   createdAt       DateTime            @default(now())
@@ -358,6 +414,7 @@ model Routine {
 
   @@index([enabled, nextRunAt])
   @@index([botId, deletedAt, updatedAt])
+  @@unique([botId, slug])
 }
 
 model RoutineRevision {
@@ -539,11 +596,48 @@ model Conversation {
   codexThreadId  String?                @unique
   codexSessionId String?
   continuity     ConversationContinuity @default(empty)
+  compactionEpoch Int                   @default(0)
   messages       Message[]
   runs           Run[]
   inboxEvents    InboxEvent[]
   createdAt      DateTime               @default(now())
   updatedAt      DateTime               @updatedAt
+}
+
+model AgentPromptSnapshot {
+  botId                 String   @id @db.Uuid
+  bot                   Bot      @relation(fields: [botId], references: [id], onDelete: Cascade)
+  profileEpoch          Int      @default(-1)
+  profileSection        String   @default("")
+  systemName            String   @default("")
+  systemDescription     String   @default("")
+  announcedName         String   @default("")
+  announcedDescription  String   @default("")
+  memoryEpoch           Int      @default(-1)
+  memoryRender          String   @default("")
+  memoryHasFacts        Boolean  @default(false)
+  skillEpoch            Int      @default(-1)
+  skillRender           String   @default("")
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+}
+
+model AgentFileState {
+  path          String   @id
+  botId         String?  @db.Uuid
+  bot           Bot?     @relation(fields: [botId], references: [id], onDelete: Cascade)
+  kind          String
+  digest        String?
+  validDigest   String?
+  exists        Boolean  @default(true)
+  error         String?
+  generation    Int      @default(0)
+  firstSeenAt   DateTime @default(now())
+  lastSeenAt    DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([botId, kind])
+  @@index([kind, lastSeenAt])
 }
 
 model Message {
@@ -591,6 +685,7 @@ model Run {
   inboxEvents    InboxEvent[]
   lease          BotRunLease?
   routineExecution RoutineExecution?
+  pluginInvocations PluginInvocation[]
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
@@ -714,4 +809,132 @@ model IdempotencyRecord {
 
   @@id([scope, key])
   @@index([expiresAt])
+}
+
+model PluginInstallation {
+  id          String              @id @default(uuid()) @db.Uuid
+  pluginKey   String              @unique
+  version     String
+  name        String
+  description String              @default("")
+  publisher   String
+  manifest    Json
+  status      PluginInstallStatus @default(installed)
+  installedAt DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+  connections PluginConnection[]
+  enablements BotPluginEnablement[]
+  activities  PluginActivity[]
+
+  @@index([status, updatedAt])
+}
+
+model PluginConnection {
+  id            String                 @id @default(uuid()) @db.Uuid
+  installationId String                @db.Uuid
+  installation  PluginInstallation     @relation(fields: [installationId], references: [id], onDelete: Cascade)
+  connectorKey  String
+  name          String
+  alias         String                 @default("default")
+  transport     String
+  authType      String
+  endpoint      String?
+  status        PluginConnectionStatus @default(disconnected)
+  statusMessage String?
+  instructions  String                 @default("")
+  toolSnapshot  Json                   @default("[]")
+  connectedAt   DateTime?
+  lastCheckedAt DateTime?
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @updatedAt
+  grants        BotPluginConnectionGrant[]
+  policies      PluginToolPolicy[]
+  activities    PluginActivity[]
+  invocations   PluginInvocation[]
+
+  @@unique([installationId, connectorKey, alias])
+  @@index([status, updatedAt])
+}
+
+model BotPluginEnablement {
+  botId          String             @db.Uuid
+  bot            Bot                @relation(fields: [botId], references: [id], onDelete: Cascade)
+  installationId String             @db.Uuid
+  installation   PluginInstallation @relation(fields: [installationId], references: [id], onDelete: Cascade)
+  enabled        Boolean            @default(true)
+  skillsEnabled  Boolean            @default(true)
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  @@id([botId, installationId])
+  @@index([installationId, enabled])
+}
+
+model BotPluginConnectionGrant {
+  botId       String           @db.Uuid
+  bot         Bot              @relation(fields: [botId], references: [id], onDelete: Cascade)
+  connectionId String          @db.Uuid
+  connection  PluginConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  enabled     Boolean          @default(true)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  @@id([botId, connectionId])
+  @@index([connectionId, enabled])
+}
+
+model PluginToolPolicy {
+  id           String             @id @default(uuid()) @db.Uuid
+  connectionId String             @db.Uuid
+  connection   PluginConnection   @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  botId        String?            @db.Uuid
+  bot          Bot?               @relation(fields: [botId], references: [id], onDelete: Cascade)
+  toolName     String
+  decision     PluginToolDecision
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+
+  @@unique([connectionId, botId, toolName])
+  @@index([botId, connectionId])
+}
+
+model PluginActivity {
+  id             String              @id @default(uuid()) @db.Uuid
+  installationId String?             @db.Uuid
+  installation   PluginInstallation? @relation(fields: [installationId], references: [id], onDelete: SetNull)
+  connectionId   String?             @db.Uuid
+  connection     PluginConnection?   @relation(fields: [connectionId], references: [id], onDelete: SetNull)
+  botId          String?             @db.Uuid
+  bot            Bot?                @relation(fields: [botId], references: [id], onDelete: SetNull)
+  kind           String
+  summary        String
+  metadata       Json                @default("{}")
+  createdAt      DateTime            @default(now())
+
+  @@index([createdAt])
+  @@index([connectionId, createdAt])
+  @@index([botId, createdAt])
+}
+
+model PluginInvocation {
+  id           String                 @id @default(uuid()) @db.Uuid
+  callId       String                 @unique
+  connectionId String                 @db.Uuid
+  connection   PluginConnection       @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  botId        String                 @db.Uuid
+  bot          Bot                    @relation(fields: [botId], references: [id], onDelete: Cascade)
+  runId        String?                @db.Uuid
+  run          Run?                   @relation(fields: [runId], references: [id], onDelete: SetNull)
+  toolName     String
+  decision     PluginToolDecision
+  status       PluginInvocationStatus @default(running)
+  arguments    Json                   @default("{}")
+  result       Json?
+  error        String?
+  startedAt    DateTime               @default(now())
+  completedAt  DateTime?
+
+  @@index([botId, startedAt])
+  @@index([connectionId, startedAt])
+  @@index([runId, startedAt])
 }

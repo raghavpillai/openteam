@@ -27,12 +27,12 @@ CMD ["bun", "--filter", "@openbot/db", "db:deploy"]
 FROM oven/bun:1.3.8-slim AS server
 WORKDIR /app
 COPY --from=build /app/apps/server/dist/main.js ./main.js
-USER bun
+USER 10001:10001
 EXPOSE 8787
 CMD ["bun", "main.js"]
 
 FROM node:22-bookworm-slim AS worker
 WORKDIR /app
 COPY --from=build /app/apps/worker/dist/main.js ./main.js
-USER node
+USER 10001:10001
 CMD ["node", "main.js"]

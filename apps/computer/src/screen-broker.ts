@@ -1,7 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { cp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { ScreenActionInput } from "@openbot/contracts";
+import type { ComputerUseActionInput, ScreenActionInput } from "@openbot/contracts";
 import { BrowserBroker } from "./browser-broker";
 
 const WIDTH = 1280;
@@ -165,12 +165,7 @@ export class ScreenBroker {
     actor: "agent" | "human"
   ): Promise<ScreenStatus> {
     const session = await this.readySession(botId, cwd);
-    if (actor === "agent") {
-      if (session.agentInputPaused) throw new Error("Agent graphical input is paused");
-      if (session.humanTakeoverUntil > Date.now()) {
-        throw new Error("The user currently holds the graphical input lease");
-      }
-    }
+    if (actor === "agent") this.assertAgentControl(session);
     const env = this.environment(session);
     switch (input.action) {
       case "move":
@@ -211,6 +206,45 @@ export class ScreenBroker {
     return this.statusFor(session);
   }
 
+  async actComputerUse(
+    botId: string,
+    cwd: string,
+    actions: readonly ComputerUseActionInput[]
+  ): Promise<Buffer> {
+    const session = await this.readySession(botId, cwd);
+    this.assertAgentControl(session);
+    const env = this.environment(session);
+    for (const action of actions) {
+      this.assertAgentControl(session);
+      await this.performComputerUseAction(action, env);
+    }
+    const finalAction = actions.at(-1)?.action;
+    if (finalAction && finalAction !== "wait" && finalAction !== "screenshot") {
+      await new Promise((resolve) => setTimeout(resolve, 150));
+    }
+    return run("import", ["-display", `:${session.display}`, "-window", "root", "png:-"], {
+      env,
+      captureStdout: true,
+    });
+  }
+
+  async commandEnvironment(botId: string, cwd: string): Promise<NodeJS.ProcessEnv> {
+    const session = await this.readySession(botId, cwd);
+    return this.environment(session);
+  }
+
+  async browserEndpointForAgent(botId: string, cwd: string): Promise<string> {
+    const session = await this.readySession(botId, cwd);
+    this.assertAgentControl(session);
+    const endpoint = `http://127.0.0.1:${session.browserDebugPort}`;
+    if (!(await this.browserIsReady(endpoint))) this.openApp(session, "chromium");
+    for (let attempt = 0; attempt < 60; attempt += 1) {
+      if (await this.browserIsReady(endpoint)) return endpoint;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    throw new Error("Chromium did not expose its page-control endpoint");
+  }
+
   async takeover(botId: string, cwd: string, active: boolean): Promise<ScreenStatus> {
     const session = await this.readySession(botId, cwd);
     session.humanTakeoverUntil = active ? Date.now() + TAKEOVER_TTL_MS : 0;
@@ -247,6 +281,122 @@ export class ScreenBroker {
       throw new Error(session?.error ?? "Graphical screen is unavailable");
     }
     return session;
+  }
+
+  private assertAgentControl(session: ScreenSession): void {
+    if (session.agentInputPaused) throw new Error("Agent graphical input is paused");
+    if (session.humanTakeoverUntil > Date.now()) {
+      throw new Error("The user currently holds the graphical input lease");
+    }
+  }
+
+  private async browserIsReady(endpoint: string): Promise<boolean> {
+    try {
+      const response = await fetch(`${endpoint}/json/version`, {
+        signal: AbortSignal.timeout(250),
+      });
+      return response.ok;
+    } catch {
+      return false;
+    }
+  }
+
+  private async performComputerUseAction(
+    input: ComputerUseActionInput,
+    env: NodeJS.ProcessEnv
+  ): Promise<void> {
+    const button = input.button === "right" ? "3" : input.button === "middle" ? "2" : "1";
+    const modifiers = input.modifiers?.split("+") ?? [];
+    const held = modifiers.flatMap((modifier) => ["keydown", modifier]);
+    const released = [...modifiers].reverse().flatMap((modifier) => ["keyup", modifier]);
+    const position =
+      input.x === undefined || input.y === undefined
+        ? []
+        : ["mousemove", "--sync", String(input.x), String(input.y)];
+    switch (input.action) {
+      case "screenshot":
+        return;
+      case "move":
+        if (position.length > 0) await run("xdotool", position, { env });
+        return;
+      case "click":
+        await run(
+          "xdotool",
+          [
+            ...position,
+            ...held,
+            "click",
+            "--repeat",
+            String(input.count ?? 1),
+            "--delay",
+            "140",
+            button,
+            ...released,
+          ],
+          { env }
+        );
+        return;
+      case "drag": {
+        const points = input.path?.length
+          ? [...input.path]
+          : [
+              { x: input.x!, y: input.y! },
+              { x: input.x2!, y: input.y2! },
+            ];
+        const first = points[0]!;
+        const path = points
+          .slice(1)
+          .flatMap((point) => ["mousemove", "--sync", String(point.x), String(point.y)]);
+        await run(
+          "xdotool",
+          [
+            "mousemove",
+            "--sync",
+            String(first.x),
+            String(first.y),
+            ...held,
+            "mousedown",
+            button,
+            ...path,
+            "mouseup",
+            button,
+            ...released,
+          ],
+          { env }
+        );
+        return;
+      }
+      case "type":
+        await run("xdotool", ["type", "--clearmodifiers", "--delay", "2", "--", input.text!], {
+          env,
+        });
+        return;
+      case "key":
+        await run("xdotool", ["key", "--clearmodifiers", input.key!], { env });
+        return;
+      case "scroll": {
+        const scrollButton = { up: "4", down: "5", left: "6", right: "7" }[input.direction!];
+        await run(
+          "xdotool",
+          [
+            ...position,
+            ...held,
+            "click",
+            "--repeat",
+            String(input.amount ?? 3),
+            "--delay",
+            "30",
+            scrollButton,
+            ...released,
+          ],
+          { env }
+        );
+        return;
+      }
+      case "wait":
+        await new Promise((resolve) => setTimeout(resolve, input.durationMs!));
+        return;
+    }
   }
 
   private async startSession(session: ScreenSession): Promise<void> {
@@ -370,6 +520,7 @@ export class ScreenBroker {
           "--disable-features=Translate",
           `--user-data-dir=${session.profileDirectory}`,
           "--remote-debugging-address=127.0.0.1",
+          "--remote-allow-origins=*",
           `--remote-debugging-port=${session.browserDebugPort}`,
           "--new-window",
           "about:blank",

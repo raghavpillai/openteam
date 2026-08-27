@@ -18,6 +18,22 @@ describe("routine schedules", () => {
     expect(nextRoutineRun(interval, new Date("2026-08-25T12:00:00Z"))).toEqual(
       new Date("2026-08-25T12:30:00Z")
     );
+    expect(
+      normalizeRoutineSchedule("@every 30s", "UTC", {
+        enforceMinimum: false,
+      }).intervalSeconds
+    ).toBe(30);
+    expect(
+      normalizeRoutineSchedule("@every 1h/5m", "UTC", {
+        enforceMinimum: false,
+      }).intervalSeconds
+    ).toBe(60 * 60);
+    const phased = normalizeRoutineSchedule("@every 1h/5m", "UTC", {
+      enforceMinimum: false,
+    });
+    expect(nextRoutineRun(phased, new Date("2026-08-25T12:00:00Z"))).toEqual(
+      new Date("2026-08-25T12:05:00Z")
+    );
     expect(() => normalizeRoutineSchedule("@every 1m", "UTC")).toThrow("5 minutes");
   });
 

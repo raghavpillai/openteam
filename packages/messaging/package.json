@@ -15,6 +15,7 @@
     "@openbot/contracts": "workspace:*",
     "@openbot/db": "workspace:*",
     "cron-parser": "5.10.0",
-    "pg-boss": "12.28.0"
+    "pg-boss": "12.28.0",
+    "yaml": "2.9.0"
   }
 }

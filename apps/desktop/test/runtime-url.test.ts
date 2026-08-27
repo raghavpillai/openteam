@@ -21,17 +21,15 @@ describe("runtime URLs", () => {
   test("routes noVNC through the remote Vite origin", () => {
     expect(
       resolveViewerUrl(
-        "http://127.0.0.1:6207/vnc.html?autoconnect=true&path=websockify",
+        "http://127.0.0.1:6207/openbot.html?autoconnect=true&path=websockify",
         "http://100.94.42.50:5173/"
       )
-    ).toBe(
-      "http://100.94.42.50:5173/novnc/6207/vnc.html?autoconnect=true&path=websockify"
-    );
+    ).toBe("http://100.94.42.50:5173/novnc/6207/openbot.html?autoconnect=true&path=websockify");
   });
 
   test("leaves viewer URLs unchanged in packaged Electron", () => {
     expect(
-      resolveViewerUrl("http://127.0.0.1:6207/vnc.html", "file:///Applications/OpenBot.app")
-    ).toBe("http://127.0.0.1:6207/vnc.html");
+      resolveViewerUrl("http://127.0.0.1:6207/openbot.html", "file:///Applications/OpenBot.app")
+    ).toBe("http://127.0.0.1:6207/openbot.html");
   });
 });

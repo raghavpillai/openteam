@@ -1,70 +1,278 @@
-import type { UpdateBotInput } from "@openbot/contracts";
+import type { SearchResultView, UpdateBotInput } from "@openbot/contracts";
 import { CircleAlert, LoaderCircle, RefreshCw } from "lucide-react";
-import { useDeferredValue, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./client/openbot-api";
 import { ChatPane } from "./components/openbot/chat-pane";
-import { DesktopDialogs, preloadDesktopForms } from "./components/openbot/desktop-dialogs";
+import { DesktopDialogs } from "./components/openbot/desktop-dialogs";
 import { DesktopHeader } from "./components/openbot/desktop-header";
 import { Inspector } from "./components/openbot/inspector";
-import { NewChannelScreen } from "./components/openbot/new-channel-screen";
+import { NewBotScreen } from "./components/openbot/new-bot-screen";
+import { PluginDialog } from "./components/openbot/plugin-settings";
+import { type SearchAction, SearchDialog } from "./components/openbot/search-dialog";
+import { AboutPanel, SettingsPanel } from "./components/openbot/settings-panel";
 import { Sidebar } from "./components/openbot/sidebar";
 import { Button } from "./components/ui/button";
 import { TooltipProvider } from "./components/ui/tooltip";
-import { useBotRowActions, type InspectorMode } from "./hooks/use-bot-row-actions";
+import { type InspectorMode, useBotRowActions } from "./hooks/use-bot-row-actions";
 import { useChannelSelection } from "./hooks/use-channel-selection";
 import { useRecentChannels } from "./hooks/use-recent-channels";
+import { useSidebarPreferences } from "./hooks/use-sidebar-preferences";
+import { cn } from "./lib/cn";
+import { MIN_INSPECTOR_WIDTH, resizeInspector } from "./lib/panel-resize";
 import { measureUntilNextPaint } from "./lib/performance";
+import { enableScreenForSession } from "./lib/screen-session";
 import { useSnapshotIndex } from "./lib/snapshot-index";
 import { useOpenBot } from "./state/use-openbot";
+
+const INSPECTOR_WIDTH_KEY = "openbot:inspector-width";
+const DEFAULT_INSPECTOR_WIDTH = 280;
+const maxInspectorWidth = () =>
+  Math.max(DEFAULT_INSPECTOR_WIDTH, Math.min(560, Math.round(window.innerWidth * 0.48)));
+const clampInspectorWidth = (width: number) =>
+  Math.min(maxInspectorWidth(), Math.max(MIN_INSPECTOR_WIDTH, width));
+const readInspectorWidth = () => {
+  const stored = Number(localStorage.getItem(INSPECTOR_WIDTH_KEY));
+  return clampInspectorWidth(
+    Number.isFinite(stored) && stored > 0 ? stored : DEFAULT_INSPECTOR_WIDTH
+  );
+};
 
 export default function App() {
   const { snapshot, error, refresh, mutate } = useOpenBot();
   const index = useSnapshotIndex(snapshot);
   const { selectedId, setSelectedId } = useChannelSelection(snapshot, index.channelById);
-  const [search, setSearch] = useState("");
-  const deferredSearch = useDeferredValue(search);
-  const [newBot, setNewBot] = useState(false);
-  const [newGroup, setNewGroup] = useState(false);
-  const [detailsOpen, setDetailsOpen] = useState(true);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [aboutOpen, setAboutOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [pluginsOpen, setPluginsOpen] = useState(false);
+  const [searchMessageTarget, setSearchMessageTarget] = useState<{
+    channelId: string;
+    messageId: string;
+    nonce: number;
+  } | null>(null);
+  const [newBotPicker, setNewBotPicker] = useState(false);
+  const [newGroupDialog, setNewGroupDialog] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [inspectorWidth, setInspectorWidth] = useState(readInspectorWidth);
+  const [inspectorResizing, setInspectorResizing] = useState(false);
+  const inspectorResizeSessionRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startWidth: number;
+    width: number;
+    shouldClose: boolean;
+    cursor: string;
+    userSelect: string;
+  } | null>(null);
   const [inspectorMode, setInspectorMode] = useState<InspectorMode>("summary");
-  const [pendingBot, setPendingBot] = useState<{ name: string; color: string } | null>(null);
-  const { handleBotRowAction, rowTranscript, setRowTranscript } = useBotRowActions({
+  const [enabledScreenIds, setEnabledScreenIds] = useState<ReadonlySet<string>>(() => new Set());
+  const [pendingBot, setPendingBot] = useState<{
+    name: string;
+    dmChannelId?: string;
+  } | null>(null);
+  const creatingBot = useRef(false);
+  const sidebarPreferences = useSidebarPreferences();
+
+  useEffect(() => {
+    const handleResize = () => setInspectorWidth((width) => clampInspectorWidth(width));
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+  useEffect(() => {
+    const openSearch = (event: KeyboardEvent) => {
+      if ((!event.metaKey && !event.ctrlKey) || event.altKey || event.shiftKey) return;
+      if (event.key.toLowerCase() !== "k") return;
+      event.preventDefault();
+      setSearchOpen(true);
+    };
+    window.addEventListener("keydown", openSearch);
+    return () => window.removeEventListener("keydown", openSearch);
+  }, []);
+  const {
+    confirmDeleteBot,
+    deleteBotTarget,
+    handleBotRowAction,
+    rowTranscript,
+    setDeleteBotTarget,
+    setRowTranscript,
+  } = useBotRowActions({
     mutate,
     setSelectedId,
     setDetailsOpen,
     setInspectorMode,
+    togglePinned: sidebarPreferences.togglePinned,
+    toggleUnread: sidebarPreferences.toggleUnread,
   });
 
+  const createNewBot = useCallback(async () => {
+    if (creatingBot.current) return;
+    creatingBot.current = true;
+    setNewBotPicker(false);
+    setPendingBot({ name: "New Bot" });
+    try {
+      const bot = await mutate(() =>
+        api.createBot({ clientRequestId: crypto.randomUUID(), name: "New Bot" })
+      );
+      setInspectorMode("summary");
+      setDetailsOpen(false);
+      setPendingBot({ name: bot.name, dmChannelId: bot.dmChannelId });
+    } catch {
+      // useOpenBot exposes mutation failures in the app-level error banner.
+      setPendingBot(null);
+    } finally {
+      creatingBot.current = false;
+    }
+  }, [mutate]);
+
   useEffect(() => {
-    const idleId = window.requestIdleCallback(preloadDesktopForms, { timeout: 2_000 });
-    return () => window.cancelIdleCallback(idleId);
+    if (!pendingBot?.dmChannelId || !index.channelById.has(pendingBot.dmChannelId)) return;
+    setSelectedId(pendingBot.dmChannelId);
+    setPendingBot(null);
+  }, [index.channelById, pendingBot, setSelectedId]);
+
+  const retryInspectorBot = useCallback(
+    async (botId: string) => {
+      await mutate(() => api.retryBot(botId));
+    },
+    [mutate]
+  );
+  const updateInspectorBot = useCallback(
+    (botId: string, input: UpdateBotInput) => api.updateBot(botId, input),
+    []
+  );
+  const enableScreen = useCallback((botId: string) => {
+    setEnabledScreenIds((current) => enableScreenForSession(current, botId));
   }, []);
 
+  const snapshotChannels = snapshot?.channels;
   const visibleChannels = useMemo(() => {
-    if (!snapshot) return [];
-    const query = deferredSearch.trim().toLowerCase();
-    return snapshot.channels
-      .filter((channel) => {
-        const bot =
-          channel.kind === "bot_dm"
-            ? index.botById.get(channel.members[0]?.botId ?? "")
-            : undefined;
-        if (bot?.hiddenFromSidebar && !query && channel.id !== selectedId) return false;
-        return !query || channel.name.toLowerCase().includes(query);
-      })
-      .slice()
-      .sort((a, b) => {
-        const aLatest = index.latestMessageByChannel.get(a.id)?.createdAt ?? a.updatedAt;
-        const bLatest = index.latestMessageByChannel.get(b.id)?.createdAt ?? b.updatedAt;
-        return bLatest.localeCompare(aLatest);
-      });
-  }, [deferredSearch, index.botById, index.latestMessageByChannel, selectedId, snapshot]);
+    if (!snapshotChannels) return [];
+    return snapshotChannels.slice().sort((a, b) => {
+      const aLatest = index.latestMessageByChannel.get(a.id)?.createdAt ?? a.updatedAt;
+      const bLatest = index.latestMessageByChannel.get(b.id)?.createdAt ?? b.updatedAt;
+      return bLatest.localeCompare(aLatest);
+    });
+  }, [index.latestMessageByChannel, snapshotChannels]);
+
+  const openNewBot = useCallback(() => {
+    measureUntilNextPaint("view.new-bot-open");
+    setNewBotPicker(true);
+  }, []);
+  const openNewGroup = useCallback(() => {
+    measureUntilNextPaint("view.dialog-open", { dialog: "new-group" });
+    setNewGroupDialog(true);
+  }, []);
+  const openAbout = useCallback(() => setAboutOpen(true), []);
+  const openSettings = useCallback(() => setSettingsOpen(true), []);
+  const openPlugins = useCallback(() => setPluginsOpen(true), []);
+  const openSearch = useCallback(() => setSearchOpen(true), []);
+  const selectSidebarChannel = useCallback(
+    (id: string) => {
+      setNewBotPicker(false);
+      sidebarPreferences.markRead(id);
+      setSelectedId(id);
+    },
+    [setSelectedId, sidebarPreferences.markRead]
+  );
 
   const recentIds = useRecentChannels(selectedId);
   const warmIds = useMemo(
     () =>
       selectedId ? [selectedId, ...recentIds.filter((id) => id !== selectedId)].slice(0, 3) : [],
     [recentIds, selectedId]
+  );
+
+  const updateInspectorWidth = (width: number) => {
+    const next = clampInspectorWidth(width);
+    if (inspectorResizeSessionRef.current) inspectorResizeSessionRef.current.width = next;
+    setInspectorWidth(next);
+  };
+  const finishInspectorResize = (element: HTMLDivElement, canceled = false) => {
+    const session = inspectorResizeSessionRef.current;
+    if (!session) return;
+    if (element.hasPointerCapture(session.pointerId)) {
+      element.releasePointerCapture(session.pointerId);
+    }
+    localStorage.setItem(INSPECTOR_WIDTH_KEY, String(session.width));
+    document.body.style.cursor = session.cursor;
+    document.body.style.userSelect = session.userSelect;
+    inspectorResizeSessionRef.current = null;
+    setInspectorResizing(false);
+    if (!canceled && session.shouldClose) setDetailsOpen(false);
+  };
+
+  const selected = index.channelById.get(selectedId ?? "") ?? null;
+  const selectedBot =
+    selected?.kind === "bot_dm" ? index.botById.get(selected.members[0]?.botId ?? "") : undefined;
+  const searchActions = useMemo<SearchAction[]>(
+    () => [
+      {
+        id: "new-bot",
+        title: "New Bot",
+        subtitle: "Create a persistent assistant",
+        keywords: "create assistant agent",
+        icon: "bot",
+        run: () => setNewBotPicker(true),
+      },
+      {
+        id: "new-channel",
+        title: "New Channel",
+        subtitle: "Start a group conversation",
+        keywords: "create group chat",
+        icon: "channel",
+        run: () => setNewGroupDialog(true),
+      },
+      ...(selected
+        ? [
+            {
+              id: "chat-details",
+              title: "Chat Details",
+              subtitle: selected.name,
+              keywords: "current channel members info",
+              icon: "details" as const,
+              run: () => {
+                setInspectorMode("summary");
+                setDetailsOpen(true);
+              },
+            },
+          ]
+        : []),
+      ...(selectedBot
+        ? [
+            {
+              id: "bot-settings",
+              title: "Bot Settings",
+              subtitle: selectedBot.name,
+              keywords: "profile instructions notifications",
+              icon: "settings" as const,
+              run: () => {
+                setInspectorMode("settings");
+                setDetailsOpen(true);
+              },
+            },
+          ]
+        : []),
+    ],
+    [selected, selectedBot]
+  );
+
+  const selectSearchResult = useCallback(
+    (result: SearchResultView) => {
+      if (result.kind === "link" && result.url) {
+        window.open(result.url, "_blank", "noopener,noreferrer");
+        return;
+      }
+      if (!result.channelId) return;
+      selectSidebarChannel(result.channelId);
+      if (result.messageId) {
+        setSearchMessageTarget({
+          channelId: result.channelId,
+          messageId: result.messageId,
+          nonce: Date.now(),
+        });
+      }
+    },
+    [selectSidebarChannel]
   );
 
   if (!snapshot) {
@@ -79,43 +287,36 @@ export default function App() {
     );
   }
 
-  const selected = index.channelById.get(selectedId ?? "") ?? null;
-  const selectedBot =
-    selected?.kind === "bot_dm" ? index.botById.get(selected.members[0]?.botId ?? "") : undefined;
-
   return (
-    <TooltipProvider delayDuration={350}>
+    <TooltipProvider>
       <main className="flex h-screen overflow-hidden bg-background text-foreground">
+        <div aria-hidden="true" className="electron-window-drag-strip" />
         <Sidebar
           activeRunByChannel={index.activeRunByChannel}
           botById={index.botById}
           channels={visibleChannels}
-          creating={newGroup}
+          creating={newBotPicker}
           latestMessageByChannel={index.latestMessageByChannel}
           onBotAction={handleBotRowAction}
-          onNewBot={() => {
-            measureUntilNextPaint("view.dialog-open", { dialog: "new-bot" });
-            setNewBot(true);
-          }}
-          onNewGroup={() => {
-            measureUntilNextPaint("view.dialog-open", { dialog: "new-group" });
-            setNewGroup(true);
-          }}
-          onSearch={setSearch}
-          onSelect={(id) => {
-            setNewGroup(false);
-            setSelectedId(id);
-          }}
+          onNewBot={openNewBot}
+          onNewGroup={openNewGroup}
+          onOpenAbout={openAbout}
+          onOpenPlugins={openPlugins}
+          onOpenSettings={openSettings}
+          onSearch={openSearch}
+          onSelect={selectSidebarChannel}
           pendingBot={pendingBot}
-          search={search}
-          selectedId={newGroup ? null : selectedId}
+          preferences={sidebarPreferences}
+          selectedId={newBotPicker || pendingBot ? null : selectedId}
         />
 
-        <section className="flex min-w-0 flex-1 flex-col">
-          {!newGroup && (
+        <section className="relative flex min-w-0 flex-1 flex-col">
+          {!newBotPicker && !pendingBot && (
             <DesktopHeader
               botById={index.botById}
               detailsOpen={detailsOpen}
+              inspectorResizing={inspectorResizing}
+              inspectorWidth={inspectorWidth}
               inspectorMode={inspectorMode}
               onDetailsOpenChange={(open) => {
                 if (open) setInspectorMode("summary");
@@ -138,19 +339,24 @@ export default function App() {
             </div>
           )}
 
-          {newGroup ? (
-            <NewChannelScreen
+          {newBotPicker ? (
+            <NewBotScreen
               botById={index.botById}
               channels={visibleChannels}
-              onCreateBot={() => {
-                setNewGroup(false);
-                setNewBot(true);
-              }}
-              onSelect={(id) => {
-                setNewGroup(false);
-                setSelectedId(id);
-              }}
+              onCancel={() => setNewBotPicker(false)}
+              onCreateBot={() => void createNewBot()}
+              onSelect={selectSidebarChannel}
             />
+          ) : pendingBot ? (
+            <div
+              aria-label={`Creating ${pendingBot.name}`}
+              aria-live="polite"
+              className="grid min-h-0 flex-1 place-items-center bg-background text-muted-foreground"
+              data-new-bot-state="creating"
+              role="status"
+            >
+              <LoaderCircle className="size-8 animate-spin" strokeWidth={1.5} />
+            </div>
           ) : selected ? (
             <div className="flex min-h-0 flex-1">
               <div className="relative min-w-0 flex-1">
@@ -172,6 +378,9 @@ export default function App() {
                         approvalsByRun={index.approvalsByRun}
                         botById={index.botById}
                         channel={channel}
+                        focusMessage={
+                          searchMessageTarget?.channelId === channelId ? searchMessageTarget : null
+                        }
                         itemsByRun={index.itemsByRun}
                         messages={index.messagesByChannel.get(channelId) ?? []}
                         mutate={mutate}
@@ -183,8 +392,81 @@ export default function App() {
                   );
                 })}
               </div>
-              {detailsOpen && (
-                <div className="relative w-80 shrink-0">
+              <div
+                aria-hidden={!detailsOpen}
+                className={cn(
+                  "shrink-0 overflow-hidden bg-inspector opacity-100",
+                  !inspectorResizing && "transition-[width,opacity] duration-150 ease-out",
+                  !detailsOpen && "pointer-events-none opacity-0"
+                )}
+                inert={!detailsOpen}
+                style={{ width: detailsOpen ? inspectorWidth : 0 }}
+              >
+                <div className="relative h-full" style={{ width: inspectorWidth }}>
+                  <div
+                    aria-label="Resize details sidebar"
+                    aria-orientation="vertical"
+                    aria-valuemax={maxInspectorWidth()}
+                    aria-valuemin={MIN_INSPECTOR_WIDTH}
+                    aria-valuenow={inspectorWidth}
+                    className="electron-no-drag group absolute inset-y-0 left-0 z-40 w-2 cursor-col-resize touch-none outline-none"
+                    data-inspector-resizer=""
+                    data-resizing={inspectorResizing ? "true" : "false"}
+                    onDoubleClick={() => {
+                      updateInspectorWidth(DEFAULT_INSPECTOR_WIDTH);
+                      localStorage.setItem(INSPECTOR_WIDTH_KEY, String(DEFAULT_INSPECTOR_WIDTH));
+                    }}
+                    onKeyDown={(event) => {
+                      let next = inspectorWidth;
+                      if (event.key === "ArrowLeft") next += 16;
+                      else if (event.key === "ArrowRight") next -= 16;
+                      else if (event.key === "Home") next = MIN_INSPECTOR_WIDTH;
+                      else if (event.key === "End") next = maxInspectorWidth();
+                      else return;
+                      event.preventDefault();
+                      updateInspectorWidth(next);
+                      localStorage.setItem(INSPECTOR_WIDTH_KEY, String(clampInspectorWidth(next)));
+                    }}
+                    onPointerCancel={(event) => finishInspectorResize(event.currentTarget, true)}
+                    onPointerDown={(event) => {
+                      if (event.button !== 0) return;
+                      event.preventDefault();
+                      event.currentTarget.setPointerCapture(event.pointerId);
+                      inspectorResizeSessionRef.current = {
+                        pointerId: event.pointerId,
+                        startX: event.clientX,
+                        startWidth: inspectorWidth,
+                        width: inspectorWidth,
+                        shouldClose: false,
+                        cursor: document.body.style.cursor,
+                        userSelect: document.body.style.userSelect,
+                      };
+                      setInspectorResizing(true);
+                      document.body.style.cursor = "col-resize";
+                      document.body.style.userSelect = "none";
+                    }}
+                    onPointerMove={(event) => {
+                      const session = inspectorResizeSessionRef.current;
+                      if (!session || session.pointerId !== event.pointerId) return;
+                      const next = resizeInspector(
+                        session.startWidth,
+                        session.startX,
+                        event.clientX
+                      );
+                      session.shouldClose = next.shouldClose;
+                      updateInspectorWidth(next.width);
+                    }}
+                    onPointerUp={(event) => finishInspectorResize(event.currentTarget)}
+                    role="separator"
+                    tabIndex={0}
+                  >
+                    <span
+                      className={cn(
+                        "absolute inset-y-0 left-0 w-px bg-divider transition-colors duration-150 ease-out group-hover:bg-divider-hover group-focus-visible:bg-divider-hover motion-reduce:transition-none",
+                        inspectorResizing && "!bg-divider-active"
+                      )}
+                    />
+                  </div>
                   {warmIds.map((channelId) => {
                     const channel = index.channelById.get(channelId);
                     if (!channel) return null;
@@ -195,17 +477,18 @@ export default function App() {
                         key={channelId}
                       >
                         <Inspector
-                          active={channelId === selectedId}
+                          active={detailsOpen && channelId === selectedId}
                           botById={index.botById}
                           channel={channel}
+                          screenEnabled={Boolean(
+                            channel.kind === "bot_dm" &&
+                              enabledScreenIds.has(channel.members[0]?.botId ?? "")
+                          )}
                           mode={channelId === selectedId ? inspectorMode : "summary"}
+                          onEnableScreen={enableScreen}
                           onModeChange={setInspectorMode}
-                          onRetryBot={async (botId) => {
-                            await mutate(() => api.retryBot(botId));
-                          }}
-                          onUpdateBot={(botId: string, input: UpdateBotInput) =>
-                            api.updateBot(botId, input)
-                          }
+                          onRetryBot={retryInspectorBot}
+                          onUpdateBot={updateInspectorBot}
                           rounds={index.roundsByChannel.get(channelId) ?? []}
                           workspaceRoot={snapshot.workspace.root}
                         />
@@ -213,7 +496,7 @@ export default function App() {
                     );
                   })}
                 </div>
-              )}
+              </div>
             </div>
           ) : (
             <div className="grid flex-1 place-items-center text-sm text-muted-foreground">
@@ -224,33 +507,34 @@ export default function App() {
 
         <DesktopDialogs
           activeBots={snapshot.bots.filter((bot) => bot.status === "active")}
-          newBotOpen={newBot}
-          newGroupOpen={false}
-          onCreateBot={async (value) => {
-            setPendingBot({
-              name: value.name ?? "New Bot",
-              color: value.color ?? "#ff7a1a",
-            });
-            try {
-              const bot = await mutate(() => api.createBot(value));
-              setInspectorMode("summary");
-              setDetailsOpen(true);
-              setSelectedId(bot.dmChannelId);
-              setNewBot(false);
-            } finally {
-              setPendingBot(null);
-            }
-          }}
+          deleteBotTarget={deleteBotTarget}
+          newGroupOpen={newGroupDialog}
+          onConfirmDeleteBot={confirmDeleteBot}
           onCreateGroup={async (name, botIds) => {
             const channel = await mutate(() => api.createGroup({ name, botIds }));
             setSelectedId(channel.id);
-            setNewGroup(false);
+            setNewGroupDialog(false);
           }}
-          onNewBotOpenChange={setNewBot}
-          onNewGroupOpenChange={setNewGroup}
+          onDeleteBotOpenChange={(open) => !open && setDeleteBotTarget(null)}
+          onNewGroupOpenChange={setNewGroupDialog}
           onTranscriptOpenChange={(open) => !open && setRowTranscript(null)}
           rowTranscript={rowTranscript}
         />
+        <SearchDialog
+          actions={searchActions}
+          botById={index.botById}
+          channelById={index.channelById}
+          onOpenChange={setSearchOpen}
+          onSelectResult={selectSearchResult}
+          open={searchOpen}
+        />
+        <SettingsPanel
+          botName={selectedBot?.name ?? "OpenBot"}
+          onOpenChange={setSettingsOpen}
+          open={settingsOpen}
+        />
+        <PluginDialog onOpenChange={setPluginsOpen} open={pluginsOpen} />
+        <AboutPanel onOpenChange={setAboutOpen} open={aboutOpen} />
       </main>
     </TooltipProvider>
   );

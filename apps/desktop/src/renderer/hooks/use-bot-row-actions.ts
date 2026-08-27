@@ -11,7 +11,10 @@ export function useBotRowActions(options: {
   setSelectedId: (id: string | null) => void;
   setDetailsOpen: (open: boolean) => void;
   setInspectorMode: (mode: InspectorMode) => void;
+  togglePinned: (channelId: string) => void;
+  toggleUnread: (channelId: string) => void;
 }) {
+  const [deleteBotTarget, setDeleteBotTarget] = useState<BotView | null>(null);
   const [rowTranscript, setRowTranscript] = useState<{
     bot: BotView;
     transcript: BotTranscriptView | null;
@@ -19,28 +22,78 @@ export function useBotRowActions(options: {
 
   const handleBotRowAction = useCallback(
     (bot: BotView, action: BotRowAction) => {
+      if (action === "togglePin") {
+        options.togglePinned(bot.dmChannelId);
+        return;
+      }
+      if (action === "toggleUnread") {
+        options.toggleUnread(bot.dmChannelId);
+        return;
+      }
+      if (action === "copyConversationId") {
+        void navigator.clipboard.writeText(bot.conversationId);
+        return;
+      }
       if (action === "retry") {
         void options.mutate(() => api.retryBot(bot.id));
         return;
       }
-      if (action === "archive") {
-        void options.mutate(() => api.archiveBot(bot.id)).then(() => options.setSelectedId(null));
+      if (action === "delete") {
+        setDeleteBotTarget(bot);
+        return;
+      }
+      if (action === "hide") {
+        void options
+          .mutate(() => api.updateBot(bot.id, { hiddenFromSidebar: true }))
+          .then(() => options.setSelectedId(null));
+        return;
+      }
+      if (action === "duplicate") {
+        const suffix = " copy";
+        const name = `${bot.name.slice(0, 80 - suffix.length)}${suffix}`;
+        void options
+          .mutate(() =>
+            api.createBot({
+              clientRequestId: crypto.randomUUID(),
+              name,
+              title: bot.title,
+              description: bot.description,
+              instructions: bot.instructions,
+              icon: bot.icon,
+              color: bot.color,
+              notificationsEnabled: bot.notificationsEnabled,
+            })
+          )
+          .then((duplicate) => options.setSelectedId(duplicate.dmChannelId));
         return;
       }
       options.setSelectedId(bot.dmChannelId);
-      if (action === "transcript") {
-        setRowTranscript({ bot, transcript: null });
-        void api
-          .botTranscript(bot.id)
-          .then((transcript) => setRowTranscript({ bot, transcript }))
-          .catch(() => setRowTranscript(null));
-        return;
-      }
       options.setDetailsOpen(true);
-      options.setInspectorMode(action === "settings" ? "settings" : "summary");
+      options.setInspectorMode("settings");
     },
-    [options.mutate, options.setDetailsOpen, options.setInspectorMode, options.setSelectedId]
+    [
+      options.mutate,
+      options.setDetailsOpen,
+      options.setInspectorMode,
+      options.setSelectedId,
+      options.togglePinned,
+      options.toggleUnread,
+    ]
   );
 
-  return { handleBotRowAction, rowTranscript, setRowTranscript };
+  const confirmDeleteBot = useCallback(() => {
+    if (!deleteBotTarget) return;
+    const botId = deleteBotTarget.id;
+    setDeleteBotTarget(null);
+    void options.mutate(() => api.archiveBot(botId)).then(() => options.setSelectedId(null));
+  }, [deleteBotTarget, options.mutate, options.setSelectedId]);
+
+  return {
+    confirmDeleteBot,
+    deleteBotTarget,
+    handleBotRowAction,
+    rowTranscript,
+    setDeleteBotTarget,
+    setRowTranscript,
+  };
 }

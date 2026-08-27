@@ -6,9 +6,14 @@ import type {
   ClientSnapshot,
   CreateBotInput,
   CreateGroupInput,
+  InlineImageInput,
+  PluginSettingsView,
   ScreenActionInput,
   ScreenStatusView,
+  SearchCategory,
+  SearchResponse,
   UpdateBotInput,
+  SetPluginToolPolicyInput,
 } from "@openbot/contracts";
 import { API_BASE, request } from "./http";
 
@@ -16,27 +21,133 @@ const localTimeZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone || 
 
 export const api = {
   snapshot: () => request<ClientSnapshot>("/api/v0/client-snapshot"),
+  rootSettings: () =>
+    request<{
+      settings: { sidebarPreferences?: unknown };
+      valid: boolean;
+      error?: string;
+    }>("/api/v0/settings"),
+  updateSidebarPreferences: (input: unknown) =>
+    request("/api/v0/settings/sidebar", {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    }),
+  activeAgent: () => request<{ activeAgentId: string | null }>("/api/v0/active-agent"),
+  setActiveAgent: (activeAgentId: string) =>
+    request("/api/v0/active-agent", {
+      method: "PATCH",
+      body: JSON.stringify({ activeAgentId }),
+    }),
+  pluginSettings: () => request<PluginSettingsView>("/api/v0/plugins"),
+  installPlugin: (pluginKey: string) =>
+    request("/api/v0/plugins/install", {
+      method: "POST",
+      body: JSON.stringify({ pluginKey }),
+    }),
+  addCustomMcp: (name: string, url: string, alias?: string) =>
+    request("/api/v0/plugins/custom-mcp", {
+      method: "POST",
+      body: JSON.stringify({ name, url, alias }),
+    }),
+  uninstallPlugin: (pluginKey: string) =>
+    request(`/api/v0/plugins/${encodeURIComponent(pluginKey)}`, {
+      method: "DELETE",
+    }),
+  setPluginEnablement: (pluginKey: string, botId: string, enabled: boolean) =>
+    request(`/api/v0/plugins/${encodeURIComponent(pluginKey)}/enablement`, {
+      method: "POST",
+      body: JSON.stringify({ botId, enabled, skillsEnabled: enabled }),
+    }),
+  connectPlugin: (connectionId: string) =>
+    request(`/api/v0/plugin-connections/${connectionId}/connect`, {
+      method: "POST",
+    }),
+  disconnectPlugin: (connectionId: string) =>
+    request(`/api/v0/plugin-connections/${connectionId}/disconnect`, {
+      method: "POST",
+    }),
+  addPluginAccount: (connectionId: string, alias: string) =>
+    request(`/api/v0/plugin-connections/${connectionId}/accounts`, {
+      method: "POST",
+      body: JSON.stringify({ alias }),
+    }),
+  setPluginGrant: (connectionId: string, botId: string, enabled: boolean) =>
+    request(`/api/v0/plugin-connections/${connectionId}/grant`, {
+      method: "POST",
+      body: JSON.stringify({ botId, enabled }),
+    }),
+  setPluginPolicy: (connectionId: string, input: SetPluginToolPolicyInput) =>
+    request(`/api/v0/plugin-connections/${connectionId}/policy`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  search: (query: string, category: SearchCategory, signal?: AbortSignal) => {
+    const params = new URLSearchParams({ q: query, category });
+    return request<SearchResponse>(`/api/v0/search?${params}`, { signal });
+  },
   createBot: (input: CreateBotInput) =>
-    request<BotView>("/api/v0/bots", { method: "POST", body: JSON.stringify(input) }),
+    request<BotView>("/api/v0/bots", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
   updateBot: (botId: string, input: UpdateBotInput) =>
-    request<BotView>(`/api/v0/bots/${botId}`, { method: "PATCH", body: JSON.stringify(input) }),
+    request<BotView>(`/api/v0/bots/${botId}`, {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    }),
   archiveBot: (botId: string) => request(`/api/v0/bots/${botId}`, { method: "DELETE" }),
   retryBot: (botId: string) => request<BotView>(`/api/v0/bots/${botId}/retry`, { method: "POST" }),
   botTranscript: (botId: string) => request<BotTranscriptView>(`/api/v0/bots/${botId}/transcript`),
   createGroup: (input: CreateGroupInput) =>
-    request<ChannelView>("/api/v0/channels", { method: "POST", body: JSON.stringify(input) }),
-  sendMessage: (conversationId: string, content: string) =>
+    request<ChannelView>("/api/v0/channels", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  sendMessage: (
+    conversationId: string,
+    content: string,
+    images: readonly InlineImageInput[],
+    replyToMessageId?: string
+  ) =>
     request(`/api/v0/conversations/${conversationId}/messages`, {
       method: "POST",
-      body: JSON.stringify({ content, clientId: crypto.randomUUID(), timeZone: localTimeZone() }),
+      body: JSON.stringify({
+        content,
+        images,
+        replyToMessageId,
+        clientId: crypto.randomUUID(),
+        timeZone: localTimeZone(),
+      }),
     }),
-  sendChannelMessage: (channelId: string, content: string) =>
+  sendChannelMessage: (
+    channelId: string,
+    content: string,
+    images: readonly InlineImageInput[],
+    replyToMessageId?: string
+  ) =>
     request(`/api/v0/channels/${channelId}/messages`, {
       method: "POST",
-      body: JSON.stringify({ content, clientId: crypto.randomUUID(), timeZone: localTimeZone() }),
+      body: JSON.stringify({
+        content,
+        images,
+        replyToMessageId,
+        clientId: crypto.randomUUID(),
+        timeZone: localTimeZone(),
+      }),
+    }),
+  reactToMessage: (messageId: string, emoji: string) =>
+    request(`/api/v0/channel-messages/${messageId}/reaction`, {
+      method: "POST",
+      body: JSON.stringify({
+        emoji,
+        clientId: crypto.randomUUID(),
+        timeZone: localTimeZone(),
+      }),
     }),
   compact: (conversationId: string) =>
-    request(`/api/v0/conversations/${conversationId}/compact`, { method: "POST" }),
+    request(`/api/v0/conversations/${conversationId}/compact`, {
+      method: "POST",
+    }),
   cancelRun: (runId: string) => request(`/api/v0/runs/${runId}/cancel`, { method: "POST" }),
   resolveApproval: (approvalId: string, decision: ApprovalDecision) =>
     request(`/api/v0/approvals/${approvalId}/resolve`, {

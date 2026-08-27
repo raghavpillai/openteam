@@ -1,8 +1,9 @@
 import type { BotView, ChannelView } from "@openbot/contracts";
-import { memo } from "react";
 import { Avatar as AvatarPrimitive } from "radix-ui";
+import { memo } from "react";
 import { API_BASE } from "../../client/http";
 import { cn } from "../../lib/cn";
+import { BotAvatarGlyph, DEFAULT_BOT_AVATAR, normalizeBotAvatarShape } from "./avatar-picker-icons";
 
 export const BotAvatar = memo(function BotAvatar({
   bot,
@@ -16,8 +17,8 @@ export const BotAvatar = memo(function BotAvatar({
       className={cn(
         "grid shrink-0 place-items-center overflow-hidden",
         size === "xs" && "size-4",
-        size === "sm" && "size-5",
-        size === "md" && "size-8",
+        size === "sm" && "size-[22px]",
+        size === "md" && "size-9",
         size === "lg" && "size-16"
       )}
     >
@@ -29,14 +30,11 @@ export const BotAvatar = memo(function BotAvatar({
         />
       )}
       <AvatarPrimitive.Fallback className="grid size-full place-items-center">
-        <svg aria-hidden="true" className="size-full" viewBox="0 0 40 40">
-          <path
-            d="M20 0c2.8 6.7 11.2 10.5 14.1 17.9 4 10.4-2.2 20-12.9 20.7C10 40 4 33.3 4.8 23.9 5.6 15.5 15.2 7.4 20 0Z"
-            fill={bot?.color ?? "#8b5cf6"}
-          />
-          <ellipse cx="16.1" cy="22" fill="white" rx="1.7" ry="3.2" />
-          <ellipse cx="25.4" cy="22" fill="white" rx="1.7" ry="3.2" />
-        </svg>
+        <BotAvatarGlyph
+          className="size-full"
+          color={bot?.color ?? DEFAULT_BOT_AVATAR.color}
+          shape={normalizeBotAvatarShape(bot?.icon)}
+        />
       </AvatarPrimitive.Fallback>
     </AvatarPrimitive.Root>
   );

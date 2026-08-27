@@ -1,16 +1,32 @@
 import { cjk } from "@streamdown/cjk";
 import { code } from "@streamdown/code";
-import { math } from "@streamdown/math";
+import { createMathPlugin } from "@streamdown/math";
 import { mermaid } from "@streamdown/mermaid";
 import { Streamdown } from "streamdown";
+import {
+  messageComponents,
+  messageUrlTransform,
+  grokMermaidOptions,
+  grokShikiTheme,
+  prepareMessageMarkdown,
+  streamdownControls,
+} from "./message-response-config";
+
+const math = createMathPlugin({ singleDollarTextMath: true });
 
 export default function AdvancedMessageResponse({ children }: { children: string }) {
   return (
     <Streamdown
-      className="[&_a]:text-blue-600 [&_a]:underline [&_code]:rounded-md [&_code]:bg-black/6 [&_code]:px-1 [&_pre]:overflow-x-auto [&_p]:my-0"
+      className="grok-markdown"
+      components={messageComponents}
+      controls={streamdownControls}
+      lineNumbers={false}
+      mermaid={grokMermaidOptions}
       plugins={{ cjk, code, math, mermaid }}
+      shikiTheme={grokShikiTheme}
+      urlTransform={messageUrlTransform}
     >
-      {children}
+      {prepareMessageMarkdown(children)}
     </Streamdown>
   );
 }

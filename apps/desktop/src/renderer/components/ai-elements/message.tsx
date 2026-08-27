@@ -1,6 +1,6 @@
 // Source-owned adaptation of AI Elements message.tsx.
 // https://elements.ai-sdk.dev/components/message
-import { lazy, memo, Suspense, type ComponentProps, type HTMLAttributes } from "react";
+import { type ComponentProps, type HTMLAttributes, lazy, memo, Suspense } from "react";
 import { cn } from "../../lib/cn";
 import { Button } from "../ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
@@ -31,10 +31,10 @@ export function MessageContent({
   return (
     <div
       className={cn(
-        "overflow-hidden rounded-[16px] px-3 py-2 text-[13px] leading-[1.42]",
+        "message-bubble overflow-hidden rounded-[20px] px-3 py-2 text-[14px] leading-5",
         from === "user"
-          ? "relative right-0.5 max-w-[min(680px,78%)] bg-[#090909] text-white"
-          : "relative left-px max-w-[min(640px,78%)] bg-[#eaeaea] text-[#303030]",
+          ? "relative right-0.5 max-w-[min(680px,78%)] bg-message-user text-message-user-foreground"
+          : "relative left-[2px] max-w-[min(640px,78%)] bg-message-assistant text-message-assistant-foreground",
         from === "system" && "border border-amber-500/20 bg-amber-500/8",
         className
       )}
@@ -46,11 +46,11 @@ export function MessageContent({
 const MarkdownMessageResponse = lazy(() => import("./message-response"));
 const AdvancedMessageResponse = lazy(() => import("./message-response-rich"));
 const MARKDOWN_PATTERN =
-  /(?:^|\n)(?:#{1,6}\s|[-*+]\s|\d+\.\s|>\s|```|~~~)|\[[^\]]+\]\([^)]+\)|[*_~`]|\\\(|\$\$|<\/?[a-z][^>]*>/i;
-const ADVANCED_PATTERN = /```|~~~|\$\$|\\\(|(?:^|\n)```(?:mermaid)?/;
+  /(?:^|\n)(?:#{1,6}\s|[-*+]\s|\d+\.\s|>\s|```|~~~)|\[[^\]]+\]\([^)]+\)|[*_~`]|<\/?[a-z][^>]*>/i;
+const ADVANCED_PATTERN = /```|~~~|\$\$|\\[[(]|(?:^|[^\\$])\$(?![$\s])(?:\\.|[^$\n])+\$/;
 
 export const MessageResponse = memo(function MessageResponse({ children }: { children: string }) {
-  if (!MARKDOWN_PATTERN.test(children)) {
+  if (!(MARKDOWN_PATTERN.test(children) || ADVANCED_PATTERN.test(children))) {
     return <span className="whitespace-pre-wrap">{children}</span>;
   }
   const Renderer = ADVANCED_PATTERN.test(children)

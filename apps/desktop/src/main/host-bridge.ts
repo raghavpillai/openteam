@@ -1,10 +1,11 @@
 import { spawn } from "node:child_process";
+import { timingSafeEqual } from "node:crypto";
 import { createWriteStream } from "node:fs";
 import { access, mkdir, readFile, stat } from "node:fs/promises";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { extname, isAbsolute, resolve } from "node:path";
-import { timingSafeEqual } from "node:crypto";
-import { BrowserWindow, dialog } from "electron";
+import { type BrowserWindow, dialog } from "electron";
+import { listenForHostBridge } from "./host-bridge-listener";
 
 const MAX_BODY_BYTES = 128 * 1024;
 const MAX_READ_BYTES = 10 * 1024 * 1024;
@@ -225,7 +226,7 @@ export const startHostBridge = (options: {
   port: number;
   terminalDir: string;
   getWindow: () => BrowserWindow | null;
-}): Server => {
+}): Promise<Server> => {
   const server = createServer(async (request, response) => {
     if (request.url === "/health" && request.method === "GET") {
       return json(response, 200, { status: "ready" });
@@ -261,6 +262,5 @@ export const startHostBridge = (options: {
       return json(response, 400, { error: error instanceof Error ? error.message : String(error) });
     }
   });
-  server.listen(options.port, "0.0.0.0");
-  return server;
+  return listenForHostBridge(server, options.port);
 };

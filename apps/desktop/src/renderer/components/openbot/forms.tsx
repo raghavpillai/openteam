@@ -1,6 +1,6 @@
 import type { BotView, CreateBotInput } from "@openbot/contracts";
-import { ChevronDown, LoaderCircle } from "lucide-react";
-import { type FormEvent, useCallback, useState } from "react";
+import { ChevronDown, LoaderCircle, Search } from "lucide-react";
+import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
 import { DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../ui/dialog";
@@ -222,16 +222,25 @@ export function BotForm({
 
 export function GroupForm({
   bots,
-  onCancel,
   onSubmit,
 }: {
   bots: BotView[];
-  onCancel: () => void;
   onSubmit: (name: string, botIds: string[]) => Promise<void>;
 }) {
   const [name, setName] = useState("");
+  const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
+  const nameRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => nameRef.current?.focus());
+    return () => window.cancelAnimationFrame(frame);
+  }, []);
+
+  const filteredBots = useMemo(() => {
+    const normalized = query.trim().toLowerCase();
+    return normalized ? bots.filter((bot) => bot.name.toLowerCase().includes(normalized)) : bots;
+  }, [bots, query]);
   const toggle = useCallback((id: string) => {
     setSelected((current) =>
       current.includes(id) ? current.filter((candidate) => candidate !== id) : [...current, id]
@@ -248,56 +257,80 @@ export function GroupForm({
     }
   };
   return (
-    <form className="grid gap-5" onSubmit={submit}>
-      <DialogHeader>
-        <DialogTitle>New channel</DialogTitle>
-        <DialogDescription>
-          Create a shared project room and choose at least two bots.
+    <form onSubmit={submit}>
+      <DialogHeader className="border-b px-5 py-4">
+        <DialogTitle className="text-[15px] font-semibold">New channel</DialogTitle>
+        <DialogDescription className="sr-only">
+          Name a shared project room and choose at least two bots.
         </DialogDescription>
       </DialogHeader>
-      <div className="grid gap-2">
-        <Label htmlFor="group-name">Name</Label>
-        <Input
-          id="group-name"
-          maxLength={80}
-          onChange={(event) => setName(event.target.value)}
-          placeholder="Ex: Project Falcon"
-          value={name}
-        />
-      </div>
-      <div className="grid gap-2">
-        <Label>Add bots</Label>
-        <div className="max-h-72 space-y-1 overflow-auto rounded-xl border p-2">
-          {bots.map((bot) => {
-            const checked = selected.includes(bot.id);
-            const checkboxId = `group-bot-${bot.id}`;
-            return (
-              <div
-                className="flex w-full items-center gap-3 rounded-lg px-2 py-2 hover:bg-accent"
-                key={bot.id}
-              >
-                <Checkbox
-                  checked={checked}
-                  id={checkboxId}
-                  onCheckedChange={() => toggle(bot.id)}
-                />
-                <Label
-                  className="flex min-w-0 flex-1 cursor-pointer items-center gap-3"
-                  htmlFor={checkboxId}
-                >
-                  <BotAvatar bot={bot} size="sm" />
-                  <span className="truncate text-sm font-medium">{bot.name}</span>
-                </Label>
-              </div>
-            );
-          })}
+      <div className="grid gap-3 px-5 py-5">
+        <div className="grid gap-2">
+          <Label className="text-[12px] font-normal text-muted-foreground" htmlFor="group-name">
+            Name
+          </Label>
+          <Input
+            className="h-9 rounded-[7px]"
+            id="group-name"
+            maxLength={80}
+            onChange={(event) => setName(event.target.value)}
+            placeholder="Ex: Project Falcon"
+            ref={nameRef}
+            value={name}
+          />
+        </div>
+        <div className="grid gap-2">
+          <Label className="text-[12px] font-normal text-muted-foreground">Add Bots</Label>
+          <div className="overflow-hidden rounded-[9px] border border-input">
+            <div className="relative border-b">
+              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                aria-label="Search bots"
+                className="h-10 rounded-none border-0 bg-transparent pl-9 shadow-none focus-visible:border-0 focus-visible:ring-0"
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Search"
+                value={query}
+              />
+            </div>
+            <div className="grok-scrollbar max-h-[280px] min-h-44 overflow-y-auto py-1.5">
+              {filteredBots.map((bot) => {
+                const checked = selected.includes(bot.id);
+                const checkboxId = `group-bot-${bot.id}`;
+                return (
+                  <div
+                    className="flex h-10 w-full items-center gap-2.5 px-3 transition-colors hover:bg-accent"
+                    key={bot.id}
+                  >
+                    <Checkbox
+                      checked={checked}
+                      id={checkboxId}
+                      onCheckedChange={() => toggle(bot.id)}
+                    />
+                    <Label
+                      className="flex min-w-0 flex-1 cursor-pointer items-center gap-2.5"
+                      htmlFor={checkboxId}
+                    >
+                      <BotAvatar bot={bot} size="sm" />
+                      <span className="truncate text-[13px] font-medium">{bot.name}</span>
+                    </Label>
+                  </div>
+                );
+              })}
+              {filteredBots.length === 0 && (
+                <div className="grid min-h-32 place-items-center px-4 text-[12px] text-muted-foreground">
+                  No bots found
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       </div>
-      <DialogFooter>
-        <Button onClick={onCancel} type="button" variant="ghost">
-          Cancel
-        </Button>
-        <Button disabled={!name.trim() || selected.length < 2 || busy} type="submit">
+      <DialogFooter className="border-t px-4 py-3">
+        <Button
+          className="min-w-[78px]"
+          disabled={!name.trim() || selected.length < 2 || busy}
+          type="submit"
+        >
           {busy && <LoaderCircle className="size-4 animate-spin" />}
           Create
         </Button>

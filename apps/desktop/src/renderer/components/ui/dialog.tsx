@@ -1,11 +1,12 @@
-import { Dialog as DialogPrimitive } from "radix-ui";
 import { X } from "lucide-react";
+import { Dialog as DialogPrimitive } from "radix-ui";
 import type { ComponentProps } from "react";
 import { cn } from "../../lib/cn";
 
 export const Dialog = DialogPrimitive.Root;
 export const DialogTrigger = DialogPrimitive.Trigger;
 export const DialogClose = DialogPrimitive.Close;
+export const DialogPortal = DialogPrimitive.Portal;
 
 export function DialogOverlay({
   className,
@@ -14,7 +15,7 @@ export function DialogOverlay({
   return (
     <DialogPrimitive.Overlay
       className={cn(
-        "fixed inset-0 z-50 bg-black/45 backdrop-blur-[2px] data-[state=closed]:animate-out data-[state=open]:animate-in data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
+        "fixed inset-0 z-50 bg-black/45 data-[state=closed]:animate-out data-[state=open]:animate-in data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 dark:bg-black/50",
         className
       )}
       {...props}
@@ -25,15 +26,22 @@ export function DialogOverlay({
 export function DialogContent({
   className,
   children,
+  overlayClassName,
   showCloseButton = true,
+  surface = "modal",
   ...props
-}: ComponentProps<typeof DialogPrimitive.Content> & { showCloseButton?: boolean }) {
+}: ComponentProps<typeof DialogPrimitive.Content> & {
+  overlayClassName?: string;
+  showCloseButton?: boolean;
+  surface?: "modal" | "transparent";
+}) {
   return (
     <DialogPrimitive.Portal>
-      <DialogOverlay />
+      <DialogOverlay className={overlayClassName} />
       <DialogPrimitive.Content
         className={cn(
           "fixed left-1/2 top-1/2 z-50 grid w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4 rounded-2xl border bg-background p-6 shadow-xl outline-none duration-200 data-[state=closed]:animate-out data-[state=open]:animate-in data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
+          surface === "modal" && "modal-surface",
           className
         )}
         {...props}

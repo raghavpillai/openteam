@@ -1,21 +1,14 @@
 import type { BotView, ScreenStatusView } from "@openbot/contracts";
-import {
-  CircleAlert,
-  FolderOpen,
-  Globe2,
-  Maximize2,
-  Monitor,
-  MousePointer2,
-  Pause,
-  Play,
-  RefreshCw,
-  TerminalSquare,
-  X,
-} from "lucide-react";
+import { LoaderCircle, Minimize2, Monitor, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../client/openbot-api";
 import { resolveViewerUrl } from "../../client/runtime-url";
 import { measureUntilNextPaint, recordPerformance } from "../../lib/performance";
+import {
+  shouldLoadScreenStatus,
+  shouldPollScreenStatus,
+  shouldRefreshScreenFrame,
+} from "../../lib/screen-session";
 import { Button } from "../ui/button";
 import { Skeleton } from "../ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
@@ -33,53 +26,95 @@ function loadScreenStatus(botId: string) {
 export function BotScreen({
   bot,
   active,
+  enabled,
+  onEnable,
   onRetry,
 }: {
   bot: BotView;
   active: boolean;
+  enabled: boolean;
+  onEnable: () => void;
   onRetry?: () => Promise<void>;
 }) {
   const [screen, setScreen] = useState<ScreenStatusView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [frameRevision, setFrameRevision] = useState(Date.now());
   const [open, setOpen] = useState(false);
-  const [interactive, setInteractive] = useState(false);
-  const [busy, setBusy] = useState(false);
   const takeoverRef = useRef(false);
   const viewerOpenedAt = useRef(0);
 
   const refreshStatus = useCallback(async () => {
     try {
-      setScreen(await loadScreenStatus(bot.id));
+      const next = await loadScreenStatus(bot.id);
+      setScreen(next);
       setError(null);
+      return next;
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
+      return null;
     }
   }, [bot.id]);
 
   useEffect(() => {
-    if (active && !screen) void refreshStatus();
-  }, [active, refreshStatus, screen]);
+    if (shouldLoadScreenStatus(enabled, active) && !screen) void refreshStatus();
+  }, [active, enabled, refreshStatus, screen]);
   useEffect(() => {
-    if (!active) return;
     const refreshFrame = () => {
-      if (document.visibilityState === "visible") setFrameRevision(Date.now());
+      if (
+        shouldRefreshScreenFrame({
+          enabled,
+          inspectorActive: active,
+          documentVisible: document.visibilityState === "visible",
+          viewerOpen: open,
+          state: screen?.state,
+        })
+      ) {
+        setFrameRevision(Date.now());
+      }
     };
+    refreshFrame();
+    if (!enabled || !active || open || screen?.state !== "ready") return;
     const timer = window.setInterval(refreshFrame, 5_000);
     document.addEventListener("visibilitychange", refreshFrame);
     return () => {
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange", refreshFrame);
     };
-  }, [active, open]);
+  }, [active, enabled, open, screen?.state]);
   useEffect(() => {
-    if (!active) return;
-    if (screen?.state === "ready") return;
-    const timer = window.setInterval(() => {
+    if (!shouldPollScreenStatus(enabled, active, screen?.state)) return;
+    const refreshWhenVisible = () => {
       if (document.visibilityState === "visible") void refreshStatus();
-    }, 4_000);
-    return () => window.clearInterval(timer);
-  }, [active, refreshStatus, screen?.state]);
+    };
+    refreshWhenVisible();
+    const timer = window.setInterval(refreshWhenVisible, 4_000);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
+  }, [active, enabled, refreshStatus, screen?.state]);
+  useEffect(() => {
+    if (!open || screen?.state !== "ready" || screen.humanTakeover) return;
+    let cancelled = false;
+    void api
+      .screenTakeover(bot.id, true)
+      .then((next) => {
+        if (cancelled) {
+          if (next.humanTakeover) api.releaseScreenTakeover(bot.id);
+          return;
+        }
+        takeoverRef.current = next.humanTakeover;
+        setScreen(next);
+        setError(null);
+      })
+      .catch((cause) => {
+        if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [bot.id, open, screen?.humanTakeover, screen?.state]);
   useEffect(() => {
     if (!open || !screen?.humanTakeover) return;
     const heartbeat = window.setInterval(() => {
@@ -108,68 +143,72 @@ export function BotScreen({
   useEffect(() => {
     if (active || !open) return;
     setOpen(false);
-    setInteractive(false);
+    setScreen((current) =>
+      current?.humanTakeover ? { ...current, humanTakeover: false } : current
+    );
     if (takeoverRef.current) {
       takeoverRef.current = false;
       api.releaseScreenTakeover(bot.id);
     }
   }, [active, bot.id, open]);
+  const closeViewer = useCallback(() => {
+    setOpen(false);
+    setScreen((current) =>
+      current?.humanTakeover ? { ...current, humanTakeover: false } : current
+    );
+    if (!takeoverRef.current) return;
+    takeoverRef.current = false;
+    api.releaseScreenTakeover(bot.id);
+  }, [bot.id]);
+  useEffect(() => {
+    if (!open) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      closeViewer();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [closeViewer, open]);
 
-  const withBusy = async (operation: () => Promise<ScreenStatusView>) => {
-    setBusy(true);
-    try {
-      const next = await operation();
-      setScreen(next);
-      setError(null);
-      return next;
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
-      return null;
-    } finally {
-      setBusy(false);
-    }
-  };
-  const setTakeover = (active: boolean) => withBusy(() => api.screenTakeover(bot.id, active));
-  const openViewer = async () => {
+  const openViewer = () => {
     viewerOpenedAt.current = performance.now();
     measureUntilNextPaint("view.desktop-open", { botId: bot.id });
-    setInteractive(true);
+    onEnable();
     setOpen(true);
-    if (!screen?.humanTakeover) {
-      const next = await setTakeover(true);
-      if (!next) setInteractive(false);
-    }
-  };
-  const openApp = (app: "chromium" | "thunar" | "terminal") =>
-    withBusy(() => api.screenAction(bot.id, { action: "open_app", app })).then(() =>
-      setFrameRevision(Date.now())
-    );
-  const close = async () => {
-    if (screen?.humanTakeover) await setTakeover(false);
-    setInteractive(false);
-    setOpen(false);
+    if (!screen) void refreshStatus();
   };
   const viewerUrl = useMemo(() => {
     if (!screen?.viewerUrl) return "";
     const url = new URL(resolveViewerUrl(screen.viewerUrl, window.location.href));
-    url.searchParams.set("view_only", interactive || screen.humanTakeover ? "false" : "true");
+    url.searchParams.set("view_only", "false");
     return url.toString();
-  }, [interactive, screen]);
+  }, [screen]);
+  const viewerReady = Boolean(screen?.state === "ready" && screen.humanTakeover && viewerUrl);
+  const retryConnection = () => {
+    setError(null);
+    setScreen(null);
+    void refreshStatus();
+  };
 
   return (
     <>
-      <div className="mt-[3px] w-full overflow-hidden rounded-[5px] bg-[#d6d6d6]">
+      <div className="mt-[3px] w-full overflow-hidden rounded-[7px] border border-[#d9d9d9] bg-[#f0f0f0] dark:border-[#393939] dark:bg-[#282828]">
         <Button
-          className="group relative block h-auto aspect-[16/10] w-full overflow-hidden rounded-none p-0"
-          disabled={!screen || screen.state !== "ready"}
-          onClick={() => void openViewer()}
+          aria-label={`Open ${bot.name}'s screen`}
+          className="group relative block h-auto aspect-[16/10] w-full !cursor-pointer overflow-hidden rounded-none bg-[#f0f0f0] p-0 transition-colors duration-150 hover:bg-[#ededed] dark:bg-[#282828] dark:hover:bg-[#303030]"
+          disabled={bot.status === "failed"}
+          onClick={openViewer}
           type="button"
           variant="ghost"
         >
-          {screen?.state === "ready" ? (
+          {!enabled ? (
+            <div className="grid size-full place-items-center bg-transparent text-[#757575] transition-colors duration-150 group-hover:text-[#626262] dark:text-[#8f8f8f] dark:group-hover:text-[#aaaaaa]">
+              <Monitor className="size-4" strokeWidth={1.7} />
+            </div>
+          ) : screen?.state === "ready" && !open ? (
             <img
               alt={`${bot.name}'s Linux screen`}
-              className="size-full object-cover"
+              className="size-full object-cover transition-opacity duration-150 group-hover:opacity-[0.97]"
               decoding="async"
               fetchPriority={active ? "high" : "low"}
               loading={active ? "eager" : "lazy"}
@@ -187,11 +226,6 @@ export function BotScreen({
               </span>
             </div>
           )}
-          <span className="absolute inset-0 grid place-items-center bg-black/0 opacity-0 transition group-hover:bg-black/35 group-hover:opacity-100">
-            <span className="flex items-center gap-1.5 rounded-full bg-black/75 px-3 py-1.5 text-xs text-white">
-              <Maximize2 className="size-3.5" /> Open
-            </span>
-          </span>
         </Button>
       </div>
       {(bot.status === "failed" || screen?.state === "failed") && onRetry && (
@@ -199,104 +233,75 @@ export function BotScreen({
           <RefreshCw className="size-3.5" /> Retry setup
         </Button>
       )}
-      {open && screen && (
-        <div className="fixed inset-0 z-[70] flex flex-col bg-neutral-950 text-white">
-          <header className="electron-drag flex h-14 shrink-0 items-center gap-2 border-b border-white/10 px-4">
-            <Monitor className="size-4 text-blue-400" />
-            <span className="min-w-0 flex-1 truncate text-sm font-semibold">
-              {bot.name}'s computer
-            </span>
-            <div className="electron-no-drag flex items-center gap-1">
-              {(
-                [
-                  ["chromium", Globe2, "Chromium"],
-                  ["thunar", FolderOpen, "Thunar"],
-                  ["terminal", TerminalSquare, "Terminal"],
-                ] as const
-              ).map(([app, Icon, label]) => (
-                <Tooltip key={app}>
-                  <TooltipTrigger asChild>
-                    <Button
-                      aria-label={label}
-                      disabled={busy}
-                      onClick={() => void openApp(app)}
-                      size="icon-sm"
-                      variant="ghost"
-                    >
-                      <Icon className="size-4" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>{label}</TooltipContent>
-                </Tooltip>
-              ))}
-              <Button
-                disabled={busy}
-                onClick={() => void setTakeover(!screen.humanTakeover)}
-                size="sm"
-                variant={screen.humanTakeover ? "default" : "outline"}
-              >
-                <MousePointer2 className="size-3.5" />
-                {screen.humanTakeover ? "Controlling" : "Take control"}
-              </Button>
-              <Button
-                disabled={busy}
-                onClick={() =>
-                  void withBusy(() => api.screenPause(bot.id, !screen.agentInputPaused))
-                }
-                size="sm"
-                variant={screen.agentInputPaused ? "danger" : "ghost"}
-              >
-                {screen.agentInputPaused ? (
-                  <Play className="size-3.5" />
-                ) : (
-                  <Pause className="size-3.5" />
-                )}
-                {screen.agentInputPaused ? "Resume agent" : "Pause agent"}
-              </Button>
-              <Button
-                aria-label="Close computer"
-                disabled={busy}
-                onClick={() => void close()}
-                size="icon-sm"
-                variant="ghost"
-              >
-                <X className="size-4" />
-              </Button>
-            </div>
+      {open && (
+        <div className="fixed inset-0 z-[70] flex flex-col bg-black/[0.94] text-white">
+          <header className="electron-drag flex h-11 shrink-0 items-center justify-end border-b border-white/[0.035] px-1">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  aria-label="Close computer view"
+                  className="electron-no-drag size-8 rounded-md text-white/65 hover:bg-white/[0.055] hover:text-white"
+                  onClick={closeViewer}
+                  size="icon-sm"
+                  variant="ghost"
+                >
+                  <Minimize2 className="size-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Close computer view</TooltipContent>
+            </Tooltip>
           </header>
-          {error && (
-            <div className="flex items-center gap-2 bg-red-500/15 px-4 py-2 text-xs text-red-200">
-              <CircleAlert className="size-3.5" />
-              <span className="flex-1">{error}</span>
-              <Button onClick={() => void refreshStatus()} size="icon-sm" variant="ghost">
-                <RefreshCw className="size-3.5" />
-              </Button>
+          <main
+            className="flex min-h-0 flex-1 items-center justify-center p-2"
+            onClick={(event) => event.target === event.currentTarget && closeViewer()}
+            onKeyDown={(event) => event.key === "Escape" && closeViewer()}
+          >
+            <div
+              className="relative aspect-[16/10] w-full overflow-hidden rounded-[6px] bg-[#1b1d1f]"
+              style={{ maxWidth: "calc((100vh - 60px) * 1.6)" }}
+            >
+              {viewerReady ? (
+                <iframe
+                  className="absolute inset-0 size-full border-0 bg-[#1b1d1f]"
+                  key={viewerUrl}
+                  onLoad={() => {
+                    if (!viewerOpenedAt.current) return;
+                    recordPerformance(
+                      "view.desktop-ready",
+                      performance.now() - viewerOpenedAt.current,
+                      { botId: bot.id }
+                    );
+                    viewerOpenedAt.current = 0;
+                  }}
+                  sandbox="allow-scripts allow-same-origin allow-forms allow-pointer-lock"
+                  src={viewerUrl}
+                  title={`${bot.name}'s Linux computer`}
+                />
+              ) : (
+                <div className="absolute inset-0 grid place-items-center text-center">
+                  <div>
+                    <div className="flex items-center justify-center gap-2 text-[18px] font-medium">
+                      {!error && <LoaderCircle className="size-4 animate-spin" />}
+                      {error ??
+                        (screen?.state === "failed"
+                          ? "Computer setup needs attention"
+                          : "Connecting…")}
+                    </div>
+                    {error && (
+                      <Button
+                        className="mt-4 border-white/15 bg-white/5 text-white hover:bg-white/10"
+                        onClick={retryConnection}
+                        size="sm"
+                        variant="outline"
+                      >
+                        <RefreshCw className="size-3.5" /> Retry
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
-          )}
-          <iframe
-            className="min-h-0 flex-1 border-0 bg-neutral-900"
-            key={viewerUrl}
-            onLoad={() => {
-              if (!viewerOpenedAt.current) return;
-              recordPerformance("view.desktop-ready", performance.now() - viewerOpenedAt.current, {
-                botId: bot.id,
-              });
-              viewerOpenedAt.current = 0;
-            }}
-            sandbox="allow-scripts allow-same-origin allow-forms allow-pointer-lock"
-            src={viewerUrl}
-            title={`${bot.name}'s Linux computer`}
-          />
-          <footer className="flex h-8 shrink-0 items-center justify-between border-t border-white/10 px-4 text-[10px] text-white/55">
-            <span>
-              {busy && !screen.humanTakeover
-                ? "Acquiring input control…"
-                : screen.humanTakeover
-                  ? "Your input lease is active; agent GUI input is blocked."
-                  : "View only; the agent may use this screen."}
-            </span>
-            <span>Browser session: computer-scoped · Filesystem: shared</span>
-          </footer>
+          </main>
         </div>
       )}
     </>

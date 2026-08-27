@@ -1,63 +1,74 @@
-import type { BotTranscriptView, BotView, CreateBotInput } from "@openbot/contracts";
+import type { BotTranscriptView, BotView } from "@openbot/contracts";
 import { LoaderCircle } from "lucide-react";
 import { lazy, Suspense } from "react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "../ui/alert-dialog";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "../ui/dialog";
 import { TranscriptDialog } from "./transcript-dialog";
 
-const loadForms = () => import("./forms");
-const NewBotForm = lazy(() => loadForms().then((module) => ({ default: module.NewBotForm })));
-const GroupForm = lazy(() => loadForms().then((module) => ({ default: module.GroupForm })));
-
-export const preloadDesktopForms = () => void loadForms();
-
-function DialogLoading({ title }: { title: string }) {
-  return (
-    <>
-      <DialogTitle className="sr-only">{title}</DialogTitle>
-      <DialogDescription className="sr-only">Loading dialog content.</DialogDescription>
-      <LoaderCircle aria-label="Loading" className="mx-auto size-5 animate-spin" />
-    </>
-  );
-}
+const GroupForm = lazy(() => import("./forms").then((module) => ({ default: module.GroupForm })));
 
 export function DesktopDialogs({
   activeBots,
-  newBotOpen,
+  deleteBotTarget,
   newGroupOpen,
   rowTranscript,
-  onCreateBot,
+  onConfirmDeleteBot,
   onCreateGroup,
-  onNewBotOpenChange,
+  onDeleteBotOpenChange,
   onNewGroupOpenChange,
   onTranscriptOpenChange,
 }: {
   activeBots: BotView[];
-  newBotOpen: boolean;
+  deleteBotTarget: BotView | null;
   newGroupOpen: boolean;
   rowTranscript: { bot: BotView; transcript: BotTranscriptView | null } | null;
-  onCreateBot: (value: CreateBotInput) => Promise<void>;
+  onConfirmDeleteBot: () => void;
   onCreateGroup: (name: string, botIds: string[]) => Promise<void>;
-  onNewBotOpenChange: (open: boolean) => void;
+  onDeleteBotOpenChange: (open: boolean) => void;
   onNewGroupOpenChange: (open: boolean) => void;
   onTranscriptOpenChange: (open: boolean) => void;
 }) {
   return (
     <>
-      <Dialog onOpenChange={onNewBotOpenChange} open={newBotOpen}>
-        <DialogContent>
-          <Suspense fallback={<DialogLoading title="New bot" />}>
-            <NewBotForm onCancel={() => onNewBotOpenChange(false)} onSubmit={onCreateBot} />
-          </Suspense>
-        </DialogContent>
-      </Dialog>
+      <AlertDialog onOpenChange={onDeleteBotOpenChange} open={Boolean(deleteBotTarget)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete “{deleteBotTarget?.name}”</AlertDialogTitle>
+            <AlertDialogDescription>
+              This permanently deletes the Bot and its chat history.
+              <br />
+              This can't be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={onConfirmDeleteBot}>Delete</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <Dialog onOpenChange={onNewGroupOpenChange} open={newGroupOpen}>
-        <DialogContent>
-          <Suspense fallback={<DialogLoading title="New channel" />}>
-            <GroupForm
-              bots={activeBots}
-              onCancel={() => onNewGroupOpenChange(false)}
-              onSubmit={onCreateGroup}
-            />
+        <DialogContent className="max-w-[640px] gap-0 overflow-hidden rounded-[14px] p-0">
+          <Suspense
+            fallback={
+              <div className="grid min-h-72 place-items-center">
+                <DialogTitle className="sr-only">New channel</DialogTitle>
+                <DialogDescription className="sr-only">
+                  Loading channel creation form.
+                </DialogDescription>
+                <LoaderCircle aria-label="Loading" className="size-5 animate-spin" />
+              </div>
+            }
+          >
+            <GroupForm bots={activeBots} onSubmit={onCreateGroup} />
           </Suspense>
         </DialogContent>
       </Dialog>

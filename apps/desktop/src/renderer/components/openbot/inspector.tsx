@@ -9,6 +9,7 @@ import { Progress } from "../ui/progress";
 import { Switch } from "../ui/switch";
 import { Textarea } from "../ui/textarea";
 import { BotAvatar } from "./avatar";
+import { AvatarPicker } from "./avatar-picker";
 import { BotScreen } from "./bot-screen";
 
 type InspectorMode = "summary" | "settings";
@@ -17,6 +18,8 @@ interface ProfileDraft {
   name: string;
   title: string;
   description: string;
+  icon: string;
+  color: string;
   notificationsEnabled: boolean;
 }
 
@@ -24,6 +27,8 @@ const draftOf = (bot: BotView): ProfileDraft => ({
   name: bot.name,
   title: bot.title,
   description: bot.description,
+  icon: bot.icon,
+  color: bot.color,
   notificationsEnabled: bot.notificationsEnabled,
 });
 
@@ -43,7 +48,7 @@ function BotSettings({
   const revision = useRef(0);
 
   const persist = useCallback(
-    async (next: ProfileDraft) => {
+    async (next: ProfileDraft, includeAvatar = false) => {
       const requestRevision = ++revision.current;
       setSaveState("saving");
       try {
@@ -51,6 +56,7 @@ function BotSettings({
           name: next.name.trim() || "New Bot",
           title: next.title,
           description: next.description,
+          ...(includeAvatar ? { icon: next.icon, color: next.color } : {}),
           notificationsEnabled: next.notificationsEnabled,
         });
         if (requestRevision === revision.current) setSaveState("saved");
@@ -62,12 +68,12 @@ function BotSettings({
   );
 
   const queue = useCallback(
-    (next: ProfileDraft, immediate = false) => {
+    (next: ProfileDraft, immediate = false, includeAvatar = false) => {
       draftRef.current = next;
       setDraft(next);
       if (timer.current) clearTimeout(timer.current);
       timer.current = null;
-      if (immediate) void persist(next);
+      if (immediate) void persist(next, includeAvatar);
       else timer.current = setTimeout(() => void persist(draftRef.current), 400);
     },
     [persist]
@@ -81,23 +87,28 @@ function BotSettings({
   };
 
   return (
-    <div className="flex size-full flex-col overflow-y-auto pb-5 pl-[15px] pr-4 pt-[26px]">
+    <div className="flex size-full flex-col overflow-y-auto px-4 pb-5 pt-[70px]">
       <button className="sr-only" onClick={onBack} type="button">
         Back to bot details
       </button>
       <div className="flex justify-center">
-        <BotAvatar bot={bot} size="lg" />
+        <AvatarPicker
+          botId={bot.id}
+          color={draft.color}
+          icon={draft.icon}
+          onChange={(next) => queue({ ...draft, ...next }, true, true)}
+        />
       </div>
       <div className="mt-8 grid gap-2">
-        <div className="grid gap-1">
+        <div className="grid gap-[2px]">
           <Label
-            className="pl-2 text-[11px] font-normal text-[#5e5e5e]"
+            className="pl-2 text-[12px] font-normal leading-[18px] text-muted-foreground"
             htmlFor={`settings-name-${bot.id}`}
           >
             Name
           </Label>
           <Input
-            className="h-9 rounded-[7px] px-2.5 text-[13px] shadow-none focus-visible:ring-0"
+            className="h-9 rounded-[7px] border-[#d9d9d9] px-2.5 text-[14px] shadow-none focus-visible:ring-0 dark:border-[#393939] dark:bg-[#181818]"
             id={`settings-name-${bot.id}`}
             maxLength={80}
             onBlur={flush}
@@ -105,32 +116,32 @@ function BotSettings({
             value={draft.name}
           />
         </div>
-        <div className="grid gap-1">
+        <div className="grid gap-[2px]">
           <Label
-            className="pl-2 text-[11px] font-normal text-[#5e5e5e]"
+            className="pl-2 text-[12px] font-normal leading-[18px] text-muted-foreground"
             htmlFor={`settings-title-${bot.id}`}
           >
-            Title
+            Label (optional)
           </Label>
           <Input
-            className="h-9 rounded-[7px] px-2.5 text-[13px] shadow-none focus-visible:ring-0"
+            className="h-9 rounded-[7px] border-[#d9d9d9] px-2.5 text-[14px] shadow-none focus-visible:ring-0 dark:border-[#393939] dark:bg-[#181818]"
             id={`settings-title-${bot.id}`}
             maxLength={120}
             onBlur={flush}
             onChange={(event) => queue({ ...draft, title: event.target.value })}
-            placeholder="Describe what your Bot does"
+            placeholder="Research, marketing, admin"
             value={draft.title}
           />
         </div>
-        <div className="grid gap-1">
+        <div className="grid gap-[2px]">
           <Label
-            className="pl-2 text-[11px] font-normal text-[#5e5e5e]"
+            className="pl-2 text-[12px] font-normal leading-[18px] text-muted-foreground"
             htmlFor={`settings-description-${bot.id}`}
           >
             Description
           </Label>
           <Textarea
-            className="relative -top-px min-h-20 resize-none rounded-[7px] px-2.5 py-2 text-[13px] shadow-none focus-visible:ring-0"
+            className="min-h-20 resize-none rounded-[7px] border-[#d9d9d9] px-2.5 py-2 text-[14px] shadow-none focus-visible:ring-0 dark:border-[#393939] dark:bg-[#181818]"
             id={`settings-description-${bot.id}`}
             maxLength={2_000}
             onBlur={flush}
@@ -139,24 +150,24 @@ function BotSettings({
             value={draft.description}
           />
         </div>
-        <div className="mt-[3px] flex h-[76px] items-center gap-3 rounded-xl bg-[#ececec] p-3">
-          <div className="relative -top-px left-0.5 min-w-0 flex-1">
-            <div className="text-[12px] font-medium">Notifications</div>
-            <div className="mt-0.5 text-[11px] leading-[14px] text-[#595959]">
+        <div className="mt-1 flex h-[76px] items-center gap-3 rounded-xl bg-[#f0f0f0] p-3 dark:bg-[#181818]">
+          <div className="relative left-0.5 min-w-0 flex-1">
+            <div className="text-[13px] font-medium leading-[18px]">Notifications</div>
+            <div className="mt-0.5 text-[12px] leading-[15px] text-foreground-secondary">
               Get notified when this Bot finishes or needs input
             </div>
           </div>
           <Switch
             aria-label="Bot notifications"
             checked={draft.notificationsEnabled}
-            className="-mr-1"
+            className="-mr-1 data-[state=checked]:bg-[#070707] dark:data-[state=checked]:bg-[#626262]"
             onCheckedChange={(checked) => queue({ ...draft, notificationsEnabled: checked }, true)}
           />
         </div>
         {saveState === "error" && (
           <p className="text-xs text-destructive">Could not save. Your draft is still here.</p>
         )}
-        <div className="h-3 text-center text-[10px] text-[#999]">
+        <div className="h-3 text-center text-[10px] text-muted-foreground">
           {saveState === "saving" ? "Saving…" : saveState === "saved" ? "Saved" : ""}
         </div>
       </div>
@@ -170,7 +181,9 @@ export const Inspector = memo(function Inspector({
   botById,
   rounds,
   active,
+  screenEnabled,
   mode,
+  onEnableScreen,
   onModeChange,
   onUpdateBot,
   onRetryBot,
@@ -180,7 +193,9 @@ export const Inspector = memo(function Inspector({
   botById: ReadonlyMap<string, BotView>;
   rounds: ChannelRoundView[];
   active: boolean;
+  screenEnabled: boolean;
   mode: InspectorMode;
+  onEnableScreen: (botId: string) => void;
   onModeChange: (mode: InspectorMode) => void;
   onUpdateBot: (botId: string, input: UpdateBotInput) => Promise<BotView>;
   onRetryBot: (botId: string) => Promise<void>;
@@ -204,7 +219,7 @@ export const Inspector = memo(function Inspector({
 
   if (bot && mode === "settings") {
     return (
-      <aside className="size-full border-l bg-background">
+      <aside className="size-full bg-background">
         <BotSettings
           bot={bot}
           onBack={() => onModeChange("summary")}
@@ -215,11 +230,17 @@ export const Inspector = memo(function Inspector({
   }
 
   return (
-    <aside className="flex size-full flex-col border-l bg-background pb-5 pl-[15px] pr-4">
+    <aside className="flex size-full flex-col bg-background px-4 pb-5 pt-[41px]">
       {bot ? (
         <>
-          <BotScreen active={active} bot={bot} onRetry={() => onRetryBot(bot.id)} />
-          <div className="mt-2 text-center text-[11px] text-[#5b5b5b]">
+          <BotScreen
+            active={active}
+            bot={bot}
+            enabled={screenEnabled}
+            onEnable={() => onEnableScreen(bot.id)}
+            onRetry={() => onRetryBot(bot.id)}
+          />
+          <div className="mt-2 text-center text-[12px] leading-4 text-muted-foreground">
             {bot.status === "provisioning"
               ? `Starting ${bot.name}'s screen…`
               : `${bot.name}'s screen`}
@@ -258,12 +279,12 @@ export const Inspector = memo(function Inspector({
           )}
         </>
       )}
-      <div className="mt-auto pb-[37.4vh] text-center">
-        <p className="mx-auto max-w-[220px] text-[12px] leading-4 text-[#5b5b5b]">
+      <div className="mt-auto pb-[38vh] text-center">
+        <p className="mx-auto max-w-[220px] text-[13px] leading-[17px] text-muted-foreground">
           Routines are recurring tasks this Bot runs on a schedule.
         </p>
         <Button
-          className="relative top-0.5 mt-3 h-8 w-[117px] rounded-[7px] bg-[#ececec] px-3 text-[14px] font-normal text-[#3d3d3d] disabled:opacity-100"
+          className="relative top-0.5 mt-3 h-8 w-[117px] rounded-[7px] border border-[#d9d9d9] bg-[#f0f0f0] px-3 text-[14px] font-normal text-foreground shadow-none disabled:opacity-100 dark:border-[#393939] dark:bg-[#282828] dark:text-[#eeeeee]"
           disabled
           variant="secondary"
         >

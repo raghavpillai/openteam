@@ -1,9 +1,21 @@
 import { Streamdown } from "streamdown";
+import {
+  messageComponents,
+  messageUrlTransform,
+  prepareMessageMarkdown,
+  streamdownControls,
+} from "./message-response-config";
 
 export default function RichMessageResponse({ children }: { children: string }) {
   return (
-    <Streamdown className="[&_a]:text-blue-600 [&_a]:underline [&_code]:rounded-md [&_code]:bg-black/6 [&_code]:px-1 [&_pre]:overflow-x-auto [&_p]:my-0">
-      {children}
+    <Streamdown
+      className="grok-markdown"
+      components={messageComponents}
+      controls={streamdownControls}
+      lineNumbers={false}
+      urlTransform={messageUrlTransform}
+    >
+      {prepareMessageMarkdown(children)}
     </Streamdown>
   );
 }

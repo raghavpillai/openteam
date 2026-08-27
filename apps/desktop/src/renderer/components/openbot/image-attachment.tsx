@@ -1,0 +1,165 @@
+import { X } from "lucide-react";
+import { type MouseEvent, useState } from "react";
+import { cn } from "../../lib/cn";
+import { Dialog, DialogContent, DialogPortal, DialogTitle } from "../ui/dialog";
+
+export interface DisplayImage {
+  url: string;
+  alt?: string;
+}
+
+export function ImageAttachment({
+  image,
+  onRemove,
+  variant = "composer",
+}: {
+  image: DisplayImage;
+  onRemove?: () => void;
+  variant?: "composer" | "message" | "message-grid";
+}) {
+  const [open, setOpen] = useState(false);
+  const [naturalSize, setNaturalSize] = useState<{ height: number; width: number } | null>(null);
+  const label = image.alt?.trim() || "Image";
+  const messageWidth = naturalSize
+    ? Math.min(naturalSize.width, 320, (naturalSize.width / naturalSize.height) * 300)
+    : 320;
+  const messageStyle =
+    variant === "message"
+      ? {
+          aspectRatio: naturalSize ? `${naturalSize.width} / ${naturalSize.height}` : "16 / 9",
+          width: `${messageWidth}px`,
+        }
+      : undefined;
+  const onImageContextMenu = (event: MouseEvent<HTMLElement>) => {
+    event.stopPropagation();
+    if (!window.openbot?.showImageContextMenu) return;
+    event.preventDefault();
+    window.openbot.showImageContextMenu({
+      altText: label,
+      sourceUrl: image.url,
+      x: event.clientX,
+      y: event.clientY,
+    });
+  };
+
+  return (
+    <>
+      <div
+        className={cn(
+          "group/image relative shrink-0 overflow-hidden border border-black/10 bg-background dark:border-white/15",
+          variant === "composer" && "size-[72px] rounded-[14px]",
+          variant === "message" && "inline-flex max-w-[min(66vw,100%)] rounded-[12px]",
+          variant === "message-grid" && "aspect-square w-full min-w-0 rounded-[12px]"
+        )}
+        style={messageStyle}
+      >
+        <button
+          aria-label={`Open ${label}`}
+          className={cn(
+            "relative block overflow-hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
+            "size-full"
+          )}
+          onClick={() => setOpen(true)}
+          onContextMenu={onImageContextMenu}
+          style={{ cursor: "zoom-in" }}
+          type="button"
+        >
+          <img
+            alt={label}
+            className={cn(
+              variant === "message" ? "size-full object-contain" : "size-full object-cover"
+            )}
+            onLoad={(event) => {
+              if (variant !== "message") return;
+              const { naturalHeight, naturalWidth } = event.currentTarget;
+              setNaturalSize((current) =>
+                current?.height === naturalHeight && current.width === naturalWidth
+                  ? current
+                  : { height: naturalHeight, width: naturalWidth }
+              );
+            }}
+            src={image.url}
+          />
+        </button>
+        {onRemove && (
+          <button
+            aria-label={`Remove ${label}`}
+            className="absolute right-1 top-1 grid size-6 place-items-center rounded-full bg-black/85 text-white opacity-0 transition hover:bg-black focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80 group-hover/image:opacity-100"
+            onClick={(event) => {
+              event.stopPropagation();
+              onRemove();
+            }}
+            type="button"
+          >
+            <X className="size-4" strokeWidth={2.3} />
+          </button>
+        )}
+      </div>
+
+      <Dialog onOpenChange={setOpen} open={open}>
+        <DialogContent
+          className="w-fit !max-w-none gap-0 overflow-visible rounded-none border-0 bg-transparent p-0 text-white shadow-none"
+          overlayClassName="bg-black/90"
+          showCloseButton={false}
+          surface="transparent"
+        >
+          <DialogTitle className="sr-only">{label}</DialogTitle>
+          <button
+            aria-label={`Close ${label}`}
+            className="block overflow-hidden rounded-[12px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80"
+            onClick={() => setOpen(false)}
+            onContextMenu={onImageContextMenu}
+            style={{ cursor: "zoom-out" }}
+            type="button"
+          >
+            <img
+              alt={label}
+              className="block max-h-[calc(100vh-112px)] max-w-[calc(100vw-64px)] bg-white object-contain"
+              src={image.url}
+            />
+          </button>
+        </DialogContent>
+        {open && (
+          <DialogPortal>
+            <div
+              className="pointer-events-none fixed inset-x-0 bottom-4 z-[60] text-center text-[12px] leading-4 text-white/75"
+              data-image-viewer-filename
+            >
+              <span className="inline-block max-w-[calc(100vw-48px)] truncate px-2 align-bottom">
+                {label}
+              </span>
+            </div>
+          </DialogPortal>
+        )}
+      </Dialog>
+    </>
+  );
+}
+
+export function MessageImageGallery({ images }: { images: DisplayImage[] }) {
+  if (images.length === 0) return null;
+  const single = images.length === 1;
+  const occurrences = new Map<string, number>();
+  const keyedImages = images.map((image) => {
+    const fingerprint = [
+      image.alt ?? "",
+      image.url.length,
+      image.url.slice(0, 32),
+      image.url.slice(-32),
+    ].join(":");
+    const occurrence = (occurrences.get(fingerprint) ?? 0) + 1;
+    occurrences.set(fingerprint, occurrence);
+    return { image, key: `${fingerprint}:${occurrence}` };
+  });
+  return (
+    <div
+      className={cn(
+        single ? "flex w-fit max-w-full" : "grid w-[min(360px,66vw)] max-w-full grid-cols-2 gap-1.5"
+      )}
+    >
+      {keyedImages.map(({ image, key }) => (
+        <ImageAttachment image={image} key={key} variant={single ? "message" : "message-grid"} />
+      ))}
+    </div>
+  );
+}

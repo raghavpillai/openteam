@@ -173,6 +173,7 @@ Named volumes:
 - `openbot_postgres`: database files;
 - `openbot_codex_home`: Codex configuration and thread rollouts;
 - `openbot_computer_home`: durable non-workspace user-level computer state; later browser/profile state uses this computer-scoped boundary;
+- `openbot_agent_data`: hand-editable bot profile, settings, memory, skill, routine, avatar-pointer, and transcript projections;
 - `openbot_workspace`: the shared `/workspace` visible to all bots.
 
 The server port maps to `127.0.0.1` by default because v0 has no app-level auth. Compose health depends on database connectivity, migrations, workspace writability, the Codex binary being executable, and the HTTP readiness endpoint. Upstream authentication can be reported separately so the UI can explain a missing credential.

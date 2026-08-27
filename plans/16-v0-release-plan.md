@@ -179,6 +179,7 @@ Named volumes are separate and backed up together:
 - `openbot_postgres` for product records;
 - `openbot_codex_home` for native thread rollouts/configuration;
 - `openbot_computer_home` for durable user-level computer state;
+- `openbot_agent_data` for editable bot-state and transcript projections;
 - `openbot_workspace` for files shared by all bots.
 
 ## Codex contract

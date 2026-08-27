@@ -336,6 +336,7 @@ A valid backup contains a mutually consistent snapshot of:
 - the PostgreSQL database;
 - the Codex home/session volume;
 - the shared computer home volume;
+- the editable agent-data projection volume;
 - the shared `/workspace` volume;
 - the pinned OpenBot and Codex versions.
 

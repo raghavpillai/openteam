@@ -33,7 +33,7 @@ Internal `userMessage`, reasoning, and `SendMessage` bookkeeping is not rendered
 
 The renderer builds one memoized index per snapshot instead of repeatedly scanning the complete payload inside every pane. Entity reconciliation preserves object identity for unchanged bots, channels, messages, runs, items, rounds, and approvals. Message rows, channel rows, activities, inspectors, and the main chat pane are memoized.
 
-The selected channel and two most-recent channels remain mounted as a three-entry warm set. This makes returning to a recent bot instantaneous and preserves unsent composer drafts and scroll state. Hidden panes do not poll graphical screen previews. Channel search uses a deferred value so typing does not block selection.
+The selected channel and two most-recent channels remain mounted as a three-entry warm set. This makes returning to a recent bot instantaneous and preserves unsent composer drafts and scroll state. Graphical screens stay dormant until their first click in the current app session; hidden panes retain that enabled state but do not poll, and refresh immediately when shown again. Channel search uses a deferred value so typing does not block selection.
 
 Long transcript safeguards include stable database IDs, `content-visibility` on message rows, rich response memoization, collapsed tool output, bounded previews, and a lazy Streamdown boundary. The production shell bundle is approximately 373 KB minified; the roughly 1.04 MB rich Markdown/code/diagram path loads only when a response requires it, with individual syntax/diagram modules split further by Vite.
 

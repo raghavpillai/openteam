@@ -1,7 +1,7 @@
 # v0 implementation status
 
 Status: implemented and verified  
-Last updated: 2026-08-25
+Last updated: 2026-08-27
 
 ## Outcome
 
@@ -21,6 +21,7 @@ The Electron client is a real packaged application rather than a mockup. The Com
 - bot-scoped `Screenshot` plus dynamically discovered `Computer`, resolved inside the active runtime instead of accepting a caller-supplied bot identity;
 - OpenBot dynamic discovery and dispatch with per-turn discovery receipts, current-status checks, and nested argument validation; `openbot` exposes `Computer` and `SendToAgent`, and `cursor` exposes only the approved nine-tool todo/orchestration/administration subset;
 - durable per-agent todos and parent-scoped hidden subagent actors with bounded concurrent execution, status inspection, safe transcript paths, live steering, stop, resume, and private completion wakes;
+- specialized `computerUse` workers with a direct screenshot/pixel `Computer` surface, drag paths and bounded action batching, plus specialized `browserUse` workers with the complete 15-tool ref-driven Playwright/CDP browser surface and privileged-CDP restrictions;
 - localhost API with bot CRUD, idempotent message acceptance, snapshot, conversation projection, approval, cancel, compact, health, and replayable SSE events;
 - Electron/React/Tailwind desktop using source-owned AI Elements adaptations for messages, tools, conversation scrolling, and the composer;
 - first-class bot-DM, agent-DM, and group channels backed by canonical visible `ChannelMessage` records;
@@ -35,6 +36,7 @@ The Electron client is a real packaged application rather than a mockup. The Com
 - encrypted computer-scoped browser-cookie synchronization across separate Chromium processes and profiles;
 - bot rail, group creation, member/round inspector, search, create/edit/archive, light/dark theme, runtime inspector, live screen preview, fullscreen noVNC viewer, app launchers, takeover, agent-input pause, approval cards, activity projection, stop, manual compact, offline/degraded states, and missing-credential gating;
 - one-command Compose startup, coordinated backup script, local packaging config, and operator documentation.
+- bidirectional `/home/openbot/agent-data` projections for profile, settings, avatar pointers, Markdown memory, per-bot skills, and routine definitions, with valid hand-edit import and deterministic regeneration;
 - shadcn-based Grok-reference renderer rewrite with expanded AI Elements composition, memoized snapshot projections, three-channel warm tab retention, lazy rich Markdown/code/diagram loading, coalesced non-overlapping snapshot refreshes, and durable close/reopen recovery.
 
 ## Verification evidence
@@ -65,6 +67,6 @@ OpenBot itself has no v0 authentication, but Pi's `openai-codex` provider still 
 
 ## Deliberately deferred
 
-The following remain post-v0 work and are not represented by fake controls: synchronization of non-cookie browser storage and saved passwords, CDP target routing for focus-independent DOM automation, WebRTC/Xpra-class streaming optimization, plugins/MCP marketplace, live external connector adapters and event-triggered routines, routine inspector/test-run UI, secure secret requests, voice, full attachment normalization, interactive widget handling, and public deployment/auth.
+The following remain post-v0 work and are not represented by fake controls: synchronization of non-cookie browser storage and saved passwords, WebRTC/Xpra-class streaming optimization, plugins/MCP marketplace, live external connector adapters and event-triggered routines, routine inspector/test-run UI, secure secret requests, voice, full attachment normalization, interactive widget handling, and public deployment/auth.
 
 The graphical implementation and its explicit limits are recorded in `20-graphical-computer-implementation.md` and `21-shared-workspaces-and-browser-authority.md`; the remaining architecture plans continue in `10-grok-computer-research.md` through `17-durable-agent-queue-and-screens.md`.

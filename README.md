@@ -15,7 +15,7 @@ Every bot works on the same persistent Linux computer and `/workspace`, so files
 - Pi-native automatic and manual context compaction; OpenBot does not rebuild model context from UI messages
 - the exact ten native tools from the supplied contract: `SendMessage`, `ReactToMessage`, `update_state`, `ExternalShell`, `ExternalRead`, `Shell`, `Read`, `Screenshot`, `GetDynamicTools`, and `CallDynamicTool`
 - OpenBot-only dynamic discovery and dispatch; `openbot` exposes `Computer` and `SendToAgent`, while `cursor` exposes only the approved nine-tool compatibility slice: `TodoWrite`, `Task`, `CheckSubagent`, `MessageSubagent`, `StopSubagent`, `CreateAgent`, `UpdateAgent`, `CreateChannel`, and `UpdateChannel`
-- durable parent-owned subagents backed by hidden Pi actors, persistent sessions/mailboxes, a bounded concurrent worker pool, image forwarding and bounded video-frame extraction, live status/transcripts, steering, cancellation, resume, and private completion wakes
+- durable parent-owned subagents backed by hidden Pi actors, persistent sessions/mailboxes, a bounded concurrent worker pool, image forwarding and bounded video-frame extraction, live status/transcripts, steering, cancellation, resume, and private completion wakes; `computerUse` gets direct screenshot/pixel control while `browserUse` gets a direct 15-tool Playwright/CDP page-control surface
 - typed, audited agent/channel administration plus durable per-agent todo queues
 - durable scheduled routines created and managed through `update_state`, with a once-per-minute pg-boss dispatcher and execution history
 - durable direct-agent channels and restart-safe ordered group rounds
@@ -122,12 +122,42 @@ shared Linux computer, so the native desktop must be open. Every host read or co
 OS-native approval dialog, and the authenticated bridge never mounts the host home into Compose.
 Use `Read` and `Shell` for ordinary always-on work inside the shared OpenBot computer.
 
+## Agent-data files
+
+Every bot has a readable, hand-editable compatibility tree under
+`/home/openbot/agent-data/agents/<bot-id>`. It contains `profile.json`,
+`settings.json`, an optional canonical `avatar.<png|jpg|jpeg|webp|gif|svg>`,
+Markdown memory, per-bot `SKILL.md` files, and
+routine `automation.json` files. Shared user memory lives under
+`/home/openbot/agent-data/user-memory`; project memory is sharded by bot under
+`/home/openbot/agent-data/projects`.
+
+OpenBot imports stable hand edits before constructing the next bot prompt; the
+files are live state, not disposable projections. Official UI/API/agent writes
+use atomic same-directory renames. Deleting a memory bullet forgets that
+occurrence, deleting a skill or automation folder removes that item, and deleting
+`runs.json` clears only the file-backed run ledger. Missing or syntactically
+invalid `profile.json` is regenerated, while malformed present settings, skills,
+and automations are preserved and reported rather than silently overwritten.
+Prompt-visible profile, memory, and skill catalogs remain frozen until the next
+conversation compaction, with identity changes announced immediately.
+
+User memory intentionally remains one global namespace, saved skills remain per
+bot, and avatar installation copies validated bytes into the bot directory; no
+external path pointer remains. Root `settings.json`, `agents/active-agent.json`,
+per-bot `projects.json`, project `project.md`, group files, attachment files,
+automation run ledgers, and action audit JSONL use the same tree.
+
+The complete file and reconciliation contract is documented in
+`plans/32-agent-data-filesystem-parity.md`.
+
 ## Persistence and recovery
 
-The three independent stores are:
+The four independent stores are:
 
 - PostgreSQL: bots, UI conversations, visible chat, runs, inbox/outbox, leases, and replay events
 - `openbot_computer_home`: Pi OAuth and sessions, bot display mappings, browser profiles, and computer-level application state
+- `openbot_agent_data`: editable durable-state projections and safe transcript mirrors
 - `openbot_workspace`: shared bot and project files
 
 These form one recovery set. Worker restarts recover expired per-bot leases and pg-boss retries interrupted wakes. A runtime crash is surfaced as interrupted; OpenBot does not claim exactly-once model execution.
@@ -138,7 +168,7 @@ Create a coordinated backup:
 sh scripts/backup.sh
 ```
 
-For the cleanest backup, stop new message submission and let active runs finish. Restore Postgres, `openbot_computer_home`, and `openbot_workspace` together, then verify runtime health, bot session continuity, visible history, and shared files before accepting work.
+For the cleanest backup, stop new message submission and let active runs finish. Restore Postgres, `openbot_computer_home`, `openbot_agent_data`, and `openbot_workspace` together, then verify runtime health, bot session continuity, visible history, agent-data reconciliation, and shared files before accepting work.
 
 ## Session and compaction semantics
 
@@ -171,7 +201,7 @@ OPENBOT_TEST_DATABASE_URL=postgresql://localhost/openbot_test \
   bun test apps/worker/test/lifecycle.integration.test.ts
 ```
 
-It covers wake idempotency, streamed assistant projection, restart persistence, stable per-bot session resume, duplicate-safe agent DMs, transcript isolation, and ordered/recoverable group rounds. The graphical acceptance path validates Chromium, Thunar, screenshots, mouse/keyboard input, shared files, separate displays, and human takeover.
+It covers wake idempotency, streamed assistant projection, restart persistence, stable per-bot session resume, duplicate-safe agent DMs, transcript isolation, and ordered/recoverable group rounds. The graphical acceptance path validates Chromium, Thunar, screenshots, mouse/keyboard input, shared files, separate displays, and human takeover. Focused browser-use tests validate the exact tool catalog and CDP restrictions; the live smoke follows navigate → snapshot/ref → click → CDP verification against Chromium.
 
 Renderer performance diagnostics remain local:
 

@@ -29,7 +29,7 @@ The same live state is 2,236 bytes, a 97.8% reduction. Ordinary GETs also stoppe
 - Snapshot indexes are memoized per collection. Per-channel arrays remain stable when activity in another channel changes.
 - Warm chat panes compare only their own run-item and approval groups, so activity in another bot cannot invalidate them.
 - The active channel and two recent channels keep both chat and inspector trees mounted. Drafts, scroll state, screen state, and layout stay hot.
-- Hidden inspectors stop screen polling and release any graphical input lease.
+- Screen status, preview capture, and noVNC are opt-in on the first preview click for each bot in an app session. Hidden inspectors stop polling and release any graphical input lease while retaining that session-only enabled flag, so returning to the bot refreshes immediately without doing hidden work.
 - A preview click sets noVNC to interactive mode on its first navigation, preventing a view-only load followed by a second navigation.
 - Plain text messages bypass Streamdown entirely. Basic Markdown and advanced code/math/diagram rendering use separate lazy boundaries.
 - Bot and group form code is split from startup and prefetched during browser idle time, keeping both bootstrap and later dialog opening fast.

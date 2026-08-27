@@ -31,9 +31,10 @@ The product-level advantage is not just fewer lines. Pi lets OpenBot own the sem
 | visible DM/group/peer messages                      | PostgreSQL           | UI, audit, and delivery source of truth        |
 | model-visible history and compaction tree           | Pi JSONL session     | native model context continuity                |
 | files and projects                                  | `/workspace` volume  | shared computer filesystem                     |
+| editable profile/settings/memory/skill/routine projections | agent-data volume | filesystem compatibility and hand edits |
 | OAuth and computer app state                        | computer-home volume | never exposed to Electron or Postgres          |
 
-The three backup units are PostgreSQL, `openbot_computer_home`, and `openbot_workspace`. A backup missing any one of them is not a continuity backup.
+The four backup units are PostgreSQL, `openbot_computer_home`, `openbot_agent_data`, and `openbot_workspace`. A backup missing any one of them is not a complete continuity backup. PostgreSQL can regenerate normalized agent-data projections, but the agent-data volume is required to retain unreconciled hand edits and safe transcript mirrors.
 
 ## Session identity
 
@@ -96,6 +97,8 @@ Pi supplies `read`, `bash`, `edit`, and `write` inside the isolated computer con
 - `SendToAgent`: fire-and-forget bot/group messaging with optional one-to-one priority interruption;
 - `Screenshot`: returns the active bot display as an image;
 - `Computer`: structured mouse, keyboard, scroll, wait, and app-launch actions followed by a fresh screenshot.
+
+Specialized background workers narrow that normal catalog further. `computerUse` receives only `Shell`, `Read`, and a direct `Computer` tool with screenshot, click, move, drag, type, key, scroll, wait, and up to nine safely batched follow-ups. `browserUse` receives only `Shell`, `Read`, and the 15 direct `browser_*` tools backed by a Node-hosted Playwright driver over the bot Chromium process's loopback CDP endpoint. Browser refs are per-tab snapshot leases and page-changing actions invalidate them.
 
 The model never supplies sender identity, run ownership, or display identity. The computer binds each call to the active runtime record, and the server revalidates run/bot/channel/delivery state.
 

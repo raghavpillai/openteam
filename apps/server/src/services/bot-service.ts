@@ -188,7 +188,25 @@ export class BotService {
         });
         if (!bot.conversation)
           throw new ApiError(500, "bot_incomplete", "Bot conversation is missing");
-        await this.agentData.writeBotFiles(bot.id);
+        const fileTargets: Array<"profile" | "instructions" | "avatar"> = [];
+        if (
+          input.name !== undefined ||
+          input.title !== undefined ||
+          input.description !== undefined ||
+          input.icon !== undefined ||
+          input.color !== undefined
+        ) {
+          fileTargets.push("profile");
+        }
+        if (input.instructions !== undefined) fileTargets.push("instructions");
+        if (input.icon !== undefined || input.color !== undefined) fileTargets.push("avatar");
+        if (fileTargets.length > 0) await this.agentData.writeBotFiles(bot.id, fileTargets);
+        if (input.notificationsEnabled !== undefined || input.hiddenFromSidebar !== undefined) {
+          await this.agentData.writeBotSettings(bot.id, {
+            notifyOnAgentUpdates: input.notificationsEnabled,
+            hiddenFromSidebar: input.hiddenFromSidebar,
+          });
+        }
         return toBotView(bot);
       },
       catch: toError,
@@ -266,6 +284,50 @@ export class BotService {
         if (!existing || existing.subagentIdentity) {
           throw new ApiError(404, "bot_not_found", "Bot not found");
         }
+        const children = await this.prisma.subagent.findMany({
+          where: { parentBotId: botId },
+          select: { id: true, childBotId: true, currentRunId: true, status: true },
+        });
+        const activeChildren = children.filter((child) =>
+          ["provisioning", "queued", "running"].includes(child.status)
+        );
+        await Promise.all(
+          activeChildren.flatMap((child) =>
+            child.currentRunId
+              ? [
+                  this.computerFetch(`/v1/turns/${child.currentRunId}/cancel`, {
+                    method: "POST",
+                    signal: AbortSignal.timeout(5_000),
+                  }).catch(() => undefined),
+                ]
+              : []
+          )
+        );
+        await Promise.all(
+          children.map((child) =>
+            this.computerFetch(`/v1/screens/${child.childBotId}`, {
+              method: "DELETE",
+              signal: AbortSignal.timeout(5_000),
+            }).catch(() => undefined)
+          )
+        );
+        const contextSessions = await this.prisma.contextSession.findMany({
+          where: { botId: { in: [botId, ...children.map((child) => child.childBotId)] } },
+          select: { id: true, runtimeSessionPath: true },
+        });
+        await Promise.all(
+          contextSessions.map((contextSession) =>
+            this.computerFetch(`/v1/context-sessions/${contextSession.id}`, {
+              method: "DELETE",
+              body: JSON.stringify({ sessionPath: contextSession.runtimeSessionPath }),
+              signal: AbortSignal.timeout(10_000),
+            }).then(async (response) => {
+              if (!response.ok) {
+                throw new ApiError(503, "context_cleanup_failed", await response.text());
+              }
+            })
+          )
+        );
         const screenResponse = await this.computerFetch(`/v1/screens/${botId}`, {
           method: "DELETE",
           signal: AbortSignal.timeout(10_000),
@@ -274,17 +336,100 @@ export class BotService {
           throw new ApiError(503, "screen_cleanup_failed", await screenResponse.text());
         }
         await this.prisma.$transaction(async (tx) => {
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`routine-bot:${botId}`}))`;
+          const deletedAt = new Date();
+          for (const child of activeChildren) {
+            const attempt = child.currentRunId
+              ? await tx.subagentAttempt.findUnique({
+                  where: { childRunId: child.currentRunId },
+                })
+              : null;
+            await tx.subagent.updateMany({
+              where: {
+                id: child.id,
+                status: { in: ["provisioning", "queued", "running"] },
+              },
+              data: { status: "stopped", stoppedAt: deletedAt, completedAt: deletedAt },
+            });
+            if (attempt) {
+              await tx.subagentAttempt.updateMany({
+                where: {
+                  id: attempt.id,
+                  status: { in: ["provisioning", "queued", "running"] },
+                },
+                data: { status: "stopped", stoppedAt: deletedAt, completedAt: deletedAt },
+              });
+            }
+            if (child.currentRunId) {
+              await tx.run.updateMany({
+                where: {
+                  id: child.currentRunId,
+                  status: { in: ["queued", "running", "waiting_approval"] },
+                },
+                data: {
+                  status: "cancelled",
+                  completedAt: deletedAt,
+                  error: {
+                    code: "parent_archived",
+                    message: "The parent agent was archived",
+                  },
+                },
+              });
+              await tx.inboxEvent.updateMany({
+                where: {
+                  runId: child.currentRunId,
+                  status: { in: ["pending", "processing"] },
+                },
+                data: {
+                  status: "completed",
+                  completedAt: deletedAt,
+                  error: { code: "parent_archived" },
+                },
+              });
+              await tx.approval.updateMany({
+                where: { runId: child.currentRunId, status: "pending" },
+                data: { status: "expired", resolvedAt: deletedAt },
+              });
+            }
+            await appendEvent(tx, "subagent.stopped", child.id, {
+              subagentId: child.id,
+              parentBotId: botId,
+              runId: child.currentRunId,
+              attemptId: attempt?.id,
+              parentToolCallId: attempt?.parentToolCallId,
+              reason: "parent_archived",
+            });
+          }
+          const childBotIds = children.map((child) => child.childBotId);
+          await tx.bot.updateMany({
+            where: { id: { in: childBotIds } },
+            data: { status: "archived" },
+          });
+          await tx.channel.updateMany({
+            where: { directKey: { in: childBotIds.map((id) => `bot:${id}`) } },
+            data: { archivedAt: deletedAt },
+          });
           await tx.bot.update({
             where: { id: botId },
             data: { status: "archived", avatarPath: null },
           });
+          await tx.routine.updateMany({
+            where: { botId, deletedAt: null },
+            data: {
+              enabled: false,
+              nextRunAt: null,
+              pausedAt: deletedAt,
+              deletedAt,
+            },
+          });
           await tx.channel.updateMany({
             where: { directKey: `bot:${botId}` },
-            data: { archivedAt: new Date() },
+            data: { archivedAt: deletedAt },
           });
           await appendEvent(tx, "bot.archived", botId, { botId });
         });
         await this.agentData.deleteAgentFiles(botId);
+        await this.agentData.repairActiveAgentAfterDeletion(botId);
         return { ok: true };
       },
       catch: toError,

@@ -1,5 +1,7 @@
+import { ApiError } from "@openbot/contracts";
+import { Prisma, type PrismaClient } from "@openbot/db";
 import { CronExpressionParser } from "cron-parser";
-import type { Prisma, PrismaClient } from "@openbot/db";
+import { cronSchedules, firstCronSchedule, parseStoredTrigger } from "./automation-trigger";
 import { uniqueSlug } from "./file-state";
 
 const MIN_INTERVAL_SECONDS = 5 * 60;
@@ -13,7 +15,55 @@ export interface RoutineMutationInput {
   prompt?: string;
   schedule?: string;
   trigger?: unknown;
+  presentation?: unknown;
   enabled?: boolean;
+  expectedRevision?: number;
+  source?: "agent" | "ui";
+}
+
+export interface RoutineExecutionView {
+  id: string;
+  routineId: string;
+  runId: string | null;
+  kind: "scheduled" | "test";
+  status:
+    | "queued"
+    | "running"
+    | "waiting_approval"
+    | "completed"
+    | "failed"
+    | "cancelled"
+    | "skipped";
+  scheduledFor: string;
+  enqueuedAt: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  skipReason: string | null;
+  error: unknown;
+  createdAt: string;
+}
+
+export interface RoutineView {
+  id: string;
+  folder: string;
+  botId: string;
+  name: string;
+  prompt: string;
+  schedule: string;
+  schedules: string[];
+  scheduleKind: "cron" | "interval" | "event";
+  cronExpression: string | null;
+  intervalSeconds: number | null;
+  timezone: string;
+  timezoneMode: string;
+  enabled: boolean;
+  revision: number;
+  nextRunAt: string | null;
+  lastRunAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  latestExecution: RoutineExecutionView | null;
+  triggerPresentation: unknown;
 }
 
 export interface NormalizedSchedule {
@@ -26,27 +76,10 @@ export interface NormalizedSchedule {
 }
 
 interface RoutineFileStore {
-  writeRoutine(botId: string, id: string): Promise<void>;
-  deleteRoutine(botId: string, id: string): Promise<void>;
+  listRoutineFolderIds?(botId: string): Promise<string[]>;
+  writeRoutine(botId: string, id: string, tx?: Prisma.TransactionClient): Promise<void>;
+  deleteRoutine(botId: string, id: string, tx?: Prisma.TransactionClient): Promise<void>;
 }
-
-const EVENT_TRIGGER_TYPES = new Set([
-  "slack",
-  "github",
-  "origin",
-  "microsoftTeams",
-  "linear",
-  "sentry",
-  "pagerduty",
-  "webhook",
-]);
-const ORIGIN_TRIGGER_EXCLUSIONS = new Set([
-  "microsoftTeams",
-  "linear",
-  "sentry",
-  "pagerduty",
-  "webhook",
-]);
 
 type StoredSchedule =
   | NormalizedSchedule
@@ -74,6 +107,7 @@ interface RoutineWakeHost {
       availableAt?: Date;
       occurredAt?: Date;
       timeZone?: string | null;
+      automationTrigger?: string;
     }
   ): Promise<{ run: { id: string } }>;
 }
@@ -87,6 +121,11 @@ const required = (value: string | undefined, field: string): string => {
 const jsonInput = (value: unknown): Prisma.InputJsonValue =>
   JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+const routineIdentifierWhere = (id: string) =>
+  UUID_PATTERN.test(id) ? { OR: [{ id }, { slug: id }] } : { slug: id };
+
 export interface RoutineRunLedgerEntry {
   id: string;
   trigger: "schedule" | "manual" | "event";
@@ -95,6 +134,101 @@ export interface RoutineRunLedgerEntry {
   status: "ok" | "error" | "running";
   [key: string]: unknown;
 }
+
+const humanSchedule = (schedule: string): string => {
+  const normalized = schedule.replace(/^(?:CRON_TZ|TZ)=[^\s]+\s+/, "").trim();
+  if (normalized === "0 * * * *") return "Every hour";
+  if (normalized === "0 0 * * *") return "Every day at 12:00 AM";
+  const weekdays = normalized.match(/^(\d+) (\d+) \* \* 1-5$/);
+  if (weekdays) {
+    const date = new Date(2026, 0, 1, Number(weekdays[2]), Number(weekdays[1]));
+    return `Weekdays at ${date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`;
+  }
+  const interval = normalized.match(/^@every\s+(.+)$/i);
+  return interval ? `Every ${interval[1]}` : `Cron ${normalized}`;
+};
+
+const routineWakeContent = (input: {
+  name: string;
+  folder?: string;
+  schedule?: string;
+  firedAt: Date;
+  prompt: string;
+  provenance?: string;
+  kind: "scheduled" | "manual";
+  routineStatuses?: ReadonlyArray<{ name: string; folder: string; status: string }>;
+}): string => {
+  const trusted = input.provenance === "user" ? "[SAND_TRUSTED_AUTOMATION_PROMPT]" : "";
+  const schedule = input.schedule ?? "scheduled routine";
+  const folder = input.folder ?? input.name;
+  const routineStatuses = input.routineStatuses ?? [];
+  const reminder = routineStatuses.length
+    ? [
+        "<system_reminder>",
+        "<automation_status>",
+        "Current routine runtime status. This snapshot is authoritative for this turn and supersedes earlier routine status reminders.",
+        ...routineStatuses.map(
+          (routine) => `- ${routine.name} (folder ${routine.folder}): ${routine.status}`
+        ),
+        "</automation_status>",
+        "</system_reminder>",
+        "",
+      ]
+    : [];
+  return [
+    `[SAND_HIDDEN_PROMPT]${trusted}`,
+    ...reminder,
+    input.kind === "manual"
+      ? `[routine] ${JSON.stringify(input.name)} (folder ${folder}) was run on demand — ${humanSchedule(schedule)} (${schedule}), fired ${input.firedAt.toISOString()}.`
+      : `[routine] ${JSON.stringify(input.name)} (folder ${folder}) is due — ${humanSchedule(schedule)} (${schedule}), fired ${input.firedAt.toISOString()}.`,
+    input.kind === "manual"
+      ? "The user pressed Run now on this routine in the app."
+      : "This is your own routine firing on schedule, not a message the user just typed.",
+    "",
+    input.prompt,
+    "",
+    "Use current sources; report missing or stale inputs instead of inventing data.",
+    "Use SendToUser to deliver a meaningful result or a failure that needs attention. Finishing silently is valid when the saved instruction says there is nothing to report.",
+  ]
+    .filter((line, index) => line || index > 0)
+    .join("\n");
+};
+
+export const scheduledRoutineWakeContent = (input: {
+  name: string;
+  folder?: string;
+  schedule?: string;
+  scheduledFor: Date;
+  prompt: string;
+  provenance?: string;
+  routineStatuses?: ReadonlyArray<{ name: string; folder: string; status: string }>;
+}): string =>
+  routineWakeContent({
+    ...input,
+    firedAt: input.scheduledFor,
+    kind: "scheduled",
+  });
+
+export const manualRoutineWakeContent = (input: {
+  name: string;
+  folder: string;
+  schedule: string;
+  firedAt: Date;
+  prompt: string;
+  provenance: string;
+  routineStatuses?: ReadonlyArray<{ name: string; folder: string; status: string }>;
+}): string => routineWakeContent({ ...input, kind: "manual" });
+
+export const scheduledRoutineTriggerContext = (input: {
+  name: string;
+  scheduledFor: Date;
+}): string =>
+  [
+    "<automation_trigger_info>",
+    `[OpenBot routine: ${input.name}]`,
+    `Scheduled occurrence: ${input.scheduledFor.toISOString()}`,
+    "</automation_trigger_info>",
+  ].join("\n");
 
 export const appendRoutineRunLedger = (
   current: unknown,
@@ -111,68 +245,9 @@ export const appendRoutineRunLedger = (
     : [];
   return jsonInput(
     [...ledger, entry]
-      .sort((left, right) => Number(left.startedAt ?? 0) - Number(right.startedAt ?? 0))
-      .slice(-20)
+      .sort((left, right) => Number(right.startedAt ?? 0) - Number(left.startedAt ?? 0))
+      .slice(0, 20)
   );
-};
-
-const triggerRecord = (value: unknown): Record<string, unknown> => {
-  if (Array.isArray(value)) {
-    if (value.length < 1 || value.length > 8)
-      throw new Error("group trigger must contain 1-8 listeners");
-    const listeners = value.map(triggerRecord);
-    if (listeners.some((listener) => listener.type === "group"))
-      throw new Error("group triggers cannot be nested");
-    return listeners.length === 1 ? listeners[0]! : validateTriggerGroup(listeners);
-  }
-  if (!value || typeof value !== "object") {
-    throw new Error("trigger must be an object");
-  }
-  const trigger = value as Record<string, unknown>;
-  if (typeof trigger.type !== "string") throw new Error("trigger.type is required");
-  if (trigger.type === "cron") {
-    return {
-      ...trigger,
-      schedule: required(trigger.schedule as string | undefined, "trigger.schedule"),
-    };
-  }
-  if (trigger.type === "group") {
-    const rawListeners = trigger.listeners ?? trigger.triggers;
-    if (!Array.isArray(rawListeners) || rawListeners.length < 1 || rawListeners.length > 8) {
-      throw new Error("group trigger must contain 1-8 listeners");
-    }
-    const listeners = rawListeners.map(triggerRecord);
-    if (listeners.some((listener) => listener.type === "group"))
-      throw new Error("group triggers cannot be nested");
-    return listeners.length === 1 ? listeners[0]! : validateTriggerGroup(listeners);
-  }
-  if (!EVENT_TRIGGER_TYPES.has(trigger.type)) {
-    throw new Error(`Unsupported routine trigger type: ${trigger.type}`);
-  }
-  return trigger;
-};
-
-const validateTriggerGroup = (
-  listeners: Array<Record<string, unknown>>
-): Record<string, unknown> => {
-  const types = new Set(listeners.map((entry) => String(entry.type)));
-  if (types.has("origin") && [...types].some((type) => ORIGIN_TRIGGER_EXCLUSIONS.has(type))) {
-    throw new Error("origin cannot be grouped with Teams, Linear, Sentry, PagerDuty, or webhook");
-  }
-  return { type: "group", listeners };
-};
-
-const firstCronSchedule = (trigger: Record<string, unknown>): string | null => {
-  if (trigger.type === "cron" && typeof trigger.schedule === "string") return trigger.schedule;
-  if (trigger.type !== "group" || !Array.isArray(trigger.listeners)) return null;
-  const cron = trigger.listeners.find(
-    (listener) =>
-      Boolean(listener) &&
-      typeof listener === "object" &&
-      !Array.isArray(listener) &&
-      (listener as { type?: unknown }).type === "cron"
-  ) as { schedule?: unknown } | undefined;
-  return typeof cron?.schedule === "string" ? cron.schedule : null;
 };
 
 const validZone = (zone: string): string => {
@@ -264,9 +339,10 @@ export const normalizeRoutineSchedule = (
   const occurrences = parser.take(8).map((date) => date.toDate().getTime());
   if (
     options.enforceMinimum !== false &&
-    occurrences.some(
-      (time, index) => index > 0 && time - occurrences[index - 1]! < MIN_INTERVAL_SECONDS * 1_000
-    )
+    occurrences.some((time, index) => {
+      const previous = occurrences[index - 1];
+      return previous !== undefined && time - previous < MIN_INTERVAL_SECONDS * 1_000;
+    })
   ) {
     throw new Error("Routine cron schedules may not run more often than every 5 minutes");
   }
@@ -285,7 +361,7 @@ const normalizeMutationTrigger = (
   installationZone: string
 ): { trigger: Record<string, unknown>; schedule: StoredSchedule } => {
   const trigger = input.trigger
-    ? triggerRecord(input.trigger)
+    ? parseStoredTrigger(input.trigger)
     : { type: "cron", schedule: required(input.schedule, "schedule") };
   if (input.schedule !== undefined) {
     trigger.type = "cron";
@@ -293,15 +369,36 @@ const normalizeMutationTrigger = (
   }
   const cronSchedule = firstCronSchedule(trigger);
   if (cronSchedule !== null) {
-    const schedule = normalizeRoutineSchedule(
-      required(cronSchedule, "trigger.schedule"),
-      installationZone,
-      {
-        enforceMinimum: process.env.OPENBOT_ENFORCE_AUTOMATION_MINIMUM === "true",
-      }
+    const enforceMinimum = process.env.OPENBOT_ENFORCE_AUTOMATION_MINIMUM === "true";
+    const normalizedSchedules = cronSchedules(trigger).map((candidate) =>
+      normalizeRoutineSchedule(required(candidate, "trigger.schedule"), installationZone, {
+        enforceMinimum,
+      })
     );
+    const schedule =
+      normalizedSchedules[0] ??
+      normalizeRoutineSchedule(required(cronSchedule, "trigger.schedule"), installationZone, {
+        enforceMinimum,
+      });
+    const normalizedTrigger =
+      trigger.type === "cron"
+        ? { ...trigger, schedule: schedule.scheduleText }
+        : {
+            ...trigger,
+            listeners: Array.isArray(trigger.listeners)
+              ? trigger.listeners.map((listener) => {
+                  if (!listener || typeof listener !== "object" || Array.isArray(listener)) {
+                    return listener;
+                  }
+                  const item = listener as Record<string, unknown>;
+                  if (item.type !== "cron" || typeof item.schedule !== "string") return item;
+                  const normalized = normalizedSchedules.shift();
+                  return { ...item, schedule: normalized?.scheduleText ?? item.schedule };
+                })
+              : trigger.listeners,
+          };
     return {
-      trigger: trigger.type === "cron" ? { ...trigger, schedule: schedule.scheduleText } : trigger,
+      trigger: normalizedTrigger,
       schedule,
     };
   }
@@ -354,8 +451,32 @@ export const nextRoutineRun = (
     .toDate();
 };
 
+export const nextRoutineTriggerRun = (
+  trigger: Record<string, unknown>,
+  fallback: {
+    scheduleKind: "cron" | "interval" | "event";
+    scheduleText?: string;
+    cronExpression: string | null;
+    intervalSeconds: number | null;
+    timezone: string;
+  },
+  after: Date,
+  installationZone = fallback.timezone
+): Date => {
+  const schedules = cronSchedules(trigger);
+  if (schedules.length === 0) return nextRoutineRun(fallback, after);
+  const nextRuns = schedules.map((schedule) =>
+    nextRoutineRun(
+      normalizeRoutineSchedule(schedule, installationZone, { enforceMinimum: false }),
+      after
+    )
+  );
+  return new Date(Math.min(...nextRuns.map((next) => next.getTime())));
+};
+
 const view = (routine: {
   id: string;
+  slug: string;
   name: string;
   prompt: string;
   scheduleText: string;
@@ -373,6 +494,7 @@ const view = (routine: {
 }) => ({
   target: "routine",
   id: routine.id,
+  folder: routine.slug,
   name: routine.name,
   prompt: routine.prompt,
   schedule: routine.scheduleText,
@@ -388,6 +510,160 @@ const view = (routine: {
   trigger: routine.trigger,
   provenance: routine.provenance,
 });
+
+const executionView = (execution: {
+  id: string;
+  routineId: string;
+  runId: string | null;
+  kind: string;
+  status: string;
+  scheduledFor: Date;
+  enqueuedAt: Date | null;
+  startedAt: Date | null;
+  completedAt: Date | null;
+  skipReason: string | null;
+  error: unknown;
+  createdAt: Date;
+}): RoutineExecutionView => ({
+  id: execution.id,
+  routineId: execution.routineId,
+  runId: execution.runId,
+  kind: execution.kind as RoutineExecutionView["kind"],
+  status: execution.status as RoutineExecutionView["status"],
+  scheduledFor: execution.scheduledFor.toISOString(),
+  enqueuedAt: execution.enqueuedAt?.toISOString() ?? null,
+  startedAt: execution.startedAt?.toISOString() ?? null,
+  completedAt: execution.completedAt?.toISOString() ?? null,
+  skipReason: execution.skipReason,
+  error: execution.error,
+  createdAt: execution.createdAt.toISOString(),
+});
+
+const uiView = (routine: {
+  id: string;
+  slug: string;
+  botId: string;
+  name: string;
+  prompt: string;
+  scheduleText: string;
+  scheduleKind: string;
+  cronExpression: string | null;
+  intervalSeconds: number | null;
+  timezone: string;
+  timezoneMode: string;
+  enabled: boolean;
+  revision: number;
+  nextRunAt: Date | null;
+  lastRunAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+  trigger: unknown;
+  triggerPresentation: unknown;
+  executions?: Array<Parameters<typeof executionView>[0]>;
+}): RoutineView => ({
+  id: routine.id,
+  folder: routine.slug,
+  botId: routine.botId,
+  name: routine.name,
+  prompt: routine.prompt,
+  schedule: routine.scheduleText,
+  schedules: cronSchedules(routine.trigger as Record<string, unknown>),
+  scheduleKind: routine.scheduleKind as RoutineView["scheduleKind"],
+  cronExpression: routine.cronExpression,
+  intervalSeconds: routine.intervalSeconds,
+  timezone: routine.timezone,
+  timezoneMode: routine.timezoneMode,
+  enabled: routine.enabled,
+  revision: routine.revision,
+  nextRunAt: routine.nextRunAt?.toISOString() ?? null,
+  lastRunAt: routine.lastRunAt?.toISOString() ?? null,
+  createdAt: routine.createdAt.toISOString(),
+  updatedAt: routine.updatedAt.toISOString(),
+  latestExecution: routine.executions?.[0] ? executionView(routine.executions[0]) : null,
+  triggerPresentation: routine.triggerPresentation,
+});
+
+const routineRuntimeStatus = (
+  routine: { runLedger: unknown; lastRunAt: Date | null },
+  timeZone: string
+): string => {
+  const ledger = Array.isArray(routine.runLedger)
+    ? routine.runLedger.filter(
+        (entry): entry is Record<string, unknown> =>
+          Boolean(entry) && typeof entry === "object" && !Array.isArray(entry)
+      )
+    : [];
+  const latest = ledger
+    .slice()
+    .sort((left, right) => Number(right.startedAt ?? 0) - Number(left.startedAt ?? 0))[0];
+  const lastRun = latest?.finishedAt ?? latest?.startedAt ?? routine.lastRunAt;
+  if (!lastRun) return "never run";
+  const at = lastRun instanceof Date ? lastRun : new Date(Number(lastRun));
+  if (!Number.isFinite(at.getTime())) return "last run status unknown";
+  const outcome =
+    latest?.status === "ok"
+      ? "succeeded"
+      : latest?.status === "error"
+        ? "failed"
+        : latest?.status === "running"
+          ? "running"
+          : "unknown";
+  const rendered = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: true,
+  }).format(at);
+  return `last run ${rendered} (${outcome})`;
+};
+
+const routineStatusSnapshot = async (
+  tx: Prisma.TransactionClient,
+  botId: string,
+  timeZone: string
+): Promise<Array<{ name: string; folder: string; status: string }>> => {
+  const conversation = await tx.conversation.findUnique({
+    where: { botId },
+    select: { id: true },
+  });
+  if (conversation) {
+    const latestCompaction = await tx.contextCompaction.findFirst({
+      where: {
+        status: "adopted",
+        completedAt: { not: null },
+        contextSession: { botId, scope: "home", scopeId: conversation.id },
+      },
+      orderBy: { completedAt: "desc" },
+      select: { completedAt: true },
+    });
+    const alreadyDelivered = await tx.message.findFirst({
+      where: {
+        conversationId: conversation.id,
+        ...(latestCompaction?.completedAt
+          ? { createdAt: { gt: latestCompaction.completedAt } }
+          : {}),
+        content: { contains: "<automation_status>" },
+      },
+      select: { id: true },
+    });
+    if (alreadyDelivered) return [];
+  }
+  return (
+    await tx.routine.findMany({
+      where: { botId, deletedAt: null },
+      orderBy: { createdAt: "asc" },
+      select: { name: true, slug: true, runLedger: true, lastRunAt: true },
+    })
+  ).map((routine) => ({
+    name: routine.name,
+    folder: routine.slug,
+    status: routineRuntimeStatus(routine, timeZone),
+  }));
+};
 
 export class RoutineService {
   readonly installationZone: string;
@@ -407,25 +683,164 @@ export class RoutineService {
     runId: string | null,
     input: RoutineMutationInput
   ): Promise<Record<string, unknown>> {
-    let result: Record<string, unknown>;
     switch (input.action) {
       case "create":
-        result = await this.create(botId, callId, runId, input);
-        break;
+        return this.create(botId, callId, runId, input);
       case "update":
-        result = await this.update(botId, callId, runId, input);
-        break;
+        return this.update(botId, callId, runId, input);
       case "pause":
       case "resume":
       case "delete":
-        result = await this.lifecycle(botId, callId, runId, input);
-        break;
+        return this.lifecycle(botId, callId, runId, input);
     }
-    if (typeof result.id === "string" && this.files) {
-      if (input.action === "delete") await this.files.deleteRoutine(botId, result.id);
-      else await this.files.writeRoutine(botId, result.id);
-    }
-    return result;
+  }
+
+  async list(botId: string): Promise<RoutineView[]> {
+    const routines = await this.prisma.routine.findMany({
+      where: { botId, deletedAt: null },
+      include: { executions: { orderBy: { createdAt: "desc" }, take: 1 } },
+      orderBy: [{ nextRunAt: "asc" }, { createdAt: "asc" }],
+    });
+    return routines.map(uiView);
+  }
+
+  async ownerId(id: string): Promise<string> {
+    const routine = await this.prisma.routine.findFirst({
+      where: { deletedAt: null, ...routineIdentifierWhere(id) },
+      select: { botId: true },
+    });
+    if (!routine) throw new ApiError(404, "routine_not_found", "Routine not found");
+    return routine.botId;
+  }
+
+  async detail(botId: string, id: string): Promise<RoutineView> {
+    const routine = await this.prisma.routine.findFirst({
+      where: { botId, deletedAt: null, ...routineIdentifierWhere(id) },
+      include: { executions: { orderBy: { createdAt: "desc" }, take: 1 } },
+    });
+    if (!routine) throw new ApiError(404, "routine_not_found", "Routine not found");
+    return uiView(routine);
+  }
+
+  async executions(botId: string, id: string, limit = 20): Promise<RoutineExecutionView[]> {
+    const routine = await this.prisma.routine.findFirst({
+      where: { botId, deletedAt: null, ...routineIdentifierWhere(id) },
+      select: { id: true },
+    });
+    if (!routine) throw new ApiError(404, "routine_not_found", "Routine not found");
+    return (
+      await this.prisma.routineExecution.findMany({
+        where: { routineId: routine.id },
+        orderBy: { createdAt: "desc" },
+        take: Math.max(1, Math.min(20, limit)),
+      })
+    ).map(executionView);
+  }
+
+  async runNow(
+    botId: string,
+    id: string,
+    requestId: string,
+    firedAt = new Date()
+  ): Promise<RoutineExecutionView> {
+    const result = await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`routine-run:${botId}:${id}`}))`;
+      const routine = await tx.routine.findFirst({
+        where: { botId, deletedAt: null, ...routineIdentifierWhere(id) },
+      });
+      if (!routine) throw new ApiError(404, "routine_not_found", "Routine not found");
+      const duplicate = await tx.routineExecution.findUnique({
+        where: { dedupeKey: `routine:${routine.id}:manual:${requestId}` },
+      });
+      if (duplicate) return duplicate;
+      const active = await tx.routineExecution.count({
+        where: {
+          routineId: routine.id,
+          status: { in: ["queued", "running", "waiting_approval"] },
+        },
+      });
+      if (active > 0) {
+        throw new ApiError(409, "routine_already_running", "This routine is already running");
+      }
+      const channel = await tx.channel.findUnique({
+        where: { directKey: `bot:${routine.botId}` },
+      });
+      if (!channel || channel.archivedAt) {
+        throw new ApiError(409, "routine_channel_unavailable", "The Bot chat is unavailable");
+      }
+      const revision = await tx.routineRevision.findUniqueOrThrow({
+        where: {
+          routineId_revision: { routineId: routine.id, revision: routine.revision },
+        },
+      });
+      const dedupeKey = `routine:${routine.id}:manual:${requestId}`;
+      const execution = await tx.routineExecution.create({
+        data: {
+          routineId: routine.id,
+          routineRevisionId: revision.id,
+          kind: "test",
+          status: "queued",
+          dedupeKey,
+          scheduledFor: firedAt,
+          enqueuedAt: firedAt,
+        },
+      });
+      const wake = await this.host.enqueueWake(tx, {
+        botId: routine.botId,
+        channelId: channel.id,
+        origin: "routine",
+        type: "routine.manual",
+        content: manualRoutineWakeContent({
+          name: routine.name,
+          folder: routine.slug,
+          schedule: routine.scheduleText,
+          firedAt,
+          prompt: routine.prompt,
+          provenance: routine.provenance,
+          routineStatuses: await routineStatusSnapshot(tx, routine.botId, routine.timezone),
+        }),
+        automationTrigger: scheduledRoutineTriggerContext({
+          name: routine.name,
+          scheduledFor: firedAt,
+        }),
+        clientId: dedupeKey,
+        priority: 290,
+        occurredAt: firedAt,
+        timeZone: routine.timezone,
+      });
+      const queued = await tx.routineExecution.update({
+        where: { id: execution.id },
+        data: { runId: wake.run.id },
+      });
+      await tx.routine.update({
+        where: { id: routine.id },
+        data: {
+          lastRunAt: firedAt,
+          runLedger: appendRoutineRunLedger(routine.runLedger, {
+            id: execution.id,
+            trigger: "manual",
+            startedAt: firedAt.getTime(),
+            finishedAt: null,
+            status: "running",
+          }),
+        },
+      });
+      await tx.event.create({
+        data: {
+          topic: "routine.execution.queued",
+          entityId: execution.id,
+          payload: {
+            executionId: execution.id,
+            routineId: routine.id,
+            runId: wake.run.id,
+            kind: "test",
+          },
+        },
+      });
+      return queued;
+    });
+    await this.files?.writeRoutine(botId, result.routineId);
+    return executionView(result);
   }
 
   private async create(
@@ -434,12 +849,16 @@ export class RoutineService {
     runId: string | null,
     input: RoutineMutationInput
   ) {
-    const name = required(input.name, "name");
+    const name = required(input.name, "name").replace(/\s+/g, " ").slice(0, 80);
     const prompt = required(input.prompt, "prompt");
     const { schedule, trigger } = normalizeMutationTrigger(input, this.installationZone);
     const enabled = input.enabled ?? true;
     return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`agent-files:${botId}`}))`;
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`routine-bot:${botId}`}))`;
+      if ((await tx.bot.count({ where: { id: botId, status: "active" } })) === 0) {
+        throw new Error("Cannot create a routine for an inactive bot");
+      }
       const count = await tx.routine.count({
         where: { botId, deletedAt: null },
       });
@@ -452,6 +871,8 @@ export class RoutineService {
           })
         ).map((routine) => routine.slug)
       );
+      const fileSlugs = new Set((await this.files?.listRoutineFolderIds?.(botId)) ?? []);
+      for (const slug of fileSlugs) occupied.add(slug);
       const slug = uniqueSlug(name, "automation", occupied);
       const now = new Date();
       const routine = await tx.routine.create({
@@ -461,12 +882,14 @@ export class RoutineService {
           name,
           prompt,
           trigger: jsonInput(trigger),
-          triggerPresentation: jsonInput({ version: 1, trigger }),
-          provenance: "untrusted",
+          triggerPresentation: jsonInput(input.presentation ?? { version: 1, trigger }),
+          provenance: input.source === "ui" ? "user" : "untrusted",
           ...schedule,
           enabled,
           nextRunAt:
-            enabled && schedule.scheduleKind !== "event" ? nextRoutineRun(schedule, now) : null,
+            enabled && schedule.scheduleKind !== "event"
+              ? nextRoutineTriggerRun(trigger, schedule, now, this.installationZone)
+              : null,
           pausedAt: enabled ? null : now,
         },
       });
@@ -478,7 +901,7 @@ export class RoutineService {
           prompt,
           ...schedule,
           enabled,
-          source: "agent",
+          source: input.source ?? "agent",
           callId,
           runId,
         },
@@ -490,6 +913,7 @@ export class RoutineService {
           payload: { routineId: routine.id, botId, revision: 1 },
         },
       });
+      await this.files?.writeRoutine(botId, routine.id, tx);
       return { ...view(routine), action: "create", created: true };
     });
   }
@@ -502,11 +926,23 @@ export class RoutineService {
   ) {
     const id = required(input.id, "id");
     return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`routine:${id}`}))`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`agent-files:${botId}`}))`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`routine-bot:${botId}`}))`;
+      if ((await tx.bot.count({ where: { id: botId, status: "active" } })) === 0) {
+        throw new Error("Cannot update a routine for an inactive bot");
+      }
       const current = await tx.routine.findFirst({
-        where: { id, botId, deletedAt: null },
+        where: { botId, deletedAt: null, ...routineIdentifierWhere(id) },
       });
       if (!current) throw new Error("Routine not found");
+      if (input.expectedRevision !== undefined && input.expectedRevision !== current.revision) {
+        throw new ApiError(
+          409,
+          "routine_revision_conflict",
+          "This routine changed somewhere else. Reload it and try again."
+        );
+      }
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`routine:${current.id}`}))`;
       const normalized =
         input.schedule !== undefined || input.trigger !== undefined
           ? normalizeMutationTrigger(input, this.installationZone)
@@ -522,35 +958,46 @@ export class RoutineService {
               } as StoredSchedule,
             };
       const { schedule, trigger } = normalized;
-      const name = input.name === undefined ? current.name : required(input.name, "name");
+      const name =
+        input.name === undefined
+          ? current.name
+          : required(input.name, "name").replace(/\s+/g, " ").slice(0, 80);
       const prompt = input.prompt === undefined ? current.prompt : required(input.prompt, "prompt");
       const enabled = input.enabled ?? current.enabled;
       const revision = current.revision + 1;
       const now = new Date();
       const routine = await tx.routine.update({
-        where: { id },
+        where: { id: current.id },
         data: {
           name,
           prompt,
           trigger: jsonInput(trigger),
-          triggerPresentation: jsonInput({ version: 1, trigger }),
+          triggerPresentation:
+            input.presentation !== undefined
+              ? jsonInput(input.presentation)
+              : current.triggerPresentation
+                ? jsonInput({ version: 1, trigger })
+                : Prisma.JsonNull,
           ...schedule,
           enabled,
+          provenance: input.source === "ui" ? "user" : current.provenance,
           revision,
           nextRunAt:
-            enabled && schedule.scheduleKind !== "event" ? nextRoutineRun(schedule, now) : null,
+            enabled && schedule.scheduleKind !== "event"
+              ? nextRoutineTriggerRun(trigger, schedule, now, this.installationZone)
+              : null,
           pausedAt: enabled ? null : (current.pausedAt ?? now),
         },
       });
       await tx.routineRevision.create({
         data: {
-          routineId: id,
+          routineId: current.id,
           revision,
           name,
           prompt,
           ...schedule,
           enabled,
-          source: "agent",
+          source: input.source ?? "agent",
           callId,
           runId,
         },
@@ -558,10 +1005,11 @@ export class RoutineService {
       await tx.event.create({
         data: {
           topic: "routine.updated",
-          entityId: id,
-          payload: { routineId: id, botId, revision },
+          entityId: current.id,
+          payload: { routineId: current.id, botId, revision },
         },
       });
+      await this.files?.writeRoutine(botId, routine.id, tx);
       return { ...view(routine), action: "update", updated: true };
     });
   }
@@ -574,11 +1022,23 @@ export class RoutineService {
   ) {
     const id = required(input.id, "id");
     return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`routine:${id}`}))`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`agent-files:${botId}`}))`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`routine-bot:${botId}`}))`;
+      if ((await tx.bot.count({ where: { id: botId, status: "active" } })) === 0) {
+        throw new Error("Cannot change a routine for an inactive bot");
+      }
       const current = await tx.routine.findFirst({
-        where: { id, botId, deletedAt: null },
+        where: { botId, deletedAt: null, ...routineIdentifierWhere(id) },
       });
       if (!current) throw new Error("Routine not found");
+      if (input.expectedRevision !== undefined && input.expectedRevision !== current.revision) {
+        throw new ApiError(
+          409,
+          "routine_revision_conflict",
+          "This routine changed somewhere else. Reload it and try again."
+        );
+      }
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`routine:${current.id}`}))`;
       const now = new Date();
       const enabled = input.action === "resume";
       const deleted = input.action === "delete";
@@ -591,19 +1051,26 @@ export class RoutineService {
       };
       const revision = current.revision + 1;
       const routine = await tx.routine.update({
-        where: { id },
+        where: { id: current.id },
         data: {
           enabled: deleted ? false : enabled,
           revision,
           nextRunAt:
-            enabled && schedule.scheduleKind !== "event" ? nextRoutineRun(schedule, now) : null,
+            enabled && schedule.scheduleKind !== "event"
+              ? nextRoutineTriggerRun(
+                  current.trigger as Record<string, unknown>,
+                  schedule,
+                  now,
+                  this.installationZone
+                )
+              : null,
           pausedAt: enabled ? null : now,
           deletedAt: deleted ? now : null,
         },
       });
       await tx.routineRevision.create({
         data: {
-          routineId: id,
+          routineId: current.id,
           revision,
           name: current.name,
           prompt: current.prompt,
@@ -614,7 +1081,7 @@ export class RoutineService {
           timezoneMode: current.timezoneMode,
           timezone: current.timezone,
           enabled: routine.enabled,
-          source: "agent",
+          source: input.source ?? "agent",
           callId,
           runId,
         },
@@ -622,10 +1089,12 @@ export class RoutineService {
       await tx.event.create({
         data: {
           topic: `routine.${input.action}d`,
-          entityId: id,
-          payload: { routineId: id, botId, revision },
+          entityId: current.id,
+          payload: { routineId: current.id, botId, revision },
         },
       });
+      if (deleted) await this.files?.deleteRoutine(botId, routine.id, tx);
+      else await this.files?.writeRoutine(botId, routine.id, tx);
       return {
         ...view(routine),
         action: input.action,
@@ -660,8 +1129,21 @@ export class RoutineService {
           },
         });
         if (routine.scheduleKind === "event") return false;
-        let nextRunAt = nextRoutineRun(routine, scheduledFor);
-        while (nextRunAt <= now) nextRunAt = nextRoutineRun(routine, nextRunAt);
+        const statusSnapshot = await routineStatusSnapshot(tx, routine.botId, routine.timezone);
+        let nextRunAt = nextRoutineTriggerRun(
+          routine.trigger as Record<string, unknown>,
+          routine,
+          scheduledFor,
+          this.installationZone
+        );
+        while (nextRunAt <= now) {
+          nextRunAt = nextRoutineTriggerRun(
+            routine.trigger as Record<string, unknown>,
+            routine,
+            nextRunAt,
+            this.installationZone
+          );
+        }
         await tx.routine.update({
           where: { id: routine.id },
           data: { nextRunAt, lastRunAt: scheduledFor },
@@ -723,14 +1205,19 @@ export class RoutineService {
           channelId: channel.id,
           origin: "routine",
           type: "routine.scheduled",
-          content: [
-            `[OpenBot routine: ${routine.name}]`,
-            `Scheduled occurrence: ${scheduledFor.toISOString()}`,
-            "This is background work, not a user-authored message.",
-            "Use SendMessage to deliver a meaningful result; finish silently when the routine explicitly says there is nothing to report.",
-            "",
-            routine.prompt,
-          ].join("\n"),
+          content: scheduledRoutineWakeContent({
+            name: routine.name,
+            folder: routine.slug,
+            schedule: routine.scheduleText,
+            scheduledFor,
+            prompt: routine.prompt,
+            provenance: routine.provenance,
+            routineStatuses: statusSnapshot,
+          }),
+          automationTrigger: scheduledRoutineTriggerContext({
+            name: routine.name,
+            scheduledFor,
+          }),
           clientId: dedupeKey,
           priority: 100,
           occurredAt: scheduledFor,
@@ -749,7 +1236,6 @@ export class RoutineService {
               startedAt: now.getTime(),
               finishedAt: null,
               status: "running",
-              coalescedRunIds: [wake.run.id],
             }),
           },
         });

@@ -4,7 +4,14 @@ type Entity = { id: string };
 type EntityCache = Map<string, { fingerprint: string; value: Entity }>;
 
 export type SnapshotCaches = Record<
-  "bots" | "channels" | "channelMessages" | "channelRounds" | "runs" | "runItems" | "approvals",
+  | "bots"
+  | "channels"
+  | "channelMessages"
+  | "channelRounds"
+  | "runs"
+  | "runItems"
+  | "approvals"
+  | "subagents",
   EntityCache
 >;
 
@@ -16,6 +23,7 @@ export const createSnapshotCaches = (): SnapshotCaches => ({
   runs: new Map(),
   runItems: new Map(),
   approvals: new Map(),
+  subagents: new Map(),
 });
 
 const reconcileEntities = <T extends Entity>(
@@ -48,27 +56,41 @@ export const reconcileClientSnapshot = (
   previous: ClientSnapshot | null,
   caches: SnapshotCaches
 ): ClientSnapshot => {
+  // The HTTP client is typed but the JSON is intentionally not decoded at
+  // runtime. During HMR or a rolling upgrade an older server can omit a newly
+  // introduced collection. Normalize every collection at this boundary so a
+  // partial snapshot cannot strand the desktop on its connecting screen with
+  // an unhelpful `undefined.length` error.
+  const bots = Array.isArray(next.bots) ? next.bots : [];
+  const channels = Array.isArray(next.channels) ? next.channels : [];
+  const channelMessages = Array.isArray(next.channelMessages) ? next.channelMessages : [];
+  const channelRounds = Array.isArray(next.channelRounds) ? next.channelRounds : [];
+  const runs = Array.isArray(next.runs) ? next.runs : [];
+  const runItems = Array.isArray(next.runItems) ? next.runItems : [];
+  const approvals = Array.isArray(next.approvals) ? next.approvals : [];
+  const subagents = Array.isArray(next.subagents) ? next.subagents : [];
   const reconciled: ClientSnapshot = {
     ...next,
     workspace: shallowEqualRecord(previous?.workspace, next.workspace)
       ? previous!.workspace
       : next.workspace,
     runtime: shallowEqualRecord(previous?.runtime, next.runtime) ? previous!.runtime : next.runtime,
-    bots: reconcileEntities(caches.bots, next.bots, previous?.bots),
-    channels: reconcileEntities(caches.channels, next.channels, previous?.channels),
+    bots: reconcileEntities(caches.bots, bots, previous?.bots),
+    channels: reconcileEntities(caches.channels, channels, previous?.channels),
     channelMessages: reconcileEntities(
       caches.channelMessages,
-      next.channelMessages,
+      channelMessages,
       previous?.channelMessages
     ),
     channelRounds: reconcileEntities(
       caches.channelRounds,
-      next.channelRounds,
+      channelRounds,
       previous?.channelRounds
     ),
-    runs: reconcileEntities(caches.runs, next.runs, previous?.runs),
-    runItems: reconcileEntities(caches.runItems, next.runItems, previous?.runItems),
-    approvals: reconcileEntities(caches.approvals, next.approvals, previous?.approvals),
+    runs: reconcileEntities(caches.runs, runs, previous?.runs),
+    runItems: reconcileEntities(caches.runItems, runItems, previous?.runItems),
+    approvals: reconcileEntities(caches.approvals, approvals, previous?.approvals),
+    subagents: reconcileEntities(caches.subagents, subagents, previous?.subagents),
   };
   if (
     previous &&
@@ -80,7 +102,8 @@ export const reconcileClientSnapshot = (
     previous.channelRounds === reconciled.channelRounds &&
     previous.runs === reconciled.runs &&
     previous.runItems === reconciled.runItems &&
-    previous.approvals === reconciled.approvals
+    previous.approvals === reconciled.approvals &&
+    previous.subagents === reconciled.subagents
   ) {
     return previous;
   }

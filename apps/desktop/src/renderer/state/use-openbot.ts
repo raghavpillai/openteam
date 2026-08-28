@@ -63,7 +63,11 @@ export function useOpenBot() {
       void refresh();
     }
     const retry = window.setInterval(() => {
-      if (!snapshotRef.current) void refresh(true);
+      const needsInitialSnapshot = !snapshotRef.current;
+      const needsVisibleWatchdogRefresh =
+        document.visibilityState === "visible" &&
+        performance.now() - lastRefreshAt.current > 10_000;
+      if (needsInitialSnapshot || needsVisibleWatchdogRefresh) void refresh(true);
     }, 3_000);
     return () => window.clearInterval(retry);
   }, [refresh]);
@@ -86,7 +90,16 @@ export function useOpenBot() {
         }, 32);
       },
       onError: () => setError("Live updates are reconnecting"),
-      onOpen: () => setError(null),
+      onOpen: () => {
+        setError(null);
+        if (
+          document.visibilityState === "visible" &&
+          !refreshInFlight.current &&
+          performance.now() - lastRefreshAt.current > 500
+        ) {
+          void refresh(true);
+        }
+      },
     });
     return () => {
       unsubscribe();

@@ -35,6 +35,7 @@
         "@streamdown/mermaid": "1.0.2",
         "class-variance-authority": "0.7.1",
         "clsx": "2.1.1",
+        "emojibase-data": "^17.0.0",
         "katex": "0.16.47",
         "lucide-react": "1.34.0",
         "radix-ui": "1.4.3",
@@ -116,6 +117,7 @@
       "dependencies": {
         "@openbot/contracts": "workspace:*",
         "@openbot/db": "workspace:*",
+        "chokidar": "5.0.0",
         "cron-parser": "5.10.0",
         "pg-boss": "12.28.0",
         "yaml": "2.9.0",
@@ -1040,6 +1042,10 @@
     "elkjs": ["elkjs@0.11.1", "", {}, "sha512-zxxR9k+rx5ktMwT/FwyLdPCrq7xN6e4VGGHH8hA01vVYKjTFik7nHOxBnAYtrgYUB1RpAiLvA1/U2YraWxyKKg=="],
 
     "emoji-regex": ["emoji-regex@10.6.0", "", {}, "sha512-toUI84YS5YmxW219erniWD0CIVOo46xGKColeNQRgOzDorgBi1v4D71/OFzgD9GO2UGKIv1C3Sp8DAn0+j5w7A=="],
+
+    "emojibase": ["emojibase@17.0.0", "", {}, "sha512-bXdpf4HPY3p41zK5swVKZdC/VynsMZ4LoLxdYDE+GucqkFwzcM1GVc4ODfYAlwoKaf2U2oNNUoOO78N96ovpBA=="],
+
+    "emojibase-data": ["emojibase-data@17.0.0", "", { "peerDependencies": { "emojibase": "*" } }, "sha512-Yvgb5AWoHViHV/gq1qr5ZAarcBip+B27/ZLRsUJkbgAEaLlZ/fof9g882LTpmEpyhBNEC0m2SEmItljHsTygjA=="],
 
     "empathic": ["empathic@2.0.0", "", {}, "sha512-i6UzDscO/XfAcNYD75CfICkmfLedpyPDdozrLMmQc5ORaQcdMoc21OnlEylMIqI7U8eniKrPMxxtj8k0vhmJhA=="],
 

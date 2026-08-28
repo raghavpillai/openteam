@@ -161,8 +161,8 @@ html {
     --sunken: #181818;
     --foreground-secondary: #9e9e9e;
     --foreground-tertiary: #949494;
-    --message-user: #303030;
-    --message-user-foreground: #f4f4f4;
+    --message-user: #5a5a5a;
+    --message-user-foreground: #fcfcfc;
     --message-assistant: #262626;
     --message-assistant-foreground: #fcfcfc;
     --avatar-picker-outline-selected: #555555;
@@ -655,6 +655,223 @@ textarea,
   }
   100% {
     box-shadow: 0 0 0 3px transparent;
+  }
+}
+
+@keyframes working-dot {
+  0%,
+  60%,
+  100% {
+    opacity: 0.62;
+    transform: translateY(1px) scale(0.9);
+  }
+
+  30% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes working-status-shimmer {
+  from {
+    background-position: 100% 50%;
+  }
+
+  to {
+    background-position: 0% 50%;
+  }
+}
+
+.reaction-emoji {
+  /* Color emoji can inherit the alpha from the count label in Chromium. Keep
+     the glyph on its own opaque, lightly boosted compositing layer. */
+  filter: saturate(1.18) brightness(1.12);
+}
+
+.reaction-pill-enter {
+  animation: reaction-pill-enter 420ms cubic-bezier(0.2, 0.9, 0.25, 1.25) both;
+}
+
+@keyframes reaction-pill-enter {
+  0% {
+    opacity: 0;
+    transform: scale(0);
+  }
+
+  58% {
+    opacity: 1;
+    transform: scale(1.16);
+  }
+
+  78% {
+    transform: scale(0.94);
+  }
+
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.a2a-exchange-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.a2a-exchange-sheet {
+  width: 100%;
+  height: 100%;
+  background: var(--background);
+  pointer-events: auto;
+  will-change: opacity, transform;
+}
+
+.a2a-exchange-sheet[data-state="entering"] {
+  animation: a2a-exchange-sheet-enter 300ms
+    linear(
+      0,
+      0.01588 2%,
+      0.05618 4%,
+      0.11201 6%,
+      0.1768 8%,
+      0.2458 10%,
+      0.31562 12%,
+      0.38392 14%,
+      0.44914 16%,
+      0.51029 18%,
+      0.56683 20%,
+      0.61852 22%,
+      0.66534 24%,
+      0.70743 26%,
+      0.74501 28%,
+      0.77838 30%,
+      0.80788 32%,
+      0.83383 34%,
+      0.85658 36%,
+      0.87645 38%,
+      0.89376 40%,
+      0.92183 44%,
+      0.94282 48%,
+      0.95838 52%,
+      0.96984 56%,
+      0.97823 60%,
+      0.98435 64%,
+      0.98878 68%,
+      0.99198 72%,
+      0.99594 80%,
+      0.99829 90%,
+      1 100%
+    )
+    both;
+}
+
+.a2a-exchange-sheet[data-state="open"] {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.a2a-exchange-sheet[data-state="exiting"] {
+  animation: a2a-exchange-sheet-exit 300ms
+    linear(
+      0,
+      0.01588 2%,
+      0.05618 4%,
+      0.11201 6%,
+      0.1768 8%,
+      0.2458 10%,
+      0.31562 12%,
+      0.38392 14%,
+      0.44914 16%,
+      0.51029 18%,
+      0.56683 20%,
+      0.61852 22%,
+      0.66534 24%,
+      0.70743 26%,
+      0.74501 28%,
+      0.77838 30%,
+      0.80788 32%,
+      0.83383 34%,
+      0.85658 36%,
+      0.87645 38%,
+      0.89376 40%,
+      0.92183 44%,
+      0.94282 48%,
+      0.95838 52%,
+      0.96984 56%,
+      0.97823 60%,
+      0.98435 64%,
+      0.98878 68%,
+      0.99198 72%,
+      0.99594 80%,
+      0.99829 90%,
+      1 100%
+    )
+    both;
+}
+
+.a2a-exchange-header-tail {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.375rem;
+  animation: a2a-exchange-header-tail-enter 150ms ease both;
+  will-change: opacity;
+}
+
+.a2a-exchange-header-tail[data-state="exiting"] {
+  animation-name: a2a-exchange-header-tail-exit;
+}
+
+@keyframes a2a-exchange-sheet-enter {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes a2a-exchange-sheet-exit {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  to {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+}
+
+@keyframes a2a-exchange-header-tail-enter {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes a2a-exchange-header-tail-exit {
+  from {
+    opacity: 1;
+  }
+
+  to {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reaction-pill-enter {
+    animation: none;
   }
 }
 

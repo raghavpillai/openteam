@@ -1,12 +1,13 @@
+// biome-ignore-all lint/suspicious/noThenProperty: The external Computer contract intentionally names its action sequence "then".
 import { describe, expect, test } from "bun:test";
 import { Schema } from "effect";
 import {
   CALL_DYNAMIC_TOOL_TOOL,
   COMPUTER_TOOL,
   COMPUTER_USE_TOOL,
-  ComputerUseInput,
   ComputerSteerRequest,
   ComputerTurnRequest,
+  ComputerUseInput,
   CreateBotInput,
   CURSOR_TOOL_NAMES,
   CURSOR_TOOLS,
@@ -17,9 +18,11 @@ import {
   REACT_TO_MESSAGE_TOOL,
   READ_TOOL,
   ReactToChannelMessageInput,
+  RenameChannelInput,
   SCREENSHOT_TOOL,
   ScreenActionInput,
   SendMessageInput,
+  SendToAgentInput,
   SHELL_TOOL,
   TaskInput,
   TodoWriteInput,
@@ -115,6 +118,20 @@ describe("API contracts", () => {
     ).toThrow();
   });
 
+  test("matches Grokbot's file, HTTPS, and data URL image schema for direct A2A", () => {
+    expect(
+      Schema.decodeUnknownSync(SendToAgentInput)({
+        target_id: "f9853a2e-3c07-49a3-854c-fdee0588e68d",
+        message: "Review this image.",
+        images: [
+          { url: "file:///workspace/reference.png" },
+          { url: "https://example.com/image.png", alt: "Reference" },
+          { url: "data:image/png;base64,AQID" },
+        ],
+      }).images
+    ).toHaveLength(3);
+  });
+
   test("validates user reactions to channel messages", () => {
     expect(
       Schema.decodeUnknownSync(ReactToChannelMessageInput)({
@@ -131,6 +148,26 @@ describe("API contracts", () => {
       Schema.decodeUnknownSync(ReactToChannelMessageInput)({
         emoji: "",
         clientId: "reaction-message-2",
+      })
+    ).toThrow();
+  });
+
+  test("validates direct chat rename requests", () => {
+    expect(
+      Schema.decodeUnknownSync(RenameChannelInput)({
+        name: "a2a",
+        clientId: "rename-chat-1",
+        timeZone: "Asia/Jerusalem",
+      })
+    ).toEqual({
+      name: "a2a",
+      clientId: "rename-chat-1",
+      timeZone: "Asia/Jerusalem",
+    });
+    expect(() =>
+      Schema.decodeUnknownSync(RenameChannelInput)({
+        name: "",
+        clientId: "rename-chat-2",
       })
     ).toThrow();
   });
@@ -154,12 +191,17 @@ describe("API contracts", () => {
       Schema.decodeUnknownSync(ComputerTurnRequest)({
         runId: "run-1",
         botId: "bot-1",
+        contextSessionId: "context-1",
+        screenBotId: "parent-bot-1",
         conversationId: "conversation-1",
         sessionPath: null,
         content: "Review the attached media",
         clientMessageId: "message-1",
         cwd: "/workspace/bots/reviewer",
         instructions: "Review carefully",
+        todoUpdate: "- [in_progress] audit: Review parity",
+        automationTrigger: "<automation_trigger_info>Scheduled audit</automation_trigger_info>",
+        resetSelfSummaryCount: false,
         channelId: "channel-1",
         deliveryId: null,
         runtimeProfile: "subagent",
@@ -186,8 +228,12 @@ describe("API contracts", () => {
     ).toMatchObject({
       runtimeProfile: "subagent",
       subagentType: "browserUse",
+      screenBotId: "parent-bot-1",
       fileAttachments: ["/workspace/shared/clip.mp4"],
       images: [{ url: "data:image/webp;base64,UklGRg==" }],
+      todoUpdate: "- [in_progress] audit: Review parity",
+      automationTrigger: "<automation_trigger_info>Scheduled audit</automation_trigger_info>",
+      resetSelfSummaryCount: false,
       dynamicNamespaces: [{ name: "utility_default" }],
     });
   });
@@ -248,13 +294,29 @@ describe("API contracts", () => {
         then: [{ action: "screenshot" }],
       })
     ).toThrow();
+    expect(() =>
+      Schema.decodeUnknownSync(ComputerUseInput)({
+        action: "click",
+        x: 10,
+        y: 20,
+        then: [],
+      })
+    ).toThrow();
+    expect(() =>
+      Schema.decodeUnknownSync(ComputerUseInput)({
+        action: "click",
+        x: 10,
+        y: 20,
+        then: Array.from({ length: 10 }, () => ({ action: "wait" })),
+      })
+    ).toThrow();
     expect(COMPUTER_USE_TOOL.name).toBe("Computer");
     expect(COMPUTER_USE_TOOL.inputSchema.properties.then.maxItems).toBe(9);
   });
 
   test("declares the attachment's ten native tools", () => {
     expect(NATIVE_TOOLS.map((tool) => tool.name)).toEqual([
-      "SendMessage",
+      "SendToUser",
       "ReactToMessage",
       "update_state",
       "ExternalShell",
@@ -283,11 +345,12 @@ describe("API contracts", () => {
     expect(CALL_DYNAMIC_TOOL_TOOL.name).toBe("CallDynamicTool");
   });
 
-  test("declares only the approved nine-tool Cursor-compatible subset", () => {
+  test("declares only the approved ten-tool Cursor-compatible subset", () => {
     expect(CURSOR_TOOL_NAMES).toEqual([
       "CheckSubagent",
       "CreateAgent",
       "CreateChannel",
+      "SendToAgent",
       "MessageSubagent",
       "StopSubagent",
       "Task",
@@ -296,6 +359,10 @@ describe("API contracts", () => {
       "UpdateChannel",
     ]);
     expect(CURSOR_TOOLS).toEqual(cursorToolsDocument.cursor);
+    const taskTool = CURSOR_TOOLS.find((tool) => tool.tool === "Task");
+    expect(taskTool?.description).toContain("private wakes for you");
+    expect(taskTool?.description).toContain("do not add a Task card");
+    expect(taskTool?.description).not.toContain("already include a user-visible summary portion");
     expect(CURSOR_TOOL_NAMES).not.toContain("AddMcpServer");
     expect(
       Schema.decodeUnknownSync(TaskInput)({

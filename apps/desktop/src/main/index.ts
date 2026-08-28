@@ -9,6 +9,7 @@ import {
   Menu,
   nativeTheme,
   net,
+  Notification,
   shell,
 } from "electron";
 import { resolveControlToken } from "./control-token";
@@ -23,6 +24,13 @@ interface ImageContextMenuRequest {
   sourceUrl: string;
   x: number;
   y: number;
+}
+
+interface DesktopNotificationRequest {
+  channelId: string;
+  title: string;
+  body: string;
+  kind: "agent-needs-input" | "agent-done";
 }
 
 const imageExtensionFor = (sourceUrl: string) => {
@@ -131,6 +139,34 @@ ipcMain.on("openbot:image-context-menu", (event, request: unknown) => {
     return;
   }
   showImageContextMenu(mainWindow, request);
+});
+
+ipcMain.on("openbot:notification", (event, request: unknown) => {
+  if (
+    !mainWindow ||
+    event.sender !== mainWindow.webContents ||
+    mainWindow.isFocused() ||
+    !request ||
+    typeof request !== "object" ||
+    Array.isArray(request)
+  ) {
+    return;
+  }
+  const candidate = request as Partial<DesktopNotificationRequest>;
+  if (
+    typeof candidate.channelId !== "string" ||
+    typeof candidate.title !== "string" ||
+    typeof candidate.body !== "string" ||
+    !["agent-needs-input", "agent-done"].includes(candidate.kind ?? "")
+  ) {
+    return;
+  }
+  const notification = new Notification({ title: candidate.title, body: candidate.body });
+  notification.on("click", () => {
+    focusMainWindow();
+    mainWindow?.webContents.send("openbot:notification-click", candidate.channelId);
+  });
+  notification.show();
 });
 
 const createWindow = async () => {

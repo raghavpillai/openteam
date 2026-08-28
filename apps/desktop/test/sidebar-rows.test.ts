@@ -1,5 +1,5 @@
-import type { ChannelMessageView, ChannelView, RunView } from "@openbot/contracts";
 import { describe, expect, test } from "bun:test";
+import type { ChannelMessageView, ChannelView, RunView } from "@openbot/contracts";
 import {
   groupSidebarRows,
   reconcileSidebarRows,
@@ -42,6 +42,30 @@ describe("sidebar row reconciliation", () => {
     expect(next.rows[0]).toBe(initial.rows[0]);
     expect(next.rows[1]).not.toBe(initial.rows[1]);
     expect(next.rows[1]?.latest).toBe(nextSecondMessage);
+  });
+
+  test("keeps the parent working while a background child is active", () => {
+    const parent = channel("parent", "2026-08-27T10:00:00.000Z");
+    const active = reconcileSidebarRows(
+      new Map(),
+      [parent],
+      new Map(),
+      new Map(),
+      new Set([parent.id])
+    );
+
+    expect(active.rows[0]?.running).toBeUndefined();
+    expect(active.rows[0]?.hasActiveTask).toBe(true);
+
+    const settled = reconcileSidebarRows(
+      active.rowByChannelId,
+      [parent],
+      new Map(),
+      new Map(),
+      new Set()
+    );
+    expect(settled.rows[0]?.hasActiveTask).toBe(false);
+    expect(settled.rows[0]).not.toBe(active.rows[0]);
   });
 });
 

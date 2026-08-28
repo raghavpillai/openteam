@@ -54,6 +54,42 @@
       }
     },
     {
+      "tool": "SendToAgent",
+      "description": "Send a message to ANOTHER of your user's agents, OR post into a GROUP chat you belong to, by its id (not the user — SendToUser is how you reach the user). This is FIRE-AND-FORGET and asynchronous, like texting: it durably accepts your message, wakes that agent (or starts an ordered round for the group's members), and returns immediately with a send acknowledgement. It does NOT return their reply, and you must not wait or poll for one in this turn. A reply is another SendToAgent call and arrives later as its own [agent] message that wakes you on a fresh turn. Peer messages run ahead of routines and other background work. Images are supported only for 1:1 sends; group posts are text-only.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "target_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The id of the target — either another agent or a GROUP you belong to. Use an id from your teammates list, ListAgents, or ListGroups — not a name."
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "description": "What to say. Write it as if texting a teammate: lead with the point, keep it short."
+          },
+          "images": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "url": { "type": "string", "minLength": 1 },
+                "alt": { "type": "string" }
+              },
+              "required": ["url"]
+            }
+          },
+          "priority": {
+            "type": "boolean",
+            "description": "When true (1:1 only; ignored for groups), interrupt the recipient's current non-user work and wake them immediately — same steer as a direct user message. Default false: waits out the current turn, but still runs ahead of routines and other background work."
+          }
+        },
+        "required": ["target_id", "message"],
+        "additionalProperties": false
+      }
+    },
+    {
       "tool": "MessageSubagent",
       "description": "Force a message into a running background subagent to course-correct it without aborting it. The subagent interrupts its current step, reads your message, and continues from where it was (its context is preserved — it does not start over). Use this to unstick or redirect a subagent that is looping, stuck, or heading the wrong way — for example to tell a computerUse subagent to try a different element, that the user just signed in so it can proceed, or to wrap up and report what it has. Pass the subagent's Agent ID (from the Task result). You're still revived with its result when it finishes; to follow up AFTER a subagent has already finished, use Task with the resume parameter instead.",
       "inputSchema": {
@@ -90,13 +126,13 @@
     },
     {
       "tool": "Task",
-      "description": "Launch a new agent to handle complex, multi-step tasks autonomously.\n\nThe Task tool launches specialized subagents (subprocesses) that autonomously handle complex tasks. Each subagent_type has specific capabilities and tools available to it.\n\nWhen using the Task tool, you must specify a subagent_type parameter to select which agent type to use.\n\nWhen NOT to use the Task tool:\n- Simple, single or few-step tasks that can be performed by a single agent (using parallel or sequential tool calls) -- just call the tools directly instead.\n- For example:\n  - If you want to read a specific file path, use the Read tool instead of the Task tool, to find the match more quickly\n  - If you are searching for code within a specific file or set of 2-3 files, use the Read tool instead of the Task tool, to find the match more quickly\n\nUsage notes:\n- Always include a short description (3-5 words) summarizing what the agent will do\n- Launch multiple agents concurrently whenever possible, to maximize performance; to do that, use a single message with multiple tool uses.\n- When the agent is done, it will return a single message back to you. Specify exactly what information the agent should return back in its final response to you. Background subagent completion messages already include a user-visible summary portion; do not summarize or restate a single background subagent's result by default. Respond only when the user asks, multiple background subagents need synthesis, or the background subagent reports a blocker requiring parent action outside of the user-visible high level summary.\n- Agents can be resumed using the `resume` parameter by passing the agent ID from a previous invocation. This sends a follow-up message after the agent has completed, preserving existing context. If the agent is still running, the request fails; wait for completion before resuming. When NOT resuming, each invocation starts fresh and you should provide a detailed task description with all necessary context.\n- When using the Task tool, the subagent invocation does not have access to the user's message or prior assistant steps. Therefore, you should provide a highly detailed task description with all necessary context for the agent to perform its task autonomously.\n- The subagent's outputs should generally be trusted\n- Clearly tell the subagent which tasks you want it to perform, since it is not aware of the user's intent or your prior assistant steps (tool calls, thinking, or messages).\n- If the subagent description mentions that it should be used proactively, then you should try your best to use it without the user having to ask for it first. Use your judgement.\n- If the user specifies that they want you to run subagents \"in parallel\", you MUST send a single message with multiple Task tool use content blocks. For example, if you need to launch both a code-reviewer subagent and a test-runner subagent in parallel, send a single message with both tool calls.\n- Avoid delegating the full query to the Task tool and returning the result. In these cases, you should address the query using the other tools available to you.\n\nAvailable subagent_types and descriptions are listed in <available_subagent_types> in the initial user-info message at the start of this conversation.\n\nAvailable model slugs for subagents are listed in <available_subagent_models> in the initial user-info message at the start of this conversation.\n\nWhen an agent runs in the background, you will be automatically notified when it completes after you end your own turn - do NOT AwaitExternalShell, poll, or proactively check on its progress. Continue with other work or end your turn instead.",
+      "description": "Launch a new agent to handle complex, multi-step tasks autonomously.\n\nThe Task tool launches specialized subagents (subprocesses) that autonomously handle complex tasks. Each subagent_type has specific capabilities and tools available to it.\n\nWhen using the Task tool, you must specify a subagent_type parameter to select which agent type to use.\n\nWhen NOT to use the Task tool:\n- Simple, single or few-step tasks that can be performed by a single agent (using parallel or sequential tool calls) -- just call the tools directly instead.\n- For example:\n  - If you want to read a specific file path, use the Read tool instead of the Task tool, to find the match more quickly\n  - If you are searching for code within a specific file or set of 2-3 files, use the Read tool instead of the Task tool, to find the match more quickly\n\nUsage notes:\n- Always include a short description (3-5 words) summarizing what the agent will do\n- Launch multiple agents concurrently whenever possible, to maximize performance; to do that, use a single message with multiple tool uses.\n- When the agent is done, it will return a single message back to you. Specify exactly what information the agent should return back in its final response to you. Background subagent completion notifications are private wakes for you; they do not add a Task card or child output to the user's transcript. After a completion wake, reconcile your todos and decide whether to send a normal user-facing update. Normally send the concise high-level summary, but stay quiet when the user explicitly asked you not to restate it. Never expose the private response verbatim unless it is necessary and appropriate.\n- Agents can be resumed using the `resume` parameter by passing the agent ID from a previous invocation. This sends a follow-up message after the agent has completed, preserving existing context. If the agent is still running, the request fails; wait for completion before resuming. When NOT resuming, each invocation starts fresh and you should provide a detailed task description with all necessary context.\n- When using the Task tool, the subagent invocation does not have access to the user's message or prior assistant steps. Therefore, you should provide a highly detailed task description with all necessary context for the agent to perform its task autonomously.\n- The subagent's outputs should generally be trusted\n- Clearly tell the subagent which tasks you want it to perform, since it is not aware of the user's intent or your prior assistant steps (tool calls, thinking, or messages).\n- If the subagent description mentions that it should be used proactively, then you should try your best to use it without the user having to ask for it first. Use your judgement.\n- If the user specifies that they want you to run subagents \"in parallel\", you MUST send a single message with multiple Task tool use content blocks. For example, if you need to launch both a code-reviewer subagent and a test-runner subagent in parallel, send a single message with both tool calls.\n- Avoid delegating the full query to the Task tool and returning the result. In these cases, you should address the query using the other tools available to you.\n\nAvailable subagent_types and descriptions are listed in <available_subagent_types> in the initial user-info message at the start of this conversation.\n\nAvailable model slugs for subagents are listed in <available_subagent_models> in the initial user-info message at the start of this conversation.\n\nWhen an agent runs in the background, you will be automatically notified when it completes after you end your own turn - do NOT AwaitExternalShell, poll, or proactively check on its progress. Continue with other work or end your turn instead.",
       "inputSchema": {
         "type": "object",
         "properties": {
           "description": {
             "type": "string",
-            "description": "A short, user-friendly title for the subagent. This appears in the UI as the subagent's name. Make it concrete and distinct, consider recent titles to avoid reuse. For resumed subagents which you are prompting to work on a separate task, give an updated description based on the latest work the subagent is performing. (Do not rename if the subagent is continuing work on the same high-level task.)"
+            "description": "A short, user-friendly title for the Task attempt. It identifies the work in runtime state and completion notifications; it is not inserted into the chat transcript. Make it concrete and distinct, consider recent titles to avoid reuse. For resumed subagents which you are prompting to work on a separate task, give an updated description based on the latest work the subagent is performing. (Do not rename if the subagent is continuing work on the same high-level task.)"
           },
           "prompt": { "type": "string", "description": "The task for the agent to perform" },
           "model": {
@@ -119,7 +155,7 @@
           },
           "run_in_background": {
             "type": "boolean",
-            "description": "Run the agent in the background (returns output_file path to check later). If this is false, you will be blocked until the agent completes. When true, the background subagent will send a notification when it completes. That notification includes a user-visible summary portion; do not summarize or restate a completed background subagent's result unless the user asks, multiple background subagents need synthesis, or a background subagent reports a blocker requiring parent action outside of the user-visible high level summary."
+            "description": "Run the agent in the background (returns output_file path to check later). If this is false, you will be blocked until the agent completes. When true, the background subagent will send a notification when it completes. That notification is a private wake and does not add a Task card or child output to the user's transcript. Normally send the concise high-level summary as a regular message, but stay quiet when the user explicitly asked you not to restate it. Never expose the private response verbatim unless it is necessary and appropriate."
           }
         },
         "required": ["description", "prompt"]
@@ -162,7 +198,7 @@
     },
     {
       "tool": "UpdateAgent",
-      "description": "Edit an existing agent's profile: its name and/or description. Only the fields you provide are changed; the rest are left exactly as they were, and there is no way to clear or delete an agent through this tool. Use it to refine a teammate you (or the user) created.",
+      "description": "Edit another agent's profile: its name and/or description. Only the fields you provide are changed; the rest are left exactly as they were, and there is no way to clear or delete an agent through this tool. Update your own profile with update_state instead.",
       "inputSchema": {
         "type": "object",
         "properties": {

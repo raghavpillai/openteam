@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { nextRoutineRun, normalizeRoutineSchedule } from "../src/routines";
+import { nextRoutineRun, nextRoutineTriggerRun, normalizeRoutineSchedule } from "../src/routines";
 
 describe("routine schedules", () => {
   test("normalizes aliases and pinned time zones", () => {
@@ -40,5 +40,23 @@ describe("routine schedules", () => {
   test("rejects six-field and overly frequent cron", () => {
     expect(() => normalizeRoutineSchedule("0 0 7 * * *", "UTC")).toThrow("five fields");
     expect(() => normalizeRoutineSchedule("*/2 * * * *", "UTC")).toThrow("5 minutes");
+  });
+
+  test("selects the earliest occurrence across grouped time triggers", () => {
+    const fallback = normalizeRoutineSchedule("0 9 * * 1-5", "UTC", {
+      enforceMinimum: false,
+    });
+    const next = nextRoutineTriggerRun(
+      {
+        type: "group",
+        listeners: [
+          { type: "cron", schedule: "0 9 * * 1-5" },
+          { type: "cron", schedule: "30 8 * * 1-5" },
+        ],
+      },
+      fallback,
+      new Date("2026-08-28T08:00:00Z")
+    );
+    expect(next).toEqual(new Date("2026-08-28T08:30:00Z"));
   });
 });

@@ -5,15 +5,26 @@ import {
   type CreateGroupInput,
   type DynamicToolCallRequest,
   type ReactToChannelMessageInput,
+  type RenameChannelInput,
   type ScreenActionInput,
   type SendMessageInput,
+  type SetChannelMembersInput,
   type UpdateBotInput,
 } from "@openbot/contracts";
 import { createPrismaClient, type PrismaClient } from "@openbot/db";
-import { AgentDataStore, AgentMessaging, RoutineService } from "@openbot/messaging";
+import {
+  AgentDataStore,
+  AgentMessaging,
+  type RoutineMutationInput,
+  RoutineService,
+} from "@openbot/messaging";
 import { Effect } from "effect";
 import { PgBoss } from "pg-boss";
 import { AdministrationService } from "./services/administration-service";
+import {
+  expirePendingApprovalsAfterRestart,
+  expireTimedOutApprovals,
+} from "./services/approval-lifecycle";
 import { BotService } from "./services/bot-service";
 import { ChannelService } from "./services/channel-service";
 import { InternalToolService } from "./services/internal-tool-service";
@@ -23,6 +34,7 @@ import { ScreenService } from "./services/screen-service";
 import { SearchService } from "./services/search-service";
 import { appendEvent } from "./services/service-utils";
 import { SnapshotService } from "./services/snapshot-service";
+import { SUBAGENT_RECOVERY_RUN_STATUSES, subagentRestartError } from "./services/subagent-recovery";
 import { SubagentService } from "./services/subagent-service";
 import { TodoService } from "./services/todo-service";
 import { DurableStateService } from "./update-state";
@@ -51,6 +63,7 @@ export class AppService {
   readonly searchIndex: SearchService;
   readonly snapshots: SnapshotService;
   private queueReady = false;
+  private approvalExpiryTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor() {
     const databaseUrl = process.env.DATABASE_URL;
@@ -91,9 +104,7 @@ export class AppService {
       (path, init) => this.computerFetch(path, init),
       this.agentData
     );
-    this.runs = new RunService(this.prisma, this.messaging, (path, init) =>
-      this.computerFetch(path, init)
-    );
+    this.runs = new RunService(this.prisma, (path, init) => this.computerFetch(path, init));
     this.todos = new TodoService(this.prisma);
     this.administration = new AdministrationService(
       this.prisma,
@@ -153,6 +164,12 @@ export class AppService {
         await this.boss.createQueue("maintenance");
         this.queueReady = true;
         await this.recover();
+        this.approvalExpiryTimer = setInterval(() => {
+          void this.expirePendingApprovals().catch((error) =>
+            console.error("approval expiry", error)
+          );
+        }, 60_000);
+        this.approvalExpiryTimer.unref?.();
         const groups = await this.prisma.channel.findMany({
           where: { kind: "group", archivedAt: null },
           select: { workingDirectory: true },
@@ -190,6 +207,10 @@ export class AppService {
 
   close = () =>
     Effect.promise(async () => {
+      if (this.approvalExpiryTimer) {
+        clearInterval(this.approvalExpiryTimer);
+        this.approvalExpiryTimer = null;
+      }
       await this.agentData.stopWatching();
       await this.boss.stop({ graceful: true });
       await this.prisma.$disconnect();
@@ -202,6 +223,80 @@ export class AppService {
   retryBotProvisioning = (botId: string) => this.bots.retryProvisioning(botId);
 
   botTranscript = (botId: string) => this.bots.transcript(botId);
+
+  listRoutines = (botId: string) =>
+    Effect.tryPromise({
+      try: () => this.routines.list(botId),
+      catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+    });
+
+  routineDetail = (routineId: string) =>
+    Effect.tryPromise({
+      try: async () => this.routines.detail(await this.routines.ownerId(routineId), routineId),
+      catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+    });
+
+  createRoutine = (botId: string, clientId: string, input: RoutineMutationInput) =>
+    Effect.tryPromise({
+      try: async () => {
+        const created = await this.routines.mutate(botId, clientId, null, {
+          ...input,
+          action: "create",
+          source: "ui",
+        });
+        return this.routines.detail(botId, String(created.id));
+      },
+      catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+    });
+
+  updateRoutine = (routineId: string, clientId: string, input: RoutineMutationInput) =>
+    Effect.tryPromise({
+      try: async () => {
+        const botId = await this.routines.ownerId(routineId);
+        await this.routines.mutate(botId, clientId, null, {
+          ...input,
+          id: routineId,
+          action: "update",
+          source: "ui",
+        });
+        return this.routines.detail(botId, routineId);
+      },
+      catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+    });
+
+  routineLifecycle = (
+    routineId: string,
+    clientId: string,
+    action: "pause" | "resume" | "delete",
+    expectedRevision?: number
+  ) =>
+    Effect.tryPromise({
+      try: async () => {
+        const botId = await this.routines.ownerId(routineId);
+        const result = await this.routines.mutate(botId, clientId, null, {
+          id: routineId,
+          action,
+          expectedRevision,
+          source: "ui",
+        });
+        return action === "delete" ? result : this.routines.detail(botId, routineId);
+      },
+      catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+    });
+
+  runRoutineNow = (routineId: string, clientId: string) =>
+    Effect.tryPromise({
+      try: async () =>
+        this.routines.runNow(await this.routines.ownerId(routineId), routineId, clientId),
+      catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+    });
+
+  routineExecutions = (routineId: string, limit: number) =>
+    Effect.tryPromise({
+      try: async () =>
+        this.routines.executions(await this.routines.ownerId(routineId), routineId, limit),
+      catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+    });
 
   screenStatus = (botId: string) => this.screens.status(botId);
 
@@ -221,6 +316,12 @@ export class AppService {
     this.channels.sendDirectMessage(conversationId, input);
 
   createGroup = (input: CreateGroupInput) => this.channels.createGroup(input);
+
+  renameChannel = (channelId: string, input: RenameChannelInput) =>
+    this.channels.renameDirectChannel(channelId, input);
+
+  setChannelMembers = (channelId: string, input: SetChannelMembersInput) =>
+    this.channels.setGroupMembers(channelId, input);
 
   sendChannelMessage = (channelId: string, input: SendMessageInput) =>
     this.channels.sendGroupMessage(channelId, input);
@@ -293,8 +394,6 @@ export class AppService {
   resolveApproval = (approvalId: string, decision: "accept" | "decline" | "cancel") =>
     this.runs.resolveApproval(approvalId, decision);
 
-  compactConversation = (conversationId: string) => this.runs.compactConversation(conversationId);
-
   snapshot = () => this.snapshots.full();
 
   clientSnapshot = () => this.snapshots.client();
@@ -308,7 +407,29 @@ export class AppService {
 
   private async recover(): Promise<void> {
     const now = new Date();
+    const archivedParentChildren = await this.prisma.subagent.findMany({
+      where: { parentBot: { status: "archived" } },
+      select: {
+        id: true,
+        parentBotId: true,
+        childBotId: true,
+        currentRunId: true,
+        status: true,
+      },
+    });
     await this.prisma.$transaction(async (tx) => {
+      const activeRuns = await tx.run.findMany({
+        where: { status: { in: [...SUBAGENT_RECOVERY_RUN_STATUSES] } },
+        select: { id: true },
+      });
+      const activeRunIds = activeRuns.map((run) => run.id);
+      const interruptedSubagents = await tx.subagent.findMany({
+        where: {
+          currentRunId: { in: activeRunIds },
+          status: { in: ["provisioning", "queued", "running"] },
+          parentBot: { status: { not: "archived" } },
+        },
+      });
       const interrupted = await tx.run.updateMany({
         where: { status: { in: ["running", "waiting_approval"] } },
         data: {
@@ -320,12 +441,156 @@ export class AppService {
           },
         },
       });
-      await tx.approval.updateMany({
-        where: {
-          status: "pending",
-          requestMethod: { not: "plugin/tool" },
-        },
-        data: { status: "expired", resolvedAt: now },
+      await expirePendingApprovalsAfterRestart(tx, now);
+      for (const subagent of interruptedSubagents) {
+        const attempt = subagent.currentRunId
+          ? await tx.subagentAttempt.findUnique({
+              where: { childRunId: subagent.currentRunId },
+            })
+          : null;
+        const error = subagentRestartError;
+        await tx.subagent.updateMany({
+          where: {
+            id: subagent.id,
+            status: { in: ["provisioning", "queued", "running"] },
+          },
+          data: { status: "failed", error, completedAt: now },
+        });
+        if (attempt) {
+          await tx.subagentAttempt.updateMany({
+            where: {
+              id: attempt.id,
+              status: { in: ["provisioning", "queued", "running"] },
+            },
+            data: { status: "failed", error, completedAt: now },
+          });
+        }
+        if (subagent.currentRunId) {
+          await tx.run.updateMany({
+            where: {
+              id: subagent.currentRunId,
+              status: { in: [...SUBAGENT_RECOVERY_RUN_STATUSES] },
+            },
+            data: { status: "interrupted", completedAt: now, error },
+          });
+          await tx.inboxEvent.updateMany({
+            where: {
+              runId: subagent.currentRunId,
+              status: { in: ["pending", "processing"] },
+            },
+            data: { status: "completed", completedAt: now, error },
+          });
+          await tx.botRunLease.deleteMany({ where: { runId: subagent.currentRunId } });
+        }
+        await appendEvent(tx, "subagent.failed", subagent.id, {
+          subagentId: subagent.id,
+          parentBotId: subagent.parentBotId,
+          childBotId: subagent.childBotId,
+          runId: subagent.currentRunId,
+          attemptId: attempt?.id,
+          parentToolCallId: attempt?.parentToolCallId,
+          ...error,
+        });
+        if ((attempt?.runInBackground ?? subagent.runInBackground) && attempt) {
+          const parent = await tx.bot.findUnique({
+            where: { id: subagent.parentBotId },
+            select: { status: true },
+          });
+          if (parent && ["active", "provisioning"].includes(parent.status)) {
+            await this.messaging.enqueueWake(tx, {
+              botId: subagent.parentBotId,
+              channelId: attempt.parentChannelId,
+              origin: "agent",
+              type: "subagent.failed",
+              content: [
+                "[Background subagent failed]",
+                `Agent ID: ${subagent.id}`,
+                `Task: ${attempt.description}`,
+                `Transcript: ${subagent.outputPath}`,
+                "",
+                error.message,
+              ].join("\n"),
+              clientId: `subagent:${subagent.id}:failed:${subagent.currentRunId}`,
+              priority: 260,
+            });
+          }
+        }
+      }
+      const orphanedActiveChildren = archivedParentChildren.filter((child) =>
+        ["provisioning", "queued", "running"].includes(child.status)
+      );
+      for (const child of orphanedActiveChildren) {
+        const attempt = child.currentRunId
+          ? await tx.subagentAttempt.findUnique({
+              where: { childRunId: child.currentRunId },
+            })
+          : null;
+        await tx.subagent.updateMany({
+          where: {
+            id: child.id,
+            status: { in: ["provisioning", "queued", "running"] },
+          },
+          data: { status: "stopped", stoppedAt: now, completedAt: now },
+        });
+        if (attempt) {
+          await tx.subagentAttempt.updateMany({
+            where: {
+              id: attempt.id,
+              status: { in: ["provisioning", "queued", "running"] },
+            },
+            data: { status: "stopped", stoppedAt: now, completedAt: now },
+          });
+        }
+        if (child.currentRunId) {
+          await tx.run.updateMany({
+            where: {
+              id: child.currentRunId,
+              status: { in: ["queued", "running", "waiting_approval", "interrupted"] },
+            },
+            data: {
+              status: "cancelled",
+              completedAt: now,
+              error: {
+                code: "parent_archived",
+                message: "The parent agent was archived",
+              },
+            },
+          });
+          await tx.inboxEvent.updateMany({
+            where: {
+              runId: child.currentRunId,
+              status: { in: ["pending", "processing"] },
+            },
+            data: {
+              status: "completed",
+              completedAt: now,
+              error: { code: "parent_archived" },
+            },
+          });
+          await tx.approval.updateMany({
+            where: { runId: child.currentRunId, status: "pending" },
+            data: { status: "expired", resolvedAt: now },
+          });
+          await tx.botRunLease.deleteMany({ where: { runId: child.currentRunId } });
+        }
+        await appendEvent(tx, "subagent.stopped", child.id, {
+          subagentId: child.id,
+          parentBotId: child.parentBotId,
+          childBotId: child.childBotId,
+          runId: child.currentRunId,
+          attemptId: attempt?.id,
+          parentToolCallId: attempt?.parentToolCallId,
+          reason: "parent_archived_recovery",
+        });
+      }
+      const orphanedChildBotIds = archivedParentChildren.map((child) => child.childBotId);
+      await tx.bot.updateMany({
+        where: { id: { in: orphanedChildBotIds } },
+        data: { status: "archived" },
+      });
+      await tx.channel.updateMany({
+        where: { directKey: { in: orphanedChildBotIds.map((id) => `bot:${id}`) } },
+        data: { archivedAt: now },
       });
       await tx.botRunLease.deleteMany({ where: { expiresAt: { lt: now } } });
       await tx.inboxEvent.updateMany({
@@ -342,6 +607,14 @@ export class AppService {
         });
       }
     });
+    await Promise.all(
+      archivedParentChildren.map((child) =>
+        this.computerFetch(`/v1/screens/${child.childBotId}`, {
+          method: "DELETE",
+          signal: AbortSignal.timeout(5_000),
+        }).catch(() => undefined)
+      )
+    );
     const provisioningBots = await this.prisma.bot.findMany({
       where: { status: "provisioning" },
       select: { id: true },
@@ -394,6 +667,10 @@ export class AppService {
       );
     }
     await this.messaging.recoverRounds();
+  }
+
+  private async expirePendingApprovals(): Promise<void> {
+    await expireTimedOutApprovals(this.prisma, new Date());
   }
 
   private computerFetch(path: string, init: RequestInit): Promise<Response> {

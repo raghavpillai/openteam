@@ -228,12 +228,11 @@ export const ConversationScrollButton = ({
       aria-hidden={!visible}
       aria-label="Scroll to newest message"
       className={cn(
-        "absolute bottom-2 left-1/2 z-10 size-8 -translate-x-1/2 transform-gpu rounded-full text-[#141414] transition-[opacity,transform] duration-200 ease-out will-change-[opacity,transform] motion-reduce:transition-none",
+        "absolute bottom-2 left-1/2 z-10 size-8 -translate-x-1/2 transform-gpu rounded-full bg-[#fcfcfc] text-[#141414] transition-[opacity,transform] duration-200 ease-out will-change-[opacity,transform] hover:bg-[#fcfcfc] motion-reduce:transition-none dark:bg-[#2f2f2f] dark:text-[#fcfcfc] dark:hover:bg-[#2f2f2f]",
         visible ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-2 opacity-0"
       )}
       onClick={onClick}
       style={{
-        backgroundColor: "#fcfcfc",
         boxShadow: "0 2px 5px rgba(0, 0, 0, 0.14)",
       }}
       tabIndex={visible ? 0 : -1}

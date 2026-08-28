@@ -1,8 +1,9 @@
 import type { BotView, ChannelRoundView, ChannelView, UpdateBotInput } from "@openbot/contracts";
 import { FolderOpen } from "lucide-react";
-import { memo, useCallback, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
+import { Checkbox } from "../ui/checkbox";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Progress } from "../ui/progress";
@@ -11,8 +12,9 @@ import { Textarea } from "../ui/textarea";
 import { BotAvatar } from "./avatar";
 import { AvatarPicker } from "./avatar-picker";
 import { BotScreen } from "./bot-screen";
+import { RoutineEditor, RoutinesSummary } from "./routine-panel";
 
-type InspectorMode = "summary" | "settings";
+type InspectorMode = "summary" | "settings" | "routine";
 
 interface ProfileDraft {
   name: string;
@@ -187,6 +189,7 @@ export const Inspector = memo(function Inspector({
   onModeChange,
   onUpdateBot,
   onRetryBot,
+  onSetMembers,
 }: {
   channel: ChannelView;
   workspaceRoot: string;
@@ -199,6 +202,7 @@ export const Inspector = memo(function Inspector({
   onModeChange: (mode: InspectorMode) => void;
   onUpdateBot: (botId: string, input: UpdateBotInput) => Promise<BotView>;
   onRetryBot: (botId: string) => Promise<void>;
+  onSetMembers: (channelId: string, botIds: string[]) => Promise<void>;
 }) {
   const members = useMemo(
     () =>
@@ -210,6 +214,17 @@ export const Inspector = memo(function Inspector({
     [botById, channel.members]
   );
   const bot = channel.kind === "bot_dm" ? members[0] : undefined;
+  const [memberEditorOpen, setMemberEditorOpen] = useState(false);
+  const [selectedRoutineId, setSelectedRoutineId] = useState<string | null>(null);
+  const [memberDraft, setMemberDraft] = useState<string[]>(() =>
+    members.map((member) => member.id)
+  );
+  const [memberSaveState, setMemberSaveState] = useState<"idle" | "saving" | "error">("idle");
+  useEffect(() => {
+    setMemberDraft(members.map((member) => member.id));
+    setMemberEditorOpen(false);
+    setMemberSaveState("idle");
+  }, [channel.id, members]);
   const latestRound = rounds.at(-1);
   const progress = latestRound
     ? latestRound.status === "completed"
@@ -229,8 +244,23 @@ export const Inspector = memo(function Inspector({
     );
   }
 
+  if (bot && mode === "routine") {
+    return (
+      <aside className="size-full bg-background">
+        <RoutineEditor
+          botId={bot.id}
+          onDeleted={() => {
+            setSelectedRoutineId(null);
+            onModeChange("summary");
+          }}
+          routineId={selectedRoutineId}
+        />
+      </aside>
+    );
+  }
+
   return (
-    <aside className="flex size-full flex-col bg-background px-4 pb-5 pt-[41px]">
+    <aside className="flex size-full flex-col bg-background px-3 pb-5 pt-[41px]">
       {bot ? (
         <>
           <BotScreen
@@ -245,6 +275,13 @@ export const Inspector = memo(function Inspector({
               ? `Starting ${bot.name}'s screen…`
               : `${bot.name}'s screen`}
           </div>
+          <RoutinesSummary
+            botId={bot.id}
+            onOpen={(routineId) => {
+              setSelectedRoutineId(routineId);
+              onModeChange("routine");
+            }}
+          />
         </>
       ) : (
         <>
@@ -258,6 +295,70 @@ export const Inspector = memo(function Inspector({
               </div>
             ))}
           </div>
+          <Button
+            className="mt-2 h-8 rounded-lg text-xs"
+            onClick={() => setMemberEditorOpen((open) => !open)}
+            variant="outline"
+          >
+            {memberEditorOpen ? "Cancel" : "Edit members"}
+          </Button>
+          {memberEditorOpen && (
+            <div className="mt-3 rounded-xl border p-2" data-group-member-editor="">
+              <div className="mb-1 px-1 text-[11px] text-muted-foreground">Choose 1–6 Bots</div>
+              <div className="max-h-52 overflow-y-auto">
+                {[...botById.values()]
+                  .filter((candidate) => candidate.status === "active")
+                  .map((candidate) => {
+                    const checked = memberDraft.includes(candidate.id);
+                    return (
+                      <label
+                        className="flex h-9 cursor-pointer items-center gap-2 rounded-lg px-2 hover:bg-accent"
+                        key={candidate.id}
+                      >
+                        <Checkbox
+                          checked={checked}
+                          disabled={!checked && memberDraft.length >= 6}
+                          onCheckedChange={() =>
+                            setMemberDraft((current) =>
+                              current.includes(candidate.id)
+                                ? current.length > 1
+                                  ? current.filter((id) => id !== candidate.id)
+                                  : current
+                                : current.length < 6
+                                  ? [...current, candidate.id]
+                                  : current
+                            )
+                          }
+                        />
+                        <BotAvatar bot={candidate} size="sm" />
+                        <span className="min-w-0 flex-1 truncate text-xs font-medium">
+                          {candidate.name}
+                        </span>
+                      </label>
+                    );
+                  })}
+              </div>
+              <Button
+                className="mt-2 h-8 w-full text-xs"
+                disabled={memberDraft.length < 1 || memberSaveState === "saving"}
+                onClick={() => {
+                  setMemberSaveState("saving");
+                  void onSetMembers(channel.id, memberDraft).then(
+                    () => {
+                      setMemberSaveState("idle");
+                      setMemberEditorOpen(false);
+                    },
+                    () => setMemberSaveState("error")
+                  );
+                }}
+              >
+                {memberSaveState === "saving" ? "Saving…" : "Save members"}
+              </Button>
+              {memberSaveState === "error" && (
+                <p className="mt-1 text-[11px] text-destructive">Could not update members.</p>
+              )}
+            </div>
+          )}
           {channel.workingDirectory && (
             <div className="mt-5 rounded-xl border px-3 py-3">
               <div className="flex items-center gap-2 text-xs font-medium">
@@ -271,7 +372,9 @@ export const Inspector = memo(function Inspector({
           {latestRound && (
             <div className="mt-4 rounded-xl border p-3 text-xs">
               <div className="mb-2 flex justify-between">
-                <span className="text-muted-foreground">Latest round</span>
+                <span className="text-muted-foreground">
+                  Round {latestRound.roundIndex + 1} of 3
+                </span>
                 <span className="capitalize">{latestRound.status}</span>
               </div>
               <Progress value={progress} />
@@ -279,18 +382,6 @@ export const Inspector = memo(function Inspector({
           )}
         </>
       )}
-      <div className="mt-auto pb-[38vh] text-center">
-        <p className="mx-auto max-w-[220px] text-[13px] leading-[17px] text-muted-foreground">
-          Routines are recurring tasks this Bot runs on a schedule.
-        </p>
-        <Button
-          className="relative top-0.5 mt-3 h-8 w-[117px] rounded-[7px] border border-[#d9d9d9] bg-[#f0f0f0] px-3 text-[14px] font-normal text-foreground shadow-none disabled:opacity-100 dark:border-[#393939] dark:bg-[#282828] dark:text-[#eeeeee]"
-          disabled
-          variant="secondary"
-        >
-          Create Routine
-        </Button>
-      </div>
       <div className="sr-only">Workspace root: {workspaceRoot}</div>
     </aside>
   );

@@ -9,6 +9,7 @@ import {
   createAgentSession,
   DefaultResourceLoader,
   defineTool,
+  type ExtensionFactory,
   ModelRuntime,
   SessionManager,
   SettingsManager,
@@ -19,10 +20,10 @@ import {
   CHECK_SUBAGENT_TOOL,
   CheckSubagentInput,
   COMPUTER_USE_TOOL,
-  ComputerUseInput,
   type ComputerEvent,
   type ComputerSteerRequest,
   type ComputerTurnRequest,
+  ComputerUseInput,
   CREATE_AGENT_TOOL,
   CREATE_CHANNEL_TOOL,
   CreateAgentInput,
@@ -32,10 +33,10 @@ import {
   GET_DYNAMIC_TOOLS_TOOL,
   GetDynamicToolsInput,
   type InlineImageInput,
-  type PluginDynamicNamespace,
   MESSAGE_SUBAGENT_TOOL,
   MessageSubagentInput,
   NATIVE_TOOLS,
+  type PluginDynamicNamespace,
   READ_TOOL,
   ReadToolInput,
   SCREENSHOT_TOOL,
@@ -65,6 +66,21 @@ import {
   discoverDynamicTools,
   resolveDynamicTool,
 } from "./dynamic-tool-gateway";
+import { assertGraphicalShellBoundary } from "./graphical-shell-policy";
+import {
+  countGrokImages,
+  GROK_IMAGE_TRIGGER,
+  GrokCompactionArchiveStore,
+  GrokCompactionCoordinator,
+  type GrokMessage,
+  type GrokSummaryRequest,
+  type GrokSummaryResult,
+  grokPiPersistReserve,
+  grokSummaryPrompt,
+  grokSummarySystemPrompt,
+  grokUserInfoMessage,
+  replaceGrokUserInfo,
+} from "./grok-compaction";
 import { NativeToolExecutor } from "./native-tool-executor";
 import { ScreenBroker } from "./screen-broker";
 
@@ -74,17 +90,30 @@ const OPENBOT_DYNAMIC_DISCOVERY_DESCRIPTION =
 const OPENBOT_DYNAMIC_CALL_DESCRIPTION =
   "Invoke one previously discovered tool from an authorized OpenBot dynamic namespace. The gateway rechecks availability, validates nested arguments against the current schema, and reauthorizes the call at execution time.";
 
+const GRAPHICAL_WORKER_SHELL_DESCRIPTION =
+  "Executes a command in this worker's box with an optional foreground timeout. Use Shell for terminal operations and bulk file processing; use Read for reading, searching, or inspecting files. Run independent commands in parallel and chain dependent commands with &&. If shell text search is necessary, use rg rather than grep or find.";
+
+const GRAPHICAL_WORKER_READ_DESCRIPTION =
+  "Reads a file on the box, the same filesystem Shell acts on. Text files include line numbers and support offset/limit paging. Image files are returned inline, and PDF files are converted to text.";
+
 type TurnStatus = "completed" | "failed" | "interrupted";
 
 interface ActiveTurn {
   runId: string;
   botId: string;
+  contextSessionId: string;
+  screenBotId: string;
   conversationId: string;
   channelId: string;
   deliveryId: string | null;
   runtimeProfile: "agent" | "subagent";
   subagentType: SubagentType | null;
   cwd: string;
+  instructions: string;
+  userInfoMessage: GrokMessage | null;
+  todoUpdate: string | null;
+  automationTrigger: string | null;
+  resetSelfSummaryCount: boolean;
   turnId: string;
   session: AgentSession | null;
   sessionPath: string | null;
@@ -108,13 +137,6 @@ interface ActiveTurn {
   discoveredDynamicTools: Set<string>;
   pluginNamespaces: readonly PluginDynamicNamespace[];
   attachmentTempDirectories: string[];
-}
-
-interface CompactRequest {
-  botId: string;
-  sessionPath: string;
-  cwd: string;
-  instructions: string;
 }
 
 interface RuntimeDynamicTool extends DynamicToolDefinition {
@@ -276,7 +298,7 @@ const toolItem = (
 
 export class ComputerRuntime {
   private readonly activeByRun = new Map<string, ActiveTurn>();
-  private readonly activeByBot = new Map<string, ActiveTurn>();
+  private readonly activeByContext = new Map<string, ActiveTurn>();
   private readonly serverUrl = process.env.OPENBOT_SERVER_URL ?? "http://127.0.0.1:8787";
   private readonly controlToken =
     process.env.OPENBOT_CONTROL_TOKEN ?? "local-compose-only-change-me";
@@ -284,6 +306,7 @@ export class ComputerRuntime {
     process.env.OPENBOT_PI_AGENT_DIR ?? "/home/openbot/.pi/agent"
   );
   private readonly sessionsDir = join(this.agentDir, "sessions", "openbot");
+  private readonly contextSessionsDir = join(this.agentDir, "context-sessions");
   private readonly modelId = process.env.OPENBOT_PI_MODEL ?? "gpt-5.5";
   private readonly workspaceRoot = resolve(process.env.OPENBOT_WORKSPACE_ROOT ?? "/workspace");
   private readonly nativeToolExecutor = new NativeToolExecutor({
@@ -302,6 +325,8 @@ export class ComputerRuntime {
       | "max"
       | undefined) ?? "high";
   private modelRuntime: ModelRuntime | null = null;
+  private readonly compactionArchive = new GrokCompactionArchiveStore(this.contextSessionsDir);
+  private readonly compaction = new GrokCompactionCoordinator(this.compactionArchive);
   private authenticated = false;
   private started = false;
 
@@ -310,6 +335,7 @@ export class ComputerRuntime {
   async start(): Promise<void> {
     if (!this.started) {
       await mkdir(this.sessionsDir, { recursive: true });
+      await mkdir(this.contextSessionsDir, { recursive: true });
       this.modelRuntime = await ModelRuntime.create({
         authPath: join(this.agentDir, "auth.json"),
         modelsPath: join(this.agentDir, "models.json"),
@@ -331,7 +357,7 @@ export class ComputerRuntime {
       model: this.modelId,
       authenticated: this.authenticated,
       authType: this.authenticated ? "oauth" : null,
-      sessionScope: "bot",
+      sessionScope: "transcript",
       activeTurns: this.activeByRun.size,
     };
   }
@@ -346,23 +372,29 @@ export class ComputerRuntime {
     if (this.activeByRun.has(request.runId)) {
       throw new Error(`Run ${request.runId} is already active`);
     }
-    if (this.activeByBot.has(request.botId)) {
-      throw new Error(`Bot ${request.botId} already has an active Pi turn`);
+    if (this.activeByContext.has(request.contextSessionId)) {
+      throw new Error(`Context ${request.contextSessionId} already has an active Pi turn`);
     }
-
-    const uploadedImages = decodeInlineImages(request.images ?? []);
-    const attachments = await this.loadAttachmentImages(request.cwd, request.fileAttachments ?? []);
 
     const queue = new AsyncQueue<ComputerEvent>();
     const active: ActiveTurn = {
       runId: request.runId,
       botId: request.botId,
+      contextSessionId: request.contextSessionId,
+      screenBotId: request.screenBotId ?? request.botId,
       conversationId: request.conversationId,
       channelId: request.channelId,
       deliveryId: request.deliveryId,
       runtimeProfile: request.runtimeProfile ?? "agent",
       subagentType: request.subagentType ?? null,
       cwd: request.cwd,
+      instructions: request.instructions,
+      userInfoMessage: request.userInfo
+        ? grokUserInfoMessage(request.userInfo, request.userInfoEpoch ?? 0)
+        : null,
+      todoUpdate: request.todoUpdate ?? null,
+      automationTrigger: request.automationTrigger ?? null,
+      resetSelfSummaryCount: request.resetSelfSummaryCount !== false,
       turnId: request.runId,
       session: null,
       sessionPath: null,
@@ -381,27 +413,111 @@ export class ComputerRuntime {
       acceptedSteerIds: new Set(),
       discoveredDynamicTools: new Set(),
       pluginNamespaces: request.dynamicNamespaces ?? [],
-      attachmentTempDirectories: attachments.tempDirectories,
+      attachmentTempDirectories: [],
     };
-
-    const session = await this.createSession(request, active);
-    const sessionPath = session.sessionFile;
-    if (!sessionPath) {
-      session.dispose();
-      throw new Error("Pi did not create a durable session file");
-    }
-    this.assertSessionPath(sessionPath);
-    active.session = session;
-    active.sessionPath = sessionPath;
-    active.unsubscribe = session.subscribe((event) => this.routeEvent(active, event));
     this.activeByRun.set(active.runId, active);
-    this.activeByBot.set(active.botId, active);
+    this.activeByContext.set(active.contextSessionId, active);
 
-    if (request.sessionPath) this.attachSession(active);
-    queue.push({ type: "turn.started", turnId: active.turnId });
-    const images = [...uploadedImages, ...attachments.images].slice(0, 16);
-    void this.execute(active, request.content, images);
-    return queue;
+    try {
+      // Reserve the run/context before the first asynchronous setup operation.
+      // Otherwise two requests can both pass the checks above and open the same
+      // append-only Pi session concurrently.
+      const sessionPath = request.sessionPath ? this.assertSessionPath(request.sessionPath) : null;
+      const contextState = await this.contextState(active.contextSessionId);
+      await this.compactionArchive.enforceSizeLimit(active.contextSessionId, sessionPath);
+      const uploadedImages = decodeInlineImages(request.images ?? []);
+      const attachments = await this.loadAttachmentImages(
+        request.cwd,
+        request.fileAttachments ?? []
+      );
+      active.attachmentTempDirectories = attachments.tempDirectories;
+      const session = await this.createSession({ ...request, sessionPath }, active);
+      const openedSessionPath = session.sessionFile;
+      if (!openedSessionPath) {
+        session.dispose();
+        throw new Error("Pi did not create a durable session file");
+      }
+      this.assertSessionPath(openedSessionPath);
+      active.session = session;
+      active.sessionPath = openedSessionPath;
+      active.unsubscribe = session.subscribe((event) => this.routeEvent(active, event));
+      await this.compactionArchive.enforceSizeLimit(active.contextSessionId, active.sessionPath);
+      if (sessionPath) this.attachSession(active);
+      queue.push(contextState);
+      queue.push({ type: "turn.started", turnId: active.turnId });
+      const images = [...uploadedImages, ...attachments.images].slice(0, 16);
+      void this.execute(active, request.content, images);
+      return queue;
+    } catch (error) {
+      this.cleanup(active);
+      await Promise.allSettled(
+        active.attachmentTempDirectories.map((directory) =>
+          rm(directory, { recursive: true, force: true })
+        )
+      );
+      throw error;
+    }
+  }
+
+  async contextState(
+    contextSessionId: string
+  ): Promise<Extract<ComputerEvent, { type: "context.state" }>> {
+    await mkdir(this.contextSessionsDir, { recursive: true });
+    await this.recoverStagedCompaction(contextSessionId);
+    const manifest = await this.compactionArchive.manifest(contextSessionId);
+    return {
+      type: "context.state",
+      contextSessionId,
+      epoch: manifest.epoch,
+      archives: manifest.archives.map((archive) => ({
+        id: archive.id,
+        sequence: archive.sequence,
+        reason: archive.reason,
+        prefixDigest: archive.prefixDigest,
+        summaryDigest: archive.summaryDigest,
+        tokensBefore: archive.tokensBefore,
+        tokensAfter: archive.tokensAfter,
+        imageCount: archive.imageCount,
+        turnCount: archive.turnCount,
+        startedAt: archive.startedAt,
+        completedAt: archive.completedAt,
+      })),
+    };
+  }
+
+  private async recoverStagedCompaction(contextSessionId: string): Promise<void> {
+    const stagedId = await this.compaction.stagedId(contextSessionId);
+    if (!stagedId) return;
+    if (!existsSync(this.sessionsDir)) {
+      await this.compaction.recoverStaged(contextSessionId, 0, []);
+      return;
+    }
+    const suffix = `_${contextSessionId}.jsonl`;
+    const candidates = (await readdir(this.sessionsDir)).filter((name) => name.endsWith(suffix));
+    if (candidates.length > 1) {
+      throw new Error(`Multiple Pi sessions exist for context ${contextSessionId}`);
+    }
+    const candidate = candidates[0];
+    if (!candidate) {
+      await this.compaction.recoverStaged(contextSessionId, 0, []);
+      return;
+    }
+    const sessionPath = this.assertSessionPath(join(this.sessionsDir, candidate));
+    const manager = SessionManager.open(sessionPath, this.sessionsDir);
+    const persistedCompactionIds = manager.getBranch().flatMap((entry) => {
+      if (entry.type !== "compaction" || !entry.details || typeof entry.details !== "object") {
+        return [];
+      }
+      const details = entry.details as Record<string, unknown>;
+      return details.openbotGrokCompaction === true && typeof details.id === "string"
+        ? [details.id]
+        : [];
+    });
+    await this.compaction.recoverStaged(
+      contextSessionId,
+      manager.buildSessionContext().messages.length,
+      persistedCompactionIds
+    );
   }
 
   private async loadAttachmentImages(
@@ -490,6 +606,16 @@ export class ComputerRuntime {
     await active.session.abort();
   }
 
+  async deleteContextSession(contextSessionId: string, sessionPath?: string): Promise<void> {
+    if (this.activeByContext.has(contextSessionId)) {
+      throw new Error("Cannot delete an active context session");
+    }
+    await this.compaction.remove(contextSessionId);
+    if (sessionPath) {
+      await rm(this.assertSessionPath(sessionPath), { force: true });
+    }
+  }
+
   async steer(runId: string, request: ComputerSteerRequest): Promise<void> {
     const active = this.activeByRun.get(runId);
     if (!active?.session || !active.session.isStreaming) {
@@ -520,21 +646,44 @@ export class ComputerRuntime {
     }
   }
 
-  async compact(request: CompactRequest): Promise<void> {
+  async infer(request: {
+    instructions: string;
+    prompt: string;
+    cwd: string;
+    timeoutMs: number;
+  }): Promise<string> {
     await this.start();
     if (!this.authenticated) throw new Error("Pi OpenAI Codex OAuth is not configured");
-    if (this.activeByBot.has(request.botId)) {
-      throw new Error("Cannot compact while this bot is running");
-    }
-    const sessionPath = this.assertSessionPath(request.sessionPath);
     const session = await this.createStandaloneSession(
       request.cwd,
       request.instructions,
-      SessionManager.open(sessionPath, this.sessionsDir, request.cwd)
+      SessionManager.inMemory(request.cwd)
     );
+    let assistantText = "";
+    const unsubscribe = session.subscribe((event) => {
+      if (event.type !== "message_end") return;
+      const message = event.message as { role?: string; content?: unknown };
+      if (message.role === "assistant") assistantText = textFromContent(message.content);
+    });
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let timedOut = false;
     try {
-      await session.compact();
+      await Promise.race([
+        session.prompt(request.prompt, { source: "rpc", expandPromptTemplates: false }),
+        new Promise<never>((_resolve, reject) => {
+          timer = setTimeout(() => {
+            timedOut = true;
+            reject(new Error("Memory inference timed out"));
+          }, request.timeoutMs);
+          timer.unref();
+        }),
+      ]);
+      if (!assistantText.trim()) throw new Error("Memory inference returned no assistant text");
+      return assistantText;
     } finally {
+      if (timer) clearTimeout(timer);
+      if (timedOut) await session.abort().catch(() => undefined);
+      unsubscribe();
       session.dispose();
     }
   }
@@ -560,7 +709,7 @@ export class ComputerRuntime {
           request.cwd
         )
       : SessionManager.create(request.cwd, this.sessionsDir, {
-          id: request.botId,
+          id: request.contextSessionId,
         });
     return this.createStandaloneSession(request.cwd, request.instructions, manager, active);
   }
@@ -575,14 +724,15 @@ export class ComputerRuntime {
     if (!modelRuntime) throw new Error("Pi model runtime is not initialized");
     const model = modelRuntime.getModel("openai-codex", this.modelId);
     if (!model) throw new Error(`Unknown Pi model openai-codex/${this.modelId}`);
+    const persistReserve = grokPiPersistReserve(model.contextWindow ?? 0);
     const settingsManager = SettingsManager.inMemory({
       defaultProvider: "openai-codex",
       defaultModel: this.modelId,
       defaultThinkingLevel: this.thinkingLevel,
       compaction: {
-        enabled: true,
-        reserveTokens: 16_384,
-        keepRecentTokens: 20_000,
+        enabled: Boolean(active),
+        reserveTokens: persistReserve,
+        keepRecentTokens: 1,
       },
       retry: { enabled: true, maxRetries: 3 },
       steeringMode: "one-at-a-time",
@@ -596,6 +746,11 @@ export class ComputerRuntime {
       noPromptTemplates: true,
       noThemes: true,
       systemPrompt: instructions,
+      ...(active
+        ? {
+            extensionFactories: [this.compactionExtension(sessionManager, active)],
+          }
+        : {}),
     });
     await resourceLoader.reload();
     const customTools = active ? this.customTools(active) : [];
@@ -615,8 +770,172 @@ export class ComputerRuntime {
     return session;
   }
 
+  private compactionExtension(
+    sessionManager: SessionManager,
+    active: ActiveTurn
+  ): { name: string; hidden: boolean; factory: ExtensionFactory } {
+    const infer = (request: GrokSummaryRequest, signal: AbortSignal) =>
+      this.inferCompaction(active.cwd, request, signal);
+    return {
+      name: "openbot-grok-compaction",
+      hidden: true,
+      factory: (pi) => {
+        pi.on("context", async (event) => {
+          const usage = active.session?.getContextUsage();
+          const messages = await this.compaction.modelContextMessages({
+            contextSessionId: active.contextSessionId,
+            piMessages: event.messages as GrokMessage[],
+            systemPrompt: active.instructions,
+            userInfoMessage: active.userInfoMessage,
+            usedTokens: usage?.tokens ?? null,
+            maxTokens: usage?.contextWindow ?? active.session?.model?.contextWindow ?? 0,
+          });
+          const adopted = this.compaction.takeProjectedEvent(active.contextSessionId);
+          if (adopted) {
+            active.queue.push({
+              type: "compaction",
+              turnId: active.turnId,
+              contextSessionId: adopted.contextSessionId,
+              compactionId: adopted.compactionId,
+              epoch: adopted.epoch,
+              reason: adopted.reason,
+              prefixDigest: adopted.prefixDigest,
+              summaryDigest: adopted.summaryDigest,
+              tokensBefore: adopted.tokensBefore,
+              tokensAfter: adopted.tokensAfter,
+              imageCount: adopted.imageCount,
+              turnCount: adopted.turnCount,
+              startedAt: adopted.startedAt,
+              completedAt: adopted.completedAt,
+            });
+          }
+          return {
+            messages: messages as typeof event.messages,
+          };
+        });
+        pi.on("message_start", async (event) => {
+          if (event.message.role !== "user" || !active.session) return;
+          const usage = active.session.getContextUsage();
+          await this.compaction.observe({
+            contextSessionId: active.contextSessionId,
+            piMessages: active.session.messages as GrokMessage[],
+            systemPrompt: active.instructions,
+            userInfoMessage: active.userInfoMessage,
+            usedTokens: usage?.tokens ?? null,
+            maxTokens: usage?.contextWindow ?? active.session.model?.contextWindow ?? 0,
+            projectRoot: active.cwd,
+            transcriptPath: active.sessionPath ?? undefined,
+            todoUpdate: active.todoUpdate ?? undefined,
+            automationTrigger: active.automationTrigger ?? undefined,
+            infer,
+          });
+        });
+        pi.on("session_before_compact", async (event) => {
+          const prepared = await this.compaction.beforePiCompaction({
+            contextSessionId: active.contextSessionId,
+            piMessages: sessionManager.buildSessionContext().messages as GrokMessage[],
+            reason: event.reason,
+            firstKeptEntryId: event.preparation.firstKeptEntryId,
+            tokensBefore: event.preparation.tokensBefore,
+            systemPrompt: active.instructions,
+            userInfoMessage: active.userInfoMessage,
+            projectRoot: active.cwd,
+            transcriptPath: active.sessionPath ?? undefined,
+            todoUpdate: active.todoUpdate ?? undefined,
+            automationTrigger: active.automationTrigger ?? undefined,
+            infer,
+            signal: event.signal,
+          });
+          return prepared ? { compaction: prepared as never } : { cancel: true };
+        });
+        pi.on("session_compact", async (event) => {
+          const piMessages = sessionManager.buildSessionContext().messages as GrokMessage[];
+          const retryError = event.willRetry ? piMessages.at(-1) : undefined;
+          const piBaseMessageCount =
+            retryError?.role === "assistant" &&
+            ["error", "length"].includes(String(retryError.stopReason ?? ""))
+              ? piMessages.length - 1
+              : piMessages.length;
+          const adopted = await this.compaction.afterPiCompaction({
+            contextSessionId: active.contextSessionId,
+            piBaseMessageCount,
+          });
+          if (!adopted) return;
+          active.queue.push({
+            type: "compaction",
+            turnId: active.turnId,
+            contextSessionId: adopted.contextSessionId,
+            compactionId: adopted.compactionId,
+            epoch: adopted.epoch,
+            reason: adopted.reason,
+            prefixDigest: adopted.prefixDigest,
+            summaryDigest: adopted.summaryDigest,
+            tokensBefore: adopted.tokensBefore,
+            tokensAfter: adopted.tokensAfter,
+            imageCount: adopted.imageCount,
+            turnCount: adopted.turnCount,
+            startedAt: adopted.startedAt,
+            completedAt: adopted.completedAt,
+          });
+        });
+        pi.on("session_compact_failed", async () => {
+          await this.compaction.failCompaction(active.contextSessionId);
+        });
+      },
+    };
+  }
+
+  private async inferCompaction(
+    cwd: string,
+    request: GrokSummaryRequest,
+    signal: AbortSignal
+  ): Promise<GrokSummaryResult> {
+    const summaryManager = SessionManager.inMemory(cwd);
+    if (request.userInfoMessage) {
+      summaryManager.appendMessage(request.userInfoMessage as never);
+    }
+    for (const message of request.messagesToSummarize) {
+      summaryManager.appendMessage(message as never);
+    }
+    const session = await this.createStandaloneSession(
+      cwd,
+      grokSummarySystemPrompt(request.systemPrompt),
+      summaryManager
+    );
+    let result: GrokSummaryResult | null = null;
+    const unsubscribe = session.subscribe((event) => {
+      if (event.type !== "message_end") return;
+      const message = event.message as {
+        role?: string;
+        content?: unknown;
+        usage?: GrokSummaryResult["usage"];
+      };
+      if (message.role === "assistant") {
+        result = { text: textFromContent(message.content), usage: message.usage };
+      }
+    });
+    const abort = () => void session.abort();
+    signal.addEventListener("abort", abort, { once: true });
+    try {
+      if (signal.aborted) throw new DOMException("Compaction aborted", "AbortError");
+      await session.prompt(grokSummaryPrompt(request.shorter), {
+        source: "rpc",
+        expandPromptTemplates: false,
+      });
+      if (signal.aborted) throw new DOMException("Compaction aborted", "AbortError");
+      const completed = result as GrokSummaryResult | null;
+      // The coordinator owns Grok's special empty-output retry path. Returning
+      // an empty result here avoids misclassifying it as a delayed transient Error.
+      return completed ?? { text: "" };
+    } finally {
+      signal.removeEventListener("abort", abort);
+      unsubscribe();
+      session.dispose();
+    }
+  }
+
   private customTools(active: ActiveTurn) {
-    const native = (tool: (typeof NATIVE_TOOLS)[number]) =>
+    const native = (tool: (typeof NATIVE_TOOLS)[number], description: string = tool.description) =>
       defineTool({
         name: tool.name,
         label: tool.name,
@@ -625,7 +944,7 @@ export class ComputerRuntime {
             ? OPENBOT_DYNAMIC_DISCOVERY_DESCRIPTION
             : tool.name === CALL_DYNAMIC_TOOL_TOOL.name
               ? OPENBOT_DYNAMIC_CALL_DESCRIPTION
-              : tool.description,
+              : description,
         parameters: Type.Unsafe<Record<string, unknown>>(tool.inputSchema),
         executionMode: "sequential" as const,
         execute: (callId: string, args: unknown, signal?: AbortSignal) =>
@@ -634,9 +953,16 @@ export class ComputerRuntime {
     const workerNativeTools = NATIVE_TOOLS.filter(
       (tool) => tool.name === SHELL_TOOL.name || tool.name === READ_TOOL.name
     );
+    const workerNative = (tool: (typeof NATIVE_TOOLS)[number]) =>
+      native(
+        tool,
+        tool.name === SHELL_TOOL.name
+          ? GRAPHICAL_WORKER_SHELL_DESCRIPTION
+          : GRAPHICAL_WORKER_READ_DESCRIPTION
+      );
     if (active.subagentType === "computerUse") {
       return [
-        ...workerNativeTools.map(native),
+        ...workerNativeTools.map(workerNative),
         defineTool({
           name: COMPUTER_USE_TOOL.name,
           label: COMPUTER_USE_TOOL.name,
@@ -649,7 +975,7 @@ export class ComputerRuntime {
     }
     if (active.subagentType === "browserUse") {
       return [
-        ...workerNativeTools.map(native),
+        ...workerNativeTools.map(workerNative),
         ...BROWSER_USE_TOOLS.map((tool) =>
           defineTool({
             name: tool.name,
@@ -662,7 +988,7 @@ export class ComputerRuntime {
         ),
       ];
     }
-    return NATIVE_TOOLS.map(native);
+    return NATIVE_TOOLS.map((tool) => native(tool));
   }
 
   private async executeOpenBotTool(
@@ -673,16 +999,13 @@ export class ComputerRuntime {
     signal?: AbortSignal
   ): Promise<AgentToolResult<Record<string, unknown>>> {
     if (tool === SHELL_TOOL.name) {
+      const shellInput = Schema.decodeUnknownSync(ShellToolInput)(args);
+      assertGraphicalShellBoundary(shellInput.command, active.subagentType);
       const environment =
-        active.subagentType === "computerUse" || active.subagentType === "browserUse"
-          ? await this.screens.commandEnvironment(active.botId, active.cwd)
+        active.subagentType === "computerUse"
+          ? await this.screens.commandEnvironment(active.screenBotId, active.cwd)
           : undefined;
-      return this.nativeToolExecutor.shell(
-        Schema.decodeUnknownSync(ShellToolInput)(args),
-        active.cwd,
-        signal,
-        environment
-      );
+      return this.nativeToolExecutor.shell(shellInput, active.cwd, signal, environment);
     }
     if (tool === READ_TOOL.name) {
       return this.nativeToolExecutor.read(
@@ -745,7 +1068,7 @@ export class ComputerRuntime {
     const input = Schema.decodeUnknownSync(ComputerUseInput)(args);
     const { then = [], description: _description, ...first } = input;
     const actions = [first, ...then];
-    const frame = await this.screens.actComputerUse(active.botId, active.cwd, actions);
+    const frame = await this.screens.actComputerUse(active.screenBotId, active.cwd, actions);
     const directory = join(this.workspaceRoot, "shared", "screenshots");
     await mkdir(directory, { recursive: true });
     const path = join(directory, `${active.botId}-computer-${Date.now()}.png`);
@@ -776,7 +1099,7 @@ export class ComputerRuntime {
     toolName: string,
     args: unknown
   ): Promise<AgentToolResult<Record<string, unknown>>> {
-    const endpoint = await this.screens.browserEndpointForAgent(active.botId, active.cwd);
+    const endpoint = await this.screens.browserEndpointForAgent(active.screenBotId, active.cwd);
     let browser = this.browserUseSessions.get(active.botId);
     if (!browser?.connected) {
       browser = await BrowserUseSession.connect(
@@ -824,9 +1147,52 @@ export class ComputerRuntime {
       throw new Error(message);
     }
     return {
-      content: [{ type: "text" as const, text: JSON.stringify(body) }],
+      content: [
+        {
+          type: "text" as const,
+          text: typeof body === "string" ? body : JSON.stringify(body),
+        },
+      ],
       details: { tool },
     };
+  }
+
+  private async executeTodoWrite(
+    active: ActiveTurn,
+    callId: string,
+    args: unknown,
+    signal?: AbortSignal
+  ): Promise<AgentToolResult<Record<string, unknown>>> {
+    const result = await this.callControlPlaneTool(
+      active,
+      callId,
+      TODO_WRITE_TOOL.name,
+      args,
+      signal
+    );
+    const text = result.content.find((part) => part.type === "text")?.text;
+    if (typeof text !== "string") return result;
+    try {
+      const body = JSON.parse(text) as { todos?: unknown };
+      if (!Array.isArray(body.todos)) return result;
+      const lines = body.todos.flatMap((candidate) => {
+        if (!candidate || typeof candidate !== "object") return [];
+        const todo = candidate as Record<string, unknown>;
+        if (
+          typeof todo.id !== "string" ||
+          typeof todo.content !== "string" ||
+          typeof todo.status !== "string"
+        ) {
+          return [];
+        }
+        return [`- [${todo.status}] ${todo.id}: ${todo.content}`];
+      });
+      active.todoUpdate = lines.length > 0 ? lines.join("\n") : null;
+    } catch {
+      // Preserve the prior durable snapshot when a nonstandard tool host does
+      // not return TodoWrite's documented JSON result.
+    }
+    return result;
   }
 
   private dynamicCatalog(
@@ -839,12 +1205,20 @@ export class ComputerRuntime {
         inputSchema: TODO_WRITE_TOOL.inputSchema,
         source: "first-party",
         decodeArguments: (args) => Schema.decodeUnknownSync(TodoWriteInput)(args),
-        execute: (turn, callId, args, signal) =>
-          this.callControlPlaneTool(turn, callId, TODO_WRITE_TOOL.name, args, signal),
+        execute: (turn, callId, args, signal) => this.executeTodoWrite(turn, callId, args, signal),
       },
       ...(active.runtimeProfile === "subagent"
         ? []
         : [
+            {
+              name: SEND_TO_AGENT_TOOL.name,
+              description: SEND_TO_AGENT_TOOL.description,
+              inputSchema: SEND_TO_AGENT_TOOL.inputSchema,
+              source: "first-party" as const,
+              decodeArguments: (args: unknown) => Schema.decodeUnknownSync(SendToAgentInput)(args),
+              execute: (turn: ActiveTurn, callId: string, args: unknown, signal?: AbortSignal) =>
+                this.callControlPlaneTool(turn, callId, SEND_TO_AGENT_TOOL.name, args, signal),
+            },
             {
               name: "SearchPlugins",
               description:
@@ -1014,36 +1388,9 @@ export class ComputerRuntime {
       }));
     return [
       {
-        name: "openbot",
-        description: "First-party OpenBot capabilities that are loaded on demand.",
-        kind: "first-party",
-        namespaceStatus: "ready",
-        tools: [
-          ...(active.runtimeProfile === "subagent"
-            ? []
-            : [
-                {
-                  name: SEND_TO_AGENT_TOOL.name,
-                  description: SEND_TO_AGENT_TOOL.description,
-                  inputSchema: SEND_TO_AGENT_TOOL.inputSchema,
-                  source: "first-party" as const,
-                  decodeArguments: (args: unknown) =>
-                    Schema.decodeUnknownSync(SendToAgentInput)(args),
-                  execute: (
-                    turn: ActiveTurn,
-                    callId: string,
-                    args: unknown,
-                    signal?: AbortSignal
-                  ) =>
-                    this.callControlPlaneTool(turn, callId, SEND_TO_AGENT_TOOL.name, args, signal),
-                },
-              ]),
-        ],
-      },
-      {
         name: "cursor",
         description:
-          "OpenBot's supported TodoWrite, read-only plugin management, subagent orchestration, agent administration, and channel administration tools.",
+          "OpenBot's supported A2A messaging, TodoWrite, read-only plugin management, subagent orchestration, agent administration, and channel administration tools.",
         kind: "first-party",
         namespaceStatus: "ready",
         tools: cursorTools,
@@ -1089,7 +1436,30 @@ export class ComputerRuntime {
     let status: TurnStatus = "completed";
     let error: unknown;
     try {
+      const session = active.session;
+      if (!session) throw new Error("Pi session is not attached");
+      await this.compaction.beginUserQuery(active.contextSessionId, active.resetSelfSummaryCount);
       await active.session?.prompt(content, { source: "rpc", images });
+      const completedContext = replaceGrokUserInfo(
+        await this.compaction.contextMessages(
+          active.contextSessionId,
+          session.messages as GrokMessage[]
+        ),
+        active.userInfoMessage
+      );
+      const imagePersist = countGrokImages(completedContext) >= GROK_IMAGE_TRIGGER;
+      const projectedReason = this.compaction.projectedReason(active.contextSessionId);
+      const projectedCommit = this.compaction.consumeProjectedCommit(active.contextSessionId);
+      if (!projectedCommit && (imagePersist || projectedReason) && completedContext.length >= 3) {
+        const forcedReason = imagePersist ? "approaching_image_limit" : projectedReason;
+        if (!forcedReason) throw new Error("Missing forced compaction reason");
+        this.compaction.forceReason(active.contextSessionId, forcedReason);
+        try {
+          await session.compact();
+        } finally {
+          this.compaction.clearForcedReason(active.contextSessionId);
+        }
+      }
       if (active.lastStopReason === "aborted") status = "interrupted";
       else if (active.lastStopReason === "error") {
         status = "failed";
@@ -1107,6 +1477,7 @@ export class ComputerRuntime {
         retrying: false,
       });
     } finally {
+      this.compaction.discardBackground(active.contextSessionId);
       this.attachSession(active);
       active.queue.push({
         type: "turn.completed",
@@ -1211,6 +1582,25 @@ export class ComputerRuntime {
           retrying: false,
         });
       }
+      const usage = active.session?.getContextUsage();
+      if (active.session && usage?.tokens !== null && usage) {
+        void this.compaction
+          .observe({
+            contextSessionId: active.contextSessionId,
+            piMessages: active.session.messages as GrokMessage[],
+            systemPrompt: active.instructions,
+            userInfoMessage: active.userInfoMessage,
+            usedTokens: usage.tokens,
+            maxTokens: usage.contextWindow,
+            projectRoot: active.cwd,
+            transcriptPath: active.sessionPath ?? undefined,
+            infer: (prompt, signal) => this.inferCompaction(active.cwd, prompt, signal),
+          })
+          // Observation is best-effort and runs after the completed assistant
+          // message. Persist-boundary compaction revalidates synchronously, so
+          // a corrupt/missing archive will still fail closed before adoption.
+          .catch(() => undefined);
+      }
       return;
     }
 
@@ -1241,11 +1631,6 @@ export class ComputerRuntime {
         ),
       });
       active.toolArgs.delete(event.toolCallId);
-      return;
-    }
-
-    if (event.type === "compaction_end" && event.result && !event.aborted) {
-      active.queue.push({ type: "compaction", turnId: active.turnId });
       return;
     }
 
@@ -1287,6 +1672,7 @@ export class ComputerRuntime {
     active.queue.push({
       type: "session.attached",
       provider: "pi",
+      contextSessionId: active.contextSessionId,
       sessionId: active.session.sessionId,
       sessionPath: active.sessionPath,
       model: `openai-codex/${this.modelId}`,
@@ -1315,7 +1701,7 @@ export class ComputerRuntime {
 
   private cleanup(active: ActiveTurn): void {
     this.activeByRun.delete(active.runId);
-    this.activeByBot.delete(active.botId);
+    this.activeByContext.delete(active.contextSessionId);
     active.unsubscribe?.();
     active.unsubscribe = null;
     active.session?.dispose();

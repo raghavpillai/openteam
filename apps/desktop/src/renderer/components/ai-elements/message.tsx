@@ -33,7 +33,7 @@ export function MessageContent({
       className={cn(
         "message-bubble overflow-hidden rounded-[20px] px-3 py-2 text-[14px] leading-5",
         from === "user"
-          ? "relative right-0.5 max-w-[min(680px,78%)] bg-message-user text-message-user-foreground"
+          ? "relative right-0.5 max-w-[min(640px,78%)] bg-message-user text-message-user-foreground"
           : "relative left-[2px] max-w-[min(640px,78%)] bg-message-assistant text-message-assistant-foreground",
         from === "system" && "border border-amber-500/20 bg-amber-500/8",
         className
@@ -46,11 +46,14 @@ export function MessageContent({
 const MarkdownMessageResponse = lazy(() => import("./message-response"));
 const AdvancedMessageResponse = lazy(() => import("./message-response-rich"));
 const MARKDOWN_PATTERN =
-  /(?:^|\n)(?:#{1,6}\s|[-*+]\s|\d+\.\s|>\s|```|~~~)|\[[^\]]+\]\([^)]+\)|[*_~`]|<\/?[a-z][^>]*>/i;
+  /(?:^|\n)(?:#{1,6}\s|[-*+]\s|\d+\.\s|>\s|```|~~~)|\[[^\]]+\]\([^)]+\)|(?:^|[\s([{])(?:\*{1,2}|_{1,2}|~{2})(?=\S)|`|<\/?[a-z][^>]*>/i;
 const ADVANCED_PATTERN = /```|~~~|\$\$|\\[[(]|(?:^|[^\\$])\$(?![$\s])(?:\\.|[^$\n])+\$/;
 
+export const messageNeedsMarkdown = (content: string) =>
+  MARKDOWN_PATTERN.test(content) || ADVANCED_PATTERN.test(content);
+
 export const MessageResponse = memo(function MessageResponse({ children }: { children: string }) {
-  if (!(MARKDOWN_PATTERN.test(children) || ADVANCED_PATTERN.test(children))) {
+  if (!messageNeedsMarkdown(children)) {
     return <span className="whitespace-pre-wrap">{children}</span>;
   }
   const Renderer = ADVANCED_PATTERN.test(children)

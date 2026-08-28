@@ -136,12 +136,19 @@ export const SendMessageInput = Schema.Struct({
   content: Schema.String.pipe(Schema.maxLength(200_000)),
   clientId: Schema.String.pipe(Schema.minLength(8), Schema.maxLength(120)),
   replyToMessageId: Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(120))),
+  richText: Schema.optional(Schema.String.pipe(Schema.maxLength(400_000))),
+  isFork: Schema.optional(Schema.Boolean),
   images: Schema.optional(Schema.Array(InlineImageInput).pipe(Schema.maxItems(8))),
   timeZone: Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(100))),
 }).pipe(
-  Schema.filter((input) => input.content.trim().length > 0 || Boolean(input.images?.length), {
-    message: () => "A message needs text or at least one image",
-  })
+  Schema.filter(
+    (input) =>
+      (input.content.trim().length > 0 || Boolean(input.images?.length)) &&
+      (!input.isFork || Boolean(input.replyToMessageId)),
+    {
+      message: () => "A message needs text or an image, and a thread reply needs a reply target",
+    }
+  )
 );
 export type SendMessageInput = typeof SendMessageInput.Type;
 
@@ -154,9 +161,22 @@ export type ReactToChannelMessageInput = typeof ReactToChannelMessageInput.Type;
 
 export const CreateGroupInput = Schema.Struct({
   name: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(80)),
-  botIds: Schema.Array(Schema.String).pipe(Schema.minItems(2), Schema.maxItems(20)),
+  botIds: Schema.Array(Schema.String).pipe(Schema.minItems(1), Schema.maxItems(6)),
 });
 export type CreateGroupInput = typeof CreateGroupInput.Type;
+
+export const SetChannelMembersInput = Schema.Struct({
+  botIds: Schema.Array(Schema.String).pipe(Schema.minItems(1), Schema.maxItems(6)),
+  clientId: Schema.String.pipe(Schema.minLength(8), Schema.maxLength(120)),
+});
+export type SetChannelMembersInput = typeof SetChannelMembersInput.Type;
+
+export const RenameChannelInput = Schema.Struct({
+  name: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(80)),
+  clientId: Schema.String.pipe(Schema.minLength(8), Schema.maxLength(120)),
+  timeZone: Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(100))),
+});
+export type RenameChannelInput = typeof RenameChannelInput.Type;
 
 export const TodoStatus = Schema.Literal("pending", "in_progress", "completed", "cancelled");
 export type TodoStatus = typeof TodoStatus.Type;
@@ -235,22 +255,21 @@ export const UpdateChannelInput = Schema.Struct({
 });
 export type UpdateChannelInput = typeof UpdateChannelInput.Type;
 
+export const AgentImageInput = Schema.Struct({
+  url: Schema.String.pipe(Schema.minLength(1)),
+  alt: Schema.optional(Schema.String),
+});
+export type AgentImageInput = typeof AgentImageInput.Type;
+
 export const SendToAgentInput = Schema.Struct({
   target_id: Schema.String.pipe(Schema.minLength(1)),
   message: Schema.String.pipe(Schema.minLength(1)),
-  images: Schema.optional(
-    Schema.Array(
-      Schema.Struct({
-        url: Schema.String.pipe(Schema.minLength(1)),
-        alt: Schema.optional(Schema.String),
-      })
-    )
-  ),
+  images: Schema.optional(Schema.Array(AgentImageInput)),
   priority: Schema.optional(Schema.Boolean),
 });
 export type SendToAgentInput = typeof SendToAgentInput.Type;
 
-export const AgentSendMessageInput = Schema.Struct({
+export const AgentSendToUserInput = Schema.Struct({
   type: Schema.Literal("text", "attachment", "widget", "cursor-agent", "secret-request"),
   content: Schema.optional(Schema.String),
   url: Schema.optional(Schema.String),
@@ -293,7 +312,7 @@ export const AgentSendMessageInput = Schema.Struct({
     })
   ),
 });
-export type AgentSendMessageInput = typeof AgentSendMessageInput.Type;
+export type AgentSendToUserInput = typeof AgentSendToUserInput.Type;
 
 export const ReactToMessageInput = Schema.Struct({
   message_address: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(120)),
@@ -614,6 +633,7 @@ export const ComputerUseInput = Schema.Struct({
   ...ComputerUseActionFields,
   then: Schema.optional(
     Schema.Array(ComputerUseActionInput).pipe(
+      Schema.minItems(1),
       Schema.maxItems(9),
       Schema.filter((actions) => actions.every((action) => action.action !== "screenshot"), {
         message: () => "Batched follow-up actions cannot take intermediate screenshots",
@@ -649,47 +669,9 @@ export interface ScreenStatusView {
   browserSessionMechanism: "cookie-broker";
 }
 
-export const SEND_TO_AGENT_TOOL = {
-  type: "function",
-  name: "SendToAgent",
-  description:
-    "Send a message to ANOTHER of your user's agents, OR post into a GROUP chat you belong to, by its id (not the user — SendMessage is how you reach the user). This is FIRE-AND-FORGET and asynchronous, like texting: it delivers your message, wakes that agent (or the group's members), and returns immediately with a delivery acknowledgement. Peer messages run ahead of routines and other background work; pass priority=true on a 1:1 send to interrupt the recipient's current non-user turn (STOP / supersede), like a direct user message (ignored for groups). It does NOT return their reply, and you must not wait or poll for one in this turn — send it and move on. Any reply arrives later as its own message that wakes you on a fresh turn.",
-  inputSchema: {
-    type: "object",
-    properties: {
-      target_id: {
-        type: "string",
-        minLength: 1,
-        description: "The id of the target — either another agent or a GROUP you belong to.",
-      },
-      message: {
-        type: "string",
-        minLength: 1,
-        description:
-          "What to say. Write it as if texting a teammate: lead with the point, keep it short.",
-      },
-      images: {
-        type: "array",
-        items: {
-          type: "object",
-          properties: {
-            url: { type: "string", minLength: 1 },
-            alt: { type: "string" },
-          },
-          required: ["url"],
-        },
-      },
-      priority: {
-        type: "boolean",
-        description:
-          "When true (1:1 only; ignored for groups), interrupt the recipient's current non-user work and wake them immediately.",
-      },
-    },
-    required: ["target_id", "message"],
-  },
-} as const;
+export const SEND_TO_AGENT_TOOL = cursorTool("SendToAgent");
 
-export const SEND_MESSAGE_TOOL = nativeTool("SendMessage");
+export const SEND_TO_USER_TOOL = nativeTool("SendToUser");
 export const REACT_TO_MESSAGE_TOOL = nativeTool("ReactToMessage");
 export const EXTERNAL_SHELL_TOOL = nativeTool("ExternalShell");
 export const EXTERNAL_READ_TOOL = nativeTool("ExternalRead");
@@ -892,6 +874,7 @@ export const COMPUTER_USE_TOOL = {
       ...computerUseActionProperties,
       then: {
         type: "array",
+        minItems: 1,
         maxItems: 9,
         items: {
           type: "object",
@@ -927,12 +910,19 @@ export type ResolveApprovalInput = typeof ResolveApprovalInput.Type;
 export const ComputerTurnRequest = Schema.Struct({
   runId: Schema.String,
   botId: Schema.String,
+  contextSessionId: Schema.String,
+  screenBotId: Schema.optional(Schema.String),
   conversationId: Schema.String,
   sessionPath: Schema.NullOr(Schema.String),
   content: Schema.String,
   clientMessageId: Schema.String,
   cwd: Schema.String,
   instructions: Schema.String,
+  userInfo: Schema.optional(Schema.NullOr(Schema.String)),
+  userInfoEpoch: Schema.optional(Schema.Number),
+  todoUpdate: Schema.optional(Schema.NullOr(Schema.String)),
+  automationTrigger: Schema.optional(Schema.NullOr(Schema.String)),
+  resetSelfSummaryCount: Schema.optional(Schema.Boolean),
   channelId: Schema.String,
   deliveryId: Schema.NullOr(Schema.String),
   runtimeProfile: Schema.optional(Schema.Literal("agent", "subagent")),
@@ -961,6 +951,7 @@ export type ComputerEvent =
   | {
       type: "session.attached";
       provider: "pi";
+      contextSessionId: string;
       sessionId: string;
       sessionPath: string;
       model: string;
@@ -983,7 +974,40 @@ export type ComputerEvent =
       itemId: string;
       details: unknown;
     }
-  | { type: "compaction"; turnId: string }
+  | {
+      type: "context.state";
+      contextSessionId: string;
+      epoch: number;
+      archives: Array<{
+        id: string;
+        sequence: number;
+        reason: string;
+        prefixDigest: string;
+        summaryDigest: string;
+        tokensBefore: number | null;
+        tokensAfter: number | null;
+        imageCount: number;
+        turnCount: number;
+        startedAt: string;
+        completedAt: string;
+      }>;
+    }
+  | {
+      type: "compaction";
+      turnId: string;
+      contextSessionId: string;
+      compactionId: string;
+      epoch: number;
+      reason: string;
+      prefixDigest: string;
+      summaryDigest: string;
+      tokensBefore: number | null;
+      tokensAfter: number | null;
+      imageCount: number;
+      turnCount: number;
+      startedAt: string;
+      completedAt: string;
+    }
   | {
       type: "runtime.error";
       turnId?: string;
@@ -1111,6 +1135,9 @@ export interface ChannelRoundView {
   id: string;
   channelId: string;
   triggerMessageId: string;
+  rootMessageId: string;
+  roundIndex: number;
+  memberTurnOffset: number;
   initiatorBotId: string | null;
   status: string;
   currentOrdinal: number;
@@ -1156,12 +1183,45 @@ export interface RunView {
 
 export interface ApprovalView {
   id: string;
+  /** Runtime run that emitted the approval. For subagents this is the child run. */
   runId: string;
   runItemId: string | null;
   kind: string;
   status: string;
   details: unknown;
   createdAt: string;
+  /** Parent conversation that owns and renders the approval. */
+  ownerConversationId: string;
+  /** Parent turn that launched the Task, or runId for a parent-owned approval. */
+  parentRunId: string;
+  /** Task invocation that owns a child approval. A resume has its own id. */
+  parentToolCallId: string | null;
+  /** Reusable child session for a child approval. */
+  subagentId: string | null;
+}
+
+export interface SubagentActivityView {
+  /** Immutable Task attempt id. This is runtime state, not a transcript entry. */
+  id: string;
+  /** Reusable child session id returned by Task. */
+  subagentId: string;
+  parentBotId: string;
+  parentRunId: string;
+  parentChannelId: string;
+  parentToolCallId: string;
+  currentRunId: string | null;
+  description: string;
+  subagentType: SubagentType;
+  runInBackground: boolean;
+  status: "provisioning" | "queued" | "running" | "completed" | "failed" | "stopped";
+  /** Sanitized completion candidate. It is never inserted into chat automatically. */
+  summary: string | null;
+  errorMessage: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  stoppedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface Snapshot {
@@ -1180,6 +1240,7 @@ export interface Snapshot {
   runs: RunView[];
   runItems: RunItemView[];
   approvals: ApprovalView[];
+  subagents: SubagentActivityView[];
   runtime: {
     server: "ready" | "degraded";
     database: "ready" | "unavailable";

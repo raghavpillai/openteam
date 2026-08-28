@@ -46,28 +46,134 @@ export class Projection {
           const bot = await tx.bot.findUniqueOrThrow({
             where: { id: botId },
           });
+          const contextSession = await tx.contextSession.findUniqueOrThrow({
+            where: { id: event.contextSessionId },
+          });
+          if (contextSession.botId !== botId) {
+            throw new Error("Runtime attempted to attach another bot's context session");
+          }
           if (bot.runtimeProvider !== event.provider) {
             throw new Error("Runtime attempted to replace the bot's immutable provider");
           }
-          if (bot.runtimeSessionPath && bot.runtimeSessionPath !== event.sessionPath) {
-            throw new Error("Runtime attempted to replace the bot's immutable Pi session");
+          if (
+            contextSession.runtimeSessionPath &&
+            contextSession.runtimeSessionPath !== event.sessionPath
+          ) {
+            throw new Error("Runtime attempted to replace an immutable context session");
           }
-          if (bot.runtimeSessionId && bot.runtimeSessionId !== event.sessionId) {
-            throw new Error("Runtime attempted to replace the bot's immutable Pi session ID");
+          if (
+            contextSession.runtimeSessionId &&
+            contextSession.runtimeSessionId !== event.sessionId
+          ) {
+            throw new Error("Runtime attempted to replace an immutable context session ID");
           }
-          await tx.bot.update({
-            where: { id: botId },
+          await tx.contextSession.update({
+            where: { id: contextSession.id },
             data: {
-              runtimeProvider: event.provider,
               runtimeSessionId: event.sessionId,
               runtimeSessionPath: event.sessionPath,
             },
           });
+          if (contextSession.scope === "home") {
+            if (bot.runtimeSessionPath && bot.runtimeSessionPath !== event.sessionPath) {
+              throw new Error("Runtime attempted to replace the bot's immutable home Pi session");
+            }
+            if (bot.runtimeSessionId && bot.runtimeSessionId !== event.sessionId) {
+              throw new Error(
+                "Runtime attempted to replace the bot's immutable home Pi session ID"
+              );
+            }
+            await tx.bot.update({
+              where: { id: botId },
+              data: {
+                runtimeProvider: event.provider,
+                runtimeSessionId: event.sessionId,
+                runtimeSessionPath: event.sessionPath,
+              },
+            });
+          }
           await tx.conversation.update({
             where: { id: conversationId },
             data: { continuity: "attached" },
           });
           await this.event(tx, "bot.session.attached", botId, event);
+        });
+        break;
+      case "context.state":
+        await this.prisma.$transaction(async (tx) => {
+          const contextSession = await tx.contextSession.findUniqueOrThrow({
+            where: { id: event.contextSessionId },
+          });
+          if (contextSession.botId !== botId) {
+            throw new Error("Runtime reported another bot's context state");
+          }
+          if (
+            event.epoch !== event.archives.length ||
+            event.archives.some((archive, index) => archive.sequence !== index + 1)
+          ) {
+            throw new Error("Runtime reported a non-contiguous compaction manifest");
+          }
+          for (const archive of event.archives) {
+            const existing = await tx.contextCompaction.findUnique({
+              where: { id: archive.id },
+              select: { contextSessionId: true, sequence: true },
+            });
+            if (
+              existing &&
+              (existing.contextSessionId !== contextSession.id ||
+                existing.sequence !== archive.sequence)
+            ) {
+              throw new Error("Runtime reused a compaction ID for another archive");
+            }
+            await tx.contextCompaction.upsert({
+              where: { id: archive.id },
+              create: {
+                id: archive.id,
+                contextSessionId: contextSession.id,
+                sequence: archive.sequence,
+                reason: archive.reason,
+                prefixDigest: archive.prefixDigest,
+                summaryDigest: archive.summaryDigest,
+                tokensBefore: archive.tokensBefore,
+                tokensAfter: archive.tokensAfter,
+                imageCount: archive.imageCount,
+                turnCount: archive.turnCount,
+                startedAt: new Date(archive.startedAt),
+                completedAt: new Date(archive.completedAt),
+              },
+              update: {
+                status: "adopted",
+                reason: archive.reason,
+                prefixDigest: archive.prefixDigest,
+                summaryDigest: archive.summaryDigest,
+                tokensBefore: archive.tokensBefore,
+                tokensAfter: archive.tokensAfter,
+                imageCount: archive.imageCount,
+                turnCount: archive.turnCount,
+                completedAt: new Date(archive.completedAt),
+              },
+            });
+          }
+          await tx.contextCompaction.updateMany({
+            where: {
+              contextSessionId: contextSession.id,
+              sequence: { gt: event.epoch },
+            },
+            data: { status: "stale" },
+          });
+          await tx.contextSession.update({
+            where: { id: contextSession.id },
+            data: {
+              compactionEpoch: event.epoch,
+              lastArchiveId: event.archives.at(-1)?.id ?? null,
+            },
+          });
+          if (contextSession.scope === "home") {
+            await tx.conversation.update({
+              where: { id: contextSession.scopeId },
+              data: { compactionEpoch: event.epoch },
+            });
+          }
         });
         break;
       case "turn.started":
@@ -270,22 +376,52 @@ export class Projection {
         break;
       case "compaction":
         await this.prisma.$transaction(async (tx) => {
-          await tx.runItem.create({
-            data: {
-              runId,
-              upstreamItemId: `compaction:${event.turnId}`,
-              kind: "compaction",
-              status: "completed",
-              title: "Context compacted",
-              content: json(event),
-              completedAt: new Date(),
+          const contextSession = await tx.contextSession.findUniqueOrThrow({
+            where: { id: event.contextSessionId },
+          });
+          if (contextSession.botId !== botId) {
+            throw new Error("Runtime reported another bot's compaction");
+          }
+          const existing = await tx.contextCompaction.findUnique({
+            where: { id: event.compactionId },
+          });
+          if (
+            existing &&
+            (existing.contextSessionId !== contextSession.id || existing.sequence !== event.epoch)
+          ) {
+            throw new Error("Runtime reused a compaction ID for another archive");
+          }
+          await tx.contextCompaction.upsert({
+            where: { id: event.compactionId },
+            create: {
+              id: event.compactionId,
+              contextSessionId: contextSession.id,
+              sequence: event.epoch,
+              reason: event.reason,
+              prefixDigest: event.prefixDigest,
+              summaryDigest: event.summaryDigest,
+              tokensBefore: event.tokensBefore,
+              tokensAfter: event.tokensAfter,
+              imageCount: event.imageCount,
+              turnCount: event.turnCount,
+              startedAt: new Date(event.startedAt),
+              completedAt: new Date(event.completedAt),
             },
+            update: { status: "adopted", completedAt: new Date(event.completedAt) },
           });
-          await tx.conversation.update({
-            where: { id: conversationId },
-            data: { compactionEpoch: { increment: 1 } },
-          });
-          await this.event(tx, "conversation.compacted", conversationId, event);
+          if (contextSession.compactionEpoch < event.epoch) {
+            await tx.contextSession.update({
+              where: { id: contextSession.id },
+              data: { compactionEpoch: event.epoch, lastArchiveId: event.compactionId },
+            });
+            if (contextSession.scope === "home") {
+              await tx.conversation.update({
+                where: { id: contextSession.scopeId },
+                data: { compactionEpoch: event.epoch },
+              });
+            }
+          }
+          if (!existing) await this.event(tx, "conversation.compacted", conversationId, event);
         });
         break;
       case "runtime.error":

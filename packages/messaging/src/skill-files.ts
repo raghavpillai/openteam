@@ -1,7 +1,7 @@
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import type { Prisma } from "@openbot/db";
-import { parseDocument } from "yaml";
+import { parseDocument, stringify as stringifyYaml } from "yaml";
 import { atomicWrite, listDirectories, readText, uniqueSlug } from "./file-state";
 
 export const MAX_SKILL_NAME = 80;
@@ -60,9 +60,7 @@ export const renderSkillFile = (skill: {
   raw.name = skill.name;
   raw.description = skill.description;
   delete raw.id;
-  const yaml = Object.entries(raw)
-    .map(([key, value]) => `${key}: ${JSON.stringify(value)}`)
-    .join("\n");
+  const yaml = stringifyYaml(raw).trimEnd();
   return `---\n${yaml}\n---\n\n${skill.body.trim()}\n`;
 };
 

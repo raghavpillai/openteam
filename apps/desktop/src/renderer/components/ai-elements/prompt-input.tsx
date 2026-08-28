@@ -1,11 +1,13 @@
 // Source-owned adaptation of AI Elements prompt-input.tsx.
 // https://elements.ai-sdk.dev/components/prompt-input
 import type { InlineImageInput } from "@openbot/contracts";
-import { ImagePlus, Paperclip, Plus, Square } from "lucide-react";
+import { ImagePlus, Paperclip, Square } from "lucide-react";
 import type { ClipboardEvent, DragEvent, FormEvent, KeyboardEvent } from "react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { cn } from "../../lib/cn";
+import type { MentionOption } from "../../lib/mentions";
 import { ImageAttachment } from "../openbot/image-attachment";
+import { MentionEditor } from "../openbot/mention-editor";
 import { Button } from "../ui/button";
 import {
   DropdownMenu,
@@ -20,7 +22,15 @@ const IMAGE_TYPES = new Set(["image/gif", "image/jpeg", "image/png", "image/webp
 const MAX_TEXTAREA_HEIGHT = 120;
 const MULTILINE_THRESHOLD = 39;
 const SECONDARY_ACTION_CLASS =
-  "size-7 rounded-full bg-[#f2f2f2] text-[#737373] shadow-[inset_0_0_0_0.5px_rgba(20,20,20,0.10)] hover:bg-[#ebebeb] hover:text-[#1f1f1f] disabled:opacity-100 dark:bg-[#3c3c3c] dark:text-[#a8a8a8] dark:shadow-[inset_0_0_0_0.5px_rgba(255,255,255,0.12)] dark:hover:bg-[#484848] dark:hover:text-[#fafafa]";
+  "size-7 rounded-full bg-[#f0f0f0] text-[#696969] shadow-[inset_0_0_0_0.5px_rgba(20,20,20,0.10)] hover:bg-[#e9e9e9] hover:text-[#1f1f1f] disabled:opacity-100 dark:bg-[#3b3b3b] dark:text-[#a8a8a8] dark:shadow-[inset_0_0_0_0.5px_rgba(255,255,255,0.12)] dark:hover:bg-[#484848] dark:hover:text-[#fafafa]";
+
+function GrokPlusIcon({ className }: { className?: string }) {
+  return (
+    <svg aria-hidden="true" className={className} fill="currentColor" viewBox="0 0 300 300">
+      <path d="M150 281Q158 281 163.5 275.5Q169 270 169 263V169H263Q270 169 275.5 163.5Q281 158 281 150Q281 142 275.5 136.5Q270 131 263 131H169V38Q169 30 163.5 24.5Q158 19 150 19Q142 19 136.5 24.5Q131 30 131 37V131H38Q30 131 24.5 136.5Q19 142 19 150Q19 158 24.5 163.5Q30 169 38 169H131V263Q131 270 136.5 275.5Q142 281 150 281Z" />
+    </svg>
+  );
+}
 
 function GrokMicIcon({ className }: { className?: string }) {
   return (
@@ -90,6 +100,7 @@ export function PromptInput({
   onImagesChange,
   onSubmit,
   onStop,
+  mentionOptions = [],
 }: {
   disabled?: boolean;
   running?: boolean;
@@ -98,10 +109,16 @@ export function PromptInput({
   onCancelReply?: () => void;
   onExpandedChange?: (expanded: boolean) => void;
   onImagesChange?: (count: number) => void;
-  onSubmit: (value: string, images: InlineImageInput[]) => Promise<unknown> | undefined;
+  mentionOptions?: readonly MentionOption[];
+  onSubmit: (
+    value: string,
+    images: InlineImageInput[],
+    options?: { richText?: string }
+  ) => Promise<unknown> | undefined;
   onStop?: () => Promise<unknown> | undefined;
 }) {
   const [value, setValue] = useState("");
+  const [richText, setRichText] = useState<string | undefined>();
   const [images, setImages] = useState<PendingImage[]>([]);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -109,7 +126,7 @@ export function PromptInput({
   const [retainedReply, setRetainedReply] = useState(reply);
   const [autoExpanded, setAutoExpanded] = useState(false);
   const [textareaHeight, setTextareaHeight] = useState(20);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const textareaRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const renderedReply = reply ?? retainedReply;
   const replyOpen = Boolean(reply);
@@ -141,7 +158,7 @@ export function PromptInput({
 
   useLayoutEffect(() => {
     const textarea = textareaRef.current;
-    if (!textarea || textarea.value !== value) return;
+    if (!textarea) return;
 
     const previousHeight = textarea.getBoundingClientRect().height;
     textarea.style.height = "auto";
@@ -222,32 +239,29 @@ export function PromptInput({
     const content = value.trim();
     if ((!content && images.length === 0) || blocked) return;
     const pendingImages = images;
+    const pendingRichText = richText;
     setValue("");
+    setRichText(undefined);
     setImages([]);
     setAttachmentError(null);
     setSubmitting(true);
     try {
       await onSubmit(
         content,
-        pendingImages.map(({ url, alt }) => ({ url, alt }))
+        pendingImages.map(({ url, alt }) => ({ url, alt })),
+        pendingRichText ? { richText: pendingRichText } : undefined
       );
       onCancelReply?.();
     } catch {
       setValue(content);
+      setRichText(pendingRichText);
       setImages(pendingImages);
     } finally {
       setSubmitting(false);
     }
   };
 
-  const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key === "Enter" && !event.shiftKey) {
-      event.preventDefault();
-      void submit();
-    }
-  };
-
-  const onPaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
+  const onPaste = (event: ClipboardEvent<HTMLElement>) => {
     const files = Array.from(event.clipboardData.files).filter((file) =>
       file.type.startsWith("image/")
     );
@@ -298,7 +312,7 @@ export function PromptInput({
         />
         <div
           className={cn(
-            "relative box-border flex min-h-11 flex-col rounded-[22px] border-[0.5px] border-solid border-[#14141426] bg-[#fcfcfc] px-1 py-1 shadow-[0_2px_8px_-1px_#0000000d,0_1px_2px_#00000008,0_0_0_1px_#e4e4e40a] hover:border-[#1414144d] focus-within:border-[#1414144d] dark:border-[#ffffff26] dark:bg-[#2f2f2f] dark:hover:border-[#ffffff4d] dark:focus-within:border-[#ffffff4d]",
+            "relative box-border flex min-h-11 flex-col rounded-[22px] border-[0.5px] border-solid border-[#14141426] bg-[#fcfcfc] px-1 py-1 shadow-[0_2px_8px_-1px_#0000000d,0_1px_2px_#00000008,0_0_0_1px_#e4e4e40a] hover:border-[#1414144d] focus-within:border-[#1414144d] dark:border-[#fcfcfc26] dark:bg-[#2f2f2f] dark:hover:border-[#fcfcfc4d] dark:focus-within:border-[#fcfcfc4d]",
             expanded ? "rounded-[18px] px-3 pb-[7px] pt-[9px]" : "rounded-[22px] px-1 py-1",
             "overflow-hidden transition-[border-radius,padding,border-color,background-color,box-shadow,transform] duration-[300ms,300ms,150ms,150ms,150ms,150ms] ease-[cubic-bezier(0.22,1,0.36,1),cubic-bezier(0.22,1,0.36,1),ease,ease,ease,ease] motion-reduce:duration-[120ms,120ms,150ms,150ms,150ms,150ms] motion-reduce:ease-in-out",
             disabled && "opacity-70",
@@ -327,14 +341,14 @@ export function PromptInput({
             <div className="min-h-0 overflow-hidden">
               {renderedReply && (
                 <div
-                  className="flex w-full animate-in items-center gap-1.5 rounded-[10px] bg-[#f0f0f0] py-1 pl-2 pr-1 text-[14px] leading-[22px] text-[#747474] fade-in-0 slide-in-from-bottom-1 duration-200 motion-reduce:animate-none dark:bg-[#292929] dark:text-[#aaa]"
+                  className="flex w-full animate-in items-center gap-1.5 rounded-[10px] bg-[#f0f0f0] py-1 pl-2 pr-1 text-[14px] leading-[22px] text-[#747474] fade-in-0 slide-in-from-bottom-1 duration-200 motion-reduce:animate-none dark:bg-[#3b3b3b] dark:text-[rgba(240,240,240,0.74)]"
                   data-reply-preview-id={renderedReply.id}
                 >
-                  <GrokReplyIcon className="size-3 shrink-0 text-[#777] dark:text-[#999]" />
+                  <GrokReplyIcon className="size-3 shrink-0 text-[#777] dark:text-[rgba(240,240,240,0.60)]" />
                   <span className="min-w-0 flex-1 truncate">{renderedReply.content}</span>
                   <button
                     aria-label="Cancel reply"
-                    className="inline-flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent p-0 text-[#777] transition-[background-color,color] duration-[120ms] ease-linear hover:bg-[#dcdcdc] hover:text-[#141414] dark:text-[#999] dark:hover:bg-[#404040] dark:hover:text-[#f0f0f0]"
+                    className="inline-flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent p-0 text-[#777] transition-[background-color,color] duration-[120ms] ease-linear hover:bg-[#dcdcdc] hover:text-[#141414] dark:text-[rgba(240,240,240,0.60)] dark:hover:bg-[rgba(240,240,240,0.14)] dark:hover:text-[#f0f0f0]"
                     onClick={onCancelReply}
                     type="button"
                   >
@@ -383,7 +397,7 @@ export function PromptInput({
                     type="button"
                     variant="ghost"
                   >
-                    <Plus className="size-4" />
+                    <GrokPlusIcon className="size-3.5" />
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent
@@ -404,8 +418,7 @@ export function PromptInput({
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
-            <textarea
-              aria-label="Message"
+            <MentionEditor
               className={cn(
                 "max-h-40 min-h-8 flex-1 resize-none bg-transparent px-1 py-1.5 text-[14px] leading-5 outline-none transition-[height] duration-150 ease-out placeholder:text-[#b7b7b7] motion-reduce:transition-none dark:placeholder:text-[#6d6d6d]",
                 "absolute left-0 w-full",
@@ -416,16 +429,26 @@ export function PromptInput({
                     : "top-px px-10 py-1.5"
               )}
               disabled={blocked}
-              onChange={(event) => setValue(event.target.value)}
-              onKeyDown={onKeyDown}
+              editorRef={textareaRef}
+              onChange={(plainText, nextRichText) => {
+                setValue(plainText);
+                setRichText(nextRichText);
+              }}
               onPaste={onPaste}
+              onSubmit={() => void submit()}
+              options={mentionOptions}
               placeholder={
                 images.length > 0 ? "Add a message, or hit send." : reply ? "Reply…" : placeholder
               }
-              ref={textareaRef}
-              rows={1}
-              spellCheck={false}
               value={value}
+              onHeightChange={() => {
+                const editor = textareaRef.current;
+                if (!editor) return;
+                const scrollHeight = editor.scrollHeight;
+                setTextareaHeight(
+                  Math.max(20, Math.min(scrollHeight, expanded ? MAX_TEXTAREA_HEIGHT : 32))
+                );
+              }}
             />
             <div
               className={cn(

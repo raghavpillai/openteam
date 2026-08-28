@@ -4,7 +4,7 @@ import { api } from "../client/openbot-api";
 import type { BotRowAction } from "../components/openbot/sidebar";
 import type { OpenBotMutation } from "../state/use-openbot";
 
-export type InspectorMode = "summary" | "settings";
+export type InspectorMode = "summary" | "settings" | "routine";
 
 export function useBotRowActions(options: {
   mutate: OpenBotMutation;

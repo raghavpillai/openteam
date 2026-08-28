@@ -194,6 +194,17 @@ export function useSidebarPreferences() {
     [update]
   );
 
+  const markUnread = useCallback(
+    (channelId: string) => {
+      update((current) =>
+        current.unreadIds.includes(channelId)
+          ? current
+          : { ...current, unreadIds: [...current.unreadIds, channelId] }
+      );
+    },
+    [update]
+  );
+
   const moveToSection = useCallback(
     (channelId: string, sectionId: string | null) => {
       update((current) => {
@@ -359,6 +370,7 @@ export function useSidebarPreferences() {
       createSection,
       deleteSection,
       markRead,
+      markUnread,
       moveChannel,
       moveSection,
       moveToSection,
@@ -378,6 +390,7 @@ export function useSidebarPreferences() {
       createSection,
       deleteSection,
       markRead,
+      markUnread,
       moveChannel,
       moveSection,
       moveToSection,

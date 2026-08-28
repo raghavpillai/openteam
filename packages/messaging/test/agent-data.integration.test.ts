@@ -4,10 +4,118 @@ import { access, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createPrismaClient } from "@openbot/db";
-import { AgentDataStore } from "../src/agent-data";
+import { AgentDataStore, type MemoryInferenceRequest } from "../src/agent-data";
+import { readMemoryTree } from "../src/memory-files";
 
 const databaseUrl = process.env.OPENBOT_TEST_DATABASE_URL;
 const hash = (value: string) => createHash("sha256").update(value).digest("hex");
+
+test("turn memory extracts, summarizes episodes, and synthesizes dreaming evidence", async () => {
+  if (!databaseUrl) return;
+
+  const prisma = createPrismaClient(databaseUrl);
+  const temporary = await mkdtemp(join(tmpdir(), "openbot-memory-lifecycle-"));
+  const root = join(temporary, "agent-data");
+  const workspace = join(temporary, "workspace");
+  const botId = crypto.randomUUID();
+  const requests: MemoryInferenceRequest[] = [];
+  let synthesisAttempts = 0;
+  const store = new AgentDataStore(prisma, {
+    root,
+    workspaceRoot: workspace,
+    memorySynthesisDebounceMs: 60_000,
+    memoryInference: async (request) => {
+      requests.push(request);
+      if (request.kind === "extraction") {
+        return JSON.stringify({
+          facts: [{ content: "Prefers lifecycle tests.", kind: "profile" }],
+        });
+      }
+      if (request.kind === "episode") {
+        return JSON.stringify({ narrative: "Validated memory behavior over six turns." });
+      }
+      if (request.kind === "synthesis") {
+        synthesisAttempts += 1;
+        const prompt = JSON.parse(request.prompt) as {
+          evidence: Array<{ id: string }>;
+        };
+        if (synthesisAttempts === 1) {
+          return JSON.stringify({
+            changes: [
+              {
+                action: "create",
+                content: "This first proposal intentionally omits citations.",
+                kind: "log",
+              },
+            ],
+          });
+        }
+        return JSON.stringify({
+          changes: [
+            {
+              action: "create",
+              content: "Dreaming captured a verified preference.",
+              kind: "log",
+              sourceEvidenceIds: [prompt.evidence[0]?.id],
+            },
+          ],
+        });
+      }
+      return JSON.stringify({ approved: true });
+    },
+  });
+
+  try {
+    await mkdir(workspace, { recursive: true });
+    await prisma.bot.create({
+      data: {
+        id: botId,
+        name: "Memory lifecycle",
+        defaultDirectory: join(workspace, botId),
+        status: "active",
+        onboardingStatus: "completed",
+      },
+    });
+    await store.initializeBot(botId);
+    for (let turn = 0; turn < 6; turn += 1) {
+      await store.recordTurnMemory(botId, {
+        user: `Remember lifecycle detail ${turn}.`,
+        assistant: `Recorded detail ${turn}.`,
+        occurredAt: Date.parse(`2026-08-${String(20 + turn).padStart(2, "0")}T12:00:00Z`),
+      });
+    }
+    const afterEpisode = await prisma.bot.findUniqueOrThrow({ where: { id: botId } });
+    expect(afterEpisode.episodePending).toBe(0);
+    expect(afterEpisode.episodeTurns).toEqual([]);
+    expect(
+      (await readMemoryTree(store.memoryDirectory(botId, "agent"))).map((fact) => fact.content)
+    ).toEqual(
+      expect.arrayContaining([
+        "Prefers lifecycle tests.",
+        "[episode] Validated memory behavior over six turns.",
+      ])
+    );
+
+    await prisma.bot.update({ where: { id: botId }, data: { dreamingEnabled: true } });
+    await store.recordTurnMemory(botId, {
+      user: "A dreaming turn should be synthesized.",
+      assistant: "This is evidence for the synthesizer.",
+    });
+    await store.runMemorySynthesisNow();
+    expect(
+      (await readMemoryTree(store.memoryDirectory(botId, "agent"))).map((fact) => fact.content)
+    ).toContain("Dreaming captured a verified preference.");
+    expect(requests.filter((request) => request.kind === "extraction")).toHaveLength(6);
+    expect(requests.filter((request) => request.kind === "episode")).toHaveLength(1);
+    expect(requests.filter((request) => request.kind === "synthesis")).toHaveLength(2);
+    expect(requests.filter((request) => request.kind === "verification")).toHaveLength(1);
+  } finally {
+    await store.stopMemoryLifecycle();
+    await prisma.bot.deleteMany({ where: { id: botId } });
+    await prisma.$disconnect();
+    await rm(temporary, { recursive: true, force: true });
+  }
+});
 
 test("agent-data files are authoritative and preserve malformed settings", async () => {
   if (!databaseUrl) return;
@@ -105,15 +213,16 @@ test("agent-data files are authoritative and preserve malformed settings", async
       namedBy: "user",
     });
     expect(JSON.parse(await readFile(join(botDirectory, "settings.json"), "utf8"))).toEqual({
-      notifyOnAgentUpdates: false,
-      hiddenFromSidebar: true,
-      dreamingEnabled: true,
+      notifyOnAgentUpdates: true,
     });
     expect(JSON.parse(await readFile(join(root, "agents", groupId, "group.json"), "utf8"))).toEqual(
       { version: 1, memberIds: [botId] }
     );
     await mkdir(join(botDirectory, "memory", "log"), { recursive: true });
     await mkdir(join(botDirectory, "skills", skillId), { recursive: true });
+    const avatarPath = join(workspace, "avatar.png");
+    const avatarBytes = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
+    await writeFile(avatarPath, avatarBytes);
 
     await writeFile(
       join(botDirectory, "profile.json"),
@@ -125,6 +234,7 @@ test("agent-data files are authoritative and preserve malformed settings", async
           avatarShape: "◆",
           avatarColor: "#123456",
           namedBy: "user",
+          avatar: avatarPath,
         },
         null,
         2
@@ -180,13 +290,6 @@ test("agent-data files are authoritative and preserve malformed settings", async
         null,
         2
       )
-    );
-    const avatarPath = join(workspace, "avatar.png");
-    const avatarBytes = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
-    await writeFile(avatarPath, avatarBytes);
-    await writeFile(
-      join(botDirectory, "avatar.json"),
-      JSON.stringify({ path: avatarPath }, null, 2)
     );
     await writeFile(
       join(root, "agents", groupId, "profile.json"),

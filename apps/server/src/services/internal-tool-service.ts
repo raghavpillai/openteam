@@ -1,5 +1,5 @@
 import {
-  AgentSendMessageInput,
+  AgentSendToUserInput,
   ApiError,
   CheckSubagentInput,
   CreateAgentInput,
@@ -20,10 +20,10 @@ import type { AgentMessaging } from "@openbot/messaging";
 import { Effect, Schema } from "effect";
 import type { DurableStateService } from "../update-state";
 import type { AdministrationService } from "./administration-service";
+import type { PluginService } from "./plugin-service";
 import { toError } from "./service-utils";
 import type { SubagentService } from "./subagent-service";
 import type { TodoService } from "./todo-service";
-import type { PluginService } from "./plugin-service";
 
 export class InternalToolService {
   constructor(
@@ -67,12 +67,18 @@ export class InternalToolService {
           conversationId: request.conversationId,
           channelId: request.channelId,
           deliveryId: request.deliveryId,
+          origin: run.origin,
           callId: request.callId,
           timeZone: typeof inboxPayload?.timeZone === "string" ? inboxPayload.timeZone : undefined,
+          replyToMessageId:
+            typeof inboxPayload?.replyToMessageId === "string"
+              ? inboxPayload.replyToMessageId
+              : null,
+          isFork: inboxPayload?.isFork === true,
         };
         const childIdentity = await this.prisma.subagent.findUnique({
           where: { childBotId: request.botId },
-          select: { id: true },
+          select: { id: true, parentBotId: true, subagentType: true },
         });
         const parentOnlyTools = new Set([
           "Task",
@@ -127,7 +133,10 @@ export class InternalToolService {
           }
           return this.plugins.invoke({
             connectionId: input.connectionId,
-            botId: request.botId,
+            botId:
+              childIdentity?.subagentType === "executor"
+                ? childIdentity.parentBotId
+                : request.botId,
             runId: request.runId,
             callId: request.callId,
             toolName: input.toolName,
@@ -215,10 +224,10 @@ export class InternalToolService {
                 context,
                 Schema.decodeUnknownSync(SendToAgentInput)(request.arguments)
               )
-            : request.tool === "SendMessage"
+            : request.tool === "SendToUser"
               ? await this.messaging.sendVisible(
                   context,
-                  Schema.decodeUnknownSync(AgentSendMessageInput)(request.arguments)
+                  Schema.decodeUnknownSync(AgentSendToUserInput)(request.arguments)
                 )
               : (() => {
                   throw new ApiError(400, "unknown_dynamic_tool", `Unknown tool ${request.tool}`);

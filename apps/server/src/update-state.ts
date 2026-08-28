@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
-import { isAbsolute, relative, resolve, sep } from "node:path";
+import { relative, resolve, sep } from "node:path";
 import { ApiError, type UpdateStateInput } from "@openbot/contracts";
-import { type Prisma, type PrismaClient } from "@openbot/db";
+import type { Prisma, PrismaClient } from "@openbot/db";
 import type { AgentDataStore, RoutineService } from "@openbot/messaging";
 
 const PROJECT_SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -120,7 +120,7 @@ export class DurableStateService {
     switch (input.target) {
       case "memory":
         return this.memory(botId, input);
-      case "routine":
+      case "routine": {
         if (!["create", "update", "pause", "resume", "delete"].includes(input.action)) {
           return stateError(input.target, input.action);
         }
@@ -133,14 +133,8 @@ export class DurableStateService {
           trigger: input.trigger,
           enabled: input.enabled,
         });
-        if (typeof routine.id === "string") {
-          if (input.action === "delete") {
-            await this.agentData.deleteRoutine(botId, routine.id);
-          } else {
-            await this.agentData.writeRoutine(botId, routine.id);
-          }
-        }
         return routine;
+      }
       case "skill":
         return this.skill(botId, input);
       case "profile":
@@ -293,7 +287,11 @@ export class DurableStateService {
         dreamingEnabled: true,
       },
     });
-    await this.agentData.writeBotFiles(botId, ["settings"]);
+    await this.agentData.writeBotSettings(botId, {
+      notifyOnAgentUpdates: input.notify_on_updates,
+      hiddenFromSidebar: input.hidden_from_sidebar,
+      dreamingEnabled: input.dreaming_enabled,
+    });
     return {
       target: "settings",
       action: "set",
@@ -318,6 +316,7 @@ export class DurableStateService {
       create: { botId, platform, connected: false, disconnectedAt },
       update: { connected: false, disconnectedAt },
     });
+    await this.agentData.writeConnectorFile(botId, platform);
     return {
       target: "channel",
       action: "disconnect",
@@ -407,10 +406,7 @@ export class DurableStateService {
     }
     if (input.action !== "set") return stateError(input.target, input.action);
     const supplied = requiredText(input.path, "path", input.target, input.action);
-    if (!isAbsolute(supplied)) {
-      throw new ApiError(400, "avatar_path_invalid", "Avatar path must be absolute");
-    }
-    let saved;
+    let saved: { path: string | null; resolvedPath: string | null; bytes: number };
     try {
       saved = await this.agentData.setAvatarFromPath(botId, supplied);
     } catch (error) {

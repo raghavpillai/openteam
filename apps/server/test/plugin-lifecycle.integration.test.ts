@@ -89,7 +89,7 @@ test("plugin install, connection, grant, policy, discovery, call, and removal li
     const approval = await prisma.approval.findFirstOrThrow({
       where: { upstreamRequestId: "plugin:plugin-call-note-1" },
     });
-    const runs = new RunService(prisma, {} as never, async () => {
+    const runs = new RunService(prisma, async () => {
       throw new Error("Plugin approvals must not call the computer runtime");
     });
     expect(await Effect.runPromise(runs.resolveApproval(approval.id, "accept"))).toMatchObject({

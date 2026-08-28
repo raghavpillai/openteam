@@ -253,6 +253,7 @@ model Bot {
   hiddenFromSidebar Boolean     @default(false)
   dreamingEnabled     Boolean     @default(false)
   episodePending      Int         @default(0)
+  episodeTurns        Json        @default("[]")
   avatarPath       String?
   defaultDirectory String
   status           BotStatus    @default(provisioning)
@@ -288,6 +289,7 @@ model Bot {
   pluginToolPolicies PluginToolPolicy[]
   pluginActivities PluginActivity[]
   pluginInvocations PluginInvocation[]
+  contextSessions ContextSession[]
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt
 
@@ -334,10 +336,37 @@ model Subagent {
   stoppedAt        DateTime?
   createdAt        DateTime       @default(now())
   updatedAt        DateTime       @updatedAt
+  attempts         SubagentAttempt[]
 
   @@unique([parentBotId, launchCallId])
   @@index([parentBotId, status, createdAt])
   @@index([childBotId, status])
+}
+
+model SubagentAttempt {
+  id                String         @id @default(uuid()) @db.Uuid
+  subagentId        String         @db.Uuid
+  subagent          Subagent       @relation(fields: [subagentId], references: [id], onDelete: Cascade)
+  parentRunId       String         @db.Uuid
+  parentChannelId   String         @db.Uuid
+  parentToolCallId  String
+  childRunId        String?        @unique @db.Uuid
+  description       String
+  prompt            String
+  fileAttachments   Json           @default("[]")
+  runInBackground   Boolean        @default(true)
+  status            SubagentStatus @default(provisioning)
+  result            String?
+  error             Json?
+  startedAt         DateTime?
+  completedAt       DateTime?
+  stoppedAt         DateTime?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  @@unique([subagentId, parentToolCallId])
+  @@index([parentChannelId, createdAt])
+  @@index([subagentId, status, createdAt])
 }
 
 model MemoryFact {
@@ -557,6 +586,9 @@ model ChannelRound {
   channel        Channel            @relation(fields: [channelId], references: [id], onDelete: Cascade)
   triggerMessageId String           @unique @db.Uuid
   triggerMessage ChannelMessage     @relation("RoundTrigger", fields: [triggerMessageId], references: [id], onDelete: Cascade)
+  rootMessageId  String             @db.Uuid
+  roundIndex     Int                @default(0)
+  memberTurnOffset Int              @default(0)
   initiatorBotId String?            @db.Uuid
   initiatorBot   Bot?               @relation("ChannelRoundInitiator", fields: [initiatorBotId], references: [id], onDelete: SetNull)
   status         ChannelRoundStatus @default(queued)
@@ -567,6 +599,7 @@ model ChannelRound {
   updatedAt      DateTime           @updatedAt
 
   @@index([channelId, status, createdAt])
+  @@index([rootMessageId, roundIndex])
 }
 
 model ChannelDelivery {
@@ -602,6 +635,65 @@ model Conversation {
   inboxEvents    InboxEvent[]
   createdAt      DateTime               @default(now())
   updatedAt      DateTime               @updatedAt
+}
+
+model ContextSession {
+  id                 String              @id @default(uuid()) @db.Uuid
+  botId              String              @db.Uuid
+  bot                Bot                 @relation(fields: [botId], references: [id], onDelete: Cascade)
+  scope              String
+  scopeId            String              @db.Uuid
+  runtimeSessionId   String?             @unique
+  runtimeSessionPath String?             @unique
+  compactionEpoch    Int                 @default(0)
+  lastArchiveId      String?             @db.Uuid
+  compactions        ContextCompaction[]
+  promptSnapshot     ContextPromptSnapshot?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+
+  @@unique([botId, scope, scopeId])
+  @@index([botId, scope])
+}
+
+model ContextCompaction {
+  id               String         @id @db.Uuid
+  contextSessionId String         @db.Uuid
+  contextSession   ContextSession @relation(fields: [contextSessionId], references: [id], onDelete: Cascade)
+  sequence         Int
+  reason           String
+  prefixDigest     String
+  summaryDigest    String
+  status           String         @default("adopted")
+  tokensBefore     Int?
+  tokensAfter      Int?
+  imageCount       Int            @default(0)
+  turnCount        Int            @default(0)
+  startedAt        DateTime
+  completedAt      DateTime?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  @@unique([contextSessionId, sequence])
+  @@index([contextSessionId, status])
+}
+
+model ContextPromptSnapshot {
+  contextSessionId      String         @id @db.Uuid
+  contextSession        ContextSession @relation(fields: [contextSessionId], references: [id], onDelete: Cascade)
+  profileEpoch          Int            @default(-1)
+  profileSection        String         @default("")
+  systemName            String         @default("")
+  systemDescription     String         @default("")
+  announcedName         String         @default("")
+  announcedDescription  String         @default("")
+  memoryEpoch           Int            @default(-1)
+  memoryRender          String         @default("")
+  memoryHasFacts        Boolean        @default(false)
+  skillEpoch            Int            @default(-1)
+  skillRender           String         @default("")
+  createdAt              DateTime       @default(now())
+  updatedAt              DateTime       @updatedAt
 }
 
 model AgentPromptSnapshot {

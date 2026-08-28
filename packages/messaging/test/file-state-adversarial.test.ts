@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseAutomationFile, parseAutomationRuns } from "../src/automation-files";
@@ -82,7 +82,10 @@ test("automation parsing applies schedule fallback and validates incompatible gr
         prompt: "This must not load.",
         trigger: {
           type: "group",
-          listeners: [{ type: "origin" }, { type: "webhook" }],
+          listeners: [
+            { type: "origin", repo: "openbot/openbot", events: ["pr-opened"] },
+            { type: "webhook" },
+          ],
         },
       })
     );
@@ -105,12 +108,41 @@ test("routine run ledgers normalize unknown enums, order entries, and retain onl
   const parsed = parseAutomationRuns(JSON.stringify(input));
   expect(parsed).toHaveLength(20);
   expect(parsed.map((run) => run.startedAt)).toEqual(
-    Array.from({ length: 20 }, (_, index) => index + 6)
+    Array.from({ length: 20 }, (_, index) => 25 - index)
   );
   const normalized = parsed.find((run) => run.id === "run-0");
   expect(normalized).toMatchObject({
     trigger: "schedule",
     status: "ok",
-    extensionField: { retained: true },
   });
+  expect(normalized).not.toHaveProperty("extensionField");
+});
+
+test("routine run ledgers recover per row and clamp optional fields", () => {
+  expect(parseAutomationRuns("{ bad")).toEqual([]);
+  expect(parseAutomationRuns("{}")).toEqual([]);
+  const parsed = parseAutomationRuns(
+    JSON.stringify([
+      null,
+      { id: "", startedAt: 1 },
+      {
+        id: "good",
+        startedAt: 2,
+        finishedAt: "bad",
+        detail: `  ${"x".repeat(400)}  `,
+        event: ` ${"y".repeat(400)} `,
+        coalescedRunIds: Array.from({ length: 30 }, (_, index) => `id-${index}`),
+      },
+    ])
+  );
+  expect(parsed).toHaveLength(1);
+  expect(parsed[0]).toMatchObject({
+    id: "good",
+    trigger: "schedule",
+    status: "ok",
+    finishedAt: null,
+  });
+  expect(String(parsed[0]?.detail)).toHaveLength(300);
+  expect(String(parsed[0]?.event)).toHaveLength(300);
+  expect(parsed[0]?.coalescedRunIds).toHaveLength(25);
 });

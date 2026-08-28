@@ -17,6 +17,7 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
+  Clock3,
   Copy,
   CopyPlus,
   EyeOff,
@@ -35,14 +36,15 @@ import {
   Trash2,
   UserRound,
 } from "lucide-react";
+import { Collapsible } from "radix-ui";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
-import { Collapsible } from "radix-ui";
 import type {
   SidebarPreferencesController,
   SidebarSection,
 } from "../../hooks/use-sidebar-preferences";
 import { PINNED_GROUP_ID, UNASSIGNED_GROUP_ID } from "../../hooks/use-sidebar-preferences";
+import { channelMessageSummary } from "../../lib/channel-events";
 import { cn } from "../../lib/cn";
 import {
   COMPACT_SIDEBAR_WIDTH,
@@ -51,9 +53,9 @@ import {
   type SnappedSidebarResizeState,
 } from "../../lib/panel-resize";
 import {
+  type SidebarChannelRow as ChannelRowData,
   groupSidebarRows,
   reconcileSidebarRows,
-  type SidebarChannelRow as ChannelRowData,
 } from "../../lib/sidebar-rows";
 import {
   AlertDialog,
@@ -131,9 +133,12 @@ export type BotRowAction =
   | "editProfile"
   | "duplicate"
   | "copyConversationId"
+  | "showAsyncTasks"
   | "hide"
   | "retry"
   | "delete";
+
+const SHOW_INTERNAL_ASYNC_TASKS = import.meta.env.VITE_OPENBOT_INTERNAL_ASYNC_TASKS === "true";
 
 const sidebarSensors = [
   PointerSensor.configure({
@@ -185,15 +190,17 @@ function ChannelPreviewTooltipContent({
   row: ChannelRowData;
   botById: ReadonlyMap<string, BotView>;
 }) {
-  const { channel, latest, running } = row;
+  const { channel, hasActiveTask, latest, running } = row;
+  const needsAttention = running?.status === "waiting_approval";
+  const working = Boolean((running && !needsAttention) || hasActiveTask);
   const bot = channel.kind === "bot_dm" ? botById.get(channel.members[0]?.botId ?? "") : undefined;
-  const description = running
+  const description = working
     ? "Working…"
     : bot?.status === "provisioning"
       ? "Starting up…"
       : bot?.status === "failed"
         ? "Setup needs attention"
-        : latest?.content ||
+        : (latest ? channelMessageSummary(latest) : "") ||
           (channel.kind === "agent_dm" ? "Private bot exchange" : "No messages yet");
 
   return (
@@ -382,6 +389,11 @@ function BotContextMenu({
       <ContextMenuItem onSelect={() => onBotAction(bot, "copyConversationId")}>
         <Copy className="size-4" /> Copy conversation ID
       </ContextMenuItem>
+      {SHOW_INTERNAL_ASYNC_TASKS && (
+        <ContextMenuItem onSelect={() => onBotAction(bot, "showAsyncTasks")}>
+          <Clock3 className="size-4" /> Show async tasks
+        </ContextMenuItem>
+      )}
       <ContextMenuSeparator />
       <ContextMenuItem onSelect={() => onBotAction(bot, "hide")}>
         <EyeOff className="size-4" /> Hide from sidebar
@@ -444,18 +456,22 @@ const ChannelRow = memo(function ChannelRow({
   onMoveToSection: (channelId: string, sectionId: string | null) => void;
   dragHandleRef?: (element: HTMLButtonElement | null) => void;
 }) {
-  const { channel, latest, running } = row;
+  const { channel, hasActiveTask, latest, running } = row;
+  const needsAttention = running?.status === "waiting_approval";
+  const working = Boolean((running && !needsAttention) || hasActiveTask);
   const author = latest?.senderBotId ? botById.get(latest.senderBotId)?.name : null;
   const bot = channel.kind === "bot_dm" ? botById.get(channel.members[0]?.botId ?? "") : undefined;
   const onboardingInProgress = Boolean(
     bot && ["pending", "queued", "running"].includes(bot.onboardingStatus)
   );
   const latestPreview = latest
-    ? `${author && channel.kind !== "bot_dm" ? `${author}: ` : ""}${latest.content}`
+    ? `${author && channel.kind !== "bot_dm" ? `${author}: ` : ""}${channelMessageSummary(latest)}`
     : "";
   const preview = onboardingInProgress
     ? latestPreview
-    : running
+    : needsAttention
+      ? "Needs your input"
+      : working
       ? "Working…"
       : bot?.status === "provisioning"
         ? "Starting up…"
@@ -475,7 +491,7 @@ const ChannelRow = memo(function ChannelRow({
       variant="ghost"
     >
       <ChannelAvatar botById={botById} channel={channel} />
-      <span className="min-w-0 flex-1">
+      <span className="min-w-0 flex-1 -translate-y-[0.5px]">
         <span className="flex items-center gap-2">
           <span
             className={cn(
@@ -491,22 +507,39 @@ const ChannelRow = memo(function ChannelRow({
           <span
             className={cn(
               "shrink-0 text-[12px] font-normal tabular-nums",
-              unread ? "text-blue-500" : "text-foreground-secondary"
+              needsAttention
+                ? "text-amber-500"
+                : unread
+                ? "text-blue-500"
+                : selected
+                  ? "text-foreground-secondary dark:text-[#ababab]"
+                  : "text-foreground-secondary dark:text-foreground-tertiary"
             )}
           >
             {timeLabel(latest?.createdAt ?? channel.createdAt)}
           </span>
         </span>
         <span className="mt-px flex min-w-0 items-center gap-1.5">
-          {unread && (
+          {needsAttention ? (
+            <span
+              aria-label="Needs your input"
+              className="size-1.5 shrink-0 rounded-full bg-amber-500"
+              role="img"
+            />
+          ) : unread ? (
             <span
               aria-label="Unread"
               className="size-1.5 shrink-0 rounded-full bg-blue-600"
               role="img"
             />
-          )}
+          ) : null}
           {preview && (
-            <span className="block min-w-0 truncate text-[13px] font-normal leading-4 text-foreground-secondary">
+            <span
+              className={cn(
+                "block min-w-0 truncate text-[13px] font-normal leading-4 text-foreground-secondary",
+                selected && "dark:text-[#ababab]"
+              )}
+            >
               {preview}
             </span>
           )}
@@ -584,6 +617,7 @@ function DraggablePinnedTile({
   onMoveToSection: (channelId: string, sectionId: string | null) => void;
 }) {
   const { channel } = row;
+  const needsAttention = row.running?.status === "waiting_approval";
   const bot = channel.kind === "bot_dm" ? botById.get(channel.members[0]?.botId ?? "") : undefined;
   const { ref, handleRef, isDragging } = useDraggable({
     id: `channel:${channel.id}`,
@@ -610,9 +644,11 @@ function DraggablePinnedTile({
         </span>
       )}
       <span className="mt-0.5 flex w-full min-w-0 items-center justify-center gap-1 px-1 text-[12px]">
-        {unread && (
+        {needsAttention ? (
+          <span aria-label="Needs your input" className="size-1.5 shrink-0 rounded-full bg-amber-500" />
+        ) : unread ? (
           <span aria-label="Unread" className="size-1.5 shrink-0 rounded-full bg-blue-600" />
-        )}
+        ) : null}
         <span className="truncate">{channel.name}</span>
       </span>
     </Button>
@@ -778,9 +814,20 @@ function SectionDisclosure({ collapsed, count }: { collapsed: boolean; count: nu
   );
 }
 
-function SidebarCollapsibleContent({ children }: { children: React.ReactNode }) {
+function SidebarCollapsibleContent({
+  children,
+  className,
+}: {
+  children: React.ReactNode;
+  className?: string;
+}) {
   return (
-    <Collapsible.Content className="overflow-hidden data-[state=closed]:animate-[sidebar-collapsible-close_170ms_cubic-bezier(0.4,0,0.2,1)] data-[state=open]:animate-[sidebar-collapsible-open_170ms_cubic-bezier(0.4,0,0.2,1)] motion-reduce:animate-none">
+    <Collapsible.Content
+      className={cn(
+        "overflow-hidden data-[state=closed]:animate-[sidebar-collapsible-close_170ms_cubic-bezier(0.4,0,0.2,1)] data-[state=open]:animate-[sidebar-collapsible-open_170ms_cubic-bezier(0.4,0,0.2,1)] motion-reduce:animate-none",
+        className
+      )}
+    >
       {children}
     </Collapsible.Content>
   );
@@ -851,7 +898,7 @@ function SectionGroup({
               <Input
                 aria-label="Section name"
                 autoFocus
-                className="h-[30px] flex-1 -translate-y-[1.5px] rounded-none border-0 bg-transparent p-0 text-[12px] font-normal text-foreground-tertiary shadow-none selection:bg-[#afd3f5] selection:text-foreground-tertiary focus-visible:border-transparent focus-visible:ring-0"
+                className="h-[30px] flex-1 -translate-y-[1.5px] rounded-none border-0 bg-transparent p-0 text-[12px] font-normal text-foreground-tertiary shadow-none selection:bg-[#afd3f5] selection:text-foreground-tertiary focus-visible:border-transparent focus-visible:ring-0 dark:text-foreground-secondary"
                 maxLength={48}
                 onBlur={() => onFinishEditing(true)}
                 onChange={(event) => onDraftChange(event.target.value)}
@@ -869,7 +916,7 @@ function SectionGroup({
               <ContextMenuTrigger asChild>
                 <Collapsible.Trigger asChild>
                   <button
-                    className="group flex h-[30px] w-full touch-none items-center rounded-md px-2 text-[12px] font-normal text-foreground-tertiary outline-none transition-colors duration-[170ms] ease-out hover:bg-foreground/[0.045] focus-visible:ring-2 focus-visible:ring-ring/30 motion-reduce:transition-none dark:hover:bg-hover"
+                    className="group flex h-[30px] w-full touch-none items-center rounded-md px-2 text-[12px] font-normal text-foreground-tertiary outline-none transition-colors duration-[170ms] ease-out hover:bg-foreground/[0.045] focus-visible:ring-2 focus-visible:ring-ring/30 motion-reduce:transition-none dark:text-foreground-secondary dark:hover:bg-hover"
                     data-section-id={section.id}
                     ref={ref}
                     type="button"
@@ -905,7 +952,7 @@ function SectionGroup({
             </ContextMenu>
           )}
         </div>
-        <SidebarCollapsibleContent>
+        <SidebarCollapsibleContent className="pt-px">
           <div>
             {rows.length > 0 ? (
               rows.map((row, index) => renderRow(row, index, section.id))
@@ -938,6 +985,7 @@ function CompactChannelTile({
   onSelect: (id: string) => void;
 }) {
   const { channel } = row;
+  const needsAttention = row.running?.status === "waiting_approval";
 
   return (
     <Tooltip>
@@ -954,10 +1002,13 @@ function CompactChannelTile({
           variant="ghost"
         >
           <ChannelAvatar botById={botById} channel={channel} />
-          {unread && (
+          {(needsAttention || unread) && (
             <span
-              aria-label="Unread"
-              className="absolute bottom-[7px] right-[7px] size-2 rounded-full border-2 border-sidebar bg-blue-600"
+              aria-label={needsAttention ? "Needs your input" : "Unread"}
+              className={cn(
+                "absolute bottom-[7px] right-[7px] size-2 rounded-full border-2 border-sidebar",
+                needsAttention ? "bg-amber-500" : "bg-blue-600"
+              )}
             />
           )}
         </Button>
@@ -1087,6 +1138,7 @@ export const Sidebar = memo(function Sidebar({
   botById,
   latestMessageByChannel,
   activeRunByChannel,
+  activeTaskChannelIds,
   selectedId,
   creating,
   onSearch,
@@ -1104,6 +1156,7 @@ export const Sidebar = memo(function Sidebar({
   botById: ReadonlyMap<string, BotView>;
   latestMessageByChannel: ReadonlyMap<string, ChannelMessageView>;
   activeRunByChannel: ReadonlyMap<string, RunView>;
+  activeTaskChannelIds: ReadonlySet<string>;
   selectedId: string | null;
   creating?: boolean;
   onSearch: () => void;
@@ -1154,11 +1207,12 @@ export const Sidebar = memo(function Sidebar({
       rowCacheRef.current,
       channels,
       latestMessageByChannel,
-      activeRunByChannel
+      activeRunByChannel,
+      activeTaskChannelIds
     );
     rowCacheRef.current = reconciled.rowByChannelId;
     return reconciled;
-  }, [activeRunByChannel, channels, latestMessageByChannel]);
+  }, [activeRunByChannel, activeTaskChannelIds, channels, latestMessageByChannel]);
 
   const groups = useMemo(
     () =>
@@ -1418,7 +1472,7 @@ export const Sidebar = memo(function Sidebar({
                   <DropdownMenuTrigger asChild>
                     <Button
                       aria-label="New Bot or Channel"
-                      className="electron-no-drag size-7 rounded-[7px] text-foreground-tertiary hover:bg-subtle hover:text-foreground data-[state=open]:bg-subtle data-[state=open]:text-foreground focus-visible:ring-0"
+                      className="electron-no-drag size-7 rounded-[7px] text-foreground-tertiary hover:bg-subtle hover:text-foreground data-[state=open]:bg-subtle data-[state=open]:text-foreground focus-visible:ring-0 dark:text-foreground-secondary"
                       size="icon-sm"
                       variant="ghost"
                     >
@@ -1672,7 +1726,7 @@ export const Sidebar = memo(function Sidebar({
                   {preferences.sections.length > 0 && (
                     <Collapsible.Trigger asChild>
                       <button
-                        className="group flex h-[30px] w-full items-center rounded-md px-2 text-[12px] font-normal text-foreground-tertiary outline-none transition-colors duration-[170ms] ease-out hover:bg-foreground/[0.045] focus-visible:ring-2 focus-visible:ring-ring/30 motion-reduce:transition-none dark:hover:bg-hover"
+                        className="group flex h-[30px] w-full items-center rounded-md px-2 text-[12px] font-normal text-foreground-tertiary outline-none transition-colors duration-[170ms] ease-out hover:bg-foreground/[0.045] focus-visible:ring-2 focus-visible:ring-ring/30 motion-reduce:transition-none dark:text-foreground-secondary dark:hover:bg-hover"
                         type="button"
                       >
                         <span className="min-w-0 flex-1 -translate-y-[1.5px] truncate text-left">
@@ -1685,7 +1739,9 @@ export const Sidebar = memo(function Sidebar({
                       </button>
                     </Collapsible.Trigger>
                   )}
-                  <SidebarCollapsibleContent>
+                  <SidebarCollapsibleContent
+                    className={preferences.sections.length > 0 ? "pt-px" : undefined}
+                  >
                     {groups.unassigned.map((row, index) =>
                       renderRow(row, index, UNASSIGNED_GROUP_ID)
                     )}
@@ -1812,7 +1868,7 @@ export const Sidebar = memo(function Sidebar({
       >
         <span
           className={cn(
-            "absolute inset-y-0 right-0 w-px bg-divider transition-colors duration-150 ease-out group-hover:bg-divider-hover group-focus-visible:bg-divider-hover motion-reduce:transition-none",
+            "absolute inset-y-0 right-0 w-[0.5px] bg-divider transition-colors duration-150 ease-out group-hover:bg-divider-hover group-focus-visible:bg-divider-hover motion-reduce:transition-none",
             sidebarResizing && "!bg-divider-active"
           )}
         />

@@ -12,9 +12,11 @@ import type {
   ScreenStatusView,
   SearchCategory,
   SearchResponse,
-  UpdateBotInput,
+  SetChannelMembersInput,
   SetPluginToolPolicyInput,
+  UpdateBotInput,
 } from "@openbot/contracts";
+import type { RoutineExecutionView, RoutineView } from "../lib/routines";
 import { API_BASE, request } from "./http";
 
 const localTimeZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
@@ -98,16 +100,90 @@ export const api = {
   archiveBot: (botId: string) => request(`/api/v0/bots/${botId}`, { method: "DELETE" }),
   retryBot: (botId: string) => request<BotView>(`/api/v0/bots/${botId}/retry`, { method: "POST" }),
   botTranscript: (botId: string) => request<BotTranscriptView>(`/api/v0/bots/${botId}/transcript`),
+  routines: (botId: string) => request<RoutineView[]>(`/api/v0/bots/${botId}/routines`),
+  routine: (routineId: string) => request<RoutineView>(`/api/v0/routines/${routineId}`),
+  createRoutine: (
+    botId: string,
+    input: {
+      name: string;
+      prompt: string;
+      schedule?: string;
+      trigger?: unknown;
+      presentation?: unknown;
+      enabled: boolean;
+    }
+  ) =>
+    request<RoutineView>(`/api/v0/bots/${botId}/routines`, {
+      method: "POST",
+      body: JSON.stringify({ ...input, clientId: crypto.randomUUID() }),
+    }),
+  updateRoutine: (
+    routineId: string,
+    input: {
+      name?: string;
+      prompt?: string;
+      schedule?: string;
+      trigger?: unknown;
+      presentation?: unknown;
+      enabled?: boolean;
+      expectedRevision: number;
+    }
+  ) =>
+    request<RoutineView>(`/api/v0/routines/${routineId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ ...input, clientId: crypto.randomUUID() }),
+    }),
+  setRoutineEnabled: (routine: RoutineView, enabled: boolean) =>
+    request<RoutineView>(`/api/v0/routines/${routine.id}/${enabled ? "resume" : "pause"}`, {
+      method: "POST",
+      body: JSON.stringify({
+        expectedRevision: routine.revision,
+        clientId: crypto.randomUUID(),
+      }),
+    }),
+  deleteRoutine: (routine: RoutineView) =>
+    request(`/api/v0/routines/${routine.id}`, {
+      method: "DELETE",
+      body: JSON.stringify({
+        expectedRevision: routine.revision,
+        clientId: crypto.randomUUID(),
+      }),
+    }),
+  runRoutineNow: (routineId: string) =>
+    request<RoutineExecutionView>(`/api/v0/routines/${routineId}/test`, {
+      method: "POST",
+      body: JSON.stringify({ clientId: crypto.randomUUID() }),
+    }),
+  routineExecutions: (routineId: string) =>
+    request<RoutineExecutionView[]>(`/api/v0/routines/${routineId}/executions?limit=20`),
   createGroup: (input: CreateGroupInput) =>
     request<ChannelView>("/api/v0/channels", {
       method: "POST",
       body: JSON.stringify(input),
     }),
+  renameChannel: (channelId: string, name: string) =>
+    request<ChannelView>(`/api/v0/channels/${channelId}/name`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        name,
+        clientId: crypto.randomUUID(),
+        timeZone: localTimeZone(),
+      }),
+    }),
+  setChannelMembers: (channelId: string, botIds: string[]) =>
+    request<ChannelView>(`/api/v0/channels/${channelId}/members`, {
+      method: "PUT",
+      body: JSON.stringify({
+        botIds,
+        clientId: crypto.randomUUID(),
+      } satisfies SetChannelMembersInput),
+    }),
   sendMessage: (
     conversationId: string,
     content: string,
     images: readonly InlineImageInput[],
-    replyToMessageId?: string
+    replyToMessageId?: string,
+    options?: { richText?: string; isFork?: boolean }
   ) =>
     request(`/api/v0/conversations/${conversationId}/messages`, {
       method: "POST",
@@ -115,6 +191,7 @@ export const api = {
         content,
         images,
         replyToMessageId,
+        ...options,
         clientId: crypto.randomUUID(),
         timeZone: localTimeZone(),
       }),
@@ -123,7 +200,8 @@ export const api = {
     channelId: string,
     content: string,
     images: readonly InlineImageInput[],
-    replyToMessageId?: string
+    replyToMessageId?: string,
+    options?: { richText?: string; isFork?: boolean }
   ) =>
     request(`/api/v0/channels/${channelId}/messages`, {
       method: "POST",
@@ -131,6 +209,7 @@ export const api = {
         content,
         images,
         replyToMessageId,
+        ...options,
         clientId: crypto.randomUUID(),
         timeZone: localTimeZone(),
       }),
@@ -143,10 +222,6 @@ export const api = {
         clientId: crypto.randomUUID(),
         timeZone: localTimeZone(),
       }),
-    }),
-  compact: (conversationId: string) =>
-    request(`/api/v0/conversations/${conversationId}/compact`, {
-      method: "POST",
     }),
   cancelRun: (runId: string) => request(`/api/v0/runs/${runId}/cancel`, { method: "POST" }),
   resolveApproval: (approvalId: string, decision: ApprovalDecision) =>

@@ -1,13 +1,11 @@
 import { ApiError } from "@openbot/contracts";
-import { type ApprovalStatus, type PrismaClient } from "@openbot/db";
-import type { AgentMessaging } from "@openbot/messaging";
+import type { ApprovalStatus, PrismaClient } from "@openbot/db";
 import { Effect } from "effect";
 import { appendEvent, type ComputerFetch, toError } from "./service-utils";
 
 export class RunService {
   constructor(
     private readonly prisma: PrismaClient,
-    private readonly messaging: AgentMessaging,
     private readonly computerFetch: ComputerFetch
   ) {}
 
@@ -40,6 +38,7 @@ export class RunService {
             });
             await appendEvent(tx, "run.cancelled", runId, { runId, beforeExecution: true });
           });
+          await this.stopForegroundChildren(runId);
           return { ok: true, status: "cancelled" };
         }
         const response = await this.computerFetch(`/v1/turns/${runId}/cancel`, { method: "POST" });
@@ -48,10 +47,96 @@ export class RunService {
           await tx.run.update({ where: { id: runId }, data: { status: "cancelled" } });
           await appendEvent(tx, "run.cancel_requested", runId, { runId });
         });
+        await this.stopForegroundChildren(runId);
         return { ok: true, status: "cancelled" };
       },
       catch: toError,
     });
+
+  private async stopForegroundChildren(parentRunId: string): Promise<void> {
+    const children = await this.prisma.subagentAttempt.findMany({
+      where: {
+        parentRunId,
+        runInBackground: false,
+        status: { in: ["provisioning", "queued", "running"] },
+      },
+      select: {
+        id: true,
+        childRunId: true,
+        subagent: { select: { id: true, currentRunId: true } },
+      },
+    });
+    if (children.length === 0) return;
+    const stoppedAt = new Date();
+    await this.prisma.$transaction(async (tx) => {
+      for (const child of children) {
+        await tx.subagentAttempt.updateMany({
+          where: {
+            id: child.id,
+            status: { in: ["provisioning", "queued", "running"] },
+          },
+          data: { status: "stopped", stoppedAt, completedAt: stoppedAt },
+        });
+        await tx.subagent.updateMany({
+          where: {
+            id: child.subagent.id,
+            currentRunId: child.childRunId,
+            status: { in: ["provisioning", "queued", "running"] },
+          },
+          data: { status: "stopped", stoppedAt, completedAt: stoppedAt },
+        });
+        if (child.childRunId) {
+          await tx.run.updateMany({
+            where: {
+              id: child.childRunId,
+              status: { in: ["queued", "running", "waiting_approval"] },
+            },
+            data: {
+              status: "cancelled",
+              completedAt: stoppedAt,
+              error: {
+                code: "parent_turn_cancelled",
+                message: "The foreground parent turn was stopped",
+              },
+            },
+          });
+          await tx.inboxEvent.updateMany({
+            where: {
+              runId: child.childRunId,
+              status: { in: ["pending", "processing"] },
+            },
+            data: {
+              status: "completed",
+              completedAt: stoppedAt,
+              error: { code: "parent_turn_cancelled" },
+            },
+          });
+          await tx.approval.updateMany({
+            where: { runId: child.childRunId, status: "pending" },
+            data: { status: "expired", resolvedAt: stoppedAt },
+          });
+        }
+        await appendEvent(tx, "subagent.stopped", child.subagent.id, {
+          subagentId: child.subagent.id,
+          attemptId: child.id,
+          parentRunId,
+          runId: child.childRunId,
+          reason: "parent_turn_cancelled",
+        });
+      }
+    });
+    await Promise.all(
+      children.flatMap((child) =>
+        child.childRunId
+          ? [
+              this.computerFetch(`/v1/turns/${child.childRunId}/cancel`, {
+                method: "POST",
+              }).catch(() => undefined),
+            ]
+          : []
+      )
+    );
+  }
 
   resolveApproval = (approvalId: string, decision: "accept" | "decline" | "cancel") =>
     Effect.tryPromise({
@@ -121,6 +206,17 @@ export class RunService {
           body: JSON.stringify({ approvalId: approval.upstreamRequestId, decision }),
         });
         if (!response.ok) {
+          const resolvedAt = new Date();
+          await this.prisma.$transaction(async (tx) => {
+            await tx.approval.updateMany({
+              where: { id: approvalId, status: "pending" },
+              data: { status: "expired", resolvedAt },
+            });
+            await appendEvent(tx, "approval.stale", approvalId, {
+              approvalId,
+              runId: approval.runId,
+            });
+          });
           throw new ApiError(
             409,
             "approval_expired",
@@ -142,32 +238,6 @@ export class RunService {
           });
         });
         return { ok: true, status };
-      },
-      catch: toError,
-    });
-
-  compactConversation = (conversationId: string) =>
-    Effect.tryPromise({
-      try: async () => {
-        const conversation = await this.prisma.conversation.findUnique({
-          where: { id: conversationId },
-          include: { bot: true },
-        });
-        if (!conversation?.bot.runtimeSessionPath) {
-          throw new ApiError(409, "session_not_attached", "This bot has no Pi session yet");
-        }
-        const instructions = await this.messaging.platformInstructions(conversation.botId);
-        const response = await this.computerFetch("/v1/compact", {
-          method: "POST",
-          body: JSON.stringify({
-            botId: conversation.botId,
-            sessionPath: conversation.bot.runtimeSessionPath,
-            cwd: conversation.bot.defaultDirectory,
-            instructions,
-          }),
-        });
-        if (!response.ok) throw new ApiError(503, "computer_unavailable", await response.text());
-        return { ok: true };
       },
       catch: toError,
     });

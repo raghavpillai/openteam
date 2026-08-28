@@ -2,6 +2,8 @@ import { resolve } from "node:path";
 import type { ClientSnapshot, Snapshot } from "@openbot/contracts";
 import type { PrismaClient } from "@openbot/db";
 import { Effect } from "effect";
+import { approvalViews } from "./approval-view";
+import { subagentActivityView } from "./subagent-view";
 import { serialize, toBotView } from "./view-mappers";
 
 const COMPUTER_ID = "00000000-0000-0000-0000-000000000001";
@@ -29,6 +31,7 @@ export class SnapshotService {
           runs,
           runItems,
           approvals,
+          subagentAttempts,
           cursor,
           runtime,
         ] = await Promise.all([
@@ -50,6 +53,12 @@ export class SnapshotService {
           this.prisma.run.findMany({ orderBy: { createdAt: "asc" } }),
           this.prisma.runItem.findMany({ orderBy: { createdAt: "asc" } }),
           this.prisma.approval.findMany({ orderBy: { createdAt: "asc" } }),
+          this.prisma.subagentAttempt.findMany({
+            include: {
+              subagent: { select: { id: true, parentBotId: true, subagentType: true } },
+            },
+            orderBy: { createdAt: "asc" },
+          }),
           this.prisma.event.findFirst({
             orderBy: { sequence: "desc" },
             select: { sequence: true },
@@ -79,10 +88,8 @@ export class SnapshotService {
             createdAt: item.createdAt.toISOString(),
             updatedAt: item.updatedAt.toISOString(),
           })),
-          approvals: approvals.map((approval) => ({
-            ...approval,
-            createdAt: approval.createdAt.toISOString(),
-          })),
+          approvals: approvalViews(approvals, runs, subagentAttempts),
+          subagents: subagentAttempts.map(subagentActivityView),
           runtime,
         });
       },
@@ -127,7 +134,7 @@ export class SnapshotService {
           this.runtimeStatusCached(),
         ]);
         const channelIds = channels.map((channel) => channel.id);
-        const [channelMessages, channelRounds, runs] = await Promise.all([
+        const [channelMessages, channelRounds, runs, subagentAttempts] = await Promise.all([
           this.prisma.channelMessage.findMany({
             where: { channelId: { in: channelIds } },
             orderBy: { sequence: "asc" },
@@ -140,15 +147,28 @@ export class SnapshotService {
             where: { channelId: { in: channelIds } },
             orderBy: { createdAt: "asc" },
           }),
+          this.prisma.subagentAttempt.findMany({
+            where: { parentChannelId: { in: channelIds } },
+            include: {
+              subagent: { select: { id: true, parentBotId: true, subagentType: true } },
+            },
+            orderBy: { createdAt: "asc" },
+          }),
         ]);
         const runIds = runs.map((run) => run.id);
+        const approvalRunIds = [
+          ...runIds,
+          ...subagentAttempts.flatMap((attempt) =>
+            attempt.childRunId ? [attempt.childRunId] : []
+          ),
+        ];
         const [runItems, approvals] = await Promise.all([
           this.prisma.runItem.findMany({
             where: { runId: { in: runIds }, kind: { notIn: ["agent_message", "reasoning"] } },
             orderBy: { createdAt: "asc" },
           }),
           this.prisma.approval.findMany({
-            where: { runId: { in: runIds } },
+            where: { runId: { in: approvalRunIds } },
             orderBy: { createdAt: "asc" },
           }),
         ]);
@@ -170,10 +190,8 @@ export class SnapshotService {
             createdAt: item.createdAt.toISOString(),
             updatedAt: item.updatedAt.toISOString(),
           })),
-          approvals: approvals.map((approval) => ({
-            ...approval,
-            createdAt: approval.createdAt.toISOString(),
-          })),
+          approvals: approvalViews(approvals, runs, subagentAttempts),
+          subagents: subagentAttempts.map(subagentActivityView),
           runtime,
         });
       },
@@ -265,6 +283,9 @@ export class SnapshotService {
       id: string;
       channelId: string;
       triggerMessageId: string;
+      rootMessageId: string;
+      roundIndex: number;
+      memberTurnOffset: number;
       initiatorBotId: string | null;
       status: string;
       currentOrdinal: number;
@@ -276,6 +297,9 @@ export class SnapshotService {
       id: round.id,
       channelId: round.channelId,
       triggerMessageId: round.triggerMessageId,
+      rootMessageId: round.rootMessageId,
+      roundIndex: round.roundIndex,
+      memberTurnOffset: round.memberTurnOffset,
       initiatorBotId: round.initiatorBotId,
       status: round.status as Snapshot["channelRounds"][number]["status"],
       currentOrdinal: round.currentOrdinal,

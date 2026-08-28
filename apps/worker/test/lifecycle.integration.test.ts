@@ -16,6 +16,7 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
   interface TurnInput {
     runId: string;
     botId: string;
+    contextSessionId: string;
     conversationId: string;
     sessionPath: string | null;
     content: string;
@@ -23,6 +24,8 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
     channelId: string;
     deliveryId: string | null;
     instructions: string;
+    userInfo?: string | null;
+    userInfoEpoch?: number;
     cwd: string;
   }
   interface SteerInput {
@@ -32,13 +35,16 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
     images?: Array<{ url: string }>;
   }
   const seenTurns: TurnInput[] = [];
+  const preflightContexts: string[] = [];
   const seenSteers: Array<SteerInput & { runId: string }> = [];
   const deliveredSteers = new Map<string, SteerInput[]>();
   const releaseTurn = new Map<string, () => void>();
   let steerDisposition: "deliver" | "drop" = "deliver";
   let turnNumber = 0;
   let onTurn: (input: TurnInput) => Promise<void> = async () => {};
-  const inlineImage = { url: "data:image/png;base64,AQID" };
+  const inlineImage = {
+    url: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+  };
   const turnBody = (content: string) => {
     const body =
       content.match(
@@ -88,12 +94,23 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
       if (request.method === "POST" && /^\/v1\/turns\/[^/]+\/cancel$/.test(url.pathname)) {
         return Response.json({ ok: true });
       }
+      const contextStateMatch = url.pathname.match(/^\/v1\/context-sessions\/([^/]+)$/);
+      if (request.method === "GET" && contextStateMatch?.[1]) {
+        preflightContexts.push(contextStateMatch[1]);
+        return Response.json({
+          type: "context.state",
+          contextSessionId: contextStateMatch[1],
+          epoch: 0,
+          archives: [],
+        });
+      }
       if (request.method === "POST" && url.pathname === "/v1/turns") {
         const input = (await request.json()) as TurnInput;
         seenTurns.push(input);
         await onTurn(input);
         turnNumber += 1;
-        const sessionPath = input.sessionPath ?? `/var/lib/openbot/pi/${input.botId}.jsonl`;
+        const sessionPath =
+          input.sessionPath ?? `/var/lib/openbot/pi/${input.contextSessionId}.jsonl`;
         const turnId = `turn-${turnNumber}`;
         const itemId = `agent-${turnNumber}`;
         const text = `durable answer ${turnNumber}`;
@@ -101,9 +118,16 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
           {
             type: "session.attached",
             provider: "pi",
+            contextSessionId: input.contextSessionId,
             sessionPath,
-            sessionId: input.botId,
+            sessionId: input.contextSessionId,
             model: "openai-codex/fake",
+          },
+          {
+            type: "context.state",
+            contextSessionId: input.contextSessionId,
+            epoch: 0,
+            archives: [],
           },
           { type: "turn.started", turnId },
           ...(deliveredSteers.get(input.runId) ?? []).map((steer) => ({
@@ -239,14 +263,15 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
       1
     );
     expect(seenTurns.map((turn) => turn.sessionPath)).toEqual([null]);
+    const firstSeenTurn = seenTurns[0];
+    if (!firstSeenTurn) throw new Error("Expected the first computer turn");
+    expect(preflightContexts).toEqual([firstSeenTurn.contextSessionId]);
     expect(seenTurns[0]?.cwd).toBe(bot.defaultDirectory);
     expect(seenTurns[0]?.images).toEqual([inlineImage]);
     expect(seenTurns[0]?.content).toMatch(
       /^<timestamp>.+ \(UTC\+3\)<\/timestamp>\n<user_query>\n\[t\d+u\] first\n<\/user_query>/
     );
-    expect(seenTurns[0]?.content).toContain(
-      "Attached files available on the shared computer:"
-    );
+    expect(seenTurns[0]?.content).toContain("Attached files available on the shared computer:");
     expect(seenTurns[0]?.content).toContain(
       join(
         workspace,
@@ -298,8 +323,9 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
     const secondSnapshot = await waitFor(second.run.id);
     expect(seenTurns.map((turn) => turn.sessionPath)).toEqual([
       null,
-      `/var/lib/openbot/pi/${bot.id}.jsonl`,
+      `/var/lib/openbot/pi/${firstSeenTurn.contextSessionId}.jsonl`,
     ]);
+    expect(preflightContexts).toEqual(seenTurns.map((turn) => turn.contextSessionId));
     expect(seenTurns[1]?.cwd).toBe(bot.defaultDirectory);
     expect(secondSnapshot.messages.filter((message) => message.role === "assistant")).toHaveLength(
       2
@@ -421,7 +447,7 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
             conversationId: input.conversationId,
             channelId: input.channelId,
             deliveryId: input.deliveryId,
-            tool: "SendMessage",
+            tool: "SendToUser",
             arguments: { type: "text", content: `Hello from ${input.botId}.` },
             callId: `bootstrap-visible-${input.botId}`,
           })
@@ -443,16 +469,18 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
         } as const;
         await Effect.runPromise(app!.handleDynamicTool(request));
         const duplicate = await Effect.runPromise(app!.handleDynamicTool(request));
-        expect(duplicate).toMatchObject({ delivered: true, duplicate: true });
+        expect(duplicate).toBe(
+          "Sent to Peer. This is asynchronous — if they reply, it'll arrive later as a new message that wakes you; don't wait on it now."
+        );
         await Effect.runPromise(
           app!.handleDynamicTool({
             ...request,
-            tool: "SendMessage",
+            tool: "SendToUser",
             arguments: { type: "text", content: "Peer was notified." },
             callId: "direct-visible-source",
           })
         );
-      } else if (input.botId === peerId && input.content.includes("[Direct message from")) {
+      } else if (input.botId === peerId && input.content.includes("[agent]")) {
         await Effect.runPromise(
           app!.handleDynamicTool({
             runId: input.runId,
@@ -460,10 +488,10 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
             conversationId: input.conversationId,
             channelId: input.channelId,
             deliveryId: input.deliveryId,
-            tool: "SendMessage",
+            tool: "SendToAgent",
             arguments: {
-              type: "text",
-              content: "Verified. The handoff works.",
+              target_id: bot.id,
+              message: "Verified. The handoff works.",
             },
             callId: "direct-visible-reply",
           })
@@ -532,22 +560,45 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
     }, "agent DM wakes");
 
     const directSnapshot = await Effect.runPromise(app.snapshot());
-    const directChannel = directSnapshot.channels.find((channel) => channel.kind === "agent_dm");
-    expect(directChannel?.members.map((member) => member.botId).sort()).toEqual(
-      [bot.id, peer.id].sort()
+    expect(directSnapshot.channels.some((channel) => channel.kind === "agent_dm")).toBe(false);
+    const directClientSnapshot = await Effect.runPromise(app.clientSnapshot());
+    expect(directClientSnapshot.channels.some((channel) => channel.kind === "agent_dm")).toBe(
+      false
     );
-    const directMessages = directSnapshot.channelMessages.filter(
-      (message) => message.channelId === directChannel?.id
-    );
-    expect(directMessages.map((message) => message.content)).toEqual([
-      "Please verify this handoff.",
-      "Verified. The handoff works.",
-    ]);
     expect(
       directSnapshot.channelMessages
         .filter((message) => message.channelId === bot.dmChannelId && message.sender === "agent")
-        .at(-1)?.content
-    ).toBe("Peer was notified.");
+        .some((message) => message.content === "Peer was notified.")
+    ).toBe(true);
+    const sourceA2A = directSnapshot.channelMessages.filter(
+      (message) =>
+        message.channelId === bot.dmChannelId &&
+        message.metadata &&
+        typeof message.metadata === "object" &&
+        ("toAgent" in message.metadata || "fromAgent" in message.metadata)
+    );
+    expect(sourceA2A.map((message) => message.content)).toEqual([
+      "Please verify this handoff.",
+      "Verified. The handoff works.",
+    ]);
+    expect(sourceA2A[0]?.metadata).toEqual({
+      toAgent: { id: peer.id, name: "Peer", kind: "agent" },
+    });
+    expect(sourceA2A[1]?.metadata).toEqual({
+      fromAgent: { id: peer.id, name: "Peer" },
+    });
+    const peerA2A = directSnapshot.channelMessages.filter(
+      (message) =>
+        message.channelId === peer.dmChannelId &&
+        message.metadata &&
+        typeof message.metadata === "object" &&
+        ("toAgent" in message.metadata || "fromAgent" in message.metadata)
+    );
+    expect(peerA2A).toHaveLength(2);
+    expect(peerA2A.map((message) => message.sender)).toEqual(["user", "agent"]);
+    expect(peerA2A[0]?.metadata).toEqual({
+      fromAgent: { id: bot.id, name: bot.name },
+    });
     expect(
       directSnapshot.messages
         .filter((message) => message.conversationId === peer.conversationId)
@@ -591,6 +642,42 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
 
     onTurn = async (input) => {
       if (input.channelId !== group.id) return;
+      if (input.botId === bot.id) {
+        await Effect.runPromise(
+          app!.handleDynamicTool({
+            runId: input.runId,
+            botId: input.botId,
+            conversationId: input.conversationId,
+            channelId: input.channelId,
+            deliveryId: input.deliveryId,
+            tool: "SendToUser",
+            arguments: {
+              type: "text",
+              content: "Private group-turn note.",
+              to: "dm",
+            },
+            callId: "group-private-dm",
+          })
+        );
+        let sameGroupError: unknown;
+        try {
+          await Effect.runPromise(
+            app!.handleDynamicTool({
+              runId: input.runId,
+              botId: input.botId,
+              conversationId: input.conversationId,
+              channelId: input.channelId,
+              deliveryId: input.deliveryId,
+              tool: "SendToAgent",
+              arguments: { target_id: group.id, message: "Wrong group reply primitive." },
+              callId: "group-wrong-send-to-agent",
+            })
+          );
+        } catch (error) {
+          sameGroupError = error;
+        }
+        expect(sameGroupError).toMatchObject({ code: "use_bound_send_message" });
+      }
       await Effect.runPromise(
         app!.handleDynamicTool({
           runId: input.runId,
@@ -598,7 +685,7 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
           conversationId: input.conversationId,
           channelId: input.channelId,
           deliveryId: input.deliveryId,
-          tool: "SendMessage",
+          tool: "SendToUser",
           arguments: {
             type: "text",
             content: `Group answer from ${input.botId}`,
@@ -606,6 +693,28 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
           callId: `group-visible-${input.botId}`,
         })
       );
+      if (input.botId === bot.id) {
+        let duplicateGroupReplyError: unknown;
+        try {
+          await Effect.runPromise(
+            app!.handleDynamicTool({
+              runId: input.runId,
+              botId: input.botId,
+              conversationId: input.conversationId,
+              channelId: input.channelId,
+              deliveryId: input.deliveryId,
+              tool: "SendToUser",
+              arguments: { type: "text", content: "A second room answer." },
+              callId: "group-visible-second",
+            })
+          );
+        } catch (error) {
+          duplicateGroupReplyError = error;
+        }
+        expect(duplicateGroupReplyError).toMatchObject({
+          code: "group_response_already_sent",
+        });
+      }
     };
     worker = new WakeWorker();
     await worker.start();
@@ -644,18 +753,38 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
       `Group answer from ${reviewer.id}`,
     ]);
     expect(
+      groupSnapshot.channelMessages.some(
+        (message) =>
+          message.channelId === bot.dmChannelId && message.content === "Private group-turn note."
+      )
+    ).toBe(true);
+    expect(
       groupSnapshot.channelRounds.find((round) => round.id === accepted.round.id)?.status
     ).toBe("completed");
     expect(groupTurns.every((turn) => turn.instructions.includes(group.id))).toBe(true);
-    expect(groupTurns.filter((turn) => turn.botId === bot.id).at(-1)?.sessionPath).toBe(
-      `/var/lib/openbot/pi/${bot.id}.jsonl`
-    );
-    expect(groupTurns.filter((turn) => turn.botId === peer.id).at(-1)?.sessionPath).toBe(
-      `/var/lib/openbot/pi/${peer.id}.jsonl`
-    );
-    expect(groupTurns.filter((turn) => turn.botId === reviewer.id).at(-1)?.sessionPath).toBe(
-      `/var/lib/openbot/pi/${reviewer.id}.jsonl`
-    );
+    expect(
+      groupTurns.every(
+        (turn) =>
+          turn.userInfo?.startsWith("<user_info>\n<agent_skills>") &&
+          turn.userInfo.endsWith("</agent_skills>\n</user_info>") &&
+          turn.userInfoEpoch === 0
+      )
+    ).toBe(true);
+    expect(
+      groupTurns.every(
+        (turn) => turn.sessionPath === `/var/lib/openbot/pi/${turn.contextSessionId}.jsonl`
+      )
+    ).toBe(true);
+    expect(new Set(groupTurns.map((turn) => turn.contextSessionId)).size).toBe(3);
+    expect(
+      groupTurns.every(
+        (turn) =>
+          turn.contextSessionId ===
+          seenTurns.find(
+            (candidate) => candidate.botId === turn.botId && candidate.channelId !== group.id
+          )?.contextSessionId
+      )
+    ).toBe(true);
   } finally {
     await close();
     fakeComputer.stop(true);

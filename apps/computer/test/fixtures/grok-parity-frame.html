@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Parity Child Frame</title>
+  </head>
+  <body>
+    <label>Frame value <input aria-label="Frame parity value" placeholder="type frame value" /></label>
+    <button type="button">Commit frame value</button>
+    <output aria-live="polite">waiting</output>
+    <script>
+      document.querySelector("button").addEventListener("click", () => {
+        document.querySelector("output").textContent = `frame:${document.querySelector("input").value}`;
+      });
+    </script>
+  </body>
+</html>

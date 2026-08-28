@@ -1,24 +1,27 @@
 import { timingSafeEqual } from "node:crypto";
 import {
-  ApiError,
   AddCustomMcpInput,
+  ApiError,
   ConnectPluginInput,
   CreateBotInput,
   CreateGroupInput,
   DynamicToolCallRequest,
   InstallPluginInput,
   ReactToChannelMessageInput,
+  RenameChannelInput,
   ResolveApprovalInput,
   ScreenActionInput,
   ScreenPauseInput,
   ScreenTakeoverInput,
-  SetPluginGrantInput,
-  SetPluginEnablementInput,
-  SetPluginToolPolicyInput,
   type SearchCategory,
   SendMessageInput,
+  SetChannelMembersInput,
+  SetPluginEnablementInput,
+  SetPluginGrantInput,
+  SetPluginToolPolicyInput,
   UpdateBotInput,
 } from "@openbot/contracts";
+import type { RoutineMutationInput } from "@openbot/messaging";
 import { Effect, Either } from "effect";
 import { AppService } from "./app-service";
 import { corsHeaders, errorResponse, json, parseBody } from "./http";
@@ -51,6 +54,63 @@ const authorizedInternal = (request: Request): boolean => {
   return (
     expectedBytes.length === suppliedBytes.length && timingSafeEqual(expectedBytes, suppliedBytes)
   );
+};
+
+const routineBody = async (
+  request: Request
+): Promise<RoutineMutationInput & { clientId: string }> => {
+  const raw = await request.json().catch(() => null);
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new ApiError(400, "invalid_routine", "Routine input must be an object");
+  }
+  const input = raw as Record<string, unknown>;
+  const optionalString = (field: string): string | undefined => {
+    const value = input[field];
+    if (value === undefined) return undefined;
+    if (typeof value !== "string") {
+      throw new ApiError(400, "invalid_routine", `${field} must be a string`);
+    }
+    return value;
+  };
+  const optionalBoolean = (field: string): boolean | undefined => {
+    const value = input[field];
+    if (value === undefined) return undefined;
+    if (typeof value !== "boolean") {
+      throw new ApiError(400, "invalid_routine", `${field} must be a boolean`);
+    }
+    return value;
+  };
+  const expectedRevision = input.expectedRevision;
+  if (
+    expectedRevision !== undefined &&
+    (!Number.isInteger(expectedRevision) || Number(expectedRevision) < 1)
+  ) {
+    throw new ApiError(400, "invalid_routine", "expectedRevision must be a positive integer");
+  }
+  const presentation = input.presentation;
+  if (
+    presentation !== undefined &&
+    (!presentation ||
+      typeof presentation !== "object" ||
+      Array.isArray(presentation) ||
+      JSON.stringify(presentation).length > 100_000)
+  ) {
+    throw new ApiError(400, "invalid_routine", "presentation must be a bounded object");
+  }
+  return {
+    action: "update",
+    name: optionalString("name"),
+    prompt: optionalString("prompt"),
+    schedule: optionalString("schedule"),
+    trigger: input.trigger,
+    presentation,
+    enabled: optionalBoolean("enabled"),
+    expectedRevision: expectedRevision === undefined ? undefined : Number(expectedRevision),
+    clientId:
+      typeof input.clientId === "string" && input.clientId.trim()
+        ? input.clientId
+        : crypto.randomUUID(),
+  };
 };
 
 const server = Bun.serve({
@@ -258,6 +318,59 @@ const server = Bun.serve({
       if (request.method === "POST" && retryProvisioningMatch?.[1]) {
         return json(await run(app.retryBotProvisioning(retryProvisioningMatch[1])), 202);
       }
+      const botRoutinesMatch = path.match(/^\/api\/bots\/([^/]+)\/routines$/);
+      if (request.method === "GET" && botRoutinesMatch?.[1]) {
+        return json(await run(app.listRoutines(botRoutinesMatch[1])));
+      }
+      if (request.method === "POST" && botRoutinesMatch?.[1]) {
+        const input = await routineBody(request);
+        return json(await run(app.createRoutine(botRoutinesMatch[1], input.clientId, input)), 201);
+      }
+      const routineExecutionsMatch = path.match(/^\/api\/routines\/([^/]+)\/executions$/);
+      if (request.method === "GET" && routineExecutionsMatch?.[1]) {
+        return json(
+          await run(
+            app.routineExecutions(
+              routineExecutionsMatch[1],
+              Number(url.searchParams.get("limit") ?? 20)
+            )
+          )
+        );
+      }
+      const routineActionMatch = path.match(/^\/api\/routines\/([^/]+)\/(pause|resume|test)$/);
+      if (request.method === "POST" && routineActionMatch?.[1] && routineActionMatch[2]) {
+        const input = await routineBody(request);
+        if (routineActionMatch[2] === "test") {
+          return json(await run(app.runRoutineNow(routineActionMatch[1], input.clientId)), 202);
+        }
+        const lifecycleAction = routineActionMatch[2] === "pause" ? "pause" : "resume";
+        return json(
+          await run(
+            app.routineLifecycle(
+              routineActionMatch[1],
+              input.clientId,
+              lifecycleAction,
+              input.expectedRevision
+            )
+          )
+        );
+      }
+      const routineMatch = path.match(/^\/api\/routines\/([^/]+)$/);
+      if (request.method === "GET" && routineMatch?.[1]) {
+        return json(await run(app.routineDetail(routineMatch[1])));
+      }
+      if (request.method === "PATCH" && routineMatch?.[1]) {
+        const input = await routineBody(request);
+        return json(await run(app.updateRoutine(routineMatch[1], input.clientId, input)));
+      }
+      if (request.method === "DELETE" && routineMatch?.[1]) {
+        const input = await routineBody(request);
+        return json(
+          await run(
+            app.routineLifecycle(routineMatch[1], input.clientId, "delete", input.expectedRevision)
+          )
+        );
+      }
       const channelMatch = path.match(/^\/api\/channels\/([^/]+)$/);
       if (request.method === "GET" && channelMatch?.[1]) {
         const snapshot = await run(app.clientSnapshot());
@@ -280,6 +393,25 @@ const server = Bun.serve({
             )
           ),
           202
+        );
+      }
+      const channelRenameMatch = path.match(/^\/api\/channels\/([^/]+)\/name$/);
+      if (request.method === "PATCH" && channelRenameMatch?.[1]) {
+        return json(
+          await run(
+            app.renameChannel(channelRenameMatch[1], await parseBody(request, RenameChannelInput))
+          )
+        );
+      }
+      const channelMembersMatch = path.match(/^\/api\/channels\/([^/]+)\/members$/);
+      if (request.method === "PUT" && channelMembersMatch?.[1]) {
+        return json(
+          await run(
+            app.setChannelMembers(
+              channelMembersMatch[1],
+              await parseBody(request, SetChannelMembersInput)
+            )
+          )
         );
       }
       const channelMessageReactionMatch = path.match(
@@ -321,6 +453,15 @@ const server = Bun.serve({
         const channel = snapshot.channels.find(
           (candidate) => candidate.directKey === `bot:${bot.id}`
         );
+        const subagents = snapshot.subagents.filter(
+          (subagent) => subagent.parentChannelId === channel?.id
+        );
+        const approvalRunIds = new Set([
+          ...runIds,
+          ...subagents.flatMap((subagent) =>
+            subagent.currentRunId ? [subagent.currentRunId] : []
+          ),
+        ]);
         return json({
           bot,
           messages: channel
@@ -328,7 +469,8 @@ const server = Bun.serve({
             : [],
           runs,
           runItems: snapshot.runItems.filter((item) => runIds.has(item.runId)),
-          approvals: snapshot.approvals.filter((approval) => runIds.has(approval.runId)),
+          approvals: snapshot.approvals.filter((approval) => approvalRunIds.has(approval.runId)),
+          subagents,
         });
       }
       const messageMatch = path.match(/^\/api\/conversations\/([^/]+)\/messages$/);
@@ -337,10 +479,6 @@ const server = Bun.serve({
           await run(app.sendMessage(messageMatch[1], await parseBody(request, SendMessageInput))),
           202
         );
-      }
-      const compactMatch = path.match(/^\/api\/conversations\/([^/]+)\/compact$/);
-      if (request.method === "POST" && compactMatch?.[1]) {
-        return json(await run(app.compactConversation(compactMatch[1])));
       }
       const cancelMatch = path.match(/^\/api\/runs\/([^/]+)\/cancel$/);
       if (request.method === "POST" && cancelMatch?.[1]) {

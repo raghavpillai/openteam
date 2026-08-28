@@ -9,11 +9,7 @@ import {
   type TaskInput,
 } from "@openbot/contracts";
 import { Prisma, type PrismaClient } from "@openbot/db";
-import {
-  type AgentMessaging,
-  subagentSpecializationInstructions,
-  type ToolContext,
-} from "@openbot/messaging";
+import { type AgentMessaging, type ToolContext } from "@openbot/messaging";
 import { Effect } from "effect";
 import { fromPrisma } from "pg-boss";
 import type { RunService } from "./run-service";
@@ -21,9 +17,36 @@ import { appendEvent, type ComputerFetch, hashRequest, slugify, toJson } from ".
 
 const ACTIVE_STATUSES = ["provisioning", "queued", "running"] as const;
 
+export const graphicalSubagentType = (type: SubagentType): boolean =>
+  type === "computerUse" || type === "browserUse";
+
+export const subagentTaskContent = (input: TaskInput): string => input.prompt;
+
+type SubagentDatabase = PrismaClient | Prisma.TransactionClient;
+
+export const assertSubagentCapacity = async (
+  parentBotId: string,
+  type: SubagentType,
+  database: SubagentDatabase
+): Promise<void> => {
+  if (type !== "computerUse") return;
+  const activeComputerUse = await database.subagent.count({
+    where: {
+      parentBotId,
+      subagentType: "computerUse",
+      status: { in: [...ACTIVE_STATUSES] },
+    },
+  });
+  if (activeComputerUse > 0) {
+    throw new ApiError(
+      409,
+      "subagent_computer_in_use",
+      "A computerUse subagent is already using the box's desktop. Only one can run at a time."
+    );
+  }
+};
+
 export class SubagentService {
-  private readonly perParentLimit = Number(process.env.OPENBOT_SUBAGENT_PER_PARENT_LIMIT ?? 4);
-  private readonly globalLimit = Number(process.env.OPENBOT_SUBAGENT_GLOBAL_LIMIT ?? 8);
   private readonly model = process.env.OPENBOT_PI_MODEL ?? "gpt-5.5";
 
   constructor(
@@ -55,14 +78,12 @@ export class SubagentService {
       throw new ApiError(409, "idempotency_conflict", "This Task call id was reused");
     }
     const replayId = this.receiptSubagentId(receipt?.response);
-    let subagent = replayId ? await this.owned(context.botId, replayId) : null;
-    if (!subagent && receipt) {
-      subagent = await this.prisma.subagent.findUnique({
-        where: {
-          parentBotId_launchCallId: { parentBotId: context.botId, launchCallId: context.callId },
-        },
-      });
-    }
+    let attempt = receipt ? await this.attemptForCall(context.botId, context.callId) : null;
+    let subagent = attempt
+      ? await this.owned(context.botId, attempt.subagentId)
+      : replayId
+        ? await this.owned(context.botId, replayId)
+        : null;
     if (!subagent && receipt) {
       throw new ApiError(409, "request_in_progress", "This Task call is already being accepted");
     }
@@ -83,12 +104,17 @@ export class SubagentService {
     }
     if (!subagent) {
       try {
-        subagent = input.resume
+        const accepted = input.resume
           ? await this.resume(context, input)
           : await this.launch(context, input);
+        subagent = accepted.subagent;
+        attempt = accepted.attempt;
         await this.prisma.idempotencyRecord.update({
           where: { scope_key: { scope, key: context.callId } },
-          data: { status: "completed", response: toJson({ subagentId: subagent.id }) },
+          data: {
+            status: "completed",
+            response: toJson({ subagentId: subagent.id, attemptId: accepted.attempt.id }),
+          },
         });
       } catch (error) {
         await this.prisma.idempotencyRecord.deleteMany({
@@ -97,10 +123,14 @@ export class SubagentService {
         throw error;
       }
     }
-    if (input.run_in_background === false) {
-      return this.waitForCompletion(context.botId, subagent.id);
+    attempt ??= await this.attemptForCall(context.botId, context.callId);
+    if (!attempt) {
+      throw new ApiError(409, "subagent_attempt_missing", "This Task attempt is unavailable");
     }
-    return this.taskResult(subagent);
+    if (input.run_in_background === false) {
+      return this.waitForCompletion(context.botId, subagent.id, attempt.id);
+    }
+    return this.taskResult(subagent, attempt);
   }
 
   private receiptSubagentId(response: Prisma.JsonValue | null | undefined): string | null {
@@ -241,10 +271,21 @@ export class SubagentService {
       };
     }
     await this.prisma.$transaction(async (tx) => {
+      const stoppedAt = new Date();
       await tx.subagent.update({
         where: { id: subagent.id },
-        data: { status: "stopped", stoppedAt: new Date(), completedAt: new Date() },
+        data: { status: "stopped", stoppedAt, completedAt: stoppedAt },
       });
+      if (subagent.currentRunId) {
+        await tx.subagentAttempt.updateMany({
+          where: {
+            subagentId: subagent.id,
+            childRunId: subagent.currentRunId,
+            status: { in: ["provisioning", "queued", "running"] },
+          },
+          data: { status: "stopped", stoppedAt, completedAt: stoppedAt },
+        });
+      }
       await appendEvent(tx, "subagent.stopped", subagent.id, {
         parentBotId,
         subagentId: subagent.id,
@@ -263,7 +304,7 @@ export class SubagentService {
   }
 
   private async launch(context: ToolContext, input: TaskInput) {
-    await this.assertCapacity(context.botId);
+    const type = input.subagent_type ?? "executor";
     const parent = await this.prisma.bot.findUnique({ where: { id: context.botId } });
     if (!parent || parent.status !== "active") {
       throw new ApiError(409, "parent_not_active", "The parent agent is not active");
@@ -272,20 +313,24 @@ export class SubagentService {
     const childBotId = crypto.randomUUID();
     const conversationId = crypto.randomUUID();
     const channelId = crypto.randomUUID();
-    const type = input.subagent_type ?? "executor";
     const name = input.description.trim() || "Background task";
-    const directory = resolve(
-      this.workspaceRoot,
-      "bots",
-      `${slugify(`subagent-${name}`)}-${childBotId.slice(0, 8)}`
-    );
+    const graphical = graphicalSubagentType(type);
+    const directory = graphical
+      ? parent.defaultDirectory
+      : resolve(
+          this.workspaceRoot,
+          "bots",
+          `${slugify(`subagent-${name}`)}-${childBotId.slice(0, 8)}`
+        );
     if (!directory.startsWith(`${this.workspaceRoot}${sep}`)) {
       throw new ApiError(400, "invalid_workspace", "Generated workspace path escaped root");
     }
     const outputPath = `/home/openbot/agent-data/agent-transcripts/${childBotId}/${childBotId}.jsonl`;
-    const prompt = this.runtimePrompt(parent.name, type, input);
+    const prompt = subagentTaskContent(input);
     const avatar = resolveBotAvatarMark({ agentId: childBotId });
     return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('openbot-subagent-capacity'))`;
+      await assertSubagentCapacity(context.botId, type, tx);
       await tx.bot.create({
         data: {
           id: childBotId,
@@ -343,6 +388,20 @@ export class SubagentService {
         where: { id: created.id },
         data: { currentRunId: wake.run.id },
       });
+      const attempt = await tx.subagentAttempt.create({
+        data: {
+          subagentId,
+          parentRunId: context.runId,
+          parentChannelId: context.channelId,
+          parentToolCallId: context.callId,
+          childRunId: wake.run.id,
+          description: name,
+          prompt: input.prompt,
+          fileAttachments: (input.file_attachments ?? []) as Prisma.InputJsonValue,
+          runInBackground: input.run_in_background !== false,
+          status: "provisioning",
+        },
+      });
       await appendEvent(tx, "subagent.created", subagentId, {
         parentBotId: context.botId,
         parentRunId: context.runId,
@@ -361,7 +420,7 @@ export class SubagentService {
           expireInSeconds: 3 * 60,
         }
       );
-      return updated;
+      return { subagent: updated, attempt };
     });
   }
 
@@ -373,8 +432,9 @@ export class SubagentService {
     if (input.model) {
       throw new ApiError(400, "resume_model_forbidden", "Do not provide model when resuming");
     }
-    await this.assertCapacity(context.botId);
     return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('openbot-subagent-capacity'))`;
+      await assertSubagentCapacity(context.botId, subagent.subagentType as SubagentType, tx);
       const child = await tx.bot.findUnique({
         where: { id: subagent.childBotId },
         include: {
@@ -395,9 +455,24 @@ export class SubagentService {
         channelId,
         origin: "agent",
         type: "subagent.resume",
-        content: this.runtimePrompt("parent agent", subagent.subagentType, input),
+        content: subagentTaskContent(input),
         clientId: `subagent:${subagent.id}:resume:${context.callId}`,
         priority: 350,
+      });
+      const description = input.description.trim() || subagent.description;
+      const attempt = await tx.subagentAttempt.create({
+        data: {
+          subagentId: subagent.id,
+          parentRunId: context.runId,
+          parentChannelId: context.channelId,
+          parentToolCallId: context.callId,
+          childRunId: wake.run.id,
+          description,
+          prompt: input.prompt,
+          fileAttachments: (input.file_attachments ?? []) as Prisma.InputJsonValue,
+          runInBackground: input.run_in_background !== false,
+          status: "queued",
+        },
       });
       const updated = await tx.subagent.update({
         where: { id: subagent.id },
@@ -406,7 +481,7 @@ export class SubagentService {
           parentChannelId: context.channelId,
           launchCallId: context.callId,
           currentRunId: wake.run.id,
-          description: input.description.trim() || subagent.description,
+          description,
           prompt: input.prompt,
           fileAttachments: (input.file_attachments ?? []) as Prisma.InputJsonValue,
           runInBackground: input.run_in_background !== false,
@@ -423,53 +498,30 @@ export class SubagentService {
         parentRunId: context.runId,
         runId: wake.run.id,
       });
-      return updated;
+      return { subagent: updated, attempt };
     });
-  }
-
-  private runtimePrompt(parentName: string, type: string, input: TaskInput): string {
-    const attachments = input.file_attachments?.length
-      ? `\n\nAttached file paths available on the shared computer:\n${input.file_attachments.map((path) => `- ${path}`).join("\n")}`
-      : "";
-    return [
-      `[Background task from ${parentName}]`,
-      `Specialization: ${type}`,
-      input.prompt,
-      attachments,
-      "Return one self-contained final report. Your plain final assistant message is delivered privately to your parent; do not contact the user or other agents.",
-    ]
-      .filter(Boolean)
-      .join("\n\n");
   }
 
   private childInstructions(parentBotId: string, subagentId: string, type: SubagentType): string {
     return [
       `You are a ${type} background subagent with Agent ID ${subagentId}.`,
       `You are owned by parent agent ${parentBotId}.`,
-      subagentSpecializationInstructions(type),
       "Work autonomously on only the supplied task. You share the same computer and filesystem as the parent.",
-      "Your plain final assistant message is your private report to the parent. Do not use SendMessage or SendToAgent.",
+      "Your plain final assistant message is your private report to the parent. Do not use SendToUser or SendToAgent.",
       "You cannot launch, inspect, message, or stop other subagents and cannot administer agents or channels.",
     ].join("\n");
-  }
-
-  private async assertCapacity(parentBotId: string) {
-    const [parentCount, globalCount] = await Promise.all([
-      this.prisma.subagent.count({ where: { parentBotId, status: { in: [...ACTIVE_STATUSES] } } }),
-      this.prisma.subagent.count({ where: { status: { in: [...ACTIVE_STATUSES] } } }),
-    ]);
-    if (parentCount >= this.perParentLimit) {
-      throw new ApiError(429, "subagent_parent_pool_full", "This agent's subagent pool is full");
-    }
-    if (globalCount >= this.globalLimit) {
-      throw new ApiError(429, "subagent_pool_full", "The OpenBot subagent pool is full");
-    }
   }
 
   private async owned(parentBotId: string, id: string) {
     const subagent = await this.prisma.subagent.findFirst({ where: { id, parentBotId } });
     if (!subagent) throw new ApiError(404, "subagent_not_found", "Subagent not found");
     return subagent;
+  }
+
+  private attemptForCall(parentBotId: string, parentToolCallId: string) {
+    return this.prisma.subagentAttempt.findFirst({
+      where: { parentToolCallId, subagent: { parentBotId } },
+    });
   }
 
   private async inspect(subagent: Awaited<ReturnType<SubagentService["owned"]>>) {
@@ -504,23 +556,30 @@ export class SubagentService {
     };
   }
 
-  private taskResult(subagent: Awaited<ReturnType<SubagentService["owned"]>>) {
+  private taskResult(
+    subagent: Awaited<ReturnType<SubagentService["owned"]>>,
+    attempt: NonNullable<Awaited<ReturnType<SubagentService["attemptForCall"]>>>
+  ) {
     return {
       agent_id: subagent.id,
-      status: subagent.status,
+      status: attempt.status,
       output_file: subagent.outputPath,
-      run_id: subagent.currentRunId,
-      background: subagent.runInBackground,
-      result: subagent.result,
+      run_id: attempt.childRunId,
+      background: attempt.runInBackground,
+      result: attempt.result,
     };
   }
 
-  private async waitForCompletion(parentBotId: string, subagentId: string) {
+  private async waitForCompletion(parentBotId: string, subagentId: string, attemptId: string) {
     const deadline = Date.now() + 24 * 60 * 60_000;
     while (Date.now() < deadline) {
-      const current = await this.owned(parentBotId, subagentId);
-      if (["completed", "failed", "stopped"].includes(current.status)) {
-        return this.taskResult(current);
+      const [current, attempt] = await Promise.all([
+        this.owned(parentBotId, subagentId),
+        this.prisma.subagentAttempt.findUnique({ where: { id: attemptId } }),
+      ]);
+      if (!attempt) throw new ApiError(409, "subagent_attempt_missing", "Task attempt missing");
+      if (["completed", "failed", "stopped"].includes(attempt.status)) {
+        return this.taskResult(current, attempt);
       }
       await new Promise((resolve) => setTimeout(resolve, 250));
     }

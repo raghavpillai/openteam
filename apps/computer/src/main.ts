@@ -227,30 +227,54 @@ const server = Bun.serve({
         return json({ ok: true });
       }
 
+      const contextSessionMatch = url.pathname.match(/^\/v1\/context-sessions\/([^/]+)$/);
+      if (request.method === "GET" && contextSessionMatch?.[1]) {
+        return json(await runtime.contextState(contextSessionMatch[1]));
+      }
+      if (request.method === "DELETE" && contextSessionMatch?.[1]) {
+        const body = (await request.json().catch(() => ({}))) as { sessionPath?: unknown };
+        await runtime.deleteContextSession(
+          contextSessionMatch[1],
+          typeof body.sessionPath === "string" ? body.sessionPath : undefined
+        );
+        return json({ ok: true });
+      }
+
       if (request.method === "POST" && url.pathname === "/v1/approvals/resolve") {
         const input = Schema.decodeUnknownSync(ComputerApprovalResolution)(await request.json());
         await runtime.resolveApproval(input.approvalId, input.decision);
         return json({ ok: true });
       }
 
-      if (request.method === "POST" && url.pathname === "/v1/compact") {
+      if (request.method === "POST" && url.pathname === "/v1/infer") {
         const body = (await request.json()) as {
-          botId?: string;
-          sessionPath?: string;
-          cwd?: string;
-          instructions?: string;
+          kind?: unknown;
+          instructions?: unknown;
+          prompt?: unknown;
+          timeoutMs?: unknown;
+          cwd?: unknown;
         };
-        if (!body.botId || !body.sessionPath || !body.cwd || !body.instructions) {
-          return json({ error: "botId, sessionPath, cwd, and instructions are required" }, 400);
+        if (
+          !["extraction", "episode", "synthesis", "verification"].includes(String(body.kind)) ||
+          typeof body.instructions !== "string" ||
+          !body.instructions.trim() ||
+          body.instructions.length > 20_000 ||
+          typeof body.prompt !== "string" ||
+          !body.prompt.trim() ||
+          body.prompt.length > 2_000_000 ||
+          typeof body.timeoutMs !== "number" ||
+          !Number.isFinite(body.timeoutMs)
+        ) {
+          return json({ error: "invalid memory inference request" }, 400);
         }
-        const cwd = safePath(body.cwd);
-        await runtime.compact({
-          botId: body.botId,
-          sessionPath: body.sessionPath,
-          cwd,
+        const cwd = safePath(typeof body.cwd === "string" ? body.cwd : workspaceRoot);
+        const text = await runtime.infer({
           instructions: body.instructions,
+          prompt: body.prompt,
+          cwd,
+          timeoutMs: Math.max(1_000, Math.min(body.timeoutMs, 90_000)),
         });
-        return json({ ok: true });
+        return json({ text });
       }
 
       return json({ error: "not_found" }, 404);

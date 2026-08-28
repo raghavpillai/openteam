@@ -3,12 +3,16 @@ import {
   ApiError,
   type CreateGroupInput,
   type ReactToChannelMessageInput,
+  type RenameChannelInput,
   type SendMessageInput,
+  type SetChannelMembersInput,
 } from "@openbot/contracts";
 import type { PrismaClient } from "@openbot/db";
 import {
   type AgentDataStore,
   type AgentMessaging,
+  GROUP_MAX_MEMBERS,
+  parseGroupMentions,
   PRIORITY,
   type SteerDispatch,
 } from "@openbot/messaging";
@@ -39,15 +43,8 @@ const metadataRecord = (value: unknown): Record<string, unknown> =>
 const messageAddress = (message: ReplyTarget): string => {
   if (message.sender === "user") return `t${message.sequence}u`;
   const metadata = metadataRecord(message.metadata);
-  return typeof metadata.address === "string" ? metadata.address : `t${message.sequence}s0`;
+  return typeof metadata.address === "string" ? metadata.address : `t${message.sequence}a0`;
 };
-
-const replyMetadata = (message: ReplyTarget) => ({
-  messageId: message.id,
-  address: messageAddress(message),
-  content: message.content,
-  sender: message.sender,
-});
 
 export const formatUserPrompt = (sequence: bigint, content: string, reply?: ReplyTarget | null) => {
   if (!reply) return content ? `[t${sequence}u] ${content}` : `[t${sequence}u]`;
@@ -58,15 +55,52 @@ export const formatUserPrompt = (sequence: bigint, content: string, reply?: Repl
   ].join("\n");
 };
 
+export const formatDirectMentionContext = (
+  content: string,
+  peers: readonly { id: string; name: string }[]
+): string => {
+  const mentionedIds = new Set(parseGroupMentions(content, peers).memberIds);
+  const mentioned = peers.filter((peer) => mentionedIds.has(peer.id));
+  if (mentioned.length === 0) return content;
+  return [
+    "[Agents mentioned in this message — you can reach them with SendToAgent using their id:]",
+    ...mentioned.map((peer) => `- ${peer.name} (id: ${peer.id})`),
+    "",
+    content,
+  ].join("\n");
+};
+
 const reactionQuote = (content: string): string => {
   const collapsed = content.replace(/\s+/g, " ").trim();
-  return collapsed.length > 500 ? `${collapsed.slice(0, 499)}…` : collapsed;
+  return collapsed.length > 80 ? `${collapsed.slice(0, 79)}…` : collapsed;
 };
 
 export const formatUserReactionPrompt = (emoji: string, content: string) =>
   `[SAND_HIDDEN_PROMPT][The user reacted ${emoji} to your message: ` +
   `${JSON.stringify(reactionQuote(content))}. You don't need to reply; ` +
   `act on it only if it's useful (e.g. acknowledge, adjust, or continue).][SAND_HIDDEN_PROMPT]`;
+
+const xmlText = (value: string): string =>
+  value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+
+export const formatChannelRenamePrompt = (input: { name: string; description: string }): string => {
+  const profile = JSON.stringify({ name: input.name, description: input.description });
+  const token = Buffer.from(profile, "utf8").toString("base64");
+  return [
+    `[SAND_HIDDEN_PROMPT][SAND_HIDDEN_PROMPT]<<SAND_AGENT_PROFILE_UPDATE:v1:${token}>>`,
+    "<agent_profile_update>",
+    "Your agent profile changed. This full update is authoritative and supersedes the Agent profile section in the system prompt and every earlier profile update in this conversation.",
+    `Current name: ${xmlText(input.name)}`,
+    `Current description: ${input.description ? xmlText(input.description) : "(no description)"}`,
+    "Use this identity until a future conversation summary folds it into the Agent profile section.",
+    "</agent_profile_update>",
+    "",
+    "[event] Something about this conversation just changed.",
+    "This is a system event recorded in your timeline, not the user typing in this app, and possibly something you did yourself.",
+    `- Renamed to ${input.name}`,
+    "If it is worth acknowledging to the user, reply with SendToUser; otherwise it is fine to stay silent.",
+  ].join("\n");
+};
 
 export class ChannelService {
   constructor(
@@ -132,6 +166,15 @@ export class ChannelService {
             throw new ApiError(404, "reply_target_not_found", "Reply target was not found");
           }
           const bootstrapRunId = await this.messaging.skipBootstrapForUser(tx, conversation.botId);
+          const mentionPeers = await tx.bot.findMany({
+            where: {
+              id: { not: conversation.botId },
+              status: "active",
+              subagentIdentity: { is: null },
+            },
+            select: { id: true, name: true },
+            orderBy: { createdAt: "asc" },
+          });
           const visibleMessage = await tx.channelMessage.create({
             data: {
               channelId: channel.id,
@@ -141,7 +184,9 @@ export class ChannelService {
               metadata: {
                 type: "text",
                 ...(input.images?.length ? { images: input.images } : {}),
-                ...(reply ? { replyTo: replyMetadata(reply) } : {}),
+                ...(reply ? { replyTo: reply.id } : {}),
+                ...(input.richText ? { richText: input.richText } : {}),
+                ...(input.isFork ? { branched: true } : {}),
                 ...(input.timeZone ? { timeZone: input.timeZone } : {}),
               },
             },
@@ -149,11 +194,16 @@ export class ChannelService {
           const delivery = await this.messaging.acceptDirectUserMessage(tx, {
             botId: conversation.botId,
             channelId: channel.id,
-            content: formatUserPrompt(visibleMessage.sequence, input.content, reply),
+            content: formatUserPrompt(
+              visibleMessage.sequence,
+              formatDirectMentionContext(input.content, mentionPeers),
+              reply
+            ),
             images: input.images,
             clientId: input.clientId,
             occurredAt: visibleMessage.createdAt,
             timeZone: input.timeZone,
+            ...(input.isFork ? { replyToMessageId: visibleMessage.id, isFork: true } : {}),
           });
           await this.messaging.scheduleTranscriptProjection(tx, [conversation.botId]);
           await tx.channel.update({
@@ -184,8 +234,15 @@ export class ChannelService {
     Effect.tryPromise({
       try: async () => {
         const botIds = [...new Set(input.botIds)];
-        if (botIds.length < 2) {
-          throw new ApiError(400, "group_members_required", "A group needs at least two bots");
+        if (botIds.length < 1) {
+          throw new ApiError(400, "group_members_required", "A group needs at least one bot");
+        }
+        if (botIds.length > GROUP_MAX_MEMBERS) {
+          throw new ApiError(
+            400,
+            "group_too_large",
+            `A group can have at most ${GROUP_MAX_MEMBERS} bots`
+          );
         }
         const channelId = crypto.randomUUID();
         const directory = resolve(
@@ -251,6 +308,272 @@ export class ChannelService {
       catch: toError,
     });
 
+  renameDirectChannel = (channelId: string, input: RenameChannelInput) =>
+    Effect.tryPromise({
+      try: async () => {
+        const requestedName = input.name.replace(/\s+/g, " ").trim();
+        if (!requestedName) {
+          throw new ApiError(400, "channel_name_required", "A chat name cannot be empty");
+        }
+        const scope = `channel:${channelId}:rename`;
+        const requestHash = hashRequest(input);
+        const existing = await this.prisma.idempotencyRecord.findUnique({
+          where: { scope_key: { scope, key: input.clientId } },
+        });
+        if (existing) {
+          if (existing.requestHash !== requestHash) {
+            throw new ApiError(409, "idempotency_conflict", "Rename idempotency key changed");
+          }
+          if (!existing.response) {
+            throw new ApiError(409, "request_in_progress", "This chat is already being renamed");
+          }
+          const replay = existing.response as {
+            botId?: unknown;
+            bootstrapRunId?: unknown;
+            changed?: unknown;
+            channel?: unknown;
+          };
+          if (replay.changed === true && typeof replay.botId === "string") {
+            await this.agentData?.writeBotFiles(replay.botId, ["profile"]);
+          }
+          if (typeof replay.bootstrapRunId === "string") {
+            await this.cancelSkippedBootstrap(replay.bootstrapRunId);
+          }
+          return serialize(replay.channel);
+        }
+
+        const target = await this.prisma.channel.findUnique({
+          where: { id: channelId },
+          select: {
+            kind: true,
+            archivedAt: true,
+            members: { orderBy: { ordinal: "asc" }, select: { botId: true } },
+          },
+        });
+        const targetBotId = target?.members[0]?.botId;
+        if (!target || target.archivedAt || target.kind !== "bot_dm" || !targetBotId) {
+          throw new ApiError(404, "channel_not_found", "Renameable direct chat not found");
+        }
+        await this.agentData?.reconcileBot(targetBotId);
+
+        const result = await this.prisma.$transaction(async (tx) => {
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`channel:${channelId}`}))`;
+          const channel = await tx.channel.findUnique({
+            where: { id: channelId },
+            include: {
+              members: {
+                orderBy: { ordinal: "asc" },
+                include: { bot: { include: { subagentIdentity: { select: { id: true } } } } },
+              },
+            },
+          });
+          const member = channel?.members[0];
+          if (
+            !channel ||
+            channel.archivedAt ||
+            channel.kind !== "bot_dm" ||
+            !member ||
+            member.bot.subagentIdentity ||
+            !["active", "provisioning"].includes(member.bot.status)
+          ) {
+            throw new ApiError(404, "channel_not_found", "Renameable direct chat not found");
+          }
+
+          await tx.idempotencyRecord.create({
+            data: {
+              scope,
+              key: input.clientId,
+              requestHash,
+              expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1_000),
+            },
+          });
+
+          const from = channel.name;
+          const changed = from !== requestedName;
+          let bootstrapRunId: string | null = null;
+          if (changed) {
+            const occurredAt = new Date();
+            await tx.bot.update({
+              where: { id: member.botId },
+              data: { name: requestedName, namedBy: "user" },
+            });
+            const renamed = await tx.channel.update({
+              where: { id: channel.id },
+              data: { name: requestedName, updatedAt: occurredAt },
+              include: { members: { orderBy: { ordinal: "asc" } } },
+            });
+            await tx.agentPromptSnapshot.updateMany({
+              where: { botId: member.botId },
+              data: {
+                announcedName: requestedName,
+                announcedDescription: member.bot.description,
+              },
+            });
+            await tx.channelMessage.create({
+              data: {
+                channelId: channel.id,
+                clientId: `rename-event:${input.clientId}`,
+                sender: "system",
+                metadata: {
+                  type: "event",
+                  event: { type: "name-changed", from, to: requestedName },
+                },
+                createdAt: occurredAt,
+              },
+            });
+            bootstrapRunId = await this.messaging.skipBootstrapForUser(tx, member.botId);
+            await this.messaging.enqueueWake(tx, {
+              botId: member.botId,
+              channelId: channel.id,
+              origin: "user",
+              type: "channel.name_changed",
+              content: formatChannelRenamePrompt({
+                name: requestedName,
+                description: member.bot.description,
+              }),
+              clientId: `rename:${channel.id}:${input.clientId}`,
+              priority: PRIORITY.user,
+              availableAt: new Date(occurredAt.getTime() + 750),
+              occurredAt,
+              timeZone: input.timeZone,
+              wrapUserContent: false,
+            });
+            await this.messaging.scheduleTranscriptProjection(tx, [member.botId]);
+            await appendEvent(tx, "channel.renamed", channel.id, {
+              channelId: channel.id,
+              botId: member.botId,
+              from,
+              to: requestedName,
+            });
+            await appendEvent(tx, "bot.updated", member.botId, {
+              botId: member.botId,
+              profileChanged: true,
+              settingsChanged: false,
+              source: "channel.rename",
+            });
+            const response = {
+              botId: member.botId,
+              bootstrapRunId,
+              changed,
+              channel: renamed,
+            };
+            await tx.idempotencyRecord.update({
+              where: { scope_key: { scope, key: input.clientId } },
+              data: { status: "completed", response: toJson(response) },
+            });
+            return response;
+          }
+
+          const unchanged = await tx.channel.findUniqueOrThrow({
+            where: { id: channel.id },
+            include: { members: { orderBy: { ordinal: "asc" } } },
+          });
+          const response = {
+            botId: member.botId,
+            bootstrapRunId,
+            changed,
+            channel: unchanged,
+          };
+          await tx.idempotencyRecord.update({
+            where: { scope_key: { scope, key: input.clientId } },
+            data: { status: "completed", response: toJson(response) },
+          });
+          return response;
+        });
+
+        if (result.changed) await this.agentData?.writeBotFiles(result.botId, ["profile"]);
+        if (result.bootstrapRunId) await this.cancelSkippedBootstrap(result.bootstrapRunId);
+        return serialize(result.channel);
+      },
+      catch: toError,
+    });
+
+  setGroupMembers = (channelId: string, input: SetChannelMembersInput) =>
+    Effect.tryPromise({
+      try: async () => {
+        const botIds = [...new Set(input.botIds)];
+        if (botIds.length < 1 || botIds.length > GROUP_MAX_MEMBERS) {
+          throw new ApiError(
+            400,
+            "invalid_group_size",
+            `A group needs one to ${GROUP_MAX_MEMBERS} bots`
+          );
+        }
+        const scope = `channel:${channelId}:members`;
+        const requestHash = hashRequest(input);
+        const existing = await this.prisma.idempotencyRecord.findUnique({
+          where: { scope_key: { scope, key: input.clientId } },
+        });
+        if (existing) {
+          if (existing.requestHash !== requestHash) {
+            throw new ApiError(409, "idempotency_conflict", "Membership request content changed");
+          }
+          if (existing.response) return serialize(existing.response);
+          throw new ApiError(409, "request_in_progress", "Membership is already being updated");
+        }
+        const result = await this.prisma.$transaction(async (tx) => {
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`channel:${channelId}`}))`;
+          const channel = await tx.channel.findFirst({
+            where: { id: channelId, kind: "group", archivedAt: null },
+            include: { members: { orderBy: { ordinal: "asc" } } },
+          });
+          if (!channel) throw new ApiError(404, "group_not_found", "Active group not found");
+          const activeBots = await tx.bot.findMany({
+            where: {
+              id: { in: botIds },
+              status: "active",
+              subagentIdentity: { is: null },
+            },
+            select: { id: true },
+          });
+          if (activeBots.length !== botIds.length) {
+            throw new ApiError(400, "invalid_group_members", "Every group member must be active");
+          }
+          await tx.idempotencyRecord.create({
+            data: {
+              scope,
+              key: input.clientId,
+              requestHash,
+              expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60_000),
+            },
+          });
+          const previous = channel.members.map((member) => member.botId);
+          await tx.channelMember.deleteMany({ where: { channelId } });
+          await tx.channelMember.createMany({
+            data: botIds.map((botId, ordinal) => ({ channelId, botId, ordinal })),
+          });
+          const updated = await tx.channel.update({
+            where: { id: channelId },
+            data: { updatedAt: new Date() },
+            include: { members: { orderBy: { ordinal: "asc" } } },
+          });
+          await appendEvent(tx, "channel.members.updated", channelId, {
+            channelId,
+            previousMemberIds: previous,
+            memberIds: botIds,
+          });
+          await this.messaging.scheduleTranscriptProjection(tx, [
+            ...new Set([...previous, ...botIds]),
+          ]);
+          await tx.idempotencyRecord.update({
+            where: { scope_key: { scope, key: input.clientId } },
+            data: { status: "completed", response: toJson(updated) },
+          });
+          return {
+            updated,
+            affectedBotIds: [...new Set([...previous, ...botIds])],
+          };
+        });
+        if (this.agentData) {
+          for (const botId of result.affectedBotIds) {
+            await this.agentData.writeGroupFilesForBot(botId);
+          }
+        }
+        return serialize(result.updated);
+      },
+      catch: toError,
+    });
+
   sendGroupMessage = (channelId: string, input: SendMessageInput) =>
     Effect.tryPromise({
       try: async () => {
@@ -299,7 +622,9 @@ export class ChannelService {
               metadata: {
                 type: "text",
                 ...(input.images?.length ? { images: input.images } : {}),
-                ...(reply ? { replyTo: replyMetadata(reply) } : {}),
+                ...(reply ? { replyTo: reply.id } : {}),
+                ...(input.richText ? { richText: input.richText } : {}),
+                ...(input.isFork ? { branched: true } : {}),
                 ...(input.timeZone ? { timeZone: input.timeZone } : {}),
               },
             },
@@ -308,7 +633,11 @@ export class ChannelService {
             tx,
             channel.members.map((member) => member.botId)
           );
-          const round = await this.messaging.createGroupRound(tx, channelId, message.id, null);
+          const round = await this.messaging.createGroupRound(tx, {
+            channelId,
+            triggerMessageId: message.id,
+            initiatorBotId: null,
+          });
           await tx.channel.update({
             where: { id: channelId },
             data: { updatedAt: new Date() },
@@ -350,7 +679,10 @@ export class ChannelService {
         const response = await this.prisma.$transaction(async (tx) => {
           const message = await tx.channelMessage.findUnique({
             where: { id: messageId },
-            include: { channel: true, senderBot: true },
+            include: {
+              channel: { include: { members: { select: { botId: true } } } },
+              senderBot: true,
+            },
           });
           if (!message || message.channel.archivedAt) {
             throw new ApiError(404, "message_not_found", "Message was not found");
@@ -365,10 +697,25 @@ export class ChannelService {
           });
 
           const metadata = metadataRecord(message.metadata);
-          const previous = typeof metadata.userReaction === "string" ? metadata.userReaction : null;
-          const removed = previous === input.emoji;
-          if (removed) delete metadata.userReaction;
-          else metadata.userReaction = input.emoji;
+          const reactions = Array.isArray(metadata.reactions)
+            ? metadata.reactions.filter(
+                (reaction): reaction is { by: string; emoji: string } =>
+                  Boolean(reaction) &&
+                  typeof reaction === "object" &&
+                  !Array.isArray(reaction) &&
+                  typeof (reaction as Record<string, unknown>).by === "string" &&
+                  typeof (reaction as Record<string, unknown>).emoji === "string"
+              )
+            : [];
+          const removed = reactions.some(
+            (reaction) => reaction.by === "me" && reaction.emoji === input.emoji
+          );
+          const next = reactions.filter(
+            (reaction) => !(reaction.by === "me" && reaction.emoji === input.emoji)
+          );
+          if (!removed) next.push({ by: "me", emoji: input.emoji });
+          if (next.length > 0) metadata.reactions = next;
+          else delete metadata.reactions;
           await tx.channelMessage.update({
             where: { id: message.id },
             data: { metadata: toJson(metadata) },
@@ -393,8 +740,11 @@ export class ChannelService {
               timeZone: input.timeZone,
             });
             runId = wake.run.id;
-            await this.messaging.scheduleTranscriptProjection(tx, [message.senderBot.id]);
           }
+          await this.messaging.scheduleTranscriptProjection(
+            tx,
+            message.channel.members.map((member) => member.botId)
+          );
 
           const result = {
             messageId: message.id,
@@ -438,11 +788,23 @@ export class ChannelService {
       });
       if (!response.ok) return;
       await this.prisma.$transaction(async (tx) => {
-        await tx.run.update({
-          where: { id: runId },
-          data: { status: "cancelled" },
+        const interrupted = await tx.run.updateMany({
+          where: {
+            id: runId,
+            origin: { not: "user" },
+            status: { in: ["queued", "running", "waiting_approval"] },
+          },
+          data: {
+            status: "cancelled",
+            error: {
+              code: "priority_peer_interrupt",
+              message: "superseded by a priority agent message",
+            },
+          },
         });
-        await appendEvent(tx, "run.priority_interrupted", runId, { runId });
+        if (interrupted.count > 0) {
+          await appendEvent(tx, "run.priority_interrupted", runId, { runId });
+        }
       });
     } catch {
       // The priority wake remains durable if the previous turn ended during cancellation.

@@ -1,30 +1,18 @@
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import type { Prisma } from "@openbot/db";
+import { firstCronSchedule, parseStoredTrigger, triggerIdentity } from "./automation-trigger";
 import {
+  atomicWrite,
   fileTimes,
   jsonFile,
   listDirectories,
   readText,
   uniqueSlug,
-  atomicWrite,
 } from "./file-state";
 import { nextRoutineRun, normalizeRoutineSchedule } from "./routines";
 
 const MAX_AUTOMATION_NAME = 80;
-const MAX_AUTOMATION_PROMPT = 240_000;
-const MAX_GROUP_TRIGGERS = 8;
-const EVENT_TYPES = new Set([
-  "slack",
-  "github",
-  "origin",
-  "microsoftTeams",
-  "linear",
-  "sentry",
-  "pagerduty",
-  "webhook",
-]);
-const ORIGIN_EXCLUSIONS = new Set(["microsoftTeams", "linear", "sentry", "pagerduty", "webhook"]);
 
 export interface AutomationRun {
   id: string;
@@ -66,113 +54,52 @@ const required = (value: unknown, label: string, max: number): string => {
 };
 
 const finiteMilliseconds = (value: unknown): number | null =>
-  typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
-
-const validateTrigger = (input: unknown): Record<string, unknown> => {
-  if (Array.isArray(input)) {
-    if (input.length === 0 || input.length > MAX_GROUP_TRIGGERS)
-      throw new Error(`group trigger must contain 1-${MAX_GROUP_TRIGGERS} listeners`);
-    const listeners = input.map(validateTrigger);
-    if (listeners.some((listener) => listener.type === "group"))
-      throw new Error("group triggers may not contain another group");
-    return listeners.length === 1 ? listeners[0]! : validateTriggerGroup(listeners);
-  }
-  const trigger = object(input, "trigger");
-  const type = required(trigger.type, "trigger.type", 80);
-  if (type === "cron") {
-    return {
-      ...trigger,
-      type,
-      schedule: required(trigger.schedule, "trigger.schedule", 500),
-    };
-  }
-  if (type === "group") {
-    const rawListeners = trigger.listeners ?? trigger.triggers;
-    if (
-      !Array.isArray(rawListeners) ||
-      rawListeners.length === 0 ||
-      rawListeners.length > MAX_GROUP_TRIGGERS
-    ) {
-      throw new Error(`group trigger must contain 1-${MAX_GROUP_TRIGGERS} listeners`);
-    }
-    const listeners = rawListeners.map(validateTrigger);
-    if (listeners.some((listener) => listener.type === "group"))
-      throw new Error("group triggers may not contain another group");
-    return listeners.length === 1 ? listeners[0]! : validateTriggerGroup(listeners);
-  }
-  if (!EVENT_TYPES.has(type)) throw new Error(`unsupported automation trigger type: ${type}`);
-  return { ...trigger, type };
-};
-
-const validateTriggerGroup = (
-  listeners: Array<Record<string, unknown>>
-): Record<string, unknown> => {
-  const types = new Set(listeners.map((entry) => entry.type));
-  if (
-    types.has("origin") &&
-    [...types].some((candidate) => ORIGIN_EXCLUSIONS.has(String(candidate)))
-  ) {
-    throw new Error(
-      "origin cannot be grouped with Teams, Linear, Sentry, PagerDuty, or webhook triggers"
-    );
-  }
-  return { type: "group", listeners };
-};
-
-const firstCronSchedule = (trigger: Record<string, unknown>): string | null => {
-  if (trigger.type === "cron" && typeof trigger.schedule === "string") return trigger.schedule;
-  if (trigger.type !== "group" || !Array.isArray(trigger.listeners)) return null;
-  const cron = trigger.listeners.find(
-    (listener) =>
-      Boolean(listener) &&
-      typeof listener === "object" &&
-      !Array.isArray(listener) &&
-      (listener as { type?: unknown }).type === "cron"
-  ) as { schedule?: unknown } | undefined;
-  return typeof cron?.schedule === "string" ? cron.schedule : null;
-};
+  typeof value === "number" && Number.isFinite(value) ? value : null;
 
 export const parseAutomationRuns = (text: string | null): AutomationRun[] => {
   if (text === null) return [];
-  const parsed = JSON.parse(text) as unknown;
-  if (!Array.isArray(parsed)) throw new Error("runs.json must contain an array");
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text) as unknown;
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(parsed)) return [];
   const result: AutomationRun[] = [];
   for (const entry of parsed) {
-    const run = object(entry, "run");
-    const finishedAt =
-      run.finishedAt === undefined || run.finishedAt === null
-        ? run.finishedAt
-        : finiteMilliseconds(run.finishedAt);
-    if (
-      typeof run.id !== "string" ||
-      !run.id ||
-      finiteMilliseconds(run.startedAt) === null ||
-      (run.finishedAt !== undefined && run.finishedAt !== null && finishedAt === null)
-    ) {
-      throw new Error("runs.json contains an invalid run");
-    }
-    if (run.requestId !== undefined && typeof run.requestId !== "string")
-      throw new Error("runs.json requestId must be a string");
-    if (run.detail !== undefined && (typeof run.detail !== "string" || run.detail.length > 300))
-      throw new Error("runs.json detail must be at most 300 characters");
-    if (
-      run.coalescedRunIds !== undefined &&
-      (!Array.isArray(run.coalescedRunIds) ||
-        run.coalescedRunIds.length > 25 ||
-        run.coalescedRunIds.some((id) => typeof id !== "string"))
-    )
-      throw new Error("runs.json coalescedRunIds must contain at most 25 strings");
+    if (!entry || Array.isArray(entry) || typeof entry !== "object") continue;
+    const run = entry as Record<string, unknown>;
+    const id = typeof run.id === "string" ? run.id.trim() : "";
+    const startedAt = finiteMilliseconds(run.startedAt);
+    if (!id || startedAt === null) continue;
+    const detail = typeof run.detail === "string" ? run.detail.trim().slice(0, 300) : "";
+    const event = typeof run.event === "string" ? run.event.trim().slice(0, 300) : "";
+    const errorKind = typeof run.errorKind === "string" ? run.errorKind.trim() : "";
+    const requestId = typeof run.requestId === "string" ? run.requestId.trim() : "";
+    const coalescedRunIds = Array.isArray(run.coalescedRunIds)
+      ? run.coalescedRunIds
+          .filter((candidate): candidate is string => typeof candidate === "string")
+          .filter(Boolean)
+          .slice(0, 25)
+      : [];
     result.push({
-      ...run,
+      id,
       trigger: ["schedule", "manual", "event"].includes(String(run.trigger))
         ? (run.trigger as AutomationRun["trigger"])
         : "schedule",
+      startedAt,
+      finishedAt: finiteMilliseconds(run.finishedAt),
       status: ["ok", "error", "running"].includes(String(run.status))
         ? (run.status as AutomationRun["status"])
         : "ok",
+      ...(detail ? { detail } : {}),
+      ...(event ? { event } : {}),
+      ...(errorKind ? { errorKind } : {}),
+      ...(requestId ? { requestId } : {}),
+      ...(coalescedRunIds.length > 0 ? { coalescedRunIds } : {}),
     } as AutomationRun);
   }
-  return result.sort((left, right) => left.startedAt - right.startedAt).slice(-20);
+  return result.sort((left, right) => right.startedAt - left.startedAt).slice(0, 20);
 };
 
 export const parseAutomationFile = async (
@@ -181,14 +108,16 @@ export const parseAutomationFile = async (
   installationZone: string
 ): Promise<ParsedAutomation> => {
   const value = object(JSON.parse(text), "automation.json");
-  const name = required(value.name, "automation name", MAX_AUTOMATION_NAME);
-  const prompt = required(value.prompt, "automation prompt", MAX_AUTOMATION_PROMPT);
+  const name = required(value.name, "automation name", Number.MAX_SAFE_INTEGER)
+    .replace(/\s+/g, " ")
+    .slice(0, MAX_AUTOMATION_NAME);
+  const prompt = required(value.prompt, "automation prompt", Number.MAX_SAFE_INTEGER);
   let trigger: Record<string, unknown>;
   try {
-    trigger = validateTrigger(value.trigger);
+    trigger = parseStoredTrigger(value.trigger);
   } catch (triggerError) {
     if (typeof value.schedule !== "string" || !value.schedule.trim()) throw triggerError;
-    trigger = validateTrigger({
+    trigger = parseStoredTrigger({
       type: "cron",
       schedule: required(value.schedule, "schedule", 500),
     });
@@ -200,12 +129,29 @@ export const parseAutomationFile = async (
           enforceMinimum: process.env.OPENBOT_ENFORCE_AUTOMATION_MINIMUM === "true",
         })
       : null;
-  const triggerPresentation =
-    value.triggerPresentation === undefined || value.triggerPresentation === null
-      ? null
-      : object(value.triggerPresentation, "triggerPresentation");
-  if (triggerPresentation && triggerPresentation.version !== 1) {
-    throw new Error("triggerPresentation.version must be 1");
+  let triggerPresentation: Record<string, unknown> | null = null;
+  if (value.triggerPresentation && typeof value.triggerPresentation === "object") {
+    try {
+      const presentation = object(value.triggerPresentation, "triggerPresentation");
+      if (
+        presentation.version === 2 &&
+        presentation.kind === "grok-time-routines" &&
+        Array.isArray(presentation.schedules) &&
+        JSON.stringify(presentation).length <= 100_000
+      ) {
+        triggerPresentation = presentation;
+      } else {
+        const presentedTrigger = parseStoredTrigger(presentation.trigger);
+        if (
+          presentation.version === 1 &&
+          triggerIdentity(presentedTrigger) === triggerIdentity(trigger)
+        ) {
+          triggerPresentation = { version: 1, trigger: presentedTrigger };
+        }
+      }
+    } catch {
+      triggerPresentation = null;
+    }
   }
   const enabled = value.enabled !== false;
   const provenance = value.provenance === "user" ? "user" : "untrusted";
@@ -215,14 +161,21 @@ export const parseAutomationFile = async (
   const createdAt = new Date(Math.min(suppliedCreatedAt ?? fileCreatedAt, fileCreatedAt));
   const lastRunMs = finiteMilliseconds(value.lastRunAt);
   const lastRunAt = lastRunMs === null ? null : new Date(lastRunMs);
-  const pendingNotices = (
-    Array.isArray(value.pendingNotices) ? value.pendingNotices : []
-  ) as Prisma.InputJsonValue;
-  const raisedNotices = (
-    Array.isArray(value.raisedNotices) ? value.raisedNotices : []
-  ) as Prisma.InputJsonValue;
+  const notices = (candidate: unknown): Prisma.InputJsonValue => [
+    ...new Set(
+      (Array.isArray(candidate) ? candidate : [])
+        .filter((entry): entry is string => typeof entry === "string")
+        .map((entry) => entry.trim())
+        .filter(
+          (entry) =>
+            entry === "github-listener-scope" || entry === "sand-five-minute-automation-floor"
+        )
+    ),
+  ];
+  const pendingNotices = notices(value.pendingNotices);
+  const raisedNotices = notices(value.raisedNotices);
   const runs = parseAutomationRuns(
-    await readText(join(automationPath, "..", "runs.json"), 1_000_000)
+    await readText(join(automationPath, "..", "runs.json"), Number.MAX_SAFE_INTEGER)
   );
   const anchor = lastRunAt ?? createdAt;
   return {
@@ -294,7 +247,8 @@ export const renderAutomationFile = (routine: {
   });
 };
 
-export const renderRunsFile = (runs: unknown): string => jsonFile(Array.isArray(runs) ? runs : []);
+export const renderRunsFile = (runs: unknown): string =>
+  jsonFile(parseAutomationRuns(JSON.stringify(Array.isArray(runs) ? runs : [])));
 
 export const writeAutomationFiles = async (
   botDirectory: string,

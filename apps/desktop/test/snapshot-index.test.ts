@@ -97,6 +97,28 @@ function fixture(): ClientSnapshot {
       },
     ],
     approvals: [],
+    subagents: [
+      {
+        id: "subagent-1",
+        subagentId: "session-1",
+        parentBotId: "bot-1",
+        parentRunId: "run-1",
+        parentChannelId: "channel-1",
+        parentToolCallId: "tool-call-1",
+        currentRunId: "child-run-1",
+        description: "Inspect release state",
+        subagentType: "executor",
+        runInBackground: true,
+        status: "running",
+        summary: null,
+        errorMessage: null,
+        startedAt: stamp,
+        completedAt: null,
+        stoppedAt: null,
+        createdAt: stamp,
+        updatedAt: stamp,
+      },
+    ],
     runtime: {
       server: "ready",
       database: "ready",
@@ -120,6 +142,24 @@ describe("desktop snapshot index", () => {
     expect(index.latestMessageByChannel.get("channel-1")?.id).toBe("message-2");
     expect(index.activeRunByChannel.get("channel-1")?.id).toBe("run-1");
     expect(index.itemsByRun.get("run-1")?.[0]?.title).toBe("WebSearch");
+    expect(index.subagentsByChannel.get("channel-1")?.[0]?.parentToolCallId).toBe("tool-call-1");
+  });
+
+  test("retains the latest mirrored A2A name when a peer is absent from the bot list", () => {
+    const snapshot = fixture();
+    const first = snapshot.channelMessages[0];
+    const second = snapshot.channelMessages[1];
+    if (!(first && second)) throw new Error("fixture is missing messages");
+    first.metadata = {
+      fromAgent: { id: "removed-peer", name: "Parity Probe" },
+    };
+    second.metadata = {
+      toAgent: { id: "removed-peer", name: "Parity Watcher Live" },
+    };
+
+    expect(createSnapshotIndex(snapshot).agentNameById.get("removed-peer")).toBe(
+      "Parity Watcher Live"
+    );
   });
 
   test("keeps the running turn stoppable when a newer turn is queued", () => {
@@ -145,6 +185,49 @@ describe("desktop snapshot index", () => {
     expect(second.channelMessages).toBe(first.channelMessages);
     expect(second.channelMessages[0]).toBe(first.channelMessages[0]);
     expect(second.runtime).toBe(first.runtime);
+  });
+
+  test("accepts snapshots from servers that predate subagent activity", () => {
+    const { subagents: _subagents, ...legacySnapshot } = fixture();
+    const reconciled = reconcileClientSnapshot(
+      legacySnapshot as ClientSnapshot,
+      null,
+      createSnapshotCaches()
+    );
+
+    expect(reconciled.subagents).toEqual([]);
+    expect(createSnapshotIndex(reconciled).subagentsByChannel.size).toBe(0);
+  });
+
+  test("normalizes omitted collections at the unvalidated HTTP boundary", () => {
+    const legacySnapshot = fixture() as ClientSnapshot & Record<string, unknown>;
+    for (const key of [
+      "bots",
+      "channels",
+      "channelMessages",
+      "channelRounds",
+      "runs",
+      "runItems",
+      "approvals",
+      "subagents",
+    ]) {
+      delete legacySnapshot[key];
+    }
+
+    const reconciled = reconcileClientSnapshot(
+      legacySnapshot as ClientSnapshot,
+      null,
+      createSnapshotCaches()
+    );
+
+    expect(reconciled.bots).toEqual([]);
+    expect(reconciled.channels).toEqual([]);
+    expect(reconciled.channelMessages).toEqual([]);
+    expect(reconciled.channelRounds).toEqual([]);
+    expect(reconciled.runs).toEqual([]);
+    expect(reconciled.runItems).toEqual([]);
+    expect(reconciled.approvals).toEqual([]);
+    expect(reconciled.subagents).toEqual([]);
   });
 
   test("changes only the affected entity collection", () => {

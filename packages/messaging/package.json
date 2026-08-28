@@ -14,6 +14,7 @@
   "dependencies": {
     "@openbot/contracts": "workspace:*",
     "@openbot/db": "workspace:*",
+    "chokidar": "5.0.0",
     "cron-parser": "5.10.0",
     "pg-boss": "12.28.0",
     "yaml": "2.9.0"

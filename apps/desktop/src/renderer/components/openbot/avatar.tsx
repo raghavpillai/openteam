@@ -10,13 +10,14 @@ export const BotAvatar = memo(function BotAvatar({
   size = "md",
 }: {
   bot?: Pick<BotView, "color" | "icon"> & Partial<Pick<BotView, "id" | "hasAvatar" | "updatedAt">>;
-  size?: "xs" | "sm" | "md" | "lg";
+  size?: "xs" | "activity" | "sm" | "md" | "lg";
 }) {
   return (
     <AvatarPrimitive.Root
       className={cn(
         "grid shrink-0 place-items-center overflow-hidden",
         size === "xs" && "size-4",
+        size === "activity" && "size-4",
         size === "sm" && "size-[22px]",
         size === "md" && "size-9",
         size === "lg" && "size-16"

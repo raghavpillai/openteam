@@ -243,12 +243,16 @@ export function GroupForm({
   }, [bots, query]);
   const toggle = useCallback((id: string) => {
     setSelected((current) =>
-      current.includes(id) ? current.filter((candidate) => candidate !== id) : [...current, id]
+      current.includes(id)
+        ? current.filter((candidate) => candidate !== id)
+        : current.length < 6
+          ? [...current, id]
+          : current
     );
   }, []);
   const submit = async (event: FormEvent) => {
     event.preventDefault();
-    if (!name.trim() || selected.length < 2 || busy) return;
+    if (!name.trim() || selected.length < 1 || selected.length > 6 || busy) return;
     setBusy(true);
     try {
       await onSubmit(name.trim(), selected);
@@ -261,7 +265,7 @@ export function GroupForm({
       <DialogHeader className="border-b px-5 py-4">
         <DialogTitle className="text-[15px] font-semibold">New channel</DialogTitle>
         <DialogDescription className="sr-only">
-          Name a shared project room and choose at least two bots.
+          Name a shared project room and choose one to six bots.
         </DialogDescription>
       </DialogHeader>
       <div className="grid gap-3 px-5 py-5">
@@ -303,6 +307,7 @@ export function GroupForm({
                   >
                     <Checkbox
                       checked={checked}
+                      disabled={!checked && selected.length >= 6}
                       id={checkboxId}
                       onCheckedChange={() => toggle(bot.id)}
                     />
@@ -328,7 +333,7 @@ export function GroupForm({
       <DialogFooter className="border-t px-4 py-3">
         <Button
           className="min-w-[78px]"
-          disabled={!name.trim() || selected.length < 2 || busy}
+          disabled={!name.trim() || selected.length < 1 || selected.length > 6 || busy}
           type="submit"
         >
           {busy && <LoaderCircle className="size-4 animate-spin" />}

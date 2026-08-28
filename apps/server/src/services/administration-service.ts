@@ -31,12 +31,7 @@ export class AdministrationService {
         instructions: input.description,
       })
     );
-    return {
-      agent_id: bot.id,
-      name: bot.name,
-      description: bot.description,
-      status: bot.status,
-    };
+    return `Created agent "${bot.name}" (id: ${bot.id}). Message it with SendToAgent using that id.`;
   }
 
   async updateAgent(parentBotId: string, callId: string, input: UpdateAgentInput) {
@@ -44,13 +39,15 @@ export class AdministrationService {
       where: { id: input.agent_id },
       include: { subagentIdentity: { select: { id: true } } },
     });
-    if (
-      !target ||
-      target.hiddenFromSidebar ||
-      target.status === "archived" ||
-      target.subagentIdentity
-    ) {
+    if (!target || target.status === "archived" || target.subagentIdentity) {
       throw new ApiError(404, "agent_not_found", "Agent not found");
+    }
+    if (target.id === parentBotId) {
+      throw new ApiError(
+        400,
+        "cannot_update_self",
+        "UpdateAgent is only for other agents; update your own profile with update_state"
+      );
     }
     if (input.name !== undefined && input.name.trim().length === 0) {
       throw new ApiError(400, "agent_name_required", "An agent name cannot be cleared");
@@ -76,7 +73,7 @@ export class AdministrationService {
         agentId: bot.id,
       })
     );
-    return { agent_id: bot.id, name: bot.name, description: bot.description };
+    return `Updated agent "${bot.name}" (id: ${bot.id}).`;
   }
 
   async createChannel(parentBotId: string, callId: string, input: CreateChannelInput) {
@@ -88,10 +85,9 @@ export class AdministrationService {
       where: {
         id: { in: memberIds },
         status: "active",
-        hiddenFromSidebar: false,
         subagentIdentity: { is: null },
       },
-      select: { id: true },
+      select: { id: true, name: true },
     });
     if (active.length !== memberIds.length) {
       throw new ApiError(400, "invalid_channel_members", "Every channel member must be an agent");
@@ -108,7 +104,9 @@ export class AdministrationService {
     if (previousChannelId) {
       const replay = await this.prisma.channel.findUnique({
         where: { id: previousChannelId },
-        include: { members: { orderBy: { ordinal: "asc" } } },
+        include: {
+          members: { orderBy: { ordinal: "asc" }, include: { bot: true } },
+        },
       });
       if (replay) return this.channelResult(replay);
     }
@@ -156,7 +154,9 @@ export class AdministrationService {
               create: memberIds.map((botId, ordinal) => ({ botId, ordinal })),
             },
           },
-          include: { members: { orderBy: { ordinal: "asc" } } },
+          include: {
+            members: { orderBy: { ordinal: "asc" }, include: { bot: true } },
+          },
         });
         await appendEvent(tx, "channel.created_by_agent", channelId, {
           initiatorBotId: parentBotId,
@@ -172,6 +172,9 @@ export class AdministrationService {
         });
         return created;
       });
+      for (const botId of memberIds) {
+        await this.agentData.writeGroupFilesForBot(botId);
+      }
       return this.channelResult(channel);
     } catch (error) {
       await this.prisma.idempotencyRecord.deleteMany({
@@ -190,12 +193,13 @@ export class AdministrationService {
       : null;
   }
 
-  private channelResult(channel: { id: string; name: string; members: Array<{ botId: string }> }) {
-    return {
-      channel_id: channel.id,
-      name: channel.name,
-      member_ids: channel.members.map(({ botId }) => botId),
-    };
+  private channelResult(channel: {
+    id: string;
+    name: string;
+    members: Array<{ botId: string; bot: { name: string } }>;
+  }) {
+    const members = channel.members.map(({ bot }) => bot.name).join(", ");
+    return `Channel "${channel.name}" is ready (id: ${channel.id}). Members: ${members}. Post into it with SendToAgent using that id.`;
   }
 
   async updateChannel(parentBotId: string, callId: string, input: UpdateChannelInput) {
@@ -221,7 +225,6 @@ export class AdministrationService {
         where: {
           id: { in: requestedAdds },
           status: "active",
-          hiddenFromSidebar: false,
           subagentIdentity: { is: null },
         },
         select: { id: true },
@@ -257,13 +260,20 @@ export class AdministrationService {
       await this.messaging.scheduleTranscriptProjection(tx, [
         ...new Set([...previous, ...memberIds]),
       ]);
+      const members = await tx.bot.findMany({
+        where: { id: { in: memberIds } },
+        select: { id: true, name: true },
+      });
+      const namesById = new Map(members.map((member) => [member.id, member.name]));
       return {
-        channel_id: channel.id,
-        name: channel.name,
-        member_ids: memberIds,
+        acknowledgement: `Updated channel "${channel.name}" (id: ${channel.id}). Members: ${memberIds.map((id) => namesById.get(id) ?? id).join(", ")}.`,
+        memberIds,
+        affectedBotIds: [...new Set([...previous, ...memberIds])],
       };
     });
-    await this.agentData.writeGroupFilesForBot(result.member_ids[0]!);
-    return result;
+    for (const botId of result.affectedBotIds) {
+      await this.agentData.writeGroupFilesForBot(botId);
+    }
+    return result.acknowledgement;
   }
 }

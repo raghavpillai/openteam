@@ -1,0 +1,264 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-08-28T12:22:01+03:00",
+  "verdict": "pass_observable_contract",
+  "scope": [
+    "direct protocol",
+    "direct model wake",
+    "direct storage",
+    "group protocol",
+    "group model wake",
+    "group storage",
+    "unread behavior",
+    "exchange UI",
+    "group UI",
+    "mention picker"
+  ],
+  "reference": {
+    "grokLiveAudit": "/Users/raghav/Downloads/a2a-sanity-20260828-01.md",
+    "grokDirectCapture": "/Users/raghav/Downloads/a2a-live-run.json",
+    "installedRenderer": "/tmp/openbot-grok-renderer-formatted.js",
+    "official": [
+      "https://docs.x.ai/grok-bot/chat-and-collaboration",
+      "https://docs.x.ai/grok-bot/overview",
+      "https://docs.x.ai/grok-bot/bots"
+    ]
+  },
+  "agents": {
+    "source": {
+      "id": "1abdfef4-d9a0-44c2-9690-31019324de09",
+      "name": "A2A UI Source 2330",
+      "conversationId": "65bf6790-4d91-4121-85c8-661064c2af8f",
+      "homeChannelId": "a75f4600-9491-4856-96de-f746b8f3834a"
+    },
+    "probe": {
+      "id": "2d36969d-b27b-4c27-b339-94bf5de26eb5",
+      "name": "A2A UI Probe 2330",
+      "homeChannelId": "a8941d16-2a3b-4772-bc51-f54ffd8a4daa"
+    }
+  },
+  "direct": {
+    "reference": "OPENBOT_DIRECT_WRAPPER_FINAL_20260828_01",
+    "result": "Sent to A2A UI Probe 2330. This is asynchronous — if they reply, it'll arrive later as a new message that wakes you; don't wait on it now.",
+    "roundTripFromOutboundMs": 5390,
+    "createdAgentDmChannels": 0,
+    "rows": [
+      {
+        "sequence": 318,
+        "id": "b605faad-b9e7-4e9d-bc60-6932e9e8800b",
+        "channelId": "a75f4600-9491-4856-96de-f746b8f3834a",
+        "sender": "agent",
+        "senderBotId": "1abdfef4-d9a0-44c2-9690-31019324de09",
+        "content": "OPENBOT_DIRECT_WRAPPER_FINAL_20260828_01 — reply via SendToAgent with exactly ACK OPENBOT_DIRECT_WRAPPER_FINAL_20260828_01",
+        "metadata": {
+          "toAgent": {
+            "id": "2d36969d-b27b-4c27-b339-94bf5de26eb5",
+            "name": "A2A UI Probe 2330",
+            "kind": "agent"
+          }
+        },
+        "createdAt": "2026-08-27T23:50:37.519Z"
+      },
+      {
+        "sequence": 319,
+        "id": "c1ae696d-3fd3-4d48-a77b-99326335dc19",
+        "channelId": "a8941d16-2a3b-4772-bc51-f54ffd8a4daa",
+        "sender": "user",
+        "senderBotId": "1abdfef4-d9a0-44c2-9690-31019324de09",
+        "content": "OPENBOT_DIRECT_WRAPPER_FINAL_20260828_01 — reply via SendToAgent with exactly ACK OPENBOT_DIRECT_WRAPPER_FINAL_20260828_01",
+        "metadata": {
+          "fromAgent": {
+            "id": "1abdfef4-d9a0-44c2-9690-31019324de09",
+            "name": "A2A UI Source 2330"
+          }
+        },
+        "createdAt": "2026-08-27T23:50:37.519Z"
+      },
+      {
+        "sequence": 321,
+        "id": "48a09016-c43b-4bb1-a45a-a917726aca49",
+        "channelId": "a8941d16-2a3b-4772-bc51-f54ffd8a4daa",
+        "sender": "agent",
+        "senderBotId": "2d36969d-b27b-4c27-b339-94bf5de26eb5",
+        "content": "ACK OPENBOT_DIRECT_WRAPPER_FINAL_20260828_01",
+        "metadata": {
+          "toAgent": {
+            "id": "1abdfef4-d9a0-44c2-9690-31019324de09",
+            "name": "A2A UI Source 2330",
+            "kind": "agent"
+          }
+        },
+        "createdAt": "2026-08-27T23:50:42.909Z"
+      },
+      {
+        "sequence": 322,
+        "id": "7c0777fb-18c9-4051-aafc-bef864b12434",
+        "channelId": "a75f4600-9491-4856-96de-f746b8f3834a",
+        "sender": "user",
+        "senderBotId": "2d36969d-b27b-4c27-b339-94bf5de26eb5",
+        "content": "ACK OPENBOT_DIRECT_WRAPPER_FINAL_20260828_01",
+        "metadata": {
+          "fromAgent": {
+            "id": "2d36969d-b27b-4c27-b339-94bf5de26eb5",
+            "name": "A2A UI Probe 2330"
+          }
+        },
+        "createdAt": "2026-08-27T23:50:42.909Z"
+      }
+    ],
+    "recipientModelMessage": "[SAND_HIDDEN_PROMPT][agent] A message just arrived from another of your user's agents: A2A UI Source 2330 (id: 1abdfef4-d9a0-44c2-9690-31019324de09).\nThis is another assistant reaching out — not the user typing here. It arrived asynchronously, and your user can already see it in this chat.\n\nA2A UI Source 2330: OPENBOT_DIRECT_WRAPPER_FINAL_20260828_01 — reply via SendToAgent with exactly ACK OPENBOT_DIRECT_WRAPPER_FINAL_20260828_01\n\nIf it needs a reply or an action, handle it: reply to A2A UI Source 2330 with SendToAgent (their id: 1abdfef4-d9a0-44c2-9690-31019324de09), which reaches them on a later turn — not a live back-and-forth — and use SendToUser to tell your user only when you have a real result to share. If it is just an FYI with nothing for you to do, it is fine to stay silent — no need to reply just to acknowledge it.",
+    "forbiddenMetadataObserved": []
+  },
+  "group": {
+    "id": "45f78404-8046-4683-866f-314e48db4ae1",
+    "name": "Fresh Agent Group Parity 20260828",
+    "warningReference": "OPENBOT_GROUP_FINAL_20260828_01",
+    "promptReference": "OPENBOT_GROUP_WRAPPER_FINAL_20260828_01",
+    "warningResult": "Posted to \"Fresh Agent Group Parity 20260828\". Its members will see it and reply on their own turns. Note: the attached image was NOT delivered — group messages are text-only for now; send images to an agent directly. Note: priority is 1:1 only — this post did not interrupt members.",
+    "roomRow": {
+      "sequence": 324,
+      "id": "268d9623-e77a-4253-8fcc-68baf797bf98",
+      "sender": "agent",
+      "senderBotId": "1abdfef4-d9a0-44c2-9690-31019324de09",
+      "content": "@a2auiprobe2330 Reply with exactly ACK OPENBOT_GROUP_WRAPPER_FINAL_20260828_01.",
+      "metadata": {
+        "kind": "send-message",
+        "author": {
+          "id": "1abdfef4-d9a0-44c2-9690-31019324de09",
+          "name": "A2A UI Source 2330"
+        },
+        "message": {
+          "type": "text",
+          "content": "@a2auiprobe2330 Reply with exactly ACK OPENBOT_GROUP_WRAPPER_FINAL_20260828_01."
+        }
+      }
+    },
+    "sourceHomeRow": {
+      "sequence": 325,
+      "id": "49fed07b-c172-4003-8959-3442500f4646",
+      "metadata": {
+        "toAgent": {
+          "id": "45f78404-8046-4683-866f-314e48db4ae1",
+          "name": "Fresh Agent Group Parity 20260828",
+          "kind": "group"
+        }
+      }
+    },
+    "firstRecipientModelMessage": "[Group chat: \"Fresh Agent Group Parity 20260828\" - with A2A UI Source 2330]\nParticipants: A2A UI Source 2330 (Disposable UI A2A parity source)\nNew messages in the room (oldest first):\nA2A UI Source 2330: @a2auiprobe2330 Reply with exactly ACK OPENBOT_GROUP_WRAPPER_FINAL_20260828_01.\n\nIt's your turn, A2A UI Probe 2330. Reply in character with SendToUser if you have something worth adding; if you don't, end your turn without sending anything.",
+    "ackRow": {
+      "sequence": 327,
+      "id": "1e4c839f-48a4-4b79-bd1d-53162df4a67e",
+      "content": "ACK OPENBOT_GROUP_WRAPPER_FINAL_20260828_01"
+    },
+    "imagesStored": false,
+    "priorityStored": false,
+    "correlationStored": false,
+    "unread": {
+      "room": true,
+      "sourceHome": false,
+      "probeHome": false
+    }
+  },
+  "ui": {
+    "computerUseExercised": true,
+    "exchange": {
+      "openedFromActivitySummary": true,
+      "derivedFromHomeRows": true,
+      "header": "A2A UI Source 2330 ↔ A2A UI Probe 2330",
+      "viewOnlyText": "This chat is view-only",
+      "closeText": "Close Chat",
+      "replyAndReactionDisabled": true,
+      "animation": {
+        "durationMs": 300,
+        "opacity": [0, 1],
+        "translateY": [20, 0]
+      }
+    },
+    "group": {
+      "roomOpened": true,
+      "unreadClearedOnOpen": true,
+      "mentionSuggestions": [
+        "everyone",
+        "A2A UI Probe 2330",
+        "A2A UI Source 2330"
+      ]
+    }
+  },
+  "verification": {
+    "typecheck": {
+      "successfulTasks": 8,
+      "totalTasks": 8
+    },
+    "tests": {
+      "successfulTurboTasks": 11,
+      "totalTurboTasks": 11,
+      "focusedMessagingPass": 44,
+      "focusedMessagingFail": 0,
+      "serverPass": 31,
+      "serverFail": 0
+    },
+    "build": {
+      "successfulTasks": 8,
+      "totalTasks": 8
+    },
+    "dockerRebuildHealthy": true,
+    "gitDiffCheck": "pass"
+  },
+  "lastPass": {
+    "direct": {
+      "reference": "OPENBOT_A2A_LASTPASS_DIRECT_20260828_01",
+      "mirroredRows": 4,
+      "ackMs": 7076,
+      "modelWakesDirectlyInjected": true,
+      "forbiddenMetadataRows": 0,
+      "createdAgentDmChannels": 0
+    },
+    "groupBeforeLeaseFix": {
+      "reference": "OPENBOT_A2A_LASTPASS_GROUP_20260828_01",
+      "roomSendRows": 1,
+      "roomAckRows": 1,
+      "ackMs": 3891,
+      "modelWakesDirectlyInjected": true
+    },
+    "leaseContentionFix": {
+      "file": "/Users/raghav/dev/openbot/apps/worker/src/worker.ts",
+      "behavior": "atomic skip-duplicate lease insert with transaction-local contention rollback",
+      "postgresDuplicateKeyAfterFix": false
+    },
+    "groupAfterLeaseFix": {
+      "reference": "OPENBOT_A2A_LASTPASS_GROUP_20260828_02",
+      "roomSendRows": 1,
+      "roomAckRows": 1,
+      "ackMs": 4164,
+      "modelWakesDirectlyInjected": true,
+      "forbiddenMetadataRows": 0,
+      "activeSourceProbeRunsAfterCompletion": 0,
+      "serviceLogErrorScan": "clean"
+    },
+    "currentPackagedUi": {
+      "rebuiltFromCurrentTree": true,
+      "latestDirectTranscriptVisible": true,
+      "viewOnlySheet": true,
+      "closeRestoresSource": true,
+      "latestGroupTranscriptVisible": true,
+      "mentionSuggestions": [
+        "everyone",
+        "A2A UI Probe 2330",
+        "A2A UI Source 2330"
+      ],
+      "unsentDraftCleared": true
+    },
+    "finalRepositoryGate": {
+      "typecheck": "8/8",
+      "tests": "11/11 turbo tasks",
+      "build": "8/8",
+      "gitDiffCheck": "pass",
+      "health": "ready"
+    }
+  },
+  "knownImplementationLocalDifferences": [
+    "OpenBot and Grok Bot do not share database primary keys.",
+    "OpenBot uses its durable channel-message sequence for the numeric portion of tNu/tNaN addresses; Grok Bot uses transcript-local turn numbering.",
+    "Historical pre-correction agent_dm rows remain stored but are hidden and are not used for new sends."
+  ]
+}

@@ -1,6 +1,6 @@
 # OpenBot v0
 
-OpenBot is a self-hosted, desktop-first home for durable Pi agents backed by OpenAI Codex. Each bot owns exactly one persistent Pi JSONL session, one Postgres inbox, its standing instructions, and a persistent graphical Linux screen. DM, peer, group, and bootstrap wakes all enter that same bot session; UI conversations are delivery views, not separate model threads.
+OpenBot is a self-hosted, desktop-first home for durable Pi agents backed by OpenAI Codex. Each bot owns one home Pi JSONL session plus an independent session for each group transcript, one Postgres inbox, its standing instructions, and a persistent graphical Linux screen. Direct, peer, routine, and bootstrap wakes use the home context; each group uses its own model context.
 
 Every bot works on the same persistent Linux computer and `/workspace`, so files written by one are immediately visible to the others. Bots get independent 1280×800 XFCE displays with Chromium, Thunar, XFCE Terminal, screenshots, structured mouse/keyboard actions, and live noVNC takeover. Chromium profiles are separately writable while the computer-level browser broker synchronizes ordinary sign-in cookies.
 
@@ -10,11 +10,11 @@ Every bot works on the same persistent Linux computer and `/workspace`, so files
 - Effect-based application and service boundaries
 - Prisma 7.9.1, PostgreSQL, and pg-boss 12.28.0 durable mailboxes
 - Pi `@earendil-works/pi-coding-agent` 0.84.3 embedded through its TypeScript SDK
-- one append-only Pi session tree per bot, reopened after worker, gateway, and Compose restarts
+- one append-only Pi session tree per bot context, reopened after worker, gateway, and Compose restarts
 - OpenAI Codex OAuth through Pi's `openai-codex` provider
-- Pi-native automatic and manual context compaction; OpenBot does not rebuild model context from UI messages
-- the exact ten native tools from the supplied contract: `SendMessage`, `ReactToMessage`, `update_state`, `ExternalShell`, `ExternalRead`, `Shell`, `Read`, `Screenshot`, `GetDynamicTools`, and `CallDynamicTool`
-- OpenBot-only dynamic discovery and dispatch; `openbot` exposes `Computer` and `SendToAgent`, while `cursor` exposes only the approved nine-tool compatibility slice: `TodoWrite`, `Task`, `CheckSubagent`, `MessageSubagent`, `StopSubagent`, `CreateAgent`, `UpdateAgent`, `CreateChannel`, and `UpdateChannel`
+- Grok-compatible automatic context self-summary with per-context durable archives, restart reconstruction, and no manual Compact surface
+- the exact ten native tools from the supplied contract: `SendToUser`, `ReactToMessage`, `update_state`, `ExternalShell`, `ExternalRead`, `Shell`, `Read`, `Screenshot`, `GetDynamicTools`, and `CallDynamicTool`
+- OpenBot-only dynamic discovery and dispatch; `openbot` exposes `Computer`, while `cursor` exposes `SendToAgent` plus the approved todo/orchestration/administration tools: `TodoWrite`, `Task`, `CheckSubagent`, `MessageSubagent`, `StopSubagent`, `CreateAgent`, `UpdateAgent`, `CreateChannel`, and `UpdateChannel`
 - durable parent-owned subagents backed by hidden Pi actors, persistent sessions/mailboxes, a bounded concurrent worker pool, image forwarding and bounded video-frame extraction, live status/transcripts, steering, cancellation, resume, and private completion wakes; `computerUse` gets direct screenshot/pixel control while `browserUse` gets a direct 15-tool Playwright/CDP page-control surface
 - typed, audited agent/channel administration plus durable per-agent todo queues
 - durable scheduled routines created and managed through `update_state`, with a once-per-minute pg-boss dispatcher and execution history
@@ -41,7 +41,8 @@ computer gateway ── embedded Pi AgentSession
         │                 └── openai-codex OAuth provider
         ├── /home/openbot/.pi/agent
         │     ├── auth.json
-        │     └── sessions/openbot/<bot-session>.jsonl
+        │     ├── sessions/openbot/<context-session>.jsonl
+        │     └── context-sessions/<context-session>/manifest.json + blobs/
         ├── /workspace
         │     ├── bots/<bot>
         │     ├── projects/<group>
@@ -52,7 +53,7 @@ computer gateway ── embedded Pi AgentSession
               └── BrowserBroker → encrypted shared cookie authority
 ```
 
-Postgres is authoritative for product state, mailboxes, visible chat, group delivery, run audit, and client replay. Pi's JSONL file is authoritative for that bot's model-visible history and compaction tree. A group wake may temporarily use a project directory as its cwd, but it resumes the same bot session.
+Postgres is authoritative for product state, mailboxes, visible chat, group delivery, run audit, and client replay. Pi's JSONL file retains each context's complete runtime tree; the content-addressed context manifest is authoritative for adopted summary reconstruction. A group wake uses its group project directory and resumes that bot/group context, independently of the bot's home context.
 
 ## Start the stack
 
@@ -140,7 +141,9 @@ occurrence, deleting a skill or automation folder removes that item, and deletin
 invalid `profile.json` is regenerated, while malformed present settings, skills,
 and automations are preserved and reported rather than silently overwritten.
 Prompt-visible profile, memory, and skill catalogs remain frozen until the next
-conversation compaction, with identity changes announced immediately.
+conversation compaction, with identity changes announced immediately. Saved
+skills appear in tagged user-info as name, description, and `SKILL.md` path;
+their bodies stay on disk and are read only when needed.
 
 User memory intentionally remains one global namespace, saved skills remain per
 bot, and avatar installation copies validated bytes into the bot directory; no
@@ -172,7 +175,7 @@ For the cleanest backup, stop new message submission and let active runs finish.
 
 ## Session and compaction semantics
 
-- Bot creation allocates a durable Pi session ID on its first wake.
+- A context allocates a durable Pi session ID on its first wake.
 - The worker passes the stored session path on every later wake.
 - Pi reopens the append-only JSONL tree and appends the new addressed input.
 - A direct user message sent during an active user run is durably recorded, then steered into that
@@ -181,9 +184,12 @@ For the cleanest backup, stop new message submission and let active runs finish.
 - A direct user message preempts active peer, group, or bootstrap work instead of changing that
   delivery's channel attribution. Peer and group messages remain asynchronous fresh turns.
 - DM, group, peer, and onboarding origin remain explicit in the wake envelope and Postgres audit log.
-- At most one turn runs for a bot at a time; other wakes remain in its mailbox.
-- Pi automatically compacts near the context threshold and records the compaction in the same session tree.
-- Manual “Compact context” invokes Pi's compaction API on that same file.
+- At most one turn runs for a bot at a time; other wakes remain in its mailbox, and the computer service also rejects concurrent access to one context.
+- OpenBot starts a background self-summary near the Grok thresholds and adopts it automatically through Pi's compaction lifecycle. Turn, image, and provider-overflow fallbacks use the same durable archive path.
+- A durable intent bridges Pi's append and the atomic archive-manifest commit;
+  restart preflight replays only an intent whose compaction ID exists in the Pi
+  session and discards an unmatched intent.
+- Production exposes no manual Compact button, slash command, or HTTP endpoint.
 - Compaction never deletes the visible Postgres transcript or group-room history.
 
 ## Testing

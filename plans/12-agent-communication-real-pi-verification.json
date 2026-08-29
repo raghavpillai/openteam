@@ -1,0 +1,120 @@
+{
+  "capturedAt": "2026-08-27T19:22:33.144Z",
+  "purpose": "Post-implementation verification against real local Pi agents and the running desktop renderer",
+  "environment": {
+    "api": "http://127.0.0.1:8787",
+    "renderer": "http://127.0.0.1:5173",
+    "database": "persistent Docker PostgreSQL for the real-agent probes; fresh isolated PostgreSQL database for the integration test",
+    "model": "openai-codex/gpt-5.5 through the production Pi runtime"
+  },
+  "agents": {
+    "source": {
+      "id": "5fa5d39f-a418-416f-ab9a-8ab6d5501663",
+      "name": "New Bot"
+    },
+    "target": {
+      "id": "bed3046e-1c8d-4fc6-8a25-02cbf0ca9dae",
+      "nameDuringQuestionProbe": "Parity Watcher Live"
+    },
+    "pairChannelId": "93686612-8d19-4402-b3db-d1850d52a129"
+  },
+  "realPiProbes": [
+    {
+      "kind": "grok-exact-ack",
+      "marker": "LIVE_ACK_1787858117",
+      "correlationId": "68257d9e-42e8-4cdb-9480-c849c5a21573",
+      "outbound": {
+        "id": "6eb2816e-b712-42cb-9179-26267e3c3ee2",
+        "sequence": "104",
+        "senderBotId": "5fa5d39f-a418-416f-ab9a-8ab6d5501663",
+        "content": "OpenBot live A2A probe LIVE_ACK_1787858117. Reply with exactly: ACK LIVE_ACK_1787858117.",
+        "createdAt": "2026-08-27T19:15:25.133Z",
+        "hopCount": 1
+      },
+      "reply": {
+        "id": "9121bab2-cc29-42f7-aabc-3cba10237371",
+        "sequence": "108",
+        "senderBotId": "bed3046e-1c8d-4fc6-8a25-02cbf0ca9dae",
+        "content": "ACK LIVE_ACK_1787858117",
+        "createdAt": "2026-08-27T19:15:33.059Z",
+        "hopCount": 2
+      },
+      "roundTripMs": 7926,
+      "result": "pass"
+    },
+    {
+      "kind": "direct-question-not-fyi",
+      "marker": "LIVE_QUESTION_1787858525",
+      "correlationId": "71f16332-9ceb-4e1e-a03e-d3366cdeee94",
+      "outbound": {
+        "id": "bfb9b782-10e5-42e6-967f-4eaef7cf77ad",
+        "sequence": "115",
+        "senderBotId": "5fa5d39f-a418-416f-ab9a-8ab6d5501663",
+        "content": "OpenBot direct question LIVE_QUESTION_1787858525: What is 2 + 2?",
+        "createdAt": "2026-08-27T19:22:18.605Z",
+        "hopCount": 1
+      },
+      "reply": {
+        "id": "54380293-7e4b-4828-b5d9-df2bed7cef10",
+        "sequence": "121",
+        "senderBotId": "bed3046e-1c8d-4fc6-8a25-02cbf0ca9dae",
+        "content": "LIVE_QUESTION_1787858525: 4",
+        "createdAt": "2026-08-27T19:22:33.144Z",
+        "hopCount": 2
+      },
+      "roundTripMs": 14539,
+      "recipientRunStatus": "completed",
+      "senderWakeRunStatus": "completed",
+      "canonicalMessagesAfterBothRunsCompleted": 2,
+      "acknowledgementPingPong": false,
+      "result": "pass"
+    }
+  ],
+  "bugsReproducedAndFixed": [
+    {
+      "bug": "A direct peer question could be classified as an FYI and silently completed",
+      "evidence": "The target Pi session recorded reasoning 'Deciding on silent FYI completion' for the original 'Anything useful ... coordinate on?' question",
+      "fix": "The agent wake and platform instructions now state that a direct question, request, or explicit reply instruction is not an FYI",
+      "verification": "The real Pi direct-question probe returned 4 through SendToAgent"
+    },
+    {
+      "bug": "A source status message between ping and ACK split one round trip into two one-message UI events",
+      "fix": "Compact events now group by A2A correlation ID across interleaved ordinary messages",
+      "verification": "The browser rendered one '2 messages with' event for the real ping/ACK"
+    },
+    {
+      "bug": "Compact events displayed the historical peer name stored at send time after a rename",
+      "fix": "The event label now prefers the current bot record and uses stored metadata only as fallback",
+      "verification": "The browser rendered the current peer name on both compact events"
+    }
+  ],
+  "browserVerification": {
+    "runner": "Python Playwright 1.55 with headless Google Chrome against the running Vite renderer and live API",
+    "assertions": {
+      "roundTripCollapsed": true,
+      "currentPeerNameUsed": true,
+      "pairHeaderShowsBothAgents": true,
+      "pairIsViewOnly": true,
+      "pairContainsPingAndAck": true,
+      "closeReturnsToWritableComposer": true,
+      "consoleErrors": 0,
+      "pageErrors": 0,
+      "failedRequests": 0
+    },
+    "result": "pass"
+  },
+  "automatedVerification": {
+    "isolatedDatabaseA2A": {
+      "test": "apps/worker/test/a2a-live.integration.test.ts",
+      "assertions": 15,
+      "result": "pass"
+    },
+    "repository": {
+      "tests": 167,
+      "assertions": 476,
+      "typecheckPackages": 8,
+      "buildPackages": 8,
+      "result": "pass"
+    }
+  }
+}

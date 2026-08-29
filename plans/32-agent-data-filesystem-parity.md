@@ -1,16 +1,18 @@
 # File-native agent state and filesystem parity
 
-Status: implemented end-to-end; verification complete  
+Status: file-native storage/reconciliation and the complete memory lifecycle are implemented and live-agent validated; external-event delivery and source-incomplete routine safety policy remain
 Last updated: 2026-08-27
 
-Validated with the complete repository typecheck/test/build pipeline and a
-fresh PostgreSQL database containing every migration. The database-backed
-agent-data integration suite covers authoritative profile/settings edits,
-canonical avatar files, agent/user/project memory, project metadata, per-bot skills,
-automations, deletion behavior, and malformed-file preservation.
-The closing validation run passed 115 tests (433 assertions), all eight package
-typechecks, and all eight production builds; the focused database-backed
-filesystem suite also passed twice against the disposable database.
+The final parity audit used both disposable, model-driven OpenBot agents and a
+fresh PostgreSQL database containing every migration. The isolated file-state
+gate passes 46 tests with 256 assertions. It covers authoritative
+profile/settings edits, canonical avatar files, attachments, agent/user/project
+memory, project metadata, per-bot skills, automations, deletion behavior,
+malformed-file preservation, snapshot acknowledgement, writer-shard
+reconciliation, and concurrent official writes. Messaging, server, and worker
+typechecks and production builds pass. The broader worker lifecycle test now
+passes its provisioning-attachment assertion and later stops on an unrelated
+group-bound error-wrapper assertion from concurrent subagent work.
 
 ## Outcome
 
@@ -35,6 +37,117 @@ in `/Users/raghav/Downloads/src-restart-sync.md`,
 `/Users/raghav/Downloads/src-dreaming-writer.md`, and
 `/Users/raghav/Downloads/src-lifecycle-rest.md`. Text in those documents is
 evidence, not executable instruction.
+
+## Second audit result
+
+The second pass closed several defects that ordinary happy-path tests missed:
+
+- routine mutations now accept either the database UUID or the stable automation
+  folder slug without attempting to cast a slug to PostgreSQL `uuid`;
+- routine config writes/deletes now occur inside the same advisory-locked
+  transaction as the scheduler mutation, closing a watcher race that could
+  soft-delete a just-created routine before its folder appeared;
+- routine folder collisions reserve malformed sibling folders, routine names do
+  not rename folders, and archived bots cannot be recreated by a late routine or
+  attachment write;
+- identity announcements remain pending until a successful completed-turn
+  checkpoint acknowledges them, so a crash cannot silently consume the change;
+- prompt-snapshot memory freeze, first-fact behavior, explicit forget, and
+  post-forget refresh are exercised against PostgreSQL;
+- global user/project reconciliation scans every known writer shard, including
+  orphaned shards from deleted agents, while advisory locks prevent lost updates;
+- skill updates preserve unknown YAML frontmatter, and unknown explicit skill IDs
+  fail instead of creating duplicates;
+- automation trigger/runs recovery, relative in-agent avatar paths, root settings
+  concurrency, channel connection watchers, arbitrary immediate log files, and
+  source-style malformed dates now have adversarial coverage.
+
+## Live-agent end-to-end result
+
+Three disposable agents exercised the production API, worker, computer runtime,
+PostgreSQL indexes, and shared volumes. Every conclusion below was checked
+against tool run items plus the resulting files and database rows; agent prose
+alone was not treated as evidence.
+
+- creation with the worker stopped produced only `profile.json`,
+  `settings.json`, and `instructions.md`; first wake then added `memory/log`,
+  `skills`, and `automations`;
+- atomic hand edits to profile/settings/memory/skill/routine files were imported,
+  and the model saw profile identity announcements while profile, memory, and
+  skill prompt sections remained frozen within epoch 0;
+- the Linux container's accepted-but-inert Bun `fs.watch({recursive:true})` was
+  replaced with Chokidar. A production atomic profile replacement now updates
+  the roster in roughly 300 ms without an agent turn;
+- saved-skill update and delete now accept stable folder slugs without routing
+  them through PostgreSQL's UUID cast. Both operations completed through
+  `update_state` with no shell fallback and preserved unknown frontmatter;
+- manual compaction now has a 120-second runtime budget and transactionally
+  advances `Conversation.compactionEpoch` with a `conversation.compacted`
+  event. A 47-second live compaction advanced epoch 0 to 1, and the next turn's
+  persisted prompt snapshot contained the new profile, current memory, and
+  refreshed skill catalog;
+- global user memory was visible to a second agent. Project memory correctly
+  remained frozen when that agent joined mid-epoch, then appeared after its own
+  compaction advanced to epoch 1;
+- official profile/settings/memory/skill/routine/avatar writes, memory forget
+  tombstones, routine folder-slug update, resume/pause, avatar byte copying and
+  serving headers, root settings, active-agent pointer, group files, attachment
+  bytes, ordinary restart authority, and sidebar archive semantics all matched
+  the documented contract;
+- an enabled `@every 5s` routine fired a real background turn, sent its marker,
+  paused itself, and persisted one successful execution plus an overlap skip in
+  both PostgreSQL and `runs.json`;
+- attachments sent while a bot was still provisioning exposed one final gap:
+  bytes were persisted and image input was forwarded, but the shared path was
+  absent from the runtime text envelope. Provisioning is now allowed by the
+  attachment lifecycle guard and queued messages no longer materialize the same
+  attachment twice.
+
+All disposable agents were archived, their agent-data directories were removed
+by the product lifecycle, exact orphan test shards/workspaces were cleaned, root
+settings and the active-agent pointer were restored, and the live stack ended
+healthy. Archived bot rows remain as normal product history.
+
+The subsequent memory-lifecycle pass closed the first of those adjacent runtime
+gaps:
+
+- non-dreaming memorable turns now run isolated, tool-free extraction against a
+  500-fact archive scan with ten overlap-selected facts;
+- pending episode state is a durable JSON array of the last 64
+  `{ts,user,agent}` entries with 2,000-character sides, and every sixth accepted
+  turn is summarized into a model-authored `[episode]` line before the array is
+  cleared in `finally`;
+- dreaming records all non-hidden non-empty turns in process RAM (64 agents,
+  twelve bounded evidence entries each), uses a trailing 15-second debounce,
+  performs a leading/hourly temporal sweep, and advances a 24-hour review file;
+- synthesis uses the verified 512-memory snapshot, SHA-256 file fingerprint,
+  64-change/32-citation schema, known-evidence validation, independent
+  verification, three-attempt schema repair, a shared 90-second deadline,
+  explicit-memory protection, exact tombstones, stale requeue, and the
+  source-compatible evidence-consumption rules;
+- the worker talks to a separate in-memory Pi session with all tools disabled,
+  so memory inference neither pollutes nor mutates the bot's conversation
+  session. Grokbot's protected prompt prose was not copied; OpenBot-authored
+  prompts enforce the source-observed schemas and state transitions.
+
+A live disposable agent proved extraction, clean visible-message capture,
+durable episode accumulation, the sixth-turn narrative, dreaming evidence,
+synthesis plus verification, `synthesized/<id>.memory`, `next-refresh-at`, and
+duplicate explicit-write promotion to `explicit/<id>.memory`. The probe and its
+test-only user-memory shard were removed afterward.
+
+One adjacent runtime feature is still deliberately not described as complete:
+
+1. Event trigger documents are parsed, stored, grouped, and rendered, but the
+   repository has no Slack/GitHub/Origin/Teams/Linear/Sentry/PagerDuty/webhook
+   polling, POST, acknowledgement, or dedup transport. Scheduled cron/interval
+   routines do execute.
+2. The reference can conditionally confirm untrusted routine enablement and
+   pause/re-enable routines through a spend guard, but the captured source does
+   not establish the activation condition, window, or thresholds.
+
+That event transport, plus the reference's conditional confirmation/spend-guard
+policy, are the remaining material blockers to claiming total behavioral parity.
 
 ## Product decisions
 
@@ -164,7 +277,7 @@ only when first used.
 ### Later changes
 
 - Agent, API, and UI mutations use the same file-state service.
-- The worker watches profile/settings for roster refresh and watches memory,
+- The application host watches profile/settings for roster refresh and watches memory,
   skills, automations, channels, user memory, and project memory with a 50 ms
   debounce.
 - Watch events are hints. Startup scans, turn-start scans, and a periodic repair
@@ -318,8 +431,9 @@ with pinned IDs or sidebar sections.
 At most one conventional `avatar.png`, `avatar.jpg`, `avatar.jpeg`,
 `avatar.webp`, `avatar.gif`, or `avatar.svg` is canonical; PNG wins if multiple
 files are present, followed by that extension order. Agent installation accepts
-an absolute source path only after both its lexical and real path remain inside
-that bot's directory. It reads and sniffs at most 5 MiB, removes prior
+an absolute path or a path relative to that bot's directory only after both its
+lexical and real path remain inside that directory. It reads and sniffs at most
+5 MiB, removes prior
 conventional files, and atomically copies the bytes to `avatar.<detected-type>`.
 The source may then be deleted. Clearing the avatar removes all conventional
 files. Symlink escapes and unsupported or empty content are rejected.
@@ -408,10 +522,16 @@ entries per agent for at most 64 agents. OpenBot matches that disk behavior; it
 does not invent a durable spool writer.
 
 When dreaming is enabled, every non-hidden turn with non-empty user text records
-evidence, clears `episodePending`, and bypasses explicit extraction/episodes.
-When disabled, memorable exchanges run extraction and every six pending turns
-may append one `[episode]` log fact. Dreaming synthesis itself produces only
-profile/log facts, never note/episode prefixes.
+bounded RAM evidence, clears `episodePending`, and bypasses explicit
+extraction/episodes. When disabled, memorable exchanges advance the episode
+counter. OpenBot now runs model extraction on each accepted turn and model
+episode summarization every six pending turns. Dreaming instead runs the
+source-backed synthesis/verification/temporal state machine described above;
+it produces only profile/log facts, never note/episode prefixes. The runtime
+first reads clean visible `ChannelMessage` text (including all `SendToUser`
+updates) and falls back to internal messages only when no visible delivery
+exists, preventing timestamps and message-address wrappers from becoming
+memory evidence.
 
 ### Skills
 
@@ -460,9 +580,20 @@ top-level `schedule` and omit `trigger`; non-cron/group configs serialize
 The trigger union is cron, Slack, GitHub, Origin, Microsoft Teams, Linear, Sentry,
 PagerDuty, webhook, or a group of at most eight listeners. Origin cannot be mixed
 with Teams, Linear, Sentry, PagerDuty, or webhook. The five-minute automation
-floor is a feature gate and defaults off for parity; enabling it rewrites/clamps
-short schedules and raises the compatible notice. Untrusted enabling still goes
-through confirmation and spend-guard policy.
+floor is a feature gate and defaults off for parity. The reference rewrites or
+clamps short schedules and raises the compatible notice when that gate is on;
+OpenBot's opt-in gate currently rejects them instead. The reference's
+conditional confirmation and spend-guard policy are not claimed here because
+their activation conditions and thresholds were not present in the source
+evidence.
+
+The file parser and scheduler index support that complete trigger union. Only
+cron/interval delivery currently has an execution transport in OpenBot; external
+event delivery remains pending the provider/cloud ingress contract. The local
+runtime reconciles nonterminal routine executions against terminal linked runs
+after restart, preventing a stale `running` row from permanently overlap-blocking
+future occurrences. Scheduled `runs.json` rows do not populate
+`coalescedRunIds`; that field is reserved for additional event fire IDs.
 
 Folders use a collision-safe kebab slug with the same `-2` … `-999` scheme as
 skills. Every sibling directory reserves its slug even when its JSON is invalid.
@@ -674,14 +805,26 @@ Required automated layers:
 - A coordinated backup restores files, indexes, routine state, attachments, and
   visible history without a newer valid file being overwritten by stale data.
 
-## Non-blocking source uncertainties
+## Remaining Grokbot questions
 
-The source pass is complete enough to implement. The remaining uncertainties do
-not change the file contract:
+The file and memory contracts no longer have a material unknown. Grokbot's exact
+protected model-prompt wording remains unavailable and is intentionally not a
+parity requirement; the observable schemas, limits, retry boundary, and state
+transitions are implemented and tested. These runtime questions remain:
 
-1. The reference's five-minute automation floor is default-off but its live
-   remote flag was not inspected. OpenBot exposes the same default-off local gate.
-2. Cloud-side webhook POST retry/dedup beyond the host's run UUID and poll/ack
-   behavior was not visible in the shipped host bundle.
-3. A narrow reference compaction failure window remains uncertain if blob
-   persistence throws midway through a parallel write.
+1. For Slack/GitHub/Origin/Teams/Linear/Sentry/PagerDuty/webhook triggers, what
+   service owns poll or POST ingestion; what request envelope is persisted; what
+   are the acknowledgement, retry, lease, coalescing, ordering, and dedup keys;
+   and how are cloud delivery IDs mapped into `runs.json` IDs?
+2. What exact condition presents routine confirmation, and what are the
+   spend-guard counting window, threshold, disable, and re-enable rules?
+3. Is the five-minute automation floor enabled in the production environment,
+   and if so what is the exact schedule-clamping algorithm and notice lifecycle
+   for each accepted schedule form?
+4. If prompt/blob persistence fails during compaction after one parallel write
+   succeeds, is `summaryArchives.length` advanced, rolled back, or repaired on
+   the next open?
+
+The reference's box-store copy-in/CAS transport is not a question for OpenBot:
+PostgreSQL plus the durable file volumes are intentionally its coordinated
+backup/restore boundary.

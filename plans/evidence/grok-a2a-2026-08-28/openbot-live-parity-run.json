@@ -1,0 +1,372 @@
+{
+  "schemaVersion": 1,
+  "status": "historical-pre-correction",
+  "supersededBy": "openbot-grok-sanity-check.json",
+  "supersededReason": "This capture contains a canonical agent_dm/correlation layer that the Grok Bot reference does not use. New OpenBot sends use mirrored home rows only.",
+  "capturedAt": "2026-08-28T02:05:00+03:00",
+  "verdict": "pass",
+  "reference": {
+    "implementationAudit": "/Users/raghav/Downloads/grok-a2a-impl-audit-2026-08-28.md",
+    "remainingAudit": "/Users/raghav/Downloads/a2a-remaining-audit.md",
+    "grokLiveRun": "/Users/raghav/Downloads/a2a-live-run.json",
+    "paritySpec": "plans/grok-a2a-parity-spec.md"
+  },
+  "agents": {
+    "source": {
+      "id": "1abdfef4-d9a0-44c2-9690-31019324de09",
+      "name": "A2A UI Source 2330",
+      "conversationId": "65bf6790-4d91-4121-85c8-661064c2af8f",
+      "homeChannelId": "a75f4600-9491-4856-96de-f746b8f3834a"
+    },
+    "probe": {
+      "id": "2d36969d-b27b-4c27-b339-94bf5de26eb5",
+      "name": "A2A UI Probe 2330",
+      "conversationId": "b13fa8c8-152a-433d-8d1e-5b14da491fb6",
+      "homeChannelId": "a8941d16-2a3b-4772-bc51-f54ffd8a4daa"
+    }
+  },
+  "direct": {
+    "reference": "DIRECT_GROK_PARITY_20260828_002",
+    "canonicalChannel": {
+      "id": "f64ec4eb-99e4-4ae5-8564-9b4cbdaf9f57",
+      "kind": "agent_dm",
+      "name": "A2A UI Source 2330 ↔ A2A UI Probe 2330",
+      "directKey": "agents:1abdfef4-d9a0-44c2-9690-31019324de09:2d36969d-b27b-4c27-b339-94bf5de26eb5"
+    },
+    "toolCall": {
+      "tool": "SendToAgent",
+      "arguments": {
+        "target_id": "2d36969d-b27b-4c27-b339-94bf5de26eb5",
+        "message": "DIRECT_GROK_PARITY_20260828_002 — reply using SendToAgent with exactly ACK DIRECT_GROK_PARITY_20260828_002"
+      },
+      "result": "Sent to A2A UI Probe 2330. This is asynchronous — if they reply, it'll arrive later as a new message that wakes you; don't wait on it now."
+    },
+    "correlation": {
+      "correlationId": "012691c8-5584-4e6d-9d20-270cc5fd76dc",
+      "expiresAt": "2026-08-28T22:31:33.794Z",
+      "roundTripMs": 6344,
+      "sourceRunId": "8ede86b3-6736-4b32-9d1c-9c01e8221314",
+      "probeRunId": "39d9088c-8571-49af-b1ca-8cef7347704f",
+      "sourceWakeRunId": "38e3e218-c3b8-4d33-8af7-79ca4abbc673"
+    },
+    "canonicalRows": [
+      {
+        "id": "4f6e9277-a32d-4c7c-86a2-efdca580a1b0",
+        "sequence": "252",
+        "sender": "agent",
+        "senderBotId": "1abdfef4-d9a0-44c2-9690-31019324de09",
+        "sourceRunId": "8ede86b3-6736-4b32-9d1c-9c01e8221314",
+        "content": "DIRECT_GROK_PARITY_20260828_002 — reply using SendToAgent with exactly ACK DIRECT_GROK_PARITY_20260828_002",
+        "metadata": {
+          "type": "text",
+          "images": [],
+          "timeZone": "Asia/Jerusalem",
+          "a2a": {
+            "kind": "direct",
+            "hopCount": 1,
+            "correlationId": "012691c8-5584-4e6d-9d20-270cc5fd76dc",
+            "priorityRequested": false
+          }
+        },
+        "createdAt": "2026-08-27T22:31:33.794Z"
+      },
+      {
+        "id": "5ac85bf8-7a7a-436c-bd4f-acbd1c81071f",
+        "sequence": "256",
+        "sender": "agent",
+        "senderBotId": "2d36969d-b27b-4c27-b339-94bf5de26eb5",
+        "sourceRunId": "39d9088c-8571-49af-b1ca-8cef7347704f",
+        "content": "ACK DIRECT_GROK_PARITY_20260828_002",
+        "metadata": {
+          "type": "text",
+          "images": [],
+          "timeZone": "Asia/Jerusalem",
+          "a2a": {
+            "kind": "direct",
+            "hopCount": 2,
+            "correlationId": "012691c8-5584-4e6d-9d20-270cc5fd76dc",
+            "priorityRequested": false
+          }
+        },
+        "createdAt": "2026-08-27T22:31:40.138Z"
+      }
+    ],
+    "homeProjections": [
+      {
+        "id": "f9581b01-0d69-4511-97d5-7c0f17968238",
+        "sequence": "253",
+        "channelId": "a75f4600-9491-4856-96de-f746b8f3834a",
+        "sender": "agent",
+        "toAgent": {
+          "id": "2d36969d-b27b-4c27-b339-94bf5de26eb5",
+          "name": "A2A UI Probe 2330",
+          "kind": "agent"
+        },
+        "direction": "outgoing",
+        "canonicalMessageId": "4f6e9277-a32d-4c7c-86a2-efdca580a1b0"
+      },
+      {
+        "id": "71698641-2c92-4ef1-9388-e223887f1029",
+        "sequence": "254",
+        "channelId": "a8941d16-2a3b-4772-bc51-f54ffd8a4daa",
+        "sender": "user",
+        "fromAgent": {
+          "id": "1abdfef4-d9a0-44c2-9690-31019324de09",
+          "name": "A2A UI Source 2330"
+        },
+        "direction": "incoming",
+        "canonicalMessageId": "4f6e9277-a32d-4c7c-86a2-efdca580a1b0"
+      },
+      {
+        "id": "f8916433-68e1-4b09-961d-84dfb493d7cf",
+        "sequence": "257",
+        "channelId": "a8941d16-2a3b-4772-bc51-f54ffd8a4daa",
+        "sender": "agent",
+        "toAgent": {
+          "id": "1abdfef4-d9a0-44c2-9690-31019324de09",
+          "name": "A2A UI Source 2330",
+          "kind": "agent"
+        },
+        "direction": "outgoing",
+        "canonicalMessageId": "5ac85bf8-7a7a-436c-bd4f-acbd1c81071f"
+      },
+      {
+        "id": "8c17711f-b060-4dd0-8aba-6cf89d24becc",
+        "sequence": "258",
+        "channelId": "a75f4600-9491-4856-96de-f746b8f3834a",
+        "sender": "user",
+        "fromAgent": {
+          "id": "2d36969d-b27b-4c27-b339-94bf5de26eb5",
+          "name": "A2A UI Probe 2330"
+        },
+        "direction": "incoming",
+        "canonicalMessageId": "5ac85bf8-7a7a-436c-bd4f-acbd1c81071f"
+      }
+    ],
+    "recipientModelTurn": {
+      "inboxId": "2fc7d2c3-40a9-421f-b8a3-68657d0d1846",
+      "type": "agent.message",
+      "priority": 200,
+      "deliveryMode": "turn",
+      "content": "<timestamp>Friday, Aug 28, 2026, 1:31 AM (UTC+3)</timestamp>\n<user_query>\n[SAND_HIDDEN_PROMPT][agent] A message just arrived from another of your user's agents: A2A UI Source 2330 (id: 1abdfef4-d9a0-44c2-9690-31019324de09).\nThis is another assistant reaching out — not the user typing here. It arrived asynchronously, and your user can already see it in this chat.\n\nA2A UI Source 2330: DIRECT_GROK_PARITY_20260828_002 — reply using SendToAgent with exactly ACK DIRECT_GROK_PARITY_20260828_002\n\nIf it needs a reply or an action, handle it: reply to A2A UI Source 2330 with SendToAgent (their id: 1abdfef4-d9a0-44c2-9690-31019324de09), which reaches them on a later turn — not a live back-and-forth — and use SendToUser to tell your user only when you have a real result to share. If it is just an FYI with nothing for you to do, it is fine to stay silent — no need to reply just to acknowledge it.\n</user_query>"
+    }
+  },
+  "agentToGroup": {
+    "reference": "FINAL_GROUP_GROK_PARITY_20260828_001",
+    "group": {
+      "id": "45f78404-8046-4683-866f-314e48db4ae1",
+      "name": "Fresh Agent Group Parity 20260828",
+      "members": [
+        {
+          "botId": "2d36969d-b27b-4c27-b339-94bf5de26eb5",
+          "ordinal": 0
+        },
+        {
+          "botId": "1abdfef4-d9a0-44c2-9690-31019324de09",
+          "ordinal": 1
+        }
+      ]
+    },
+    "sourceRunId": "dfa55518-ad35-4503-b604-7c2582a2c89a",
+    "toolCall": {
+      "tool": "SendToAgent",
+      "arguments": {
+        "target_id": "45f78404-8046-4683-866f-314e48db4ae1",
+        "message": "@a2auiprobe2330 Reply with exactly FINAL_GROUP_GROK_PARITY_20260828_001."
+      },
+      "result": "Posted to \"Fresh Agent Group Parity 20260828\". Its members will see it and reply on their own turns."
+    },
+    "correlation": {
+      "correlationId": "60b8a908-ead7-44be-a64a-5d471252c9d4",
+      "hopCount": 1,
+      "canonicalSendToAckMs": 3604
+    },
+    "senderHomeProjection": {
+      "id": "829c0371-80ce-4cb7-9582-3564677e2ce7",
+      "sequence": "284",
+      "sender": "agent",
+      "content": "@a2auiprobe2330 Reply with exactly FINAL_GROUP_GROK_PARITY_20260828_001.",
+      "toAgent": {
+        "id": "45f78404-8046-4683-866f-314e48db4ae1",
+        "name": "Fresh Agent Group Parity 20260828",
+        "kind": "group"
+      },
+      "canonicalMessageId": "611843a0-529c-4bcf-bef4-484280032fa1"
+    },
+    "roomRows": [
+      {
+        "id": "611843a0-529c-4bcf-bef4-484280032fa1",
+        "sequence": "283",
+        "sender": "agent",
+        "senderBotId": "1abdfef4-d9a0-44c2-9690-31019324de09",
+        "sourceRunId": "dfa55518-ad35-4503-b604-7c2582a2c89a",
+        "content": "@a2auiprobe2330 Reply with exactly FINAL_GROUP_GROK_PARITY_20260828_001.",
+        "metadata": {
+          "kind": "send-message",
+          "type": "text",
+          "author": {
+            "id": "1abdfef4-d9a0-44c2-9690-31019324de09",
+            "name": "A2A UI Source 2330"
+          },
+          "message": {
+            "type": "text",
+            "content": "@a2auiprobe2330 Reply with exactly FINAL_GROUP_GROK_PARITY_20260828_001."
+          },
+          "images": [],
+          "a2a": {
+            "kind": "group",
+            "hopCount": 1,
+            "correlationId": "60b8a908-ead7-44be-a64a-5d471252c9d4",
+            "priorityRequested": false
+          }
+        },
+        "createdAt": "2026-08-27T23:04:01.870Z"
+      },
+      {
+        "id": "0d2a2f96-2ca7-4505-8313-2d4a9284e1b3",
+        "sequence": "286",
+        "sender": "agent",
+        "senderBotId": "2d36969d-b27b-4c27-b339-94bf5de26eb5",
+        "sourceRunId": "c28ad40b-081e-4aa7-a4b6-711e2f7b2170",
+        "content": "FINAL_GROUP_GROK_PARITY_20260828_001",
+        "metadata": {
+          "type": "text",
+          "content": "FINAL_GROUP_GROK_PARITY_20260828_001",
+          "timeZone": "Asia/Jerusalem"
+        },
+        "createdAt": "2026-08-27T23:04:05.474Z"
+      }
+    ],
+    "routing": {
+      "mentionedMemberIds": ["2d36969d-b27b-4c27-b339-94bf5de26eb5"],
+      "unmentionedMemberRuns": 0,
+      "firstRoundRunId": "c28ad40b-081e-4aa7-a4b6-711e2f7b2170",
+      "silentSecondRoundRunId": "3b0f718c-cb1e-48d2-8c0f-e341599776f5"
+    },
+    "rounds": [
+      {
+        "id": "4b7000d5-ff83-4bed-a575-a214fe6a2726",
+        "triggerMessageId": "611843a0-529c-4bcf-bef4-484280032fa1",
+        "rootMessageId": "611843a0-529c-4bcf-bef4-484280032fa1",
+        "roundIndex": 0,
+        "memberTurnOffset": 0,
+        "initiatorBotId": "1abdfef4-d9a0-44c2-9690-31019324de09",
+        "status": "completed",
+        "completedAt": "2026-08-27T23:04:16.602Z"
+      },
+      {
+        "id": "c2f56849-f30f-4cc6-b5a2-f98cd8d1bc1c",
+        "triggerMessageId": "0d2a2f96-2ca7-4505-8313-2d4a9284e1b3",
+        "rootMessageId": "611843a0-529c-4bcf-bef4-484280032fa1",
+        "roundIndex": 1,
+        "memberTurnOffset": 1,
+        "initiatorBotId": null,
+        "status": "completed",
+        "completedAt": "2026-08-27T23:04:19.242Z"
+      }
+    ],
+    "firstMemberModelTurn": {
+      "inboxId": "66ba2f91-f7c9-4a20-bf30-3a929003966d",
+      "type": "group.message",
+      "priority": 150,
+      "deliveryMode": "turn",
+      "content": "<timestamp>Friday, Aug 28, 2026, 2:04 AM (UTC+3)</timestamp>\n<user_query>\n[Group chat: \"Fresh Agent Group Parity 20260828\" - with A2A UI Source 2330]\nParticipants: A2A UI Source 2330 (Disposable UI A2A parity source)\nNew messages in the room (oldest first):\nA2A UI Source 2330: @a2auiprobe2330 Reply with exactly FINAL_GROUP_GROK_PARITY_20260828_001.\n\nIt's your turn, A2A UI Probe 2330. Reply in character with SendToUser if you have something worth adding; if you don't, end your turn without sending anything.\n</user_query>"
+    }
+  },
+  "thread": {
+    "rootMessageId": "24b7aa17-184a-43fc-a3b0-5ad9e5e3c391",
+    "userFork": {
+      "id": "35960448-0f5c-44fb-b6b2-95957e3ec499",
+      "sequence": "280",
+      "content": "@a2auiprobe2330  Reply with exactly THREAD_FORK_GROK_PARITY_20260828_001.",
+      "metadata": {
+        "type": "text",
+        "replyTo": "24b7aa17-184a-43fc-a3b0-5ad9e5e3c391",
+        "branched": true,
+        "richText": "{\"type\":\"doc\",\"content\":[{\"type\":\"paragraph\",\"content\":[{\"type\":\"mention\",\"attrs\":{\"id\":\"2d36969d-b27b-4c27-b339-94bf5de26eb5\",\"label\":\"A2A UI Probe 2330\"}},{\"type\":\"text\",\"text\":\"  Reply with exactly THREAD_FORK_GROK_PARITY_20260828_001.\"}]}]}"
+      }
+    },
+    "agentForkReply": {
+      "id": "084dcf90-31b2-48a5-b45f-2b02e35eb754",
+      "sequence": "281",
+      "sourceRunId": "14ed9db9-84cb-4256-b80b-4114cff3ffbc",
+      "content": "THREAD_FORK_GROK_PARITY_20260828_001",
+      "metadata": {
+        "type": "text",
+        "replyTo": "35960448-0f5c-44fb-b6b2-95957e3ec499",
+        "branched": true
+      }
+    },
+    "ui": {
+      "mainTimelineContainsBranchRows": false,
+      "rootSummary": "2 replies",
+      "threadTrayContainsBothReplies": true,
+      "threadComposerDraftIndependentFromMainComposer": true
+    }
+  },
+  "reaction": {
+    "messageId": "24b7aa17-184a-43fc-a3b0-5ad9e5e3c391",
+    "emoji": "🧪",
+    "add": {
+      "reacted": true,
+      "removed": false,
+      "runId": "1d66abe9-a28b-4525-a7d1-b1d60739263d",
+      "storedShape": [
+        {
+          "emoji": "🧪",
+          "by": "me"
+        }
+      ],
+      "wake": "[SAND_HIDDEN_PROMPT][The user reacted 🧪 to your message: \"FRESH_AGENT_GROUP_ACK_GROK_PARITY_20260828_001\". You don't need to reply; act on it only if it's useful (e.g. acknowledge, adjust, or continue).][SAND_HIDDEN_PROMPT]"
+    },
+    "remove": {
+      "reacted": false,
+      "removed": true,
+      "runId": null,
+      "reactionsFieldPresent": false
+    }
+  },
+  "desktop": {
+    "computerUse": "actual Electron app at http://127.0.0.1:5173",
+    "verified": [
+      "direct-chat mention picker filters active bots",
+      "group mention picker shows everyone and current members",
+      "Enter inserts a non-editable mention token and preserves trailing text",
+      "A2A activity opens the read-only pair transcript",
+      "pair header renders source ↔ peer",
+      "exchange enters and exits with the 300 ms opacity/translateY(20px) sheet lifecycle",
+      "thread tray opens from message actions and keeps an independent draft",
+      "branched replies remain out of the main timeline and produce a 2 replies summary",
+      "reaction pills render the shared reaction shape",
+      "live-update watchdog recovers after the server is rebuilt"
+    ]
+  },
+  "tests": {
+    "messaging": {
+      "passed": 43,
+      "failed": 0,
+      "typecheck": "pass",
+      "build": "pass"
+    },
+    "server": {
+      "passed": 30,
+      "failed": 0,
+      "typecheck": "pass",
+      "build": "pass"
+    },
+    "desktop": {
+      "passed": 63,
+      "failed": 0,
+      "typecheck": "pass",
+      "build": "pass"
+    },
+    "worker": {
+      "passed": 17,
+      "failed": 0,
+      "typecheck": "pass",
+      "build": "pass"
+    },
+    "totalPassed": 153,
+    "totalFailed": 0
+  }
+}

@@ -1,0 +1,252 @@
+{
+  "capture": "Grokbot and OpenBot direct A2A UI parity test",
+  "date": "2026-08-27",
+  "method": {
+    "grokbot": "Live macOS Grok Bot desktop operated with Computer Use",
+    "openbot": "Live OpenBot Electron renderer at http://127.0.0.1:5173 operated with Computer Use",
+    "grokbotImplementationInquiry": "A live Grokbot agent was asked to inspect selection ownership, A2A projection, Working state, routine wakes, and Task-child behavior",
+    "modelTranscriptVerification": "The live OpenBot Pi session JSONL was inspected for both the probe wake and source ACK wake",
+    "rendererRegressionTests": "bun test apps/desktop/test/channel-selection.test.ts apps/desktop/test/sidebar-rows.test.ts apps/desktop/test/async-tasks.test.ts apps/desktop/test/a2a-events.test.ts apps/desktop/test/snapshot-index.test.ts"
+  },
+  "grokbot": {
+    "source": {
+      "id": "57d95f5a-e68f-48a0-bba0-409b086f5da8",
+      "name": "a2a"
+    },
+    "probe": {
+      "id": "f9853a2e-3c07-49a3-854c-fdee0588e68d",
+      "name": "Parity Probe v3"
+    },
+    "request": "GROK_UI_A2A_20260827_2330 — reply with exactly ACK GROK_UI_A2A_20260827_2330",
+    "ack": "ACK GROK_UI_A2A_20260827_2330",
+    "uiTimeline": [
+      {
+        "at": "2026-08-27T23:29:05+03:00",
+        "surface": "source home",
+        "event": "User requested the A2A UI parity run"
+      },
+      {
+        "at": "2026-08-27T23:29:23+03:00",
+        "surface": "source home",
+        "event": "Source displayed Sending."
+      },
+      {
+        "at": "2026-08-27T23:29:24+03:00",
+        "surface": "both agent home chats",
+        "event": "One compact 2 messages with 1 Bot event appeared"
+      },
+      {
+        "at": "2026-08-27T23:29:31+03:00",
+        "surface": "read-only exchange",
+        "event": "Parity Probe v3 ACK bubble appeared"
+      },
+      {
+        "at": "2026-08-27T23:29:39+03:00",
+        "surface": "source home",
+        "event": "Source displayed Round trip complete. No reply to Probe."
+      }
+    ],
+    "sourceHome": {
+      "exchangeEvent": "2 messages with Parity Probe v3",
+      "completion": "Round trip complete. No reply to Probe."
+    },
+    "probeHome": {
+      "exchangeEvent": "2 messages with a2a",
+      "a2aBodiesInline": false
+    },
+    "exchange": {
+      "header": "a2a ↔ Parity Probe v3",
+      "viewOnly": true,
+      "messages": [
+        {
+          "sender": "a2a",
+          "content": "GROK_UI_A2A_20260827_2330 — reply with exactly ACK GROK_UI_A2A_20260827_2330"
+        },
+        {
+          "sender": "Parity Probe v3",
+          "content": "ACK GROK_UI_A2A_20260827_2330"
+        }
+      ]
+    },
+    "result": {
+      "delivery": "passed",
+      "sourceHome": "passed",
+      "probeHome": "passed",
+      "readOnlyExchange": "passed",
+      "duplicateMessages": false,
+      "ackLoop": false
+    },
+    "implementationInquiry": {
+      "storage": "SendToAgent is projected as a sender assistant/toAgent row and a recipient user/fromAgent row; the compact event and read-only exchange are derived by the desktop renderer.",
+      "selection": "activeSession plus ACTIVE_AGENT owns selection. Background A2A, routine, event, ACK-redrive, and Task-completion wakes use resolveBackgroundSession plus beginSessionRun and do not call switchAgent or setActiveSession.",
+      "taskChildren": "Task children have no sidebar row. A parent remains Working while any live Task, shell, or cloud child belongs to it.",
+      "working": "isRunning is the union of active parent-turn counts and liveSubagentParentIds; a queued inbound message alone is not Working.",
+      "confidence": "Reported by a live Grokbot agent after implementation inspection; the exact private renderer collapse function was not available to that agent."
+    }
+  },
+  "openbot": {
+    "source": {
+      "id": "1abdfef4-d9a0-44c2-9690-31019324de09",
+      "name": "A2A UI Source 2330",
+      "homeChannelId": "a75f4600-9491-4856-96de-f746b8f3834a"
+    },
+    "probe": {
+      "id": "2d36969d-b27b-4c27-b339-94bf5de26eb5",
+      "name": "A2A UI Probe 2330",
+      "homeChannelId": "a8941d16-2a3b-4772-bc51-f54ffd8a4daa"
+    },
+    "pairChannel": {
+      "id": "f64ec4eb-99e4-4ae5-8564-9b4cbdaf9f57",
+      "name": "A2A UI Source 2330 ↔ A2A UI Probe 2330"
+    },
+    "request": "OPENBOT_UI_A2A_20260827_2332 — reply with exactly ACK OPENBOT_UI_A2A_20260827_2332",
+    "ack": "ACK OPENBOT_UI_A2A_20260827_2332",
+    "canonicalMessages": [
+      {
+        "id": "b0315418-4421-42e4-8be9-be8dd0eb7138",
+        "sequence": "216",
+        "senderBotId": "1abdfef4-d9a0-44c2-9690-31019324de09",
+        "content": "OPENBOT_UI_A2A_20260827_2332 — reply with exactly ACK OPENBOT_UI_A2A_20260827_2332",
+        "createdAt": "2026-08-27T20:32:28.946Z",
+        "correlationId": "8f869f94-f701-4ba6-8380-d45a2f9e0a1c",
+        "hopCount": 1
+      },
+      {
+        "id": "15b446fa-b738-48ef-be8b-cb07d72d123b",
+        "sequence": "219",
+        "senderBotId": "2d36969d-b27b-4c27-b339-94bf5de26eb5",
+        "content": "ACK OPENBOT_UI_A2A_20260827_2332",
+        "createdAt": "2026-08-27T20:32:43.842Z",
+        "correlationId": "8f869f94-f701-4ba6-8380-d45a2f9e0a1c",
+        "hopCount": 2
+      }
+    ],
+    "uiTimeline": [
+      {
+        "at": "2026-08-27T23:32:21+03:00",
+        "surface": "source home",
+        "event": "User submitted the A2A request through the OpenBot composer"
+      },
+      {
+        "at": "2026-08-27T23:32:28.946+03:00",
+        "surface": "both agent home chats",
+        "event": "Mirrored send was committed and grouped into the compact exchange event"
+      },
+      {
+        "at": "2026-08-27T23:32:43.842+03:00",
+        "surface": "read-only exchange",
+        "event": "Probe ACK was committed"
+      },
+      {
+        "at": "2026-08-27T23:32:48.349+03:00",
+        "surface": "source home",
+        "event": "Source sent Round trip complete."
+      }
+    ],
+    "sourceHome": {
+      "exchangeEvent": "2 messages with A2A UI Probe 2330",
+      "completion": "Round trip complete."
+    },
+    "probeHome": {
+      "exchangeEvent": "2 messages with A2A UI Source 2330",
+      "a2aBodiesInline": false
+    },
+    "exchange": {
+      "header": "A2A UI Source 2330 ↔ A2A UI Probe 2330",
+      "viewOnly": true,
+      "messages": [
+        {
+          "sender": "A2A UI Source 2330",
+          "content": "OPENBOT_UI_A2A_20260827_2332 — reply with exactly ACK OPENBOT_UI_A2A_20260827_2332"
+        },
+        {
+          "sender": "A2A UI Probe 2330",
+          "content": "ACK OPENBOT_UI_A2A_20260827_2332"
+        }
+      ]
+    },
+    "result": {
+      "delivery": "passed",
+      "sourceHomeAfterReload": "passed",
+      "probeHomeAfterReload": "passed",
+      "readOnlyExchange": "passed",
+      "duplicateMessages": false,
+      "ackLoop": false,
+      "sendToAckMilliseconds": 14896,
+      "rendererRegressionTests": {
+        "passed": 15,
+        "failed": 0
+      }
+    },
+    "modelFacingWake": {
+      "probeSessionMessageTimestamp": "2026-08-27T20:55:38.635Z",
+      "probeWake": "[SAND_HIDDEN_PROMPT][agent] A message just arrived from another of your user's agents: A2A UI Source 2330 (id: 1abdfef4-d9a0-44c2-9690-31019324de09).\nThis is another assistant reaching out — not the user typing here. It arrived asynchronously, and your user can already see it in this chat.\n\nA2A UI Source 2330: OPENBOT_DEFINITIVE_OVERLAP_A2A_20260827_2355 — reply with exactly ACK OPENBOT_DEFINITIVE_OVERLAP_A2A_20260827_2355\n\nIf it needs a reply or an action, handle it: reply to A2A UI Source 2330 with SendToAgent (their id: 1abdfef4-d9a0-44c2-9690-31019324de09), which reaches them on a later turn — not a live back-and-forth — and use SendToUser to tell your user only when you have a real result to share. If it is just an FYI with nothing for you to do, it is fine to stay silent — no need to reply just to acknowledge it.",
+      "sourceAckWakeTimestamp": "2026-08-27T20:55:45.171Z",
+      "transportEnvelope": "The Pi session wraps the wake in the normal <timestamp><user_query> envelope; the A2A wake body itself matches Grokbot's observed prompt.",
+      "routineVariant": "When routines exist, directAgentWake prepends Grokbot's <system_reminder><automation_status> block before the [agent] paragraph."
+    },
+    "confirmedFixes": {
+      "selectionRestoreRace": {
+        "cause": "An asynchronous saved-active-agent restore could overwrite a newer user selection.",
+        "fix": "Selection revisions now reject a late restore after any newer user selection and persist the user choice immediately.",
+        "tests": [
+          "saved active agent restores when selection is untouched",
+          "late restore cannot steal a newer user selection",
+          "an unavailable saved agent preserves the current selection"
+        ]
+      },
+      "parentWorkingDuringChildTask": {
+        "cause": "The sidebar derived Working only from parent runs and ignored active child attempts.",
+        "fix": "Sidebar Working is now the union of an active parent run and active provisioning, queued, or running child attempts for that parent channel.",
+        "tests": [
+          "parent stays Working after its own run completes while its child is active",
+          "parent clears after the child settles"
+        ]
+      }
+    },
+    "definitiveOverlapRun": {
+      "request": "OPENBOT_DEFINITIVE_OVERLAP_A2A_20260827_2355 — reply with exactly ACK OPENBOT_DEFINITIVE_OVERLAP_A2A_20260827_2355",
+      "correlationId": "93c3ffcd-865f-4b57-8229-993d0ccc2aea",
+      "childAttemptId": "6ea471ce-19e8-4f3f-acc9-4e3b481d7864",
+      "childRunWindow": {
+        "startedAt": "2026-08-27T20:55:13.124Z",
+        "completedAt": "2026-08-27T20:56:49.107Z"
+      },
+      "a2aWindow": {
+        "outboundCommittedAt": "2026-08-27T20:55:38.267Z",
+        "ackCommittedAt": "2026-08-27T20:55:44.898Z",
+        "sourceWakeCompletedAt": "2026-08-27T20:55:49.265Z"
+      },
+      "canonicalProjection": {
+        "rows": 4,
+        "senderHome": "assistant/toAgent outbound plus user/fromAgent ACK",
+        "probeHome": "user/fromAgent inbound plus assistant/toAgent ACK",
+        "sameTimestampAcrossEachMirroredHop": true
+      },
+      "uiAssertions": [
+        "The unrelated New Bot parent displayed Working after its own run completed because its executor child was still live.",
+        "The A2A source stayed selected during outbound delivery, probe reply, source ACK wake, child completion, and the hidden parent completion wake.",
+        "The source and probe Working states cleared when their runs completed while the unrelated parent remained Working.",
+        "The source home displayed one compact 2 messages with A2A UI Probe 2330 event and Complete.",
+        "The hidden child-completion wake completed without changing the selected chat; New Bot then cleared Working."
+      ],
+      "result": "passed"
+    },
+    "earlierUiObservationReclassified": {
+      "status": "not an independent renderer-staleness defect",
+      "reason": "The earlier capture mixed a late active-agent restore race with genuine later background wakes. Controlled SSE runs updated and cleared all Working states without a reload after the selection fix."
+    }
+  },
+  "comparison": {
+    "compactHomeExchangeEvent": "match",
+    "bothHomeChatsReceiveEvent": "match",
+    "separateReadOnlyTranscript": "match",
+    "senderAttribution": "match",
+    "twoMessageCount": "match",
+    "noAckLoop": "match",
+    "modelFacingWake": "match, including the automation-status variant",
+    "backgroundTaskParentWorking": "match after fix",
+    "backgroundWakeSelectionIsolation": "match after fix",
+    "realTimeRendererReconciliation": "match in the definitive controlled overlap run"
+  }
+}

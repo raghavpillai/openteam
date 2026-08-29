@@ -63,6 +63,9 @@ The numbered files preserve research and design history; a lower number is not a
 - `29-update-state-manifest.md`: the full supplied compatibility reference plus the implemented schedule-routine and durable-state boundary, validation rules, persistence, and ownership.
 - `30-canonical-context-handoff.md`: the canonical current-state handoff, document precedence, shipped feature map, artifact ledger/checksums, attachment inventory, and deferred scope.
 - `31-agent-transcript-archive-findings.md`: forensic analysis of the supplied Grok agent transcript archive, including record counts, wake shapes, tool-use frequencies, confidence levels, and OpenBot implications.
+- `32-agent-data-filesystem-parity.md`: implemented file-native profile, settings, memory, skills, routines, avatars, prompt snapshots, and lifecycle parity, plus the remaining source-incomplete edges.
+- `33-grok-context-compaction-parity.md`: proposed replacement of Pi-default compaction with Grok-style background SelfSummarizer semantics, per-transcript scope, restart-safe archives, reconciliation, byte GC, and a full validation gate.
+- `34-ios-mobile-parity.md`: evidence-graded Grok Bot iPhone research, live-capture protocol, screen and interaction specification, React Native reuse boundary, security constraints, delivery slices, and parity acceptance gates.
 
 ## Vocabulary
 

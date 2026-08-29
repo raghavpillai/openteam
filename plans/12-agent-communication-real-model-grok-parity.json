@@ -1,0 +1,160 @@
+{
+  "capture": "OpenBot real-model A2A round trip after Grokbot parity implementation",
+  "capturedAt": "2026-08-27T19:59:40.036Z",
+  "reference": {
+    "method": "Grok Bot desktop operated through Computer Use",
+    "artifact": "plans/12-agent-communication-grok-reference.json",
+    "verifiedBehaviors": [
+      "asynchronous SendToAgent acknowledgement",
+      "mirrored outbound and inbound chat rows",
+      "fresh later agent wake",
+      "single leading SAND_HIDDEN_PROMPT marker",
+      "optional system_reminder automation_status block",
+      "plain sender-name attribution",
+      "exact reply and silence guidance",
+      "successful routine status rendered as last run M/D/YYYY, h:mm:ss AM/PM (succeeded)",
+      "no acknowledgement ping-pong"
+    ]
+  },
+  "agents": {
+    "source": {
+      "id": "1a2e894a-fbbe-4e1a-96d5-2bffd995244c",
+      "name": "A2A Real Source 2259",
+      "conversationId": "89bc4cfa-fbd3-4d0a-9593-73d506d7b495",
+      "homeChannelId": "54a4e5e2-f0a4-4caf-ad60-a9f9eb51cb67"
+    },
+    "probe": {
+      "id": "5317cf83-9ba7-4bee-9974-39d94709140b",
+      "name": "A2A Real Probe 2259",
+      "conversationId": "aad4bf68-3e57-40aa-beaa-4031c2283f7b",
+      "homeChannelId": "0b26480a-d736-4ece-b9f5-058ec6f0387a"
+    },
+    "pairChannelId": "450437a7-2f01-4fc1-939e-9193a3e9c7b3"
+  },
+  "userRequest": {
+    "messageId": "0e6bd9bd-d664-4a54-bd3a-b9b58d0ba1ca",
+    "sequence": "179",
+    "content": "Run one live A2A parity round trip. Send exactly this body to A2A Real Probe 2259 using SendToAgent target id 5317cf83-9ba7-4bee-9974-39d94709140b: OPENBOT_REAL_A2A_REF_1787860800 — reply with exactly ACK OPENBOT_REAL_A2A_REF_1787860800. When its ACK arrives, do not reply to the agent. Tell me only that the round trip completed.",
+    "createdAt": "2026-08-27T19:59:19.309Z"
+  },
+  "toolCalls": [
+    {
+      "runId": "e345d9d0-7a49-458f-89dd-ae1a95294904",
+      "agent": "source",
+      "tool": "SendToAgent",
+      "arguments": {
+        "target_id": "5317cf83-9ba7-4bee-9974-39d94709140b",
+        "message": "OPENBOT_REAL_A2A_REF_1787860800 — reply with exactly ACK OPENBOT_REAL_A2A_REF_1787860800."
+      },
+      "result": "Sent to A2A Real Probe 2259. This is asynchronous — if they reply, it'll arrive later as a new message that wakes you; don't wait on it now.",
+      "startedAt": "2026-08-27T19:59:28.181Z",
+      "completedAt": "2026-08-27T19:59:28.237Z"
+    },
+    {
+      "runId": "84e39817-a8ff-4f89-add2-b96f177c615e",
+      "agent": "probe",
+      "tool": "SendToAgent",
+      "arguments": {
+        "target_id": "1a2e894a-fbbe-4e1a-96d5-2bffd995244c",
+        "message": "ACK OPENBOT_REAL_A2A_REF_1787860800"
+      },
+      "result": "Sent to A2A Real Source 2259. This is asynchronous — if they reply, it'll arrive later as a new message that wakes you; don't wait on it now.",
+      "startedAt": "2026-08-27T19:59:35.410Z",
+      "completedAt": "2026-08-27T19:59:35.454Z"
+    },
+    {
+      "runId": "7c1e8097-c59b-4458-be4b-aa321bab697a",
+      "agent": "source",
+      "tool": "SendToUser",
+      "arguments": {
+        "type": "text",
+        "content": "The round trip completed."
+      },
+      "result": {
+        "sent": true,
+        "channel_id": "54a4e5e2-f0a4-4caf-ad60-a9f9eb51cb67",
+        "message_id": "d4acd0b6-8f73-45b8-8b71-451a36225716"
+      },
+      "startedAt": "2026-08-27T19:59:38.753Z",
+      "completedAt": "2026-08-27T19:59:38.767Z"
+    }
+  ],
+  "canonicalMessages": [
+    {
+      "id": "c24b104b-4285-4b3b-8942-6b74a924883e",
+      "sequence": "181",
+      "senderBotId": "1a2e894a-fbbe-4e1a-96d5-2bffd995244c",
+      "content": "OPENBOT_REAL_A2A_REF_1787860800 — reply with exactly ACK OPENBOT_REAL_A2A_REF_1787860800.",
+      "a2a": {
+        "kind": "direct",
+        "hopCount": 1,
+        "correlationId": "e02db719-fa8c-4243-9f01-360feaa977dd",
+        "priorityRequested": false
+      },
+      "createdAt": "2026-08-27T19:59:28.213Z"
+    },
+    {
+      "id": "456ab7cb-b938-4956-af7e-8a262b460ab8",
+      "sequence": "184",
+      "senderBotId": "5317cf83-9ba7-4bee-9974-39d94709140b",
+      "content": "ACK OPENBOT_REAL_A2A_REF_1787860800",
+      "a2a": {
+        "kind": "direct",
+        "hopCount": 2,
+        "correlationId": "e02db719-fa8c-4243-9f01-360feaa977dd",
+        "priorityRequested": false
+      },
+      "createdAt": "2026-08-27T19:59:35.429Z"
+    }
+  ],
+  "homeStoreProjections": [
+    {
+      "messageId": "249ceb51-8be9-42ac-8825-d521962befa3",
+      "channel": "source-home",
+      "direction": "outgoing",
+      "sequence": "182",
+      "canonicalMessageId": "c24b104b-4285-4b3b-8942-6b74a924883e"
+    },
+    {
+      "messageId": "42f63d2f-5f64-4f5e-97ee-85b2627a9dae",
+      "channel": "probe-home",
+      "direction": "incoming",
+      "sequence": "183",
+      "canonicalMessageId": "c24b104b-4285-4b3b-8942-6b74a924883e"
+    },
+    {
+      "messageId": "a585ec27-b361-443a-9945-48a66e7a3683",
+      "channel": "probe-home",
+      "direction": "outgoing",
+      "sequence": "185",
+      "canonicalMessageId": "456ab7cb-b938-4956-af7e-8a262b460ab8"
+    },
+    {
+      "messageId": "70ce85f3-c750-42ac-8bdf-aa4504ebc8a6",
+      "channel": "source-home",
+      "direction": "incoming",
+      "sequence": "186",
+      "canonicalMessageId": "456ab7cb-b938-4956-af7e-8a262b460ab8"
+    }
+  ],
+  "modelFacingWakeTurns": [
+    {
+      "runId": "84e39817-a8ff-4f89-add2-b96f177c615e",
+      "recipient": "probe",
+      "content": "<timestamp>Thursday, Aug 27, 2026, 10:59 PM (UTC+3)</timestamp>\n<user_query>\n[SAND_HIDDEN_PROMPT][agent] A message just arrived from another of your user's agents: A2A Real Source 2259 (id: 1a2e894a-fbbe-4e1a-96d5-2bffd995244c).\nThis is another assistant reaching out — not the user typing here. It arrived asynchronously, and your user can already see it in this chat.\n\nA2A Real Source 2259: OPENBOT_REAL_A2A_REF_1787860800 — reply with exactly ACK OPENBOT_REAL_A2A_REF_1787860800.\n\nIf it needs a reply or an action, handle it: reply to A2A Real Source 2259 with SendToAgent (their id: 1a2e894a-fbbe-4e1a-96d5-2bffd995244c), which reaches them on a later turn — not a live back-and-forth — and use SendToUser to tell your user only when you have a real result to share. If it is just an FYI with nothing for you to do, it is fine to stay silent — no need to reply just to acknowledge it.\n</user_query>"
+    },
+    {
+      "runId": "7c1e8097-c59b-4458-be4b-aa321bab697a",
+      "recipient": "source",
+      "content": "<timestamp>Thursday, Aug 27, 2026, 10:59 PM (UTC+3)</timestamp>\n<user_query>\n[SAND_HIDDEN_PROMPT][agent] A message just arrived from another of your user's agents: A2A Real Probe 2259 (id: 5317cf83-9ba7-4bee-9974-39d94709140b).\nThis is another assistant reaching out — not the user typing here. It arrived asynchronously, and your user can already see it in this chat.\n\nA2A Real Probe 2259: ACK OPENBOT_REAL_A2A_REF_1787860800\n\nIf it needs a reply or an action, handle it: reply to A2A Real Probe 2259 with SendToAgent (their id: 5317cf83-9ba7-4bee-9974-39d94709140b), which reaches them on a later turn — not a live back-and-forth — and use SendToUser to tell your user only when you have a real result to share. If it is just an FYI with nothing for you to do, it is fine to stay silent — no need to reply just to acknowledge it.\n</user_query>"
+    }
+  ],
+  "result": {
+    "status": "passed",
+    "sendToAckMilliseconds": 7216,
+    "sourceCompletionMessage": "The round trip completed.",
+    "sourceCompletionSequence": "187",
+    "ackPingPongDetected": false,
+    "allRunsCompleted": true
+  }
+}

@@ -72,7 +72,7 @@ describe("Codex app-server JSONL client", () => {
     const received = new Promise<void>((resolveTool) => {
       client!.onDynamicTool((request) => {
         expect(request.method).toBe("item/tool/call");
-        expect(request.params.tool).toBe("SendMessage");
+        expect(request.params.tool).toBe("SendToUser");
         expect(request.params.arguments).toEqual({
           type: "text",
           content: "Visible from dynamic tool",

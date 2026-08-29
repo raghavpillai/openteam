@@ -57,7 +57,7 @@ lines.on("line", (line) => {
     if (
       process.env.FAKE_REQUIRE_DYNAMIC === "1" &&
       (!Array.isArray(message.params.dynamicTools) ||
-        !message.params.dynamicTools.some((tool) => tool.name === "SendMessage") ||
+        !message.params.dynamicTools.some((tool) => tool.name === "SendToUser") ||
         !message.params.dynamicTools.some((tool) => tool.name === "SendToAgent") ||
         !message.params.dynamicTools.some((tool) => tool.name === "Screenshot") ||
         !message.params.dynamicTools.some((tool) => tool.name === "Computer"))
@@ -102,7 +102,7 @@ lines.on("line", (line) => {
           item: {
             type: "dynamicToolCall",
             id: "dynamic-1",
-            tool: "SendMessage",
+            tool: "SendToUser",
             arguments: { type: "text", content: "Visible from dynamic tool" },
             status: "inProgress",
           },
@@ -116,7 +116,7 @@ lines.on("line", (line) => {
           turnId: "turn-1",
           callId: "dynamic-1",
           namespace: null,
-          tool: "SendMessage",
+          tool: "SendToUser",
           arguments: { type: "text", content: "Visible from dynamic tool" },
         },
       });
@@ -135,7 +135,7 @@ lines.on("line", (line) => {
         item: {
           type: "dynamicToolCall",
           id: "dynamic-1",
-          tool: "SendMessage",
+          tool: "SendToUser",
           arguments: { type: "text", content: "Visible from dynamic tool" },
           result: message.result.contentItems,
           success: true,

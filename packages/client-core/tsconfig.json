@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@openbot/contracts": ["../contracts/src/index.ts"]
+    },
+    "types": ["bun"]
+  },
+  "include": ["src", "test"]
+}

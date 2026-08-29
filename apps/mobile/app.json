@@ -1,0 +1,33 @@
+{
+  "expo": {
+    "name": "OpenBot",
+    "slug": "openbot-mobile",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "scheme": "openbot",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "dev.openbot.mobile",
+      "infoPlist": {
+        "NSCameraUsageDescription": "OpenBot uses the camera only when you attach a photo to a message.",
+        "NSMicrophoneUsageDescription": "OpenBot uses the microphone only when you dictate a message."
+      }
+    },
+    "plugins": [
+      "expo-router",
+      "expo-font",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "OpenBot accesses your photo library only when you choose images to attach to a message.",
+          "cameraPermission": "OpenBot uses the camera only when you choose to take a photo for a message.",
+          "microphonePermission": false
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

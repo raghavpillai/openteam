@@ -3,7 +3,7 @@ import { createInterface } from "node:readline";
 import {
   COMPUTER_TOOL,
   SCREENSHOT_TOOL,
-  SEND_MESSAGE_TOOL,
+  SEND_TO_USER_TOOL,
   SEND_TO_AGENT_TOOL,
 } from "@openbot/contracts";
 import type {
@@ -239,7 +239,7 @@ export class CodexAppServerClient {
       sandbox: "danger-full-access",
       serviceName: "openbot",
       developerInstructions: input.instructions,
-      dynamicTools: [SEND_MESSAGE_TOOL, SEND_TO_AGENT_TOOL, SCREENSHOT_TOOL, COMPUTER_TOOL],
+      dynamicTools: [SEND_TO_USER_TOOL, SEND_TO_AGENT_TOOL, SCREENSHOT_TOOL, COMPUTER_TOOL],
       ephemeral: false,
     });
   }
@@ -255,7 +255,7 @@ export class CodexAppServerClient {
       approvalPolicy: "on-request",
       sandbox: "danger-full-access",
       developerInstructions: input.instructions,
-      dynamicTools: [SEND_MESSAGE_TOOL, SEND_TO_AGENT_TOOL, SCREENSHOT_TOOL, COMPUTER_TOOL],
+      dynamicTools: [SEND_TO_USER_TOOL, SEND_TO_AGENT_TOOL, SCREENSHOT_TOOL, COMPUTER_TOOL],
     });
   }
 

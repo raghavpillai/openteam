@@ -1,0 +1,43 @@
+{
+  "name": "@openbot/mobile",
+  "version": "0.1.0",
+  "private": true,
+  "main": "expo-router/entry",
+  "scripts": {
+    "build": "expo export --platform ios --output-dir dist",
+    "dev": "expo start",
+    "ios": "expo run:ios",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "bun test --pass-with-no-tests"
+  },
+  "dependencies": {
+    "@openbot/client-core": "workspace:*",
+    "@openbot/contracts": "workspace:*",
+    "@react-navigation/native": "7.3.18",
+    "expo": "57.0.18",
+    "expo-clipboard": "57.0.1",
+    "expo-constants": "~57.0.16",
+    "expo-document-picker": "~57.0.1",
+    "expo-file-system": "~57.0.6",
+    "expo-font": "~57.0.2",
+    "expo-glass-effect": "~57.0.1",
+    "expo-haptics": "57.0.2",
+    "expo-image-picker": "~57.0.14",
+    "expo-linking": "~57.0.8",
+    "expo-router": "57.0.17",
+    "expo-status-bar": "57.0.1",
+    "expo-symbols": "57.0.2",
+    "react": "19.2.3",
+    "react-native": "0.86.3",
+    "react-native-gesture-handler": "2.32.0",
+    "react-native-reanimated": "4.5.1",
+    "react-native-safe-area-context": "5.7.0",
+    "react-native-screens": "4.26.0",
+    "react-native-svg": "15.15.4",
+    "react-native-worklets": "0.10.1"
+  },
+  "devDependencies": {
+    "@types/react": "~19.2.4",
+    "typescript": "6.0.3"
+  }
+}

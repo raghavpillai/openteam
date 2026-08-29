@@ -89,7 +89,7 @@ The full records establish these observed onboarding rules:
 - only an explicit send reaches the user;
 - the bot should not reveal or mention the hidden cue.
 
-This confirms the inference in `25-grok-new-bot-onboarding-research.md`. OpenBot implements the product behavior with its own bootstrap envelope and prompt, not by copying the supplied text as a system prompt.
+This confirms the onboarding inference. OpenBot implements the product behavior with its own bootstrap envelope and prompt, not by copying the supplied text as a system prompt.
 
 One additional hidden record marks a previously displayed question/widget as skipped after the user moved on. That suggests widget lifecycle state is turned into a later host cue rather than silently assumed to have an answer.
 
@@ -236,4 +236,3 @@ Still deferred or partial:
 5. Do not treat the dynamic namespace as synonymous with MCP.
 6. Do not expose raw native session files as the safe peer-readable transcript.
 7. Do not copy hidden evidence text into OpenBot prompts without independently designing and reviewing the behavior.
-

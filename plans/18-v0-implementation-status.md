@@ -5,7 +5,7 @@ Last updated: 2026-08-27
 
 ## Outcome
 
-The v0 vertical slice in `16-v0-release-plan.md` and the graphical-computer slice are implemented. OpenBot can create durable bots, accept idempotent messages through per-bot Postgres mailboxes, run one Pi session per bot, project streamed work, exchange asynchronous agent messages, run ordered group rounds, survive service restarts, continue from the same native session and shared workspace, and operate independent Linux GUI desktops.
+The v0 vertical slice and graphical-computer slice are implemented. OpenBot can create durable bots, accept idempotent messages through per-bot Postgres mailboxes, run one Pi session per bot, project streamed work, exchange asynchronous agent messages, run ordered group rounds, survive service restarts, continue from the same native session and shared workspace, and operate independent Linux GUI desktops.
 
 The Electron client is a real packaged application rather than a mockup. The Compose stack is a real, persistent runtime rather than a development-only topology.
 

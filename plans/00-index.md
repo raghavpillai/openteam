@@ -33,21 +33,17 @@ The numbered files preserve research and design history; a lower number is not a
 ## Plan set
 
 - `01-product-context.md`: user request, screenshot observations, and interpretation boundaries.
-- `02-mvp-v0.md`: v0 scope, user stories, workflows, and acceptance criteria.
 - `03-system-architecture.md`: monorepo, process boundaries, Compose topology, and runtime flow.
 - `04-domain-and-persistence.md`: domain model, Prisma-oriented schema, lifecycle rules, and backups.
 - `05-codex-runtime.md`: superseded record of the original app-server decision.
 - `06-always-on-computer.md`: persistent workspace design and the later native-computer bridge.
 - `07-desktop-experience.md`: the Grok-inspired Electron experience without cloning brand assets.
-- `08-delivery-plan.md`: implementation order and test strategy.
-- `09-decisions-and-open-questions.md`: settled choices, defaults, risks, and questions that can wait.
 - `10-grok-computer-research.md`: confirmed Grok shared-computer behavior, UI evidence, and the resulting OpenBot model.
 - `11-plugin-architecture-research.md`: Grok/Claude/Codex/MCP comparison and the selected post-v0 plugin, connector, account, and policy architecture.
 - `12-agent-communication.md`: durable bot mailboxes, direct/group channels, wake scheduling, priority, exact observed tool schemas, and Codex integration.
 - `13-native-tool-surface.md`: coverage and ownership for the ten observed native tools, safe dynamic dispatch, rich delivery, state mutation, screenshots, and the future physical-host bridge.
 - `14-electron-ai-elements-ui.md`: Electron renderer boundary, AI Elements compatibility gate and component map, OpenBot-owned shell/screen surfaces, performance, security, and UI delivery slices.
 - `15-agent-group-chat-runtime.md`: Grok group-chat evidence, deterministic bot baton rounds, wake envelopes, per-member cursors, silence semantics, and Codex context mapping.
-- `16-v0-release-plan.md`: the canonical v0 demo, scope cuts, architecture slice, milestone order, and release gates.
 - `17-durable-agent-queue-and-screens.md`: pg-boss wake architecture, durable Pi sessions, delivery guarantees, and the shared-computer/bot-screen implementation direction.
 - `18-v0-implementation-status.md`: shipped scope, verification evidence, operator prerequisites, and intentionally deferred work.
 - `19-agent-interaction-implementation.md`: the implemented direct-agent and ordered-group runtime, exact tool contracts, delivery invariants, API/UI surface, and validation evidence.
@@ -56,7 +52,6 @@ The numbered files preserve research and design history; a lower number is not a
 - `22-grok-parity-and-client-performance.md`: the shadcn/AI Elements rewrite, Grok-reference parity, warm bot tabs, lazy rich rendering, lightweight reconnect behavior, and live close/reopen validation.
 - `23-interactive-desktop-and-qa.md`: click-to-control noVNC behavior, lease cleanup, restart/background-run validation, full v0 QA evidence, and the bugs fixed during that pass.
 - `24-performance-optimization.md`: renderer request-loop diagnosis, client snapshot projection, stable React identities, warm inspectors, lazy rich rendering, local performance instrumentation, measured budgets, and production profiling evidence.
-- `25-grok-new-bot-onboarding-research.md`: evidence-separated reconstruction of Grok's zero-config creation, proactive hidden first wake, profile settings, asynchronous screen readiness, shared filesystem, assistant-addressed JSONL transcript layout, exact supplied transcript, and confidence-bounded inferences.
 - `26-new-bot-onboarding-implementation-plan.md`: non-blocking durable creation, pg-boss provisioning, exactly-once bootstrap semantics, Grok-like inspector settings, safe transcript mirroring, performance budgets, delivery slices, and acceptance tests.
 - `27-pi-agent-runtime.md`: the implemented migration to one durable Pi session per bot, OpenAI Codex OAuth, compaction, tools, event projection, persistence, and operational boundaries.
 - `28-scheduled-routines.md`: the implemented schedule-only routine backend, Postgres-owned next-run state, pg-boss dispatcher, routine lifecycle, `update_state` slice, and deferred inspector UX.

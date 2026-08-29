@@ -15,7 +15,7 @@ Make a new OpenBot bot feel alive immediately:
 - the same bot identity owns one durable Pi session, mailbox, computer display, browser profile, transcript mirror, and profile for its lifetime;
 - all server, worker, computer, and bot work continues when Electron is closed.
 
-This plan implements the findings in `25-grok-new-bot-onboarding-research.md`. It does not claim knowledge of Grok's private system prompt or exact internal protocol.
+This plan implements the supplied onboarding evidence. It does not claim knowledge of Grok's private system prompt or exact internal protocol.
 
 ## Implementation outcome
 

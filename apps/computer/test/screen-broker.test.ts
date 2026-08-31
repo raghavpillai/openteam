@@ -14,9 +14,8 @@ describe("graphical screen lifecycle", () => {
 
   test("tombstones destroyed bots so a late inspector poll cannot recreate them", async () => {
     home = await mkdtemp(join(tmpdir(), "openbot-screen-broker-"));
-    const stateRoot = join(home, ".openbot");
-    const mappingPath = join(stateRoot, "screens.json");
-    await mkdir(stateRoot, { recursive: true });
+    const mappingPath = join(home, ".sand-window-assignments.json");
+    await mkdir(home, { recursive: true });
     await writeFile(mappingPath, `${JSON.stringify({ "archived-bot": 4 })}\n`);
 
     const broker = new ScreenBroker(home);

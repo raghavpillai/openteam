@@ -2,7 +2,6 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { cp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { ComputerUseActionInput, ScreenActionInput } from "@openbot/contracts";
-import { BrowserBroker } from "./browser-broker";
 
 const WIDTH = 1280;
 const HEIGHT = 800;
@@ -45,9 +44,9 @@ export interface ScreenStatus {
   humanTakeover: boolean;
   agentInputPaused: boolean;
   apps: Array<"chromium" | "thunar" | "terminal">;
-  browserProfileScope: "bot";
+  browserProfileScope: "computer";
   browserSessionScope: "computer";
-  browserSessionMechanism: "cookie-broker";
+  browserSessionMechanism: "shared-profiles";
   error: string | null;
 }
 
@@ -95,12 +94,10 @@ export class ScreenBroker {
   private readonly mappingPath: string;
   private loaded = false;
   private allocation: Promise<void> = Promise.resolve();
-  private readonly browsers: BrowserBroker;
 
-  constructor(private readonly home = process.env.HOME ?? "/home/openbot") {
+  constructor(private readonly home = process.env.HOME ?? "/home/box") {
     this.stateRoot = join(home, ".openbot");
-    this.mappingPath = join(this.stateRoot, "screens.json");
-    this.browsers = new BrowserBroker(home);
+    this.mappingPath = join(home, ".sand-window-assignments.json");
   }
 
   async ensure(botId: string, cwd: string): Promise<ScreenStatus> {
@@ -122,7 +119,10 @@ export class ScreenBroker {
         rfbPort: RFB_PORT_BASE + slot,
         viewerPort: VIEWER_PORT_BASE + slot,
         browserDebugPort: BROWSER_DEBUG_PORT_BASE + slot,
-        profileDirectory: join(this.stateRoot, "chromium", botId),
+        profileDirectory:
+          slot === 0
+            ? join(this.home, "chrome-profile")
+            : join(this.home, `chrome-profile-${slot + 1}`),
         runtimeDirectory: join("/tmp", `openbot-screen-${slot}`),
         state: "starting",
         error: null,
@@ -142,7 +142,6 @@ export class ScreenBroker {
       });
     }
     await session.startPromise;
-    void this.browsers.attach(session.botId, session.browserDebugPort).catch(() => undefined);
     return this.statusFor(session);
   }
 
@@ -264,7 +263,6 @@ export class ScreenBroker {
     if (session) {
       session.destroyed = true;
       session.state = "failed";
-      await this.browsers.detach(botId);
       for (const process of [...session.processes]) process.kill("SIGTERM");
       session.processes = [];
       await session.startPromise?.catch(() => undefined);
@@ -403,7 +401,6 @@ export class ScreenBroker {
     this.assertNotDestroyed(session);
     session.state = "starting";
     session.error = null;
-    await this.browsers.detach(session.botId);
     this.assertNotDestroyed(session);
     for (const process of session.processes) process.kill("SIGTERM");
     session.processes = [];
@@ -509,7 +506,7 @@ export class ScreenBroker {
     const env = this.environment(session);
     if (app === "chromium") {
       const child = this.spawnLongLived(
-        "chromium",
+        "google-chrome",
         [
           "--no-sandbox",
           "--test-type",
@@ -528,27 +525,22 @@ export class ScreenBroker {
         session,
         env
       );
-      void this.browsers.attach(session.botId, session.browserDebugPort, 60).catch(() => undefined);
       return child;
     }
     if (app === "thunar") {
       return this.spawnLongLived("thunar", [session.cwd], session, env);
     }
-    return this.spawnLongLived(
-      "xfce4-terminal",
-      ["--disable-server", `--working-directory=${session.cwd}`],
-      session,
-      env
-    );
+    return this.spawnLongLived("xfce4-terminal", ["--disable-server"], session, env, session.cwd);
   }
 
   private spawnLongLived(
     command: string,
     args: string[],
     session: ScreenSession,
-    env = this.environment(session)
+    env = this.environment(session),
+    cwd = "/workspace"
   ): ChildProcess {
-    const child = spawn(command, args, { env, stdio: "ignore" });
+    const child = spawn(command, args, { cwd, env, stdio: "ignore" });
     session.processes.push(child);
     child.once("exit", () => {
       const index = session.processes.indexOf(child);
@@ -594,9 +586,9 @@ export class ScreenBroker {
       humanTakeover: session.humanTakeoverUntil > Date.now(),
       agentInputPaused: session.agentInputPaused,
       apps: ["chromium", "thunar", "terminal"],
-      browserProfileScope: "bot",
+      browserProfileScope: "computer",
       browserSessionScope: "computer",
-      browserSessionMechanism: "cookie-broker",
+      browserSessionMechanism: "shared-profiles",
       error: session.error,
     };
   }

@@ -3,6 +3,7 @@ import { mkdir, realpath, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import {
   type BotTranscriptView,
+  type TranscriptEventView,
   ComputerApprovalResolution,
   ComputerSteerRequest,
   ComputerTurnRequest,
@@ -11,8 +12,11 @@ import {
   ScreenTakeoverInput,
 } from "@openbot/contracts";
 import { Schema } from "effect";
+import { BoxStoreSync } from "./box-store-sync";
 import { resolveWorkspacePath } from "./paths";
+import { GrokAgentStore } from "./grok-agent-store";
 import { ComputerRuntime } from "./runtime";
+import { StdioMcpManager } from "./mcp-manager";
 import { ScreenBroker } from "./screen-broker";
 import { TranscriptMirror } from "./transcript-mirror";
 
@@ -20,8 +24,14 @@ const port = Number(process.env.OPENBOT_COMPUTER_PORT ?? 8790);
 const controlToken = process.env.OPENBOT_CONTROL_TOKEN ?? "local-compose-only-change-me";
 const workspaceRoot = resolve(process.env.OPENBOT_WORKSPACE_ROOT ?? "/workspace");
 const screens = new ScreenBroker();
+const agentStores = new GrokAgentStore();
+const boxStore = new BoxStoreSync({
+  hasLiveAgentHandle: (agentId) => agentStores.hasLiveHandle(agentId),
+});
+await boxStore.start();
 const transcripts = new TranscriptMirror();
-const runtime = new ComputerRuntime(screens);
+const runtime = new ComputerRuntime(screens, agentStores, () => boxStore.scheduleSnapshot());
+const stdioMcp = new StdioMcpManager();
 const encoder = new TextEncoder();
 
 const json = (value: unknown, status = 200) =>
@@ -37,6 +47,77 @@ const authorized = (request: Request): boolean => {
 };
 
 const safePath = (input: string): string => resolveWorkspacePath(input, workspaceRoot);
+
+const transcriptEventFromStore = (
+  botId: string,
+  row: { id: string; entry: Record<string, unknown> }
+): TranscriptEventView | null => {
+  const nested = row.entry.event;
+  if (nested && typeof nested === "object" && !Array.isArray(nested)) {
+    const event = nested as TranscriptEventView;
+    if (event.id === row.id && event.botId === botId && typeof event.at === "string") return event;
+  }
+  const at = typeof row.entry.at === "string" ? row.entry.at : new Date(0).toISOString();
+  const metadata =
+    row.entry.metadata && typeof row.entry.metadata === "object" && !Array.isArray(row.entry.metadata)
+      ? (row.entry.metadata as Record<string, unknown>)
+      : {};
+  const channel =
+    row.entry.channel &&
+    typeof row.entry.channel === "object" &&
+    !Array.isArray(row.entry.channel)
+      ? (row.entry.channel as TranscriptEventView["channel"])
+      : null;
+  if (row.entry.kind === "message") {
+    const role = row.entry.role;
+    const fromAgent =
+      metadata.fromAgent &&
+      typeof metadata.fromAgent === "object" &&
+      !Array.isArray(metadata.fromAgent)
+        ? (metadata.fromAgent as Record<string, unknown>)
+        : null;
+    const senderKind = role === "assistant" ? "agent" : role === "user" ? "user" : "system";
+    return {
+      schemaVersion: 1,
+      id: row.id,
+      botId,
+      at,
+      type: "visible_message",
+      channel,
+      sender: {
+        kind: senderKind,
+        botId:
+          senderKind === "agent" && typeof row.entry.senderBotId === "string"
+            ? row.entry.senderBotId
+            : null,
+        name:
+          typeof fromAgent?.name === "string"
+            ? fromAgent.name
+            : senderKind === "user"
+              ? "User"
+              : senderKind === "agent"
+                ? "Agent"
+                : "System",
+      },
+      content: typeof row.entry.content === "string" ? row.entry.content : "",
+      metadata,
+    };
+  }
+  if (row.entry.kind === "event" && typeof row.entry.type === "string") {
+    return {
+      schemaVersion: 1,
+      id: row.id,
+      botId,
+      at,
+      type: row.entry.type as TranscriptEventView["type"],
+      channel,
+      sender: null,
+      content: typeof row.entry.content === "string" ? row.entry.content : null,
+      metadata,
+    };
+  }
+  return null;
+};
 
 const server = Bun.serve({
   hostname: "0.0.0.0",
@@ -116,10 +197,56 @@ const server = Bun.serve({
         await mkdir(path, { recursive: true });
         const actual = await realpath(path);
         safePath(actual);
+        boxStore.scheduleSnapshot();
         return json({ path: actual, screen: await screens.ensure(botId, actual) });
       }
 
+      if (request.method === "POST" && url.pathname === "/v1/agent-stores/reconcile") {
+        const body = (await request.json()) as { ownerIds?: unknown };
+        if (
+          !Array.isArray(body.ownerIds) ||
+          body.ownerIds.some((ownerId) => typeof ownerId !== "string")
+        ) {
+          return json({ error: "ownerIds must be an array of strings" }, 400);
+        }
+        await agentStores.quarantineUnknownAgents(body.ownerIds as string[]);
+        return json({ agents: await agentStores.listAgentDirectories(), quarantined: [] });
+      }
+
+      if (request.method === "GET" && url.pathname === "/v1/agent-stores") {
+        return json({ agents: await agentStores.listAgentDirectories() });
+      }
+
+      const agentStoreMatch = url.pathname.match(/^\/v1\/agent-stores\/([^/]+)$/);
+      if (request.method === "PUT" && agentStoreMatch?.[1]) {
+        const body = (await request.json().catch(() => ({}))) as { createdAt?: unknown };
+        const createdAt =
+          typeof body.createdAt === "number" && Number.isFinite(body.createdAt)
+            ? body.createdAt
+            : Date.now();
+        await agentStores.initializeAgent(agentStoreMatch[1], createdAt);
+        boxStore.scheduleSnapshot();
+        return json({ ok: true });
+      }
+
       const transcriptMatch = url.pathname.match(/^\/v1\/transcripts\/([^/]+)$/);
+      if (request.method === "GET" && transcriptMatch?.[1]) {
+        const botId = transcriptMatch[1];
+        const rows = await agentStores.readTranscriptEntries(botId, {
+            afterSeq: Number(url.searchParams.get("afterSeq") ?? 0),
+            limit: Number(url.searchParams.get("limit") ?? 10_000),
+          });
+        return json({
+          botId,
+          generatedAt: new Date().toISOString(),
+          revision: Number((await agentStores.readKv(botId, "replicaRevision")) ?? 0),
+          coverage: { kind: "complete-transcript" },
+          events: rows.flatMap((row) => {
+            const event = transcriptEventFromStore(botId, row);
+            return event ? [event] : [];
+          }),
+        });
+      }
       if (request.method === "PUT" && transcriptMatch?.[1]) {
         const body = (await request.json()) as {
           botId?: unknown;
@@ -133,7 +260,55 @@ const server = Bun.serve({
         ) {
           return json({ error: "invalid transcript projection" }, 400);
         }
-        return json(await transcripts.replace(body as BotTranscriptView));
+        const transcript = body as BotTranscriptView;
+        const result = await transcripts.replace(transcript);
+        await agentStores.openForWake(transcript.botId);
+        const existingIds = new Set(
+          (await agentStores.readTranscriptEntries(transcript.botId)).map(({ id }) => id)
+        );
+        for (const event of transcript.events) {
+          if (existingIds.has(event.id)) continue;
+          await agentStores.appendTranscriptEntry(
+            transcript.botId,
+            event.id,
+            event.type === "visible_message"
+              ? {
+                  kind: "message",
+                  event,
+                  role:
+                    event.sender?.kind === "agent" ? "assistant" : (event.sender?.kind ?? "system"),
+                  content: event.content ?? "",
+                  at: event.at,
+                  channel: event.channel,
+                  metadata: event.metadata,
+                }
+              : {
+                  kind: "event",
+                  event,
+                  type: event.type,
+                  at: event.at,
+                  channel: event.channel,
+                  metadata: event.metadata,
+                }
+          );
+          if (event.type === "visible_message") {
+            await agentStores.appendConversationEnvelope(transcript.botId, {
+              role:
+                event.sender?.kind === "agent"
+                  ? "assistant"
+                  : event.sender?.kind === "user"
+                    ? "user"
+                    : "system",
+              content: event.content ?? "",
+              eventId: event.id,
+              at: event.at,
+              channel: event.channel,
+            });
+          }
+        }
+        await agentStores.refreshDerivedProjections(transcript.botId);
+        boxStore.scheduleSnapshot();
+        return json(result);
       }
 
       const screenMatch = url.pathname.match(/^\/v1\/screens\/([^/]+)$/);
@@ -143,6 +318,8 @@ const server = Bun.serve({
       }
       if (request.method === "DELETE" && screenMatch?.[1]) {
         await screens.destroy(screenMatch[1]);
+        agentStores.closeAgent(screenMatch[1]);
+        boxStore.scheduleSnapshot();
         return json({ ok: true });
       }
 
@@ -183,6 +360,36 @@ const server = Bun.serve({
         const cwd = safePath(body.cwd);
         const input = Schema.decodeUnknownSync(ScreenPauseInput)({ paused: body.paused });
         return json(await screens.pauseAgent(pauseMatch[1], cwd, input.paused));
+      }
+
+      const mcpDiscoverMatch = url.pathname.match(/^\/v1\/mcp\/connections\/([^/]+)\/discover$/);
+      if (request.method === "POST" && mcpDiscoverMatch?.[1]) {
+        const body = (await request.json()) as { configuration?: unknown };
+        return json({ tools: await stdioMcp.discover(mcpDiscoverMatch[1], body.configuration) });
+      }
+
+      const mcpCallMatch = url.pathname.match(/^\/v1\/mcp\/connections\/([^/]+)\/call$/);
+      if (request.method === "POST" && mcpCallMatch?.[1]) {
+        const body = (await request.json()) as {
+          configuration?: unknown;
+          toolName?: unknown;
+          arguments?: unknown;
+        };
+        if (typeof body.toolName !== "string") return json({ error: "toolName is required" }, 400);
+        return json({
+          result: await stdioMcp.call(
+            mcpCallMatch[1],
+            body.configuration,
+            body.toolName,
+            body.arguments
+          ),
+        });
+      }
+
+      const mcpConnectionMatch = url.pathname.match(/^\/v1\/mcp\/connections\/([^/]+)$/);
+      if (request.method === "DELETE" && mcpConnectionMatch?.[1]) {
+        await stdioMcp.close(mcpConnectionMatch[1]);
+        return json({ ok: true });
       }
 
       if (request.method === "POST" && url.pathname === "/v1/turns") {

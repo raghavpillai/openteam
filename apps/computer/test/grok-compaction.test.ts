@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { AgentSession } from "@earendil-works/pi-coding-agent";
 import {
   closeGrokPreservedTail,
   countGrokImages,
@@ -26,6 +27,7 @@ import {
   replaceGrokUserInfo,
   shouldPersistGrokSummary,
   shouldStartGrokSummary,
+  stripEmptyTrailingAssistantMessages,
 } from "../src/grok-compaction";
 
 const directories: string[] = [];
@@ -78,6 +80,22 @@ describe("Grok trigger thresholds", () => {
 });
 
 describe("Grok summary partition", () => {
+  test("drops only empty trailing assistant envelopes before summarization", () => {
+    const messages = [
+      text("user", "goal"),
+      text("assistant", "working"),
+      text("user", "continue"),
+      {
+        role: "assistant",
+        content: [],
+        stopReason: "error",
+        errorMessage: "context_length_exceeded",
+      },
+    ] as GrokMessage[];
+    expect(stripEmptyTrailingAssistantMessages(messages)).toEqual(messages.slice(0, -1));
+    expect(partitionForGrokSummary(messages)?.lastUserMessage).toEqual(text("user", "continue"));
+  });
+
   test("peels a leading user-info pair and preserves SelfSummarizer's last user", () => {
     const userInfo = text("user", "<user_info>current identity</user_info>", { isUserInfo: true });
     const priorSummary = text("user", "prior summary", { isSummary: true });
@@ -315,6 +333,59 @@ describe("Grok summary partition", () => {
     ]);
     expect(reduced).not.toContainEqual(multiCall);
     expect(reduced).not.toContainEqual(result);
+  });
+});
+
+describe("Grok overflow attempt budget", () => {
+  test("allows five overflowing model calls for one step and never makes a sixth", async () => {
+    const session = Object.create(AgentSession.prototype) as {
+      _overflowRecoveryAttempts: number;
+      settingsManager: { getCompactionSettings(): { enabled: boolean } };
+      model: { provider: string; id: string; contextWindow: number; maxTokens: number };
+      sessionManager: { getBranch(): [] };
+      agent: { state: { messages: GrokMessage[] } };
+      _runAutoCompaction(reason: string, willRetry: boolean): Promise<boolean>;
+      _checkCompaction(message: GrokMessage): Promise<boolean>;
+    };
+    session._overflowRecoveryAttempts = 0;
+    session.settingsManager = { getCompactionSettings: () => ({ enabled: true }) };
+    Object.defineProperty(session, "model", {
+      configurable: true,
+      value: {
+        provider: "openai-codex",
+        id: "gpt-test",
+        contextWindow: 1_000,
+        maxTokens: 100,
+      },
+    });
+    session.sessionManager = { getBranch: () => [] };
+    session.agent = { state: { messages: [] } };
+    const retryFlags: boolean[] = [];
+    session._runAutoCompaction = async (_reason, willRetry) => {
+      retryFlags.push(willRetry);
+      return willRetry;
+    };
+
+    const overflow = (timestamp: number) =>
+      ({
+        role: "assistant",
+        provider: "openai-codex",
+        model: "gpt-test",
+        content: [],
+        stopReason: "error",
+        errorMessage: "context_length_exceeded",
+        timestamp,
+      }) as GrokMessage;
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      const message = overflow(attempt + 1);
+      session.agent.state.messages = [message];
+      expect(await session._checkCompaction(message)).toBe(true);
+    }
+    const fifth = overflow(5);
+    session.agent.state.messages = [fifth];
+    await expect(session._checkCompaction(fifth)).rejects.toThrow("summarization-retries");
+    expect(retryFlags).toEqual([true, true, true, true, false]);
+    expect(session._overflowRecoveryAttempts).toBe(5);
   });
 });
 

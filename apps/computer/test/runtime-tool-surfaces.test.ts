@@ -6,7 +6,8 @@ import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { NATIVE_TOOL_NAMES } from "@openbot/contracts";
 import { BROWSER_USE_TOOLS } from "../src/browser-use";
 import { GrokCompactionArchiveStore, GrokCompactionCoordinator } from "../src/grok-compaction";
-import { ComputerRuntime } from "../src/runtime";
+import { HostApprovalRequiredError } from "../src/native-tool-executor";
+import { ComputerRuntime, modelVisibleSummaryTools } from "../src/runtime";
 
 const temporaryRoots: string[] = [];
 
@@ -65,7 +66,40 @@ const dynamicToolNames = (namespace: string) => {
   );
 };
 
+const subagentDynamicToolNames = (namespace: string) => {
+  const runtime = new ComputerRuntime() as unknown as {
+    dynamicCatalog(active: {
+      runtimeProfile: "subagent";
+      pluginNamespaces: [];
+    }): Array<{ name: string; tools: Array<{ name: string }> }>;
+  };
+  return (
+    runtime
+      .dynamicCatalog({ runtimeProfile: "subagent", pluginNamespaces: [] })
+      .find((candidate) => candidate.name === namespace)
+      ?.tools.map((tool) => tool.name) ?? []
+  );
+};
+
 describe("specialized subagent tool surfaces", () => {
+  test("summary requests receive normal schemas but no executable tool functions", () => {
+    const runtime = new ComputerRuntime() as unknown as {
+      customTools(active: { subagentType: null }): Array<{
+        name: string;
+        description: string;
+        parameters: unknown;
+        execute: unknown;
+      }>;
+    };
+    const executable = runtime.customTools({ subagentType: null });
+    const visible = modelVisibleSummaryTools(executable);
+    expect(visible.map((tool) => tool.name)).toEqual(executable.map((tool) => tool.name));
+    expect(visible.map((tool) => tool.description)).toEqual(
+      executable.map((tool) => tool.description)
+    );
+    expect(visible.every((tool) => !("execute" in tool))).toBe(true);
+  });
+
   test("computerUse receives only Shell, Read, and direct Computer", () => {
     expect(toolNames("computerUse")).toEqual(["Shell", "Read", "Computer"]);
   });
@@ -78,6 +112,18 @@ describe("specialized subagent tool surfaces", () => {
     ]);
   });
 
+  test("executor stays private while retaining execution and discovery tools", () => {
+    const names = toolNames("executor");
+    expect(names).not.toContain("SendToUser");
+    expect(names).not.toContain("ReactToMessage");
+    expect(names).not.toContain("update_state");
+    expect(names).toContain("Shell");
+    expect(names).toContain("Read");
+    expect(names).toContain("GetDynamicTools");
+    expect(names).toContain("CallDynamicTool");
+    expect(subagentDynamicToolNames("cursor")).toEqual(["TodoWrite"]);
+  });
+
   test("graphical workers receive compact box-scoped Shell and Read guidance", () => {
     for (const subagentType of ["computerUse", "browserUse"] as const) {
       const descriptions = toolDescriptions(subagentType);
@@ -87,14 +133,151 @@ describe("specialized subagent tool surfaces", () => {
     }
   });
 
-  test("normal agents retain the closed ten-tool native catalog", () => {
-    expect(toolNames(null)).toEqual(NATIVE_TOOL_NAMES);
+  test("normal agents target hosts with machineId on Shell and Read", () => {
+    const names = toolNames(null);
+    expect(names).toEqual(
+      NATIVE_TOOL_NAMES.filter((name) => !["ExternalShell", "ExternalRead"].includes(name))
+    );
+    expect(names).toContain("ListMachines");
+    expect(names).toContain("Shell");
+    expect(names).toContain("Read");
+    expect(names).not.toContain("ExternalShell");
+    expect(names).not.toContain("ExternalRead");
   });
 
   test("normal agents discover A2A under cursor without legacy graphical Computer control", () => {
     expect(dynamicToolNames("openbot")).toEqual([]);
     expect(dynamicToolNames("cursor")).toContain("Task");
     expect(dynamicToolNames("cursor")).toContain("SendToAgent");
+  });
+
+  test("normal agents expose the complete plugin lifecycle management surface", () => {
+    expect(dynamicToolNames("cursor")).toEqual(
+      expect.arrayContaining([
+        "SearchPlugins",
+        "GetPlugin",
+        "GetMcpServerStatus",
+        "InstallPlugin",
+        "UninstallPlugin",
+        "AddMcpServer",
+        "UninstallMcpServer",
+        "AuthenticateMcpServer",
+        "RestartMcpServers",
+        "RenameMcpAccount",
+        "RemoveMcpAccount",
+        "SetMcpInstructions",
+      ])
+    );
+  });
+});
+
+describe("local computer approval broker", () => {
+  const runtimeHarness = () => {
+    const events: Array<Record<string, unknown>> = [];
+    const runtime = new ComputerRuntime() as unknown as {
+      executeHostTool(
+        active: { runId: string; turnId: string; queue: { push(event: unknown): void } },
+        callId: string,
+        toolName: string,
+        signal: AbortSignal | undefined,
+        execute: (approvals: Record<string, unknown>) => Promise<unknown>
+      ): Promise<unknown>;
+      resolveApproval(approvalId: string, decision: "accept" | "decline"): void;
+    };
+    const active = {
+      runId: "run-1",
+      turnId: "run-1",
+      queue: { push: (event: unknown) => events.push(event as Record<string, unknown>) },
+    };
+    return { active, events, runtime };
+  };
+
+  test("pauses one host call and retries it with a one-shot token after approval", async () => {
+    const { active, events, runtime } = runtimeHarness();
+    const attempts: Array<Record<string, unknown>> = [];
+    const execution = runtime.executeHostTool(
+      active,
+      "call-1",
+      "Shell",
+      undefined,
+      async (approvals) => {
+        attempts.push({ ...approvals });
+        if (attempts.length === 1) {
+          throw new HostApprovalRequiredError({
+            gate: "local",
+            requestMethod: "openbot/localTool",
+            details: { type: "localTool", machineId: "machine-1" },
+          });
+        }
+        return { content: [{ type: "text", text: "ran" }], details: {} };
+      }
+    );
+    await Promise.resolve();
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      type: "approval.requested",
+      requestMethod: "openbot/localTool",
+      itemId: "call-1",
+    });
+    runtime.resolveApproval(String(events[0]?.approvalId), "accept");
+    expect(await execution).toMatchObject({ content: [{ type: "text", text: "ran" }] });
+    expect(attempts).toEqual([{}, { localApproval: "allow-once" }]);
+  });
+
+  test("turns denial into a do-not-retry tool error without a second host call", async () => {
+    const { active, events, runtime } = runtimeHarness();
+    let attempts = 0;
+    const execution = runtime.executeHostTool(active, "call-2", "Shell", undefined, async () => {
+      attempts += 1;
+      throw new HostApprovalRequiredError({
+        gate: "local",
+        requestMethod: "openbot/localTool",
+        details: { type: "localTool", machineId: "machine-1" },
+      });
+    });
+    await Promise.resolve();
+    runtime.resolveApproval(String(events[0]?.approvalId), "decline");
+    await expect(execution).rejects.toThrow("Do not retry it");
+    expect(attempts).toBe(1);
+  });
+
+  test("routes Shell by machineId while keeping omitted machineId in the box", async () => {
+    const calls: string[] = [];
+    const runtime = new ComputerRuntime() as unknown as {
+      nativeToolExecutor: {
+        shell: (...args: unknown[]) => Promise<unknown>;
+        externalShell: (...args: unknown[]) => Promise<unknown>;
+      };
+      executeOpenBotTool(
+        active: Record<string, unknown>,
+        callId: string,
+        tool: string,
+        args: unknown,
+        signal?: AbortSignal
+      ): Promise<unknown>;
+    };
+    runtime.nativeToolExecutor.shell = async () => {
+      calls.push("box");
+      return { content: [{ type: "text", text: "box" }], details: {} };
+    };
+    runtime.nativeToolExecutor.externalShell = async () => {
+      calls.push("host");
+      return { content: [{ type: "text", text: "host" }], details: {} };
+    };
+    const active = {
+      subagentType: null,
+      cwd: "/workspace",
+      runId: "run-1",
+      turnId: "run-1",
+      queue: { push: () => undefined },
+    };
+
+    await runtime.executeOpenBotTool(active, "box-call", "Shell", { command: "pwd" });
+    await runtime.executeOpenBotTool(active, "host-call", "Shell", {
+      command: "pwd",
+      machineId: "machine-1",
+    });
+    expect(calls).toEqual(["box", "host"]);
   });
 });
 

@@ -15,6 +15,7 @@ import {
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import {
+  type ApprovalDecision,
   CALL_DYNAMIC_TOOL_TOOL,
   CallDynamicToolInput,
   CHECK_SUBAGENT_TOOL,
@@ -32,15 +33,18 @@ import {
   EXTERNAL_SHELL_TOOL,
   GET_DYNAMIC_TOOLS_TOOL,
   GetDynamicToolsInput,
-  type InlineImageInput,
+  LIST_MACHINES_TOOL,
   MESSAGE_SUBAGENT_TOOL,
   MessageSubagentInput,
   NATIVE_TOOLS,
   type PluginDynamicNamespace,
+  REACT_TO_MESSAGE_TOOL,
   READ_TOOL,
   ReadToolInput,
+  type RuntimeInlineImage,
   SCREENSHOT_TOOL,
   SEND_TO_AGENT_TOOL,
+  SEND_TO_USER_TOOL,
   SendToAgentInput,
   SHELL_TOOL,
   ShellToolInput,
@@ -53,6 +57,7 @@ import {
   TodoWriteInput,
   UPDATE_AGENT_TOOL,
   UPDATE_CHANNEL_TOOL,
+  UPDATE_STATE_TOOL,
   UpdateAgentInput,
   UpdateChannelInput,
 } from "@openbot/contracts";
@@ -67,6 +72,7 @@ import {
   resolveDynamicTool,
 } from "./dynamic-tool-gateway";
 import { assertGraphicalShellBoundary } from "./graphical-shell-policy";
+import type { GrokAgentStore } from "./grok-agent-store";
 import {
   countGrokImages,
   GROK_IMAGE_TRIGGER,
@@ -81,11 +87,15 @@ import {
   grokUserInfoMessage,
   replaceGrokUserInfo,
 } from "./grok-compaction";
-import { NativeToolExecutor } from "./native-tool-executor";
+import {
+  HostApprovalRequiredError,
+  type HostApprovalTokens,
+  NativeToolExecutor,
+} from "./native-tool-executor";
 import { ScreenBroker } from "./screen-broker";
 
 const OPENBOT_DYNAMIC_DISCOVERY_DESCRIPTION =
-  "Discover and inspect tools available through OpenBot dynamic namespaces. Search by namespace, exact tool name, or bounded regular-expression pattern. Catalog searches abbreviate long descriptions; exact lookups return complete public schemas. Always discover a tool before calling it with CallDynamicTool. The cursor namespace contains OpenBot's supported TodoWrite, read-only plugin management, subagent orchestration, agent administration, and channel administration subset.";
+  "Discover and inspect tools available through OpenBot dynamic namespaces. Search by namespace, exact tool name, or bounded regular-expression pattern. Catalog searches abbreviate long descriptions; exact lookups return complete public schemas. Always discover a tool before calling it with CallDynamicTool. The cursor namespace contains OpenBot's supported TodoWrite, plugin lifecycle management, subagent orchestration, agent administration, and channel administration subset.";
 
 const OPENBOT_DYNAMIC_CALL_DESCRIPTION =
   "Invoke one previously discovered tool from an authorized OpenBot dynamic namespace. The gateway rechecks availability, validates nested arguments against the current schema, and reauthorizes the call at execution time.";
@@ -95,6 +105,160 @@ const GRAPHICAL_WORKER_SHELL_DESCRIPTION =
 
 const GRAPHICAL_WORKER_READ_DESCRIPTION =
   "Reads a file on the box, the same filesystem Shell acts on. Text files include line numbers and support offset/limit paging. Image files are returned inline, and PDF files are converted to text.";
+
+const HOST_ROUTING_DESCRIPTION =
+  "By default this operates in the agent's isolated box. To target a user's connected computer, first call ListMachines and pass its exact machineId. Local-computer access is permission-gated and the requested command or file is shown to the user.";
+
+export const modelVisibleSummaryTools = (
+  tools: ReadonlyArray<{
+    name: string;
+    description: string;
+    parameters: unknown;
+    constrainedSampling?: unknown;
+  }>
+) =>
+  tools.map((tool) => ({
+    name: tool.name,
+    description: tool.description,
+    parameters: tool.parameters,
+    ...(tool.constrainedSampling === undefined
+      ? {}
+      : { constrainedSampling: tool.constrainedSampling }),
+  }));
+
+const SUBAGENT_PRIVATE_NATIVE_TOOLS: ReadonlySet<string> = new Set([
+  SEND_TO_USER_TOOL.name,
+  REACT_TO_MESSAGE_TOOL.name,
+  UPDATE_STATE_TOOL.name,
+]);
+
+const LEGACY_EXTERNAL_NATIVE_TOOLS: ReadonlySet<string> = new Set([
+  EXTERNAL_SHELL_TOOL.name,
+  EXTERNAL_READ_TOOL.name,
+]);
+
+const PLUGIN_MANAGEMENT_TOOLS = [
+  {
+    name: "InstallPlugin",
+    description: "Request user-confirmed installation of a marketplace plugin by pluginKey.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        pluginKey: { type: "string", minLength: 1, maxLength: 160 },
+        values: {
+          type: "object",
+          description: "Setup values returned by GetPlugin, keyed by setup field name.",
+          additionalProperties: { type: "string" },
+        },
+      },
+      required: ["pluginKey"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "UninstallPlugin",
+    description: "Request user-confirmed removal of a marketplace plugin and all of its accounts.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        pluginKey: { type: "string", minLength: 1, maxLength: 160 },
+      },
+      required: ["pluginKey"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "AddMcpServer",
+    description:
+      "Request a custom remote HTTP or local stdio MCP server. Provide exactly one of url or command.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { type: "string", minLength: 2, maxLength: 100 },
+        url: { type: "string", maxLength: 2000 },
+        command: { type: "string", maxLength: 500 },
+        args: { type: "array", items: { type: "string" }, maxItems: 100 },
+        env: { type: "object", additionalProperties: { type: "string" } },
+        headers: { type: "object", additionalProperties: { type: "string" } },
+        auth: { type: "string", enum: ["none", "token", "oauth"] },
+        accountLabel: { type: "string", maxLength: 80 },
+      },
+      required: ["name"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "UninstallMcpServer",
+    description: "Request removal of a custom MCP server that was added outside the marketplace.",
+    inputSchema: {
+      type: "object",
+      properties: { connectionId: { type: "string" } },
+      required: ["connectionId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "AuthenticateMcpServer",
+    description:
+      "Request authentication for an installed MCP connection. Returns a browser authorization URL when confirmed.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        connectionId: { type: "string" },
+        forceReauth: { type: "boolean" },
+      },
+      required: ["connectionId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "RestartMcpServers",
+    description: "Request a reconnect and fresh tool discovery for one MCP connection.",
+    inputSchema: {
+      type: "object",
+      properties: { connectionId: { type: "string" } },
+      required: ["connectionId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "RenameMcpAccount",
+    description: "Request a new account label for an MCP connection.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        connectionId: { type: "string" },
+        accountLabel: { type: "string", minLength: 2, maxLength: 80 },
+      },
+      required: ["connectionId", "accountLabel"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "RemoveMcpAccount",
+    description: "Request removal of one named MCP account while keeping the plugin installed.",
+    inputSchema: {
+      type: "object",
+      properties: { connectionId: { type: "string" } },
+      required: ["connectionId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "SetMcpInstructions",
+    description:
+      "Request saved usage instructions for one MCP connection. An empty string clears them.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        connectionId: { type: "string" },
+        instructions: { type: "string", maxLength: 500 },
+      },
+      required: ["connectionId", "instructions"],
+      additionalProperties: false,
+    },
+  },
+] as const;
 
 type TurnStatus = "completed" | "failed" | "interrupted";
 
@@ -114,6 +278,7 @@ interface ActiveTurn {
   todoUpdate: string | null;
   automationTrigger: string | null;
   resetSelfSummaryCount: boolean;
+  requestSource: "user" | "agent" | "group" | "bootstrap" | "automation" | "event";
   turnId: string;
   session: AgentSession | null;
   sessionPath: string | null;
@@ -157,7 +322,7 @@ interface RuntimeImage {
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 const INLINE_IMAGE_PREFIX = /^data:(image\/(?:gif|jpeg|png|webp));base64,/i;
 
-export const decodeInlineImages = (inputs: readonly InlineImageInput[]): RuntimeImage[] =>
+export const decodeInlineImages = (inputs: readonly RuntimeInlineImage[]): RuntimeImage[] =>
   inputs.slice(0, 8).map((input, index) => {
     const prefix = INLINE_IMAGE_PREFIX.exec(input.url);
     if (!prefix?.[1]) throw new Error(`Uploaded image ${index + 1} is not a supported data URL`);
@@ -268,10 +433,17 @@ const toolItem = (
 ): Record<string, unknown> => {
   const record = args && typeof args === "object" ? (args as Record<string, unknown>) : {};
   if (["bash", "Shell", "ExternalShell"].includes(toolName)) {
+    const toolResult =
+      result && typeof result === "object" ? (result as Record<string, unknown>) : null;
+    const details =
+      toolResult?.details && typeof toolResult.details === "object"
+        ? (toolResult.details as Record<string, unknown>)
+        : null;
     return {
       type: "commandExecution",
       id,
       command: typeof record.command === "string" ? record.command : "Shell command",
+      shellKind: details?.status === "running" ? "background" : "foreground",
       status,
       result,
     };
@@ -302,9 +474,7 @@ export class ComputerRuntime {
   private readonly serverUrl = process.env.OPENBOT_SERVER_URL ?? "http://127.0.0.1:8787";
   private readonly controlToken =
     process.env.OPENBOT_CONTROL_TOKEN ?? "local-compose-only-change-me";
-  private readonly agentDir = resolve(
-    process.env.OPENBOT_PI_AGENT_DIR ?? "/home/openbot/.pi/agent"
-  );
+  private readonly agentDir = resolve(process.env.OPENBOT_PI_AGENT_DIR ?? "/home/box/.pi/agent");
   private readonly sessionsDir = join(this.agentDir, "sessions", "openbot");
   private readonly contextSessionsDir = join(this.agentDir, "context-sessions");
   private readonly modelId = process.env.OPENBOT_PI_MODEL ?? "gpt-5.5";
@@ -314,6 +484,13 @@ export class ComputerRuntime {
     controlToken: this.controlToken,
   });
   private readonly browserUseSessions = new Map<string, BrowserUseSession>();
+  private readonly pendingApprovals = new Map<
+    string,
+    {
+      runId: string;
+      settle: (decision?: ApprovalDecision, error?: Error) => void;
+    }
+  >();
   private readonly thinkingLevel =
     (process.env.OPENBOT_PI_THINKING as
       | "off"
@@ -330,7 +507,11 @@ export class ComputerRuntime {
   private authenticated = false;
   private started = false;
 
-  constructor(private readonly screens = new ScreenBroker()) {}
+  constructor(
+    private readonly screens = new ScreenBroker(),
+    private readonly grokStore?: GrokAgentStore,
+    private readonly onTurnEnd?: () => void
+  ) {}
 
   async start(): Promise<void> {
     if (!this.started) {
@@ -395,6 +576,7 @@ export class ComputerRuntime {
       todoUpdate: request.todoUpdate ?? null,
       automationTrigger: request.automationTrigger ?? null,
       resetSelfSummaryCount: request.resetSelfSummaryCount !== false,
+      requestSource: request.requestSource ?? "user",
       turnId: request.runId,
       session: null,
       sessionPath: null,
@@ -419,6 +601,35 @@ export class ComputerRuntime {
     this.activeByContext.set(active.contextSessionId, active);
 
     try {
+      await this.grokStore?.openForWake(active.botId);
+      await this.grokStore?.recordRequestId(active.botId, active.runId);
+      await this.grokStore?.appendConversationEnvelope(active.botId, {
+        role: "system",
+        content: active.instructions,
+        contextSessionId: active.contextSessionId,
+        turnId: active.turnId,
+      });
+      if (request.agentProfileSnapshot) {
+        await this.grokStore?.setPromptSnapshot(
+          active.botId,
+          "agentProfilePromptSnapshot",
+          request.agentProfileSnapshot
+        );
+      }
+      if (request.memorySnapshot) {
+        await this.grokStore?.setPromptSnapshot(
+          active.botId,
+          "memoryPromptSnapshot",
+          request.memorySnapshot
+        );
+      }
+      await this.grokStore?.appendConversationEnvelope(active.botId, {
+        role: "user",
+        content: request.content,
+        images: request.images?.length ?? 0,
+        contextSessionId: active.contextSessionId,
+        turnId: active.turnId,
+      });
       // Reserve the run/context before the first asynchronous setup operation.
       // Otherwise two requests can both pass the checks above and open the same
       // append-only Pi session concurrently.
@@ -669,7 +880,10 @@ export class ComputerRuntime {
     let timedOut = false;
     try {
       await Promise.race([
-        session.prompt(request.prompt, { source: "rpc", expandPromptTemplates: false }),
+        session.prompt(request.prompt, {
+          source: "rpc",
+          expandPromptTemplates: false,
+        }),
         new Promise<never>((_resolve, reject) => {
           timer = setTimeout(() => {
             timedOut = true;
@@ -688,10 +902,10 @@ export class ComputerRuntime {
     }
   }
 
-  resolveApproval(_approvalId: string, _decision: "accept" | "decline" | "cancel"): never {
-    throw new Error(
-      "Pi tools execute inside the isolated OpenBot computer; app-server approvals are not used"
-    );
+  resolveApproval(approvalId: string, decision: ApprovalDecision): void {
+    const pending = this.pendingApprovals.get(approvalId);
+    if (!pending) throw new Error("This approval is no longer pending");
+    pending.settle(decision);
   }
 
   private async refreshAuthentication(): Promise<void> {
@@ -775,7 +989,7 @@ export class ComputerRuntime {
     active: ActiveTurn
   ): { name: string; hidden: boolean; factory: ExtensionFactory } {
     const infer = (request: GrokSummaryRequest, signal: AbortSignal) =>
-      this.inferCompaction(active.cwd, request, signal);
+      this.inferCompaction(active, request, signal);
     return {
       name: "openbot-grok-compaction",
       hidden: true,
@@ -886,57 +1100,57 @@ export class ComputerRuntime {
   }
 
   private async inferCompaction(
-    cwd: string,
+    active: ActiveTurn,
     request: GrokSummaryRequest,
     signal: AbortSignal
   ): Promise<GrokSummaryResult> {
-    const summaryManager = SessionManager.inMemory(cwd);
-    if (request.userInfoMessage) {
-      summaryManager.appendMessage(request.userInfoMessage as never);
-    }
-    for (const message of request.messagesToSummarize) {
-      summaryManager.appendMessage(message as never);
-    }
-    const session = await this.createStandaloneSession(
-      cwd,
-      grokSummarySystemPrompt(request.systemPrompt),
-      summaryManager
-    );
-    let result: GrokSummaryResult | null = null;
-    const unsubscribe = session.subscribe((event) => {
-      if (event.type !== "message_end") return;
-      const message = event.message as {
-        role?: string;
-        content?: unknown;
-        usage?: GrokSummaryResult["usage"];
-      };
-      if (message.role === "assistant") {
-        result = { text: textFromContent(message.content), usage: message.usage };
+    const modelRuntime = this.modelRuntime;
+    if (!modelRuntime) throw new Error("Pi model runtime is not initialized");
+    const model = modelRuntime.getModel("openai-codex", this.modelId);
+    if (!model) throw new Error(`Unknown Pi model openai-codex/${this.modelId}`);
+    if (signal.aborted) throw new DOMException("Compaction aborted", "AbortError");
+
+    // Grok's summarization wrapper sends the normal model-visible schemas through
+    // a stream-only session. Calling the model runtime directly gives us the same
+    // surface while making tool execution structurally impossible.
+    const result = await modelRuntime.completeSimple(
+      model,
+      {
+        systemPrompt: grokSummarySystemPrompt(request.systemPrompt),
+        messages: [
+          ...(request.userInfoMessage ? [request.userInfoMessage] : []),
+          ...request.messagesToSummarize,
+          {
+            role: "user",
+            content: [{ type: "text", text: grokSummaryPrompt(request.shorter) }],
+            timestamp: Date.now(),
+          },
+        ] as never,
+        tools: modelVisibleSummaryTools(this.customTools(active)) as never,
+      },
+      {
+        signal,
+        reasoning: this.thinkingLevel === "off" ? undefined : this.thinkingLevel,
       }
-    });
-    const abort = () => void session.abort();
-    signal.addEventListener("abort", abort, { once: true });
-    try {
-      if (signal.aborted) throw new DOMException("Compaction aborted", "AbortError");
-      await session.prompt(grokSummaryPrompt(request.shorter), {
-        source: "rpc",
-        expandPromptTemplates: false,
-      });
-      if (signal.aborted) throw new DOMException("Compaction aborted", "AbortError");
-      const completed = result as GrokSummaryResult | null;
-      // The coordinator owns Grok's special empty-output retry path. Returning
-      // an empty result here avoids misclassifying it as a delayed transient Error.
-      return completed ?? { text: "" };
-    } finally {
-      signal.removeEventListener("abort", abort);
-      unsubscribe();
-      session.dispose();
-    }
+    );
+    if (signal.aborted) throw new DOMException("Compaction aborted", "AbortError");
+    // The coordinator owns Grok's special empty-output retry path.
+    return {
+      text: textFromContent(result.content),
+      usage: result.usage as never,
+    };
   }
 
   private customTools(active: ActiveTurn) {
-    const native = (tool: (typeof NATIVE_TOOLS)[number], description: string = tool.description) =>
-      defineTool({
+    const native = (
+      tool: (typeof NATIVE_TOOLS)[number],
+      description: string = tool.description
+    ) => {
+      const visibleDescription =
+        !active.subagentType && (tool.name === SHELL_TOOL.name || tool.name === READ_TOOL.name)
+          ? `${HOST_ROUTING_DESCRIPTION}\n\n${description}`
+          : description;
+      return defineTool({
         name: tool.name,
         label: tool.name,
         description:
@@ -944,12 +1158,13 @@ export class ComputerRuntime {
             ? OPENBOT_DYNAMIC_DISCOVERY_DESCRIPTION
             : tool.name === CALL_DYNAMIC_TOOL_TOOL.name
               ? OPENBOT_DYNAMIC_CALL_DESCRIPTION
-              : description,
+              : visibleDescription,
         parameters: Type.Unsafe<Record<string, unknown>>(tool.inputSchema),
         executionMode: "sequential" as const,
         execute: (callId: string, args: unknown, signal?: AbortSignal) =>
           this.executeOpenBotTool(active, callId, tool.name, args, signal),
       });
+    };
     const workerNativeTools = NATIVE_TOOLS.filter(
       (tool) => tool.name === SHELL_TOOL.name || tool.name === READ_TOOL.name
     );
@@ -988,7 +1203,12 @@ export class ComputerRuntime {
         ),
       ];
     }
-    return NATIVE_TOOLS.map((tool) => native(tool));
+    const availableNativeTools = NATIVE_TOOLS.filter(
+      (tool) =>
+        !LEGACY_EXTERNAL_NATIVE_TOOLS.has(tool.name) &&
+        (!active.subagentType || !SUBAGENT_PRIVATE_NATIVE_TOOLS.has(tool.name))
+    );
+    return availableNativeTools.map((tool) => native(tool));
   }
 
   private async executeOpenBotTool(
@@ -1001,6 +1221,14 @@ export class ComputerRuntime {
     if (tool === SHELL_TOOL.name) {
       const shellInput = Schema.decodeUnknownSync(ShellToolInput)(args);
       assertGraphicalShellBoundary(shellInput.command, active.subagentType);
+      if (shellInput.machineId) {
+        if (active.subagentType) {
+          throw new Error("Graphical subagents cannot target the user's local computer");
+        }
+        return this.executeHostTool(active, callId, tool, signal, (approvals) =>
+          this.nativeToolExecutor.externalShell(shellInput, signal, approvals)
+        );
+      }
       const environment =
         active.subagentType === "computerUse"
           ? await this.screens.commandEnvironment(active.screenBotId, active.cwd)
@@ -1008,22 +1236,39 @@ export class ComputerRuntime {
       return this.nativeToolExecutor.shell(shellInput, active.cwd, signal, environment);
     }
     if (tool === READ_TOOL.name) {
-      return this.nativeToolExecutor.read(
-        Schema.decodeUnknownSync(ReadToolInput)(args),
-        active.cwd
-      );
+      const readInput = Schema.decodeUnknownSync(ReadToolInput)(args);
+      if (readInput.machineId) {
+        if (active.subagentType) {
+          throw new Error("Graphical subagents cannot target the user's local computer");
+        }
+        return this.executeHostTool(active, callId, tool, signal, (approvals) =>
+          this.nativeToolExecutor.externalRead(readInput, signal, approvals)
+        );
+      }
+      return this.nativeToolExecutor.read(readInput, active.cwd);
     }
     if (tool === EXTERNAL_SHELL_TOOL.name) {
-      return this.nativeToolExecutor.externalShell(
-        Schema.decodeUnknownSync(ShellToolInput)(args),
-        signal
+      const input = Schema.decodeUnknownSync(ShellToolInput)(args);
+      return this.executeHostTool(active, callId, tool, signal, (approvals) =>
+        this.nativeToolExecutor.externalShell(
+          { ...input, machineId: input.machineId ?? "this-computer" },
+          signal,
+          approvals
+        )
       );
     }
     if (tool === EXTERNAL_READ_TOOL.name) {
-      return this.nativeToolExecutor.externalRead(
-        Schema.decodeUnknownSync(ReadToolInput)(args),
-        signal
+      const input = Schema.decodeUnknownSync(ReadToolInput)(args);
+      return this.executeHostTool(active, callId, tool, signal, (approvals) =>
+        this.nativeToolExecutor.externalRead(
+          { ...input, machineId: input.machineId ?? "this-computer" },
+          signal,
+          approvals
+        )
       );
+    }
+    if (tool === LIST_MACHINES_TOOL.name) {
+      return this.nativeToolExecutor.listMachines(signal);
     }
     if (tool === SCREENSHOT_TOOL.name) {
       const frame = await this.screens.screenshot(active.botId, active.cwd);
@@ -1059,6 +1304,86 @@ export class ComputerRuntime {
     }
 
     return this.callControlPlaneTool(active, callId, tool, args, signal);
+  }
+
+  private async executeHostTool(
+    active: ActiveTurn,
+    callId: string,
+    toolName: string,
+    signal: AbortSignal | undefined,
+    execute: (approvals: HostApprovalTokens) => Promise<AgentToolResult<Record<string, unknown>>>
+  ): Promise<AgentToolResult<Record<string, unknown>>> {
+    const approvals: HostApprovalTokens = {};
+    for (;;) {
+      try {
+        return await execute(approvals);
+      } catch (error) {
+        if (!(error instanceof HostApprovalRequiredError)) throw error;
+        const decision = await this.requestHostApproval(active, callId, error, signal);
+        if (decision === "accept") {
+          if (error.approval.gate === "local") approvals.localApproval = "allow-once";
+          else approvals.autoReviewApproval = "allow-once";
+          continue;
+        }
+        if (decision === "always_allow") {
+          if (error.approval.gate === "local") approvals.localApproval = "always";
+          else approvals.autoReviewApproval = "always";
+          continue;
+        }
+        if (decision === "never" && error.approval.gate === "local") {
+          const machineId = error.approval.details.machineId;
+          if (typeof machineId === "string") {
+            await this.nativeToolExecutor.setLocalToolPermission(machineId, "never", signal);
+          }
+          throw new Error(
+            "Local computer tools are disabled. Do not retry this action on the user's computer."
+          );
+        }
+        if (error.approval.gate === "auto-review") {
+          const reason =
+            typeof error.approval.details.reason === "string"
+              ? error.approval.details.reason
+              : "The user denied the reviewed action";
+          throw new Error(
+            `Auto-review blocked this action: ${reason}. Do not retry the same action.`
+          );
+        }
+        const action = toolName.toLowerCase().includes("shell") ? "Command" : "Action";
+        throw new Error(
+          `${action} failed to spawn: The user declined this action on their computer. Do not retry it. Do something else, use your own computer instead (Shell, Read), or ask them what they would prefer.`
+        );
+      }
+    }
+  }
+
+  private requestHostApproval(
+    active: ActiveTurn,
+    callId: string,
+    error: HostApprovalRequiredError,
+    signal?: AbortSignal
+  ): Promise<ApprovalDecision> {
+    if (signal?.aborted) return Promise.reject(new DOMException("Approval aborted", "AbortError"));
+    const approvalId = crypto.randomUUID();
+    return new Promise<ApprovalDecision>((resolveDecision, reject) => {
+      const onAbort = () => settle(undefined, new DOMException("Approval aborted", "AbortError"));
+      const settle = (decision?: ApprovalDecision, approvalError?: Error) => {
+        if (!this.pendingApprovals.delete(approvalId)) return;
+        signal?.removeEventListener("abort", onAbort);
+        if (approvalError) reject(approvalError);
+        else if (decision) resolveDecision(decision);
+        else reject(new Error("Approval ended without a decision"));
+      };
+      this.pendingApprovals.set(approvalId, { runId: active.runId, settle });
+      signal?.addEventListener("abort", onAbort, { once: true });
+      active.queue.push({
+        type: "approval.requested",
+        approvalId,
+        requestMethod: error.approval.requestMethod,
+        turnId: active.turnId,
+        itemId: callId,
+        details: error.approval.details,
+      });
+    });
   }
 
   private async callComputerUse(
@@ -1155,6 +1480,18 @@ export class ComputerRuntime {
       ],
       details: { tool },
     };
+  }
+
+  private executeReviewedTask(
+    active: ActiveTurn,
+    callId: string,
+    args: TaskInput,
+    signal?: AbortSignal
+  ): Promise<AgentToolResult<Record<string, unknown>>> {
+    return this.executeHostTool(active, callId, TASK_TOOL.name, signal, async (approvals) => {
+      await this.nativeToolExecutor.autoReviewTask(args, signal, approvals);
+      return this.callControlPlaneTool(active, callId, TASK_TOOL.name, args, signal);
+    });
   }
 
   private async executeTodoWrite(
@@ -1286,6 +1623,20 @@ export class ComputerRuntime {
               execute: (turn: ActiveTurn, callId: string, args: unknown, signal?: AbortSignal) =>
                 this.callControlPlaneTool(turn, callId, "GetMcpServerStatus", args, signal),
             },
+            ...PLUGIN_MANAGEMENT_TOOLS.map((tool) => ({
+              name: tool.name,
+              description: tool.description,
+              inputSchema: tool.inputSchema,
+              source: "first-party" as const,
+              decodeArguments: (args: unknown) => {
+                if (!args || typeof args !== "object" || Array.isArray(args)) {
+                  throw new Error(`${tool.name} arguments must be an object`);
+                }
+                return args as Record<string, unknown>;
+              },
+              execute: (turn: ActiveTurn, callId: string, args: unknown, signal?: AbortSignal) =>
+                this.callControlPlaneTool(turn, callId, tool.name, args, signal),
+            })),
             {
               name: TASK_TOOL.name,
               description: TASK_TOOL.description,
@@ -1293,7 +1644,12 @@ export class ComputerRuntime {
               source: "first-party" as const,
               decodeArguments: (args: unknown) => Schema.decodeUnknownSync(TaskInput)(args),
               execute: (turn: ActiveTurn, callId: string, args: unknown, signal?: AbortSignal) =>
-                this.callControlPlaneTool(turn, callId, TASK_TOOL.name, args, signal),
+                this.executeReviewedTask(
+                  turn,
+                  callId,
+                  Schema.decodeUnknownSync(TaskInput)(args),
+                  signal
+                ),
             },
             {
               name: CHECK_SUBAGENT_TOOL.name,
@@ -1381,7 +1737,11 @@ export class ComputerRuntime {
               turn,
               callId,
               "PluginCall",
-              { connectionId: tool.connectionId, toolName: tool.name, arguments: args },
+              {
+                connectionId: tool.connectionId,
+                toolName: tool.name,
+                arguments: args,
+              },
               signal
             ),
         })),
@@ -1479,6 +1839,15 @@ export class ComputerRuntime {
     } finally {
       this.compaction.discardBackground(active.contextSessionId);
       this.attachSession(active);
+      if (this.grokStore) {
+        await this.grokStore
+          .recordTurnSettlement(active.botId, {
+            turnId: active.turnId,
+            status,
+            ...(error === undefined ? {} : { error }),
+          })
+          .catch((settlementError) => console.warn("turn settlement persistence", settlementError));
+      }
       active.queue.push({
         type: "turn.completed",
         turnId: active.turnId,
@@ -1491,6 +1860,7 @@ export class ComputerRuntime {
           rm(directory, { recursive: true, force: true })
         )
       );
+      this.onTurnEnd?.();
       active.queue.end();
     }
   }
@@ -1547,6 +1917,13 @@ export class ComputerRuntime {
       active.lastStopReason = message.stopReason ?? null;
       active.lastErrorMessage = message.errorMessage ?? null;
       const text = textFromContent(message.content);
+      void this.grokStore?.appendConversationEnvelope(active.botId, {
+        role: "assistant",
+        content: message.content,
+        stopReason: message.stopReason ?? null,
+        contextSessionId: active.contextSessionId,
+        turnId: active.turnId,
+      });
       if (text && active.currentAssistantId) {
         this.startAgentMessage(active, active.currentAssistantId);
         active.queue.push({
@@ -1594,7 +1971,7 @@ export class ComputerRuntime {
             maxTokens: usage.contextWindow,
             projectRoot: active.cwd,
             transcriptPath: active.sessionPath ?? undefined,
-            infer: (prompt, signal) => this.inferCompaction(active.cwd, prompt, signal),
+            infer: (prompt, signal) => this.inferCompaction(active, prompt, signal),
           })
           // Observation is best-effort and runs after the completed assistant
           // message. Persist-boundary compaction revalidates synchronously, so
@@ -1700,6 +2077,11 @@ export class ComputerRuntime {
   }
 
   private cleanup(active: ActiveTurn): void {
+    for (const pending of this.pendingApprovals.values()) {
+      if (pending.runId === active.runId) {
+        pending.settle(undefined, new Error("The run ended before the approval was resolved"));
+      }
+    }
     this.activeByRun.delete(active.runId);
     this.activeByContext.delete(active.contextSessionId);
     active.unsubscribe?.();

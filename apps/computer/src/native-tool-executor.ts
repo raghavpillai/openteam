@@ -1,13 +1,35 @@
 import { spawn } from "node:child_process";
 import { createWriteStream } from "node:fs";
-import { access, mkdir, readFile, stat } from "node:fs/promises";
-import { extname, isAbsolute, resolve } from "node:path";
+import { access, mkdir, readFile, realpath, stat } from "node:fs/promises";
+import { basename, extname, isAbsolute, relative, resolve, sep } from "node:path";
 import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
-import type { ReadToolInput, ShellToolInput } from "@openbot/contracts";
+import type { ReadToolInput, ShellToolInput, TaskInput } from "@openbot/contracts";
 
 const MAX_INLINE_BYTES = 100_000;
 const MAX_READ_BYTES = 10 * 1024 * 1024;
 const DEFAULT_BLOCK_MS = 30_000;
+const PROTECTED_AGENT_DATA_TREES = new Set([
+  "agents",
+  "managed-skills",
+  "plugins",
+  "projects",
+  "user-memory",
+  "workflows",
+]);
+const SQLITE_FILE = /^(?:store|conversation-blobs)\.db(?:-(?:shm|wal))?$/;
+
+export const sanitizedShellEnvironment = (
+  source: NodeJS.ProcessEnv,
+  workingDirectory: string
+): NodeJS.ProcessEnv => {
+  const environment: NodeJS.ProcessEnv = { ...source, PWD: workingDirectory };
+  delete environment.OPENBOT_CONTROL_TOKEN;
+  delete environment.OPENAI_API_KEY;
+  delete environment.DATABASE_URL;
+  delete environment.BASH_ENV;
+  delete environment.ENV;
+  return environment;
+};
 
 const imageMime = (path: string): string | null => {
   switch (extname(path).toLowerCase()) {
@@ -59,18 +81,53 @@ interface HostShellResponse {
   elapsed_ms: number;
 }
 
+export interface HostMachine {
+  machineId: string;
+  label: string;
+  localToolPermission: "always" | "ask" | "never";
+}
+
+export interface HostApprovalTokens {
+  localApproval?: "allow-once" | "always";
+  autoReviewApproval?: "allow-once" | "always";
+}
+
+export interface HostApprovalRequest {
+  gate: "local" | "auto-review";
+  requestMethod: "openbot/localTool" | "openbot/autoReview";
+  details: Record<string, unknown>;
+}
+
+export class HostApprovalRequiredError extends Error {
+  constructor(readonly approval: HostApprovalRequest) {
+    super("User approval is required");
+    this.name = "HostApprovalRequiredError";
+  }
+}
+
 export class NativeToolExecutor {
   private readonly terminalDir: string;
   private readonly hostBridgeUrl: string;
   private readonly controlToken: string;
+  private readonly agentDataCanonicalRoot: string;
 
-  constructor(options: { agentDir: string; controlToken: string; hostBridgeUrl?: string }) {
+  constructor(options: {
+    agentDir: string;
+    controlToken: string;
+    hostBridgeUrl?: string;
+    agentDataCanonicalRoot?: string;
+  }) {
     this.terminalDir = resolve(options.agentDir, "terminals");
     this.controlToken = options.controlToken;
     this.hostBridgeUrl =
       options.hostBridgeUrl ??
       process.env.OPENBOT_HOST_BRIDGE_URL ??
       "http://host.docker.internal:8791";
+    this.agentDataCanonicalRoot = resolve(
+      options.agentDataCanonicalRoot ??
+        process.env.OPENBOT_AGENT_DATA_CANONICAL_ROOT ??
+        "/home/box/sand-data"
+    );
   }
 
   async shell(
@@ -86,15 +143,18 @@ export class NativeToolExecutor {
 
     const shellId = crypto.randomUUID();
     const outputPath = resolve(this.terminalDir, `${shellId}.log`);
-    const outputFile = createWriteStream(outputPath, { flags: "wx", mode: 0o600 });
+    const outputFile = createWriteStream(outputPath, {
+      flags: "wx",
+      mode: 0o600,
+    });
     const startedAt = Date.now();
     outputFile.write(
       `command: ${input.command}\nworking_directory: ${workingDirectory}\nstarted_at: ${new Date(startedAt).toISOString()}\n\n`
     );
 
-    const child = spawn("/bin/bash", ["-lc", input.command], {
+    const child = spawn("/bin/bash", ["--noprofile", "--norc", "-c", input.command], {
       cwd: workingDirectory,
-      env: environment ?? process.env,
+      env: sanitizedShellEnvironment(environment ?? process.env, workingDirectory),
       stdio: ["ignore", "pipe", "pipe"],
     });
     const chunks: Buffer[] = [];
@@ -167,17 +227,29 @@ export class NativeToolExecutor {
 
   async externalShell(
     input: ShellToolInput,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    approvals: HostApprovalTokens = {}
   ): Promise<AgentToolResult<Record<string, unknown>>> {
-    const response = await this.hostFetch<HostShellResponse>("/v1/shell", input, signal);
-    return textResult(response.output || JSON.stringify(response), { ...response });
+    const response = await this.hostFetch<HostShellResponse>(
+      "/v1/shell",
+      { ...input, ...approvals },
+      signal
+    );
+    return textResult(response.output || JSON.stringify(response), {
+      ...response,
+    });
   }
 
   async externalRead(
     input: ReadToolInput,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    approvals: HostApprovalTokens = {}
   ): Promise<AgentToolResult<Record<string, unknown>>> {
-    const response = await this.hostFetch<HostReadResponse>("/v1/read", input, signal);
+    const response = await this.hostFetch<HostReadResponse>(
+      "/v1/read",
+      { ...input, ...approvals },
+      signal
+    );
     if (response.kind === "image" && response.data && response.mimeType) {
       return {
         content: [
@@ -194,33 +266,80 @@ export class NativeToolExecutor {
     });
   }
 
+  async listMachines(signal?: AbortSignal): Promise<AgentToolResult<Record<string, unknown>>> {
+    const response = await this.hostFetch<{ machines: HostMachine[] }>("/v1/machines", {}, signal);
+    return textResult(JSON.stringify(response), {
+      machines: response.machines,
+    });
+  }
+
+  async autoReviewTask(
+    input: TaskInput,
+    signal?: AbortSignal,
+    approvals: HostApprovalTokens = {}
+  ): Promise<void> {
+    const task = `Run a task on OpenBot's computer: “${input.prompt}”`;
+    await this.hostFetch(
+      "/v1/auto-review",
+      {
+        surface: "subagentLaunch",
+        summary: task,
+        target: input.subagent_type,
+        arguments: {
+          task,
+          prompt: input.prompt,
+          description: input.description,
+          subagent_type: input.subagent_type,
+          ...(input.model ? { model: input.model } : {}),
+          ...(input.resume ? { resume: input.resume } : {}),
+          ...(input.file_attachments?.length ? { file_attachments: input.file_attachments } : {}),
+          ...(input.run_in_background !== undefined
+            ? { run_in_background: input.run_in_background }
+            : {}),
+        },
+        ...approvals,
+      },
+      signal
+    );
+  }
+
+  async setLocalToolPermission(
+    machineId: string,
+    localToolPermission: HostMachine["localToolPermission"],
+    signal?: AbortSignal
+  ): Promise<void> {
+    await this.hostFetch("/v1/permissions/update", { machineId, localToolPermission }, signal);
+  }
+
   private async readLocal(
     path: string,
     offset?: number,
     limit?: number
   ): Promise<AgentToolResult<Record<string, unknown>>> {
     await access(path);
-    const metadata = await stat(path);
+    const canonical = await realpath(path);
+    await this.assertProtectedReadPath(canonical);
+    const metadata = await stat(canonical);
     if (!metadata.isFile()) throw new Error(`Not a file: ${path}`);
     if (metadata.size > MAX_READ_BYTES) {
       throw new Error(`File exceeds the ${MAX_READ_BYTES} byte read limit`);
     }
-    const mimeType = imageMime(path);
+    const mimeType = imageMime(canonical);
     if (mimeType) {
-      const data = await readFile(path);
+      const data = await readFile(canonical);
       return {
         content: [
-          { type: "text", text: `Image file: ${path}` },
+          { type: "text", text: `Image file: ${canonical}` },
           { type: "image", data: data.toString("base64"), mimeType },
         ],
-        details: { path, bytes: data.length, mimeType },
+        details: { path: canonical, bytes: data.length, mimeType },
       };
     }
 
     const raw =
-      extname(path).toLowerCase() === ".pdf"
-        ? await this.pdfText(path)
-        : await readFile(path, "utf8");
+      extname(canonical).toLowerCase() === ".pdf"
+        ? await this.pdfText(canonical)
+        : await readFile(canonical, "utf8");
     const lines = raw.split(/\r?\n/);
     const start =
       offset === undefined
@@ -231,7 +350,7 @@ export class NativeToolExecutor {
     const end = limit === undefined ? lines.length : Math.min(lines.length, start + limit);
     const selected = lines.slice(start, end).map((line, index) => `${start + index + 1}: ${line}`);
     return textResult(bounded(selected.join("\n")), {
-      path,
+      path: canonical,
       totalLines: lines.length,
       offset: start + 1,
       lines: selected.length,
@@ -239,9 +358,33 @@ export class NativeToolExecutor {
     });
   }
 
+  private async assertProtectedReadPath(path: string): Promise<void> {
+    const protectedRoot = await realpath(this.agentDataCanonicalRoot).catch(
+      () => this.agentDataCanonicalRoot
+    );
+    const difference = relative(protectedRoot, path);
+    if (
+      difference === "" ||
+      difference === ".." ||
+      difference.startsWith(`..${sep}`) ||
+      isAbsolute(difference)
+    ) {
+      return;
+    }
+    const [tree] = difference.split(sep);
+    if (!tree || !PROTECTED_AGENT_DATA_TREES.has(tree)) {
+      throw new Error(`Read is not allowed for protected agent-data path: ${path}`);
+    }
+    if (SQLITE_FILE.test(basename(path))) {
+      throw new Error(`Read does not expose live agent SQLite files: ${path}`);
+    }
+  }
+
   private async pdfText(path: string): Promise<string> {
     return new Promise<string>((resolveText, reject) => {
-      const child = spawn("pdftotext", [path, "-"], { stdio: ["ignore", "pipe", "pipe"] });
+      const child = spawn("pdftotext", [path, "-"], {
+        stdio: ["ignore", "pipe", "pipe"],
+      });
       const stdout: Buffer[] = [];
       const stderr: Buffer[] = [];
       child.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));
@@ -269,8 +412,22 @@ export class NativeToolExecutor {
         `The physical-host bridge is offline. Open the OpenBot desktop and verify its bridge token. ${error instanceof Error ? error.message : String(error)}`
       );
     });
-    const value = (await response.json().catch(() => ({}))) as T & { error?: string };
+    const value = (await response.json().catch(() => ({}))) as T & {
+      error?: string;
+      approval?: HostApprovalRequest;
+    };
     if (!response.ok) {
+      if (
+        response.status === 409 &&
+        value.error === "approval_required" &&
+        value.approval &&
+        ["local", "auto-review"].includes(value.approval.gate) &&
+        typeof value.approval.requestMethod === "string" &&
+        value.approval.details &&
+        typeof value.approval.details === "object"
+      ) {
+        throw new HostApprovalRequiredError(value.approval);
+      }
       throw new Error(value.error ?? `Physical-host bridge rejected the call (${response.status})`);
     }
     return value;

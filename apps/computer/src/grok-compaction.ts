@@ -274,6 +274,32 @@ export interface GrokPartition {
   messagesToSummarize: GrokMessage[];
 }
 
+const hasModelVisibleContent = (message: GrokMessage): boolean => {
+  if (typeof message.content === "string") return message.content.trim().length > 0;
+  if (!Array.isArray(message.content)) return false;
+  return message.content.some((part) => {
+    if (!part || typeof part !== "object") return false;
+    const record = part as Record<string, unknown>;
+    if (typeof record.text === "string") return record.text.trim().length > 0;
+    if (typeof record.thinking === "string") return record.thinking.trim().length > 0;
+    return ["toolCall", "tool_call", "image", "image_url"].includes(String(record.type ?? ""));
+  });
+};
+
+export const stripEmptyTrailingAssistantMessages = (
+  messages: readonly GrokMessage[]
+): GrokMessage[] => {
+  let end = messages.length;
+  while (
+    end > 0 &&
+    messages[end - 1]?.role === "assistant" &&
+    !hasModelVisibleContent(messages[end - 1] as GrokMessage)
+  ) {
+    end -= 1;
+  }
+  return structuredClone(messages.slice(0, end));
+};
+
 const messageText = (message: GrokMessage): string =>
   Array.isArray(message.content)
     ? message.content
@@ -321,16 +347,17 @@ export const grokDurableBlocks = (
 };
 
 export const partitionForGrokSummary = (messages: readonly GrokMessage[]): GrokPartition | null => {
-  if (messages.length < 3) return null;
-  const firstMessage = messages[0];
-  const secondMessage = messages[1];
+  const compactable = stripEmptyTrailingAssistantMessages(messages);
+  if (compactable.length < 3) return null;
+  const firstMessage = compactable[0];
+  const secondMessage = compactable[1];
   const userInfoIndex =
     firstMessage?.role === "user" && secondMessage?.role === "user" && isUserInfo(firstMessage)
       ? 0
       : -1;
   let lastUserIndex = -1;
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index];
+  for (let index = compactable.length - 1; index >= 0; index -= 1) {
+    const message = compactable[index];
     if (!message) continue;
     // Grok Bot's active SelfSummarizer uses findLastUserMessageIndex. The
     // "last real user" and synthetic-ack filtering belongs to the bundled but
@@ -341,12 +368,12 @@ export const partitionForGrokSummary = (messages: readonly GrokMessage[]): GrokP
     }
   }
   if (lastUserIndex < 0) return null;
-  const messagesToSummarize = messages.filter(
+  const messagesToSummarize = compactable.filter(
     (_message, index) => index !== userInfoIndex && index !== lastUserIndex
   );
   if (messagesToSummarize.length === 0) return null;
-  const userInfoMessage = userInfoIndex >= 0 ? messages[userInfoIndex] : undefined;
-  const lastUserMessage = messages[lastUserIndex];
+  const userInfoMessage = userInfoIndex >= 0 ? compactable[userInfoIndex] : undefined;
+  const lastUserMessage = compactable[lastUserIndex];
   if (!lastUserMessage) return null;
   return {
     userInfoMessage: userInfoMessage ? structuredClone(userInfoMessage) : null,

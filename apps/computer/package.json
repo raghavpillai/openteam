@@ -11,6 +11,7 @@
     "test": "bun test --pass-with-no-tests"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "1.25.2",
     "@earendil-works/pi-coding-agent": "0.84.3",
     "@openbot/contracts": "workspace:*",
     "effect": "3.22.1",

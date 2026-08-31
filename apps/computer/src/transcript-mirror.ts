@@ -7,7 +7,7 @@ const BOT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 export class TranscriptMirror {
   readonly root: string;
 
-  constructor(home = process.env.HOME ?? "/home/openbot") {
+  constructor(home = process.env.HOME ?? "/home/box") {
     this.root = join(home, "agent-data", "agent-transcripts");
   }
 

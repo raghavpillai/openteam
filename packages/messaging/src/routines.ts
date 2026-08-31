@@ -1,12 +1,43 @@
 import { ApiError } from "@openbot/contracts";
 import { Prisma, type PrismaClient } from "@openbot/db";
 import { CronExpressionParser } from "cron-parser";
-import { cronSchedules, firstCronSchedule, parseStoredTrigger } from "./automation-trigger";
+import {
+  cronSchedules,
+  firstCronSchedule,
+  parseStoredTrigger,
+  triggerIdentity,
+} from "./automation-trigger";
 import { uniqueSlug } from "./file-state";
+import { appendAgentTimelineEvent, type AutomationChangedAction } from "./timeline-events";
 
 const MIN_INTERVAL_SECONDS = 5 * 60;
 const MAX_INTERVAL_SECONDS = 30 * 24 * 60 * 60;
-const MAX_ROUTINES_PER_BOT = 50;
+const MAX_ROUTINES_PER_OWNER = 50;
+
+export type RoutineOwner = { kind: "bot"; id: string } | { kind: "group"; id: string };
+
+const appendRoutineChangedEvent = async (
+  tx: Prisma.TransactionClient,
+  host: RoutineWakeHost,
+  owner: RoutineOwner,
+  callId: string,
+  routine: { id: string; name: string },
+  action: AutomationChangedAction,
+  createdAt = new Date()
+) => {
+  if (owner.kind === "group") return;
+  await appendAgentTimelineEvent(tx, host, {
+    botId: owner.id,
+    clientId: `routine-change:${callId}`,
+    event: {
+      type: "automation-changed",
+      action,
+      automationId: routine.id,
+      automationName: routine.name,
+    },
+    occurredAt: createdAt,
+  });
+};
 
 export interface RoutineMutationInput {
   action: "create" | "update" | "pause" | "resume" | "delete";
@@ -46,7 +77,10 @@ export interface RoutineExecutionView {
 export interface RoutineView {
   id: string;
   folder: string;
-  botId: string;
+  ownerId: string;
+  ownerKind: RoutineOwner["kind"];
+  botId: string | null;
+  channelId: string | null;
   name: string;
   prompt: string;
   schedule: string;
@@ -63,6 +97,7 @@ export interface RoutineView {
   createdAt: string;
   updatedAt: string;
   latestExecution: RoutineExecutionView | null;
+  trigger?: unknown;
   triggerPresentation: unknown;
 }
 
@@ -99,7 +134,7 @@ interface RoutineWakeHost {
     input: {
       botId: string;
       channelId: string;
-      origin: "routine";
+      origin: "routine" | "event";
       type: string;
       content: string;
       clientId: string;
@@ -108,8 +143,18 @@ interface RoutineWakeHost {
       occurredAt?: Date;
       timeZone?: string | null;
       automationTrigger?: string;
+      wrapUserContent?: boolean;
     }
   ): Promise<{ run: { id: string } }>;
+  createGroupRound?(
+    tx: Prisma.TransactionClient,
+    input: {
+      channelId: string;
+      triggerMessageId: string;
+      initiatorBotId?: string | null;
+    }
+  ): Promise<{ id: string; status: string }>;
+  advanceRound?(roundId: string): Promise<void>;
 }
 
 const required = (value: string | undefined, field: string): string => {
@@ -125,6 +170,23 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3
 
 const routineIdentifierWhere = (id: string) =>
   UUID_PATTERN.test(id) ? { OR: [{ id }, { slug: id }] } : { slug: id };
+
+const routineOwnerWhere = (owner: RoutineOwner) =>
+  owner.kind === "bot" ? { botId: owner.id } : { channelId: owner.id };
+
+const routineOwnerData = (owner: RoutineOwner) =>
+  owner.kind === "bot"
+    ? { botId: owner.id, channelId: null }
+    : { botId: null, channelId: owner.id };
+
+const routineOwnerFrom = (routine: {
+  botId: string | null;
+  channelId: string | null;
+}): RoutineOwner => {
+  if (routine.botId) return { kind: "bot", id: routine.botId };
+  if (routine.channelId) return { kind: "group", id: routine.channelId };
+  throw new Error("Routine has no owner");
+};
 
 export interface RoutineRunLedgerEntry {
   id: string;
@@ -440,15 +502,19 @@ export const nextRoutineRun = (
     }
     return new Date(after.getTime() + intervalMs);
   }
-  return CronExpressionParser.parse(
+  const cron = CronExpressionParser.parse(
     required(schedule.cronExpression ?? undefined, "cronExpression"),
-    {
-      currentDate: after,
-      tz: schedule.timezone,
-    }
-  )
-    .next()
-    .toDate();
+    { currentDate: after, tz: schedule.timezone }
+  );
+  const minuteMs = 60_000;
+  const maxSearchMinutes = 366 * 24 * 60;
+  let candidate = Math.floor(after.getTime() / minuteMs) * minuteMs + minuteMs;
+  for (let searched = 0; searched < maxSearchMinutes; searched += 1) {
+    const date = new Date(candidate);
+    if (cron.includesDate(date)) return date;
+    candidate += minuteMs;
+  }
+  throw new Error("Routine cron schedule has no occurrence in the next 366 days");
 };
 
 export const nextRoutineTriggerRun = (
@@ -542,7 +608,8 @@ const executionView = (execution: {
 const uiView = (routine: {
   id: string;
   slug: string;
-  botId: string;
+  botId: string | null;
+  channelId: string | null;
   name: string;
   prompt: string;
   scheduleText: string;
@@ -560,28 +627,35 @@ const uiView = (routine: {
   trigger: unknown;
   triggerPresentation: unknown;
   executions?: Array<Parameters<typeof executionView>[0]>;
-}): RoutineView => ({
-  id: routine.id,
-  folder: routine.slug,
-  botId: routine.botId,
-  name: routine.name,
-  prompt: routine.prompt,
-  schedule: routine.scheduleText,
-  schedules: cronSchedules(routine.trigger as Record<string, unknown>),
-  scheduleKind: routine.scheduleKind as RoutineView["scheduleKind"],
-  cronExpression: routine.cronExpression,
-  intervalSeconds: routine.intervalSeconds,
-  timezone: routine.timezone,
-  timezoneMode: routine.timezoneMode,
-  enabled: routine.enabled,
-  revision: routine.revision,
-  nextRunAt: routine.nextRunAt?.toISOString() ?? null,
-  lastRunAt: routine.lastRunAt?.toISOString() ?? null,
-  createdAt: routine.createdAt.toISOString(),
-  updatedAt: routine.updatedAt.toISOString(),
-  latestExecution: routine.executions?.[0] ? executionView(routine.executions[0]) : null,
-  triggerPresentation: routine.triggerPresentation,
-});
+}): RoutineView => {
+  const owner = routineOwnerFrom(routine);
+  return {
+    id: routine.id,
+    folder: routine.slug,
+    ownerId: owner.id,
+    ownerKind: owner.kind,
+    botId: routine.botId,
+    channelId: routine.channelId,
+    name: routine.name,
+    prompt: routine.prompt,
+    schedule: routine.scheduleText,
+    schedules: cronSchedules(routine.trigger as Record<string, unknown>),
+    scheduleKind: routine.scheduleKind as RoutineView["scheduleKind"],
+    cronExpression: routine.cronExpression,
+    intervalSeconds: routine.intervalSeconds,
+    timezone: routine.timezone,
+    timezoneMode: routine.timezoneMode,
+    enabled: routine.enabled,
+    revision: routine.revision,
+    nextRunAt: routine.nextRunAt?.toISOString() ?? null,
+    lastRunAt: routine.lastRunAt?.toISOString() ?? null,
+    createdAt: routine.createdAt.toISOString(),
+    updatedAt: routine.updatedAt.toISOString(),
+    latestExecution: routine.executions?.[0] ? executionView(routine.executions[0]) : null,
+    trigger: routine.trigger,
+    triggerPresentation: routine.triggerPresentation,
+  };
+};
 
 const routineRuntimeStatus = (
   routine: { runLedger: unknown; lastRunAt: Date | null },
@@ -677,45 +751,81 @@ export class RoutineService {
     this.installationZone = validZone(installationZone);
   }
 
+  private createGroupRound(
+    tx: Prisma.TransactionClient,
+    input: { channelId: string; triggerMessageId: string; initiatorBotId?: string | null }
+  ) {
+    if (!this.host.createGroupRound) {
+      throw new Error("Group routine execution is unavailable");
+    }
+    return this.host.createGroupRound(tx, input);
+  }
+
+  private advanceGroupRound(roundId: string) {
+    if (!this.host.advanceRound) throw new Error("Group routine execution is unavailable");
+    return this.host.advanceRound(roundId);
+  }
+
   async mutate(
     botId: string,
     callId: string,
     runId: string | null,
     input: RoutineMutationInput
   ): Promise<Record<string, unknown>> {
+    return this.mutateOwner({ kind: "bot", id: botId }, callId, runId, input);
+  }
+
+  async mutateOwner(
+    owner: RoutineOwner,
+    callId: string,
+    runId: string | null,
+    input: RoutineMutationInput
+  ): Promise<Record<string, unknown>> {
     switch (input.action) {
       case "create":
-        return this.create(botId, callId, runId, input);
+        return this.create(owner, callId, runId, input);
       case "update":
-        return this.update(botId, callId, runId, input);
+        return this.update(owner, callId, runId, input);
       case "pause":
       case "resume":
       case "delete":
-        return this.lifecycle(botId, callId, runId, input);
+        return this.lifecycle(owner, callId, runId, input);
     }
   }
 
   async list(botId: string): Promise<RoutineView[]> {
+    return this.listOwner({ kind: "bot", id: botId });
+  }
+
+  async listOwner(owner: RoutineOwner): Promise<RoutineView[]> {
     const routines = await this.prisma.routine.findMany({
-      where: { botId, deletedAt: null },
+      where: { ...routineOwnerWhere(owner), deletedAt: null },
       include: { executions: { orderBy: { createdAt: "desc" }, take: 1 } },
       orderBy: [{ nextRunAt: "asc" }, { createdAt: "asc" }],
     });
     return routines.map(uiView);
   }
 
-  async ownerId(id: string): Promise<string> {
+  async owner(id: string): Promise<RoutineOwner> {
     const routine = await this.prisma.routine.findFirst({
       where: { deletedAt: null, ...routineIdentifierWhere(id) },
-      select: { botId: true },
+      select: { botId: true, channelId: true },
     });
     if (!routine) throw new ApiError(404, "routine_not_found", "Routine not found");
-    return routine.botId;
+    return routineOwnerFrom(routine);
+  }
+
+  async ownerId(id: string): Promise<string> {
+    return (await this.owner(id)).id;
   }
 
   async detail(botId: string, id: string): Promise<RoutineView> {
+    return this.detailOwner({ kind: "bot", id: botId }, id);
+  }
+
+  async detailOwner(owner: RoutineOwner, id: string): Promise<RoutineView> {
     const routine = await this.prisma.routine.findFirst({
-      where: { botId, deletedAt: null, ...routineIdentifierWhere(id) },
+      where: { ...routineOwnerWhere(owner), deletedAt: null, ...routineIdentifierWhere(id) },
       include: { executions: { orderBy: { createdAt: "desc" }, take: 1 } },
     });
     if (!routine) throw new ApiError(404, "routine_not_found", "Routine not found");
@@ -723,8 +833,16 @@ export class RoutineService {
   }
 
   async executions(botId: string, id: string, limit = 20): Promise<RoutineExecutionView[]> {
+    return this.executionsOwner({ kind: "bot", id: botId }, id, limit);
+  }
+
+  async executionsOwner(
+    owner: RoutineOwner,
+    id: string,
+    limit = 20
+  ): Promise<RoutineExecutionView[]> {
     const routine = await this.prisma.routine.findFirst({
-      where: { botId, deletedAt: null, ...routineIdentifierWhere(id) },
+      where: { ...routineOwnerWhere(owner), deletedAt: null, ...routineIdentifierWhere(id) },
       select: { id: true },
     });
     if (!routine) throw new ApiError(404, "routine_not_found", "Routine not found");
@@ -743,10 +861,19 @@ export class RoutineService {
     requestId: string,
     firedAt = new Date()
   ): Promise<RoutineExecutionView> {
+    return this.runNowOwner({ kind: "bot", id: botId }, id, requestId, firedAt);
+  }
+
+  async runNowOwner(
+    owner: RoutineOwner,
+    id: string,
+    requestId: string,
+    firedAt = new Date()
+  ): Promise<RoutineExecutionView> {
     const result = await this.prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`routine-run:${botId}:${id}`}))`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`routine-run:${owner.kind}:${owner.id}:${id}`}))`;
       const routine = await tx.routine.findFirst({
-        where: { botId, deletedAt: null, ...routineIdentifierWhere(id) },
+        where: { ...routineOwnerWhere(owner), deletedAt: null, ...routineIdentifierWhere(id) },
       });
       if (!routine) throw new ApiError(404, "routine_not_found", "Routine not found");
       const duplicate = await tx.routineExecution.findUnique({
@@ -762,11 +889,22 @@ export class RoutineService {
       if (active > 0) {
         throw new ApiError(409, "routine_already_running", "This routine is already running");
       }
-      const channel = await tx.channel.findUnique({
-        where: { directKey: `bot:${routine.botId}` },
-      });
+      const routineOwner = routineOwnerFrom(routine);
+      const channel =
+        routineOwner.kind === "bot"
+          ? await tx.channel.findUnique({ where: { directKey: `bot:${routineOwner.id}` } })
+          : await tx.channel.findUnique({ where: { id: routineOwner.id } });
       if (!channel || channel.archivedAt) {
-        throw new ApiError(409, "routine_channel_unavailable", "The Bot chat is unavailable");
+        throw new ApiError(
+          409,
+          "routine_channel_unavailable",
+          routineOwner.kind === "bot"
+            ? "The Bot chat is unavailable"
+            : "The group chat is unavailable"
+        );
+      }
+      if (routineOwner.kind === "group" && channel.kind !== "group") {
+        throw new ApiError(409, "routine_channel_unavailable", "The group chat is unavailable");
       }
       const revision = await tx.routineRevision.findUniqueOrThrow({
         where: {
@@ -785,33 +923,74 @@ export class RoutineService {
           enqueuedAt: firedAt,
         },
       });
-      const wake = await this.host.enqueueWake(tx, {
-        botId: routine.botId,
-        channelId: channel.id,
-        origin: "routine",
-        type: "routine.manual",
-        content: manualRoutineWakeContent({
-          name: routine.name,
-          folder: routine.slug,
-          schedule: routine.scheduleText,
-          firedAt,
-          prompt: routine.prompt,
-          provenance: routine.provenance,
-          routineStatuses: await routineStatusSnapshot(tx, routine.botId, routine.timezone),
-        }),
-        automationTrigger: scheduledRoutineTriggerContext({
-          name: routine.name,
-          scheduledFor: firedAt,
-        }),
-        clientId: dedupeKey,
-        priority: 290,
-        occurredAt: firedAt,
-        timeZone: routine.timezone,
-      });
-      const queued = await tx.routineExecution.update({
-        where: { id: execution.id },
-        data: { runId: wake.run.id },
-      });
+      let queued;
+      let runId: string | null = null;
+      let roundId: string | null = null;
+      let completedImmediately = false;
+      if (routineOwner.kind === "bot") {
+        const wake = await this.host.enqueueWake(tx, {
+          botId: routineOwner.id,
+          channelId: channel.id,
+          origin: "routine",
+          type: "routine.manual",
+          content: manualRoutineWakeContent({
+            name: routine.name,
+            folder: routine.slug,
+            schedule: routine.scheduleText,
+            firedAt,
+            prompt: routine.prompt,
+            provenance: routine.provenance,
+            routineStatuses: await routineStatusSnapshot(tx, routineOwner.id, routine.timezone),
+          }),
+          automationTrigger: scheduledRoutineTriggerContext({
+            name: routine.name,
+            scheduledFor: firedAt,
+          }),
+          clientId: dedupeKey,
+          priority: 290,
+          occurredAt: firedAt,
+          timeZone: routine.timezone,
+        });
+        runId = wake.run.id;
+        queued = await tx.routineExecution.update({
+          where: { id: execution.id },
+          data: { runId },
+        });
+      } else {
+        const message = await tx.channelMessage.create({
+          data: {
+            channelId: channel.id,
+            sender: "user",
+            clientId: dedupeKey,
+            content: routine.prompt,
+            metadata: {
+              type: "routine",
+              routineId: routine.id,
+              routineName: routine.name,
+              routineFolder: routine.slug,
+              routineKind: "manual",
+              scheduledFor: firedAt.toISOString(),
+              timeZone: routine.timezone,
+            },
+          },
+        });
+        const round = await this.createGroupRound(tx, {
+          channelId: channel.id,
+          triggerMessageId: message.id,
+          initiatorBotId: null,
+        });
+        roundId = round.id;
+        completedImmediately = round.status === "completed";
+        queued = await tx.routineExecution.update({
+          where: { id: execution.id },
+          data: {
+            channelMessageId: message.id,
+            status: round.status === "completed" ? "completed" : "running",
+            startedAt: firedAt,
+            ...(round.status === "completed" ? { completedAt: firedAt } : {}),
+          },
+        });
+      }
       await tx.routine.update({
         where: { id: routine.id },
         data: {
@@ -820,8 +999,8 @@ export class RoutineService {
             id: execution.id,
             trigger: "manual",
             startedAt: firedAt.getTime(),
-            finishedAt: null,
-            status: "running",
+            finishedAt: completedImmediately ? firedAt.getTime() : null,
+            status: completedImmediately ? "ok" : "running",
           }),
         },
       });
@@ -832,19 +1011,27 @@ export class RoutineService {
           payload: {
             executionId: execution.id,
             routineId: routine.id,
-            runId: wake.run.id,
+            runId,
+            roundId,
             kind: "test",
           },
         },
       });
       return queued;
     });
-    await this.files?.writeRoutine(botId, result.routineId);
+    if (owner.kind === "bot") await this.files?.writeRoutine(owner.id, result.routineId);
+    if (result.channelMessageId) {
+      const round = await this.prisma.channelRound.findUnique({
+        where: { triggerMessageId: result.channelMessageId },
+        select: { id: true, status: true },
+      });
+      if (round && round.status !== "completed") await this.advanceGroupRound(round.id);
+    }
     return executionView(result);
   }
 
   private async create(
-    botId: string,
+    owner: RoutineOwner,
     callId: string,
     runId: string | null,
     input: RoutineMutationInput
@@ -854,30 +1041,46 @@ export class RoutineService {
     const { schedule, trigger } = normalizeMutationTrigger(input, this.installationZone);
     const enabled = input.enabled ?? true;
     return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`agent-files:${botId}`}))`;
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`routine-bot:${botId}`}))`;
-      if ((await tx.bot.count({ where: { id: botId, status: "active" } })) === 0) {
-        throw new Error("Cannot create a routine for an inactive bot");
+      if (owner.kind === "bot") {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`agent-files:${owner.id}`}))`;
+      }
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`routine-owner:${owner.kind}:${owner.id}`}))`;
+      const ownerAvailable =
+        owner.kind === "bot"
+          ? (await tx.bot.count({ where: { id: owner.id, status: "active" } })) > 0
+          : (await tx.channel.count({
+              where: { id: owner.id, kind: "group", archivedAt: null },
+            })) > 0;
+      if (!ownerAvailable) {
+        throw new Error(
+          owner.kind === "bot"
+            ? "Cannot create a routine for an inactive bot"
+            : "Cannot create a routine for an inactive group"
+        );
       }
       const count = await tx.routine.count({
-        where: { botId, deletedAt: null },
+        where: { ...routineOwnerWhere(owner), deletedAt: null },
       });
-      if (count >= MAX_ROUTINES_PER_BOT) throw new Error("A bot may have at most 50 routines");
+      if (count >= MAX_ROUTINES_PER_OWNER) {
+        throw new Error("A Bot or group may have at most 50 routines");
+      }
       const occupied = new Set(
         (
           await tx.routine.findMany({
-            where: { botId },
+            where: routineOwnerWhere(owner),
             select: { slug: true },
           })
         ).map((routine) => routine.slug)
       );
-      const fileSlugs = new Set((await this.files?.listRoutineFolderIds?.(botId)) ?? []);
+      const fileSlugs = new Set(
+        owner.kind === "bot" ? ((await this.files?.listRoutineFolderIds?.(owner.id)) ?? []) : []
+      );
       for (const slug of fileSlugs) occupied.add(slug);
       const slug = uniqueSlug(name, "automation", occupied);
       const now = new Date();
       const routine = await tx.routine.create({
         data: {
-          botId,
+          ...routineOwnerData(owner),
           slug,
           name,
           prompt,
@@ -910,29 +1113,35 @@ export class RoutineService {
         data: {
           topic: "routine.created",
           entityId: routine.id,
-          payload: { routineId: routine.id, botId, revision: 1 },
+          payload: {
+            routineId: routine.id,
+            ownerId: owner.id,
+            ownerKind: owner.kind,
+            ...(owner.kind === "bot" ? { botId: owner.id } : { channelId: owner.id }),
+            revision: 1,
+          },
         },
       });
-      await this.files?.writeRoutine(botId, routine.id, tx);
+      await appendRoutineChangedEvent(tx, this.host, owner, callId, routine, "created", now);
+      if (owner.kind === "bot") await this.files?.writeRoutine(owner.id, routine.id, tx);
       return { ...view(routine), action: "create", created: true };
     });
   }
 
   private async update(
-    botId: string,
+    owner: RoutineOwner,
     callId: string,
     runId: string | null,
     input: RoutineMutationInput
   ) {
     const id = required(input.id, "id");
     return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`agent-files:${botId}`}))`;
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`routine-bot:${botId}`}))`;
-      if ((await tx.bot.count({ where: { id: botId, status: "active" } })) === 0) {
-        throw new Error("Cannot update a routine for an inactive bot");
+      if (owner.kind === "bot") {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`agent-files:${owner.id}`}))`;
       }
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`routine-owner:${owner.kind}:${owner.id}`}))`;
       const current = await tx.routine.findFirst({
-        where: { botId, deletedAt: null, ...routineIdentifierWhere(id) },
+        where: { ...routineOwnerWhere(owner), deletedAt: null, ...routineIdentifierWhere(id) },
       });
       if (!current) throw new Error("Routine not found");
       if (input.expectedRevision !== undefined && input.expectedRevision !== current.revision) {
@@ -964,6 +1173,11 @@ export class RoutineService {
           : required(input.name, "name").replace(/\s+/g, " ").slice(0, 80);
       const prompt = input.prompt === undefined ? current.prompt : required(input.prompt, "prompt");
       const enabled = input.enabled ?? current.enabled;
+      const authoredChanged =
+        name !== current.name ||
+        prompt !== current.prompt ||
+        triggerIdentity(trigger) !== triggerIdentity(current.trigger as Record<string, unknown>);
+      const enabledChanged = enabled !== current.enabled;
       const revision = current.revision + 1;
       const now = new Date();
       const routine = await tx.routine.update({
@@ -1006,29 +1220,44 @@ export class RoutineService {
         data: {
           topic: "routine.updated",
           entityId: current.id,
-          payload: { routineId: current.id, botId, revision },
+          payload: {
+            routineId: current.id,
+            ownerId: owner.id,
+            ownerKind: owner.kind,
+            ...(owner.kind === "bot" ? { botId: owner.id } : { channelId: owner.id }),
+            revision,
+          },
         },
       });
-      await this.files?.writeRoutine(botId, routine.id, tx);
+      const timelineAction = authoredChanged
+        ? "updated"
+        : enabledChanged
+          ? enabled
+            ? "enabled"
+            : "disabled"
+          : null;
+      if (timelineAction) {
+        await appendRoutineChangedEvent(tx, this.host, owner, callId, routine, timelineAction, now);
+      }
+      if (owner.kind === "bot") await this.files?.writeRoutine(owner.id, routine.id, tx);
       return { ...view(routine), action: "update", updated: true };
     });
   }
 
   private async lifecycle(
-    botId: string,
+    owner: RoutineOwner,
     callId: string,
     runId: string | null,
     input: RoutineMutationInput
   ) {
     const id = required(input.id, "id");
     return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`agent-files:${botId}`}))`;
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`routine-bot:${botId}`}))`;
-      if ((await tx.bot.count({ where: { id: botId, status: "active" } })) === 0) {
-        throw new Error("Cannot change a routine for an inactive bot");
+      if (owner.kind === "bot") {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`agent-files:${owner.id}`}))`;
       }
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`routine-owner:${owner.kind}:${owner.id}`}))`;
       const current = await tx.routine.findFirst({
-        where: { botId, deletedAt: null, ...routineIdentifierWhere(id) },
+        where: { ...routineOwnerWhere(owner), deletedAt: null, ...routineIdentifierWhere(id) },
       });
       if (!current) throw new Error("Routine not found");
       if (input.expectedRevision !== undefined && input.expectedRevision !== current.revision) {
@@ -1042,6 +1271,16 @@ export class RoutineService {
       const now = new Date();
       const enabled = input.action === "resume";
       const deleted = input.action === "delete";
+      if (!deleted && current.enabled === enabled) {
+        return {
+          ...view(current),
+          action: input.action,
+          paused: false,
+          resumed: false,
+          deleted: false,
+          unchanged: true,
+        };
+      }
       const schedule = {
         scheduleText: current.scheduleText,
         scheduleKind: current.scheduleKind,
@@ -1090,11 +1329,28 @@ export class RoutineService {
         data: {
           topic: `routine.${input.action}d`,
           entityId: current.id,
-          payload: { routineId: current.id, botId, revision },
+          payload: {
+            routineId: current.id,
+            ownerId: owner.id,
+            ownerKind: owner.kind,
+            ...(owner.kind === "bot" ? { botId: owner.id } : { channelId: owner.id }),
+            revision,
+          },
         },
       });
-      if (deleted) await this.files?.deleteRoutine(botId, routine.id, tx);
-      else await this.files?.writeRoutine(botId, routine.id, tx);
+      await appendRoutineChangedEvent(
+        tx,
+        this.host,
+        owner,
+        callId,
+        routine,
+        deleted ? "deleted" : enabled ? "enabled" : "disabled",
+        now
+      );
+      if (owner.kind === "bot") {
+        if (deleted) await this.files?.deleteRoutine(owner.id, routine.id, tx);
+        else await this.files?.writeRoutine(owner.id, routine.id, tx);
+      }
       return {
         ...view(routine),
         action: input.action,
@@ -1110,17 +1366,17 @@ export class RoutineService {
       where: { enabled: true, deletedAt: null, nextRunAt: { lte: now } },
       orderBy: { nextRunAt: "asc" },
       take: 50,
-      select: { id: true, botId: true },
+      select: { id: true, botId: true, channelId: true },
     });
     let dispatched = 0;
     for (const candidate of due) {
-      const didDispatch = await this.prisma.$transaction(async (tx) => {
+      const outcome = await this.prisma.$transaction(async (tx) => {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`routine:${candidate.id}`}))`;
         const routine = await tx.routine.findUnique({
           where: { id: candidate.id },
         });
         if (!routine?.enabled || routine.deletedAt || !routine.nextRunAt || routine.nextRunAt > now)
-          return false;
+          return { didDispatch: false, roundId: null as string | null };
         const scheduledFor = routine.nextRunAt;
         const active = await tx.routineExecution.count({
           where: {
@@ -1128,8 +1384,12 @@ export class RoutineService {
             status: { in: ["queued", "running", "waiting_approval"] },
           },
         });
-        if (routine.scheduleKind === "event") return false;
-        const statusSnapshot = await routineStatusSnapshot(tx, routine.botId, routine.timezone);
+        if (routine.scheduleKind === "event") {
+          return { didDispatch: false, roundId: null as string | null };
+        }
+        const owner = routineOwnerFrom(routine);
+        const statusSnapshot =
+          owner.kind === "bot" ? await routineStatusSnapshot(tx, owner.id, routine.timezone) : [];
         let nextRunAt = nextRoutineTriggerRun(
           routine.trigger as Record<string, unknown>,
           routine,
@@ -1183,12 +1443,19 @@ export class RoutineService {
               }),
             },
           });
-          return false;
+          return { didDispatch: false, roundId: null as string | null };
         }
-        const channel = await tx.channel.findUnique({
-          where: { directKey: `bot:${routine.botId}` },
-        });
-        if (!channel || channel.archivedAt) return false;
+        const channel =
+          owner.kind === "bot"
+            ? await tx.channel.findUnique({ where: { directKey: `bot:${owner.id}` } })
+            : await tx.channel.findUnique({ where: { id: owner.id } });
+        if (
+          !channel ||
+          channel.archivedAt ||
+          (owner.kind === "group" && channel.kind !== "group")
+        ) {
+          return { didDispatch: false, roundId: null as string | null };
+        }
         const execution = await tx.routineExecution.create({
           data: {
             routineId: routine.id,
@@ -1200,33 +1467,73 @@ export class RoutineService {
             enqueuedAt: now,
           },
         });
-        const wake = await this.host.enqueueWake(tx, {
-          botId: routine.botId,
-          channelId: channel.id,
-          origin: "routine",
-          type: "routine.scheduled",
-          content: scheduledRoutineWakeContent({
-            name: routine.name,
-            folder: routine.slug,
-            schedule: routine.scheduleText,
-            scheduledFor,
-            prompt: routine.prompt,
-            provenance: routine.provenance,
-            routineStatuses: statusSnapshot,
-          }),
-          automationTrigger: scheduledRoutineTriggerContext({
-            name: routine.name,
-            scheduledFor,
-          }),
-          clientId: dedupeKey,
-          priority: 100,
-          occurredAt: scheduledFor,
-          timeZone: routine.timezone,
-        });
-        await tx.routineExecution.update({
-          where: { id: execution.id },
-          data: { runId: wake.run.id },
-        });
+        let runId: string | null = null;
+        let roundId: string | null = null;
+        let completedImmediately = false;
+        if (owner.kind === "bot") {
+          const wake = await this.host.enqueueWake(tx, {
+            botId: owner.id,
+            channelId: channel.id,
+            origin: "routine",
+            type: "routine.scheduled",
+            content: scheduledRoutineWakeContent({
+              name: routine.name,
+              folder: routine.slug,
+              schedule: routine.scheduleText,
+              scheduledFor,
+              prompt: routine.prompt,
+              provenance: routine.provenance,
+              routineStatuses: statusSnapshot,
+            }),
+            automationTrigger: scheduledRoutineTriggerContext({
+              name: routine.name,
+              scheduledFor,
+            }),
+            clientId: dedupeKey,
+            priority: 100,
+            occurredAt: scheduledFor,
+            timeZone: routine.timezone,
+          });
+          runId = wake.run.id;
+          await tx.routineExecution.update({
+            where: { id: execution.id },
+            data: { runId },
+          });
+        } else {
+          const message = await tx.channelMessage.create({
+            data: {
+              channelId: channel.id,
+              sender: "user",
+              clientId: dedupeKey,
+              content: routine.prompt,
+              metadata: {
+                type: "routine",
+                routineId: routine.id,
+                routineName: routine.name,
+                routineFolder: routine.slug,
+                routineKind: "scheduled",
+                scheduledFor: scheduledFor.toISOString(),
+                timeZone: routine.timezone,
+              },
+            },
+          });
+          const round = await this.createGroupRound(tx, {
+            channelId: channel.id,
+            triggerMessageId: message.id,
+            initiatorBotId: null,
+          });
+          roundId = round.id;
+          completedImmediately = round.status === "completed";
+          await tx.routineExecution.update({
+            where: { id: execution.id },
+            data: {
+              channelMessageId: message.id,
+              status: round.status === "completed" ? "completed" : "running",
+              startedAt: now,
+              ...(round.status === "completed" ? { completedAt: now } : {}),
+            },
+          });
+        }
         await tx.routine.update({
           where: { id: routine.id },
           data: {
@@ -1234,8 +1541,8 @@ export class RoutineService {
               id: execution.id,
               trigger: "schedule",
               startedAt: now.getTime(),
-              finishedAt: null,
-              status: "running",
+              finishedAt: completedImmediately ? now.getTime() : null,
+              status: completedImmediately ? "ok" : "running",
             }),
           },
         });
@@ -1246,14 +1553,16 @@ export class RoutineService {
             payload: {
               executionId: execution.id,
               routineId: routine.id,
-              runId: wake.run.id,
+              runId,
+              roundId,
             },
           },
         });
-        return true;
+        return { didDispatch: true, roundId };
       });
-      if (this.files) await this.files.writeRoutine(candidate.botId, candidate.id);
-      if (didDispatch) dispatched += 1;
+      if (candidate.botId) await this.files?.writeRoutine(candidate.botId, candidate.id);
+      if (outcome.roundId) await this.advanceGroupRound(outcome.roundId);
+      if (outcome.didDispatch) dispatched += 1;
     }
     return dispatched;
   }

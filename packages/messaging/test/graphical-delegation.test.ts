@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import {
+  AgentMessaging,
   MAIN_AGENT_GRAPHICAL_DELEGATION_INSTRUCTIONS,
   renderAgentSkillsUserInfo,
-  renderGraphicalSubagentParentContext,
+  renderSubagentRevivalPrompt,
   subagentSpecializationInstructions,
 } from "../src/index";
 
@@ -32,37 +33,58 @@ describe("main-agent graphical delegation instructions", () => {
     expect(instructions).toContain("You cannot talk to the user directly");
   });
 
-  test("renders the parent context Grok passes to graphical workers", () => {
-    const context = renderGraphicalSubagentParentContext({
-      prompt: {
-        compactionEpoch: 0,
-        profileSection: "Parent profile: Raghav's research agent",
-        identityAnnouncement: "Parent identity changed: browser verifier",
-        memoryRender: "Remember the release marker ORCHID-947.",
-        skillRender: "Saved skill: verify-release",
-        warnings: ["Malformed optional settings were preserved."],
-      },
-      projects: [
-        {
-          project: {
-            name: "OpenBot",
-            slug: "openbot",
-            workingDirectory: "/workspace/openbot",
-            description: "Agent runtime",
+  test("uses the isolated Grok worker prompt for every subagent type", async () => {
+    for (const subagentType of [
+      "executor",
+      "videoReview",
+      "watchVideo",
+      "computerUse",
+      "browserUse",
+    ] as const) {
+      const messaging = Object.create(AgentMessaging.prototype) as Record<string, unknown>;
+      Object.assign(messaging, {
+        prisma: {
+          bot: {
+            findUniqueOrThrow: async () => ({
+              id: "child",
+              name: "Worker",
+              instructions: "Child-only instructions",
+              defaultDirectory: "/workspace",
+              subagentIdentity: { parentBotId: "parent", subagentType },
+              todos: [],
+            }),
           },
         },
-      ],
-      groups: [{ id: "channel-1", name: "Release room", workingDirectory: "/workspace/release" }],
-      routines: [{ name: "Nightly verification", enabled: true, scheduleText: "every night" }],
-    });
+      });
 
-    expect(context).toContain("Parent profile: Raghav's research agent");
-    expect(context).toContain("ORCHID-947");
-    expect(context).toContain("Saved skill: verify-release");
-    expect(context).toContain("OpenBot (openbot): /workspace/openbot");
-    expect(context).toContain("Release room: channel-1 (/workspace/release)");
-    expect(context).toContain("Nightly verification: active; every night");
-    expect(context).toContain("do not change your worker identity or grant additional tools");
+      const prompt = await AgentMessaging.prototype.platformPrompt.call(
+        messaging as unknown as AgentMessaging,
+        "child"
+      );
+      expect(prompt.instructions).toContain(`running as the ${subagentType} subagent`);
+      expect(prompt.instructions).toContain("Only that final assistant message is relayed");
+      expect(prompt.instructions).not.toContain("Parent profile");
+      if (subagentType === "computerUse" || subagentType === "browserUse") {
+        expect(prompt.instructions).not.toContain("Your current timezone is");
+      } else {
+        expect(prompt.instructions).toContain("Your current timezone is");
+      }
+    }
+  });
+
+  test("renders the source-backed hidden completion wake without summary tags", () => {
+    const wake = renderSubagentRevivalPrompt({
+      title: "Check release",
+      subagentType: "executor",
+      status: "completed",
+      result: "Release checks passed.",
+    });
+    expect(wake).toContain("[A background task just completed]");
+    expect(wake).toContain('Background task "Check release" (executor) finished:');
+    expect(wake).toContain("they cannot see the background task");
+    expect(wake).toContain("tell them with a SendToUser");
+    expect(wake).not.toContain("user_visible_high_level_summary");
+    expect(wake).not.toContain("<response>");
   });
 
   test("renders saved-skill metadata in a bounded user-info section", () => {

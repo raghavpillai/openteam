@@ -1,0 +1,2 @@
+ALTER TABLE "Channel"
+ADD COLUMN "description" TEXT NOT NULL DEFAULT '';

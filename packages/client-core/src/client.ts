@@ -1,14 +1,18 @@
 import type {
   ApprovalDecision,
+  AssetRef,
+  BotView,
   BotTranscriptView,
+  ChannelMessageView,
   ClientSnapshot,
-  InlineImageInput,
   ReactToChannelMessageInput,
+  RegisterPushDeviceInput,
   ScreenActionInput,
   ScreenStatusView,
   SearchCategory,
   SearchResponse,
   SendMessageInput,
+  UpdateBotInput,
 } from "@openbot/contracts";
 import { createJsonTransport, type OpenBotTransportOptions } from "./http";
 import { normalizeClientSnapshot } from "./snapshot";
@@ -63,20 +67,25 @@ export const createOpenBotClient = (options: OpenBotClientOptions) => {
     },
     botTranscript: (botId: string) =>
       transport.request<BotTranscriptView>(`/api/v0/bots/${encodeURIComponent(botId)}/transcript`),
+    updateBot: (botId: string, input: UpdateBotInput) =>
+      transport.request<BotView>(`/api/v0/bots/${encodeURIComponent(botId)}`, {
+        method: "PATCH",
+        body: JSON.stringify(input),
+      }),
     sendDirectMessage: (
       conversationId: string,
       content: string,
-      images: readonly InlineImageInput[] = [],
+      attachments: readonly AssetRef[] = [],
       replyToMessageId?: string
     ) => {
       const input: SendMessageInput = {
         content,
-        images: [...images],
+        attachments: [...attachments],
         replyToMessageId,
         clientId: createId(),
         timeZone: timeZone(),
       };
-      return transport.request(
+      return transport.request<{ message: ChannelMessageView }>(
         `/api/v0/conversations/${encodeURIComponent(conversationId)}/messages`,
         {
           method: "POST",
@@ -87,20 +96,23 @@ export const createOpenBotClient = (options: OpenBotClientOptions) => {
     sendChannelMessage: (
       channelId: string,
       content: string,
-      images: readonly InlineImageInput[] = [],
+      attachments: readonly AssetRef[] = [],
       replyToMessageId?: string
     ) => {
       const input: SendMessageInput = {
         content,
-        images: [...images],
+        attachments: [...attachments],
         replyToMessageId,
         clientId: createId(),
         timeZone: timeZone(),
       };
-      return transport.request(`/api/v0/channels/${encodeURIComponent(channelId)}/messages`, {
-        method: "POST",
-        body: JSON.stringify(input),
-      });
+      return transport.request<{ message: ChannelMessageView }>(
+        `/api/v0/channels/${encodeURIComponent(channelId)}/messages`,
+        {
+          method: "POST",
+          body: JSON.stringify(input),
+        }
+      );
     },
     reactToMessage: (messageId: string, emoji: string) => {
       const input: ReactToChannelMessageInput = {
@@ -116,10 +128,43 @@ export const createOpenBotClient = (options: OpenBotClientOptions) => {
         }
       );
     },
+    uploadAsset: (input: {
+      fileName: string;
+      mimeType?: string;
+      bytesBase64: string;
+      alt?: string;
+    }) =>
+      transport.request<AssetRef>("/api/v0/assets", {
+        method: "POST",
+        body: JSON.stringify(input),
+      }),
+    assetUrl: (asset: Pick<AssetRef, "assetId" | "fileName">, download = false) => {
+      const params = new URLSearchParams({ name: asset.fileName });
+      if (download) params.set("download", "1");
+      return `${transport.baseUrl}/api/v0/assets/${asset.assetId}?${params}`;
+    },
     resolveApproval: (approvalId: string, decision: ApprovalDecision) =>
       transport.request(`/api/v0/approvals/${encodeURIComponent(approvalId)}/resolve`, {
         method: "POST",
         body: JSON.stringify({ decision }),
+      }),
+    registerPushDevice: (input: RegisterPushDeviceInput) =>
+      transport.request("/api/v0/notification-devices", {
+        method: "POST",
+        body: JSON.stringify(input),
+      }),
+    unregisterPushDevice: (installationId: string) =>
+      transport.request(`/api/v0/notification-devices/${encodeURIComponent(installationId)}`, {
+        method: "DELETE",
+      }),
+    markChannelRead: (channelId: string, throughSequence?: string) =>
+      transport.request<{
+        channelId: string;
+        lastReadSequence: string;
+        unreadCount: number;
+      }>(`/api/v0/channels/${encodeURIComponent(channelId)}/read`, {
+        method: "POST",
+        body: JSON.stringify({ throughSequence }),
       }),
     screenStatus: (botId: string) =>
       transport.request<ScreenStatusView>(`/api/v0/bots/${encodeURIComponent(botId)}/screen`),

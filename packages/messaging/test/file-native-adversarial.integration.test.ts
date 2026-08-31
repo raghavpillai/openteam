@@ -5,6 +5,7 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  readdir,
   realpath,
   rm,
   symlink,
@@ -17,6 +18,7 @@ import { AgentDataStore } from "../src/agent-data";
 import { atomicWrite, jsonFile } from "../src/file-state";
 import { RoutineService } from "../src/routines";
 import { parseSkillFile, renderSkillFile } from "../src/skill-files";
+import { appendAgentTimelineEvent } from "../src/timeline-events";
 
 const databaseUrl = process.env.OPENBOT_TEST_DATABASE_URL;
 
@@ -49,6 +51,45 @@ const eventually = async <T>(
   );
 };
 
+test("provisioning watches preserve Grok's exact three-file creation state", async () => {
+  if (!databaseUrl) return;
+
+  const prisma = createPrismaClient(databaseUrl);
+  const temporary = await mkdtemp(join(tmpdir(), "openbot-provisioning-files-"));
+  const root = join(temporary, "agent-data");
+  const workspace = join(temporary, "workspace");
+  const botId = randomUUID();
+  const store = new AgentDataStore(prisma, { root, workspaceRoot: workspace });
+
+  try {
+    await mkdir(workspace, { recursive: true });
+    await prisma.bot.create({
+      data: {
+        id: botId,
+        name: "Provisioning files",
+        defaultDirectory: workspace,
+        status: "provisioning",
+      },
+    });
+    await store.startWatching();
+    await store.initializeBot(botId);
+    await atomicWrite(join(store.botDirectory(botId), "store.db"), "sqlite fixture");
+    await store.reconcileBot(botId);
+    await wait(250);
+
+    expect((await readdir(store.botDirectory(botId))).sort()).toEqual([
+      "profile.json",
+      "settings.json",
+      "store.db",
+    ]);
+  } finally {
+    await store.stopWatching();
+    await prisma.bot.deleteMany({ where: { id: botId } });
+    await prisma.$disconnect();
+    await rm(temporary, { recursive: true, force: true });
+  }
+});
+
 test("live filesystem watchers, snapshots, namespaces, and deletion authority agree", async () => {
   if (!databaseUrl) return;
 
@@ -59,6 +100,11 @@ test("live filesystem watchers, snapshots, namespaces, and deletion authority ag
   const outsideAvatar = join(temporary, "outside.png");
   await mkdir(workspace, { recursive: true });
   const store = new AgentDataStore(prisma, { root, workspaceRoot: workspace });
+  const dreamingStore = new AgentDataStore(prisma, {
+    root,
+    workspaceRoot: workspace,
+    memoryDreamingEnabled: true,
+  });
 
   const firstBotId = randomUUID();
   const secondBotId = randomUUID();
@@ -70,6 +116,17 @@ test("live filesystem watchers, snapshots, namespaces, and deletion authority ag
   const projectSlug = `watcher-${randomUUID()}`;
   const skillSlug = "disk-owned-skill";
   const routineSlug = "disk-owned-routine";
+  const eventWakes: Array<{ origin: string; type: string; content: string }> = [];
+  let timelineSessionActive = true;
+  const timelineHost = {
+    defaultTimeZone: "UTC",
+    isTimelineSessionActive: async () => timelineSessionActive,
+    enqueueWake: async (_tx: unknown, input: { origin: string; type: string; content: string }) => {
+      eventWakes.push(input);
+      return { run: { id: randomUUID() } };
+    },
+  };
+  store.setTimelineEventSink((tx, input) => appendAgentTimelineEvent(tx, timelineHost, input));
 
   try {
     await prisma.bot.create({
@@ -161,17 +218,7 @@ test("live filesystem watchers, snapshots, namespaces, and deletion authority ag
       "automation.json"
     );
     await atomicWrite(occupiedRoutineFile, "{ intentionally invalid\n");
-    const routineService = new RoutineService(
-      prisma,
-      {
-        defaultTimeZone: "UTC",
-        enqueueWake: async () => {
-          throw new Error("not used by this test");
-        },
-      },
-      store,
-      "UTC"
-    );
+    const routineService = new RoutineService(prisma, timelineHost, store, "UTC");
     const createdRoutine = await routineService.mutate(firstBotId, randomUUID(), null, {
       action: "create",
       name: "Manual   folder",
@@ -179,8 +226,9 @@ test("live filesystem watchers, snapshots, namespaces, and deletion authority ag
       schedule: "@daily",
       enabled: false,
     });
+    const createdRoutineId = String(createdRoutine.id);
     expect(
-      await prisma.routine.findUniqueOrThrow({ where: { id: String(createdRoutine.id) } })
+      await prisma.routine.findUniqueOrThrow({ where: { id: createdRoutineId } })
     ).toMatchObject({ slug: "manual-folder-2", name: "Manual folder" });
     expect(createdRoutine.folder).toBe("manual-folder-2");
     await routineService.mutate(firstBotId, randomUUID(), null, {
@@ -188,9 +236,199 @@ test("live filesystem watchers, snapshots, namespaces, and deletion authority ag
       id: "manual-folder-2",
       name: "Renamed by folder",
     });
+    await routineService.mutate(firstBotId, randomUUID(), null, {
+      action: "resume",
+      id: "manual-folder-2",
+    });
+    await routineService.mutate(firstBotId, randomUUID(), null, {
+      action: "pause",
+      id: "manual-folder-2",
+    });
+    const unchangedPause = await routineService.mutate(firstBotId, randomUUID(), null, {
+      action: "pause",
+      id: "manual-folder-2",
+    });
+    expect(unchangedPause).toMatchObject({ unchanged: true, paused: false });
     expect(
-      await prisma.routine.findUniqueOrThrow({ where: { id: String(createdRoutine.id) } })
+      await prisma.routine.findUniqueOrThrow({ where: { id: createdRoutineId } })
     ).toMatchObject({ slug: "manual-folder-2", name: "Renamed by folder" });
+    expect(
+      (
+        await prisma.channelMessage.findMany({
+          where: { channelId: firstChannelId, sender: "system" },
+          orderBy: { sequence: "asc" },
+          select: { metadata: true },
+        })
+      ).map((message) => message.metadata)
+    ).toEqual([
+      {
+        type: "event",
+        event: {
+          type: "automation-changed",
+          action: "created",
+          automationId: createdRoutineId,
+          automationName: "Manual folder",
+        },
+      },
+      {
+        type: "event",
+        event: {
+          type: "automation-changed",
+          action: "updated",
+          automationId: createdRoutineId,
+          automationName: "Renamed by folder",
+        },
+      },
+      {
+        type: "event",
+        event: {
+          type: "automation-changed",
+          action: "enabled",
+          automationId: createdRoutineId,
+          automationName: "Renamed by folder",
+        },
+      },
+      {
+        type: "event",
+        event: {
+          type: "automation-changed",
+          action: "disabled",
+          automationId: createdRoutineId,
+          automationName: "Renamed by folder",
+        },
+      },
+    ]);
+    expect(eventWakes).toHaveLength(4);
+    expect(
+      eventWakes.every((wake) => wake.origin === "event" && wake.type === "timeline.event")
+    ).toBe(true);
+    expect(eventWakes.map((wake) => wake.content.match(/- (.+)/)?.[1])).toEqual([
+      'Created routine "Manual folder"',
+      'Updated routine "Renamed by folder"',
+      'Enabled routine "Renamed by folder"',
+      'Disabled routine "Renamed by folder"',
+    ]);
+    await routineService.mutate(firstBotId, randomUUID(), null, {
+      action: "update",
+      id: createdRoutineId,
+      name: "Renamed by folder",
+      prompt: "Do not overwrite the manual directory.",
+      enabled: false,
+    });
+    expect(eventWakes).toHaveLength(4);
+
+    await routineService.mutate(firstBotId, randomUUID(), null, {
+      action: "update",
+      id: createdRoutineId,
+      name: "Mixed authored and enabled edit",
+      enabled: true,
+    });
+    expect(eventWakes).toHaveLength(5);
+    expect(eventWakes.at(-1)?.content).toContain(
+      'Updated routine "Mixed authored and enabled edit"'
+    );
+
+    const runningMessage = await prisma.message.create({
+      data: {
+        botId: firstBotId,
+        conversationId: firstConversationId,
+        role: "user",
+        content: "Active lane fixture",
+        status: "completed",
+      },
+    });
+    const runningRun = await prisma.run.create({
+      data: {
+        botId: firstBotId,
+        conversationId: firstConversationId,
+        userMessageId: runningMessage.id,
+        status: "running",
+        origin: "user",
+        channelId: firstChannelId,
+      },
+    });
+    await prisma.message.update({
+      where: { id: runningMessage.id },
+      data: { runId: runningRun.id },
+    });
+    await prisma.botRunLease.create({
+      data: {
+        botId: firstBotId,
+        runId: runningRun.id,
+        ownerId: "timeline-event-parity-test",
+        expiresAt: new Date(Date.now() + 60_000),
+      },
+    });
+    await routineService.mutate(firstBotId, randomUUID(), null, {
+      action: "update",
+      id: createdRoutineId,
+      prompt: "Changed while the Bot is running.",
+    });
+    expect(eventWakes).toHaveLength(5);
+    expect(
+      await prisma.channelMessage.count({
+        where: {
+          channelId: firstChannelId,
+          sender: "system",
+          metadata: { path: ["event", "type"], equals: "automation-changed" },
+        },
+      })
+    ).toBe(6);
+    await prisma.botRunLease.delete({ where: { botId: firstBotId } });
+    await prisma.run.update({ where: { id: runningRun.id }, data: { status: "completed" } });
+    timelineSessionActive = false;
+    await routineService.mutate(firstBotId, randomUUID(), null, {
+      action: "update",
+      id: createdRoutineId,
+      prompt: "Changed while another chat is active.",
+    });
+    expect(eventWakes).toHaveLength(5);
+    expect(
+      await prisma.channelMessage.count({
+        where: {
+          channelId: firstChannelId,
+          sender: "system",
+          metadata: { path: ["event", "type"], equals: "automation-changed" },
+        },
+      })
+    ).toBe(6);
+    timelineSessionActive = true;
+    const groupRoutine = await routineService.mutateOwner(
+      { kind: "group", id: groupId },
+      randomUUID(),
+      null,
+      {
+        action: "create",
+        name: "Room digest",
+        prompt: "Summarize the room.",
+        schedule: "@daily",
+        enabled: false,
+      }
+    );
+    const groupRoutineId = String(groupRoutine.id);
+    await routineService.mutateOwner({ kind: "group", id: groupId }, randomUUID(), null, {
+      action: "update",
+      id: groupRoutineId,
+      name: "Room digest updated",
+    });
+    await routineService.mutateOwner({ kind: "group", id: groupId }, randomUUID(), null, {
+      action: "resume",
+      id: groupRoutineId,
+    });
+    await routineService.mutateOwner({ kind: "group", id: groupId }, randomUUID(), null, {
+      action: "pause",
+      id: groupRoutineId,
+    });
+    expect(
+      (
+        await prisma.channelMessage.findMany({
+          where: { channelId: groupId, sender: "system" },
+          orderBy: { sequence: "asc" },
+          select: { metadata: true },
+        })
+      ).map((message) => message.metadata)
+    ).toEqual([]);
+    expect(eventWakes).toHaveLength(5);
     expect(await readFile(occupiedRoutineFile, "utf8")).toBe("{ intentionally invalid\n");
 
     await prisma.botConnectorState.upsert({
@@ -245,6 +483,21 @@ test("live filesystem watchers, snapshots, namespaces, and deletion authority ag
     expect(await prisma.channel.findUniqueOrThrow({ where: { id: firstChannelId } })).toMatchObject(
       { name: "Renamed on disk" }
     );
+    await eventually(
+      () =>
+        prisma.channelMessage.findFirst({
+          where: {
+            channelId: firstChannelId,
+            sender: "system",
+            metadata: { path: ["event", "type"], equals: "name-changed" },
+          },
+          orderBy: { sequence: "desc" },
+        }),
+      (message) => Boolean(message),
+      "profile name-change timeline event"
+    );
+    expect(eventWakes).toHaveLength(6);
+    expect(eventWakes.at(-1)?.content).toContain("- Renamed to Renamed on disk");
 
     const frozenIdentity = await store.promptContext(firstBotId);
     expect(frozenIdentity.profileSection).toBe(initialPrompt.profileSection);
@@ -255,7 +508,7 @@ test("live filesystem watchers, snapshots, namespaces, and deletion authority ag
     await store.acknowledgeIdentityAnnouncement(firstBotId);
     expect((await store.promptContext(firstBotId)).identityAnnouncement).toBe("");
 
-    const skillDirectory = join(firstDirectory, "skills", skillSlug);
+    const skillDirectory = join(root, "workflows", skillSlug);
     await atomicWrite(
       join(skillDirectory, "SKILL.md"),
       renderSkillFile({
@@ -268,10 +521,25 @@ test("live filesystem watchers, snapshots, namespaces, and deletion authority ag
     await eventually(
       () =>
         prisma.savedSkill.findUnique({
-          where: { botId_slug: { botId: firstBotId, slug: skillSlug } },
+          where: { slug: skillSlug },
         }),
       (skill) => skill?.body.includes("Follow the filesystem contract") === true,
       "skill creation watcher"
+    );
+    await eventually(
+      () =>
+        prisma.event.findFirst({
+          where: { topic: "bot.state.filesystem_changed", entityId: null },
+          orderBy: { sequence: "desc" },
+        }),
+      (event) =>
+        Boolean(
+          event?.payload &&
+            typeof event.payload === "object" &&
+            !Array.isArray(event.payload) &&
+            (event.payload as { scope?: unknown }).scope === "workflows"
+        ),
+      "global workflow watcher event"
     );
     await store.writeSkill(firstBotId, {
       id: skillSlug,
@@ -388,11 +656,16 @@ test("live filesystem watchers, snapshots, namespaces, and deletion authority ag
     const groupDirectory = join(root, "agents", groupId);
     await atomicWrite(
       join(groupDirectory, "profile.json"),
-      jsonFile({ name: "Renamed watcher room", description: "" })
+      jsonFile({
+        name: "Renamed watcher room",
+        description: "Coordinates watcher parity.",
+      })
     );
     await eventually(
       () => prisma.channel.findUnique({ where: { id: groupId } }),
-      (channel) => channel?.name === "Renamed watcher room",
+      (channel) =>
+        channel?.name === "Renamed watcher room" &&
+        channel.description === "Coordinates watcher parity.",
       "group profile watcher"
     );
     await atomicWrite(
@@ -474,7 +747,7 @@ test("live filesystem watchers, snapshots, namespaces, and deletion authority ag
     await eventually(
       () =>
         prisma.savedSkill.findUnique({
-          where: { botId_slug: { botId: firstBotId, slug: skillSlug } },
+          where: { slug: skillSlug },
         }),
       (skill) => skill === null,
       "skill deletion watcher"
@@ -484,10 +757,7 @@ test("live filesystem watchers, snapshots, namespaces, and deletion authority ag
     await atomicWrite(join(firstDirectory, "settings.json"), malformedSettings);
     await eventually(
       () => prisma.bot.findUnique({ where: { id: firstBotId } }),
-      (bot) =>
-        bot?.notificationsEnabled === true &&
-        bot.hiddenFromSidebar === false &&
-        bot.dreamingEnabled === false,
+      (bot) => bot?.notificationsEnabled === true && bot.hiddenFromSidebar === false,
       "malformed settings fallback"
     );
     expect(await readFile(join(firstDirectory, "settings.json"), "utf8")).toBe(malformedSettings);
@@ -495,20 +765,15 @@ test("live filesystem watchers, snapshots, namespaces, and deletion authority ag
     expect(JSON.parse(await readFile(join(firstDirectory, "settings.json"), "utf8"))).toEqual({
       notifyOnAgentUpdates: true,
       hiddenFromSidebar: false,
-      dreamingEnabled: false,
     });
     await atomicWrite(
       join(firstDirectory, "settings.json"),
       jsonFile({ notifyOnAgentUpdates: false, hiddenFromSidebar: false, extra: "keep" })
     );
-    await Promise.all([
-      store.writeBotSettings(firstBotId, { hiddenFromSidebar: true }),
-      store.writeBotSettings(firstBotId, { dreamingEnabled: true }),
-    ]);
+    await store.writeBotSettings(firstBotId, { hiddenFromSidebar: true });
     expect(JSON.parse(await readFile(join(firstDirectory, "settings.json"), "utf8"))).toEqual({
       notifyOnAgentUpdates: false,
       hiddenFromSidebar: true,
-      dreamingEnabled: true,
       extra: "keep",
     });
 
@@ -523,7 +788,7 @@ test("live filesystem watchers, snapshots, namespaces, and deletion authority ag
           return null;
         }
       },
-      (profile) => profile?.name === "Renamed on disk",
+      (profile) => profile?.name === "New Bot",
       "malformed profile regeneration"
     );
     const parseableBadProfile = '{"name":42,"extraDiskField":true}\n';
@@ -571,18 +836,9 @@ test("live filesystem watchers, snapshots, namespaces, and deletion authority ag
       "avatar source must stay inside"
     );
 
-    await atomicWrite(
-      join(firstDirectory, "settings.json"),
-      jsonFile({
-        notifyOnAgentUpdates: true,
-        hiddenFromSidebar: false,
-        dreamingEnabled: true,
-      })
-    );
-    await store.reconcileBot(firstBotId);
     await prisma.bot.update({ where: { id: firstBotId }, data: { episodePending: 5 } });
     for (let index = 0; index < 13; index += 1) {
-      await store.recordTurnMemory(firstBotId, {
+      await dreamingStore.recordTurnMemory(firstBotId, {
         user: `Dreaming evidence ${index}`,
         assistant: `Dreaming answer ${index}`,
         occurredAt: index,
@@ -596,15 +852,6 @@ test("live filesystem watchers, snapshots, namespaces, and deletion authority ag
       access(join(firstDirectory, "memory", ".dreaming", "next-refresh-at"))
     ).rejects.toThrow();
 
-    await atomicWrite(
-      join(firstDirectory, "settings.json"),
-      jsonFile({
-        notifyOnAgentUpdates: true,
-        hiddenFromSidebar: false,
-        dreamingEnabled: false,
-      })
-    );
-    await store.reconcileBot(firstBotId);
     await store.recordTurnMemory(firstBotId, {
       user: "Thanks!",
       assistant: "You're welcome.",
@@ -623,26 +870,81 @@ test("live filesystem watchers, snapshots, namespaces, and deletion authority ag
     await atomicWrite(join(root, "settings.json"), "{ malformed\n");
     const malformedRootSettings = await store.loadRootSettings();
     expect(malformedRootSettings.valid).toBe(false);
-    expect(malformedRootSettings.settings.notificationsEnabled).toBe(true);
+    expect(malformedRootSettings.settings).toMatchObject({
+      version: 1,
+      mcpBoxServers: [],
+      autoUpdateWhenIdleOptIn: false,
+      egressTunnelEnabled: false,
+      webauthnProxyEnabled: true,
+      conciergeConsent: "unset",
+      accountScopes: {},
+    });
     const writtenRootSettings = await store.writeRootSettings({
-      timezone: "Europe/London",
-      theme: "dark",
+      userTimeZone: "Europe/London",
+      themePreference: "dark",
     });
     expect(writtenRootSettings).toMatchObject({
       version: 1,
-      timezone: "Europe/London",
-      theme: "dark",
+      userTimeZone: "Europe/London",
+      themePreference: "dark",
     });
     await Promise.all([
-      store.writeRootSettings({ timezone: "America/New_York" }),
-      store.writeRootSettings({ language: "fr" }),
+      store.writeRootSettings({ userTimeZone: "America/New_York" }),
+      store.writeRootSettings({ languagePreference: "fr" }),
     ]);
     expect((await store.loadRootSettings()).settings).toMatchObject({
-      timezone: "America/New_York",
-      language: "fr",
-      theme: "dark",
+      userTimeZone: "America/New_York",
+      languagePreference: "fr",
+      themePreference: "dark",
     });
     expect((await store.loadRootSettings()).valid).toBe(true);
+    await store.writeSidebarPreferences({
+      version: 2,
+      pinnedIds: [firstChannelId],
+      unreadIds: ["local-only-unread"],
+      unassignedCollapsed: true,
+      sections: [{ id: "work", name: "Work", collapsed: true }],
+      sectionByChannel: { [secondChannelId]: "work" },
+      channelOrderByGroup: { work: [secondChannelId] },
+    });
+    const persistedRootSettings = JSON.parse(await readFile(join(root, "settings.json"), "utf8"));
+    expect(persistedRootSettings.sidebarPreferences).toBeUndefined();
+    expect(persistedRootSettings.pinnedAgentIds).toEqual([firstBotId]);
+    expect(persistedRootSettings.sidebarSections).toEqual([
+      {
+        id: "work",
+        name: "Work",
+        agentIds: [secondBotId],
+        isCollapsed: true,
+      },
+      {
+        id: "__agents__",
+        name: "Unassigned",
+        agentIds: [],
+        isCollapsed: false,
+      },
+    ]);
+    expect((await store.loadRootSettingsForClient()).settings).toMatchObject({
+      pinnedAgentIds: [firstChannelId],
+      sidebarSections: [
+        {
+          id: "work",
+          agentIds: [secondChannelId],
+        },
+        {
+          id: "__agents__",
+          agentIds: [],
+        },
+      ],
+    });
+    expect(persistedRootSettings).toMatchObject({
+      mcpBoxServers: [],
+      autoUpdateWhenIdleOptIn: false,
+      egressTunnelEnabled: false,
+      webauthnProxyEnabled: true,
+      conciergeConsent: "unset",
+      accountScopes: {},
+    });
     await store.writeActiveAgentId(secondBotId);
     expect(await store.loadActiveAgentId()).toBe(secondBotId);
 
@@ -731,4 +1033,4 @@ test("live filesystem watchers, snapshots, namespaces, and deletion authority ag
     await prisma.$disconnect();
     await rm(temporary, { recursive: true, force: true });
   }
-}, 30_000);
+}, 90_000);

@@ -10,6 +10,9 @@ describe("routine schedules", () => {
       timezoneMode: "pinned",
       timezone: "America/New_York",
     });
+    expect(() => normalizeRoutineSchedule("CRON_TZ=Not/A_Zone 0 9 * * *", "UTC")).toThrow(
+      "Invalid IANA time zone"
+    );
   });
 
   test("supports bounded elapsed intervals", () => {
@@ -58,5 +61,22 @@ describe("routine schedules", () => {
       new Date("2026-08-28T08:00:00Z")
     );
     expect(next).toEqual(new Date("2026-08-28T08:30:00Z"));
+  });
+
+  test("matches Grok wall-clock behavior through DST gaps and folds", () => {
+    const springGap = normalizeRoutineSchedule("30 2 * * *", "Asia/Jerusalem", {
+      enforceMinimum: false,
+    });
+    expect(nextRoutineRun(springGap, new Date("2026-03-26T20:00:00Z"))).toEqual(
+      new Date("2026-03-27T23:30:00Z")
+    );
+
+    const fallFold = normalizeRoutineSchedule("30 1 * * *", "Asia/Jerusalem", {
+      enforceMinimum: false,
+    });
+    const firstFold = nextRoutineRun(fallFold, new Date("2026-10-24T20:00:00Z"));
+    const secondFold = nextRoutineRun(fallFold, firstFold);
+    expect(firstFold).toEqual(new Date("2026-10-24T22:30:00Z"));
+    expect(secondFold).toEqual(new Date("2026-10-24T23:30:00Z"));
   });
 });

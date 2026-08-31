@@ -5,6 +5,7 @@ import {
   clampAgentMessage,
   directAgentAcknowledgement,
   directAgentWake,
+  GROUP_MEMBER_TURN_MESSAGE_LIMIT_NOTICE,
   groupAgentAcknowledgement,
   normalizeGroupAgentMessage,
   routineRuntimeStatus,
@@ -18,11 +19,11 @@ describe("agent-to-agent protocol", () => {
     expect(directAgentAcknowledgement({ targetName: "Researcher", priority: true })).toBe(
       "Sent to Researcher as a priority message — it will interrupt their current non-user work and wake them now. This is asynchronous — if they reply, it'll arrive later as a new message that wakes you; don't wait on it now."
     );
-    expect(groupAgentAcknowledgement("Launch Room")).toBe(
-      'Posted to "Launch Room". Its members will see it and reply on their own turns.'
+    expect(groupAgentAcknowledgement("Launch Room", { imageCount: 1 })).toBe(
+      'Posted to "Launch Room". Its members will see it and reply on their own turns. Note: the attached image was NOT delivered — group messages are text-only for now; send images to an agent directly.'
     );
-    expect(groupAgentAcknowledgement("Launch Room", { imageCount: 1, priority: true })).toBe(
-      'Posted to "Launch Room". Its members will see it and reply on their own turns. Note: the attached image was NOT delivered — group messages are text-only for now; send images to an agent directly. Note: priority is 1:1 only — this post did not interrupt members.'
+    expect(groupAgentAcknowledgement("Launch Room", { priority: true })).toBe(
+      'Posted to "Launch Room". Its members will see it and reply on their own turns.'
     );
     expect(groupAgentAcknowledgement("Launch Room", { imageCount: 2 })).toBe(
       'Posted to "Launch Room". Its members will see it and reply on their own turns. Note: the attached images were NOT delivered — group messages are text-only for now; send images to an agent directly.'
@@ -57,6 +58,28 @@ This is another assistant reaching out — not the user typing here. It arrived 
 Test #2: Reply with exactly: "done"
 
 If it needs a reply or an action, handle it: reply to Test #2 with SendToAgent (their id: fd4b1bd8-d320-4653-a765-95254b1fa570), which reaches them on a later turn — not a live back-and-forth — and use SendToUser to tell your user only when you have a real result to share. If it is just an FYI with nothing for you to do, it is fine to stay silent — no need to reply just to acknowledge it.`);
+  });
+
+  test("matches Grokbot's direct image wake list byte-for-byte", () => {
+    expect(
+      directAgentWake({
+        senderId: "agent-1",
+        senderName: "Planner",
+        message: "Review this.",
+        priority: false,
+        interrupted: false,
+        images: [{ url: "file:///tmp/shot.png", alt: "  Status\nchart  " }],
+      })
+    ).toBe(`[SAND_HIDDEN_PROMPT][agent] A message just arrived from another of your user's agents: Planner (id: agent-1).
+This is another assistant reaching out — not the user typing here. It arrived asynchronously, and your user can already see it in this chat.
+
+Planner: Review this.
+
+Planner attached an image to this message:
+- file:///tmp/shot.png — Status chart
+Local image files are shown to you alongside this message. To pass one on, re-attach its url in your own SendToUser (images) or SendToAgent (images).
+
+If it needs a reply or an action, handle it: reply to Planner with SendToAgent (their id: agent-1), which reaches them on a later turn — not a live back-and-forth — and use SendToUser to tell your user only when you have a real result to share. If it is just an FYI with nothing for you to do, it is fine to stay silent — no need to reply just to acknowledge it.`);
   });
 
   test("matches Grokbot's source-verified group-turn envelope", () => {
@@ -114,12 +137,15 @@ It's your turn, Grok. Reply in character with SendToUser if you have something w
     expect(
       buildGroupTurnPrompt({
         groupName: "Files",
+        roomDescription: "  Production launch triage  ",
         targetId: "one",
         targetName: "One",
         members: [{ id: "one", name: "One" }],
         messages: [{ sender: "user", content: "", hasImages: true }],
       })
-    ).toContain("The user shared attachments with the room.");
+    ).toContain(
+      '[Group chat: "Files"]\nRoom: Production launch triage\nThe user shared attachments with the room.'
+    );
   });
 
   test("uses Grokbot's viewer/user labels and 8,000-character reply quote cap", () => {
@@ -198,6 +224,23 @@ Current routine runtime status. This snapshot is authoritative for this turn and
     });
     expect(wake).toContain(
       "This is a PRIORITY instruction from another assistant — not the user typing here. It interrupted your previous non-user work. Drop conflicting in-flight work and follow it now. Your user can already see it in this chat."
+    );
+    expect(
+      directAgentWake({
+        senderId: "agent-2",
+        senderName: "Planner",
+        message: "Please re-check the plan.",
+        priority: true,
+        interrupted: false,
+      })
+    ).toContain(
+      "This is a PRIORITY instruction from another assistant — not the user typing here. Handle it ahead of other non-user work. Your user can already see it in this chat."
+    );
+  });
+
+  test("uses Grokbot's exact room-turn message-limit notice", () => {
+    expect(GROUP_MEMBER_TURN_MESSAGE_LIMIT_NOTICE).toBe(
+      "Not delivered — you've reached this room turn's 3-message limit. Consolidate, or wait for your next turn."
     );
   });
 

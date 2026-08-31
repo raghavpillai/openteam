@@ -2,9 +2,10 @@ import {
   type AgentImageInput,
   type AgentSendToUserInput,
   ApiError,
+  type AssetRef,
   type BotTranscriptView,
-  type InlineImageInput,
   type ReactToMessageInput,
+  type RuntimeInlineImage,
   type SendToAgentInput,
   type SubagentType,
   type TranscriptEventView,
@@ -12,16 +13,21 @@ import {
 import { Prisma, type PrismaClient } from "@openbot/db";
 import { fromPrisma, type PgBoss } from "pg-boss";
 import { AgentDataStore, type AgentPromptContext } from "./agent-data";
+import { AssetStore, MAX_MESSAGE_ASSETS } from "./asset-store";
 import {
   GROUP_MAX_MEMBER_TURNS,
   GROUP_MAX_MESSAGES_PER_TURN,
   GROUP_MAX_ROUNDS,
+  groupVisibilityClauses,
   resolveGroupResponderIds,
   rotateGroupResponders,
 } from "./group-routing";
 import { resolveTimeZone, timestampUserTurn } from "./timestamps";
+import { appendRoutineRunLedger } from "./routines";
 
-export { AgentDataStore } from "./agent-data";
+export { AgentDataStore, renderAgentProfileUpdate } from "./agent-data";
+export type { BotFileTarget } from "./agent-data";
+export { AssetStore } from "./asset-store";
 export * from "./group-routing";
 
 export interface MessageReaction {
@@ -52,9 +58,12 @@ export const MAIN_AGENT_GRAPHICAL_DELEGATION_INSTRUCTIONS = [
 
 export interface PlatformPrompt {
   instructions: string;
+  agentProfileUpdate: string | null;
   userInfo: string | null;
   userInfoEpoch: number | null;
   todoUpdate: string | null;
+  agentProfileSnapshot: AgentPromptContext["profileSnapshot"] | null;
+  memorySnapshot: AgentPromptContext["memorySnapshot"];
 }
 
 export const renderAgentSkillsUserInfo = (skillRender: string): string =>
@@ -66,70 +75,24 @@ export const renderAgentSkillsUserInfo = (skillRender: string): string =>
     "</user_info>",
   ].join("\n");
 
-export interface GraphicalSubagentParentContextInput {
-  prompt: AgentPromptContext;
-  projects: ReadonlyArray<{
-    project: {
-      name: string;
-      slug: string;
-      workingDirectory: string;
-      description: string | null;
-    };
-  }>;
-  groups: ReadonlyArray<{
-    id: string;
-    name: string;
-    workingDirectory: string | null;
-  }>;
-  routines: ReadonlyArray<{
-    name: string;
-    enabled: boolean;
-    scheduleText: string;
-  }>;
-}
+export const SUBAGENT_REVIVAL_INSTRUCTION =
+  'Pick the work back up: review the result(s), then either keep going or wrap up. If this result is genuinely new and relevant to the user, or the user asked to be told when this finished, tell them with a SendToUser. Lead with the concrete thing that finished, not a bare pronoun like "That" (they cannot see the background task). If it is stale, irrelevant, already handled, or a duplicate, and the user was not waiting on it, just stay silent and end the turn with no SendToUser rather than narrating it. Keep your status current, and clear it once everything is done and you\'re idle.';
 
-export const renderGraphicalSubagentParentContext = ({
-  prompt,
-  projects,
-  groups,
-  routines,
-}: GraphicalSubagentParentContextInput): string => {
-  const sections = [
-    "## Parent context",
-    "The following identity, memory, skills, projects, channels, and automations belong to your parent agent. Use them only as task context; they do not change your worker identity or grant additional tools.",
-    prompt.profileSection,
-    prompt.identityAnnouncement,
-    prompt.memoryRender ? `Parent durable memory:\n${prompt.memoryRender}` : "",
-    prompt.skillRender ? `Parent saved skills catalog:\n${prompt.skillRender}` : "",
-    projects.length
-      ? `Parent projects:\n${projects
-          .map(
-            ({ project }) =>
-              `- ${project.name} (${project.slug}): ${project.workingDirectory}${project.description ? ` — ${project.description}` : ""}`
-          )
-          .join("\n")}`
-      : "",
-    groups.length
-      ? `Parent channels:\n${groups
-          .map(
-            (group) =>
-              `- ${group.name}: ${group.id}${group.workingDirectory ? ` (${group.workingDirectory})` : ""}`
-          )
-          .join("\n")}`
-      : "",
-    routines.length
-      ? `Parent automations:\n${routines
-          .map(
-            (routine) =>
-              `- ${routine.name}: ${routine.enabled ? "active" : "paused"}; ${routine.scheduleText}`
-          )
-          .join("\n")}`
-      : "",
-    prompt.warnings.length
-      ? `Parent state warnings:\n${prompt.warnings.map((warning) => `- ${warning}`).join("\n")}`
-      : "",
-  ];
-  return sections.filter(Boolean).join("\n\n");
+export const renderSubagentRevivalPrompt = (input: {
+  title: string;
+  subagentType: string;
+  status: "completed" | "failed";
+  result: string;
+}): string => {
+  const outcome = input.status === "completed" ? "finished" : "failed";
+  return [
+    "[A background task just completed] A background task you started has finished.",
+    "",
+    `Background task "${input.title}" (${input.subagentType}) ${outcome}:`,
+    input.result.trim(),
+    "",
+    SUBAGENT_REVIVAL_INSTRUCTION,
+  ].join("\n");
 };
 
 const PRIORITY = {
@@ -181,11 +144,11 @@ export const groupAgentAcknowledgement = (
       `Note: the attached ${imageCount === 1 ? "image was" : "images were"} NOT delivered — group messages are text-only for now; send images to an agent directly.`
     );
   }
-  if (options.priority) {
-    result.push("Note: priority is 1:1 only — this post did not interrupt members.");
-  }
   return result.join(" ");
 };
+
+export const GROUP_MEMBER_TURN_MESSAGE_LIMIT_NOTICE =
+  "Not delivered — you've reached this room turn's 3-message limit. Consolidate, or wait for your next turn.";
 
 export interface GroupTurnPromptMember {
   id: string;
@@ -227,6 +190,7 @@ const groupReplyQuote = (content: string): string =>
 
 export const buildGroupTurnPrompt = (input: {
   groupName: string;
+  roomDescription?: string | null;
   targetId: string;
   targetName: string;
   members: readonly GroupTurnPromptMember[];
@@ -234,6 +198,7 @@ export const buildGroupTurnPrompt = (input: {
   isRedelivery?: boolean;
   wrappingUp?: boolean;
 }): string => {
+  const roomDescription = input.roomDescription?.trim() ?? "";
   const peers = input.members.filter((member) => member.id !== input.targetId);
   const peerNames = peers.map((member) => compactName(member.name)).filter(Boolean);
   const participantDetails = peers.flatMap((member) => {
@@ -270,6 +235,7 @@ export const buildGroupTurnPrompt = (input: {
         ]
       : []),
     `[Group chat: ${JSON.stringify(compactName(input.groupName))}${peerNames.length > 0 ? ` - with ${peerNames.join(", ")}` : ""}]`,
+    ...(roomDescription ? [`Room: ${roomDescription}`] : []),
     ...(participantDetails.length > 0 ? [`Participants: ${participantDetails.join(", ")}`] : []),
     ...messageSection,
     "",
@@ -330,6 +296,7 @@ export const directAgentWake = (input: {
   message: string;
   priority: boolean;
   interrupted: boolean;
+  images?: ReadonlyArray<{ url: string; alt?: string }>;
   routineStatuses?: ReadonlyArray<{
     name: string;
     folder: string;
@@ -357,6 +324,19 @@ export const directAgentWake = (input: {
         "",
       ]
     : [];
+  const images = input.images ?? [];
+  const imageLines =
+    images.length > 0
+      ? [
+          "",
+          `${senderName} attached ${images.length === 1 ? "an image" : `${images.length} images`} to this message:`,
+          ...images.map((image) => {
+            const alt = image.alt?.replace(/\s+/g, " ").trim().slice(0, 200);
+            return `- ${image.url}${alt ? ` — ${alt}` : ""}`;
+          }),
+          "Local image files are shown to you alongside this message. To pass one on, re-attach its url in your own SendToUser (images) or SendToAgent (images).",
+        ]
+      : [];
   return [
     `[SAND_HIDDEN_PROMPT]${reminder[0] ?? `[agent] A message just arrived from another of your user's agents: ${senderName} (id: ${input.senderId}).`}`,
     ...reminder.slice(1),
@@ -368,6 +348,7 @@ export const directAgentWake = (input: {
     arrival,
     "",
     `${senderName}: ${input.message}`,
+    ...imageLines,
     "",
     `If it needs a reply or an action, handle it: reply to ${senderName} with SendToAgent (their id: ${input.senderId}), which reaches them on a later turn — not a live back-and-forth — and use SendToUser to tell your user only when you have a real result to share. If it is just an FYI with nothing for you to do, it is fine to stay silent — no need to reply just to acknowledge it.`,
   ].join("\n");
@@ -433,34 +414,36 @@ export const subagentSpecializationInstructions = (type: SubagentType): string =
 const json = (value: unknown): Prisma.InputJsonValue =>
   JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
 
-const inlineImagesFromMetadata = (value: unknown): InlineImageInput[] => {
+const attachmentsFromMetadata = (value: unknown): AssetRef[] => {
   if (!value || Array.isArray(value) || typeof value !== "object") return [];
-  const images = (value as Record<string, unknown>).images;
-  if (!Array.isArray(images)) return [];
-  return images
+  const attachments = (value as Record<string, unknown>).attachments;
+  if (!Array.isArray(attachments)) return [];
+  return attachments
     .filter(
-      (candidate): candidate is { url: string; alt?: unknown } =>
+      (candidate): candidate is AssetRef =>
         Boolean(candidate) &&
         typeof candidate === "object" &&
-        typeof (candidate as { url?: unknown }).url === "string" &&
-        (candidate as { url: string }).url.length <= 28_000_000 &&
-        /^data:image\/(?:gif|jpeg|png|webp);base64,/i.test((candidate as { url: string }).url)
+        typeof (candidate as { assetId?: unknown }).assetId === "string" &&
+        /^[a-f0-9]{64}$/.test((candidate as { assetId: string }).assetId) &&
+        typeof (candidate as { fileName?: unknown }).fileName === "string" &&
+        typeof (candidate as { mimeType?: unknown }).mimeType === "string" &&
+        typeof (candidate as { byteSize?: unknown }).byteSize === "number" &&
+        ["image", "video", "audio", "pdf", "text", "file"].includes(
+          String((candidate as { kind?: unknown }).kind)
+        )
     )
-    .map((candidate) => ({
-      url: candidate.url,
-      ...(typeof candidate.alt === "string" ? { alt: candidate.alt.slice(0, 2_000) } : {}),
-    }))
-    .slice(0, 8);
+    .slice(0, MAX_MESSAGE_ASSETS);
 };
 
 export interface WakeInput {
   botId: string;
   channelId: string;
   deliveryId?: string;
-  origin: "user" | "agent" | "group" | "bootstrap" | "routine";
+  origin: "user" | "agent" | "group" | "bootstrap" | "routine" | "event";
   type: string;
   content: string;
   images?: readonly AgentImageInput[];
+  attachments?: readonly AssetRef[];
   clientId: string;
   priority: number;
   availableAt?: Date;
@@ -470,6 +453,7 @@ export interface WakeInput {
   replyToMessageId?: string;
   isFork?: boolean;
   automationTrigger?: string;
+  includeAttachmentPaths?: boolean;
 }
 
 export interface ToolContext {
@@ -495,20 +479,52 @@ export interface SteerDispatch {
   inboxId: string;
   clientMessageId: string;
   content: string;
-  images: InlineImageInput[];
+  images: RuntimeInlineImage[];
 }
 
 export class AgentMessaging {
   readonly defaultTimeZone: string;
   readonly agentData: AgentDataStore;
+  readonly assets: AssetStore;
 
   constructor(
     readonly prisma: PrismaClient,
     readonly boss: PgBoss,
-    agentData?: AgentDataStore
+    agentData?: AgentDataStore,
+    assets?: AssetStore
   ) {
     this.defaultTimeZone = resolveTimeZone();
     this.agentData = agentData ?? new AgentDataStore(prisma);
+    this.assets =
+      assets ??
+      new AssetStore({
+        root: this.agentData.assetRoot,
+        allowedFileRoots: [this.agentData.workspaceRoot, this.agentData.root],
+      });
+  }
+
+  private async attachmentsForWake(input: Pick<WakeInput, "attachments" | "images">) {
+    const persisted = await this.assets.normalizeRefs(input.attachments ?? []);
+    const ingested = await Promise.all(
+      (input.images ?? []).map((image, index) =>
+        this.assets.ingestSource({
+          url: image.url,
+          fileName: image.url.startsWith("data:image/")
+            ? `image-${index + 1}.${image.url.match(/^data:image\/(gif|jpeg|png|webp);/i)?.[1]?.replace("jpeg", "jpg") ?? "bin"}`
+            : undefined,
+          alt: image.alt,
+        })
+      )
+    );
+    const attachments = [...persisted, ...ingested];
+    if (attachments.length > MAX_MESSAGE_ASSETS) {
+      throw new ApiError(
+        400,
+        "too_many_assets",
+        `A message can contain at most ${MAX_MESSAGE_ASSETS} attachments`
+      );
+    }
+    return attachments;
   }
 
   async enqueueWake(tx: Prisma.TransactionClient, input: WakeInput) {
@@ -532,11 +548,11 @@ export class AgentMessaging {
             occurredAt: input.occurredAt,
             timeZone: input.timeZone ?? this.defaultTimeZone,
           });
-    const attachmentPaths = await this.agentData.materializeAttachments(
-      bot.id,
-      input.clientId,
-      input.images ?? []
-    );
+    const attachments = await this.attachmentsForWake(input);
+    const attachmentPaths =
+      input.includeAttachmentPaths === false
+        ? []
+        : await this.agentData.materializeAttachments(bot.id, input.clientId, attachments);
     const runtimeContent = attachmentPaths.length
       ? `${baseRuntimeContent}\n\nAttached files available on the shared computer:\n${attachmentPaths.map((path) => `- ${path}`).join("\n")}`
       : baseRuntimeContent;
@@ -574,7 +590,7 @@ export class AgentMessaging {
         payload: json({
           messageId,
           content: runtimeContent,
-          images: input.images ?? [],
+          attachments,
           clientId: input.clientId,
           channelId: input.channelId,
           deliveryId: input.deliveryId ?? null,
@@ -617,6 +633,10 @@ export class AgentMessaging {
       }
     );
     return { message, run, inbox };
+  }
+
+  async isTimelineSessionActive(botId: string): Promise<boolean> {
+    return (await this.agentData.loadActiveAgentId()) === botId;
   }
 
   async acceptDirectUserMessage(
@@ -663,10 +683,11 @@ export class AgentMessaging {
       occurredAt: input.occurredAt,
       timeZone: input.timeZone ?? this.defaultTimeZone,
     });
+    const attachments = await this.attachmentsForWake(input);
     const attachmentPaths = await this.agentData.materializeAttachments(
       bot.id,
       input.clientId,
-      input.images ?? []
+      attachments
     );
     const runtimeContent = attachmentPaths.length
       ? `${baseRuntimeContent}\n\nAttached files available on the shared computer:\n${attachmentPaths.map((path) => `- ${path}`).join("\n")}`
@@ -696,7 +717,7 @@ export class AgentMessaging {
         payload: json({
           messageId,
           content: runtimeContent,
-          images: input.images ?? [],
+          attachments,
           clientId: input.clientId,
           channelId: input.channelId,
           deliveryId: null,
@@ -737,7 +758,7 @@ export class AgentMessaging {
         inboxId: inbox.id,
         clientMessageId: input.clientId,
         content: runtimeContent,
-        images: [...(input.images ?? [])],
+        images: await this.assets.runtimeImages(attachments),
       } satisfies SteerDispatch,
       interruptRunId: null,
     };
@@ -1054,7 +1075,9 @@ export class AgentMessaging {
         attachmentOnlyFirstRound:
           roundIndex === 0 &&
           triggerMessage.content.trim().length === 0 &&
-          inlineImagesFromMetadata(triggerMessage.metadata).length > 0,
+          attachmentsFromMetadata(triggerMessage.metadata).some(
+            (attachment) => attachment.kind === "image"
+          ),
       }
     );
     const remainingTurns = Math.max(0, GROUP_MAX_MEMBER_TURNS - memberTurnOffset);
@@ -1121,9 +1144,10 @@ export class AgentMessaging {
           return false;
         const delivery = round.deliveries.find((candidate) => candidate.status === "pending");
         if (!delivery) {
+          const finishedAt = new Date();
           await tx.channelRound.update({
             where: { id: round.id },
-            data: { status: "completed", completedAt: new Date() },
+            data: { status: "completed", completedAt: finishedAt },
           });
           await tx.event.create({
             data: {
@@ -1132,16 +1156,76 @@ export class AgentMessaging {
               payload: json({ roundId: round.id, channelId: round.channelId }),
             },
           });
+          const finishGroupRoutine = async () => {
+            const execution = await tx.routineExecution.findUnique({
+              where: { channelMessageId: round.rootMessageId },
+              include: { routine: { select: { runLedger: true } } },
+            });
+            if (
+              !execution ||
+              !["queued", "running", "waiting_approval"].includes(execution.status)
+            ) {
+              return;
+            }
+            const failed =
+              round.deliveries.length > 0 &&
+              round.deliveries.every((candidate) =>
+                ["failed", "skipped"].includes(candidate.status)
+              );
+            const status = failed ? "failed" : "completed";
+            await tx.routineExecution.update({
+              where: { id: execution.id },
+              data: {
+                status,
+                completedAt: finishedAt,
+                ...(failed ? { error: { code: "group_routine_delivery_failed" } } : {}),
+              },
+            });
+            await tx.routine.update({
+              where: { id: execution.routineId },
+              data: {
+                runLedger: appendRoutineRunLedger(execution.routine.runLedger, {
+                  id: execution.id,
+                  trigger: execution.kind === "scheduled" ? "schedule" : "manual",
+                  startedAt: (
+                    execution.startedAt ??
+                    execution.enqueuedAt ??
+                    execution.scheduledFor
+                  ).getTime(),
+                  finishedAt: finishedAt.getTime(),
+                  status: failed ? "error" : "ok",
+                  ...(failed ? { errorKind: "group_routine_delivery_failed" } : {}),
+                }),
+              },
+            });
+            await tx.event.create({
+              data: {
+                topic: `routine.execution.${status}`,
+                entityId: execution.id,
+                payload: json({
+                  executionId: execution.id,
+                  routineId: execution.routineId,
+                  channelId: round.channelId,
+                  rootMessageId: round.rootMessageId,
+                  status,
+                }),
+              },
+            });
+          };
           if (
             round.roundIndex + 1 >= GROUP_MAX_ROUNDS ||
             round.memberTurnOffset + round.deliveries.length >= GROUP_MAX_MEMBER_TURNS
           ) {
+            await finishGroupRoutine();
             return null;
           }
           const currentRunIds = round.deliveries
             .map((candidate) => candidate.run?.id)
             .filter((runId): runId is string => Boolean(runId));
-          if (currentRunIds.length === 0) return null;
+          if (currentRunIds.length === 0) {
+            await finishGroupRoutine();
+            return null;
+          }
           const latestReply = await tx.channelMessage.findFirst({
             where: {
               channelId: round.channelId,
@@ -1150,7 +1234,10 @@ export class AgentMessaging {
             },
             orderBy: { sequence: "desc" },
           });
-          if (!latestReply) return null;
+          if (!latestReply) {
+            await finishGroupRoutine();
+            return null;
+          }
           const next = await this.createGroupRound(tx, {
             channelId: round.channelId,
             triggerMessageId: latestReply.id,
@@ -1159,7 +1246,11 @@ export class AgentMessaging {
             roundIndex: round.roundIndex + 1,
             memberTurnOffset: round.memberTurnOffset + round.deliveries.length,
           });
-          return next.status === "completed" ? null : next.id;
+          if (next.status === "completed") {
+            await finishGroupRoutine();
+            return null;
+          }
+          return next.id;
         }
         const target = round.channel.members.find((member) => member.botId === delivery.botId)?.bot;
         if (!target || target.status !== "active") {
@@ -1182,14 +1273,19 @@ export class AgentMessaging {
           orderBy: { sequence: "desc" },
           select: { sequence: true },
         });
+        const earlierRunIds = round.deliveries
+          .filter((candidate) => candidate.ordinal < delivery.ordinal)
+          .flatMap((candidate) => (candidate.run ? [candidate.run.id] : []));
         const visible = (
           await tx.channelMessage.findMany({
             where: {
               channelId: round.channelId,
-              sequence: {
-                ...(lastTargetMessage ? { gt: lastTargetMessage.sequence } : { gte: rootSequence }),
-                lte: round.triggerMessage.sequence,
-              },
+              OR: groupVisibilityClauses({
+                rootSequence,
+                triggerSequence: round.triggerMessage.sequence,
+                lastTargetSequence: lastTargetMessage?.sequence ?? null,
+                earlierRunIds,
+              }),
             },
             include: { senderBot: true },
             orderBy: { sequence: "desc" },
@@ -1248,7 +1344,9 @@ export class AgentMessaging {
             senderId: message.senderBotId,
             senderName: message.senderBot?.name,
             content: message.content,
-            hasImages: inlineImagesFromMetadata(message.metadata).length > 0,
+            hasImages: attachmentsFromMetadata(message.metadata).some(
+              (attachment) => attachment.kind === "image"
+            ),
             reply: reply
               ? {
                   sender: reply.sender,
@@ -1263,6 +1361,7 @@ export class AgentMessaging {
           GROUP_MAX_MEMBER_TURNS - (round.memberTurnOffset + Math.max(0, delivery.ordinal) + 1);
         const content = buildGroupTurnPrompt({
           groupName: round.channel.name,
+          roomDescription: round.channel.description,
           targetId: target.id,
           targetName: target.name,
           members: round.channel.members.map((member) => ({
@@ -1281,7 +1380,7 @@ export class AgentMessaging {
           origin: "group",
           type: "group.message",
           content,
-          images: inlineImagesFromMetadata(round.triggerMessage.metadata),
+          attachments: attachmentsFromMetadata(round.triggerMessage.metadata),
           clientId: `group:${round.id}:${delivery.id}:attempt:${redeliveryAttempt}`,
           priority: PRIORITY.group,
           wrapUserContent: false,
@@ -1444,7 +1543,7 @@ export class AgentMessaging {
       source: { id: string; name: string };
       target: { id: string; name: string };
       content: string;
-      images: readonly AgentImageInput[];
+      attachments: readonly AssetRef[];
       createdAt: Date;
     }
   ): Promise<{ targetDmChannelId: string }> {
@@ -1466,7 +1565,7 @@ export class AgentMessaging {
           channelId: sourceDmChannelId,
           clientId: `a2a:out:${input.messageKey}`,
           metadata: json({
-            ...(input.images.length > 0 ? { images: input.images } : {}),
+            ...(input.attachments.length > 0 ? { attachments: input.attachments } : {}),
             toAgent: { id: input.target.id, name: input.target.name, kind: "agent" },
           }),
         },
@@ -1476,7 +1575,7 @@ export class AgentMessaging {
           channelId: targetDmChannelId,
           clientId: `a2a:in:${input.messageKey}`,
           metadata: json({
-            ...(input.images.length > 0 ? { images: input.images } : {}),
+            ...(input.attachments.length > 0 ? { attachments: input.attachments } : {}),
             fromAgent: { id: input.source.id, name: input.source.name },
           }),
         },
@@ -1498,25 +1597,24 @@ export class AgentMessaging {
       const specialization = subagentSpecializationInstructions(
         bot.subagentIdentity.subagentType as SubagentType
       );
-      const parentContext =
-        bot.subagentIdentity.subagentType === "computerUse" ||
-        bot.subagentIdentity.subagentType === "browserUse"
-          ? await this.graphicalSubagentParentContext(bot.subagentIdentity.parentBotId)
-          : "";
       const instructions = [
-        `You are ${bot.name}, a durable OpenBot background subagent.`,
-        "Your plain final assistant message is delivered privately to your parent agent. Do not call SendToUser or SendToAgent.",
+        `You are OpenBot running as the ${bot.subagentIdentity.subagentType} subagent.`,
+        "Complete the delegated task autonomously, then end your turn with a concise final assistant message in plain text. Only that final assistant message is relayed back to the parent agent as your result; text from earlier assistant messages is not included.",
+        "You have no way to talk to the user directly. Do not call SendToUser or SendToAgent.",
         specialization,
         bot.subagentIdentity.subagentType === "computerUse" ||
         bot.subagentIdentity.subagentType === "browserUse"
           ? "Your tool surface is intentionally specialized; GetDynamicTools, parent orchestration, agent administration, and channel administration are unavailable."
           : "The cursor namespace exposes TodoWrite only; parent orchestration and administration tools are unavailable.",
-        `The computer filesystem is shared. Your working folder is ${bot.defaultDirectory}; shared files live under /workspace/shared.`,
+        `The computer filesystem is shared. Every agent, room, routine, A2A wake, and subagent starts in ${bot.defaultDirectory}.`,
+        bot.subagentIdentity.subagentType === "computerUse" ||
+        bot.subagentIdentity.subagentType === "browserUse"
+          ? ""
+          : `Your current timezone is ${this.defaultTimeZone}.`,
         todoContext.length > 0
           ? `Your durable task list:\n${todoContext.join("\n")}`
           : "Your durable task list is empty.",
         bot.instructions ? `Subagent instructions:\n${bot.instructions}` : "",
-        parentContext,
       ]
         .filter(Boolean)
         .join("\n\n");
@@ -1525,6 +1623,9 @@ export class AgentMessaging {
         userInfo: null,
         userInfoEpoch: null,
         todoUpdate: todoContext.length > 0 ? todoContext.join("\n") : null,
+        agentProfileSnapshot: null,
+        memorySnapshot: null,
+        agentProfileUpdate: null,
       };
     }
     const agentPrompt = await this.agentData.promptContext(botId, contextSessionId);
@@ -1583,7 +1684,7 @@ export class AgentMessaging {
     );
     const instructions = [
       agentPrompt.profileSection,
-      agentPrompt.identityAnnouncement,
+      bot.instructions ? `Additional durable instructions:\n${bot.instructions}` : "",
       "SendToUser is your only user-visible voice. Plain assistant text is internal and never appears in OpenBot chat.",
       "Use GetDynamicTools with namespace cursor to discover SendToAgent, TodoWrite, Task/CheckSubagent/MessageSubagent/StopSubagent, CreateAgent/UpdateAgent, and CreateChannel/UpdateChannel. Invoke discovered tools with CallDynamicTool.",
       A2A_PLATFORM_INSTRUCTIONS,
@@ -1594,10 +1695,10 @@ export class AgentMessaging {
         : "The durable task queue is empty.",
       "In a room wake, speak only when you add something useful. Finishing without SendToUser is a valid silent turn.",
       "Use update_state for durable memory, scheduled routines, skills, profile, settings, connector disconnects, projects, and avatars. It is a write API. The current durable state relevant to you is supplied below on every turn.",
-      `Your authoritative, hand-editable durable state is ${this.agentData.root}/agents/${botId}. It contains profile.json, settings.json, optional instructions.md, an optional canonical avatar.<png|jpg|jpeg|webp|gif|svg> file, Markdown memory, per-bot skills, and automation definitions. Global user memory uses independent writer shards under ${this.agentData.root}/user-memory/by-agent. Project memory is under ${this.agentData.root}/projects/<project>/memory/by-agent/${botId}. Valid edits are imported before each turn. Files are the source of truth; deleting a fact line, avatar file, skill folder, or automation folder deletes that state instead of regenerating it from PostgreSQL.`,
-      `Your effective settings are hiddenFromSidebar=${bot.hiddenFromSidebar}, notifyOnAgentUpdates=${bot.notificationsEnabled}, and dreamingEnabled=${bot.dreamingEnabled}.`,
-      `The computer filesystem is shared. Your default working folder is ${bot.defaultDirectory}. Shared cross-bot files belong under /workspace/shared; each group has its own project folder listed below. Folder paths organize work but are not security boundaries.`,
-      `Safe peer-readable transcript mirrors live under /home/openbot/agent-data/agent-transcripts/<bot-id>/<bot-id>.jsonl. Read one only when a task-relevant reason requires it. They are redacted reference projections, not private model context or raw Pi session history.`,
+      `Your authoritative, hand-editable durable state is ${this.agentData.root}/agents/${botId}. It contains profile.json, settings.json, an optional canonical avatar.<png|jpg|jpeg|webp|gif|svg> file, Markdown memory, and automation definitions. Saved skills are global to every agent under ${this.agentData.root}/workflows/<slug>/SKILL.md. Global user memory uses independent writer shards under ${this.agentData.root}/user-memory/by-agent. Project memory is under ${this.agentData.root}/projects/<project>/memory/by-agent/${botId}. Valid edits are imported before each turn. Files are the source of truth; deleting a fact line, avatar file, workflow folder, or automation folder deletes that state instead of regenerating it from PostgreSQL.`,
+      `Your effective settings are hiddenFromSidebar=${bot.hiddenFromSidebar} and notifyOnAgentUpdates=${bot.notificationsEnabled}. Memory dreaming is a host-level experiment, not an agent setting.`,
+      `The computer filesystem is shared. Every agent, room, routine, A2A wake, and subagent starts in ${bot.defaultDirectory}. This shared folder is organizational, not a security boundary.`,
+      `Safe peer-readable transcript mirrors live under /home/box/agent-data/agent-transcripts/<bot-id>/<bot-id>.jsonl. Read one only when a task-relevant reason requires it. They are redacted reference projections, not private model context or raw Pi session history.`,
       targets.length > 0
         ? `Available SendToAgent targets:\n${targets.join("\n")}`
         : "No peer or group targets are currently available.",
@@ -1622,41 +1723,18 @@ export class AgentMessaging {
     const userInfo = renderAgentSkillsUserInfo(agentPrompt.skillRender);
     return {
       instructions,
+      agentProfileUpdate: agentPrompt.identityAnnouncement || null,
       userInfo,
       userInfoEpoch: agentPrompt.compactionEpoch,
       todoUpdate: todoContext.length > 0 ? todoContext.join("\n") : null,
+      agentProfileSnapshot: agentPrompt.profileSnapshot,
+      memorySnapshot: agentPrompt.memorySnapshot,
     };
   }
 
   async platformInstructions(botId: string, contextSessionId?: string): Promise<string> {
     const prompt = await this.platformPrompt(botId, contextSessionId);
     return [prompt.instructions, prompt.userInfo].filter(Boolean).join("\n\n");
-  }
-
-  private async graphicalSubagentParentContext(parentBotId: string): Promise<string> {
-    const [prompt, projects, groups, routines] = await Promise.all([
-      this.agentData.promptContext(parentBotId),
-      this.prisma.projectMember.findMany({
-        where: { botId: parentBotId },
-        include: { project: true },
-        orderBy: { joinedAt: "asc" },
-      }),
-      this.prisma.channel.findMany({
-        where: {
-          kind: "group",
-          archivedAt: null,
-          members: { some: { botId: parentBotId } },
-        },
-        select: { id: true, name: true, workingDirectory: true },
-        orderBy: { createdAt: "asc" },
-      }),
-      this.prisma.routine.findMany({
-        where: { botId: parentBotId, deletedAt: null },
-        orderBy: { updatedAt: "desc" },
-        take: 50,
-      }),
-    ]);
-    return renderGraphicalSubagentParentContext({ prompt, projects, groups, routines });
   }
 
   async sendToAgent(context: ToolContext, input: SendToAgentInput): Promise<ToolResult> {
@@ -1703,7 +1781,6 @@ export class AgentMessaging {
           return {
             acknowledgement: groupAgentAcknowledgement(group.name, {
               imageCount: input.images?.length,
-              priority: input.priority,
             }),
             interruptRunId: null,
           };
@@ -1767,7 +1844,6 @@ export class AgentMessaging {
         return {
           acknowledgement: groupAgentAcknowledgement(group.name, {
             imageCount: input.images?.length,
-            priority: input.priority,
           }),
           interruptRunId: null,
         };
@@ -1783,14 +1859,16 @@ export class AgentMessaging {
         },
       });
       if (target?.id === source.id) {
-        throw new Error("You can't message yourself with SendToAgent.");
+        throw new Error(
+          "You can't message yourself with SendToAgent. Use SendToUser to talk to the user, or pick a different target id."
+        );
       }
       if (
         !target ||
         !["active", "provisioning"].includes(target.status) ||
         target.subagentIdentity
       ) {
-        throw new Error("Target agent was not found or is not eligible");
+        throw new Error(`No agent found with id ${input.target_id}.`);
       }
       const directContent = clampAgentMessage(input.message);
       if (!directContent) {
@@ -1825,13 +1903,14 @@ export class AgentMessaging {
         : null;
       const interruptRunId = lease && lease.run.origin !== "user" ? lease.runId : null;
       const occurredAt = new Date();
+      const attachments = await this.attachmentsForWake({ images: input.images ?? [] });
       const { targetDmChannelId } = await this.projectDirectPeerMessage(tx, {
         messageKey: context.callId,
         sourceRunId: context.runId,
         source: { id: source.id, name: source.name },
         target: { id: target.id, name: target.name },
         content: directContent,
-        images: input.images ?? [],
+        attachments,
         createdAt: occurredAt,
       });
       await this.scheduleTranscriptProjection(tx, [source.id, target.id]);
@@ -1846,6 +1925,7 @@ export class AgentMessaging {
           message: directContent,
           priority: Boolean(input.priority),
           interrupted: Boolean(interruptRunId),
+          images: input.images,
           routineStatuses: target.routines.map((routine) => ({
             name: routine.name,
             folder: routine.slug,
@@ -1855,10 +1935,10 @@ export class AgentMessaging {
             ),
           })),
         }),
-        images: input.images ?? [],
+        attachments,
         clientId: `agent:${context.callId}:${target.id}`,
         priority: input.priority ? PRIORITY.urgentAgent : PRIORITY.agent,
-        wrapUserContent: false,
+        includeAttachmentPaths: false,
         occurredAt,
         timeZone: resolveTimeZone(context.timeZone ?? this.defaultTimeZone),
       });
@@ -1974,7 +2054,9 @@ export class AgentMessaging {
   }
 
   async sendVisible(context: ToolContext, input: AgentSendToUserInput): Promise<ToolResult> {
-    const content = this.visibleContent(input);
+    const persistedInput = await this.persistedVisibleInput(input);
+    const standalone = persistedInput.attachment as AssetRef | undefined;
+    const content = standalone?.fileName ?? this.visibleContent(input);
     const result = await this.prisma.$transaction(async (tx) => {
       const activeChannel = await tx.channel.findFirst({
         where: {
@@ -2067,11 +2149,11 @@ export class AgentMessaging {
           throw new ApiError(
             409,
             "group_response_already_sent",
-            `Each member may call SendToUser at most ${GROUP_MAX_MESSAGES_PER_TURN} times during its group turn`
+            GROUP_MEMBER_TURN_MESSAGE_LIMIT_NOTICE
           );
         }
       }
-      const { reply_to: _replyTo, ...visibleInput } = input;
+      const { reply_to: _replyTo, ...visibleInput } = persistedInput;
       const message = await tx.channelMessage.create({
         data: {
           channelId: channel.id,
@@ -2109,6 +2191,24 @@ export class AgentMessaging {
     return result;
   }
 
+  private async persistedVisibleInput(
+    input: AgentSendToUserInput
+  ): Promise<Record<string, unknown> & { reply_to?: string }> {
+    const { images, url, ...rest } = input;
+    if (input.type === "attachment") {
+      if (!url) throw new Error("url is required when type is attachment");
+      return {
+        ...rest,
+        attachment: await this.assets.ingestSource({ url, alt: input.alt }),
+      };
+    }
+    if (input.type === "text" && images?.length) {
+      const attachments = await this.attachmentsForWake({ images });
+      return { ...rest, attachments };
+    }
+    return rest;
+  }
+
   private visibleContent(input: AgentSendToUserInput): string {
     if (input.type === "text") {
       if (!input.content?.trim()) throw new Error("content is required when type is text");
@@ -2141,6 +2241,14 @@ export {
   scheduledRoutineTriggerContext,
   scheduledRoutineWakeContent,
 } from "./routines";
+export {
+  appendAgentTimelineEvent,
+  buildTimelineEventWakePrompt,
+  describeAgentTimelineEvent,
+  type AgentTimelineEvent,
+  type AutomationChangedAction,
+  type TimelineEventWakeHost,
+} from "./timeline-events";
 export {
   formatTurnTimestamp,
   resolveTimeZone,

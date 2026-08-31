@@ -1,5 +1,7 @@
 // biome-ignore-all lint/suspicious/noThenProperty: The external Computer contract intentionally names its action sequence "then".
+
 import { describe, expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 import { Schema } from "effect";
 import {
   CALL_DYNAMIC_TOOL_TOOL,
@@ -14,6 +16,7 @@ import {
   EXTERNAL_READ_TOOL,
   EXTERNAL_SHELL_TOOL,
   GET_DYNAMIC_TOOLS_TOOL,
+  NATIVE_TOOL_NAMES,
   NATIVE_TOOLS,
   REACT_TO_MESSAGE_TOOL,
   READ_TOOL,
@@ -23,15 +26,20 @@ import {
   ScreenActionInput,
   SendMessageInput,
   SendToAgentInput,
+  SetChannelAvatarInput,
   SHELL_TOOL,
   TaskInput,
   TodoWriteInput,
   UPDATE_STATE_TOOL,
   UpdateBotInput,
+  UpdateChannelProfileInput,
   UpdateStateInput,
+  UploadAssetInput,
 } from "../src";
 import cursorToolsDocument from "../src/cursor-tools.json";
 import nativeToolsDocument from "../src/native-tools.json";
+
+const sha256 = (value: string): string => createHash("sha256").update(value).digest("hex");
 
 describe("API contracts", () => {
   test("accepts a valid bot", () => {
@@ -93,29 +101,42 @@ describe("API contracts", () => {
     });
   });
 
-  test("accepts inline image uploads and rejects remote image URLs", () => {
-    const image = { url: "data:image/png;base64,iVBORw0KGgo=" };
+  test("accepts canonical attachment references and rejects inline message bytes", () => {
+    const attachment = {
+      assetId: "a".repeat(64),
+      fileName: "upload.png",
+      mimeType: "image/png",
+      byteSize: 12,
+      kind: "image" as const,
+    };
     expect(
       Schema.decodeUnknownSync(SendMessageInput)({
         content: "What is in this image?",
         clientId: "message-image-1",
-        images: [image],
+        attachments: [attachment],
       })
-    ).toMatchObject({ images: [image] });
+    ).toMatchObject({ attachments: [attachment] });
     expect(
       Schema.decodeUnknownSync(SendMessageInput)({
         content: "",
         clientId: "message-image-only-1",
-        images: [image],
+        attachments: [attachment],
       })
-    ).toMatchObject({ content: "", images: [image] });
+    ).toMatchObject({ content: "", attachments: [attachment] });
     expect(() =>
       Schema.decodeUnknownSync(SendMessageInput)({
-        content: "Fetch this",
+        content: "",
         clientId: "message-image-2",
-        images: [{ url: "https://example.com/image.png" }],
+        images: [{ url: "data:image/png;base64,AQID" }],
       })
     ).toThrow();
+    expect(
+      Schema.decodeUnknownSync(UploadAssetInput)({
+        fileName: "upload.png",
+        mimeType: "image/png",
+        bytesBase64: "AQID",
+      })
+    ).toMatchObject({ fileName: "upload.png", bytesBase64: "AQID" });
   });
 
   test("matches Grokbot's file, HTTPS, and data URL image schema for direct A2A", () => {
@@ -172,6 +193,42 @@ describe("API contracts", () => {
     ).toThrow();
   });
 
+  test("validates setting and clearing a group avatar", () => {
+    expect(
+      Schema.decodeUnknownSync(SetChannelAvatarInput)({
+        pngBase64: "iVBORw0KGgo=",
+        clientId: "group-avatar-set-1",
+      })
+    ).toEqual({ pngBase64: "iVBORw0KGgo=", clientId: "group-avatar-set-1" });
+    expect(
+      Schema.decodeUnknownSync(SetChannelAvatarInput)({
+        pngBase64: null,
+        clientId: "group-avatar-clear-1",
+      })
+    ).toEqual({ pngBase64: null, clientId: "group-avatar-clear-1" });
+  });
+
+  test("validates persisted group name and description updates", () => {
+    expect(
+      Schema.decodeUnknownSync(UpdateChannelProfileInput)({
+        name: "Parity room",
+        description: "Coordinate exact A2A checks.",
+        clientId: "group-profile-1",
+      })
+    ).toEqual({
+      name: "Parity room",
+      description: "Coordinate exact A2A checks.",
+      clientId: "group-profile-1",
+    });
+    expect(() =>
+      Schema.decodeUnknownSync(UpdateChannelProfileInput)({
+        name: "Parity room",
+        description: "x".repeat(2_001),
+        clientId: "group-profile-2",
+      })
+    ).toThrow();
+  });
+
   test("validates a live steering delivery", () => {
     expect(
       Schema.decodeUnknownSync(ComputerSteerRequest)({
@@ -202,6 +259,7 @@ describe("API contracts", () => {
         todoUpdate: "- [in_progress] audit: Review parity",
         automationTrigger: "<automation_trigger_info>Scheduled audit</automation_trigger_info>",
         resetSelfSummaryCount: false,
+        requestSource: "event",
         channelId: "channel-1",
         deliveryId: null,
         runtimeProfile: "subagent",
@@ -234,6 +292,7 @@ describe("API contracts", () => {
       todoUpdate: "- [in_progress] audit: Review parity",
       automationTrigger: "<automation_trigger_info>Scheduled audit</automation_trigger_info>",
       resetSelfSummaryCount: false,
+      requestSource: "event",
       dynamicNamespaces: [{ name: "utility_default" }],
     });
   });
@@ -314,20 +373,21 @@ describe("API contracts", () => {
     expect(COMPUTER_USE_TOOL.inputSchema.properties.then.maxItems).toBe(9);
   });
 
-  test("declares the attachment's ten native tools", () => {
+  test("declares the current native tools, including machine discovery", () => {
     expect(NATIVE_TOOLS.map((tool) => tool.name)).toEqual([
       "SendToUser",
       "ReactToMessage",
       "update_state",
       "ExternalShell",
       "ExternalRead",
+      "ListMachines",
       "Shell",
       "Read",
       "Screenshot",
       "GetDynamicTools",
       "CallDynamicTool",
     ]);
-    expect(NATIVE_TOOLS).toHaveLength(10);
+    expect(NATIVE_TOOLS).toHaveLength(11);
     expect(
       NATIVE_TOOLS.map(({ name, description, inputSchema }) => ({
         name,
@@ -343,6 +403,74 @@ describe("API contracts", () => {
     expect(READ_TOOL.name).toBe("Read");
     expect(GET_DYNAMIC_TOOLS_TOOL.name).toBe("GetDynamicTools");
     expect(CALL_DYNAMIC_TOOL_TOOL.name).toBe("CallDynamicTool");
+    expect(NATIVE_TOOL_NAMES).not.toContain("SendMessage");
+  });
+
+  test("keeps the source-verified Grok Bot delivery contracts byte-exact", () => {
+    const sendToUser = NATIVE_TOOLS.find((tool) => tool.name === "SendToUser");
+    const reactToMessage = NATIVE_TOOLS.find((tool) => tool.name === "ReactToMessage");
+    const sendToAgent = CURSOR_TOOLS.find((tool) => tool.tool === "SendToAgent");
+
+    expect(sendToUser?.description.length).toBe(7_821);
+    expect(Buffer.byteLength(sendToUser?.description ?? "")).toBe(7_841);
+    expect(sha256(sendToUser?.description ?? "")).toBe(
+      "95b69e1a3776f1b7fbf31d4155df9237b03a4188859661e51a841dc329fdc27f"
+    );
+    expect(reactToMessage?.description.length).toBe(825);
+    expect(Buffer.byteLength(reactToMessage?.description ?? "")).toBe(829);
+    expect(sha256(reactToMessage?.description ?? "")).toBe(
+      "0b4655e131077fce1bcb5cae86c4bc99239bbb934598198b6aa8e7c3f7178840"
+    );
+    expect(sendToAgent?.description.length).toBe(2_268);
+    expect(Buffer.byteLength(sendToAgent?.description ?? "")).toBe(2_280);
+    expect(sha256(sendToAgent?.description ?? "")).toBe(
+      "f0f5168923bd58764ab4f280acf5f8b5acf507dc1ded3e2109357b5675f0e7c4"
+    );
+
+    const sendToUserSchema = sendToUser?.inputSchema as {
+      properties: Record<string, unknown>;
+      required: string[];
+    };
+    const reactToMessageSchema = reactToMessage?.inputSchema as {
+      properties: Record<string, unknown>;
+      required: string[];
+    };
+    const sendToAgentSchema = sendToAgent?.inputSchema as {
+      properties: Record<string, unknown>;
+      required: string[];
+    };
+    expect(sha256(JSON.stringify(sendToUserSchema))).toBe(
+      "90b89e4d71742a8e54755fa34c1aa19c5c0fc103bdde128d598a1bdea583c627"
+    );
+    expect(sha256(JSON.stringify(reactToMessageSchema))).toBe(
+      "4d3fca3dcb7ae3691ae2c44d0777d80e9d51ce82be88260aab067bfca71ebfe6"
+    );
+    expect(sha256(JSON.stringify(sendToAgentSchema))).toBe(
+      "cae8e0f52bd28106cf8f4c4c9b187271fed27c5ff60c8df01e81c3053723086f"
+    );
+    expect(Object.keys(sendToUserSchema.properties)).toEqual([
+      "alt",
+      "bcId",
+      "channel",
+      "content",
+      "images",
+      "reply_to",
+      "secret",
+      "to",
+      "type",
+      "url",
+      "widget",
+    ]);
+    expect(sendToUserSchema.required).toEqual(["type"]);
+    expect(Object.keys(reactToMessageSchema.properties)).toEqual(["emoji", "message_address"]);
+    expect(reactToMessageSchema.required).toEqual(["message_address", "emoji"]);
+    expect(Object.keys(sendToAgentSchema.properties)).toEqual([
+      "target_id",
+      "message",
+      "images",
+      "priority",
+    ]);
+    expect(sendToAgentSchema.required).toEqual(["target_id", "message"]);
   });
 
   test("declares only the approved ten-tool Cursor-compatible subset", () => {
@@ -360,6 +488,27 @@ describe("API contracts", () => {
     ]);
     expect(CURSOR_TOOLS).toEqual(cursorToolsDocument.cursor);
     const taskTool = CURSOR_TOOLS.find((tool) => tool.tool === "Task");
+    const taskSchema = taskTool?.inputSchema as {
+      properties: Record<string, { description?: string }>;
+      required: string[];
+    };
+    expect(Object.keys(taskSchema.properties)).toEqual([
+      "description",
+      "prompt",
+      "model",
+      "resume",
+      "subagent_type",
+      "file_attachments",
+      "run_in_background",
+    ]);
+    expect(taskSchema.required).toEqual(["description", "prompt"]);
+    expect(taskSchema.properties.description?.description).toBe(
+      "A short, user-friendly title for the subagent. This appears in the UI as the subagent's name. Make it concrete and distinct, consider recent titles to avoid reuse. For resumed subagents which you are prompting to work on a separate task, give an updated description based on the latest work the subagent is performing. (Do not rename if the subagent is continuing work on the same high-level task.)"
+    );
+    expect(taskSchema.properties.prompt?.description).toBe("The task for the agent to perform");
+    expect(taskSchema.properties.subagent_type?.description).toBe(
+      "Subagent type to use for this task. Must be one of: executor, videoReview, watchVideo, computerUse, browserUse."
+    );
     expect(taskTool?.description).toContain("private wakes for you");
     expect(taskTool?.description).toContain("do not add a Task card");
     expect(taskTool?.description).not.toContain("already include a user-visible summary portion");
@@ -427,12 +576,5 @@ describe("API contracts", () => {
       action: "create",
       schedule: "@daily",
     });
-    expect(
-      Schema.decodeUnknownSync(UpdateStateInput)({
-        target: "settings",
-        action: "set",
-        dreaming_enabled: true,
-      })
-    ).toMatchObject({ dreaming_enabled: true });
   });
 });

@@ -65,7 +65,7 @@ export const renderSkillFile = (skill: {
 };
 
 export const writeSkillFile = async (
-  botDirectory: string,
+  skillsRoot: string,
   input: {
     slug?: string;
     name: string;
@@ -74,7 +74,6 @@ export const writeSkillFile = async (
     frontmatter?: Record<string, unknown>;
   }
 ): Promise<{ slug: string; path: string }> => {
-  const skillsRoot = join(botDirectory, "skills");
   await mkdir(skillsRoot, { recursive: true, mode: 0o700 });
   const occupied = new Set(await listDirectories(skillsRoot));
   const slug = input.slug ?? uniqueSlug(input.name, "skill", occupied);
@@ -85,17 +84,16 @@ export const writeSkillFile = async (
   return { slug, path };
 };
 
-export const deleteSkillFolder = async (botDirectory: string, slug: string): Promise<void> => {
-  await rm(join(botDirectory, "skills", slug), {
+export const deleteSkillFolder = async (skillsRoot: string, slug: string): Promise<void> => {
+  await rm(join(skillsRoot, slug), {
     recursive: true,
     force: true,
   });
 };
 
 export const readSkillCatalog = async (
-  botDirectory: string
+  skillsRoot: string
 ): Promise<Array<ParsedSkillFile & { slug: string; path: string }>> => {
-  const skillsRoot = join(botDirectory, "skills");
   const result: Array<ParsedSkillFile & { slug: string; path: string }> = [];
   for (const slug of await listDirectories(skillsRoot)) {
     const path = join(skillsRoot, slug, "SKILL.md");
@@ -104,7 +102,7 @@ export const readSkillCatalog = async (
     result.push({
       slug,
       path,
-      ...parseSkillFile(text, `skills/${slug}/SKILL.md`),
+      ...parseSkillFile(text, `workflows/${slug}/SKILL.md`),
     });
   }
   return result;

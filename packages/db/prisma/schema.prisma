@@ -83,6 +83,7 @@ enum RunOrigin {
   group
   bootstrap
   routine
+  event
 }
 
 enum RoutineScheduleKind {
@@ -133,6 +134,11 @@ enum OutboxStatus {
   delivering
   delivered
   failed
+}
+
+enum PushDevicePlatform {
+  ios
+  android
 }
 
 enum RunItemKind {
@@ -396,9 +402,9 @@ model MemoryFact {
 
 model SavedSkill {
   id          String   @id @default(uuid()) @db.Uuid
-  botId       String   @db.Uuid
-  bot         Bot      @relation(fields: [botId], references: [id], onDelete: Cascade)
-  slug        String
+  botId       String?  @db.Uuid
+  bot         Bot?     @relation(fields: [botId], references: [id], onDelete: SetNull)
+  slug        String   @unique
   name        String
   description String
   body        String
@@ -406,15 +412,16 @@ model SavedSkill {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  @@unique([botId, slug])
-  @@index([botId, name])
-  @@index([botId, updatedAt])
+  @@index([name])
+  @@index([updatedAt])
 }
 
 model Routine {
   id              String              @id @default(uuid()) @db.Uuid
-  botId           String              @db.Uuid
-  bot             Bot                 @relation(fields: [botId], references: [id], onDelete: Cascade)
+  botId           String?             @db.Uuid
+  bot             Bot?                @relation(fields: [botId], references: [id], onDelete: Cascade)
+  channelId       String?             @db.Uuid
+  channel         Channel?            @relation(fields: [channelId], references: [id], onDelete: Cascade)
   slug            String
   name            String
   prompt          String
@@ -443,7 +450,9 @@ model Routine {
 
   @@index([enabled, nextRunAt])
   @@index([botId, deletedAt, updatedAt])
+  @@index([channelId, deletedAt, updatedAt])
   @@unique([botId, slug])
+  @@unique([channelId, slug])
 }
 
 model RoutineRevision {
@@ -477,6 +486,8 @@ model RoutineExecution {
   routineRevision   RoutineRevision        @relation(fields: [routineRevisionId], references: [id], onDelete: Restrict)
   runId             String?                @unique @db.Uuid
   run               Run?                   @relation(fields: [runId], references: [id], onDelete: SetNull)
+  channelMessageId  String?                @unique @db.Uuid
+  channelMessage    ChannelMessage?        @relation("RoutineTriggerMessage", fields: [channelMessageId], references: [id], onDelete: SetNull)
   kind              RoutineExecutionKind
   status            RoutineExecutionStatus @default(queued)
   dedupeKey         String                 @unique
@@ -533,6 +544,8 @@ model Channel {
   id          String           @id @default(uuid()) @db.Uuid
   kind        ChannelKind
   name        String
+  description String           @default("")
+  avatarPath  String?
   directKey   String?          @unique
   workingDirectory String?
   archivedAt  DateTime?
@@ -540,10 +553,20 @@ model Channel {
   messages    ChannelMessage[]
   rounds      ChannelRound[]
   runs        Run[]
+  routines    Routine[]
+  readState   ChannelReadState?
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
 
   @@index([kind, updatedAt])
+}
+
+model ChannelReadState {
+  channelId        String   @id @db.Uuid
+  channel          Channel  @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  lastReadSequence BigInt   @default(0)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 }
 
 model ChannelMember {
@@ -573,6 +596,7 @@ model ChannelMessage {
   content        String               @default("")
   metadata       Json                 @default("{}")
   triggeredRound ChannelRound?        @relation("RoundTrigger")
+  routineExecution RoutineExecution?  @relation("RoutineTriggerMessage")
   createdAt      DateTime             @default(now())
 
   @@unique([channelId, clientId])
@@ -841,6 +865,21 @@ model OutboxDelivery {
   @@index([status, availableAt])
 }
 
+model PushDevice {
+  id             String             @id @default(uuid()) @db.Uuid
+  installationId String             @unique
+  platform       PushDevicePlatform
+  pushToken      String             @unique
+  enabled        Boolean            @default(true)
+  timeZone       String?
+  locale         String?
+  lastSeenAt     DateTime           @default(now())
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  @@index([enabled, platform, lastSeenAt])
+}
+
 model RunItem {
   id             String        @id @default(uuid()) @db.Uuid
   runId          String        @db.Uuid
@@ -934,6 +973,8 @@ model PluginConnection {
   status        PluginConnectionStatus @default(disconnected)
   statusMessage String?
   instructions  String                 @default("")
+  configuration Json                   @default("{}")
+  credentials   Json                   @default("{}")
   toolSnapshot  Json                   @default("[]")
   connectedAt   DateTime?
   lastCheckedAt DateTime?

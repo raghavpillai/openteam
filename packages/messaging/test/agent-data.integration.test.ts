@@ -6,9 +6,63 @@ import { join } from "node:path";
 import { createPrismaClient } from "@openbot/db";
 import { AgentDataStore, type MemoryInferenceRequest } from "../src/agent-data";
 import { readMemoryTree } from "../src/memory-files";
+import { parseSkillFile } from "../src/skill-files";
 
 const databaseUrl = process.env.OPENBOT_TEST_DATABASE_URL;
 const hash = (value: string) => createHash("sha256").update(value).digest("hex");
+
+test("plugin and managed skill caches use the Grok filesystem contract", async () => {
+  const temporary = await mkdtemp(join(tmpdir(), "openbot-skill-caches-"));
+  const root = join(temporary, "agent-data");
+  const store = new AgentDataStore({} as never, {
+    root,
+    workspaceRoot: join(temporary, "workspace"),
+  });
+  try {
+    await store.syncPluginSkillCache([
+      {
+        id: "research-playbook",
+        name: "Research Playbook",
+        version: "1.0.0",
+        publisher: "OpenBot",
+        skills: [
+          {
+            name: "Source-led research",
+            description: "Verify changing claims against primary sources.",
+            body: "Separate sourced facts from inference.",
+          },
+        ],
+      },
+    ]);
+    const managed = JSON.parse(
+      await readFile(join(root, "managed-skills", "cache.json"), "utf8")
+    ) as { fetchedAt: number; skills: unknown[] };
+    expect(managed.fetchedAt).toBeNumber();
+    expect(managed.skills).toEqual([]);
+
+    const plugin = JSON.parse(
+      await readFile(join(root, "plugin-skills", "cache.json"), "utf8")
+    ) as {
+      currentUserId: string;
+      authBlocked: unknown[];
+      skills: Array<{ id: string; filePath: string; installPath: string }>;
+    };
+    expect(plugin.currentUserId).toBe("openbot");
+    expect(plugin.authBlocked).toEqual([]);
+    expect(plugin.skills).toHaveLength(1);
+    expect(plugin.skills[0]?.id).toBe("research-playbook-source-led-research");
+    expect(plugin.skills[0]?.filePath.startsWith(plugin.skills[0]?.installPath ?? "!")).toBe(true);
+    expect(
+      parseSkillFile(await readFile(plugin.skills[0]!.filePath, "utf8"), "plugin skill")
+    ).toMatchObject({
+      name: "Source-led research",
+      description: "Verify changing claims against primary sources.",
+      body: "Separate sourced facts from inference.",
+    });
+  } finally {
+    await rm(temporary, { recursive: true, force: true });
+  }
+});
 
 test("turn memory extracts, summarizes episodes, and synthesizes dreaming evidence", async () => {
   if (!databaseUrl) return;
@@ -20,49 +74,57 @@ test("turn memory extracts, summarizes episodes, and synthesizes dreaming eviden
   const botId = crypto.randomUUID();
   const requests: MemoryInferenceRequest[] = [];
   let synthesisAttempts = 0;
-  const store = new AgentDataStore(prisma, {
-    root,
-    workspaceRoot: workspace,
-    memorySynthesisDebounceMs: 60_000,
-    memoryInference: async (request) => {
-      requests.push(request);
-      if (request.kind === "extraction") {
-        return JSON.stringify({
-          facts: [{ content: "Prefers lifecycle tests.", kind: "profile" }],
-        });
-      }
-      if (request.kind === "episode") {
-        return JSON.stringify({ narrative: "Validated memory behavior over six turns." });
-      }
-      if (request.kind === "synthesis") {
-        synthesisAttempts += 1;
-        const prompt = JSON.parse(request.prompt) as {
-          evidence: Array<{ id: string }>;
-        };
-        if (synthesisAttempts === 1) {
-          return JSON.stringify({
-            changes: [
-              {
-                action: "create",
-                content: "This first proposal intentionally omits citations.",
-                kind: "log",
-              },
-            ],
-          });
-        }
+  const memoryInference = async (request: MemoryInferenceRequest) => {
+    requests.push(request);
+    if (request.kind === "extraction") {
+      return JSON.stringify({
+        facts: [{ content: "Prefers lifecycle tests.", kind: "profile" }],
+      });
+    }
+    if (request.kind === "episode") {
+      return JSON.stringify({ narrative: "Validated memory behavior over six turns." });
+    }
+    if (request.kind === "synthesis") {
+      synthesisAttempts += 1;
+      const prompt = JSON.parse(request.prompt) as {
+        evidence: Array<{ id: string }>;
+      };
+      if (synthesisAttempts === 1) {
         return JSON.stringify({
           changes: [
             {
               action: "create",
-              content: "Dreaming captured a verified preference.",
+              content: "This first proposal intentionally omits citations.",
               kind: "log",
-              sourceEvidenceIds: [prompt.evidence[0]?.id],
             },
           ],
         });
       }
-      return JSON.stringify({ approved: true });
-    },
+      return JSON.stringify({
+        changes: [
+          {
+            action: "create",
+            content: "Dreaming captured a verified preference.",
+            kind: "log",
+            sourceEvidenceIds: [prompt.evidence[0]?.id],
+          },
+        ],
+      });
+    }
+    return JSON.stringify({ approved: true });
+  };
+  const store = new AgentDataStore(prisma, {
+    root,
+    workspaceRoot: workspace,
+    memorySynthesisDebounceMs: 60_000,
+    memoryInference,
+  });
+  const dreamingStore = new AgentDataStore(prisma, {
+    root,
+    workspaceRoot: workspace,
+    memoryDreamingEnabled: true,
+    memorySynthesisDebounceMs: 60_000,
+    memoryInference,
   });
 
   try {
@@ -96,12 +158,11 @@ test("turn memory extracts, summarizes episodes, and synthesizes dreaming eviden
       ])
     );
 
-    await prisma.bot.update({ where: { id: botId }, data: { dreamingEnabled: true } });
-    await store.recordTurnMemory(botId, {
+    await dreamingStore.recordTurnMemory(botId, {
       user: "A dreaming turn should be synthesized.",
       assistant: "This is evidence for the synthesizer.",
     });
-    await store.runMemorySynthesisNow();
+    await dreamingStore.runMemorySynthesisNow();
     expect(
       (await readMemoryTree(store.memoryDirectory(botId, "agent"))).map((fact) => fact.content)
     ).toContain("Dreaming captured a verified preference.");
@@ -111,6 +172,7 @@ test("turn memory extracts, summarizes episodes, and synthesizes dreaming eviden
     expect(requests.filter((request) => request.kind === "verification")).toHaveLength(1);
   } finally {
     await store.stopMemoryLifecycle();
+    await dreamingStore.stopMemoryLifecycle();
     await prisma.bot.deleteMany({ where: { id: botId } });
     await prisma.$disconnect();
     await rm(temporary, { recursive: true, force: true });
@@ -153,7 +215,6 @@ test("agent-data files are authoritative and preserve malformed settings", async
         onboardingStatus: "completed",
         notificationsEnabled: false,
         hiddenFromSidebar: true,
-        dreamingEnabled: true,
         conversation: { create: { id: conversationId } },
       },
     });
@@ -171,6 +232,7 @@ test("agent-data files are authoritative and preserve malformed settings", async
         id: groupId,
         kind: "group",
         name: "Filesystem room",
+        description: "Coordinates filesystem parity.",
         workingDirectory: join(workspace, "projects", "filesystem-room"),
         members: { create: { botId, ordinal: 0 } },
       },
@@ -218,6 +280,9 @@ test("agent-data files are authoritative and preserve malformed settings", async
     expect(JSON.parse(await readFile(join(root, "agents", groupId, "group.json"), "utf8"))).toEqual(
       { version: 1, memberIds: [botId] }
     );
+    expect(
+      JSON.parse(await readFile(join(root, "agents", groupId, "profile.json"), "utf8"))
+    ).toEqual({ name: "Filesystem room", description: "Coordinates filesystem parity." });
     await mkdir(join(botDirectory, "memory", "log"), { recursive: true });
     await mkdir(join(botDirectory, "skills", skillId), { recursive: true });
     const avatarPath = join(workspace, "avatar.png");
@@ -246,7 +311,6 @@ test("agent-data files are authoritative and preserve malformed settings", async
         {
           hiddenFromSidebar: true,
           notifyOnAgentUpdates: false,
-          dreamingEnabled: true,
         },
         null,
         2
@@ -333,7 +397,6 @@ test("agent-data files are authoritative and preserve malformed settings", async
       color: "#123456",
       hiddenFromSidebar: true,
       notificationsEnabled: false,
-      dreamingEnabled: true,
       avatarPath: await realpath(join(botDirectory, "avatar.png")),
     });
     expect(await readFile(join(botDirectory, "avatar.png"))).toEqual(Buffer.from(avatarBytes));
@@ -424,7 +487,7 @@ test("agent-data files are authoritative and preserve malformed settings", async
     const malformed = "{ definitely not json\n";
     await writeFile(join(botDirectory, "settings.json"), malformed);
     const warning = await store.reconcileBot(botId);
-    expect(warning.warnings.join("\n")).toContain("settings.json is not valid JSON");
+    expect(warning.warnings).toEqual([]);
     await store.projectBot(botId);
     expect(await readFile(join(botDirectory, "settings.json"), "utf8")).toBe(malformed);
   } finally {
@@ -505,6 +568,9 @@ test("subagent actors stay hidden and outside agent-data projection", async () =
 
     await store.projectBot(childBotId);
     await expect(access(store.botDirectory(childBotId))).rejects.toThrow();
+    await mkdir(store.assetRoot, { recursive: true });
+    const retainedAsset = join(store.assetRoot, "retained.blob");
+    await writeFile(retainedAsset, "active attachment bytes");
 
     await store.reconcileAllActiveBots();
 
@@ -513,6 +579,7 @@ test("subagent actors stay hidden and outside agent-data projection", async () =
       notificationsEnabled: false,
     });
     await expect(access(store.botDirectory(childBotId))).rejects.toThrow();
+    expect(await readFile(retainedAsset, "utf8")).toBe("active attachment bytes");
   } finally {
     await prisma.subagent.deleteMany({ where: { id: subagentId } });
     await prisma.bot.deleteMany({ where: { id: { in: [childBotId, parentBotId] } } });

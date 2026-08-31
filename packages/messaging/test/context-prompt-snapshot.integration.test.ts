@@ -86,6 +86,18 @@ test("profile, first-fact memory, and skills freeze independently per context ep
     expect(frozenHome.skillRender).toBe("");
     expect(frozenGroup.skillRender).toBe("");
 
+    await store.writeMemory(botId, {
+      scope: "user",
+      tier: "profile",
+      fact: "A later global fact waits for the next compaction epoch.",
+    });
+    expect((await store.promptContext(botId, homeContextId)).memoryRender).not.toContain(
+      "A later global fact waits for the next compaction epoch."
+    );
+    expect((await store.promptContext(botId, groupContextId)).memoryRender).not.toContain(
+      "A later global fact waits for the next compaction epoch."
+    );
+
     await store.acknowledgeIdentityAnnouncement(botId, homeContextId);
     expect((await store.promptContext(botId, homeContextId)).identityAnnouncement).toBe("");
     expect((await store.promptContext(botId, groupContextId)).identityAnnouncement).toContain(
@@ -118,10 +130,16 @@ test("profile, first-fact memory, and skills freeze independently per context ep
     const stillFrozenHome = await store.promptContext(botId, homeContextId);
     expect(refreshedGroup.profileSection).toContain("Snapshot Renamed");
     expect(refreshedGroup.memoryRender).toContain("Second fact waits for compaction.");
+    expect(refreshedGroup.memoryRender).toContain(
+      "A later global fact waits for the next compaction epoch."
+    );
     expect(refreshedGroup.skillRender).toContain("Epoch skill");
     expect(refreshedGroup.skillRender).not.toContain("PRIVATE_SKILL_BODY_SHOULD_NOT_BE_CATALOGUED");
     expect(stillFrozenHome.profileSection).toContain("Snapshot Original");
     expect(stillFrozenHome.memoryRender).not.toContain("Second fact waits for compaction.");
+    expect(stillFrozenHome.memoryRender).not.toContain(
+      "A later global fact waits for the next compaction epoch."
+    );
     expect(stillFrozenHome.skillRender).toBe("");
 
     await prisma.contextSession.update({
@@ -131,6 +149,9 @@ test("profile, first-fact memory, and skills freeze independently per context ep
     const refreshedHome = await store.promptContext(botId, homeContextId);
     expect(refreshedHome.profileSection).toContain("Snapshot Renamed");
     expect(refreshedHome.memoryRender).toContain("Second fact waits for compaction.");
+    expect(refreshedHome.memoryRender).toContain(
+      "A later global fact waits for the next compaction epoch."
+    );
     expect(refreshedHome.skillRender).toContain("Epoch skill");
 
     const snapshots = await prisma.contextPromptSnapshot.findMany({
@@ -152,6 +173,10 @@ test("profile, first-fact memory, and skills freeze independently per context ep
     expect((await store.promptContext(botId, groupContextId)).memoryRender).not.toContain(
       "Second fact waits for compaction."
     );
+    await store.forgetMemory(botId, {
+      scope: "user",
+      fact: "A later global fact waits for the next compaction epoch.",
+    });
   } finally {
     await store.stopMemoryLifecycle();
     await prisma.bot.deleteMany({ where: { id: botId } });

@@ -1,9 +1,17 @@
 import { createHash, randomUUID } from "node:crypto";
-import { lookup } from "node:dns/promises";
-import { appendFile, chmod, mkdir, readFile, realpath, rename, rm, stat } from "node:fs/promises";
-import { isIP } from "node:net";
+import {
+  appendFile,
+  chmod,
+  mkdir,
+  readFile,
+  readdir,
+  realpath,
+  rename,
+  rm,
+  stat,
+} from "node:fs/promises";
 import { extname, join, relative, resolve, sep } from "node:path";
-import { fileURLToPath } from "node:url";
+import type { AssetRef } from "@openbot/contracts";
 import { Prisma, type PrismaClient } from "@openbot/db";
 import { type FSWatcher, watch } from "chokidar";
 import { parseDocument } from "yaml";
@@ -12,6 +20,7 @@ import {
   parseAutomationFile,
   writeAutomationFiles,
 } from "./automation-files";
+import { triggerIdentity } from "./automation-trigger";
 import {
   atomicWrite,
   digest,
@@ -46,9 +55,9 @@ import {
   tombstoneMemory,
 } from "./memory-files";
 import { deleteSkillFolder, parseSkillFile, renderSkillFile, writeSkillFile } from "./skill-files";
+import type { AgentTimelineEvent } from "./timeline-events";
 
 const MAX_AVATAR_BYTES = 5 * 1024 * 1024;
-const MAX_A2A_IMAGE_BYTES = 20 * 1024 * 1024;
 const AVATAR_EXTENSIONS = [".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"] as const;
 const MAX_PENDING_DREAMING_AGENTS = 64;
 const MAX_PENDING_DREAMING_EVIDENCE = 12;
@@ -63,93 +72,12 @@ const AGENT_LOCK = "openbot-agent-data";
 const ROOT_SETTINGS_VERSION = 1;
 const MAX_FILE_WARNINGS = 20;
 const MAX_FACT_ROWS = 20_000;
-const MAX_SAVED_SKILLS_PER_BOT = 100;
+const MAX_SAVED_SKILLS = 100;
 const UUID_FOLDER = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const SQLITE_RUNTIME_FILE = /(?:^|\/)(?:store|conversation-blobs)\.db(?:-(?:wal|shm))?$/;
 
-const privateNetworkAddress = (address: string): boolean => {
-  const normalized = address.toLowerCase();
-  if (normalized === "::1" || normalized === "::" || normalized.startsWith("fe80:")) return true;
-  if (normalized.startsWith("fc") || normalized.startsWith("fd")) return true;
-  const mapped = normalized.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/)?.[1];
-  const ipv4 = mapped ?? (isIP(normalized) === 4 ? normalized : null);
-  if (!ipv4) return false;
-  const octets = ipv4.split(".").map(Number);
-  const [a = 0, b = 0] = octets;
-  return (
-    a === 0 ||
-    a === 10 ||
-    a === 127 ||
-    (a === 169 && b === 254) ||
-    (a === 172 && b >= 16 && b <= 31) ||
-    (a === 192 && b === 168) ||
-    a >= 224
-  );
-};
+export type BotFileTarget = "profile" | "settings" | "instructions" | "avatar" | "projects";
 
-const publicHttpsImage = async (original: string, redirects = 0): Promise<Buffer> => {
-  if (redirects > 3) throw new Error("A2A image URL redirected too many times");
-  const url = new URL(original);
-  if (url.protocol !== "https:") throw new Error("A2A image URL must use HTTPS");
-  if (url.username || url.password) throw new Error("A2A image URL cannot contain credentials");
-  const hostname = url.hostname.toLowerCase();
-  if (hostname === "localhost" || hostname.endsWith(".localhost") || hostname.endsWith(".local")) {
-    throw new Error("A2A image URL cannot target a private host");
-  }
-  const addresses = await lookup(hostname, { all: true, verbatim: true });
-  if (addresses.length === 0 || addresses.some(({ address }) => privateNetworkAddress(address))) {
-    throw new Error("A2A image URL cannot target a private network");
-  }
-  const response = await fetch(url, {
-    redirect: "manual",
-    signal: AbortSignal.timeout(15_000),
-    headers: { accept: "image/avif,image/webp,image/png,image/jpeg,image/gif" },
-  });
-  if (response.status >= 300 && response.status < 400) {
-    const location = response.headers.get("location");
-    if (!location) throw new Error(`A2A image redirect ${response.status} had no location`);
-    return publicHttpsImage(new URL(location, url).toString(), redirects + 1);
-  }
-  if (!response.ok || !response.body) {
-    throw new Error(`A2A image request failed (${response.status})`);
-  }
-  const declaredLength = Number(response.headers.get("content-length"));
-  if (Number.isFinite(declaredLength) && declaredLength > MAX_A2A_IMAGE_BYTES) {
-    throw new Error("A2A image exceeds 20 MB");
-  }
-  const reader = response.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    total += value.byteLength;
-    if (total > MAX_A2A_IMAGE_BYTES) {
-      await reader.cancel();
-      throw new Error("A2A image exceeds 20 MB");
-    }
-    chunks.push(value);
-  }
-  return Buffer.concat(
-    chunks.map((chunk) => Buffer.from(chunk)),
-    total
-  );
-};
-
-const imageExtension = (bytes: Buffer): "gif" | "jpg" | "png" | "webp" | null => {
-  if (bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) {
-    return "png";
-  }
-  if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return "jpg";
-  const prefix = bytes.subarray(0, 6).toString("ascii");
-  if (prefix === "GIF87a" || prefix === "GIF89a") return "gif";
-  if (
-    bytes.subarray(0, 4).toString("ascii") === "RIFF" &&
-    bytes.subarray(8, 12).toString("ascii") === "WEBP"
-  ) {
-    return "webp";
-  }
-  return null;
-};
 const TRIVIAL_MEMORY_EXCHANGES = new Set([
   "bye",
   "cool",
@@ -202,9 +130,11 @@ export type MemoryInference = (request: MemoryInferenceRequest) => Promise<strin
 interface AgentDataStoreOptions {
   root?: string;
   workspaceRoot?: string;
+  assetRoot?: string;
   memoryInference?: MemoryInference;
   memorySynthesisDebounceMs?: number;
   memorySynthesisPollIntervalMs?: number;
+  memoryDreamingEnabled?: boolean;
 }
 
 interface PendingIdentityAnnouncement {
@@ -215,6 +145,23 @@ interface PendingIdentityAnnouncement {
   announcedName: string;
   announcedDescription: string;
 }
+
+const profileUpdateXmlText = (value: string): string =>
+  value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+
+export const renderAgentProfileUpdate = (name: string, description: string): string => {
+  const identity = { name, description };
+  const marker = Buffer.from(JSON.stringify(identity), "utf8").toString("base64url");
+  return [
+    `[SAND_HIDDEN_PROMPT]<<SAND_AGENT_PROFILE_UPDATE:v1:${marker}>>`,
+    "<agent_profile_update>",
+    "Your agent profile changed. This update supersedes older identity details in this conversation.",
+    `Current name: ${profileUpdateXmlText(name)}`,
+    `Current description: ${description ? profileUpdateXmlText(description) : "(no description)"}`,
+    "Keep using this identity until a later conversation summary folds it into the profile section.",
+    "</agent_profile_update>",
+  ].join("\n");
+};
 
 const sniffAvatarExtension = (bytes: Uint8Array): (typeof AVATAR_EXTENSIONS)[number] | null => {
   if (bytes.length === 0 || bytes.length > MAX_AVATAR_BYTES) return null;
@@ -245,33 +192,84 @@ export interface ReconcileResult {
 export interface AgentPromptContext {
   compactionEpoch: number;
   profileSection: string;
+  profileSnapshot: {
+    version: 1;
+    profileSection: string;
+    systemIdentity: { name: string; description: string };
+    announcedIdentity: { name: string; description: string };
+    compactionEpoch: number;
+  };
   identityAnnouncement: string;
   memoryRender: string;
+  memorySnapshot: { render: string; compactionEpoch: number } | null;
   skillRender: string;
   warnings: string[];
 }
 
-export interface RootSettings {
-  version: 1;
-  timezone: string;
-  notificationsEnabled: boolean;
-  pinnedAgentIds?: string[];
-  sidebarSections: string[];
-  theme: "system" | "light" | "dark";
-  language: string;
-  migrations: Record<string, boolean>;
-  sidebarPreferences: {
-    version: 2;
-    pinnedIds: string[];
-    unreadIds: string[];
-    unassignedCollapsed: boolean;
-    sections: Array<{ id: string; name: string; collapsed: boolean }>;
-    sectionByChannel: Record<string, string>;
-    channelOrderByGroup: Record<string, string[]>;
-  };
+export interface RootSidebarSection {
+  id: string;
+  name: string;
+  agentIds: string[];
+  isCollapsed: boolean;
 }
 
-const emptySidebarPreferences = (): RootSettings["sidebarPreferences"] => ({
+interface AccountScopedRootSettings {
+  mcpCustomInstructions?: string;
+  mcpCustomInstructionsByServerId?: Record<string, string>;
+  mcpDisabledToolsByServerId?: Record<string, string[]>;
+  autoReviewInstructions?: {
+    isEnabled: boolean;
+    allowInstructions: string;
+    blockInstructions: string;
+  };
+  agentDefaultModel?: string;
+  computerUseModel?: string;
+  localToolPermission?: unknown;
+  localToolPermissionCeiling?: unknown;
+}
+
+export interface RootSettings extends AccountScopedRootSettings {
+  version: 1;
+  mcpBoxServers: string[];
+  hasSeenOnboarding?: boolean;
+  hasSeenOnboardingAccountScope?: string;
+  selectedTeam?: { teamId: number; accountScope: string };
+  autoUpdateWhenIdleOptIn: boolean;
+  updateTrackOverride?: "stable" | "nightly" | "dogfood";
+  themePreference?: "system" | "light" | "dark" | string;
+  languagePreference?: string;
+  egressTunnelEnabled: boolean;
+  webauthnProxyEnabled: boolean;
+  hardwareAccelerationEnabled?: boolean;
+  notifications?: {
+    isEnabled?: boolean;
+    allowedApps?: string[];
+    minIntervalMs?: number;
+    maxPerWindow?: number;
+    windowMs?: number;
+  };
+  desktopNotificationPreferences?: { playSound?: boolean; sound?: string };
+  userTimeZone?: string;
+  userTimeZoneOverride?: string;
+  conciergeConsent: "unset" | "allowed" | "denied";
+  settingsMigrations: string[];
+  pinnedAgentIds?: string[];
+  sidebarSections?: RootSidebarSection[];
+  accountScopes: Record<string, AccountScopedRootSettings>;
+  activeAccountScope?: string;
+}
+
+interface LegacySidebarPreferences {
+  version: 2;
+  pinnedIds: string[];
+  unreadIds: string[];
+  unassignedCollapsed: boolean;
+  sections: Array<{ id: string; name: string; collapsed: boolean }>;
+  sectionByChannel: Record<string, string>;
+  channelOrderByGroup: Record<string, string[]>;
+}
+
+const emptySidebarPreferences = (): LegacySidebarPreferences => ({
   version: 2,
   pinnedIds: [],
   unreadIds: [],
@@ -373,24 +371,22 @@ const profileDocument = (bot: {
   namedBy: bot.namedBy === "app" ? "app" : "user",
 });
 
-const settingsDocument = (bot: {
-  notificationsEnabled: boolean;
-  hiddenFromSidebar: boolean;
-  dreamingEnabled: boolean;
-}) => ({
+const settingsDocument = (bot: { notificationsEnabled: boolean; hiddenFromSidebar: boolean }) => ({
   notifyOnAgentUpdates: bot.notificationsEnabled,
   hiddenFromSidebar: bot.hiddenFromSidebar,
-  dreamingEnabled: bot.dreamingEnabled,
 });
 
-const profileValues = (value: Record<string, unknown>) => {
-  const color = boundedString(value.avatarColor, 7, "#4f7cff");
+const profileValues = (input: unknown) => {
+  const value =
+    input && typeof input === "object" && !Array.isArray(input)
+      ? (input as Record<string, unknown>)
+      : {};
   return {
     name: boundedString(value.name, 80),
     description: boundedString(value.description, 2_000),
     title: boundedString(value.title, 120),
-    icon: boundedString(value.avatarShape, 16, "●") || "●",
-    color: /^#[0-9a-f]{6}$/i.test(color) ? color : "#4f7cff",
+    icon: boundedString(value.avatarShape, 16),
+    color: boundedString(value.avatarColor, 80),
     namedBy: value.namedBy === "app" ? "app" : "user",
   };
 };
@@ -425,18 +421,24 @@ const parseProjectDocument = (text: string): { name: string; description: string
   };
 };
 
+const ROOT_SETTINGS_MIGRATIONS = ["downgrade-max-fast"];
+const AGENTS_SECTION_ID = "__agents__";
+
 const defaultRootSettings = (): RootSettings => ({
   version: 1,
-  timezone: process.env.OPENBOT_TIME_ZONE ?? "UTC",
-  notificationsEnabled: true,
-  sidebarSections: [],
-  theme: "system",
-  language: "en",
-  migrations: {},
-  sidebarPreferences: emptySidebarPreferences(),
+  mcpBoxServers: [],
+  mcpCustomInstructions: "",
+  mcpCustomInstructionsByServerId: {},
+  mcpDisabledToolsByServerId: {},
+  autoUpdateWhenIdleOptIn: false,
+  egressTunnelEnabled: false,
+  webauthnProxyEnabled: true,
+  conciergeConsent: "unset",
+  settingsMigrations: [...ROOT_SETTINGS_MIGRATIONS],
+  accountScopes: {},
 });
 
-const parseSidebarPreferences = (input: unknown): RootSettings["sidebarPreferences"] => {
+const parseSidebarPreferences = (input: unknown): LegacySidebarPreferences => {
   const value =
     input === undefined
       ? emptySidebarPreferences()
@@ -490,53 +492,273 @@ const parseSidebarPreferences = (input: unknown): RootSettings["sidebarPreferenc
   };
 };
 
+const uniqueStrings = (input: unknown, label: string, allowEmpty = false): string[] => {
+  if (!Array.isArray(input) || input.some((item) => typeof item !== "string")) {
+    throw new Error(`${label} must be a string array`);
+  }
+  const values = input as string[];
+  if (!allowEmpty && values.some((item) => item.length === 0)) {
+    throw new Error(`${label} must not contain empty strings`);
+  }
+  return [...new Set(values)];
+};
+
+const stringRecord = (input: unknown, label: string): Record<string, string> => {
+  const value = parseJsonObject(JSON.stringify(input), label);
+  if (Object.values(value).some((item) => typeof item !== "string")) {
+    throw new Error(`${label} values must be strings`);
+  }
+  return value as Record<string, string>;
+};
+
+const stringArrayRecord = (input: unknown, label: string): Record<string, string[]> => {
+  const value = parseJsonObject(JSON.stringify(input), label);
+  const parsed: Record<string, string[]> = {};
+  for (const [key, item] of Object.entries(value))
+    parsed[key] = uniqueStrings(item, `${label}.${key}`);
+  return parsed;
+};
+
+const parseAccountScopedSettings = (input: unknown, label: string): AccountScopedRootSettings => {
+  const value = parseJsonObject(JSON.stringify(input), label);
+  const parsed: AccountScopedRootSettings = {};
+  if (value.mcpCustomInstructions !== undefined) {
+    if (typeof value.mcpCustomInstructions !== "string")
+      throw new Error(`${label}.mcpCustomInstructions must be a string`);
+    parsed.mcpCustomInstructions = value.mcpCustomInstructions;
+  }
+  if (value.mcpCustomInstructionsByServerId !== undefined) {
+    parsed.mcpCustomInstructionsByServerId = stringRecord(
+      value.mcpCustomInstructionsByServerId,
+      `${label}.mcpCustomInstructionsByServerId`
+    );
+  }
+  if (value.mcpDisabledToolsByServerId !== undefined) {
+    parsed.mcpDisabledToolsByServerId = stringArrayRecord(
+      value.mcpDisabledToolsByServerId,
+      `${label}.mcpDisabledToolsByServerId`
+    );
+  }
+  if (value.autoReviewInstructions !== undefined) {
+    const review = parseJsonObject(
+      JSON.stringify(value.autoReviewInstructions),
+      `${label}.autoReviewInstructions`
+    );
+    if (
+      typeof review.isEnabled !== "boolean" ||
+      typeof review.allowInstructions !== "string" ||
+      typeof review.blockInstructions !== "string"
+    ) {
+      throw new Error(`${label}.autoReviewInstructions is malformed`);
+    }
+    parsed.autoReviewInstructions = {
+      isEnabled: review.isEnabled,
+      allowInstructions: review.allowInstructions,
+      blockInstructions: review.blockInstructions,
+    };
+  }
+  for (const key of ["agentDefaultModel", "computerUseModel"] as const) {
+    if (value[key] !== undefined) {
+      if (typeof value[key] !== "string") throw new Error(`${label}.${key} must be a string`);
+      parsed[key] = value[key];
+    }
+  }
+  for (const key of ["localToolPermission", "localToolPermissionCeiling"] as const) {
+    if (value[key] !== undefined) parsed[key] = value[key];
+  }
+  return parsed;
+};
+
+const normalizeSidebarSections = (input: unknown): RootSidebarSection[] => {
+  if (!Array.isArray(input)) throw new Error("settings.json sidebarSections must be an array");
+  const claimedAgents = new Set<string>();
+  const sectionIds = new Set<string>();
+  const sections: RootSidebarSection[] = [];
+  for (const item of input) {
+    const value = parseJsonObject(JSON.stringify(item), "settings.json sidebar section");
+    if (
+      typeof value.id !== "string" ||
+      !value.id ||
+      typeof value.name !== "string" ||
+      typeof value.isCollapsed !== "boolean"
+    ) {
+      throw new Error("settings.json sidebar section is malformed");
+    }
+    const agentIds = uniqueStrings(value.agentIds, "settings.json sidebar section agentIds");
+    if (value.id === AGENTS_SECTION_ID || sectionIds.has(value.id)) continue;
+    sectionIds.add(value.id);
+    sections.push({
+      id: value.id,
+      name: value.name,
+      agentIds: agentIds.filter((agentId) => {
+        if (claimedAgents.has(agentId)) return false;
+        claimedAgents.add(agentId);
+        return true;
+      }),
+      isCollapsed: value.isCollapsed,
+    });
+  }
+  if (sections.length > 0) {
+    sections.push({ id: AGENTS_SECTION_ID, name: "Unassigned", agentIds: [], isCollapsed: false });
+  }
+  return sections;
+};
+
+const rootSettingsFromLegacy = (value: Record<string, unknown>): RootSettings => {
+  const settings = defaultRootSettings();
+  if (typeof value.timezone === "string") settings.userTimeZone = value.timezone;
+  if (typeof value.notificationsEnabled === "boolean") {
+    settings.notifications = { isEnabled: value.notificationsEnabled };
+  }
+  if (typeof value.theme === "string") settings.themePreference = value.theme;
+  if (typeof value.language === "string") settings.languagePreference = value.language;
+  if (value.pinnedAgentIds !== undefined) {
+    settings.pinnedAgentIds = uniqueStrings(value.pinnedAgentIds, "settings.json pinnedAgentIds");
+  }
+  if (value.sidebarPreferences !== undefined) {
+    const legacy = parseSidebarPreferences(value.sidebarPreferences);
+    settings.pinnedAgentIds = [...new Set(legacy.pinnedIds)];
+    settings.sidebarSections = normalizeSidebarSections(
+      legacy.sections.map((section) => ({
+        id: section.id,
+        name: section.name,
+        agentIds: Object.entries(legacy.sectionByChannel)
+          .filter(([, sectionId]) => sectionId === section.id)
+          .map(([channelId]) => channelId),
+        isCollapsed: section.collapsed,
+      }))
+    );
+  }
+  return settings;
+};
+
 const parseRootSettings = (value: Record<string, unknown>): RootSettings => {
+  if (
+    value.sidebarPreferences !== undefined ||
+    value.timezone !== undefined ||
+    value.notificationsEnabled !== undefined
+  ) {
+    return rootSettingsFromLegacy(value);
+  }
   if (value.version !== ROOT_SETTINGS_VERSION) throw new Error("settings.json version must be 1");
-  if (typeof value.timezone !== "string")
-    throw new Error("settings.json timezone must be a string");
-  try {
-    new Intl.DateTimeFormat("en", { timeZone: value.timezone }).format(new Date());
-  } catch {
-    throw new Error("settings.json timezone must be an IANA time zone");
+  const requiredBooleans = [
+    "autoUpdateWhenIdleOptIn",
+    "egressTunnelEnabled",
+    "webauthnProxyEnabled",
+  ] as const;
+  for (const key of requiredBooleans) {
+    if (typeof value[key] !== "boolean") throw new Error(`settings.json ${key} must be boolean`);
   }
-  if (typeof value.notificationsEnabled !== "boolean") {
-    throw new Error("settings.json notificationsEnabled must be a boolean");
+  if (!(["unset", "allowed", "denied"] as unknown[]).includes(value.conciergeConsent)) {
+    throw new Error("settings.json conciergeConsent is invalid");
   }
-  if (
-    value.pinnedAgentIds !== undefined &&
-    (!Array.isArray(value.pinnedAgentIds) ||
-      value.pinnedAgentIds.some((id) => typeof id !== "string"))
-  ) {
-    throw new Error("settings.json pinnedAgentIds must be a string array");
-  }
-  if (
-    !Array.isArray(value.sidebarSections) ||
-    value.sidebarSections.some((item) => typeof item !== "string")
-  ) {
-    throw new Error("settings.json sidebarSections must be a string array");
-  }
-  if (!["system", "light", "dark"].includes(String(value.theme))) {
-    throw new Error("settings.json theme is invalid");
-  }
-  if (typeof value.language !== "string")
-    throw new Error("settings.json language must be a string");
-  const migrations = parseJsonObject(JSON.stringify(value.migrations), "settings.json migrations");
-  if (Object.values(migrations).some((item) => typeof item !== "boolean")) {
-    throw new Error("settings.json migrations must contain booleans");
-  }
-  return {
+  const accountScopesRaw = parseJsonObject(
+    JSON.stringify(value.accountScopes),
+    "settings.json accountScopes"
+  );
+  const accountScopes = Object.fromEntries(
+    Object.entries(accountScopesRaw).map(([key, scoped]) => [
+      key,
+      parseAccountScopedSettings(scoped, `settings.json accountScopes.${key}`),
+    ])
+  );
+  const parsed: RootSettings = {
     version: 1,
-    timezone: value.timezone,
-    notificationsEnabled: value.notificationsEnabled,
-    ...(value.pinnedAgentIds
-      ? { pinnedAgentIds: [...new Set(value.pinnedAgentIds as string[])] }
-      : {}),
-    sidebarSections: [...new Set(value.sidebarSections as string[])],
-    theme: value.theme as RootSettings["theme"],
-    language: value.language,
-    migrations: migrations as Record<string, boolean>,
-    sidebarPreferences: parseSidebarPreferences(value.sidebarPreferences),
+    mcpBoxServers: uniqueStrings(value.mcpBoxServers, "settings.json mcpBoxServers", true),
+    autoUpdateWhenIdleOptIn: value.autoUpdateWhenIdleOptIn as boolean,
+    egressTunnelEnabled: value.egressTunnelEnabled as boolean,
+    webauthnProxyEnabled: value.webauthnProxyEnabled as boolean,
+    conciergeConsent: value.conciergeConsent as RootSettings["conciergeConsent"],
+    settingsMigrations: uniqueStrings(
+      value.settingsMigrations,
+      "settings.json settingsMigrations",
+      true
+    ),
+    accountScopes,
+    ...parseAccountScopedSettings(value, "settings.json"),
   };
+  const optionalStrings = [
+    "hasSeenOnboardingAccountScope",
+    "themePreference",
+    "languagePreference",
+    "userTimeZone",
+    "userTimeZoneOverride",
+    "activeAccountScope",
+  ] as const;
+  for (const key of optionalStrings) {
+    if (value[key] === undefined) continue;
+    if (typeof value[key] !== "string") throw new Error(`settings.json ${key} must be a string`);
+    parsed[key] = value[key];
+  }
+  for (const key of ["hasSeenOnboarding", "hardwareAccelerationEnabled"] as const) {
+    if (value[key] === undefined) continue;
+    if (typeof value[key] !== "boolean") throw new Error(`settings.json ${key} must be boolean`);
+    parsed[key] = value[key];
+  }
+  if (value.updateTrackOverride !== undefined) {
+    if (!(["stable", "nightly", "dogfood"] as unknown[]).includes(value.updateTrackOverride)) {
+      throw new Error("settings.json updateTrackOverride is invalid");
+    }
+    parsed.updateTrackOverride = value.updateTrackOverride as RootSettings["updateTrackOverride"];
+  }
+  if (value.selectedTeam !== undefined) {
+    const team = parseJsonObject(JSON.stringify(value.selectedTeam), "settings.json selectedTeam");
+    if (!Number.isInteger(team.teamId) || typeof team.accountScope !== "string") {
+      throw new Error("settings.json selectedTeam is malformed");
+    }
+    parsed.selectedTeam = { teamId: team.teamId as number, accountScope: team.accountScope };
+  }
+  if (value.notifications !== undefined) {
+    const notifications = parseJsonObject(
+      JSON.stringify(value.notifications),
+      "settings.json notifications"
+    );
+    const result: NonNullable<RootSettings["notifications"]> = {};
+    if (notifications.isEnabled !== undefined) {
+      if (typeof notifications.isEnabled !== "boolean")
+        throw new Error("settings.json notifications.isEnabled must be boolean");
+      result.isEnabled = notifications.isEnabled;
+    }
+    if (notifications.allowedApps !== undefined) {
+      result.allowedApps = uniqueStrings(
+        notifications.allowedApps,
+        "settings.json notifications.allowedApps"
+      );
+    }
+    for (const key of ["minIntervalMs", "maxPerWindow", "windowMs"] as const) {
+      if (notifications[key] === undefined) continue;
+      if (typeof notifications[key] !== "number" || !Number.isFinite(notifications[key])) {
+        throw new Error(`settings.json notifications.${key} must be a number`);
+      }
+      result[key] = notifications[key];
+    }
+    parsed.notifications = result;
+  }
+  if (value.desktopNotificationPreferences !== undefined) {
+    const preferences = parseJsonObject(
+      JSON.stringify(value.desktopNotificationPreferences),
+      "settings.json desktopNotificationPreferences"
+    );
+    const result: NonNullable<RootSettings["desktopNotificationPreferences"]> = {};
+    if (preferences.playSound !== undefined) {
+      if (typeof preferences.playSound !== "boolean")
+        throw new Error("settings.json desktopNotificationPreferences.playSound must be boolean");
+      result.playSound = preferences.playSound;
+    }
+    if (preferences.sound !== undefined) {
+      if (typeof preferences.sound !== "string")
+        throw new Error("settings.json desktopNotificationPreferences.sound must be a string");
+      result.sound = preferences.sound;
+    }
+    parsed.desktopNotificationPreferences = result;
+  }
+  if (value.pinnedAgentIds !== undefined) {
+    parsed.pinnedAgentIds = uniqueStrings(value.pinnedAgentIds, "settings.json pinnedAgentIds");
+  }
+  if (value.sidebarSections !== undefined) {
+    parsed.sidebarSections = normalizeSidebarSections(value.sidebarSections);
+  }
+  return parsed;
 };
 
 const sourceNamespace = (
@@ -670,34 +892,69 @@ const mergeWriterShards = <
 export class AgentDataStore {
   readonly root: string;
   readonly workspaceRoot: string;
+  readonly assetRoot: string;
   private watcher: FSWatcher | null = null;
   private readonly pendingDreamingEvidence = new Map<string, PendingDreamingAgent>();
   private readonly pendingIdentityAnnouncements = new Map<string, PendingIdentityAnnouncement>();
   private readonly watcherTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly watcherTasks = new Set<Promise<void>>();
   private readonly memoryInference: MemoryInference | null;
+  private readonly memoryDreamingEnabled: boolean;
   private readonly memorySynthesisDebounceMs: number;
   private readonly memorySynthesisPollIntervalMs: number;
   private memorySynthesisTimer: ReturnType<typeof setTimeout> | null = null;
   private memoryPollTimer: ReturnType<typeof setInterval> | null = null;
   private memorySynthesisActive = false;
   private memorySynthesisNeedsAnotherPass = false;
+  private timelineEventSink:
+    | ((
+        tx: Tx,
+        input: {
+          botId: string;
+          clientId: string;
+          event: AgentTimelineEvent;
+          occurredAt?: Date;
+        }
+      ) => Promise<unknown>)
+    | null = null;
 
   constructor(
     private readonly prisma: PrismaClient,
     options: AgentDataStoreOptions = {}
   ) {
     this.root = resolve(
-      options.root ?? process.env.OPENBOT_AGENT_DATA_ROOT ?? "/home/openbot/agent-data"
+      options.root ?? process.env.OPENBOT_AGENT_DATA_ROOT ?? "/home/box/agent-data"
     );
     this.workspaceRoot = resolve(
       options.workspaceRoot ?? process.env.OPENBOT_WORKSPACE_ROOT ?? "/workspace"
     );
+    this.assetRoot = resolve(
+      options.assetRoot ??
+        process.env.OPENBOT_ASSET_ROOT ??
+        join(resolve(this.root, ".."), ".openbot-assets")
+    );
     this.memoryInference = options.memoryInference ?? null;
+    this.memoryDreamingEnabled =
+      options.memoryDreamingEnabled ??
+      ["1", "true"].includes((process.env.OPENBOT_MEMORY_DREAMING ?? "").trim().toLowerCase());
     this.memorySynthesisDebounceMs =
       options.memorySynthesisDebounceMs ?? MEMORY_SYNTHESIS_DEBOUNCE_MS;
     this.memorySynthesisPollIntervalMs =
       options.memorySynthesisPollIntervalMs ?? MEMORY_SYNTHESIS_POLL_INTERVAL_MS;
+  }
+
+  setTimelineEventSink(
+    sink: (
+      tx: Tx,
+      input: {
+        botId: string;
+        clientId: string;
+        event: AgentTimelineEvent;
+        occurredAt?: Date;
+      }
+    ) => Promise<unknown>
+  ): void {
+    this.timelineEventSink = sink;
   }
 
   private async withFileMutation<T>(
@@ -721,6 +978,105 @@ export class AgentDataStore {
 
   botDirectory(botId: string): string {
     return join(this.root, "agents", safeFolderId(botId, "bot id"));
+  }
+
+  workflowsDirectory(): string {
+    return join(this.root, "workflows");
+  }
+
+  managedSkillsDirectory(): string {
+    return join(this.root, "managed-skills");
+  }
+
+  pluginSkillsDirectory(): string {
+    return join(this.root, "plugin-skills");
+  }
+
+  pluginsDirectory(): string {
+    return join(this.root, "plugins");
+  }
+
+  connectorSecretsDirectory(): string {
+    return join(this.root, "connector-secrets");
+  }
+
+  async ensureRuntimeDirectories(): Promise<void> {
+    await mkdir(this.root, { recursive: true, mode: 0o700 });
+    const rootSettingsPath = join(this.root, "settings.json");
+    if ((await readText(rootSettingsPath)) === null) {
+      await atomicWrite(rootSettingsPath, jsonFile(defaultRootSettings()), 0o600);
+    }
+    await Promise.all(
+      [
+        this.workflowsDirectory(),
+        this.managedSkillsDirectory(),
+        this.pluginSkillsDirectory(),
+        this.pluginsDirectory(),
+        this.connectorSecretsDirectory(),
+      ].map((directory) => mkdir(directory, { recursive: true, mode: 0o755 }))
+    );
+  }
+
+  async syncPluginSkillCache(
+    plugins: readonly {
+      id: string;
+      name: string;
+      version?: string | null;
+      publisher?: string | null;
+      skills: readonly { name: string; description: string; body: string }[];
+    }[],
+    currentUserId = "openbot"
+  ): Promise<void> {
+    await this.ensureRuntimeDirectories();
+    const fetchedAt = Date.now();
+    const managedCachePath = join(this.managedSkillsDirectory(), "cache.json");
+    if ((await readText(managedCachePath)) === null) {
+      await atomicWrite(managedCachePath, jsonFile({ fetchedAt, skills: [] }), 0o600);
+    }
+
+    const records: Array<Record<string, unknown>> = [];
+    for (const plugin of plugins) {
+      const pluginId = slugify(plugin.id, "plugin");
+      const revision = digest(
+        JSON.stringify({ version: plugin.version ?? "0", skills: plugin.skills })
+      ).slice(0, 16);
+      const installPath = join(
+        this.pluginsDirectory(),
+        "cache",
+        slugify(plugin.publisher || "openbot", "publisher"),
+        pluginId,
+        revision
+      );
+      for (const skill of plugin.skills) {
+        const id = slugify(`${pluginId}-${skill.name}`, "skill");
+        const skillRelativePath = join("skills", id, "SKILL.md");
+        const filePath = join(installPath, skillRelativePath);
+        await atomicWrite(
+          filePath,
+          renderSkillFile({
+            name: skill.name,
+            description: skill.description,
+            body: skill.body,
+          })
+        );
+        records.push({
+          id,
+          pluginId,
+          pluginName: plugin.name,
+          name: skill.name,
+          description: skill.description,
+          filePath,
+          pluginVersion: plugin.version ?? undefined,
+          installPath,
+          skillRelativePath,
+        });
+      }
+    }
+    await atomicWrite(
+      join(this.pluginSkillsDirectory(), "cache.json"),
+      jsonFile({ fetchedAt, currentUserId, skills: records, authBlocked: [] }),
+      0o600
+    );
   }
 
   async deleteAgentFiles(botId: string): Promise<void> {
@@ -780,101 +1136,103 @@ export class AgentDataStore {
           jsonFile({ notifyOnAgentUpdates: true })
         );
       }
-      if (bot.instructions && (await readText(join(directory, "instructions.md"))) === null) {
-        await atomicWrite(join(directory, "instructions.md"), `${bot.instructions.trim()}\n`);
-      }
       await this.migrateLegacyAvatar(botId, bot.avatarPath);
     });
   }
 
   async writeBotFiles(
     botId: string,
-    targets: Array<"profile" | "settings" | "instructions" | "avatar" | "projects"> = [
-      "profile",
-      "settings",
-      "instructions",
-      "avatar",
-      "projects",
-    ]
+    targets: BotFileTarget[] = ["profile", "settings", "instructions", "avatar", "projects"]
   ): Promise<void> {
     await this.initializeBot(botId);
-    await this.withFileMutation(botId, "bot-files", async (tx) => {
-      const bot = await tx.bot.findUnique({
-        where: { id: botId },
-        include: {
-          projectMemberships: { orderBy: { joinedAt: "asc" } },
-          subagentIdentity: { select: { id: true } },
-        },
-      });
-      if (!bot || !["active", "provisioning"].includes(bot.status) || bot.subagentIdentity) return;
-      const directory = this.botDirectory(botId);
-      if (targets.includes("profile")) {
-        const path = join(directory, "profile.json");
-        const current = await readText(path);
-        let binding: Record<string, string> = {};
-        if (current) {
-          try {
-            const value = parseJsonObject(current, "profile.json");
-            const serverId =
-              typeof value.serverId === "string" && value.serverId.trim()
-                ? value.serverId.trim()
-                : null;
-            const harness =
-              value.harness === "temporal" || value.harness === "box" ? value.harness : null;
-            binding = {
-              ...(serverId ? { serverId } : {}),
-              ...(harness ? { harness } : {}),
-            };
-          } catch {
-            binding = {};
-          }
-        }
-        await atomicWrite(path, jsonFile({ ...profileDocument(bot), ...binding }));
-      }
-      if (targets.includes("settings")) {
-        const path = join(directory, "settings.json");
-        const current = await readText(path);
-        let value: Record<string, unknown> = {};
-        if (current !== null) {
-          try {
-            value = parseJsonObject(current, "settings.json");
-          } catch {
-            value = {};
-          }
-        }
-        await atomicWrite(
-          path,
-          jsonFile({
-            ...value,
-            ...settingsDocument(bot),
-          })
-        );
-      }
-      if (targets.includes("instructions")) {
-        const path = join(directory, "instructions.md");
-        if (bot.instructions) await atomicWrite(path, `${bot.instructions.trim()}\n`);
-        else await rm(path, { force: true });
-      }
-      if (targets.includes("avatar")) {
-        const existing = await this.avatarFiles(botId);
-        if (!bot.avatarPath) {
-          await this.clearAvatarFiles(botId);
-        } else if (existing.length === 0) {
-          await this.installAvatarFromPath(botId, bot.avatarPath, true);
-        }
-        await rm(join(directory, "avatar.json"), { force: true });
-      }
-      if (targets.includes("projects")) {
-        for (const membership of bot.projectMemberships)
-          await this.writeProjectFile(membership.projectSlug);
-        await atomicWrite(
-          join(directory, "projects.json"),
-          jsonFile({
-            projects: bot.projectMemberships.map((membership) => membership.projectSlug),
-          })
-        );
-      }
+    await this.withFileMutation(botId, "bot-files", (tx) =>
+      this.writeBotFilesInTransaction(tx, botId, targets)
+    );
+  }
+
+  async mutateBotFiles<T>(
+    botId: string,
+    targets: BotFileTarget[],
+    mutate: (tx: Prisma.TransactionClient) => Promise<T>
+  ): Promise<T> {
+    await this.initializeBot(botId);
+    return this.withFileMutation(botId, "bot-files", async (tx) => {
+      const result = await mutate(tx);
+      await this.writeBotFilesInTransaction(tx, botId, targets);
+      return result;
     });
+  }
+
+  private async writeBotFilesInTransaction(
+    tx: Prisma.TransactionClient,
+    botId: string,
+    targets: BotFileTarget[]
+  ): Promise<void> {
+    const bot = await tx.bot.findUnique({
+      where: { id: botId },
+      include: {
+        projectMemberships: { orderBy: { joinedAt: "asc" } },
+        subagentIdentity: { select: { id: true } },
+      },
+    });
+    if (!bot || !["active", "provisioning"].includes(bot.status) || bot.subagentIdentity) return;
+    const directory = this.botDirectory(botId);
+    if (targets.includes("profile")) {
+      const path = join(directory, "profile.json");
+      const current = await readText(path);
+      let binding: Record<string, string> = {};
+      if (current) {
+        try {
+          const value = parseJsonObject(current, "profile.json");
+          const serverId =
+            typeof value.serverId === "string" && value.serverId.trim()
+              ? value.serverId.trim()
+              : null;
+          const harness =
+            value.harness === "temporal" || value.harness === "box" ? value.harness : null;
+          binding = {
+            ...(serverId ? { serverId } : {}),
+            ...(harness ? { harness } : {}),
+          };
+        } catch {
+          binding = {};
+        }
+      }
+      await atomicWrite(path, jsonFile({ ...profileDocument(bot), ...binding }));
+    }
+    if (targets.includes("settings")) {
+      const path = join(directory, "settings.json");
+      const current = await readText(path);
+      let value: Record<string, unknown> = {};
+      if (current !== null) {
+        try {
+          value = parseJsonObject(current, "settings.json");
+        } catch {
+          value = {};
+        }
+      }
+      await atomicWrite(path, jsonFile({ ...value, ...settingsDocument(bot) }));
+    }
+    if (targets.includes("instructions")) {
+      await rm(join(directory, "instructions.md"), { force: true });
+    }
+    if (targets.includes("avatar")) {
+      const existing = await this.avatarFiles(botId);
+      if (!bot.avatarPath) {
+        await this.clearAvatarFiles(botId);
+      } else if (existing.length === 0) {
+        await this.installAvatarFromPath(botId, bot.avatarPath, true);
+      }
+      await rm(join(directory, "avatar.json"), { force: true });
+    }
+    if (targets.includes("projects")) {
+      for (const membership of bot.projectMemberships)
+        await this.writeProjectFile(membership.projectSlug);
+      await atomicWrite(
+        join(directory, "projects.json"),
+        jsonFile({ projects: bot.projectMemberships.map((membership) => membership.projectSlug) })
+      );
+    }
   }
 
   async writeBotSettings(
@@ -882,7 +1240,6 @@ export class AgentDataStore {
     update: {
       notifyOnAgentUpdates?: boolean;
       hiddenFromSidebar?: boolean;
-      dreamingEnabled?: boolean;
     }
   ): Promise<void> {
     await this.initializeBot(botId);
@@ -946,8 +1303,8 @@ export class AgentDataStore {
 
   private async migrateBot(botId: string): Promise<void> {
     await this.withFileMutation(botId, "migration", async (tx) => {
-      const marker = join(this.root, ".openbot", "file-native-v1", `${botId}.json`);
-      if ((await readText(marker, 20_000)) !== null) return;
+      const migrationKey = `migration:file-native-v3:${botId}`;
+      if (await tx.agentFileState.findUnique({ where: { path: migrationKey } })) return;
       const bot = await tx.bot.findUnique({
         where: { id: botId },
         include: { projectMemberships: true },
@@ -999,43 +1356,88 @@ export class AgentDataStore {
         }
       }
 
-      const skillRoot = join(this.botDirectory(botId), "skills");
-      const skillFolders = new Set(await listDirectories(skillRoot));
-      const skills = await this.prisma.savedSkill.findMany({
+      const globalSkillRoot = this.workflowsDirectory();
+      await mkdir(globalSkillRoot, { recursive: true, mode: 0o755 });
+      const globalSkillFolders = new Set(await listDirectories(globalSkillRoot));
+      const skills = await tx.savedSkill.findMany({
         where: { botId },
         orderBy: { createdAt: "asc" },
       });
-      for (const skill of skills) {
-        const sourceSlug = skillFolders.has(skill.slug)
-          ? skill.slug
-          : skillFolders.has(skill.id)
-            ? skill.id
-            : null;
-        const targetSlug =
-          sourceSlug && sourceSlug !== skill.id
-            ? sourceSlug
-            : uniqueSlug(skill.name, "skill", skillFolders);
-        if (sourceSlug && sourceSlug !== targetSlug) {
-          await rename(join(skillRoot, sourceSlug), join(skillRoot, targetSlug));
-          skillFolders.delete(sourceSlug);
-        } else if (!sourceSlug) {
-          await writeSkillFile(this.botDirectory(botId), {
-            slug: targetSlug,
-            name: skill.name,
-            description: skill.description,
-            body: skill.body,
-            frontmatter:
-              skill.frontmatter &&
-              typeof skill.frontmatter === "object" &&
-              !Array.isArray(skill.frontmatter)
-                ? (skill.frontmatter as Record<string, unknown>)
-                : undefined,
-          });
+      const legacyRoots = [
+        join(this.botDirectory(botId), "skills"),
+        join(this.botDirectory(botId), "workflows"),
+      ];
+      for (const legacyRoot of legacyRoots) {
+        for (const sourceSlug of await listDirectories(legacyRoot)) {
+          const sourcePath = join(legacyRoot, sourceSlug, "SKILL.md");
+          const text = await readText(sourcePath, 116_384);
+          if (text === null) continue;
+          const parsed = parseSkillFile(text, `legacy skill ${sourceSlug}`);
+          let targetSlug = sourceSlug;
+          if (globalSkillFolders.has(targetSlug)) {
+            const globalText = await readText(
+              join(globalSkillRoot, targetSlug, "SKILL.md"),
+              116_384
+            );
+            if (globalText === text) {
+              await rm(join(legacyRoot, sourceSlug), { recursive: true, force: true });
+              continue;
+            }
+            targetSlug = uniqueSlug(parsed.name, "skill", globalSkillFolders);
+          }
+          await rename(join(legacyRoot, sourceSlug), join(globalSkillRoot, targetSlug));
+          globalSkillFolders.add(targetSlug);
+          const existing = skills.find(
+            (skill) => skill.slug === sourceSlug || skill.id === sourceSlug
+          );
+          if (existing) {
+            await tx.savedSkill.update({
+              where: { id: existing.id },
+              data: {
+                slug: targetSlug,
+                botId: null,
+                name: parsed.name,
+                description: parsed.description,
+                body: parsed.body,
+                frontmatter: asInputJson(parsed.frontmatter),
+              },
+            });
+          } else {
+            await tx.savedSkill.create({
+              data: {
+                botId: null,
+                slug: targetSlug,
+                name: parsed.name,
+                description: parsed.description,
+                body: parsed.body,
+                frontmatter: asInputJson(parsed.frontmatter),
+              },
+            });
+          }
+          migrated.skills += 1;
         }
-        skillFolders.add(targetSlug);
-        if (skill.slug !== targetSlug) {
-          await this.prisma.savedSkill.update({
-            where: { id: skill.id },
+        await rm(legacyRoot, { recursive: true, force: true });
+      }
+      for (const skill of skills) {
+        const current = await tx.savedSkill.findUnique({ where: { id: skill.id } });
+        if (!current || globalSkillFolders.has(current.slug)) continue;
+        const targetSlug = uniqueSlug(current.name, "skill", globalSkillFolders);
+        await writeSkillFile(globalSkillRoot, {
+          slug: targetSlug,
+          name: current.name,
+          description: current.description,
+          body: current.body,
+          frontmatter:
+            current.frontmatter &&
+            typeof current.frontmatter === "object" &&
+            !Array.isArray(current.frontmatter)
+              ? (current.frontmatter as Record<string, unknown>)
+              : undefined,
+        });
+        globalSkillFolders.add(targetSlug);
+        if (current.slug !== targetSlug) {
+          await tx.savedSkill.update({
+            where: { id: current.id },
             data: { slug: targetSlug },
           });
         }
@@ -1079,22 +1481,31 @@ export class AgentDataStore {
       }
 
       const legacyManifest = join(this.botDirectory(botId), ".openbot-projection.json");
-      if ((await readText(legacyManifest, 2_000_000)) !== null) {
-        await rename(
-          legacyManifest,
-          join(this.botDirectory(botId), ".openbot-projection.legacy.json")
-        ).catch(() => undefined);
-      }
-      await atomicWrite(
-        marker,
-        jsonFile({
-          version: 1,
+      await Promise.all([
+        rm(legacyNotes, { force: true }),
+        rm(join(this.botDirectory(botId), "instructions.md"), { force: true }),
+        rm(legacyManifest, { force: true }),
+        rm(join(this.botDirectory(botId), ".openbot-projection.legacy.json"), { force: true }),
+      ]);
+      await tx.agentFileState.upsert({
+        where: { path: migrationKey },
+        create: {
+          path: migrationKey,
           botId,
-          migratedAt: new Date().toISOString(),
-          ...migrated,
-        }),
-        0o600
-      );
+          kind: "migration",
+          digest: "3",
+          validDigest: "3",
+          exists: true,
+        },
+        update: {
+          botId,
+          kind: "migration",
+          digest: "3",
+          validDigest: "3",
+          exists: true,
+          error: null,
+        },
+      });
     });
   }
 
@@ -1119,7 +1530,6 @@ export class AgentDataStore {
         if (!bot || bot.status === "archived") return;
         await this.reconcileProfile(tx, botId, warnings);
         await this.reconcileSettings(tx, botId, warnings);
-        await this.reconcileInstructions(tx, botId, warnings);
         await this.reconcileAvatar(tx, botId, warnings);
         await this.reconcileProjects(tx, botId, warnings);
         await this.reconcileConnectors(tx, botId, warnings);
@@ -1133,17 +1543,10 @@ export class AgentDataStore {
           memberships.map((membership) => membership.projectSlug),
           warnings
         );
-        await this.reconcileSkills(tx, botId, warnings);
+        await this.reconcileSkills(tx, warnings);
         await this.reconcileAutomations(tx, botId, warnings);
         await this.reconcileGroups(tx, botId, warnings);
-        await Promise.all(
-          ["memory/log", "skills", "automations"].map((child) =>
-            mkdir(join(this.botDirectory(botId), child), {
-              recursive: true,
-              mode: 0o755,
-            })
-          )
-        );
+        await mkdir(this.workflowsDirectory(), { recursive: true, mode: 0o755 });
       },
       { maxWait: 10_000, timeout: 60_000 }
     );
@@ -1165,14 +1568,85 @@ export class AgentDataStore {
       select: { id: true },
       orderBy: { createdAt: "asc" },
     });
+    if (bots[0]) await this.migrateLegacyUserMemory(bots[0].id);
     const warnings: string[] = [];
     for (const bot of bots) warnings.push(...(await this.reconcileBot(bot.id)).warnings);
+    const obsolete = await this.prisma.bot.findMany({
+      where: { OR: [{ status: "archived" }, { subagentIdentity: { isNot: null } }] },
+      select: { id: true },
+    });
+    for (const bot of obsolete) {
+      await rm(this.botDirectory(bot.id), { recursive: true, force: true });
+    }
     return { warnings: warnings.slice(0, 100) };
+  }
+
+  async reconcileAllAutomationFiles(): Promise<ReconcileResult> {
+    const bots = await this.prisma.bot.findMany({
+      where: { status: "active", subagentIdentity: { is: null } },
+      select: { id: true },
+      orderBy: { createdAt: "asc" },
+    });
+    const warnings: string[] = [];
+    for (const bot of bots) {
+      await this.prisma.$transaction(
+        async (tx) => {
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`agent-files:${bot.id}`}))`;
+          await this.reconcileAutomations(tx, bot.id, warnings);
+        },
+        { maxWait: 10_000, timeout: 60_000 }
+      );
+    }
+    return { warnings: warnings.slice(0, MAX_FILE_WARNINGS) };
+  }
+
+  private async migrateLegacyUserMemory(writerId: string): Promise<void> {
+    await this.withRootFileMutation("legacy-user-memory-v3", async (tx) => {
+      const migrationKey = "migration:file-native-v3:user-memory";
+      if (await tx.agentFileState.findUnique({ where: { path: migrationKey } })) return;
+      const legacyRoot = join(this.root, "user-memory");
+      const targetRoot = this.memoryDirectory(writerId, "user");
+      for (const fact of await readMemoryTree(legacyRoot)) {
+        await appendMemoryFact(targetRoot, fact.content, fact.tier, fact.createdAt);
+      }
+      const notesPath = join(legacyRoot, "notes.md");
+      const notes = await readText(notesPath, 2_000_000);
+      if (notes !== null) {
+        for (const fact of parseMemoryMarkdown(notes)) {
+          await appendMemoryFact(targetRoot, fact.content, "note", fact.createdAt);
+        }
+      }
+      await Promise.all([
+        rm(join(legacyRoot, "profile.md"), { force: true }),
+        rm(notesPath, { force: true }),
+        rm(join(legacyRoot, "log"), { recursive: true, force: true }),
+        rm(join(legacyRoot, ".openbot-projection.json"), { force: true }),
+      ]);
+      await tx.agentFileState.upsert({
+        where: { path: migrationKey },
+        create: {
+          path: migrationKey,
+          botId: null,
+          kind: "migration",
+          digest: "3",
+          validDigest: "3",
+          exists: true,
+        },
+        update: {
+          botId: null,
+          kind: "migration",
+          digest: "3",
+          validDigest: "3",
+          exists: true,
+          error: null,
+        },
+      });
+    });
   }
 
   async startWatching(): Promise<void> {
     if (this.watcher) return;
-    await mkdir(this.root, { recursive: true, mode: 0o700 });
+    await this.ensureRuntimeDirectories();
     try {
       this.watcher = watch(this.root, {
         ignoreInitial: true,
@@ -1180,6 +1654,46 @@ export class AgentDataStore {
       });
       this.watcher.on("all", (_event, path) => {
         const normalized = relative(this.root, path).split(sep).join("/");
+        if (
+          SQLITE_RUNTIME_FILE.test(normalized) ||
+          normalized.split("/").some((segment) => segment.startsWith(".box-store-"))
+        ) {
+          return;
+        }
+        const globalSkillScope = ["workflows", "managed-skills", "plugin-skills"].find((scope) =>
+          normalized.startsWith(`${scope}/`)
+        );
+        if (globalSkillScope && !normalized.endsWith(".part")) {
+          const key = `__global_${globalSkillScope}__`;
+          const previous = this.watcherTimers.get(key);
+          if (previous) clearTimeout(previous);
+          this.watcherTimers.set(
+            key,
+            setTimeout(() => {
+              this.watcherTimers.delete(key);
+              const task = this.reconcileAllActiveBots()
+                .then(async () => {
+                  const botIds = (
+                    await this.prisma.bot.findMany({
+                      where: { status: "active", subagentIdentity: { is: null } },
+                      select: { id: true },
+                    })
+                  ).map(({ id }) => id);
+                  await this.prisma.event.create({
+                    data: {
+                      topic: "bot.state.filesystem_changed",
+                      entityId: null,
+                      payload: { scope: globalSkillScope, botIds, path: normalized },
+                    },
+                  });
+                })
+                .catch((error) => console.warn("global workflow watcher", error));
+              this.watcherTasks.add(task);
+              void task.then(() => this.watcherTasks.delete(task));
+            }, 50)
+          );
+          return;
+        }
         const botId =
           normalized.match(/^agents\/([^/]+)\//)?.[1] ??
           normalized.match(/^user-memory\/by-agent\/([^/]+)\//)?.[1] ??
@@ -1208,13 +1722,19 @@ export class AgentDataStore {
   private async reconcileWatchedFolder(folderId: string, normalizedPath: string): Promise<void> {
     const bot = await this.prisma.bot.findFirst({
       where: { id: folderId, status: { not: "archived" } },
-      select: { id: true, subagentIdentity: { select: { id: true } } },
+      select: { id: true, status: true, subagentIdentity: { select: { id: true } } },
     });
     let affectedBotIds: string[];
     if (bot?.subagentIdentity) {
       return;
     }
     if (bot) {
+      if (
+        bot.status === "provisioning" &&
+        /^agents\/[^/]+\/(?:profile|settings)\.json$/.test(normalizedPath)
+      ) {
+        return;
+      }
       await this.reconcileBot(bot.id);
       affectedBotIds = [bot.id];
     } else {
@@ -1282,19 +1802,16 @@ export class AgentDataStore {
 
   private async reconcileProfile(tx: Tx, botId: string, warnings: string[]): Promise<void> {
     const path = join(this.botDirectory(botId), "profile.json");
+    const previous = await tx.bot.findUniqueOrThrow({ where: { id: botId } });
     let text = await readText(path);
-    let value: Record<string, unknown>;
+    let value: unknown;
     try {
       if (text === null) throw new Error("missing");
-      value = parseJsonObject(text, "profile.json");
-    } catch (error) {
-      const bot = await tx.bot.findUniqueOrThrow({ where: { id: botId } });
-      text = jsonFile(profileDocument(bot));
+      value = JSON.parse(text) as unknown;
+    } catch {
+      value = profileDocument({ ...previous, name: "New Bot" });
+      text = jsonFile(value);
       await atomicWrite(path, text);
-      value = profileDocument(bot);
-      if ((error as Error).message !== "missing") {
-        warnings.push("profile.json was unparseable and was regenerated");
-      }
     }
     const parsed = profileValues(value);
     await tx.bot.update({ where: { id: botId }, data: parsed });
@@ -1302,6 +1819,13 @@ export class AgentDataStore {
       where: { directKey: `bot:${botId}`, name: { not: parsed.name } },
       data: { name: parsed.name },
     });
+    if (previous.name && previous.name !== parsed.name && this.timelineEventSink) {
+      await this.timelineEventSink(tx, {
+        botId,
+        clientId: `profile-file:${randomUUID()}`,
+        event: { type: "name-changed", from: previous.name, to: parsed.name },
+      });
+    }
     await this.trackFile(tx, botId, "profile", path, text);
   }
 
@@ -1321,20 +1845,16 @@ export class AgentDataStore {
             typeof value.notifyOnAgentUpdates === "boolean" ? value.notifyOnAgentUpdates : true,
           hiddenFromSidebar:
             typeof value.hiddenFromSidebar === "boolean" ? value.hiddenFromSidebar : false,
-          dreamingEnabled:
-            typeof value.dreamingEnabled === "boolean" ? value.dreamingEnabled : false,
         },
       });
       await this.trackFile(tx, botId, "settings", path, text);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      warnings.push(message);
       await tx.bot.update({
         where: { id: botId },
         data: {
           notificationsEnabled: true,
           hiddenFromSidebar: false,
-          dreamingEnabled: false,
         },
       });
       await this.trackFile(tx, botId, "settings", path, text, message);
@@ -1734,8 +2254,8 @@ export class AgentDataStore {
     }
   }
 
-  private async reconcileSkills(tx: Tx, botId: string, warnings: string[]): Promise<void> {
-    const root = join(this.botDirectory(botId), "skills");
+  private async reconcileSkills(tx: Tx, warnings: string[]): Promise<void> {
+    const root = this.workflowsDirectory();
     const slugs = await listDirectories(root);
     const seen = new Set<string>();
     for (const slug of slugs) {
@@ -1743,12 +2263,12 @@ export class AgentDataStore {
       const text = await readText(path, 116_384);
       if (text === null) continue;
       try {
-        const parsed = parseSkillFile(text, `skills/${slug}/SKILL.md`);
+        const parsed = parseSkillFile(text, `workflows/${slug}/SKILL.md`);
         seen.add(slug);
         await tx.savedSkill.upsert({
-          where: { botId_slug: { botId, slug } },
+          where: { slug },
           create: {
-            botId,
+            botId: null,
             slug,
             name: parsed.name,
             description: parsed.description,
@@ -1756,22 +2276,23 @@ export class AgentDataStore {
             frontmatter: asInputJson(parsed.frontmatter),
           },
           update: {
+            botId: null,
             name: parsed.name,
             description: parsed.description,
             body: parsed.body,
             frontmatter: asInputJson(parsed.frontmatter),
           },
         });
-        await this.trackFile(tx, botId, "skill", path, text);
+        await this.trackFile(tx, null, "skill", path, text);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        warnings.push(`skills/${slug}/SKILL.md: ${message}`);
-        await this.trackFile(tx, botId, "skill", path, text, message);
+        warnings.push(`workflows/${slug}/SKILL.md: ${message}`);
+        await this.trackFile(tx, null, "skill", path, text, message);
       }
     }
     if (await this.directoryExists(root)) {
       await tx.savedSkill.deleteMany({
-        where: { botId, slug: { notIn: [...seen] } },
+        where: { slug: { notIn: [...seen] } },
       });
     }
   }
@@ -1794,12 +2315,14 @@ export class AgentDataStore {
         const existing = await tx.routine.findUnique({
           where: { botId_slug: { botId, slug } },
         });
-        const changed =
+        const authoredChanged =
           !existing ||
           existing.name !== parsed.name ||
           existing.prompt !== parsed.prompt ||
-          JSON.stringify(existing.trigger) !== JSON.stringify(parsed.trigger) ||
-          existing.enabled !== parsed.enabled;
+          triggerIdentity(existing.trigger as Record<string, unknown>) !==
+            triggerIdentity(parsed.trigger);
+        const enabledChanged = Boolean(existing) && existing?.enabled !== parsed.enabled;
+        const changed = authoredChanged || enabledChanged;
         const revision = existing ? existing.revision + Number(changed) : 1;
         const schedule = parsed.schedule ?? {
           scheduleText: JSON.stringify(parsed.trigger),
@@ -1848,6 +2371,24 @@ export class AgentDataStore {
             },
           });
         }
+        if (changed && this.timelineEventSink) {
+          await this.timelineEventSink(tx, {
+            botId,
+            clientId: `automation-file:${randomUUID()}`,
+            event: {
+              type: "automation-changed",
+              action: !existing
+                ? "created"
+                : authoredChanged
+                  ? "updated"
+                  : parsed.enabled
+                    ? "enabled"
+                    : "disabled",
+              automationId: routine.id,
+              automationName: routine.name,
+            },
+          });
+        }
         await this.trackFile(tx, botId, "automation", path, text);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -1856,10 +2397,28 @@ export class AgentDataStore {
       }
     }
     if (await this.directoryExists(root)) {
-      await tx.routine.updateMany({
+      const removed = await tx.routine.findMany({
         where: { botId, deletedAt: null, slug: { notIn: [...seen] } },
-        data: { enabled: false, nextRunAt: null, deletedAt: new Date() },
+        select: { id: true, name: true },
       });
+      for (const routine of removed) {
+        await tx.routine.update({
+          where: { id: routine.id },
+          data: { enabled: false, nextRunAt: null, deletedAt: new Date() },
+        });
+        if (this.timelineEventSink) {
+          await this.timelineEventSink(tx, {
+            botId,
+            clientId: `automation-file:${randomUUID()}`,
+            event: {
+              type: "automation-changed",
+              action: "deleted",
+              automationId: routine.id,
+              automationName: routine.name,
+            },
+          });
+        }
+      }
     }
   }
 
@@ -1915,7 +2474,7 @@ export class AgentDataStore {
           if (!profile.name) throw new Error("group profile.json name must be non-empty");
           await tx.channel.update({
             where: { id: group.id },
-            data: { name: profile.name },
+            data: { name: profile.name, description: profile.description },
           });
           await tx.channelMember.deleteMany({ where: { channelId: group.id } });
           await tx.channelMember.createMany({
@@ -1934,7 +2493,7 @@ export class AgentDataStore {
       if ((await readText(join(directory, "profile.json"))) === null) {
         await atomicWrite(
           join(directory, "profile.json"),
-          jsonFile({ name: group.name, description: "" })
+          jsonFile({ name: group.name, description: group.description })
         );
       }
       if ((await readText(join(directory, "settings.json"))) === null) {
@@ -1961,16 +2520,13 @@ export class AgentDataStore {
       botId,
       `memory:${input.scope}:${input.projectSlug ?? ""}:${botId}`,
       async (tx) => {
-        const bot = await tx.bot.findUnique({
-          where: { id: botId },
-          select: { dreamingEnabled: true, status: true },
-        });
+        const bot = await tx.bot.findUnique({ where: { id: botId }, select: { status: true } });
         if (!bot || bot.status !== "active") {
           throw new Error("Cannot write memory for an inactive bot");
         }
         await mkdir(root, { recursive: true, mode: 0o755 });
         const written = await appendMemoryFact(root, input.fact, input.tier, input.at);
-        if (input.scope === "agent" && bot.dreamingEnabled) {
+        if (input.scope === "agent" && this.memoryDreamingEnabled) {
           await markMemoryOrigin(root, written.logicalId, "explicit");
         }
         return written;
@@ -2000,13 +2556,8 @@ export class AgentDataStore {
       async (tx) => {
         const removed = await forgetMemoryFact(root, normalizeMemoryContent(input.fact));
         if (removed.forgotten) {
-          if (input.scope === "agent") {
-            const bot = await tx.bot.findUnique({
-              where: { id: botId },
-              select: { dreamingEnabled: true },
-            });
-            if (bot?.dreamingEnabled) await tombstoneMemory(root, removed.logicalId);
-          }
+          if (input.scope === "agent" && this.memoryDreamingEnabled)
+            await tombstoneMemory(root, removed.logicalId);
           await tx.agentPromptSnapshot.updateMany({
             where: { botId },
             data: { memoryEpoch: -1, memoryRender: "", memoryHasFacts: false },
@@ -2034,23 +2585,20 @@ export class AgentDataStore {
     }
   ) {
     await this.reconcileBot(botId);
-    const written = await this.withFileMutation(botId, "skills", async (tx) => {
+    const written = await this.withRootFileMutation("workflows", async (tx) => {
       if ((await tx.bot.count({ where: { id: botId, status: "active" } })) === 0) {
         throw new Error("Cannot write a skill for an inactive bot");
       }
       const existing = input.id
         ? await tx.savedSkill.findFirst({
             where: UUID_FOLDER.test(input.id)
-              ? { botId, OR: [{ id: input.id }, { slug: input.id }] }
-              : { botId, slug: input.id },
+              ? { OR: [{ id: input.id }, { slug: input.id }] }
+              : { slug: input.id },
           })
         : null;
       if (input.id && !existing) throw new Error("Skill not found");
-      if (
-        !existing &&
-        (await tx.savedSkill.count({ where: { botId } })) >= MAX_SAVED_SKILLS_PER_BOT
-      ) {
-        throw new Error(`A bot may have at most ${MAX_SAVED_SKILLS_PER_BOT} saved skills`);
+      if (!existing && (await tx.savedSkill.count()) >= MAX_SAVED_SKILLS) {
+        throw new Error(`The global workflow library may have at most ${MAX_SAVED_SKILLS} skills`);
       }
       const existingFrontmatter =
         existing?.frontmatter &&
@@ -2058,7 +2606,7 @@ export class AgentDataStore {
         !Array.isArray(existing.frontmatter)
           ? (existing.frontmatter as Record<string, unknown>)
           : {};
-      return writeSkillFile(this.botDirectory(botId), {
+      const result = await writeSkillFile(this.workflowsDirectory(), {
         slug: existing?.slug,
         name: input.name,
         description: input.description,
@@ -2070,21 +2618,50 @@ export class AgentDataStore {
           description: input.description,
         },
       });
+      await tx.savedSkill.upsert({
+        where: { slug: result.slug },
+        create: {
+          botId: null,
+          slug: result.slug,
+          name: input.name,
+          description: input.description,
+          body: input.body,
+          frontmatter: asInputJson({
+            ...existingFrontmatter,
+            ...(input.frontmatter ?? {}),
+            name: input.name,
+            description: input.description,
+          }),
+        },
+        update: {
+          botId: null,
+          name: input.name,
+          description: input.description,
+          body: input.body,
+          frontmatter: asInputJson({
+            ...existingFrontmatter,
+            ...(input.frontmatter ?? {}),
+            name: input.name,
+            description: input.description,
+          }),
+        },
+      });
+      return result;
     });
     await this.reconcileBot(botId);
     return this.prisma.savedSkill.findUniqueOrThrow({
-      where: { botId_slug: { botId, slug: written.slug } },
+      where: { slug: written.slug },
     });
   }
 
   async deleteSkill(botId: string, id: string): Promise<boolean> {
     await this.reconcileBot(botId);
-    return this.withFileMutation(botId, "skills", async (tx) => {
+    return this.withRootFileMutation("workflows", async (tx) => {
       const skill = await tx.savedSkill.findFirst({
-        where: UUID_FOLDER.test(id) ? { botId, OR: [{ id }, { slug: id }] } : { botId, slug: id },
+        where: UUID_FOLDER.test(id) ? { OR: [{ id }, { slug: id }] } : { slug: id },
       });
       if (!skill) return false;
-      await deleteSkillFolder(this.botDirectory(botId), skill.slug);
+      await deleteSkillFolder(this.workflowsDirectory(), skill.slug);
       await tx.savedSkill.delete({ where: { id: skill.id } });
       return true;
     });
@@ -2179,9 +2756,7 @@ export class AgentDataStore {
         snapshot.announcedName !== bot.name ||
         snapshot.announcedDescription !== bot.description
       ) {
-        identityAnnouncement = `Identity update for this turn: your current name is ${bot.name}${
-          bot.description ? ` and your current description is: ${bot.description}` : ""
-        }. The frozen profile section refreshes after conversation compaction.`;
+        identityAnnouncement = renderAgentProfileUpdate(bot.name, bot.description);
         this.pendingIdentityAnnouncements.set(announcementKey, {
           epoch,
           profileSection: snapshot.profileSection,
@@ -2233,8 +2808,22 @@ export class AgentDataStore {
     return {
       compactionEpoch: epoch,
       profileSection,
+      profileSnapshot: {
+        version: 1,
+        profileSection,
+        systemIdentity: {
+          name: snapshot.systemName,
+          description: snapshot.systemDescription,
+        },
+        announcedIdentity: {
+          name: snapshot.announcedName,
+          description: snapshot.announcedDescription,
+        },
+        compactionEpoch: epoch,
+      },
       identityAnnouncement,
       memoryRender,
+      memorySnapshot: memoryRender ? { render: memoryRender, compactionEpoch: epoch } : null,
       skillRender,
       warnings: reconciliation.warnings,
     };
@@ -2423,8 +3012,8 @@ export class AgentDataStore {
   }
 
   private async renderSkills(botId: string): Promise<string> {
+    void botId;
     const skills = await this.prisma.savedSkill.findMany({
-      where: { botId },
       orderBy: { updatedAt: "desc" },
     });
     const blocks = skills
@@ -2432,8 +3021,7 @@ export class AgentDataStore {
       .map(
         (skill) =>
           `- ${skill.name} (${skill.slug}): ${skill.description}\n  Path: ${join(
-            this.botDirectory(botId),
-            "skills",
+            this.workflowsDirectory(),
             skill.slug,
             "SKILL.md"
           )}`
@@ -2465,6 +3053,68 @@ export class AgentDataStore {
     }
   }
 
+  private async mapSidebarIds(
+    ids: readonly string[],
+    direction: "channel-to-agent" | "agent-to-channel"
+  ): Promise<string[]> {
+    const unique = [...new Set(ids)];
+    const uuids = unique.filter((id) =>
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)
+    );
+    if (uuids.length === 0) return [...ids];
+    const channels = await this.prisma.channel.findMany({
+      where:
+        direction === "channel-to-agent"
+          ? { id: { in: uuids } }
+          : {
+              OR: [{ id: { in: uuids } }, { directKey: { in: uuids.map((id) => `bot:${id}`) } }],
+            },
+      select: { id: true, directKey: true },
+    });
+    const mapping = new Map<string, string>();
+    for (const channel of channels) {
+      const botId = channel.directKey?.startsWith("bot:")
+        ? channel.directKey.slice("bot:".length)
+        : null;
+      if (direction === "channel-to-agent") mapping.set(channel.id, botId || channel.id);
+      else mapping.set(botId || channel.id, channel.id);
+    }
+    return ids.map((id) => mapping.get(id) ?? id);
+  }
+
+  async loadRootSettingsForClient(): Promise<{
+    settings: RootSettings;
+    valid: boolean;
+    error?: string;
+  }> {
+    const result = await this.loadRootSettings();
+    const ids = [
+      ...(result.settings.pinnedAgentIds ?? []),
+      ...(result.settings.sidebarSections ?? []).flatMap((section) => section.agentIds),
+    ];
+    const mapped = await this.mapSidebarIds(ids, "agent-to-channel");
+    const mapping = new Map(ids.map((id, index) => [id, mapped[index] ?? id]));
+    return {
+      ...result,
+      settings: {
+        ...result.settings,
+        ...(result.settings.pinnedAgentIds
+          ? {
+              pinnedAgentIds: result.settings.pinnedAgentIds.map((id) => mapping.get(id) ?? id),
+            }
+          : {}),
+        ...(result.settings.sidebarSections
+          ? {
+              sidebarSections: result.settings.sidebarSections.map((section) => ({
+                ...section,
+                agentIds: section.agentIds.map((id) => mapping.get(id) ?? id),
+              })),
+            }
+          : {}),
+      },
+    };
+  }
+
   async writeRootSettings(input: Partial<RootSettings>): Promise<RootSettings> {
     return this.withRootFileMutation("settings", async () => {
       const current = await this.loadRootSettings();
@@ -2478,9 +3128,31 @@ export class AgentDataStore {
     });
   }
 
-  async writeSidebarPreferences(input: unknown): Promise<RootSettings["sidebarPreferences"]> {
+  async writeSidebarPreferences(input: unknown): Promise<LegacySidebarPreferences> {
     const sidebarPreferences = parseSidebarPreferences(input);
-    await this.writeRootSettings({ sidebarPreferences });
+    const channelIds = [
+      ...sidebarPreferences.pinnedIds,
+      ...Object.keys(sidebarPreferences.sectionByChannel),
+    ];
+    const agentIds = await this.mapSidebarIds(channelIds, "channel-to-agent");
+    const idMapping = new Map(
+      channelIds.map((channelId, index) => [channelId, agentIds[index] ?? channelId])
+    );
+    await this.writeRootSettings({
+      pinnedAgentIds: sidebarPreferences.pinnedIds.map(
+        (channelId) => idMapping.get(channelId) ?? channelId
+      ),
+      sidebarSections: normalizeSidebarSections(
+        sidebarPreferences.sections.map((section) => ({
+          id: section.id,
+          name: section.name,
+          agentIds: Object.entries(sidebarPreferences.sectionByChannel)
+            .filter(([, sectionId]) => sectionId === section.id)
+            .map(([channelId]) => idMapping.get(channelId) ?? channelId),
+          isCollapsed: section.collapsed,
+        }))
+      ),
+    });
     return sidebarPreferences;
   }
 
@@ -2550,12 +3222,10 @@ export class AgentDataStore {
           memberIds: group.members.map((member) => member.botId),
         })
       );
-      if ((await readText(join(directory, "profile.json"))) === null) {
-        await atomicWrite(
-          join(directory, "profile.json"),
-          jsonFile({ name: group.name, description: "" })
-        );
-      }
+      await atomicWrite(
+        join(directory, "profile.json"),
+        jsonFile({ name: group.name, description: group.description })
+      );
       if ((await readText(join(directory, "settings.json"))) === null) {
         await atomicWrite(
           join(directory, "settings.json"),
@@ -2574,7 +3244,7 @@ export class AgentDataStore {
         await mkdir(this.botDirectory(botId), { recursive: true });
         await appendFile(
           path,
-          `${JSON.stringify({ ts: Date.now(), agentId: botId, ...entry })}\n`,
+          `${JSON.stringify({ ts: new Date().toISOString(), agentId: botId, ...entry })}\n`,
           {
             encoding: "utf8",
             mode: 0o644,
@@ -2705,7 +3375,7 @@ export class AgentDataStore {
   }
 
   private scheduleMemorySynthesis(): void {
-    if (!this.memoryInference) return;
+    if (!this.memoryInference || !this.memoryDreamingEnabled) return;
     if (this.memorySynthesisActive) {
       this.memorySynthesisNeedsAnotherPass = true;
       return;
@@ -2719,9 +3389,9 @@ export class AgentDataStore {
   }
 
   private async queueTemporalMemoryTargets(now = Date.now()): Promise<void> {
-    if (!this.memoryInference) return;
+    if (!this.memoryInference || !this.memoryDreamingEnabled) return;
     const bots = await this.prisma.bot.findMany({
-      where: { status: "active", dreamingEnabled: true },
+      where: { status: "active" },
       select: { id: true },
       orderBy: { id: "asc" },
     });
@@ -2971,9 +3641,9 @@ export class AgentDataStore {
     if (!pending) return;
     const bot = await this.prisma.bot.findUnique({
       where: { id: botId },
-      select: { dreamingEnabled: true, status: true },
+      select: { status: true },
     });
-    if (!bot || bot.status !== "active" || !bot.dreamingEnabled) {
+    if (!this.memoryDreamingEnabled || !bot || bot.status !== "active") {
       this.pendingDreamingEvidence.delete(botId);
       return;
     }
@@ -3036,7 +3706,7 @@ export class AgentDataStore {
   }
 
   async runMemorySynthesisNow(): Promise<void> {
-    if (!this.memoryInference) return;
+    if (!this.memoryInference || !this.memoryDreamingEnabled) return;
     if (this.memorySynthesisActive) {
       this.memorySynthesisNeedsAnotherPass = true;
       return;
@@ -3067,10 +3737,10 @@ export class AgentDataStore {
     if (input.hidden || !input.user.trim()) return;
     const bot = await this.prisma.bot.findUnique({
       where: { id: botId },
-      select: { dreamingEnabled: true, status: true },
+      select: { status: true },
     });
     if (!bot || bot.status !== "active") return;
-    if (bot.dreamingEnabled) {
+    if (this.memoryDreamingEnabled) {
       if (
         !this.pendingDreamingEvidence.has(botId) &&
         this.pendingDreamingEvidence.size >= MAX_PENDING_DREAMING_AGENTS
@@ -3116,9 +3786,10 @@ export class AgentDataStore {
   async materializeAttachments(
     botId: string,
     messageId: string,
-    images: ReadonlyArray<{ url: string; alt?: string }>
+    attachments: readonly AssetRef[]
   ): Promise<string[]> {
-    if (images.length === 0) return [];
+    void messageId;
+    if (attachments.length === 0) return [];
     return this.withFileMutation(botId, "attachments", async (tx) => {
       if (
         (await tx.bot.count({
@@ -3129,41 +3800,46 @@ export class AgentDataStore {
       }
       const directory = join(this.botDirectory(botId), "attachments");
       const paths: string[] = [];
-      for (const [index, image] of images.entries()) {
-        const match = image.url.match(/^data:image\/(gif|jpeg|png|webp);base64,(.+)$/i);
+      for (const attachment of attachments) {
+        if (!/^[a-f0-9]{64}$/.test(attachment.assetId)) continue;
+        const source = join(this.assetRoot, `${attachment.assetId}.blob`);
         let bytes: Buffer;
         try {
-          if (match?.[1] && match[2]) {
-            bytes = Buffer.from(match[2], "base64");
-          } else if (image.url.startsWith("file://")) {
-            const path = fileURLToPath(image.url);
-            const file = await stat(path);
-            if (!file.isFile() || file.size === 0 || file.size > MAX_A2A_IMAGE_BYTES) continue;
-            bytes = await readFile(path);
-          } else if (image.url.startsWith("https://")) {
-            bytes = await publicHttpsImage(image.url);
-          } else {
-            continue;
-          }
+          const file = await stat(source);
+          if (!file.isFile() || file.size !== attachment.byteSize) continue;
+          bytes = await readFile(source);
         } catch {
           continue;
         }
-        if (bytes.length === 0 || bytes.length > MAX_A2A_IMAGE_BYTES) continue;
-        const extension = imageExtension(bytes);
-        if (!extension) continue;
-        const label =
-          (image.alt ?? "image")
-            .normalize("NFKD")
-            .replace(/[^a-zA-Z0-9._-]+/g, "-")
-            .replace(/^-+|-+$/g, "")
-            .slice(0, 64) || "image";
-        const stem = messageId.replace(/[^a-zA-Z0-9_-]/g, "-").slice(0, 80);
-        const path = join(directory, `${stem}-${index + 1}-${label}.${extension}`);
+        if (bytes.length === 0 || bytes.length > 200 * 1024 * 1024) continue;
+        if (createHash("sha256").update(bytes).digest("hex") !== attachment.assetId) continue;
+        const candidateExtension = extname(attachment.fileName).toLowerCase();
+        const extension = /^\.[a-z0-9]{1,12}$/.test(candidateExtension)
+          ? candidateExtension
+          : ".bin";
+        const path = join(directory, `${attachment.assetId}${extension}`);
         await atomicWrite(path, bytes, 0o644);
         paths.push(path);
       }
       return paths;
     });
+  }
+
+  async agentAttachmentPath(assetId: string): Promise<string | null> {
+    if (!/^[a-f0-9]{64}$/.test(assetId)) return null;
+    const agentsRoot = join(this.root, "agents");
+    for (const agentId of await listDirectories(agentsRoot)) {
+      const attachments = join(agentsRoot, agentId, "attachments");
+      const match = (await readdir(attachments).catch(() => []))
+        .filter((name) => name.startsWith(`${assetId}.`))
+        .sort()[0];
+      if (!match) continue;
+      const candidate = join(attachments, match);
+      const canonical = await realpath(candidate).catch(() => null);
+      const canonicalRoot = await realpath(attachments).catch(() => attachments);
+      if (canonical && this.isInside(canonical, canonicalRoot)) return canonical;
+    }
+    return null;
   }
 
   private async directoryExists(path: string): Promise<boolean> {

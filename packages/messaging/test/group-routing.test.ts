@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   groupMemberMentionHandles,
+  groupVisibilityClauses,
   parseGroupMentions,
   resolveGroupResponderIds,
   rotateGroupResponders,
@@ -71,5 +72,32 @@ describe("Grok-compatible group routing", () => {
       "three",
       "one",
     ]);
+  });
+
+  test("freezes the base snapshot while admitting only earlier same-round outputs", () => {
+    expect(
+      groupVisibilityClauses({
+        rootSequence: 97n,
+        triggerSequence: 100n,
+        lastTargetSequence: null,
+        earlierRunIds: ["run-first", "run-first", "run-second"],
+      })
+    ).toEqual([
+      { sequence: { gte: 97n, lte: 100n } },
+      {
+        sender: "agent",
+        sourceRunId: { in: ["run-first", "run-second"] },
+        sequence: { gt: 100n },
+      },
+    ]);
+
+    expect(
+      groupVisibilityClauses({
+        rootSequence: 97n,
+        triggerSequence: 100n,
+        lastTargetSequence: 99n,
+        earlierRunIds: [],
+      })
+    ).toEqual([{ sequence: { gt: 99n, lte: 100n } }]);
   });
 });

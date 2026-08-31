@@ -14,6 +14,40 @@ export interface GroupRoutingMessage {
   content: string;
 }
 
+export interface GroupVisibilityWindow {
+  rootSequence: bigint;
+  triggerSequence: bigint;
+  lastTargetSequence: bigint | null;
+  earlierRunIds: readonly string[];
+}
+
+/**
+ * Keep the round's original room snapshot frozen at the trigger while admitting
+ * only outputs authored by members that have already held this round's baton.
+ */
+export const groupVisibilityClauses = ({
+  rootSequence,
+  triggerSequence,
+  lastTargetSequence,
+  earlierRunIds,
+}: GroupVisibilityWindow) => [
+  {
+    sequence: {
+      ...(lastTargetSequence === null ? { gte: rootSequence } : { gt: lastTargetSequence }),
+      lte: triggerSequence,
+    },
+  },
+  ...(earlierRunIds.length > 0
+    ? [
+        {
+          sender: "agent" as const,
+          sourceRunId: { in: [...new Set(earlierRunIds)] },
+          sequence: { gt: triggerSequence },
+        },
+      ]
+    : []),
+];
+
 const normalizeHandle = (value: string) => value.toLocaleLowerCase("en-US");
 
 export const groupMemberMentionHandles = (name: string): string[] => {

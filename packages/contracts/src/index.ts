@@ -43,7 +43,11 @@ export const CURSOR_TOOL_NAMES = CURSOR_TOOLS.map(({ tool }) => tool);
 const cursorTool = <const Name extends string>(name: Name) => {
   const definition = CURSOR_TOOLS.find((candidate) => candidate.tool === name);
   if (!definition) throw new Error(`Missing Cursor-compatible tool definition: ${name}`);
-  return { name, description: definition.description, inputSchema: definition.inputSchema };
+  return {
+    name,
+    description: definition.description,
+    inputSchema: definition.inputSchema,
+  };
 };
 
 export const BotStatus = Schema.Literal("provisioning", "active", "archived", "failed");
@@ -82,7 +86,7 @@ export type ChannelKind = typeof ChannelKind.Type;
 export const ChannelMessageSender = Schema.Literal("user", "agent", "system");
 export type ChannelMessageSender = typeof ChannelMessageSender.Type;
 
-export const RunOrigin = Schema.Literal("user", "agent", "group", "bootstrap", "routine");
+export const RunOrigin = Schema.Literal("user", "agent", "group", "bootstrap", "routine", "event");
 export type RunOrigin = typeof RunOrigin.Type;
 
 export const RunItemKind = Schema.Literal(
@@ -96,7 +100,13 @@ export const RunItemKind = Schema.Literal(
 );
 export type RunItemKind = typeof RunItemKind.Type;
 
-export const ApprovalDecision = Schema.Literal("accept", "decline", "cancel");
+export const ApprovalDecision = Schema.Literal(
+  "accept",
+  "always_allow",
+  "decline",
+  "never",
+  "cancel"
+);
 export type ApprovalDecision = typeof ApprovalDecision.Type;
 
 export const CreateBotInput = Schema.Struct({
@@ -123,14 +133,244 @@ export const UpdateBotInput = Schema.Struct({
 });
 export type UpdateBotInput = typeof UpdateBotInput.Type;
 
-export const InlineImageInput = Schema.Struct({
+export const PushDevicePlatform = Schema.Literal("ios", "android");
+export type PushDevicePlatform = typeof PushDevicePlatform.Type;
+
+export const RegisterPushDeviceInput = Schema.Struct({
+  installationId: Schema.String.pipe(Schema.minLength(8), Schema.maxLength(200)),
+  platform: PushDevicePlatform,
+  pushToken: Schema.String.pipe(
+    Schema.minLength(20),
+    Schema.maxLength(512),
+    Schema.pattern(/^(?:ExponentPushToken|ExpoPushToken)\[[A-Za-z0-9_-]+\]$/)
+  ),
+  timeZone: Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(120))),
+  locale: Schema.optional(Schema.String.pipe(Schema.minLength(2), Schema.maxLength(35))),
+});
+export type RegisterPushDeviceInput = typeof RegisterPushDeviceInput.Type;
+
+export interface PushDeviceView {
+  installationId: string;
+  platform: PushDevicePlatform;
+  enabled: boolean;
+  lastSeenAt: string;
+}
+
+export const MarkChannelReadInput = Schema.Struct({
+  throughSequence: Schema.optional(Schema.String.pipe(Schema.pattern(/^\d+$/))),
+});
+export type MarkChannelReadInput = typeof MarkChannelReadInput.Type;
+
+export type AgentNotificationKind = "agent-needs-input" | "agent-done";
+
+export interface AgentNotificationPayload {
+  schemaVersion: 1;
+  kind: AgentNotificationKind;
+  botId: string;
+  channelId: string;
+  runId: string;
+  approvalId?: string;
+  title: string;
+  body: string;
+  deepLink: string;
+  badgeCount: number;
+}
+
+export interface BadgeSyncNotificationPayload {
+  schemaVersion: 1;
+  kind: "badge-sync";
+  badgeCount: number;
+}
+
+export type PushNotificationPayload = AgentNotificationPayload | BadgeSyncNotificationPayload;
+
+export interface AgentNotificationPresentation {
+  title: string;
+  body: string;
+  sound: "default" | null;
+  urgency: "critical" | "normal";
+}
+
+const notificationMetadata = (value: unknown): Record<string, unknown> =>
+  value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+
+export const normalizeNotificationText = (value: string): string =>
+  value.replace(/\s+/g, " ").trim();
+
+export const notificationGraphemes = (value: string): string[] => {
+  const normalized = normalizeNotificationText(value);
+  const Segmenter = (
+    Intl as unknown as {
+      Segmenter?: new (
+        locale?: string,
+        options?: { granularity: "grapheme" }
+      ) => { segment: (input: string) => Iterable<{ segment: string }> };
+    }
+  ).Segmenter;
+  return Segmenter
+    ? [...new Segmenter(undefined, { granularity: "grapheme" }).segment(normalized)].map(
+        (part) => part.segment
+      )
+    : Array.from(normalized);
+};
+
+export const truncateNotificationText = (value: string, limit = 140): string => {
+  const graphemes = notificationGraphemes(value);
+  return graphemes.length <= limit
+    ? graphemes.join("")
+    : `${graphemes.slice(0, Math.max(0, limit - 1)).join("")}…`;
+};
+
+export const notificationApprovalReason = (details: unknown): string => {
+  const record = notificationMetadata(details);
+  for (const key of ["reason", "message", "description", "command", "title"]) {
+    if (typeof record[key] === "string" && record[key].trim()) {
+      return truncateNotificationText(record[key]);
+    }
+  }
+  return "Waiting for your input.";
+};
+
+export const notificationMessageInputReason = (message: {
+  content?: string | null;
+  metadata?: unknown;
+}): string | null => {
+  const metadata = notificationMetadata(message.metadata);
+  const type = typeof metadata.type === "string" ? metadata.type : "";
+  if (
+    ![
+      "widget",
+      "user_form",
+      "secret-request",
+      "secret_request",
+      "permission_request",
+      "approval_required",
+    ].includes(type)
+  ) {
+    return null;
+  }
+  if (message.content?.trim()) return truncateNotificationText(message.content);
+  if (type === "widget" || type === "user_form") return "Asked you to answer a question.";
+  return "Waiting for your input.";
+};
+
+export const notificationMessagePreview = (message: {
+  content?: string | null;
+  metadata?: unknown;
+}): string => {
+  if (message.content?.trim()) return truncateNotificationText(message.content);
+  const metadata = notificationMetadata(message.metadata);
+  const attachments = Array.isArray(metadata.attachments) ? metadata.attachments : [];
+  if (attachments.length > 0) {
+    const imageCount = attachments.filter((attachment) => {
+      const item = notificationMetadata(attachment);
+      return item.kind === "image" || String(item.mimeType ?? "").startsWith("image/");
+    }).length;
+    if (imageCount === attachments.length) {
+      return imageCount === 1 ? "Sent an image." : `Sent ${imageCount} images.`;
+    }
+    return attachments.length === 1 ? "Sent an attachment." : `Sent ${attachments.length} files.`;
+  }
+  const type = typeof metadata.type === "string" ? metadata.type : "";
+  if (["sent_link", "link"].includes(type)) return "Sent a link.";
+  if (
+    ["secret-request", "secret_request", "permission_request", "approval_required"].includes(type)
+  ) {
+    return "Waiting for your input.";
+  }
+  if (["email_draft", "slack_draft"].includes(type)) return "Prepared a draft for you.";
+  if (type === "widget" || type === "user_form") return "Asked you to answer a question.";
+  if (type === "cursor_agent") return "Finished the delegated task.";
+  return "Open OpenBot to see what it did.";
+};
+
+/**
+ * The user-visible contract shared by native macOS notifications and iOS push
+ * notifications. Keeping every notification kind in this exhaustive catalog
+ * makes adding a new kind a compile-time decision for both clients.
+ */
+const agentNotificationTypeCatalog = {
+  "agent-needs-input": {
+    title: (botName: string) => `${botName} needs you`,
+    fallbackBody: "Waiting for your input.",
+    sound: "default",
+    urgency: "critical",
+  },
+  "agent-done": {
+    title: (botName: string) => botName,
+    fallbackBody: "Open OpenBot to see what it did.",
+    sound: null,
+    urgency: "normal",
+  },
+} as const satisfies Record<
+  AgentNotificationKind,
+  {
+    title: (botName: string) => string;
+    fallbackBody: string;
+    sound: "default" | null;
+    urgency: "critical" | "normal";
+  }
+>;
+
+export const isAgentNotificationKind = (value: unknown): value is AgentNotificationKind =>
+  typeof value === "string" && value in agentNotificationTypeCatalog;
+
+export const agentNotificationDeliveryPolicy = (
+  kind: AgentNotificationKind
+): Pick<AgentNotificationPresentation, "sound" | "urgency"> => {
+  const definition = agentNotificationTypeCatalog[kind];
+  return { sound: definition.sound, urgency: definition.urgency };
+};
+
+export const agentNotificationPresentation = (input: {
+  kind: AgentNotificationKind;
+  botName: string;
+  body?: string | null;
+}): AgentNotificationPresentation => {
+  const definition = agentNotificationTypeCatalog[input.kind];
+  const botName = normalizeNotificationText(input.botName) || "OpenBot";
+  return {
+    title: definition.title(botName),
+    body: truncateNotificationText(input.body?.trim() ? input.body : definition.fallbackBody),
+    ...agentNotificationDeliveryPolicy(input.kind),
+  };
+};
+
+/** Transient multimodal payload used only between trusted OpenBot services. */
+export const RuntimeInlineImage = Schema.Struct({
   url: Schema.String.pipe(
     Schema.maxLength(28_000_000),
     Schema.pattern(/^data:image\/(?:gif|jpeg|png|webp);base64,/i)
   ),
   alt: Schema.optional(Schema.String.pipe(Schema.maxLength(2_000))),
 });
-export type InlineImageInput = typeof InlineImageInput.Type;
+export type RuntimeInlineImage = typeof RuntimeInlineImage.Type;
+
+export const AssetKind = Schema.Literal("image", "video", "audio", "pdf", "text", "file");
+export type AssetKind = typeof AssetKind.Type;
+
+/** Canonical persisted reference to bytes owned by OpenBot's content-addressed asset store. */
+export const AssetRef = Schema.Struct({
+  assetId: Schema.String.pipe(Schema.pattern(/^[a-f0-9]{64}$/)),
+  fileName: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(255)),
+  mimeType: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(120)),
+  byteSize: Schema.Number.pipe(Schema.int(), Schema.between(1, 200 * 1024 * 1024)),
+  kind: AssetKind,
+  width: Schema.optional(Schema.Number.pipe(Schema.int(), Schema.greaterThan(0))),
+  height: Schema.optional(Schema.Number.pipe(Schema.int(), Schema.greaterThan(0))),
+  alt: Schema.optional(Schema.String.pipe(Schema.maxLength(2_000))),
+});
+export type AssetRef = typeof AssetRef.Type;
+
+export const UploadAssetInput = Schema.Struct({
+  fileName: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(255)),
+  mimeType: Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(120))),
+  bytesBase64: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(280_000_000)),
+  alt: Schema.optional(Schema.String.pipe(Schema.maxLength(2_000))),
+});
+export type UploadAssetInput = typeof UploadAssetInput.Type;
 
 export const SendMessageInput = Schema.Struct({
   content: Schema.String.pipe(Schema.maxLength(200_000)),
@@ -138,15 +378,16 @@ export const SendMessageInput = Schema.Struct({
   replyToMessageId: Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(120))),
   richText: Schema.optional(Schema.String.pipe(Schema.maxLength(400_000))),
   isFork: Schema.optional(Schema.Boolean),
-  images: Schema.optional(Schema.Array(InlineImageInput).pipe(Schema.maxItems(8))),
+  attachments: Schema.optional(Schema.Array(AssetRef).pipe(Schema.maxItems(6))),
   timeZone: Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(100))),
 }).pipe(
   Schema.filter(
     (input) =>
-      (input.content.trim().length > 0 || Boolean(input.images?.length)) &&
+      (input.content.trim().length > 0 || Boolean(input.attachments?.length)) &&
       (!input.isFork || Boolean(input.replyToMessageId)),
     {
-      message: () => "A message needs text or an image, and a thread reply needs a reply target",
+      message: () =>
+        "A message needs text or an attachment, and a thread reply needs a reply target",
     }
   )
 );
@@ -178,6 +419,19 @@ export const RenameChannelInput = Schema.Struct({
 });
 export type RenameChannelInput = typeof RenameChannelInput.Type;
 
+export const UpdateChannelProfileInput = Schema.Struct({
+  name: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(80)),
+  description: Schema.String.pipe(Schema.maxLength(2_000)),
+  clientId: Schema.String.pipe(Schema.minLength(8), Schema.maxLength(120)),
+});
+export type UpdateChannelProfileInput = typeof UpdateChannelProfileInput.Type;
+
+export const SetChannelAvatarInput = Schema.Struct({
+  pngBase64: Schema.NullOr(Schema.String.pipe(Schema.maxLength(7_000_000))),
+  clientId: Schema.String.pipe(Schema.minLength(8), Schema.maxLength(120)),
+});
+export type SetChannelAvatarInput = typeof SetChannelAvatarInput.Type;
+
 export const TodoStatus = Schema.Literal("pending", "in_progress", "completed", "cancelled");
 export type TodoStatus = typeof TodoStatus.Type;
 
@@ -204,7 +458,7 @@ export type SubagentType = typeof SubagentType.Type;
 
 export const TaskInput = Schema.Struct({
   description: Schema.String,
-  prompt: Schema.String,
+  prompt: Schema.String.pipe(Schema.minLength(1)),
   model: Schema.optional(Schema.String),
   resume: Schema.optional(Schema.String),
   subagent_type: Schema.optional(SubagentType),
@@ -325,6 +579,7 @@ export const ShellToolInput = Schema.Struct({
   block_until_ms: Schema.optional(Schema.Number.pipe(Schema.between(0, 7_140_000))),
   description: Schema.optional(Schema.String),
   working_directory: Schema.optional(Schema.String),
+  machineId: Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(200))),
   request_smart_mode_approval: Schema.optional(Schema.Boolean),
   smart_mode_block_reason: Schema.optional(Schema.String),
 });
@@ -334,6 +589,7 @@ export const ReadToolInput = Schema.Struct({
   path: Schema.String,
   offset: Schema.optional(Schema.Number.pipe(Schema.int())),
   limit: Schema.optional(Schema.Number.pipe(Schema.int(), Schema.greaterThan(0))),
+  machineId: Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(200))),
 });
 export type ReadToolInput = typeof ReadToolInput.Type;
 
@@ -371,12 +627,18 @@ export type PluginDynamicNamespace = typeof PluginDynamicNamespace.Type;
 
 export const InstallPluginInput = Schema.Struct({
   pluginKey: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(160)),
+  values: Schema.optional(Schema.Record({ key: Schema.String, value: Schema.String })),
 });
 export type InstallPluginInput = typeof InstallPluginInput.Type;
 
 export const AddCustomMcpInput = Schema.Struct({
   name: Schema.String.pipe(Schema.minLength(2), Schema.maxLength(100)),
-  url: Schema.String.pipe(Schema.minLength(8), Schema.maxLength(2_000)),
+  url: Schema.optional(Schema.String.pipe(Schema.minLength(8), Schema.maxLength(2_000))),
+  command: Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(500))),
+  args: Schema.optional(Schema.Array(Schema.String.pipe(Schema.maxLength(2_000)))),
+  env: Schema.optional(Schema.Record({ key: Schema.String, value: Schema.String })),
+  headers: Schema.optional(Schema.Record({ key: Schema.String, value: Schema.String })),
+  auth: Schema.optional(Schema.Literal("none", "token", "oauth")),
   alias: Schema.optional(Schema.String.pipe(Schema.minLength(2), Schema.maxLength(80))),
 });
 export type AddCustomMcpInput = typeof AddCustomMcpInput.Type;
@@ -385,6 +647,25 @@ export const ConnectPluginInput = Schema.Struct({
   alias: Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(80))),
 });
 export type ConnectPluginInput = typeof ConnectPluginInput.Type;
+
+export const ConfigurePluginConnectionInput = Schema.Struct({
+  token: Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(20_000))),
+  headers: Schema.optional(Schema.Record({ key: Schema.String, value: Schema.String })),
+  clientId: Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(1_000))),
+  clientSecret: Schema.optional(Schema.String.pipe(Schema.maxLength(10_000))),
+  scope: Schema.optional(Schema.String.pipe(Schema.maxLength(4_000))),
+});
+export type ConfigurePluginConnectionInput = typeof ConfigurePluginConnectionInput.Type;
+
+export const RenamePluginAccountInput = Schema.Struct({
+  alias: Schema.String.pipe(Schema.minLength(2), Schema.maxLength(80)),
+});
+export type RenamePluginAccountInput = typeof RenamePluginAccountInput.Type;
+
+export const SetMcpInstructionsInput = Schema.Struct({
+  instructions: Schema.String.pipe(Schema.maxLength(500)),
+});
+export type SetMcpInstructionsInput = typeof SetMcpInstructionsInput.Type;
 
 export const SetPluginGrantInput = Schema.Struct({
   botId: Schema.String,
@@ -426,6 +707,33 @@ export interface PluginCatalogSkillView {
   description: string;
 }
 
+export interface PluginCatalogSetupFieldView {
+  key: string;
+  label: string;
+  required: boolean;
+  secret: boolean;
+}
+
+export interface PluginSetupFieldView {
+  key: "token" | "clientId" | "clientSecret" | "scope";
+  label: string;
+  placeholder: string;
+  required: boolean;
+  secret: boolean;
+  helpText: string | null;
+}
+
+export interface PluginSetupView {
+  kind: "none" | "token" | "oauth" | "oauth_client";
+  connectionKey: string | null;
+  title: string;
+  description: string;
+  documentationUrl: string | null;
+  steps: string[];
+  fields: PluginSetupFieldView[];
+  requiredScopes: string[];
+}
+
 export interface PluginCatalogItemView {
   key: string;
   version: string;
@@ -438,6 +746,12 @@ export interface PluginCatalogItemView {
   components: Array<"skills" | "mcp">;
   connections: PluginCatalogConnectionView[];
   skills: PluginCatalogSkillView[];
+  homepageUrl: string | null;
+  sourceUrl: string | null;
+  sourceRevision: string | null;
+  logoUrl: string | null;
+  setupFields: PluginCatalogSetupFieldView[];
+  setup: PluginSetupView | null;
 }
 
 export interface PluginConnectionView {
@@ -451,6 +765,11 @@ export interface PluginConnectionView {
   status: "disconnected" | "needs_auth" | "ready" | "error" | "revoked";
   statusMessage: string | null;
   instructions: string;
+  authorizationUrl: string | null;
+  oauthRedirectUrl: string | null;
+  canAuthenticate: boolean;
+  configured: boolean;
+  command: string | null;
   tools: PluginCatalogToolView[];
   grantedBotIds: string[];
 }
@@ -664,9 +983,9 @@ export interface ScreenStatusView {
   humanTakeover: boolean;
   agentInputPaused: boolean;
   apps: Array<"chromium" | "thunar" | "terminal">;
-  browserProfileScope: "bot";
+  browserProfileScope: "computer";
   browserSessionScope: "computer";
-  browserSessionMechanism: "cookie-broker";
+  browserSessionMechanism: "shared-profiles";
 }
 
 export const SEND_TO_AGENT_TOOL = cursorTool("SendToAgent");
@@ -677,6 +996,7 @@ export const EXTERNAL_SHELL_TOOL = nativeTool("ExternalShell");
 export const EXTERNAL_READ_TOOL = nativeTool("ExternalRead");
 export const SHELL_TOOL = nativeTool("Shell");
 export const READ_TOOL = nativeTool("Read");
+export const LIST_MACHINES_TOOL = nativeTool("ListMachines");
 export const GET_DYNAMIC_TOOLS_TOOL = nativeTool("GetDynamicTools");
 export const CALL_DYNAMIC_TOOL_TOOL = nativeTool("CallDynamicTool");
 
@@ -729,7 +1049,6 @@ export const UpdateStateInput = Schema.Struct({
   body: Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(100_000))),
   hidden_from_sidebar: Schema.optional(Schema.Boolean),
   notify_on_updates: Schema.optional(Schema.Boolean),
-  dreaming_enabled: Schema.optional(Schema.Boolean),
   platform: Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(80))),
   path: Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(2_000))),
 });
@@ -920,15 +1239,20 @@ export const ComputerTurnRequest = Schema.Struct({
   instructions: Schema.String,
   userInfo: Schema.optional(Schema.NullOr(Schema.String)),
   userInfoEpoch: Schema.optional(Schema.Number),
+  agentProfileSnapshot: Schema.optional(Schema.Unknown),
+  memorySnapshot: Schema.optional(Schema.Unknown),
   todoUpdate: Schema.optional(Schema.NullOr(Schema.String)),
   automationTrigger: Schema.optional(Schema.NullOr(Schema.String)),
   resetSelfSummaryCount: Schema.optional(Schema.Boolean),
+  requestSource: Schema.optional(
+    Schema.Literal("user", "agent", "group", "bootstrap", "automation", "event")
+  ),
   channelId: Schema.String,
   deliveryId: Schema.NullOr(Schema.String),
   runtimeProfile: Schema.optional(Schema.Literal("agent", "subagent")),
   subagentType: Schema.optional(SubagentType),
   fileAttachments: Schema.optional(Schema.Array(Schema.String)),
-  images: Schema.optional(Schema.Array(InlineImageInput).pipe(Schema.maxItems(8))),
+  images: Schema.optional(Schema.Array(RuntimeInlineImage).pipe(Schema.maxItems(6))),
   dynamicNamespaces: Schema.optional(Schema.Array(PluginDynamicNamespace)),
 });
 export type ComputerTurnRequest = typeof ComputerTurnRequest.Type;
@@ -937,7 +1261,7 @@ export const ComputerSteerRequest = Schema.Struct({
   inboxId: Schema.String,
   clientMessageId: Schema.String,
   content: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(200_000)),
-  images: Schema.optional(Schema.Array(InlineImageInput).pipe(Schema.maxItems(8))),
+  images: Schema.optional(Schema.Array(RuntimeInlineImage).pipe(Schema.maxItems(6))),
 });
 export type ComputerSteerRequest = typeof ComputerSteerRequest.Type;
 
@@ -1074,9 +1398,13 @@ export interface ChannelView {
   id: string;
   kind: ChannelKind;
   name: string;
+  description: string;
+  hasAvatar: boolean;
   directKey: string | null;
   workingDirectory: string | null;
   members: ChannelMemberView[];
+  /** Number of unread user-visible agent messages, synchronized across clients. */
+  unreadCount?: number;
   createdAt: string;
   updatedAt: string;
 }

@@ -3,6 +3,7 @@ export interface OpenBotTransportOptions {
   fetch?: typeof fetch;
   getAuthToken?: () => string | null | Promise<string | null>;
   onUnauthorized?: () => void;
+  accessToken?: string | null | (() => string | null | Promise<string | null>);
 }
 
 export class OpenBotClientError extends Error {
@@ -27,6 +28,7 @@ export const createJsonTransport = ({
   fetch: fetchOverride,
   getAuthToken,
   onUnauthorized,
+  accessToken,
 }: OpenBotTransportOptions) => {
   const origin = normalizeBaseUrl(baseUrl);
   const fetchImpl = fetchOverride ?? globalThis.fetch;
@@ -36,9 +38,11 @@ export const createJsonTransport = ({
     let response: Response;
     try {
       const headers = new Headers(init?.headers);
-      const token = await getAuthToken?.();
-      if (token && !headers.has("authorization")) {
-        headers.set("authorization", `Bearer ${token}`);
+      const accessTokenValue =
+        typeof accessToken === "function" ? await accessToken() : accessToken;
+      const token = (await getAuthToken?.()) ?? accessTokenValue;
+      if (token?.trim() && !headers.has("authorization")) {
+        headers.set("authorization", `Bearer ${token.trim()}`);
       }
       if (init?.body != null && !headers.has("content-type")) {
         headers.set("content-type", "application/json");

@@ -66,6 +66,9 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
       if (!request.headers.get("authorization")?.startsWith("Bearer ")) {
         return Response.json({ error: "unauthorized" }, { status: 401 });
       }
+      if (request.method === "GET" && url.pathname === "/v1/agent-stores") {
+        return Response.json({ agents: [] });
+      }
       if (request.method === "POST" && url.pathname === "/v1/agent-stores/reconcile") {
         return Response.json({ quarantined: [] });
       }

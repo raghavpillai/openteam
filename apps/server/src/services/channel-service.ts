@@ -898,7 +898,7 @@ export class ChannelService {
             const wake = await this.messaging.enqueueWake(tx, {
               botId: message.senderBot.id,
               channelId: message.channelId,
-              origin: "user",
+              origin: "handoff_resume",
               type: "user.reaction",
               content: formatUserReactionPrompt(input.emoji, message.content),
               clientId: `reaction:${message.id}:${input.clientId}`,

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   AgentMessaging,
+  buildAdminBroadcastWakePrompt,
   MAIN_AGENT_GRAPHICAL_DELEGATION_INSTRUCTIONS,
   renderAgentSkillsUserInfo,
   renderSubagentRevivalPrompt,
@@ -85,6 +86,15 @@ describe("main-agent graphical delegation instructions", () => {
     expect(wake).toContain("tell them with a SendToUser");
     expect(wake).not.toContain("user_visible_high_level_summary");
     expect(wake).not.toContain("<response>");
+  });
+
+  test("renders an administrator broadcast as a hidden non-user wake", () => {
+    const wake = buildAdminBroadcastWakePrompt("The local runtime will restart tonight.");
+    expect(wake).toContain("[SAND_HIDDEN_PROMPT]");
+    expect(wake).toContain("[broadcast]");
+    expect(wake).toContain("not a message typed by the user");
+    expect(wake).toContain("The local runtime will restart tonight.");
+    expect(wake).toContain("Use SendToUser");
   });
 
   test("renders saved-skill metadata in a bounded user-info section", () => {

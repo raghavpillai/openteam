@@ -50,7 +50,19 @@ describe("approval lifecycle parity", () => {
         where: {
           status: "pending",
           createdAt: { lt: new Date("2026-08-27T10:00:00.000Z") },
-          run: { origin: { in: ["routine", "group", "bootstrap"] } },
+          run: {
+            origin: {
+              in: [
+                "routine",
+                "group",
+                "bootstrap",
+                "event",
+                "background_revival",
+                "handoff_resume",
+                "broadcast",
+              ],
+            },
+          },
         },
         data: { status: "expired", resolvedAt: now },
       },

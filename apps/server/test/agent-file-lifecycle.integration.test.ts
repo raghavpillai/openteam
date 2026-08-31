@@ -20,6 +20,7 @@ test("canonical avatars serve safely and sidebar deletion preserves global memor
   const root = join(temporary, "agent-data");
   const workspace = join(temporary, "workspace");
   const botId = crypto.randomUUID();
+  const childBotId = crypto.randomUUID();
   const channelId = crypto.randomUUID();
   const routineId = crypto.randomUUID();
   const store = new AgentDataStore(prisma, { root, workspaceRoot: workspace });
@@ -45,6 +46,31 @@ test("canonical avatars serve safely and sidebar deletion preserves global memor
         members: { create: { botId, ordinal: 0 } },
       },
     });
+    await prisma.bot.create({
+      data: {
+        id: childBotId,
+        name: "Disposable child",
+        defaultDirectory: workspace,
+        status: "active",
+        hiddenFromSidebar: true,
+        conversation: { create: {} },
+      },
+    });
+    await prisma.subagent.create({
+      data: {
+        parentBotId: botId,
+        childBotId,
+        parentRunId: crypto.randomUUID(),
+        parentChannelId: channelId,
+        launchCallId: crypto.randomUUID(),
+        description: "Disposable child",
+        prompt: "Return immediately.",
+        subagentType: "executor",
+        status: "completed",
+        result: "done",
+        outputPath: join(root, "agent-transcripts", childBotId, `${childBotId}.jsonl`),
+      },
+    });
     await prisma.routine.create({
       data: {
         id: routineId,
@@ -61,8 +87,10 @@ test("canonical avatars serve safely and sidebar deletion preserves global memor
       },
     });
     await store.initializeBot(botId);
+    await store.initializeBot(childBotId);
     await store.writeActiveAgentId(botId);
     const agentDirectory = store.botDirectory(botId);
+    const childAgentDirectory = store.botDirectory(childBotId);
     const avatarSource = join(agentDirectory, "avatar-source.png");
     await writeFile(avatarSource, imageBytes);
     await store.setAvatarFromPath(botId, avatarSource);
@@ -144,6 +172,7 @@ test("canonical avatars serve safely and sidebar deletion preserves global memor
       (await prisma.routine.findUniqueOrThrow({ where: { id: routineId } })).deletedAt
     ).not.toBeNull();
     await expect(access(agentDirectory)).rejects.toThrow();
+    await expect(access(childAgentDirectory)).rejects.toThrow();
     await store.writeRoutine(botId, routineId);
     await expect(access(agentDirectory)).rejects.toThrow();
     const lateImage = await assets.ingestSource({
@@ -180,7 +209,9 @@ test("canonical avatars serve safely and sidebar deletion preserves global memor
     expect(await readFile(userShard, "utf8")).toContain("Keep user memory");
     expect(await readFile(projectShard, "utf8")).toContain("Keep project memory");
   } finally {
-    await prisma.bot.deleteMany({ where: { id: botId } }).catch(() => undefined);
+    await prisma.bot
+      .deleteMany({ where: { id: { in: [botId, childBotId] } } })
+      .catch(() => undefined);
     await prisma.channel.deleteMany({ where: { id: channelId } }).catch(() => undefined);
     await prisma.$disconnect();
     await rm(temporary, { recursive: true, force: true });

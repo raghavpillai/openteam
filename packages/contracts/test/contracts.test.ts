@@ -4,6 +4,7 @@ import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { Schema } from "effect";
 import {
+  AdminBroadcastInput,
   CALL_DYNAMIC_TOOL_TOOL,
   COMPUTER_TOOL,
   COMPUTER_USE_TOOL,
@@ -42,6 +43,28 @@ import nativeToolsDocument from "../src/native-tools.json";
 const sha256 = (value: string): string => createHash("sha256").update(value).digest("hex");
 
 describe("API contracts", () => {
+  test("validates bounded internal administrator broadcasts", () => {
+    const botIds = ["7dbba9ea-1a2b-4af9-aa32-a2d3aaeb10a9", "9df96b0a-1739-4335-9341-22132a6c4f7b"];
+    expect(
+      Schema.decodeUnknownSync(AdminBroadcastInput)({
+        clientId: "broadcast-release-0001",
+        message: "The local runtime will restart tonight.",
+        botIds,
+      })
+    ).toEqual({
+      clientId: "broadcast-release-0001",
+      message: "The local runtime will restart tonight.",
+      botIds,
+    });
+    expect(() =>
+      Schema.decodeUnknownSync(AdminBroadcastInput)({
+        clientId: "broadcast-release-0002",
+        message: "The local runtime will restart tonight.",
+        botIds: ["not-a-uuid"],
+      })
+    ).toThrow();
+  });
+
   test("accepts a valid bot", () => {
     const value = Schema.decodeUnknownSync(CreateBotInput)({
       clientRequestId: "create-researcher-0001",

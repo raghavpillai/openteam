@@ -84,6 +84,9 @@ enum RunOrigin {
   bootstrap
   routine
   event
+  background_revival
+  handoff_resume
+  broadcast
 }
 
 enum RoutineScheduleKind {

@@ -1,6 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import {
   AddCustomMcpInput,
+  AdminBroadcastInput,
   ApiError,
   ConfigurePluginConnectionInput,
   ConnectPluginInput,
@@ -175,6 +176,12 @@ const server = Bun.serve({
           return json({ error: { code: "unauthorized", message: "Unauthorized" } }, 401);
         }
         return json(await run(app.reviewPermission(parseAutoReviewInput(await request.json()))));
+      }
+      if (request.method === "POST" && path === "/api/internal/broadcast") {
+        if (!authorizedInternal(request)) {
+          return json({ error: { code: "unauthorized", message: "Unauthorized" } }, 401);
+        }
+        return json(await run(app.broadcast(await parseBody(request, AdminBroadcastInput))));
       }
       const publicAsset =
         (request.method === "GET" || request.method === "HEAD") &&

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   automationTriggerForWake,
   contextScopeForRun,
+  runtimeRequestSourceForOrigin,
   turnContentWithProfileUpdate,
   wakeResetsSelfSummaryCount,
 } from "../src/worker";
@@ -28,6 +29,18 @@ describe("Grok-style runtime context routing", () => {
       scope: "home",
       scopeId: conversationId,
     });
+  });
+
+  test("maps durable origins to Grok's exact active request-source names", () => {
+    expect(runtimeRequestSourceForOrigin("user")).toBe("turn");
+    expect(runtimeRequestSourceForOrigin("bootstrap")).toBe("turn");
+    expect(runtimeRequestSourceForOrigin("agent")).toBe("agent");
+    expect(runtimeRequestSourceForOrigin("group")).toBe("agent");
+    expect(runtimeRequestSourceForOrigin("routine")).toBe("automation");
+    expect(runtimeRequestSourceForOrigin("event")).toBe("event");
+    expect(runtimeRequestSourceForOrigin("background_revival")).toBe("background-revival");
+    expect(runtimeRequestSourceForOrigin("handoff_resume")).toBe("handoff-resume");
+    expect(runtimeRequestSourceForOrigin("broadcast")).toBe("broadcast");
   });
 
   test("does not reset summary counts for event taps or background-task completion", () => {

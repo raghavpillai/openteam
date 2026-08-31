@@ -67,6 +67,9 @@ test("live 1:1 A2A mirrors both home stores and wakes both agents without a pair
       if (!request.headers.get("authorization")?.startsWith("Bearer ")) {
         return Response.json({ error: "unauthorized" }, { status: 401 });
       }
+      if (request.method === "GET" && url.pathname === "/v1/agent-stores") {
+        return Response.json({ agents: [] });
+      }
       if (request.method === "PUT" && url.pathname.startsWith("/v1/workspaces/")) {
         const body = (await request.json()) as { path: string };
         await mkdir(body.path, { recursive: true });

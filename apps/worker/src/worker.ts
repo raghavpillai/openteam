@@ -2,6 +2,7 @@ import type {
   AssetRef,
   ComputerEvent,
   RunOrigin,
+  RuntimeRequestSource,
   RuntimeInlineImage,
   SubagentType,
 } from "@openbot/contracts";
@@ -85,6 +86,21 @@ export const contextScopeForRun = (
   _channelId: string | null,
   conversationId: string
 ): { scope: "home"; scopeId: string } => ({ scope: "home", scopeId: conversationId });
+
+const REQUEST_SOURCE_BY_ORIGIN = {
+  user: "turn",
+  bootstrap: "turn",
+  agent: "agent",
+  group: "agent",
+  routine: "automation",
+  event: "event",
+  background_revival: "background-revival",
+  handoff_resume: "handoff-resume",
+  broadcast: "broadcast",
+} as const satisfies Record<RunOrigin, RuntimeRequestSource>;
+
+export const runtimeRequestSourceForOrigin = (origin: RunOrigin): RuntimeRequestSource =>
+  REQUEST_SOURCE_BY_ORIGIN[origin];
 
 export const subagentRuntimeOwners = (
   botId: string,
@@ -992,7 +1008,7 @@ export class WakeWorker {
             claimed.automationTrigger
           ),
           resetSelfSummaryCount: wakeResetsSelfSummaryCount(claimed.inboxType),
-          requestSource: claimed.origin === "routine" ? "automation" : claimed.origin,
+          requestSource: runtimeRequestSourceForOrigin(claimed.origin),
           channelId: claimed.channelId,
           deliveryId: claimed.deliveryId,
           runtimeProfile: claimed.runtimeProfile,
@@ -1535,7 +1551,7 @@ export class WakeWorker {
     await this.messaging.enqueueWake(tx, {
       botId: subagent.parentBotId,
       channelId: subagent.parentChannelId,
-      origin: "agent",
+      origin: "background_revival",
       type: `subagent.${status}`,
       content: renderSubagentRevivalPrompt({
         title: subagent.description,

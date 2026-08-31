@@ -22,7 +22,19 @@ export const expireTimedOutApprovals = (database: ApprovalDatabase, resolvedAt: 
     where: {
       status: "pending",
       createdAt: { lt: approvalAskExpiryCutoff(resolvedAt) },
-      run: { origin: { in: ["routine", "group", "bootstrap"] } },
+      run: {
+        origin: {
+          in: [
+            "routine",
+            "group",
+            "bootstrap",
+            "event",
+            "background_revival",
+            "handoff_resume",
+            "broadcast",
+          ],
+        },
+      },
     },
     data: { status: "expired", resolvedAt },
   });

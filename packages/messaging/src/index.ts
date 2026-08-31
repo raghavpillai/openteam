@@ -1,6 +1,7 @@
 import {
   type AgentImageInput,
   type AgentSendToUserInput,
+  type AdminBroadcastInput,
   ApiError,
   type AssetRef,
   type BotTranscriptView,
@@ -95,8 +96,20 @@ export const renderSubagentRevivalPrompt = (input: {
   ].join("\n");
 };
 
+export const buildAdminBroadcastWakePrompt = (message: string): string =>
+  [
+    "[SAND_HIDDEN_PROMPT]",
+    "[broadcast] A service announcement was sent to this agent.",
+    "This is a host broadcast, not a message typed by the user.",
+    "",
+    message.trim(),
+    "",
+    "Act on the announcement now. Use SendToUser when the user needs to know or respond.",
+  ].join("\n");
+
 const PRIORITY = {
   user: 300,
+  broadcast: 275,
   urgentAgent: 250,
   agent: 200,
   group: 150,
@@ -439,7 +452,16 @@ export interface WakeInput {
   botId: string;
   channelId: string;
   deliveryId?: string;
-  origin: "user" | "agent" | "group" | "bootstrap" | "routine" | "event";
+  origin:
+    | "user"
+    | "agent"
+    | "group"
+    | "bootstrap"
+    | "routine"
+    | "event"
+    | "background_revival"
+    | "handoff_resume"
+    | "broadcast";
   type: string;
   content: string;
   images?: readonly AgentImageInput[];
@@ -633,6 +655,83 @@ export class AgentMessaging {
       }
     );
     return { message, run, inbox };
+  }
+
+  async broadcast(input: AdminBroadcastInput): Promise<{
+    delivered: number;
+    duplicate: number;
+    skippedBotIds: string[];
+    runs: Array<{ botId: string; runId: string; duplicate: boolean }>;
+  }> {
+    const message = input.message.trim();
+    if (!message) throw new ApiError(400, "broadcast_message_required", "message is required");
+    const requestedBotIds = input.botIds ? [...new Set(input.botIds)] : null;
+    const bots = await this.prisma.bot.findMany({
+      where: {
+        status: "active",
+        subagentIdentity: { is: null },
+        ...(requestedBotIds ? { id: { in: requestedBotIds } } : {}),
+      },
+      select: {
+        id: true,
+        channelMemberships: {
+          where: { channel: { kind: "bot_dm", archivedAt: null } },
+          select: { channelId: true },
+          take: 1,
+        },
+      },
+      orderBy: { createdAt: "asc" },
+    });
+    const runnableIds = new Set(bots.map(({ id }) => id));
+    const skippedBotIds = requestedBotIds?.filter((id) => !runnableIds.has(id)) ?? [];
+    const runs: Array<{ botId: string; runId: string; duplicate: boolean }> = [];
+
+    for (const bot of bots) {
+      const channelId = bot.channelMemberships[0]?.channelId;
+      if (!channelId) {
+        skippedBotIds.push(bot.id);
+        continue;
+      }
+      const idempotencyKey = `broadcast:${input.clientId}:${bot.id}`;
+      const queued = await this.prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${idempotencyKey}))`;
+        const existing = await tx.inboxEvent.findUnique({
+          where: { idempotencyKey },
+          select: { runId: true },
+        });
+        if (existing) return { runId: existing.runId, duplicate: true };
+        const wake = await this.enqueueWake(tx, {
+          botId: bot.id,
+          channelId,
+          origin: "broadcast",
+          type: "admin.broadcast",
+          content: buildAdminBroadcastWakePrompt(message),
+          clientId: idempotencyKey,
+          priority: PRIORITY.broadcast,
+          wrapUserContent: false,
+        });
+        await tx.event.create({
+          data: {
+            topic: "admin.broadcast.queued",
+            entityId: wake.run.id,
+            payload: json({
+              botId: bot.id,
+              runId: wake.run.id,
+              clientId: input.clientId,
+            }),
+          },
+        });
+        return { runId: wake.run.id, duplicate: false };
+      });
+      runs.push({ botId: bot.id, ...queued });
+    }
+
+    return {
+      delivered: runs.filter(({ duplicate }) => !duplicate).length,
+      duplicate: runs.filter(({ duplicate }) => duplicate).length,
+      skippedBotIds,
+      runs,
+    };
   }
 
   async isTimelineSessionActive(botId: string): Promise<boolean> {

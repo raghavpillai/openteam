@@ -278,7 +278,16 @@ interface ActiveTurn {
   todoUpdate: string | null;
   automationTrigger: string | null;
   resetSelfSummaryCount: boolean;
-  requestSource: "user" | "agent" | "group" | "bootstrap" | "automation" | "event";
+  requestSource:
+    | "turn"
+    | "agent"
+    | "automation"
+    | "event"
+    | "background-revival"
+    | "handoff-resume"
+    | "broadcast"
+    | "connector"
+    | "voice-call";
   turnId: string;
   session: AgentSession | null;
   sessionPath: string | null;
@@ -576,7 +585,7 @@ export class ComputerRuntime {
       todoUpdate: request.todoUpdate ?? null,
       automationTrigger: request.automationTrigger ?? null,
       resetSelfSummaryCount: request.resetSelfSummaryCount !== false,
-      requestSource: request.requestSource ?? "user",
+      requestSource: request.requestSource ?? "turn",
       turnId: request.runId,
       session: null,
       sessionPath: null,

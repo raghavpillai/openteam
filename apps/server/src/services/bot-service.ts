@@ -463,7 +463,11 @@ export class BotService {
           });
           await appendEvent(tx, "bot.archived", botId, { botId });
         });
-        await this.agentData.deleteAgentFiles(botId);
+        await Promise.all(
+          [botId, ...children.map((child) => child.childBotId)].map((id) =>
+            this.agentData.deleteAgentFiles(id)
+          )
+        );
         await this.agentData.repairActiveAgentAfterDeletion(botId);
         return { ok: true };
       },

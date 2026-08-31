@@ -295,6 +295,12 @@ export class AppService {
 
   createBot = (input: CreateBotInput) => this.bots.create(input);
 
+  broadcast = (input: import("@openbot/contracts").AdminBroadcastInput) =>
+    Effect.tryPromise({
+      try: () => this.messaging.broadcast(input),
+      catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+    });
+
   updateBot = (botId: string, input: UpdateBotInput) => this.bots.update(botId, input);
 
   retryBotProvisioning = (botId: string) => this.bots.retryProvisioning(botId);
@@ -647,7 +653,7 @@ export class AppService {
             await this.messaging.enqueueWake(tx, {
               botId: subagent.parentBotId,
               channelId: attempt.parentChannelId,
-              origin: "agent",
+              origin: "background_revival",
               type: "subagent.failed",
               content: renderSubagentRevivalPrompt({
                 title: attempt.description,

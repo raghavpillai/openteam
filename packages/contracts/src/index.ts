@@ -86,8 +86,31 @@ export type ChannelKind = typeof ChannelKind.Type;
 export const ChannelMessageSender = Schema.Literal("user", "agent", "system");
 export type ChannelMessageSender = typeof ChannelMessageSender.Type;
 
-export const RunOrigin = Schema.Literal("user", "agent", "group", "bootstrap", "routine", "event");
+export const RunOrigin = Schema.Literal(
+  "user",
+  "agent",
+  "group",
+  "bootstrap",
+  "routine",
+  "event",
+  "background_revival",
+  "handoff_resume",
+  "broadcast"
+);
 export type RunOrigin = typeof RunOrigin.Type;
+
+export const RuntimeRequestSource = Schema.Literal(
+  "turn",
+  "agent",
+  "automation",
+  "event",
+  "background-revival",
+  "handoff-resume",
+  "broadcast",
+  "connector",
+  "voice-call"
+);
+export type RuntimeRequestSource = typeof RuntimeRequestSource.Type;
 
 export const RunItemKind = Schema.Literal(
   "agent_message",
@@ -567,6 +590,19 @@ export const AgentSendToUserInput = Schema.Struct({
   ),
 });
 export type AgentSendToUserInput = typeof AgentSendToUserInput.Type;
+
+export const AdminBroadcastInput = Schema.Struct({
+  clientId: Schema.String.pipe(Schema.minLength(8), Schema.maxLength(120)),
+  message: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(20_000)),
+  botIds: Schema.optional(
+    Schema.Array(
+      Schema.String.pipe(
+        Schema.pattern(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)
+      )
+    ).pipe(Schema.maxItems(100))
+  ),
+});
+export type AdminBroadcastInput = typeof AdminBroadcastInput.Type;
 
 export const ReactToMessageInput = Schema.Struct({
   message_address: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(120)),
@@ -1244,9 +1280,7 @@ export const ComputerTurnRequest = Schema.Struct({
   todoUpdate: Schema.optional(Schema.NullOr(Schema.String)),
   automationTrigger: Schema.optional(Schema.NullOr(Schema.String)),
   resetSelfSummaryCount: Schema.optional(Schema.Boolean),
-  requestSource: Schema.optional(
-    Schema.Literal("user", "agent", "group", "bootstrap", "automation", "event")
-  ),
+  requestSource: Schema.optional(RuntimeRequestSource),
   channelId: Schema.String,
   deliveryId: Schema.NullOr(Schema.String),
   runtimeProfile: Schema.optional(Schema.Literal("agent", "subagent")),

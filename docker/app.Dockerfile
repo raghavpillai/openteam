@@ -14,6 +14,7 @@ COPY packages/codex-client/package.json packages/codex-client/package.json
 COPY packages/contracts/package.json packages/contracts/package.json
 COPY packages/db/package.json packages/db/package.json
 COPY packages/messaging/package.json packages/messaging/package.json
+COPY patches ./patches
 
 RUN bun install --frozen-lockfile --production --filter @openbot/server --filter @openbot/worker --filter @openbot/db
 COPY apps/server ./apps/server
@@ -32,12 +33,12 @@ WORKDIR /app
 COPY --from=build /app/apps/server/dist/main.js ./main.js
 ENV HOME=/tmp
 ENV XDG_CACHE_HOME=/tmp/.cache
-USER 10001:10001
+USER 1000:1000
 EXPOSE 8787
 CMD ["bun", "main.js"]
 
 FROM node:22-bookworm-slim AS worker
 WORKDIR /app
 COPY --from=build /app/apps/worker/dist/main.js ./main.js
-USER 10001:10001
+USER 1000:1000
 CMD ["node", "main.js"]

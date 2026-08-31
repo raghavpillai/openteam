@@ -30,10 +30,63 @@ services:
 
   agent-data-init:
     image: alpine:3.22
-    command: ["sh", "-c", "chown 10001:10001 /agent-data && chmod 0700 /agent-data"]
+    command: ["sh", "-c", "chown -R 1000:1000 /sand-data && chmod 0700 /sand-data"]
     restart: "no"
     volumes:
-      - openbot_agent_data:/agent-data
+      - openbot_agent_data:/sand-data
+
+  asset-store-init:
+    image: alpine:3.22
+    command:
+      - sh
+      - -c
+      - >-
+        mkdir -p /asset-store &&
+        if [ -d /sand-data/.openbot ]; then
+          migrated=/asset-store/legacy-agent-data-openbot-$(date +%s) &&
+          cp -a /sand-data/.openbot "$$migrated" &&
+          rm -rf /sand-data/.openbot;
+        fi &&
+        chown -R 1000:1000 /asset-store && chmod 0700 /asset-store
+    depends_on:
+      agent-data-init:
+        condition: service_completed_successfully
+    restart: "no"
+    volumes:
+      - openbot_agent_data:/sand-data
+      - openbot_assets:/asset-store
+
+  computer-home-init:
+    image: alpine:3.22
+    command:
+      - sh
+      - -c
+      - >-
+        chown -R 1000:1000 /home/box && chmod 0700 /home/box &&
+        if [ -d /home/box/agent-data ] && [ ! -L /home/box/agent-data ]; then
+          cp -a /home/box/agent-data/. /home/box/sand-data/ &&
+          mv /home/box/agent-data /home/box/.openbot-agent-data-pre-sand-migration;
+        fi &&
+        if [ ! -L /home/box/agent-data ]; then ln -s /home/box/sand-data /home/box/agent-data; fi &&
+        chown -h 0:0 /home/box/agent-data
+    restart: "no"
+    volumes:
+      - openbot_computer_home:/home/box
+      - openbot_agent_data:/home/box/sand-data
+
+  box-store-init:
+    image: alpine:3.22
+    command: ["sh", "-c", "chown -R 1000:1000 /box-store && chmod 0700 /box-store"]
+    restart: "no"
+    volumes:
+      - openbot_box_store:/box-store
+
+  workspace-init:
+    image: alpine:3.22
+    command: ["sh", "-c", "chown -R 1000:1000 /workspace && chmod 0755 /workspace"]
+    restart: "no"
+    volumes:
+      - openbot_workspace:/workspace
 
   computer:
     build:
@@ -46,12 +99,21 @@ services:
       OPENBOT_WORKSPACE_ROOT: /workspace
       OPENBOT_TIME_ZONE: ${OPENBOT_TIME_ZONE:-UTC}
       OPENBOT_SERVER_URL: http://server:8787
-      OPENBOT_PI_AGENT_DIR: /home/openbot/.pi/agent
+      OPENBOT_PI_AGENT_DIR: /home/box/.pi/agent
       OPENBOT_PI_MODEL: ${OPENBOT_PI_MODEL:-gpt-5.5}
       OPENBOT_PI_THINKING: ${OPENBOT_PI_THINKING:-high}
-      OPENBOT_AGENT_DATA_ROOT: /home/openbot/agent-data
+      OPENBOT_AGENT_DATA_ROOT: /home/box/agent-data
+      OPENBOT_AGENT_DATA_CANONICAL_ROOT: /home/box/sand-data
+      OPENBOT_BOX_STORE_ROOT: /box-store
+      OPENBOT_BOX_COPY_IN: ${OPENBOT_BOX_COPY_IN:-0}
     depends_on:
       agent-data-init:
+        condition: service_completed_successfully
+      computer-home-init:
+        condition: service_completed_successfully
+      box-store-init:
+        condition: service_completed_successfully
+      workspace-init:
         condition: service_completed_successfully
     cap_drop: ["ALL"]
     security_opt:
@@ -70,9 +132,10 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
-      - openbot_computer_home:/home/openbot
-      - openbot_agent_data:/home/openbot/agent-data
+      - openbot_computer_home:/home/box
+      - openbot_agent_data:/home/box/sand-data
       - openbot_workspace:/workspace
+      - openbot_box_store:/box-store
 
   server:
     build:
@@ -85,13 +148,20 @@ services:
       OPENBOT_COMPUTER_URL: http://computer:8790
       OPENBOT_CONTROL_TOKEN: ${OPENBOT_CONTROL_TOKEN:-local-compose-only-change-me}
       OPENBOT_AUTH_SECRET: ${OPENBOT_AUTH_SECRET:-local-compose-auth-secret-change-me-now}
+      OPENBOT_API_TOKEN: ${OPENBOT_API_TOKEN:-}
+      OPENBOT_API_TRUST_LOOPBACK: ${OPENBOT_API_TRUST_LOOPBACK:-true}
       OPENBOT_WORKSPACE_ROOT: /workspace
       OPENBOT_TIME_ZONE: ${OPENBOT_TIME_ZONE:-UTC}
       OPENBOT_PI_MODEL: ${OPENBOT_PI_MODEL:-gpt-5.5}
       OPENBOT_SCREEN_VIEWER_HOST: 127.0.0.1
-      OPENBOT_AGENT_DATA_ROOT: /home/openbot/agent-data
+      OPENBOT_AGENT_DATA_ROOT: /home/box/agent-data
+      OPENBOT_ASSET_ROOT: /asset-store
+      OPENBOT_MEMORY_DREAMING: ${OPENBOT_MEMORY_DREAMING:-false}
+      OPENBOT_MARKETPLACE_FILE: ${OPENBOT_MARKETPLACE_FILE:-}
     depends_on:
       migrate:
+        condition: service_completed_successfully
+      asset-store-init:
         condition: service_completed_successfully
       computer:
         condition: service_healthy
@@ -104,7 +174,8 @@ services:
       retries: 30
     restart: unless-stopped
     volumes:
-      - openbot_agent_data:/home/openbot/agent-data
+      - openbot_agent_data:/home/box/agent-data
+      - openbot_assets:/asset-store
       - openbot_workspace:/workspace:ro
 
   worker:
@@ -116,22 +187,30 @@ services:
       DATABASE_URL: postgresql://openbot:openbot-local-only@postgres:5432/openbot
       OPENBOT_COMPUTER_URL: http://computer:8790
       OPENBOT_CONTROL_TOKEN: ${OPENBOT_CONTROL_TOKEN:-local-compose-only-change-me}
+      EXPO_ACCESS_TOKEN: ${EXPO_ACCESS_TOKEN:-}
       OPENBOT_TIME_ZONE: ${OPENBOT_TIME_ZONE:-UTC}
       OPENBOT_WORKER_CONCURRENCY: ${OPENBOT_WORKER_CONCURRENCY:-8}
       OPENBOT_WORKSPACE_ROOT: /workspace
-      OPENBOT_AGENT_DATA_ROOT: /home/openbot/agent-data
+      OPENBOT_AGENT_DATA_ROOT: /home/box/agent-data
+      OPENBOT_ASSET_ROOT: /asset-store
+      OPENBOT_MEMORY_DREAMING: ${OPENBOT_MEMORY_DREAMING:-false}
     depends_on:
       migrate:
+        condition: service_completed_successfully
+      asset-store-init:
         condition: service_completed_successfully
       computer:
         condition: service_healthy
     restart: unless-stopped
     volumes:
-      - openbot_agent_data:/home/openbot/agent-data
+      - openbot_agent_data:/home/box/agent-data
+      - openbot_assets:/asset-store
       - openbot_workspace:/workspace:ro
 
 volumes:
   openbot_postgres:
   openbot_computer_home:
   openbot_agent_data:
+  openbot_assets:
   openbot_workspace:
+  openbot_box_store:

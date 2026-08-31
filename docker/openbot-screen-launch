@@ -2,13 +2,13 @@
 set -eu
 
 screen_cwd=${OPENBOT_SCREEN_CWD:-/workspace}
-browser_profile=${OPENBOT_BROWSER_PROFILE:-/home/openbot/.openbot/chromium/default}
+browser_profile=${OPENBOT_BROWSER_PROFILE:-/home/box/chrome-profile}
 browser_debug_port=${OPENBOT_BROWSER_DEBUG_PORT:-9222}
 browser_target=${2:-about:blank}
 
 case "${1:-}" in
   chromium)
-    exec chromium \
+    exec google-chrome \
       --no-sandbox \
       --test-type \
       --disable-dev-shm-usage \
@@ -26,7 +26,8 @@ case "${1:-}" in
     exec thunar "$screen_cwd"
     ;;
   terminal)
-    exec xfce4-terminal --disable-server --working-directory="$screen_cwd"
+    cd "$screen_cwd"
+    exec xfce4-terminal --disable-server
     ;;
   *)
     echo "usage: openbot-screen-launch chromium|thunar|terminal" >&2

@@ -1,8 +1,8 @@
 # OpenBot v0
 
-OpenBot is a self-hosted, desktop-first home for durable Pi agents backed by OpenAI Codex. Each bot owns one home Pi JSONL session plus an independent session for each group transcript, one Postgres inbox, its standing instructions, and a persistent graphical Linux screen. Direct, peer, routine, and bootstrap wakes use the home context; each group uses its own model context.
+OpenBot is a self-hosted, desktop-first home for durable Pi agents backed by OpenAI Codex. Each Bot owns one home Pi context, one Postgres inbox, Grok-compatible file state, and a persistent graphical Linux screen. Direct, peer, room, routine, bootstrap, and subagent-completion wakes all resume the member Bot's home context.
 
-Every bot works on the same persistent Linux computer and `/workspace`, so files written by one are immediately visible to the others. Bots get independent 1280×800 XFCE displays with Chromium, Thunar, XFCE Terminal, screenshots, structured mouse/keyboard actions, and live noVNC takeover. Chromium profiles are separately writable while the computer-level browser broker synchronizes ordinary sign-in cookies.
+Every Bot works as `box` (uid/gid 1000) on the same persistent Linux computer and starts in `/workspace`, so files written by one are immediately visible to the others. Bots get independent 1280×800 XFCE displays with Google Chrome, Thunar, XFCE Terminal, screenshots, structured mouse/keyboard actions, and live noVNC takeover. Chrome profiles and sign-ins are computer-scoped and persist under `/home/box/chrome-profile[-N]`.
 
 ## What is implemented
 
@@ -13,14 +13,14 @@ Every bot works on the same persistent Linux computer and `/workspace`, so files
 - one append-only Pi session tree per bot context, reopened after worker, gateway, and Compose restarts
 - OpenAI Codex OAuth through Pi's `openai-codex` provider
 - Grok-compatible automatic context self-summary with per-context durable archives, restart reconstruction, and no manual Compact surface
-- the exact ten native tools from the supplied contract: `SendToUser`, `ReactToMessage`, `update_state`, `ExternalShell`, `ExternalRead`, `Shell`, `Read`, `Screenshot`, `GetDynamicTools`, and `CallDynamicTool`
+- the Grok Bot model surface: `SendToUser`, `ReactToMessage`, `update_state`, `Shell`, `Read`, `Screenshot`, `GetDynamicTools`, and `CallDynamicTool`; the physical-host bridge is not model-exposed
 - OpenBot-only dynamic discovery and dispatch; `openbot` exposes `Computer`, while `cursor` exposes `SendToAgent` plus the approved todo/orchestration/administration tools: `TodoWrite`, `Task`, `CheckSubagent`, `MessageSubagent`, `StopSubagent`, `CreateAgent`, `UpdateAgent`, `CreateChannel`, and `UpdateChannel`
-- durable parent-owned subagents backed by hidden Pi actors, persistent sessions/mailboxes, a bounded concurrent worker pool, image forwarding and bounded video-frame extraction, live status/transcripts, steering, cancellation, resume, and private completion wakes; `computerUse` gets direct screenshot/pixel control while `browserUse` gets a direct 15-tool Playwright/CDP page-control surface
+- durable parent-owned subagent attempts backed by hidden runtime actors, image forwarding and bounded video-frame extraction, live status/transcripts, steering, cancellation, resume, and private completion wakes; `computerUse` gets direct screenshot/pixel control while `browserUse` gets a direct 15-tool Playwright/CDP page-control surface
 - typed, audited agent/channel administration plus durable per-agent todo queues
 - durable scheduled routines created and managed through `update_state`, with a once-per-minute pg-boss dispatcher and execution history
 - durable direct-agent channels and restart-safe ordered group rounds
 - one shared Debian XFCE computer with bot-specific displays, browser profiles, and input leases
-- persistent `/workspace/bots/<bot>`, `/workspace/projects/<group>`, and `/workspace/shared` folders
+- one persistent, shared, writable `/workspace` for every Bot, room, routine, A2A wake, and subagent
 - Electron 43, React 19, Tailwind 4, shadcn/ui, and source-owned AI Elements adaptations
 - one Better Auth owner account with username/password login for desktop and iOS
 - snapshot + replayable SSE client state, streamed messages and activity, stop, bot CRUD, runtime health, and an interactive desktop viewer
@@ -29,32 +29,33 @@ Every bot works on the same persistent Linux computer and `/workspace`, so files
 
 ```text
 Electron (lightweight native client; no model credentials)
-        ├── optional, approval-gated physical-host bridge
-        │ localhost HTTP + SSE
         ▼
 server ───── PostgreSQL + pg-boss
                   │ durable wake
                   ▼
-               worker ── one active turn lease per bot
+               worker ── one active turn lease per Bot
                   │ private token + NDJSON
                   ▼
 computer gateway ── embedded Pi AgentSession
         │                 └── openai-codex OAuth provider
-        ├── /home/openbot/.pi/agent
+        ├── /home/box/.pi/agent
         │     ├── auth.json
         │     ├── sessions/openbot/<context-session>.jsonl
         │     └── context-sessions/<context-session>/manifest.json + blobs/
-        ├── /workspace
-        │     ├── bots/<bot>
-        │     ├── projects/<group>
-        │     └── shared
+        ├── /home/box/sand-data
+        │     ├── agents/<bot-or-room>/{profile.json,settings.json,store.db,...}
+        │     ├── workflows/<slug>/SKILL.md
+        │     └── user-memory + projects
+        ├── /home/box/agent-data -> /home/box/sand-data
+        ├── /workspace (shared working directory)
+        ├── /box-store (content-addressed snapshot replica)
         └── ScreenBroker
-              ├── bot A display :100 → noVNC :6200
-              ├── bot B display :101 → noVNC :6201
-              └── BrowserBroker → encrypted shared cookie authority
+              ├── Bot A display :100 → noVNC :6200
+              ├── Bot B display :101 → noVNC :6201
+              └── computer-scoped Chrome profiles
 ```
 
-Postgres is authoritative for product state, mailboxes, visible chat, group delivery, run audit, and client replay. Pi's JSONL file retains each context's complete runtime tree; the content-addressed context manifest is authoritative for adopted summary reconstruction. A group wake uses its group project directory and resumes that bot/group context, independently of the bot's home context.
+Postgres remains a product projection for mailboxes, visible chat, group delivery, run audit, and client replay. Grok-compatible `store.db` and `conversation-blobs.db` files retain per-Bot prompt snapshots, transcript rows, and content-addressed message envelopes; Pi's JSONL/context archive retains runtime continuation and adopted summary reconstruction. All wake types resume the Bot's home context from `/workspace`.
 
 ## Install the released server stack
 
@@ -135,7 +136,7 @@ Authenticate Pi once with the OpenAI Codex provider:
 bash scripts/compose.sh exec computer openbot-pi-login
 ```
 
-The login command offers browser login and a headless device-code flow. Complete the OpenAI sign-in in the browser; never put the token in `.env`. Pi stores and refreshes its OAuth credential under `/home/openbot/.pi/agent/auth.json` inside the private `openbot_computer_home` volume. OpenBot exposes only `ready`/`missing` runtime state to Electron.
+The login command offers browser login and a headless device-code flow. Complete the OpenAI sign-in in the browser; never put the token in `.env`. Pi stores and refreshes its OAuth credential under `/home/box/.pi/agent/auth.json` inside the private `openbot_computer_home` volume. OpenBot exposes only `ready`/`missing` runtime state to Electron.
 
 Verify the stack and open the native client:
 
@@ -176,50 +177,67 @@ bash scripts/compose.sh down
 
 Closing Electron never stops a turn. The server, worker, Pi session, and graphical computer live in Compose; Electron only observes and controls them.
 
-`ExternalRead` and `ExternalShell` are the exception: they target the physical host rather than the
-shared Linux computer, so the native desktop must be open. Every host read or command presents an
-OS-native approval dialog, and the authenticated bridge never mounts the host home into Compose.
-Use `Read` and `Shell` for ordinary always-on work inside the shared OpenBot computer.
+Bots use `Read` and `Shell` inside the shared Linux computer. The legacy physical-host bridge remains
+an application implementation detail but is deliberately absent from the model tool catalog.
+
+## Plugin marketplace
+
+OpenBot ships its own first-party plugin marketplace. The server does not fetch Cursor's catalog or
+plugin packages. Bundled releases live in `apps/server/src/plugins/catalog.ts`; installation
+snapshots the complete release manifest so later catalog edits do not silently change an installed
+plugin.
+
+A self-hosted deployment can replace the bundled catalog with a schema-versioned JSON manifest by
+setting `OPENBOT_MARKETPLACE_FILE` to an absolute path mounted into the server container. The file
+uses the normalized `OpenBotMarketplaceManifest` shape defined in
+`apps/server/src/plugins/openbot-marketplace.ts`. Restart the server after changing the file. Plugin
+execution remains unchanged: remote HTTP MCP runs through the server and local stdio MCP runs on
+the shared computer.
 
 ## Agent-data files
 
-Every bot has a readable, hand-editable compatibility tree under
-`/home/openbot/agent-data/agents/<bot-id>`. It contains `profile.json`,
-`settings.json`, an optional canonical `avatar.<png|jpg|jpeg|webp|gif|svg>`,
-Markdown memory, per-bot `SKILL.md` files, and
-routine `automation.json` files. Shared user memory lives under
-`/home/openbot/agent-data/user-memory`; project memory is sharded by bot under
-`/home/openbot/agent-data/projects`.
+Every Bot has a readable, hand-editable compatibility tree under
+`/home/box/sand-data/agents/<bot-id>` (also reachable through the root-owned
+`/home/box/agent-data` symlink). It contains `profile.json`, `settings.json`, an optional canonical
+`avatar.<png|jpg|jpeg|webp|gif|svg>`, Markdown memory, routine `automation.json` files, `store.db`,
+and after first wake `conversation-blobs.db`. Saved skills are global under
+`/home/box/sand-data/workflows/<slug>/SKILL.md`. Shared user memory uses writer shards under
+`/home/box/sand-data/user-memory/by-agent`; project memory is sharded by Bot under
+`/home/box/sand-data/projects`.
 
 OpenBot imports stable hand edits before constructing the next bot prompt; the
 files are live state, not disposable projections. Official UI/API/agent writes
 use atomic same-directory renames. Deleting a memory bullet forgets that
 occurrence, deleting a skill or automation folder removes that item, and deleting
 `runs.json` clears only the file-backed run ledger. Missing or syntactically
-invalid `profile.json` is regenerated, while malformed present settings, skills,
-and automations are preserved and reported rather than silently overwritten.
+invalid `profile.json` is regenerated. Malformed present settings are preserved
+and use defaults without a warning, while malformed skills and automations are
+preserved and reported rather than silently overwritten.
 Prompt-visible profile, memory, and skill catalogs remain frozen until the next
 conversation compaction, with identity changes announced immediately. Saved
 skills appear in tagged user-info as name, description, and `SKILL.md` path;
 their bodies stay on disk and are read only when needed.
 
-User memory intentionally remains one global namespace, saved skills remain per
-bot, and avatar installation copies validated bytes into the bot directory; no
+User memory intentionally remains one global namespace, saved skills are computer-global,
+and avatar installation copies validated bytes into the Bot directory; no
 external path pointer remains. Root `settings.json`, `agents/active-agent.json`,
 per-bot `projects.json`, project `project.md`, group files, attachment files,
 automation run ledgers, and action audit JSONL use the same tree.
 
-The complete file and reconciliation contract is documented in
-`plans/32-agent-data-filesystem-parity.md`.
+The current file, runtime, and reconciliation contract—and its remaining
+implementation-level boundaries—is documented in
+`plans/35-grok-filesystem-runtime-parity.md`. Plan 32 is retained only as the
+historical design record it supersedes.
 
 ## Persistence and recovery
 
-The four independent stores are:
+The independent stores are:
 
 - PostgreSQL: bots, UI conversations, visible chat, runs, inbox/outbox, leases, and replay events
-- `openbot_computer_home`: Pi OAuth and sessions, bot display mappings, browser profiles, and computer-level application state
+- `openbot_computer_home`: Pi OAuth and sessions, Bot display mappings, Chrome profiles, and computer-level application state
 - `openbot_agent_data`: editable durable-state projections and safe transcript mirrors
-- `openbot_workspace`: shared bot and project files
+- `openbot_workspace`: shared files for all Bots and rooms
+- `openbot_box_store`: content-addressed snapshot blobs plus the etag/CAS manifest
 
 These form one recovery set. Worker restarts recover expired per-bot leases and pg-boss retries interrupted wakes. A runtime crash is surfaced as interrupted; OpenBot does not claim exactly-once model execution.
 
@@ -229,7 +247,7 @@ Create a coordinated backup:
 sh scripts/backup.sh
 ```
 
-For the cleanest backup, stop new message submission and let active runs finish. Restore Postgres, `openbot_computer_home`, `openbot_agent_data`, and `openbot_workspace` together, then verify runtime health, bot session continuity, visible history, agent-data reconciliation, and shared files before accepting work.
+For the cleanest backup, stop new message submission and let active runs finish. Restore Postgres, `openbot_computer_home`, `openbot_agent_data`, `openbot_workspace`, and `openbot_box_store` together, then verify runtime health, Bot session continuity, visible history, agent-data reconciliation, and shared files before accepting work.
 
 ## Session and compaction semantics
 

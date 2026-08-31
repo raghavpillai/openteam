@@ -1,7 +1,19 @@
 # Plugin architecture and delivery plan
 
-Status: P0-P3 end-to-end foundation implemented; provider OAuth and hardened local stdio remain follow-up work
-Last updated: 2026-08-27
+Status: Grok-style marketplace, remote HTTP, OAuth broker, local stdio, accounts, grants, policy, approvals, audit, model management, and desktop UI implemented
+Last updated: 2026-08-29
+
+## Implementation verification — 2026-08-29
+
+- Streamable HTTP MCP uses the official TypeScript SDK, owns reusable server-side sessions, and falls back to legacy HTTP+SSE connectors.
+- OAuth supports dynamic or operator-supplied clients, persisted PKCE/state/token lifecycle, callback completion, reconnect, and multiple named accounts. Google Workspace requires a self-hosted OAuth client ID because its authorization server disables dynamic client registration; the account UI exposes that setup and exact callback URL.
+- Local stdio MCP runs as a supervised child process on the shared bot computer. A live `@modelcontextprotocol/server-everything` process exposed 13 tools through discovery.
+- A real Pi turn discovered that stdio namespace and called `echo`, returning `Echo: OPENBOT_PLUGIN_E2E_20260829` through the conversation.
+- A consequential tool produced one deduplicated, durable exact-call approval. Accepting the card executed the held call once without changing persistent policy.
+- Database-backed install/connect/grant/policy/discovery/call/remove coverage runs against a dedicated PostgreSQL database rather than skipping without `OPENBOT_TEST_DATABASE_URL`.
+- The standalone Plugins modal, custom HTTP/stdio setup, account controls, bot grants, tool policy, activity, and self-hosted OAuth setup were exercised with Playwright in dark mode; production desktop build and all workspace typechecks pass.
+
+The OpenBot-owned marketplace now ships as a schema-versioned bundled registry with an optional deployment-owned JSON replacement through `OPENBOT_MARKETPLACE_FILE`. It has no Cursor marketplace or package-fetching dependency. The remaining work is catalog breadth, package update/rollback UI, and optional publishing workflows. Provider account login additionally requires each deployment's own OAuth application credentials where the provider does not allow dynamic registration.
 
 ## Decision
 
@@ -13,7 +25,7 @@ OpenBot will implement a self-hosted plugin system with three deliberately separ
 
 MCP is the connector protocol, not the plugin system. Installing a package does not authenticate an account. Authenticating an account does not grant it to every bot. Enabling a plugin does not approve every tool call.
 
-The preferred portable package input is [Agent Plugins 1.0](https://agent-plugins.org/specification): a root `plugin.json`, optional `skills/`, and optional `mcp.json`. OpenBot will normalize supported components from Codex, Cursor, Claude Code, and Grok CLI packages, but it will not execute foreign hooks, commands, setup scripts, or agents merely because their manifests parse.
+The live marketplace input is OpenBot's normalized `OpenBotMarketplaceManifest` schema. Agent Plugins 1.0 remains a possible future import format, but OpenBot does not fetch or normalize Cursor's marketplace in production. It will not execute foreign hooks, commands, setup scripts, or agents merely because an importer can parse their manifests.
 
 The runtime integration is OpenBot-owned. Pi is the live agent runtime and Codex app-server is no longer on the execution path. OpenBot will register its existing `GetDynamicTools` and `CallDynamicTool` façade with Pi and dispatch authorized connector calls through a connector supervisor. Codex's plugin catalog and app-server APIs are compatibility research, not a production dependency.
 
@@ -159,13 +171,12 @@ Registered app IDs such as those in Codex `.app.json` files are not portable end
 
 ### Marketplace sources
 
-Ship sources in this order:
+The implemented source order is intentionally OpenBot-owned:
 
-1. built-in curated packages pinned by digest;
-2. local development directories;
-3. operator-approved Git sources pinned by commit and package path;
-4. optional package-registry or signed remote indexes;
-5. public marketplace publishing only after governance and review tooling exist.
+1. the schema-versioned catalog bundled into the OpenBot server;
+2. when configured, one deployment-owned JSON manifest from `OPENBOT_MARKETPLACE_FILE` that replaces the bundled catalog.
+
+Git imports, package registries, third-party indexes, and public publishing are future authoring or distribution conveniences. They must normalize into the OpenBot manifest and must never become an implicit Cursor marketplace dependency.
 
 The catalog API must be paginated and searchable. A current local Codex snapshot contained roughly three thousand entries, so loading every package or tool schema into a model context is unacceptable.
 

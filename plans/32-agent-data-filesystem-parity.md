@@ -1,5 +1,10 @@
 # File-native agent state and filesystem parity
 
+> Superseded on 2026-08-29 by
+> `plans/35-grok-filesystem-runtime-parity.md`. This file is a historical design
+> and investigation record; its old `/home/openbot`, per-Bot skill, fake-DB,
+> `instructions.md`, and lifecycle decisions are not the current contract.
+
 Status: file-native storage/reconciliation and the complete memory lifecycle are implemented and live-agent validated; external-event delivery and source-incomplete routine safety policy remain
 Last updated: 2026-08-27
 

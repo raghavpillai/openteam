@@ -13,6 +13,7 @@ Captured on 2026-08-28 from the native OpenBot development build running on an i
 - `ios-composer-reference-aligned-reply.png`: expanded reply tray using the final composer geometry.
 - `ios-composer-reference-final.png`: final resting state with a 44-point detached attachment control and 44-point field.
 - `ios-search.png`: full-screen message-content search result.
+- `ios-search-sections.png`: swipeable category search with an active Messages query and native result.
 - `ios-chat-dark.png`: dark conversation and approval/composer surfaces.
 - `ios-chat-dark-final.png`: dark conversation after matching the high-contrast microphone treatment.
 - `ios-search-dark-final.png`: dark search surface and recent-conversation hierarchy.
@@ -22,5 +23,6 @@ Captured on 2026-08-28 from the native OpenBot development build running on an i
 - `ios-ui-audit-composer-final.png`: compact composer after separating visible control size from tap-target size.
 - `ios-ui-audit-final.png`: final conversation pass with the compact composer, header controls, and reaction pill.
 - `ios-ui-audit-home-final.png`: final home-roster pass with the refined top controls.
+- `ios-computer-reference-pass.png`: black-stage computer view with compact identity, keyboard and overflow controls, and a full-width letterboxed desktop frame.
 
 These validate OpenBot behavior and rendering in the simulator. They are not Grok Bot reference captures and must not be used to claim pixel parity with the proprietary reference app.

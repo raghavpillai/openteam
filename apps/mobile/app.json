@@ -17,7 +17,7 @@
     "plugins": [
       "expo-router",
       "expo-font",
-      "expo-secure-store",
+      "expo-notifications",
       [
         "expo-image-picker",
         {
@@ -25,7 +25,8 @@
           "cameraPermission": "OpenBot uses the camera only when you choose to take a photo for a message.",
           "microphonePermission": false
         }
-      ]
+      ],
+      "expo-secure-store"
     ],
     "experiments": {
       "typedRoutes": true

@@ -1,9 +1,20 @@
-import type { BotView, ChannelMessageView } from "@openbot/contracts";
+import type { AssetKind, AssetRef, BotView, ChannelMessageView } from "@openbot/contracts";
 import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
 import { SymbolView } from "expo-symbols";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Animated, Image, Modal, Pressable, StyleSheet, Text, View } from "react-native";
+import {
+  AccessibilityInfo,
+  Animated,
+  Easing,
+  Image,
+  Linking,
+  Modal,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { useTheme } from "../theme";
 import { GlassSurface } from "./glass-surface";
 
@@ -26,17 +37,71 @@ const reactionPills = (message: ChannelMessageView): Array<{ emoji: string; coun
   return [...counts].map(([emoji, count]) => ({ emoji, count }));
 };
 
-const messageImages = (message: ChannelMessageView): Array<{ url: string; alt?: string }> => {
-  const images = metadataFor(message).images;
-  if (!Array.isArray(images)) return [];
-  return images.flatMap((candidate) => {
-    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return [];
-    const { url, alt } = candidate as Record<string, unknown>;
-    if (typeof url !== "string" || !(url.startsWith("data:image/") || url.startsWith("https://"))) {
-      return [];
-    }
-    return [{ url, ...(typeof alt === "string" ? { alt } : {}) }];
+const ASSET_ID = /^[a-f0-9]{64}$/;
+const ASSET_KINDS = new Set<AssetKind>(["image", "video", "audio", "pdf", "text", "file"]);
+
+const parsedAsset = (candidate: unknown): AssetRef | null => {
+  if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return null;
+  const { assetId, fileName, mimeType, byteSize, kind, width, height, alt } = candidate as Record<
+    string,
+    unknown
+  >;
+  if (
+    typeof assetId !== "string" ||
+    !ASSET_ID.test(assetId) ||
+    typeof fileName !== "string" ||
+    !fileName ||
+    typeof mimeType !== "string" ||
+    typeof byteSize !== "number" ||
+    !Number.isSafeInteger(byteSize) ||
+    byteSize < 1 ||
+    typeof kind !== "string" ||
+    !ASSET_KINDS.has(kind as AssetKind)
+  ) {
+    return null;
+  }
+  return {
+    assetId,
+    fileName,
+    mimeType,
+    byteSize,
+    kind: kind as AssetKind,
+    ...(typeof width === "number" ? { width } : {}),
+    ...(typeof height === "number" ? { height } : {}),
+    ...(typeof alt === "string" ? { alt } : {}),
+  };
+};
+
+const messageAssets = (message: ChannelMessageView): AssetRef[] => {
+  const metadata = metadataFor(message);
+  const candidates = [
+    ...(Array.isArray(metadata.attachments) ? metadata.attachments : []),
+    ...(metadata.attachment ? [metadata.attachment] : []),
+  ];
+  const seen = new Set<string>();
+  return candidates.flatMap((candidate) => {
+    const asset = parsedAsset(candidate);
+    if (!asset) return [];
+    const key = `${asset.assetId}:${asset.fileName}`;
+    if (seen.has(key)) return [];
+    seen.add(key);
+    return [asset];
   });
+};
+
+const readableSize = (bytes: number) => {
+  if (bytes >= 1024 * 1024) {
+    return `${(bytes / 1024 / 1024).toFixed(bytes >= 10 * 1024 * 1024 ? 0 : 1)} MB`;
+  }
+  return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+};
+
+const fileSymbol = (kind: AssetKind) => {
+  if (kind === "pdf") return "doc.richtext.fill" as const;
+  if (kind === "audio") return "waveform" as const;
+  if (kind === "video") return "film.fill" as const;
+  if (kind === "text") return "doc.text.fill" as const;
+  return "doc.fill" as const;
 };
 
 const a2aContextFor = (message: ChannelMessageView) => {
@@ -101,30 +166,104 @@ export function MessageBubble({
   replyPreview,
   onReply,
   onReact,
+  assetUrl,
+  animateEntrance,
+  pending,
 }: {
   message: ChannelMessageView;
   peerBot?: Pick<BotView, "color" | "icon" | "name">;
   replyPreview?: string | null;
   onReply: () => void;
   onReact: (emoji: string) => void;
+  assetUrl: (asset: Pick<AssetRef, "assetId" | "fileName">, download?: boolean) => string | null;
+  animateEntrance: boolean;
+  pending: boolean;
 }) {
   const theme = useTheme();
   const [actionsOpen, setActionsOpen] = useState(false);
   const a2aContext = useMemo(() => a2aContextFor(message), [message]);
   const isUser = message.sender === "user" && !a2aContext;
+  const [enters] = useState(animateEntrance);
+  const [reduceMotion, setReduceMotion] = useState<boolean | null>(null);
+  const deliveryOpacity = useRef(new Animated.Value(pending ? 0.55 : 1)).current;
+  const entranceOpacity = useRef(new Animated.Value(enters ? 0 : 1)).current;
+  const entranceTransform = useRef(new Animated.Value(enters ? 0 : 1)).current;
   const reactions = useMemo(() => reactionPills(message), [message]);
-  const images = useMemo(() => messageImages(message), [message]);
+  const attachments = useMemo(() => messageAssets(message), [message]);
+  const images = useMemo(
+    () => attachments.filter((attachment) => attachment.kind === "image"),
+    [attachments]
+  );
+  const files = useMemo(
+    () => attachments.filter((attachment) => attachment.kind !== "image"),
+    [attachments]
+  );
   const keyedImages = useMemo(() => {
     const occurrences = new Map<string, number>();
-    return images.map((image) => {
-      const fingerprint = `${image.url.length}:${image.url.slice(0, 48)}:${image.url.slice(-48)}:${image.alt ?? ""}`;
+    return images.flatMap((image) => {
+      const url = assetUrl(image);
+      if (!url) return [];
+      const fingerprint = `${image.assetId}:${image.fileName}`;
       const occurrence = occurrences.get(fingerprint) ?? 0;
       occurrences.set(fingerprint, occurrence + 1);
-      return { image, key: `${fingerprint}:${occurrence}` };
+      return [{ image, url, key: `${fingerprint}:${occurrence}` }];
     });
-  }, [images]);
+  }, [assetUrl, images]);
+  const attachmentOnly =
+    Boolean(metadataFor(message).attachment) &&
+    attachments.length === 1 &&
+    message.content === attachments[0]?.fileName;
+  const displayContent = attachmentOnly ? "" : message.content;
   const accessibilitySummary =
-    message.content || `${images.length} attached ${images.length === 1 ? "image" : "images"}`;
+    displayContent ||
+    `${attachments.length} attached ${attachments.length === 1 ? "file" : "files"}`;
+
+  useEffect(() => {
+    Animated.timing(deliveryOpacity, {
+      toValue: pending ? 0.55 : 1,
+      duration: 120,
+      easing: Easing.bezier(0.25, 0.1, 0.25, 1),
+      useNativeDriver: true,
+    }).start();
+  }, [deliveryOpacity, pending]);
+
+  useEffect(() => {
+    if (!enters) return;
+    let cancelled = false;
+    let animation: Animated.CompositeAnimation | null = null;
+    const start = (reduced: boolean) => {
+      if (cancelled) return;
+      setReduceMotion(reduced);
+      const easing = Easing.bezier(0.23, 1, 0.32, 1);
+      animation = reduced
+        ? Animated.timing(entranceOpacity, {
+            toValue: 1,
+            duration: 120,
+            easing,
+            useNativeDriver: true,
+          })
+        : Animated.parallel([
+            Animated.timing(entranceOpacity, {
+              toValue: 1,
+              duration: 132,
+              easing,
+              useNativeDriver: true,
+            }),
+            Animated.timing(entranceTransform, {
+              toValue: 1,
+              duration: 240,
+              easing,
+              useNativeDriver: true,
+            }),
+          ]);
+      animation.start();
+    };
+    void AccessibilityInfo.isReduceMotionEnabled().then(start, () => start(false));
+    return () => {
+      cancelled = true;
+      animation?.stop();
+    };
+  }, [entranceOpacity, entranceTransform, enters]);
 
   const openActions = () => {
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -132,73 +271,148 @@ export function MessageBubble({
   };
 
   return (
-    <View style={[styles.messageWrap, isUser ? styles.alignRight : styles.alignLeft]}>
-      {a2aContext ? (
-        <View style={styles.a2aLabel}>
-          <SymbolView name="message.fill" size={12} tintColor={theme.textMuted} />
-          <Text style={[styles.a2aText, { color: theme.textMuted }]}>
-            {a2aContext.direction === "incoming" ? "Message from" : "Messaged"}{" "}
-            {peerBot?.name ?? a2aContext.peerName ?? "another agent"}
-          </Text>
-        </View>
-      ) : null}
-      {replyPreview ? (
-        <View style={[styles.replyPreview, isUser ? styles.replyRight : styles.replyLeft]}>
-          <SymbolView name="arrowshape.turn.up.left" size={13} tintColor={theme.textMuted} />
-          <Text numberOfLines={1} style={[styles.replyText, { color: theme.textMuted }]}>
-            {replyPreview}
-          </Text>
-        </View>
-      ) : null}
-      <Pressable
-        accessibilityLabel={`${isUser ? "You" : "Agent"}: ${accessibilitySummary}`}
-        accessibilityRole="text"
-        delayLongPress={280}
-        onLongPress={openActions}
-        style={({ pressed }) => [
-          styles.bubble,
-          images.length > 0 && styles.bubbleWithImages,
-          images.length > 0 && !message.content && styles.imageOnlyBubble,
+    <Animated.View
+      style={[
+        styles.messageWrap,
+        isUser ? styles.alignRight : styles.alignLeft,
+        { opacity: deliveryOpacity },
+      ]}
+    >
+      <Animated.View
+        style={[
+          styles.entranceContent,
+          isUser ? styles.contentRight : styles.contentLeft,
           {
-            backgroundColor: isUser ? theme.userBubble : theme.assistantBubble,
-            opacity: pressed ? 0.82 : 1,
+            opacity: entranceOpacity,
+            transform:
+              reduceMotion === true
+                ? []
+                : [
+                    {
+                      translateY: entranceTransform.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [12, 0],
+                      }),
+                    },
+                    {
+                      scale: entranceTransform.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [0.94, 1],
+                      }),
+                    },
+                  ],
+            transformOrigin: isUser ? "100% 100%" : "0% 100%",
           },
         ]}
       >
-        {message.content ? (
-          <Text
-            selectable
-            style={[styles.content, { color: isUser ? theme.userText : theme.text }]}
-          >
-            {message.content}
-          </Text>
+        {a2aContext ? (
+          <View style={styles.a2aLabel}>
+            <SymbolView name="message.fill" size={12} tintColor={theme.textMuted} />
+            <Text style={[styles.a2aText, { color: theme.textMuted }]}>
+              {a2aContext.direction === "incoming" ? "Message from" : "Messaged"}{" "}
+              {peerBot?.name ?? a2aContext.peerName ?? "another agent"}
+            </Text>
+          </View>
         ) : null}
-        {images.length > 0 ? (
-          <View style={[styles.imageGallery, images.length === 1 && styles.singleImageGallery]}>
-            {keyedImages.map(({ image, key }, index) => (
-              <Image
-                accessibilityLabel={image.alt ?? `Attached image ${index + 1}`}
-                accessible
-                key={key}
-                resizeMode="cover"
-                source={{ uri: image.url }}
-                style={images.length === 1 ? styles.singleImage : styles.gridImage}
+        {replyPreview ? (
+          <View style={[styles.replyPreview, isUser ? styles.replyRight : styles.replyLeft]}>
+            <SymbolView name="arrowshape.turn.up.left" size={13} tintColor={theme.textMuted} />
+            <Text numberOfLines={1} style={[styles.replyText, { color: theme.textMuted }]}>
+              {replyPreview}
+            </Text>
+          </View>
+        ) : null}
+        <Pressable
+          accessibilityLabel={`${isUser ? "You" : "Agent"}: ${accessibilitySummary}`}
+          accessibilityRole="text"
+          accessibilityState={{ busy: pending }}
+          delayLongPress={280}
+          onLongPress={pending ? undefined : openActions}
+          style={({ pressed }) => [
+            styles.bubble,
+            attachments.length > 0 && styles.bubbleWithAttachments,
+            attachments.length > 0 && !displayContent && styles.attachmentOnlyBubble,
+            {
+              backgroundColor: isUser ? theme.userBubble : theme.assistantBubble,
+              opacity: pressed ? 0.82 : 1,
+            },
+          ]}
+        >
+          {displayContent ? (
+            <Text
+              selectable
+              style={[styles.content, { color: isUser ? theme.userText : theme.text }]}
+            >
+              {displayContent}
+            </Text>
+          ) : null}
+          {images.length > 0 ? (
+            <View style={[styles.imageGallery, images.length === 1 && styles.singleImageGallery]}>
+              {keyedImages.map(({ image, url, key }, index) => (
+                <Image
+                  accessibilityLabel={image.alt ?? `Attached image ${index + 1}`}
+                  accessible
+                  key={key}
+                  resizeMode="cover"
+                  source={{ uri: url }}
+                  style={images.length === 1 ? styles.singleImage : styles.gridImage}
+                />
+              ))}
+            </View>
+          ) : null}
+          {files.length > 0 ? (
+            <View style={styles.fileList}>
+              {files.map((file) => (
+                <Pressable
+                  accessibilityLabel={`Open ${file.fileName}`}
+                  accessibilityRole="link"
+                  key={`${file.assetId}:${file.fileName}`}
+                  onPress={() => {
+                    const url = assetUrl(file, true);
+                    if (url) void Linking.openURL(url);
+                  }}
+                  style={({ pressed }) => [
+                    styles.fileCard,
+                    {
+                      backgroundColor: theme.surface,
+                      borderColor: theme.border,
+                      opacity: pressed ? 0.74 : 1,
+                    },
+                  ]}
+                >
+                  <View style={[styles.fileIcon, { backgroundColor: theme.surfacePressed }]}>
+                    <SymbolView
+                      name={fileSymbol(file.kind)}
+                      size={19}
+                      tintColor={theme.textMuted}
+                    />
+                  </View>
+                  <View style={styles.fileCopy}>
+                    <Text numberOfLines={1} style={[styles.fileTitle, { color: theme.text }]}>
+                      {file.fileName}
+                    </Text>
+                    <Text style={[styles.fileMeta, { color: theme.textMuted }]}>
+                      {readableSize(file.byteSize)}
+                    </Text>
+                  </View>
+                  <SymbolView name="arrow.down.circle" size={18} tintColor={theme.textMuted} />
+                </Pressable>
+              ))}
+            </View>
+          ) : null}
+        </Pressable>
+        {reactions.length > 0 ? (
+          <View style={[styles.reactions, isUser ? styles.reactionsRight : styles.reactionsLeft]}>
+            {reactions.map((reaction) => (
+              <ReactionPill
+                key={reaction.emoji}
+                {...reaction}
+                onPress={() => onReact(reaction.emoji)}
               />
             ))}
           </View>
         ) : null}
-      </Pressable>
-      {reactions.length > 0 ? (
-        <View style={[styles.reactions, isUser ? styles.reactionsRight : styles.reactionsLeft]}>
-          {reactions.map((reaction) => (
-            <ReactionPill
-              key={reaction.emoji}
-              {...reaction}
-              onPress={() => onReact(reaction.emoji)}
-            />
-          ))}
-        </View>
-      ) : null}
+      </Animated.View>
 
       <Modal
         animationType="fade"
@@ -264,17 +478,20 @@ export function MessageBubble({
           </View>
         </Pressable>
       </Modal>
-    </View>
+    </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
   messageWrap: { maxWidth: "88%", marginVertical: 3 },
+  entranceContent: { maxWidth: "100%" },
+  contentLeft: { alignItems: "flex-start" },
+  contentRight: { alignItems: "flex-end" },
   alignLeft: { alignSelf: "flex-start" },
   alignRight: { alignSelf: "flex-end" },
   bubble: { borderRadius: 21, paddingHorizontal: 15, paddingVertical: 10 },
-  bubbleWithImages: { paddingHorizontal: 6, paddingBottom: 6 },
-  imageOnlyBubble: { paddingTop: 6 },
+  bubbleWithAttachments: { paddingHorizontal: 6, paddingBottom: 6 },
+  attachmentOnlyBubble: { paddingTop: 6 },
   content: { fontSize: 16, lineHeight: 22, letterSpacing: -0.15 },
   imageGallery: {
     width: 228,
@@ -286,6 +503,27 @@ const styles = StyleSheet.create({
   singleImageGallery: { width: 246 },
   singleImage: { width: 246, height: 184, borderRadius: 16, backgroundColor: "#D6D6D2" },
   gridImage: { width: 112, height: 104, borderRadius: 14, backgroundColor: "#D6D6D2" },
+  fileList: { width: 246, gap: 5, marginTop: 7 },
+  fileCard: {
+    minHeight: 54,
+    borderRadius: 15,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 8,
+    paddingVertical: 7,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 9,
+  },
+  fileIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  fileCopy: { flex: 1, minWidth: 0 },
+  fileTitle: { fontSize: 13, lineHeight: 17, fontWeight: "600" },
+  fileMeta: { fontSize: 11, lineHeight: 14 },
   a2aLabel: {
     minHeight: 24,
     paddingHorizontal: 5,

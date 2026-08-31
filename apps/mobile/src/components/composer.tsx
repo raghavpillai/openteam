@@ -1,4 +1,4 @@
-import type { InlineImageInput } from "@openbot/contracts";
+import type { AssetRef } from "@openbot/contracts";
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system/legacy";
 import * as Haptics from "expo-haptics";
@@ -28,24 +28,21 @@ export interface ReplyTarget {
   content: string;
 }
 
-interface PendingImage extends InlineImageInput {
+interface PendingAttachment extends AssetRef {
   id: string;
 }
 
-const MAX_IMAGES = 8;
-const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
-const DOCUMENT_IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"] as const;
+const MAX_ATTACHMENTS = 6;
+const REGULAR_FILE_BYTES = 25 * 1024 * 1024;
+const VIDEO_FILE_BYTES = 200 * 1024 * 1024;
 
 const attachmentId = () =>
   globalThis.crypto?.randomUUID?.() ??
   `attachment-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 
-const normalizedDocumentMime = (mimeType: string | undefined, name: string) => {
+const normalizedImageMime = (mimeType: string | undefined, name: string) => {
   const candidate = mimeType?.toLowerCase();
-  if (
-    candidate &&
-    DOCUMENT_IMAGE_TYPES.includes(candidate as (typeof DOCUMENT_IMAGE_TYPES)[number])
-  ) {
+  if (candidate?.startsWith("image/")) {
     return candidate;
   }
   const extension = name.split(".").pop()?.toLowerCase();
@@ -53,40 +50,65 @@ const normalizedDocumentMime = (mimeType: string | undefined, name: string) => {
   if (extension === "jpg" || extension === "jpeg") return "image/jpeg";
   if (extension === "webp") return "image/webp";
   if (extension === "gif") return "image/gif";
-  return null;
+  return "image/jpeg";
 };
+
+const fileLimit = (mimeType: string | undefined, name: string) =>
+  mimeType?.toLowerCase().startsWith("video/") ||
+  /\.(?:avi|m4v|mkv|mov|mp4|mpeg|mpg|webm)$/i.test(name)
+    ? VIDEO_FILE_BYTES
+    : REGULAR_FILE_BYTES;
+
+const sizeLabel = (bytes: number) =>
+  bytes >= 1024 * 1024
+    ? `${(bytes / 1024 / 1024).toFixed(bytes >= 10 * 1024 * 1024 ? 0 : 1)} MB`
+    : `${Math.max(1, Math.round(bytes / 1024))} KB`;
 
 export function Composer({
   botName,
   replyTarget,
   onClearReply,
   onSend,
+  onUpload,
+  assetUrl,
 }: {
   botName: string;
   replyTarget: ReplyTarget | null;
   onClearReply: () => void;
-  onSend: (content: string, images: InlineImageInput[]) => Promise<void>;
+  onSend: (content: string, attachments: AssetRef[]) => Promise<void>;
+  onUpload: (input: {
+    fileName: string;
+    mimeType?: string;
+    bytesBase64: string;
+    alt?: string;
+  }) => Promise<AssetRef>;
+  assetUrl: (asset: Pick<AssetRef, "assetId" | "fileName">) => string | null;
 }) {
   const theme = useTheme();
   const [text, setText] = useState("");
   const [inputHeight, setInputHeight] = useState(22);
   const [sending, setSending] = useState(false);
   const [picking, setPicking] = useState(false);
-  const [images, setImages] = useState<PendingImage[]>([]);
+  const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const inputBaseline = useRef<number | null>(null);
   const replyProgress = useRef(new Animated.Value(replyTarget ? 1 : 0)).current;
   const hasText = text.trim().length > 0;
-  const hasPayload = hasText || images.length > 0;
+  const hasPayload = hasText || attachments.length > 0;
 
-  const appendImages = (next: PendingImage[]) => {
-    setImages((current) => [...current, ...next].slice(0, MAX_IMAGES));
+  const appendAttachments = (next: AssetRef[]) => {
+    setAttachments((current) =>
+      [...current, ...next.map((asset) => ({ ...asset, id: attachmentId() }))].slice(
+        0,
+        MAX_ATTACHMENTS
+      )
+    );
   };
 
   const pickFromLibrary = async () => {
-    const remaining = MAX_IMAGES - images.length;
+    const remaining = MAX_ATTACHMENTS - attachments.length;
     if (remaining <= 0) {
-      setAttachmentError(`You can attach up to ${MAX_IMAGES} images.`);
+      setAttachmentError(`You can attach up to ${MAX_ATTACHMENTS} files.`);
       return;
     }
     setPicking(true);
@@ -102,29 +124,34 @@ export function Composer({
         shouldDownloadFromNetwork: true,
       });
       if (result.canceled) return;
-      const tooLarge = result.assets.find(
-        (asset) => typeof asset.fileSize === "number" && asset.fileSize > MAX_IMAGE_BYTES
-      );
+      const tooLarge = result.assets.find((asset) => {
+        const name = asset.fileName ?? "photo.jpg";
+        const mimeType = normalizedImageMime(asset.mimeType, name);
+        return typeof asset.fileSize === "number" && asset.fileSize > fileLimit(mimeType, name);
+      });
       if (tooLarge) {
-        setAttachmentError(`${tooLarge.fileName ?? "That image"} is larger than 20 MB.`);
+        setAttachmentError(`${tooLarge.fileName ?? "That image"} is larger than 25 MB.`);
         return;
       }
-      const loaded = result.assets.flatMap((asset) =>
-        asset.base64
-          ? [
-              {
-                id: attachmentId(),
-                url: `data:image/jpeg;base64,${asset.base64}`,
-                alt: asset.fileName ?? "Photo",
-              },
-            ]
-          : []
+      const loaded = await Promise.all(
+        result.assets.flatMap((asset) => {
+          if (!asset.base64) return [];
+          const fileName = asset.fileName ?? `photo-${Date.now()}.jpg`;
+          return [
+            onUpload({
+              fileName,
+              mimeType: normalizedImageMime(asset.mimeType, fileName),
+              bytesBase64: asset.base64,
+              alt: asset.fileName ?? "Photo",
+            }),
+          ];
+        })
       );
       if (loaded.length === 0) {
         setAttachmentError("The selected image could not be read.");
         return;
       }
-      appendImages(loaded);
+      appendAttachments(loaded);
     } catch (cause) {
       setAttachmentError(
         cause instanceof Error ? cause.message : "The image picker could not open."
@@ -134,57 +161,57 @@ export function Composer({
     }
   };
 
-  const pickImageFiles = async () => {
-    const remaining = MAX_IMAGES - images.length;
+  const pickFiles = async () => {
+    const remaining = MAX_ATTACHMENTS - attachments.length;
     if (remaining <= 0) {
-      setAttachmentError(`You can attach up to ${MAX_IMAGES} images.`);
+      setAttachmentError(`You can attach up to ${MAX_ATTACHMENTS} files.`);
       return;
     }
     setPicking(true);
     setAttachmentError(null);
     try {
       const result = await DocumentPicker.getDocumentAsync({
-        type: [...DOCUMENT_IMAGE_TYPES],
+        type: "*/*",
         multiple: remaining > 1,
         copyToCacheDirectory: true,
       });
       if (result.canceled) return;
       const selected = result.assets.slice(0, remaining);
-      const tooLarge = selected.find(
-        (asset) => typeof asset.size === "number" && asset.size > MAX_IMAGE_BYTES
+      const tooLarge = selected.find((asset) =>
+        typeof asset.size === "number" ? asset.size > fileLimit(asset.mimeType, asset.name) : false
       );
       if (tooLarge) {
-        setAttachmentError(`${tooLarge.name} is larger than 20 MB.`);
+        const limit = fileLimit(tooLarge.mimeType, tooLarge.name);
+        setAttachmentError(`${tooLarge.name} is larger than ${sizeLabel(limit)}.`);
         return;
       }
       const loaded = await Promise.all(
-        selected.map(async (asset): Promise<PendingImage> => {
-          const mimeType = normalizedDocumentMime(asset.mimeType, asset.name);
-          if (!mimeType) throw new Error("Choose PNG, JPEG, WebP, or GIF images.");
+        selected.map(async (asset): Promise<AssetRef> => {
           const base64 = await FileSystem.readAsStringAsync(asset.uri, {
             encoding: FileSystem.EncodingType.Base64,
           });
-          return {
-            id: attachmentId(),
-            url: `data:${mimeType};base64,${base64}`,
+          return onUpload({
+            fileName: asset.name,
+            mimeType: asset.mimeType ?? undefined,
+            bytesBase64: base64,
             alt: asset.name,
-          };
+          });
         })
       );
-      appendImages(loaded);
+      appendAttachments(loaded);
       if (result.assets.length > remaining) {
-        setAttachmentError(`Only the first ${remaining} images were added.`);
+        setAttachmentError(`Only the first ${remaining} files were added.`);
       }
     } catch (cause) {
-      setAttachmentError(cause instanceof Error ? cause.message : "The image could not be read.");
+      setAttachmentError(cause instanceof Error ? cause.message : "The file could not be read.");
     } finally {
       setPicking(false);
     }
   };
 
   const takePhoto = async () => {
-    if (images.length >= MAX_IMAGES) {
-      setAttachmentError(`You can attach up to ${MAX_IMAGES} images.`);
+    if (attachments.length >= MAX_ATTACHMENTS) {
+      setAttachmentError(`You can attach up to ${MAX_ATTACHMENTS} files.`);
       return;
     }
     setPicking(true);
@@ -202,16 +229,18 @@ export function Composer({
       });
       const asset = result.canceled ? null : result.assets[0];
       if (!asset?.base64) return;
-      if (typeof asset.fileSize === "number" && asset.fileSize > MAX_IMAGE_BYTES) {
-        setAttachmentError(`${asset.fileName ?? "That photo"} is larger than 20 MB.`);
+      if (typeof asset.fileSize === "number" && asset.fileSize > REGULAR_FILE_BYTES) {
+        setAttachmentError(`${asset.fileName ?? "That photo"} is larger than 25 MB.`);
         return;
       }
-      appendImages([
-        {
-          id: attachmentId(),
-          url: `data:image/jpeg;base64,${asset.base64}`,
+      const fileName = asset.fileName ?? `camera-${Date.now()}.jpg`;
+      appendAttachments([
+        await onUpload({
+          fileName,
+          mimeType: normalizedImageMime(asset.mimeType, fileName),
+          bytesBase64: asset.base64,
           alt: asset.fileName ?? "Camera photo",
-        },
+        }),
       ]);
     } catch (cause) {
       setAttachmentError(cause instanceof Error ? cause.message : "The camera could not open.");
@@ -225,12 +254,12 @@ export function Composer({
       ActionSheetIOS.showActionSheetWithOptions(
         {
           title: "Add to message",
-          options: ["Photo Library", "Choose Image File", "Take Photo", "Cancel"],
+          options: ["Photo Library", "Choose File", "Take Photo", "Cancel"],
           cancelButtonIndex: 3,
         },
         (buttonIndex) => {
           if (buttonIndex === 0) void pickFromLibrary();
-          if (buttonIndex === 1) void pickImageFiles();
+          if (buttonIndex === 1) void pickFiles();
           if (buttonIndex === 2) void takePhoto();
         }
       );
@@ -238,7 +267,7 @@ export function Composer({
     }
     Alert.alert("Add to message", undefined, [
       { text: "Photo Library", onPress: () => void pickFromLibrary() },
-      { text: "Choose Image File", onPress: () => void pickImageFiles() },
+      { text: "Choose File", onPress: () => void pickFiles() },
       { text: "Take Photo", onPress: () => void takePhoto() },
       { text: "Cancel", style: "cancel" },
     ]);
@@ -284,10 +313,10 @@ export function Composer({
     try {
       await onSend(
         content,
-        images.map(({ url, alt }) => ({ url, alt }))
+        attachments.map(({ id: _id, ...asset }) => asset)
       );
       setText("");
-      setImages([]);
+      setAttachments([]);
       setAttachmentError(null);
       setInputHeight(22);
       Keyboard.dismiss();
@@ -358,27 +387,47 @@ export function Composer({
           </View>
         </Animated.View>
 
-        {images.length > 0 ? (
-          <View accessibilityLabel={`${images.length} attached images`} style={styles.imageRail}>
-            {images.map((image) => (
-              <View key={image.id} style={styles.imagePreviewWrap}>
-                <Image
-                  source={{ uri: image.url, headers: authHeadersForUrl(image.url) }}
-                  style={styles.imagePreview}
-                />
-                <Pressable
-                  accessibilityLabel={`Remove ${image.alt ?? "image"}`}
-                  accessibilityRole="button"
-                  hitSlop={5}
-                  onPress={() =>
-                    setImages((current) => current.filter(({ id }) => id !== image.id))
-                  }
-                  style={styles.removeImage}
-                >
-                  <SymbolView name="xmark" size={10} tintColor="#FFFFFF" weight="bold" />
-                </Pressable>
-              </View>
-            ))}
+        {attachments.length > 0 ? (
+          <View
+            accessibilityLabel={`${attachments.length} attached files`}
+            style={styles.attachmentRail}
+          >
+            {attachments.map((attachment) => {
+              const url = assetUrl(attachment);
+              return (
+                <View key={attachment.id} style={styles.attachmentPreviewWrap}>
+                  {attachment.kind === "image" && url ? (
+                    <Image
+                      source={{ uri: url, headers: authHeadersForUrl(url) }}
+                      style={styles.imagePreview}
+                    />
+                  ) : (
+                    <View
+                      style={[
+                        styles.filePreview,
+                        { backgroundColor: theme.surface, borderColor: theme.border },
+                      ]}
+                    >
+                      <SymbolView name="doc.fill" size={20} tintColor={theme.textMuted} />
+                      <Text numberOfLines={1} style={[styles.fileName, { color: theme.textMuted }]}>
+                        {attachment.fileName}
+                      </Text>
+                    </View>
+                  )}
+                  <Pressable
+                    accessibilityLabel={`Remove ${attachment.fileName}`}
+                    accessibilityRole="button"
+                    hitSlop={5}
+                    onPress={() =>
+                      setAttachments((current) => current.filter(({ id }) => id !== attachment.id))
+                    }
+                    style={styles.removeImage}
+                  >
+                    <SymbolView name="xmark" size={10} tintColor="#FFFFFF" weight="bold" />
+                  </Pressable>
+                </View>
+              );
+            })}
           </View>
         ) : null}
 
@@ -474,7 +523,7 @@ const styles = StyleSheet.create({
     paddingRight: 2,
   },
   replyCopy: { flex: 1, fontSize: 13, lineHeight: 17 },
-  imageRail: {
+  attachmentRail: {
     minHeight: 64,
     flexDirection: "row",
     gap: 8,
@@ -482,8 +531,19 @@ const styles = StyleSheet.create({
     paddingTop: 7,
     paddingBottom: 1,
   },
-  imagePreviewWrap: { width: 56, height: 56 },
+  attachmentPreviewWrap: { width: 72, height: 56 },
   imagePreview: { width: 56, height: 56, borderRadius: 11, backgroundColor: "#D6D6D2" },
+  filePreview: {
+    width: 72,
+    height: 56,
+    borderRadius: 11,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 7,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 3,
+  },
+  fileName: { width: "100%", textAlign: "center", fontSize: 9, lineHeight: 11 },
   removeImage: {
     position: "absolute",
     top: -4,

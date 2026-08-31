@@ -1,6 +1,6 @@
 import type { ChannelMessageView } from "@openbot/contracts";
 import { router, useLocalSearchParams } from "expo-router";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { FlatList, KeyboardAvoidingView, Platform, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { ApprovalCard } from "../../src/components/approval-card";
@@ -10,6 +10,7 @@ import { GlassSurface } from "../../src/components/glass-surface";
 import { IconButton } from "../../src/components/icon-button";
 import { MessageBubble } from "../../src/components/message-bubble";
 import { WorkingIndicator } from "../../src/components/working-indicator";
+import { setActiveNotificationChannel } from "../../src/notifications";
 import { useOpenBot } from "../../src/state/openbot-context";
 import { useTheme } from "../../src/theme";
 
@@ -18,16 +19,39 @@ const metadataFor = (message: ChannelMessageView): Record<string, unknown> =>
     ? (message.metadata as Record<string, unknown>)
     : {};
 
+const clientDeliveryFor = (message: ChannelMessageView) => {
+  const candidate = metadataFor(message).clientDelivery;
+  return candidate && typeof candidate === "object" && !Array.isArray(candidate)
+    ? (candidate as Record<string, unknown>)
+    : null;
+};
+
+const messageRenderKey = (message: ChannelMessageView) => {
+  const renderKey = clientDeliveryFor(message)?.renderKey;
+  return typeof renderKey === "string" ? renderKey : message.id;
+};
+
 export default function ConversationScreen() {
   const theme = useTheme();
   const { channelId, messageId } = useLocalSearchParams<{
     channelId: string;
     messageId?: string;
   }>();
-  const { snapshot, sendMessage, reactToMessage, resolveApproval } = useOpenBot();
+  const {
+    snapshot,
+    sendMessage,
+    uploadAsset,
+    assetUrl,
+    reactToMessage,
+    resolveApproval,
+    markChannelRead,
+  } = useOpenBot();
   const [replyTarget, setReplyTarget] = useState<ReplyTarget | null>(null);
   const listRef = useRef<FlatList<ChannelMessageView>>(null);
   const didPlaceInitialScroll = useRef(false);
+  const targetScrollRetries = useRef(0);
+  const knownMessageKeys = useRef<Set<string> | null>(null);
+  const knownChannelId = useRef(channelId);
   const channel = snapshot.channels.find((candidate) => candidate.id === channelId);
   const botId = channel?.members[0]?.botId;
   const bot = snapshot.bots.find((candidate) => candidate.id === botId);
@@ -35,6 +59,17 @@ export default function ConversationScreen() {
     () => snapshot.channelMessages.filter((message) => message.channelId === channelId),
     [channelId, snapshot.channelMessages]
   );
+  const enteringMessageKeys = useMemo(() => {
+    const known = knownChannelId.current === channelId ? knownMessageKeys.current : null;
+    if (!known) return new Set<string>();
+    return new Set(
+      messages.map(messageRenderKey).filter((messageKey) => !known.has(messageKey))
+    );
+  }, [channelId, messages]);
+  useEffect(() => {
+    knownChannelId.current = channelId;
+    knownMessageKeys.current = new Set(messages.map(messageRenderKey));
+  }, [channelId, messages]);
   const byId = useMemo(() => new Map(messages.map((message) => [message.id, message])), [messages]);
   const targetIndex = messageId ? messages.findIndex((message) => message.id === messageId) : -1;
   const activeRun = snapshot.runs.find(
@@ -47,6 +82,29 @@ export default function ConversationScreen() {
       )
     : [];
   const name = bot?.name ?? channel?.name ?? "OpenBot";
+
+  useEffect(() => {
+    didPlaceInitialScroll.current = false;
+    targetScrollRetries.current = 0;
+    if (targetIndex < 0) return;
+    const frame = requestAnimationFrame(() => {
+      listRef.current?.scrollToIndex({
+        index: targetIndex,
+        animated: false,
+        viewPosition: 0.5,
+      });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [messageId, targetIndex]);
+
+  useEffect(() => {
+    setActiveNotificationChannel(channelId);
+    return () => setActiveNotificationChannel(null);
+  }, [channelId]);
+
+  useEffect(() => {
+    void markChannelRead(channelId);
+  }, [channelId, markChannelRead, messages.at(-1)?.sequence]);
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: theme.background }]}>
@@ -97,7 +155,7 @@ export default function ConversationScreen() {
         <FlatList
           ref={listRef}
           data={messages}
-          keyExtractor={(message) => message.id}
+          keyExtractor={messageRenderKey}
           contentContainerStyle={styles.messages}
           keyboardDismissMode="interactive"
           keyboardShouldPersistTaps="handled"
@@ -118,6 +176,15 @@ export default function ConversationScreen() {
               animated: false,
               offset: Math.max(0, averageItemLength * index),
             });
+            if (targetScrollRetries.current >= 2) return;
+            targetScrollRetries.current += 1;
+            setTimeout(() => {
+              listRef.current?.scrollToIndex({
+                index,
+                animated: false,
+                viewPosition: 0.5,
+              });
+            }, 80);
           }}
           renderItem={({ item }) => {
             const metadata = metadataFor(item);
@@ -132,11 +199,16 @@ export default function ConversationScreen() {
               typeof peerId === "string"
                 ? snapshot.bots.find((candidate) => candidate.id === peerId)
                 : undefined;
+            const deliveryState = clientDeliveryFor(item)?.state;
+            const renderKey = messageRenderKey(item);
             return (
               <MessageBubble
+                animateEntrance={enteringMessageKeys.has(renderKey)}
                 message={item}
+                pending={deliveryState === "pending"}
                 peerBot={peerBot}
                 replyPreview={replyPreview}
+                assetUrl={assetUrl}
                 onReply={() => setReplyTarget({ id: item.id, content: item.content })}
                 onReact={(emoji) => void reactToMessage(item.id, emoji)}
               />
@@ -160,8 +232,10 @@ export default function ConversationScreen() {
           botName={name}
           replyTarget={replyTarget}
           onClearReply={() => setReplyTarget(null)}
-          onSend={async (content, images) => {
-            await sendMessage(channelId, content, images, replyTarget?.id);
+          assetUrl={assetUrl}
+          onUpload={uploadAsset}
+          onSend={async (content, attachments) => {
+            await sendMessage(channelId, content, attachments, replyTarget?.id);
             setReplyTarget(null);
           }}
         />

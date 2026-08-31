@@ -1,10 +1,12 @@
 import { createOpenBotClient, selectMobileChannelRows } from "@openbot/client-core";
 import type {
+  AssetRef,
   ChannelMessageView,
   ClientSnapshot,
-  InlineImageInput,
   ScreenActionInput,
   ScreenStatusView,
+  SearchCategory,
+  SearchResponse,
 } from "@openbot/contracts";
 import type React from "react";
 import {
@@ -16,8 +18,22 @@ import {
   useRef,
   useState,
 } from "react";
+import { AppState, Linking } from "react-native";
+import { getAuthToken, requireAuthentication } from "../auth";
 import { mobileFixture } from "../fixtures";
-import { getAuthToken, requireAuthentication, serverUrl } from "../auth";
+import {
+  listenForPushTokenChanges,
+  type NotificationPermissionState,
+  notificationPermissionState,
+  setNotificationBadge,
+  synchronizePushRegistration,
+} from "../notifications";
+import { searchClientSnapshot } from "../search";
+import {
+  loadServerConnection,
+  saveServerConnection,
+  type ServerConnectionConfig,
+} from "../server-config";
 
 interface OpenBotState {
   snapshot: ClientSnapshot;
@@ -26,13 +42,34 @@ interface OpenBotState {
   refreshing: boolean;
   error: string | null;
   isFixture: boolean;
+  connection: ServerConnectionConfig;
+  connectionLoaded: boolean;
+  saveConnection: (input: ServerConnectionConfig) => Promise<void>;
+  notificationPermission: NotificationPermissionState;
+  notificationError: string | null;
+  enableNotifications: () => Promise<void>;
+  openNotificationSettings: () => Promise<void>;
+  setBotNotifications: (botId: string, enabled: boolean) => Promise<void>;
+  markChannelRead: (channelId: string) => Promise<void>;
   refresh: () => Promise<void>;
+  search: (
+    query: string,
+    category?: SearchCategory,
+    signal?: AbortSignal
+  ) => Promise<SearchResponse>;
   sendMessage: (
     channelId: string,
     content: string,
-    images?: readonly InlineImageInput[],
+    attachments?: readonly AssetRef[],
     replyToMessageId?: string
   ) => Promise<void>;
+  uploadAsset: (input: {
+    fileName: string;
+    mimeType?: string;
+    bytesBase64: string;
+    alt?: string;
+  }) => Promise<AssetRef>;
+  assetUrl: (asset: Pick<AssetRef, "assetId" | "fileName">, download?: boolean) => string | null;
   reactToMessage: (messageId: string, emoji: string) => Promise<void>;
   resolveApproval: (approvalId: string, decision: "accept" | "decline") => Promise<void>;
   screenStatus: (botId: string) => Promise<ScreenStatusView>;
@@ -41,15 +78,19 @@ interface OpenBotState {
   screenFrameUrl: (botId: string, revision?: number) => string | null;
 }
 
-const OpenBotContext = createContext<OpenBotState | null>(null);
+interface OutgoingMessage {
+  localId: string;
+  message: ChannelMessageView;
+  pending: boolean;
+  serverMessageId: string | null;
+}
 
-const client = serverUrl
-  ? createOpenBotClient({
-      baseUrl: serverUrl,
-      getAuthToken,
-      onUnauthorized: requireAuthentication,
-    })
-  : null;
+const messageMetadata = (message: ChannelMessageView): Record<string, unknown> =>
+  message.metadata && typeof message.metadata === "object" && !Array.isArray(message.metadata)
+    ? (message.metadata as Record<string, unknown>)
+    : {};
+
+const OpenBotContext = createContext<OpenBotState | null>(null);
 
 const fixtureScreenStatus = (botId: string, humanTakeover = false): ScreenStatusView => ({
   botId,
@@ -61,17 +102,97 @@ const fixtureScreenStatus = (botId: string, humanTakeover = false): ScreenStatus
   humanTakeover,
   agentInputPaused: humanTakeover,
   apps: ["chromium", "thunar", "terminal"],
-  browserProfileScope: "bot",
+  browserProfileScope: "computer",
   browserSessionScope: "computer",
-  browserSessionMechanism: "cookie-broker",
+  browserSessionMechanism: "shared-profiles",
 });
 
 export function OpenBotProvider({ children }: { children: React.ReactNode }) {
   const fixtureTakeovers = useRef(new Map<string, boolean>());
+  const [connection, setConnection] = useState<ServerConnectionConfig>({
+    serverUrl: "",
+    accessToken: "",
+  });
+  const [connectionLoaded, setConnectionLoaded] = useState(false);
+  const client = useMemo(
+    () =>
+      connection.serverUrl
+        ? createOpenBotClient({
+            baseUrl: connection.serverUrl,
+            accessToken: connection.accessToken || null,
+            getAuthToken,
+            onUnauthorized: requireAuthentication,
+          })
+        : null,
+    [connection.accessToken, connection.serverUrl]
+  );
   const [snapshot, setSnapshot] = useState<ClientSnapshot>(mobileFixture);
-  const [loading, setLoading] = useState(Boolean(client));
+  const [outgoingMessages, setOutgoingMessages] = useState<OutgoingMessage[]>([]);
+  const snapshotRef = useRef(snapshot);
+  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notificationPermission, setNotificationPermission] =
+    useState<NotificationPermissionState>("loading");
+  const [notificationError, setNotificationError] = useState<string | null>(null);
+  const visibleSnapshot = useMemo<ClientSnapshot>(() => {
+    const outgoingServerIds = new Set(
+      outgoingMessages.flatMap(({ serverMessageId }) => (serverMessageId ? [serverMessageId] : []))
+    );
+    const authoritativeById = new Map(
+      snapshot.channelMessages.map((message) => [message.id, message] as const)
+    );
+    const projectedOutgoing = outgoingMessages.map((outgoing) => {
+      const message =
+        (outgoing.serverMessageId ? authoritativeById.get(outgoing.serverMessageId) : undefined) ??
+        outgoing.message;
+      return {
+        ...message,
+        metadata: {
+          ...messageMetadata(message),
+          clientDelivery: {
+            renderKey: outgoing.localId,
+            state: outgoing.pending ? "pending" : "accepted",
+          },
+        },
+      };
+    });
+    return {
+      ...snapshot,
+      channelMessages: [
+        ...snapshot.channelMessages.filter((message) => !outgoingServerIds.has(message.id)),
+        ...projectedOutgoing,
+      ].sort(
+        (left, right) =>
+          new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime() ||
+          left.id.localeCompare(right.id)
+      ),
+    };
+  }, [outgoingMessages, snapshot]);
+
+  useEffect(() => {
+    snapshotRef.current = snapshot;
+  }, [snapshot]);
+
+  useEffect(() => {
+    let active = true;
+    void loadServerConnection()
+      .then((loaded) => {
+        if (!active) return;
+        setConnection(loaded);
+        setConnectionLoaded(true);
+        if (!loaded.serverUrl) setLoading(false);
+      })
+      .catch((cause) => {
+        if (!active) return;
+        setConnectionLoaded(true);
+        setLoading(false);
+        setError(cause instanceof Error ? cause.message : "Could not load server settings");
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const refresh = useCallback(async () => {
     if (!client) return;
@@ -85,20 +206,157 @@ export function OpenBotProvider({ children }: { children: React.ReactNode }) {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [client]);
 
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    if (!connectionLoaded || !client) return;
+    void setNotificationBadge(
+      snapshot.channels.reduce((total, channel) => total + (channel.unreadCount ?? 0), 0)
+    );
+  }, [client, connectionLoaded, snapshot.channels]);
+
+  useEffect(() => {
+    if (connectionLoaded) void refresh();
+  }, [connectionLoaded, refresh]);
+
+  useEffect(() => {
+    let active = true;
+    const sync = async () => {
+      try {
+        const permission = client
+          ? await synchronizePushRegistration(client, false)
+          : await notificationPermissionState();
+        if (active) {
+          setNotificationPermission(permission);
+          setNotificationError(null);
+        }
+      } catch (cause) {
+        if (active) {
+          setNotificationPermission(
+            await notificationPermissionState().catch(
+              (): NotificationPermissionState => "unavailable"
+            )
+          );
+          setNotificationError(
+            cause instanceof Error ? cause.message : "Could not register for notifications"
+          );
+        }
+      }
+    };
+    void sync();
+    const tokenSubscription = client
+      ? listenForPushTokenChanges(client, (cause) => {
+          if (active) {
+            setNotificationError(
+              cause instanceof Error ? cause.message : "Could not refresh the push token"
+            );
+          }
+        })
+      : null;
+    const appStateSubscription = AppState.addEventListener("change", (state) => {
+      if (state !== "active") return;
+      void refresh();
+      void sync();
+    });
+    return () => {
+      active = false;
+      tokenSubscription?.remove();
+      appStateSubscription.remove();
+    };
+  }, [client]);
+
+  const saveConnection = useCallback(async (input: ServerConnectionConfig) => {
+    const saved = await saveServerConnection(input);
+    setLoading(Boolean(saved.serverUrl));
+    setError(null);
+    setConnection(saved);
+  }, []);
+
+  const markChannelRead = useCallback(
+    async (channelId: string) => {
+      const latestSequence = snapshotRef.current.channelMessages
+        .filter((message) => message.channelId === channelId && /^\d+$/.test(message.sequence))
+        .reduce<bigint | null>((latest, message) => {
+          const sequence = BigInt(message.sequence);
+          return latest === null || sequence > latest ? sequence : latest;
+        }, null);
+      setSnapshot((current) => ({
+        ...current,
+        channels: current.channels.map((channel) =>
+          channel.id === channelId ? { ...channel, unreadCount: 0 } : channel
+        ),
+      }));
+      if (!client) return;
+      await client.markChannelRead(channelId, latestSequence?.toString());
+      await refresh();
+    },
+    [client, refresh]
+  );
+
+  const enableNotifications = useCallback(async () => {
+    setNotificationError(null);
+    if (!client) {
+      setNotificationError("Connect OpenBot to a server before enabling push notifications.");
+      return;
+    }
+    try {
+      setNotificationPermission(await synchronizePushRegistration(client, true));
+    } catch (cause) {
+      setNotificationError(
+        cause instanceof Error ? cause.message : "Could not enable push notifications"
+      );
+      setNotificationPermission(
+        await notificationPermissionState().catch((): NotificationPermissionState => "unavailable")
+      );
+    }
+  }, [client]);
+
+  const openNotificationSettings = useCallback(() => Linking.openSettings(), []);
+
+  const setBotNotifications = useCallback(
+    async (botId: string, enabled: boolean) => {
+      const previous = snapshot.bots.find((bot) => bot.id === botId)?.notificationsEnabled;
+      setSnapshot((current) => ({
+        ...current,
+        bots: current.bots.map((bot) =>
+          bot.id === botId ? { ...bot, notificationsEnabled: enabled } : bot
+        ),
+      }));
+      if (!client) return;
+      try {
+        await client.updateBot(botId, { notificationsEnabled: enabled });
+        await refresh();
+      } catch (cause) {
+        if (previous !== undefined) {
+          setSnapshot((current) => ({
+            ...current,
+            bots: current.bots.map((bot) =>
+              bot.id === botId ? { ...bot, notificationsEnabled: previous } : bot
+            ),
+          }));
+        }
+        throw cause;
+      }
+    },
+    [client, refresh, snapshot.bots]
+  );
+
+  const search = useCallback(
+    (query: string, category: SearchCategory = "all", signal?: AbortSignal) =>
+      client
+        ? client.search(query, category, signal)
+        : Promise.resolve(searchClientSnapshot(snapshot, query, category)),
+    [client, snapshot]
+  );
 
   const sendMessage = useCallback(
     async (
       channelId: string,
       content: string,
-      images: readonly InlineImageInput[] = [],
+      attachments: readonly AssetRef[] = [],
       replyToMessageId?: string
     ) => {
-      const optimisticId = `optimistic-${Date.now()}`;
+      const optimisticId = `optimistic-${Date.now()}-${Math.random().toString(36).slice(2)}`;
       const optimistic: ChannelMessageView = {
         id: optimisticId,
         sequence: optimisticId,
@@ -108,37 +366,58 @@ export function OpenBotProvider({ children }: { children: React.ReactNode }) {
         sourceRunId: null,
         content,
         metadata: {
-          ...(images.length ? { images: [...images] } : {}),
+          ...(attachments.length ? { attachments: [...attachments] } : {}),
           ...(replyToMessageId ? { replyTo: replyToMessageId } : {}),
         },
         createdAt: new Date().toISOString(),
       };
-      setSnapshot((current) => ({
+      setOutgoingMessages((current) => [
         ...current,
-        channelMessages: [...current.channelMessages, optimistic],
-      }));
-      if (!client) return;
+        {
+          localId: optimisticId,
+          message: optimistic,
+          pending: true,
+          serverMessageId: null,
+        },
+      ]);
+      if (!client) {
+        setOutgoingMessages((current) =>
+          current.map((candidate) =>
+            candidate.localId === optimisticId ? { ...candidate, pending: false } : candidate
+          )
+        );
+        return;
+      }
       try {
         const channel = snapshot.channels.find((candidate) => candidate.id === channelId);
         const botId = channel?.kind === "bot_dm" ? channel.members[0]?.botId : null;
         const conversationId = botId
           ? snapshot.bots.find((candidate) => candidate.id === botId)?.conversationId
           : null;
-        if (conversationId) {
-          await client.sendDirectMessage(conversationId, content, images, replyToMessageId);
-        } else {
-          await client.sendChannelMessage(channelId, content, images, replyToMessageId);
-        }
+        const accepted = conversationId
+          ? await client.sendDirectMessage(conversationId, content, attachments, replyToMessageId)
+          : await client.sendChannelMessage(channelId, content, attachments, replyToMessageId);
+        setOutgoingMessages((current) =>
+          current.map((candidate) =>
+            candidate.localId === optimisticId
+              ? {
+                  ...candidate,
+                  message: accepted.message,
+                  pending: false,
+                  serverMessageId: accepted.message.id,
+                }
+              : candidate
+          )
+        );
         await refresh();
       } catch (cause) {
-        setSnapshot((current) => ({
-          ...current,
-          channelMessages: current.channelMessages.filter((message) => message.id !== optimisticId),
-        }));
+        setOutgoingMessages((current) =>
+          current.filter((candidate) => candidate.localId !== optimisticId)
+        );
         throw cause;
       }
     },
-    [refresh, snapshot.bots, snapshot.channels]
+    [client, refresh, snapshot.bots, snapshot.channels]
   );
 
   const reactToMessage = useCallback(
@@ -166,7 +445,21 @@ export function OpenBotProvider({ children }: { children: React.ReactNode }) {
       await client.reactToMessage(messageId, emoji);
       await refresh();
     },
-    [refresh]
+    [client, refresh]
+  );
+
+  const uploadAsset = useCallback(
+    (input: { fileName: string; mimeType?: string; bytesBase64: string; alt?: string }) => {
+      if (!client) throw new Error("Connect OpenBot before uploading files.");
+      return client.uploadAsset(input);
+    },
+    [client]
+  );
+
+  const assetUrl = useCallback(
+    (asset: Pick<AssetRef, "assetId" | "fileName">, download = false) =>
+      client?.assetUrl(asset, download) ?? null,
+    [client]
   );
 
   const resolveApproval = useCallback(
@@ -182,40 +475,63 @@ export function OpenBotProvider({ children }: { children: React.ReactNode }) {
       }));
       if (client) await refresh();
     },
-    [refresh]
+    [client, refresh]
   );
 
-  const screenStatus = useCallback(async (botId: string) => {
-    return client
-      ? client.screenStatus(botId)
-      : fixtureScreenStatus(botId, fixtureTakeovers.current.get(botId) ?? false);
-  }, []);
+  const screenStatus = useCallback(
+    async (botId: string) => {
+      return client
+        ? client.screenStatus(botId)
+        : fixtureScreenStatus(botId, fixtureTakeovers.current.get(botId) ?? false);
+    },
+    [client]
+  );
 
-  const screenAction = useCallback(async (botId: string, input: ScreenActionInput) => {
-    return client
-      ? client.screenAction(botId, input)
-      : fixtureScreenStatus(botId, fixtureTakeovers.current.get(botId) ?? false);
-  }, []);
+  const screenAction = useCallback(
+    async (botId: string, input: ScreenActionInput) => {
+      return client
+        ? client.screenAction(botId, input)
+        : fixtureScreenStatus(botId, fixtureTakeovers.current.get(botId) ?? false);
+    },
+    [client]
+  );
 
-  const setScreenTakeover = useCallback(async (botId: string, active: boolean) => {
-    fixtureTakeovers.current.set(botId, active);
-    return client ? client.setScreenTakeover(botId, active) : fixtureScreenStatus(botId, active);
-  }, []);
+  const setScreenTakeover = useCallback(
+    async (botId: string, active: boolean) => {
+      fixtureTakeovers.current.set(botId, active);
+      return client ? client.setScreenTakeover(botId, active) : fixtureScreenStatus(botId, active);
+    },
+    [client]
+  );
 
-  const screenFrameUrl = useCallback((botId: string, revision = Date.now()) => {
-    return client ? client.screenFrameUrl(botId, revision) : null;
-  }, []);
+  const screenFrameUrl = useCallback(
+    (botId: string, revision = Date.now()) =>
+      client ? client.screenFrameUrl(botId, revision) : null,
+    [client]
+  );
 
   const value = useMemo<OpenBotState>(
     () => ({
-      snapshot,
-      rows: selectMobileChannelRows(snapshot),
+      snapshot: visibleSnapshot,
+      rows: selectMobileChannelRows(visibleSnapshot),
       loading,
       refreshing,
       error,
       isFixture: !client,
+      connection,
+      connectionLoaded,
+      saveConnection,
+      notificationPermission,
+      notificationError,
+      enableNotifications,
+      openNotificationSettings,
+      setBotNotifications,
+      markChannelRead,
       refresh,
+      search,
       sendMessage,
+      uploadAsset,
+      assetUrl,
       reactToMessage,
       resolveApproval,
       screenStatus,
@@ -225,17 +541,29 @@ export function OpenBotProvider({ children }: { children: React.ReactNode }) {
     }),
     [
       error,
+      connection,
+      connectionLoaded,
+      enableNotifications,
+      assetUrl,
       loading,
+      markChannelRead,
+      notificationError,
+      notificationPermission,
+      openNotificationSettings,
       reactToMessage,
       refresh,
       refreshing,
       resolveApproval,
+      search,
+      saveConnection,
       screenAction,
       screenFrameUrl,
       screenStatus,
+      setBotNotifications,
       sendMessage,
+      uploadAsset,
       setScreenTakeover,
-      snapshot,
+      visibleSnapshot,
     ]
   );
 

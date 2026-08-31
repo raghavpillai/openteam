@@ -77,6 +77,7 @@ export default function HomeScreen() {
               <IconButton
                 label="Open settings"
                 name="person.fill"
+                onPress={() => router.push("/settings")}
                 size={38}
                 symbolSize={17}
                 tone="surface"

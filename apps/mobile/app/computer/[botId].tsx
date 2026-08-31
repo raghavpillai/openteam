@@ -1,10 +1,15 @@
 import type { ScreenActionInput, ScreenStatusView } from "@openbot/contracts";
+import * as Haptics from "expo-haptics";
 import { router, useLocalSearchParams } from "expo-router";
+import { StatusBar } from "expo-status-bar";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Image,
+  Keyboard,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -12,8 +17,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { GlassSurface } from "../../src/components/glass-surface";
-import { IconButton } from "../../src/components/icon-button";
+import { BotMark } from "../../src/components/bot-mark";
 import { useOpenBot } from "../../src/state/openbot-context";
 import { useTheme } from "../../src/theme";
 import { authHeadersForUrl } from "../../src/auth";
@@ -26,31 +30,84 @@ const appDetails: Record<ScreenApp, { label: string; icon: SymbolViewProps["name
   thunar: { label: "Files", icon: "folder" },
 };
 
-function FixtureDesktop({ dark }: { dark: boolean }) {
+function FixtureDesktop() {
   return (
-    <View style={[styles.fixtureDesktop, { backgroundColor: dark ? "#121212" : "#ECECE8" }]}>
-      <View style={[styles.fixtureBar, { backgroundColor: dark ? "#252523" : "#D8D8D3" }]}>
-        <View style={[styles.fixtureDot, { backgroundColor: "#F06B5E" }]} />
-        <View style={[styles.fixtureDot, { backgroundColor: "#E6B04B" }]} />
-        <View style={[styles.fixtureDot, { backgroundColor: "#52B267" }]} />
-        <View style={[styles.fixtureAddress, { backgroundColor: dark ? "#343431" : "#F6F6F3" }]} />
-      </View>
-      <View style={styles.fixtureContent}>
-        <View style={[styles.fixtureSidebar, { backgroundColor: dark ? "#1C1C1A" : "#E2E2DE" }]} />
-        <View style={styles.fixtureMain}>
-          <View
-            style={[styles.fixtureHeading, { backgroundColor: dark ? "#555550" : "#B5B5AF" }]}
-          />
-          <View style={styles.fixtureCards}>
-            <View style={[styles.fixtureCard, { backgroundColor: dark ? "#292927" : "#FFFFFF" }]} />
-            <View style={[styles.fixtureCard, { backgroundColor: dark ? "#292927" : "#FFFFFF" }]} />
+    <View style={styles.fixtureDesktop}>
+      <View style={styles.fixtureWindow}>
+        <View style={styles.fixtureBar}>
+          <View style={[styles.fixtureDot, { backgroundColor: "#FF5F57" }]} />
+          <View style={[styles.fixtureDot, { backgroundColor: "#FEBC2E" }]} />
+          <View style={[styles.fixtureDot, { backgroundColor: "#28C840" }]} />
+          <View style={styles.fixtureAddress}>
+            <Text style={styles.fixtureAddressText}>openbot.local</Text>
           </View>
-          <Text style={[styles.fixtureLabel, { color: dark ? "#92928D" : "#6F6F6A" }]}>
-            Preview computer
-          </Text>
+        </View>
+        <View style={styles.fixtureContent}>
+          <Text style={styles.fixtureHeading}>Sign in to OpenBot</Text>
+          <View style={styles.fixtureField}>
+            <Text style={styles.fixtureFieldText}>you@example.com</Text>
+          </View>
+          <View style={styles.fixtureField}>
+            <Text style={styles.fixturePassword}>••••••••••</Text>
+          </View>
+          <View style={styles.fixtureSubmit}>
+            <Text style={styles.fixtureSubmitText}>Sign in</Text>
+          </View>
         </View>
       </View>
     </View>
+  );
+}
+
+function StageButton({
+  active = false,
+  disabled = false,
+  label,
+  name,
+  onPress,
+  size = 48,
+  symbolSize = 19,
+}: {
+  active?: boolean;
+  disabled?: boolean;
+  label: string;
+  name: SymbolViewProps["name"];
+  onPress: () => void;
+  size?: number;
+  symbolSize?: number;
+}) {
+  return (
+    <Pressable
+      accessibilityLabel={label}
+      accessibilityRole="button"
+      disabled={disabled}
+      hitSlop={5}
+      onPress={() => {
+        void Haptics.selectionAsync();
+        onPress();
+      }}
+      style={({ pressed }) => [
+        styles.stageButtonHit,
+        { height: Math.max(44, size), width: Math.max(44, size) },
+        pressed && styles.stageButtonPressed,
+        disabled && styles.disabled,
+      ]}
+    >
+      <View
+        style={[
+          styles.stageButton,
+          { borderRadius: size / 2, height: size, width: size },
+          active && styles.stageButtonActive,
+        ]}
+      >
+        <SymbolView
+          name={name}
+          size={symbolSize}
+          tintColor={active ? "#111111" : "#F7F7F4"}
+          weight="medium"
+        />
+      </View>
+    </Pressable>
   );
 }
 
@@ -63,7 +120,6 @@ function AppControl({
   disabled: boolean;
   onPress: () => void;
 }) {
-  const theme = useTheme();
   const details = appDetails[app];
   return (
     <Pressable
@@ -73,20 +129,15 @@ function AppControl({
       onPress={onPress}
       style={({ pressed }) => [styles.appHit, { opacity: disabled ? 0.4 : pressed ? 0.66 : 1 }]}
     >
-      <GlassSurface
-        fallbackColor={theme.surfaceElevated}
-        interactive
-        style={[styles.appPill, { borderColor: theme.border }]}
-      >
-        <SymbolView name={details.icon} size={15} tintColor={theme.textMuted} />
-        <Text style={[styles.appLabel, { color: theme.text }]}>{details.label}</Text>
-      </GlassSurface>
+      <View style={styles.appPill}>
+        <SymbolView name={details.icon} size={15} tintColor="#B9B9B5" />
+        <Text style={styles.appLabel}>{details.label}</Text>
+      </View>
     </Pressable>
   );
 }
 
 export default function ComputerScreen() {
-  const theme = useTheme();
   const { botId } = useLocalSearchParams<{ botId: string }>();
   const { isFixture, screenAction, screenFrameUrl, screenStatus, setScreenTakeover, snapshot } =
     useOpenBot();
@@ -97,7 +148,10 @@ export default function ComputerScreen() {
   const [frameSize, setFrameSize] = useState({ width: 1, height: 1 });
   const [typing, setTyping] = useState("");
   const [busy, setBusy] = useState(false);
+  const [controlsOpen, setControlsOpen] = useState(false);
+  const [keyboardOpen, setKeyboardOpen] = useState(false);
   const tookControl = useRef(false);
+  const inputRef = useRef<TextInput>(null);
 
   const refresh = useCallback(async () => {
     if (!botId) return;
@@ -120,6 +174,22 @@ export default function ComputerScreen() {
     };
   }, [botId, refresh, setScreenTakeover]);
 
+  useEffect(() => {
+    if (!botId || !status?.humanTakeover) return;
+    const heartbeat = setInterval(() => {
+      void setScreenTakeover(botId, true)
+        .then(setStatus)
+        .catch(() => undefined);
+    }, 20_000);
+    return () => clearInterval(heartbeat);
+  }, [botId, setScreenTakeover, status?.humanTakeover]);
+
+  useEffect(() => {
+    if (!keyboardOpen || !status?.humanTakeover) return;
+    const frame = requestAnimationFrame(() => inputRef.current?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, [keyboardOpen, status?.humanTakeover]);
+
   const act = async (input: ScreenActionInput) => {
     if (!botId || busy || !status?.humanTakeover) return;
     setBusy(true);
@@ -134,11 +204,10 @@ export default function ComputerScreen() {
     }
   };
 
-  const toggleTakeover = async () => {
+  const changeTakeover = async (active: boolean) => {
     if (!botId || busy) return;
     setBusy(true);
     try {
-      const active = !status?.humanTakeover;
       const next = await setScreenTakeover(botId, active);
       tookControl.current = active;
       setStatus(next);
@@ -151,56 +220,76 @@ export default function ComputerScreen() {
     }
   };
 
+  const toggleTakeover = () => void changeTakeover(!status?.humanTakeover);
+
+  const openKeyboard = () => {
+    setControlsOpen(false);
+    setKeyboardOpen(true);
+    if (ready && !controlling) void changeTakeover(true);
+  };
+
+  const closeKeyboard = () => {
+    setKeyboardOpen(false);
+    Keyboard.dismiss();
+  };
+
   const frameUrl = botId ? screenFrameUrl(botId, frameRevision) : null;
   const ready = status?.state === "ready";
   const controlling = Boolean(status?.humanTakeover);
+  const aspectRatio =
+    status && status.width > 0 && status.height > 0 ? status.width / status.height : 1.6;
+
+  const sendTypedText = () => {
+    const text = typing;
+    if (!text || !controlling) return;
+    setTyping("");
+    void act({ action: "type", text });
+  };
 
   return (
-    <SafeAreaView style={[styles.safe, { backgroundColor: theme.background }]}>
+    <SafeAreaView edges={["top", "bottom"]} style={styles.safe}>
+      <StatusBar style="light" />
       <View style={styles.header}>
-        <IconButton
-          label="Close shared computer"
-          name="xmark"
+        <StageButton
+          label="Back to conversation"
+          name="chevron.left"
           onPress={() => (router.canGoBack() ? router.back() : router.replace("/"))}
-          size={38}
-          symbolSize={15}
-          tone="surface"
+          symbolSize={20}
         />
-        <GlassSurface
-          fallbackColor={theme.surfaceElevated}
-          style={[styles.titlePill, { borderColor: theme.border }]}
-        >
-          <View
-            style={[styles.liveDot, { backgroundColor: ready ? theme.success : theme.textFaint }]}
-          />
-          <Text numberOfLines={1} style={[styles.title, { color: theme.text }]}>
-            {bot?.name ?? "OpenBot"} computer
+        <View style={styles.titlePill}>
+          <BotMark color={bot?.color ?? "#8057F5"} icon={bot?.icon} size={34} />
+          <Text numberOfLines={1} style={styles.title}>
+            {bot?.name ?? "OpenBot"}
           </Text>
-        </GlassSurface>
-        <IconButton
-          label="Refresh computer"
-          name="arrow.clockwise"
-          onPress={() => void refresh()}
-          size={38}
-          symbolSize={16}
-          tone="surface"
-        />
+        </View>
+        <View style={styles.headerActions}>
+          <StageButton
+            active={keyboardOpen}
+            disabled={!ready}
+            label="Type on computer"
+            name="keyboard"
+            onPress={() => (keyboardOpen ? closeKeyboard() : openKeyboard())}
+          />
+          <StageButton
+            active={controlsOpen}
+            label="Computer controls"
+            name="ellipsis"
+            onPress={() => {
+              closeKeyboard();
+              setControlsOpen((current) => !current);
+            }}
+            symbolSize={21}
+          />
+        </View>
       </View>
 
-      <View style={styles.content}>
+      <View style={styles.stage}>
         <View
-          style={[
-            styles.screenShell,
-            {
-              aspectRatio: status ? status.width / status.height : 1.6,
-              backgroundColor: theme.dark ? "#111110" : "#E8E8E4",
-              borderColor: theme.border,
-            },
-          ]}
+          style={[styles.screenShell, { aspectRatio }]}
           onLayout={(event) => setFrameSize(event.nativeEvent.layout)}
         >
           {!status && !error ? (
-            <ActivityIndicator color={theme.textMuted} />
+            <ActivityIndicator color="#92928D" />
           ) : isFixture ? (
             <Pressable
               accessibilityLabel={controlling ? "Tap the preview computer" : "Computer preview"}
@@ -217,7 +306,7 @@ export default function ComputerScreen() {
               }}
               style={styles.frame}
             >
-              <FixtureDesktop dark={theme.dark} />
+              <FixtureDesktop />
             </Pressable>
           ) : frameUrl && ready ? (
             <Pressable
@@ -244,10 +333,8 @@ export default function ComputerScreen() {
             </Pressable>
           ) : (
             <View style={styles.centerState}>
-              <SymbolView name="desktopcomputer" size={28} tintColor={theme.textFaint} />
-              <Text style={[styles.stateCopy, { color: theme.textMuted }]}>
-                Computer unavailable
-              </Text>
+              <SymbolView name="desktopcomputer" size={28} tintColor="#777773" />
+              <Text style={styles.stateCopy}>{error ?? "Computer unavailable"}</Text>
             </View>
           )}
           {busy ? (
@@ -256,150 +343,173 @@ export default function ComputerScreen() {
             </View>
           ) : null}
         </View>
+      </View>
 
-        <Text style={[styles.help, { color: error ? theme.danger : theme.textMuted }]}>
-          {error ??
-            (controlling
-              ? "You have control. Tap the screen, type, scroll, or open an app."
-              : "Watch live, or take control when the agent needs your help.")}
-        </Text>
-
-        <View style={styles.apps}>
-          {(status?.apps ?? ["chromium", "thunar", "terminal"]).map((app) => (
-            <AppControl
-              app={app}
-              disabled={!controlling || busy}
-              key={app}
-              onPress={() => void act({ action: "open_app", app })}
-            />
-          ))}
-        </View>
-
-        <GlassSurface
-          fallbackColor={theme.surfaceElevated}
-          style={[styles.controlPanel, { borderColor: theme.border }]}
-        >
-          <View style={styles.typeRow}>
-            <TextInput
-              accessibilityLabel="Type on shared computer"
-              editable={controlling && !busy}
-              onChangeText={setTyping}
-              onSubmitEditing={() => {
-                const text = typing;
-                if (!text) return;
-                setTyping("");
-                void act({ action: "type", text });
-              }}
-              placeholder={controlling ? "Type on computer" : "Take control to type"}
-              placeholderTextColor={theme.textFaint}
-              returnKeyType="send"
-              style={[styles.typeInput, { color: theme.text }]}
-              value={typing}
-            />
-            <IconButton
-              disabled={!controlling || !typing || busy}
-              label="Send text to computer"
-              name="arrow.up"
-              onPress={() => {
-                const text = typing;
-                setTyping("");
-                void act({ action: "type", text });
-              }}
-              size={34}
-              symbolSize={16}
-              tone="dark"
+      {controlsOpen ? (
+        <View style={styles.controlTray}>
+          <View style={styles.trayHeadingRow}>
+            <View>
+              <Text style={styles.trayTitle}>Computer controls</Text>
+              <Text style={[styles.trayStatus, error && styles.trayError]}>
+                {error ??
+                  (controlling ? "You have control" : ready ? "Watching live" : "Connecting…")}
+              </Text>
+            </View>
+            <StageButton
+              label="Refresh computer"
+              name="arrow.clockwise"
+              onPress={() => void refresh()}
+              size={38}
+              symbolSize={15}
             />
           </View>
-          <View style={[styles.panelDivider, { backgroundColor: theme.separator }]} />
+          <View style={styles.apps}>
+            {(status?.apps ?? ["chromium", "thunar", "terminal"]).map((app) => (
+              <AppControl
+                app={app}
+                disabled={!controlling || busy}
+                key={app}
+                onPress={() => void act({ action: "open_app", app })}
+              />
+            ))}
+          </View>
           <View style={styles.controlRow}>
             <Pressable
               accessibilityRole="button"
               disabled={busy || !ready}
-              onPress={() => void toggleTakeover()}
+              onPress={toggleTakeover}
               style={({ pressed }) => [
                 styles.takeover,
-                {
-                  backgroundColor: controlling ? theme.surfacePressed : theme.text,
-                  opacity: pressed ? 0.72 : 1,
-                },
+                controlling && styles.takeoverControlling,
+                pressed && styles.takeoverPressed,
+                (busy || !ready) && styles.disabled,
               ]}
             >
               <SymbolView
                 name={controlling ? "hand.raised.fill" : "hand.tap.fill"}
                 size={16}
-                tintColor={controlling ? theme.text : theme.background}
+                tintColor={controlling ? "#F7F7F4" : "#111111"}
               />
-              <Text
-                style={[
-                  styles.takeoverLabel,
-                  { color: controlling ? theme.text : theme.background },
-                ]}
-              >
+              <Text style={[styles.takeoverLabel, controlling && styles.takeoverLabelControlling]}>
                 {controlling ? "Return control" : "Take control"}
               </Text>
             </Pressable>
             <View style={styles.scrollControls}>
-              <IconButton
+              <StageButton
                 disabled={!controlling || busy}
                 label="Scroll up"
                 name="chevron.up"
                 onPress={() => void act({ action: "scroll", deltaY: -6 })}
-                size={34}
+                size={38}
                 symbolSize={14}
-                tone="subtle"
               />
-              <IconButton
+              <StageButton
                 disabled={!controlling || busy}
                 label="Scroll down"
                 name="chevron.down"
                 onPress={() => void act({ action: "scroll", deltaY: 6 })}
-                size={34}
+                size={38}
                 symbolSize={14}
-                tone="subtle"
               />
             </View>
           </View>
-        </GlassSurface>
-      </View>
+        </View>
+      ) : null}
+
+      {keyboardOpen ? (
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          pointerEvents="box-none"
+          style={styles.keyboardLayer}
+        >
+          <View style={styles.keyboardDock}>
+            <StageButton
+              label="Close keyboard"
+              name="chevron.down"
+              onPress={closeKeyboard}
+              size={38}
+              symbolSize={14}
+            />
+            <TextInput
+              accessibilityLabel="Type on shared computer"
+              editable={controlling && !busy}
+              onChangeText={setTyping}
+              onSubmitEditing={sendTypedText}
+              placeholder={controlling ? "Type on computer" : "Taking control…"}
+              placeholderTextColor="#777773"
+              ref={inputRef}
+              returnKeyType="send"
+              style={styles.typeInput}
+              value={typing}
+            />
+            <StageButton
+              active={Boolean(controlling && typing)}
+              disabled={!controlling || !typing || busy}
+              label="Send text to computer"
+              name="arrow.up"
+              onPress={sendTypedText}
+              size={38}
+              symbolSize={16}
+            />
+          </View>
+        </KeyboardAvoidingView>
+      ) : null}
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1 },
+  safe: { flex: 1, backgroundColor: "#000000" },
   header: {
-    height: 58,
-    paddingHorizontal: 7,
+    minHeight: 66,
+    paddingHorizontal: 14,
+    paddingTop: 4,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
+    gap: 10,
   },
-  titlePill: {
-    maxWidth: 230,
-    minHeight: 38,
-    borderRadius: 19,
+  stageButtonHit: { alignItems: "center", justifyContent: "center" },
+  stageButton: {
+    alignItems: "center",
+    justifyContent: "center",
     borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 13,
+    borderColor: "rgba(255,255,255,0.09)",
+    backgroundColor: "#292929",
+  },
+  stageButtonActive: { backgroundColor: "#F7F7F4", borderColor: "#F7F7F4" },
+  stageButtonPressed: { opacity: 0.72, transform: [{ scale: 0.95 }] },
+  disabled: { opacity: 0.34 },
+  titlePill: {
+    minWidth: 0,
+    maxWidth: 188,
+    height: 48,
+    borderRadius: 24,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(255,255,255,0.09)",
+    backgroundColor: "#292929",
+    paddingLeft: 7,
+    paddingRight: 15,
     flexDirection: "row",
     alignItems: "center",
-    gap: 7,
+    gap: 9,
     overflow: "hidden",
   },
-  liveDot: { width: 7, height: 7, borderRadius: 4 },
-  title: { flexShrink: 1, fontSize: 15, lineHeight: 19, fontWeight: "600" },
-  content: { flex: 1, paddingHorizontal: 14, paddingTop: 13, paddingBottom: 10 },
+  title: {
+    flexShrink: 1,
+    color: "#F7F7F4",
+    fontSize: 17,
+    lineHeight: 21,
+    fontWeight: "600",
+  },
+  headerActions: { marginLeft: "auto", flexDirection: "row", gap: 8 },
+  stage: { flex: 1, alignItems: "center", justifyContent: "center" },
   screenShell: {
     width: "100%",
-    maxHeight: 420,
-    borderRadius: 20,
-    borderWidth: StyleSheet.hairlineWidth,
+    maxHeight: 560,
+    backgroundColor: "#151515",
     overflow: "hidden",
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#000",
-    shadowOpacity: 0.15,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 7 },
   },
   frame: { width: "100%", height: "100%" },
   busyOverlay: {
@@ -410,63 +520,162 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.24)",
   },
   centerState: { alignItems: "center", gap: 8 },
-  stateCopy: { fontSize: 14, lineHeight: 19 },
-  help: { minHeight: 39, paddingHorizontal: 5, paddingTop: 10, fontSize: 12, lineHeight: 17 },
-  apps: { flexDirection: "row", gap: 7, paddingBottom: 10 },
+  stateCopy: { color: "#92928D", fontSize: 13, lineHeight: 18 },
+  controlTray: {
+    position: "absolute",
+    left: 14,
+    right: 14,
+    bottom: 14,
+    borderRadius: 28,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(255,255,255,0.12)",
+    backgroundColor: "rgba(28,28,27,0.97)",
+    padding: 14,
+    shadowColor: "#000",
+    shadowOpacity: 0.48,
+    shadowRadius: 24,
+    shadowOffset: { width: 0, height: 12 },
+  },
+  trayHeadingRow: {
+    minHeight: 44,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingLeft: 4,
+  },
+  trayTitle: { color: "#F7F7F4", fontSize: 15, lineHeight: 19, fontWeight: "700" },
+  trayStatus: { marginTop: 2, color: "#92928D", fontSize: 12, lineHeight: 16 },
+  trayError: { color: "#FF777C" },
+  apps: { flexDirection: "row", gap: 7, paddingVertical: 12 },
   appHit: { flex: 1 },
   appPill: {
     minHeight: 40,
     borderRadius: 20,
     borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(255,255,255,0.1)",
+    backgroundColor: "#292929",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 6,
     overflow: "hidden",
   },
-  appLabel: { fontSize: 12, lineHeight: 16, fontWeight: "600" },
-  controlPanel: {
-    marginTop: "auto",
-    borderRadius: 24,
-    borderWidth: StyleSheet.hairlineWidth,
-    padding: 7,
-    overflow: "hidden",
-  },
-  typeRow: { minHeight: 42, flexDirection: "row", alignItems: "center", paddingLeft: 9 },
-  typeInput: { flex: 1, height: 40, paddingVertical: 0, fontSize: 15, lineHeight: 20 },
-  panelDivider: { height: StyleSheet.hairlineWidth, marginHorizontal: 7 },
+  appLabel: { color: "#F7F7F4", fontSize: 12, lineHeight: 16, fontWeight: "600" },
   controlRow: {
-    minHeight: 48,
+    minHeight: 44,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingLeft: 3,
   },
   takeover: {
-    height: 36,
-    borderRadius: 18,
-    paddingHorizontal: 13,
+    height: 40,
+    borderRadius: 20,
+    paddingHorizontal: 15,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+    backgroundColor: "#F7F7F4",
+  },
+  takeoverControlling: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(255,255,255,0.12)",
+    backgroundColor: "#292929",
+  },
+  takeoverPressed: { opacity: 0.7, transform: [{ scale: 0.98 }] },
+  takeoverLabel: { color: "#111111", fontSize: 13, lineHeight: 17, fontWeight: "700" },
+  takeoverLabelControlling: { color: "#F7F7F4" },
+  scrollControls: { flexDirection: "row", gap: 4 },
+  keyboardLayer: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: "flex-end",
+  },
+  keyboardDock: {
+    minHeight: 64,
+    marginHorizontal: 14,
+    marginBottom: 10,
+    borderRadius: 28,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(255,255,255,0.12)",
+    backgroundColor: "rgba(28,28,27,0.98)",
+    padding: 7,
     flexDirection: "row",
     alignItems: "center",
     gap: 7,
   },
-  takeoverLabel: { fontSize: 13, lineHeight: 17, fontWeight: "700" },
-  scrollControls: { flexDirection: "row", gap: 1 },
-  fixtureDesktop: { flex: 1 },
+  typeInput: {
+    flex: 1,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "#292929",
+    color: "#F7F7F4",
+    paddingHorizontal: 16,
+    paddingVertical: 0,
+    fontSize: 15,
+    lineHeight: 20,
+  },
+  fixtureDesktop: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#8A8A8A",
+  },
+  fixtureWindow: {
+    width: "64%",
+    borderRadius: 8,
+    overflow: "hidden",
+    backgroundColor: "#FFFFFF",
+    shadowColor: "#000",
+    shadowOpacity: 0.28,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 7 },
+  },
   fixtureBar: {
-    height: 28,
+    height: 24,
     flexDirection: "row",
     alignItems: "center",
-    gap: 5,
+    gap: 4,
+    paddingHorizontal: 8,
+    backgroundColor: "#E7E7E5",
+  },
+  fixtureDot: { width: 6, height: 6, borderRadius: 3 },
+  fixtureAddress: {
+    flex: 1,
+    height: 14,
+    marginHorizontal: 5,
+    borderRadius: 6,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#FFFFFF",
+  },
+  fixtureAddressText: { color: "#686866", fontSize: 6, lineHeight: 8 },
+  fixtureContent: { paddingHorizontal: 22, paddingBottom: 14, paddingTop: 12 },
+  fixtureHeading: {
+    marginBottom: 10,
+    color: "#191919",
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "700",
+    textAlign: "center",
+  },
+  fixtureField: {
+    height: 22,
+    marginBottom: 7,
+    borderRadius: 6,
+    backgroundColor: "#F0F0F0",
+    justifyContent: "center",
     paddingHorizontal: 9,
   },
-  fixtureDot: { width: 7, height: 7, borderRadius: 4 },
-  fixtureAddress: { flex: 1, height: 14, marginLeft: 5, borderRadius: 7 },
-  fixtureContent: { flex: 1, flexDirection: "row", padding: 8, gap: 8 },
-  fixtureSidebar: { width: "22%", borderRadius: 6 },
-  fixtureMain: { flex: 1, padding: 9 },
-  fixtureHeading: { width: "45%", height: 9, borderRadius: 5 },
-  fixtureCards: { flexDirection: "row", gap: 8, marginTop: 12 },
-  fixtureCard: { flex: 1, height: 76, borderRadius: 8 },
-  fixtureLabel: { marginTop: 10, fontSize: 10, lineHeight: 13, fontWeight: "600" },
+  fixtureFieldText: { color: "#292929", fontSize: 7, lineHeight: 9 },
+  fixturePassword: { color: "#686866", fontSize: 7, lineHeight: 9, letterSpacing: 0.3 },
+  fixtureSubmit: {
+    height: 23,
+    borderRadius: 6,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#18181C",
+  },
+  fixtureSubmitText: { color: "#FFFFFF", fontSize: 7, lineHeight: 9, fontWeight: "700" },
 });

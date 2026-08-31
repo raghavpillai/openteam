@@ -1,4 +1,4 @@
-import { ApiError } from "@openbot/contracts";
+import { ApiError, type ApprovalDecision } from "@openbot/contracts";
 import type { ApprovalStatus, PrismaClient } from "@openbot/db";
 import { Effect } from "effect";
 import { appendEvent, type ComputerFetch, toError } from "./service-utils";
@@ -6,7 +6,20 @@ import { appendEvent, type ComputerFetch, toError } from "./service-utils";
 export class RunService {
   constructor(
     private readonly prisma: PrismaClient,
-    private readonly computerFetch: ComputerFetch
+    private readonly computerFetch: ComputerFetch,
+    private readonly resolvePluginInvocation?: (
+      callId: string,
+      decision: "accept" | "decline" | "cancel"
+    ) => Promise<unknown>,
+    private readonly resolvePluginAction?: (
+      details: unknown,
+      decision: "accept" | "decline" | "cancel"
+    ) => Promise<unknown>,
+    private readonly persistPluginToolAllowance?: (
+      connectionId: string,
+      botId: string,
+      toolName: string
+    ) => Promise<unknown>
   ) {}
 
   cancel = (runId: string) =>
@@ -25,7 +38,10 @@ export class RunService {
               data: {
                 status: "cancelled",
                 completedAt,
-                error: { code: "cancelled_by_user", message: "Cancelled before execution" },
+                error: {
+                  code: "cancelled_by_user",
+                  message: "Cancelled before execution",
+                },
               },
             });
             await tx.inboxEvent.updateMany({
@@ -33,18 +49,29 @@ export class RunService {
               data: {
                 status: "completed",
                 completedAt,
-                error: { code: "cancelled_by_user", message: "Cancelled before execution" },
+                error: {
+                  code: "cancelled_by_user",
+                  message: "Cancelled before execution",
+                },
               },
             });
-            await appendEvent(tx, "run.cancelled", runId, { runId, beforeExecution: true });
+            await appendEvent(tx, "run.cancelled", runId, {
+              runId,
+              beforeExecution: true,
+            });
           });
           await this.stopForegroundChildren(runId);
           return { ok: true, status: "cancelled" };
         }
-        const response = await this.computerFetch(`/v1/turns/${runId}/cancel`, { method: "POST" });
+        const response = await this.computerFetch(`/v1/turns/${runId}/cancel`, {
+          method: "POST",
+        });
         if (!response.ok) throw new ApiError(409, "run_not_active", await response.text());
         await this.prisma.$transaction(async (tx) => {
-          await tx.run.update({ where: { id: runId }, data: { status: "cancelled" } });
+          await tx.run.update({
+            where: { id: runId },
+            data: { status: "cancelled" },
+          });
           await appendEvent(tx, "run.cancel_requested", runId, { runId });
         });
         await this.stopForegroundChildren(runId);
@@ -138,15 +165,51 @@ export class RunService {
     );
   }
 
-  resolveApproval = (approvalId: string, decision: "accept" | "decline" | "cancel") =>
+  resolveApproval = (approvalId: string, decision: ApprovalDecision) =>
     Effect.tryPromise({
       try: async () => {
-        const approval = await this.prisma.approval.findUnique({ where: { id: approvalId } });
+        const approval = await this.prisma.approval.findUnique({
+          where: { id: approvalId },
+        });
         if (!approval) throw new ApiError(404, "approval_not_found", "Approval not found");
         if (approval.status !== "pending") return { ok: true, status: approval.status };
-        if (approval.requestMethod === "plugin/tool") {
+        if (approval.requestMethod === "plugin/action") {
+          if (decision === "always_allow" || decision === "never") {
+            throw new ApiError(
+              400,
+              "approval_decision_unsupported",
+              "This action cannot be always allowed"
+            );
+          }
           const status: ApprovalStatus =
             decision === "accept" ? "accepted" : decision === "decline" ? "declined" : "cancelled";
+          const result = await this.resolvePluginAction?.(approval.details, decision);
+          await this.prisma.$transaction(async (tx) => {
+            await tx.approval.update({
+              where: { id: approvalId },
+              data: { status, decision, resolvedAt: new Date() },
+            });
+            await appendEvent(tx, "plugin.action.resolved", approvalId, {
+              approvalId,
+              decision,
+            });
+          });
+          return { ok: true, status, result };
+        }
+        if (approval.requestMethod === "plugin/tool") {
+          if (decision === "never") {
+            throw new ApiError(
+              400,
+              "approval_decision_unsupported",
+              "Never is only supported for local computer approvals"
+            );
+          }
+          const status: ApprovalStatus =
+            decision === "accept" || decision === "always_allow"
+              ? "accepted"
+              : decision === "decline"
+                ? "declined"
+                : "cancelled";
           const details =
             approval.details &&
             typeof approval.details === "object" &&
@@ -156,33 +219,28 @@ export class RunService {
           const connectionId = details.connectionId;
           const botId = details.botId;
           const toolName = details.toolName;
+          const pluginInvocationId = details.pluginInvocationId;
           if (
             typeof connectionId !== "string" ||
             typeof botId !== "string" ||
-            typeof toolName !== "string"
+            typeof toolName !== "string" ||
+            typeof pluginInvocationId !== "string"
           ) {
             throw new ApiError(409, "approval_invalid", "Plugin approval details are incomplete");
           }
+          if (decision === "always_allow") {
+            await this.persistPluginToolAllowance?.(connectionId, botId, toolName);
+          }
+          const invocationDecision = decision === "always_allow" ? "accept" : decision;
+          const result = await this.resolvePluginInvocation?.(
+            pluginInvocationId,
+            invocationDecision
+          );
           await this.prisma.$transaction(async (tx) => {
             await tx.approval.update({
               where: { id: approvalId },
               data: { status, decision, resolvedAt: new Date() },
             });
-            if (decision === "accept") {
-              const existing = await tx.pluginToolPolicy.findFirst({
-                where: { connectionId, botId, toolName },
-              });
-              if (existing) {
-                await tx.pluginToolPolicy.update({
-                  where: { id: existing.id },
-                  data: { decision: "allow" },
-                });
-              } else {
-                await tx.pluginToolPolicy.create({
-                  data: { connectionId, botId, toolName, decision: "allow" },
-                });
-              }
-            }
             await tx.pluginActivity.create({
               data: {
                 connectionId,
@@ -199,11 +257,24 @@ export class RunService {
               decision,
             });
           });
-          return { ok: true, status };
+          return { ok: true, status, result };
+        }
+        const localComputerApproval = ["openbot/localTool", "openbot/autoReview"].includes(
+          approval.requestMethod
+        );
+        if ((decision === "always_allow" || decision === "never") && !localComputerApproval) {
+          throw new ApiError(
+            400,
+            "approval_decision_unsupported",
+            "This approval decision is not supported"
+          );
         }
         const response = await this.computerFetch("/v1/approvals/resolve", {
           method: "POST",
-          body: JSON.stringify({ approvalId: approval.upstreamRequestId, decision }),
+          body: JSON.stringify({
+            approvalId: approval.upstreamRequestId,
+            decision,
+          }),
         });
         if (!response.ok) {
           const resolvedAt = new Date();
@@ -224,13 +295,29 @@ export class RunService {
           );
         }
         const status: ApprovalStatus =
-          decision === "accept" ? "accepted" : decision === "decline" ? "declined" : "cancelled";
+          decision === "accept" || decision === "always_allow"
+            ? "accepted"
+            : decision === "decline" || decision === "never"
+              ? "declined"
+              : "cancelled";
         await this.prisma.$transaction(async (tx) => {
+          const details =
+            approval.details &&
+            typeof approval.details === "object" &&
+            !Array.isArray(approval.details)
+              ? {
+                  ...(approval.details as Record<string, unknown>),
+                  resolution: decision,
+                }
+              : { resolution: decision };
           await tx.approval.update({
             where: { id: approvalId },
-            data: { status, decision, resolvedAt: new Date() },
+            data: { status, decision, details, resolvedAt: new Date() },
           });
-          await tx.run.update({ where: { id: approval.runId }, data: { status: "running" } });
+          await tx.run.update({
+            where: { id: approval.runId },
+            data: { status: "running" },
+          });
           await appendEvent(tx, "approval.resolved", approvalId, {
             approvalId,
             runId: approval.runId,

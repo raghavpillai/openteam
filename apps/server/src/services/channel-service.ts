@@ -1,31 +1,32 @@
-import { resolve, sep } from "node:path";
+import { lstat, mkdir, readFile, readdir, realpath, rename, rm, writeFile } from "node:fs/promises";
+import { extname, join, relative, sep } from "node:path";
 import {
   ApiError,
+  type ChannelView,
   type CreateGroupInput,
   type ReactToChannelMessageInput,
   type RenameChannelInput,
   type SendMessageInput,
+  type SetChannelAvatarInput,
   type SetChannelMembersInput,
+  type UpdateChannelProfileInput,
 } from "@openbot/contracts";
 import type { PrismaClient } from "@openbot/db";
 import {
+  appendAgentTimelineEvent,
   type AgentDataStore,
   type AgentMessaging,
+  type AssetStore,
   GROUP_MAX_MEMBERS,
-  parseGroupMentions,
   PRIORITY,
+  buildTimelineEventWakePrompt,
+  parseGroupMentions,
+  renderAgentProfileUpdate,
   type SteerDispatch,
 } from "@openbot/messaging";
 import { Effect } from "effect";
-import {
-  appendEvent,
-  type ComputerFetch,
-  hashRequest,
-  slugify,
-  toError,
-  toJson,
-} from "./service-utils";
-import { serialize } from "./view-mappers";
+import { appendEvent, type ComputerFetch, hashRequest, toError, toJson } from "./service-utils";
+import { serialize, toChannelView } from "./view-mappers";
 
 type ReplyTarget = {
   id: string;
@@ -75,30 +76,34 @@ const reactionQuote = (content: string): string => {
   return collapsed.length > 80 ? `${collapsed.slice(0, 79)}…` : collapsed;
 };
 
+const MAX_AVATAR_BYTES = 5 * 1024 * 1024;
+const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+
+const decodeAvatarPng = (encoded: string): Buffer => {
+  if (!/^[A-Za-z0-9+/]*={0,2}$/.test(encoded) || encoded.length % 4 === 1) {
+    throw new ApiError(400, "invalid_avatar", "Avatar must be a base64-encoded PNG");
+  }
+  const bytes = Buffer.from(encoded, "base64");
+  if (
+    bytes.length === 0 ||
+    bytes.length > MAX_AVATAR_BYTES ||
+    bytes.length < PNG_SIGNATURE.length ||
+    !bytes.subarray(0, PNG_SIGNATURE.length).equals(PNG_SIGNATURE)
+  ) {
+    throw new ApiError(400, "invalid_avatar", "Avatar must be a PNG no larger than 5 MB");
+  }
+  return bytes;
+};
+
 export const formatUserReactionPrompt = (emoji: string, content: string) =>
   `[SAND_HIDDEN_PROMPT][The user reacted ${emoji} to your message: ` +
   `${JSON.stringify(reactionQuote(content))}. You don't need to reply; ` +
   `act on it only if it's useful (e.g. acknowledge, adjust, or continue).][SAND_HIDDEN_PROMPT]`;
 
-const xmlText = (value: string): string =>
-  value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
-
 export const formatChannelRenamePrompt = (input: { name: string; description: string }): string => {
-  const profile = JSON.stringify({ name: input.name, description: input.description });
-  const token = Buffer.from(profile, "utf8").toString("base64");
   return [
-    `[SAND_HIDDEN_PROMPT][SAND_HIDDEN_PROMPT]<<SAND_AGENT_PROFILE_UPDATE:v1:${token}>>`,
-    "<agent_profile_update>",
-    "Your agent profile changed. This full update is authoritative and supersedes the Agent profile section in the system prompt and every earlier profile update in this conversation.",
-    `Current name: ${xmlText(input.name)}`,
-    `Current description: ${input.description ? xmlText(input.description) : "(no description)"}`,
-    "Use this identity until a future conversation summary folds it into the Agent profile section.",
-    "</agent_profile_update>",
-    "",
-    "[event] Something about this conversation just changed.",
-    "This is a system event recorded in your timeline, not the user typing in this app, and possibly something you did yourself.",
-    `- Renamed to ${input.name}`,
-    "If it is worth acknowledging to the user, reply with SendToUser; otherwise it is fine to stay silent.",
+    renderAgentProfileUpdate(input.name, input.description),
+    buildTimelineEventWakePrompt({ type: "name-changed", from: "", to: input.name }),
   ].join("\n");
 };
 
@@ -108,12 +113,17 @@ export class ChannelService {
     private readonly messaging: AgentMessaging,
     private readonly workspaceRoot: string,
     private readonly computerFetch: ComputerFetch,
-    private readonly agentData?: AgentDataStore
+    private readonly agentData: AgentDataStore,
+    private readonly assets: AssetStore
   ) {}
 
   sendDirectMessage = (conversationId: string, input: SendMessageInput) =>
     Effect.tryPromise({
       try: async () => {
+        input = {
+          ...input,
+          attachments: await this.assets.normalizeRefs(input.attachments ?? []),
+        };
         const scope = `conversation:${conversationId}:message`;
         const requestHash = hashRequest(input);
         const existing = await this.prisma.idempotencyRecord.findUnique({
@@ -183,7 +193,7 @@ export class ChannelService {
               content: input.content,
               metadata: {
                 type: "text",
-                ...(input.images?.length ? { images: input.images } : {}),
+                ...(input.attachments?.length ? { attachments: input.attachments } : {}),
                 ...(reply ? { replyTo: reply.id } : {}),
                 ...(input.richText ? { richText: input.richText } : {}),
                 ...(input.isFork ? { branched: true } : {}),
@@ -199,7 +209,7 @@ export class ChannelService {
               formatDirectMentionContext(input.content, mentionPeers),
               reply
             ),
-            images: input.images,
+            attachments: input.attachments,
             clientId: input.clientId,
             occurredAt: visibleMessage.createdAt,
             timeZone: input.timeZone,
@@ -245,14 +255,7 @@ export class ChannelService {
           );
         }
         const channelId = crypto.randomUUID();
-        const directory = resolve(
-          this.workspaceRoot,
-          "projects",
-          `${slugify(input.name)}-${channelId.slice(0, 8)}`
-        );
-        if (!directory.startsWith(`${this.workspaceRoot}${sep}`)) {
-          throw new ApiError(400, "invalid_workspace", "Generated project path escaped root");
-        }
+        const directory = this.workspaceRoot;
         const activeBots = await this.prisma.bot.count({
           where: {
             id: { in: botIds },
@@ -299,11 +302,201 @@ export class ChannelService {
         if (this.agentData) {
           for (const botId of botIds) await this.agentData.writeGroupFilesForBot(botId);
         }
-        return serialize({
-          ...channel,
-          createdAt: channel.createdAt.toISOString(),
-          updatedAt: channel.updatedAt.toISOString(),
+        const store = await this.computerFetch(`/v1/agent-stores/${channel.id}`, {
+          method: "PUT",
+          body: JSON.stringify({ createdAt: channel.createdAt.getTime() }),
+          signal: AbortSignal.timeout(15_000),
         });
+        if (!store.ok) {
+          throw new ApiError(503, "group_store_unavailable", await store.text());
+        }
+        return toChannelView(channel);
+      },
+      catch: toError,
+    });
+
+  updateGroupProfile = (channelId: string, input: UpdateChannelProfileInput) =>
+    Effect.tryPromise({
+      try: async () => {
+        const name = input.name.replace(/\s+/g, " ").trim();
+        const description = input.description.trim();
+        if (!name) {
+          throw new ApiError(400, "channel_name_required", "A chat name cannot be empty");
+        }
+        const scope = `channel:${channelId}:profile`;
+        const requestHash = hashRequest(input);
+        const existing = await this.prisma.idempotencyRecord.findUnique({
+          where: { scope_key: { scope, key: input.clientId } },
+        });
+        if (existing) {
+          if (existing.requestHash !== requestHash) {
+            throw new ApiError(409, "idempotency_conflict", "Profile request content changed");
+          }
+          if (!existing.response) {
+            throw new ApiError(409, "request_in_progress", "This profile is already being updated");
+          }
+          const replay = existing.response as { channel?: unknown };
+          return serialize(replay.channel);
+        }
+
+        const result = await this.prisma.$transaction(async (tx) => {
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`channel:${channelId}`}))`;
+          const channel = await tx.channel.findFirst({
+            where: { id: channelId, kind: "group", archivedAt: null },
+            include: { members: { orderBy: { ordinal: "asc" } } },
+          });
+          if (!channel) throw new ApiError(404, "group_not_found", "Active group not found");
+
+          await tx.idempotencyRecord.create({
+            data: {
+              scope,
+              key: input.clientId,
+              requestHash,
+              expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60_000),
+            },
+          });
+          const nameChanged = channel.name !== name;
+          const changed = nameChanged || channel.description !== description;
+          const updated = changed
+            ? await tx.channel.update({
+                where: { id: channelId },
+                data: { name, description, updatedAt: new Date() },
+                include: { members: { orderBy: { ordinal: "asc" } } },
+              })
+            : channel;
+          if (changed) {
+            await appendEvent(tx, "channel.profile.updated", channelId, {
+              channelId,
+              from: { name: channel.name, description: channel.description },
+              to: { name, description },
+            });
+          }
+          const response = {
+            channel: toChannelView(updated),
+            memberIds: updated.members.map(({ botId }) => botId),
+            changed,
+          };
+          await tx.idempotencyRecord.update({
+            where: { scope_key: { scope, key: input.clientId } },
+            data: { status: "completed", response: toJson(response) },
+          });
+          return response;
+        });
+        if (result.changed && this.agentData) {
+          for (const botId of result.memberIds) await this.agentData.writeGroupFilesForBot(botId);
+        }
+        return result.channel;
+      },
+      catch: toError,
+    });
+
+  setGroupAvatar = (channelId: string, input: SetChannelAvatarInput) =>
+    Effect.tryPromise({
+      try: async () => {
+        const bytes = input.pngBase64 === null ? null : decodeAvatarPng(input.pngBase64);
+        const scope = `channel:${channelId}:avatar`;
+        const requestHash = hashRequest(input);
+        const existing = await this.prisma.idempotencyRecord.findUnique({
+          where: { scope_key: { scope, key: input.clientId } },
+        });
+        if (existing) {
+          if (existing.requestHash !== requestHash) {
+            throw new ApiError(409, "idempotency_conflict", "Avatar request content changed");
+          }
+          if (!existing.response) {
+            throw new ApiError(409, "request_in_progress", "This avatar is already being updated");
+          }
+          return serialize(existing.response) as unknown as ChannelView;
+        }
+
+        const channel = await this.prisma.channel.findFirst({
+          where: { id: channelId, kind: "group", archivedAt: null },
+          include: { members: { orderBy: { ordinal: "asc" } } },
+        });
+        if (!channel) throw new ApiError(404, "group_not_found", "Active group not found");
+
+        const directory = this.agentData.botDirectory(channelId);
+        await mkdir(directory, { recursive: true, mode: 0o755 });
+        const existingAvatarNames = (await readdir(directory).catch(() => [] as string[])).filter(
+          (name) => /^avatar\.(?:png|jpg|jpeg|webp|gif|svg)$/i.test(name)
+        );
+        let avatarPath: string | null = null;
+        if (bytes) {
+          avatarPath = join(directory, "avatar.png");
+          const temporary = join(directory, `.avatar-${input.clientId}.tmp`);
+          await writeFile(temporary, bytes, { mode: 0o644 });
+          await rename(temporary, avatarPath);
+        }
+        await Promise.all(
+          existingAvatarNames
+            .filter((name) => !bytes || name.toLowerCase() !== "avatar.png")
+            .map((name) => rm(join(directory, name), { force: true }))
+        );
+
+        const result = await this.prisma.$transaction(async (tx) => {
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`channel:${channelId}`}))`;
+          await tx.idempotencyRecord.create({
+            data: {
+              scope,
+              key: input.clientId,
+              requestHash,
+              expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60_000),
+            },
+          });
+          const updated = await tx.channel.update({
+            where: { id: channelId },
+            data: { avatarPath, updatedAt: new Date() },
+            include: { members: { orderBy: { ordinal: "asc" } } },
+          });
+          await appendEvent(tx, "channel.avatar.updated", channelId, {
+            channelId,
+            hasAvatar: Boolean(avatarPath),
+          });
+          const view = toChannelView(updated);
+          await tx.idempotencyRecord.update({
+            where: { scope_key: { scope, key: input.clientId } },
+            data: { status: "completed", response: toJson(view) },
+          });
+          return view;
+        });
+        return result;
+      },
+      catch: toError,
+    });
+
+  groupAvatar = (channelId: string) =>
+    Effect.tryPromise({
+      try: async () => {
+        const channel = await this.prisma.channel.findFirst({
+          where: { id: channelId, kind: "group", archivedAt: null },
+          select: { avatarPath: true },
+        });
+        if (!channel?.avatarPath) {
+          throw new ApiError(404, "avatar_not_found", "Group has no avatar");
+        }
+        const path = await realpath(channel.avatarPath).catch(() => null);
+        const expectedRoot = await realpath(this.agentData.botDirectory(channelId)).catch(
+          () => null
+        );
+        const difference = path && expectedRoot ? relative(expectedRoot, path) : "..";
+        if (
+          !path ||
+          difference === "" ||
+          difference === ".." ||
+          difference.startsWith(`..${sep}`) ||
+          extname(path).toLowerCase() !== ".png"
+        ) {
+          throw new ApiError(404, "avatar_not_found", "Group avatar is unavailable");
+        }
+        const before = await lstat(path).catch(() => null);
+        if (!before?.isFile() || before.isSymbolicLink() || before.size > MAX_AVATAR_BYTES) {
+          throw new ApiError(404, "avatar_not_found", "Group avatar is unavailable");
+        }
+        const bytes = await readFile(path);
+        if (!bytes.subarray(0, PNG_SIGNATURE.length).equals(PNG_SIGNATURE)) {
+          throw new ApiError(404, "avatar_not_found", "Group avatar is unavailable");
+        }
+        return { bytes, contentType: "image/png" };
       },
       catch: toError,
     });
@@ -356,7 +549,7 @@ export class ChannelService {
         }
         await this.agentData?.reconcileBot(targetBotId);
 
-        const result = await this.prisma.$transaction(async (tx) => {
+        const result = await this.agentData.mutateBotFiles(targetBotId, ["profile"], async (tx) => {
           await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`channel:${channelId}`}))`;
           const channel = await tx.channel.findUnique({
             where: { id: channelId },
@@ -402,41 +595,12 @@ export class ChannelService {
               data: { name: requestedName, updatedAt: occurredAt },
               include: { members: { orderBy: { ordinal: "asc" } } },
             });
-            await tx.agentPromptSnapshot.updateMany({
-              where: { botId: member.botId },
-              data: {
-                announcedName: requestedName,
-                announcedDescription: member.bot.description,
-              },
-            });
-            await tx.channelMessage.create({
-              data: {
-                channelId: channel.id,
-                clientId: `rename-event:${input.clientId}`,
-                sender: "system",
-                metadata: {
-                  type: "event",
-                  event: { type: "name-changed", from, to: requestedName },
-                },
-                createdAt: occurredAt,
-              },
-            });
-            bootstrapRunId = await this.messaging.skipBootstrapForUser(tx, member.botId);
-            await this.messaging.enqueueWake(tx, {
+            await appendAgentTimelineEvent(tx, this.messaging, {
               botId: member.botId,
-              channelId: channel.id,
-              origin: "user",
-              type: "channel.name_changed",
-              content: formatChannelRenamePrompt({
-                name: requestedName,
-                description: member.bot.description,
-              }),
-              clientId: `rename:${channel.id}:${input.clientId}`,
-              priority: PRIORITY.user,
-              availableAt: new Date(occurredAt.getTime() + 750),
+              clientId: `rename:${input.clientId}`,
+              event: { type: "name-changed", from, to: requestedName },
               occurredAt,
               timeZone: input.timeZone,
-              wrapUserContent: false,
             });
             await this.messaging.scheduleTranscriptProjection(tx, [member.botId]);
             await appendEvent(tx, "channel.renamed", channel.id, {
@@ -455,7 +619,7 @@ export class ChannelService {
               botId: member.botId,
               bootstrapRunId,
               changed,
-              channel: renamed,
+              channel: toChannelView(renamed),
             };
             await tx.idempotencyRecord.update({
               where: { scope_key: { scope, key: input.clientId } },
@@ -472,7 +636,7 @@ export class ChannelService {
             botId: member.botId,
             bootstrapRunId,
             changed,
-            channel: unchanged,
+            channel: toChannelView(unchanged),
           };
           await tx.idempotencyRecord.update({
             where: { scope_key: { scope, key: input.clientId } },
@@ -481,9 +645,8 @@ export class ChannelService {
           return response;
         });
 
-        if (result.changed) await this.agentData?.writeBotFiles(result.botId, ["profile"]);
         if (result.bootstrapRunId) await this.cancelSkippedBootstrap(result.bootstrapRunId);
-        return serialize(result.channel);
+        return result.channel;
       },
       catch: toError,
     });
@@ -557,7 +720,7 @@ export class ChannelService {
           ]);
           await tx.idempotencyRecord.update({
             where: { scope_key: { scope, key: input.clientId } },
-            data: { status: "completed", response: toJson(updated) },
+            data: { status: "completed", response: toJson(toChannelView(updated)) },
           });
           return {
             updated,
@@ -569,7 +732,7 @@ export class ChannelService {
             await this.agentData.writeGroupFilesForBot(botId);
           }
         }
-        return serialize(result.updated);
+        return toChannelView(result.updated);
       },
       catch: toError,
     });
@@ -577,6 +740,10 @@ export class ChannelService {
   sendGroupMessage = (channelId: string, input: SendMessageInput) =>
     Effect.tryPromise({
       try: async () => {
+        input = {
+          ...input,
+          attachments: await this.assets.normalizeRefs(input.attachments ?? []),
+        };
         const scope = `channel:${channelId}:message`;
         const requestHash = hashRequest(input);
         const existing = await this.prisma.idempotencyRecord.findUnique({
@@ -621,7 +788,7 @@ export class ChannelService {
               content: input.content,
               metadata: {
                 type: "text",
-                ...(input.images?.length ? { images: input.images } : {}),
+                ...(input.attachments?.length ? { attachments: input.attachments } : {}),
                 ...(reply ? { replyTo: reply.id } : {}),
                 ...(input.richText ? { richText: input.richText } : {}),
                 ...(input.isFork ? { branched: true } : {}),

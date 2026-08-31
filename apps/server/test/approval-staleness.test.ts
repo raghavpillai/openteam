@@ -51,4 +51,51 @@ describe("approval restart parity", () => {
       payload: { approvalId: "approval-1", runId: "child-run-1" },
     });
   });
+
+  test("forwards persistent local-computer decisions and records their durable resolution", async () => {
+    for (const [decision, expectedStatus] of [
+      ["always_allow", "accepted"],
+      ["never", "declined"],
+    ] as const) {
+      const updates: Array<Record<string, unknown>> = [];
+      const forwarded: Array<Record<string, unknown>> = [];
+      const tx = {
+        approval: {
+          update: async ({ data }: { data: Record<string, unknown> }) => {
+            updates.push(data);
+            return data;
+          },
+        },
+        run: { update: async () => ({}) },
+        event: { create: async () => ({}) },
+      };
+      const prisma = {
+        approval: {
+          findUnique: async () => ({
+            id: `approval-${decision}`,
+            runId: "run-1",
+            upstreamRequestId: `runtime-${decision}`,
+            requestMethod: "openbot/localTool",
+            status: "pending",
+            details: { type: "localTool", machineId: "machine-1" },
+          }),
+        },
+        $transaction: async (operation: (client: typeof tx) => Promise<unknown>) => operation(tx),
+      };
+      const service = new RunService(prisma as never, async (_path, init) => {
+        forwarded.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+        return Response.json({ ok: true });
+      });
+
+      expect(
+        await Effect.runPromise(service.resolveApproval(`approval-${decision}`, decision))
+      ).toMatchObject({ status: expectedStatus });
+      expect(forwarded).toEqual([{ approvalId: `runtime-${decision}`, decision }]);
+      expect(updates[0]).toMatchObject({
+        status: expectedStatus,
+        decision,
+        details: { type: "localTool", machineId: "machine-1", resolution: decision },
+      });
+    }
+  });
 });

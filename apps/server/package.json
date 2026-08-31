@@ -11,6 +11,7 @@
     "test": "bun test --pass-with-no-tests"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "1.25.2",
     "@openbot/contracts": "workspace:*",
     "@openbot/db": "workspace:*",
     "@openbot/messaging": "workspace:*",

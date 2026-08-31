@@ -1,4 +1,3 @@
-import { resolve, sep } from "node:path";
 import {
   ApiError,
   type CreateAgentInput,
@@ -7,10 +6,28 @@ import {
   type UpdateChannelInput,
 } from "@openbot/contracts";
 import type { PrismaClient } from "@openbot/db";
-import type { AgentDataStore, AgentMessaging } from "@openbot/messaging";
+import { type AgentDataStore, type AgentMessaging, GROUP_MAX_MEMBERS } from "@openbot/messaging";
 import { Effect } from "effect";
 import type { BotService } from "./bot-service";
-import { appendEvent, type ComputerFetch, hashRequest, slugify, toJson } from "./service-utils";
+import { appendEvent, type ComputerFetch, hashRequest, toJson } from "./service-utils";
+
+export const CHANNEL_UPDATE_NOTHING_TO_CHANGE =
+  "Nothing to change: provide add_member_ids and/or remove_member_ids.";
+export const CHANNEL_UPDATE_NEEDS_MEMBER =
+  "A channel needs at least one member, so this removal was not applied.";
+export const channelNotFoundMessage = (channelId: string) =>
+  `No channel found with id ${channelId}.`;
+
+export const nextChannelMemberIds = (input: {
+  current: readonly string[];
+  validAdds: readonly string[];
+  removes: readonly string[];
+}): string[] => {
+  const removes = new Set(input.removes);
+  return [...new Set([...input.current, ...input.validAdds])]
+    .filter((id) => !removes.has(id))
+    .slice(0, GROUP_MAX_MEMBERS);
+};
 
 export class AdministrationService {
   constructor(
@@ -78,7 +95,7 @@ export class AdministrationService {
 
   async createChannel(parentBotId: string, callId: string, input: CreateChannelInput) {
     const memberIds = [...new Set(input.member_ids)];
-    if (memberIds.length > 6) {
+    if (memberIds.length > GROUP_MAX_MEMBERS) {
       throw new ApiError(400, "channel_too_large", "A channel can have at most six members");
     }
     const active = await this.prisma.bot.findMany({
@@ -127,14 +144,7 @@ export class AdministrationService {
         throw new ApiError(409, "request_in_progress", "This channel is already being created");
       }
     }
-    const directory = resolve(
-      this.workspaceRoot,
-      "projects",
-      `${slugify(input.name)}-${channelId.slice(0, 8)}`
-    );
-    if (!directory.startsWith(`${this.workspaceRoot}${sep}`)) {
-      throw new ApiError(400, "invalid_workspace", "Generated project path escaped root");
-    }
+    const directory = this.workspaceRoot;
     try {
       const provisioned = await this.computerFetch("/v1/directories", {
         method: "PUT",
@@ -175,6 +185,14 @@ export class AdministrationService {
       for (const botId of memberIds) {
         await this.agentData.writeGroupFilesForBot(botId);
       }
+      const store = await this.computerFetch(`/v1/agent-stores/${channel.id}`, {
+        method: "PUT",
+        body: JSON.stringify({ createdAt: channel.createdAt.getTime() }),
+        signal: AbortSignal.timeout(15_000),
+      });
+      if (!store.ok) {
+        throw new ApiError(503, "group_store_unavailable", await store.text());
+      }
       return this.channelResult(channel);
     } catch (error) {
       await this.prisma.idempotencyRecord.deleteMany({
@@ -214,12 +232,20 @@ export class AdministrationService {
         },
         include: { members: { orderBy: { ordinal: "asc" } } },
       });
-      if (!channel) throw new ApiError(404, "channel_not_found", "Channel not found");
+      if (!channel) {
+        throw new ApiError(404, "channel_not_found", channelNotFoundMessage(input.channel_id));
+      }
+
+      if (!(input.add_member_ids?.length || input.remove_member_ids?.length)) {
+        return {
+          acknowledgement: CHANNEL_UPDATE_NOTHING_TO_CHANGE,
+          memberIds: channel.members.map(({ botId }) => botId),
+          affectedBotIds: [],
+          changed: false,
+        };
+      }
 
       const remove = new Set(input.remove_member_ids ?? []);
-      const retained = channel.members
-        .map(({ botId }) => botId)
-        .filter((botId) => !remove.has(botId));
       const requestedAdds = [...new Set(input.add_member_ids ?? [])];
       const validAdds = await tx.bot.findMany({
         where: {
@@ -229,12 +255,19 @@ export class AdministrationService {
         },
         select: { id: true },
       });
-      const memberIds = [...new Set([...retained, ...validAdds.map(({ id }) => id)])];
+      const validAddSet = new Set(validAdds.map(({ id }) => id));
+      const memberIds = nextChannelMemberIds({
+        current: channel.members.map(({ botId }) => botId),
+        validAdds: requestedAdds.filter((id) => validAddSet.has(id)),
+        removes: [...remove],
+      });
       if (memberIds.length < 1) {
-        throw new ApiError(400, "channel_members_required", "A channel must keep one member");
-      }
-      if (memberIds.length > 6) {
-        throw new ApiError(400, "channel_too_large", "A channel can have at most six members");
+        return {
+          acknowledgement: CHANNEL_UPDATE_NEEDS_MEMBER,
+          memberIds: channel.members.map(({ botId }) => botId),
+          affectedBotIds: [],
+          changed: false,
+        };
       }
       const previous = channel.members.map(({ botId }) => botId);
       await tx.channelMember.deleteMany({ where: { channelId: channel.id } });
@@ -269,10 +302,13 @@ export class AdministrationService {
         acknowledgement: `Updated channel "${channel.name}" (id: ${channel.id}). Members: ${memberIds.map((id) => namesById.get(id) ?? id).join(", ")}.`,
         memberIds,
         affectedBotIds: [...new Set([...previous, ...memberIds])],
+        changed: true,
       };
     });
-    for (const botId of result.affectedBotIds) {
-      await this.agentData.writeGroupFilesForBot(botId);
+    if (result.changed) {
+      for (const botId of result.affectedBotIds) {
+        await this.agentData.writeGroupFilesForBot(botId);
+      }
     }
     return result.acknowledgement;
   }

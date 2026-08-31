@@ -25,23 +25,24 @@ const storedSubagent = (result: string | null, error: unknown = null) => ({
 });
 
 describe("subagent activity view", () => {
-  test("projects the tagged summary without exposing the private response", () => {
+  test("keeps child completion text out of the renderer snapshot", () => {
     const view = subagentActivityView(
       storedSubagent(
         "<user_visible_high_level_summary>Release is ready.</user_visible_high_level_summary>\n<response>Private verification details.</response>"
       )
     );
 
-    expect(view.summary).toBe("Release is ready.");
+    expect(view.summary).toBeNull();
     expect(view.id).toBe("attempt-1");
     expect(view.subagentId).toBe("subagent-1");
+    expect(JSON.stringify(view)).not.toContain("Release is ready");
     expect(JSON.stringify(view)).not.toContain("Private verification details");
   });
 
-  test("uses the full result when there is no separate user summary", () => {
-    expect(subagentActivityView(storedSubagent("Complete result.")).summary).toBe(
-      "Complete result."
-    );
+  test("does not expose an untagged full result either", () => {
+    const view = subagentActivityView(storedSubagent("Complete private result."));
+    expect(view.summary).toBeNull();
+    expect(JSON.stringify(view)).not.toContain("Complete private result");
   });
 
   test("keeps resumed attempts as distinct runtime records for the same child session", () => {
@@ -59,10 +60,10 @@ describe("subagent activity view", () => {
     expect([original.id, resumed.id]).toEqual(["attempt-1", "attempt-2"]);
     expect(original.subagentId).toBe(resumed.subagentId);
     expect([original.parentToolCallId, resumed.parentToolCallId]).toEqual(["call-1", "call-2"]);
-    expect([original.summary, resumed.summary]).toEqual(["Original result.", "Resumed result."]);
+    expect([original.summary, resumed.summary]).toEqual([null, null]);
   });
 
-  test("projects only a stable error message", () => {
+  test("keeps child failure details out of the renderer snapshot", () => {
     const view = subagentActivityView(
       storedSubagent(null, {
         code: "runtime_restart",
@@ -71,7 +72,8 @@ describe("subagent activity view", () => {
       })
     );
 
-    expect(view.errorMessage).toBe("Runtime restarted");
+    expect(view.errorMessage).toBeNull();
+    expect(JSON.stringify(view)).not.toContain("Runtime restarted");
     expect(JSON.stringify(view)).not.toContain("internalPath");
   });
 });

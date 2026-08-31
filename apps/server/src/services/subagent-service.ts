@@ -1,4 +1,3 @@
-import { resolve, sep } from "node:path";
 import {
   ApiError,
   type CheckSubagentInput,
@@ -9,11 +8,11 @@ import {
   type TaskInput,
 } from "@openbot/contracts";
 import { Prisma, type PrismaClient } from "@openbot/db";
-import { type AgentMessaging, type ToolContext } from "@openbot/messaging";
+import type { AgentMessaging, ToolContext } from "@openbot/messaging";
 import { Effect } from "effect";
 import { fromPrisma } from "pg-boss";
 import type { RunService } from "./run-service";
-import { appendEvent, type ComputerFetch, hashRequest, slugify, toJson } from "./service-utils";
+import { appendEvent, type ComputerFetch, hashRequest, toJson } from "./service-utils";
 
 const ACTIVE_STATUSES = ["provisioning", "queued", "running"] as const;
 
@@ -21,6 +20,33 @@ export const graphicalSubagentType = (type: SubagentType): boolean =>
   type === "computerUse" || type === "browserUse";
 
 export const subagentTaskContent = (input: TaskInput): string => input.prompt;
+
+export const subagentTaskWake = (input: TaskInput) => ({
+  content: subagentTaskContent(input),
+  wrapUserContent: false as const,
+});
+
+export const subagentSteerPrompt = (message: string): string =>
+  [
+    "[Steering message from the parent agent that dispatched you]",
+    "",
+    message,
+    "",
+    "Take this into account and continue your task from where you are — do not start over.",
+  ].join("\n");
+
+export const grokSubagentId = (id: string): string =>
+  id.startsWith("sand-subagent-") ? id : `sand-subagent-${id}`;
+
+export const openbotSubagentId = (id: string): string => id.replace(/^sand-subagent-/, "");
+
+export const subagentBackgroundResult = (id: string, transcriptPath: string): string =>
+  [
+    `Subagent is running in the background. If needed, you can monitor its output by tailing the transcript at: ${transcriptPath}. When you end your turn, you will be automatically sent the subagent's final response upon its completion, so do not wait for it - either end your turn or work on something else.`,
+    "Do NOT mention the transcript path to the user. Do NOT try to predict the subagent's response before it replies.",
+    "",
+    `Agent ID: ${grokSubagentId(id)} (can be used with the \`resume\` parameter to send a follow-up after it completes)`,
+  ].join("\n");
 
 type SubagentDatabase = PrismaClient | Prisma.TransactionClient;
 
@@ -41,7 +67,7 @@ export const assertSubagentCapacity = async (
     throw new ApiError(
       409,
       "subagent_computer_in_use",
-      "A computerUse subagent is already using the box's desktop. Only one can run at a time."
+      "A computerUse subagent is already using the box's desktop. Only one can run at a time — wait for it to finish (you're notified automatically), then dispatch another."
     );
   }
 };
@@ -127,9 +153,6 @@ export class SubagentService {
     if (!attempt) {
       throw new ApiError(409, "subagent_attempt_missing", "This Task attempt is unavailable");
     }
-    if (input.run_in_background === false) {
-      return this.waitForCompletion(context.botId, subagent.id, attempt.id);
-    }
     return this.taskResult(subagent, attempt);
   }
 
@@ -148,27 +171,33 @@ export class SubagentService {
         where: { parentBotId, status: { in: [...ACTIVE_STATUSES] } },
         orderBy: { createdAt: "asc" },
       });
+      if (running.length === 0) return "No background subagents are running right now.";
       return { subagents: await Promise.all(running.map((subagent) => this.inspect(subagent))) };
     }
-    const subagent = await this.owned(parentBotId, input.subagent_id);
+    const subagent = await this.activeOwned(parentBotId, input.subagent_id).catch((error) => {
+      if (error instanceof ApiError) return error.message;
+      throw error;
+    });
+    if (typeof subagent === "string") return subagent;
     return this.inspect(subagent);
   }
 
   async message(parentBotId: string, callId: string, input: MessageSubagentInput) {
-    const subagent = await this.owned(parentBotId, input.subagent_id);
-    if (subagent.status !== "running" || !subagent.currentRunId) {
+    const subagent = await this.activeOwned(parentBotId, input.subagent_id);
+    const currentRunId = subagent.currentRunId;
+    if (subagent.status !== "running" || !currentRunId) {
       throw new ApiError(409, "subagent_not_running", "The subagent is not currently running");
     }
     const dispatch = await this.prisma.$transaction(async (tx) => {
       const run = await tx.run.findUnique({
-        where: { id: subagent.currentRunId! },
+        where: { id: currentRunId },
         include: { conversation: true },
       });
       if (!run || !["running", "waiting_approval"].includes(run.status)) {
         throw new ApiError(409, "subagent_not_running", "The subagent is not currently running");
       }
       const clientMessageId = `subagent-steer:${callId}`;
-      const content = `[Instruction from parent agent]\n${input.message}`;
+      const content = subagentSteerPrompt(input.message);
       const duplicate = await tx.inboxEvent.findUnique({
         where: { idempotencyKey: clientMessageId },
       });
@@ -258,18 +287,11 @@ export class SubagentService {
         throw new ApiError(409, "subagent_steer_rejected", await response.text());
       }
     }
-    return { delivered: true, subagent_id: subagent.id, run_id: dispatch.runId };
+    return { delivered: true, subagent_id: grokSubagentId(subagent.id), run_id: dispatch.runId };
   }
 
   async stop(parentBotId: string, callId: string, input: StopSubagentInput) {
-    const subagent = await this.owned(parentBotId, input.subagent_id);
-    if (["completed", "failed", "stopped"].includes(subagent.status)) {
-      return {
-        stopped: subagent.status === "stopped",
-        subagent_id: subagent.id,
-        status: subagent.status,
-      };
-    }
+    const subagent = await this.activeOwned(parentBotId, input.subagent_id);
     await this.prisma.$transaction(async (tx) => {
       const stoppedAt = new Date();
       await tx.subagent.update({
@@ -300,33 +322,23 @@ export class SubagentService {
         // The durable stopped state wins if the turn ended while cancellation was dispatched.
       }
     }
-    return { stopped: true, subagent_id: subagent.id, status: "stopped" };
+    return { stopped: true, subagent_id: grokSubagentId(subagent.id), status: "stopped" };
   }
 
-  private async launch(context: ToolContext, input: TaskInput) {
+  private async launch(context: ToolContext, input: TaskInput, restoredId?: string) {
     const type = input.subagent_type ?? "executor";
     const parent = await this.prisma.bot.findUnique({ where: { id: context.botId } });
     if (!parent || parent.status !== "active") {
       throw new ApiError(409, "parent_not_active", "The parent agent is not active");
     }
-    const subagentId = crypto.randomUUID();
+    const subagentId =
+      restoredId && /^[0-9a-f-]{36}$/i.test(restoredId) ? restoredId : crypto.randomUUID();
     const childBotId = crypto.randomUUID();
     const conversationId = crypto.randomUUID();
     const channelId = crypto.randomUUID();
     const name = input.description.trim() || "Background task";
-    const graphical = graphicalSubagentType(type);
-    const directory = graphical
-      ? parent.defaultDirectory
-      : resolve(
-          this.workspaceRoot,
-          "bots",
-          `${slugify(`subagent-${name}`)}-${childBotId.slice(0, 8)}`
-        );
-    if (!directory.startsWith(`${this.workspaceRoot}${sep}`)) {
-      throw new ApiError(400, "invalid_workspace", "Generated workspace path escaped root");
-    }
-    const outputPath = `/home/openbot/agent-data/agent-transcripts/${childBotId}/${childBotId}.jsonl`;
-    const prompt = subagentTaskContent(input);
+    const directory = this.workspaceRoot;
+    const outputPath = `/home/box/agent-data/agent-transcripts/${childBotId}/${childBotId}.jsonl`;
     const avatar = resolveBotAvatarMark({ agentId: childBotId });
     return this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('openbot-subagent-capacity'))`;
@@ -337,7 +349,7 @@ export class SubagentService {
           name,
           title: `Subagent (${type})`,
           description: `Background subagent owned by ${parent.name}`,
-          instructions: this.childInstructions(context.botId, subagentId, type),
+          instructions: this.childInstructions(),
           icon: avatar.shape,
           color: avatar.color,
           notificationsEnabled: false,
@@ -371,7 +383,7 @@ export class SubagentService {
           subagentType: type,
           model: input.model ?? this.model,
           fileAttachments: (input.file_attachments ?? []) as Prisma.InputJsonValue,
-          runInBackground: input.run_in_background !== false,
+          runInBackground: true,
           outputPath,
         },
       });
@@ -380,7 +392,7 @@ export class SubagentService {
         channelId,
         origin: "agent",
         type: "subagent.task",
-        content: prompt,
+        ...subagentTaskWake(input),
         clientId: `subagent:${subagentId}:initial`,
         priority: 350,
       });
@@ -398,7 +410,7 @@ export class SubagentService {
           description: name,
           prompt: input.prompt,
           fileAttachments: (input.file_attachments ?? []) as Prisma.InputJsonValue,
-          runInBackground: input.run_in_background !== false,
+          runInBackground: true,
           status: "provisioning",
         },
       });
@@ -425,12 +437,23 @@ export class SubagentService {
   }
 
   private async resume(context: ToolContext, input: TaskInput) {
-    const subagent = await this.owned(context.botId, input.resume!);
-    if (!["completed", "failed"].includes(subagent.status)) {
-      throw new ApiError(409, "subagent_not_resumable", "Only a finished subagent can be resumed");
-    }
     if (input.model) {
       throw new ApiError(400, "resume_model_forbidden", "Do not provide model when resuming");
+    }
+    if (!input.resume) throw new ApiError(400, "resume_id_required", "resume is required");
+    const restoredId = openbotSubagentId(input.resume);
+    const subagent = await this.prisma.subagent.findFirst({
+      where: { id: restoredId, parentBotId: context.botId },
+    });
+    if (!subagent) {
+      return this.launch(context, { ...input, resume: undefined }, restoredId);
+    }
+    if (["provisioning", "queued", "running"].includes(subagent.status)) {
+      throw new ApiError(
+        409,
+        "subagent_not_resumable",
+        "That background subagent is still running, so it can't be resumed yet — you're notified automatically when it finishes. To act on it while it runs, use MessageSubagent to send it an instruction or StopSubagent to abort it (CheckSubagent shows how it's doing)."
+      );
     }
     return this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('openbot-subagent-capacity'))`;
@@ -455,7 +478,7 @@ export class SubagentService {
         channelId,
         origin: "agent",
         type: "subagent.resume",
-        content: subagentTaskContent(input),
+        ...subagentTaskWake(input),
         clientId: `subagent:${subagent.id}:resume:${context.callId}`,
         priority: 350,
       });
@@ -470,7 +493,7 @@ export class SubagentService {
           description,
           prompt: input.prompt,
           fileAttachments: (input.file_attachments ?? []) as Prisma.InputJsonValue,
-          runInBackground: input.run_in_background !== false,
+          runInBackground: true,
           status: "queued",
         },
       });
@@ -484,7 +507,7 @@ export class SubagentService {
           description,
           prompt: input.prompt,
           fileAttachments: (input.file_attachments ?? []) as Prisma.InputJsonValue,
-          runInBackground: input.run_in_background !== false,
+          runInBackground: true,
           status: "queued",
           result: null,
           error: Prisma.DbNull,
@@ -502,20 +525,50 @@ export class SubagentService {
     });
   }
 
-  private childInstructions(parentBotId: string, subagentId: string, type: SubagentType): string {
+  private childInstructions(): string {
     return [
-      `You are a ${type} background subagent with Agent ID ${subagentId}.`,
-      `You are owned by parent agent ${parentBotId}.`,
-      "Work autonomously on only the supplied task. You share the same computer and filesystem as the parent.",
-      "Your plain final assistant message is your private report to the parent. Do not use SendToUser or SendToAgent.",
-      "You cannot launch, inspect, message, or stop other subagents and cannot administer agents or channels.",
+      "You are running as a subagent under a parent agent.",
+      "Do not spawn additional subagents unless requested by the user or by your instructions.",
+      "Do not create Canvas files unless requested by the user or by your instructions.",
     ].join("\n");
   }
 
   private async owned(parentBotId: string, id: string) {
-    const subagent = await this.prisma.subagent.findFirst({ where: { id, parentBotId } });
+    const subagent = await this.prisma.subagent.findFirst({
+      where: { id: openbotSubagentId(id), parentBotId },
+    });
     if (!subagent) throw new ApiError(404, "subagent_not_found", "Subagent not found");
     return subagent;
+  }
+
+  private async activeOwned(parentBotId: string, id: string) {
+    const subagent = await this.prisma.subagent.findFirst({
+      where: {
+        id: openbotSubagentId(id),
+        parentBotId,
+        status: { in: [...ACTIVE_STATUSES] },
+      },
+    });
+    if (!subagent) {
+      throw new ApiError(
+        404,
+        "subagent_not_running",
+        await this.noRunningSubagentMessage(parentBotId, id)
+      );
+    }
+    return subagent;
+  }
+
+  private async noRunningSubagentMessage(parentBotId: string, id: string): Promise<string> {
+    const running = await this.prisma.subagent.findMany({
+      where: { parentBotId, status: { in: [...ACTIVE_STATUSES] } },
+      select: { id: true },
+      orderBy: { createdAt: "asc" },
+    });
+    const suffix = running.length
+      ? ` Currently running: ${running.map(({ id: candidate }) => grokSubagentId(candidate)).join(", ")}.`
+      : " No subagents are running right now.";
+    return `No subagent "${grokSubagentId(openbotSubagentId(id))}" is currently running. It may have already finished (you're revived automatically with a finished subagent's result), or the id is wrong.${suffix}`;
   }
 
   private attemptForCall(parentBotId: string, parentToolCallId: string) {
@@ -537,7 +590,7 @@ export class SubagentService {
       : [];
     const end = subagent.completedAt ?? subagent.stoppedAt ?? new Date();
     return {
-      subagent_id: subagent.id,
+      subagent_id: grokSubagentId(subagent.id),
       description: subagent.description,
       subagent_type: subagent.subagentType,
       status: subagent.status,
@@ -558,31 +611,8 @@ export class SubagentService {
 
   private taskResult(
     subagent: Awaited<ReturnType<SubagentService["owned"]>>,
-    attempt: NonNullable<Awaited<ReturnType<SubagentService["attemptForCall"]>>>
+    _attempt: NonNullable<Awaited<ReturnType<SubagentService["attemptForCall"]>>>
   ) {
-    return {
-      agent_id: subagent.id,
-      status: attempt.status,
-      output_file: subagent.outputPath,
-      run_id: attempt.childRunId,
-      background: attempt.runInBackground,
-      result: attempt.result,
-    };
-  }
-
-  private async waitForCompletion(parentBotId: string, subagentId: string, attemptId: string) {
-    const deadline = Date.now() + 24 * 60 * 60_000;
-    while (Date.now() < deadline) {
-      const [current, attempt] = await Promise.all([
-        this.owned(parentBotId, subagentId),
-        this.prisma.subagentAttempt.findUnique({ where: { id: attemptId } }),
-      ]);
-      if (!attempt) throw new ApiError(409, "subagent_attempt_missing", "Task attempt missing");
-      if (["completed", "failed", "stopped"].includes(attempt.status)) {
-        return this.taskResult(current, attempt);
-      }
-      await new Promise((resolve) => setTimeout(resolve, 250));
-    }
-    throw new ApiError(504, "subagent_timeout", "Subagent did not finish within 24 hours");
+    return subagentBackgroundResult(subagent.id, subagent.outputPath);
   }
 }

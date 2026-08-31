@@ -2,7 +2,12 @@ import { createHash } from "node:crypto";
 import { relative, resolve, sep } from "node:path";
 import { ApiError, type UpdateStateInput } from "@openbot/contracts";
 import type { Prisma, PrismaClient } from "@openbot/db";
-import type { AgentDataStore, RoutineService } from "@openbot/messaging";
+import {
+  appendAgentTimelineEvent,
+  type AgentDataStore,
+  type RoutineService,
+  type TimelineEventWakeHost,
+} from "@openbot/messaging";
 
 const PROJECT_SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const requiredText = (
@@ -39,7 +44,8 @@ export class DurableStateService {
       description: string;
     }) => Promise<void>,
     private readonly routines: RoutineService,
-    private readonly agentData: AgentDataStore
+    private readonly agentData: AgentDataStore,
+    private readonly timelineHost: TimelineEventWakeHost
   ) {}
 
   async execute(
@@ -138,7 +144,7 @@ export class DurableStateService {
       case "skill":
         return this.skill(botId, input);
       case "profile":
-        return this.profile(botId, input);
+        return this.profile(botId, callId, input);
       case "settings":
         return this.settings(botId, input);
       case "channel":
@@ -225,7 +231,11 @@ export class DurableStateService {
     };
   }
 
-  private async profile(botId: string, input: UpdateStateInput): Promise<Record<string, unknown>> {
+  private async profile(
+    botId: string,
+    callId: string,
+    input: UpdateStateInput
+  ): Promise<Record<string, unknown>> {
     if (input.action !== "set") return stateError(input.target, input.action);
     if (input.name === undefined && input.description === undefined) {
       throw new ApiError(
@@ -237,7 +247,8 @@ export class DurableStateService {
     const name =
       input.name === undefined ? undefined : requiredText(input.name, "name", "profile", "set");
     const description = input.description?.trim();
-    const bot = await this.prisma.$transaction(async (tx) => {
+    const bot = await this.agentData.mutateBotFiles(botId, ["profile"], async (tx) => {
+      const previous = await tx.bot.findUniqueOrThrow({ where: { id: botId } });
       const updated = await tx.bot.update({
         where: { id: botId },
         data: { name, description },
@@ -249,9 +260,15 @@ export class DurableStateService {
           data: { name },
         });
       }
+      if (previous.name && name && previous.name !== name) {
+        await appendAgentTimelineEvent(tx, this.timelineHost, {
+          botId,
+          clientId: `profile-state:${callId}`,
+          event: { type: "name-changed", from: previous.name, to: name },
+        });
+      }
       return updated;
     });
-    await this.agentData.writeBotFiles(botId, ["profile"]);
     return {
       target: "profile",
       action: "set",
@@ -263,41 +280,31 @@ export class DurableStateService {
 
   private async settings(botId: string, input: UpdateStateInput): Promise<Record<string, unknown>> {
     if (input.action !== "set") return stateError(input.target, input.action);
-    if (
-      input.hidden_from_sidebar === undefined &&
-      input.notify_on_updates === undefined &&
-      input.dreaming_enabled === undefined
-    ) {
+    if (input.hidden_from_sidebar === undefined && input.notify_on_updates === undefined) {
       throw new ApiError(
         400,
         "state_field_required",
-        "settings set requires hidden_from_sidebar, notify_on_updates, and/or dreaming_enabled"
+        "settings set requires hidden_from_sidebar and/or notify_on_updates"
       );
     }
-    const settings = await this.prisma.bot.update({
-      where: { id: botId },
-      data: {
-        hiddenFromSidebar: input.hidden_from_sidebar,
-        notificationsEnabled: input.notify_on_updates,
-        dreamingEnabled: input.dreaming_enabled,
-      },
-      select: {
-        hiddenFromSidebar: true,
-        notificationsEnabled: true,
-        dreamingEnabled: true,
-      },
-    });
-    await this.agentData.writeBotSettings(botId, {
-      notifyOnAgentUpdates: input.notify_on_updates,
-      hiddenFromSidebar: input.hidden_from_sidebar,
-      dreamingEnabled: input.dreaming_enabled,
-    });
+    const settings = await this.agentData.mutateBotFiles(botId, ["settings"], (tx) =>
+      tx.bot.update({
+        where: { id: botId },
+        data: {
+          hiddenFromSidebar: input.hidden_from_sidebar,
+          notificationsEnabled: input.notify_on_updates,
+        },
+        select: {
+          hiddenFromSidebar: true,
+          notificationsEnabled: true,
+        },
+      })
+    );
     return {
       target: "settings",
       action: "set",
       hidden_from_sidebar: settings.hiddenFromSidebar,
       notify_on_updates: settings.notificationsEnabled,
-      dreaming_enabled: settings.dreamingEnabled,
       updated: true,
     };
   }
@@ -448,11 +455,8 @@ export class DurableStateService {
   }
 
   private projectDirectory(slug: string): string {
-    const directory = resolve(this.workspaceRoot, "projects", slug);
-    if (!this.isInsideWorkspace(directory)) {
-      throw new ApiError(400, "project_path_invalid", "Project path escaped the workspace root");
-    }
-    return directory;
+    void slug;
+    return resolve(this.workspaceRoot);
   }
 
   private isInsideWorkspace(path: string): boolean {

@@ -8,15 +8,21 @@ import {
   type RenameChannelInput,
   type ScreenActionInput,
   type SendMessageInput,
+  type SetChannelAvatarInput,
   type SetChannelMembersInput,
   type UpdateBotInput,
+  type UpdateChannelProfileInput,
+  type UploadAssetInput,
 } from "@openbot/contracts";
 import { createPrismaClient, type PrismaClient } from "@openbot/db";
 import {
+  appendAgentTimelineEvent,
   AgentDataStore,
   AgentMessaging,
+  AssetStore,
   type RoutineMutationInput,
   RoutineService,
+  renderSubagentRevivalPrompt,
 } from "@openbot/messaging";
 import { Effect } from "effect";
 import { PgBoss } from "pg-boss";
@@ -25,9 +31,11 @@ import {
   expirePendingApprovalsAfterRestart,
   expireTimedOutApprovals,
 } from "./services/approval-lifecycle";
+import { type AutoReviewInput, AutoReviewService } from "./services/auto-review-service";
 import { BotService } from "./services/bot-service";
 import { ChannelService } from "./services/channel-service";
 import { InternalToolService } from "./services/internal-tool-service";
+import { NotificationService } from "./services/notification-service";
 import { PluginService } from "./services/plugin-service";
 import { RunService } from "./services/run-service";
 import { ScreenService } from "./services/screen-service";
@@ -40,6 +48,21 @@ import { TodoService } from "./services/todo-service";
 import { DurableStateService } from "./update-state";
 
 const COMPUTER_ID = "00000000-0000-0000-0000-000000000001";
+const ASSET_ID = /^[a-f0-9]{64}$/;
+
+const collectAssetIds = (value: unknown, target: Set<string>): void => {
+  if (Array.isArray(value)) {
+    for (const item of value) collectAssetIds(item, target);
+    return;
+  }
+  if (!value || typeof value !== "object") return;
+  const record = value as Record<string, unknown>;
+  if (typeof record.assetId === "string" && ASSET_ID.test(record.assetId)) {
+    target.add(record.assetId);
+  }
+  for (const nested of Object.values(record)) collectAssetIds(nested, target);
+};
+
 export class AppService {
   readonly prisma: PrismaClient;
   readonly boss: PgBoss;
@@ -48,6 +71,7 @@ export class AppService {
   readonly workspaceRoot: string;
   readonly screenViewerHost: string;
   readonly agentData: AgentDataStore;
+  readonly assets: AssetStore;
   readonly messaging: AgentMessaging;
   readonly routines: RoutineService;
   readonly durableState: DurableStateService;
@@ -57,13 +81,16 @@ export class AppService {
   readonly subagents: SubagentService;
   readonly todos: TodoService;
   readonly internalTools: InternalToolService;
+  readonly notifications: NotificationService;
   readonly plugins: PluginService;
+  readonly autoReview: AutoReviewService;
   readonly runs: RunService;
   readonly screens: ScreenService;
   readonly searchIndex: SearchService;
   readonly snapshots: SnapshotService;
   private queueReady = false;
   private approvalExpiryTimer: ReturnType<typeof setInterval> | null = null;
+  private assetCleanupTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor() {
     const databaseUrl = process.env.DATABASE_URL;
@@ -76,6 +103,14 @@ export class AppService {
     this.agentData = new AgentDataStore(this.prisma, {
       workspaceRoot: this.workspaceRoot,
     });
+    this.assets = new AssetStore({
+      root: this.agentData.assetRoot,
+      allowedFileRoots: [this.workspaceRoot, this.agentData.root],
+    });
+    this.messaging = new AgentMessaging(this.prisma, this.boss, this.agentData, this.assets);
+    this.agentData.setTimelineEventSink((tx, input) =>
+      appendAgentTimelineEvent(tx, this.messaging, input)
+    );
     this.screens = new ScreenService(
       this.prisma,
       this.agentData.root,
@@ -88,7 +123,8 @@ export class AppService {
       this.boss,
       this.workspaceRoot,
       (path, init) => this.computerFetch(path, init),
-      this.agentData
+      this.agentData,
+      this.messaging
     );
     this.snapshots = new SnapshotService(
       this.prisma,
@@ -96,15 +132,30 @@ export class AppService {
       this.computerUrl,
       () => this.queueReady
     );
-    this.messaging = new AgentMessaging(this.prisma, this.boss, this.agentData);
     this.channels = new ChannelService(
       this.prisma,
       this.messaging,
       this.workspaceRoot,
       (path, init) => this.computerFetch(path, init),
+      this.agentData,
+      this.assets
+    );
+    this.plugins = new PluginService(
+      this.prisma,
+      (path, init) => this.computerFetch(path, init ?? {}),
       this.agentData
     );
-    this.runs = new RunService(this.prisma, (path, init) => this.computerFetch(path, init));
+    this.autoReview = new AutoReviewService((path, init) => this.computerFetch(path, init));
+    this.runs = new RunService(
+      this.prisma,
+      (path, init) => this.computerFetch(path, init),
+      (callId, decision) => this.plugins.resolveInvocation(callId, decision),
+      (details, decision) => this.plugins.resolveAction(details, decision),
+      (connectionId, botId, toolName) =>
+        Effect.runPromise(
+          this.plugins.setPolicy(connectionId, { botId, toolName, decision: "allow" })
+        )
+    );
     this.todos = new TodoService(this.prisma);
     this.administration = new AdministrationService(
       this.prisma,
@@ -135,9 +186,9 @@ export class AppService {
         }
       },
       this.routines,
-      this.agentData
+      this.agentData,
+      this.messaging
     );
-    this.plugins = new PluginService(this.prisma);
     this.internalTools = new InternalToolService(
       this.prisma,
       this.messaging,
@@ -148,6 +199,7 @@ export class AppService {
       this.administration,
       this.plugins
     );
+    this.notifications = new NotificationService(this.prisma);
     this.boss.on("error", (error) => console.error("pg-boss", error));
   }
 
@@ -156,6 +208,7 @@ export class AppService {
       try: async () => {
         await this.prisma.$queryRaw`SELECT 1`;
         await this.agentData.startWatching();
+        await this.plugins.syncFileCaches();
         await this.boss.start();
         await this.boss.createQueue("bot-wake");
         await this.boss.createQueue("bot-provision");
@@ -170,6 +223,16 @@ export class AppService {
           );
         }, 60_000);
         this.approvalExpiryTimer.unref?.();
+        await this.pruneUnreferencedAssets();
+        this.assetCleanupTimer = setInterval(
+          () => {
+            void this.pruneUnreferencedAssets().catch((error) =>
+              console.error("asset cleanup", error)
+            );
+          },
+          6 * 60 * 60_000
+        );
+        this.assetCleanupTimer.unref?.();
         const groups = await this.prisma.channel.findMany({
           where: { kind: "group", archivedAt: null },
           select: { workingDirectory: true },
@@ -211,10 +274,24 @@ export class AppService {
         clearInterval(this.approvalExpiryTimer);
         this.approvalExpiryTimer = null;
       }
+      if (this.assetCleanupTimer) {
+        clearInterval(this.assetCleanupTimer);
+        this.assetCleanupTimer = null;
+      }
       await this.agentData.stopWatching();
       await this.boss.stop({ graceful: true });
+      await this.plugins.close();
       await this.prisma.$disconnect();
     });
+
+  private async pruneUnreferencedAssets(): Promise<void> {
+    const messages = await this.prisma.channelMessage.findMany({
+      select: { metadata: true },
+    });
+    const referenced = new Set<string>();
+    for (const message of messages) collectAssetIds(message.metadata, referenced);
+    await this.assets.prune(referenced);
+  }
 
   createBot = (input: CreateBotInput) => this.bots.create(input);
 
@@ -230,9 +307,29 @@ export class AppService {
       catch: (error) => (error instanceof Error ? error : new Error(String(error))),
     });
 
+  listGroupRoutines = (channelId: string) =>
+    Effect.tryPromise({
+      try: () => this.routines.listOwner({ kind: "group", id: channelId }),
+      catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+    });
+
   routineDetail = (routineId: string) =>
     Effect.tryPromise({
-      try: async () => this.routines.detail(await this.routines.ownerId(routineId), routineId),
+      try: async () => this.routines.detailOwner(await this.routines.owner(routineId), routineId),
+      catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+    });
+
+  createGroupRoutine = (channelId: string, clientId: string, input: RoutineMutationInput) =>
+    Effect.tryPromise({
+      try: async () => {
+        const owner = { kind: "group" as const, id: channelId };
+        const created = await this.routines.mutateOwner(owner, clientId, null, {
+          ...input,
+          action: "create",
+          source: "ui",
+        });
+        return this.routines.detailOwner(owner, String(created.id));
+      },
       catch: (error) => (error instanceof Error ? error : new Error(String(error))),
     });
 
@@ -252,14 +349,14 @@ export class AppService {
   updateRoutine = (routineId: string, clientId: string, input: RoutineMutationInput) =>
     Effect.tryPromise({
       try: async () => {
-        const botId = await this.routines.ownerId(routineId);
-        await this.routines.mutate(botId, clientId, null, {
+        const owner = await this.routines.owner(routineId);
+        await this.routines.mutateOwner(owner, clientId, null, {
           ...input,
           id: routineId,
           action: "update",
           source: "ui",
         });
-        return this.routines.detail(botId, routineId);
+        return this.routines.detailOwner(owner, routineId);
       },
       catch: (error) => (error instanceof Error ? error : new Error(String(error))),
     });
@@ -272,14 +369,14 @@ export class AppService {
   ) =>
     Effect.tryPromise({
       try: async () => {
-        const botId = await this.routines.ownerId(routineId);
-        const result = await this.routines.mutate(botId, clientId, null, {
+        const owner = await this.routines.owner(routineId);
+        const result = await this.routines.mutateOwner(owner, clientId, null, {
           id: routineId,
           action,
           expectedRevision,
           source: "ui",
         });
-        return action === "delete" ? result : this.routines.detail(botId, routineId);
+        return action === "delete" ? result : this.routines.detailOwner(owner, routineId);
       },
       catch: (error) => (error instanceof Error ? error : new Error(String(error))),
     });
@@ -287,14 +384,14 @@ export class AppService {
   runRoutineNow = (routineId: string, clientId: string) =>
     Effect.tryPromise({
       try: async () =>
-        this.routines.runNow(await this.routines.ownerId(routineId), routineId, clientId),
+        this.routines.runNowOwner(await this.routines.owner(routineId), routineId, clientId),
       catch: (error) => (error instanceof Error ? error : new Error(String(error))),
     });
 
   routineExecutions = (routineId: string, limit: number) =>
     Effect.tryPromise({
       try: async () =>
-        this.routines.executions(await this.routines.ownerId(routineId), routineId, limit),
+        this.routines.executionsOwner(await this.routines.owner(routineId), routineId, limit),
       catch: (error) => (error instanceof Error ? error : new Error(String(error))),
     });
 
@@ -315,10 +412,24 @@ export class AppService {
   sendMessage = (conversationId: string, input: SendMessageInput) =>
     this.channels.sendDirectMessage(conversationId, input);
 
+  uploadAsset = (input: UploadAssetInput) =>
+    Effect.tryPromise({
+      try: () => this.assets.decodeUpload(input),
+      catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+    });
+
   createGroup = (input: CreateGroupInput) => this.channels.createGroup(input);
 
   renameChannel = (channelId: string, input: RenameChannelInput) =>
     this.channels.renameDirectChannel(channelId, input);
+
+  updateChannelProfile = (channelId: string, input: UpdateChannelProfileInput) =>
+    this.channels.updateGroupProfile(channelId, input);
+
+  setChannelAvatar = (channelId: string, input: SetChannelAvatarInput) =>
+    this.channels.setGroupAvatar(channelId, input);
+
+  channelAvatar = (channelId: string) => this.channels.groupAvatar(channelId);
 
   setChannelMembers = (channelId: string, input: SetChannelMembersInput) =>
     this.channels.setGroupMembers(channelId, input);
@@ -335,7 +446,7 @@ export class AppService {
 
   rootSettings = () =>
     Effect.tryPromise({
-      try: () => this.agentData.loadRootSettings(),
+      try: () => this.agentData.loadRootSettingsForClient(),
       catch: (error) => (error instanceof Error ? error : new Error(String(error))),
     });
 
@@ -360,10 +471,11 @@ export class AppService {
       catch: (error) => (error instanceof Error ? error : new Error(String(error))),
     });
 
-  installPlugin = (pluginKey: string) => this.plugins.install(pluginKey);
+  installPlugin = (pluginKey: string, values?: Record<string, string>) =>
+    this.plugins.install(pluginKey, values);
 
-  addCustomMcp = (name: string, url: string, alias?: string) =>
-    this.plugins.addCustomMcp(name, url, alias);
+  addCustomMcp = (input: import("@openbot/contracts").AddCustomMcpInput) =>
+    this.plugins.addCustomMcp(input);
 
   uninstallPlugin = (pluginKey: string) => this.plugins.uninstall(pluginKey);
 
@@ -373,6 +485,27 @@ export class AppService {
 
   addPluginAccount = (connectionId: string, alias: string) =>
     this.plugins.addAccount(connectionId, alias);
+
+  configurePluginConnection = (
+    connectionId: string,
+    input: import("@openbot/contracts").ConfigurePluginConnectionInput
+  ) => this.plugins.configure(connectionId, input);
+
+  authenticatePlugin = (connectionId: string, force = false) =>
+    this.plugins.authenticate(connectionId, force);
+
+  finishPluginAuthentication = (connectionId: string, code: string, state: string) =>
+    this.plugins.finishAuthentication(connectionId, code, state);
+
+  restartPluginConnection = (connectionId: string) => this.plugins.restart(connectionId);
+
+  renamePluginAccount = (connectionId: string, alias: string) =>
+    this.plugins.renameAccount(connectionId, alias);
+
+  removePluginAccount = (connectionId: string) => this.plugins.removeAccount(connectionId);
+
+  setMcpInstructions = (connectionId: string, instructions: string) =>
+    this.plugins.setInstructions(connectionId, instructions);
 
   setPluginGrant = (connectionId: string, botId: string, enabled: boolean) =>
     this.plugins.setGrant(connectionId, botId, enabled);
@@ -391,8 +524,22 @@ export class AppService {
 
   cancelRun = (runId: string) => this.runs.cancel(runId);
 
-  resolveApproval = (approvalId: string, decision: "accept" | "decline" | "cancel") =>
+  resolveApproval = (approvalId: string, decision: import("@openbot/contracts").ApprovalDecision) =>
     this.runs.resolveApproval(approvalId, decision);
+
+  registerPushDevice = (input: import("@openbot/contracts").RegisterPushDeviceInput) =>
+    this.notifications.register(input);
+
+  unregisterPushDevice = (installationId: string) => this.notifications.unregister(installationId);
+
+  markChannelRead = (channelId: string, throughSequence?: string) =>
+    this.notifications.markChannelRead(channelId, throughSequence);
+
+  reviewPermission = (input: AutoReviewInput) =>
+    Effect.tryPromise({
+      try: () => this.autoReview.review(input),
+      catch: (error) => error as Error,
+    });
 
   snapshot = () => this.snapshots.full();
 
@@ -502,16 +649,15 @@ export class AppService {
               channelId: attempt.parentChannelId,
               origin: "agent",
               type: "subagent.failed",
-              content: [
-                "[Background subagent failed]",
-                `Agent ID: ${subagent.id}`,
-                `Task: ${attempt.description}`,
-                `Transcript: ${subagent.outputPath}`,
-                "",
-                error.message,
-              ].join("\n"),
+              content: renderSubagentRevivalPrompt({
+                title: attempt.description,
+                subagentType: subagent.subagentType,
+                status: "failed",
+                result: error.message,
+              }),
               clientId: `subagent:${subagent.id}:failed:${subagent.currentRunId}`,
               priority: 260,
+              wrapUserContent: false,
             });
           }
         }

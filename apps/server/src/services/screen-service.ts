@@ -14,9 +14,9 @@ interface ComputerScreenStatus {
   humanTakeover: boolean;
   agentInputPaused: boolean;
   apps: Array<"chromium" | "thunar" | "terminal">;
-  browserProfileScope: "bot";
+  browserProfileScope: "computer";
   browserSessionScope: "computer";
-  browserSessionMechanism: "cookie-broker";
+  browserSessionMechanism: "shared-profiles";
   error: string | null;
 }
 
@@ -160,9 +160,9 @@ export class ScreenService {
       humanTakeover: false,
       agentInputPaused: false,
       apps: ["chromium", "thunar", "terminal"],
-      browserProfileScope: "bot",
+      browserProfileScope: "computer",
       browserSessionScope: "computer",
-      browserSessionMechanism: "cookie-broker",
+      browserSessionMechanism: "shared-profiles",
     };
   }
 

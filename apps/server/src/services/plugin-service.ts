@@ -1,4 +1,6 @@
+import type { OAuthClientInformationMixed } from "@modelcontextprotocol/sdk/shared/auth.js";
 import type {
+  ConfigurePluginConnectionInput,
   PluginActivityView,
   PluginConnectionView,
   PluginDynamicNamespace,
@@ -7,20 +9,29 @@ import type {
   SetPluginToolPolicyInput,
 } from "@openbot/contracts";
 import { ApiError } from "@openbot/contracts";
-import { Prisma, type PrismaClient } from "@openbot/db";
+import type { Prisma, PrismaClient } from "@openbot/db";
+import type { AgentDataStore } from "@openbot/messaging";
 import { Effect } from "effect";
-import {
-  pluginCatalog,
-  pluginDefinition,
-  type PluginConnectorDefinition,
-  type PluginToolDefinition,
-} from "../plugins/catalog";
+import type { PluginDefinition, PluginToolDefinition } from "../plugins/catalog";
+import { McpHttpClientManager } from "../plugins/mcp-client-manager";
+import { OpenBotOAuthProvider, type StoredOAuthState } from "../plugins/oauth-provider";
+import { OpenBotMarketplaceSource } from "../plugins/openbot-marketplace";
 import { appendEvent, toError, toJson } from "./service-utils";
 
 type JsonObject = Record<string, unknown>;
 
 const jsonObject = (value: unknown): JsonObject =>
   value && typeof value === "object" && !Array.isArray(value) ? (value as JsonObject) : {};
+
+const stringRecord = (value: unknown): Record<string, string> =>
+  Object.fromEntries(
+    Object.entries(jsonObject(value)).filter(
+      (entry): entry is [string, string] => typeof entry[1] === "string"
+    )
+  );
+
+const stringArray = (value: unknown): string[] =>
+  Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
 
 const toolSnapshot = (value: unknown): PluginToolDefinition[] =>
   Array.isArray(value)
@@ -60,6 +71,17 @@ const redact = (value: unknown): unknown => {
       /token|secret|password|authorization|api.?key/i.test(key) ? "[redacted]" : redact(nested),
     ])
   );
+};
+
+const canonicalJson = (value: unknown): string => {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value as JsonObject)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, nested]) => `${JSON.stringify(key)}:${canonicalJson(nested)}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
 };
 
 export const boundPluginResult = (value: unknown, depth = 0): unknown => {
@@ -137,118 +159,129 @@ const validateJsonSchema = (
   }
 };
 
-const parseMcpResponse = async (response: Response): Promise<JsonObject> => {
-  const raw = await response.text();
-  if (!response.ok) {
-    throw new Error(`MCP server returned ${response.status}: ${raw.slice(0, 500)}`);
-  }
-  if (!raw.trim()) return {};
-  const contentType = response.headers.get("content-type") ?? "";
-  if (contentType.includes("text/event-stream")) {
-    const data = raw
-      .split(/\r?\n/)
-      .filter((line) => line.startsWith("data:"))
-      .map((line) => line.slice(5).trim())
-      .find((line) => line && line !== "[DONE]");
-    if (!data) throw new Error("MCP server returned an empty event stream");
-    return jsonObject(JSON.parse(data));
-  }
-  return jsonObject(JSON.parse(raw));
-};
-
-const mcpHeaders = (sessionId?: string): Record<string, string> => ({
-  accept: "application/json, text/event-stream",
-  "content-type": "application/json",
-  ...(sessionId ? { "mcp-session-id": sessionId } : {}),
-});
-
-const postMcp = async (
-  endpoint: string,
-  body: JsonObject,
-  sessionId?: string
-): Promise<{ message: JsonObject; sessionId?: string }> => {
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: mcpHeaders(sessionId),
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(30_000),
-  });
-  return {
-    message: await parseMcpResponse(response),
-    sessionId: response.headers.get("mcp-session-id") ?? sessionId,
-  };
-};
-
-const withMcpSession = async <T>(
-  endpoint: string,
-  method: "tools/list" | "tools/call",
-  params: JsonObject,
-  decode: (result: JsonObject) => T
-): Promise<T> => {
-  const initialized = await postMcp(endpoint, {
-    jsonrpc: "2.0",
-    id: crypto.randomUUID(),
-    method: "initialize",
-    params: {
-      protocolVersion: "2025-06-18",
-      capabilities: {},
-      clientInfo: { name: "openbot", version: "0.1.0" },
-    },
-  });
-  if (initialized.message.error) {
-    throw new Error(`MCP initialize failed: ${JSON.stringify(initialized.message.error)}`);
-  }
-  await postMcp(
-    endpoint,
-    { jsonrpc: "2.0", method: "notifications/initialized", params: {} },
-    initialized.sessionId
-  );
-  const response = await postMcp(
-    endpoint,
-    { jsonrpc: "2.0", id: crypto.randomUUID(), method, params },
-    initialized.sessionId
-  );
-  if (response.message.error) {
-    throw new Error(`MCP ${method} failed: ${JSON.stringify(response.message.error)}`);
-  }
-  return decode(jsonObject(response.message.result));
-};
+const compatibilityHttpManager = new McpHttpClientManager();
 
 export const discoverRemoteTools = (endpoint: string): Promise<PluginToolDefinition[]> =>
-  withMcpSession(endpoint, "tools/list", {}, (result) => {
-    if (!Array.isArray(result.tools)) throw new Error("MCP tools/list returned no tools array");
-    return result.tools.map((candidate) => {
-      const item = jsonObject(candidate);
-      if (typeof item.name !== "string") throw new Error("MCP tool is missing a name");
-      return {
-        name: item.name,
-        description: typeof item.description === "string" ? item.description : "",
-        inputSchema: jsonObject(item.inputSchema),
-        risk: "write",
-        defaultDecision: "prompt",
-      };
-    });
-  });
+  compatibilityHttpManager.discover(`compat:${endpoint}`, { endpoint });
 
 export const invokeRemoteTool = (
   endpoint: string,
   toolName: string,
   args: unknown
 ): Promise<unknown> =>
-  withMcpSession(endpoint, "tools/call", { name: toolName, arguments: args }, (result) => result);
+  compatibilityHttpManager.call(`compat:${endpoint}`, { endpoint }, toolName, args);
 
-const manifestJson = (plugin: ReturnType<typeof pluginDefinition>) => {
-  if (!plugin) throw new Error("Missing plugin definition");
-  return toJson(plugin);
+const manifestJson = (plugin: PluginDefinition) => toJson(plugin);
+
+const substituteValues = (value: unknown, values: Record<string, string>): unknown => {
+  if (typeof value === "string") {
+    return value.replace(
+      /\$\{([A-Z][A-Z0-9_]*)\}/g,
+      (placeholder, key: string) => values[key] ?? placeholder
+    );
+  }
+  if (Array.isArray(value)) return value.map((item) => substituteValues(item, values));
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.entries(value as JsonObject).map(([key, nested]) => [
+      key,
+      substituteValues(nested, values),
+    ])
+  );
+};
+
+const hasPlaceholder = (value: unknown): boolean =>
+  typeof value === "string"
+    ? /\$\{[A-Z][A-Z0-9_]*\}/.test(value)
+    : Array.isArray(value)
+      ? value.some(hasPlaceholder)
+      : Boolean(value && typeof value === "object" && Object.values(value).some(hasPlaceholder));
+
+const definitionFromManifest = (value: unknown): PluginDefinition | undefined => {
+  const manifest = jsonObject(value);
+  if (
+    typeof manifest.key !== "string" ||
+    typeof manifest.name !== "string" ||
+    !Array.isArray(manifest.connections) ||
+    !Array.isArray(manifest.skills)
+  ) {
+    return undefined;
+  }
+  return manifest as unknown as PluginDefinition;
 };
 
 export class PluginService {
-  constructor(private readonly prisma: PrismaClient) {}
+  private readonly http = new McpHttpClientManager();
+  private readonly marketplace = new OpenBotMarketplaceSource();
+  private readonly publicUrl =
+    process.env.OPENBOT_PUBLIC_URL ?? `http://127.0.0.1:${process.env.OPENBOT_PORT ?? "8787"}`;
+
+  constructor(
+    private readonly prisma: PrismaClient,
+    private readonly computerFetch?: (path: string, init?: RequestInit) => Promise<Response>,
+    private readonly agentData?: Pick<AgentDataStore, "syncPluginSkillCache">
+  ) {}
+
+  syncFileCaches = async (): Promise<void> => {
+    if (!this.agentData) return;
+    const installations = await this.prisma.pluginInstallation.findMany({
+      where: { status: "installed" },
+      orderBy: { installedAt: "asc" },
+    });
+    await this.agentData.syncPluginSkillCache(
+      installations.flatMap((installation) => {
+        const plugin = definitionFromManifest(installation.manifest);
+        if (!plugin) return [];
+        return [
+          {
+            id: plugin.key,
+            name: plugin.name,
+            version: plugin.version,
+            publisher: plugin.publisher,
+            skills: plugin.skills,
+          },
+        ];
+      })
+    );
+  };
+
+  private catalog = async (): Promise<PluginDefinition[]> => {
+    return this.marketplace.plugins();
+  };
+
+  private definition = async (pluginKey: string): Promise<PluginDefinition | undefined> =>
+    (await this.catalog()).find((plugin) => plugin.key === pluginKey);
+
+  private catalogView = (plugin: PluginDefinition, installed: boolean) => ({
+    key: plugin.key,
+    version: plugin.version,
+    name: plugin.name,
+    description: plugin.description,
+    publisher: plugin.publisher,
+    category: plugin.category,
+    featured: plugin.featured,
+    components: plugin.components,
+    skills: plugin.skills.map(({ name, description }) => ({ name, description })),
+    installed,
+    homepageUrl: plugin.homepageUrl ?? null,
+    sourceUrl: plugin.sourceUrl ?? null,
+    sourceRevision: plugin.sourceRevision ?? null,
+    logoUrl: plugin.logoUrl ?? null,
+    setupFields: plugin.setupFields ?? [],
+    setup: plugin.setup ?? null,
+    connections: plugin.connections.map(
+      ({ endpoint: _endpoint, configuration: _configuration, ...connection }) => ({
+        ...connection,
+        tools: publicTools(connection.tools),
+      })
+    ),
+  });
 
   settings = () =>
     Effect.tryPromise({
       try: async (): Promise<PluginSettingsView> => {
-        const [installs, bots, policies, activity] = await Promise.all([
+        const [catalog, installs, bots, policies, activity] = await Promise.all([
+          this.catalog(),
           this.prisma.pluginInstallation.findMany({
             include: { connections: { include: { grants: true } }, enablements: true },
             orderBy: { installedAt: "desc" },
@@ -272,22 +305,7 @@ export class PluginService {
           )
         );
         return {
-          catalog: pluginCatalog.map((plugin) => ({
-            key: plugin.key,
-            version: plugin.version,
-            name: plugin.name,
-            description: plugin.description,
-            publisher: plugin.publisher,
-            category: plugin.category,
-            featured: plugin.featured,
-            components: plugin.components,
-            skills: plugin.skills.map(({ name, description }) => ({ name, description })),
-            installed: installedKeys.has(plugin.key),
-            connections: plugin.connections.map(({ endpoint: _endpoint, ...connection }) => ({
-              ...connection,
-              tools: publicTools(connection.tools),
-            })),
-          })),
+          catalog: catalog.map((plugin) => this.catalogView(plugin, installedKeys.has(plugin.key))),
           installs: installs.map(
             (install): PluginInstallView => ({
               id: install.id,
@@ -301,7 +319,7 @@ export class PluginService {
               enabledBotIds: install.enablements
                 .filter((enablement) => enablement.enabled && enablement.skillsEnabled)
                 .map((enablement) => enablement.botId),
-              hasSkills: (pluginDefinition(install.pluginKey)?.skills.length ?? 0) > 0,
+              hasSkills: (definitionFromManifest(install.manifest)?.skills.length ?? 0) > 0,
               connections: install.connections.map((connection) =>
                 this.connectionView(install.pluginKey, connection)
               ),
@@ -340,7 +358,7 @@ export class PluginService {
       )
     );
     return {
-      plugins: pluginCatalog
+      plugins: (await this.catalog())
         .filter((plugin) =>
           `${plugin.name} ${plugin.description} ${plugin.publisher} ${plugin.category}`
             .toLowerCase()
@@ -359,7 +377,7 @@ export class PluginService {
   };
 
   catalogDetail = async (pluginKey: string): Promise<unknown> => {
-    const plugin = pluginDefinition(pluginKey);
+    const plugin = await this.definition(pluginKey);
     const installation = await this.prisma.pluginInstallation.findUnique({
       where: { pluginKey },
       include: { connections: { include: { grants: true } } },
@@ -375,6 +393,11 @@ export class PluginService {
             publisher: plugin.publisher,
             category: plugin.category,
             components: plugin.components,
+            homepageUrl: plugin.homepageUrl ?? null,
+            sourceUrl: plugin.sourceUrl ?? null,
+            sourceRevision: plugin.sourceRevision ?? null,
+            setupFields: plugin.setupFields ?? [],
+            setup: plugin.setup ?? null,
             connections: plugin.connections.map((connection) => ({
               key: connection.key,
               name: connection.name,
@@ -427,13 +450,124 @@ export class PluginService {
       ),
   });
 
-  install = (pluginKey: string) =>
+  requestAction = async (request: {
+    runId: string;
+    botId: string;
+    callId: string;
+    action: string;
+    arguments: unknown;
+  }): Promise<never> => {
+    const existing = await this.prisma.approval.findUnique({
+      where: { upstreamRequestId: `plugin-action:${request.callId}` },
+    });
+    if (!existing) {
+      await this.prisma.approval.create({
+        data: {
+          runId: request.runId,
+          upstreamRequestId: `plugin-action:${request.callId}`,
+          requestMethod: "plugin/action",
+          kind: "permissions",
+          details: toJson({
+            action: request.action,
+            arguments: redact(request.arguments),
+            rawArguments: request.arguments,
+            botId: request.botId,
+            effect: `Confirm ${request.action} in OpenBot. Changes are available on the next bot turn.`,
+          }),
+        },
+      });
+    }
+    throw new ApiError(
+      409,
+      "plugin_action_required",
+      `${request.action} is waiting for user confirmation`
+    );
+  };
+
+  resolveAction = async (
+    detailsValue: unknown,
+    decision: "accept" | "decline" | "cancel"
+  ): Promise<unknown> => {
+    if (decision !== "accept") return { status: decision === "decline" ? "declined" : "cancelled" };
+    const details = jsonObject(detailsValue);
+    const action = details.action;
+    const args = jsonObject(details.rawArguments);
+    if (typeof action !== "string") {
+      throw new ApiError(409, "plugin_action_invalid", "Plugin action is missing its name");
+    }
+    if (action === "InstallPlugin") {
+      if (typeof args.pluginKey !== "string")
+        throw new ApiError(400, "plugin_key_required", "pluginKey is required");
+      return Effect.runPromise(this.install(args.pluginKey, stringRecord(args.values)));
+    }
+    if (action === "UninstallPlugin") {
+      if (typeof args.pluginKey !== "string")
+        throw new ApiError(400, "plugin_key_required", "pluginKey is required");
+      return Effect.runPromise(this.uninstall(args.pluginKey));
+    }
+    if (action === "AddMcpServer") {
+      return Effect.runPromise(
+        this.addCustomMcp({
+          name: typeof args.name === "string" ? args.name : "Custom MCP",
+          url: typeof args.url === "string" ? args.url : undefined,
+          command: typeof args.command === "string" ? args.command : undefined,
+          args: stringArray(args.args),
+          env: stringRecord(args.env),
+          headers: stringRecord(args.headers),
+          auth:
+            args.auth === "oauth" || args.auth === "token" || args.auth === "none"
+              ? args.auth
+              : undefined,
+          alias: typeof args.accountLabel === "string" ? args.accountLabel : undefined,
+        })
+      );
+    }
+    const connectionId = typeof args.connectionId === "string" ? args.connectionId : undefined;
+    if (!connectionId) {
+      throw new ApiError(400, "connection_id_required", "connectionId is required");
+    }
+    if (action === "UninstallMcpServer") {
+      const connection = await this.connectionOrThrow(connectionId);
+      if (!connection.installation.pluginKey.startsWith("custom-mcp-")) {
+        throw new ApiError(
+          409,
+          "marketplace_plugin_required",
+          "Marketplace MCP servers must be removed by uninstalling their plugin"
+        );
+      }
+      return Effect.runPromise(this.uninstall(connection.installation.pluginKey));
+    }
+    if (action === "AuthenticateMcpServer") {
+      return Effect.runPromise(this.authenticate(connectionId, args.forceReauth === true));
+    }
+    if (action === "RestartMcpServers") return Effect.runPromise(this.restart(connectionId));
+    if (action === "RemoveMcpAccount") return Effect.runPromise(this.removeAccount(connectionId));
+    if (action === "RenameMcpAccount") {
+      if (typeof args.accountLabel !== "string")
+        throw new ApiError(400, "account_label_required", "accountLabel is required");
+      return Effect.runPromise(this.renameAccount(connectionId, args.accountLabel));
+    }
+    if (action === "SetMcpInstructions") {
+      return Effect.runPromise(
+        this.setInstructions(
+          connectionId,
+          typeof args.instructions === "string" ? args.instructions : ""
+        )
+      );
+    }
+    throw new ApiError(400, "plugin_action_unknown", `Unknown plugin action ${action}`);
+  };
+
+  install = (pluginKey: string, values: Record<string, string> = {}) =>
     Effect.tryPromise({
       try: async () => {
-        const plugin = pluginDefinition(pluginKey);
+        const plugin = await this.definition(pluginKey);
         if (!plugin) throw new ApiError(404, "plugin_not_found", "Plugin not found");
         const existing = await this.prisma.pluginInstallation.findUnique({ where: { pluginKey } });
-        if (existing) return { id: existing.id, installed: true };
+        if (existing) {
+          await this.syncFileCaches();
+          return { id: existing.id, installed: true };
+        }
         const installation = await this.prisma.$transaction(async (tx) => {
           const created = await tx.pluginInstallation.create({
             data: {
@@ -460,6 +594,9 @@ export class PluginService {
             });
           }
           for (const connector of plugin.connections) {
+            const endpoint = substituteValues(connector.endpoint, values) as string;
+            const configuration = substituteValues(connector.configuration ?? {}, values);
+            const missingSetup = hasPlaceholder(endpoint) || hasPlaceholder(configuration);
             const connection = await tx.pluginConnection.create({
               data: {
                 installationId: created.id,
@@ -467,10 +604,14 @@ export class PluginService {
                 name: connector.name,
                 transport: connector.transport,
                 authType: connector.auth,
-                endpoint: connector.endpoint,
-                status: connector.auth === "none" ? "disconnected" : "needs_auth",
-                statusMessage:
-                  connector.auth === "none" ? null : "Authentication has not been configured.",
+                endpoint,
+                configuration: toJson(configuration),
+                status: connector.auth === "none" && !missingSetup ? "disconnected" : "needs_auth",
+                statusMessage: missingSetup
+                  ? "Plugin setup values are required."
+                  : connector.auth === "none"
+                    ? null
+                    : "Authentication has not been configured.",
                 toolSnapshot: toJson(connector.tools),
               },
             });
@@ -497,30 +638,52 @@ export class PluginService {
           });
           return created;
         });
+        await this.syncFileCaches();
         return { id: installation.id, installed: true };
       },
       catch: toError,
     });
 
-  addCustomMcp = (nameValue: string, urlValue: string, aliasValue = "default") =>
+  addCustomMcp = (input: {
+    name: string;
+    url?: string;
+    command?: string;
+    args?: readonly string[];
+    env?: Record<string, string>;
+    headers?: Record<string, string>;
+    auth?: "none" | "token" | "oauth";
+    alias?: string;
+  }) =>
     Effect.tryPromise({
       try: async () => {
-        const name = nameValue.trim();
-        let endpoint: URL;
-        try {
-          endpoint = new URL(urlValue.trim());
-        } catch {
-          throw new ApiError(400, "mcp_url_invalid", "MCP URL is invalid");
-        }
-        const loopback = ["127.0.0.1", "localhost", "::1"].includes(endpoint.hostname);
-        if (endpoint.protocol !== "https:" && !(endpoint.protocol === "http:" && loopback)) {
+        const name = input.name.trim();
+        const command = input.command?.trim();
+        const transport = command ? "stdio" : "http";
+        if (Boolean(command) === Boolean(input.url)) {
           throw new ApiError(
             400,
-            "mcp_url_insecure",
-            "Remote MCP servers must use HTTPS; HTTP is allowed only for loopback development"
+            "mcp_transport_invalid",
+            "Provide exactly one remote URL or local command"
           );
         }
-        const alias = aliasValue.trim() || "default";
+        let endpoint: URL | null = null;
+        if (input.url) {
+          try {
+            endpoint = new URL(input.url.trim());
+          } catch {
+            throw new ApiError(400, "mcp_url_invalid", "MCP URL is invalid");
+          }
+          if (!["https:", "http:"].includes(endpoint.protocol)) {
+            throw new ApiError(400, "mcp_url_invalid", "MCP URL must use HTTP or HTTPS");
+          }
+        }
+        const authType = input.auth ?? (Object.keys(input.headers ?? {}).length ? "token" : "none");
+        const alias = input.alias?.trim() || "default";
+        const configuration = {
+          ...(command
+            ? { command, args: [...(input.args ?? [])], env: { ...(input.env ?? {}) } }
+            : { headers: { ...(input.headers ?? {}) } }),
+        };
         const pluginKey = `custom-mcp-${crypto.randomUUID()}`;
         const installation = await this.prisma.$transaction(async (tx) => {
           const created = await tx.pluginInstallation.create({
@@ -528,7 +691,9 @@ export class PluginService {
               pluginKey,
               version: "0.0.0",
               name,
-              description: `Custom MCP server at ${endpoint.origin}`,
+              description: command
+                ? `Local MCP server launched with ${command}`
+                : `Custom MCP server at ${endpoint?.origin ?? "remote endpoint"}`,
               publisher: "Local",
               manifest: toJson({
                 key: pluginKey,
@@ -540,9 +705,10 @@ export class PluginService {
                   {
                     key: "custom",
                     name,
-                    transport: "http",
-                    auth: "none",
-                    endpoint: endpoint.toString(),
+                    transport,
+                    auth: authType,
+                    endpoint: endpoint?.toString(),
+                    configuration,
                   },
                 ],
                 skills: [],
@@ -555,10 +721,13 @@ export class PluginService {
               connectorKey: "custom",
               name,
               alias,
-              transport: "http",
-              authType: "none",
-              endpoint: endpoint.toString(),
-              status: "disconnected",
+              transport,
+              authType,
+              endpoint: endpoint?.toString(),
+              configuration: toJson(configuration),
+              status: authType === "oauth" ? "needs_auth" : "disconnected",
+              statusMessage:
+                authType === "oauth" ? "Authentication has not been configured." : null,
             },
           });
           await tx.pluginActivity.create({
@@ -567,13 +736,14 @@ export class PluginService {
               connectionId: connection.id,
               kind: "custom_mcp.added",
               summary: `Added custom MCP server ${name}`,
-              metadata: { origin: endpoint.origin },
+              metadata: command ? { command } : { origin: endpoint?.origin },
             },
           });
           await appendEvent(tx, "plugin.custom_mcp.added", created.id, {
             pluginKey,
             connectionId: connection.id,
-            origin: endpoint.origin,
+            transport,
+            endpoint: endpoint?.origin ?? command,
           });
           return { installation: created, connection };
         });
@@ -591,8 +761,14 @@ export class PluginService {
       try: async () => {
         const installation = await this.prisma.pluginInstallation.findUnique({
           where: { pluginKey },
+          include: { connections: { select: { id: true, transport: true } } },
         });
         if (!installation) throw new ApiError(404, "plugin_not_installed", "Plugin not installed");
+        await Promise.all(
+          installation.connections.map((connection) =>
+            this.stopRuntime(connection.id, connection.transport)
+          )
+        );
         await this.prisma.$transaction(async (tx) => {
           await tx.pluginActivity.create({
             data: {
@@ -604,7 +780,110 @@ export class PluginService {
           await tx.pluginInstallation.delete({ where: { id: installation.id } });
           await appendEvent(tx, "plugin.uninstalled", installation.id, { pluginKey });
         });
+        await this.syncFileCaches();
         return { uninstalled: true };
+      },
+      catch: toError,
+    });
+
+  configure = (connectionId: string, input: ConfigurePluginConnectionInput) =>
+    Effect.tryPromise({
+      try: async () => {
+        const connection = await this.prisma.pluginConnection.findUnique({
+          where: { id: connectionId },
+        });
+        if (!connection) throw new ApiError(404, "connection_not_found", "Connection not found");
+        await this.stopRuntime(connectionId, connection.transport);
+        const configuration = jsonObject(connection.configuration);
+        const credentials = jsonObject(connection.credentials);
+        const nextConfiguration = {
+          ...configuration,
+          ...(input.headers ? { headers: input.headers } : {}),
+          ...(input.clientId ? { clientId: input.clientId } : {}),
+          ...(input.clientSecret !== undefined ? { clientSecret: input.clientSecret } : {}),
+          ...(input.scope !== undefined ? { scope: input.scope } : {}),
+        };
+        const nextCredentials = {
+          ...credentials,
+          ...(input.token ? { bearerToken: input.token } : {}),
+        };
+        await this.http.close(connectionId);
+        const updated = await this.prisma.pluginConnection.update({
+          where: { id: connectionId },
+          data: {
+            configuration: toJson(nextConfiguration),
+            credentials: toJson(nextCredentials),
+            status: "disconnected",
+            statusMessage: null,
+          },
+        });
+        return { id: updated.id, configured: true };
+      },
+      catch: toError,
+    });
+
+  authenticate = (connectionId: string, force = false) =>
+    Effect.tryPromise({
+      try: async () => {
+        const connection = await this.connectionOrThrow(connectionId);
+        if (connection.transport !== "http" || connection.authType !== "oauth") {
+          throw new ApiError(409, "plugin_oauth_unsupported", "This connection does not use OAuth");
+        }
+        const current = jsonObject(connection.credentials);
+        const oauth = force ? {} : jsonObject(current.oauth);
+        const state = crypto.randomUUID();
+        const next = { ...current, oauth: { ...oauth, state } };
+        await this.prisma.pluginConnection.update({
+          where: { id: connectionId },
+          data: {
+            credentials: toJson(next),
+            status: "needs_auth",
+            statusMessage: "Waiting for authorization in your browser.",
+            lastCheckedAt: new Date(),
+          },
+        });
+        const refreshed = await this.connectionOrThrow(connectionId);
+        const options = this.httpOptions(refreshed);
+        let result: { authorizationUrl: string };
+        try {
+          result = await this.http.beginOAuth(connectionId, options);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          await this.prisma.pluginConnection.update({
+            where: { id: connectionId },
+            data: {
+              status: "needs_auth",
+              statusMessage: message.includes("dynamic client registration")
+                ? "Configure an OAuth client ID for this self-hosted connector."
+                : message,
+            },
+          });
+          throw error;
+        }
+        await this.prisma.pluginActivity.create({
+          data: {
+            installationId: refreshed.installationId,
+            connectionId,
+            kind: "connection.oauth_started",
+            summary: `Started authentication for ${refreshed.name} (${refreshed.alias})`,
+          },
+        });
+        return { connectionId, status: "needs_auth", authorizationUrl: result.authorizationUrl };
+      },
+      catch: toError,
+    });
+
+  finishAuthentication = (connectionId: string, code: string, state: string) =>
+    Effect.tryPromise({
+      try: async () => {
+        const connection = await this.connectionOrThrow(connectionId);
+        const oauth = jsonObject(jsonObject(connection.credentials).oauth);
+        if (!oauth.state || oauth.state !== state) {
+          throw new ApiError(400, "plugin_oauth_state_invalid", "OAuth state did not match");
+        }
+        const tools = await this.http.finishOAuth(connectionId, this.httpOptions(connection), code);
+        await this.markReady(connection, tools, "connection.oauth_completed");
+        return { connectionId, status: "ready", toolCount: tools.length };
       },
       catch: toError,
     });
@@ -612,69 +891,34 @@ export class PluginService {
   connect = (connectionId: string) =>
     Effect.tryPromise({
       try: async () => {
-        const connection = await this.prisma.pluginConnection.findUnique({
-          where: { id: connectionId },
-          include: { installation: true },
-        });
-        if (!connection) throw new ApiError(404, "connection_not_found", "Connection not found");
-        if (connection.authType !== "none") {
+        const connection = await this.connectionOrThrow(connectionId);
+        if (connection.authType === "oauth") {
+          const oauth = jsonObject(jsonObject(connection.credentials).oauth);
+          if (!oauth.tokens) return Effect.runPromise(this.authenticate(connectionId));
+        }
+        if (
+          connection.authType === "token" &&
+          !jsonObject(connection.credentials).bearerToken &&
+          Object.keys(stringRecord(jsonObject(connection.configuration).headers)).length === 0
+        ) {
           await this.prisma.pluginConnection.update({
             where: { id: connectionId },
-            data: {
-              status: "needs_auth",
-              statusMessage: "OAuth registration is required before this account can connect.",
-              lastCheckedAt: new Date(),
-            },
+            data: { status: "needs_auth", statusMessage: "Add a token or request headers first." },
           });
           throw new ApiError(
             409,
-            "plugin_auth_unavailable",
-            "This connector needs provider OAuth registration before it can be connected"
+            "plugin_token_required",
+            "This connector needs a token or headers"
           );
         }
         let tools = toolSnapshot(connection.toolSnapshot);
         if (connection.transport === "http") {
           if (!connection.endpoint) throw new Error("Connection endpoint is missing");
-          tools = await discoverRemoteTools(connection.endpoint);
+          tools = await this.http.discover(connectionId, this.httpOptions(connection));
+        } else if (connection.transport === "stdio") {
+          tools = await this.discoverStdio(connection);
         }
-        const updated = await this.prisma.$transaction(async (tx) => {
-          await tx.pluginToolPolicy.deleteMany({
-            where: { connectionId, botId: null },
-          });
-          if (tools.length) {
-            await tx.pluginToolPolicy.createMany({
-              data: tools.map((candidate) => ({
-                connectionId,
-                toolName: candidate.name,
-                decision: candidate.defaultDecision,
-              })),
-            });
-          }
-          const value = await tx.pluginConnection.update({
-            where: { id: connectionId },
-            data: {
-              status: "ready",
-              statusMessage: null,
-              connectedAt: new Date(),
-              lastCheckedAt: new Date(),
-              toolSnapshot: toJson(tools),
-            },
-          });
-          await tx.pluginActivity.create({
-            data: {
-              installationId: connection.installationId,
-              connectionId,
-              kind: "connection.ready",
-              summary: `Connected ${connection.name}`,
-              metadata: { toolCount: tools.length },
-            },
-          });
-          await appendEvent(tx, "plugin.connection.ready", connectionId, {
-            pluginKey: connection.installation.pluginKey,
-            toolCount: tools.length,
-          });
-          return value;
-        });
+        const updated = await this.markReady(connection, tools);
         return { id: updated.id, status: updated.status, toolCount: tools.length };
       },
       catch: toError,
@@ -744,6 +988,7 @@ export class PluginService {
               transport: source.transport,
               authType: source.authType,
               endpoint: source.endpoint,
+              configuration: toJson(jsonObject(source.configuration)),
               status: source.authType === "none" ? "disconnected" : "needs_auth",
               statusMessage:
                 source.authType === "none" ? null : "Authentication has not been configured.",
@@ -772,6 +1017,94 @@ export class PluginService {
           return created;
         });
         return { id: account.id, alias: account.alias, status: account.status };
+      },
+      catch: toError,
+    });
+
+  renameAccount = (connectionId: string, aliasValue: string) =>
+    Effect.tryPromise({
+      try: async () => {
+        const connection = await this.connectionOrThrow(connectionId);
+        const alias = this.validAlias(aliasValue);
+        const updated = await this.prisma.pluginConnection.update({
+          where: { id: connectionId },
+          data: { alias },
+        });
+        await this.prisma.pluginActivity.create({
+          data: {
+            installationId: connection.installationId,
+            connectionId,
+            kind: "connection.renamed",
+            summary: `Renamed ${connection.alias} to ${alias}`,
+          },
+        });
+        return { id: updated.id, alias: updated.alias };
+      },
+      catch: toError,
+    });
+
+  removeAccount = (connectionId: string) =>
+    Effect.tryPromise({
+      try: async () => {
+        const connection = await this.connectionOrThrow(connectionId);
+        const siblings = await this.prisma.pluginConnection.count({
+          where: {
+            installationId: connection.installationId,
+            connectorKey: connection.connectorKey,
+          },
+        });
+        if (siblings <= 1) {
+          await this.stopRuntime(connectionId, connection.transport);
+          await this.prisma.pluginConnection.update({
+            where: { id: connectionId },
+            data: {
+              alias: "default",
+              credentials: toJson({}),
+              status: connection.authType === "none" ? "disconnected" : "needs_auth",
+              statusMessage:
+                connection.authType === "none" ? null : "Authentication has not been configured.",
+              connectedAt: null,
+            },
+          });
+          return { removed: true, reset: true };
+        }
+        await this.stopRuntime(connectionId, connection.transport);
+        await this.prisma.pluginConnection.delete({ where: { id: connectionId } });
+        return { removed: true };
+      },
+      catch: toError,
+    });
+
+  setInstructions = (connectionId: string, instructionsValue: string) =>
+    Effect.tryPromise({
+      try: async () => {
+        const instructions = instructionsValue.trim().slice(0, 500);
+        const connection = await this.connectionOrThrow(connectionId);
+        await this.prisma.pluginConnection.update({
+          where: { id: connectionId },
+          data: { instructions },
+        });
+        await this.prisma.pluginActivity.create({
+          data: {
+            installationId: connection.installationId,
+            connectionId,
+            kind: "connection.instructions_updated",
+            summary: instructions
+              ? `Updated instructions for ${connection.name}`
+              : `Cleared instructions for ${connection.name}`,
+          },
+        });
+        return { id: connectionId, instructions };
+      },
+      catch: toError,
+    });
+
+  restart = (connectionId: string) =>
+    Effect.tryPromise({
+      try: async () => {
+        const connection = await this.connectionOrThrow(connectionId);
+        await this.stopRuntime(connectionId, connection.transport);
+        return Effect.runPromise(this.connect(connectionId));
       },
       catch: toError,
     });
@@ -915,7 +1248,7 @@ export class PluginService {
     });
     return grants.map(({ connection }) => ({
       name: namespaceName(connection.installation.pluginKey, connection.alias),
-      description: `${connection.installation.name}: ${connection.name}`,
+      description: `${connection.installation.name}: ${connection.name}${connection.instructions ? `\nSaved instructions: ${connection.instructions}` : ""}`,
       namespaceStatus: statusForRuntime(connection.status),
       tools: toolSnapshot(connection.toolSnapshot).map((tool) => ({
         connectionId: connection.id,
@@ -973,6 +1306,34 @@ export class PluginService {
     if (previous) {
       throw new ApiError(409, "plugin_call_replayed", `Plugin call is already ${previous.status}`);
     }
+    if (decision === "prompt") {
+      const pendingApprovals = await this.prisma.approval.findMany({
+        where: { runId: request.runId, requestMethod: "plugin/tool", status: "pending" },
+        select: { details: true },
+      });
+      const duplicate = pendingApprovals.some(({ details: value }) => {
+        const details = jsonObject(value);
+        return (
+          details.connectionId === request.connectionId &&
+          details.toolName === request.toolName &&
+          canonicalJson(details.arguments) === canonicalJson(redact(request.arguments))
+        );
+      });
+      if (duplicate) {
+        throw new ApiError(
+          409,
+          "plugin_approval_required",
+          "This exact plugin tool call is already waiting for one-time approval."
+        );
+      }
+      if (pendingApprovals.length > 0) {
+        throw new ApiError(
+          409,
+          "plugin_approval_pending",
+          "Resolve the pending approval before starting another plugin side effect."
+        );
+      }
+    }
     if (decision !== "allow") {
       await this.prisma.$transaction(async (tx) => {
         await tx.pluginInvocation.create({
@@ -983,9 +1344,9 @@ export class PluginService {
             runId: request.runId,
             toolName: request.toolName,
             decision,
-            status: "denied",
-            arguments: toJson(redact(request.arguments)),
-            completedAt: new Date(),
+            status: decision === "prompt" ? "running" : "denied",
+            arguments: toJson(request.arguments),
+            completedAt: decision === "prompt" ? null : new Date(),
             error: decision === "prompt" ? "Approval required" : "Denied by policy",
           },
         });
@@ -1013,7 +1374,9 @@ export class PluginService {
                 botId: request.botId,
                 toolName: request.toolName,
                 arguments: redact(request.arguments),
-                effect: "Accepting allows this tool for this bot. Retry the call on the next turn.",
+                supportsAlwaysAllow: true,
+                effect:
+                  "Allow once runs this exact call without changing policy. Always allow also saves an allow policy for this bot, connection, and tool.",
               }),
             },
           });
@@ -1023,7 +1386,7 @@ export class PluginService {
         decision === "prompt" ? 409 : 403,
         decision === "prompt" ? "plugin_approval_required" : "plugin_tool_denied",
         decision === "prompt"
-          ? "This plugin tool requires approval. Allow it in Plugin Policies, then retry."
+          ? "This plugin tool is waiting for one-time approval."
           : "This plugin tool is denied by policy."
       );
     }
@@ -1036,27 +1399,69 @@ export class PluginService {
         runId: request.runId,
         toolName: request.toolName,
         decision,
-        arguments: toJson(redact(request.arguments)),
+        arguments: toJson(request.arguments),
       },
     });
+    return this.executeInvocation(request.callId);
+  };
+
+  resolveInvocation = async (
+    callId: string,
+    decision: "accept" | "decline" | "cancel"
+  ): Promise<unknown> => {
+    const invocation = await this.prisma.pluginInvocation.findUnique({ where: { callId } });
+    if (!invocation)
+      throw new ApiError(404, "plugin_invocation_not_found", "Plugin call not found");
+    if (invocation.status !== "running") {
+      return { status: invocation.status, result: invocation.result };
+    }
+    if (decision !== "accept") {
+      await this.prisma.pluginInvocation.update({
+        where: { callId },
+        data: {
+          status: "denied",
+          error: decision === "decline" ? "Declined by user" : "Cancelled",
+          completedAt: new Date(),
+        },
+      });
+      return { status: "denied" };
+    }
+    return this.executeInvocation(callId);
+  };
+
+  private async executeInvocation(callId: string): Promise<unknown> {
+    const invocation = await this.prisma.pluginInvocation.findUnique({
+      where: { callId },
+      include: { connection: true },
+    });
+    if (!invocation)
+      throw new ApiError(404, "plugin_invocation_not_found", "Plugin call not found");
+    if (invocation.status === "completed") return invocation.result;
     try {
       const rawResult =
-        connection.transport === "builtin"
-          ? await this.invokeBuiltin(request.toolName, request.arguments, request)
-          : await invokeRemoteTool(connection.endpoint ?? "", request.toolName, request.arguments);
+        invocation.connection.transport === "builtin"
+          ? await this.invokeBuiltin(invocation.toolName, invocation.arguments, invocation)
+          : invocation.connection.transport === "stdio"
+            ? await this.callStdio(invocation.connection, invocation.toolName, invocation.arguments)
+            : await this.http.call(
+                invocation.connectionId,
+                this.httpOptions(invocation.connection),
+                invocation.toolName,
+                invocation.arguments
+              );
       const result = boundPluginResult(redact(rawResult));
       await this.prisma.$transaction(async (tx) => {
         await tx.pluginInvocation.update({
-          where: { callId: request.callId },
+          where: { callId },
           data: { status: "completed", result: toJson(result), completedAt: new Date() },
         });
         await tx.pluginActivity.create({
           data: {
-            installationId: connection.installationId,
-            connectionId: request.connectionId,
-            botId: request.botId,
+            installationId: invocation.connection.installationId,
+            connectionId: invocation.connectionId,
+            botId: invocation.botId,
             kind: "tool.completed",
-            summary: `Called ${request.toolName}`,
+            summary: `Called ${invocation.toolName}`,
           },
         });
       });
@@ -1064,12 +1469,12 @@ export class PluginService {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       await this.prisma.pluginInvocation.update({
-        where: { callId: request.callId },
+        where: { callId },
         data: { status: "failed", error: message.slice(0, 2_000), completedAt: new Date() },
       });
       throw error;
     }
-  };
+  }
 
   skillInstructions = async (botId: string): Promise<string> => {
     const enablements = await this.prisma.botPluginEnablement.findMany({
@@ -1082,13 +1487,217 @@ export class PluginService {
       include: { installation: true },
     });
     const sections = enablements.flatMap(({ installation }) => {
-      const plugin = pluginDefinition(installation.pluginKey);
+      const plugin = definitionFromManifest(installation.manifest);
       return (plugin?.skills ?? []).map(
         (skill) => `### ${plugin?.name}: ${skill.name}\n${skill.description}\n\n${skill.body}`
       );
     });
     return sections.length ? `\n\n## Installed plugin skills\n\n${sections.join("\n\n")}` : "";
   };
+
+  close = async (): Promise<void> => {
+    await this.http.closeAll();
+  };
+
+  private validAlias(value: string): string {
+    const alias = value.trim();
+    if (!/^[A-Za-z0-9][A-Za-z0-9 _.-]{0,78}[A-Za-z0-9]$/.test(alias)) {
+      throw new ApiError(
+        400,
+        "connection_alias_invalid",
+        "Account alias must be 2–80 letters, numbers, spaces, dots, dashes, or underscores"
+      );
+    }
+    return alias;
+  }
+
+  private connectionOrThrow = async (connectionId: string) => {
+    const connection = await this.prisma.pluginConnection.findUnique({
+      where: { id: connectionId },
+      include: { installation: true },
+    });
+    if (!connection) throw new ApiError(404, "connection_not_found", "Connection not found");
+    return connection;
+  };
+
+  private httpOptions(connection: {
+    id: string;
+    connectorKey: string;
+    endpoint: string | null;
+    authType: string;
+    configuration: Prisma.JsonValue;
+    credentials: Prisma.JsonValue;
+  }) {
+    if (!connection.endpoint)
+      throw new ApiError(409, "plugin_endpoint_missing", "MCP URL is missing");
+    const configuration = jsonObject(connection.configuration);
+    const credentials = jsonObject(connection.credentials);
+    const headers = stringRecord(configuration.headers);
+    if (typeof credentials.bearerToken === "string") {
+      headers.authorization = `Bearer ${credentials.bearerToken}`;
+    }
+    if (connection.authType !== "oauth") {
+      return { endpoint: connection.endpoint, headers };
+    }
+    const oauth = jsonObject(credentials.oauth) as StoredOAuthState;
+    const clientId =
+      typeof configuration.clientId === "string"
+        ? configuration.clientId
+        : (process.env[
+            `OPENBOT_${connection.connectorKey.toUpperCase().replaceAll("-", "_")}_OAUTH_CLIENT_ID`
+          ] ?? process.env.OPENBOT_MCP_OAUTH_CLIENT_ID);
+    const clientSecret =
+      typeof configuration.clientSecret === "string"
+        ? configuration.clientSecret
+        : (process.env[
+            `OPENBOT_${connection.connectorKey.toUpperCase().replaceAll("-", "_")}_OAUTH_CLIENT_SECRET`
+          ] ?? process.env.OPENBOT_MCP_OAUTH_CLIENT_SECRET);
+    const clientInformation: OAuthClientInformationMixed | undefined = clientId
+      ? { client_id: clientId, ...(clientSecret ? { client_secret: clientSecret } : {}) }
+      : undefined;
+    const callbackUrl = this.oauthRedirectUrl(connection.id);
+    const provider = new OpenBotOAuthProvider({
+      redirectUrl: callbackUrl,
+      scope: typeof configuration.scope === "string" ? configuration.scope : undefined,
+      initial: oauth,
+      clientInformation,
+      save: async (state) => {
+        const latest = await this.prisma.pluginConnection.findUnique({
+          where: { id: connection.id },
+          select: { credentials: true },
+        });
+        const latestCredentials = jsonObject(latest?.credentials);
+        await this.prisma.pluginConnection.update({
+          where: { id: connection.id },
+          data: { credentials: toJson({ ...latestCredentials, oauth: state }) },
+        });
+      },
+    });
+    return { endpoint: connection.endpoint, headers, authProvider: provider };
+  }
+
+  private async markReady(
+    connection: {
+      id: string;
+      installationId: string;
+      name: string;
+      installation: { pluginKey: string };
+    },
+    tools: PluginToolDefinition[],
+    activityKind = "connection.ready"
+  ) {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.pluginToolPolicy.deleteMany({ where: { connectionId: connection.id, botId: null } });
+      if (tools.length) {
+        await tx.pluginToolPolicy.createMany({
+          data: tools.map((candidate) => ({
+            connectionId: connection.id,
+            toolName: candidate.name,
+            decision: candidate.defaultDecision,
+          })),
+        });
+      }
+      const value = await tx.pluginConnection.update({
+        where: { id: connection.id },
+        data: {
+          status: "ready",
+          statusMessage: null,
+          connectedAt: new Date(),
+          lastCheckedAt: new Date(),
+          toolSnapshot: toJson(tools),
+        },
+      });
+      await tx.pluginActivity.create({
+        data: {
+          installationId: connection.installationId,
+          connectionId: connection.id,
+          kind: activityKind,
+          summary: `Connected ${connection.name}`,
+          metadata: { toolCount: tools.length },
+        },
+      });
+      await appendEvent(tx, "plugin.connection.ready", connection.id, {
+        pluginKey: connection.installation.pluginKey,
+        toolCount: tools.length,
+      });
+      return value;
+    });
+  }
+
+  private oauthRedirectUrl(connectionId: string): string {
+    return `${this.publicUrl}/api/v0/plugin-oauth/callback?connectionId=${encodeURIComponent(connectionId)}`;
+  }
+
+  private async discoverStdio(connection: {
+    id: string;
+    configuration: Prisma.JsonValue;
+  }): Promise<PluginToolDefinition[]> {
+    const response = await this.callComputer(`/v1/mcp/connections/${connection.id}/discover`, {
+      configuration: jsonObject(connection.configuration),
+    });
+    const tools = Array.isArray(response.tools) ? response.tools : [];
+    return tools.map((candidate) => {
+      const tool = jsonObject(candidate);
+      if (typeof tool.name !== "string") throw new Error("MCP tool is missing a name");
+      const annotations = jsonObject(tool.annotations);
+      const readOnly = annotations.readOnlyHint === true;
+      const destructive = annotations.destructiveHint === true;
+      return {
+        name: tool.name,
+        description: typeof tool.description === "string" ? tool.description : "",
+        inputSchema: jsonObject(tool.inputSchema),
+        risk: destructive ? "destructive" : readOnly ? "read" : "write",
+        defaultDecision: readOnly ? "allow" : "prompt",
+      };
+    });
+  }
+
+  private async callStdio(
+    connection: { id: string; configuration: Prisma.JsonValue },
+    toolName: string,
+    args: unknown
+  ): Promise<unknown> {
+    const response = await this.callComputer(`/v1/mcp/connections/${connection.id}/call`, {
+      configuration: jsonObject(connection.configuration),
+      toolName,
+      arguments: args,
+    });
+    return response.result;
+  }
+
+  private async stopRuntime(connectionId: string, transport: string): Promise<void> {
+    if (transport === "http") {
+      await this.http.close(connectionId);
+      return;
+    }
+    if (transport === "stdio" && this.computerFetch) {
+      await this.computerFetch(`/v1/mcp/connections/${connectionId}`, { method: "DELETE" }).catch(
+        () => undefined
+      );
+    }
+  }
+
+  private async callComputer(path: string, body: unknown): Promise<JsonObject> {
+    if (!this.computerFetch) {
+      throw new ApiError(503, "computer_unavailable", "The computer runtime is unavailable");
+    }
+    const response = await this.computerFetch(path, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const value = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new ApiError(
+        503,
+        "stdio_mcp_failed",
+        typeof jsonObject(value).error === "string"
+          ? String(jsonObject(value).error)
+          : `Computer MCP request failed (${response.status})`
+      );
+    }
+    return jsonObject(value);
+  }
 
   private connectionView(
     pluginKey: string,
@@ -1102,6 +1711,8 @@ export class PluginService {
       status: string;
       statusMessage: string | null;
       instructions: string;
+      configuration: Prisma.JsonValue;
+      credentials: Prisma.JsonValue;
       toolSnapshot: Prisma.JsonValue;
       grants: Array<{ botId: string; enabled: boolean }>;
     }
@@ -1117,9 +1728,43 @@ export class PluginService {
       status: connection.status as PluginConnectionView["status"],
       statusMessage: connection.statusMessage,
       instructions: connection.instructions,
+      authorizationUrl:
+        typeof jsonObject(jsonObject(connection.credentials).oauth).authorizationUrl === "string"
+          ? String(jsonObject(jsonObject(connection.credentials).oauth).authorizationUrl)
+          : null,
+      oauthRedirectUrl:
+        connection.authType === "oauth" ? this.oauthRedirectUrl(connection.id) : null,
+      canAuthenticate: connection.authType === "oauth" || connection.authType === "token",
+      configured: this.connectionConfigured(connection),
+      command:
+        typeof jsonObject(connection.configuration).command === "string"
+          ? String(jsonObject(connection.configuration).command)
+          : null,
       tools: publicTools(connection.toolSnapshot),
       grantedBotIds: connection.grants.filter((grant) => grant.enabled).map((grant) => grant.botId),
     };
+  }
+
+  private connectionConfigured(connection: {
+    authType: string;
+    configuration: Prisma.JsonValue;
+    credentials: Prisma.JsonValue;
+  }): boolean {
+    if (connection.authType === "none") return true;
+    const configuration = jsonObject(connection.configuration);
+    const credentials = jsonObject(connection.credentials);
+    if (connection.authType === "token") {
+      return (
+        typeof credentials.bearerToken === "string" ||
+        Object.keys(stringRecord(configuration.headers)).length > 0
+      );
+    }
+    const oauth = jsonObject(credentials.oauth);
+    return (
+      typeof configuration.clientId === "string" ||
+      typeof jsonObject(oauth.clientInformation).client_id === "string" ||
+      Object.keys(jsonObject(oauth.tokens)).length > 0
+    );
   }
 
   private async invokeBuiltin(
@@ -1144,9 +1789,3 @@ export class PluginService {
     throw new ApiError(404, "plugin_tool_not_found", "Builtin plugin tool not found");
   }
 }
-
-export const pluginConnector = (
-  pluginKey: string,
-  connectorKey: string
-): PluginConnectorDefinition | undefined =>
-  pluginDefinition(pluginKey)?.connections.find((connector) => connector.key === connectorKey);

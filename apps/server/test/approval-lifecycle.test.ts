@@ -23,13 +23,13 @@ describe("approval lifecycle parity", () => {
 
     expect(calls).toEqual([
       {
-        where: { status: "pending", requestMethod: { not: "plugin/tool" } },
+        where: { status: "pending" },
         data: { status: "expired", resolvedAt: now },
       },
     ]);
   });
 
-  test("matches GrokBot's ten-minute ask-card lifetime", async () => {
+  test("applies the ten-minute lifetime only to non-interactive/background asks", async () => {
     const calls: unknown[] = [];
     const database = {
       approval: {
@@ -49,8 +49,8 @@ describe("approval lifecycle parity", () => {
       {
         where: {
           status: "pending",
-          requestMethod: { not: "plugin/tool" },
           createdAt: { lt: new Date("2026-08-27T10:00:00.000Z") },
+          run: { origin: { in: ["routine", "group", "bootstrap"] } },
         },
         data: { status: "expired", resolvedAt: now },
       },

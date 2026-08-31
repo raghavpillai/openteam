@@ -23,24 +23,6 @@ type StoredAttempt = {
   };
 };
 
-const userVisibleSummary = (result: string | null): string | null => {
-  if (!result) return null;
-  const tagged = result.match(
-    /<user_visible_high_level_summary>\s*([\s\S]*?)\s*<\/user_visible_high_level_summary>/i
-  )?.[1];
-  return (tagged ?? result).trim() || null;
-};
-
-const userVisibleError = (error: unknown): string | null => {
-  if (!error) return null;
-  if (typeof error === "string") return error;
-  if (typeof error === "object" && !Array.isArray(error)) {
-    const message = (error as Record<string, unknown>).message;
-    if (typeof message === "string") return message;
-  }
-  return "The background task failed.";
-};
-
 export const subagentActivityView = (attempt: StoredAttempt): Snapshot["subagents"][number] => ({
   id: attempt.id,
   subagentId: attempt.subagent.id,
@@ -53,8 +35,11 @@ export const subagentActivityView = (attempt: StoredAttempt): Snapshot["subagent
   subagentType: attempt.subagent.subagentType as Snapshot["subagents"][number]["subagentType"],
   runInBackground: attempt.runInBackground,
   status: attempt.status as Snapshot["subagents"][number]["status"],
-  summary: userVisibleSummary(attempt.result),
-  errorMessage: userVisibleError(attempt.error),
+  // Completion text is a private parent wake. The renderer only needs durable
+  // lineage for active-task rows and child approvals; do not project the
+  // child's result or failure payload into the client snapshot.
+  summary: null,
+  errorMessage: null,
   startedAt: attempt.startedAt?.toISOString() ?? null,
   completedAt: attempt.completedAt?.toISOString() ?? null,
   stoppedAt: attempt.stoppedAt?.toISOString() ?? null,

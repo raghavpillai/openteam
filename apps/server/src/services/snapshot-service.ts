@@ -44,7 +44,7 @@ export class SnapshotService {
           }),
           this.prisma.channel.findMany({
             where: { archivedAt: null },
-            include: { members: { orderBy: { ordinal: "asc" } } },
+            include: { members: { orderBy: { ordinal: "asc" } }, readState: true },
             orderBy: { updatedAt: "desc" },
           }),
           this.prisma.channelMessage.findMany({ orderBy: { sequence: "asc" } }),
@@ -74,7 +74,7 @@ export class SnapshotService {
               bot.channelMemberships.some((membership) => membership.channel.kind === "bot_dm")
             )
             .map(toBotView),
-          channels: this.channelViews(channels),
+          channels: this.channelViews(channels, channelMessages),
           channelMessages: this.messageViews(channelMessages),
           channelRounds: this.roundViews(channelRounds),
           messages: messages.map((message) => ({
@@ -124,7 +124,7 @@ export class SnapshotService {
                 },
               },
             },
-            include: { members: { orderBy: { ordinal: "asc" } } },
+            include: { members: { orderBy: { ordinal: "asc" } }, readState: true },
             orderBy: { updatedAt: "desc" },
           }),
           this.prisma.event.findFirst({
@@ -181,7 +181,7 @@ export class SnapshotService {
               bot.channelMemberships.some((membership) => membership.channel.kind === "bot_dm")
             )
             .map(toBotView),
-          channels: this.channelViews(channels),
+          channels: this.channelViews(channels, channelMessages),
           channelMessages: this.messageViews(channelMessages),
           channelRounds: this.roundViews(channelRounds),
           runs: this.runViews(runs),
@@ -233,20 +233,50 @@ export class SnapshotService {
       id: string;
       kind: string;
       name: string;
+      description: string;
+      avatarPath: string | null;
       directKey: string | null;
       workingDirectory: string | null;
       members: Array<{ botId: string; ordinal: number }>;
+      readState: { lastReadSequence: bigint } | null;
       createdAt: Date;
       updatedAt: Date;
     }>,
-  >(channels: T) {
+    M extends Array<{
+      channelId: string;
+      sequence: bigint;
+      sender: string;
+      metadata: unknown;
+    }>,
+  >(channels: T, messages: M) {
+    const unreadByChannel = new Map<string, number>();
+    const readByChannel = new Map(
+      channels.map((channel) => [channel.id, channel.readState?.lastReadSequence ?? 0n] as const)
+    );
+    for (const message of messages) {
+      if (
+        message.sender !== "agent" ||
+        message.sequence <= (readByChannel.get(message.channelId) ?? 0n)
+      ) {
+        continue;
+      }
+      const metadata =
+        message.metadata && typeof message.metadata === "object" && !Array.isArray(message.metadata)
+          ? (message.metadata as Record<string, unknown>)
+          : {};
+      if ("fromAgent" in metadata || "toAgent" in metadata) continue;
+      unreadByChannel.set(message.channelId, (unreadByChannel.get(message.channelId) ?? 0) + 1);
+    }
     return channels.map((channel) => ({
       id: channel.id,
       kind: channel.kind as Snapshot["channels"][number]["kind"],
       name: channel.name,
+      description: channel.description,
+      hasAvatar: Boolean(channel.avatarPath),
       directKey: channel.directKey,
       workingDirectory: channel.workingDirectory,
       members: channel.members.map((member) => ({ botId: member.botId, ordinal: member.ordinal })),
+      unreadCount: unreadByChannel.get(channel.id) ?? 0,
       createdAt: channel.createdAt.toISOString(),
       updatedAt: channel.updatedAt.toISOString(),
     }));

@@ -12,18 +12,17 @@ export const expirePendingApprovalsAfterRestart = (database: ApprovalDatabase, r
   database.approval.updateMany({
     where: {
       status: "pending",
-      requestMethod: { not: "plugin/tool" },
     },
     data: { status: "expired", resolvedAt },
   });
 
-/** GrokBot's ask cards settle after ten minutes instead of disappearing. */
+/** Background/non-interactive asks expire; approvals parked in a live user turn have no TTL. */
 export const expireTimedOutApprovals = (database: ApprovalDatabase, resolvedAt: Date) =>
   database.approval.updateMany({
     where: {
       status: "pending",
-      requestMethod: { not: "plugin/tool" },
       createdAt: { lt: approvalAskExpiryCutoff(resolvedAt) },
+      run: { origin: { in: ["routine", "group", "bootstrap"] } },
     },
     data: { status: "expired", resolvedAt },
   });

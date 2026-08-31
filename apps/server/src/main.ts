@@ -2,34 +2,47 @@ import { timingSafeEqual } from "node:crypto";
 import {
   AddCustomMcpInput,
   ApiError,
+  ConfigurePluginConnectionInput,
   ConnectPluginInput,
   CreateBotInput,
   CreateGroupInput,
   DynamicToolCallRequest,
   InstallPluginInput,
+  MarkChannelReadInput,
   ReactToChannelMessageInput,
   RenameChannelInput,
+  RenamePluginAccountInput,
+  RegisterPushDeviceInput,
   ResolveApprovalInput,
   ScreenActionInput,
   ScreenPauseInput,
   ScreenTakeoverInput,
   type SearchCategory,
   SendMessageInput,
+  SetChannelAvatarInput,
   SetChannelMembersInput,
+  SetMcpInstructionsInput,
   SetPluginEnablementInput,
   SetPluginGrantInput,
   SetPluginToolPolicyInput,
   UpdateBotInput,
+  UpdateChannelProfileInput,
+  UploadAssetInput,
 } from "@openbot/contracts";
 import type { RoutineMutationInput } from "@openbot/messaging";
 import { Effect, Either } from "effect";
 import { AppService } from "./app-service";
+import { authorizedApi, isTrustedLocalApiClient } from "./api-auth";
+import { assetResponse } from "./asset-http";
 import { auth, authPrisma } from "./auth";
 import { corsHeaders, errorResponse, json, parseBody, withCors } from "./http";
 import { runOwnerCredentialCommand } from "./owner-credentials";
+import { parseAutoReviewInput } from "./services/auto-review-service";
 
 const port = Number(process.env.OPENBOT_PORT ?? 8787);
 const controlToken = process.env.OPENBOT_CONTROL_TOKEN ?? "local-compose-only-change-me";
+const apiToken = process.env.OPENBOT_API_TOKEN?.trim() || null;
+const trustLoopbackApi = process.env.OPENBOT_API_TRUST_LOOPBACK !== "false";
 
 if (process.argv[2] === "owner-credentials") {
   try {
@@ -39,7 +52,6 @@ if (process.argv[2] === "owner-credentials") {
   }
   process.exit(0);
 }
-
 const app = new AppService();
 await Effect.runPromise(app.boot());
 
@@ -129,6 +141,7 @@ const server = Bun.serve({
   hostname: "0.0.0.0",
   port,
   idleTimeout: 255,
+  maxRequestBodySize: 280 * 1024 * 1024,
   async fetch(request) {
     if (request.method === "OPTIONS")
       return new Response(null, { status: 204, headers: corsHeaders });
@@ -157,19 +170,70 @@ const server = Bun.serve({
           await run(app.handleDynamicTool(await parseBody(request, DynamicToolCallRequest)))
         );
       }
+      if (request.method === "POST" && path === "/api/internal/permissions/auto-review") {
+        if (!authorizedInternal(request)) {
+          return json({ error: { code: "unauthorized", message: "Unauthorized" } }, 401);
+        }
+        return json(await run(app.reviewPermission(parseAutoReviewInput(await request.json()))));
+      }
+      const publicAsset =
+        (request.method === "GET" || request.method === "HEAD") &&
+        /^\/api\/assets\/[a-f0-9]{64}$/.test(path);
+      const publicCallback = request.method === "GET" && path === "/api/plugin-oauth/callback";
+      const clientAddress = server.requestIP(request)?.address;
+      const trustedLocalClient = isTrustedLocalApiClient(
+        clientAddress,
+        url.hostname,
+        trustLoopbackApi
+      );
       if (request.method === "GET" && (url.pathname === "/health" || path === "/api/health")) {
         const runtime = await run(app.health());
         return json({ status: runtime.server, runtime });
       }
-      const session = await auth.api.getSession({ headers: request.headers });
-      if (!session) {
-        return json(
-          { error: { code: "unauthorized", message: "Sign in to OpenBot to continue" } },
-          401
-        );
+      if (!publicAsset && !publicCallback) {
+        const session = await auth.api.getSession({ headers: request.headers });
+        const apiAuthorized = authorizedApi(request, apiToken, clientAddress, false);
+        if (!session && !apiAuthorized) {
+          if (!apiToken && !trustedLocalClient) {
+            return json(
+              {
+                error: {
+                  code: "api_auth_not_configured",
+                  message: "Remote API access requires OPENBOT_API_TOKEN or an owner session",
+                },
+              },
+              503
+            );
+          }
+          return json(
+            { error: { code: "unauthorized", message: "Sign in to OpenBot to continue" } },
+            401
+          );
+        }
       }
       if (request.method === "GET" && ["/api/snapshot", "/api/bootstrap"].includes(path)) {
         return json(await run(app.clientSnapshot()));
+      }
+      if (request.method === "POST" && path === "/api/notification-devices") {
+        return json(
+          await run(app.registerPushDevice(await parseBody(request, RegisterPushDeviceInput))),
+          201
+        );
+      }
+      const notificationDeviceMatch = path.match(/^\/api\/notification-devices\/([^/]+)$/);
+      if (request.method === "DELETE" && notificationDeviceMatch?.[1]) {
+        return json(
+          await run(app.unregisterPushDevice(decodeURIComponent(notificationDeviceMatch[1])))
+        );
+      }
+      const channelReadMatch = path.match(/^\/api\/channels\/([^/]+)\/read$/);
+      if (request.method === "POST" && channelReadMatch?.[1]) {
+        const input = await parseBody(request, MarkChannelReadInput);
+        return json(
+          await run(
+            app.markChannelRead(decodeURIComponent(channelReadMatch[1]), input.throughSequence)
+          )
+        );
       }
       if (request.method === "GET" && path === "/api/client-snapshot") {
         const startedAt = performance.now();
@@ -177,6 +241,13 @@ const server = Bun.serve({
         return json(snapshot, 200, {
           "server-timing": `snapshot;dur=${(performance.now() - startedAt).toFixed(2)}`,
         });
+      }
+      if (request.method === "POST" && path === "/api/assets") {
+        return json(await run(app.uploadAsset(await parseBody(request, UploadAssetInput))), 201);
+      }
+      const assetMatch = path.match(/^\/api\/assets\/([a-f0-9]{64})$/);
+      if ((request.method === "GET" || request.method === "HEAD") && assetMatch?.[1]) {
+        return await assetResponse(app.assets, app.agentData, request, url, assetMatch[1]);
       }
       if (request.method === "GET" && path === "/api/search") {
         const startedAt = performance.now();
@@ -225,11 +296,32 @@ const server = Bun.serve({
       }
       if (request.method === "POST" && path === "/api/plugins/install") {
         const input = await parseBody(request, InstallPluginInput);
-        return json(await run(app.installPlugin(input.pluginKey)), 201);
+        return json(await run(app.installPlugin(input.pluginKey, input.values)), 201);
       }
       if (request.method === "POST" && path === "/api/plugins/custom-mcp") {
         const input = await parseBody(request, AddCustomMcpInput);
-        return json(await run(app.addCustomMcp(input.name, input.url, input.alias)), 201);
+        return json(await run(app.addCustomMcp(input)), 201);
+      }
+      if (request.method === "GET" && path === "/api/plugin-oauth/callback") {
+        const connectionId = url.searchParams.get("connectionId");
+        const code = url.searchParams.get("code");
+        const state = url.searchParams.get("state");
+        const oauthError = url.searchParams.get("error");
+        if (oauthError) {
+          throw new ApiError(
+            400,
+            "plugin_oauth_denied",
+            url.searchParams.get("error_description") ?? oauthError
+          );
+        }
+        if (!connectionId || !code || !state) {
+          throw new ApiError(400, "plugin_oauth_callback_invalid", "OAuth callback is incomplete");
+        }
+        await run(app.finishPluginAuthentication(connectionId, code, state));
+        return new Response(
+          "<!doctype html><meta charset=utf-8><title>Connected</title><style>body{font:16px system-ui;display:grid;place-items:center;min-height:100vh;margin:0;background:#171717;color:#f5f5f5}main{text-align:center}p{color:#a3a3a3}</style><main><h1>Plugin connected</h1><p>You can close this tab and return to OpenBot.</p><script>setTimeout(()=>window.close(),900)</script></main>",
+          { headers: { "content-type": "text/html; charset=utf-8" } }
+        );
       }
       const pluginMatch = path.match(/^\/api\/plugins\/([^/]+)$/);
       if (request.method === "DELETE" && pluginMatch?.[1]) {
@@ -263,6 +355,51 @@ const server = Bun.serve({
         const input = await parseBody(request, ConnectPluginInput);
         if (!input.alias) throw new ApiError(400, "connection_alias_required", "Alias is required");
         return json(await run(app.addPluginAccount(connectionAccountMatch[1], input.alias)), 201);
+      }
+      const connectionConfigureMatch = path.match(
+        /^\/api\/plugin-connections\/([^/]+)\/configure$/
+      );
+      if (request.method === "POST" && connectionConfigureMatch?.[1]) {
+        return json(
+          await run(
+            app.configurePluginConnection(
+              connectionConfigureMatch[1],
+              await parseBody(request, ConfigurePluginConnectionInput)
+            )
+          )
+        );
+      }
+      const connectionAuthenticateMatch = path.match(
+        /^\/api\/plugin-connections\/([^/]+)\/authenticate$/
+      );
+      if (request.method === "POST" && connectionAuthenticateMatch?.[1]) {
+        const input = (await request.json().catch(() => ({}))) as { force?: unknown };
+        return json(
+          await run(app.authenticatePlugin(connectionAuthenticateMatch[1], input.force === true))
+        );
+      }
+      const connectionRestartMatch = path.match(/^\/api\/plugin-connections\/([^/]+)\/restart$/);
+      if (request.method === "POST" && connectionRestartMatch?.[1]) {
+        return json(await run(app.restartPluginConnection(connectionRestartMatch[1])));
+      }
+      const connectionInstructionsMatch = path.match(
+        /^\/api\/plugin-connections\/([^/]+)\/instructions$/
+      );
+      if (request.method === "PATCH" && connectionInstructionsMatch?.[1]) {
+        const input = await parseBody(request, SetMcpInstructionsInput);
+        return json(
+          await run(app.setMcpInstructions(connectionInstructionsMatch[1], input.instructions))
+        );
+      }
+      const connectionAccountItemMatch = path.match(
+        /^\/api\/plugin-connections\/([^/]+)\/account$/
+      );
+      if (request.method === "PATCH" && connectionAccountItemMatch?.[1]) {
+        const input = await parseBody(request, RenamePluginAccountInput);
+        return json(await run(app.renamePluginAccount(connectionAccountItemMatch[1], input.alias)));
+      }
+      if (request.method === "DELETE" && connectionAccountItemMatch?.[1]) {
+        return json(await run(app.removePluginAccount(connectionAccountItemMatch[1])));
       }
       const connectionGrantMatch = path.match(/^\/api\/plugin-connections\/([^/]+)\/grant$/);
       if (request.method === "POST" && connectionGrantMatch?.[1]) {
@@ -359,6 +496,17 @@ const server = Bun.serve({
         const input = await routineBody(request);
         return json(await run(app.createRoutine(botRoutinesMatch[1], input.clientId, input)), 201);
       }
+      const groupRoutinesMatch = path.match(/^\/api\/channels\/([^/]+)\/routines$/);
+      if (request.method === "GET" && groupRoutinesMatch?.[1]) {
+        return json(await run(app.listGroupRoutines(groupRoutinesMatch[1])));
+      }
+      if (request.method === "POST" && groupRoutinesMatch?.[1]) {
+        const input = await routineBody(request);
+        return json(
+          await run(app.createGroupRoutine(groupRoutinesMatch[1], input.clientId, input)),
+          201
+        );
+      }
       const routineExecutionsMatch = path.match(/^\/api\/routines\/([^/]+)\/executions$/);
       if (request.method === "GET" && routineExecutionsMatch?.[1]) {
         return json(
@@ -435,6 +583,40 @@ const server = Bun.serve({
             app.renameChannel(channelRenameMatch[1], await parseBody(request, RenameChannelInput))
           )
         );
+      }
+      const channelProfileMatch = path.match(/^\/api\/channels\/([^/]+)\/profile$/);
+      if (request.method === "PATCH" && channelProfileMatch?.[1]) {
+        return json(
+          await run(
+            app.updateChannelProfile(
+              channelProfileMatch[1],
+              await parseBody(request, UpdateChannelProfileInput)
+            )
+          )
+        );
+      }
+      const channelAvatarMatch = path.match(/^\/api\/channels\/([^/]+)\/avatar$/);
+      if (request.method === "PUT" && channelAvatarMatch?.[1]) {
+        return json(
+          await run(
+            app.setChannelAvatar(
+              channelAvatarMatch[1],
+              await parseBody(request, SetChannelAvatarInput)
+            )
+          )
+        );
+      }
+      if (request.method === "GET" && channelAvatarMatch?.[1]) {
+        const avatar = await run(app.channelAvatar(channelAvatarMatch[1]));
+        return new Response(avatar.bytes, {
+          headers: {
+            ...corsHeaders,
+            "content-type": avatar.contentType,
+            "cache-control": "private, max-age=31536000, immutable",
+            "x-content-type-options": "nosniff",
+            "content-security-policy": "default-src 'none'; sandbox",
+          },
+        });
       }
       const channelMembersMatch = path.match(/^\/api\/channels\/([^/]+)\/members$/);
       if (request.method === "PUT" && channelMembersMatch?.[1]) {

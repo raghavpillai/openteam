@@ -1,10 +1,10 @@
 import { expect, test } from "bun:test";
 import { access, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { createPrismaClient } from "@openbot/db";
-import { AgentDataStore, RoutineService } from "@openbot/messaging";
+import { AgentDataStore, AssetStore, RoutineService } from "@openbot/messaging";
 import { Effect } from "effect";
 import type { PgBoss } from "pg-boss";
 import { BotService } from "../src/services/bot-service";
@@ -91,11 +91,23 @@ test("canonical avatars serve safely and sidebar deletion preserves global memor
     await store.reconcileBot(botId);
     const a2aImageSource = join(workspace, "a2a-reference.png");
     await writeFile(a2aImageSource, imageBytes);
+    const assets = new AssetStore({
+      root: store.assetRoot,
+      allowedFileRoots: [workspace],
+    });
+    const a2aImage = await assets.ingestSource({
+      url: pathToFileURL(a2aImageSource).toString(),
+      alt: "A2A reference",
+    });
     const a2aAttachmentPaths = await store.materializeAttachments(botId, "a2a-file-image", [
-      { url: pathToFileURL(a2aImageSource).toString(), alt: "A2A reference" },
+      a2aImage,
     ]);
     expect(a2aAttachmentPaths).toHaveLength(1);
+    expect(basename(a2aAttachmentPaths[0]!)).toBe(`${a2aImage.assetId}.png`);
     expect(new Uint8Array(await readFile(a2aAttachmentPaths[0]!))).toEqual(imageBytes);
+    expect(
+      await store.materializeAttachments(botId, "same-bytes-second-message", [a2aImage])
+    ).toEqual(a2aAttachmentPaths);
 
     const userShard = join(root, "user-memory", "by-agent", botId, "profile.md");
     const projectShard = join(
@@ -134,11 +146,10 @@ test("canonical avatars serve safely and sidebar deletion preserves global memor
     await expect(access(agentDirectory)).rejects.toThrow();
     await store.writeRoutine(botId, routineId);
     await expect(access(agentDirectory)).rejects.toThrow();
-    expect(
-      await store.materializeAttachments(botId, "late-message", [
-        { url: `data:image/png;base64,${Buffer.from(imageBytes).toString("base64")}` },
-      ])
-    ).toEqual([]);
+    const lateImage = await assets.ingestSource({
+      url: `data:image/png;base64,${Buffer.from(imageBytes).toString("base64")}`,
+    });
+    expect(await store.materializeAttachments(botId, "late-message", [lateImage])).toEqual([]);
     await expect(access(agentDirectory)).rejects.toThrow();
     const routines = new RoutineService(
       prisma,

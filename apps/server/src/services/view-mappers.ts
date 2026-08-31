@@ -1,4 +1,4 @@
-import { type BotView, resolveBotAvatarMark } from "@openbot/contracts";
+import { type BotView, type ChannelView, resolveBotAvatarMark } from "@openbot/contracts";
 import type { Prisma } from "@openbot/db";
 
 export const serialize = <T>(value: T): T =>
@@ -7,6 +7,30 @@ export const serialize = <T>(value: T): T =>
       typeof nested === "bigint" ? nested.toString() : nested
     )
   ) as T;
+
+export const toChannelView = (channel: {
+  id: string;
+  kind: ChannelView["kind"];
+  name: string;
+  description: string;
+  avatarPath?: string | null;
+  directKey: string | null;
+  workingDirectory: string | null;
+  members: Array<{ botId: string; ordinal: number }>;
+  createdAt: Date;
+  updatedAt: Date;
+}): ChannelView => ({
+  id: channel.id,
+  kind: channel.kind,
+  name: channel.name,
+  description: channel.description,
+  hasAvatar: Boolean(channel.avatarPath),
+  directKey: channel.directKey,
+  workingDirectory: channel.workingDirectory,
+  members: channel.members.map(({ botId, ordinal }) => ({ botId, ordinal })),
+  createdAt: channel.createdAt.toISOString(),
+  updatedAt: channel.updatedAt.toISOString(),
+});
 
 export type BotWithConversation = Prisma.BotGetPayload<{
   include: {

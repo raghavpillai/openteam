@@ -93,6 +93,15 @@ export class InternalToolService {
           "SearchPlugins",
           "GetPlugin",
           "GetMcpServerStatus",
+          "InstallPlugin",
+          "UninstallPlugin",
+          "AddMcpServer",
+          "UninstallMcpServer",
+          "AuthenticateMcpServer",
+          "RestartMcpServers",
+          "RenameMcpAccount",
+          "RemoveMcpAccount",
+          "SetMcpInstructions",
         ]);
         if (childIdentity && parentOnlyTools.has(request.tool)) {
           throw new ApiError(403, "subagent_tool_forbidden", "This tool is parent-agent only");
@@ -122,6 +131,27 @@ export class InternalToolService {
           return this.plugins.connectionStatuses(
             typeof input.connectionId === "string" ? input.connectionId : undefined
           );
+        }
+        if (
+          [
+            "InstallPlugin",
+            "UninstallPlugin",
+            "AddMcpServer",
+            "UninstallMcpServer",
+            "AuthenticateMcpServer",
+            "RestartMcpServers",
+            "RenameMcpAccount",
+            "RemoveMcpAccount",
+            "SetMcpInstructions",
+          ].includes(request.tool)
+        ) {
+          return this.plugins.requestAction({
+            runId: request.runId,
+            botId: request.botId,
+            callId: request.callId,
+            action: request.tool,
+            arguments: request.arguments,
+          });
         }
         if (request.tool === "PluginCall") {
           const input =

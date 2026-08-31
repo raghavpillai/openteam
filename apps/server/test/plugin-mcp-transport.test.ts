@@ -9,13 +9,20 @@ afterEach(() => {
 });
 
 describe("remote MCP transport", () => {
-  test("initializes a streamable HTTP session, discovers tools, and invokes one", async () => {
+  test("initializes and reuses a streamable HTTP session for discovery and calls", async () => {
     const methods: string[] = [];
     const sessionHeaders: Array<string | null> = [];
     server = Bun.serve({
       hostname: "127.0.0.1",
       port: 0,
       async fetch(request) {
+        if (request.method === "GET") {
+          return new Response("SSE not available", {
+            status: 405,
+            headers: { allow: "POST" },
+          });
+        }
+        if (request.method === "DELETE") return new Response(null, { status: 204 });
         const message = (await request.json()) as {
           id?: string;
           method: string;
@@ -75,10 +82,8 @@ describe("remote MCP transport", () => {
       "initialize",
       "notifications/initialized",
       "tools/list",
-      "initialize",
-      "notifications/initialized",
       "tools/call",
     ]);
-    expect(sessionHeaders.filter((header) => header === "fixture-session")).toHaveLength(4);
+    expect(sessionHeaders.filter((header) => header === "fixture-session")).toHaveLength(3);
   });
 });

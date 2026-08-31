@@ -18,13 +18,70 @@ describe("plugin catalog", () => {
     );
   });
 
+  test("curates popular provider-hosted MCP integrations", () => {
+    const expected = {
+      gmail: "https://gmailmcp.googleapis.com/mcp/v1",
+      "google-calendar": "https://calendarmcp.googleapis.com/mcp/v1",
+      "google-drive": "https://drivemcp.googleapis.com/mcp/v1",
+      github: "https://api.githubcopilot.com/mcp/",
+      slack: "https://mcp.slack.com/mcp",
+      notion: "https://mcp.notion.com/mcp",
+      linear: "https://mcp.linear.app/mcp",
+      atlassian: "https://mcp.atlassian.com/v1/mcp/authv2",
+      asana: "https://mcp.asana.com/v2/mcp",
+    };
+
+    for (const [key, endpoint] of Object.entries(expected)) {
+      const plugin = pluginCatalog.find((candidate) => candidate.key === key);
+      expect(plugin?.featured).toBe(true);
+      expect(plugin?.connections[0]?.endpoint).toBe(endpoint);
+    }
+    expect(pluginCatalog.find((plugin) => plugin.key === "github")?.setup).toMatchObject({
+      kind: "token",
+      connectionKey: "github",
+      fields: [expect.objectContaining({ key: "token", secret: true })],
+    });
+  });
+
+  test("provides a complete guided setup for every authenticated connector", () => {
+    for (const plugin of pluginCatalog) {
+      for (const connection of plugin.connections.filter(
+        (candidate) => candidate.auth !== "none"
+      )) {
+        expect(plugin.setup?.connectionKey).toBe(connection.key);
+        expect(plugin.setup?.title).toBeTruthy();
+        expect(plugin.setup?.description).toBeTruthy();
+        expect(plugin.setup?.steps.length).toBeGreaterThan(0);
+        expect(plugin.setup?.documentationUrl).toStartWith("https://");
+      }
+    }
+
+    for (const key of ["gmail", "google-calendar", "google-drive", "slack", "asana"]) {
+      const setup = pluginCatalog.find((plugin) => plugin.key === key)?.setup;
+      expect(setup?.kind).toBe("oauth_client");
+      expect(setup?.fields).toEqual([
+        expect.objectContaining({ key: "clientId", required: true, secret: false }),
+        expect.objectContaining({ key: "clientSecret", required: true, secret: true }),
+      ]);
+    }
+
+    for (const key of ["notion", "linear", "atlassian"]) {
+      expect(pluginCatalog.find((plugin) => plugin.key === key)?.setup).toMatchObject({
+        kind: "oauth",
+        fields: [],
+      });
+    }
+  });
+
   test("rejects duplicate connector identities", () => {
-    const source = pluginCatalog[0]!;
+    const source = pluginCatalog[0];
+    const connector = source?.connections[0];
+    if (!source || !connector) throw new Error("Expected the bundled fixture connector");
     expect(() =>
       validatePluginCatalog([
         {
           ...source,
-          connections: [source.connections[0]!, source.connections[0]!],
+          connections: [connector, connector],
         },
       ])
     ).toThrow("Duplicate connector key");

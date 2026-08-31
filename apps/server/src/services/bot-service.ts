@@ -1,4 +1,3 @@
-import { resolve, sep } from "node:path";
 import {
   ApiError,
   type BotTranscriptView,
@@ -8,17 +7,16 @@ import {
   type UpdateBotInput,
 } from "@openbot/contracts";
 import { Prisma, type PrismaClient } from "@openbot/db";
-import { type AgentDataStore, buildSafeTranscript } from "@openbot/messaging";
+import {
+  appendAgentTimelineEvent,
+  type BotFileTarget,
+  type AgentDataStore,
+  type AgentMessaging,
+  buildSafeTranscript,
+} from "@openbot/messaging";
 import { Effect } from "effect";
 import { fromPrisma, type PgBoss } from "pg-boss";
-import {
-  appendEvent,
-  type ComputerFetch,
-  hashRequest,
-  slugify,
-  toError,
-  toJson,
-} from "./service-utils";
+import { appendEvent, type ComputerFetch, hashRequest, toError, toJson } from "./service-utils";
 import { type BotWithConversation, toBotView } from "./view-mappers";
 
 export class BotService {
@@ -27,7 +25,8 @@ export class BotService {
     private readonly boss: PgBoss,
     private readonly workspaceRoot: string,
     private readonly computerFetch: ComputerFetch,
-    private readonly agentData: AgentDataStore
+    private readonly agentData: AgentDataStore,
+    private readonly messaging?: AgentMessaging
   ) {}
 
   create = (input: CreateBotInput) =>
@@ -49,14 +48,7 @@ export class BotService {
           avatarShape: input.icon,
           avatarColor: input.color,
         });
-        const directory = resolve(
-          this.workspaceRoot,
-          "bots",
-          `${slugify(name)}-${botId.slice(0, 8)}`
-        );
-        if (!directory.startsWith(`${this.workspaceRoot}${sep}`)) {
-          throw new ApiError(400, "invalid_workspace", "Generated workspace path escaped root");
-        }
+        const directory = this.workspaceRoot;
         let bot: BotWithConversation;
         try {
           bot = await this.prisma.$transaction(async (tx) => {
@@ -132,6 +124,14 @@ export class BotService {
         if (!bot.conversation)
           throw new ApiError(500, "bot_incomplete", "Bot conversation is missing");
         await this.agentData.projectBot(bot.id);
+        const store = await this.computerFetch(`/v1/agent-stores/${bot.id}`, {
+          method: "PUT",
+          body: JSON.stringify({ createdAt: bot.createdAt.getTime() }),
+          signal: AbortSignal.timeout(15_000),
+        });
+        if (!store.ok) {
+          throw new ApiError(503, "agent_store_unavailable", await store.text());
+        }
         return toBotView(bot);
       },
       catch: toError,
@@ -141,15 +141,30 @@ export class BotService {
     Effect.tryPromise({
       try: async () => {
         await this.agentData.reconcileBot(botId);
-        const existing = await this.prisma.bot.findUnique({
-          where: { id: botId },
-          include: { subagentIdentity: { select: { id: true } } },
-        });
-        if (!existing || existing.subagentIdentity) {
-          throw new ApiError(404, "bot_not_found", "Bot not found");
-        }
         const name = input.name?.trim();
-        const bot = await this.prisma.$transaction(async (tx) => {
+        const fileTargets: BotFileTarget[] = [];
+        if (
+          input.name !== undefined ||
+          input.title !== undefined ||
+          input.description !== undefined ||
+          input.icon !== undefined ||
+          input.color !== undefined
+        ) {
+          fileTargets.push("profile");
+        }
+        if (input.instructions !== undefined) fileTargets.push("instructions");
+        if (input.icon !== undefined || input.color !== undefined) fileTargets.push("avatar");
+        if (input.notificationsEnabled !== undefined || input.hiddenFromSidebar !== undefined) {
+          fileTargets.push("settings");
+        }
+        const bot = await this.agentData.mutateBotFiles(botId, fileTargets, async (tx) => {
+          const existing = await tx.bot.findUnique({
+            where: { id: botId },
+            include: { subagentIdentity: { select: { id: true } } },
+          });
+          if (!existing || existing.subagentIdentity) {
+            throw new ApiError(404, "bot_not_found", "Bot not found");
+          }
           const updated = await tx.bot.update({
             where: { id: botId },
             data: {
@@ -174,6 +189,13 @@ export class BotService {
               data: { name },
             });
           }
+          if (existing.name && name && name !== existing.name && this.messaging) {
+            await appendAgentTimelineEvent(tx, this.messaging, {
+              botId,
+              clientId: `profile-name:${crypto.randomUUID()}`,
+              event: { type: "name-changed", from: existing.name, to: name },
+            });
+          }
           await appendEvent(tx, "bot.updated", botId, {
             botId,
             profileChanged:
@@ -188,25 +210,6 @@ export class BotService {
         });
         if (!bot.conversation)
           throw new ApiError(500, "bot_incomplete", "Bot conversation is missing");
-        const fileTargets: Array<"profile" | "instructions" | "avatar"> = [];
-        if (
-          input.name !== undefined ||
-          input.title !== undefined ||
-          input.description !== undefined ||
-          input.icon !== undefined ||
-          input.color !== undefined
-        ) {
-          fileTargets.push("profile");
-        }
-        if (input.instructions !== undefined) fileTargets.push("instructions");
-        if (input.icon !== undefined || input.color !== undefined) fileTargets.push("avatar");
-        if (fileTargets.length > 0) await this.agentData.writeBotFiles(bot.id, fileTargets);
-        if (input.notificationsEnabled !== undefined || input.hiddenFromSidebar !== undefined) {
-          await this.agentData.writeBotSettings(bot.id, {
-            notifyOnAgentUpdates: input.notificationsEnabled,
-            hiddenFromSidebar: input.hiddenFromSidebar,
-          });
-        }
         return toBotView(bot);
       },
       catch: toError,
@@ -269,7 +272,39 @@ export class BotService {
         if (!bot || bot.status === "archived" || bot.subagentIdentity) {
           throw new ApiError(404, "bot_not_found", "Bot not found");
         }
-        return buildSafeTranscript(this.prisma, botId);
+        const projection = await buildSafeTranscript(this.prisma, botId);
+        const projected = await this.computerFetch(`/v1/transcripts/${botId}`, {
+          method: "PUT",
+          body: JSON.stringify(projection),
+          signal: AbortSignal.timeout(30_000),
+        });
+        if (!projected.ok) {
+          throw new ApiError(
+            503,
+            "agent_store_unavailable",
+            `Transcript projection failed: ${await projected.text()}`
+          );
+        }
+        const response = await this.computerFetch(`/v1/transcripts/${botId}`, {
+          method: "GET",
+          signal: AbortSignal.timeout(30_000),
+        });
+        if (!response.ok) {
+          throw new ApiError(
+            503,
+            "agent_store_unavailable",
+            `Transcript store read failed: ${await response.text()}`
+          );
+        }
+        const transcript = (await response.json()) as BotTranscriptView;
+        if (
+          transcript.botId !== botId ||
+          typeof transcript.generatedAt !== "string" ||
+          !Array.isArray(transcript.events)
+        ) {
+          throw new ApiError(503, "agent_store_invalid", "Transcript store returned invalid data");
+        }
+        return transcript;
       },
       catch: toError,
     });

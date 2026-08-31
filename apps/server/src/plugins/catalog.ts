@@ -16,13 +16,31 @@ export interface PluginToolDefinition extends PluginCatalogToolView {
 
 export interface PluginConnectorDefinition extends Omit<PluginCatalogConnectionView, "tools"> {
   endpoint: string;
+  configuration?: Readonly<Record<string, unknown>>;
   tools: PluginToolDefinition[];
 }
 
 export interface PluginDefinition
-  extends Omit<PluginCatalogItemView, "installed" | "connections" | "skills"> {
+  extends Omit<
+    PluginCatalogItemView,
+    | "installed"
+    | "connections"
+    | "skills"
+    | "homepageUrl"
+    | "sourceUrl"
+    | "sourceRevision"
+    | "logoUrl"
+    | "setupFields"
+    | "setup"
+  > {
   connections: PluginConnectorDefinition[];
   skills: PluginSkillDefinition[];
+  homepageUrl?: string | null;
+  sourceUrl?: string | null;
+  sourceRevision?: string | null;
+  logoUrl?: string | null;
+  setupFields?: PluginCatalogItemView["setupFields"];
+  setup?: PluginCatalogItemView["setup"];
 }
 
 const tool = (
@@ -32,6 +50,25 @@ const tool = (
   risk: PluginCatalogToolView["risk"] = "read",
   defaultDecision: PluginCatalogToolView["defaultDecision"] = "allow"
 ) => ({ name, description, inputSchema, risk, defaultDecision });
+
+const oauthClientFields: NonNullable<PluginCatalogItemView["setup"]>["fields"] = [
+  {
+    key: "clientId",
+    label: "OAuth client ID",
+    placeholder: "Paste the client ID",
+    required: true,
+    secret: false,
+    helpText: null,
+  },
+  {
+    key: "clientSecret",
+    label: "OAuth client secret",
+    placeholder: "Paste the client secret",
+    required: true,
+    secret: true,
+    helpText: "Stored by your self-hosted OpenBot server and never returned to the desktop app.",
+  },
+];
 
 export const pluginCatalog: readonly PluginDefinition[] = [
   {
@@ -84,11 +121,30 @@ export const pluginCatalog: readonly PluginDefinition[] = [
     key: "gmail",
     version: "1.0.0",
     name: "Gmail",
-    description: "Search, read, draft, and manage email.",
+    description:
+      "Search, read, draft, and manage email with Google's Developer Preview MCP server.",
     publisher: "Google",
     category: "Inbox & Collaboration",
     featured: true,
     components: ["mcp"],
+    homepageUrl: "https://developers.google.com/workspace/guides/configure-mcp-servers",
+    setup: {
+      kind: "oauth_client",
+      connectionKey: "gmail",
+      title: "Connect Gmail",
+      description: "Create a Google OAuth web client, then authorize your Google account.",
+      documentationUrl: "https://developers.google.com/workspace/guides/configure-mcp-servers",
+      steps: [
+        "Create or select a Google Cloud project with Workspace Developer Preview access.",
+        "Enable the Gmail API and Gmail MCP API, then configure the OAuth consent screen.",
+        "Create a Web application OAuth client and add OpenBot's callback URL exactly.",
+      ],
+      fields: oauthClientFields,
+      requiredScopes: [
+        "https://www.googleapis.com/auth/gmail.readonly",
+        "https://www.googleapis.com/auth/gmail.compose",
+      ],
+    },
     skills: [],
     connections: [
       {
@@ -105,11 +161,30 @@ export const pluginCatalog: readonly PluginDefinition[] = [
     key: "google-calendar",
     version: "1.0.0",
     name: "Google Calendar",
-    description: "Search events and schedule meetings.",
+    description: "Search events and schedule meetings with Google's Developer Preview MCP server.",
     publisher: "Google",
     category: "Scheduling",
     featured: true,
     components: ["mcp"],
+    homepageUrl: "https://developers.google.com/workspace/guides/configure-mcp-servers",
+    setup: {
+      kind: "oauth_client",
+      connectionKey: "calendar",
+      title: "Connect Google Calendar",
+      description: "Create a Google OAuth web client, then authorize your Google account.",
+      documentationUrl: "https://developers.google.com/workspace/guides/configure-mcp-servers",
+      steps: [
+        "Create or select a Google Cloud project with Workspace Developer Preview access.",
+        "Enable the Calendar API and Calendar MCP API, then configure the OAuth consent screen.",
+        "Create a Web application OAuth client and add OpenBot's callback URL exactly.",
+      ],
+      fields: oauthClientFields,
+      requiredScopes: [
+        "https://www.googleapis.com/auth/calendar.calendarlist.readonly",
+        "https://www.googleapis.com/auth/calendar.events.freebusy",
+        "https://www.googleapis.com/auth/calendar.events.readonly",
+      ],
+    },
     skills: [],
     connections: [
       {
@@ -117,7 +192,7 @@ export const pluginCatalog: readonly PluginDefinition[] = [
         name: "Google Calendar",
         transport: "http",
         auth: "oauth",
-        endpoint: "https://calendar.mcp.google.com/mcp",
+        endpoint: "https://calendarmcp.googleapis.com/mcp/v1",
         tools: [],
       },
     ],
@@ -126,11 +201,30 @@ export const pluginCatalog: readonly PluginDefinition[] = [
     key: "google-drive",
     version: "1.0.0",
     name: "Google Drive",
-    description: "Search, read, create, and share files.",
+    description:
+      "Search, read, create, and share files with Google's Developer Preview MCP server.",
     publisher: "Google",
     category: "Documents & Files",
     featured: true,
     components: ["mcp"],
+    homepageUrl: "https://developers.google.com/workspace/guides/configure-mcp-servers",
+    setup: {
+      kind: "oauth_client",
+      connectionKey: "drive",
+      title: "Connect Google Drive",
+      description: "Create a Google OAuth web client, then authorize your Google account.",
+      documentationUrl: "https://developers.google.com/workspace/guides/configure-mcp-servers",
+      steps: [
+        "Create or select a Google Cloud project with Workspace Developer Preview access.",
+        "Enable the Drive API and Drive MCP API, then configure the OAuth consent screen.",
+        "Create a Web application OAuth client and add OpenBot's callback URL exactly.",
+      ],
+      fields: oauthClientFields,
+      requiredScopes: [
+        "https://www.googleapis.com/auth/drive.readonly",
+        "https://www.googleapis.com/auth/drive.file",
+      ],
+    },
     skills: [],
     connections: [
       {
@@ -138,7 +232,241 @@ export const pluginCatalog: readonly PluginDefinition[] = [
         name: "Google Drive",
         transport: "http",
         auth: "oauth",
-        endpoint: "https://drive.mcp.google.com/mcp",
+        endpoint: "https://drivemcp.googleapis.com/mcp/v1",
+        tools: [],
+      },
+    ],
+  },
+  {
+    key: "github",
+    version: "1.0.0",
+    name: "GitHub",
+    description: "Search repositories, inspect code, manage issues, and work with pull requests.",
+    publisher: "GitHub",
+    category: "Agent Orchestration",
+    featured: true,
+    components: ["mcp"],
+    homepageUrl: "https://github.com/github/github-mcp-server",
+    setup: {
+      kind: "token",
+      connectionKey: "github",
+      title: "Connect GitHub",
+      description: "Paste a GitHub personal access token to connect the official remote server.",
+      documentationUrl:
+        "https://github.com/github/github-mcp-server/blob/main/docs/host-integration.md",
+      steps: [
+        "Create a fine-grained personal access token in GitHub settings.",
+        "Choose only the repositories and permissions you want OpenBot to use.",
+        "Paste the token below. OpenBot stores it on your self-hosted server.",
+      ],
+      fields: [
+        {
+          key: "token",
+          label: "Personal access token",
+          placeholder: "github_pat_…",
+          required: true,
+          secret: true,
+          helpText: "Fine-grained tokens are recommended.",
+        },
+      ],
+      requiredScopes: [],
+    },
+    skills: [],
+    connections: [
+      {
+        key: "github",
+        name: "GitHub",
+        transport: "http",
+        auth: "token",
+        endpoint: "https://api.githubcopilot.com/mcp/",
+        tools: [],
+      },
+    ],
+  },
+  {
+    key: "slack",
+    version: "1.0.0",
+    name: "Slack",
+    description: "Search conversations, read threads, send messages, and work with canvases.",
+    publisher: "Slack",
+    category: "Inbox & Collaboration",
+    featured: true,
+    components: ["mcp"],
+    homepageUrl: "https://docs.slack.dev/ai/slack-mcp-server",
+    setup: {
+      kind: "oauth_client",
+      connectionKey: "slack",
+      title: "Connect Slack",
+      description: "Register an internal or Marketplace Slack app, then authorize a workspace.",
+      documentationUrl: "https://docs.slack.dev/ai/slack-mcp-server",
+      steps: [
+        "Create or reuse a Slack app. Slack MCP supports internal and Marketplace apps.",
+        "Add the user-token scopes needed by the Slack tools you want to use.",
+        "Add OpenBot's callback URL, then paste the app client ID and secret below.",
+      ],
+      fields: oauthClientFields,
+      requiredScopes: [
+        "search:read.public",
+        "search:read.private",
+        "files:read",
+        "channels:history",
+        "groups:history",
+        "chat:write",
+      ],
+    },
+    skills: [],
+    connections: [
+      {
+        key: "slack",
+        name: "Slack",
+        transport: "http",
+        auth: "oauth",
+        endpoint: "https://mcp.slack.com/mcp",
+        tools: [],
+      },
+    ],
+  },
+  {
+    key: "notion",
+    version: "1.0.0",
+    name: "Notion",
+    description: "Search your workspace, read pages, create documentation, and update content.",
+    publisher: "Notion",
+    category: "Documents & Files",
+    featured: true,
+    components: ["mcp"],
+    homepageUrl: "https://developers.notion.com/guides/mcp/overview",
+    setup: {
+      kind: "oauth",
+      connectionKey: "notion",
+      title: "Connect Notion",
+      description: "Notion registers OpenBot during OAuth, so there are no secrets to create.",
+      documentationUrl: "https://developers.notion.com/guides/mcp/build-mcp-client",
+      steps: [
+        "Continue to Notion's authorization page.",
+        "Choose the workspace and pages OpenBot may access.",
+        "Return to OpenBot after authorization completes.",
+      ],
+      fields: [],
+      requiredScopes: [],
+    },
+    skills: [],
+    connections: [
+      {
+        key: "notion",
+        name: "Notion",
+        transport: "http",
+        auth: "oauth",
+        endpoint: "https://mcp.notion.com/mcp",
+        tools: [],
+      },
+    ],
+  },
+  {
+    key: "linear",
+    version: "1.0.0",
+    name: "Linear",
+    description: "Find, create, and update issues, projects, comments, and initiatives.",
+    publisher: "Linear",
+    category: "Productivity",
+    featured: true,
+    components: ["mcp"],
+    homepageUrl: "https://linear.app/docs/mcp",
+    setup: {
+      kind: "oauth",
+      connectionKey: "linear",
+      title: "Connect Linear",
+      description: "Linear registers OpenBot during OAuth, so there are no secrets to create.",
+      documentationUrl: "https://linear.app/docs/mcp",
+      steps: [
+        "Continue to Linear's authorization page.",
+        "Choose the workspace OpenBot may access.",
+        "Return to OpenBot after authorization completes.",
+      ],
+      fields: [],
+      requiredScopes: [],
+    },
+    skills: [],
+    connections: [
+      {
+        key: "linear",
+        name: "Linear",
+        transport: "http",
+        auth: "oauth",
+        endpoint: "https://mcp.linear.app/mcp",
+        tools: [],
+      },
+    ],
+  },
+  {
+    key: "atlassian",
+    version: "1.0.0",
+    name: "Jira & Confluence",
+    description: "Search and update Jira work, Confluence pages, and Compass context.",
+    publisher: "Atlassian",
+    category: "Productivity",
+    featured: true,
+    components: ["mcp"],
+    homepageUrl: "https://support.atlassian.com/atlassian-rovo-mcp-server/docs/setting-up-clients/",
+    setup: {
+      kind: "oauth",
+      connectionKey: "atlassian",
+      title: "Connect Jira & Confluence",
+      description: "Authorize OpenBot with your Atlassian Cloud account.",
+      documentationUrl:
+        "https://support.atlassian.com/atlassian-rovo-mcp-server/docs/setting-up-clients/",
+      steps: [
+        "Make sure your organization allows Atlassian Rovo MCP connections.",
+        "Continue to Atlassian and choose the Cloud site OpenBot may access.",
+        "Return to OpenBot after authorization completes.",
+      ],
+      fields: [],
+      requiredScopes: [],
+    },
+    skills: [],
+    connections: [
+      {
+        key: "atlassian",
+        name: "Atlassian Rovo",
+        transport: "http",
+        auth: "oauth",
+        endpoint: "https://mcp.atlassian.com/v1/mcp/authv2",
+        tools: [],
+      },
+    ],
+  },
+  {
+    key: "asana",
+    version: "1.0.0",
+    name: "Asana",
+    description: "Create and manage tasks, projects, assignments, and status updates.",
+    publisher: "Asana",
+    category: "Productivity",
+    featured: true,
+    components: ["mcp"],
+    homepageUrl: "https://developers.asana.com/docs/using-asanas-mcp-server",
+    setup: {
+      kind: "oauth_client",
+      connectionKey: "asana",
+      title: "Connect Asana",
+      description: "Create an Asana MCP app, then authorize your workspace.",
+      documentationUrl: "https://developers.asana.com/docs/integrating-with-asanas-mcp-server",
+      steps: [
+        "Create an app in Asana's developer console and select MCP app as its type.",
+        "Add OpenBot's callback URL and allow the workspace you want to use.",
+        "Paste the app client ID and secret below, then authorize Asana.",
+      ],
+      fields: oauthClientFields,
+      requiredScopes: [],
+    },
+    skills: [],
+    connections: [
+      {
+        key: "asana",
+        name: "Asana",
+        transport: "http",
+        auth: "oauth",
+        endpoint: "https://mcp.asana.com/v2/mcp",
         tools: [],
       },
     ],
@@ -194,6 +522,21 @@ export const validatePluginCatalog = (catalog: readonly PluginDefinition[]): voi
       if (connector.transport === "http" && !connector.endpoint.startsWith("https://")) {
         throw new Error(`Remote connector must use HTTPS: ${plugin.key}/${connector.key}`);
       }
+    }
+    if (plugin.setup?.connectionKey && !connectorKeys.has(plugin.setup.connectionKey)) {
+      throw new Error(`Plugin setup references an unknown connector: ${plugin.key}`);
+    }
+    if (
+      plugin.setup?.kind === "token" &&
+      !plugin.setup.fields.some((field) => field.key === "token")
+    ) {
+      throw new Error(`Token setup must declare a token field: ${plugin.key}`);
+    }
+    if (
+      plugin.setup?.kind === "oauth_client" &&
+      !plugin.setup.fields.some((field) => field.key === "clientId")
+    ) {
+      throw new Error(`OAuth client setup must declare a client ID field: ${plugin.key}`);
     }
   }
 };

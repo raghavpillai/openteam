@@ -48,7 +48,8 @@ test("plugin install, connection, grant, policy, discovery, call, and removal li
 
     await Effect.runPromise(service.install("openbot-utility-lab"));
     const initial = await Effect.runPromise(service.settings());
-    const connection = initial.connections[0]!;
+    const connection = initial.connections[0];
+    if (!connection) throw new Error("Expected the installed plugin to expose a connection");
     expect(connection.status).toBe("disconnected");
 
     await Effect.runPromise(service.connect(connection.id));
@@ -86,21 +87,84 @@ test("plugin install, connection, grant, policy, discovery, call, and removal li
         arguments: { note: "requires approval" },
       })
     ).rejects.toMatchObject({ code: "plugin_approval_required" });
+    await expect(
+      service.invoke({
+        connectionId: connection.id,
+        botId,
+        runId,
+        callId: "plugin-call-note-duplicate",
+        toolName: "remember_note",
+        arguments: { note: "requires approval" },
+      })
+    ).rejects.toMatchObject({ code: "plugin_approval_required" });
+    expect(
+      await prisma.approval.count({
+        where: { runId, requestMethod: "plugin/tool", status: "pending" },
+      })
+    ).toBe(1);
+    expect(
+      await prisma.pluginInvocation.findUnique({
+        where: { callId: "plugin-call-note-duplicate" },
+      })
+    ).toBeNull();
     const approval = await prisma.approval.findFirstOrThrow({
       where: { upstreamRequestId: "plugin:plugin-call-note-1" },
     });
-    const runs = new RunService(prisma, async () => {
-      throw new Error("Plugin approvals must not call the computer runtime");
-    });
+    const runs = new RunService(
+      prisma,
+      async () => {
+        throw new Error("Plugin approvals must not call the computer runtime");
+      },
+      (callId, decision) => service.resolveInvocation(callId, decision),
+      (details, decision) => service.resolveAction(details, decision),
+      (connectionId, approvedBotId, toolName) =>
+        Effect.runPromise(
+          service.setPolicy(connectionId, {
+            botId: approvedBotId,
+            toolName,
+            decision: "allow",
+          })
+        )
+    );
     expect(await Effect.runPromise(runs.resolveApproval(approval.id, "accept"))).toMatchObject({
       status: "accepted",
+      result: { remembered: true },
     });
+    expect(
+      await prisma.pluginInvocation.findUniqueOrThrow({ where: { callId: "plugin-call-note-1" } })
+    ).toMatchObject({ status: "completed", result: { remembered: true } });
+    expect(
+      await prisma.pluginToolPolicy.findFirst({
+        where: { connectionId: connection.id, botId, toolName: "remember_note" },
+      })
+    ).toBeNull();
+    await expect(
+      service.invoke({
+        connectionId: connection.id,
+        botId,
+        runId,
+        callId: "plugin-call-note-2",
+        toolName: "remember_note",
+        arguments: { note: "always approved note" },
+      })
+    ).rejects.toMatchObject({ code: "plugin_approval_required" });
+    const alwaysApproval = await prisma.approval.findFirstOrThrow({
+      where: { upstreamRequestId: "plugin:plugin-call-note-2" },
+    });
+    expect(
+      await Effect.runPromise(runs.resolveApproval(alwaysApproval.id, "always_allow"))
+    ).toMatchObject({ status: "accepted", result: { remembered: true } });
+    expect(
+      await prisma.pluginToolPolicy.findFirstOrThrow({
+        where: { connectionId: connection.id, botId, toolName: "remember_note" },
+      })
+    ).toMatchObject({ decision: "allow" });
     expect(
       await service.invoke({
         connectionId: connection.id,
         botId,
         runId,
-        callId: "plugin-call-note-2",
+        callId: "plugin-call-note-3",
         toolName: "remember_note",
         arguments: { note: "approved note" },
       })
@@ -116,6 +180,26 @@ test("plugin install, connection, grant, policy, discovery, call, and removal li
     await Effect.runPromise(service.uninstall("openbot-utility-lab"));
     await Effect.runPromise(service.uninstall("research-playbook"));
     expect((await Effect.runPromise(service.settings())).installs).toHaveLength(0);
+
+    await expect(
+      service.requestAction({
+        runId,
+        botId,
+        callId: "plugin-action-install-1",
+        action: "InstallPlugin",
+        arguments: { pluginKey: "research-playbook" },
+      })
+    ).rejects.toMatchObject({ code: "plugin_action_required" });
+    const actionApproval = await prisma.approval.findFirstOrThrow({
+      where: { upstreamRequestId: "plugin-action:plugin-action-install-1" },
+    });
+    expect(
+      await Effect.runPromise(runs.resolveApproval(actionApproval.id, "accept"))
+    ).toMatchObject({ status: "accepted", result: { installed: true } });
+    expect((await Effect.runPromise(service.settings())).installs[0]?.pluginKey).toBe(
+      "research-playbook"
+    );
+    await Effect.runPromise(service.uninstall("research-playbook"));
   } finally {
     await prisma.$disconnect();
   }

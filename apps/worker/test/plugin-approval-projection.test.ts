@@ -9,6 +9,15 @@ test("completed turns preserve durable plugin approvals while expiring runtime a
   const tx = {
     run: {
       findUniqueOrThrow: async () => ({ status: "running" }),
+      findUnique: async () => ({
+        bot: {
+          id: "bot-1",
+          name: "Bot",
+          notificationsEnabled: false,
+          hiddenFromSidebar: false,
+        },
+        channel: { id: "channel-1", kind: "bot_dm", archivedAt: null },
+      }),
       update: async () => ({}),
     },
     runItem: { updateMany: async () => ({ count: 0 }) },

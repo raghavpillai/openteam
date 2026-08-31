@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
-  subagentCompletionEnvelope,
+  pluginSkillPromptForRuntime,
   subagentLoadsPluginContext,
   subagentRuntimeOwners,
 } from "../src/worker";
@@ -14,7 +14,7 @@ describe("subagent runtime ownership", () => {
     }
   });
 
-  test("executor workers inherit the parent plugin catalog without sharing its screen", () => {
+  test("executor workers inherit parent plugin tools without sharing its screen", () => {
     expect(
       subagentRuntimeOwners("child", { parentBotId: "parent", subagentType: "executor" })
     ).toEqual({ screenBotId: "child", pluginBotId: "parent" });
@@ -27,26 +27,15 @@ describe("subagent runtime ownership", () => {
     expect(subagentLoadsPluginContext(null)).toBe(true);
   });
 
+  test("no subagent inherits parent plugin skill prompt text", () => {
+    expect(pluginSkillPromptForRuntime("subagent", "Parent plugin skill")).toBe("");
+    expect(pluginSkillPromptForRuntime("agent", "Parent plugin skill")).toBe("Parent plugin skill");
+  });
+
   test("ordinary agents own their own runtime resources", () => {
     expect(subagentRuntimeOwners("bot", null)).toEqual({
       screenBotId: "bot",
       pluginBotId: "bot",
     });
-  });
-
-  test("tells the parent that completion content is still private", () => {
-    const envelope = subagentCompletionEnvelope(
-      "<user_visible_high_level_summary>Ready to ship.</user_visible_high_level_summary>\n<response>All checks passed, including the private audit.</response>"
-    );
-    expect(envelope).toContain("no Task card or child result has been added");
-    expect(envelope).toContain("candidate text for a normal user-facing message");
-    expect(envelope).toContain("stay quiet when the user explicitly asked");
-    expect(envelope).not.toContain("already visible to the user");
-    expect(envelope).toContain(
-      "<user_visible_high_level_summary>\nReady to ship.\n</user_visible_high_level_summary>"
-    );
-    expect(envelope).toContain(
-      "<response>\nAll checks passed, including the private audit.\n</response>"
-    );
   });
 });

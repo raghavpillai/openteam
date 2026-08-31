@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   automationTriggerForWake,
   contextScopeForRun,
+  turnContentWithProfileUpdate,
   wakeResetsSelfSummaryCount,
 } from "../src/worker";
 
@@ -13,7 +14,7 @@ describe("Grok-style runtime context routing", () => {
       scope: "home",
       scopeId: conversationId,
     });
-    for (const origin of ["user", "agent", "routine", "bootstrap"] as const) {
+    for (const origin of ["user", "agent", "routine", "bootstrap", "event"] as const) {
       expect(contextScopeForRun(origin, groupId, conversationId)).toEqual({
         scope: "home",
         scopeId: conversationId,
@@ -29,7 +30,7 @@ describe("Grok-style runtime context routing", () => {
     });
   });
 
-  test("resets summary counts for hidden wakes except background-task completion", () => {
+  test("does not reset summary counts for event taps or background-task completion", () => {
     for (const type of [
       "agent.message",
       "group.message",
@@ -43,6 +44,7 @@ describe("Grok-style runtime context routing", () => {
     expect(wakeResetsSelfSummaryCount("subagent.failed")).toBe(false);
     expect(wakeResetsSelfSummaryCount("subagent.stopped")).toBe(false);
     expect(wakeResetsSelfSummaryCount("subagent.cancelled")).toBe(false);
+    expect(wakeResetsSelfSummaryCount("timeline.event")).toBe(false);
   });
 
   test("carries only the original tagged automation trigger for routine wakes", () => {
@@ -60,5 +62,13 @@ describe("Grok-style runtime context routing", () => {
     ).toContain("Routine: supplied");
     expect(automationTriggerForWake("agent", tagged)).toBeNull();
     expect(automationTriggerForWake("routine", "untagged routine")).toBeNull();
+  });
+
+  test("prepends a profile announcement to the same hidden user-role turn", () => {
+    const update = "<<SAND_AGENT_PROFILE_UPDATE:v1:fixture>>";
+    expect(turnContentWithProfileUpdate(update, "[event]\n- Renamed to Test")).toBe(
+      `${update}\n\n[event]\n- Renamed to Test`
+    );
+    expect(turnContentWithProfileUpdate(null, "normal user turn")).toBe("normal user turn");
   });
 });

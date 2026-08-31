@@ -1,15 +1,29 @@
-import type { ComputerEvent, InlineImageInput, RunOrigin, SubagentType } from "@openbot/contracts";
+import type {
+  AssetRef,
+  ComputerEvent,
+  RunOrigin,
+  RuntimeInlineImage,
+  SubagentType,
+} from "@openbot/contracts";
+import {
+  agentNotificationPresentation,
+  notificationMessageInputReason,
+  notificationMessagePreview,
+} from "@openbot/contracts";
 import { createPrismaClient, Prisma, type PrismaClient } from "@openbot/db";
 import {
+  appendAgentTimelineEvent,
   AgentDataStore,
   AgentMessaging,
   appendRoutineRunLedger,
   buildSafeTranscript,
   RoutineService,
+  renderSubagentRevivalPrompt,
 } from "@openbot/messaging";
 import { fromPrisma, type Job, type JobWithMetadata, PgBoss } from "pg-boss";
 import { pluginRuntimeContext } from "./plugins";
 import { Projection } from "./projection";
+import { enqueuePushNotification, PushNotificationDispatcher } from "./push-notifications";
 
 const LEASE_MS = 2 * 60_000;
 
@@ -27,6 +41,20 @@ interface TranscriptData {
   botId: string;
 }
 
+interface AgentDirectoryRecord {
+  id: string;
+  kind: "agent" | "group";
+  name: string;
+  description: string;
+  title: string;
+  createdAt: number;
+  updatedAt: number;
+  hasStore: boolean;
+  notifyOnAgentUpdates: boolean;
+  hiddenFromSidebar: boolean;
+  memberIds: string[];
+}
+
 interface Claimed {
   inboxId: string;
   inboxType: string;
@@ -39,7 +67,7 @@ interface Claimed {
   ownerId: string;
   content: string;
   automationTrigger: string | null;
-  images: InlineImageInput[];
+  images: RuntimeInlineImage[];
   clientId: string;
   cwd: string;
   instructions: string;
@@ -72,10 +100,24 @@ export const subagentRuntimeOwners = (
 export const subagentLoadsPluginContext = (subagentType: SubagentType | null): boolean =>
   subagentType !== "computerUse" && subagentType !== "browserUse";
 
+export const pluginSkillPromptForRuntime = (
+  runtimeProfile: "agent" | "subagent",
+  skillInstructions: string
+): string => (runtimeProfile === "agent" ? skillInstructions : "");
+
 export const wakeResetsSelfSummaryCount = (inboxType: string): boolean =>
-  !["subagent.completed", "subagent.failed", "subagent.stopped", "subagent.cancelled"].includes(
-    inboxType
-  );
+  ![
+    "subagent.completed",
+    "subagent.failed",
+    "subagent.stopped",
+    "subagent.cancelled",
+    "timeline.event",
+  ].includes(inboxType);
+
+export const turnContentWithProfileUpdate = (
+  profileUpdate: string | null,
+  content: string
+): string => [profileUpdate, content].filter(Boolean).join("\n\n");
 
 export const automationTriggerForWake = (
   origin: RunOrigin,
@@ -92,44 +134,23 @@ export const automationTriggerForWake = (
   );
 };
 
-export const subagentCompletionEnvelope = (result: string): string => {
-  const summary =
-    result
-      .match(
-        /<user_visible_high_level_summary>\s*([\s\S]*?)\s*<\/user_visible_high_level_summary>/i
-      )?.[1]
-      ?.trim() || result.trim();
-  const response =
-    result.match(/<response>\s*([\s\S]*?)\s*<\/response>/i)?.[1]?.trim() || result.trim();
-  return [
-    "A background subagent completed. This is a private wake for the parent; no Task card or child result has been added to the user-visible transcript. Reconcile your todos before continuing.",
-    "Treat <user_visible_high_level_summary> as candidate text for a normal user-facing message. Normally send a concise completion update, but stay quiet when the user explicitly asked you not to restate the result. Never expose <response> verbatim unless its details are necessary and appropriate for the user.",
-    "",
-    "<user_visible_high_level_summary>",
-    summary,
-    "</user_visible_high_level_summary>",
-    "",
-    "<response>",
-    response,
-    "</response>",
-  ].join("\n");
-};
-
-const inlineImages = (value: unknown): InlineImageInput[] => {
+const assetRefs = (value: unknown): AssetRef[] => {
   if (!Array.isArray(value)) return [];
   return value
     .filter(
-      (candidate): candidate is { url: string; alt?: unknown } =>
+      (candidate): candidate is AssetRef =>
         Boolean(candidate) &&
         typeof candidate === "object" &&
-        typeof (candidate as { url?: unknown }).url === "string" &&
-        /^data:image\/(?:gif|jpeg|png|webp);base64,/i.test((candidate as { url: string }).url)
+        typeof (candidate as { assetId?: unknown }).assetId === "string" &&
+        /^[a-f0-9]{64}$/.test((candidate as { assetId: string }).assetId) &&
+        typeof (candidate as { fileName?: unknown }).fileName === "string" &&
+        typeof (candidate as { mimeType?: unknown }).mimeType === "string" &&
+        typeof (candidate as { byteSize?: unknown }).byteSize === "number" &&
+        ["image", "video", "audio", "pdf", "text", "file"].includes(
+          String((candidate as { kind?: unknown }).kind)
+        )
     )
-    .map((candidate) => ({
-      url: candidate.url,
-      ...(typeof candidate.alt === "string" ? { alt: candidate.alt.slice(0, 2_000) } : {}),
-    }))
-    .slice(0, 8);
+    .slice(0, 6);
 };
 
 export const turnCompletionFailure = (
@@ -187,10 +208,16 @@ export class WakeWorker {
   readonly projection: Projection;
   readonly computerUrl: string;
   readonly controlToken: string;
+  readonly workspaceRoot: string;
   readonly agentData: AgentDataStore;
   readonly messaging: AgentMessaging;
   readonly routines: RoutineService;
+  readonly pushNotifications: PushNotificationDispatcher;
   private routineTimer: ReturnType<typeof setInterval> | null = null;
+  private agentStoreTimer: ReturnType<typeof setInterval> | null = null;
+  private pushNotificationTimer: ReturnType<typeof setInterval> | null = null;
+  private reconcilingAgentStores = false;
+  private routinePassActive = false;
 
   constructor() {
     const databaseUrl = process.env.DATABASE_URL ?? "";
@@ -198,6 +225,7 @@ export class WakeWorker {
     this.boss = new PgBoss(databaseUrl);
     this.computerUrl = process.env.OPENBOT_COMPUTER_URL ?? "http://127.0.0.1:8790";
     this.controlToken = process.env.OPENBOT_CONTROL_TOKEN ?? "local-compose-only-change-me";
+    this.workspaceRoot = process.env.OPENBOT_WORKSPACE_ROOT ?? "/workspace";
     this.agentData = new AgentDataStore(this.prisma, {
       memoryInference: async (request) => {
         const response = await fetch(`${this.computerUrl}/v1/infer`, {
@@ -222,7 +250,11 @@ export class WakeWorker {
     });
     this.projection = new Projection(this.prisma, this.agentData);
     this.messaging = new AgentMessaging(this.prisma, this.boss, this.agentData);
+    this.agentData.setTimelineEventSink((tx, input) =>
+      appendAgentTimelineEvent(tx, this.messaging, input)
+    );
     this.routines = new RoutineService(this.prisma, this.messaging, this.agentData);
+    this.pushNotifications = new PushNotificationDispatcher(this.prisma);
     this.boss.on("error", (error) => console.error("pg-boss", error));
   }
 
@@ -236,8 +268,10 @@ export class WakeWorker {
     await this.messaging.recoverRounds();
     await this.recoverDurableWork();
     await this.recoverRoutineExecutions();
+    await this.reconcileAgentStores();
     await this.agentData.reconcileAllActiveBots();
     await this.agentData.startMemoryLifecycle();
+    await this.pushNotifications.drain();
     await this.boss.work<WakeData>(
       "bot-wake",
       {
@@ -262,24 +296,176 @@ export class WakeWorker {
       if (job) await this.handleTranscript(job);
     });
     await this.boss.work("routine-dispatch", { batchSize: 1 }, async () => {
-      await this.agentData.reconcileAllActiveBots();
-      await this.recoverRoutineExecutions();
-      await this.routines.dispatchDue();
+      await this.dispatchRoutinePass();
     });
     this.routineTimer = setInterval(() => {
-      void this.recoverRoutineExecutions()
-        .then(() => this.routines.dispatchDue())
-        .catch((error) => console.error("routine-dispatch", error));
+      void this.dispatchRoutinePass().catch((error) => console.error("routine-dispatch", error));
     }, 1_000);
     this.routineTimer.unref();
+    this.agentStoreTimer = setInterval(() => {
+      if (this.reconcilingAgentStores) return;
+      this.reconcilingAgentStores = true;
+      void this.reconcileAgentStores(false)
+        .then(async (adopted) => {
+          if (adopted > 0) await this.agentData.reconcileAllActiveBots();
+        })
+        .catch((error) => console.error("agent-store-reconcile", error))
+        .finally(() => {
+          this.reconcilingAgentStores = false;
+        });
+    }, 5_000);
+    this.agentStoreTimer.unref();
+    this.pushNotificationTimer = setInterval(() => {
+      void this.pushNotifications
+        .drain()
+        .catch((error) => console.error("push notification delivery", error));
+    }, 2_000);
+    this.pushNotificationTimer.unref();
   }
 
   async stop(): Promise<void> {
     if (this.routineTimer) clearInterval(this.routineTimer);
     this.routineTimer = null;
+    if (this.agentStoreTimer) clearInterval(this.agentStoreTimer);
+    this.agentStoreTimer = null;
+    if (this.pushNotificationTimer) clearInterval(this.pushNotificationTimer);
+    this.pushNotificationTimer = null;
     await this.agentData.stopMemoryLifecycle();
     await this.boss.stop({ graceful: true });
     await this.prisma.$disconnect();
+  }
+
+  private async dispatchRoutinePass(): Promise<void> {
+    if (this.routinePassActive) return;
+    this.routinePassActive = true;
+    try {
+      await this.agentData.reconcileAllAutomationFiles();
+      await this.recoverRoutineExecutions();
+      await this.routines.dispatchDue();
+    } finally {
+      this.routinePassActive = false;
+    }
+  }
+
+  private async reconcileAgentStores(backfill = true): Promise<number> {
+    const directoryResponse = await this.computerFetch("/v1/agent-stores", { method: "GET" });
+    if (!directoryResponse.ok) {
+      throw new Error(`Agent directory discovery failed: ${await directoryResponse.text()}`);
+    }
+    const directoryPayload = (await directoryResponse.json()) as { agents?: unknown };
+    const directories = Array.isArray(directoryPayload.agents)
+      ? (directoryPayload.agents as AgentDirectoryRecord[]).filter(
+          (record) =>
+            record &&
+            typeof record.id === "string" &&
+            /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+              record.id
+            )
+        )
+      : [];
+
+    let adopted = 0;
+    for (const record of directories.filter(({ kind }) => kind === "agent")) {
+      const existing = await this.prisma.bot.findUnique({ where: { id: record.id } });
+      if (existing) continue;
+      const created = await this.prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`adopt-agent:${record.id}`}))`;
+        if (await tx.bot.findUnique({ where: { id: record.id } })) return false;
+        await tx.bot.create({
+          data: {
+            id: record.id,
+            name: record.name || "New Bot",
+            title: record.title,
+            description: record.description,
+            namedBy: "user",
+            notificationsEnabled: record.notifyOnAgentUpdates,
+            hiddenFromSidebar: record.hiddenFromSidebar,
+            defaultDirectory: this.workspaceRoot,
+            status: "active",
+            onboardingStatus: "completed",
+            onboardingCompletedAt: new Date(record.createdAt),
+            createdAt: new Date(record.createdAt),
+            conversation: { create: { createdAt: new Date(record.createdAt) } },
+          },
+        });
+        await tx.channel.create({
+          data: {
+            kind: "bot_dm",
+            name: record.name || "New Bot",
+            directKey: `bot:${record.id}`,
+            createdAt: new Date(record.createdAt),
+            members: { create: { botId: record.id, ordinal: 0 } },
+          },
+        });
+        return true;
+      });
+      if (created) adopted += 1;
+    }
+
+    for (const record of directories.filter(({ kind }) => kind === "group")) {
+      if (await this.prisma.channel.findUnique({ where: { id: record.id } })) continue;
+      const memberIds = [...new Set(record.memberIds)].slice(0, 6);
+      if (memberIds.length === 0) continue;
+      const activeMembers = await this.prisma.bot.findMany({
+        where: { id: { in: memberIds }, status: "active", subagentIdentity: { is: null } },
+        select: { id: true },
+      });
+      if (activeMembers.length !== memberIds.length) continue;
+      const created = await this.prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`adopt-group:${record.id}`}))`;
+        if (await tx.channel.findUnique({ where: { id: record.id } })) return false;
+        await tx.channel.create({
+          data: {
+            id: record.id,
+            kind: "group",
+            name: record.name || "Group",
+            description: record.description,
+            workingDirectory: this.workspaceRoot,
+            createdAt: new Date(record.createdAt),
+            members: {
+              create: memberIds.map((botId, ordinal) => ({ botId, ordinal })),
+            },
+          },
+        });
+        return true;
+      });
+      if (created) adopted += 1;
+    }
+
+    if (!backfill) return adopted;
+
+    const [bots, groups] = await Promise.all([
+      this.prisma.bot.findMany({
+        where: { status: { in: ["active", "provisioning"] }, subagentIdentity: { is: null } },
+        select: { id: true, createdAt: true },
+        orderBy: { createdAt: "asc" },
+      }),
+      this.prisma.channel.findMany({
+        where: { kind: "group", archivedAt: null },
+        select: { id: true, createdAt: true },
+        orderBy: { createdAt: "asc" },
+      }),
+    ]);
+    for (const owner of [...bots, ...groups]) {
+      const response = await this.computerFetch(`/v1/agent-stores/${owner.id}`, {
+        method: "PUT",
+        body: JSON.stringify({ createdAt: owner.createdAt.getTime() }),
+      });
+      if (!response.ok) {
+        throw new Error(`Agent store backfill failed for ${owner.id}: ${await response.text()}`);
+      }
+    }
+    const response = await this.computerFetch("/v1/agent-stores/reconcile", {
+      method: "POST",
+      body: JSON.stringify({ ownerIds: [...bots, ...groups].map(({ id }) => id) }),
+    });
+    if (!response.ok) {
+      throw new Error(`Agent store ownership reconciliation failed: ${await response.text()}`);
+    }
+    for (const bot of bots) {
+      await this.boss.send("transcript-project", { botId: bot.id });
+    }
+    return adopted;
   }
 
   private async recoverDurableWork(): Promise<void> {
@@ -399,7 +585,7 @@ export class WakeWorker {
           ...(status === "completed" ? {} : { error: execution.run.error ?? Prisma.JsonNull }),
         },
       });
-      if (updated.count > 0) {
+      if (updated.count > 0 && execution.routine.botId) {
         await this.syncRoutineRunFile(execution.routine.botId, execution.runId);
       }
     }
@@ -613,7 +799,7 @@ export class WakeWorker {
         if (!inbox) return null;
         const payload = inbox.payload as {
           content?: string;
-          images?: unknown;
+          attachments?: unknown;
           clientId?: string;
           channelId?: string;
           automationTrigger?: unknown;
@@ -734,12 +920,9 @@ export class WakeWorker {
           content: payload.content,
           automationTrigger:
             typeof payload.automationTrigger === "string" ? payload.automationTrigger : null,
-          images: inlineImages(payload.images),
+          images: await this.messaging.assets.runtimeImages(assetRefs(payload.attachments)),
           clientId: payload.clientId,
-          cwd:
-            inbox.run.origin === "group" && inbox.run.channel?.workingDirectory
-              ? inbox.run.channel.workingDirectory
-              : inbox.bot.defaultDirectory,
+          cwd: this.workspaceRoot,
           instructions: inbox.bot.instructions,
           sessionPath: contextSession.runtimeSessionPath,
           channelId: inbox.run.channelId ?? String(payload.channelId ?? ""),
@@ -774,9 +957,12 @@ export class WakeWorker {
           ? pluginRuntimeContext(this.prisma, claimed.pluginBotId)
           : Promise.resolve({ dynamicNamespaces: [], skillInstructions: "" }),
       ]);
-      // Plugin skills are global/read-only inputs. Bot-owned saved skills are
-      // rendered later by platformInstructions and therefore win on conflict.
-      const instructions = `${pluginContext.skillInstructions}${platformPrompt.instructions}`;
+      // Plugin skills are global/read-only inputs. User workflows are rendered
+      // later by platformInstructions and therefore win on conflict.
+      const instructions = `${pluginSkillPromptForRuntime(
+        claimed.runtimeProfile,
+        pluginContext.skillInstructions
+      )}${platformPrompt.instructions}`;
       const response = await fetch(`${this.computerUrl}/v1/turns`, {
         method: "POST",
         headers: {
@@ -790,13 +976,15 @@ export class WakeWorker {
           screenBotId: claimed.screenBotId,
           conversationId: claimed.conversationId,
           sessionPath: claimed.sessionPath,
-          content: claimed.content,
+          content: turnContentWithProfileUpdate(platformPrompt.agentProfileUpdate, claimed.content),
           images: claimed.images,
           clientMessageId: claimed.clientId,
           cwd: claimed.cwd,
           instructions,
           userInfo: platformPrompt.userInfo,
           userInfoEpoch: platformPrompt.userInfoEpoch ?? undefined,
+          agentProfileSnapshot: platformPrompt.agentProfileSnapshot ?? undefined,
+          memorySnapshot: platformPrompt.memorySnapshot ?? undefined,
           todoUpdate: platformPrompt.todoUpdate,
           automationTrigger: automationTriggerForWake(
             claimed.origin,
@@ -804,6 +992,7 @@ export class WakeWorker {
             claimed.automationTrigger
           ),
           resetSelfSummaryCount: wakeResetsSelfSummaryCount(claimed.inboxType),
+          requestSource: claimed.origin === "routine" ? "automation" : claimed.origin,
           channelId: claimed.channelId,
           deliveryId: claimed.deliveryId,
           runtimeProfile: claimed.runtimeProfile,
@@ -827,6 +1016,9 @@ export class WakeWorker {
           if (!line.trim()) continue;
           const event = JSON.parse(line) as ComputerEvent;
           await this.projection.apply(claimed.runId, claimed.conversationId, claimed.botId, event);
+          void this.pushNotifications
+            .drain()
+            .catch((error) => console.error("push notification delivery", error));
           if (event.type === "turn.completed") completion = event;
         }
         if (done) break;
@@ -915,6 +1107,9 @@ export class WakeWorker {
       throw new Error("Computer returned an invalid context-state preflight response");
     }
     await this.projection.apply(claimed.runId, claimed.conversationId, claimed.botId, event);
+    void this.pushNotifications
+      .drain()
+      .catch((error) => console.error("push notification delivery", error));
   }
 
   private async heartbeat(claimed: Claimed): Promise<void> {
@@ -1019,6 +1214,60 @@ export class WakeWorker {
           payload: failureDetails,
         },
       });
+      if (current && !priorityInterrupted) {
+        const [bot, channel] = await Promise.all([
+          tx.bot.findUnique({ where: { id: current.botId } }),
+          tx.channel.findFirst({
+            where: {
+              kind: "bot_dm",
+              archivedAt: null,
+              members: { some: { botId: current.botId } },
+            },
+          }),
+        ]);
+        const lastMessage = channel
+          ? await tx.channelMessage.findFirst({
+              where: {
+                channelId: channel.id,
+                sourceRunId: claimed.runId,
+                sender: "agent",
+                senderBotId: current.botId,
+              },
+              orderBy: { sequence: "desc" },
+            })
+          : null;
+        if (
+          bot?.notificationsEnabled &&
+          !bot.hiddenFromSidebar &&
+          channel?.kind === "bot_dm" &&
+          !channel.archivedAt &&
+          lastMessage
+        ) {
+          const inputReason = notificationMessageInputReason(lastMessage);
+          const kind = inputReason ? "agent-needs-input" : "agent-done";
+          const presentation = agentNotificationPresentation({
+            kind,
+            botName: bot.name,
+            body: inputReason ?? notificationMessagePreview(lastMessage),
+          });
+          await enqueuePushNotification(
+            tx,
+            inputReason
+              ? `notification:needs-input:message:${claimed.runId}`
+              : `notification:done:${claimed.runId}`,
+            {
+              schemaVersion: 1,
+              kind,
+              botId: bot.id,
+              channelId: channel.id,
+              runId: claimed.runId,
+              title: presentation.title,
+              body: presentation.body,
+              deepLink: `openbot:///chat/${channel.id}`,
+            }
+          );
+        }
+      }
       await this.messaging.scheduleTranscriptProjection(tx, [claimed.botId]);
       await this.failSubagent(tx, claimed, failureDetails);
     });
@@ -1272,6 +1521,7 @@ export class WakeWorker {
       parentBotId: string;
       parentChannelId: string;
       description: string;
+      subagentType: string;
       currentRunId: string | null;
       outputPath: string;
     },
@@ -1287,16 +1537,15 @@ export class WakeWorker {
       channelId: subagent.parentChannelId,
       origin: "agent",
       type: `subagent.${status}`,
-      content: [
-        `[Background subagent ${status}]`,
-        `Agent ID: ${subagent.id}`,
-        `Task: ${subagent.description}`,
-        `Transcript: ${subagent.outputPath}`,
-        "",
-        status === "completed" ? subagentCompletionEnvelope(result) : result,
-      ].join("\n"),
+      content: renderSubagentRevivalPrompt({
+        title: subagent.description,
+        subagentType: subagent.subagentType,
+        status,
+        result,
+      }),
       clientId: `subagent:${subagent.id}:${status}:${subagent.currentRunId}`,
       priority: 260,
+      wrapUserContent: false,
     });
   }
 }

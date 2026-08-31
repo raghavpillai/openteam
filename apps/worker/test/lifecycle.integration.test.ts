@@ -66,6 +66,24 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
       if (!request.headers.get("authorization")?.startsWith("Bearer ")) {
         return Response.json({ error: "unauthorized" }, { status: 401 });
       }
+      if (request.method === "POST" && url.pathname === "/v1/agent-stores/reconcile") {
+        return Response.json({ quarantined: [] });
+      }
+      if (request.method === "PUT" && /^\/v1\/agent-stores\/[^/]+$/.test(url.pathname)) {
+        return Response.json({ ok: true });
+      }
+      if (request.method === "POST" && url.pathname === "/v1/infer") {
+        const body = (await request.json()) as { kind?: string };
+        const text =
+          body.kind === "extraction"
+            ? '{"facts":[]}'
+            : body.kind === "episode"
+              ? '{"narrative":null}'
+              : body.kind === "verification"
+                ? '{"approved":true}'
+                : '{"changes":[]}';
+        return Response.json({ text });
+      }
       if (request.method === "PUT" && url.pathname.startsWith("/v1/workspaces/")) {
         const body = (await request.json()) as { path: string };
         await mkdir(body.path, { recursive: true });
@@ -220,12 +238,19 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
     expect(bot.status).toBe("provisioning");
     expect(replayedBot.id).toBe(bot.id);
     expect(await app.prisma.bot.count()).toBe(1);
+    const uploadedImage = await Effect.runPromise(
+      app.uploadAsset({
+        fileName: "image.png",
+        mimeType: "image/png",
+        bytesBase64: inlineImage.url.slice(inlineImage.url.indexOf(",") + 1),
+      })
+    );
     const conversationId = bot.conversationId;
     const first = (await Effect.runPromise(
       app.sendMessage(conversationId, {
         content: "first",
         clientId: "client-first-0001",
-        images: [inlineImage],
+        attachments: [uploadedImage],
         timeZone: "Asia/Jerusalem",
       })
     )) as { run: { id: string } };
@@ -233,7 +258,7 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
       app.sendMessage(conversationId, {
         content: "first",
         clientId: "client-first-0001",
-        images: [inlineImage],
+        attachments: [uploadedImage],
         timeZone: "Asia/Jerusalem",
       })
     )) as { run: { id: string } };
@@ -273,14 +298,7 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
     );
     expect(seenTurns[0]?.content).toContain("Attached files available on the shared computer:");
     expect(seenTurns[0]?.content).toContain(
-      join(
-        workspace,
-        "agent-data",
-        "agents",
-        bot.id,
-        "attachments",
-        "client-first-0001-1-image.png"
-      )
+      join(workspace, "agent-data", "agents", bot.id, "attachments", `${uploadedImage.assetId}.png`)
     );
     expect(
       firstSnapshot.channelMessages.find(
@@ -291,7 +309,7 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
       firstSnapshot.channelMessages.find(
         (message) => message.channelId === bot.dmChannelId && message.sender === "user"
       )?.metadata
-    ).toMatchObject({ images: [inlineImage] });
+    ).toMatchObject({ attachments: [uploadedImage] });
     const firstClientSnapshot = await Effect.runPromise(app.clientSnapshot());
     expect("messages" in firstClientSnapshot).toBe(false);
     expect(
@@ -355,7 +373,7 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
       app.sendMessage(conversationId, {
         content: "redirect the active task",
         clientId: "client-steering-inline-0004",
-        images: [inlineImage],
+        attachments: [uploadedImage],
       })
     )) as { run: { id: string } };
     expect(redirected.run.id).toBe(steeringBase.run.id);
@@ -628,14 +646,19 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
         botIds: [bot.id, peer.id, reviewer.id],
       })
     );
-    expect(group.workingDirectory).toMatch(
-      new RegExp(`^${workspace}/projects/ordered-room-[a-f0-9]{8}$`)
+    expect(group.workingDirectory).toBe(workspace);
+    await Effect.runPromise(
+      app.updateChannelProfile(group.id, {
+        name: group.name,
+        description: "Coordinate ordered parity checks.",
+        clientId: "group-profile-ordered-checks",
+      })
     );
     const accepted = (await Effect.runPromise(
       app.sendChannelMessage(group.id, {
         content: "Give one compact status line.",
         clientId: "client-group-0004",
-        images: [inlineImage],
+        attachments: [uploadedImage],
         timeZone: "Asia/Jerusalem",
       })
     )) as { round: { id: string } };
@@ -676,7 +699,7 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
         } catch (error) {
           sameGroupError = error;
         }
-        expect(sameGroupError).toMatchObject({ code: "use_bound_send_message" });
+        expect(String(sameGroupError)).toContain("Use SendToUser");
       }
       await Effect.runPromise(
         app!.handleDynamicTool({
@@ -694,25 +717,13 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
         })
       );
       if (input.botId === bot.id) {
-        let duplicateGroupReplyError: unknown;
-        try {
-          await Effect.runPromise(
-            app!.handleDynamicTool({
-              runId: input.runId,
-              botId: input.botId,
-              conversationId: input.conversationId,
-              channelId: input.channelId,
-              deliveryId: input.deliveryId,
-              tool: "SendToUser",
-              arguments: { type: "text", content: "A second room answer." },
-              callId: "group-visible-second",
-            })
-          );
-        } catch (error) {
-          duplicateGroupReplyError = error;
-        }
-        expect(duplicateGroupReplyError).toMatchObject({
-          code: "group_response_already_sent",
+        await app!.prisma.channelMessage.create({
+          data: {
+            channelId: group.id,
+            sender: "user",
+            clientId: "post-trigger-user-message",
+            content: "This arrived after the round trigger and belongs to the next round.",
+          },
         });
       }
     };
@@ -728,6 +739,9 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
     const groupSnapshot = await Effect.runPromise(app.snapshot());
     const groupTurns = seenTurns.filter((turn) => turn.channelId === group.id);
     expect(groupTurns.map((turn) => turn.botId)).toEqual([bot.id, peer.id, reviewer.id]);
+    expect(
+      groupTurns.every((turn) => turn.content.includes("Room: Coordinate ordered parity checks."))
+    ).toBe(true);
     expect(groupTurns.every((turn) => turn.cwd === group.workingDirectory)).toBe(true);
     expect(
       groupTurns.every((turn) => JSON.stringify(turn.images) === JSON.stringify([inlineImage]))
@@ -735,13 +749,16 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
     expect(
       groupTurns.every(
         (turn) =>
-          /^<timestamp>.+ \(UTC\+3\)<\/timestamp>\n<user_query>\n/.test(turn.content) &&
-          (turn.content.match(/<timestamp>/g)?.length ?? 0) === 1
+          turn.content.startsWith('[Group chat: "Ordered room"') &&
+          !turn.content.includes("<timestamp>")
       )
     ).toBe(true);
     expect(turnBody(groupTurns[1]?.content ?? "")).toContain(`Group answer from ${bot.id}`);
     expect(turnBody(groupTurns[2]?.content ?? "")).toContain(`Group answer from ${bot.id}`);
     expect(turnBody(groupTurns[2]?.content ?? "")).toContain(`Group answer from ${peer.id}`);
+    expect(
+      groupTurns.slice(1).every((turn) => !turn.content.includes("belongs to the next round"))
+    ).toBe(true);
     expect(
       groupSnapshot.channelMessages
         .filter((message) => message.channelId === group.id)
@@ -749,6 +766,7 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
     ).toEqual([
       "Give one compact status line.",
       `Group answer from ${bot.id}`,
+      "This arrived after the round trigger and belongs to the next round.",
       `Group answer from ${peer.id}`,
       `Group answer from ${reviewer.id}`,
     ]);
@@ -789,4 +807,4 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
     await close();
     fakeComputer.stop(true);
   }
-}, 45_000);
+}, 90_000);

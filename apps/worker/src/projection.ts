@@ -1,6 +1,12 @@
-import type { ComputerEvent } from "@openbot/contracts";
+import {
+  agentNotificationPresentation,
+  type ComputerEvent,
+  notificationMessageInputReason,
+  notificationMessagePreview,
+} from "@openbot/contracts";
 import type { Prisma, PrismaClient, RunItemKind, RunItemStatus } from "@openbot/db";
 import type { AgentDataStore } from "@openbot/messaging";
+import { approvalReason, enqueuePushNotification } from "./push-notifications";
 
 const json = (value: unknown): Prisma.InputJsonValue =>
   JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
@@ -334,7 +340,7 @@ export class Projection {
             type: "shell_command",
             command: item.command,
             shellKind: typeof item.shellKind === "string" ? item.shellKind : "unknown",
-            target: "computer",
+            target: "box",
           });
         }
         break;
@@ -358,10 +364,10 @@ export class Projection {
             },
             update: {},
           });
-          await tx.run.updateMany({
+          const waiting = await tx.run.updateMany({
             where: {
               id: runId,
-              status: { in: ["queued", "running", "waiting_approval"] },
+              status: { in: ["queued", "running"] },
             },
             data: { status: "waiting_approval" },
           });
@@ -372,6 +378,27 @@ export class Projection {
             });
           }
           await this.event(tx, "approval.requested", runId, event);
+          if (waiting.count > 0) {
+            const target = await this.notificationTarget(tx, runId);
+            if (target) {
+              const presentation = agentNotificationPresentation({
+                kind: "agent-needs-input",
+                botName: target.bot.name,
+                body: approvalReason(event.details),
+              });
+              await enqueuePushNotification(tx, `notification:needs-input:${event.approvalId}`, {
+                schemaVersion: 1,
+                kind: "agent-needs-input",
+                botId: target.bot.id,
+                channelId: target.channel.id,
+                runId,
+                approvalId: event.approvalId,
+                title: presentation.title,
+                body: presentation.body,
+                deepLink: `openbot:///chat/${target.channel.id}`,
+              });
+            }
+          }
         });
         break;
       case "compaction":
@@ -493,10 +520,76 @@ export class Projection {
             runId,
             status: finalStatus,
           });
+          const target = await this.notificationTarget(tx, runId);
+          if (target) {
+            const lastMessage = await tx.channelMessage.findFirst({
+              where: {
+                channelId: target.channel.id,
+                sourceRunId: runId,
+                sender: "agent",
+                senderBotId: target.bot.id,
+              },
+              orderBy: { sequence: "desc" },
+              select: { content: true, metadata: true },
+            });
+            if (lastMessage) {
+              const inputReason = notificationMessageInputReason(lastMessage);
+              const kind = inputReason ? "agent-needs-input" : "agent-done";
+              const presentation = agentNotificationPresentation({
+                kind,
+                botName: target.bot.name,
+                body: inputReason ?? notificationMessagePreview(lastMessage),
+              });
+              await enqueuePushNotification(
+                tx,
+                inputReason
+                  ? `notification:needs-input:message:${runId}`
+                  : `notification:done:${runId}`,
+                {
+                  schemaVersion: 1,
+                  kind,
+                  botId: target.bot.id,
+                  channelId: target.channel.id,
+                  runId,
+                  title: presentation.title,
+                  body: presentation.body,
+                  deepLink: `openbot:///chat/${target.channel.id}`,
+                }
+              );
+            }
+          }
         });
         break;
       }
     }
+  }
+
+  private async notificationTarget(tx: Prisma.TransactionClient, runId: string) {
+    const run = await tx.run.findUnique({
+      where: { id: runId },
+      select: {
+        bot: {
+          select: {
+            id: true,
+            name: true,
+            notificationsEnabled: true,
+            hiddenFromSidebar: true,
+          },
+        },
+      },
+    });
+    if (!run || !run.bot.notificationsEnabled || run.bot.hiddenFromSidebar) {
+      return null;
+    }
+    const channel = await tx.channel.findFirst({
+      where: {
+        kind: "bot_dm",
+        archivedAt: null,
+        members: { some: { botId: run.bot.id } },
+      },
+      select: { id: true, kind: true, archivedAt: true },
+    });
+    return channel ? { bot: run.bot, channel } : null;
   }
 
   private event(tx: Prisma.TransactionClient, topic: string, entityId: string, payload: unknown) {

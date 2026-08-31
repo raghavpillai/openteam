@@ -13,6 +13,15 @@ test("live 1:1 A2A mirrors both home stores and wakes both agents without a pair
 
   const workspace = join(tmpdir(), `openbot-a2a-live-${crypto.randomUUID()}`);
   await mkdir(workspace, { recursive: true });
+  const parityImagePath = join(workspace, "parity-pixel.png");
+  await writeFile(
+    parityImagePath,
+    Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+      "base64"
+    )
+  );
+  const parityImageUrl = `file://${parityImagePath}`;
   interface TurnInput {
     runId: string;
     botId: string;
@@ -20,8 +29,10 @@ test("live 1:1 A2A mirrors both home stores and wakes both agents without a pair
     conversationId: string;
     sessionPath: string | null;
     content: string;
+    images?: Array<{ url: string }>;
     channelId: string;
     deliveryId: string | null;
+    instructions: string;
   }
   const turns: TurnInput[] = [];
   const acknowledgements: string[] = [];
@@ -69,6 +80,15 @@ test("live 1:1 A2A mirrors both home stores and wakes both agents without a pair
       if (request.method === "PUT" && url.pathname.startsWith("/v1/transcripts/")) {
         return Response.json({ ok: true });
       }
+      if (request.method === "PUT" && /^\/v1\/agent-stores\/[^/]+$/.test(url.pathname)) {
+        return Response.json({ ok: true });
+      }
+      if (request.method === "POST" && url.pathname === "/v1/agent-stores/reconcile") {
+        return Response.json({ quarantined: [] });
+      }
+      if (request.method === "POST" && url.pathname === "/v1/infer") {
+        return Response.json({ text: '{"facts":[]}' });
+      }
       if (request.method === "POST" && /^\/v1\/turns\/[^/]+\/cancel$/.test(url.pathname)) {
         return Response.json({ ok: true });
       }
@@ -89,6 +109,7 @@ test("live 1:1 A2A mirrors both home stores and wakes both agents without a pair
                   arguments: {
                     target_id: probeId,
                     message: "Live A2A capture from Source. Reply with exactly: ACK",
+                    images: [{ url: parityImageUrl, alt: "Parity pixel" }],
                   },
                   callId: "a2a-live-ping",
                 })
@@ -187,8 +208,9 @@ test("live 1:1 A2A mirrors both home stores and wakes both agents without a pair
       'TRUNCATE TABLE "Computer", "Bot", "OutboxDelivery", "Event", "IdempotencyRecord" CASCADE'
     );
     await Effect.runPromise(app.boot());
-    worker = new WakeWorker();
-    await worker.start();
+    const runningWorker = new WakeWorker();
+    worker = runningWorker;
+    await runningWorker.start();
 
     const source = await Effect.runPromise(
       app.createBot({ clientRequestId: "a2a-source", name: "Source" })
@@ -205,27 +227,27 @@ test("live 1:1 A2A mirrors both home stores and wakes both agents without a pair
       });
       return bots.length === 2 && bots.every((bot) => bot.onboardingStatus === "completed");
     }, "both agent bootstraps");
-    await app.prisma.routine.createMany({
-      data: [
-        {
-          botId: probeId,
-          slug: "parity-probe-handwritten",
-          name: "parity-probe-handwritten",
-          prompt: "Harmless parity fixture",
-          scheduleText: "0 0 * * *",
-          scheduleKind: "cron",
-          cronExpression: "0 0 * * *",
-          timezone: "Asia/Jerusalem",
-        },
-        {
-          botId: probeId,
-          slug: "parity-probe-harmless",
-          name: "parity-probe-harmless",
-          prompt: "Harmless parity fixture",
-          scheduleText: "0 0 * * *",
-          scheduleKind: "cron",
-          cronExpression: "0 0 * * *",
-          timezone: "Asia/Jerusalem",
+    await runningWorker.routines.mutate(probeId, "a2a-routine-handwritten", null, {
+      action: "create",
+      name: "parity-probe-handwritten",
+      prompt: "Harmless parity fixture",
+      schedule: "0 0 * * *",
+      enabled: false,
+      source: "ui",
+    });
+    const harmless = await runningWorker.routines.mutate(probeId, "a2a-routine-harmless", null, {
+      action: "create",
+      name: "parity-probe-harmless",
+      prompt: "Harmless parity fixture",
+      schedule: "0 0 * * *",
+      enabled: false,
+      source: "ui",
+    });
+    await runningWorker.agentData.stopWatching();
+    await app.prisma.$transaction(async (tx) => {
+      await tx.routine.update({
+        where: { id: String(harmless.id) },
+        data: {
           lastRunAt: new Date("2026-08-27T19:51:57.000Z"),
           runLedger: [
             {
@@ -237,8 +259,11 @@ test("live 1:1 A2A mirrors both home stores and wakes both agents without a pair
             },
           ],
         },
-      ],
+      });
+      await runningWorker.agentData.writeRoutine(probeId, String(harmless.id), tx);
     });
+    await runningWorker.agentData.startWatching();
+    expect(await app.prisma.routine.count({ where: { botId: probeId, deletedAt: null } })).toBe(2);
 
     await Effect.runPromise(
       app.sendMessage(source.conversationId, {
@@ -269,7 +294,7 @@ test("live 1:1 A2A mirrors both home stores and wakes both agents without a pair
       "Live A2A capture from Source. Reply with exactly: ACK",
       "ACK",
     ]);
-    expect(sourceProjection[0]?.metadata).toEqual({
+    expect(sourceProjection[0]?.metadata).toMatchObject({
       toAgent: { id: probeId, name: "Parity Probe", kind: "agent" },
     });
     expect(sourceProjection[1]?.metadata).toEqual({
@@ -284,7 +309,7 @@ test("live 1:1 A2A mirrors both home stores and wakes both agents without a pair
         ("toAgent" in message.metadata || "fromAgent" in message.metadata)
     );
     expect(probeProjection.map((message) => message.sender)).toEqual(["user", "agent"]);
-    expect(probeProjection[0]?.metadata).toEqual({
+    expect(probeProjection[0]?.metadata).toMatchObject({
       fromAgent: { id: sourceId, name: "Source" },
     });
     expect(probeProjection[1]?.metadata).toEqual({
@@ -308,6 +333,14 @@ Current routine runtime status. This snapshot is authoritative for this turn and
 </system_reminder>
 
 [agent] A message just arrived from another of your user's agents: Source (id: ${sourceId}).`);
+    expect(probeTurn?.content).toStartWith("<timestamp>");
+    expect(probeTurn?.content).toContain("</timestamp>\n<user_query>\n[SAND_HIDDEN_PROMPT]");
+    expect(probeTurn?.content).toContain(`${parityImageUrl} — Parity pixel`);
+    expect(probeTurn?.content).toContain(
+      "Local image files are shown to you alongside this message."
+    );
+    expect(probeTurn?.content).not.toContain("Attached files available on the shared computer:");
+    expect(probeTurn?.images).toHaveLength(1);
     expect(sourceTurn?.content).toContain(
       `[SAND_HIDDEN_PROMPT][agent] A message just arrived from another of your user's agents: Parity Probe (id: ${probeId}).`
     );
@@ -316,6 +349,14 @@ Current routine runtime status. This snapshot is authoritative for this turn and
     expect(peerTurns.every((turn) => !turn.content.includes("\n[SAND_HIDDEN_PROMPT]\n"))).toBe(
       true
     );
+    expect(
+      peerTurns.every(
+        (turn) =>
+          turn.instructions.includes("Agent-to-agent messaging is asynchronous, like texting.") &&
+          turn.instructions.includes("Reply to a peer with SendToAgent") &&
+          turn.instructions.includes("Available SendToAgent targets:")
+      )
+    ).toBe(true);
     expect(snapshot.runs.filter((run) => run.origin === "agent").map((run) => run.botId)).toEqual([
       probeId,
       sourceId,
@@ -346,6 +387,7 @@ Current routine runtime status. This snapshot is authoritative for this turn and
           arguments: {
             target_id: probeId,
             message: "Live A2A capture from Source. Reply with exactly: ACK",
+            images: [{ url: parityImageUrl, alt: "Parity pixel" }],
           },
         },
         {

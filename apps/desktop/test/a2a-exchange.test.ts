@@ -49,6 +49,8 @@ describe("A2A exchange sheet lifecycle", () => {
       id: "source-home",
       kind: "bot_dm",
       name: "Source",
+      description: "",
+      hasAvatar: false,
       directKey: null,
       workingDirectory: null,
       members: [{ botId: source.id, ordinal: 0 }],

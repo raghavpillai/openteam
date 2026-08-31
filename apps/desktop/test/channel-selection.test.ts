@@ -1,12 +1,16 @@
 import { describe, expect, test } from "bun:test";
 import type { ChannelView } from "@openbot/contracts";
-import { restoredActiveChannelId } from "../src/renderer/lib/channel-selection";
+import {
+  activeAgentIdForChannel,
+  restoredActiveChannelId,
+} from "../src/renderer/lib/channel-selection";
 
 const channel = (id: string, directKey: string): ChannelView =>
   ({
     id,
     kind: "bot_dm",
     name: id,
+    description: "",
     directKey,
     workingDirectory: null,
     members: [],
@@ -51,5 +55,19 @@ describe("active-agent selection restore", () => {
         currentSelectionRevision: 0,
       })
     ).toBe("clicked-home");
+  });
+
+  test("stores and restores a group namespace as the active session", () => {
+    const group = { ...channel("room-1", ""), kind: "group", directKey: null } as ChannelView;
+    expect(activeAgentIdForChannel(group)).toBe("room-1");
+    expect(
+      restoredActiveChannelId({
+        activeAgentId: "room-1",
+        channels: [...channels, group],
+        currentSelectedId: "clicked-home",
+        selectionRevisionAtRequest: 0,
+        currentSelectionRevision: 0,
+      })
+    ).toBe("room-1");
   });
 });

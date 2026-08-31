@@ -6,29 +6,39 @@ import {
   CirclePause,
   CirclePlus,
   Clock3,
+  Globe2,
   LoaderCircle,
   Pause,
   Plus,
+  Radio,
   X,
 } from "lucide-react";
-import { DropdownMenu as DropdownMenuPrimitive, Select as SelectPrimitive } from "radix-ui";
+import { DropdownMenu as DropdownMenuPrimitive } from "radix-ui";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ClientError } from "../../client/http";
 import { api } from "../../client/openbot-api";
 import { cn } from "../../lib/cn";
 import {
   DEFAULT_ROUTINE_SCHEDULE,
   describeRoutineSchedule,
+  formatRoutineExecutionTime,
   type RoutineExecutionView,
   type RoutineScheduleDraft,
   type RoutineSchedulePreset,
   type RoutineView,
-  routineDraftValid,
   routineIsRunning,
-  routinePresentationValue,
-  routineScheduleValue,
-  routineScheduleDrafts,
-  routineTriggerValue,
 } from "../../lib/routines";
+import {
+  defaultRoutineTriggerDraft,
+  describeRoutineTrigger,
+  routineDraftTriggerValue,
+  routineTriggerDrafts,
+  routineTriggerDraftValid,
+  routineTriggerKinds,
+  routineTriggerPresentationValue,
+  type RoutineTriggerDraft,
+  type RoutineTriggerKind,
+} from "../../lib/routine-triggers";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -42,6 +52,8 @@ import {
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
+import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { Switch } from "../ui/switch";
 import { Textarea } from "../ui/textarea";
 
@@ -77,7 +89,14 @@ const months = [
   "November",
   "December",
 ];
-const intervalAmounts = [5, 10, 15, 20, 30, 45];
+const intervalAmounts: Record<RoutineScheduleDraft["intervalUnit"], number[]> = {
+  m: [1, 2, 5, 10, 15, 20, 30, 45],
+  h: [1, 2, 3, 4, 6, 8, 12],
+  d: [1, 2, 3, 7, 14, 30],
+};
+
+const intervalDefault = (unit: RoutineScheduleDraft["intervalUnit"]): number =>
+  unit === "m" ? 30 : 1;
 
 const timeLabel = (value: string) => {
   const [hour = 0, minute = 0] = value.split(":").map(Number);
@@ -172,53 +191,40 @@ function CompactSelect({
   className?: string;
   contentClassName?: string;
   onValueChange: (value: string) => void;
-  options: Array<{ value: string; label: string }>;
+  options: Array<{ value: string; label: string; triggerLabel?: string }>;
   value: string;
 }) {
+  const selected = options.find((option) => option.value === value);
   return (
-    <SelectPrimitive.Root onValueChange={onValueChange} value={value}>
-      <SelectPrimitive.Trigger
+    <Select onValueChange={onValueChange} value={value}>
+      <SelectTrigger
         aria-label={ariaLabel}
-        className={cn(compactControlClass, className)}
+        className={cn(compactControlClass, "w-auto py-0 shadow-none", className)}
+        data-routine-select=""
       >
-        <SelectPrimitive.Value />
-        <SelectPrimitive.Icon>
-          <ChevronDown className="size-3 text-muted-foreground" />
-        </SelectPrimitive.Icon>
-      </SelectPrimitive.Trigger>
-      <SelectPrimitive.Portal>
-        <SelectPrimitive.Content
-          aria-label={ariaLabel}
-          className={cn(
-            "z-[120] max-h-[300px] min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-[8px] border border-[#d6d6d6] bg-popover p-1 text-popover-foreground shadow-[0_8px_24px_rgba(0,0,0,0.18)] dark:border-[#3a3a3a]",
-            contentClassName
-          )}
-          position="popper"
-          sideOffset={3}
-        >
-          <SelectPrimitive.ScrollUpButton className="grid h-5 place-items-center">
-            <ChevronDown className="size-3 rotate-180" />
-          </SelectPrimitive.ScrollUpButton>
-          <SelectPrimitive.Viewport>
-            {options.map((option) => (
-              <SelectPrimitive.Item
-                className="relative flex h-8 cursor-default select-none items-center rounded-[6px] px-2 pr-7 text-[12px] outline-none data-[highlighted]:bg-accent"
-                key={option.value}
-                value={option.value}
-              >
-                <SelectPrimitive.ItemText>{option.label}</SelectPrimitive.ItemText>
-                <SelectPrimitive.ItemIndicator className="absolute right-2">
-                  <Check className="size-3.5" />
-                </SelectPrimitive.ItemIndicator>
-              </SelectPrimitive.Item>
-            ))}
-          </SelectPrimitive.Viewport>
-          <SelectPrimitive.ScrollDownButton className="grid h-5 place-items-center">
-            <ChevronDown className="size-3" />
-          </SelectPrimitive.ScrollDownButton>
-        </SelectPrimitive.Content>
-      </SelectPrimitive.Portal>
-    </SelectPrimitive.Root>
+        <SelectValue>{selected?.triggerLabel ?? selected?.label}</SelectValue>
+      </SelectTrigger>
+      <SelectContent
+        aria-label={ariaLabel}
+        className={cn(
+          "z-[120] max-h-[300px] min-w-[var(--radix-select-trigger-width)] rounded-[9px] border-[#d6d6d6] p-1 shadow-[0_8px_24px_rgba(0,0,0,0.18)] dark:border-[#343434] dark:bg-[#1d1d1d] dark:text-[#f5f5f5]",
+          contentClassName
+        )}
+        position="popper"
+        sideOffset={3}
+        viewportClassName="h-auto"
+      >
+        {options.map((option) => (
+          <SelectItem
+            className="h-8 rounded-[7px] py-0 pl-2 pr-8 text-[12px] data-[highlighted]:bg-accent dark:data-[highlighted]:bg-[#2a2a2a] dark:data-[highlighted]:text-[#f5f5f5] [&>span]:right-2 [&_svg]:size-3"
+            key={option.value}
+            value={option.value}
+          >
+            {option.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   );
 }
 
@@ -238,51 +244,47 @@ function MultiPicker({
   values: number[];
 }) {
   const toggle = (item: number) =>
-    onChange(
-      values.includes(item) ? values.filter((value) => value !== item) : [...values, item]
-    );
+    onChange(values.includes(item) ? values.filter((value) => value !== item) : [...values, item]);
   return (
-    <DropdownMenuPrimitive.Root>
-      <DropdownMenuPrimitive.Trigger asChild>
+    <Popover>
+      <PopoverTrigger asChild>
         <button aria-label={ariaLabel} className={compactControlClass} type="button">
-          <span className="max-w-[118px] truncate">{values.length === 0 ? anyLabel : summary(values)}</span>
+          <span className="max-w-[118px] truncate">
+            {values.length === 0 ? anyLabel : summary(values)}
+          </span>
           <ChevronDown className="size-3 text-muted-foreground" />
         </button>
-      </DropdownMenuPrimitive.Trigger>
-      <DropdownMenuPrimitive.Portal>
-        <DropdownMenuPrimitive.Content
-          align="start"
-          className="z-[120] max-h-[280px] min-w-[150px] overflow-y-auto rounded-[8px] border border-[#d6d6d6] bg-popover p-1 shadow-[0_8px_24px_rgba(0,0,0,0.18)] dark:border-[#3a3a3a]"
-          sideOffset={3}
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        aria-label={ariaLabel}
+        className="z-[120] max-h-[280px] w-auto min-w-[160px] overflow-y-auto rounded-[9px] border-[#d6d6d6] p-1 shadow-[0_8px_24px_rgba(0,0,0,0.18)] dark:border-[#343434] dark:bg-[#1d1d1d] dark:text-[#f5f5f5]"
+        data-routine-popover="multi-picker"
+        sideOffset={3}
+      >
+        <button
+          aria-pressed={values.length === 0}
+          className="relative flex h-8 w-full items-center rounded-[6px] px-2 pr-7 text-left text-[12px] outline-none hover:bg-accent focus-visible:bg-accent dark:hover:bg-[#2a2a2a] dark:focus-visible:bg-[#2a2a2a]"
+          onClick={() => onChange([])}
+          type="button"
         >
-          <DropdownMenuPrimitive.CheckboxItem
-            checked={values.length === 0}
-            className="relative flex h-8 items-center rounded-[6px] px-2 pr-7 text-[12px] outline-none data-[highlighted]:bg-accent"
-            onCheckedChange={() => onChange([])}
-            onSelect={(event) => event.preventDefault()}
+          {anyLabel}
+          {values.length === 0 && <Check className="absolute right-2 size-3.5" />}
+        </button>
+        {options.map((option) => (
+          <button
+            aria-pressed={values.includes(option.value)}
+            className="relative flex h-8 w-full items-center rounded-[6px] px-2 pr-7 text-left text-[12px] outline-none hover:bg-accent focus-visible:bg-accent dark:hover:bg-[#2a2a2a] dark:focus-visible:bg-[#2a2a2a]"
+            key={option.value}
+            onClick={() => toggle(option.value)}
+            type="button"
           >
-            {anyLabel}
-            <DropdownMenuPrimitive.ItemIndicator className="absolute right-2">
-              <Check className="size-3.5" />
-            </DropdownMenuPrimitive.ItemIndicator>
-          </DropdownMenuPrimitive.CheckboxItem>
-          {options.map((option) => (
-            <DropdownMenuPrimitive.CheckboxItem
-              checked={values.includes(option.value)}
-              className="relative flex h-8 items-center rounded-[6px] px-2 pr-7 text-[12px] outline-none data-[highlighted]:bg-accent"
-              key={option.value}
-              onCheckedChange={() => toggle(option.value)}
-              onSelect={(event) => event.preventDefault()}
-            >
-              {option.label}
-              <DropdownMenuPrimitive.ItemIndicator className="absolute right-2">
-                <Check className="size-3.5" />
-              </DropdownMenuPrimitive.ItemIndicator>
-            </DropdownMenuPrimitive.CheckboxItem>
-          ))}
-        </DropdownMenuPrimitive.Content>
-      </DropdownMenuPrimitive.Portal>
-    </DropdownMenuPrimitive.Root>
+            {option.label}
+            {values.includes(option.value) && <Check className="absolute right-2 size-3.5" />}
+          </button>
+        ))}
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -290,6 +292,99 @@ const menuContentClass =
   "z-[120] min-w-[180px] overflow-hidden rounded-[9px] border border-[#d6d6d6] bg-popover p-1 text-[12px] text-popover-foreground shadow-[0_8px_24px_rgba(0,0,0,0.18)] dark:border-[#3a3a3a]";
 const menuItemClass =
   "flex h-8 cursor-default select-none items-center gap-2 rounded-[6px] px-2 outline-none data-[highlighted]:bg-accent";
+
+function SlackIcon({ size = 16 }: { size?: number }) {
+  return (
+    <svg aria-label="Slack" height={size} role="img" viewBox="0 0 122.8 122.8" width={size}>
+      <path
+        d="M30.3 77.2a15.2 15.2 0 1 1-15.2-15.1h15.2v15.1Zm7.6 0a15.2 15.2 0 0 1 30.4 0v38a15.2 15.2 0 1 1-30.4 0v-38Z"
+        fill="#36C5F0"
+      />
+      <path
+        d="M45.5 30.3a15.2 15.2 0 1 1 15.2-15.2v15.2H45.5Zm0 7.6a15.2 15.2 0 0 1 0 30.4h-38a15.2 15.2 0 1 1 0-30.4h38Z"
+        fill="#2EB67D"
+      />
+      <path
+        d="M92.5 45.5a15.2 15.2 0 1 1 15.2 15.2H92.5V45.5Zm-7.6 0a15.2 15.2 0 0 1-30.4 0v-38a15.2 15.2 0 1 1 30.4 0v38Z"
+        fill="#ECB22E"
+      />
+      <path
+        d="M77.3 92.5a15.2 15.2 0 1 1-15.2 15.2V92.5h15.2Zm0-7.6a15.2 15.2 0 0 1 0-30.4h38a15.2 15.2 0 1 1 0 30.4h-38Z"
+        fill="#E01E5A"
+      />
+    </svg>
+  );
+}
+
+function GitHubIcon({ size = 16 }: { size?: number }) {
+  return (
+    <svg
+      aria-label="GitHub"
+      className="text-foreground"
+      fill="currentColor"
+      height={size}
+      role="img"
+      viewBox="0 0 24 24"
+      width={size}
+    >
+      <path d="M12 .7a11.5 11.5 0 0 0-3.64 22.41c.58.1.79-.25.79-.56v-2.23c-3.22.7-3.9-1.37-3.9-1.37-.53-1.34-1.29-1.7-1.29-1.7-1.05-.72.08-.7.08-.7 1.16.08 1.78 1.2 1.78 1.2 1.04 1.77 2.71 1.26 3.37.96.1-.75.4-1.26.74-1.55-2.57-.3-5.28-1.29-5.28-5.69 0-1.26.45-2.28 1.19-3.09-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.16 1.18a10.98 10.98 0 0 1 5.76 0c2.19-1.49 3.15-1.18 3.15-1.18.64 1.59.24 2.76.12 3.05.74.81 1.19 1.83 1.19 3.09 0 4.41-2.71 5.39-5.29 5.68.42.36.78 1.07.78 2.16v3.2c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .7Z" />
+    </svg>
+  );
+}
+
+function TeamsIcon({ size = 16 }: { size?: number }) {
+  return (
+    <svg aria-label="Microsoft Teams" height={size} role="img" viewBox="0 0 24 24" width={size}>
+      <path
+        clipRule="evenodd"
+        d="M15.5 5A3 3 0 0 1 14 7.599V7.5a2 2 0 0 0-2-2H9.541A3 3 0 1 1 15.5 5Zm6.25 1a2 2 0 1 1-4 0 2 2 0 0 1 4 0Zm-3.294 11.732A3.25 3.25 0 0 0 23 14.75v-4.361a.889.889 0 0 0-.889-.889h-3.879c.17.294.268.636.268 1V17c0 .248-.015.492-.044.732ZM8.169 19.5A5 5 0 0 0 17.5 17v-6.5a1 1 0 0 0-1-1H14v8a2 2 0 0 1-2 2H8.169Z"
+        fill="#5059C9"
+        fillRule="evenodd"
+      />
+      <path
+        clipRule="evenodd"
+        d="M1 17.5v-10a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1Zm6.75-6.75H9.5v-1.5h-5v1.5h1.75v4.75h1.5v-4.75Z"
+        fill="#7B83EB"
+        fillRule="evenodd"
+      />
+    </svg>
+  );
+}
+
+function LinearIcon({ size = 16 }: { size?: number }) {
+  return (
+    <svg aria-label="Linear" height={size} role="img" viewBox="0 0 24 24" width={size}>
+      <path
+        d="M2.886 4.18A11.982 11.982 0 0 1 11.99 0C18.624 0 24 5.376 24 12.009c0 3.64-1.62 6.903-4.18 9.105L2.887 4.18ZM1.817 5.626l16.556 16.556c-.524.33-1.075.62-1.65.866L.951 7.277c.247-.575.537-1.126.866-1.65ZM.322 9.163l14.515 14.515c-.71.172-1.443.282-2.195.322L0 11.358a12 12 0 0 1 .322-2.195Zm-.17 4.862 9.823 9.824a12.02 12.02 0 0 1-9.824-9.824Z"
+        fill="#5E6AD2"
+      />
+    </svg>
+  );
+}
+
+function SentryIcon({ size = 16 }: { size?: number }) {
+  return (
+    <svg aria-label="Sentry" height={size} role="img" viewBox="0 0 24 24" width={size}>
+      <path
+        d="m23.663 19.246-9.72-16.71C13.497 1.798 12.749 1.5 12 1.5s-1.495.444-1.943 1.036l-3.14 5.471.748.444a14.735 14.735 0 0 1 5.682 5.619c1.197 2.071 1.944 4.288 2.094 6.656h-2.243a13.066 13.066 0 0 0-1.794-5.621c-1.047-2.07-2.692-3.697-4.785-4.88l-.749-.443-2.99 5.028.747.444c1.944 1.182 3.29 3.104 3.589 5.323H2.281c-.149 0-.3-.148-.3-.148s-.148-.148 0-.296l1.348-2.367c-.449-.442-1.048-.74-1.646-.886L.337 19.247c-.449.74-.449 1.479 0 2.219.448.738 1.046 1.034 1.943 1.034h6.879v-.886c0-1.627-.449-3.106-1.196-4.586-.599-1.182-1.496-2.07-2.542-2.808l1.047-1.924c1.347 1.034 2.543 2.218 3.439 3.698 1.047 1.773 1.496 3.697 1.496 5.619v.886h5.831v-.886c0-2.957-.747-5.916-2.392-8.577-1.197-2.368-3.141-4.289-5.385-5.768L11.7 3.424c.152-.149.3-.149.3-.149.15 0 .15 0 .299.148l9.721 16.709c.148.146 0 .296 0 .296s-.15.148-.3.148h-2.243v1.775h2.243c.896.147 1.495-.148 1.943-.886.449-.739.449-1.479 0-2.219Z"
+        fill="#6E47AE"
+      />
+    </svg>
+  );
+}
+
+function PagerDutyIcon({ size = 16 }: { size?: number }) {
+  return (
+    <svg aria-label="PagerDuty" height={size} role="img" viewBox="0 0 24 24" width={size}>
+      <g transform="translate(-2.23 0)">
+        <path
+          d="M15.59 0H5.65v16.08h3.56V3.39h6.12c2.37 0 4.23 1.28 4.23 3.86 0 2.47-1.67 3.97-4.23 3.97H12.1v3.21h3.56c4.49 0 7.15-2.93 7.15-7.1C22.81 2.97 20.28 0 15.59 0ZM5.65 20.4h3.56V24H5.65Z"
+          fill="#06AC38"
+        />
+      </g>
+    </svg>
+  );
+}
 
 function TimeCadenceSubmenu({
   label,
@@ -327,41 +422,64 @@ function TimeCadenceSubmenu({
   );
 }
 
-function AddScheduleMenu({
-  hasSchedules,
+const triggerMenuIcon = (kind: RoutineTriggerKind, size = 16) => {
+  switch (kind) {
+    case "schedule":
+      return <Clock3 className="shrink-0 text-muted-foreground" size={size} />;
+    case "slack":
+      return <SlackIcon size={size} />;
+    case "github":
+      return <GitHubIcon size={size} />;
+    case "microsoftTeams":
+      return <TeamsIcon size={size} />;
+    case "linear":
+      return <LinearIcon size={size} />;
+    case "sentry":
+      return <SentryIcon size={size} />;
+    case "pagerduty":
+      return <PagerDutyIcon size={size} />;
+    case "webhook":
+      return <Globe2 className="shrink-0 text-muted-foreground" size={size} />;
+  }
+};
+
+function AddTriggerMenu({
+  hasTriggers,
   onAdd,
   onOpenChange,
   open,
 }: {
-  hasSchedules: boolean;
-  onAdd: (schedule: RoutineScheduleDraft) => void;
+  hasTriggers: boolean;
+  onAdd: (trigger: RoutineTriggerDraft) => void;
   onOpenChange: (open: boolean) => void;
   open: boolean;
 }) {
+  const onAddSchedule = (schedule: RoutineScheduleDraft) => onAdd({ kind: "schedule", schedule });
   return (
     <DropdownMenuPrimitive.Root onOpenChange={onOpenChange} open={open}>
       <DropdownMenuPrimitive.Trigger asChild>
         <Button
           className={cn(
             "h-8 w-full justify-start gap-1.5 rounded-[9px] px-2 text-[12px] font-normal text-muted-foreground",
-            hasSchedules && "rounded-t-none border-t border-[#dedede] dark:border-[#343434]"
+            hasTriggers && "rounded-t-none border-t border-[#dedede] dark:border-[#343434]"
           )}
           variant="ghost"
         >
           <CirclePlus className="size-3.5" />
-          {hasSchedules ? "Add another" : "Add trigger"}
+          {hasTriggers ? "Add another" : "Add trigger"}
         </Button>
       </DropdownMenuPrimitive.Trigger>
       <DropdownMenuPrimitive.Portal>
         <DropdownMenuPrimitive.Content
           align="start"
           aria-label="Trigger types"
-          className={menuContentClass}
+          className={cn(menuContentClass, "min-w-[200px]")}
+          data-routine-popover="add-trigger"
           sideOffset={4}
         >
           <DropdownMenuPrimitive.Sub>
             <DropdownMenuPrimitive.SubTrigger className={menuItemClass}>
-              <Clock3 className="size-3.5 text-muted-foreground" />
+              {triggerMenuIcon("schedule", 18)}
               <span className="flex-1">On a schedule</span>
               <ChevronRight className="size-3 text-muted-foreground" />
             </DropdownMenuPrimitive.SubTrigger>
@@ -373,39 +491,53 @@ function AddScheduleMenu({
               >
                 <DropdownMenuPrimitive.Item
                   className={menuItemClass}
-                  onSelect={() => onAdd(scheduleForPreset("hourly"))}
+                  onSelect={() => onAddSchedule(scheduleForPreset("hourly"))}
                 >
                   Every hour
                 </DropdownMenuPrimitive.Item>
-                <TimeCadenceSubmenu label="Every day" onAdd={onAdd} preset="daily" />
-                <TimeCadenceSubmenu label="Weekdays" onAdd={onAdd} preset="weekdays" />
+                <TimeCadenceSubmenu label="Every day" onAdd={onAddSchedule} preset="daily" />
+                <TimeCadenceSubmenu label="Weekdays" onAdd={onAddSchedule} preset="weekdays" />
                 <DropdownMenuPrimitive.Item
                   className={menuItemClass}
-                  onSelect={() => onAdd(scheduleForPreset("weekly"))}
+                  onSelect={() => onAddSchedule(scheduleForPreset("weekly"))}
                 >
                   Every week
                 </DropdownMenuPrimitive.Item>
                 <DropdownMenuPrimitive.Item
                   className={menuItemClass}
-                  onSelect={() => onAdd(scheduleForPreset("monthly"))}
+                  onSelect={() => onAddSchedule(scheduleForPreset("monthly"))}
                 >
                   Every month
                 </DropdownMenuPrimitive.Item>
                 <DropdownMenuPrimitive.Item
                   className={menuItemClass}
-                  onSelect={() => onAdd(scheduleForPreset("interval"))}
+                  onSelect={() => onAddSchedule(scheduleForPreset("interval"))}
                 >
                   Interval
                 </DropdownMenuPrimitive.Item>
                 <DropdownMenuPrimitive.Item
                   className={menuItemClass}
-                  onSelect={() => onAdd(scheduleForPreset("advanced"))}
+                  onSelect={() => onAddSchedule(scheduleForPreset("advanced"))}
                 >
                   Advanced…
                 </DropdownMenuPrimitive.Item>
               </DropdownMenuPrimitive.SubContent>
             </DropdownMenuPrimitive.Portal>
           </DropdownMenuPrimitive.Sub>
+          {routineTriggerKinds.slice(1).map((item) => (
+            <DropdownMenuPrimitive.Item
+              className={menuItemClass}
+              key={item.kind}
+              onSelect={() =>
+                onAdd(
+                  defaultRoutineTriggerDraft(item.kind as Exclude<RoutineTriggerKind, "schedule">)
+                )
+              }
+            >
+              {triggerMenuIcon(item.kind, 18)}
+              {item.label}
+            </DropdownMenuPrimitive.Item>
+          ))}
         </DropdownMenuPrimitive.Content>
       </DropdownMenuPrimitive.Portal>
     </DropdownMenuPrimitive.Root>
@@ -421,11 +553,10 @@ function ScheduleFields({
 }) {
   const patch = (change: Partial<RoutineScheduleDraft>) => onChange({ ...value, ...change });
   return (
-    <div
+    <fieldset
       aria-label="Trigger fields"
-      className="flex flex-wrap items-center gap-1 px-2 pb-2 pt-0.5 text-[12px]"
+      className="m-0 flex flex-wrap items-center gap-1 border-0 px-2 pb-2 pt-0.5 text-[12px]"
       data-routine-schedule-editor=""
-      role="group"
     >
       <CompactSelect
         ariaLabel="Frequency"
@@ -508,7 +639,7 @@ function ScheduleFields({
           <CompactSelect
             ariaLabel="Interval amount"
             onValueChange={(amount) => patch({ intervalAmount: Number(amount) })}
-            options={intervalAmounts.map((amount) => ({
+            options={intervalAmounts[value.intervalUnit].map((amount) => ({
               value: String(amount),
               label: String(amount),
             }))}
@@ -516,9 +647,15 @@ function ScheduleFields({
           />
           <CompactSelect
             ariaLabel="Interval unit"
-            onValueChange={(unit) =>
-              patch({ intervalUnit: unit as RoutineScheduleDraft["intervalUnit"] })
-            }
+            onValueChange={(unit) => {
+              const intervalUnit = unit as RoutineScheduleDraft["intervalUnit"];
+              patch({
+                intervalUnit,
+                intervalAmount: intervalAmounts[intervalUnit].includes(value.intervalAmount)
+                  ? value.intervalAmount
+                  : intervalDefault(intervalUnit),
+              });
+            }}
             options={[
               { value: "m", label: "minutes" },
               { value: "h", label: "hours" },
@@ -536,7 +673,9 @@ function ScheduleFields({
             ariaLabel="Months"
             onChange={(advancedMonths) => patch({ advancedMonths })}
             options={months.map((label, index) => ({ value: index + 1, label }))}
-            summary={(selected) => selected.map((month) => months[month - 1]?.slice(0, 3)).join(", ")}
+            summary={(selected) =>
+              selected.map((month) => months[month - 1]?.slice(0, 3)).join(", ")
+            }
             values={value.advancedMonths}
           />
           <span className="text-muted-foreground">Days</span>
@@ -572,7 +711,9 @@ function ScheduleFields({
                 anyLabel="1st"
                 ariaLabel="Days of the month"
                 onChange={(advancedMonthDays) =>
-                  patch({ advancedMonthDays: advancedMonthDays.length > 0 ? advancedMonthDays : [1] })
+                  patch({
+                    advancedMonthDays: advancedMonthDays.length > 0 ? advancedMonthDays : [1],
+                  })
                 }
                 options={Array.from({ length: 31 }, (_, index) => ({
                   value: index + 1,
@@ -604,7 +745,7 @@ function ScheduleFields({
                   <CompactSelect
                     ariaLabel={index === 0 ? "Time" : `Time ${index + 1}`}
                     contentClassName="min-w-[158px]"
-                    key={`${index}-${time}`}
+                    key={time}
                     onValueChange={(nextTime) =>
                       patch({
                         advancedTimes: value.advancedTimes.map((item, itemIndex) =>
@@ -619,9 +760,7 @@ function ScheduleFields({
                 {value.advancedTimes.length < 8 && (
                   <Button
                     className="h-7 gap-1 px-1.5 text-[11px] font-normal text-muted-foreground"
-                    onClick={() =>
-                      patch({ advancedTimes: [...value.advancedTimes, "08:00"] })
-                    }
+                    onClick={() => patch({ advancedTimes: [...value.advancedTimes, "08:00"] })}
                     variant="ghost"
                   >
                     <CirclePlus className="size-3" /> Add time
@@ -633,7 +772,7 @@ function ScheduleFields({
                 <CompactSelect
                   ariaLabel="Interval amount"
                   onValueChange={(amount) => patch({ advancedEveryAmount: Number(amount) })}
-                  options={intervalAmounts.map((amount) => ({
+                  options={intervalAmounts[value.advancedEveryUnit].map((amount) => ({
                     value: String(amount),
                     label: String(amount),
                   }))}
@@ -641,9 +780,17 @@ function ScheduleFields({
                 />
                 <CompactSelect
                   ariaLabel="Interval unit"
-                  onValueChange={(unit) =>
-                    patch({ advancedEveryUnit: unit as RoutineScheduleDraft["advancedEveryUnit"] })
-                  }
+                  onValueChange={(unit) => {
+                    const advancedEveryUnit = unit as RoutineScheduleDraft["advancedEveryUnit"];
+                    patch({
+                      advancedEveryUnit,
+                      advancedEveryAmount: intervalAmounts[advancedEveryUnit].includes(
+                        value.advancedEveryAmount
+                      )
+                        ? value.advancedEveryAmount
+                        : intervalDefault(advancedEveryUnit),
+                    });
+                  }}
                   options={[
                     { value: "m", label: "minutes" },
                     { value: "h", label: "hours" },
@@ -678,11 +825,518 @@ function ScheduleFields({
           value={value.customSchedule}
         />
       )}
-    </div>
+    </fieldset>
   );
 }
 
-function ScheduleCard({
+const eventFieldClass =
+  "h-7 min-w-0 flex-1 rounded-[6px] border border-transparent bg-[#eeeeee] px-2 text-[12px] shadow-none outline-none focus:border-[#2388ff] focus:ring-2 focus:ring-[#2388ff]/25 dark:bg-[#292929]";
+
+function EventField({
+  ariaLabel,
+  autoFocus,
+  onChange,
+  placeholder,
+  value,
+}: {
+  ariaLabel: string;
+  autoFocus?: boolean;
+  onChange: (value: string) => void;
+  placeholder: string;
+  value: string;
+}) {
+  return (
+    <input
+      aria-label={ariaLabel}
+      autoFocus={autoFocus}
+      className={eventFieldClass}
+      onChange={(event) => onChange(event.currentTarget.value)}
+      placeholder={placeholder}
+      type="text"
+      value={value}
+    />
+  );
+}
+
+function StringMultiPicker({
+  ariaLabel,
+  onChange,
+  options,
+  values,
+}: {
+  ariaLabel: string;
+  onChange: (values: string[]) => void;
+  options: Array<{ value: string; label: string; group: string }>;
+  values: string[];
+}) {
+  const summary =
+    values.length === 0
+      ? "Choose an event"
+      : values.length === 1
+        ? (options.find((option) => option.value === values[0])?.label ?? values[0])
+        : `${options.find((option) => option.value === values[0])?.label ?? values[0]} +${values.length - 1}`;
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button aria-label={ariaLabel} className={compactControlClass} type="button">
+          <span className="max-w-[154px] truncate">{summary}</span>
+          <ChevronDown className="size-3 text-muted-foreground" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        aria-label={ariaLabel}
+        className="max-h-[320px] w-[156px] overflow-y-auto rounded-[9px] border-[#d6d6d6] p-1 dark:border-[#343434] dark:bg-[#1d1d1d] dark:text-[#f5f5f5]"
+        data-routine-popover="event-picker"
+      >
+        {[...new Set(options.map((option) => option.group))].map((group, groupIndex) => (
+          <div
+            className={cn(
+              groupIndex > 0 && "mt-1 border-t border-[#d8d8d8] pt-1 dark:border-[#353535]"
+            )}
+            key={group}
+          >
+            <div className="px-2 py-1 text-[11px] text-muted-foreground">{group}</div>
+            {options
+              .filter((option) => option.group === group)
+              .map((option) => {
+                const checked = values.includes(option.value);
+                return (
+                  <button
+                    aria-pressed={checked}
+                    className="relative flex min-h-7 w-full items-center rounded-[6px] py-1 pl-6 pr-2 text-left text-[12px] outline-none hover:bg-accent focus-visible:bg-accent dark:hover:bg-[#2a2a2a] dark:focus-visible:bg-[#2a2a2a]"
+                    key={option.value}
+                    onClick={() =>
+                      onChange(
+                        checked
+                          ? values.length > 1
+                            ? values.filter((value) => value !== option.value)
+                            : values
+                          : [...values, option.value]
+                      )
+                    }
+                    type="button"
+                  >
+                    <span
+                      className={cn(
+                        "absolute left-2 size-3 rounded-[3px] border border-[#707070]",
+                        checked && "border-[#f4f4f4] bg-[#f4f4f4] dark:border-white dark:bg-white"
+                      )}
+                    >
+                      {checked && <Check className="size-3 text-[#171717]" />}
+                    </span>
+                    {option.label}
+                  </button>
+                );
+              })}
+          </div>
+        ))}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+const gitEventOptions = [
+  { value: "pr-opened", label: "Opened", group: "Pull request" },
+  { value: "pr-pushed", label: "Updated", group: "Pull request" },
+  { value: "pr-merged", label: "Merged", group: "Pull request" },
+  { value: "review-requested", label: "Requested", group: "Review" },
+  { value: "review-approved", label: "Approved", group: "Review" },
+  { value: "review-changes-requested", label: "Changes requested", group: "Review" },
+  { value: "review-commented", label: "Commented", group: "Review" },
+  { value: "review-thread-resolved", label: "Thread resolved", group: "Review" },
+  { value: "review-thread-unresolved", label: "Thread reopened", group: "Review" },
+  { value: "pr-comment", label: "PR comment", group: "Comment" },
+  {
+    value: "inline-review-comment",
+    label: "Inline review comment",
+    group: "Comment",
+  },
+  { value: "ci-passed", label: "CI passed", group: "Checks" },
+  { value: "ci-failed", label: "CI failed", group: "Checks" },
+  { value: "issue-assigned", label: "Assigned", group: "Issue" },
+];
+
+function EventFields({
+  value,
+  onChange,
+}: {
+  value: Exclude<RoutineTriggerDraft, { kind: "schedule" } | { kind: "unsupported" }>;
+  onChange: (next: RoutineTriggerDraft) => void;
+}) {
+  const rowClass = "flex min-w-0 flex-wrap items-center gap-1";
+  const labelClass = "shrink-0 text-[12px] text-muted-foreground";
+  switch (value.kind) {
+    case "slack":
+      return (
+        <fieldset
+          aria-label="Trigger fields"
+          className="m-0 grid gap-1.5 border-0 px-2 pb-2 pt-0.5"
+        >
+          <div className={rowClass}>
+            <CompactSelect
+              ariaLabel="Slack event"
+              onValueChange={(match) => onChange({ ...value, match: match as typeof value.match })}
+              options={[
+                {
+                  value: "message",
+                  label: "New message in channel",
+                  triggerLabel: "New messages",
+                },
+                {
+                  value: "reaction",
+                  label: "Reaction added to message",
+                  triggerLabel: "Reaction added",
+                },
+                { value: "mention", label: "Bot is mentioned" },
+              ]}
+              value={value.match === "keyword" ? "message" : value.match}
+            />
+            <span className={labelClass}>in</span>
+            <EventField
+              ariaLabel="Slack channel"
+              autoFocus={!value.channel}
+              onChange={(channel) => onChange({ ...value, channel })}
+              placeholder="#channel"
+              value={value.channel}
+            />
+          </div>
+          {(value.match === "message" || value.match === "keyword") && (
+            <div className={rowClass}>
+              <span className={labelClass}>containing</span>
+              <EventField
+                ariaLabel="Message contains"
+                onChange={(keyword) =>
+                  onChange({ ...value, keyword, match: keyword.trim() ? "keyword" : "message" })
+                }
+                placeholder="Any text"
+                value={value.keyword}
+              />
+            </div>
+          )}
+          {value.match === "reaction" && (
+            <>
+              <div className={rowClass}>
+                <span className={labelClass}>with</span>
+                <EventField
+                  ariaLabel="Reaction emoji"
+                  onChange={(emoji) => onChange({ ...value, emoji })}
+                  placeholder="Any emoji"
+                  value={value.emoji}
+                />
+              </div>
+              <div className={rowClass}>
+                <span className={labelClass}>for</span>
+                <CompactSelect
+                  ariaLabel="Reactor"
+                  onValueChange={(bySelf) => onChange({ ...value, bySelf: bySelf === "self" })}
+                  options={[
+                    { value: "anyone", label: "Anyone" },
+                    { value: "self", label: "Only me" },
+                  ]}
+                  value={value.bySelf ? "self" : "anyone"}
+                />
+              </div>
+            </>
+          )}
+        </fieldset>
+      );
+    case "github":
+      return (
+        <fieldset
+          aria-label="Trigger fields"
+          className="m-0 grid gap-1.5 border-0 px-2 pb-2 pt-0.5"
+        >
+          <div className={rowClass}>
+            <StringMultiPicker
+              ariaLabel="Git events"
+              onChange={(events) => onChange({ ...value, events })}
+              options={gitEventOptions}
+              values={value.events}
+            />
+            <span className={labelClass}>in</span>
+            <EventField
+              ariaLabel="Repository"
+              autoFocus={!value.repo}
+              onChange={(repo) => onChange({ ...value, repo })}
+              placeholder="owner/repo"
+              value={value.repo}
+            />
+          </div>
+          {value.events.some((event) => event === "ci-passed" || event === "ci-failed") &&
+            value.pr === undefined && (
+              <div className={rowClass}>
+                <span className={labelClass}>on branch</span>
+                <EventField
+                  ariaLabel="CI branch"
+                  onChange={(ciBranch) => onChange({ ...value, ciBranch })}
+                  placeholder="main"
+                  value={value.ciBranch}
+                />
+              </div>
+            )}
+          <div className={rowClass}>
+            <span className={labelClass}>from</span>
+            <EventField
+              ariaLabel="User allowlist"
+              onChange={(userAllowlist) => onChange({ ...value, userAllowlist })}
+              placeholder="Anyone"
+              value={value.userAllowlist}
+            />
+          </div>
+        </fieldset>
+      );
+    case "microsoftTeams":
+      return (
+        <fieldset
+          aria-label="Trigger fields"
+          className="m-0 grid gap-1.5 border-0 px-2 pb-2 pt-0.5"
+        >
+          <div className={rowClass}>
+            <CompactSelect
+              ariaLabel="Teams event"
+              onValueChange={() => undefined}
+              options={[
+                {
+                  value: "message",
+                  label: "New message in channel",
+                  triggerLabel: "New messages",
+                },
+              ]}
+              value="message"
+            />
+            <span className={labelClass}>in</span>
+            <EventField
+              ariaLabel="Team IDs"
+              autoFocus={!value.teamIds}
+              onChange={(teamIds) => onChange({ ...value, teamIds })}
+              placeholder="Team IDs"
+              value={value.teamIds}
+            />
+          </div>
+          <div className={rowClass}>
+            <span className={labelClass}>tenant</span>
+            <EventField
+              ariaLabel="Tenant ID"
+              onChange={(tenantId) => onChange({ ...value, tenantId })}
+              placeholder="Tenant ID"
+              value={value.tenantId}
+            />
+          </div>
+          <div className={rowClass}>
+            <span className={labelClass}>channels</span>
+            <EventField
+              ariaLabel="Channel IDs"
+              onChange={(channelIds) => onChange({ ...value, channelIds })}
+              placeholder="Every channel"
+              value={value.channelIds}
+            />
+          </div>
+          <div className={rowClass}>
+            <span className={labelClass}>containing</span>
+            <EventField
+              ariaLabel="Message contains"
+              onChange={(messageContains) => onChange({ ...value, messageContains })}
+              placeholder="Any message"
+              value={value.messageContains}
+            />
+            <CompactSelect
+              ariaLabel="Message match"
+              onValueChange={(mode) =>
+                onChange({ ...value, messageContainsIsRegex: mode === "regex" })
+              }
+              options={[
+                { value: "text", label: "Text" },
+                { value: "regex", label: "Regex" },
+              ]}
+              value={value.messageContainsIsRegex ? "regex" : "text"}
+            />
+          </div>
+          <div className={rowClass}>
+            <span className={labelClass}>from</span>
+            <CompactSelect
+              ariaLabel="Teams audience"
+              onValueChange={(audience) =>
+                onChange({ ...value, blockUnauthenticatedTeamsUsers: audience === "linked" })
+              }
+              options={[
+                { value: "anyone", label: "Anyone" },
+                { value: "linked", label: "Only linked users" },
+              ]}
+              value={value.blockUnauthenticatedTeamsUsers ? "linked" : "anyone"}
+            />
+          </div>
+        </fieldset>
+      );
+    case "linear":
+      return (
+        <fieldset
+          aria-label="Trigger fields"
+          className="m-0 grid gap-1.5 border-0 px-2 pb-2 pt-0.5"
+        >
+          <div className={rowClass}>
+            <CompactSelect
+              ariaLabel="Linear event"
+              onValueChange={(event) => onChange({ ...value, event: event as typeof value.event })}
+              options={[
+                { value: "issueCreated", label: "Issue created" },
+                { value: "statusChanged", label: "Issue status changed" },
+                { value: "endOfCycle", label: "End of cycle" },
+              ]}
+              value={value.event}
+            />
+          </div>
+          {value.event === "statusChanged" && (
+            <div className={rowClass}>
+              <span className={labelClass}>with status</span>
+              <EventField
+                ariaLabel="Status IDs"
+                onChange={(statusIds) => onChange({ ...value, statusIds })}
+                placeholder="Any status"
+                value={value.statusIds}
+              />
+            </div>
+          )}
+          {value.event === "endOfCycle" && (
+            <div className={rowClass}>
+              <span className={labelClass}>cycles</span>
+              <EventField
+                ariaLabel="Cycle IDs"
+                onChange={(cycleIds) => onChange({ ...value, cycleIds })}
+                placeholder="Any cycle"
+                value={value.cycleIds}
+              />
+            </div>
+          )}
+          <div className={rowClass}>
+            <span className={labelClass}>in</span>
+            <EventField
+              ariaLabel="Project IDs"
+              onChange={(projectIds) => onChange({ ...value, projectIds })}
+              placeholder="All projects"
+              value={value.projectIds}
+            />
+          </div>
+          <div className={rowClass}>
+            <span className={labelClass}>for</span>
+            <EventField
+              ariaLabel="Team IDs"
+              onChange={(teamIds) => onChange({ ...value, teamIds })}
+              placeholder="All teams"
+              value={value.teamIds}
+            />
+          </div>
+        </fieldset>
+      );
+    case "sentry":
+      return (
+        <fieldset
+          aria-label="Trigger fields"
+          className="m-0 grid gap-1.5 border-0 px-2 pb-2 pt-0.5"
+        >
+          <div className={rowClass}>
+            <CompactSelect
+              ariaLabel="Sentry event"
+              onValueChange={(event) => onChange({ ...value, event: event as typeof value.event })}
+              options={[
+                { value: "issueCreated", label: "Created" },
+                { value: "issueResolved", label: "Resolved" },
+                { value: "issueAssigned", label: "Assigned" },
+                { value: "issueArchived", label: "Archived" },
+                { value: "issueUnresolved", label: "Unresolved" },
+                { value: "issueAny", label: "Any issue event" },
+              ]}
+              value={value.event}
+            />
+          </div>
+          <div className={rowClass}>
+            <span className={labelClass}>in</span>
+            <EventField
+              ariaLabel="Project IDs"
+              onChange={(projectIds) => onChange({ ...value, projectIds })}
+              placeholder="All projects"
+              value={value.projectIds}
+            />
+          </div>
+        </fieldset>
+      );
+    case "pagerduty":
+      return (
+        <fieldset
+          aria-label="Trigger fields"
+          className="m-0 grid gap-1.5 border-0 px-2 pb-2 pt-0.5"
+        >
+          <div className={rowClass}>
+            <CompactSelect
+              ariaLabel="PagerDuty event"
+              onValueChange={(event) => onChange({ ...value, event: event as typeof value.event })}
+              options={[
+                { value: "incidentTriggered", label: "Triggered" },
+                { value: "incidentAcknowledged", label: "Acknowledged" },
+                { value: "incidentResolved", label: "Resolved" },
+                { value: "incidentEscalated", label: "Escalated" },
+                { value: "incidentAny", label: "Any incident event" },
+              ]}
+              value={value.event}
+            />
+          </div>
+          <div className={rowClass}>
+            <span className={labelClass}>for</span>
+            <EventField
+              ariaLabel="Service IDs"
+              onChange={(serviceIds) => onChange({ ...value, serviceIds })}
+              placeholder="All services"
+              value={value.serviceIds}
+            />
+          </div>
+        </fieldset>
+      );
+    case "webhook":
+      return (
+        <fieldset
+          aria-label="Trigger fields"
+          className="m-0 grid gap-1.5 border-0 px-2 pb-2 pt-0.5 text-[12px]"
+        >
+          <div className={rowClass}>
+            <span className={labelClass}>POST to</span>
+            <input
+              aria-label="Webhook URL"
+              className={cn(eventFieldClass, "text-muted-foreground")}
+              placeholder="Available after the routine is saved"
+              readOnly
+            />
+          </div>
+          <div className={rowClass}>
+            <span className={labelClass}>key</span>
+            <input
+              aria-label="Webhook key"
+              className={cn(eventFieldClass, "text-muted-foreground")}
+              placeholder="Available after saving"
+              readOnly
+            />
+          </div>
+          <div className={rowClass}>
+            <span className={labelClass}>header</span>
+            <input
+              aria-label="Webhook header"
+              className={cn(eventFieldClass, "text-muted-foreground")}
+              placeholder="Available after saving"
+              readOnly
+            />
+          </div>
+        </fieldset>
+      );
+  }
+}
+
+const triggerGlyph = (value: RoutineTriggerDraft) =>
+  value.kind === "unsupported" ? (
+    <Radio className="size-3.5 text-muted-foreground" />
+  ) : (
+    triggerMenuIcon(value.kind)
+  );
+
+function TriggerCard({
   index,
   value,
   expanded,
@@ -691,33 +1345,35 @@ function ScheduleCard({
   onRemove,
 }: {
   index: number;
-  value: RoutineScheduleDraft;
+  value: RoutineTriggerDraft;
   expanded: boolean;
-  onChange: (next: RoutineScheduleDraft) => void;
+  onChange: (next: RoutineTriggerDraft) => void;
   onExpand: () => void;
   onRemove: () => void;
 }) {
+  const description = describeRoutineTrigger(value);
   return (
-    <div
-      className={cn("group/schedule", index > 0 && "border-t border-[#dedede] dark:border-[#343434]")}
-      role="listitem"
+    <li
+      className={cn(
+        "group/schedule",
+        index > 0 && "border-t border-[#dedede] dark:border-[#343434]"
+      )}
     >
       <div className="flex min-h-10 items-center gap-2 px-2">
         <button
           aria-expanded={expanded}
-          aria-label={describeRoutineSchedule(value)}
-          className="flex min-w-0 flex-1 items-center gap-2 py-2 text-left outline-none"
+          aria-label={description}
+          className="-mx-1 flex min-w-0 flex-1 items-center gap-2 rounded-[7px] px-1 py-2 text-left outline-none transition-colors hover:bg-[#f1f1f1] focus-visible:bg-[#f1f1f1] dark:hover:bg-[#292929] dark:focus-visible:bg-[#292929]"
+          disabled={value.kind === "unsupported"}
           onClick={onExpand}
           type="button"
         >
-          <Clock3 className="size-3.5 shrink-0 text-muted-foreground" />
-          <span className="min-w-0 flex-1 truncate text-[13px]">
-            {describeRoutineSchedule(value)}
-          </span>
+          <span className="grid size-3.5 shrink-0 place-items-center">{triggerGlyph(value)}</span>
+          <span className="min-w-0 flex-1 truncate text-[13px]">{description}</span>
         </button>
         <Button
-          aria-label={`Remove trigger: ${describeRoutineSchedule(value)}`}
-          className="size-7 rounded-full text-muted-foreground opacity-0 transition-opacity hover:opacity-100 focus-visible:opacity-100"
+          aria-label={`Remove trigger: ${description}`}
+          className="size-7 rounded-full text-muted-foreground opacity-0 transition-opacity group-hover/schedule:opacity-100 hover:opacity-100 focus-visible:opacity-100"
           onClick={onRemove}
           size="icon-sm"
           variant="ghost"
@@ -725,8 +1381,16 @@ function ScheduleCard({
           <X className="size-3.5" />
         </Button>
       </div>
-      {expanded && <ScheduleFields onChange={onChange} value={value} />}
-    </div>
+      {expanded && value.kind === "schedule" && (
+        <ScheduleFields
+          onChange={(schedule) => onChange({ kind: "schedule", schedule })}
+          value={value.schedule}
+        />
+      )}
+      {expanded && value.kind !== "schedule" && value.kind !== "unsupported" && (
+        <EventFields onChange={onChange} value={value} />
+      )}
+    </li>
   );
 }
 
@@ -747,41 +1411,22 @@ const executionStatus = (execution: RoutineExecutionView): string => {
   }
 };
 
-const executionTime = (execution: RoutineExecutionView): string => {
-  const when = new Date(execution.completedAt ?? execution.startedAt ?? execution.createdAt);
-  const now = new Date();
-  const elapsed = now.getTime() - when.getTime();
-  if (elapsed >= 0 && elapsed < 90_000) return "Just now";
-  const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-  const startThen = new Date(when.getFullYear(), when.getMonth(), when.getDate()).getTime();
-  const time = when.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-  if (startThen === startToday) return `Today at ${time}`;
-  if (startThen === startToday - 86_400_000) return `Yesterday at ${time}`;
-  return when.toLocaleString([], {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-};
-
 function RunHistory({ executions }: { executions: RoutineExecutionView[] }) {
   if (executions.length === 0) {
     return <div className="px-2 py-2 text-[12px] text-muted-foreground">No runs yet</div>;
   }
   return (
-    <div aria-label="Run history" role="list">
+    <ul aria-label="Run history">
       {executions.map((execution) => {
         const running = ["queued", "running", "waiting_approval"].includes(execution.status);
         return (
-          <div
+          <li
             aria-label={execution.kind === "test" ? "Manual run" : "Scheduled run"}
             className="flex min-h-8 items-center gap-2 py-1 text-[12px]"
             data-routine-execution-status={execution.status}
             key={execution.id}
-            role="listitem"
           >
-            <span className="min-w-0 flex-1 truncate">{executionTime(execution)}</span>
+            <span className="min-w-0 flex-1 truncate">{formatRoutineExecutionTime(execution)}</span>
             <span
               aria-label={executionStatus(execution)}
               className={cn(
@@ -803,10 +1448,10 @@ function RunHistory({ executions }: { executions: RoutineExecutionView[] }) {
                 <Pause className="size-3.5" />
               )}
             </span>
-          </div>
+          </li>
         );
       })}
-    </div>
+    </ul>
   );
 }
 
@@ -814,48 +1459,53 @@ interface RoutineDraft {
   name: string;
   prompt: string;
   enabled: boolean;
-  schedules: RoutineScheduleDraft[];
+  triggers: RoutineTriggerDraft[];
 }
 
 const newDraft = (): RoutineDraft => ({
   name: "",
   prompt: "",
   enabled: true,
-  schedules: [],
+  triggers: [],
 });
 
 const draftFromRoutine = (routine: RoutineView): RoutineDraft => ({
   name: routine.name,
   prompt: routine.prompt,
   enabled: routine.enabled,
-  schedules: routineScheduleDrafts(routine),
+  triggers: routineTriggerDrafts(routine),
 });
 
 const draftValid = (draft: RoutineDraft) =>
-  draft.schedules.length > 0 &&
-  draft.schedules.every((schedule) =>
-    routineDraftValid({ name: draft.name, prompt: draft.prompt, schedule })
-  );
+  draft.name.trim().length > 0 &&
+  draft.prompt.trim().length > 0 &&
+  draft.triggers.length > 0 &&
+  draft.triggers.length <= 8 &&
+  draft.triggers.every(routineTriggerDraftValid) &&
+  routineDraftTriggerValue(draft.triggers) !== null;
 
 export function RoutineEditor({
-  botId,
+  ownerId,
+  ownerKind,
   routineId,
   onDeleted,
 }: {
-  botId: string;
+  ownerId: string;
+  ownerKind: "bot" | "group";
   routineId: string | null;
   onDeleted: () => void;
 }) {
   const [routine, setRoutine] = useState<RoutineView | null>(null);
   const [draft, setDraft] = useState<RoutineDraft>(newDraft);
   const [executions, setExecutions] = useState<RoutineExecutionView[]>([]);
-  const [expandedSchedule, setExpandedSchedule] = useState<number | null>(null);
+  const [expandedTrigger, setExpandedTrigger] = useState<number | null>(null);
   const [addTriggerOpen, setAddTriggerOpen] = useState(false);
   const [loading, setLoading] = useState(Boolean(routineId));
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [runError, setRunError] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [toggleSaving, setToggleSaving] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const saving = useRef(false);
   const saveAgain = useRef(false);
@@ -872,7 +1522,7 @@ export function RoutineEditor({
     const initial = newDraft();
     setDraft(initial);
     draftRef.current = initial;
-    setExpandedSchedule(null);
+    setExpandedTrigger(null);
     setAddTriggerOpen(false);
     if (!routineId) return () => undefined;
     void Promise.all([api.routine(routineId), api.routineExecutions(routineId)]).then(
@@ -909,25 +1559,37 @@ export function RoutineEditor({
       saving.current = true;
       setSaveState("saving");
       try {
-        const trigger = routineTriggerValue(value.schedules);
-        const presentation = routinePresentationValue(value.schedules);
+        const trigger = routineDraftTriggerValue(value.triggers);
+        if (!trigger) return;
+        const presentation = routineTriggerPresentationValue(value.triggers);
         const current = routineRef.current;
-        const saved = current
-          ? await api.updateRoutine(current.id, {
-              name: value.name.trim(),
-              prompt: value.prompt.trim(),
-              trigger,
-              presentation,
-              enabled: value.enabled,
-              expectedRevision: current.revision,
-            })
-          : await api.createRoutine(botId, {
-              name: value.name.trim(),
-              prompt: value.prompt.trim(),
-              trigger,
-              presentation,
-              enabled: value.enabled,
-            });
+        const update = (base: RoutineView) =>
+          api.updateRoutine(base.id, {
+            name: value.name.trim(),
+            prompt: value.prompt.trim(),
+            trigger,
+            presentation,
+            expectedRevision: base.revision,
+          });
+        let saved: RoutineView;
+        if (!current) {
+          saved = await api.createRoutine(ownerId, ownerKind, {
+            name: value.name.trim(),
+            prompt: value.prompt.trim(),
+            trigger,
+            presentation,
+            enabled: value.enabled,
+          });
+        } else {
+          try {
+            saved = await update(current);
+          } catch (error) {
+            if (!(error instanceof ClientError) || error.status !== 409) throw error;
+            const latest = await api.routine(current.id);
+            routineRef.current = latest;
+            saved = await update(latest);
+          }
+        }
         routineRef.current = saved;
         setRoutine(saved);
         if (draftRef.current === value) setDirty(false);
@@ -942,7 +1604,7 @@ export function RoutineEditor({
         }
       }
     },
-    [botId]
+    [ownerId, ownerKind]
   );
 
   const queue = useCallback(
@@ -996,32 +1658,44 @@ export function RoutineEditor({
 
   const toggleActive = (enabled: boolean) => {
     const next = { ...draft, enabled };
-    if (!routineRef.current || dirty || saving.current) {
+    if (!routineRef.current) {
       queue(next, true);
       return;
     }
     draftRef.current = next;
     setDraft(next);
-    setDirty(true);
-    saving.current = true;
-    setSaveState("saving");
-    void api
-      .setRoutineEnabled(routineRef.current, enabled)
-      .then(
-        (saved) => {
-          routineRef.current = saved;
-          setRoutine(saved);
-          if (draftRef.current === next) setDirty(false);
-          setSaveState("saved");
-        },
-        () => setSaveState("error")
-      )
-      .finally(() => {
-        saving.current = false;
-        if (saveAgain.current) {
-          saveAgain.current = false;
-          void persist(draftRef.current);
+    setToggleSaving(true);
+    const base = routineRef.current;
+    const commit = async () => {
+      try {
+        return await api.setRoutineEnabled(base, enabled);
+      } catch (error) {
+        if (!(error instanceof ClientError) || error.status !== 409) throw error;
+        const latest = await api.routine(base.id);
+        routineRef.current = latest;
+        return latest.enabled === enabled ? latest : api.setRoutineEnabled(latest, enabled);
+      }
+    };
+    void commit()
+      .then((saved) => {
+        routineRef.current = saved;
+        setRoutine(saved);
+        if (draftRef.current === next) {
+          const confirmed = { ...next, enabled: saved.enabled };
+          draftRef.current = confirmed;
+          setDraft(confirmed);
         }
+      })
+      .catch(() => {
+        if (draftRef.current === next) {
+          const rolledBack = { ...next, enabled: base.enabled };
+          draftRef.current = rolledBack;
+          setDraft(rolledBack);
+        }
+        setSaveState("error");
+      })
+      .finally(() => {
+        setToggleSaving(false);
       });
   };
 
@@ -1035,29 +1709,33 @@ export function RoutineEditor({
 
   return (
     <div
-      className="size-full overflow-y-auto px-[10px] pb-8 pt-[42px] motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-right-2 motion-safe:duration-150"
+      className="size-full overflow-y-auto px-3 pb-8 pt-[42px] motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-right-2 motion-safe:duration-150"
       data-routine-editor=""
     >
-      <div className="flex items-center gap-2">
-        <div className="flex items-center gap-1.5">
+      <div className="flex min-w-0 items-center gap-2" data-routine-actions="">
+        <div className="flex min-w-0 items-center gap-1.5">
           <Switch
             aria-label="Active"
             checked={draft.enabled}
             className="h-4 w-7 data-[state=checked]:bg-[#070707] [&>span]:size-3 [&>span]:data-[state=checked]:translate-x-3 dark:data-[state=checked]:bg-[#626262]"
+            disabled={toggleSaving}
             onCheckedChange={toggleActive}
           />
           <span className="text-[13px]">Active</span>
         </div>
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex shrink-0 items-center gap-2">
           <Button
-            className="h-7 rounded-[7px] px-2 text-[12px] font-normal"
+            className="h-8 w-[62px] rounded-[8px] px-2 text-[12px] font-normal"
             onClick={() => (routine ? setDeleteOpen(true) : onDeleted())}
             variant="secondary"
           >
             Delete
           </Button>
           <Button
-            className="h-7 min-w-[60px] rounded-[7px] px-2 text-[12px] font-normal"
+            className={cn(
+              "h-8 rounded-[8px] px-2 text-[12px] font-normal transition-[width,background-color,color]",
+              running ? "w-[84px]" : "w-[62px]"
+            )}
             disabled={!routine || !valid || dirty || running || saveState === "saving"}
             onClick={() => {
               if (!routine) return;
@@ -1069,13 +1747,7 @@ export function RoutineEditor({
             }}
             title={!routine ? "Available after the routine is saved" : undefined}
           >
-            {running ? (
-              <>
-                <LoaderCircle className="size-3.5 animate-spin" /> Running…
-              </>
-            ) : (
-              "Test run"
-            )}
+            {running ? "Running…" : "Test run"}
           </Button>
         </div>
       </div>
@@ -1116,44 +1788,43 @@ export function RoutineEditor({
         <div className="grid gap-[5px]">
           <Label className="pl-2 text-[12px] font-normal text-muted-foreground">When to run</Label>
           <div className="rounded-[10px] border border-[#dedede] dark:border-[#343434]">
-            <div aria-label="Triggers" role="list">
-              {draft.schedules.map((schedule, index) => (
-                // biome-ignore lint/suspicious/noArrayIndexKey: schedule rows are ordered local drafts with no persisted identity.
-                <ScheduleCard
-                  expanded={expandedSchedule === index}
+            <ul aria-label="Triggers">
+              {draft.triggers.map((trigger, index) => (
+                <TriggerCard
+                  expanded={expandedTrigger === index}
                   index={index}
-                  key={`${index}-${schedule.preset}`}
+                  key={`${trigger.kind}-${index}`}
                   onChange={(next) => {
-                    const schedules = draft.schedules.map((item, itemIndex) =>
+                    const triggers = draft.triggers.map((item, itemIndex) =>
                       itemIndex === index ? next : item
                     );
-                    queue({ ...draft, schedules });
+                    queue({ ...draft, triggers });
                   }}
                   onExpand={() =>
-                    setExpandedSchedule((current) => (current === index ? null : index))
+                    setExpandedTrigger((current) => (current === index ? null : index))
                   }
                   onRemove={() => {
-                    const schedules = draft.schedules.filter((_, itemIndex) => itemIndex !== index);
-                    setExpandedSchedule(null);
-                    queue({ ...draft, schedules }, true);
+                    const triggers = draft.triggers.filter((_, itemIndex) => itemIndex !== index);
+                    setExpandedTrigger(null);
+                    queue({ ...draft, triggers }, true);
                   }}
-                  value={schedule}
+                  value={trigger}
                 />
               ))}
-            </div>
-            {draft.schedules.length < 8 && (
+            </ul>
+            {draft.triggers.length < 8 && (
               <div
                 className={cn(
-                  expandedSchedule !== null &&
+                  expandedTrigger !== null &&
                     "h-0 overflow-hidden opacity-0 focus-within:h-8 focus-within:overflow-visible focus-within:opacity-100"
                 )}
               >
-                <AddScheduleMenu
-                  hasSchedules={draft.schedules.length > 0}
-                  onAdd={(schedule) => {
-                    const schedules = [...draft.schedules, schedule];
-                    setExpandedSchedule(schedules.length - 1);
-                    queue({ ...draft, schedules });
+                <AddTriggerMenu
+                  hasTriggers={draft.triggers.length > 0}
+                  onAdd={(trigger) => {
+                    const triggers = [...draft.triggers, trigger];
+                    setExpandedTrigger(triggers.length - 1);
+                    queue({ ...draft, triggers });
                   }}
                   onOpenChange={setAddTriggerOpen}
                   open={addTriggerOpen}
@@ -1194,8 +1865,20 @@ export function RoutineEditor({
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => {
-                if (!routine) return;
-                void api.deleteRoutine(routine).then(onDeleted, () => setSaveState("error"));
+                const current = routineRef.current ?? routine;
+                if (!current) return;
+                const remove = async () => {
+                  try {
+                    await api.deleteRoutine(current);
+                  } catch (error) {
+                    if (!(error instanceof ClientError) || error.status !== 409) throw error;
+                    const latest = await api.routine(current.id);
+                    routineRef.current = latest;
+                    await api.deleteRoutine(latest);
+                  }
+                  onDeleted();
+                };
+                void remove().catch(() => setSaveState("error"));
               }}
             >
               Delete
@@ -1208,26 +1891,36 @@ export function RoutineEditor({
 }
 
 export function RoutinesSummary({
-  botId,
+  ownerId,
+  ownerKind,
   onOpen,
 }: {
-  botId: string;
+  ownerId: string;
+  ownerKind: "bot" | "group";
   onOpen: (routineId: string | null) => void;
 }) {
   const [routines, setRoutines] = useState<RoutineView[] | null>(null);
   const refresh = useCallback(() => {
-    void api.routines(botId).then(setRoutines, () => setRoutines([]));
-  }, [botId]);
-  useEffect(refresh, [refresh]);
+    void api.routines(ownerId, ownerKind).then(setRoutines, () => setRoutines([]));
+  }, [ownerId, ownerKind]);
+  useEffect(() => {
+    refresh();
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") refresh();
+    }, 3_000);
+    const onFocus = () => refresh();
+    window.addEventListener("focus", onFocus);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [refresh]);
 
   const sorted = useMemo(
-    () =>
-      routines?.slice().sort((left, right) => {
-        if (left.nextRunAt && right.nextRunAt) return left.nextRunAt.localeCompare(right.nextRunAt);
-        if (left.nextRunAt) return -1;
-        if (right.nextRunAt) return 1;
-        return left.createdAt.localeCompare(right.createdAt);
-      }) ?? [],
+    () => [
+      ...(routines?.filter((routine) => routine.enabled) ?? []),
+      ...(routines?.filter((routine) => !routine.enabled) ?? []),
+    ],
     [routines]
   );
 
@@ -1241,13 +1934,13 @@ export function RoutinesSummary({
 
   if (sorted.length === 0) {
     return (
-      <div className="grid flex-1 place-items-center pb-[18vh]">
-        <div className="text-center">
-          <p className="mx-auto max-w-[220px] text-[13px] leading-[17px] text-muted-foreground">
+      <div className="flex flex-1 items-center justify-center px-4 py-4">
+        <div className="grid max-w-64 gap-3 text-center">
+          <p className="text-[13px] leading-[17px] text-muted-foreground">
             Routines are recurring tasks this Bot runs on a schedule.
           </p>
           <Button
-            className="mt-3 h-8 rounded-[7px] border border-[#d9d9d9] bg-[#f0f0f0] px-3 text-[14px] font-normal text-foreground shadow-none dark:border-[#323232] dark:bg-[#1b1b1b] dark:text-[#fcfcfc]"
+            className="mx-auto h-8 rounded-[7px] border border-[#d9d9d9] bg-[#f0f0f0] px-3 text-[14px] font-normal text-foreground shadow-none dark:border-[#323232] dark:bg-[#1b1b1b] dark:text-[#fcfcfc]"
             onClick={() => onOpen(null)}
             variant="secondary"
           >
@@ -1275,6 +1968,12 @@ export function RoutinesSummary({
       <div className="mt-1 grid gap-1">
         {sorted.map((routine) => {
           const running = routineIsRunning(routine);
+          const trigger = routineTriggerDrafts(routine)[0];
+          const detail = routine.enabled
+            ? trigger
+              ? describeRoutineTrigger(trigger)
+              : describeRoutineSchedule(cloneDefaultSchedule())
+            : "Paused";
           return (
             <button
               className="group flex min-h-[42px] items-center gap-2 rounded-[9px] px-2 text-left outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-ring/25"
@@ -1284,24 +1983,16 @@ export function RoutinesSummary({
             >
               <span className="grid size-3.5 shrink-0 place-items-center">
                 {running ? (
-                  <LoaderCircle className="size-3.5 animate-spin text-muted-foreground" />
+                  <LoaderCircle className="size-3.5 animate-spin text-[#0c64c1] dark:text-[#4aa8ff]" />
                 ) : routine.enabled ? (
-                  <CalendarClock className="size-3.5 text-muted-foreground" />
+                  <CalendarClock className="size-3.5 text-[#00673a] dark:text-[#53b782]" />
                 ) : (
                   <CirclePause className="size-3.5 text-muted-foreground" />
                 )}
               </span>
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-[13px] font-medium">{routine.name}</span>
-                <span className="block truncate text-[11px] text-muted-foreground">
-                  {running
-                    ? "Running"
-                    : routine.enabled
-                      ? describeRoutineSchedule(
-                          routineScheduleDrafts(routine)[0] ?? cloneDefaultSchedule()
-                        )
-                      : "Paused"}
-                </span>
+                <span className="block truncate text-[11px] text-muted-foreground">{detail}</span>
               </span>
             </button>
           );

@@ -1,17 +1,23 @@
-import type { BotView, ChannelRoundView, ChannelView, UpdateBotInput } from "@openbot/contracts";
-import { FolderOpen } from "lucide-react";
+import type { BotView, ChannelView, UpdateBotInput } from "@openbot/contracts";
+import { Plus, X } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Badge } from "../ui/badge";
+import { BOT_TEMPLATE_SHARING_ENABLED } from "../../lib/bot-template";
 import { Button } from "../ui/button";
-import { Checkbox } from "../ui/checkbox";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "../ui/dropdown-menu";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
-import { Progress } from "../ui/progress";
 import { Switch } from "../ui/switch";
 import { Textarea } from "../ui/textarea";
 import { BotAvatar } from "./avatar";
 import { AvatarPicker } from "./avatar-picker";
 import { BotScreen } from "./bot-screen";
+import { BotTemplateSettingsFooter } from "./bot-template-share";
+import { GroupAvatarEditor } from "./group-avatar-editor";
 import { RoutineEditor, RoutinesSummary } from "./routine-panel";
 
 type InspectorMode = "summary" | "settings" | "routine";
@@ -37,10 +43,12 @@ const draftOf = (bot: BotView): ProfileDraft => ({
 function BotSettings({
   bot,
   onBack,
+  onShareAsTemplate,
   onUpdate,
 }: {
   bot: BotView;
   onBack: () => void;
+  onShareAsTemplate: () => void;
   onUpdate: (input: UpdateBotInput) => Promise<BotView>;
 }) {
   const [draft, setDraft] = useState(() => draftOf(bot));
@@ -89,7 +97,7 @@ function BotSettings({
   };
 
   return (
-    <div className="flex size-full flex-col overflow-y-auto px-4 pb-5 pt-[70px]">
+    <div className="flex size-full flex-col overflow-y-auto px-4 pb-3 pt-[70px]">
       <button className="sr-only" onClick={onBack} type="button">
         Back to bot details
       </button>
@@ -169,9 +177,118 @@ function BotSettings({
         {saveState === "error" && (
           <p className="text-xs text-destructive">Could not save. Your draft is still here.</p>
         )}
-        <div className="h-3 text-center text-[10px] text-muted-foreground">
-          {saveState === "saving" ? "Saving…" : saveState === "saved" ? "Saved" : ""}
+      </div>
+      {BOT_TEMPLATE_SHARING_ENABLED && (
+        <div className="mt-auto pt-6">
+          <BotTemplateSettingsFooter bot={bot} onShare={onShareAsTemplate} />
         </div>
+      )}
+    </div>
+  );
+}
+
+function GroupSettings({
+  botById,
+  channel,
+  onBack,
+  onSetAvatar,
+  onUpdate,
+}: {
+  botById: ReadonlyMap<string, BotView>;
+  channel: ChannelView;
+  onBack: () => void;
+  onSetAvatar: (pngBase64: string | null) => Promise<void>;
+  onUpdate: (name: string, description: string) => Promise<ChannelView>;
+}) {
+  const [draft, setDraft] = useState(() => ({
+    name: channel.name,
+    description: channel.description,
+  }));
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const draftRef = useRef(draft);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const revision = useRef(0);
+
+  useEffect(() => {
+    const next = { name: channel.name, description: channel.description };
+    draftRef.current = next;
+    setDraft(next);
+    setSaveState("idle");
+  }, [channel.name, channel.description]);
+
+  const persist = useCallback(
+    async (next: typeof draft) => {
+      const requestRevision = ++revision.current;
+      setSaveState("saving");
+      try {
+        await onUpdate(next.name.trim() || "New Group", next.description);
+        if (requestRevision === revision.current) setSaveState("saved");
+      } catch {
+        if (requestRevision === revision.current) setSaveState("error");
+      }
+    },
+    [onUpdate]
+  );
+
+  const queue = useCallback(
+    (next: typeof draft) => {
+      draftRef.current = next;
+      setDraft(next);
+      if (timer.current) clearTimeout(timer.current);
+      timer.current = setTimeout(() => void persist(draftRef.current), 400);
+    },
+    [persist]
+  );
+  const flush = () => {
+    if (!timer.current) return;
+    clearTimeout(timer.current);
+    timer.current = null;
+    void persist(draftRef.current);
+  };
+
+  return (
+    <div className="flex size-full flex-col overflow-y-auto px-4 pb-5 pt-[70px]">
+      <button className="sr-only" onClick={onBack} type="button">
+        Back to conversation details
+      </button>
+      <GroupAvatarEditor botById={botById} channel={channel} onSave={onSetAvatar} />
+      <div className="mt-8 grid gap-2">
+        <div className="grid gap-[2px]">
+          <Label
+            className="pl-2 text-[12px] font-normal leading-[18px] text-muted-foreground"
+            htmlFor={`group-settings-name-${channel.id}`}
+          >
+            Name
+          </Label>
+          <Input
+            className="h-9 rounded-[7px] border-[#d9d9d9] px-2.5 text-[14px] shadow-none focus-visible:ring-0 dark:border-[#393939] dark:bg-[#181818]"
+            id={`group-settings-name-${channel.id}`}
+            maxLength={80}
+            onBlur={flush}
+            onChange={(event) => queue({ ...draft, name: event.target.value })}
+            value={draft.name}
+          />
+        </div>
+        <div className="grid gap-[2px]">
+          <Label
+            className="pl-2 text-[12px] font-normal leading-[18px] text-muted-foreground"
+            htmlFor={`group-settings-description-${channel.id}`}
+          >
+            Description
+          </Label>
+          <Textarea
+            className="min-h-20 resize-none rounded-[7px] border-[#d9d9d9] px-2.5 py-2 text-[14px] shadow-none focus-visible:ring-0 dark:border-[#393939] dark:bg-[#181818]"
+            id={`group-settings-description-${channel.id}`}
+            maxLength={2_000}
+            onBlur={flush}
+            onChange={(event) => queue({ ...draft, description: event.target.value })}
+            placeholder="what this channel for"
+            value={draft.description}
+          />
+        </div>
+        {saveState === "error" && (
+          <p className="text-xs text-destructive">Could not save. Your draft is still here.</p>
+        )}
       </div>
     </div>
   );
@@ -181,7 +298,6 @@ export const Inspector = memo(function Inspector({
   channel,
   workspaceRoot,
   botById,
-  rounds,
   active,
   screenEnabled,
   mode,
@@ -189,12 +305,16 @@ export const Inspector = memo(function Inspector({
   onModeChange,
   onUpdateBot,
   onRetryBot,
+  onShareAsTemplate,
+  onOpenBot,
+  onSetGroupAvatar,
   onSetMembers,
+  onUpdateGroupProfile,
+  routineOpenRequest,
 }: {
   channel: ChannelView;
   workspaceRoot: string;
   botById: ReadonlyMap<string, BotView>;
-  rounds: ChannelRoundView[];
   active: boolean;
   screenEnabled: boolean;
   mode: InspectorMode;
@@ -202,7 +322,16 @@ export const Inspector = memo(function Inspector({
   onModeChange: (mode: InspectorMode) => void;
   onUpdateBot: (botId: string, input: UpdateBotInput) => Promise<BotView>;
   onRetryBot: (botId: string) => Promise<void>;
+  onShareAsTemplate: (bot: BotView) => void;
+  onOpenBot: (botId: string) => void;
+  onSetGroupAvatar: (channelId: string, pngBase64: string | null) => Promise<void>;
   onSetMembers: (channelId: string, botIds: string[]) => Promise<void>;
+  routineOpenRequest?: { routineId: string; nonce: number } | null;
+  onUpdateGroupProfile: (
+    channelId: string,
+    name: string,
+    description: string
+  ) => Promise<ChannelView>;
 }) {
   const members = useMemo(
     () =>
@@ -214,23 +343,14 @@ export const Inspector = memo(function Inspector({
     [botById, channel.members]
   );
   const bot = channel.kind === "bot_dm" ? members[0] : undefined;
-  const [memberEditorOpen, setMemberEditorOpen] = useState(false);
   const [selectedRoutineId, setSelectedRoutineId] = useState<string | null>(null);
-  const [memberDraft, setMemberDraft] = useState<string[]>(() =>
-    members.map((member) => member.id)
-  );
   const [memberSaveState, setMemberSaveState] = useState<"idle" | "saving" | "error">("idle");
   useEffect(() => {
-    setMemberDraft(members.map((member) => member.id));
-    setMemberEditorOpen(false);
+    if (routineOpenRequest) setSelectedRoutineId(routineOpenRequest.routineId);
+  }, [routineOpenRequest]);
+  useEffect(() => {
     setMemberSaveState("idle");
-  }, [channel.id, members]);
-  const latestRound = rounds.at(-1);
-  const progress = latestRound
-    ? latestRound.status === "completed"
-      ? 100
-      : ((latestRound.currentOrdinal + 1) / Math.max(1, members.length)) * 100
-    : 0;
+  }, [channel.id]);
 
   if (bot && mode === "settings") {
     return (
@@ -238,6 +358,7 @@ export const Inspector = memo(function Inspector({
         <BotSettings
           bot={bot}
           onBack={() => onModeChange("summary")}
+          onShareAsTemplate={() => onShareAsTemplate(bot)}
           onUpdate={(input) => onUpdateBot(bot.id, input)}
         />
       </aside>
@@ -248,12 +369,44 @@ export const Inspector = memo(function Inspector({
     return (
       <aside className="size-full bg-background">
         <RoutineEditor
-          botId={bot.id}
+          ownerId={bot.id}
+          ownerKind="bot"
           onDeleted={() => {
             setSelectedRoutineId(null);
             onModeChange("summary");
           }}
           routineId={selectedRoutineId}
+        />
+      </aside>
+    );
+  }
+
+  if (!bot && mode === "routine") {
+    return (
+      <aside className="size-full bg-background">
+        <RoutineEditor
+          ownerId={channel.id}
+          ownerKind="group"
+          onDeleted={() => {
+            setSelectedRoutineId(null);
+            onModeChange("summary");
+          }}
+          routineId={selectedRoutineId}
+        />
+      </aside>
+    );
+  }
+
+  if (!bot && mode === "settings") {
+    return (
+      <aside className="size-full bg-background">
+        <GroupSettings
+          botById={botById}
+          channel={channel}
+          key={channel.id}
+          onBack={() => onModeChange("summary")}
+          onSetAvatar={(pngBase64) => onSetGroupAvatar(channel.id, pngBase64)}
+          onUpdate={(name, description) => onUpdateGroupProfile(channel.id, name, description)}
         />
       </aside>
     );
@@ -276,7 +429,8 @@ export const Inspector = memo(function Inspector({
               : `${bot.name}'s screen`}
           </div>
           <RoutinesSummary
-            botId={bot.id}
+            ownerId={bot.id}
+            ownerKind="bot"
             onOpen={(routineId) => {
               setSelectedRoutineId(routineId);
               onModeChange("routine");
@@ -286,100 +440,103 @@ export const Inspector = memo(function Inspector({
       ) : (
         <>
           <div className="text-sm font-medium">Members</div>
-          <div className="mt-3 space-y-2">
-            {members.map((member, index) => (
-              <div className="flex items-center gap-3 rounded-xl px-2 py-2" key={member.id}>
-                <BotAvatar bot={member} size="sm" />
-                <span className="min-w-0 flex-1 truncate text-sm font-medium">{member.name}</span>
-                <Badge variant="secondary">#{index + 1}</Badge>
-              </div>
-            ))}
-          </div>
-          <Button
-            className="mt-2 h-8 rounded-lg text-xs"
-            onClick={() => setMemberEditorOpen((open) => !open)}
-            variant="outline"
-          >
-            {memberEditorOpen ? "Cancel" : "Edit members"}
-          </Button>
-          {memberEditorOpen && (
-            <div className="mt-3 rounded-xl border p-2" data-group-member-editor="">
-              <div className="mb-1 px-1 text-[11px] text-muted-foreground">Choose 1–6 Bots</div>
-              <div className="max-h-52 overflow-y-auto">
-                {[...botById.values()]
-                  .filter((candidate) => candidate.status === "active")
-                  .map((candidate) => {
-                    const checked = memberDraft.includes(candidate.id);
-                    return (
-                      <label
-                        className="flex h-9 cursor-pointer items-center gap-2 rounded-lg px-2 hover:bg-accent"
-                        key={candidate.id}
-                      >
-                        <Checkbox
-                          checked={checked}
-                          disabled={!checked && memberDraft.length >= 6}
-                          onCheckedChange={() =>
-                            setMemberDraft((current) =>
-                              current.includes(candidate.id)
-                                ? current.length > 1
-                                  ? current.filter((id) => id !== candidate.id)
-                                  : current
-                                : current.length < 6
-                                  ? [...current, candidate.id]
-                                  : current
-                            )
-                          }
-                        />
-                        <BotAvatar bot={candidate} size="sm" />
-                        <span className="min-w-0 flex-1 truncate text-xs font-medium">
-                          {candidate.name}
-                        </span>
-                      </label>
+          <ul aria-label="Members" className="mt-2 space-y-1">
+            {members.map((member) => (
+              <li className="group flex h-9 items-center" key={member.id}>
+                <button
+                  aria-label={`Open ${member.name}'s chat`}
+                  className="flex min-w-0 flex-1 items-center gap-3 rounded-lg px-2 py-1.5 text-left hover:bg-accent"
+                  onClick={() => onOpenBot(member.id)}
+                  type="button"
+                >
+                  <BotAvatar bot={member} size="sm" />
+                  <span className="min-w-0 flex-1 truncate text-sm font-medium">{member.name}</span>
+                </button>
+                <Button
+                  aria-label={`Remove ${member.name}`}
+                  className="size-7 shrink-0 rounded-full text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+                  disabled={members.length <= 1 || memberSaveState === "saving"}
+                  onClick={() => {
+                    if (!window.confirm(`Remove ${member.name} from this conversation?`)) return;
+                    setMemberSaveState("saving");
+                    void onSetMembers(
+                      channel.id,
+                      members.filter((candidate) => candidate.id !== member.id).map(({ id }) => id)
+                    ).then(
+                      () => setMemberSaveState("idle"),
+                      () => setMemberSaveState("error")
                     );
-                  })}
-              </div>
-              <Button
-                className="mt-2 h-8 w-full text-xs"
-                disabled={memberDraft.length < 1 || memberSaveState === "saving"}
-                onClick={() => {
-                  setMemberSaveState("saving");
-                  void onSetMembers(channel.id, memberDraft).then(
-                    () => {
-                      setMemberSaveState("idle");
-                      setMemberEditorOpen(false);
-                    },
-                    () => setMemberSaveState("error")
-                  );
-                }}
-              >
-                {memberSaveState === "saving" ? "Saving…" : "Save members"}
-              </Button>
-              {memberSaveState === "error" && (
-                <p className="mt-1 text-[11px] text-destructive">Could not update members.</p>
-              )}
-            </div>
+                  }}
+                  size="icon-sm"
+                  variant="ghost"
+                >
+                  <X className="size-3.5" />
+                </Button>
+              </li>
+            ))}
+            <li>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    aria-label="Add Member"
+                    className="flex h-9 w-full items-center gap-3 rounded-lg px-2 text-sm text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
+                    disabled={
+                      members.length >= 6 ||
+                      memberSaveState === "saving" ||
+                      ![...botById.values()].some(
+                        (candidate) =>
+                          candidate.status === "active" &&
+                          !members.some((member) => member.id === candidate.id)
+                      )
+                    }
+                    type="button"
+                  >
+                    <span className="grid size-[22px] place-items-center">
+                      <Plus className="size-3.5" />
+                    </span>
+                    <span>Add Member</span>
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" aria-label="Add Member" className="w-[216px]">
+                  {[...botById.values()]
+                    .filter(
+                      (candidate) =>
+                        candidate.status === "active" &&
+                        !members.some((member) => member.id === candidate.id)
+                    )
+                    .map((candidate) => (
+                      <DropdownMenuItem
+                        key={candidate.id}
+                        onSelect={() => {
+                          setMemberSaveState("saving");
+                          void onSetMembers(channel.id, [
+                            ...members.map(({ id }) => id),
+                            candidate.id,
+                          ]).then(
+                            () => setMemberSaveState("idle"),
+                            () => setMemberSaveState("error")
+                          );
+                        }}
+                      >
+                        <BotAvatar bot={candidate} size="sm" />
+                        <span className="truncate">{candidate.name}</span>
+                      </DropdownMenuItem>
+                    ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </li>
+          </ul>
+          {memberSaveState === "error" && (
+            <p className="mt-2 text-[11px] text-destructive">Could not update members.</p>
           )}
-          {channel.workingDirectory && (
-            <div className="mt-5 rounded-xl border px-3 py-3">
-              <div className="flex items-center gap-2 text-xs font-medium">
-                <FolderOpen className="size-3.5" /> Shared project
-              </div>
-              <div className="mt-2 break-all font-mono text-[10px] text-muted-foreground">
-                {channel.workingDirectory}
-              </div>
-            </div>
-          )}
-          {latestRound && (
-            <div className="mt-4 rounded-xl border p-3 text-xs">
-              <div className="mb-2 flex justify-between">
-                <span className="text-muted-foreground">
-                  Round {latestRound.roundIndex + 1} of 3
-                </span>
-                <span className="capitalize">{latestRound.status}</span>
-              </div>
-              <Progress value={progress} />
-            </div>
-          )}
+          <RoutinesSummary
+            ownerId={channel.id}
+            ownerKind="group"
+            onOpen={(routineId) => {
+              setSelectedRoutineId(routineId);
+              onModeChange("routine");
+            }}
+          />
         </>
       )}
       <div className="sr-only">Workspace root: {workspaceRoot}</div>

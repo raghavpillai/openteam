@@ -3,6 +3,8 @@ import type { ChannelMessageView, ChannelView, RunView } from "@openbot/contract
 import {
   groupSidebarRows,
   reconcileSidebarRows,
+  sidebarRowIsWorking,
+  sidebarUnreadJumpTargets,
   type SidebarChannelRow,
 } from "../src/renderer/lib/sidebar-rows";
 
@@ -12,6 +14,51 @@ const message = (createdAt: string) => ({ createdAt }) as ChannelMessageView;
 const run = (id: string) => ({ id }) as RunView;
 
 describe("sidebar row reconciliation", () => {
+  test("shows working presence only for active work, not approval waits", () => {
+    expect(sidebarRowIsWorking({ channel: channel("idle", "2026-08-27T10:00:00.000Z") })).toBe(
+      false
+    );
+    expect(
+      sidebarRowIsWorking({
+        channel: channel("running", "2026-08-27T10:00:00.000Z"),
+        running: { status: "running" } as RunView,
+      })
+    ).toBe(true);
+    expect(
+      sidebarRowIsWorking({
+        channel: channel("approval", "2026-08-27T10:00:00.000Z"),
+        running: { status: "waiting_approval" } as RunView,
+      })
+    ).toBe(false);
+    expect(
+      sidebarRowIsWorking({
+        channel: channel("background", "2026-08-27T10:00:00.000Z"),
+        hasActiveTask: true,
+      })
+    ).toBe(true);
+  });
+
+  test("finds Grok's nearest unread rows outside the visible sidebar viewport", () => {
+    expect(
+      sidebarUnreadJumpTargets(
+        [
+          { channelId: "read-above", unread: false, top: -60, bottom: -6 },
+          { channelId: "far-above", unread: true, unreadCount: 3, top: -60, bottom: -6 },
+          { channelId: "near-above", unread: true, top: -54, bottom: 0 },
+          { channelId: "partial", unread: true, top: -4, bottom: 50 },
+          { channelId: "visible", unread: true, top: 50, bottom: 104 },
+          { channelId: "near-below", unread: true, unreadCount: 2, top: 200, bottom: 254 },
+          { channelId: "far-below", unread: true, top: 258, bottom: 312 },
+        ],
+        0,
+        200
+      )
+    ).toEqual({
+      above: { channelId: "near-above", count: 4 },
+      below: { channelId: "near-below", count: 3 },
+    });
+  });
+
   test("reuses unchanged rows and replaces only changed rows", () => {
     const firstChannel = channel("first", "2026-08-27T10:00:00.000Z");
     const secondChannel = channel("second", "2026-08-27T09:00:00.000Z");

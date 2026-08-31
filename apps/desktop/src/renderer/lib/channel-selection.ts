@@ -1,5 +1,12 @@
 import type { ChannelView } from "@openbot/contracts";
 
+export const activeAgentIdForChannel = (channel: ChannelView | undefined): string | null => {
+  if (!channel) return null;
+  return (
+    channel.directKey?.match(/^bot:(.+)$/)?.[1] ?? (channel.kind === "group" ? channel.id : null)
+  );
+};
+
 export const restoredActiveChannelId = (input: {
   activeAgentId: string | null;
   channels: readonly ChannelView[];
@@ -12,7 +19,10 @@ export const restoredActiveChannelId = (input: {
   }
   return (
     (input.activeAgentId
-      ? input.channels.find((channel) => channel.directKey === `bot:${input.activeAgentId}`)?.id
+      ? input.channels.find(
+          (channel) =>
+            channel.directKey === `bot:${input.activeAgentId}` || channel.id === input.activeAgentId
+        )?.id
       : null) ?? input.currentSelectedId
   );
 };

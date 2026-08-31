@@ -120,6 +120,44 @@ const withoutChannel = (orders: Record<string, string[]>, channelId: string) =>
     Object.entries(orders).map(([groupId, ids]) => [groupId, ids.filter((id) => id !== channelId)])
   );
 
+const withHostSettings = (
+  local: SidebarPreferences,
+  settings: {
+    pinnedAgentIds?: string[];
+    sidebarSections?: Array<{
+      id: string;
+      name: string;
+      agentIds: string[];
+      isCollapsed: boolean;
+    }>;
+  }
+): SidebarPreferences => {
+  const hostSections = settings.sidebarSections
+    ?.filter((section) => section.id !== "__agents__")
+    .map((section) => ({
+      id: section.id,
+      name: section.name,
+      collapsed: section.isCollapsed,
+    }));
+  const hostSectionIds = new Set(hostSections?.map((section) => section.id) ?? []);
+  return {
+    ...local,
+    ...(settings.pinnedAgentIds ? { pinnedIds: stringArray(settings.pinnedAgentIds) } : {}),
+    ...(hostSections
+      ? {
+          sections: hostSections,
+          sectionByChannel: Object.fromEntries(
+            (settings.sidebarSections ?? []).flatMap((section) =>
+              section.id === "__agents__" || !hostSectionIds.has(section.id)
+                ? []
+                : section.agentIds.map((agentId) => [agentId, section.id])
+            )
+          ),
+        }
+      : {}),
+  };
+};
+
 export function useSidebarPreferences() {
   const [preferences, setPreferences] = useState(readPreferences);
 
@@ -129,8 +167,8 @@ export function useSidebarPreferences() {
       .rootSettings()
       .then((result) => {
         if (cancelled) return;
-        if (result.valid && result.settings.sidebarPreferences) {
-          const remote = readPreferences(result.settings.sidebarPreferences);
+        if (result.valid) {
+          const remote = withHostSettings(readPreferences(), result.settings);
           localStorage.setItem(STORAGE_KEY, JSON.stringify(remote));
           setPreferences(remote);
           return;

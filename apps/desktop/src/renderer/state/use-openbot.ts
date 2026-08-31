@@ -7,6 +7,8 @@ import { createSnapshotCaches, reconcileClientSnapshot } from "../lib/snapshot-r
 
 export type OpenBotMutation = <T>(operation: () => Promise<T>) => Promise<T>;
 
+const canRefreshInBackground = () => Boolean(window.openbot?.notifications);
+
 export function useOpenBot() {
   const [snapshot, setSnapshot] = useState<ClientSnapshot | null>(null);
   const snapshotRef = useRef<ClientSnapshot | null>(null);
@@ -65,7 +67,7 @@ export function useOpenBot() {
     const retry = window.setInterval(() => {
       const needsInitialSnapshot = !snapshotRef.current;
       const needsVisibleWatchdogRefresh =
-        document.visibilityState === "visible" &&
+        (document.visibilityState === "visible" || canRefreshInBackground()) &&
         performance.now() - lastRefreshAt.current > 10_000;
       if (needsInitialSnapshot || needsVisibleWatchdogRefresh) void refresh(true);
     }, 3_000);
@@ -82,7 +84,7 @@ export function useOpenBot() {
         refreshTimer.current = setTimeout(() => {
           const loadedCursor = BigInt(snapshotRef.current?.cursor ?? "0");
           if (
-            document.visibilityState === "visible" &&
+            (document.visibilityState === "visible" || canRefreshInBackground()) &&
             loadedCursor < BigInt(productEvent.sequence)
           ) {
             void refresh(true);
@@ -93,7 +95,7 @@ export function useOpenBot() {
       onOpen: () => {
         setError(null);
         if (
-          document.visibilityState === "visible" &&
+          (document.visibilityState === "visible" || canRefreshInBackground()) &&
           !refreshInFlight.current &&
           performance.now() - lastRefreshAt.current > 500
         ) {
@@ -110,7 +112,7 @@ export function useOpenBot() {
   useEffect(() => {
     const onVisibility = () => {
       if (
-        document.visibilityState === "visible" &&
+        (document.visibilityState === "visible" || canRefreshInBackground()) &&
         !refreshInFlight.current &&
         performance.now() - lastRefreshAt.current > 500
       ) {

@@ -37,6 +37,7 @@ function fixture(): ClientSnapshot {
         id: "channel-1",
         kind: "bot_dm",
         name: "Grok",
+        description: "",
         directKey: null,
         workingDirectory: null,
         members: [{ botId: "bot-1", ordinal: 0 }],

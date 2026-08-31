@@ -7,6 +7,59 @@ export type SidebarChannelRow = {
   hasActiveTask?: boolean;
 };
 
+export function sidebarRowIsWorking(row: SidebarChannelRow) {
+  const needsAttention = row.running?.status === "waiting_approval";
+  return Boolean((row.running && !needsAttention) || row.hasActiveTask);
+}
+
+export type SidebarUnreadRowMetric = {
+  channelId: string;
+  unread: boolean;
+  unreadCount?: number;
+  top: number;
+  bottom: number;
+};
+
+export type SidebarUnreadJumpTarget = {
+  channelId: string;
+  count: number;
+};
+
+export type SidebarUnreadJumpTargets = {
+  above: SidebarUnreadJumpTarget | null;
+  below: SidebarUnreadJumpTarget | null;
+};
+
+export function sidebarUnreadJumpTargets(
+  rows: SidebarUnreadRowMetric[],
+  viewportTop: number,
+  viewportBottom: number
+): SidebarUnreadJumpTargets {
+  let aboveChannelId: string | null = null;
+  let aboveCount = 0;
+  let belowChannelId: string | null = null;
+  let belowCount = 0;
+
+  for (const row of rows) {
+    if (!row.unread) continue;
+    const count = Math.max(row.unreadCount ?? 1, 1);
+    if (row.bottom <= viewportTop) {
+      aboveChannelId = row.channelId;
+      aboveCount += count;
+      continue;
+    }
+    if (row.top >= viewportBottom) {
+      belowChannelId ??= row.channelId;
+      belowCount += count;
+    }
+  }
+
+  return {
+    above: aboveChannelId ? { channelId: aboveChannelId, count: aboveCount } : null,
+    below: belowChannelId ? { channelId: belowChannelId, count: belowCount } : null,
+  };
+}
+
 const rowActivityAt = (row: SidebarChannelRow) => row.latest?.createdAt ?? row.channel.createdAt;
 
 const compareRowsByRecency = (a: SidebarChannelRow, b: SidebarChannelRow) => {

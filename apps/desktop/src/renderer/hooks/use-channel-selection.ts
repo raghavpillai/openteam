@@ -1,7 +1,7 @@
 import type { ChannelView, ClientSnapshot } from "@openbot/contracts";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../client/openbot-api";
-import { restoredActiveChannelId } from "../lib/channel-selection";
+import { activeAgentIdForChannel, restoredActiveChannelId } from "../lib/channel-selection";
 import { measureUntilNextPaint } from "../lib/performance";
 
 const SELECTED_CHANNEL_KEY = "openbot:selected-channel";
@@ -27,9 +27,9 @@ export function useChannelSelection(
       setSelectedIdState(id);
       if (id) localStorage.setItem(SELECTED_CHANNEL_KEY, id);
       else localStorage.removeItem(SELECTED_CHANNEL_KEY);
-      const botId = id ? channelById.get(id)?.directKey?.match(/^bot:(.+)$/)?.[1] : undefined;
-      if (syncActiveAgent && botId) {
-        void api.setActiveAgent(botId).catch(() => undefined);
+      const activeAgentId = activeAgentIdForChannel(id ? channelById.get(id) : undefined);
+      if (syncActiveAgent && activeAgentId) {
+        void api.setActiveAgent(activeAgentId).catch(() => undefined);
       }
     },
     [channelById]

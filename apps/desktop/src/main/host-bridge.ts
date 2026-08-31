@@ -3,9 +3,20 @@ import { timingSafeEqual } from "node:crypto";
 import { createWriteStream } from "node:fs";
 import { access, mkdir, readFile, stat } from "node:fs/promises";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { hostname } from "node:os";
 import { extname, isAbsolute, resolve } from "node:path";
-import { type BrowserWindow, dialog } from "electron";
 import { listenForHostBridge } from "./host-bridge-listener";
+import {
+  type AutoReviewMode,
+  type AutoReviewPromptDecision,
+  type AutoReviewResult,
+  authorizeAutoReviewAction,
+  authorizeHostAction,
+  type HostAction,
+  type HostPermissionDependencies,
+  type LocalPromptDecision,
+} from "./host-permissions";
+import type { PermissionSettingsStore } from "./permission-settings";
 
 const MAX_BODY_BYTES = 128 * 1024;
 const MAX_READ_BYTES = 10 * 1024 * 1024;
@@ -13,14 +24,52 @@ const MAX_INLINE_BYTES = 100_000;
 
 interface ShellRequest {
   command?: unknown;
+  description?: unknown;
   working_directory?: unknown;
   block_until_ms?: unknown;
+  machineId?: unknown;
+  localApproval?: unknown;
+  autoReviewApproval?: unknown;
 }
 
 interface ReadRequest {
   path?: unknown;
   offset?: unknown;
   limit?: unknown;
+  machineId?: unknown;
+  localApproval?: unknown;
+  autoReviewApproval?: unknown;
+}
+
+interface PermissionUpdateRequest {
+  machineId?: unknown;
+  localToolPermission?: unknown;
+}
+
+interface AutoReviewRequest extends ApprovalCarrier {
+  surface?: unknown;
+  summary?: unknown;
+  target?: unknown;
+  command?: unknown;
+  arguments?: unknown;
+}
+
+interface ApprovalCarrier {
+  localApproval?: unknown;
+  autoReviewApproval?: unknown;
+}
+
+interface HostApprovalRequest {
+  gate: "local" | "auto-review";
+  requestMethod: "openbot/localTool" | "openbot/autoReview";
+  details: Record<string, unknown>;
+}
+
+class HostApprovalRequired extends Error {
+  constructor(readonly approval: HostApprovalRequest) {
+    super("User approval is required");
+    this.name = "HostApprovalRequired";
+  }
 }
 
 const json = (response: ServerResponse, status: number, value: unknown) => {
@@ -68,32 +117,115 @@ const imageMime = (path: string): string | null => {
   }
 };
 
-const approve = async (
-  getWindow: () => BrowserWindow | null,
-  title: string,
-  message: string,
-  detail: string
-): Promise<boolean> => {
-  const window = getWindow();
-  const options = {
-    type: "warning" as const,
-    title,
-    message,
-    detail,
-    buttons: ["Deny", "Allow"],
-    defaultId: 0,
-    cancelId: 0,
-    noLink: true,
-  };
-  const result = window
-    ? await dialog.showMessageBox(window, options)
-    : await dialog.showMessageBox(options);
-  return result.response === 1;
+const localApprovalDecision = (
+  input: ApprovalCarrier,
+  action: HostAction,
+  machineId: string,
+  machineLabel: string
+): LocalPromptDecision => {
+  if (["allow-once", "always"].includes(String(input.localApproval))) {
+    return input.localApproval as LocalPromptDecision;
+  }
+  const shell = action.surface === "hostShell";
+  throw new HostApprovalRequired({
+    gate: "local",
+    requestMethod: "openbot/localTool",
+    details: {
+      type: "localTool",
+      gate: "local",
+      action: shell ? "runCommand" : "readFile",
+      toolName: shell ? "Shell" : "Read",
+      machineId,
+      machineLabel,
+      effect: shell
+        ? "Allow OpenBot and all Bots to run commands on your local computer?"
+        : "Allow OpenBot and all Bots to read files on your local computer?",
+      summary: action.summary,
+      arguments: {
+        ...(shell
+          ? { command: action.command, working_directory: action.target }
+          : { path: action.target }),
+        ...(action.arguments ?? {}),
+        machineId,
+      },
+      supportsAlwaysAllow: true,
+      supportsNever: true,
+    },
+  });
+};
+
+const autoReviewSummary = (action: HostAction): string => {
+  if (action.surface !== "hostShell" && action.surface !== "hostRead") return action.summary;
+
+  const description = action.summary
+    .trim()
+    .replace(/\s+on (?:this|the|your local) computer\.?$/i, "")
+    .trim();
+  if (action.surface === "hostShell") {
+    const commandSummary = description || "Run a command";
+    return action.target
+      ? `${commandSummary} on your local computer from ${action.target}`
+      : `${commandSummary} on your local computer`;
+  }
+
+  const readSummary = description || "Read a file";
+  return action.target
+    ? `${readSummary} on your local computer from ${action.target}`
+    : `${readSummary} on your local computer`;
+};
+
+const autoReviewApprovalDecision = (
+  input: ApprovalCarrier,
+  action: HostAction,
+  review: AutoReviewResult,
+  machineId: string,
+  machineLabel: string
+): AutoReviewPromptDecision => {
+  if (["allow-once", "always"].includes(String(input.autoReviewApproval))) {
+    return input.autoReviewApproval as AutoReviewPromptDecision;
+  }
+  const proposedRule =
+    review.proposedRule ??
+    (action.surface === "hostShell"
+      ? `Allow this exact host command: ${action.command ?? action.target}`
+      : action.surface === "hostRead"
+        ? `Allow reading this exact host file: ${action.target}`
+        : `Allow this exact ${action.surface} action: ${action.summary}`);
+  const shell = action.surface === "hostShell";
+  const read = action.surface === "hostRead";
+  throw new HostApprovalRequired({
+    gate: "auto-review",
+    requestMethod: "openbot/autoReview",
+    details: {
+      type: "autoReview",
+      gate: "auto-review",
+      action: shell ? "runCommand" : read ? "readFile" : "runTask",
+      toolName: shell ? "Shell" : read ? "Read" : "Task",
+      machineId,
+      machineLabel,
+      effect: "Auto Review requires your approval before this action can run.",
+      summary: autoReviewSummary(action),
+      reason: review.reason,
+      proposedRule,
+      arguments: {
+        ...(shell
+          ? { command: action.command, working_directory: action.target }
+          : read
+            ? { path: action.target }
+            : {}),
+        ...(action.arguments ?? {}),
+        ...(shell || read ? { machineId } : {}),
+      },
+      supportsAlwaysAllow: true,
+    },
+  });
 };
 
 const pdfText = (path: string): Promise<string> =>
   new Promise((resolveText, reject) => {
-    const child = spawn("pdftotext", [path, "-"], { stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn("pdftotext", [path, "-"], {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
     const stdout: Buffer[] = [];
     const stderr: Buffer[] = [];
     child.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));
@@ -168,7 +300,10 @@ const executeShell = async (input: ShellRequest, terminalDir: string) => {
   await mkdir(terminalDir, { recursive: true });
   const shellId = crypto.randomUUID();
   const outputPath = resolve(terminalDir, `${shellId}.log`);
-  const outputFile = createWriteStream(outputPath, { flags: "wx", mode: 0o600 });
+  const outputFile = createWriteStream(outputPath, {
+    flags: "wx",
+    mode: 0o600,
+  });
   const startedAt = Date.now();
   outputFile.write(
     `command: ${input.command}\nworking_directory: ${workingDirectory}\nstarted_at: ${new Date(startedAt).toISOString()}\n\n`
@@ -225,41 +360,176 @@ export const startHostBridge = (options: {
   token: string;
   port: number;
   terminalDir: string;
-  getWindow: () => BrowserWindow | null;
+  permissionSettings: PermissionSettingsStore;
+  autoReviewMode: AutoReviewMode;
+  machineId?: string;
+  machineLabel?: string;
+  reviewAction: (
+    action: HostAction,
+    rules: { allowInstructions: string[]; blockInstructions: string[] }
+  ) => Promise<AutoReviewResult>;
 }): Promise<Server> => {
+  const machineId = options.machineId ?? "this-computer";
+  const defaultMachineLabel = options.machineLabel ?? hostname();
+  const currentMachineLabel = async () =>
+    (await options.permissionSettings.read()).machineLabel ?? defaultMachineLabel;
+  const assertMachine = (supplied: unknown) => {
+    if (supplied !== undefined && supplied !== machineId) {
+      throw new Error(`Unknown local computer: ${String(supplied)}`);
+    }
+  };
+  const dependencies = (
+    input: ApprovalCarrier,
+    machineLabel: string
+  ): HostPermissionDependencies => ({
+    settings: options.permissionSettings,
+    mode: options.autoReviewMode,
+    promptLocal: (candidate) =>
+      Promise.resolve(localApprovalDecision(input, candidate, machineId, machineLabel)),
+    review: options.reviewAction,
+    promptAutoReview: (candidate, result) =>
+      Promise.resolve(
+        autoReviewApprovalDecision(input, candidate, result, machineId, machineLabel)
+      ),
+  });
+  const authorize = async (action: HostAction, input: ApprovalCarrier) => {
+    const machineLabel = await currentMachineLabel();
+    return authorizeHostAction(action, dependencies(input, machineLabel));
+  };
+  const authorizeReviewOnly = async (action: HostAction, input: ApprovalCarrier) => {
+    const machineLabel = await currentMachineLabel();
+    return authorizeAutoReviewAction(action, dependencies(input, machineLabel));
+  };
   const server = createServer(async (request, response) => {
     if (request.url === "/health" && request.method === "GET") {
       return json(response, 200, { status: "ready" });
     }
     if (!authorized(request, options.token)) return json(response, 401, { error: "unauthorized" });
     try {
+      if (request.method === "POST" && request.url === "/v1/machines") {
+        const settings = await options.permissionSettings.read();
+        return json(response, 200, {
+          machines: [
+            {
+              machineId,
+              label: settings.machineLabel ?? defaultMachineLabel,
+              localToolPermission: settings.localToolPermission,
+            },
+          ],
+        });
+      }
+      if (request.method === "POST" && request.url === "/v1/permissions/update") {
+        const input = (await body(request)) as PermissionUpdateRequest;
+        assertMachine(input.machineId);
+        if (!["always", "ask", "never"].includes(String(input.localToolPermission))) {
+          throw new Error("Invalid local computer permission");
+        }
+        const settings = await options.permissionSettings.update({
+          localToolPermission: input.localToolPermission as "always" | "ask" | "never",
+        });
+        return json(response, 200, {
+          machineId,
+          label: settings.machineLabel ?? defaultMachineLabel,
+          localToolPermission: settings.localToolPermission,
+        });
+      }
+      if (request.method === "POST" && request.url === "/v1/auto-review") {
+        const input = (await body(request)) as AutoReviewRequest;
+        if (
+          !["mcp", "computer", "automationWrite", "cloudAgent", "subagentLaunch"].includes(
+            String(input.surface)
+          ) ||
+          typeof input.summary !== "string" ||
+          !input.summary.trim() ||
+          typeof input.target !== "string" ||
+          !input.target.trim() ||
+          (input.arguments !== undefined &&
+            (!input.arguments ||
+              typeof input.arguments !== "object" ||
+              Array.isArray(input.arguments)))
+        ) {
+          throw new Error("Auto Review action is invalid");
+        }
+        const permission = await authorizeReviewOnly(
+          {
+            surface: input.surface as HostAction["surface"],
+            summary: input.summary.trim().slice(0, 500),
+            target: input.target.trim().slice(0, 4_000),
+            ...(typeof input.command === "string"
+              ? { command: input.command.slice(0, 4_000) }
+              : {}),
+            ...(input.arguments ? { arguments: input.arguments as Record<string, unknown> } : {}),
+          },
+          input
+        );
+        if (!permission.allowed) {
+          return json(response, 403, {
+            error: permission.reason ?? "Auto Review rejected this action",
+          });
+        }
+        return json(response, 200, { allowed: true });
+      }
       if (request.method === "POST" && request.url === "/v1/read") {
         const input = (await body(request)) as ReadRequest;
+        assertMachine(input.machineId);
         if (typeof input.path !== "string") throw new Error("ExternalRead path is required");
-        const allowed = await approve(
-          options.getWindow,
-          "OpenBot host file access",
-          "Allow this bot to read a file on this computer?",
-          input.path
+        const permission = await authorize(
+          {
+            surface: "hostRead",
+            summary: "Read a file on this computer",
+            target: input.path,
+            arguments: { offset: input.offset, limit: input.limit },
+          },
+          input
         );
-        if (!allowed) return json(response, 403, { error: "The user denied host file access" });
+        if (!permission.allowed) {
+          const error =
+            permission.gate === "local" &&
+            permission.reason === "Local computer execution is disabled"
+              ? "Local computer tools are disabled. Do not retry this action on the user's computer."
+              : permission.reason;
+          return json(response, 403, { error });
+        }
         return json(response, 200, await executeRead(input));
       }
       if (request.method === "POST" && request.url === "/v1/shell") {
         const input = (await body(request)) as ShellRequest;
+        assertMachine(input.machineId);
         if (typeof input.command !== "string") throw new Error("ExternalShell command is required");
-        const allowed = await approve(
-          options.getWindow,
-          "OpenBot host command",
-          "Allow this bot to run a command on this computer?",
-          `${input.command}\n\nWorking directory: ${String(input.working_directory ?? process.cwd())}`
+        const permission = await authorize(
+          {
+            surface: "hostShell",
+            summary:
+              typeof input.description === "string" && input.description.trim()
+                ? input.description.trim().slice(0, 500)
+                : "Run a command on this computer",
+            target: String(input.working_directory ?? process.cwd()),
+            command: input.command,
+            arguments: { blockUntilMs: input.block_until_ms },
+          },
+          input
         );
-        if (!allowed) return json(response, 403, { error: "The user denied the host command" });
+        if (!permission.allowed) {
+          const error =
+            permission.gate === "local" &&
+            permission.reason === "Local computer execution is disabled"
+              ? "Local computer tools are disabled. Do not retry this action on the user's computer."
+              : permission.reason;
+          return json(response, 403, { error });
+        }
         return json(response, 200, await executeShell(input, options.terminalDir));
       }
       return json(response, 404, { error: "not_found" });
     } catch (error) {
-      return json(response, 400, { error: error instanceof Error ? error.message : String(error) });
+      if (error instanceof HostApprovalRequired) {
+        return json(response, 409, {
+          error: "approval_required",
+          approval: error.approval,
+        });
+      }
+      return json(response, 400, {
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   });
   return listenForHostBridge(server, options.port);

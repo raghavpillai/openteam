@@ -3,6 +3,7 @@ import type { ChannelMessageView } from "@openbot/contracts";
 import {
   channelMessageSummary,
   channelNameChangedEventFor,
+  routineChangedEventFor,
 } from "../src/renderer/lib/channel-events";
 
 const message = (metadata: unknown): ChannelMessageView => ({
@@ -34,5 +35,25 @@ describe("channel timeline events", () => {
 
   test("does not treat arbitrary system metadata as a rename", () => {
     expect(channelNameChangedEventFor(message({ type: "status" }))).toBeNull();
+  });
+
+  test("projects durable Grok-compatible routine lifecycle events", () => {
+    const value = message({
+      type: "event",
+      event: {
+        type: "automation-changed",
+        action: "disabled",
+        automationId: "routine-1",
+        automationName: "Daily digest",
+      },
+    });
+
+    expect(routineChangedEventFor(value)).toEqual({
+      type: "automation-changed",
+      action: "disabled",
+      automationId: "routine-1",
+      automationName: "Daily digest",
+    });
+    expect(channelMessageSummary(value)).toBe("Disabled routine Daily digest");
   });
 });

@@ -1,8 +1,8 @@
 // Source-owned adaptation of AI Elements prompt-input.tsx.
 // https://elements.ai-sdk.dev/components/prompt-input
-import type { InlineImageInput } from "@openbot/contracts";
-import { ImagePlus, Paperclip, Square } from "lucide-react";
-import type { ClipboardEvent, DragEvent, FormEvent, KeyboardEvent } from "react";
+import type { AssetRef } from "@openbot/contracts";
+import { File, ImagePlus, Paperclip, X } from "lucide-react";
+import type { ClipboardEvent, DragEvent, FormEvent } from "react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { cn } from "../../lib/cn";
 import type { MentionOption } from "../../lib/mentions";
@@ -16,9 +16,9 @@ import {
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
 
-const MAX_IMAGES = 8;
-const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
-const IMAGE_TYPES = new Set(["image/gif", "image/jpeg", "image/png", "image/webp"]);
+const MAX_ATTACHMENTS = 6;
+const MAX_FILE_BYTES = 25 * 1024 * 1024;
+const MAX_VIDEO_BYTES = 200 * 1024 * 1024;
 const MAX_TEXTAREA_HEIGHT = 120;
 const MULTILINE_THRESHOLD = 39;
 const SECONDARY_ACTION_CLASS =
@@ -76,50 +76,58 @@ function GrokCloseIcon({ className }: { className?: string }) {
   );
 }
 
-interface PendingImage extends InlineImageInput {
+interface PendingAsset extends AssetRef {
   id: string;
 }
 
-const fileAsDataUrl = (file: File) =>
+const fileAsBase64 = (file: File) =>
   new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
-    reader.addEventListener("load", () =>
-      typeof reader.result === "string" ? resolve(reader.result) : reject(new Error("read failed"))
-    );
+    reader.addEventListener("load", () => {
+      if (typeof reader.result !== "string") return reject(new Error("read failed"));
+      const encoded = reader.result.split(",", 2)[1];
+      return encoded ? resolve(encoded) : reject(new Error("read failed"));
+    });
     reader.addEventListener("error", () => reject(reader.error ?? new Error("read failed")));
     reader.readAsDataURL(file);
   });
 
 export function PromptInput({
+  docked,
   disabled,
-  running,
   placeholder,
   reply,
   onCancelReply,
   onExpandedChange,
-  onImagesChange,
+  onAttachmentsChange,
+  onUpload,
+  assetUrl,
   onSubmit,
-  onStop,
   mentionOptions = [],
 }: {
+  docked?: boolean;
   disabled?: boolean;
-  running?: boolean;
   placeholder?: string;
   reply?: { id: string; content: string } | null;
   onCancelReply?: () => void;
   onExpandedChange?: (expanded: boolean) => void;
-  onImagesChange?: (count: number) => void;
+  onAttachmentsChange?: (count: number) => void;
+  onUpload: (input: {
+    fileName: string;
+    mimeType?: string;
+    bytesBase64: string;
+  }) => Promise<AssetRef>;
+  assetUrl: (asset: Pick<AssetRef, "assetId" | "fileName">) => string;
   mentionOptions?: readonly MentionOption[];
   onSubmit: (
     value: string,
-    images: InlineImageInput[],
+    attachments: AssetRef[],
     options?: { richText?: string }
   ) => Promise<unknown> | undefined;
-  onStop?: () => Promise<unknown> | undefined;
 }) {
   const [value, setValue] = useState("");
   const [richText, setRichText] = useState<string | undefined>();
-  const [images, setImages] = useState<PendingImage[]>([]);
+  const [attachments, setAttachments] = useState<PendingAsset[]>([]);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -131,8 +139,8 @@ export function PromptInput({
   const renderedReply = reply ?? retainedReply;
   const replyOpen = Boolean(reply);
   const hasText = value.trim().length > 0;
-  const hasPayload = hasText || images.length > 0;
-  const expanded = autoExpanded || replyOpen || images.length > 0 || Boolean(attachmentError);
+  const hasPayload = hasText || attachments.length > 0;
+  const expanded = autoExpanded || replyOpen || attachments.length > 0 || Boolean(attachmentError);
 
   useEffect(() => {
     if (reply) {
@@ -149,8 +157,8 @@ export function PromptInput({
   }, [reply]);
 
   useEffect(() => {
-    onImagesChange?.(images.length);
-  }, [images.length, onImagesChange]);
+    onAttachmentsChange?.(attachments.length);
+  }, [attachments.length, onAttachmentsChange]);
 
   useEffect(() => {
     onExpandedChange?.(expanded);
@@ -169,7 +177,7 @@ export function PromptInput({
     if (nextAutoExpanded !== autoExpanded) setAutoExpanded(nextAutoExpanded);
 
     const nextExpanded =
-      nextAutoExpanded || replyOpen || images.length > 0 || Boolean(attachmentError);
+      nextAutoExpanded || replyOpen || attachments.length > 0 || Boolean(attachmentError);
     const minimumHeight = nextExpanded ? 20 : 32;
     const contentHeight = Math.max(
       minimumHeight,
@@ -186,76 +194,84 @@ export function PromptInput({
     textarea.style.height = `${previousHeight}px`;
     void textarea.offsetHeight;
     textarea.style.height = `${contentHeight}px`;
-  }, [attachmentError, autoExpanded, images.length, replyOpen, value]);
+  }, [attachmentError, attachments.length, autoExpanded, replyOpen, value]);
 
   const addFiles = useCallback(
     async (files: File[]) => {
       setAttachmentError(null);
-      const remaining = MAX_IMAGES - images.length;
+      const remaining = MAX_ATTACHMENTS - attachments.length;
       if (remaining <= 0) {
-        setAttachmentError(`You can attach up to ${MAX_IMAGES} images.`);
+        setAttachmentError(`You can attach up to ${MAX_ATTACHMENTS} files.`);
         return;
       }
 
-      const selected = files.filter((file) => IMAGE_TYPES.has(file.type)).slice(0, remaining);
-      const tooLarge = selected.find((file) => file.size > MAX_IMAGE_BYTES);
+      const selected = files.slice(0, remaining);
+      const tooLarge = selected.find((file) => {
+        const video = file.type.startsWith("video/");
+        return file.size > (video ? MAX_VIDEO_BYTES : MAX_FILE_BYTES);
+      });
       if (tooLarge) {
-        setAttachmentError(`${tooLarge.name} is larger than 20 MB.`);
+        setAttachmentError(
+          `${tooLarge.name} is larger than ${tooLarge.type.startsWith("video/") ? 200 : 25} MB.`
+        );
         return;
       }
       if (selected.length === 0) {
-        setAttachmentError("Choose PNG, JPEG, WebP, or GIF images.");
+        setAttachmentError("Choose at least one file.");
         return;
       }
       if (files.length > selected.length) {
-        setAttachmentError(
-          files.some((file) => !IMAGE_TYPES.has(file.type))
-            ? "Only PNG, JPEG, WebP, and GIF images were added."
-            : `Only the first ${remaining} images were added.`
-        );
+        setAttachmentError(`Only the first ${remaining} files were added.`);
       }
 
       try {
-        const loaded = await Promise.all(
-          selected.map(async (file) => ({
-            id: crypto.randomUUID(),
-            url: await fileAsDataUrl(file),
-            alt: file.name,
-          }))
-        );
-        setImages((current) => [...current, ...loaded].slice(0, MAX_IMAGES));
+        const loaded: PendingAsset[] = [];
+        for (const file of selected) {
+          const asset = await onUpload({
+            fileName: file.name,
+            mimeType: file.type || undefined,
+            bytesBase64: await fileAsBase64(file),
+          });
+          loaded.push({
+            ...asset,
+            id: `${asset.assetId}:${crypto.randomUUID()}`,
+          });
+        }
+        setAttachments((current) => [...current, ...loaded].slice(0, MAX_ATTACHMENTS));
         textareaRef.current?.focus();
-      } catch {
-        setAttachmentError("One of the images could not be read.");
+      } catch (error) {
+        setAttachmentError(
+          error instanceof Error ? error.message : "One of the files could not be uploaded."
+        );
       }
     },
-    [images.length]
+    [attachments.length, onUpload]
   );
 
-  const blocked = Boolean(disabled || running || submitting);
+  const blocked = Boolean(disabled || submitting);
 
   const submit = async (event?: FormEvent) => {
     event?.preventDefault();
     const content = value.trim();
-    if ((!content && images.length === 0) || blocked) return;
-    const pendingImages = images;
+    if ((!content && attachments.length === 0) || blocked) return;
+    const pendingAttachments = attachments;
     const pendingRichText = richText;
     setValue("");
     setRichText(undefined);
-    setImages([]);
+    setAttachments([]);
     setAttachmentError(null);
     setSubmitting(true);
     try {
       await onSubmit(
         content,
-        pendingImages.map(({ url, alt }) => ({ url, alt })),
+        pendingAttachments.map(({ id: _id, ...asset }) => asset),
         pendingRichText ? { richText: pendingRichText } : undefined
       );
       onCancelReply?.();
     } catch {
       setValue(content);
       setRichText(pendingRichText);
-      setImages(pendingImages);
+      setAttachments(pendingAttachments);
     } finally {
       setSubmitting(false);
     }
@@ -279,7 +295,7 @@ export function PromptInput({
 
   return (
     <form
-      className="relative z-[3] w-full px-4 pb-4"
+      className={cn("relative z-[3] w-full px-4 pb-4", docked && "pointer-events-auto")}
       onDragEnter={(event) => {
         event.preventDefault();
         if (!blocked) setDragging(true);
@@ -292,8 +308,7 @@ export function PromptInput({
       onSubmit={submit}
     >
       <input
-        accept="image/png,image/jpeg,image/webp,image/gif"
-        aria-label="Choose images"
+        aria-label="Choose files"
         className="sr-only"
         disabled={blocked}
         multiple
@@ -307,7 +322,10 @@ export function PromptInput({
       <div className="relative">
         <div
           aria-hidden="true"
-          className="pointer-events-none absolute -inset-x-4 -bottom-4 top-1/2 -z-10 bg-background"
+          className={cn(
+            "pointer-events-none absolute -bottom-4 top-1/2 -z-10 bg-background",
+            docked ? "-left-4 right-2" : "-inset-x-4"
+          )}
           data-prompt-backdrop
         />
         <div
@@ -324,7 +342,7 @@ export function PromptInput({
           {dragging && (
             <div className="pointer-events-none absolute inset-1 z-20 grid place-items-center rounded-[18px] bg-background/90 text-sm font-medium backdrop-blur-sm">
               <span className="flex items-center gap-2">
-                <ImagePlus className="size-4" /> Drop images here
+                <ImagePlus className="size-4" /> Drop files here
               </span>
             </div>
           )}
@@ -359,17 +377,47 @@ export function PromptInput({
             </div>
           </div>
 
-          {images.length > 0 && (
+          {attachments.length > 0 && (
             <div className="flex max-w-full gap-2 overflow-x-auto px-1 pb-1 pt-0.5">
-              {images.map((image) => (
-                <ImageAttachment
-                  image={image}
-                  key={image.id}
-                  onRemove={() =>
-                    setImages((current) => current.filter(({ id }) => id !== image.id))
-                  }
-                />
-              ))}
+              {attachments.map((attachment) =>
+                attachment.kind === "image" ? (
+                  <ImageAttachment
+                    image={{
+                      url: assetUrl(attachment),
+                      alt: attachment.alt ?? attachment.fileName,
+                    }}
+                    key={attachment.id}
+                    onRemove={() =>
+                      setAttachments((current) => current.filter(({ id }) => id !== attachment.id))
+                    }
+                  />
+                ) : (
+                  <div
+                    className="group/file relative flex h-[72px] w-[220px] shrink-0 items-center gap-2 rounded-[14px] border border-black/10 bg-background px-3 dark:border-white/15"
+                    key={attachment.id}
+                  >
+                    <File className="size-5 shrink-0 text-muted-foreground" />
+                    <div className="min-w-0">
+                      <div className="truncate text-xs font-medium">{attachment.fileName}</div>
+                      <div className="text-[10px] text-muted-foreground">
+                        {Math.max(1, Math.ceil(attachment.byteSize / 1024))} KB
+                      </div>
+                    </div>
+                    <button
+                      aria-label={`Remove ${attachment.fileName}`}
+                      className="absolute right-1 top-1 grid size-6 place-items-center rounded-full bg-black/85 text-white opacity-0 transition group-hover/file:opacity-100"
+                      onClick={() =>
+                        setAttachments((current) =>
+                          current.filter(({ id }) => id !== attachment.id)
+                        )
+                      }
+                      type="button"
+                    >
+                      <X className="size-4" />
+                    </button>
+                  </div>
+                )
+              )}
             </div>
           )}
 
@@ -428,7 +476,7 @@ export function PromptInput({
                     ? "top-px pb-1.5 pl-10 pr-[76px] pt-1.5"
                     : "top-px px-10 py-1.5"
               )}
-              disabled={blocked}
+              disabled={Boolean(disabled)}
               editorRef={textareaRef}
               onChange={(plainText, nextRichText) => {
                 setValue(plainText);
@@ -438,7 +486,11 @@ export function PromptInput({
               onSubmit={() => void submit()}
               options={mentionOptions}
               placeholder={
-                images.length > 0 ? "Add a message, or hit send." : reply ? "Reply…" : placeholder
+                attachments.length > 0
+                  ? "Add a message, or hit send."
+                  : reply
+                    ? "Reply…"
+                    : placeholder
               }
               value={value}
               onHeightChange={() => {
@@ -456,52 +508,38 @@ export function PromptInput({
                 expanded ? "-right-1 bottom-0" : "bottom-[3px] right-1"
               )}
             >
-              {running ? (
+              {hasPayload && (
                 <Button
-                  aria-label="Stop run"
-                  className="size-7 rounded-full bg-[#070707] hover:bg-[#070707]"
-                  onClick={() => void onStop?.()}
+                  aria-label="Voice input unavailable"
+                  className={SECONDARY_ACTION_CLASS}
+                  disabled
                   size="icon"
                   type="button"
+                  variant="ghost"
                 >
-                  <Square className="size-3.5 fill-current" />
+                  <GrokMicIcon className="size-4 animate-in fade-in-0 zoom-in-50 duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:animate-none" />
                 </Button>
-              ) : (
-                <>
-                  {hasPayload && (
-                    <Button
-                      aria-label="Voice input unavailable"
-                      className={SECONDARY_ACTION_CLASS}
-                      disabled
-                      size="icon"
-                      type="button"
-                      variant="ghost"
-                    >
-                      <GrokMicIcon className="size-4 animate-in fade-in-0 zoom-in-50 duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:animate-none" />
-                    </Button>
-                  )}
-                  <Button
-                    aria-label={hasPayload ? "Send message" : "Voice input unavailable"}
-                    className="relative size-7 rounded-full bg-[#070707] text-[#fcfcfc] shadow-none transition-opacity hover:bg-[#070707] hover:opacity-90 disabled:bg-[#070707] disabled:opacity-40 dark:bg-[#fafafa] dark:text-[#141414] dark:hover:bg-[#fafafa]"
-                    disabled={blocked}
-                    size="icon"
-                    type="submit"
-                  >
-                    <GrokMicIcon
-                      className={cn(
-                        "absolute size-4 transition-[opacity,transform] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none",
-                        hasPayload ? "scale-50 opacity-0" : "scale-100 opacity-100"
-                      )}
-                    />
-                    <GrokArrowUpIcon
-                      className={cn(
-                        "absolute size-4 transition-[opacity,transform] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none",
-                        hasPayload ? "scale-100 opacity-100" : "scale-50 opacity-0"
-                      )}
-                    />
-                  </Button>
-                </>
               )}
+              <Button
+                aria-label={hasPayload ? "Send message" : "Voice input unavailable"}
+                className="relative size-7 rounded-full bg-[#070707] text-[#fcfcfc] shadow-none transition-opacity hover:bg-[#070707] hover:opacity-90 disabled:bg-[#070707] disabled:opacity-40 dark:bg-[#fafafa] dark:text-[#141414] dark:hover:bg-[#fafafa]"
+                disabled={blocked}
+                size="icon"
+                type="submit"
+              >
+                <GrokMicIcon
+                  className={cn(
+                    "absolute size-4 transition-[opacity,transform] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none",
+                    hasPayload ? "scale-50 opacity-0" : "scale-100 opacity-100"
+                  )}
+                />
+                <GrokArrowUpIcon
+                  className={cn(
+                    "absolute size-4 transition-[opacity,transform] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none",
+                    hasPayload ? "scale-100 opacity-100" : "scale-50 opacity-0"
+                  )}
+                />
+              </Button>
             </div>
           </div>
         </div>

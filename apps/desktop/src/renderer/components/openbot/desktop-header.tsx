@@ -3,6 +3,7 @@ import {
   ArrowLeftRight,
   ChevronLeft,
   ChevronsRight,
+  Info,
   LoaderCircle,
   MessageCircle,
   Monitor,
@@ -216,9 +217,15 @@ export function DesktopHeader({
             className={cn(
               "electron-no-drag pointer-events-auto relative h-full shrink-0 overflow-hidden",
               !inspectorResizing && "transition-[width] duration-150 ease-out",
-              !detailsOpen && !selectedBot && "w-0"
+              !detailsOpen && !selectedBot && selected.kind !== "group" && "w-0"
             )}
-            style={{ width: detailsOpen ? inspectorWidth : selectedBot ? 40 : 0 }}
+            style={{
+              width: detailsOpen
+                ? inspectorWidth
+                : selectedBot || selected.kind === "group"
+                  ? 40
+                  : 0,
+            }}
           >
             <div
               aria-hidden={!detailsOpen}
@@ -232,7 +239,11 @@ export function DesktopHeader({
               {inspectorMode === "settings" ? (
                 <>
                   <Button
-                    aria-label="Back to bot details"
+                    aria-label={
+                      selected.kind === "group"
+                        ? "Back to conversation details"
+                        : "Back to bot details"
+                    }
                     className="rounded-full text-foreground-tertiary"
                     onClick={onShowSummary}
                     size="icon-sm"
@@ -266,11 +277,13 @@ export function DesktopHeader({
                 </>
               )}
               <div className="flex justify-end">
-                {inspectorMode === "summary" && selectedBot ? (
+                {inspectorMode === "summary" && (selectedBot || selected.kind === "group") ? (
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button
-                        aria-label="Bot settings"
+                        aria-label={
+                          selected.kind === "group" ? "Conversation settings" : "Bot settings"
+                        }
                         className="rounded-full text-foreground-tertiary"
                         onClick={() => {
                           measureUntilNextPaint("view.inspector-mode", { mode: "settings" });
@@ -282,14 +295,16 @@ export function DesktopHeader({
                         <Settings className="size-3.5" />
                       </Button>
                     </TooltipTrigger>
-                    <TooltipContent>Bot settings</TooltipContent>
+                    <TooltipContent>
+                      {selected.kind === "group" ? "Conversation settings" : "Bot settings"}
+                    </TooltipContent>
                   </Tooltip>
                 ) : null}
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
                       aria-label="Hide details"
-                      className="rounded-full text-foreground-tertiary"
+                      className="rounded-full text-foreground-tertiary hover:bg-transparent hover:text-foreground"
                       onClick={() => changeDetails(false)}
                       size="icon-sm"
                       variant="ghost"
@@ -301,11 +316,11 @@ export function DesktopHeader({
                 </Tooltip>
               </div>
             </div>
-            {selectedBot ? (
+            {selectedBot || selected.kind === "group" ? (
               <div
                 aria-hidden={detailsOpen}
                 className={cn(
-                  "absolute inset-y-0 right-1 flex items-center transition-opacity duration-150",
+                  "absolute inset-y-0 right-3 flex items-center transition-opacity duration-150",
                   detailsOpen ? "pointer-events-none opacity-0" : "opacity-100 delay-100"
                 )}
                 inert={detailsOpen}
@@ -313,16 +328,24 @@ export function DesktopHeader({
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
-                      aria-label="Show computer"
+                      aria-label={
+                        selected.kind === "group" ? "View conversation details" : "Show computer"
+                      }
                       className="rounded-full text-foreground-tertiary"
                       onClick={() => changeDetails(true)}
                       size="icon-sm"
                       variant="ghost"
                     >
-                      <Monitor className="size-4" />
+                      {selected.kind === "group" ? (
+                        <Info className="size-4" />
+                      ) : (
+                        <Monitor className="size-4" />
+                      )}
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>Show computer</TooltipContent>
+                  <TooltipContent>
+                    {selected.kind === "group" ? "Conversation details" : "Show computer"}
+                  </TooltipContent>
                 </Tooltip>
               </div>
             ) : null}

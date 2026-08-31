@@ -15,11 +15,8 @@ export type MentionSegment =
 export const mentionHandleFor = (label: string): string =>
   label.trim().replace(/\s+/g, "").toLocaleLowerCase("en-US");
 
-export const moveMentionSelection = (
-  current: number,
-  count: number,
-  direction: -1 | 1
-): number => (count > 0 ? (current + direction + count) % count : 0);
+export const moveMentionSelection = (current: number, count: number, direction: -1 | 1): number =>
+  count > 0 ? (current + direction + count) % count : 0;
 
 const mentionPickerHandledKeys = new Set(["ArrowDown", "ArrowUp", "Home", "End", "Enter", "Tab"]);
 
@@ -47,10 +44,9 @@ export const mentionRichText = (segments: readonly MentionSegment[]): string => 
   };
   for (const segment of segments) {
     if (segment.type === "mention") {
-      paragraphs.at(-1)?.content?.push({
-        type: "mention",
-        attrs: { id: segment.id, label: segment.label },
-      });
+      // Grok renders mention atoms in the composer, but persists only their
+      // flattened @handle text in ProseMirror richText.
+      pushText(`@${segment.handle}`);
       continue;
     }
     const pieces = segment.text.split("\n");

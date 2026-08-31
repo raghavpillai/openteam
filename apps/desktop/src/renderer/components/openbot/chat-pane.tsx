@@ -1,41 +1,60 @@
 import type {
   ApprovalDecision,
   ApprovalView,
+  AssetRef,
   BotView,
   ChannelMessageView,
   ChannelView,
   ClientSnapshot,
-  InlineImageInput,
   RunItemView,
   RunView,
   SubagentActivityView,
 } from "@openbot/contracts";
 import {
   Check,
+  ChevronDown,
+  ChevronRight,
   CircleAlert,
+  Clock3,
   Copy,
+  Download,
   Ellipsis,
+  LoaderCircle,
   LockKeyhole,
   MessageCircle,
   Reply,
   Smile,
+  TriangleAlert,
   Users,
+  X,
 } from "lucide-react";
 import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../client/openbot-api";
 import { a2aProjectionFor, collapseA2ATimeline } from "../../lib/a2a-events";
-import { channelNameChangedEventFor } from "../../lib/channel-events";
+import {
+  BOT_TEMPLATE_REQUEST,
+  type BotTemplateRecord,
+  botTemplateFor,
+  createBotTemplateDraft,
+} from "../../lib/bot-template";
+import {
+  channelNameChangedEventFor,
+  routineChangedActionLabel,
+  routineChangedEventFor,
+} from "../../lib/channel-events";
+import { cn } from "../../lib/cn";
+import { type MentionOption, mentionHandleFor } from "../../lib/mentions";
 import { formatIdleGapTimestamp, shouldShowIdleGapTimestamp } from "../../lib/message-timestamps";
-import { mentionHandleFor, type MentionOption } from "../../lib/mentions";
 import { conversationApprovals } from "../../lib/subagent-activity";
 import { deriveThreads, isBranchedMessage } from "../../lib/threads";
 import {
   Conversation,
   ConversationContent,
   ConversationEmptyState,
+  ConversationInitialBottom,
+  ConversationNewMessageBottom,
   ConversationScrollButton,
   ConversationTopDivider,
-  ConversationViewportAnchor,
 } from "../ai-elements/conversation";
 import {
   Message,
@@ -45,7 +64,6 @@ import {
   MessageResponse,
 } from "../ai-elements/message";
 import { PromptInput } from "../ai-elements/prompt-input";
-import { Shimmer } from "../ai-elements/shimmer";
 import { Button } from "../ui/button";
 import {
   ContextMenu,
@@ -64,7 +82,14 @@ import {
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
 import { BotAvatar } from "./avatar";
+import {
+  BotTemplateCard,
+  BotTemplateDetailsDialog,
+  TemplateAudienceQuestion,
+  useBotTemplateRecord,
+} from "./bot-template-share";
 import { EmojiPanel, EmojiPicker, MoreEmojiIcon, QUICK_REACTIONS } from "./emoji-picker";
+import { downloadAttachments, MessageFileAttachments } from "./file-attachment";
 import { MessageImageGallery } from "./image-attachment";
 import { ThreadTray } from "./thread-tray";
 
@@ -86,6 +111,8 @@ interface ChatPaneProps {
   focusMessage: { messageId: string; nonce: number } | null;
   onCloseViewOnly?: () => void;
   onOpenA2A?: (peerId: string, trigger: HTMLButtonElement) => void;
+  onOpenRoutine?: (routineId: string) => void;
+  templateShareRequest?: { botId: string; nonce: number } | null;
 }
 
 const runGroupsEqual = <T,>(
@@ -119,11 +146,23 @@ const chatPanePropsEqual = (previous: ChatPaneProps, next: ChatPaneProps) =>
   previous.focusMessage === next.focusMessage &&
   previous.onCloseViewOnly === next.onCloseViewOnly &&
   previous.onOpenA2A === next.onOpenA2A &&
+  previous.onOpenRoutine === next.onOpenRoutine &&
+  previous.templateShareRequest === next.templateShareRequest &&
   runGroupsEqual(next.runs, previous.itemsByRun, next.itemsByRun) &&
   runGroupsEqual(next.runs, previous.approvalsByRun, next.approvalsByRun) &&
   subagentApprovalGroupsEqual(next.subagents, previous.approvalsByRun, next.approvalsByRun);
 
 type MessageGroupPosition = "single" | "first" | "middle" | "last";
+type ThinkingPhase = "hidden" | "visible" | "exiting";
+
+const THINKING_EXIT_MS = 140;
+
+interface OptimisticMessage {
+  localId: string;
+  message: ChannelMessageView;
+  pending: boolean;
+  serverMessageId: string | null;
+}
 
 const messagesShareGroup = (
   previous: ChannelMessageView | undefined,
@@ -136,6 +175,8 @@ const messagesShareGroup = (
       !a2aProjectionFor(next) &&
       !channelNameChangedEventFor(previous) &&
       !channelNameChangedEventFor(next) &&
+      !routineChangedEventFor(previous) &&
+      !routineChangedEventFor(next) &&
       previous.sender === next.sender &&
       (previous.sender !== "agent" || previous.senderBotId === next.senderBotId) &&
       !shouldShowIdleGapTimestamp(previous.createdAt, next.createdAt)
@@ -154,23 +195,67 @@ const getMessageGroupPosition = (
   return "single";
 };
 
+const appendThinkingIndicatorToGroup = (
+  position: MessageGroupPosition,
+  seamedToThinkingIndicator: boolean
+): MessageGroupPosition => {
+  if (!seamedToThinkingIndicator) return position;
+  if (position === "single") return "first";
+  if (position === "last") return "middle";
+  return position;
+};
+
+const useThinkingPresence = (active: boolean): ThinkingPhase => {
+  const [phase, setPhase] = useState<ThinkingPhase>(active ? "visible" : "hidden");
+
+  useEffect(() => {
+    if (active) {
+      setPhase("visible");
+      return;
+    }
+    setPhase((current) => (current === "visible" ? "exiting" : current));
+  }, [active]);
+
+  useEffect(() => {
+    if (phase !== "exiting") return;
+    const timer = window.setTimeout(() => {
+      setPhase((current) => (current === "exiting" ? "hidden" : current));
+    }, THINKING_EXIT_MS);
+    return () => window.clearTimeout(timer);
+  }, [phase]);
+
+  return active ? "visible" : phase;
+};
+
 const messageMetadata = (message: ChannelMessageView): Record<string, unknown> =>
   message.metadata && typeof message.metadata === "object" && !Array.isArray(message.metadata)
     ? (message.metadata as Record<string, unknown>)
     : {};
 
-const messageImages = (message: ChannelMessageView) => {
-  const images = messageMetadata(message).images;
-  if (!Array.isArray(images)) return [];
-  return images.flatMap((image) => {
-    if (!image || typeof image !== "object" || Array.isArray(image)) return [];
-    const { url, alt } = image as Record<string, unknown>;
-    if (typeof url !== "string" || !(url.startsWith("data:image/") || url.startsWith("https://"))) {
-      return [];
-    }
-    return [{ url, ...(typeof alt === "string" ? { alt } : {}) }];
-  });
+const messageAttachments = (message: ChannelMessageView): AssetRef[] => {
+  const metadata = messageMetadata(message);
+  const candidates = [
+    ...(Array.isArray(metadata.attachments) ? metadata.attachments : []),
+    ...(metadata.attachment ? [metadata.attachment] : []),
+  ];
+  return candidates.filter(
+    (candidate): candidate is AssetRef =>
+      Boolean(candidate) &&
+      typeof candidate === "object" &&
+      !Array.isArray(candidate) &&
+      typeof (candidate as { assetId?: unknown }).assetId === "string" &&
+      /^[a-f0-9]{64}$/.test((candidate as { assetId: string }).assetId) &&
+      typeof (candidate as { fileName?: unknown }).fileName === "string"
+  );
 };
+
+const messageImages = (message: ChannelMessageView) =>
+  messageAttachments(message)
+    .filter((attachment) => attachment.kind === "image")
+    .map((attachment) => ({
+      url: api.assetUrl(attachment),
+      alt: attachment.alt ?? attachment.fileName,
+    }));
 
 const channelMessageAddress = (message: ChannelMessageView): string => {
   if (message.sender === "user") return `t${message.sequence}u`;
@@ -219,7 +304,9 @@ const copyRequestId = (message: ChannelMessageView) => {
 };
 
 const senderLabelFor = (
-  message: Pick<ChannelMessageView, "sender" | "senderBotId"> & { metadata?: unknown },
+  message: Pick<ChannelMessageView, "sender" | "senderBotId"> & {
+    metadata?: unknown;
+  },
   botById: ReadonlyMap<string, BotView>
 ) => {
   if (
@@ -252,7 +339,10 @@ const MessageRow = memo(function MessageRow({
   onReply,
   onReact,
   onOpenThread,
+  onOpenRoutine,
   threadReplyCount,
+  animateEntrance,
+  pending,
 }: {
   message: ChannelMessageView;
   channel: ChannelView;
@@ -265,9 +355,14 @@ const MessageRow = memo(function MessageRow({
   onReply: (message: ChannelMessageView) => void;
   onReact: (message: ChannelMessageView, emoji: string) => void;
   onOpenThread: (message: ChannelMessageView) => void;
+  onOpenRoutine?: (routineId: string) => void;
   threadReplyCount: number;
+  animateEntrance: boolean;
+  pending: boolean;
 }) {
+  const [entranceActive, setEntranceActive] = useState(animateEntrance);
   const channelEvent = channelNameChangedEventFor(message);
+  const routineEvent = routineChangedEventFor(message);
   const from =
     message.sender === "user" ? "user" : message.sender === "system" ? "system" : "assistant";
   const hasAgentGutter = message.sender === "agent" && channel.kind !== "bot_dm";
@@ -276,7 +371,10 @@ const MessageRow = memo(function MessageRow({
   const a2aProjection = channel.kind === "bot_dm" ? a2aProjectionFor(message) : null;
   const userReactions = getUserReactions(message);
   const userReactionSet = new Set(userReactions);
+  const attachments = messageAttachments(message);
   const images = messageImages(message);
+  const fileAttachments = attachments.filter((attachment) => attachment.kind !== "image");
+  const displayContent = messageMetadata(message).type === "attachment" ? "" : message.content;
   const reactions =
     message.metadata &&
     typeof message.metadata === "object" &&
@@ -322,6 +420,30 @@ const MessageRow = memo(function MessageRow({
         data-message-id={message.id}
       >
         Renamed to {channelEvent.to}
+      </div>
+    );
+  }
+  if (routineEvent) {
+    return (
+      <div
+        className={`flex min-h-8 items-center justify-center gap-1 px-5 pb-3 pt-2 text-[12px] leading-5 text-muted-foreground${
+          separatedFromPrevious ? " mt-3" : ""
+        }`}
+        data-channel-event="automation-changed"
+        data-message-id={message.id}
+      >
+        <span>{routineChangedActionLabel(routineEvent.action)}</span>
+        <button
+          aria-label={`Open routine ${routineEvent.automationName}`}
+          className="inline-flex h-6 min-w-0 items-center gap-1 rounded-full px-1.5 outline-none transition-colors hover:bg-[#f1f1f1] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/35 dark:hover:bg-[#252525]"
+          data-routine-event-link=""
+          onClick={() => onOpenRoutine?.(routineEvent.automationId)}
+          title={routineEvent.automationName}
+          type="button"
+        >
+          <Clock3 className="size-3 shrink-0" strokeWidth={1.7} />
+          <span className="max-w-[240px] truncate">{routineEvent.automationName}</span>
+        </button>
       </div>
     );
   }
@@ -375,6 +497,14 @@ const MessageRow = memo(function MessageRow({
               <Copy className="size-3.5" /> Copy request ID
             </DropdownMenuItem>
           )}
+          {attachments.length > 1 && (
+            <DropdownMenuItem
+              className="h-8 text-[13px]"
+              onSelect={() => void downloadAttachments(attachments)}
+            >
+              <Download className="size-3.5" /> Download all
+            </DropdownMenuItem>
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
     </MessageActions>
@@ -384,9 +514,19 @@ const MessageRow = memo(function MessageRow({
       <ContextMenuTrigger asChild>
         <Message
           className={`group/message${separatedFromPrevious ? " mt-3" : ""}`}
+          data-enter={entranceActive ? "new" : undefined}
           data-message-address={channelMessageAddress(message)}
           data-message-id={message.id}
+          data-pending={pending || undefined}
           from={from}
+          onAnimationEnd={(event) => {
+            if (
+              event.animationName === "message-row-enter" ||
+              event.animationName === "message-row-enter-reduced"
+            ) {
+              setEntranceActive(false);
+            }
+          }}
         >
           {a2aProjection && (
             <div className="flex items-center gap-1.5 px-1 pt-2 text-xs font-medium text-muted-foreground">
@@ -410,7 +550,7 @@ const MessageRow = memo(function MessageRow({
             )}
           {replyPreview && (
             <div
-              className={`flex max-w-[min(640px,78%)] items-center gap-1.5 px-2 pb-0.5 text-xs text-muted-foreground ${
+              className={`flex max-w-[min(88%,640px,calc(100%-82px))] items-center gap-1.5 px-2 pb-0.5 text-xs text-muted-foreground ${
                 from === "user" ? "self-end" : "self-start"
               }`}
             >
@@ -421,7 +561,7 @@ const MessageRow = memo(function MessageRow({
           )}
           <div
             className={`flex w-full max-w-full ${hasAgentGutter ? "gap-[5px]" : "gap-2"} ${
-              images.length > 0 ? "items-end" : "items-center"
+              images.length > 0 || fileAttachments.length > 0 ? "items-end" : "items-center"
             } ${from === "user" ? "justify-end" : "justify-start"}`}
           >
             {from === "user" && actions}
@@ -433,22 +573,31 @@ const MessageRow = memo(function MessageRow({
                 {showAgentAvatar && <BotAvatar bot={senderBot} size="sm" />}
               </div>
             )}
-            {images.length > 0 ? (
+            {images.length > 0 || fileAttachments.length > 0 ? (
               <div
-                className={`flex max-w-[min(640px,78%)] flex-col gap-1.5 ${
+                className={`flex max-w-[min(88%,640px,calc(100%-82px))] flex-col gap-1.5 ${
                   from === "user" ? "items-end" : "items-start"
                 }`}
                 data-message-bubble-id={message.id}
               >
                 <MessageImageGallery images={images} />
-                {message.content && (
-                  <MessageContent className="max-w-full" from={from}>
-                    <MessageResponse>{message.content}</MessageResponse>
+                <MessageFileAttachments attachments={fileAttachments} />
+                {displayContent && (
+                  <MessageContent
+                    className="max-w-full"
+                    data-group-position={groupPosition}
+                    from={from}
+                  >
+                    <MessageResponse>{displayContent}</MessageResponse>
                   </MessageContent>
                 )}
               </div>
             ) : (
-              <MessageContent data-message-bubble-id={message.id} from={from}>
+              <MessageContent
+                data-group-position={groupPosition}
+                data-message-bubble-id={message.id}
+                from={from}
+              >
                 <MessageResponse>{message.content}</MessageResponse>
               </MessageContent>
             )}
@@ -560,6 +709,36 @@ const MessageRow = memo(function MessageRow({
   );
 });
 
+const approvalCardClass =
+  "flex w-full min-w-0 flex-col gap-3 rounded-2xl bg-[#eeeeee] p-3 text-[13px] text-[#141414] dark:bg-[#262626] dark:text-[#f0f0f0]";
+const approvalContentClass = "flex w-full min-w-0 flex-col items-start gap-1";
+const approvalTitleClass =
+  "min-w-0 flex-1 text-[14px] font-medium leading-[22px] text-[#141414] dark:text-[#f0f0f0]";
+const approvalSecondaryTextClass = "text-[#141414]/[0.74] dark:text-[#f0f0f0]/[0.74]";
+const approvalButtonClass = "h-8 rounded-lg px-2.5 py-0 text-[14px] leading-[22px] shadow-none";
+const approvalPrimaryButtonClass = cn(
+  approvalButtonClass,
+  "bg-[#141414] text-[#fcfcfc] hover:bg-[#141414]/[0.74] dark:bg-[#f0f0f0] dark:text-[#181818] dark:hover:bg-[#f0f0f0]/[0.74]"
+);
+const approvalSecondaryButtonClass = cn(
+  approvalButtonClass,
+  "border-[#141414]/[0.08] bg-[#141414]/[0.04] text-[#141414] hover:bg-[#141414]/[0.14] hover:text-[#141414] dark:border-[#f0f0f0]/[0.08] dark:bg-[#f0f0f0]/[0.04] dark:text-[#f0f0f0] dark:hover:bg-[#f0f0f0]/[0.14] dark:hover:text-[#f0f0f0]"
+);
+
+const isLocalApproval = (approval: ApprovalView) =>
+  Boolean(
+    approval.details &&
+      typeof approval.details === "object" &&
+      !Array.isArray(approval.details) &&
+      (approval.details as Record<string, unknown>).type === "localTool"
+  );
+
+const isPendingLocalApproval = (approval: ApprovalView) =>
+  approval.status === "pending" && isLocalApproval(approval);
+
+const isResolvedLocalApproval = (approval: ApprovalView) =>
+  approval.status !== "pending" && isLocalApproval(approval);
+
 function ApprovalCard({
   approval,
   onResolve,
@@ -567,7 +746,308 @@ function ApprovalCard({
   approval: ApprovalView;
   onResolve: (decision: ApprovalDecision) => Promise<void>;
 }) {
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const pending = approval.status === "pending";
+  useEffect(() => {
+    if (!pending) setDetailsOpen(false);
+  }, [pending]);
+  const details =
+    approval.details && typeof approval.details === "object" && !Array.isArray(approval.details)
+      ? (approval.details as Record<string, unknown>)
+      : {};
+  const action = typeof details.action === "string" ? details.action : null;
+  const toolName = typeof details.toolName === "string" ? details.toolName : null;
+  const heading = action
+    ? action.replace(/([a-z])([A-Z])/g, "$1 $2")
+    : toolName
+      ? `Allow ${toolName}`
+      : "Approval required";
+  const effect = typeof details.effect === "string" ? details.effect : null;
+  const supportsAlwaysAllow = details.supportsAlwaysAllow === true;
+  const supportsNever = details.supportsNever === true;
+  const localTool = details.type === "localTool";
+  const autoReview = details.type === "autoReview";
+  const resolution = typeof details.resolution === "string" ? details.resolution : null;
+  const localCapability = details.action === "readFile" ? "read files on" : "run commands on";
+  const visibleArguments = details.arguments;
+  const argumentRecord =
+    visibleArguments && typeof visibleArguments === "object" && !Array.isArray(visibleArguments)
+      ? (visibleArguments as Record<string, unknown>)
+      : {};
+  const machineLabel =
+    typeof details.machineLabel === "string" && details.machineLabel.trim()
+      ? details.machineLabel.trim()
+      : "this computer";
+
+  if (localTool) {
+    const command = typeof argumentRecord.command === "string" ? argumentRecord.command : null;
+    const path = typeof argumentRecord.path === "string" ? argumentRecord.path : null;
+    const rawDetails = command ?? path;
+    const detailsLabel = command ? "command" : "details";
+    const statusLabel =
+      resolution === "accept"
+        ? `OpenBot can ${localCapability} your computer this time.`
+        : resolution === "always_allow"
+          ? `OpenBot can always ${localCapability} your computer.`
+          : approval.status === "declined"
+            ? `OpenBot was not allowed to ${localCapability} your computer.`
+            : approval.status === "cancelled"
+              ? "Local computer approval was cancelled."
+              : approval.status === "expired"
+                ? "Local computer approval expired."
+                : "OpenBot was not allowed to use your computer.";
+
+    if (!pending) {
+      return (
+        <div
+          aria-label="Local tool permission result"
+          className={cn(
+            "min-h-6 w-full min-w-0 truncate text-center text-[12px] leading-4",
+            approvalSecondaryTextClass
+          )}
+          data-approval-id={approval.id}
+          data-approval-status={approval.status}
+          data-local-tool-permission-result=""
+          title={statusLabel}
+        >
+          {statusLabel}
+        </div>
+      );
+    }
+
+    return (
+      <div
+        aria-label="Local tool permission"
+        className={approvalCardClass}
+        data-approval-id={approval.id}
+        data-approval-status={approval.status}
+        data-local-tool-permission=""
+      >
+        <div className={approvalContentClass}>
+          <div className="flex w-full min-w-0 items-start gap-2">
+            <span className="inline-flex h-[22px] shrink-0 items-center">
+              <TriangleAlert
+                aria-hidden="true"
+                className="size-4 text-[#d08770]"
+                strokeWidth={1.75}
+              />
+            </span>
+            <div className={approvalTitleClass}>{effect ?? heading}</div>
+            <button
+              aria-label="Deny once"
+              className="grid size-5 shrink-0 place-items-center rounded-md text-[#141414]/60 outline-none hover:bg-[#141414]/[0.04] hover:text-[#141414] focus-visible:ring-2 focus-visible:ring-ring/30 dark:text-[#f0f0f0]/60 dark:hover:bg-[#f0f0f0]/[0.04] dark:hover:text-[#f0f0f0]"
+              onClick={() => void onResolve("decline")}
+              type="button"
+            >
+              <X className="size-3" strokeWidth={1.75} />
+            </button>
+          </div>
+
+          <div
+            className={cn(
+              "text-[12px] font-medium leading-4 [overflow-wrap:anywhere]",
+              approvalSecondaryTextClass
+            )}
+          >
+            {machineLabel}
+          </div>
+          <div
+            className={cn(
+              "text-[13px] leading-[18px] [overflow-wrap:anywhere]",
+              approvalSecondaryTextClass
+            )}
+          >
+            {"This applies to OpenBot and every Bot. It can always be changed in Settings."}
+          </div>
+
+          {rawDetails ? (
+            <ApprovalDetails
+              detailsLabel={detailsLabel}
+              open={detailsOpen}
+              rawDetails={rawDetails}
+              setOpen={setDetailsOpen}
+            />
+          ) : null}
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          {supportsAlwaysAllow ? (
+            <Button
+              className={approvalPrimaryButtonClass}
+              onClick={() => void onResolve("always_allow")}
+            >
+              Always allow
+            </Button>
+          ) : null}
+          <Button
+            className={approvalSecondaryButtonClass}
+            onClick={() => void onResolve("accept")}
+            variant="outline"
+          >
+            Allow once
+          </Button>
+          {supportsNever ? (
+            <Button
+              className={approvalSecondaryButtonClass}
+              onClick={() => void onResolve("never")}
+              variant="outline"
+            >
+              Never
+            </Button>
+          ) : null}
+        </div>
+      </div>
+    );
+  }
+
+  if (autoReview) {
+    const command = typeof argumentRecord.command === "string" ? argumentRecord.command : null;
+    const path = typeof argumentRecord.path === "string" ? argumentRecord.path : null;
+    const task = typeof argumentRecord.task === "string" ? argumentRecord.task : null;
+    const prompt = typeof argumentRecord.prompt === "string" ? argumentRecord.prompt : null;
+    const rawDetails =
+      command ?? path ?? task ?? prompt ?? JSON.stringify(visibleArguments ?? {}, null, 2);
+    const detailsLabel = command ? "command" : "details";
+    const taskReview = details.action === "runTask";
+    const suppliedSummary =
+      typeof details.summary === "string" && details.summary.trim()
+        ? details.summary.trim()
+        : action === "readFile" && path
+          ? `Read ${path}`
+          : action === "runCommand"
+            ? "Run a command"
+            : heading;
+    const reviewSummary = suppliedSummary;
+    const reason = typeof details.reason === "string" ? details.reason : effect;
+    const proposedRule =
+      typeof details.proposedRule === "string" && details.proposedRule.trim()
+        ? details.proposedRule.trim()
+        : null;
+    const reviewTitle =
+      action === "runCommand"
+        ? "The Bot wants to run a command"
+        : action === "readFile"
+          ? "The Bot wants to read a file"
+          : "The Bot wants to run a task";
+    const reviewStatus = pending
+      ? "Approval needed"
+      : approval.status === "accepted"
+        ? resolution === "always_allow"
+          ? "Always allowed"
+          : "Allowed once"
+        : approval.status === "declined"
+          ? "Denied"
+          : approval.status === "cancelled"
+            ? "Cancelled"
+            : approval.status === "expired"
+              ? "Expired"
+              : "Reviewed";
+
+    return (
+      <div
+        aria-label="Auto-review approval"
+        className={approvalCardClass}
+        data-approval-id={approval.id}
+        data-approval-status={approval.status}
+        data-auto-review-approval=""
+      >
+        <div className={approvalContentClass}>
+          <div className="flex w-full min-w-0 items-start gap-2">
+            <div className={approvalTitleClass}>{reviewTitle}</div>
+            <span
+              className={cn(
+                "inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-[13px] font-medium leading-[18px]",
+                pending
+                  ? "gap-1 bg-[#f1b467]/[0.22] pl-1 text-[#f1b467]"
+                  : approval.status === "declined"
+                    ? "bg-[#fc6b83]/[0.12] text-[#fc6b83]"
+                    : "text-[#141414] dark:text-[#f0f0f0]"
+              )}
+            >
+              {pending ? (
+                <LoaderCircle className="size-3.5 animate-spin" strokeWidth={1.7} />
+              ) : approval.status === "declined" ? (
+                <span aria-hidden="true" className="size-1.5 rounded-full bg-current" />
+              ) : null}
+              {reviewStatus}
+            </span>
+          </div>
+
+          {!taskReview ? (
+            <>
+              <div
+                className={cn(
+                  "text-[12px] font-medium leading-4 [overflow-wrap:anywhere]",
+                  approvalSecondaryTextClass
+                )}
+              >
+                Runs on your local computer
+              </div>
+              <div className="text-[13px] leading-[1.45] text-[#141414] [overflow-wrap:anywhere] dark:text-[#f0f0f0]">
+                {reviewSummary}
+              </div>
+            </>
+          ) : null}
+          {pending && reason ? (
+            <div
+              className={cn(
+                "text-[13px] leading-[18px] [overflow-wrap:anywhere]",
+                approvalSecondaryTextClass
+              )}
+            >
+              {reason}
+            </div>
+          ) : null}
+
+          {rawDetails ? (
+            <ApprovalDetails
+              detailsLabel={detailsLabel}
+              open={detailsOpen}
+              rawDetails={rawDetails}
+              setOpen={setDetailsOpen}
+            />
+          ) : null}
+          {!pending && resolution === "always_allow" ? (
+            <div
+              className={cn(
+                "text-[13px] leading-[18px] [overflow-wrap:anywhere]",
+                approvalSecondaryTextClass
+              )}
+            >
+              {`A rule always allowing this was added to your Auto-review settings${
+                proposedRule ? `: “${proposedRule}”` : ""
+              }`}
+            </div>
+          ) : null}
+        </div>
+
+        {pending ? (
+          <div className="flex flex-wrap gap-2">
+            <Button className={approvalPrimaryButtonClass} onClick={() => void onResolve("accept")}>
+              Allow once
+            </Button>
+            {supportsAlwaysAllow ? (
+              <Button
+                className={approvalSecondaryButtonClass}
+                onClick={() => void onResolve("always_allow")}
+                variant="outline"
+              >
+                Always allow
+              </Button>
+            ) : null}
+            <Button
+              className={approvalSecondaryButtonClass}
+              onClick={() => void onResolve("decline")}
+              variant="outline"
+            >
+              Deny
+            </Button>
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
   const statusLabel =
     approval.status === "accepted"
       ? "Approved"
@@ -578,6 +1058,7 @@ function ApprovalCard({
           : approval.status === "expired"
             ? "Expired"
             : "Approval required";
+
   return (
     <div
       className="rounded-xl border border-amber-500/25 bg-amber-500/8 p-3 text-sm"
@@ -590,49 +1071,135 @@ function ApprovalCard({
         ) : (
           <Check className="size-4 text-foreground-secondary" />
         )}
-        {statusLabel}
+        {pending ? (localTool ? effect : heading) : statusLabel}
       </div>
-      <pre className="mb-3 max-h-40 overflow-auto whitespace-pre-wrap text-xs text-muted-foreground">
-        {JSON.stringify(approval.details, null, 2)}
-      </pre>
+      {pending && localTool ? (
+        <p className="mb-2 text-xs leading-5 text-muted-foreground">
+          {typeof details.machineLabel === "string" ? details.machineLabel : "This computer"}. This
+          applies to OpenBot and every Bot and can be changed in Settings.
+        </p>
+      ) : !localTool && effect ? (
+        <p className="mb-2 text-xs leading-5 text-muted-foreground">{effect}</p>
+      ) : null}
+      {visibleArguments && typeof visibleArguments === "object" ? (
+        <pre className="mb-3 max-h-40 overflow-auto rounded-lg bg-black/[0.04] p-2 whitespace-pre-wrap text-[11px] text-muted-foreground dark:bg-white/[0.05]">
+          {JSON.stringify(visibleArguments, null, 2)}
+        </pre>
+      ) : null}
       {pending && (
-        <div className="flex gap-2">
-          <Button onClick={() => void onResolve("accept")} size="sm">
-            <Check className="size-3.5" /> Allow
-          </Button>
+        <div className="flex flex-wrap gap-2">
           <Button onClick={() => void onResolve("decline")} size="sm" variant="outline">
-            Decline
+            Deny once
           </Button>
+          {supportsAlwaysAllow ? (
+            <Button onClick={() => void onResolve("always_allow")} size="sm" variant="outline">
+              Always allow
+            </Button>
+          ) : null}
+          <Button onClick={() => void onResolve("accept")} size="sm">
+            <Check className="size-3.5" /> Allow once
+          </Button>
+          {supportsNever ? (
+            <Button onClick={() => void onResolve("never")} size="sm" variant="outline">
+              Never
+            </Button>
+          ) : null}
         </div>
       )}
     </div>
   );
 }
 
-const BotThinkingIndicator = memo(function BotThinkingIndicator({ bot }: { bot?: BotView }) {
+function ApprovalDetails({
+  detailsLabel,
+  open,
+  rawDetails,
+  setOpen,
+}: {
+  detailsLabel: string;
+  open: boolean;
+  rawDetails: string;
+  setOpen: React.Dispatch<React.SetStateAction<boolean>>;
+}) {
+  return (
+    <div className="flex w-full min-w-0 flex-col gap-1">
+      <button
+        aria-expanded={open}
+        className={cn(
+          "inline-flex items-center gap-1.5 self-start text-[13px] leading-[18px] outline-none hover:text-[#141414] focus-visible:ring-2 focus-visible:ring-ring/30 dark:hover:text-[#f0f0f0]",
+          approvalSecondaryTextClass
+        )}
+        onClick={() => setOpen((value) => !value)}
+        type="button"
+      >
+        {open ? (
+          <ChevronDown className="size-3.5" strokeWidth={1.75} />
+        ) : (
+          <ChevronRight className="size-3.5" strokeWidth={1.75} />
+        )}
+        {open ? `Hide the ${detailsLabel}` : `Show the ${detailsLabel}`}
+      </button>
+      {open ? (
+        <div className="approval-code-figure relative w-full min-w-0 rounded-lg bg-[#141414]/[0.04] dark:bg-[#f0f0f0]/[0.04]">
+          <pre
+            className={cn(
+              "grok-scrollbar max-h-40 overflow-auto whitespace-pre px-3 py-2 font-mono text-[13px] leading-5",
+              approvalSecondaryTextClass
+            )}
+          >
+            {rawDetails}
+          </pre>
+          <button
+            aria-label="Copy code"
+            className="approval-copy-button absolute right-1.5 top-1.5 grid size-6 place-items-center rounded-md border-[0.5px] border-[#141414]/[0.08] bg-[#fcfcfc] text-[#141414]/60 shadow-[0_1px_3px_#0000001f] outline-none hover:bg-[#f7f7f7] hover:text-[#141414] focus-visible:ring-2 focus-visible:ring-ring/30 dark:border-[#f0f0f0]/[0.08] dark:bg-[#383838] dark:text-[#f0f0f0]/60 dark:hover:bg-[#444] dark:hover:text-[#f0f0f0]"
+            onClick={() => void navigator.clipboard.writeText(rawDetails)}
+            type="button"
+          >
+            <Copy className="size-3.5" strokeWidth={1.7} />
+          </button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+const BotThinkingSlot = memo(function BotThinkingSlot({
+  bot,
+  phase,
+}: {
+  bot?: BotView;
+  phase: ThinkingPhase;
+}) {
   const name = bot?.name ?? "Bot";
+  const mounted = phase !== "hidden";
   return (
     <div
-      aria-label={`${name} is working`}
-      className="group/working flex h-8 items-center px-5"
-      data-bot-thinking=""
-      role="status"
+      aria-hidden={!mounted}
+      className="flex h-9 shrink-0 items-center"
+      data-active={phase === "visible" || undefined}
+      data-bot-thinking-slot=""
+      data-phase={phase}
+      data-timeline-entry="thinking"
     >
-      <span aria-hidden="true" className="flex w-7 shrink-0 items-center gap-[3px]">
-        {[0, 1, 2].map((index) => (
-          <span
-            className="size-[7px] rounded-full motion-safe:animate-[working-dot_1.05s_ease-in-out_infinite]"
-            key={index}
-            style={{
-              animationDelay: `${index * 140}ms`,
-              backgroundColor: bot?.color ?? "#ff7a1a",
-            }}
-          />
-        ))}
-      </span>
-      <span className="ml-2 opacity-0 transition-opacity duration-150 ease-out group-hover/working:opacity-100 group-focus-within/working:opacity-100 motion-reduce:transition-none">
-        <Shimmer className="whitespace-nowrap text-[14px] leading-5">{name} is working</Shimmer>
-      </span>
+      {mounted ? (
+        <div
+          aria-label={`${name} is working`}
+          aria-hidden={phase === "exiting" || undefined}
+          className="bot-thinking-content flex min-w-0 items-center gap-2"
+          data-bot-thinking=""
+          data-exiting={phase === "exiting" || undefined}
+          role="status"
+        >
+          <span aria-hidden="true" className="bot-thinking-badge">
+            <span className="bot-thinking-dot" />
+            <span className="bot-thinking-dot" />
+            <span className="bot-thinking-dot" />
+          </span>
+          <span className="bot-thinking-label min-w-0 truncate whitespace-nowrap text-[14px] leading-5">
+            {name} is working
+          </span>
+        </div>
+      ) : null}
     </div>
   );
 });
@@ -648,35 +1215,39 @@ const A2AActivityRow = memo(function A2AActivityRow({
   peer?: BotView;
   peerName: string;
 }) {
-  const content = (
+  const name = peer?.name ?? peerName;
+  const peerContent = (
     <>
-      <span className="leading-5">
-        {count} {count === 1 ? "message" : "messages"} with
-      </span>
-      <span
-        className="inline-flex h-6 max-w-[min(320px,55vw)] items-center gap-1 rounded-full bg-transparent pl-1 pr-2 leading-5 transition-colors group-hover/a2a:bg-[#1b1b1b]"
-        data-a2a-peer-pill=""
-      >
-        <BotAvatar bot={peer} size="activity" />
-        <span className="truncate">{peer?.name ?? peerName}</span>
-      </span>
+      <BotAvatar bot={peer} size="activity" />
+      <span className="truncate">{name}</span>
     </>
   );
-  return onOpen ? (
-    <button
-      className="group/a2a mx-auto mt-2 flex h-6 items-center gap-1.5 rounded-md px-2 text-xs text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 dark:text-[#9a9a9a]"
-      data-a2a-activity=""
-      onClick={(event) => onOpen(event.currentTarget)}
-      type="button"
-    >
-      {content}
-    </button>
-  ) : (
+  return (
     <div
       className="mx-auto mt-2 flex h-6 items-center gap-1.5 px-2 text-xs text-muted-foreground dark:text-[#9a9a9a]"
       data-a2a-activity=""
     >
-      {content}
+      <span className="leading-5">
+        {count} {count === 1 ? "message" : "messages"} with
+      </span>
+      {onOpen ? (
+        <button
+          aria-label={`Open A2A exchange with ${name}`}
+          className="inline-flex h-6 max-w-[min(320px,55vw)] items-center gap-1 rounded-full bg-transparent pl-1 pr-2 leading-5 text-inherit transition-colors hover:bg-[#efefef] focus-visible:bg-[#efefef] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 dark:hover:bg-[#1b1b1b] dark:focus-visible:bg-[#1b1b1b]"
+          data-a2a-peer-pill=""
+          onClick={(event) => onOpen(event.currentTarget)}
+          type="button"
+        >
+          {peerContent}
+        </button>
+      ) : (
+        <span
+          className="inline-flex h-6 max-w-[min(320px,55vw)] items-center gap-1 rounded-full bg-transparent pl-1 pr-2 leading-5"
+          data-a2a-peer-pill=""
+        >
+          {peerContent}
+        </span>
+      )}
     </div>
   );
 });
@@ -696,40 +1267,117 @@ export const ChatPane = memo(function ChatPane({
   focusMessage,
   onCloseViewOnly,
   onOpenA2A,
+  onOpenRoutine,
+  templateShareRequest,
 }: ChatPaneProps) {
   const [now, setNow] = useState(() => new Date());
   const [replyTarget, setReplyTarget] = useState<{
     channelId: string;
     messageId: string;
   } | null>(null);
-  const [pendingImageCount, setPendingImageCount] = useState(0);
-  const [composerExpanded, setComposerExpanded] = useState(false);
-  const [threadState, setThreadState] = useState<{ rootId: string; open: boolean } | null>(null);
+  const [composerHeight, setComposerHeight] = useState(60);
+  const [optimisticMessages, setOptimisticMessages] = useState<OptimisticMessage[]>([]);
+  const [templateFlow, setTemplateFlow] = useState<
+    { stage: "audience" } | { stage: "draft"; template: BotTemplateRecord } | null
+  >(null);
+  const [templatePreview, setTemplatePreview] = useState<BotTemplateRecord | null>(null);
+  const handledTemplateRequest = useRef<number | null>(null);
+  const templateFlowRef = useRef<HTMLDivElement | null>(null);
+  const composerDockRef = useRef<HTMLDivElement | null>(null);
+  const storedTemplate = useBotTemplateRecord(selectedBot?.id ?? "");
+  const [threadState, setThreadState] = useState<{
+    rootId: string;
+    open: boolean;
+  } | null>(null);
   const threadCloseTimer = useRef<number | null>(null);
+  const knownMessageIds = useRef<Set<string> | null>(null);
+  const knownMessageChannelId = useRef(channel.id);
+  const enteringMessageIds = useMemo(() => {
+    const known = knownMessageChannelId.current === channel.id ? knownMessageIds.current : null;
+    if (!known) return new Set<string>();
+    return new Set(
+      messages.filter((message) => !known.has(message.id)).map((message) => message.id)
+    );
+  }, [channel.id, messages]);
+  useEffect(() => {
+    knownMessageChannelId.current = channel.id;
+    knownMessageIds.current = new Set(messages.map((message) => message.id));
+  }, [channel.id, messages]);
+  const visibleMessages = useMemo(() => {
+    const optimisticServerIds = new Set(
+      optimisticMessages.flatMap(({ serverMessageId }) =>
+        serverMessageId ? [serverMessageId] : []
+      )
+    );
+    const authoritativeById = new Map(messages.map((message) => [message.id, message] as const));
+    return [
+      ...messages
+        .filter((message) => !optimisticServerIds.has(message.id))
+        .map((message) => ({
+          renderKey: message.id,
+          message,
+          pending: false,
+          animateEntrance: enteringMessageIds.has(message.id),
+        })),
+      ...optimisticMessages.map((optimistic) => ({
+        renderKey: optimistic.localId,
+        message:
+          (optimistic.serverMessageId
+            ? authoritativeById.get(optimistic.serverMessageId)
+            : undefined) ?? optimistic.message,
+        pending: optimistic.pending,
+        animateEntrance: true,
+      })),
+    ].sort(
+      (left, right) =>
+        new Date(left.message.createdAt).getTime() - new Date(right.message.createdAt).getTime() ||
+        left.renderKey.localeCompare(right.renderKey)
+    );
+  }, [enteringMessageIds, messages, optimisticMessages]);
   const messagesById = useMemo(
-    () => new Map(messages.map((message) => [message.id, message] as const)),
-    [messages]
+    () => new Map(visibleMessages.map(({ message }) => [message.id, message] as const)),
+    [visibleMessages]
   );
   const messagesByAddress = useMemo(
-    () => new Map(messages.map((message) => [channelMessageAddress(message), message] as const)),
-    [messages]
+    () =>
+      new Map(
+        visibleMessages.map(({ message }) => [channelMessageAddress(message), message] as const)
+      ),
+    [visibleMessages]
   );
-  const threads = useMemo(() => deriveThreads(messages), [messages]);
+  const threads = useMemo(
+    () => deriveThreads(visibleMessages.map(({ message }) => message)),
+    [visibleMessages]
+  );
   const mainMessages = useMemo(
-    () => messages.filter((message) => !isBranchedMessage(message)),
-    [messages]
+    () => visibleMessages.filter(({ message }) => !isBranchedMessage(message)),
+    [visibleMessages]
   );
   const approvals = useMemo(
     () => conversationApprovals(runs, subagents, approvalsByRun),
     [approvalsByRun, runs, subagents]
   );
+  const hasPendingApproval = approvals.some((approval) => approval.status === "pending");
+  const pendingLocalApproval = useMemo(
+    () =>
+      approvals
+        .filter(isPendingLocalApproval)
+        .sort(
+          (left, right) =>
+            new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime()
+        )
+        .at(-1) ?? null,
+    [approvals]
+  );
   const timeline = useMemo(() => {
     const ordered = mainMessages
-      .map((message) => ({
+      .map(({ animateEntrance, message, pending, renderKey }) => ({
         type: "message" as const,
-        id: message.id,
+        id: renderKey,
         createdAt: message.createdAt,
         message,
+        animateEntrance,
+        pending,
       }))
       .sort(
         (left, right) =>
@@ -764,7 +1412,10 @@ export const ChatPane = memo(function ChatPane({
       );
       if (!row) return;
       const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-      row.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "center" });
+      row.scrollIntoView({
+        behavior: reduceMotion ? "auto" : "smooth",
+        block: "center",
+      });
       if (!reduceMotion) {
         row.animate(
           [
@@ -841,33 +1492,172 @@ export const ChatPane = memo(function ChatPane({
     ];
   }, [botById, channel.kind, channel.members, selectedBot?.id]);
   const submit = useCallback(
-    (content: string, images: InlineImageInput[], options?: { richText?: string }) =>
-      mutate(() =>
-        channel.kind === "bot_dm" && selectedBot
-          ? api.sendMessage(selectedBot.conversationId, content, images, replyingTo?.id, options)
-          : api.sendChannelMessage(channel.id, content, images, replyingTo?.id, options)
-      ),
+    async (content: string, attachments: AssetRef[], options?: { richText?: string }) => {
+      const localId = `optimistic:${crypto.randomUUID()}`;
+      const optimistic: OptimisticMessage = {
+        localId,
+        pending: true,
+        serverMessageId: null,
+        message: {
+          id: localId,
+          sequence: localId,
+          channelId: channel.id,
+          sender: "user",
+          senderBotId: null,
+          sourceRunId: null,
+          content,
+          metadata: {
+            type: "text",
+            ...(attachments.length ? { attachments } : {}),
+            ...(replyingTo ? { replyTo: replyingTo.id } : {}),
+            ...(options?.richText ? { richText: options.richText } : {}),
+          },
+          createdAt: new Date().toISOString(),
+        },
+      };
+      setOptimisticMessages((current) => [...current, optimistic]);
+      try {
+        return await mutate(async () => {
+          const accepted =
+            channel.kind === "bot_dm" && selectedBot
+              ? await api.sendMessage(
+                  selectedBot.conversationId,
+                  content,
+                  attachments,
+                  replyingTo?.id,
+                  options
+                )
+              : await api.sendChannelMessage(
+                  channel.id,
+                  content,
+                  attachments,
+                  replyingTo?.id,
+                  options
+                );
+          setOptimisticMessages((current) =>
+            current.map((candidate) =>
+              candidate.localId === localId
+                ? {
+                    ...candidate,
+                    message: accepted.message,
+                    pending: false,
+                    serverMessageId: accepted.message.id,
+                  }
+                : candidate
+            )
+          );
+          return accepted;
+        });
+      } catch (error) {
+        setOptimisticMessages((current) =>
+          current.filter((candidate) => candidate.localId !== localId)
+        );
+        throw error;
+      }
+    },
     [channel.id, channel.kind, mutate, replyingTo?.id, selectedBot]
-  );
-  const stop = useCallback(
-    () => (activeRun ? mutate(() => api.cancelRun(activeRun.id)) : Promise.resolve()),
-    [activeRun, mutate]
   );
   const botCanQueue = selectedBot && ["provisioning", "active"].includes(selectedBot.status);
   const onboardingInProgress = Boolean(
     selectedBot && ["pending", "queued", "running"].includes(selectedBot.onboardingStatus)
   );
+  const composerVisible = channel.kind !== "agent_dm" && !onboardingInProgress;
+  const showThinkingIndicator = Boolean(
+    activeRun && !hasPendingApproval && !(visibleMessages.length === 0 && onboardingInProgress)
+  );
+  const thinkingPhase = useThinkingPresence(showThinkingIndicator);
+  const thinkingMounted = thinkingPhase !== "hidden";
+  const renderedTimeline = useMemo(() => {
+    const transcriptTimeline = timeline.filter(
+      (entry) => entry.type !== "approval" || !isPendingLocalApproval(entry.approval)
+    );
+    return transcriptTimeline.length === 0
+      ? transcriptTimeline
+      : [
+          ...transcriptTimeline,
+          {
+            type: "thinking" as const,
+            id: "thinking-slot",
+            createdAt:
+              activeRun?.createdAt ?? transcriptTimeline.at(-1)?.createdAt ?? channel.createdAt,
+            phase: thinkingPhase,
+            bot: activeRun ? botById.get(activeRun.botId) : selectedBot,
+          },
+        ];
+  },
+    [activeRun, botById, channel.createdAt, selectedBot, thinkingPhase, timeline]
+  );
+  const transcriptBottomInset = composerVisible ? composerHeight + 24 : 4;
   const canSend =
     channel.kind !== "agent_dm" &&
     (channel.kind === "bot_dm" ? Boolean(botCanQueue) : runtime.agent === "ready");
+  const resolveApproval = useCallback(
+    (approvalId: string, decision: ApprovalDecision) =>
+      mutate(() => api.resolveApproval(approvalId, decision)).then((value) => {
+        const body =
+          value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+        const result =
+          body.result && typeof body.result === "object"
+            ? (body.result as Record<string, unknown>)
+            : {};
+        if (typeof result.authorizationUrl === "string") {
+          window.open(result.authorizationUrl, "_blank", "noopener,noreferrer");
+        }
+      }),
+    [mutate]
+  );
+  useEffect(() => {
+    const dock = composerDockRef.current;
+    if (!(composerVisible && dock)) return;
+
+    const update = () => {
+      const nextHeight = dock.getBoundingClientRect().height;
+      if (nextHeight <= 0) return;
+      setComposerHeight((current) => (Math.abs(current - nextHeight) < 0.5 ? current : nextHeight));
+    };
+    const observer = new ResizeObserver(update);
+    observer.observe(dock);
+    update();
+    return () => observer.disconnect();
+  }, [channel.id, composerVisible]);
+  useEffect(() => {
+    if (!selectedBot || templateShareRequest?.botId !== selectedBot.id) return;
+    if (handledTemplateRequest.current === templateShareRequest.nonce) return;
+    handledTemplateRequest.current = templateShareRequest.nonce;
+    const existing = botTemplateFor(selectedBot.id);
+    if (existing?.status === "published") {
+      setTemplatePreview(existing);
+      return;
+    }
+    setTemplateFlow({ stage: "audience" });
+  }, [selectedBot, templateShareRequest]);
+  useEffect(() => {
+    setTemplateFlow((current) => {
+      if (storedTemplate) {
+        return current?.stage === "audience"
+          ? current
+          : { stage: "draft", template: storedTemplate };
+      }
+      return current?.stage === "draft" ? null : current;
+    });
+  }, [storedTemplate]);
+  useEffect(() => {
+    if (!templateFlow) return;
+    const frame = window.requestAnimationFrame(() => {
+      templateFlowRef.current?.scrollIntoView({
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+        block: "end",
+      });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [templateFlow]);
   return (
     <div className="relative flex size-full min-h-0 flex-col bg-background">
       <Conversation>
         <ConversationTopDivider />
         <ConversationContent
-          className={`max-w-none gap-1 px-1 pt-10 transition-[padding-bottom] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none ${
-            pendingImageCount > 0 ? "pb-24" : composerExpanded ? "pb-16" : "pb-6"
-          }`}
+          className="max-w-none gap-1 px-4 pt-10"
+          style={{ paddingBottom: transcriptBottomInset }}
         >
           {timeline.length === 0 && onboardingInProgress ? (
             <>
@@ -879,7 +1669,7 @@ export const ChatPane = memo(function ChatPane({
                   {formatIdleGapTimestamp(channel.createdAt, now)}
                 </time>
               </div>
-              <BotThinkingIndicator bot={selectedBot} />
+              <BotThinkingSlot bot={selectedBot} phase="visible" />
             </>
           ) : timeline.length === 0 ? (
             <ConversationEmptyState
@@ -898,21 +1688,27 @@ export const ChatPane = memo(function ChatPane({
               title={channel.kind === "group" ? "Start the group" : "Start a conversation"}
             />
           ) : (
-            timeline.map((entry, index) => (
+            renderedTimeline.map((entry, index) => (
               <Fragment key={`${entry.type}:${entry.id}`}>
-                {shouldShowIdleGapTimestamp(timeline[index - 1]?.createdAt, entry.createdAt) && (
-                  <div
-                    className={`flex justify-center pb-3 ${index === 0 ? "pt-[26.5px]" : "pt-6"}`}
-                  >
-                    <time
-                      className="select-none text-xs tabular-nums text-muted-foreground"
-                      dateTime={entry.createdAt}
+                {entry.type !== "thinking" &&
+                  shouldShowIdleGapTimestamp(
+                    renderedTimeline[index - 1]?.createdAt,
+                    entry.createdAt
+                  ) && (
+                    <div
+                      className={`flex justify-center pb-3 ${index === 0 ? "pt-[26.5px]" : "pt-6"}`}
                     >
-                      {formatIdleGapTimestamp(entry.createdAt, now)}
-                    </time>
-                  </div>
-                )}
-                {entry.type === "a2a" ? (
+                      <time
+                        className="select-none text-xs tabular-nums text-muted-foreground"
+                        dateTime={entry.createdAt}
+                      >
+                        {formatIdleGapTimestamp(entry.createdAt, now)}
+                      </time>
+                    </div>
+                  )}
+                {entry.type === "thinking" ? (
+                  <BotThinkingSlot bot={entry.bot} phase={entry.phase} />
+                ) : entry.type === "a2a" ? (
                   <A2AActivityRow
                     count={entry.entries.length}
                     onOpen={
@@ -924,28 +1720,46 @@ export const ChatPane = memo(function ChatPane({
                     peerName={entry.peerName ?? "another agent"}
                   />
                 ) : entry.type === "approval" ? (
-                  <div className="mx-auto mt-3 w-full max-w-[640px]">
+                  <div
+                    className={
+                      isResolvedLocalApproval(entry.approval)
+                          ? "mt-2 w-full min-w-0"
+                          : "mr-auto mt-2 w-full min-w-0 max-w-[min(88%,520px,calc(100%-82px))]"
+                    }
+                  >
                     <ApprovalCard
                       approval={entry.approval}
-                      onResolve={(decision) =>
-                        mutate(() => api.resolveApproval(entry.approval.id, decision)).then(
-                          () => undefined
-                        )
-                      }
+                      onResolve={(decision) => resolveApproval(entry.approval.id, decision)}
                     />
                   </div>
                 ) : (
                   <MessageRow
-                    canInteract={canSend && entry.message.sender !== "system"}
+                    animateEntrance={entry.animateEntrance}
+                    canInteract={canSend && !entry.pending && entry.message.sender !== "system"}
                     channel={channel}
-                    groupPosition={getMessageGroupPosition(
-                      mainMessages,
-                      mainMessages.findIndex((message) => message.id === entry.message.id)
+                    groupPosition={appendThinkingIndicatorToGroup(
+                      getMessageGroupPosition(
+                        mainMessages.map(({ message }) => message),
+                        mainMessages.findIndex(({ message }) => message.id === entry.message.id)
+                      ),
+                      (() => {
+                        const following = renderedTimeline[index + 1];
+                        return Boolean(
+                          thinkingMounted &&
+                            following?.type === "thinking" &&
+                            entry.message.sender === "agent" &&
+                            (!entry.message.senderBotId ||
+                              !following.bot?.id ||
+                              entry.message.senderBotId === following.bot.id)
+                        );
+                      })()
                     )}
                     message={entry.message}
+                    pending={entry.pending}
                     onReact={reactToMessage}
                     onReply={replyToMessage}
                     onOpenThread={openThread}
+                    onOpenRoutine={onOpenRoutine}
                     replyPreview={(() => {
                       const preview = replyPreviewFor(
                         entry.message,
@@ -966,7 +1780,7 @@ export const ChatPane = memo(function ChatPane({
                       };
                     })()}
                     separatedFromPrevious={(() => {
-                      const previous = timeline[index - 1];
+                      const previous = renderedTimeline[index - 1];
                       return Boolean(
                         previous &&
                           (previous.type !== "message" ||
@@ -988,15 +1802,60 @@ export const ChatPane = memo(function ChatPane({
               </Fragment>
             ))
           )}
-          {activeRun && !(messages.length === 0 && onboardingInProgress) && (
-            <BotThinkingIndicator bot={botById.get(activeRun.botId)} />
+          {templateFlow && selectedBot && (
+            <div
+              className="mt-2 flex flex-col gap-2 px-2 pb-1"
+              data-bot-template-flow=""
+              ref={templateFlowRef}
+            >
+              <div className="ml-auto max-w-[min(78%,520px)] rounded-[20px] bg-primary px-4 py-2.5 text-[14px] leading-5 text-primary-foreground">
+                {BOT_TEMPLATE_REQUEST}
+              </div>
+              <div className="mr-auto flex w-full max-w-[560px] items-end gap-2">
+                <BotAvatar bot={selectedBot} size="activity" />
+                <div className="min-w-0 flex-1">
+                  <div className="mb-1.5 text-[13px] leading-[18px] text-foreground-secondary">
+                    {templateFlow.stage === "audience"
+                      ? "I’ll make a shareable copy of this bot."
+                      : `${templateFlow.template.audience === "team" ? "Team" : "Public"} template ready.`}
+                  </div>
+                  {templateFlow.stage === "audience" ? (
+                    <TemplateAudienceQuestion
+                      onDismiss={() => setTemplateFlow(null)}
+                      onSelect={(audience) => {
+                        const template = createBotTemplateDraft(selectedBot, audience);
+                        setTemplateFlow({
+                          stage: "draft",
+                          template,
+                        });
+                      }}
+                    />
+                  ) : (
+                    <BotTemplateCard
+                      onChange={(template) => setTemplateFlow({ stage: "draft", template })}
+                      onView={() => setTemplatePreview(templateFlow.template)}
+                      template={templateFlow.template}
+                    />
+                  )}
+                </div>
+              </div>
+            </div>
           )}
         </ConversationContent>
-        <ConversationViewportAnchor active={composerExpanded || pendingImageCount > 0} />
-        <ConversationScrollButton conversationId={channel.id} messageCount={timeline.length} />
+        <ConversationInitialBottom />
+        <ConversationNewMessageBottom
+          conversationId={channel.id}
+          messageCount={timeline.length}
+          showTail={thinkingMounted}
+        />
+        <ConversationScrollButton
+          bottomInset={composerVisible ? composerHeight + 8 : 8}
+          conversationId={channel.id}
+          messageCount={timeline.length}
+        />
       </Conversation>
       {channel.kind === "agent_dm" ? (
-        <div className="mx-auto w-full max-w-[1040px] px-5 pb-4">
+        <div className="a2a-exchange-footer mx-auto w-full max-w-[1040px] px-5 pb-4">
           <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
             <LockKeyhole className="size-3.5" />
             <span>This chat is view-only</span>
@@ -1012,59 +1871,90 @@ export const ChatPane = memo(function ChatPane({
           </div>
         </div>
       ) : onboardingInProgress ? null : (
-        <PromptInput
-          disabled={!canSend}
-          key={channel.id}
-          onCancelReply={() => setReplyTarget(null)}
-          onExpandedChange={setComposerExpanded}
-          onImagesChange={setPendingImageCount}
-          mentionOptions={mentionOptions}
-          onStop={activeRun ? stop : undefined}
-          onSubmit={submit}
-          placeholder={
-            selectedBot?.status === "provisioning"
-              ? `Message ${channel.name} — it will be queued`
-              : runtime.agent !== "ready"
-                ? channel.kind === "bot_dm"
-                  ? `Message ${channel.name} — it will be queued`
-                  : "Pi runtime is not ready"
-                : `Message ${channel.name}`
-          }
-          reply={
-            replyingTo
-              ? {
-                  id: replyingTo.id,
-                  content:
-                    replyingTo.content || (messageImages(replyingTo).length > 0 ? "Image" : ""),
-                }
-              : null
-          }
-          running={Boolean(activeRun)}
-        />
+        <div
+          className="pointer-events-none absolute inset-x-0 bottom-0 z-[3]"
+          data-composer-dock=""
+          ref={composerDockRef}
+        >
+          {pendingLocalApproval ? (
+            <div
+              className="pointer-events-auto relative z-[3] w-full min-w-0 px-4 pb-2"
+              data-local-tool-permission-dock=""
+            >
+              <ApprovalCard
+                approval={pendingLocalApproval}
+                onResolve={(decision) => resolveApproval(pendingLocalApproval.id, decision)}
+              />
+            </div>
+          ) : null}
+          <PromptInput
+            disabled={!canSend}
+            docked
+            key={channel.id}
+            onCancelReply={() => setReplyTarget(null)}
+            assetUrl={api.assetUrl}
+            onUpload={api.uploadAsset}
+            mentionOptions={mentionOptions}
+            onSubmit={submit}
+            placeholder={
+              selectedBot?.status === "provisioning"
+                ? `Message ${channel.name} — it will be queued`
+                : runtime.agent !== "ready"
+                  ? channel.kind === "bot_dm"
+                    ? `Message ${channel.name} — it will be queued`
+                    : "Pi runtime is not ready"
+                  : `Message ${channel.name}`
+            }
+            reply={
+              replyingTo
+                ? {
+                    id: replyingTo.id,
+                    content:
+                      replyingTo.content || (messageImages(replyingTo).length > 0 ? "Image" : ""),
+                  }
+                : null
+            }
+          />
+        </div>
       )}
       {threadState && messagesById.get(threadState.rootId) && (
         <ThreadTray
+          assetUrl={api.assetUrl}
           botById={botById}
           mentionOptions={mentionOptions}
           onClose={closeThread}
-          onSubmit={(content, images, options) => {
+          onSubmit={(content, attachments, options) => {
             const thread = threads.get(threadState.rootId);
             const replyTargetId = thread?.replies.at(-1)?.id ?? threadState.rootId;
             return mutate(() =>
               channel.kind === "bot_dm" && selectedBot
-                ? api.sendMessage(selectedBot.conversationId, content, images, replyTargetId, {
+                ? api.sendMessage(selectedBot.conversationId, content, attachments, replyTargetId, {
                     ...options,
                     isFork: true,
                   })
-                : api.sendChannelMessage(channel.id, content, images, replyTargetId, {
+                : api.sendChannelMessage(channel.id, content, attachments, replyTargetId, {
                     ...options,
                     isFork: true,
                   })
             );
           }}
+          onUpload={api.uploadAsset}
           open={threadState.open}
           replies={threads.get(threadState.rootId)?.replies ?? []}
           root={messagesById.get(threadState.rootId) as ChannelMessageView}
+        />
+      )}
+      {templatePreview && (
+        <BotTemplateDetailsDialog
+          onChange={(template) => {
+            setTemplatePreview(template);
+            setTemplateFlow((current) =>
+              current?.stage === "draft" ? { stage: "draft", template } : current
+            );
+          }}
+          onOpenChange={(open) => !open && setTemplatePreview(null)}
+          open
+          template={templatePreview}
         />
       )}
     </div>

@@ -30,10 +30,43 @@ export interface RoutineExecutionView {
   createdAt: string;
 }
 
+export const formatRoutineExecutionTime = (
+  execution: RoutineExecutionView,
+  now = new Date(),
+  locale?: string
+): string => {
+  const when = new Date(execution.completedAt ?? execution.startedAt ?? execution.createdAt);
+  const elapsed = now.getTime() - when.getTime();
+  if (elapsed >= 0 && elapsed < 60_000) return "Just now";
+  if (elapsed >= 60_000 && elapsed < 3_600_000) {
+    return `${Math.floor(elapsed / 60_000)} min ago`;
+  }
+
+  const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const startThen = new Date(when.getFullYear(), when.getMonth(), when.getDate());
+  const calendarDays = Math.round((startToday.getTime() - startThen.getTime()) / 86_400_000);
+  const time = when.toLocaleTimeString(locale, { hour: "numeric", minute: "2-digit" });
+  if (calendarDays === 0) return `Today at ${time}`;
+  if (calendarDays === 1) return `Yesterday at ${time}`;
+  if (calendarDays > 1 && calendarDays < 7) {
+    const weekday = when.toLocaleDateString(locale, { weekday: "long" });
+    return `Last ${weekday} at ${time}`;
+  }
+  return when.toLocaleString(locale, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+};
+
 export interface RoutineView {
   id: string;
   folder: string;
-  botId: string;
+  ownerId: string;
+  ownerKind: "bot" | "group";
+  botId: string | null;
+  channelId: string | null;
   name: string;
   prompt: string;
   schedule: string;
@@ -50,6 +83,7 @@ export interface RoutineView {
   createdAt: string;
   updatedAt: string;
   latestExecution: RoutineExecutionView | null;
+  trigger?: unknown;
   triggerPresentation: unknown;
 }
 
@@ -226,8 +260,7 @@ export const routineScheduleValues = (draft: RoutineScheduleDraft): string[] => 
   const monthField = listField(draft.advancedMonths);
   const dayField =
     draft.advancedDayMode === "month-days" ? listField(draft.advancedMonthDays) : "*";
-  const weekField =
-    draft.advancedDayMode === "weekdays" ? listField(draft.advancedWeekDays) : "*";
+  const weekField = draft.advancedDayMode === "weekdays" ? listField(draft.advancedWeekDays) : "*";
   const times = draft.advancedTimes.length > 0 ? draft.advancedTimes : ["08:00"];
   return [...new Set(times)].map((time) => {
     const [hour, minute] = timeFields(time);
@@ -279,7 +312,14 @@ const boundedNumbers = (value: unknown, minimum: number, maximum: number): value
 const validClock = (value: unknown): value is string => {
   if (typeof value !== "string" || !/^\d{2}:\d{2}$/.test(value)) return false;
   const [hour, minute] = value.split(":").map(Number);
-  return Number.isInteger(hour) && Number.isInteger(minute) && hour! >= 0 && hour! <= 23 && minute! >= 0 && minute! <= 59;
+  return (
+    Number.isInteger(hour) &&
+    Number.isInteger(minute) &&
+    hour! >= 0 &&
+    hour! <= 23 &&
+    minute! >= 0 &&
+    minute! <= 59
+  );
 };
 
 const presentedSchedule = (value: unknown): RoutineScheduleDraft | null => {
@@ -289,21 +329,29 @@ const presentedSchedule = (value: unknown): RoutineScheduleDraft | null => {
   if (
     typeof item.minute !== "number" ||
     !validClock(item.time) ||
-    typeof item.weekDay !== "number" || item.weekDay < 0 || item.weekDay > 6 ||
-    typeof item.monthDay !== "number" || item.monthDay < 1 || item.monthDay > 31 ||
-    typeof item.intervalAmount !== "number" || item.intervalAmount < 1 ||
+    typeof item.weekDay !== "number" ||
+    item.weekDay < 0 ||
+    item.weekDay > 6 ||
+    typeof item.monthDay !== "number" ||
+    item.monthDay < 1 ||
+    item.monthDay > 31 ||
+    typeof item.intervalAmount !== "number" ||
+    item.intervalAmount < 1 ||
     !["m", "h", "d"].includes(item.intervalUnit ?? "") ||
     !boundedNumbers(item.advancedMonths, 1, 12) ||
     !["every-day", "weekdays", "month-days"].includes(item.advancedDayMode ?? "") ||
     !boundedNumbers(item.advancedWeekDays, 0, 6) ||
     !boundedNumbers(item.advancedMonthDays, 1, 31) ||
     !["at-times", "every"].includes(item.advancedTimeMode ?? "") ||
-    !stringList(item.advancedTimes) || !item.advancedTimes.every(validClock) ||
-    typeof item.advancedEveryAmount !== "number" || item.advancedEveryAmount < 1 ||
+    !stringList(item.advancedTimes) ||
+    !item.advancedTimes.every(validClock) ||
+    typeof item.advancedEveryAmount !== "number" ||
+    item.advancedEveryAmount < 1 ||
     !["m", "h", "d"].includes(item.advancedEveryUnit ?? "") ||
     !validClock(item.advancedFromTime) ||
     !validClock(item.advancedToTime) ||
-    typeof item.customSchedule !== "string" || item.customSchedule.length > 500
+    typeof item.customSchedule !== "string" ||
+    item.customSchedule.length > 500
   ) {
     return null;
   }
@@ -313,7 +361,11 @@ const presentedSchedule = (value: unknown): RoutineScheduleDraft | null => {
 export const routinePresentationDrafts = (presentation: unknown): RoutineScheduleDraft[] | null => {
   if (!presentation || typeof presentation !== "object" || Array.isArray(presentation)) return null;
   const value = presentation as { version?: unknown; kind?: unknown; schedules?: unknown };
-  if (value.version !== 2 || value.kind !== "grok-time-routines" || !Array.isArray(value.schedules)) {
+  if (
+    value.version !== 2 ||
+    value.kind !== "grok-time-routines" ||
+    !Array.isArray(value.schedules)
+  ) {
     return null;
   }
   const schedules = value.schedules.map(presentedSchedule);

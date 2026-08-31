@@ -64,6 +64,8 @@ export const deriveA2AExchange = (input: {
       id,
       kind: "agent_dm",
       name: `${input.source.name} ↔ ${input.peer.name}`,
+      description: "",
+      hasAvatar: false,
       directKey: `agents:${[input.source.id, input.peer.id].sort().join(":")}`,
       workingDirectory: null,
       members: [

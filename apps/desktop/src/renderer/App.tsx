@@ -1,9 +1,11 @@
-import type { SearchResultView, UpdateBotInput } from "@openbot/contracts";
+import type { BotView, SearchResultView, UpdateBotInput } from "@openbot/contracts";
 import { CircleAlert, LoaderCircle, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./client/openbot-api";
+import { OPENBOT_DEEP_LINK_EVENT } from "./components/ai-elements/message-response-config";
 import { A2AExchangeSheet } from "./components/openbot/a2a-exchange-sheet";
 import { AsyncTasksPanel } from "./components/openbot/async-tasks-panel";
+import { BotTemplateImportDialog } from "./components/openbot/bot-template-share";
 import { ChatPane } from "./components/openbot/chat-pane";
 import { DesktopDialogs } from "./components/openbot/desktop-dialogs";
 import { DesktopHeader } from "./components/openbot/desktop-header";
@@ -19,18 +21,20 @@ import { type InspectorMode, useBotRowActions } from "./hooks/use-bot-row-action
 import { useChannelSelection } from "./hooks/use-channel-selection";
 import { useRecentChannels } from "./hooks/use-recent-channels";
 import { useSidebarPreferences } from "./hooks/use-sidebar-preferences";
-import { activeAsyncTaskChannelIds, activeAsyncTasksForBot } from "./lib/async-tasks";
 import {
+  type A2AExchangeState,
   closeA2AExchange,
   deriveA2AExchange,
   finishA2AExchangeAnimation,
   startA2AExchange,
-  type A2AExchangeState,
 } from "./lib/a2a-exchange";
+import { parseOpenBotDeepLink, type SettingsAnchor } from "./lib/app-deep-links";
+import { activeAsyncTaskChannelIds, activeAsyncTasksForBot } from "./lib/async-tasks";
+import { BOT_TEMPLATE_SHARING_ENABLED, type TemplateBot } from "./lib/bot-template";
 import { cn } from "./lib/cn";
+import { deriveUnreadChannelIds, desktopNotificationSnapshot } from "./lib/notifications";
 import { MIN_INSPECTOR_WIDTH, resizeInspector } from "./lib/panel-resize";
 import { measureUntilNextPaint } from "./lib/performance";
-import { deriveAgentNotifications, deriveUnreadChannelIds } from "./lib/notifications";
 import { enableScreenForSession } from "./lib/screen-session";
 import { useSnapshotIndex } from "./lib/snapshot-index";
 import { useOpenBot } from "./state/use-openbot";
@@ -56,10 +60,27 @@ export default function App() {
   const [aboutOpen, setAboutOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [pluginsOpen, setPluginsOpen] = useState(false);
+  const [templateImport, setTemplateImport] = useState<TemplateBot | null>(null);
+  const [templateShareRequest, setTemplateShareRequest] = useState<{
+    botId: string;
+    nonce: number;
+  } | null>(null);
+  const [settingsTarget, setSettingsTarget] = useState<{
+    anchor: SettingsAnchor;
+    nonce: number;
+  } | null>(null);
+  const [pluginTarget, setPluginTarget] = useState<{ pluginId: string; nonce: number } | null>(
+    null
+  );
   const [asyncTasksBotId, setAsyncTasksBotId] = useState<string | null>(null);
   const [searchMessageTarget, setSearchMessageTarget] = useState<{
     channelId: string;
     messageId: string;
+    nonce: number;
+  } | null>(null);
+  const [routineOpenTarget, setRoutineOpenTarget] = useState<{
+    channelId: string;
+    routineId: string;
     nonce: number;
   } | null>(null);
   const [newBotPicker, setNewBotPicker] = useState(false);
@@ -89,9 +110,27 @@ export default function App() {
   } | null>(null);
   const creatingBot = useRef(false);
   const sidebarPreferences = useSidebarPreferences();
-  const previousNotificationSnapshot = useRef(snapshot);
   const previousUnreadSnapshot = useRef(snapshot);
-  const notificationThrottle = useRef(new Map<string, number>());
+  const readRequests = useRef(new Set<string>());
+
+  const markChannelRead = useCallback(
+    (channelId: string) => {
+      sidebarPreferences.markRead(channelId);
+      if (readRequests.current.has(channelId)) return;
+      const throughSequence = snapshot?.channelMessages
+        .filter((message) => message.channelId === channelId && /^\d+$/.test(message.sequence))
+        .reduce<bigint | null>((latest, message) => {
+          const sequence = BigInt(message.sequence);
+          return latest === null || sequence > latest ? sequence : latest;
+        }, null);
+      readRequests.current.add(channelId);
+      void api
+        .markChannelRead(channelId, throughSequence?.toString())
+        .then(() => refresh(true))
+        .finally(() => readRequests.current.delete(channelId));
+    },
+    [refresh, sidebarPreferences.markRead, snapshot?.channelMessages]
+  );
 
   useEffect(() => {
     const handleResize = () => setInspectorWidth((width) => clampInspectorWidth(width));
@@ -99,27 +138,57 @@ export default function App() {
     return () => window.removeEventListener("resize", handleResize);
   }, []);
   useEffect(() => {
+    const handleDeepLink = (event: Event) => {
+      const url = (event as CustomEvent<{ url?: string }>).detail?.url;
+      if (!url) return;
+      const target = parseOpenBotDeepLink(url);
+      if (target?.kind === "settings") {
+        setSettingsTarget({ anchor: target.anchor, nonce: Date.now() });
+        setSettingsOpen(true);
+      }
+      if (target?.kind === "plugin") {
+        setPluginTarget({ pluginId: target.pluginId, nonce: Date.now() });
+        setPluginsOpen(true);
+      }
+      if (BOT_TEMPLATE_SHARING_ENABLED && target?.kind === "template") {
+        setTemplateImport(target.template);
+      }
+    };
+    window.addEventListener(OPENBOT_DEEP_LINK_EVENT, handleDeepLink);
+    return () => window.removeEventListener(OPENBOT_DEEP_LINK_EVENT, handleDeepLink);
+  }, []);
+  useEffect(() => {
     const unsubscribe = window.openbot?.onNotificationClick((channelId) => {
       setSelectedId(channelId);
+      markChannelRead(channelId);
       setDetailsOpen(false);
     });
     return unsubscribe;
-  }, [setSelectedId]);
+  }, [markChannelRead, setSelectedId]);
   useEffect(() => {
-    const previous = previousNotificationSnapshot.current;
-    previousNotificationSnapshot.current = snapshot;
-    if (!previous || !snapshot || previous === snapshot || document.hasFocus()) return;
-    const botById = new Map(snapshot.bots.map((bot) => [bot.id, bot] as const));
-    for (const event of deriveAgentNotifications(previous, snapshot)) {
-      const bot = botById.get(event.botId);
-      if (!bot?.notificationsEnabled || bot.hiddenFromSidebar) continue;
-      const throttleKey = `${event.botId}:${event.kind}`;
-      const now = Date.now();
-      if (now - (notificationThrottle.current.get(throttleKey) ?? 0) < 5_000) continue;
-      notificationThrottle.current.set(throttleKey, now);
-      window.openbot?.showNotification(event);
+    if (!snapshot) return;
+    window.openbot?.notifications.sync(
+      desktopNotificationSnapshot(
+        snapshot,
+        sidebarPreferences.unreadIds,
+        document.hasFocus() ? selectedId : null
+      )
+    );
+  }, [selectedId, sidebarPreferences.unreadIds, snapshot]);
+  useEffect(() => {
+    if (!snapshot) return;
+    const visibleChannelId = document.hasFocus() ? selectedId : null;
+    for (const channel of snapshot.channels) {
+      if (channel.unreadCount === undefined) continue;
+      if (channel.id === visibleChannelId && channel.unreadCount > 0) {
+        markChannelRead(channel.id);
+      } else if (channel.unreadCount > 0) {
+        sidebarPreferences.markUnread(channel.id);
+      } else {
+        sidebarPreferences.markRead(channel.id);
+      }
     }
-  }, [snapshot]);
+  }, [markChannelRead, selectedId, sidebarPreferences.markUnread, snapshot]);
   useEffect(() => {
     const previous = previousUnreadSnapshot.current;
     previousUnreadSnapshot.current = snapshot;
@@ -139,6 +208,14 @@ export default function App() {
     window.addEventListener("keydown", openSearch);
     return () => window.removeEventListener("keydown", openSearch);
   }, []);
+  const shareBotAsTemplate = useCallback(
+    (bot: BotView) => {
+      if (!BOT_TEMPLATE_SHARING_ENABLED) return;
+      setSelectedId(bot.dmChannelId);
+      setTemplateShareRequest({ botId: bot.id, nonce: Date.now() });
+    },
+    [setSelectedId]
+  );
   const {
     confirmDeleteBot,
     deleteBotTarget,
@@ -151,6 +228,7 @@ export default function App() {
     setSelectedId,
     setDetailsOpen,
     setInspectorMode,
+    shareAsTemplate: shareBotAsTemplate,
     togglePinned: sidebarPreferences.togglePinned,
     toggleUnread: sidebarPreferences.toggleUnread,
   });
@@ -214,9 +292,14 @@ export default function App() {
   );
   const renameChannel = useCallback(
     async (channelId: string, name: string) => {
-      await mutate(() => api.renameChannel(channelId, name));
+      const channel = index.channelById.get(channelId);
+      await mutate(() =>
+        channel?.kind === "group"
+          ? api.updateChannelProfile(channelId, name, channel.description)
+          : api.renameChannel(channelId, name)
+      );
     },
-    [mutate]
+    [index.channelById, mutate]
   );
   const enableScreen = useCallback((botId: string) => {
     setEnabledScreenIds((current) => enableScreenForSession(current, botId));
@@ -247,8 +330,14 @@ export default function App() {
     setNewGroupDialog(true);
   }, []);
   const openAbout = useCallback(() => setAboutOpen(true), []);
-  const openSettings = useCallback(() => setSettingsOpen(true), []);
-  const openPlugins = useCallback(() => setPluginsOpen(true), []);
+  const openSettings = useCallback(() => {
+    setSettingsTarget(null);
+    setSettingsOpen(true);
+  }, []);
+  const openPlugins = useCallback(() => {
+    setPluginTarget(null);
+    setPluginsOpen(true);
+  }, []);
   const openSearch = useCallback(() => setSearchOpen(true), []);
   const selectSidebarChannel = useCallback(
     (id: string) => {
@@ -256,10 +345,18 @@ export default function App() {
       a2aExchangeTrigger.current = null;
       restoreA2AFocusAfterClose.current = false;
       setNewBotPicker(false);
-      sidebarPreferences.markRead(id);
+      markChannelRead(id);
       setSelectedId(id);
     },
-    [setSelectedId, sidebarPreferences.markRead]
+    [markChannelRead, setSelectedId]
+  );
+  const editSidebarChannel = useCallback(
+    (id: string) => {
+      selectSidebarChannel(id);
+      setInspectorMode("settings");
+      setDetailsOpen(true);
+    },
+    [selectSidebarChannel]
   );
 
   const recentIds = useRecentChannels(selectedId);
@@ -486,6 +583,7 @@ export default function App() {
           creating={newBotPicker}
           latestMessageByChannel={index.latestMessageByChannel}
           onBotAction={handleBotRowAction}
+          onEditChannel={editSidebarChannel}
           onNewBot={openNewBot}
           onNewGroup={openNewGroup}
           onOpenAbout={openAbout}
@@ -600,10 +698,18 @@ export default function App() {
                             ? (peerId, trigger) => openA2AChat(bot.id, peerId, trigger)
                             : undefined
                         }
+                        onOpenRoutine={(routineId) => {
+                          setRoutineOpenTarget({ channelId, routineId, nonce: Date.now() });
+                          setInspectorMode("routine");
+                          setDetailsOpen(true);
+                        }}
                         runs={index.runsByChannel.get(channelId) ?? []}
                         runtime={snapshot.runtime}
                         selectedBot={bot}
                         subagents={index.subagentsByChannel.get(channelId) ?? []}
+                        templateShareRequest={
+                          templateShareRequest?.botId === bot?.id ? templateShareRequest : null
+                        }
                       />
                     </div>
                   );
@@ -727,14 +833,31 @@ export default function App() {
                           mode={channelId === selectedId ? inspectorMode : "summary"}
                           onEnableScreen={enableScreen}
                           onModeChange={setInspectorMode}
+                          onOpenBot={(botId) => {
+                            const target = index.botById.get(botId);
+                            if (!target) return;
+                            setSelectedId(target.dmChannelId);
+                            setInspectorMode("summary");
+                          }}
                           onRetryBot={retryInspectorBot}
+                          onShareAsTemplate={shareBotAsTemplate}
+                          onSetGroupAvatar={(channelId, pngBase64) =>
+                            mutate(() => api.setChannelAvatar(channelId, pngBase64)).then(
+                              () => undefined
+                            )
+                          }
                           onSetMembers={(channelId, botIds) =>
                             mutate(() => api.setChannelMembers(channelId, botIds)).then(
                               () => undefined
                             )
                           }
+                          onUpdateGroupProfile={(channelId, name, description) =>
+                            mutate(() => api.updateChannelProfile(channelId, name, description))
+                          }
+                          routineOpenRequest={
+                            routineOpenTarget?.channelId === channelId ? routineOpenTarget : null
+                          }
                           onUpdateBot={updateInspectorBot}
-                          rounds={index.roundsByChannel.get(channelId) ?? []}
                           workspaceRoot={snapshot.workspace.root}
                         />
                       </div>
@@ -773,13 +896,32 @@ export default function App() {
           onSelectResult={selectSearchResult}
           open={searchOpen}
         />
-        <SettingsPanel
-          botName={selectedBot?.name ?? "OpenBot"}
-          onOpenChange={setSettingsOpen}
-          open={settingsOpen}
-        />
-        <PluginDialog onOpenChange={setPluginsOpen} open={pluginsOpen} />
+        <SettingsPanel onOpenChange={setSettingsOpen} open={settingsOpen} target={settingsTarget} />
+        <PluginDialog onOpenChange={setPluginsOpen} open={pluginsOpen} target={pluginTarget} />
         <AboutPanel onOpenChange={setAboutOpen} open={aboutOpen} />
+        {BOT_TEMPLATE_SHARING_ENABLED && (
+          <BotTemplateImportDialog
+            onAdd={async (template) => {
+              const bot = await mutate(() =>
+                api.createBot({
+                  clientRequestId: crypto.randomUUID(),
+                  name: template.name,
+                  title: template.title,
+                  description: template.description,
+                  instructions: template.instructions,
+                  icon: template.icon,
+                  color: template.color,
+                  notificationsEnabled: template.notificationsEnabled,
+                })
+              );
+              setTemplateImport(null);
+              setSelectedId(bot.dmChannelId);
+            }}
+            onOpenChange={(open) => !open && setTemplateImport(null)}
+            open={Boolean(templateImport)}
+            template={templateImport}
+          />
+        )}
         {asyncTasksBot && (
           <AsyncTasksPanel
             bot={asyncTasksBot}

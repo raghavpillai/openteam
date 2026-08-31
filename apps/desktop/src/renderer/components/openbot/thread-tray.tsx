@@ -1,8 +1,8 @@
-import type { BotView, ChannelMessageView, InlineImageInput } from "@openbot/contracts";
+import type { AssetRef, BotView, ChannelMessageView } from "@openbot/contracts";
 import { X } from "lucide-react";
 import type { MentionOption } from "../../lib/mentions";
-import { PromptInput } from "../ai-elements/prompt-input";
 import { MessageContent, MessageResponse } from "../ai-elements/message";
+import { PromptInput } from "../ai-elements/prompt-input";
 import { BotAvatar } from "./avatar";
 
 const ThreadMessage = ({
@@ -38,18 +38,26 @@ export function ThreadTray({
   open,
   replies,
   root,
+  assetUrl,
   onClose,
   onSubmit,
+  onUpload,
 }: {
   botById: ReadonlyMap<string, BotView>;
   mentionOptions: readonly MentionOption[];
   open: boolean;
   replies: readonly ChannelMessageView[];
   root: ChannelMessageView;
+  assetUrl: (asset: Pick<AssetRef, "assetId" | "fileName">) => string;
   onClose: () => void;
+  onUpload: (input: {
+    fileName: string;
+    mimeType?: string;
+    bytesBase64: string;
+  }) => Promise<AssetRef>;
   onSubmit: (
     value: string,
-    images: InlineImageInput[],
+    attachments: AssetRef[],
     options?: { richText?: string }
   ) => Promise<unknown> | undefined;
 }) {
@@ -101,9 +109,11 @@ export function ThreadTray({
         </div>
         <div className="shrink-0 border-t pt-3">
           <PromptInput
+            assetUrl={assetUrl}
             key={root.id}
             mentionOptions={mentionOptions}
             onSubmit={onSubmit}
+            onUpload={onUpload}
             placeholder="Reply in thread"
           />
         </div>

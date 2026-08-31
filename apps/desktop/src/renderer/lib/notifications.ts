@@ -1,4 +1,10 @@
-import type { ClientSnapshot, RunView } from "@openbot/contracts";
+import {
+  type ClientSnapshot,
+  notificationApprovalReason,
+  notificationMessageInputReason,
+  notificationMessagePreview,
+  type RunView,
+} from "@openbot/contracts";
 
 const ACTIVE = new Set(["queued", "running", "waiting_approval"]);
 
@@ -9,6 +15,86 @@ export interface AgentNotificationEvent {
   title: string;
   body: string;
 }
+
+export interface DesktopAgentNotificationState {
+  botId: string;
+  channelId: string;
+  name: string;
+  notificationsEnabled: boolean;
+  hiddenFromSidebar: boolean;
+  isRunning: boolean;
+  awaitingReason: string | null;
+  lastMessageId: string | null;
+  lastMessagePreview: string | null;
+  unreadCount: number;
+}
+
+export const desktopNotificationSnapshot = (
+  snapshot: ClientSnapshot,
+  unreadIds: ReadonlySet<string>,
+  visibleChannelId: string | null = null
+): { cursor: string; agents: DesktopAgentNotificationState[] } => {
+  const activeRuns = activeRunsByBot(snapshot);
+  const latestByChannel = new Map<
+    string,
+    { id: string; content: string; createdAt: string; senderBotId: string | null }
+  >();
+  for (const message of snapshot.channelMessages) {
+    const prior = latestByChannel.get(message.channelId);
+    if (!prior || message.createdAt >= prior.createdAt)
+      latestByChannel.set(message.channelId, message);
+  }
+  const pendingApprovalByRun = new Map(
+    snapshot.approvals
+      .filter((approval) => approval.status === "pending")
+      .map((approval) => [approval.runId, approval] as const)
+  );
+  const botById = new Map(snapshot.bots.map((bot) => [bot.id, bot] as const));
+  return {
+    cursor: snapshot.cursor,
+    agents: snapshot.channels.flatMap((channel) => {
+      if (channel.kind !== "bot_dm") return [];
+      const bot = botById.get(channel.members[0]?.botId ?? "");
+      if (!bot) return [];
+      const run = activeRuns.get(bot.id);
+      const approval = run ? pendingApprovalByRun.get(run.id) : undefined;
+      const latest = latestByChannel.get(channel.id);
+      const latestIsBot = latest?.senderBotId === bot.id;
+      return [
+        {
+          botId: bot.id,
+          channelId: channel.id,
+          name: bot.name,
+          notificationsEnabled: bot.notificationsEnabled,
+          hiddenFromSidebar: bot.hiddenFromSidebar,
+          isRunning: Boolean(run),
+          awaitingReason:
+            run?.status === "waiting_approval"
+              ? notificationApprovalReason(approval?.details)
+              : latestIsBot
+                ? notificationMessageInputReason(latest)
+                : null,
+          lastMessageId: latestIsBot ? latest.id : null,
+          lastMessagePreview: latestIsBot ? notificationMessagePreview(latest) : null,
+          unreadCount:
+            channel.id === visibleChannelId
+              ? 0
+              : (channel.unreadCount ?? (unreadIds.has(channel.id) ? 1 : 0)),
+        },
+      ];
+    }),
+  };
+};
+
+const activeRunsByBot = (snapshot: ClientSnapshot) => {
+  const active = new Map<string, RunView>();
+  for (const run of snapshot.runs) {
+    if (!ACTIVE.has(run.status)) continue;
+    const prior = active.get(run.botId);
+    if (!prior || run.updatedAt >= prior.updatedAt) active.set(run.botId, run);
+  }
+  return active;
+};
 
 const activeRunsByChannel = (snapshot: ClientSnapshot) => {
   const active = new Map<string, RunView>();

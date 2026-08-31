@@ -3,6 +3,7 @@ import type { ClientSnapshot } from "@openbot/contracts";
 import {
   deriveAgentNotifications,
   deriveUnreadChannelIds,
+  desktopNotificationSnapshot,
 } from "../src/renderer/lib/notifications";
 
 const base = {
@@ -75,5 +76,95 @@ describe("Grok-compatible notification transitions", () => {
     } as unknown as ClientSnapshot;
     expect(deriveUnreadChannelIds(base, current, "channel")).toEqual(["room"]);
     expect(deriveUnreadChannelIds(base, current, "room")).toEqual([]);
+  });
+
+  test("projects an interactive bot message as needs-input after its run ends", () => {
+    const snapshot = {
+      cursor: "4",
+      bots: [
+        {
+          id: "bot",
+          name: "Probe",
+          notificationsEnabled: true,
+          hiddenFromSidebar: false,
+        },
+      ],
+      channels: [
+        {
+          id: "channel",
+          kind: "bot_dm",
+          name: "Probe",
+          members: [{ botId: "bot" }],
+          unreadCount: 1,
+        },
+      ],
+      channelMessages: [
+        {
+          id: "question",
+          channelId: "channel",
+          senderBotId: "bot",
+          content: "Deploy to production?",
+          metadata: { type: "widget", interactive: true },
+          createdAt: "2026-01-01T00:00:02Z",
+        },
+      ],
+      runs: [],
+      approvals: [],
+    } as unknown as ClientSnapshot;
+
+    expect(desktopNotificationSnapshot(snapshot, new Set()).agents[0]).toMatchObject({
+      isRunning: false,
+      awaitingReason: "Deploy to production?",
+      lastMessageId: "question",
+    });
+  });
+
+  test("tracks a group-origin run on the member Bot's home notification row", () => {
+    const snapshot = {
+      cursor: "5",
+      bots: [
+        {
+          id: "bot",
+          name: "Probe",
+          notificationsEnabled: true,
+          hiddenFromSidebar: false,
+        },
+      ],
+      channels: [
+        {
+          id: "channel",
+          kind: "bot_dm",
+          name: "Probe",
+          members: [{ botId: "bot" }],
+          unreadCount: 0,
+        },
+        {
+          id: "group",
+          kind: "group",
+          name: "Testing",
+          members: [{ botId: "bot" }],
+          unreadCount: 0,
+        },
+      ],
+      channelMessages: [],
+      runs: [
+        {
+          id: "run",
+          botId: "bot",
+          channelId: "group",
+          status: "running",
+          updatedAt: "2026-01-01T00:00:02Z",
+        },
+      ],
+      approvals: [],
+    } as unknown as ClientSnapshot;
+
+    expect(desktopNotificationSnapshot(snapshot, new Set()).agents).toEqual([
+      expect.objectContaining({
+        botId: "bot",
+        channelId: "channel",
+        isRunning: true,
+      }),
+    ]);
   });
 });

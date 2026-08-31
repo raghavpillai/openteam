@@ -1,19 +1,21 @@
 import type { ComponentProps } from "react";
 import {
-  defaultUrlTransform,
   type Components,
   type ControlsConfig,
+  defaultUrlTransform,
   type MermaidOptions,
   type ThemeInput,
   type UrlTransform,
 } from "streamdown";
 
 const SANITIZED_MESSAGE_LINK_PREFIX = "streamdown:sand-msg:";
+const SANITIZED_GROK_BOT_LINK_PREFIX = "streamdown:grokbot:";
+export const OPENBOT_DEEP_LINK_EVENT = "openbot:deep-link";
 
 export const streamdownControls: ControlsConfig = {
   code: { copy: true, download: false },
   image: false,
-  mermaid: { copy: true, download: false, fullscreen: false, panZoom: false },
+  mermaid: { copy: true, download: true, fullscreen: true, panZoom: true },
   table: false,
 };
 
@@ -102,13 +104,14 @@ const normalizeLatexDelimiters = (markdown: string) =>
     .join("");
 
 export const prepareMessageMarkdown = (markdown: string) =>
-  normalizeLatexDelimiters(markdown).replace(
-    /(\]\(\s*)sand-msg:/gi,
-    `$1${SANITIZED_MESSAGE_LINK_PREFIX}`
-  );
+  normalizeLatexDelimiters(markdown)
+    .replace(/(\]\(\s*)sand-msg:/gi, `$1${SANITIZED_MESSAGE_LINK_PREFIX}`)
+    .replace(/(\]\(\s*)grokbot:/gi, `$1${SANITIZED_GROK_BOT_LINK_PREFIX}`);
 
 export const messageUrlTransform: UrlTransform = (url, key, node) =>
-  url.startsWith(SANITIZED_MESSAGE_LINK_PREFIX) ? url : defaultUrlTransform(url, key, node);
+  url.startsWith(SANITIZED_MESSAGE_LINK_PREFIX) || url.startsWith(SANITIZED_GROK_BOT_LINK_PREFIX)
+    ? url
+    : defaultUrlTransform(url, key, node);
 
 const jumpToMessage = (address: string) => {
   const target = Array.from(
@@ -150,6 +153,25 @@ function MessageLink({ children, className, href, node: _node, ...props }: Markd
         type="button"
       >
         <span aria-hidden="true">↪</span>
+        {children}
+      </button>
+    );
+  }
+
+  const grokBotPath = href?.startsWith(SANITIZED_GROK_BOT_LINK_PREFIX)
+    ? href.slice(SANITIZED_GROK_BOT_LINK_PREFIX.length)
+    : null;
+  if (grokBotPath) {
+    const url = `grokbot:${grokBotPath}`;
+    return (
+      <button
+        aria-label={`Open ${String(children)}`}
+        className="message-jump-chip"
+        onClick={() =>
+          window.dispatchEvent(new CustomEvent(OPENBOT_DEEP_LINK_EVENT, { detail: { url } }))
+        }
+        type="button"
+      >
         {children}
       </button>
     );

@@ -148,7 +148,9 @@ export function AsyncTasksPanel({
               />
               <Bot aria-hidden="true" className="size-4 shrink-0 text-foreground-secondary" />
               <span className="min-w-0 flex-1">
-                <span className="block text-[13px] font-medium">Background task</span>
+                <span className="block truncate text-[13px] font-medium">
+                  {task.description || "Background task"}
+                </span>
                 <span className="block truncate text-[11px] text-foreground-secondary">
                   Subagent · {task.subagentType}
                 </span>

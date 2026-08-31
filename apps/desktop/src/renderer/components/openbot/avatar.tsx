@@ -56,20 +56,41 @@ export const ChannelAvatar = memo(function ChannelAvatar({
 }: {
   channel: ChannelView;
   botById: ReadonlyMap<string, BotView>;
-  size?: "sm" | "md";
+  size?: "sm" | "md" | "lg";
 }) {
   if (channel.kind === "bot_dm") {
     return <BotAvatar bot={botById.get(channel.members[0]?.botId ?? "")} size={size} />;
   }
+  if (channel.hasAvatar) {
+    return (
+      <span
+        className={cn(
+          "grid shrink-0 place-items-center overflow-hidden rounded-full",
+          size === "sm" ? "size-5" : size === "lg" ? "size-16" : "size-8"
+        )}
+      >
+        <img
+          alt=""
+          className="size-full object-cover"
+          src={`${API_BASE}/api/v0/channels/${channel.id}/avatar?v=${encodeURIComponent(channel.updatedAt)}`}
+        />
+      </span>
+    );
+  }
   const members = channel.members.slice(0, 2).map((member) => botById.get(member.botId));
   return (
-    <div className={cn("relative shrink-0", size === "sm" ? "size-5" : "size-8")}>
+    <div
+      className={cn(
+        "relative shrink-0",
+        size === "sm" ? "size-5" : size === "lg" ? "size-16" : "size-8"
+      )}
+    >
       {members.map((bot, index) => (
         <div
           className={cn("absolute", index === 0 ? "left-0 top-0" : "bottom-0 right-0")}
           key={bot?.id ?? index}
         >
-          <BotAvatar bot={bot} size={size === "sm" ? "xs" : "sm"} />
+          <BotAvatar bot={bot} size={size === "sm" ? "xs" : size === "lg" ? "md" : "sm"} />
         </div>
       ))}
     </div>

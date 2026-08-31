@@ -133,7 +133,13 @@ export function NewBotScreen({
         )}
       </div>
       <div className="min-h-0 flex-1" />
-      <PromptInput disabled onSubmit={() => undefined} placeholder="Message Bot" />
+      <PromptInput
+        disabled
+        assetUrl={() => ""}
+        onSubmit={() => undefined}
+        onUpload={() => Promise.reject(new Error("Create the bot before attaching files."))}
+        placeholder="Message Bot"
+      />
     </div>
   );
 }

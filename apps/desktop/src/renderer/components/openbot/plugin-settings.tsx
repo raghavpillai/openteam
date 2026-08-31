@@ -9,7 +9,9 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  Copy,
   ExternalLink,
+  KeyRound,
   LoaderCircle,
   Plus,
   Search,
@@ -19,8 +21,9 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../../client/openbot-api";
 import { cn } from "../../lib/cn";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "../ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 
-type MarketplacePage = "marketplace" | "installed" | "detail";
+type MarketplacePage = "marketplace" | "installed" | "detail" | "custom";
 
 const marketplaceCategories = [
   "All",
@@ -48,20 +51,28 @@ const categoryAliases: Record<string, string> = {
 };
 
 const primaryButton =
-  "inline-flex h-7 shrink-0 items-center justify-center gap-1.5 rounded-full bg-black px-3 text-[11.5px] font-medium text-white outline-none transition-opacity hover:opacity-80 disabled:cursor-wait disabled:opacity-45 dark:bg-white dark:text-black";
+  "inline-flex h-[26px] shrink-0 items-center justify-center gap-1.5 rounded-full bg-black px-3 text-[13px] font-medium text-white outline-none transition-opacity hover:opacity-80 disabled:cursor-wait disabled:opacity-45 dark:bg-white dark:text-black";
 const secondaryButton =
-  "inline-flex h-7 shrink-0 items-center justify-center gap-1.5 rounded-full bg-black/[0.055] px-3 text-[11.5px] text-foreground outline-none transition-colors hover:bg-black/[0.09] disabled:cursor-wait disabled:opacity-45 dark:bg-[#222222] dark:hover:bg-[#2b2b2b]";
+  "inline-flex h-[26px] shrink-0 items-center justify-center gap-1.5 rounded-full bg-black/[0.055] px-3 text-[13px] text-foreground outline-none transition-colors hover:bg-black/[0.09] disabled:cursor-wait disabled:opacity-45 dark:bg-[#222222] dark:hover:bg-[#2b2b2b]";
 
 const errorMessage = (cause: unknown) => (cause instanceof Error ? cause.message : String(cause));
 
-function PluginMark({ name, size = "md" }: { name: string; size?: "sm" | "md" | "lg" }) {
+function PluginMark({
+  logoUrl,
+  name,
+  size = "md",
+}: {
+  logoUrl?: string | null;
+  name: string;
+  size?: "sm" | "md" | "lg";
+}) {
   const google = name.startsWith("Google") || name === "Gmail";
   return (
     <span
       className={cn(
-        "grid shrink-0 place-items-center rounded-[11px] bg-black/[0.055] font-medium dark:bg-[#373737]",
+        "relative grid shrink-0 place-items-center overflow-hidden rounded-[11px] bg-black/[0.055] font-medium dark:bg-[#373737]",
         size === "sm" && "size-8 text-[12px]",
-        size === "md" && "size-9 text-[13px]",
+        size === "md" && "size-10 text-[14px]",
         size === "lg" && "size-12 rounded-[13px] text-[16px]"
       )}
     >
@@ -80,6 +91,16 @@ function PluginMark({ name, size = "md" }: { name: string; size?: "sm" | "md" | 
       >
         {name.slice(0, 1).toUpperCase()}
       </span>
+      {logoUrl ? (
+        <img
+          alt=""
+          className="absolute size-[72%] bg-inherit object-contain"
+          onError={(event) => {
+            event.currentTarget.style.display = "none";
+          }}
+          src={logoUrl}
+        />
+      ) : null}
     </span>
   );
 }
@@ -93,7 +114,7 @@ function SearchField({ query, onChange }: { query: string; onChange: (value: str
       />
       <input
         aria-label="Search plugins"
-        className="h-[29px] w-full rounded-[8px] border border-black/[0.055] bg-black/[0.045] pl-[31px] pr-3 text-[12px] outline-none placeholder:text-foreground-tertiary focus:border-black/10 dark:border-white/[0.07] dark:bg-[#292929]"
+        className="h-8 w-full rounded-[8px] border-[0.5px] border-black/[0.055] bg-black/[0.045] pl-[31px] pr-3 text-[14px] outline-none placeholder:text-foreground-tertiary focus:border-black/10 dark:border-white/[0.07] dark:bg-[#292929]"
         onChange={(event) => onChange(event.target.value)}
         placeholder="Search plugins"
         value={query}
@@ -113,7 +134,7 @@ function InstallAction({
 }) {
   if (plugin.installed) {
     return (
-      <span className="inline-flex h-7 shrink-0 items-center gap-1 px-1 text-[11.5px] text-[#00a86b]">
+      <span className="inline-flex h-[26px] shrink-0 items-center gap-1 px-1 text-[13px] text-[#00a86b]">
         <Check className="size-3.5" strokeWidth={2.2} /> Added
       </span>
     );
@@ -148,13 +169,13 @@ function CompactPluginRow({
   return (
     <div className="group flex min-w-0 items-center rounded-[9px] px-2 transition-colors hover:bg-black/[0.025] focus-within:bg-black/[0.04] dark:hover:bg-white/[0.035]">
       <button
-        className="flex min-w-0 flex-1 items-center gap-2.5 py-2 text-left outline-none"
+        className="flex min-w-0 flex-1 items-center gap-3 py-3 text-left outline-none"
         onClick={() => onOpen(plugin)}
         type="button"
       >
-        <PluginMark name={plugin.name} />
+        <PluginMark logoUrl={plugin.logoUrl} name={plugin.name} />
         <span className="min-w-0 flex-1">
-          <span className="flex items-center gap-1.5 text-[12px] font-medium leading-4">
+          <span className="flex items-center gap-1.5 text-[13px] font-medium leading-[18px]">
             <span className="truncate">{plugin.name}</span>
             {plugin.featured ? (
               <span className="rounded-full bg-black/[0.055] px-1.5 py-0.5 text-[8px] font-normal uppercase tracking-[0.04em] text-foreground-tertiary dark:bg-white/[0.08]">
@@ -162,7 +183,7 @@ function CompactPluginRow({
               </span>
             ) : null}
           </span>
-          <span className="mt-0.5 block truncate text-[11px] leading-4 text-foreground-secondary">
+          <span className="block truncate text-[13px] leading-[18px] text-foreground-secondary">
             {plugin.description}
           </span>
         </span>
@@ -186,16 +207,16 @@ function FilteredPluginRow({
   return (
     <div className="group flex w-full items-center rounded-[10px] px-2 transition-colors hover:bg-black/[0.025] focus-within:bg-black/[0.04] dark:hover:bg-white/[0.035]">
       <button
-        className="flex min-w-0 flex-1 items-center gap-3 py-2 text-left outline-none"
+        className="flex min-w-0 flex-1 items-center gap-3 py-3 text-left outline-none"
         onClick={() => onOpen(plugin)}
         type="button"
       >
-        <PluginMark name={plugin.name} />
+        <PluginMark logoUrl={plugin.logoUrl} name={plugin.name} />
         <span className="min-w-0 flex-1">
-          <span className="flex items-center gap-1.5 text-[12px] font-medium leading-4">
+          <span className="flex items-center gap-1.5 text-[13px] font-medium leading-[18px]">
             <span>{plugin.name}</span>
           </span>
-          <span className="mt-0.5 block truncate text-[11px] leading-4 text-foreground-secondary">
+          <span className="block truncate text-[13px] leading-[18px] text-foreground-secondary">
             {plugin.description}
           </span>
         </span>
@@ -206,7 +227,7 @@ function FilteredPluginRow({
 }
 
 function SectionHeading({ children }: { children: React.ReactNode }) {
-  return <div className="px-2 text-[10.5px] text-foreground-tertiary">{children}</div>;
+  return <div className="px-2 text-[13px] leading-[18px] text-foreground-tertiary">{children}</div>;
 }
 
 function MarketplaceHome({
@@ -224,14 +245,14 @@ function MarketplaceHome({
   const rest = data.catalog.filter((plugin) => !plugin.featured);
   const groups = [...new Set(rest.map((plugin) => plugin.category))];
   return (
-    <div className="space-y-7 pb-8 pt-1">
+    <div className="space-y-6 pb-8 pt-1">
       {featured.length ? (
         <section>
           <div className="mb-2 flex items-center justify-between">
             <SectionHeading>Featured</SectionHeading>
             <span className="px-2 text-[10.5px] text-foreground-tertiary">View all</span>
           </div>
-          <div className="grid grid-cols-2 gap-x-4 gap-y-1 max-sm:grid-cols-1">
+          <div className="grid grid-cols-2 gap-x-4 max-sm:grid-cols-1">
             {featured.map((plugin) => (
               <CompactPluginRow
                 busy={busy}
@@ -250,7 +271,7 @@ function MarketplaceHome({
             <SectionHeading>{group}</SectionHeading>
             <span className="px-2 text-[10.5px] text-foreground-tertiary">View all</span>
           </div>
-          <div className="grid grid-cols-2 gap-x-4 gap-y-1 max-sm:grid-cols-1">
+          <div className="grid grid-cols-2 gap-x-4 max-sm:grid-cols-1">
             {rest
               .filter((plugin) => plugin.category === group)
               .map((plugin) => (
@@ -299,10 +320,10 @@ function MarketplaceView({
   });
   const groupedHome = category === "All" && !normalized;
   return (
-    <div className="px-7 pb-5">
+    <div className="px-8 pb-5 pt-[14px]">
       {data.installs.length ? (
         <button
-          className="mb-4 flex h-8 items-center gap-2 rounded-[8px] px-1 text-left outline-none transition-colors hover:bg-black/[0.025] dark:hover:bg-white/[0.035]"
+          className="mb-3 flex h-8 items-center gap-2 rounded-[8px] px-1 text-left outline-none transition-colors hover:bg-black/[0.025] dark:hover:bg-white/[0.035]"
           onClick={onShowInstalled}
           type="button"
         >
@@ -320,11 +341,11 @@ function MarketplaceView({
         </button>
       ) : null}
       <SearchField onChange={setQuery} query={query} />
-      <div className="mt-2 flex flex-wrap gap-1.5">
+      <div className="mt-3 flex max-h-[94px] flex-wrap gap-2 overflow-y-auto">
         {marketplaceCategories.map((item) => (
           <button
             className={cn(
-              "h-[23px] rounded-[6px] border px-2 text-[10.5px] outline-none transition-colors",
+              "h-[26px] rounded-[6px] border-[0.5px] px-2 text-[13px] leading-[18px] outline-none transition-colors",
               item === category
                 ? "border-black/10 bg-black/[0.075] text-foreground dark:border-[#353535] dark:bg-[#282828]"
                 : "border-black/[0.07] bg-background text-foreground-secondary hover:bg-black/[0.035] dark:border-white/[0.09] dark:hover:bg-white/[0.05]"
@@ -337,7 +358,7 @@ function MarketplaceView({
           </button>
         ))}
       </div>
-      <div className="grok-scrollbar mt-6 h-[374px] overflow-y-auto pr-1">
+      <div className="grok-scrollbar mt-6 h-[468px] overflow-y-auto pr-1">
         {groupedHome ? (
           <MarketplaceHome busy={busy} data={data} onInstall={onInstall} onOpen={onOpen} />
         ) : filtered.length ? (
@@ -368,16 +389,43 @@ function MarketplaceView({
 const installFor = (data: PluginSettingsView, pluginKey: string) =>
   data.installs.find((plugin) => plugin.pluginKey === pluginKey);
 
+const catalogPluginForInstall = (install: PluginInstallView): PluginCatalogItemView => ({
+  key: install.pluginKey,
+  version: install.version,
+  name: install.name,
+  description: install.description,
+  publisher: install.publisher,
+  category: "MCP",
+  featured: false,
+  installed: true,
+  components: [
+    ...(install.hasSkills ? (["skills"] as const) : []),
+    ...(install.connections.length ? (["mcp"] as const) : []),
+  ],
+  connections: install.connections.map((connection) => ({
+    key: connection.connectorKey,
+    name: connection.name,
+    transport: connection.transport,
+    auth: connection.auth,
+    tools: connection.tools,
+  })),
+  skills: [],
+  homepageUrl: null,
+  sourceUrl: null,
+  sourceRevision: null,
+  logoUrl: null,
+  setupFields: [],
+  setup: null,
+});
+
 function InstalledRow({
   busy,
   install,
   onOpen,
-  onToggle,
 }: {
   busy: string | null;
   install: PluginInstallView;
   onOpen: () => void;
-  onToggle: (connection: PluginConnectionView) => void;
 }) {
   const needsAuth = install.connections.find((connection) => connection.status === "needs_auth");
   return (
@@ -403,11 +451,11 @@ function InstalledRow({
         <button
           className={secondaryButton}
           disabled={busy === needsAuth.id}
-          onClick={() => onToggle(needsAuth)}
+          onClick={onOpen}
           type="button"
         >
           {busy === needsAuth.id ? <LoaderCircle className="size-3 animate-spin" /> : null}
-          Authenticate
+          Set up
         </button>
       ) : null}
     </div>
@@ -420,21 +468,19 @@ function InstalledView({
   onCustom,
   onBack,
   onOpen,
-  onToggle,
 }: {
   busy: string | null;
   data: PluginSettingsView;
   onCustom: () => void;
   onBack: () => void;
   onOpen: (plugin: PluginCatalogItemView) => void;
-  onToggle: (connection: PluginConnectionView) => void;
 }) {
   const [query, setQuery] = useState("");
   const installs = data.installs.filter((plugin) =>
     `${plugin.name} ${plugin.description}`.toLowerCase().includes(query.trim().toLowerCase())
   );
   return (
-    <div className="px-7 pb-6">
+    <div className="px-8 pb-6">
       <button
         className="mb-5 inline-flex items-center gap-1 text-[11px] text-foreground-secondary hover:text-foreground"
         onClick={onBack}
@@ -443,22 +489,21 @@ function InstalledView({
         <ChevronLeft className="size-3.5" /> Back to Marketplace
       </button>
       <SearchField onChange={setQuery} query={query} />
-      <div className="grok-scrollbar mt-7 h-[420px] overflow-y-auto pr-1">
+      <div className="grok-scrollbar mt-7 h-[514px] overflow-y-auto pr-1">
         <section>
           <SectionHeading>Installed</SectionHeading>
           <div className="mt-2 max-w-[390px] space-y-0.5">
             {installs.length ? (
               installs.map((install) => {
-                const plugin = data.catalog.find(
-                  (candidate) => candidate.key === install.pluginKey
-                );
+                const plugin =
+                  data.catalog.find((candidate) => candidate.key === install.pluginKey) ??
+                  catalogPluginForInstall(install);
                 return (
                   <InstalledRow
                     busy={busy}
                     install={install}
                     key={install.id}
-                    onOpen={() => plugin && onOpen(plugin)}
-                    onToggle={onToggle}
+                    onOpen={() => onOpen(plugin)}
                   />
                 );
               })
@@ -487,6 +532,195 @@ function InstalledView({
   );
 }
 
+function CustomMcpView({
+  busy,
+  onBack,
+  onSubmit,
+}: {
+  busy: boolean;
+  onBack: () => void;
+  onSubmit: (input: {
+    name: string;
+    url?: string;
+    command?: string;
+    args?: string[];
+    env?: Record<string, string>;
+    headers?: Record<string, string>;
+    auth: "none" | "token" | "oauth";
+    alias: string;
+  }) => void;
+}) {
+  const [transport, setTransport] = useState<"http" | "stdio">("http");
+  const [name, setName] = useState("");
+  const [location, setLocation] = useState("");
+  const [args, setArgs] = useState("");
+  const [configuration, setConfiguration] = useState("");
+  const [auth, setAuth] = useState<"none" | "token" | "oauth">("none");
+  const [alias, setAlias] = useState("default");
+  const field =
+    "h-9 w-full rounded-[8px] border border-black/10 bg-black/[0.035] px-3 text-[12px] outline-none focus:border-black/20 dark:border-white/10 dark:bg-[#222] dark:focus:border-white/20";
+  const parsedConfiguration = (() => {
+    if (!configuration.trim()) return {};
+    try {
+      const value = JSON.parse(configuration) as unknown;
+      if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+      const entries = Object.entries(value);
+      if (!entries.every((entry): entry is [string, string] => typeof entry[1] === "string")) {
+        return null;
+      }
+      return Object.fromEntries(entries);
+    } catch {
+      return null;
+    }
+  })();
+  const valid =
+    name.trim().length >= 2 && location.trim().length > 0 && parsedConfiguration !== null;
+  return (
+    <form
+      className="mx-auto w-full max-w-[560px] px-8 pb-8"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (!valid) return;
+        onSubmit({
+          name: name.trim(),
+          ...(transport === "http"
+            ? { url: location.trim() }
+            : {
+                command: location.trim(),
+                args: args
+                  .split(/\s+/)
+                  .map((item) => item.trim())
+                  .filter(Boolean),
+              }),
+          ...(transport === "stdio"
+            ? { env: parsedConfiguration ?? undefined }
+            : { headers: parsedConfiguration ?? undefined }),
+          auth,
+          alias: alias.trim() || "default",
+        });
+      }}
+    >
+      <button
+        className="mb-6 inline-flex items-center gap-1 text-[11px] text-foreground-secondary hover:text-foreground"
+        onClick={onBack}
+        type="button"
+      >
+        <ChevronLeft className="size-3.5" /> Back to Installed
+      </button>
+      <div className="mb-6">
+        <h2 className="text-[15px] font-medium">Add custom MCP</h2>
+        <p className="mt-1 text-[11.5px] leading-5 text-foreground-secondary">
+          Remote servers run through OpenBot. Local commands run on the shared bot computer.
+        </p>
+      </div>
+      <div className="space-y-4 rounded-[14px] bg-black/[0.035] p-4 dark:bg-white/[0.055]">
+        <label className="block text-[11px] text-foreground-secondary">
+          Name
+          <input
+            className={cn(field, "mt-1.5")}
+            onChange={(e) => setName(e.target.value)}
+            value={name}
+          />
+        </label>
+        <div>
+          <div className="mb-1.5 text-[11px] text-foreground-secondary">Transport</div>
+          <div className="inline-flex rounded-[8px] bg-black/[0.06] p-0.5 dark:bg-black/30">
+            {(["http", "stdio"] as const).map((value) => (
+              <button
+                className={cn(
+                  "h-7 rounded-[6px] px-3 text-[11px] capitalize",
+                  transport === value && "bg-background shadow-sm"
+                )}
+                key={value}
+                onClick={() => setTransport(value)}
+                type="button"
+              >
+                {value === "http" ? "Remote HTTP" : "Local stdio"}
+              </button>
+            ))}
+          </div>
+        </div>
+        <label className="block text-[11px] text-foreground-secondary">
+          {transport === "http" ? "MCP URL" : "Command"}
+          <input
+            className={cn(field, "mt-1.5 font-mono")}
+            onChange={(e) => setLocation(e.target.value)}
+            placeholder={transport === "http" ? "https://example.com/mcp" : "npx"}
+            value={location}
+          />
+        </label>
+        {transport === "stdio" ? (
+          <>
+            <label className="block text-[11px] text-foreground-secondary">
+              Arguments
+              <input
+                className={cn(field, "mt-1.5 font-mono")}
+                onChange={(e) => setArgs(e.target.value)}
+                placeholder="-y @modelcontextprotocol/server-filesystem /workspace"
+                value={args}
+              />
+            </label>
+            <label className="block text-[11px] text-foreground-secondary">
+              Environment JSON (optional)
+              <textarea
+                className={cn(field, "mt-1.5 h-20 resize-none py-2 font-mono")}
+                onChange={(e) => setConfiguration(e.target.value)}
+                placeholder={'{"API_KEY":"value"}'}
+                value={configuration}
+              />
+            </label>
+          </>
+        ) : (
+          <>
+            <div className="text-[11px] text-foreground-secondary">
+              <span>Authentication</span>
+              <Select onValueChange={(value) => setAuth(value as typeof auth)} value={auth}>
+                <SelectTrigger
+                  aria-label="Authentication"
+                  className={cn(field, "mt-1.5 text-foreground shadow-none")}
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">None</SelectItem>
+                  <SelectItem value="token">Token or headers</SelectItem>
+                  <SelectItem value="oauth">OAuth</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <label className="block text-[11px] text-foreground-secondary">
+              Headers JSON (optional)
+              <textarea
+                className={cn(field, "mt-1.5 h-20 resize-none py-2 font-mono")}
+                onChange={(e) => setConfiguration(e.target.value)}
+                placeholder={'{"X-API-Key":"value"}'}
+                value={configuration}
+              />
+            </label>
+          </>
+        )}
+        <label className="block text-[11px] text-foreground-secondary">
+          Account label
+          <input
+            className={cn(field, "mt-1.5")}
+            onChange={(e) => setAlias(e.target.value)}
+            value={alias}
+          />
+        </label>
+      </div>
+      <div className="mt-5 flex justify-end gap-2">
+        <button className={secondaryButton} onClick={onBack} type="button">
+          Cancel
+        </button>
+        <button className={primaryButton} disabled={!valid || busy} type="submit">
+          {busy ? <LoaderCircle className="size-3 animate-spin" /> : <Plus className="size-3" />}{" "}
+          Add server
+        </button>
+      </div>
+    </form>
+  );
+}
+
 function DetailBlock({
   children,
   count,
@@ -503,11 +737,13 @@ function DetailBlock({
       ? "connector"
       : label === "Skills"
         ? "skill"
-        : label === "Bot access"
-          ? "bot"
-          : label === "Tool policies"
-            ? "tool"
-            : "event";
+        : label === "Accounts"
+          ? "account"
+          : label === "Bot access"
+            ? "bot"
+            : label === "Tool policies"
+              ? "tool"
+              : "event";
   return (
     <section className="mt-6">
       <div className="mb-1.5 px-3 text-[10.5px] text-foreground-tertiary">{label}</div>
@@ -561,15 +797,408 @@ function SquareToggle({
   );
 }
 
+function PluginSetupCard({
+  busy,
+  connection,
+  plugin,
+  onAuthenticate,
+  onConfigureOAuth,
+  onConfigureToken,
+}: {
+  busy: boolean;
+  connection: PluginConnectionView;
+  plugin: PluginCatalogItemView;
+  onAuthenticate: () => void;
+  onConfigureOAuth: (input: { clientId: string; clientSecret: string; scope: string }) => void;
+  onConfigureToken: (token: string) => void;
+}) {
+  const setup = plugin.setup;
+  const [values, setValues] = useState<Record<string, string>>({});
+  const [copied, setCopied] = useState<string | null>(null);
+  if (!setup) return null;
+
+  const ready = connection.status === "ready";
+  const missingRequired = setup.fields.some(
+    (field) => field.required && !values[field.key]?.trim()
+  );
+  const copy = async (label: string, value: string) => {
+    await navigator.clipboard.writeText(value);
+    setCopied(label);
+    window.setTimeout(() => setCopied(null), 1_500);
+  };
+  const submit = () => {
+    if (setup.kind === "token") {
+      onConfigureToken(values.token?.trim() ?? "");
+      return;
+    }
+    if (setup.kind === "oauth_client" && (!connection.configured || Object.keys(values).length)) {
+      onConfigureOAuth({
+        clientId: values.clientId?.trim() ?? "",
+        clientSecret: values.clientSecret ?? "",
+        scope: values.scope?.trim() ?? "",
+      });
+      return;
+    }
+    onAuthenticate();
+  };
+  const actionLabel = ready
+    ? "Connected"
+    : setup.kind === "token"
+      ? connection.configured
+        ? "Reconnect"
+        : "Save token and connect"
+      : setup.kind === "oauth_client"
+        ? connection.configured
+          ? "Authorize account"
+          : "Save credentials and continue"
+        : "Continue to authorization";
+
+  return (
+    <section
+      className={cn(
+        "mt-5 overflow-hidden rounded-[12px] border",
+        ready
+          ? "border-emerald-500/20 bg-emerald-500/[0.045]"
+          : "border-black/[0.07] bg-black/[0.025] dark:border-white/[0.08] dark:bg-white/[0.035]"
+      )}
+    >
+      <div className="flex items-start gap-3 px-4 py-3.5">
+        <span
+          className={cn(
+            "mt-0.5 grid size-7 shrink-0 place-items-center rounded-full",
+            ready
+              ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+              : "bg-black/[0.06] text-foreground-secondary dark:bg-white/[0.08]"
+          )}
+        >
+          {ready ? (
+            <Check className="size-3.5" strokeWidth={2.4} />
+          ) : (
+            <KeyRound className="size-3.5" />
+          )}
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center justify-between gap-3">
+            <div className="text-[12px] font-medium">
+              {ready ? `${plugin.name} is connected` : setup.title}
+            </div>
+            {setup.documentationUrl ? (
+              <a
+                className="inline-flex shrink-0 items-center gap-1 text-[10px] text-foreground-tertiary hover:text-foreground"
+                href={setup.documentationUrl}
+                rel="noreferrer"
+                target="_blank"
+              >
+                Setup guide <ExternalLink className="size-2.5" />
+              </a>
+            ) : null}
+          </div>
+          <p className="mt-0.5 text-[10.5px] leading-4 text-foreground-secondary">
+            {ready
+              ? `${connection.tools.length} tools are available from this account.`
+              : setup.description}
+          </p>
+        </div>
+      </div>
+
+      {!ready ? (
+        <div className="border-t border-black/[0.055] px-4 py-4 dark:border-white/[0.07]">
+          {setup.steps.length ? (
+            <ol className="grid gap-2.5">
+              {setup.steps.map((step, index) => (
+                <li
+                  className="flex gap-2.5 text-[10.5px] leading-4 text-foreground-secondary"
+                  key={step}
+                >
+                  <span className="grid size-[18px] shrink-0 place-items-center rounded-full border border-black/10 text-[9px] font-medium text-foreground dark:border-white/15">
+                    {index + 1}
+                  </span>
+                  <span>{step}</span>
+                </li>
+              ))}
+            </ol>
+          ) : null}
+
+          {setup.kind === "oauth_client" && connection.oauthRedirectUrl ? (
+            <div className="mt-3 rounded-[8px] border border-black/[0.06] bg-background px-3 py-2.5 dark:border-white/[0.08] dark:bg-black/15">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-[9.5px] font-medium uppercase tracking-[0.04em] text-foreground-tertiary">
+                  Authorized redirect URI
+                </span>
+                <button
+                  className="inline-flex items-center gap-1 text-[9.5px] text-foreground-secondary hover:text-foreground"
+                  onClick={() => void copy("callback", connection.oauthRedirectUrl ?? "")}
+                  type="button"
+                >
+                  {copied === "callback" ? (
+                    <Check className="size-3" />
+                  ) : (
+                    <Copy className="size-3" />
+                  )}
+                  {copied === "callback" ? "Copied" : "Copy"}
+                </button>
+              </div>
+              <code className="mt-1 block select-all break-all text-[10px] text-foreground">
+                {connection.oauthRedirectUrl}
+              </code>
+            </div>
+          ) : null}
+
+          {setup.requiredScopes.length ? (
+            <details className="mt-3 text-[10px] text-foreground-secondary">
+              <summary className="cursor-pointer select-none text-foreground-secondary">
+                Required provider scopes ({setup.requiredScopes.length})
+              </summary>
+              <div className="mt-2 flex items-start gap-2 rounded-[8px] bg-black/[0.025] p-2.5 dark:bg-black/15">
+                <code className="min-w-0 flex-1 whitespace-pre-wrap break-all leading-4">
+                  {setup.requiredScopes.join("\n")}
+                </code>
+                <button
+                  aria-label="Copy required scopes"
+                  className="grid size-6 shrink-0 place-items-center rounded-[6px] hover:bg-black/[0.05] dark:hover:bg-white/[0.06]"
+                  onClick={() => void copy("scopes", setup.requiredScopes.join(" "))}
+                  type="button"
+                >
+                  {copied === "scopes" ? <Check className="size-3" /> : <Copy className="size-3" />}
+                </button>
+              </div>
+            </details>
+          ) : null}
+
+          {setup.fields.length && !connection.configured ? (
+            <div className="mt-3 grid grid-cols-2 gap-2 max-sm:grid-cols-1">
+              {setup.fields.map((field) => (
+                <label className="space-y-1" key={field.key}>
+                  <span className="block text-[10px] font-medium text-foreground-secondary">
+                    {field.label}
+                  </span>
+                  <input
+                    aria-label={field.label}
+                    className="h-8 w-full rounded-[7px] border border-black/[0.08] bg-background px-2.5 text-[10.5px] outline-none placeholder:text-foreground-tertiary focus:border-black/20 dark:border-white/10 dark:bg-[#1d1d1d] dark:focus:border-white/20"
+                    onChange={(event) =>
+                      setValues((current) => ({ ...current, [field.key]: event.target.value }))
+                    }
+                    placeholder={field.placeholder}
+                    type={field.secret ? "password" : "text"}
+                    value={values[field.key] ?? ""}
+                  />
+                  {field.helpText ? (
+                    <span className="block text-[9.5px] leading-3.5 text-foreground-tertiary">
+                      {field.helpText}
+                    </span>
+                  ) : null}
+                </label>
+              ))}
+            </div>
+          ) : connection.configured && setup.fields.length ? (
+            <div className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2.5 py-1 text-[10px] text-emerald-700 dark:text-emerald-400">
+              <Check className="size-3" /> Credentials saved
+            </div>
+          ) : null}
+
+          {connection.statusMessage ? (
+            <p className="mt-3 text-[10px] leading-4 text-foreground-tertiary">
+              {connection.statusMessage}
+            </p>
+          ) : null}
+          <button
+            className={cn(primaryButton, "mt-3")}
+            disabled={busy || (!connection.configured && missingRequired)}
+            onClick={submit}
+            type="button"
+          >
+            {busy ? <LoaderCircle className="size-3 animate-spin" /> : null}
+            {actionLabel}
+          </button>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function ConnectionSettingsRow({
+  busy,
+  connection,
+  onAuthenticate,
+  onConfigureOAuth,
+  onConfigureToken,
+  onInstructions,
+  onRemove,
+  onRename,
+  onRestart,
+}: {
+  busy: boolean;
+  connection: PluginConnectionView;
+  onAuthenticate: () => void;
+  onConfigureOAuth: (input: { clientId: string; clientSecret: string; scope: string }) => void;
+  onConfigureToken: (token: string) => void;
+  onInstructions: (instructions: string) => void;
+  onRemove: () => void;
+  onRename: (alias: string) => void;
+  onRestart: () => void;
+}) {
+  const [alias, setAlias] = useState(connection.alias);
+  const [instructions, setInstructions] = useState(connection.instructions);
+  const [token, setToken] = useState("");
+  const [oauthClientId, setOauthClientId] = useState("");
+  const [oauthClientSecret, setOauthClientSecret] = useState("");
+  const [oauthScope, setOauthScope] = useState("");
+  const field =
+    "h-8 rounded-[7px] border border-black/[0.08] bg-background px-2 text-[10.5px] outline-none dark:border-white/10 dark:bg-[#1d1d1d]";
+  useEffect(() => setAlias(connection.alias), [connection.alias]);
+  useEffect(() => setInstructions(connection.instructions), [connection.instructions]);
+  return (
+    <div className="border-t border-black/[0.055] px-3 py-3 first:border-t-0 dark:border-white/[0.065]">
+      <div className="flex items-center gap-2">
+        <span className="min-w-0 flex-1 truncate text-[11.5px] font-medium">
+          {connection.name} · {connection.alias}
+        </span>
+        <span className="text-[10px] capitalize text-foreground-tertiary">
+          {connection.transport} · {connection.status.replace("_", " ")}
+        </span>
+        {connection.auth === "oauth" && connection.status !== "ready" ? (
+          <button
+            className={secondaryButton}
+            disabled={busy}
+            onClick={onAuthenticate}
+            type="button"
+          >
+            {connection.authorizationUrl ? "Reopen" : "Authenticate"}
+          </button>
+        ) : null}
+        <button className={secondaryButton} disabled={busy} onClick={onRestart} type="button">
+          Restart
+        </button>
+      </div>
+      <div className="mt-3 grid grid-cols-[minmax(110px,0.7fr)_minmax(180px,1.4fr)_auto] gap-2 max-sm:grid-cols-1">
+        <input
+          aria-label="Account alias"
+          className={field}
+          onChange={(e) => setAlias(e.target.value)}
+          value={alias}
+        />
+        <input
+          aria-label="Connector instructions"
+          className={field}
+          onChange={(e) => setInstructions(e.target.value)}
+          placeholder="Instructions, e.g. reply in threads"
+          value={instructions}
+        />
+        <div className="flex gap-1.5">
+          <button
+            className={secondaryButton}
+            disabled={busy || alias.trim() === connection.alias}
+            onClick={() => onRename(alias.trim())}
+            type="button"
+          >
+            Rename
+          </button>
+          <button
+            className={secondaryButton}
+            disabled={busy || instructions.trim() === connection.instructions}
+            onClick={() => onInstructions(instructions)}
+            type="button"
+          >
+            Save
+          </button>
+        </div>
+      </div>
+      {connection.auth === "token" && connection.status !== "ready" ? (
+        <div className="mt-2 flex gap-2">
+          <input
+            aria-label="Bearer token"
+            className={cn(field, "min-w-0 flex-1 font-mono")}
+            onChange={(e) => setToken(e.target.value)}
+            placeholder="Bearer token"
+            type="password"
+            value={token}
+          />
+          <button
+            className={secondaryButton}
+            disabled={busy || !token}
+            onClick={() => onConfigureToken(token)}
+            type="button"
+          >
+            Save token
+          </button>
+        </div>
+      ) : null}
+      {connection.auth === "oauth" && connection.status !== "ready" ? (
+        <div className="mt-3 rounded-[9px] bg-black/[0.035] p-3 dark:bg-black/20">
+          <div className="mb-2 text-[10.5px] leading-4 text-foreground-secondary">
+            Self-hosted OAuth clients must allow this callback URL:
+            <code className="mt-1 block select-all break-all text-[10px] text-foreground">
+              {connection.oauthRedirectUrl}
+            </code>
+          </div>
+          <div className="grid grid-cols-2 gap-2 max-sm:grid-cols-1">
+            <input
+              aria-label="OAuth client ID"
+              className={field}
+              onChange={(event) => setOauthClientId(event.target.value)}
+              placeholder="OAuth client ID"
+              value={oauthClientId}
+            />
+            <input
+              aria-label="OAuth client secret"
+              className={field}
+              onChange={(event) => setOauthClientSecret(event.target.value)}
+              placeholder="OAuth client secret (optional)"
+              type="password"
+              value={oauthClientSecret}
+            />
+            <input
+              aria-label="OAuth scopes"
+              className={cn(field, "col-span-2 max-sm:col-span-1")}
+              onChange={(event) => setOauthScope(event.target.value)}
+              placeholder="Scopes (optional, space separated)"
+              value={oauthScope}
+            />
+          </div>
+          <button
+            className={cn(secondaryButton, "mt-2")}
+            disabled={busy || !oauthClientId.trim()}
+            onClick={() =>
+              onConfigureOAuth({
+                clientId: oauthClientId.trim(),
+                clientSecret: oauthClientSecret,
+                scope: oauthScope.trim(),
+              })
+            }
+            type="button"
+          >
+            Save client and authenticate
+          </button>
+        </div>
+      ) : null}
+      <button
+        className="mt-3 text-[10.5px] text-red-600 hover:underline dark:text-red-400"
+        disabled={busy}
+        onClick={onRemove}
+        type="button"
+      >
+        Remove account
+      </button>
+    </div>
+  );
+}
+
 function PluginDetail({
   busy,
   data,
   plugin,
   onAddAccount,
   onGrant,
+  onAuthenticate,
+  onConfigureToken,
+  onConfigureOAuth,
+  onInstructions,
   onInstall,
   onPolicy,
+  onRemoveAccount,
+  onRename,
   onRemove,
+  onRestart,
   onSkill,
   onToggle,
 }: {
@@ -578,38 +1207,87 @@ function PluginDetail({
   plugin: PluginCatalogItemView;
   onAddAccount: (connection: PluginConnectionView) => void;
   onGrant: (connection: PluginConnectionView, botId: string, enabled: boolean) => void;
-  onInstall: (plugin: PluginCatalogItemView) => void;
+  onAuthenticate: (connection: PluginConnectionView) => void;
+  onConfigureToken: (connection: PluginConnectionView, token: string) => void;
+  onConfigureOAuth: (
+    connection: PluginConnectionView,
+    input: { clientId: string; clientSecret: string; scope: string }
+  ) => void;
+  onInstructions: (connection: PluginConnectionView, instructions: string) => void;
+  onInstall: (plugin: PluginCatalogItemView, values?: Record<string, string>) => void;
   onPolicy: (connectionId: string, toolName: string, decision: "deny" | "prompt" | "allow") => void;
+  onRemoveAccount: (connection: PluginConnectionView) => void;
+  onRename: (connection: PluginConnectionView, alias: string) => void;
   onRemove: (plugin: PluginCatalogItemView) => void;
+  onRestart: (connection: PluginConnectionView) => void;
   onSkill: (pluginKey: string, botId: string, enabled: boolean) => void;
   onToggle: (connection: PluginConnectionView) => void;
 }) {
+  const [setupValues, setSetupValues] = useState<Record<string, string>>({});
+  const [shared, setShared] = useState(false);
   const install = installFor(data, plugin.key);
   const connections = install?.connections ?? [];
   const needsAuth = connections.find((connection) => connection.status === "needs_auth");
+  const setupConnection = plugin.setup?.connectionKey
+    ? connections.find((connection) => connection.connectorKey === plugin.setup?.connectionKey)
+    : connections[0];
   const recentActivity = data.activity
     .filter((entry) => entry.pluginKey === plugin.key)
     .slice(0, 8);
+  const shareUrl =
+    plugin.sourceUrl ??
+    plugin.homepageUrl ??
+    `grokbot://app/v1/plugin/add?id=${encodeURIComponent(plugin.key)}`;
+  const sharePlugin = async () => {
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: plugin.name, text: plugin.description, url: shareUrl });
+      } else {
+        await navigator.clipboard.writeText(shareUrl);
+      }
+      setShared(true);
+      window.setTimeout(() => setShared(false), 1_500);
+    } catch {
+      // Cancelling the system share sheet leaves the detail view unchanged.
+    }
+  };
   return (
-    <div className="grok-scrollbar h-[530px] overflow-y-auto px-7 pb-8">
+    <div className="grok-scrollbar h-[624px] overflow-y-auto px-8 pb-8">
       <div className="flex items-start gap-3 pt-1">
-        <PluginMark name={plugin.name} size="lg" />
+        <PluginMark logoUrl={plugin.logoUrl} name={plugin.name} size="lg" />
         <div className="min-w-0 flex-1 pt-1">
-          <div className="flex items-center gap-1.5 text-[14px] font-medium">
-            {plugin.name}
-            <ExternalLink className="size-3 text-foreground-tertiary" />
-          </div>
+          <div className="flex items-center gap-1.5 text-[14px] font-medium">{plugin.name}</div>
           <div className="mt-0.5 text-[11px] text-foreground-secondary">{plugin.publisher}</div>
+          {plugin.sourceUrl || plugin.homepageUrl ? (
+            <a
+              className="mt-1 inline-flex items-center gap-1 text-[10.5px] text-foreground-secondary hover:text-foreground"
+              href={plugin.sourceUrl ?? plugin.homepageUrl ?? undefined}
+              rel="noreferrer"
+              target="_blank"
+            >
+              View Source <ExternalLink className="size-2.5" />
+            </a>
+          ) : null}
         </div>
+        <button className={secondaryButton} onClick={() => void sharePlugin()} type="button">
+          {shared ? "Copied" : "Share"}
+        </button>
         {!install ? (
-          <button className={primaryButton} onClick={() => onInstall(plugin)} type="button">
+          <button
+            className={primaryButton}
+            disabled={plugin.setupFields.some(
+              (field) => field.required && !setupValues[field.key]?.trim()
+            )}
+            onClick={() => onInstall(plugin, setupValues)}
+            type="button"
+          >
             {busy === plugin.key ? <LoaderCircle className="size-3 animate-spin" /> : null}
             Add
           </button>
         ) : needsAuth ? (
-          <button className={secondaryButton} onClick={() => onToggle(needsAuth)} type="button">
-            Authenticate
-          </button>
+          <span className="inline-flex h-7 items-center gap-1.5 rounded-full bg-amber-500/10 px-3 text-[10.5px] text-amber-700 dark:text-amber-300">
+            Setup required
+          </span>
         ) : (
           <span className="inline-flex h-7 items-center gap-1 text-[11.5px] text-[#00a86b]">
             <Check className="size-3.5" /> Added
@@ -619,6 +1297,35 @@ function PluginDetail({
       <p className="mt-4 max-w-[720px] text-[12px] leading-[18px] text-foreground-secondary">
         {plugin.description}
       </p>
+
+      {setupConnection && plugin.setup ? (
+        <PluginSetupCard
+          busy={busy === setupConnection.id}
+          connection={setupConnection}
+          onAuthenticate={() => onAuthenticate(setupConnection)}
+          onConfigureOAuth={(input) => onConfigureOAuth(setupConnection, input)}
+          onConfigureToken={(token) => onConfigureToken(setupConnection, token)}
+          plugin={plugin}
+        />
+      ) : null}
+
+      {!install && plugin.setupFields.length ? (
+        <div className="mt-5 grid grid-cols-2 gap-2 rounded-[10px] bg-black/[0.035] p-3 dark:bg-white/[0.045] max-sm:grid-cols-1">
+          {plugin.setupFields.map((field) => (
+            <label className="space-y-1" key={field.key}>
+              <span className="block text-[10.5px] text-foreground-secondary">{field.label}</span>
+              <input
+                className="h-8 w-full rounded-[7px] border border-black/[0.08] bg-background px-2.5 text-[11px] outline-none dark:border-white/[0.09]"
+                onChange={(event) =>
+                  setSetupValues((current) => ({ ...current, [field.key]: event.target.value }))
+                }
+                type={field.secret ? "password" : "text"}
+                value={setupValues[field.key] ?? ""}
+              />
+            </label>
+          ))}
+        </div>
+      ) : null}
 
       {plugin.connections.length ? (
         <DetailBlock count={connections.length || plugin.connections.length} label="Connectors">
@@ -662,6 +1369,25 @@ function PluginDetail({
               </div>
             );
           })}
+        </DetailBlock>
+      ) : null}
+
+      {connections.length ? (
+        <DetailBlock count={connections.length} label="Accounts" open={false}>
+          {connections.map((connection) => (
+            <ConnectionSettingsRow
+              busy={busy === connection.id}
+              connection={connection}
+              key={connection.id}
+              onAuthenticate={() => onAuthenticate(connection)}
+              onConfigureOAuth={(input) => onConfigureOAuth(connection, input)}
+              onConfigureToken={(token) => onConfigureToken(connection, token)}
+              onInstructions={(instructions) => onInstructions(connection, instructions)}
+              onRemove={() => onRemoveAccount(connection)}
+              onRename={(alias) => onRename(connection, alias)}
+              onRestart={() => onRestart(connection)}
+            />
+          ))}
         </DetailBlock>
       ) : null}
 
@@ -760,23 +1486,25 @@ function PluginDetail({
                   key={key}
                 >
                   <span className="min-w-0 flex-1 truncate text-[11.5px]">{tool.name}</span>
-                  <select
-                    aria-label={`Policy for ${tool.name}`}
-                    className="h-7 rounded-[7px] border border-black/[0.07] bg-background px-2 text-[10.5px] outline-none dark:border-white/[0.09]"
+                  <Select
                     disabled={busy === key}
-                    onChange={(event) =>
-                      onPolicy(
-                        connection.id,
-                        tool.name,
-                        event.target.value as "deny" | "prompt" | "allow"
-                      )
+                    onValueChange={(value) =>
+                      onPolicy(connection.id, tool.name, value as "deny" | "prompt" | "allow")
                     }
                     value={policy?.decision ?? tool.defaultDecision}
                   >
-                    <option value="deny">Deny</option>
-                    <option value="prompt">Ask first</option>
-                    <option value="allow">Allow</option>
-                  </select>
+                    <SelectTrigger
+                      aria-label={`Policy for ${tool.name}`}
+                      className="h-7 rounded-[7px] border-black/[0.07] bg-background px-2 text-[10.5px] shadow-none dark:border-white/[0.09]"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="deny">Deny</SelectItem>
+                      <SelectItem value="prompt">Ask first</SelectItem>
+                      <SelectItem value="allow">Allow</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
               );
             })
@@ -816,9 +1544,11 @@ function PluginDetail({
 export function PluginDialog({
   onOpenChange,
   open,
+  target,
 }: {
   onOpenChange: (open: boolean) => void;
   open: boolean;
+  target?: { pluginId: string; nonce: number } | null;
 }) {
   const [page, setPage] = useState<MarketplacePage>("marketplace");
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
@@ -832,6 +1562,14 @@ export function PluginDialog({
     if (!open) return;
     refresh().catch((cause) => setError(errorMessage(cause)));
   }, [open, refresh]);
+  useEffect(() => {
+    if (!open || !data?.connections.some((connection) => connection.status === "needs_auth"))
+      return;
+    const timer = window.setInterval(() => {
+      refresh().catch(() => undefined);
+    }, 2_000);
+    return () => window.clearInterval(timer);
+  }, [data?.connections, open, refresh]);
   useEffect(() => {
     if (open) return;
     setPage("marketplace");
@@ -858,58 +1596,86 @@ export function PluginDialog({
     [refresh]
   );
 
-  const selected = useMemo(
-    () => data?.catalog.find((plugin) => plugin.key === selectedKey) ?? null,
-    [data, selectedKey]
-  );
+  const selected = useMemo(() => {
+    const catalogPlugin = data?.catalog.find((plugin) => plugin.key === selectedKey);
+    if (catalogPlugin) return catalogPlugin;
+    const install = data?.installs.find((plugin) => plugin.pluginKey === selectedKey);
+    return install ? catalogPluginForInstall(install) : null;
+  }, [data, selectedKey]);
   const openDetail = (plugin: PluginCatalogItemView) => {
     setSelectedKey(plugin.key);
     setPage("detail");
     setError(null);
     setRemoveArmed(null);
   };
-  const toggleConnection = (connection: PluginConnectionView) =>
+  useEffect(() => {
+    if (!open || !target || !data) return;
+    const plugin = data.catalog.find((candidate) => candidate.key === target.pluginId);
+    if (plugin) {
+      setSelectedKey(plugin.key);
+      setPage("detail");
+      setError(null);
+      setRemoveArmed(null);
+      return;
+    }
+    setPage("marketplace");
+    setSelectedKey(null);
+    setError(`Plugin “${target.pluginId}” is not available in this catalog.`);
+  }, [data, open, target]);
+  const authenticateConnection = (connection: PluginConnectionView) => {
+    if (connection.authorizationUrl) {
+      window.open(connection.authorizationUrl, "_blank", "noopener,noreferrer");
+      return;
+    }
+    void mutate(connection.id, async () => {
+      const result = await api.authenticatePlugin(connection.id);
+      window.open(result.authorizationUrl, "_blank", "noopener,noreferrer");
+      return result;
+    });
+  };
+  const toggleConnection = (connection: PluginConnectionView) => {
+    if (connection.status !== "ready" && connection.auth === "oauth") {
+      authenticateConnection(connection);
+      return;
+    }
     void mutate(connection.id, () =>
       connection.status === "ready"
         ? api.disconnectPlugin(connection.id)
         : api.connectPlugin(connection.id)
     );
-  const customMcp = () => {
-    const name = window.prompt("Custom MCP server name");
-    if (!name?.trim()) return;
-    const url = window.prompt(`HTTPS MCP endpoint for ${name.trim()}`);
-    if (!url?.trim()) return;
-    const alias = window.prompt("Account alias", "default") ?? "default";
-    void mutate("custom-mcp", () =>
-      api.addCustomMcp(name.trim(), url.trim(), alias.trim() || "default")
-    );
   };
 
-  const title = page === "detail" && selected ? selected.name : "Plugins";
+  const title =
+    page === "detail" && selected
+      ? selected.name
+      : page === "custom"
+        ? "Add custom MCP"
+        : "Plugins";
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>
       <DialogContent
-        className="h-[min(606px,calc(100vh-48px))] w-[min(860px,calc(100vw-48px))] max-w-none gap-0 overflow-hidden rounded-[13px] border-black/10 bg-background p-0 text-foreground shadow-[0_24px_72px_rgba(0,0,0,0.24)]"
+        className="h-[min(700px,calc(100vh-96px))] w-[min(1000px,calc(100vw-40px))] max-w-none gap-0 overflow-hidden rounded-[13px] border-black/10 bg-background p-0 text-foreground shadow-[0_24px_72px_rgba(0,0,0,0.24)] dark:border-[#303030]"
         onOpenAutoFocus={(event) => event.preventDefault()}
         showCloseButton={false}
+        surface={page === "detail" ? "transparent" : "modal"}
       >
         <DialogTitle className="sr-only">{title}</DialogTitle>
         <DialogDescription className="sr-only">
           Browse, install, connect, and configure OpenBot plugins.
         </DialogDescription>
-        <header className="relative flex h-[66px] shrink-0 items-center px-7">
-          {page === "detail" ? (
+        <header className="relative flex h-[66px] shrink-0 items-center px-8">
+          {page === "detail" || page === "custom" ? (
             <button
               aria-label="Back to Marketplace"
               className="absolute left-3.5 grid size-8 place-items-center rounded-full text-foreground-secondary outline-none hover:bg-black/[0.04] dark:hover:bg-white/[0.06]"
-              onClick={() => setPage("marketplace")}
+              onClick={() => setPage(page === "custom" ? "installed" : "marketplace")}
               type="button"
             >
               <ChevronLeft className="size-4" />
             </button>
           ) : null}
-          {page === "detail" ? (
-            <div className="w-full text-center text-[12px] font-medium">{selected?.name}</div>
+          {page === "detail" || page === "custom" ? (
+            <div className="w-full text-center text-[12px] font-medium">{title}</div>
           ) : (
             <div className="text-[14px] font-medium">Plugins</div>
           )}
@@ -923,7 +1689,7 @@ export function PluginDialog({
           </button>
         </header>
         {error ? (
-          <div className="mx-7 mb-3 rounded-[8px] bg-red-500/10 px-3 py-2 text-[11px] text-red-700 dark:text-red-300">
+          <div className="mx-8 mb-3 rounded-[8px] bg-red-500/10 px-3 py-2 text-[11px] text-red-700 dark:text-red-300">
             {error}
           </div>
         ) : null}
@@ -935,7 +1701,14 @@ export function PluginDialog({
           <MarketplaceView
             busy={busy}
             data={data}
-            onInstall={(plugin) => void mutate(plugin.key, () => api.installPlugin(plugin.key))}
+            onInstall={(plugin) => {
+              if (plugin.setup || plugin.setupFields.length) {
+                openDetail(plugin);
+                void mutate(plugin.key, () => api.installPlugin(plugin.key));
+              } else {
+                void mutate(plugin.key, () => api.installPlugin(plugin.key));
+              }
+            }}
             onOpen={openDetail}
             onShowInstalled={() => setPage("installed")}
           />
@@ -944,9 +1717,18 @@ export function PluginDialog({
             busy={busy}
             data={data}
             onBack={() => setPage("marketplace")}
-            onCustom={customMcp}
+            onCustom={() => setPage("custom")}
             onOpen={openDetail}
-            onToggle={toggleConnection}
+          />
+        ) : page === "custom" ? (
+          <CustomMcpView
+            busy={busy === "custom-mcp"}
+            onBack={() => setPage("installed")}
+            onSubmit={(input) =>
+              void mutate("custom-mcp", () => api.addCustomMcp(input)).then((created) => {
+                if (created) setPage("installed");
+              })
+            }
           />
         ) : selected ? (
           <PluginDetail
@@ -964,11 +1746,37 @@ export function PluginDialog({
                 api.setPluginGrant(connection.id, botId, enabled)
               )
             }
-            onInstall={(plugin) => void mutate(plugin.key, () => api.installPlugin(plugin.key))}
+            onAuthenticate={authenticateConnection}
+            onConfigureToken={(connection, token) =>
+              void mutate(connection.id, async () => {
+                await api.configurePluginConnection(connection.id, { token });
+                return api.connectPlugin(connection.id);
+              })
+            }
+            onConfigureOAuth={(connection, input) =>
+              void mutate(connection.id, async () => {
+                await api.configurePluginConnection(connection.id, input);
+                const result = await api.authenticatePlugin(connection.id);
+                window.open(result.authorizationUrl, "_blank", "noopener,noreferrer");
+                return result;
+              })
+            }
+            onInstructions={(connection, instructions) =>
+              void mutate(connection.id, () => api.setMcpInstructions(connection.id, instructions))
+            }
+            onInstall={(plugin, values) =>
+              void mutate(plugin.key, () => api.installPlugin(plugin.key, values))
+            }
             onPolicy={(connectionId, toolName, decision) =>
               void mutate(`${connectionId}:${toolName}`, () =>
                 api.setPluginPolicy(connectionId, { botId: null, toolName, decision })
               )
+            }
+            onRemoveAccount={(connection) =>
+              void mutate(connection.id, () => api.removePluginAccount(connection.id))
+            }
+            onRename={(connection, alias) =>
+              void mutate(connection.id, () => api.renamePluginAccount(connection.id, alias))
             }
             onRemove={(plugin) => {
               if (removeArmed !== plugin.key) {
@@ -987,6 +1795,9 @@ export function PluginDialog({
               void mutate(`skill:${pluginKey}:${botId}`, () =>
                 api.setPluginEnablement(pluginKey, botId, enabled)
               )
+            }
+            onRestart={(connection) =>
+              void mutate(connection.id, () => api.restartPluginConnection(connection.id))
             }
             onToggle={toggleConnection}
             plugin={selected}

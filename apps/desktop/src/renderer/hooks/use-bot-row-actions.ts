@@ -11,6 +11,7 @@ export function useBotRowActions(options: {
   setSelectedId: (id: string | null) => void;
   setDetailsOpen: (open: boolean) => void;
   setInspectorMode: (mode: InspectorMode) => void;
+  shareAsTemplate: (bot: BotView) => void;
   togglePinned: (channelId: string) => void;
   toggleUnread: (channelId: string) => void;
 }) {
@@ -32,6 +33,10 @@ export function useBotRowActions(options: {
       }
       if (action === "copyConversationId") {
         void navigator.clipboard.writeText(bot.conversationId);
+        return;
+      }
+      if (action === "shareAsTemplate") {
+        options.shareAsTemplate(bot);
         return;
       }
       if (action === "retry") {
@@ -76,6 +81,7 @@ export function useBotRowActions(options: {
       options.setDetailsOpen,
       options.setInspectorMode,
       options.setSelectedId,
+      options.shareAsTemplate,
       options.togglePinned,
       options.toggleUnread,
     ]

@@ -1,8 +1,4 @@
-import type {
-  ClipboardEvent,
-  KeyboardEvent,
-  MutableRefObject,
-} from "react";
+import type { ClipboardEvent, KeyboardEvent, MutableRefObject } from "react";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { cn } from "../../lib/cn";
 import {
@@ -196,7 +192,17 @@ export function MentionEditor({
   useEffect(() => {
     const editor = editorRef.current;
     if (!editor || value || !editor.textContent) return;
+    const keepCaret = document.activeElement === editor;
     editor.replaceChildren();
+    if (keepCaret) {
+      editor.focus({ preventScroll: true });
+      const range = document.createRange();
+      range.selectNodeContents(editor);
+      range.collapse(false);
+      const selection = window.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+    }
     onHeightChange?.(editor.scrollHeight);
   }, [editorRef, onHeightChange, value]);
 
@@ -259,9 +265,7 @@ export function MentionEditor({
         contentEditable={!disabled}
         data-placeholder={placeholder}
         aria-activedescendant={
-          query !== null && filtered.length > 0
-            ? `${listboxId}-option-${activeIndex}`
-            : undefined
+          query !== null && filtered.length > 0 ? `${listboxId}-option-${activeIndex}` : undefined
         }
         aria-autocomplete="list"
         aria-controls={query !== null && filtered.length > 0 ? listboxId : undefined}

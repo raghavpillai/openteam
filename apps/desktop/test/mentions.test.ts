@@ -12,7 +12,7 @@ describe("Grok-compatible mentions", () => {
     expect(mentionHandleFor("Parity Probe v3")).toBe("parityprobev3");
   });
 
-  test("keeps flattened text and ProseMirror mention identity in sync", () => {
+  test("persists mention chips as Grok-compatible flattened ProseMirror text", () => {
     const segments = [
       { type: "text" as const, text: "Ask " },
       {
@@ -29,11 +29,7 @@ describe("Grok-compatible mentions", () => {
       content: [
         {
           type: "paragraph",
-          content: [
-            { type: "text", text: "Ask " },
-            { type: "mention", attrs: { id: "bot-1", label: "Parity Probe v3" } },
-            { type: "text", text: " to check" },
-          ],
+          content: [{ type: "text", text: "Ask @parityprobev3 to check" }],
         },
         { type: "paragraph", content: [{ type: "text", text: "now" }] },
       ],

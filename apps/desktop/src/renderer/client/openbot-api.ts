@@ -1,12 +1,15 @@
 import type {
+  AddCustomMcpInput,
   ApprovalDecision,
+  AssetRef,
   BotTranscriptView,
   BotView,
+  ChannelMessageView,
   ChannelView,
   ClientSnapshot,
+  ConfigurePluginConnectionInput,
   CreateBotInput,
   CreateGroupInput,
-  InlineImageInput,
   PluginSettingsView,
   ScreenActionInput,
   ScreenStatusView,
@@ -24,9 +27,25 @@ const localTimeZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone || 
 
 export const api = {
   snapshot: () => request<ClientSnapshot>("/api/v0/client-snapshot"),
+  markChannelRead: (channelId: string, throughSequence?: string) =>
+    request<{ channelId: string; lastReadSequence: string; unreadCount: number }>(
+      `/api/v0/channels/${encodeURIComponent(channelId)}/read`,
+      {
+        method: "POST",
+        body: JSON.stringify({ throughSequence }),
+      }
+    ),
   rootSettings: () =>
     request<{
-      settings: { sidebarPreferences?: unknown };
+      settings: {
+        pinnedAgentIds?: string[];
+        sidebarSections?: Array<{
+          id: string;
+          name: string;
+          agentIds: string[];
+          isCollapsed: boolean;
+        }>;
+      };
       valid: boolean;
       error?: string;
     }>("/api/v0/settings"),
@@ -42,15 +61,15 @@ export const api = {
       body: JSON.stringify({ activeAgentId }),
     }),
   pluginSettings: () => request<PluginSettingsView>("/api/v0/plugins"),
-  installPlugin: (pluginKey: string) =>
+  installPlugin: (pluginKey: string, values?: Record<string, string>) =>
     request("/api/v0/plugins/install", {
       method: "POST",
-      body: JSON.stringify({ pluginKey }),
+      body: JSON.stringify({ pluginKey, values }),
     }),
-  addCustomMcp: (name: string, url: string, alias?: string) =>
+  addCustomMcp: (input: AddCustomMcpInput) =>
     request("/api/v0/plugins/custom-mcp", {
       method: "POST",
-      body: JSON.stringify({ name, url, alias }),
+      body: JSON.stringify(input),
     }),
   uninstallPlugin: (pluginKey: string) =>
     request(`/api/v0/plugins/${encodeURIComponent(pluginKey)}`, {
@@ -73,6 +92,33 @@ export const api = {
     request(`/api/v0/plugin-connections/${connectionId}/accounts`, {
       method: "POST",
       body: JSON.stringify({ alias }),
+    }),
+  configurePluginConnection: (connectionId: string, input: ConfigurePluginConnectionInput) =>
+    request(`/api/v0/plugin-connections/${connectionId}/configure`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  authenticatePlugin: (connectionId: string, force = false) =>
+    request<{ authorizationUrl: string; status: string }>(
+      `/api/v0/plugin-connections/${connectionId}/authenticate`,
+      {
+        method: "POST",
+        body: JSON.stringify({ force }),
+      }
+    ),
+  restartPluginConnection: (connectionId: string) =>
+    request(`/api/v0/plugin-connections/${connectionId}/restart`, { method: "POST" }),
+  renamePluginAccount: (connectionId: string, alias: string) =>
+    request(`/api/v0/plugin-connections/${connectionId}/account`, {
+      method: "PATCH",
+      body: JSON.stringify({ alias }),
+    }),
+  removePluginAccount: (connectionId: string) =>
+    request(`/api/v0/plugin-connections/${connectionId}/account`, { method: "DELETE" }),
+  setMcpInstructions: (connectionId: string, instructions: string) =>
+    request(`/api/v0/plugin-connections/${connectionId}/instructions`, {
+      method: "PATCH",
+      body: JSON.stringify({ instructions }),
     }),
   setPluginGrant: (connectionId: string, botId: string, enabled: boolean) =>
     request(`/api/v0/plugin-connections/${connectionId}/grant`, {
@@ -101,10 +147,16 @@ export const api = {
   archiveBot: (botId: string) => request(`/api/v0/bots/${botId}`, { method: "DELETE" }),
   retryBot: (botId: string) => request<BotView>(`/api/v0/bots/${botId}/retry`, { method: "POST" }),
   botTranscript: (botId: string) => request<BotTranscriptView>(`/api/v0/bots/${botId}/transcript`),
-  routines: (botId: string) => request<RoutineView[]>(`/api/v0/bots/${botId}/routines`),
+  routines: (ownerId: string, ownerKind: "bot" | "group" = "bot") =>
+    request<RoutineView[]>(
+      ownerKind === "bot"
+        ? `/api/v0/bots/${ownerId}/routines`
+        : `/api/v0/channels/${ownerId}/routines`
+    ),
   routine: (routineId: string) => request<RoutineView>(`/api/v0/routines/${routineId}`),
   createRoutine: (
-    botId: string,
+    ownerId: string,
+    ownerKind: "bot" | "group",
     input: {
       name: string;
       prompt: string;
@@ -114,10 +166,15 @@ export const api = {
       enabled: boolean;
     }
   ) =>
-    request<RoutineView>(`/api/v0/bots/${botId}/routines`, {
-      method: "POST",
-      body: JSON.stringify({ ...input, clientId: crypto.randomUUID() }),
-    }),
+    request<RoutineView>(
+      ownerKind === "bot"
+        ? `/api/v0/bots/${ownerId}/routines`
+        : `/api/v0/channels/${ownerId}/routines`,
+      {
+        method: "POST",
+        body: JSON.stringify({ ...input, clientId: crypto.randomUUID() }),
+      }
+    ),
   updateRoutine: (
     routineId: string,
     input: {
@@ -171,6 +228,23 @@ export const api = {
         timeZone: localTimeZone(),
       }),
     }),
+  updateChannelProfile: (channelId: string, name: string, description: string) =>
+    request<ChannelView>(`/api/v0/channels/${channelId}/profile`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        name,
+        description,
+        clientId: crypto.randomUUID(),
+      }),
+    }),
+  setChannelAvatar: (channelId: string, pngBase64: string | null) =>
+    request<ChannelView>(`/api/v0/channels/${channelId}/avatar`, {
+      method: "PUT",
+      body: JSON.stringify({
+        pngBase64,
+        clientId: crypto.randomUUID(),
+      }),
+    }),
   setChannelMembers: (channelId: string, botIds: string[]) =>
     request<ChannelView>(`/api/v0/channels/${channelId}/members`, {
       method: "PUT",
@@ -182,15 +256,15 @@ export const api = {
   sendMessage: (
     conversationId: string,
     content: string,
-    images: readonly InlineImageInput[],
+    attachments: readonly AssetRef[],
     replyToMessageId?: string,
     options?: { richText?: string; isFork?: boolean }
   ) =>
-    request(`/api/v0/conversations/${conversationId}/messages`, {
+    request<{ message: ChannelMessageView }>(`/api/v0/conversations/${conversationId}/messages`, {
       method: "POST",
       body: JSON.stringify({
         content,
-        images,
+        attachments,
         replyToMessageId,
         ...options,
         clientId: crypto.randomUUID(),
@@ -200,15 +274,15 @@ export const api = {
   sendChannelMessage: (
     channelId: string,
     content: string,
-    images: readonly InlineImageInput[],
+    attachments: readonly AssetRef[],
     replyToMessageId?: string,
     options?: { richText?: string; isFork?: boolean }
   ) =>
-    request(`/api/v0/channels/${channelId}/messages`, {
+    request<{ message: ChannelMessageView }>(`/api/v0/channels/${channelId}/messages`, {
       method: "POST",
       body: JSON.stringify({
         content,
-        images,
+        attachments,
         replyToMessageId,
         ...options,
         clientId: crypto.randomUUID(),
@@ -224,6 +298,21 @@ export const api = {
         timeZone: localTimeZone(),
       }),
     }),
+  uploadAsset: (input: {
+    fileName: string;
+    mimeType?: string;
+    bytesBase64: string;
+    alt?: string;
+  }) =>
+    request<AssetRef>("/api/v0/assets", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  assetUrl: (asset: Pick<AssetRef, "assetId" | "fileName">, download = false) => {
+    const params = new URLSearchParams({ name: asset.fileName });
+    if (download) params.set("download", "1");
+    return `${API_BASE}/api/v0/assets/${asset.assetId}?${params}`;
+  },
   cancelRun: (runId: string) => request(`/api/v0/runs/${runId}/cancel`, { method: "POST" }),
   resolveApproval: (approvalId: string, decision: ApprovalDecision) =>
     request(`/api/v0/approvals/${approvalId}/resolve`, {

@@ -8,8 +8,11 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
 export function Message({
   from,
   className,
+  children,
   ...props
-}: HTMLAttributes<HTMLDivElement> & { from: "user" | "assistant" | "system" }) {
+}: HTMLAttributes<HTMLDivElement> & {
+  from: "user" | "assistant" | "system";
+}) {
   return (
     <div
       className={cn(
@@ -19,7 +22,16 @@ export function Message({
       )}
       data-role={from}
       {...props}
-    />
+    >
+      <div
+        className={cn(
+          "message-row-content flex w-full flex-col gap-0.5",
+          from === "user" ? "items-end" : "items-start"
+        )}
+      >
+        {children}
+      </div>
+    </div>
   );
 }
 
@@ -31,13 +43,11 @@ export function MessageContent({
   return (
     <div
       className={cn(
-        "message-bubble overflow-hidden rounded-[20px] px-3 py-2 text-[14px] leading-5",
-        from === "user"
-          ? "relative right-0.5 max-w-[min(640px,78%)] bg-message-user text-message-user-foreground"
-          : "relative left-[2px] max-w-[min(640px,78%)] bg-message-assistant text-message-assistant-foreground",
+        "message-bubble overflow-hidden",
         from === "system" && "border border-amber-500/20 bg-amber-500/8",
         className
       )}
+      data-role={from}
       {...props}
     />
   );

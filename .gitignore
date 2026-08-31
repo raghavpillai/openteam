@@ -9,4 +9,6 @@ coverage/
 .DS_Store
 packages/db/src/generated/
 apps/desktop/release/
+apps/desktop/release-cua/
+apps/desktop/release-local/
 apps/mobile/.expo/

@@ -1,5 +1,7 @@
 import { X } from "lucide-react";
 import { type MouseEvent, useState } from "react";
+import { API_BASE } from "../../client/http";
+import { useAuthenticatedResource } from "../../hooks/use-authenticated-resource";
 import { cn } from "../../lib/cn";
 import { Dialog, DialogContent, DialogPortal, DialogTitle } from "../ui/dialog";
 
@@ -20,6 +22,10 @@ export function ImageAttachment({
   const [open, setOpen] = useState(false);
   const [naturalSize, setNaturalSize] = useState<{ height: number; width: number } | null>(null);
   const label = image.alt?.trim() || "Image";
+  const rawSource = image.url.startsWith("/api/")
+    ? new URL(image.url, API_BASE).toString()
+    : image.url;
+  const source = useAuthenticatedResource(rawSource);
   const messageWidth = naturalSize
     ? Math.min(naturalSize.width, 320, (naturalSize.width / naturalSize.height) * 300)
     : 320;
@@ -78,7 +84,7 @@ export function ImageAttachment({
                   : { height: naturalHeight, width: naturalWidth }
               );
             }}
-            src={image.url}
+            src={source ?? undefined}
           />
         </button>
         {onRemove && (
@@ -115,7 +121,7 @@ export function ImageAttachment({
             <img
               alt={label}
               className="block max-h-[calc(100vh-112px)] max-w-[calc(100vw-64px)] bg-white object-contain"
-              src={image.url}
+              src={source ?? undefined}
             />
           </button>
         </DialogContent>

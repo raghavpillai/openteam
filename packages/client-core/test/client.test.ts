@@ -78,6 +78,27 @@ describe("mobile-safe OpenBot client", () => {
     });
   });
 
+  test("attaches bearer sessions and reports expired authentication", async () => {
+    const calls: RequestInit[] = [];
+    let unauthorized = 0;
+    const fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
+      calls.push(init ?? {});
+      return new Response(JSON.stringify({ error: { code: "unauthorized" } }), { status: 401 });
+    }) as unknown as typeof globalThis.fetch;
+    const client = createOpenBotClient({
+      baseUrl: "http://openbot.test",
+      fetch,
+      getAuthToken: async () => "signed-session",
+      onUnauthorized: () => {
+        unauthorized += 1;
+      },
+    });
+
+    await expect(client.snapshot()).rejects.toMatchObject({ status: 401 });
+    expect(new Headers(calls[0]?.headers).get("authorization")).toBe("Bearer signed-session");
+    expect(unauthorized).toBe(1);
+  });
+
   test("brokers shared-computer status, input, takeover, and frames through the server", async () => {
     const calls: Array<{ url: string; init?: RequestInit }> = [];
     const fetch = (async (url: string | URL | Request, init?: RequestInit) => {

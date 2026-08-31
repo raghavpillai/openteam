@@ -1,10 +1,8 @@
 import { recordPerformance } from "../lib/performance";
+import { clearAuthToken, getAuthToken } from "./auth";
 import { resolveApiBase } from "./runtime-url";
 
-export const API_BASE = resolveApiBase(
-  window.location.href,
-  import.meta.env.VITE_OPENBOT_API_URL
-);
+export const API_BASE = resolveApiBase(window.location.href, import.meta.env.VITE_OPENBOT_API_URL);
 
 export class ClientError extends Error {
   constructor(
@@ -22,6 +20,10 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let response: Response;
   try {
     const headers = new Headers(init?.headers);
+    const token = getAuthToken();
+    if (token && !headers.has("authorization")) {
+      headers.set("authorization", `Bearer ${token}`);
+    }
     if (init?.body != null && !headers.has("content-type")) {
       headers.set("content-type", "application/json");
     }
@@ -49,6 +51,7 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
     failed: !response.ok,
   });
   if (!response.ok) {
+    if (response.status === 401) clearAuthToken();
     throw new ClientError(
       body.error?.message ?? `Request failed (${response.status})`,
       body.error?.code,

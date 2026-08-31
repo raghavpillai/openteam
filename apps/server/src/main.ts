@@ -24,10 +24,22 @@ import {
 import type { RoutineMutationInput } from "@openbot/messaging";
 import { Effect, Either } from "effect";
 import { AppService } from "./app-service";
-import { corsHeaders, errorResponse, json, parseBody } from "./http";
+import { auth, authPrisma } from "./auth";
+import { corsHeaders, errorResponse, json, parseBody, withCors } from "./http";
+import { runOwnerCredentialCommand } from "./owner-credentials";
 
 const port = Number(process.env.OPENBOT_PORT ?? 8787);
 const controlToken = process.env.OPENBOT_CONTROL_TOKEN ?? "local-compose-only-change-me";
+
+if (process.argv[2] === "owner-credentials") {
+  try {
+    await runOwnerCredentialCommand();
+  } finally {
+    await authPrisma.$disconnect();
+  }
+  process.exit(0);
+}
+
 const app = new AppService();
 await Effect.runPromise(app.boot());
 
@@ -123,6 +135,20 @@ const server = Bun.serve({
     const url = new URL(request.url);
     const path = url.pathname.replace(/^\/api\/v0(?=\/|$)/, "/api");
     try {
+      if (request.method === "POST" && url.pathname === "/api/auth/login") {
+        const loginRequest = new Request(new URL("/api/auth/sign-in/username", request.url), {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: await request.text(),
+        });
+        return withCors(await auth.handler(loginRequest));
+      }
+      if (url.pathname === "/api/auth/sign-in/username") {
+        return json({ error: { code: "not_found", message: "Not found" } }, 404);
+      }
+      if (url.pathname.startsWith("/api/auth/")) {
+        return withCors(await auth.handler(request));
+      }
       if (request.method === "POST" && path === "/api/internal/tools/call") {
         if (!authorizedInternal(request)) {
           return json({ error: { code: "unauthorized", message: "Unauthorized" } }, 401);
@@ -134,6 +160,13 @@ const server = Bun.serve({
       if (request.method === "GET" && (url.pathname === "/health" || path === "/api/health")) {
         const runtime = await run(app.health());
         return json({ status: runtime.server, runtime });
+      }
+      const session = await auth.api.getSession({ headers: request.headers });
+      if (!session) {
+        return json(
+          { error: { code: "unauthorized", message: "Sign in to OpenBot to continue" } },
+          401
+        );
       }
       if (request.method === "GET" && ["/api/snapshot", "/api/bootstrap"].includes(path)) {
         return json(await run(app.clientSnapshot()));

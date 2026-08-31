@@ -1,0 +1,126 @@
+name: openbot
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: openbot
+      POSTGRES_USER: openbot
+      POSTGRES_PASSWORD: ${OPENBOT_POSTGRES_PASSWORD:?OPENBOT_POSTGRES_PASSWORD is required}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U openbot -d openbot"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+    volumes:
+      - openbot_postgres:/var/lib/postgresql/data
+
+  migrate:
+    image: ${OPENBOT_IMAGE_PREFIX:?OPENBOT_IMAGE_PREFIX is required}-migrate:${OPENBOT_VERSION:?OPENBOT_VERSION is required}
+    environment:
+      DATABASE_URL: postgresql://openbot:${OPENBOT_POSTGRES_PASSWORD}@postgres:5432/openbot
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  agent-data-init:
+    image: alpine:3.22
+    command: ["sh", "-c", "chown 10001:10001 /agent-data && chmod 0700 /agent-data"]
+    restart: "no"
+    volumes:
+      - openbot_agent_data:/agent-data
+
+  computer:
+    image: ${OPENBOT_IMAGE_PREFIX:?OPENBOT_IMAGE_PREFIX is required}-computer:${OPENBOT_VERSION:?OPENBOT_VERSION is required}
+    hostname: openbot
+    environment:
+      OPENBOT_COMPUTER_PORT: 8790
+      OPENBOT_CONTROL_TOKEN: ${OPENBOT_CONTROL_TOKEN:?OPENBOT_CONTROL_TOKEN is required}
+      OPENBOT_WORKSPACE_ROOT: /workspace
+      OPENBOT_TIME_ZONE: ${OPENBOT_TIME_ZONE:-UTC}
+      OPENBOT_SERVER_URL: http://server:8787
+      OPENBOT_PI_AGENT_DIR: /home/openbot/.pi/agent
+      OPENBOT_PI_MODEL: ${OPENBOT_PI_MODEL:-gpt-5.5}
+      OPENBOT_PI_THINKING: ${OPENBOT_PI_THINKING:-high}
+      OPENBOT_AGENT_DATA_ROOT: /home/openbot/agent-data
+    depends_on:
+      agent-data-init:
+        condition: service_completed_successfully
+    cap_drop: ["ALL"]
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=512m
+    healthcheck:
+      test: ["CMD", "bun", "-e", "const r=await fetch('http://127.0.0.1:8790/health');process.exit(r.ok?0:1)"]
+      interval: 3s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+    ports:
+      - "${OPENBOT_BIND_HOST:-127.0.0.1}:6200-6299:6200-6299"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - openbot_computer_home:/home/openbot
+      - openbot_agent_data:/home/openbot/agent-data
+      - openbot_workspace:/workspace
+
+  server:
+    image: ${OPENBOT_IMAGE_PREFIX:?OPENBOT_IMAGE_PREFIX is required}-server:${OPENBOT_VERSION:?OPENBOT_VERSION is required}
+    environment:
+      DATABASE_URL: postgresql://openbot:${OPENBOT_POSTGRES_PASSWORD}@postgres:5432/openbot
+      OPENBOT_PORT: 8787
+      OPENBOT_COMPUTER_URL: http://computer:8790
+      OPENBOT_CONTROL_TOKEN: ${OPENBOT_CONTROL_TOKEN:?OPENBOT_CONTROL_TOKEN is required}
+      OPENBOT_AUTH_SECRET: ${OPENBOT_AUTH_SECRET:?OPENBOT_AUTH_SECRET is required}
+      OPENBOT_WORKSPACE_ROOT: /workspace
+      OPENBOT_TIME_ZONE: ${OPENBOT_TIME_ZONE:-UTC}
+      OPENBOT_PI_MODEL: ${OPENBOT_PI_MODEL:-gpt-5.5}
+      OPENBOT_SCREEN_VIEWER_HOST: ${OPENBOT_PUBLIC_HOST:-127.0.0.1}
+      OPENBOT_AGENT_DATA_ROOT: /home/openbot/agent-data
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      computer:
+        condition: service_healthy
+    ports:
+      - "${OPENBOT_BIND_HOST:-127.0.0.1}:${OPENBOT_API_PORT:-8787}:8787"
+    healthcheck:
+      test: ["CMD", "bun", "-e", "const r=await fetch('http://127.0.0.1:8787/api/v0/health');process.exit(r.ok?0:1)"]
+      interval: 3s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+    volumes:
+      - openbot_agent_data:/home/openbot/agent-data
+      - openbot_workspace:/workspace:ro
+
+  worker:
+    image: ${OPENBOT_IMAGE_PREFIX:?OPENBOT_IMAGE_PREFIX is required}-worker:${OPENBOT_VERSION:?OPENBOT_VERSION is required}
+    environment:
+      DATABASE_URL: postgresql://openbot:${OPENBOT_POSTGRES_PASSWORD}@postgres:5432/openbot
+      OPENBOT_COMPUTER_URL: http://computer:8790
+      OPENBOT_CONTROL_TOKEN: ${OPENBOT_CONTROL_TOKEN:?OPENBOT_CONTROL_TOKEN is required}
+      OPENBOT_TIME_ZONE: ${OPENBOT_TIME_ZONE:-UTC}
+      OPENBOT_WORKER_CONCURRENCY: ${OPENBOT_WORKER_CONCURRENCY:-8}
+      OPENBOT_WORKSPACE_ROOT: /workspace
+      OPENBOT_AGENT_DATA_ROOT: /home/openbot/agent-data
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      computer:
+        condition: service_healthy
+    restart: unless-stopped
+    volumes:
+      - openbot_agent_data:/home/openbot/agent-data
+      - openbot_workspace:/workspace:ro
+
+volumes:
+  openbot_postgres:
+  openbot_computer_home:
+  openbot_agent_data:
+  openbot_workspace:

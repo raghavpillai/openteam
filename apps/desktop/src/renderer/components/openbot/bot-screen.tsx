@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../client/openbot-api";
 import { resolveViewerUrl } from "../../client/runtime-url";
 import { measureUntilNextPaint, recordPerformance } from "../../lib/performance";
+import { useAuthenticatedResource } from "../../hooks/use-authenticated-resource";
 import {
   shouldLoadScreenStatus,
   shouldPollScreenStatus,
@@ -184,6 +185,9 @@ export function BotScreen({
     return url.toString();
   }, [screen]);
   const viewerReady = Boolean(screen?.state === "ready" && screen.humanTakeover && viewerUrl);
+  const frameSource = useAuthenticatedResource(
+    enabled && screen?.state === "ready" && !open ? api.screenFrameUrl(bot.id, frameRevision) : null
+  );
   const retryConnection = () => {
     setError(null);
     setScreen(null);
@@ -205,7 +209,7 @@ export function BotScreen({
             <div className="grid size-full place-items-center bg-transparent text-[#757575] transition-colors duration-150 group-hover:text-[#626262] dark:text-[#8f8f8f] dark:group-hover:text-[#aaaaaa]">
               <Monitor className="size-4" strokeWidth={1.7} />
             </div>
-          ) : screen?.state === "ready" && !open ? (
+          ) : screen?.state === "ready" && !open && frameSource ? (
             <img
               alt={`${bot.name}'s Linux screen`}
               className="size-full object-cover transition-opacity duration-150 group-hover:opacity-[0.97]"
@@ -213,7 +217,7 @@ export function BotScreen({
               fetchPriority={active ? "high" : "low"}
               loading={active ? "eager" : "lazy"}
               onError={() => setError("Screen preview is reconnecting")}
-              src={api.screenFrameUrl(bot.id, frameRevision)}
+              src={frameSource}
             />
           ) : (
             <div className="relative size-full">

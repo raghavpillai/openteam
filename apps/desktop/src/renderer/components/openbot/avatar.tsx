@@ -2,6 +2,7 @@ import type { BotView, ChannelView } from "@openbot/contracts";
 import { Avatar as AvatarPrimitive } from "radix-ui";
 import { memo } from "react";
 import { API_BASE } from "../../client/http";
+import { useAuthenticatedResource } from "../../hooks/use-authenticated-resource";
 import { cn } from "../../lib/cn";
 import { BotAvatarGlyph, DEFAULT_BOT_AVATAR, normalizeBotAvatarShape } from "./avatar-picker-icons";
 
@@ -12,6 +13,11 @@ export const BotAvatar = memo(function BotAvatar({
   bot?: Pick<BotView, "color" | "icon"> & Partial<Pick<BotView, "id" | "hasAvatar" | "updatedAt">>;
   size?: "xs" | "activity" | "sm" | "md" | "lg";
 }) {
+  const avatarUrl =
+    bot?.hasAvatar && bot.id && bot.updatedAt
+      ? `${API_BASE}/api/v0/bots/${bot.id}/avatar?v=${encodeURIComponent(bot.updatedAt)}`
+      : null;
+  const avatarSource = useAuthenticatedResource(avatarUrl);
   return (
     <AvatarPrimitive.Root
       className={cn(
@@ -23,11 +29,13 @@ export const BotAvatar = memo(function BotAvatar({
         size === "lg" && "size-16"
       )}
     >
-      {bot?.hasAvatar && bot.id && bot.updatedAt && (
+      {avatarSource && (
         <AvatarPrimitive.Image
           alt=""
           className="size-full object-cover"
-          src={`${API_BASE}/api/v0/bots/${bot.id}/avatar?v=${encodeURIComponent(bot.updatedAt)}`}
+          decoding="async"
+          loading="lazy"
+          src={avatarSource}
         />
       )}
       <AvatarPrimitive.Fallback className="grid size-full place-items-center">

@@ -17,6 +17,7 @@ import {
   useState,
 } from "react";
 import { mobileFixture } from "../fixtures";
+import { getAuthToken, requireAuthentication, serverUrl } from "../auth";
 
 interface OpenBotState {
   snapshot: ClientSnapshot;
@@ -42,8 +43,13 @@ interface OpenBotState {
 
 const OpenBotContext = createContext<OpenBotState | null>(null);
 
-const serverUrl = process.env.EXPO_PUBLIC_OPENBOT_API_URL?.trim() || null;
-const client = serverUrl ? createOpenBotClient({ baseUrl: serverUrl }) : null;
+const client = serverUrl
+  ? createOpenBotClient({
+      baseUrl: serverUrl,
+      getAuthToken,
+      onUnauthorized: requireAuthentication,
+    })
+  : null;
 
 const fixtureScreenStatus = (botId: string, humanTakeover = false): ScreenStatusView => ({
   botId,

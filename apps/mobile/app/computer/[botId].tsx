@@ -16,6 +16,7 @@ import { GlassSurface } from "../../src/components/glass-surface";
 import { IconButton } from "../../src/components/icon-button";
 import { useOpenBot } from "../../src/state/openbot-context";
 import { useTheme } from "../../src/theme";
+import { authHeadersForUrl } from "../../src/auth";
 
 type ScreenApp = ScreenStatusView["apps"][number];
 
@@ -237,7 +238,7 @@ export default function ComputerScreen() {
               <Image
                 onError={() => setError("The latest computer frame could not be loaded")}
                 resizeMode="contain"
-                source={{ uri: frameUrl }}
+                source={{ uri: frameUrl, headers: authHeadersForUrl(frameUrl) }}
                 style={styles.frame}
               />
             </Pressable>

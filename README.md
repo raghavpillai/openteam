@@ -22,6 +22,7 @@ Every bot works on the same persistent Linux computer and `/workspace`, so files
 - one shared Debian XFCE computer with bot-specific displays, browser profiles, and input leases
 - persistent `/workspace/bots/<bot>`, `/workspace/projects/<group>`, and `/workspace/shared` folders
 - Electron 43, React 19, Tailwind 4, shadcn/ui, and source-owned AI Elements adaptations
+- one Better Auth owner account with username/password login for desktop and iOS
 - snapshot + replayable SSE client state, streamed messages and activity, stop, bot CRUD, runtime health, and an interactive desktop viewer
 
 ## Architecture
@@ -55,7 +56,54 @@ computer gateway ── embedded Pi AgentSession
 
 Postgres is authoritative for product state, mailboxes, visible chat, group delivery, run audit, and client replay. Pi's JSONL file retains each context's complete runtime tree; the content-addressed context manifest is authoritative for adopted summary reconstruction. A group wake uses its group project directory and resumes that bot/group context, independently of the bot's home context.
 
-## Start the stack
+## Install the released server stack
+
+Docker with Compose is the only system prerequisite. Install the versioned server, worker,
+PostgreSQL database, migrations, and shared graphical computer with Bun:
+
+```sh
+bunx --bun @openbot/cli install
+```
+
+The same CLI can run through Node/npm:
+
+```sh
+npx @openbot/cli install
+```
+
+The installer verifies Docker and the host, generates private installation secrets, verifies the
+release bundle checksum, pulls prebuilt `linux/amd64` or `linux/arm64` images, starts the Compose
+project in the background, and waits for OpenBot health. The API and screen viewers remain bound to
+loopback. Run diagnostics and manage the installation with:
+
+```sh
+bunx --bun @openbot/cli doctor
+bunx --bun @openbot/cli setup
+bunx --bun @openbot/cli status
+bunx --bun @openbot/cli stop
+bunx --bun @openbot/cli start
+bunx --bun @openbot/cli account update
+bunx --bun @openbot/cli password reset
+bunx --bun @openbot/cli update
+bunx --bun @openbot/cli uninstall
+```
+
+After installation, `openbot setup` asks whether the server should be local or available on a
+private network, creates the single OpenBot username/password account, then offers to start OpenAI
+Codex sign-in. Password input is hidden, is never written to the installation `.env`, and is hashed
+by Better Auth in Postgres. `openbot account update` interactively changes both credentials;
+`--username <name>` changes only the username, `--password` securely prompts for only a new
+password, and the flags can be combined. `openbot password reset` remains a password-only alias.
+Every credential change signs out all desktop and mobile sessions. Use `openbot setup --advanced` to override the hostname, port,
+time zone, model, reasoning effort, or concurrent bot job limit.
+
+`uninstall` preserves configuration and Docker volumes so `start` can recover the same installation.
+`uninstall --purge` permanently deletes PostgreSQL, Pi sessions and OAuth, agent data, and workspace
+files. Released Compose configuration and checksums come from the matching GitHub Release; container
+images come from GHCR. Model authentication remains an onboarding step and is reported separately by
+`doctor`.
+
+## Start the development stack
 
 Prerequisites: Docker Desktop or another Docker Compose implementation, plus [Bun](https://bun.com/) for the native Electron workflow.
 
@@ -63,7 +111,8 @@ Prerequisites: Docker Desktop or another Docker Compose implementation, plus [Bu
 cp .env.example .env
 ```
 
-Replace `OPENBOT_CONTROL_TOKEN` with a random local value, for example from `openssl rand -hex 32`, then build and start the persistent services:
+Replace `OPENBOT_CONTROL_TOKEN` and `OPENBOT_AUTH_SECRET` with different random values, for example
+from `openssl rand -hex 32`, then build and start the persistent services:
 
 Set `OPENBOT_TIME_ZONE` to the installation's IANA time zone (for example,
 `America/New_York`). Desktop user messages also carry the viewer's detected IANA zone so bot turns
@@ -72,6 +121,12 @@ retain the sender's local timestamp.
 ```sh
 bash scripts/compose.sh up --build -d
 bash scripts/compose.sh ps
+```
+
+Create or replace the development owner login (the prompt hides the password):
+
+```sh
+bun run auth:setup
 ```
 
 Authenticate Pi once with the OpenAI Codex provider:
@@ -99,10 +154,13 @@ bun run desktop:tailscale
 
 Open the printed `http://<tailscale-ip>:5173` URL on the other device. The dev server proxies the
 API, event stream, screen previews, and noVNC WebSockets, so Compose continues to publish its API
-and viewer ports only on loopback. OpenBot v0 has no user login; anyone permitted to reach this Mac
-on the tailnet can control it, so use a restrictive Tailscale ACL and stop the dev server afterward.
+and viewer ports only on loopback. The OpenBot API requires the owner login, but noVNC viewer ports
+still have no independent login, so use a restrictive Tailscale ACL and stop the dev server afterward.
 
-The server publishes `127.0.0.1:8787`; bot viewers use the loopback-only range `127.0.0.1:6200-6299`. PostgreSQL, raw VNC, and the computer gateway remain private to Compose. v0 has no OpenBot user login, and the noVNC endpoints have no independent authentication, so do not publish these ports to an untrusted network.
+The server publishes `127.0.0.1:8787`; bot viewers use the loopback-only range
+`127.0.0.1:6200-6299`. PostgreSQL, raw VNC, and the computer gateway remain private to Compose.
+Better Auth protects the product API, while noVNC endpoints have no independent authentication, so
+do not publish the viewer ports to an untrusted network.
 
 Without Pi OAuth, CRUD and history still work and the desktop reports `Pi missing`, but model turns cannot execute. Authenticate before creating bots or sending work.
 

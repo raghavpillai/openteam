@@ -18,6 +18,7 @@ import type {
 } from "@openbot/contracts";
 import type { RoutineExecutionView, RoutineView } from "../lib/routines";
 import { API_BASE, request } from "./http";
+import { authHeaders } from "./auth";
 
 const localTimeZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 
@@ -243,7 +244,7 @@ export const api = {
   releaseScreenTakeover: (botId: string) => {
     void fetch(`${API_BASE}/api/v0/bots/${botId}/screen/takeover`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...authHeaders() },
       body: JSON.stringify({ active: false }),
       keepalive: true,
     }).catch(() => undefined);

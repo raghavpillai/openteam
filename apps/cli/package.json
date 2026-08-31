@@ -1,0 +1,24 @@
+{
+  "name": "@openbot/cli",
+  "version": "0.1.0",
+  "description": "Install and manage the self-hosted OpenBot server stack",
+  "type": "module",
+  "bin": {
+    "openbot": "dist/openbot.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "bun build src/main.ts --outfile dist/openbot.js --target=node --format=esm --minify",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "bun test"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

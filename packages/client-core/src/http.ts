@@ -1,6 +1,8 @@
 export interface OpenBotTransportOptions {
   baseUrl: string;
   fetch?: typeof fetch;
+  getAuthToken?: () => string | null | Promise<string | null>;
+  onUnauthorized?: () => void;
 }
 
 export class OpenBotClientError extends Error {
@@ -20,7 +22,12 @@ export const normalizeBaseUrl = (value: string): string => {
   return trimmed.replace(/\/+$/, "");
 };
 
-export const createJsonTransport = ({ baseUrl, fetch: fetchOverride }: OpenBotTransportOptions) => {
+export const createJsonTransport = ({
+  baseUrl,
+  fetch: fetchOverride,
+  getAuthToken,
+  onUnauthorized,
+}: OpenBotTransportOptions) => {
   const origin = normalizeBaseUrl(baseUrl);
   const fetchImpl = fetchOverride ?? globalThis.fetch;
   if (!fetchImpl) throw new Error("This platform does not provide fetch");
@@ -29,6 +36,10 @@ export const createJsonTransport = ({ baseUrl, fetch: fetchOverride }: OpenBotTr
     let response: Response;
     try {
       const headers = new Headers(init?.headers);
+      const token = await getAuthToken?.();
+      if (token && !headers.has("authorization")) {
+        headers.set("authorization", `Bearer ${token}`);
+      }
       if (init?.body != null && !headers.has("content-type")) {
         headers.set("content-type", "application/json");
       }
@@ -45,6 +56,7 @@ export const createJsonTransport = ({ baseUrl, fetch: fetchOverride }: OpenBotTr
       error?: { code?: string; message?: string };
     } & T;
     if (!response.ok) {
+      if (response.status === 401) onUnauthorized?.();
       throw new OpenBotClientError(
         body.error?.message ?? `Request failed (${response.status})`,
         body.error?.code,

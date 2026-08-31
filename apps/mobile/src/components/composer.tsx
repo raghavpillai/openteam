@@ -18,6 +18,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { authHeadersForUrl } from "../auth";
 import { metrics, useTheme } from "../theme";
 import { GlassSurface } from "./glass-surface";
 import { IconButton } from "./icon-button";
@@ -361,7 +362,10 @@ export function Composer({
           <View accessibilityLabel={`${images.length} attached images`} style={styles.imageRail}>
             {images.map((image) => (
               <View key={image.id} style={styles.imagePreviewWrap}>
-                <Image source={{ uri: image.url }} style={styles.imagePreview} />
+                <Image
+                  source={{ uri: image.url, headers: authHeadersForUrl(image.url) }}
+                  style={styles.imagePreview}
+                />
                 <Pressable
                   accessibilityLabel={`Remove ${image.alt ?? "image"}`}
                   accessibilityRole="button"

@@ -11,3 +11,13 @@ release
 **/release
 coverage
 plans
+apps/cli/**
+!apps/cli/package.json
+apps/desktop/**
+!apps/desktop/package.json
+apps/mobile/**
+!apps/mobile/package.json
+**/Pods
+**/build
+**/artifacts
+packages/db/src/generated

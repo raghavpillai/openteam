@@ -3,9 +3,12 @@ FROM oven/bun:1.3.8 AS build
 WORKDIR /app
 COPY package.json bun.lock turbo.json tsconfig.base.json ./
 COPY apps/computer/package.json apps/computer/package.json
+COPY apps/cli/package.json apps/cli/package.json
 COPY apps/desktop/package.json apps/desktop/package.json
+COPY apps/mobile/package.json apps/mobile/package.json
 COPY apps/server/package.json apps/server/package.json
 COPY apps/worker/package.json apps/worker/package.json
+COPY packages/client-core/package.json packages/client-core/package.json
 COPY packages/codex-client/package.json packages/codex-client/package.json
 COPY packages/contracts/package.json packages/contracts/package.json
 COPY packages/db/package.json packages/db/package.json

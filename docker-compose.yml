@@ -84,6 +84,7 @@ services:
       OPENBOT_PORT: 8787
       OPENBOT_COMPUTER_URL: http://computer:8790
       OPENBOT_CONTROL_TOKEN: ${OPENBOT_CONTROL_TOKEN:-local-compose-only-change-me}
+      OPENBOT_AUTH_SECRET: ${OPENBOT_AUTH_SECRET:-local-compose-auth-secret-change-me-now}
       OPENBOT_WORKSPACE_ROOT: /workspace
       OPENBOT_TIME_ZONE: ${OPENBOT_TIME_ZONE:-UTC}
       OPENBOT_PI_MODEL: ${OPENBOT_PI_MODEL:-gpt-5.5}

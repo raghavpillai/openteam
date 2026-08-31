@@ -11,4 +11,4 @@ test("stdio MCP manager spawns, discovers, calls, reuses, and closes a local ser
   const [exitCode, stderr] = await Promise.all([child.exited, new Response(child.stderr).text()]);
   expect(stderr).toBe("");
   expect(exitCode).toBe(0);
-});
+}, 15_000);

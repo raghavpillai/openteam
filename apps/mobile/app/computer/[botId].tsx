@@ -270,10 +270,10 @@ export default function ComputerScreen() {
   }, []);
 
   useEffect(() => {
-    if (!keyboardOpen || !status?.humanTakeover) return;
+    if (!keyboardOpen || status?.state !== "ready") return;
     const frame = requestAnimationFrame(() => inputRef.current?.focus());
     return () => cancelAnimationFrame(frame);
-  }, [keyboardOpen, status?.humanTakeover]);
+  }, [keyboardOpen, status?.state]);
 
   useEffect(() => {
     zoomRef.current = screenZoom;
@@ -345,6 +345,10 @@ export default function ComputerScreen() {
       keyboardTimer.current = null;
     }
     const text = keyboardBuffer.current;
+    if (text && !takeoverActive.current) {
+      keyboardTimer.current = setTimeout(flushKeyboardBuffer, 150);
+      return;
+    }
     keyboardBuffer.current = "";
     if (text) void act({ action: "type", text });
   }, [act]);
@@ -822,7 +826,7 @@ export default function ComputerScreen() {
           {keyboardOpen ? (
             <TextInput
               accessibilityLabel="Type on shared computer"
-              editable={controlling}
+              editable={ready && !takeoverBusy}
               onChangeText={handleKeyboardChange}
               onSubmitEditing={submitKeyboard}
               ref={inputRef}
@@ -890,7 +894,7 @@ const styles = StyleSheet.create({
   modeToast: {
     position: "absolute",
     zIndex: 12,
-    top: 8,
+    top: 48,
     right: 12,
     minWidth: 210,
     height: 58,

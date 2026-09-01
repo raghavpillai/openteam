@@ -159,9 +159,17 @@ export default function AdvancedMarkdown({
         :not(pre) > code { padding: 2px 4px; border-radius: 5px; background: var(--surface); }
         pre { max-width: 100%; overflow-x: auto; padding: 11px 12px; border-radius: 11px; background: var(--surface); }
         pre code { white-space: pre; }
-        table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; }
-        th, td { min-width: 84px; padding: 7px 9px; border: 1px solid var(--border); text-align: left; }
-        th { background: var(--surface); font-weight: 650; }
+        table { width: 100%; max-width: 100%; border-collapse: collapse; table-layout: fixed; }
+        th, td {
+          padding: 8px 7px;
+          border: 0;
+          border-bottom: 1px solid var(--border);
+          text-align: left;
+          vertical-align: top;
+          overflow-wrap: anywhere;
+        }
+        th { color: var(--text); font-weight: 650; }
+        td { color: var(--muted); }
         hr { height: 1px; margin: 12px 0; border: 0; background: var(--border); }
         .katex { display: inline-block; max-width: 100%; }
         .katex-display { display: block; max-width: 100%; overflow-x: auto; overflow-y: hidden; padding: 4px 0; text-align: center; }

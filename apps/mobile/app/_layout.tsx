@@ -72,7 +72,13 @@ function RootNavigation() {
                 <Stack.Screen name="new" options={{ headerShown: false, presentation: "modal" }} />
                 <Stack.Screen
                   name="settings"
-                  options={{ headerShown: false, presentation: "pageSheet" }}
+                  options={{
+                    headerShown: false,
+                    presentation: "formSheet",
+                    sheetAllowedDetents: [0.968],
+                    sheetGrabberVisible: false,
+                    sheetInitialDetentIndex: 0,
+                  }}
                 />
               </Stack>
             </OpenBotProvider>

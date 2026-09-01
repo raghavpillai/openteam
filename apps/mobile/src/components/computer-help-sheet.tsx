@@ -65,12 +65,7 @@ function HelpCard({ items }: { items: HelpItem[] }) {
 
 export function ComputerHelpSheet({ onClose, visible }: { onClose: () => void; visible: boolean }) {
   return (
-    <Modal
-      animationType="slide"
-      onRequestClose={onClose}
-      transparent
-      visible={visible}
-    >
+    <Modal animationType="slide" onRequestClose={onClose} transparent visible={visible}>
       <View style={styles.backdrop}>
         <SafeAreaView edges={["bottom"]} style={styles.safe}>
           <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>

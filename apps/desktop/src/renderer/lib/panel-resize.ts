@@ -1,6 +1,7 @@
 export const COMPACT_SIDEBAR_WIDTH = 88;
 export const MIN_EXPANDED_SIDEBAR_WIDTH = 240;
 export const SIDEBAR_SNAP_DISTANCE = 32;
+export const CHAT_MIN_WIDTH = 424;
 
 export type SnappedSidebarResizeState = {
   startX: number;
@@ -41,6 +42,18 @@ export function moveSnappedSidebar(
 
 export const MIN_INSPECTOR_WIDTH = 280;
 export const INSPECTOR_CLOSE_DISTANCE = 32;
+
+export function shouldForceCompactSidebar(windowWidth: number, sidebarWidth: number) {
+  return sidebarWidth !== COMPACT_SIDEBAR_WIDTH && windowWidth < sidebarWidth + CHAT_MIN_WIDTH;
+}
+
+export function canShowInspector(windowWidth: number, sidebarWidth: number) {
+  return windowWidth >= sidebarWidth + CHAT_MIN_WIDTH + MIN_INSPECTOR_WIDTH;
+}
+
+export function maxInspectorWidthForLayout(windowWidth: number, sidebarWidth: number) {
+  return Math.max(MIN_INSPECTOR_WIDTH, windowWidth - sidebarWidth - CHAT_MIN_WIDTH);
+}
 
 export function resizeInspector(startWidth: number, startX: number, pointerX: number) {
   const rawWidth = startWidth - (pointerX - startX);

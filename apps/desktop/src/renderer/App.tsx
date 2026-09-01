@@ -29,10 +29,18 @@ import { activeAsyncTaskChannelIds, activeAsyncTasksForBot } from "./lib/async-t
 import { BOT_TEMPLATE_SHARING_ENABLED, type TemplateBot } from "./lib/bot-template";
 import { cn } from "./lib/cn";
 import { deriveUnreadChannelIds, syncDesktopNotificationSnapshot } from "./lib/notifications";
-import { MIN_INSPECTOR_WIDTH, resizeInspector } from "./lib/panel-resize";
+import {
+  canShowInspector,
+  COMPACT_SIDEBAR_WIDTH,
+  maxInspectorWidthForLayout,
+  MIN_INSPECTOR_WIDTH,
+  resizeInspector,
+  shouldForceCompactSidebar,
+} from "./lib/panel-resize";
 import { measureUntilNextPaint } from "./lib/performance";
 import { enableScreenForSession } from "./lib/screen-session";
 import { useSnapshotIndex } from "./lib/snapshot-index";
+import { readThemePreference, setThemePreference, THEME_CHANGE_EVENT } from "./lib/theme";
 import { useOpenBot } from "./state/use-openbot";
 
 const A2AExchangeSheet = lazy(() =>
@@ -88,15 +96,19 @@ const SettingsPanel = lazy(async () => {
 });
 
 const INSPECTOR_WIDTH_KEY = "openbot:inspector-width";
-const DEFAULT_INSPECTOR_WIDTH = 280;
-const maxInspectorWidth = () =>
-  Math.max(DEFAULT_INSPECTOR_WIDTH, Math.min(560, Math.round(window.innerWidth * 0.48)));
-const clampInspectorWidth = (width: number) =>
-  Math.min(maxInspectorWidth(), Math.max(MIN_INSPECTOR_WIDTH, width));
+const DEFAULT_INSPECTOR_WIDTH = 320;
+const DEFAULT_SIDEBAR_WIDTH = 280;
+const clampInspectorWidth = (width: number, windowWidth: number, sidebarWidth: number) =>
+  Math.min(
+    maxInspectorWidthForLayout(windowWidth, sidebarWidth),
+    Math.max(MIN_INSPECTOR_WIDTH, width)
+  );
 const readInspectorWidth = () => {
   const stored = Number(localStorage.getItem(INSPECTOR_WIDTH_KEY));
   return clampInspectorWidth(
-    Number.isFinite(stored) && stored > 0 ? stored : DEFAULT_INSPECTOR_WIDTH
+    Number.isFinite(stored) && stored > 0 ? stored : DEFAULT_INSPECTOR_WIDTH,
+    window.innerWidth,
+    DEFAULT_SIDEBAR_WIDTH
   );
 };
 
@@ -121,6 +133,7 @@ export default function App() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [themePreference, setThemePreferenceState] = useState(readThemePreference);
   const [pluginsOpen, setPluginsOpen] = useState(false);
   const [templateImport, setTemplateImport] = useState<TemplateBot | null>(null);
   const [templateShareRequest, setTemplateShareRequest] = useState<{
@@ -150,6 +163,11 @@ export default function App() {
   const [deleteGroupTarget, setDeleteGroupTarget] = useState<ChannelView | null>(null);
   const [hiddenAgentsOpen, setHiddenAgentsOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
+  const [sidebarLayout, setSidebarLayout] = useState({
+    compact: false,
+    width: DEFAULT_SIDEBAR_WIDTH,
+  });
   const [inspectorWidth, setInspectorWidth] = useState(readInspectorWidth);
   const [inspectorResizing, setInspectorResizing] = useState(false);
   const inspectorResizeSessionRef = useRef<{
@@ -180,6 +198,16 @@ export default function App() {
   const selectedIdRef = useRef(selectedId);
   selectedIdRef.current = selectedId;
   const readRequests = useRef(new Set<string>());
+  const forcedSidebarCompact = shouldForceCompactSidebar(viewportWidth, sidebarLayout.width);
+  const effectiveSidebarWidth =
+    forcedSidebarCompact || sidebarLayout.compact ? COMPACT_SIDEBAR_WIDTH : sidebarLayout.width;
+  const visibleDetailsOpen = detailsOpen && canShowInspector(viewportWidth, effectiveSidebarWidth);
+  const inspectorMaxWidth = maxInspectorWidthForLayout(viewportWidth, effectiveSidebarWidth);
+  const handleSidebarLayoutChange = useCallback((layout: { compact: boolean; width: number }) => {
+    setSidebarLayout((current) =>
+      current.compact === layout.compact && current.width === layout.width ? current : layout
+    );
+  }, []);
   const searchLoadNonce = useRef(0);
   const invalidateSearchNavigation = useCallback(
     (...channelIds: Array<string | null | undefined>) => {
@@ -229,10 +257,13 @@ export default function App() {
   );
 
   useEffect(() => {
-    const handleResize = () => setInspectorWidth((width) => clampInspectorWidth(width));
+    const handleResize = () => setViewportWidth(window.innerWidth);
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
   }, []);
+  useEffect(() => {
+    setInspectorWidth((width) => clampInspectorWidth(width, viewportWidth, effectiveSidebarWidth));
+  }, [effectiveSidebarWidth, viewportWidth]);
   useEffect(() => {
     const handleDeepLink = (event: Event) => {
       const url = (event as CustomEvent<{ url?: string }>).detail?.url;
@@ -347,10 +378,15 @@ export default function App() {
       if ((!event.metaKey && !event.ctrlKey) || event.altKey || event.shiftKey) return;
       if (event.key.toLowerCase() !== "k") return;
       event.preventDefault();
-      setSearchOpen(true);
+      if (!event.repeat) setSearchOpen((current) => !current);
     };
     window.addEventListener("keydown", openSearch);
     return () => window.removeEventListener("keydown", openSearch);
+  }, []);
+  useEffect(() => {
+    const syncThemePreference = () => setThemePreferenceState(readThemePreference());
+    window.addEventListener(THEME_CHANGE_EVENT, syncThemePreference);
+    return () => window.removeEventListener(THEME_CHANGE_EVENT, syncThemePreference);
   }, []);
   useEffect(() => {
     if (!appReady) return;
@@ -536,10 +572,11 @@ export default function App() {
   }, []);
   const openAbout = useCallback(() => setAboutOpen(true), []);
   const openHiddenAgents = useCallback(() => setHiddenAgentsOpen(true), []);
-  const openSettings = useCallback(() => {
-    setSettingsTarget(null);
+  const openSettingsTarget = useCallback((anchor: SettingsAnchor | null) => {
+    setSettingsTarget(anchor ? { anchor, nonce: Date.now() } : null);
     setSettingsOpen(true);
   }, []);
+  const openSettings = useCallback(() => openSettingsTarget(null), [openSettingsTarget]);
   const openPlugins = useCallback(() => {
     setPluginTarget(null);
     setPluginsOpen(true);
@@ -615,12 +652,12 @@ export default function App() {
   );
 
   const updateInspectorWidth = (width: number) => {
-    const next = clampInspectorWidth(width);
+    const next = clampInspectorWidth(width, viewportWidth, effectiveSidebarWidth);
     if (inspectorResizeSessionRef.current) inspectorResizeSessionRef.current.width = next;
     setInspectorWidth(next);
   };
   const previewInspectorWidth = (width: number) => {
-    const next = clampInspectorWidth(width);
+    const next = clampInspectorWidth(width, viewportWidth, effectiveSidebarWidth);
     const session = inspectorResizeSessionRef.current;
     if (session) session.width = next;
     if (inspectorPanelRef.current) inspectorPanelRef.current.style.width = `${next}px`;
@@ -756,40 +793,12 @@ export default function App() {
       : undefined;
   const searchActions = useMemo<SearchAction[]>(
     () => [
-      {
-        id: "new-bot",
-        title: "New Bot",
-        subtitle: "Create a persistent assistant",
-        keywords: "create assistant agent",
-        icon: "bot",
-        run: () => setNewBotPicker(true),
-      },
-      {
-        id: "new-channel",
-        title: "New Channel",
-        subtitle: "Start a group conversation",
-        keywords: "create group chat",
-        icon: "channel",
-        run: () => setNewGroupDialog(true),
-      },
-      ...(hiddenAgentCount > 0
-        ? [
-            {
-              id: "open-hidden-chats",
-              title: "Open Hidden Bots",
-              subtitle: "Sidebar actions",
-              keywords: "hidden unhide hide sidebar bots",
-              icon: "hidden" as const,
-              run: () => setHiddenAgentsOpen(true),
-            },
-          ]
-        : []),
       ...(selected
         ? [
             {
               id: "chat-details",
-              title: "Chat Details",
-              subtitle: selected.name,
+              title: "Chat Settings",
+              subtitle: "Current chat",
               keywords: "current channel members info",
               icon: "details" as const,
               run: () => {
@@ -799,23 +808,77 @@ export default function App() {
             },
           ]
         : []),
-      ...(selectedBot
+      {
+        id: "settings-general",
+        title: "Settings: General",
+        subtitle: "Settings",
+        keywords: "account appearance bot defaults",
+        icon: "settings",
+        run: openSettings,
+      },
+      {
+        id: "settings-computer",
+        title: "Settings: Computer",
+        subtitle: "Settings",
+        keywords: "local execution host computers permissions",
+        icon: "computer",
+        run: () => openSettingsTarget("computers"),
+      },
+      {
+        id: "settings-updates",
+        title: "Settings: Updates",
+        subtitle: "Settings",
+        keywords: "desktop server version upgrade",
+        icon: "updates",
+        run: () => openSettingsTarget("update-status"),
+      },
+      {
+        id: "plugins",
+        title: "Plugins",
+        subtitle: "",
+        keywords: "connectors integrations tools",
+        icon: "plugins",
+        run: openPlugins,
+      },
+      ...(hiddenAgentCount > 0
         ? [
             {
-              id: "bot-settings",
-              title: "Bot Settings",
-              subtitle: selectedBot.name,
-              keywords: "profile instructions notifications",
-              icon: "settings" as const,
-              run: () => {
-                setInspectorMode("settings");
-                setDetailsOpen(true);
-              },
+              id: "hidden-bots",
+              title: "Open Hidden Bots",
+              subtitle: "Sidebar",
+              keywords: "hidden bots agents groups unhide",
+              icon: "hidden" as const,
+              run: openHiddenAgents,
             },
           ]
         : []),
+      ...(["system", "light", "dark"] as const).map((preference) => ({
+        id: `theme-${preference}`,
+        title: `Theme: ${preference === "system" ? "System" : preference === "light" ? "Light" : "Dark"}`,
+        subtitle: "Settings · Appearance",
+        keywords: "theme appearance color mode",
+        icon: "theme" as const,
+        current: themePreference === preference,
+        run: () => setThemePreference(preference),
+      })),
+      {
+        id: "check-for-updates",
+        title: "Check for Updates",
+        subtitle: "Updates",
+        keywords: "desktop server version upgrade",
+        icon: "updates",
+        run: () => openSettingsTarget("update-status"),
+      },
     ],
-    [hiddenAgentCount, selected, selectedBot]
+    [
+      hiddenAgentCount,
+      openHiddenAgents,
+      openPlugins,
+      openSettings,
+      openSettingsTarget,
+      selected,
+      themePreference,
+    ]
   );
 
   const selectSearchResult = useCallback(
@@ -864,12 +927,14 @@ export default function App() {
           botById={index.botById}
           channels={visibleChannels}
           creating={newBotPicker}
+          forcedCompact={forcedSidebarCompact}
           hiddenAgentCount={hiddenAgentCount}
           latestMessageByChannel={index.latestMessageByChannel}
           onBotAction={handleBotRowAction}
           onDeleteChannel={setDeleteGroupTarget}
           onEditChannel={editSidebarChannel}
           onHideChannel={hideGroup}
+          onLayoutChange={handleSidebarLayoutChange}
           onNewBot={openNewBot}
           onNewGroup={openNewGroup}
           onOpenAbout={openAbout}
@@ -906,7 +971,7 @@ export default function App() {
             <DesktopHeader
               agentNameById={index.agentNameById}
               botById={index.botById}
-              detailsOpen={detailsOpen}
+              detailsOpen={visibleDetailsOpen}
               directPerspectiveBotId={directPerspectiveBotId}
               inspectorResizing={inspectorResizing}
               inspectorWidth={inspectorWidth}
@@ -1067,15 +1132,15 @@ export default function App() {
               </div>
               <div
                 aria-label="Conversation details"
-                aria-hidden={!detailsOpen}
+                aria-hidden={!visibleDetailsOpen}
                 className={cn(
                   "shrink-0 overflow-hidden bg-inspector opacity-100",
                   !inspectorResizing && "transition-[width,opacity] duration-150 ease-out",
-                  !detailsOpen && "pointer-events-none opacity-0"
+                  !visibleDetailsOpen && "pointer-events-none opacity-0"
                 )}
-                inert={!detailsOpen}
+                inert={!visibleDetailsOpen}
                 ref={inspectorPanelRef}
-                style={{ width: detailsOpen ? inspectorWidth : 0 }}
+                style={{ width: visibleDetailsOpen ? inspectorWidth : 0 }}
               >
                 <div
                   className="relative h-full"
@@ -1085,7 +1150,7 @@ export default function App() {
                   <div
                     aria-label="Resize details"
                     aria-orientation="vertical"
-                    aria-valuemax={maxInspectorWidth()}
+                    aria-valuemax={inspectorMaxWidth}
                     aria-valuemin={MIN_INSPECTOR_WIDTH}
                     aria-valuenow={inspectorWidth}
                     className="electron-no-drag group absolute inset-y-0 left-0 z-40 w-2 cursor-col-resize touch-none outline-none"
@@ -1100,11 +1165,14 @@ export default function App() {
                       if (event.key === "ArrowLeft") next += 16;
                       else if (event.key === "ArrowRight") next -= 16;
                       else if (event.key === "Home") next = MIN_INSPECTOR_WIDTH;
-                      else if (event.key === "End") next = maxInspectorWidth();
+                      else if (event.key === "End") next = inspectorMaxWidth;
                       else return;
                       event.preventDefault();
                       updateInspectorWidth(next);
-                      localStorage.setItem(INSPECTOR_WIDTH_KEY, String(clampInspectorWidth(next)));
+                      localStorage.setItem(
+                        INSPECTOR_WIDTH_KEY,
+                        String(clampInspectorWidth(next, viewportWidth, effectiveSidebarWidth))
+                      );
                     }}
                     onPointerCancel={(event) => finishInspectorResize(event.currentTarget, true)}
                     onPointerDown={(event) => {
@@ -1147,7 +1215,7 @@ export default function App() {
                       )}
                     />
                   </div>
-                  {detailsOpen && selected && (
+                  {visibleDetailsOpen && selected && (
                     <div className="absolute inset-0">
                       <Suspense fallback={null}>
                         <Inspector

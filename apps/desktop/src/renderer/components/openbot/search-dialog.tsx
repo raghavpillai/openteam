@@ -9,13 +9,18 @@ import {
 } from "@openbot/product-core/search";
 import {
   Bot,
+  Check,
   Clock3,
+  CloudDownload,
   EyeOff,
   FileText,
   Hash,
   Link,
   ListRestart,
   LoaderCircle,
+  Monitor,
+  Palette,
+  Puzzle,
   Search,
   Send,
   Settings2,
@@ -29,6 +34,8 @@ import {
   moveSearchSelection,
   SEARCH_SECTIONS,
   type SearchSection,
+  isDefaultSearchResultKind,
+  searchSectionDirectionForKey,
   searchTextMatches,
   searchTimeLabel,
 } from "../../lib/search";
@@ -48,7 +55,17 @@ export interface SearchAction {
   title: string;
   subtitle: string;
   keywords?: string;
-  icon: "bot" | "channel" | "settings" | "details" | "hidden";
+  icon:
+    | "bot"
+    | "channel"
+    | "settings"
+    | "computer"
+    | "details"
+    | "hidden"
+    | "plugins"
+    | "theme"
+    | "updates";
+  current?: boolean;
   run: () => void;
 }
 
@@ -58,6 +75,7 @@ type DisplayResult =
 
 const resultTypeLabel = (result: DisplayResult) => {
   if (result.type === "action") return "Action";
+  if (result.value.kind === "channel") return "Group";
   return searchResultKindLabel(result.value.kind);
 };
 
@@ -113,11 +131,19 @@ function ActionIcon({ action }: { action: SearchAction }) {
       ? Bot
       : action.icon === "channel"
         ? Hash
-        : action.icon === "hidden"
-          ? EyeOff
-          : action.icon === "details"
-            ? ListRestart
-            : Settings2;
+        : action.icon === "computer"
+          ? Monitor
+          : action.icon === "plugins"
+            ? Puzzle
+            : action.icon === "theme"
+              ? Palette
+              : action.icon === "updates"
+                ? CloudDownload
+                : action.icon === "hidden"
+                  ? EyeOff
+                  : action.icon === "details"
+                    ? ListRestart
+                    : Settings2;
   return (
     <span className="grid size-7 shrink-0 place-items-center rounded-[9px] bg-subtle text-foreground-secondary">
       <Icon className="size-3.5" />
@@ -182,21 +208,13 @@ export function SearchDialog({
       setCommandHeld(false);
       return;
     }
-    const updateModifier = (event: KeyboardEvent) => setCommandHeld(event.metaKey);
-    const handleKeyDown = (event: KeyboardEvent) => {
-      updateModifier(event);
-      if (event.isComposing || (event.key !== "ArrowLeft" && event.key !== "ArrowRight")) {
-        return;
-      }
-      event.preventDefault();
-      setSection((current) => moveSearchSection(current, event.key === "ArrowLeft" ? -1 : 1));
-    };
+    const updateModifier = (event: KeyboardEvent) => setCommandHeld(event.metaKey || event.ctrlKey);
     const releaseModifier = () => setCommandHeld(false);
-    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keydown", updateModifier);
     window.addEventListener("keyup", updateModifier);
     window.addEventListener("blur", releaseModifier);
     return () => {
-      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keydown", updateModifier);
       window.removeEventListener("keyup", updateModifier);
       window.removeEventListener("blur", releaseModifier);
     };
@@ -260,19 +278,22 @@ export function SearchDialog({
       ),
     [actions, query]
   );
+  const hasQuery = query.trim().length > 0;
   const results = useMemo<DisplayResult[]>(() => {
     if (section === "actions") {
       return matchingActions.map((value) => ({ type: "action", value }));
     }
-    const documentResults = documents.map((value): DisplayResult => ({ type: "document", value }));
-    if (section === "all" && query.trim()) {
+    const documentResults = documents
+      .filter((value) => section !== "all" || hasQuery || isDefaultSearchResultKind(value.kind))
+      .map((value): DisplayResult => ({ type: "document", value }));
+    if (section === "all" && hasQuery) {
       return [
         ...matchingActions.map((value): DisplayResult => ({ type: "action", value })),
         ...documentResults,
       ];
     }
     return documentResults;
-  }, [documents, matchingActions, query, section]);
+  }, [documents, hasQuery, matchingActions, section]);
 
   useEffect(() => setSelectedIndex(results.length > 0 ? 0 : -1), [results]);
   useEffect(() => {
@@ -289,7 +310,6 @@ export function SearchDialog({
     onOpenChange(false);
   };
 
-  const hasQuery = query.trim().length > 0;
   const emptyState = hasQuery
     ? { title: "No results", description: null, icon: null }
     : section === "messages"
@@ -305,7 +325,7 @@ export function SearchDialog({
           : section === "files"
             ? { title: "No files yet", description: null, icon: FileText }
             : section === "channels"
-              ? { title: "No channels yet", description: null, icon: Hash }
+              ? { title: "No groups yet", description: null, icon: Hash }
               : section === "bots"
                 ? { title: "No bots yet", description: null, icon: Bot }
                 : { title: "Nothing here yet", description: null, icon: null };
@@ -317,21 +337,39 @@ export function SearchDialog({
         className="h-[min(456px,calc(100vh-48px))] max-w-[560px] grid-rows-[auto_auto_1fr] gap-0 overflow-hidden rounded-[15px] border-border/80 bg-popover p-0 shadow-[0_24px_80px_rgba(0,0,0,0.28),0_2px_12px_rgba(0,0,0,0.12)]"
         showCloseButton={false}
       >
-        <DialogTitle className="sr-only">Search OpenBot</DialogTitle>
-        <DialogDescription className="sr-only">
-          Search messages, bots, channels, files, links, routines, and actions.
+        <DialogTitle aria-hidden="true" className="sr-only">
+          Search
+        </DialogTitle>
+        <DialogDescription aria-hidden="true" className="sr-only">
+          Search messages, bots, groups, files, links, routines, and actions.
         </DialogDescription>
         <div className="relative border-b border-border/70">
           <Search className="pointer-events-none absolute left-4 top-1/2 size-[15px] -translate-y-1/2 text-foreground-tertiary" />
           <input
             aria-autocomplete="list"
             aria-controls="search-results"
-            aria-expanded="true"
+            aria-activedescendant={
+              selectedIndex >= 0 && results[selectedIndex]
+                ? `search-result-${selectedIndex}`
+                : undefined
+            }
+            aria-expanded={results.length > 0}
             aria-label="Search"
             className="h-[54px] w-full bg-transparent pl-10 pr-4 text-[14px] outline-none placeholder:text-foreground-tertiary"
             onChange={(event) => setQuery(event.target.value)}
             onKeyDown={(event) => {
-              if (event.metaKey && /^[1-9]$/.test(event.key)) {
+              if (event.nativeEvent.isComposing) return;
+              const sectionDirection = searchSectionDirectionForKey({
+                key: event.key,
+                query: event.currentTarget.value,
+                shiftKey: event.shiftKey,
+              });
+              if (sectionDirection !== null) {
+                event.preventDefault();
+                setSection((current) => moveSearchSection(current, sectionDirection));
+                return;
+              }
+              if ((event.metaKey || event.ctrlKey) && /^[1-9]$/.test(event.key)) {
                 const index = Number(event.key) - 1;
                 if (results[index]) {
                   event.preventDefault();
@@ -357,7 +395,7 @@ export function SearchDialog({
         </div>
 
         <div
-          aria-label="Search sections"
+          aria-label="Filter results"
           className="flex min-w-0 items-center gap-1 overflow-x-auto px-2 py-1.5 [scrollbar-width:none]"
           role="tablist"
         >
@@ -372,6 +410,7 @@ export function SearchDialog({
               onClick={() => setSection(candidate.id)}
               onMouseDown={(event) => event.preventDefault()}
               role="tab"
+              tabIndex={-1}
               type="button"
             >
               {candidate.label}
@@ -383,6 +422,7 @@ export function SearchDialog({
           className="min-h-0 overflow-y-auto p-2"
           id="search-results"
           ref={listRef}
+          aria-label="Results"
           role="listbox"
         >
           {results.length > 0 ? (
@@ -398,6 +438,7 @@ export function SearchDialog({
                       : "hover:bg-[#f0f0f0] dark:hover:bg-hover"
                   )}
                   data-search-result-index={index}
+                  id={`search-result-${index}`}
                   key={key}
                   onClick={() => choose(result)}
                   onMouseEnter={() => setSelectedIndex(index)}
@@ -427,6 +468,11 @@ export function SearchDialog({
                     <kbd className="h-[19px] min-w-[26px] shrink-0 rounded-[5px] bg-[#f3f3f3] px-[5px] py-0 text-center font-sans text-[10px] font-normal leading-[19px] text-[#626262] dark:bg-subtle dark:text-foreground-tertiary">
                       ⌘{index + 1}
                     </kbd>
+                  ) : result.type === "action" && result.value.current ? (
+                    <Check
+                      aria-label="Current"
+                      className="size-3.5 shrink-0 text-foreground-secondary"
+                    />
                   ) : section === "all" ? (
                     <span className="shrink-0 text-[12px] font-normal text-foreground-tertiary">
                       {resultTypeLabel(result)}

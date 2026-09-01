@@ -1,10 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import {
+  canShowInspector,
+  CHAT_MIN_WIDTH,
   COMPACT_SIDEBAR_WIDTH,
+  maxInspectorWidthForLayout,
   MIN_EXPANDED_SIDEBAR_WIDTH,
   MIN_INSPECTOR_WIDTH,
   moveSnappedSidebar,
   resizeInspector,
+  shouldForceCompactSidebar,
   type SnappedSidebarResizeState,
 } from "../src/renderer/lib/panel-resize";
 
@@ -90,5 +94,23 @@ describe("panel resize snapping", () => {
       width: MIN_INSPECTOR_WIDTH,
       shouldClose: true,
     });
+  });
+
+  test("matches Grok's reversible narrow-window pane thresholds", () => {
+    expect(shouldForceCompactSidebar(704, 280)).toBe(false);
+    expect(shouldForceCompactSidebar(703, 280)).toBe(true);
+    expect(shouldForceCompactSidebar(512, COMPACT_SIDEBAR_WIDTH)).toBe(false);
+
+    expect(canShowInspector(984, 280)).toBe(true);
+    expect(canShowInspector(983, 280)).toBe(false);
+    expect(canShowInspector(792, COMPACT_SIDEBAR_WIDTH)).toBe(true);
+    expect(canShowInspector(791, COMPACT_SIDEBAR_WIDTH)).toBe(false);
+    expect(CHAT_MIN_WIDTH).toBe(424);
+  });
+
+  test("lets the details pane grow only into space beyond Grok's chat minimum", () => {
+    expect(maxInspectorWidthForLayout(1_024, 280)).toBe(320);
+    expect(maxInspectorWidthForLayout(984, 280)).toBe(MIN_INSPECTOR_WIDTH);
+    expect(maxInspectorWidthForLayout(800, COMPACT_SIDEBAR_WIDTH)).toBe(288);
   });
 });

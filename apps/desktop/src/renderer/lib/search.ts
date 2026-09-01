@@ -1,4 +1,4 @@
-import type { SearchCategory } from "@openbot/contracts";
+import type { SearchCategory, SearchResultKind } from "@openbot/contracts";
 import {
   normalizeSearchQuery,
   SEARCH_CATEGORIES,
@@ -8,9 +8,31 @@ import {
 export type SearchSection = SearchCategory | "actions";
 
 export const SEARCH_SECTIONS: ReadonlyArray<{ id: SearchSection; label: string }> = [
-  ...SEARCH_CATEGORIES.map(({ category, label }) => ({ id: category, label })),
+  ...SEARCH_CATEGORIES.map(({ category, label }) => ({
+    id: category,
+    label: category === "channels" ? "Groups" : label,
+  })),
   { id: "actions", label: "Actions" },
 ];
+
+export const isDefaultSearchResultKind = (kind: SearchResultKind) =>
+  kind === "bot" || kind === "channel";
+
+export const searchSectionDirectionForKey = ({
+  key,
+  query,
+  shiftKey = false,
+}: {
+  key: string;
+  query: string;
+  shiftKey?: boolean;
+}): -1 | 1 | null => {
+  if (key === "Tab") return shiftKey ? -1 : 1;
+  if (query.length > 0) return null;
+  if (key === "ArrowLeft") return -1;
+  if (key === "ArrowRight") return 1;
+  return null;
+};
 
 export const moveSearchSection = (current: SearchSection, direction: -1 | 1): SearchSection => {
   const index = SEARCH_SECTIONS.findIndex((section) => section.id === current);

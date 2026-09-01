@@ -2568,6 +2568,16 @@ export const Sidebar = memo(function Sidebar({
   useEffect(() => {
     onLayoutChange?.({ compact: storedCompact, width: sidebarWidth });
   }, [onLayoutChange, sidebarWidth, storedCompact]);
+  useEffect(() => {
+    const resizer = sidebarResizerRef.current;
+    if (!resizer) return;
+    const visibleWidth = forcedCompact ? COMPACT_SIDEBAR_WIDTH : sidebarWidth;
+    resizer.setAttribute("aria-valuenow", String(visibleWidth));
+    resizer.setAttribute(
+      "aria-valuetext",
+      forcedCompact || storedCompact ? "Compact" : `${visibleWidth} pixels`
+    );
+  }, [forcedCompact, sidebarWidth, storedCompact]);
   const allSidebarAgentsHidden =
     rows.length === 0 && hiddenAgentCount > 0 && !creating && !pendingBot;
   const virtualizeExpanded = shouldVirtualizeExpandedSidebar(

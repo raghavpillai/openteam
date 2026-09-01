@@ -68,6 +68,7 @@ describe("Grok bot-profile UI parity", () => {
     expect(sidebar).toContain("const compact = forcedCompact || storedCompact");
     expect(sidebar).toContain('forcedCompact && "!w-[88px]"');
     expect(sidebar).toContain('data-sidebar-forced-compact={forcedCompact ? "true" : "false"}');
+    expect(sidebar).toContain('resizer.setAttribute("aria-valuenow", String(visibleWidth))');
     expect(main).toContain("minWidth: 512");
     expect(main).toContain("minHeight: 520");
     expect(avatar).toContain('aria-label="Edit Bot avatar"');

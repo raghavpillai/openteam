@@ -1,14 +1,18 @@
+export type {
+  ChannelClientState,
+  ChannelHistoryPage,
+  ClientBootstrapView,
+  RootSettingsView,
+  RoutineExecutionView,
+  RoutineView,
+  SidebarPreferences,
+} from "@openbot/contracts";
+export { sidebarPreferencesFromRootSettings } from "@openbot/contracts/client-preferences";
+export * from "./auth";
+export * from "./async";
 export * from "./client";
+export * from "./events";
 export * from "./http";
+export * from "./screen";
 export * from "./snapshot";
-
-import type { ProductEvent } from "@openbot/contracts";
-
-export const shouldRefreshForEvent = (event: ProductEvent): boolean => {
-  if (event.topic === "message.delta" || event.topic === "conversation.attached") return false;
-  if (event.topic === "run_item.started" || event.topic === "run_item.completed") {
-    const item = (event.payload as { item?: { type?: string } } | null)?.item;
-    return !item?.type || !["agentMessage", "reasoning", "plan"].includes(item.type);
-  }
-  return true;
-};
+export * from "./sync";

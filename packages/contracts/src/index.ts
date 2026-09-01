@@ -1,8 +1,15 @@
 import { Schema } from "effect";
 import cursorToolsDocument from "./cursor-tools.json";
 import nativeToolsDocument from "./native-tools.json";
+import type { ClientCapabilities } from "./capabilities";
+import type { AgentNotificationKind } from "./notification-content";
 
 export * from "./bot-avatar";
+export * from "./capabilities";
+export * from "./client-preferences";
+export * from "./notification-content";
+export * from "./plugin-settings";
+export * from "./routine-types";
 
 export interface NativeToolDefinition {
   name: string;
@@ -93,6 +100,7 @@ export const RunOrigin = Schema.Literal(
   "bootstrap",
   "routine",
   "event",
+  "connector",
   "background_revival",
   "handoff_resume",
   "broadcast"
@@ -111,6 +119,12 @@ export const RuntimeRequestSource = Schema.Literal(
   "voice-call"
 );
 export type RuntimeRequestSource = typeof RuntimeRequestSource.Type;
+
+export const SEND_TO_USER_REPLY_NUDGE_PROMPT =
+  "Your previous turn left the user without the result they're waiting on — you never called SendToUser that turn, or every SendToUser you tried failed to deliver. Either way they received nothing and are still waiting. Do not assume a send from an earlier turn covered it: an opening acknowledgement back then did not deliver this result (ack ≠ delivery). Deliver the result now by actually invoking the SendToUser tool — make a real tool/function call, not text you write. Plain assistant text is NEVER shown to the user; only a real SendToUser tool invocation reaches them, so if you don't call the tool they just keep seeing silence.";
+
+export const SEND_TO_USER_CLOSING_NUDGE_PROMPT =
+  "Your previous turn acknowledged the user and then ran tool calls, but ended without a follow-up SendToUser — the last thing the user saw is that opening acknowledgement, so whatever the tool calls produced after it never reached them. If that work produced the result or answer they are waiting on, deliver it now by actually invoking the SendToUser tool — make a real tool/function call, not text you write. Plain assistant text is NEVER shown to the user; only a real SendToUser tool invocation reaches them. If the work is genuinely unfinished, continue it and send the result once you have it.";
 
 export const RunItemKind = Schema.Literal(
   "agent_message",
@@ -184,8 +198,6 @@ export const MarkChannelReadInput = Schema.Struct({
 });
 export type MarkChannelReadInput = typeof MarkChannelReadInput.Type;
 
-export type AgentNotificationKind = "agent-needs-input" | "agent-done";
-
 export interface AgentNotificationPayload {
   schemaVersion: 1;
   kind: AgentNotificationKind;
@@ -207,165 +219,13 @@ export interface BadgeSyncNotificationPayload {
 
 export type PushNotificationPayload = AgentNotificationPayload | BadgeSyncNotificationPayload;
 
-export interface AgentNotificationPresentation {
-  title: string;
-  body: string;
-  sound: "default" | null;
-  urgency: "critical" | "normal";
-}
-
-const notificationMetadata = (value: unknown): Record<string, unknown> =>
-  value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
-
-export const normalizeNotificationText = (value: string): string =>
-  value.replace(/\s+/g, " ").trim();
-
-export const notificationGraphemes = (value: string): string[] => {
-  const normalized = normalizeNotificationText(value);
-  const Segmenter = (
-    Intl as unknown as {
-      Segmenter?: new (
-        locale?: string,
-        options?: { granularity: "grapheme" }
-      ) => { segment: (input: string) => Iterable<{ segment: string }> };
-    }
-  ).Segmenter;
-  return Segmenter
-    ? [...new Segmenter(undefined, { granularity: "grapheme" }).segment(normalized)].map(
-        (part) => part.segment
-      )
-    : Array.from(normalized);
-};
-
-export const truncateNotificationText = (value: string, limit = 140): string => {
-  const graphemes = notificationGraphemes(value);
-  return graphemes.length <= limit
-    ? graphemes.join("")
-    : `${graphemes.slice(0, Math.max(0, limit - 1)).join("")}…`;
-};
-
-export const notificationApprovalReason = (details: unknown): string => {
-  const record = notificationMetadata(details);
-  for (const key of ["reason", "message", "description", "command", "title"]) {
-    if (typeof record[key] === "string" && record[key].trim()) {
-      return truncateNotificationText(record[key]);
-    }
-  }
-  return "Waiting for your input.";
-};
-
-export const notificationMessageInputReason = (message: {
-  content?: string | null;
-  metadata?: unknown;
-}): string | null => {
-  const metadata = notificationMetadata(message.metadata);
-  const type = typeof metadata.type === "string" ? metadata.type : "";
-  if (
-    ![
-      "widget",
-      "user_form",
-      "secret-request",
-      "secret_request",
-      "permission_request",
-      "approval_required",
-    ].includes(type)
-  ) {
-    return null;
-  }
-  if (message.content?.trim()) return truncateNotificationText(message.content);
-  if (type === "widget" || type === "user_form") return "Asked you to answer a question.";
-  return "Waiting for your input.";
-};
-
-export const notificationMessagePreview = (message: {
-  content?: string | null;
-  metadata?: unknown;
-}): string => {
-  if (message.content?.trim()) return truncateNotificationText(message.content);
-  const metadata = notificationMetadata(message.metadata);
-  const attachments = Array.isArray(metadata.attachments) ? metadata.attachments : [];
-  if (attachments.length > 0) {
-    const imageCount = attachments.filter((attachment) => {
-      const item = notificationMetadata(attachment);
-      return item.kind === "image" || String(item.mimeType ?? "").startsWith("image/");
-    }).length;
-    if (imageCount === attachments.length) {
-      return imageCount === 1 ? "Sent an image." : `Sent ${imageCount} images.`;
-    }
-    return attachments.length === 1 ? "Sent an attachment." : `Sent ${attachments.length} files.`;
-  }
-  const type = typeof metadata.type === "string" ? metadata.type : "";
-  if (["sent_link", "link"].includes(type)) return "Sent a link.";
-  if (
-    ["secret-request", "secret_request", "permission_request", "approval_required"].includes(type)
-  ) {
-    return "Waiting for your input.";
-  }
-  if (["email_draft", "slack_draft"].includes(type)) return "Prepared a draft for you.";
-  if (type === "widget" || type === "user_form") return "Asked you to answer a question.";
-  if (type === "cursor_agent") return "Finished the delegated task.";
-  return "Open OpenBot to see what it did.";
-};
-
-/**
- * The user-visible contract shared by native macOS notifications and iOS push
- * notifications. Keeping every notification kind in this exhaustive catalog
- * makes adding a new kind a compile-time decision for both clients.
- */
-const agentNotificationTypeCatalog = {
-  "agent-needs-input": {
-    title: (botName: string) => `${botName} needs you`,
-    fallbackBody: "Waiting for your input.",
-    sound: "default",
-    urgency: "critical",
-  },
-  "agent-done": {
-    title: (botName: string) => botName,
-    fallbackBody: "Open OpenBot to see what it did.",
-    sound: null,
-    urgency: "normal",
-  },
-} as const satisfies Record<
-  AgentNotificationKind,
-  {
-    title: (botName: string) => string;
-    fallbackBody: string;
-    sound: "default" | null;
-    urgency: "critical" | "normal";
-  }
->;
-
-export const isAgentNotificationKind = (value: unknown): value is AgentNotificationKind =>
-  typeof value === "string" && value in agentNotificationTypeCatalog;
-
-export const agentNotificationDeliveryPolicy = (
-  kind: AgentNotificationKind
-): Pick<AgentNotificationPresentation, "sound" | "urgency"> => {
-  const definition = agentNotificationTypeCatalog[kind];
-  return { sound: definition.sound, urgency: definition.urgency };
-};
-
-export const agentNotificationPresentation = (input: {
-  kind: AgentNotificationKind;
-  botName: string;
-  body?: string | null;
-}): AgentNotificationPresentation => {
-  const definition = agentNotificationTypeCatalog[input.kind];
-  const botName = normalizeNotificationText(input.botName) || "OpenBot";
-  return {
-    title: definition.title(botName),
-    body: truncateNotificationText(input.body?.trim() ? input.body : definition.fallbackBody),
-    ...agentNotificationDeliveryPolicy(input.kind),
-  };
-};
-
 /** Transient multimodal payload used only between trusted OpenBot services. */
 export const RuntimeInlineImage = Schema.Struct({
   url: Schema.String.pipe(
     Schema.maxLength(28_000_000),
-    Schema.pattern(/^data:image\/(?:gif|jpeg|png|webp);base64,/i)
+    Schema.pattern(
+      /^(?:data:image\/(?:gif|jpeg|png|webp);base64,|\/api\/v0\/assets\/[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$)/i
+    )
   ),
   alt: Schema.optional(Schema.String.pipe(Schema.maxLength(2_000))),
 });
@@ -435,6 +295,12 @@ export const SetChannelMembersInput = Schema.Struct({
 });
 export type SetChannelMembersInput = typeof SetChannelMembersInput.Type;
 
+export const SetChannelHiddenInput = Schema.Struct({
+  hidden: Schema.Boolean,
+  clientId: Schema.String.pipe(Schema.minLength(8), Schema.maxLength(120)),
+});
+export type SetChannelHiddenInput = typeof SetChannelHiddenInput.Type;
+
 export const RenameChannelInput = Schema.Struct({
   name: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(80)),
   clientId: Schema.String.pipe(Schema.minLength(8), Schema.maxLength(120)),
@@ -458,14 +324,18 @@ export type SetChannelAvatarInput = typeof SetChannelAvatarInput.Type;
 export const TodoStatus = Schema.Literal("pending", "in_progress", "completed", "cancelled");
 export type TodoStatus = typeof TodoStatus.Type;
 
+export const TODO_MAX_ITEMS = 64;
+export const TODO_ID_MAX_LENGTH = 120;
+export const TODO_CONTENT_MAX_LENGTH = 1_000;
+
 export const TodoWriteInput = Schema.Struct({
   todos: Schema.Array(
     Schema.Struct({
-      id: Schema.String,
-      content: Schema.String,
+      id: Schema.String.pipe(Schema.maxLength(TODO_ID_MAX_LENGTH)),
+      content: Schema.String.pipe(Schema.maxLength(TODO_CONTENT_MAX_LENGTH)),
       status: TodoStatus,
     })
-  ).pipe(Schema.minItems(2)),
+  ).pipe(Schema.minItems(2), Schema.maxItems(TODO_MAX_ITEMS)),
   merge: Schema.Boolean,
 });
 export type TodoWriteInput = typeof TodoWriteInput.Type;
@@ -512,6 +382,21 @@ export const CreateAgentInput = Schema.Struct({
 });
 export type CreateAgentInput = typeof CreateAgentInput.Type;
 
+export const AGENT_DIRECTORY_QUERY_MAX_LENGTH = 120;
+export const AGENT_DIRECTORY_DEFAULT_LIMIT = 20;
+export const AGENT_DIRECTORY_MAX_LIMIT = 50;
+
+export const ListAgentsInput = Schema.Struct({
+  query: Schema.optional(Schema.String.pipe(Schema.maxLength(AGENT_DIRECTORY_QUERY_MAX_LENGTH))),
+  limit: Schema.optional(
+    Schema.Number.pipe(Schema.int(), Schema.between(1, AGENT_DIRECTORY_MAX_LIMIT))
+  ),
+});
+export type ListAgentsInput = typeof ListAgentsInput.Type;
+
+export const ListGroupsInput = ListAgentsInput;
+export type ListGroupsInput = typeof ListGroupsInput.Type;
+
 export const UpdateAgentInput = Schema.Struct({
   agent_id: Schema.String.pipe(Schema.minLength(1)),
   name: Schema.optional(Schema.String),
@@ -547,7 +432,7 @@ export const SendToAgentInput = Schema.Struct({
 export type SendToAgentInput = typeof SendToAgentInput.Type;
 
 export const AgentSendToUserInput = Schema.Struct({
-  type: Schema.Literal("text", "attachment", "widget", "cursor-agent", "secret-request"),
+  type: Schema.Literal("text", "attachment", "widget", "secret-request"),
   content: Schema.optional(Schema.String),
   url: Schema.optional(Schema.String),
   alt: Schema.optional(Schema.String),
@@ -562,7 +447,6 @@ export const AgentSendToUserInput = Schema.Struct({
   reply_to: Schema.optional(Schema.String),
   channel: Schema.optional(Schema.String),
   to: Schema.optional(Schema.Literal("dm")),
-  bcId: Schema.optional(Schema.String),
   widget: Schema.optional(
     Schema.Struct({
       prompt: Schema.String,
@@ -590,6 +474,53 @@ export const AgentSendToUserInput = Schema.Struct({
   ),
 });
 export type AgentSendToUserInput = typeof AgentSendToUserInput.Type;
+
+/** Safe renderer-facing shape parsed from channel-message metadata. */
+export interface RichMessageWidgetOption {
+  label: string;
+  value?: string;
+  description?: string;
+  style?: "default" | "primary" | "danger";
+}
+
+export interface RichMessageWidget {
+  prompt: string;
+  helpText?: string;
+  options: RichMessageWidgetOption[];
+  multiSelect?: boolean;
+  allowCustom?: boolean;
+  dismissOnMoveOn?: boolean;
+}
+
+export interface RichMessageSecretRequest {
+  label: string;
+  description?: string;
+  connector: string;
+  field: string;
+}
+
+export const WidgetResponseInput = Schema.Struct({
+  value: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(20_000)),
+  clientId: Schema.String.pipe(Schema.minLength(8), Schema.maxLength(120)),
+});
+export type WidgetResponseInput = typeof WidgetResponseInput.Type;
+
+export const WidgetDismissInput = Schema.Struct({
+  clientId: Schema.String.pipe(Schema.minLength(8), Schema.maxLength(120)),
+});
+export type WidgetDismissInput = typeof WidgetDismissInput.Type;
+
+export const SecretSubmissionInput = Schema.Struct({
+  value: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(64_000)),
+  clientId: Schema.String.pipe(Schema.minLength(8), Schema.maxLength(120)),
+});
+export type SecretSubmissionInput = typeof SecretSubmissionInput.Type;
+
+export interface RichMessageMutationView {
+  accepted: boolean;
+  message: ChannelMessageView;
+  runId: string | null;
+}
 
 export const AdminBroadcastInput = Schema.Struct({
   clientId: Schema.String.pipe(Schema.minLength(8), Schema.maxLength(120)),
@@ -792,6 +723,7 @@ export interface PluginCatalogItemView {
 
 export interface PluginConnectionView {
   id: string;
+  revision: string;
   pluginKey: string;
   connectorKey: string;
   name: string;
@@ -807,7 +739,6 @@ export interface PluginConnectionView {
   configured: boolean;
   command: string | null;
   tools: PluginCatalogToolView[];
-  grantedBotIds: string[];
 }
 
 export interface PluginInstallView {
@@ -819,7 +750,6 @@ export interface PluginInstallView {
   publisher: string;
   status: "installed" | "disabled" | "error";
   installedAt: string;
-  enabledBotIds: string[];
   hasSkills: boolean;
   connections: PluginConnectionView[];
 }
@@ -837,8 +767,7 @@ export interface PluginActivityView {
 export interface PluginSettingsView {
   catalog: PluginCatalogItemView[];
   installs: PluginInstallView[];
-  connections: PluginConnectionView[];
-  bots: Array<{ id: string; name: string; icon: string; color: string }>;
+  botCount: number;
   policies: Array<{
     id: string;
     connectionId: string;
@@ -847,6 +776,37 @@ export interface PluginSettingsView {
     decision: "deny" | "prompt" | "allow";
   }>;
   activity: PluginActivityView[];
+}
+
+export interface PluginConnectionStatusView {
+  id: string;
+  revision: string;
+  status: PluginConnectionView["status"];
+  statusMessage: string | null;
+  authorizationUrl: string | null;
+  configured: boolean;
+  tools: PluginCatalogToolView[];
+}
+
+export interface PluginConnectionStatusesView {
+  connections: PluginConnectionStatusView[];
+}
+
+export interface PluginBotAccessItemView {
+  id: string;
+  name: string;
+  icon: string;
+  color: string;
+  skillsEnabled: boolean;
+  grantedConnectionIds: string[];
+}
+
+export interface PluginBotAccessView {
+  pluginKey: string;
+  query: string;
+  offset: number;
+  total: number;
+  bots: PluginBotAccessItemView[];
 }
 
 export const ScreenActionInput = Schema.Union(
@@ -1022,6 +982,22 @@ export interface ScreenStatusView {
   browserProfileScope: "computer";
   browserSessionScope: "computer";
   browserSessionMechanism: "shared-profiles";
+  browserStateCoverage: Array<
+    | "cookies"
+    | "local-storage"
+    | "session-storage"
+    | "indexed-db"
+    | "service-workers"
+    | "cache-storage"
+    | "extensions"
+    | "saved-passwords"
+    | "client-certificates"
+    | "settings"
+    | "bookmarks"
+    | "history"
+    | "open-tabs"
+  >;
+  browserTargetRouting: "bot-owned-tabs";
 }
 
 export const SEND_TO_AGENT_TOOL = cursorTool("SendToAgent");
@@ -1039,6 +1015,8 @@ export const CALL_DYNAMIC_TOOL_TOOL = nativeTool("CallDynamicTool");
 export const CHECK_SUBAGENT_TOOL = cursorTool("CheckSubagent");
 export const CREATE_AGENT_TOOL = cursorTool("CreateAgent");
 export const CREATE_CHANNEL_TOOL = cursorTool("CreateChannel");
+export const LIST_AGENTS_TOOL = cursorTool("ListAgents");
+export const LIST_GROUPS_TOOL = cursorTool("ListGroups");
 export const MESSAGE_SUBAGENT_TOOL = cursorTool("MessageSubagent");
 export const STOP_SUBAGENT_TOOL = cursorTool("StopSubagent");
 export const TASK_TOOL = cursorTool("Task");
@@ -1436,6 +1414,7 @@ export interface ChannelView {
   hasAvatar: boolean;
   directKey: string | null;
   workingDirectory: string | null;
+  hiddenFromSidebar?: boolean;
   members: ChannelMemberView[];
   /** Number of unread user-visible agent messages, synchronized across clients. */
   unreadCount?: number;
@@ -1445,6 +1424,8 @@ export interface ChannelView {
 
 export interface ChannelMessageView {
   id: string;
+  /** Client delivery nonce, retained so optimistic and echoed rows keep one identity. */
+  clientId?: string | null;
   sequence: string;
   channelId: string;
   sender: ChannelMessageSender;
@@ -1453,6 +1434,50 @@ export interface ChannelMessageView {
   content: string;
   metadata: unknown;
   createdAt: string;
+}
+
+export type MessageDeliveryStatus =
+  | "not_found"
+  | "pending"
+  | "accepted"
+  | "rejected"
+  | "unknown_durability";
+
+export interface MessageDeliveryStatusView {
+  clientId: string;
+  status: MessageDeliveryStatus;
+  acceptedAtMs: number | null;
+  message: ChannelMessageView | null;
+  code?: string;
+  messageText?: string;
+}
+
+/** A bounded, chronological window around one exact channel message. */
+export interface ChannelMessageContextView {
+  channelId: string;
+  targetMessageId: string;
+  messages: ChannelMessageView[];
+  /** Older reply targets needed to reconstruct branched threads in `messages`. */
+  threadContext: ChannelMessageView[];
+  /** True only when a pathological reply graph exceeded the server safety cap. */
+  threadContextTruncated: boolean;
+  /** Sequence of the first returned message; pass it to channel history as `before`. */
+  beforeSequence: string;
+  /** Sequence of the last returned message. */
+  afterSequence: string;
+  hasMoreBefore: boolean;
+  hasMoreAfter: boolean;
+  revision: string;
+}
+
+/** Result of toggling the current user's reaction, including the authoritative message. */
+export interface ReactToChannelMessageView {
+  messageId: string;
+  emoji: string;
+  reacted: boolean;
+  removed: boolean;
+  runId: string | null;
+  message: ChannelMessageView;
 }
 
 export const SearchResultKind = Schema.Literal(
@@ -1614,6 +1639,69 @@ export interface Snapshot {
 
 /** Renderer projection. Internal transcript messages stay server-side. */
 export type ClientSnapshot = Omit<Snapshot, "messages">;
+
+/** Initial bounded client payload used before channel history is loaded. */
+export interface ClientBootstrapView {
+  cursor: string;
+  workspace: ClientSnapshot["workspace"];
+  bots: ClientSnapshot["bots"];
+  channels: ClientSnapshot["channels"];
+  latestMessages: ClientSnapshot["channelMessages"];
+  activeRuns: ClientSnapshot["runs"];
+  pendingApprovals: ClientSnapshot["approvals"];
+  channelRounds: ClientSnapshot["channelRounds"];
+  subagents: ClientSnapshot["subagents"];
+  runtime: ClientSnapshot["runtime"];
+  capabilities: ClientCapabilities;
+}
+
+export interface ChannelHistoryPage {
+  channelId: string;
+  messages: ClientSnapshot["channelMessages"];
+  threadContext: ClientSnapshot["channelMessages"];
+  threadContextTruncated: boolean;
+  beforeSequence: string | null;
+  hasMore: boolean;
+  revision: string;
+}
+
+export interface ChannelClientState {
+  channelId: string;
+  revision: string;
+  channelRounds: ClientSnapshot["channelRounds"];
+  runs: ClientSnapshot["runs"];
+  runItems: ClientSnapshot["runItems"];
+  approvals: ClientSnapshot["approvals"];
+  subagents: ClientSnapshot["subagents"];
+  truncated: {
+    channelRounds: boolean;
+    runs: boolean;
+    runItems: boolean;
+    approvals: boolean;
+    subagents: boolean;
+  };
+}
+
+export interface MarkChannelReadView {
+  channelId: string;
+  lastReadSequence: string;
+  unreadCount: number;
+}
+
+/** Lightweight readiness poll that does not rebuild client or channel projections. */
+export interface ClientRuntimeView {
+  runtime: ClientSnapshot["runtime"];
+}
+
+/** Public release metadata used by clients before loading version-sensitive API surfaces. */
+export interface SystemVersionView {
+  releaseVersion: string;
+  apiProtocolVersion: number;
+  minimumClientVersion: string;
+  maximumClientVersionExclusive: string;
+  recommendedClientVersion: string;
+  updateChannel: "stable" | "beta";
+}
 
 export interface ProductEvent {
   sequence: string;

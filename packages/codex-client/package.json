@@ -14,5 +14,8 @@
   "dependencies": {
     "@openbot/contracts": "workspace:*",
     "effect": "3.22.1"
+  },
+  "devDependencies": {
+    "@types/node": "22.19.19"
   }
 }

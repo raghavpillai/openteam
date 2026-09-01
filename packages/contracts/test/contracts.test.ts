@@ -17,8 +17,14 @@ import {
   EXTERNAL_READ_TOOL,
   EXTERNAL_SHELL_TOOL,
   GET_DYNAMIC_TOOLS_TOOL,
+  ListAgentsInput,
+  ListGroupsInput,
   NATIVE_TOOL_NAMES,
   NATIVE_TOOLS,
+  PLUGIN_BOT_ACCESS_PAGE_SIZE,
+  PLUGIN_BOT_ACCESS_QUERY_MAX_LENGTH,
+  PLUGIN_CONNECTION_ID_MAX_LENGTH,
+  PLUGIN_CONNECTION_STATUS_MAX_IDS,
   REACT_TO_MESSAGE_TOOL,
   READ_TOOL,
   ReactToChannelMessageInput,
@@ -434,10 +440,10 @@ describe("API contracts", () => {
     const reactToMessage = NATIVE_TOOLS.find((tool) => tool.name === "ReactToMessage");
     const sendToAgent = CURSOR_TOOLS.find((tool) => tool.tool === "SendToAgent");
 
-    expect(sendToUser?.description.length).toBe(7_821);
-    expect(Buffer.byteLength(sendToUser?.description ?? "")).toBe(7_841);
+    expect(sendToUser?.description.length).toBe(7_443);
+    expect(Buffer.byteLength(sendToUser?.description ?? "")).toBe(7_463);
     expect(sha256(sendToUser?.description ?? "")).toBe(
-      "95b69e1a3776f1b7fbf31d4155df9237b03a4188859661e51a841dc329fdc27f"
+      "2062116d74ddaaeb5c14f04ef66fb008287dce9fb504482cfd7c2213d2c0fdaf"
     );
     expect(reactToMessage?.description.length).toBe(825);
     expect(Buffer.byteLength(reactToMessage?.description ?? "")).toBe(829);
@@ -463,7 +469,7 @@ describe("API contracts", () => {
       required: string[];
     };
     expect(sha256(JSON.stringify(sendToUserSchema))).toBe(
-      "90b89e4d71742a8e54755fa34c1aa19c5c0fc103bdde128d598a1bdea583c627"
+      "897798ca262dedd71adb63e22a6c46fdc8b4c7057345a50f8113b5bd6512c1a7"
     );
     expect(sha256(JSON.stringify(reactToMessageSchema))).toBe(
       "4d3fca3dcb7ae3691ae2c44d0777d80e9d51ce82be88260aab067bfca71ebfe6"
@@ -473,7 +479,6 @@ describe("API contracts", () => {
     );
     expect(Object.keys(sendToUserSchema.properties)).toEqual([
       "alt",
-      "bcId",
       "channel",
       "content",
       "images",
@@ -496,11 +501,13 @@ describe("API contracts", () => {
     expect(sendToAgentSchema.required).toEqual(["target_id", "message"]);
   });
 
-  test("declares only the approved ten-tool Cursor-compatible subset", () => {
+  test("declares only the approved twelve-tool Cursor-compatible subset", () => {
     expect(CURSOR_TOOL_NAMES).toEqual([
       "CheckSubagent",
       "CreateAgent",
       "CreateChannel",
+      "ListAgents",
+      "ListGroups",
       "SendToAgent",
       "MessageSubagent",
       "StopSubagent",
@@ -563,6 +570,47 @@ describe("API contracts", () => {
         merge: false,
       })
     ).toThrow();
+    expect(() =>
+      Schema.decodeUnknownSync(TodoWriteInput)({
+        todos: Array.from({ length: 65 }, (_, index) => ({
+          id: `todo-${index}`,
+          content: "bounded",
+          status: "pending" as const,
+        })),
+        merge: false,
+      })
+    ).toThrow();
+    for (const todo of [
+      { id: "x".repeat(121), content: "bounded", status: "pending" as const },
+      { id: "bounded", content: "x".repeat(1_001), status: "pending" as const },
+    ]) {
+      expect(() =>
+        Schema.decodeUnknownSync(TodoWriteInput)({
+          todos: [todo, { id: "second", content: "bounded", status: "pending" }],
+          merge: false,
+        })
+      ).toThrow();
+    }
+  });
+
+  test("validates bounded read-only agent and group directory inputs", () => {
+    expect(Schema.decodeUnknownSync(ListAgentsInput)({ query: "research", limit: 50 })).toEqual({
+      query: "research",
+      limit: 50,
+    });
+    expect(Schema.decodeUnknownSync(ListGroupsInput)({})).toEqual({});
+    for (const schema of [ListAgentsInput, ListGroupsInput]) {
+      expect(() => Schema.decodeUnknownSync(schema)({ limit: 51 })).toThrow();
+      expect(() => Schema.decodeUnknownSync(schema)({ limit: 0 })).toThrow();
+      expect(() => Schema.decodeUnknownSync(schema)({ query: "x".repeat(121) })).toThrow();
+    }
+  });
+
+  test("keeps plugin Bot-access pages and search terms bounded", () => {
+    expect(PLUGIN_BOT_ACCESS_PAGE_SIZE).toBe(60);
+    expect(PLUGIN_BOT_ACCESS_QUERY_MAX_LENGTH).toBe(120);
+    expect(PLUGIN_CONNECTION_STATUS_MAX_IDS).toBe(50);
+    expect(PLUGIN_CONNECTION_ID_MAX_LENGTH).toBe(120);
   });
 
   test("declares durable update_state with routine compatibility", () => {

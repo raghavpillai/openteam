@@ -4,7 +4,15 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./async": "./src/async.ts",
+    "./auth": "./src/auth.ts",
+    "./client": "./src/client.ts",
+    "./events": "./src/events.ts",
+    "./http": "./src/http.ts",
+    "./screen": "./src/screen.ts",
+    "./snapshot": "./src/snapshot.ts",
+    "./sync": "./src/sync.ts"
   },
   "scripts": {
     "build": "bun build src/index.ts --outdir dist --target browser",

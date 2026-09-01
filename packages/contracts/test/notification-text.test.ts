@@ -79,6 +79,30 @@ describe("notification text", () => {
       notificationMessageInputReason({ content: "", metadata: { type: "secret-request" } })
     ).toBe("Waiting for your input.");
     expect(
+      notificationMessageInputReason({
+        content: "Deploy to production?",
+        metadata: { type: "widget", respondedValue: "No" },
+      })
+    ).toBeNull();
+    expect(
+      notificationMessageInputReason({
+        content: "Deploy to production?",
+        metadata: { type: "widget", widgetDismissed: true },
+      })
+    ).toBeNull();
+    expect(
+      notificationMessageInputReason({
+        content: "Secret requested",
+        metadata: { type: "secret-request", secretProvided: true },
+      })
+    ).toBeNull();
+    expect(
+      notificationMessagePreview({
+        content: "Deploy to production?",
+        metadata: { type: "widget", widgetDismissed: true },
+      })
+    ).toBe("Open OpenBot to see what it did.");
+    expect(
       notificationMessageInputReason({ content: "Finished", metadata: { type: "text" } })
     ).toBeNull();
   });

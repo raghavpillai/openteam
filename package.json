@@ -6,14 +6,20 @@
   "packageManager": "bun@1.3.8",
   "workspaces": [
     "apps/*",
-    "packages/*"
+    "packages/client-core",
+    "packages/contracts",
+    "packages/db",
+    "packages/design-tokens",
+    "packages/messaging",
+    "packages/product-core"
   ],
   "scripts": {
     "build": "turbo run build",
     "dev": "turbo run dev --parallel",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
-    "check": "bun run typecheck && bun run test && bun run build",
+    "check": "bun run typecheck && bun run test && bun run build && bun scripts/performance/check-desktop-budgets.ts",
+    "check:architecture": "bun scripts/check-workspace-boundaries.ts && bun scripts/check-contract-enum-parity.ts && bun scripts/check-mobile-bundle-boundary.ts && bun scripts/check-client-source-duplication.ts",
     "test:cli:e2e": "bun scripts/test-cli-e2e.ts",
     "test:auth:e2e": "bun scripts/test-auth-e2e.ts",
     "db:generate": "bun --filter @openbot/db db:generate",
@@ -24,7 +30,10 @@
     "compose:up": "bash scripts/compose.sh up --build",
     "compose:down": "bash scripts/compose.sh down",
     "desktop": "bun --filter @openbot/desktop dev",
+    "desktop:performance": "bun --filter @openbot/desktop build && bun scripts/performance/check-desktop-budgets.ts",
+    "desktop:performance:release": "bun --filter @openbot/desktop package",
     "desktop:tailscale": "bash scripts/tailscale-dev.sh",
+    "mobile:performance": "bun --filter @openbot/mobile performance",
     "format": "biome format --write .",
     "format:check": "biome format ."
   },
@@ -36,5 +45,12 @@
   },
   "patchedDependencies": {
     "@earendil-works/pi-coding-agent@0.84.3": "patches/@earendil-works%2Fpi-coding-agent@0.84.3.patch"
+  },
+  "overrides": {
+    "deepmerge-ts": "8.0.1",
+    "esbuild": "0.28.1",
+    "pg": "8.23.0",
+    "postcss": "8.5.26",
+    "ws": "8.21.3"
   }
 }

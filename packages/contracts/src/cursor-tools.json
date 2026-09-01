@@ -54,6 +54,48 @@
       }
     },
     {
+      "tool": "ListAgents",
+      "description": "Find another one of the user's agents without loading the full roster. This is read-only and returns a bounded, recently updated list. Pass an exact agent id or exact name when you know it; otherwise pass a short name/title/description query. Omit query for a small recent sample. Hidden agents are included because they remain valid SendToAgent targets.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "maxLength": 120,
+            "description": "Optional exact agent id/name or short case-insensitive name, title, or description search."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50,
+            "description": "Maximum agents to return. Defaults to 20 and never exceeds 50."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "tool": "ListGroups",
+      "description": "Find a group chat this agent belongs to without loading every group. This is read-only and returns a bounded, recently updated list. Pass an exact group id or exact name when you know it; otherwise pass a short name/description query. Omit query for a small recent sample. Only joined groups are returned because only those are valid SendToAgent group targets.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "maxLength": 120,
+            "description": "Optional exact group id/name or short case-insensitive name or description search."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50,
+            "description": "Maximum groups to return. Defaults to 20 and never exceeds 50."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
       "tool": "SendToAgent",
       "description": "Send a message to ANOTHER of your user's agents, OR post into a GROUP chat you belong to, by its id (not the user — SendToUser is how you reach the user). This is FIRE-AND-FORGET and asynchronous, like texting: it delivers your message, wakes that agent (or the group's members), and returns immediately with a delivery acknowledgement. Peer messages run ahead of routines and other background work; pass priority=true on a 1:1 send to interrupt the recipient's current non-user turn (STOP / supersede), like a direct user message (ignored for groups). It does NOT return their reply, and you must not wait or poll for one in this turn — send it and move on. Any reply arrives later as its own message that wakes you on a fresh turn. Get agent ids from your teammates list or ListAgents, and group ids from ListGroups. To include image(s) — a screenshot, chart, or photo the other agent needs — pass images: [{\"url\":\"file:///absolute/path/to/shot.png\",\"alt\":\"...\"}] (file:// or https://). A 1:1 recipient actually sees them, like an image the user sends; never paste an image as a markdown ![](...) in the message text. Group posts are text-only today, so send images to an agent directly. Use it deliberately and sparingly — waking another agent or a whole group is a real side effect, so treat it like messaging on the user's behalf. Message someone or post to a group only when it truly serves the user's goal, not because one was mentioned or complained about, and don't spam a group. Never relay the user's private or unfiltered words (especially a complaint or criticism) verbatim; if relaying is warranted, paraphrase the actionable point diplomatically, not their tone. If you're unsure the user wants this sent, handle it yourself or ask first. Keep the message purposeful, professional, and minimal. One clearly relevant recipient can be normal work; messaging SEVERAL agents about the same effort (or posting it to a group) is a fan-out that wakes every recipient, and their replies land back in the user's chats and rooms — so fan out only when the user explicitly asked you to contact those agents. Otherwise propose it first with a question widget and wait for a yes, and never fan out \"meanwhile\" while you're waiting on the user for data or a decision.",
       "inputSchema": {
@@ -179,9 +221,14 @@
             "items": {
               "type": "object",
               "properties": {
-                "id": { "type": "string", "description": "Unique identifier for the TODO item" },
+                "id": {
+                  "type": "string",
+                  "maxLength": 120,
+                  "description": "Unique identifier for the TODO item"
+                },
                 "content": {
                   "type": "string",
+                  "maxLength": 1000,
                   "description": "The description/content of the todo item"
                 },
                 "status": {
@@ -193,6 +240,7 @@
               "required": ["id", "content", "status"]
             },
             "minItems": 2,
+            "maxItems": 64,
             "description": "Array of TODO items to update or create"
           },
           "merge": {

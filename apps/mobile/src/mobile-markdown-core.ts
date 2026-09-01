@@ -1,4 +1,5 @@
 import {
+  commonMarkdownFeatures,
   messageContainsMarkdownSyntax,
   messageNeedsAdvancedMarkdown,
 } from "@openbot/product-core/markdown";
@@ -16,6 +17,12 @@ export const messageNeedsMobileMarkdown = (content: string): boolean =>
   messageContainsMarkdownSyntax(content) || messageNeedsAdvancedMobileMarkdown(content);
 
 export const messageNeedsAdvancedMobileMarkdown = messageNeedsAdvancedMarkdown;
+
+/** Tables render natively so chat-cell height remains deterministic on iOS. */
+export const messageNeedsDomMobileMarkdown = (content: string): boolean => {
+  const features = commonMarkdownFeatures(content);
+  return features.math || features.mermaid;
+};
 
 /**
  * One chat cell must never expand a valid, very large message into thousands of
@@ -94,7 +101,46 @@ export type MarkdownBlock =
   | { key: string; type: "quote"; text: string }
   | { key: string; type: "list"; ordered: boolean; items: MarkdownListItem[] }
   | { key: string; type: "code"; language: string; text: string }
+  | {
+      key: string;
+      type: "table";
+      headers: MarkdownListItem[];
+      rows: MarkdownListItem[][];
+    }
   | { key: string; type: "rule" };
+
+const tableCells = (line: string): string[] | null => {
+  const trimmed = line.trim();
+  if (!trimmed.includes("|")) return null;
+  const source = trimmed.replace(/^\|/, "").replace(/\|$/, "");
+  const cells: string[] = [];
+  let current = "";
+  let escaped = false;
+  for (const character of source) {
+    if (escaped) {
+      current += character;
+      escaped = false;
+      continue;
+    }
+    if (character === "\\") {
+      escaped = true;
+      current += character;
+      continue;
+    }
+    if (character === "|") {
+      cells.push(current.trim().replace(/\\\|/g, "|"));
+      current = "";
+      continue;
+    }
+    current += character;
+  }
+  if (escaped) current += "\\";
+  cells.push(current.trim().replace(/\\\|/g, "|"));
+  return cells.length > 1 ? cells : null;
+};
+
+const isTableDivider = (cells: string[] | null): cells is string[] =>
+  Boolean(cells?.length && cells.every((cell) => /^:?-{3,}:?$/.test(cell.trim())));
 
 const blockStart = (line: string): boolean =>
   /^\s*(?:#{1,6}\s+|[-*+]\s+|\d+\.\s+|>\s?|```|~~~|(?:-{3,}|\*{3,}|_{3,})\s*$)/.test(line);
@@ -110,6 +156,33 @@ export const parseMobileMarkdown = (content: string): MarkdownBlock[] => {
       continue;
     }
     const blockLine = index;
+    const headers = tableCells(line);
+    const divider = tableCells(lines[index + 1] ?? "");
+    if (headers && isTableDivider(divider) && headers.length === divider.length) {
+      const rows: MarkdownListItem[][] = [];
+      index += 2;
+      while (index < lines.length) {
+        const cells = tableCells(lines[index] ?? "");
+        if (!cells) break;
+        rows.push(
+          headers.map((_, cellIndex) => ({
+            key: `cell:${index}:${cellIndex}`,
+            text: cells[cellIndex] ?? "",
+          }))
+        );
+        index += 1;
+      }
+      blocks.push({
+        key: `block:${blockLine}`,
+        type: "table",
+        headers: headers.map((text, cellIndex) => ({
+          key: `header:${blockLine}:${cellIndex}`,
+          text,
+        })),
+        rows,
+      });
+      continue;
+    }
     const fence = line.match(/^\s*(```|~~~)\s*([^\s]*)\s*$/);
     if (fence) {
       const body: string[] = [];

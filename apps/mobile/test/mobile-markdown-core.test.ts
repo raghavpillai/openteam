@@ -3,6 +3,7 @@ import {
   boundedMobileAccessibilitySummary,
   boundedMobileMarkdownPreview,
   messageNeedsAdvancedMobileMarkdown,
+  messageNeedsDomMobileMarkdown,
   messageNeedsMobileMarkdown,
   parseInlineMarkdown,
   parseMobileMarkdown,
@@ -66,7 +67,7 @@ describe("bounded mobile Markdown", () => {
     ).toBe(true);
   });
 
-  test("routes tables, math, and Mermaid through the advanced renderer", () => {
+  test("renders tables natively while routing math and Mermaid through the DOM renderer", () => {
     expect(
       messageNeedsAdvancedMobileMarkdown("| Name | State |\n| --- | --- |\n| Bot | Ready |")
     ).toBe(true);
@@ -74,6 +75,24 @@ describe("bounded mobile Markdown", () => {
     expect(messageNeedsAdvancedMobileMarkdown("$$\\int_0^1 x^2 dx$$")).toBe(true);
     expect(messageNeedsAdvancedMobileMarkdown("```mermaid\ngraph TD\n A-->B\n```")).toBe(true);
     expect(messageNeedsAdvancedMobileMarkdown("A normal price is $12.00 today.")).toBe(false);
+    expect(messageNeedsDomMobileMarkdown("| Name | State |\n| --- | --- |\n| Bot | Ready |")).toBe(
+      false
+    );
+    expect(messageNeedsDomMobileMarkdown("Energy is $E = mc^2$.")).toBe(true);
+    expect(messageNeedsDomMobileMarkdown("```mermaid\ngraph TD\n A-->B\n```")).toBe(true);
+  });
+
+  test("parses bounded native tables with inline Markdown preserved", () => {
+    const blocks = parseMobileMarkdown(
+      "**Summary**\n\n| Category | Host fact |\n| --- | --- |\n| Cookies | Named in `profile` |\n| Saved passwords | Stored by host |"
+    );
+    const table = blocks.find((block) => block.type === "table");
+
+    expect(table?.type).toBe("table");
+    if (table?.type !== "table") throw new Error("Expected the table fixture to parse");
+    expect(table.headers.map(({ text }) => text)).toEqual(["Category", "Host fact"]);
+    expect(table.rows).toHaveLength(2);
+    expect(table.rows[0]?.[1]?.text).toBe("Named in `profile`");
   });
 
   test("bounds screen-reader summaries for pathological messages", () => {

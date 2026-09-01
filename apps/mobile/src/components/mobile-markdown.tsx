@@ -3,6 +3,7 @@ import { Linking, ScrollView, StyleSheet, Text, View } from "react-native";
 import {
   boundedMobileMarkdownPreview,
   messageNeedsAdvancedMobileMarkdown,
+  messageNeedsDomMobileMarkdown,
   parseInlineMarkdown,
   parseMobileMarkdown,
   shouldRenderRichMobileMarkdown,
@@ -16,14 +17,16 @@ function InlineMarkdown({
   text,
   color,
   linkColor,
+  bold = false,
 }: {
   text: string;
   color: string;
   linkColor: string;
+  bold?: boolean;
 }) {
   const tokens = parseInlineMarkdown(text);
   return (
-    <Text selectable style={[styles.bodyText, { color }]}>
+    <Text selectable style={[styles.bodyText, bold && styles.strong, { color }]}>
       {tokens.map((token) => {
         if (token.type === "code") {
           return (
@@ -75,6 +78,7 @@ export function MobileMarkdown({ content, color }: { content: string; color: str
   const theme = useTheme();
   const rich = shouldRenderRichMobileMarkdown(content);
   const advanced = rich && messageNeedsAdvancedMobileMarkdown(content);
+  const domAdvanced = advanced && messageNeedsDomMobileMarkdown(content);
   const plainPreview = useMemo(
     () => (rich ? null : boundedMobileMarkdownPreview(content)),
     [content, rich]
@@ -97,7 +101,7 @@ export function MobileMarkdown({ content, color }: { content: string; color: str
       </View>
     );
   }
-  if (advanced) {
+  if (domAdvanced) {
     return (
       <AdvancedMarkdown
         borderColor={theme.border}
@@ -149,6 +153,41 @@ export function MobileMarkdown({ content, color }: { content: string; color: str
         if (block.type === "rule") {
           return (
             <View key={block.key} style={[styles.rule, { backgroundColor: theme.separator }]} />
+          );
+        }
+        if (block.type === "table") {
+          const tableRows = [block.headers, ...block.rows];
+          return (
+            <View key={block.key} style={styles.table}>
+              {tableRows.map((row, rowIndex) => (
+                <View
+                  key={rowIndex === 0 ? `${block.key}:header` : `${block.key}:row:${rowIndex}`}
+                  style={[
+                    styles.tableRow,
+                    rowIndex > 0 && styles.tableRowBorder,
+                    { borderColor: theme.separator },
+                  ]}
+                >
+                  {row.map((cell, cellIndex) => (
+                    <View
+                      key={cell.key}
+                      style={[
+                        styles.tableCell,
+                        cellIndex > 0 && styles.tableCellBorder,
+                        { borderColor: theme.separator },
+                      ]}
+                    >
+                      <InlineMarkdown
+                        bold={rowIndex === 0}
+                        color={rowIndex === 0 ? color : theme.textMuted}
+                        linkColor={color}
+                        text={cell.text}
+                      />
+                    </View>
+                  ))}
+                </View>
+              ))}
+            </View>
           );
         }
         if (block.type === "heading") {
@@ -218,6 +257,11 @@ const styles = StyleSheet.create({
   marker: { width: 20, fontSize: 16, lineHeight: 22, textAlign: "right" },
   listText: { flex: 1 },
   rule: { height: StyleSheet.hairlineWidth, marginVertical: 3 },
+  table: { width: "100%" },
+  tableRow: { flexDirection: "row" },
+  tableRowBorder: { borderTopWidth: StyleSheet.hairlineWidth },
+  tableCell: { flex: 1, minWidth: 0, paddingHorizontal: 7, paddingVertical: 7 },
+  tableCellBorder: { borderLeftWidth: StyleSheet.hairlineWidth },
   codeBlock: { minWidth: 240, borderRadius: 10, padding: 11, gap: 6 },
   codeScroller: { flexGrow: 0 },
   codeScrollContent: { flexGrow: 0 },

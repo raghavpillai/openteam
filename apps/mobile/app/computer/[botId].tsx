@@ -826,11 +826,13 @@ export default function ComputerScreen() {
           {keyboardOpen ? (
             <TextInput
               accessibilityLabel="Type on shared computer"
+              autoFocus
               editable={ready && !takeoverBusy}
               onChangeText={handleKeyboardChange}
               onSubmitEditing={submitKeyboard}
               ref={inputRef}
               returnKeyType="send"
+              showSoftInputOnFocus
               style={styles.hiddenInput}
               value={typing}
             />

@@ -8,9 +8,9 @@ export const MOBILE_EXPORT_BUDGETS = {
   assets: 30,
   assetBytes: 7_000_000,
   exactBundleBytes: 4_600_000,
-  // Native settings, raw computer-keyboard fidelity, and native table rendering
-  // measure 3,703,100 B in the production source-mapped Hermes export.
-  mappedBundleBytes: 3_704_000,
+  // Native settings, native table rendering, and conversation action parity
+  // measure 3,707,924 B in the production source-mapped Hermes export.
+  mappedBundleBytes: 3_708_000,
   metroModules: 2_250,
   sourceFiles: 1_850,
 } as const;

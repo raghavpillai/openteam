@@ -183,7 +183,7 @@ const terminalSelect = <Value extends string>(
         label: selected?.label ?? "",
         index: selectedIndex,
         count: options.length,
-        width: process.stdout.columns || 80,
+        width: process.stdout.columns,
       });
       if (renderedLineCount > 0) {
         process.stdout.write(
@@ -214,7 +214,7 @@ const terminalSelect = <Value extends string>(
       clear();
       if (selectedLabel !== undefined) {
         process.stdout.write(
-          `${renderSelectionResult(message, selectedLabel, undefined, process.stdout.columns || 80)}\n`
+          `${renderSelectionResult(message, selectedLabel, undefined, process.stdout.columns)}\n`
         );
       }
     };

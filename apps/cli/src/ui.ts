@@ -47,6 +47,9 @@ const colorEnabled = (
 const paint = (enabled: boolean, value: string, ...codes: string[]): string =>
   enabled ? `${codes.join("")}${value}${ANSI.reset}` : value;
 
+const measuredWidth = (value: number | undefined, fallback = 78): number =>
+  typeof value === "number" && Number.isFinite(value) && value > 0 ? value : fallback;
+
 const truncate = (value: string, width: number): string =>
   value.length <= width ? value : `${value.slice(0, Math.max(1, width - 1))}…`;
 
@@ -83,7 +86,7 @@ const wrapText = (value: string, width: number): string[] => {
 
 export const renderSelectionPrompt = (input: SelectionPromptInput): readonly string[] => {
   const styled = input.color ?? colorEnabled();
-  const width = Math.max(16, Math.min(80, input.width ?? stdout.columns ?? 78));
+  const width = Math.max(16, Math.min(80, measuredWidth(input.width ?? stdout.columns)));
   const position = `${input.index + 1}/${input.count}`;
   const prefix = "  › ";
   const labelWidth = Math.max(1, width - prefix.length - position.length - 1);
@@ -109,7 +112,7 @@ export const renderSelectionResult = (
   color = colorEnabled(),
   width = stdout.columns ?? 78
 ): string => {
-  const limit = Math.max(16, Math.min(80, width));
+  const limit = Math.max(16, Math.min(80, measuredWidth(width)));
   const available = limit - 4;
   const fits = message.length + label.length <= available;
   const labelWidth = fits
@@ -127,7 +130,7 @@ export const renderSetupHeader = (input: {
   width?: number;
 }): string => {
   const styled = input.color ?? false;
-  const width = Math.max(32, Math.min(96, input.width ?? 78));
+  const width = Math.max(32, Math.min(96, measuredWidth(input.width)));
   const heading = ` OPENBOT SETUP · v${input.version} `;
   if (width < 68) {
     const stage = input.stages[input.activeStage];
@@ -176,7 +179,7 @@ export const createSetupPresentation = (input: {
 }): SetupPresentation => {
   const write = input.write ?? ((value: string) => console.log(value));
   const styled = input.color ?? colorEnabled();
-  const width = Math.max(32, Math.min(96, input.width ?? stdout.columns ?? 78));
+  const width = Math.max(32, Math.min(96, measuredWidth(input.width ?? stdout.columns)));
   let activeStage = 0;
   let started = false;
 

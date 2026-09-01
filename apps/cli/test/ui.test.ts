@@ -77,6 +77,28 @@ describe("setup presentation", () => {
     expect(prompt.every((line) => stripAnsi(line).length <= 32)).toBe(true);
   });
 
+  test("uses the standard width when a PTY reports zero columns", () => {
+    const prompt = renderSelectionPrompt({
+      message: "Access mode",
+      label: "Public HTTPS",
+      index: 0,
+      count: 5,
+      color: false,
+      width: 0,
+    });
+    const header = renderSetupHeader({
+      version: "1.2.3",
+      stages,
+      activeStage: 0,
+      color: false,
+      width: 0,
+    });
+
+    expect(prompt[1]?.length).toBe(78);
+    expect(header.split("\n").every((line) => line.length <= 78)).toBe(true);
+    expect(header).toContain("● Access");
+  });
+
   test("renders completed, active, and pending stages without terminal escape codes", () => {
     const header = renderSetupHeader({
       version: "1.2.3",

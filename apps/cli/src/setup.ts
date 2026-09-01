@@ -6,8 +6,8 @@ import { createInterface } from "node:readline/promises";
 import { Writable } from "node:stream";
 import type { InstallationManifest, InstallationPaths } from "./config";
 import {
-  installationExists,
   ensureAuthenticationSecret,
+  installationExists,
   parseEnvironment,
   readManifest,
   replaceEnvironmentValue,
@@ -143,9 +143,7 @@ export const selectionActionForKey = (
     if (index < options.length) return index;
   }
   const shortcut = character.toLowerCase();
-  const shortcutIndex = options.findIndex(
-    (option) => option.shortcut?.toLowerCase() === shortcut
-  );
+  const shortcutIndex = options.findIndex((option) => option.shortcut?.toLowerCase() === shortcut);
   return shortcutIndex >= 0 ? shortcutIndex : null;
 };
 
@@ -163,7 +161,6 @@ const terminalSelect = <Value extends string>(
     const initialIndex = options.findIndex((option) => option.value === current);
     let selectedIndex = initialIndex >= 0 ? initialIndex : 0;
     const wasRaw = input.isRaw;
-    const wasPaused = input.isPaused();
 
     const render = () => {
       const selected = options[selectedIndex];
@@ -175,7 +172,9 @@ const terminalSelect = <Value extends string>(
     const cleanup = () => {
       input.off("keypress", onKeypress);
       if (input.setRawMode) input.setRawMode(Boolean(wasRaw));
-      if (wasPaused) input.pause();
+      // readline will resume stdin for the next text/secret prompt. Pausing here
+      // prevents a completed standalone selection from keeping Node or Bun alive.
+      input.pause();
       process.stdout.write("\n");
     };
     const onKeypress = (character = "", key: { name?: string; ctrl?: boolean } = {}) => {
@@ -774,9 +773,7 @@ export const setupCommand = async (
               ] as const,
               "yes"
             )
-          : (await prompter.question("Apply this configuration? [Y/n/back] "))
-              .trim()
-              .toLowerCase();
+          : (await prompter.question("Apply this configuration? [Y/n/back] ")).trim().toLowerCase();
         if (!answer || answer === "y" || answer === "yes") {
           configuration = candidate;
           break;

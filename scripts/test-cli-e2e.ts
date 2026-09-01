@@ -85,20 +85,25 @@ const tclQuote = (value: string): string =>
 const cliInteractive = (args: readonly string[], input: string) => {
   if (process.platform === "darwin") {
     const answers = input.trimEnd().split("\n");
+    const accessIndex = Number.parseInt(answers[0] ?? "", 10);
+    const accessInput =
+      Number.isInteger(accessIndex) && accessIndex >= 1 && accessIndex <= 5
+        ? `${"\u001b[B".repeat(accessIndex - 1)}\r`
+        : `${answers[0] ?? ""}\r`;
     const interactions = [
-      ["Access mode", answers[0]],
-      ["OpenBot username", answers[1]],
-      ["OpenBot password:", answers[2]],
-      ["Confirm OpenBot password:", answers[3]],
-      ["Sign in to OpenAI Codex now?", answers[4]],
-      ["Apply this configuration?", answers[5]],
+      ["Access mode", accessInput],
+      ["OpenBot username", `${answers[1] ?? ""}\r`],
+      ["OpenBot password:", `${answers[2] ?? ""}\r`],
+      ["Confirm OpenBot password:", `${answers[3] ?? ""}\r`],
+      ["Sign in to OpenAI Codex now?", `${answers[4] ?? ""}\r`],
+      ["Apply this configuration?", `${answers[5] ?? ""}\r`],
     ] as const;
     const program = [
       "set timeout 300",
       `spawn node ${tclQuote(cliPath)} ${args.map(tclQuote).join(" ")}`,
       ...interactions.flatMap(([prompt, answer]) => [
         `expect ${tclQuote(prompt)}`,
-        `send -- ${tclQuote(`${answer ?? ""}\r`)}`,
+        `send -- ${tclQuote(answer)}`,
       ]),
       "expect eof",
       "set child_status [wait]",

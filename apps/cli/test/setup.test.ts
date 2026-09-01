@@ -11,13 +11,13 @@ import {
   writeFileAtomic,
   writeManifest,
 } from "../src/config";
-import type { CommandRunner, RunOptions, RunResult } from "../src/process";
 import { accountUpdateCommand, passwordResetCommand } from "../src/password";
+import type { CommandRunner, RunOptions, RunResult } from "../src/process";
 import {
   collectSetupConfiguration,
   detectPrivateNetworkHost,
-  selectionActionForKey,
   type SetupPrompter,
+  selectionActionForKey,
   setupCommand,
 } from "../src/setup";
 

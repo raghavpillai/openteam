@@ -1,7 +1,7 @@
 # OpenBot planning index
 
 Status: MVP v0 implemented  
-Last updated: 2026-08-25
+Last updated: 2026-09-01
 
 ## Goal
 
@@ -64,6 +64,7 @@ The numbered files preserve research and design history; a lower number is not a
 - `38-ios-performance-and-parity-audit.md`: source, bundle, dependency, sync, cache, upload, list, search, computer, authentication, and API-scale audit with measured remediation.
 - `39-ios-native-simulator-validation.md`: signed Release simulator build/install, native Computer Use coverage, long-chat A/B, CPU/network/footprint evidence, final gates, and physical-device release gaps.
 - `40-desktop-performance-reaudit.md`: completed dependency, Electron-main, renderer, search, realistic-workload, and 1,100-chat stress re-audit with before/after fixes, packaged smoke, CUA parity, and residual bottlenecks.
+- `41-message-pagination-performance-data.md`: current source audit, deterministic policy comparison, live keyset/API measurements, Electron history-retention observation, pagination trade-offs, and the gated bounded-window recommendation.
 
 ## Vocabulary
 

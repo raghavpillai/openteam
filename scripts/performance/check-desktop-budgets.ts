@@ -106,11 +106,11 @@ const startupCssBytes = result.renderer.startup.files
 // Keep a tight ceiling below upstream's 178.8 KB rather than hiding 82.5 KB
 // behind every first-open lazy surface merely to preserve the older shell-only gate.
 atMost("startup CSS bytes", startupCssBytes, 165_000);
-// Durable offline-send recovery added 4.1 KB to the feature-complete renderer
-// after the previous 15.5 MB ratchet was set. Rebaseline raw bytes by 0.16%
-// with explicit headroom, while adding a compressed-output ceiling and keeping
-// the startup and every nested Shiki/Mermaid boundary budget unchanged.
-atMost("renderer bytes", result.renderer.bytes, 15_525_000);
+// Durable recovery plus the responsive/search and direct-computer-control pass
+// brings the feature-complete renderer to 15,526,913 bytes. Keep less than 0.06%
+// headroom while the compressed, startup, and nested Shiki/Mermaid ceilings
+// continue to guard the bytes that affect delivery and first interaction.
+atMost("renderer bytes", result.renderer.bytes, 15_535_000);
 atMost("renderer gzip bytes", result.renderer.gzipBytes, 3_800_000);
 atMost("build-analysis metadata bytes", result.renderer.buildMetadata.bytes, 256_000);
 atMost("Electron runtime bytes", result.electron.bytes, 2_300_000);

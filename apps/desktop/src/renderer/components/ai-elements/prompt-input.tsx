@@ -160,6 +160,15 @@ export function PromptInput({
     attachmentsRef.current = next;
     setAttachments(next);
   }, []);
+  const consumeEmptyRecovery = useCallback(
+    (nextText: string, nextAttachmentCount: number) => {
+      const nonce = appliedRecoveryNonce.current;
+      if (!nonce || nextText.trim() || nextAttachmentCount > 0) return;
+      appliedRecoveryNonce.current = null;
+      void onRecoveryConsumed?.(nonce);
+    },
+    [onRecoveryConsumed]
+  );
   const renderedReply = reply ?? retainedReply;
   const replyOpen = Boolean(reply);
   const hasText = value.trim().length > 0;
@@ -611,6 +620,10 @@ export function PromptInput({
                   replaceAttachments(
                     attachmentsRef.current.filter(({ id }) => id !== attachment.id)
                   );
+                  consumeEmptyRecovery(
+                    value,
+                    attachmentsRef.current.filter(({ id }) => id !== attachment.id).length
+                  );
                 };
                 return attachment.previewUrl ? (
                   <ImageAttachment
@@ -708,6 +721,7 @@ export function PromptInput({
               onChange={(plainText, nextRichText) => {
                 setValue(plainText);
                 setRichText(nextRichText);
+                consumeEmptyRecovery(plainText, attachmentsRef.current.length);
               }}
               onPaste={onPaste}
               onSubmit={() => void submit()}

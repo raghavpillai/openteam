@@ -478,6 +478,14 @@ export function Composer({
     void mapWithConcurrency(staged, MAX_PARALLEL_UPLOADS, uploadAttachment);
   };
 
+  const consumeEmptyRecovery = (nextText: string, nextAttachmentCount: number) => {
+    const nonce = appliedRecoveryNonce.current;
+    if (!nonce || nextText.trim() || nextAttachmentCount > 0) return;
+    appliedRecoveryNonce.current = null;
+    setRecoveryNonce(null);
+    void onRecoveryConsumed?.(nonce);
+  };
+
   const removeAttachment = (attachment: PendingAttachment) => {
     uploadControllers.current.get(attachment.id)?.abort();
     uploadControllers.current.delete(attachment.id);
@@ -485,7 +493,9 @@ export function Composer({
       void onDiscardStages?.([attachment.staged]);
     }
     draftHydrationGuardRef.current.markEdited("attachments");
-    setAttachments((current) => current.filter(({ id }) => id !== attachment.id));
+    const next = latestAttachments.current.filter(({ id }) => id !== attachment.id);
+    setAttachments(next);
+    consumeEmptyRecovery(latestText.current, next.length);
   };
 
   const pickFromLibrary = async () => {
@@ -666,6 +676,7 @@ export function Composer({
   const updateText = (value: string) => {
     draftHydrationGuardRef.current.markEdited("text");
     setText(value);
+    consumeEmptyRecovery(value, latestAttachments.current.length);
     // iOS does not always emit a fresh content-size event for explicit newlines
     // inserted through dictation, hardware keyboards, or accessibility input.
     // Keep an exact line-count fallback so no entered line can be clipped.

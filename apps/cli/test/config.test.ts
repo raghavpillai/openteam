@@ -5,6 +5,7 @@ import { join } from "node:path";
 import {
   createEnvironment,
   defaultInstallDirectory,
+  ensureAuthenticationSecret,
   installationPaths,
   normalizeRepository,
   normalizeVersion,
@@ -42,12 +43,19 @@ describe("installation configuration", () => {
     expect(first.get("OPENBOT_VERSION")).toBe("1.2.3");
     expect(first.get("OPENBOT_TIME_ZONE")).toBe("Etc/UTC");
     expect(first.get("OPENBOT_BIND_HOST")).toBe("127.0.0.1");
+    expect(first.get("OPENBOT_VIEWER_BIND_HOST")).toBe("127.0.0.1");
     expect(first.get("OPENBOT_PUBLIC_HOST")).toBe("127.0.0.1");
+    expect(first.get("OPENBOT_PUBLIC_URL")).toBe("http://127.0.0.1:8787");
+    expect(first.get("OPENBOT_ACCESS_MODE")).toBe("local");
+    expect(first.get("COMPOSE_PROFILES")).toBe("direct");
+    expect(first.get("OPENBOT_AUTH_MODE")).toBe("required");
     expect(first.get("OPENBOT_CONTROL_TOKEN")).toHaveLength(64);
     expect(first.get("OPENBOT_AUTH_SECRET")).toHaveLength(64);
+    expect(first.get("OPENBOT_PROXY_SECRET")).toHaveLength(64);
     expect(first.get("OPENBOT_POSTGRES_PASSWORD")).toHaveLength(64);
     expect(first.get("OPENBOT_CONTROL_TOKEN")).not.toBe(second.get("OPENBOT_CONTROL_TOKEN"));
     expect(first.get("OPENBOT_AUTH_SECRET")).not.toBe(second.get("OPENBOT_AUTH_SECRET"));
+    expect(first.get("OPENBOT_PROXY_SECRET")).not.toBe(second.get("OPENBOT_PROXY_SECRET"));
   });
 
   test("updates one environment setting without changing secrets", () => {
@@ -59,6 +67,15 @@ describe("installation configuration", () => {
     expect(after.get("OPENBOT_CONTROL_TOKEN")).toBe(before.get("OPENBOT_CONTROL_TOKEN"));
     expect(after.get("OPENBOT_AUTH_SECRET")).toBe(before.get("OPENBOT_AUTH_SECRET"));
     expect(after.get("OPENBOT_POSTGRES_PASSWORD")).toBe(before.get("OPENBOT_POSTGRES_PASSWORD"));
+  });
+
+  test("upgrades a legacy environment with independent auth and proxy secrets", () => {
+    const upgraded = parseEnvironment(
+      ensureAuthenticationSecret("OPENBOT_VERSION=1.0.0\nOPENBOT_AUTH_SECRET=short\n")
+    );
+    expect(upgraded.get("OPENBOT_AUTH_SECRET")).toHaveLength(64);
+    expect(upgraded.get("OPENBOT_PROXY_SECRET")).toHaveLength(64);
+    expect(upgraded.get("OPENBOT_AUTH_SECRET")).not.toBe(upgraded.get("OPENBOT_PROXY_SECRET"));
   });
 
   test("writes secret files privately and atomically", () => {

@@ -1,3 +1,5 @@
+import { safeErrorMessage } from "@openbot/product-core/redaction";
+
 export class CliError extends Error {
   constructor(
     message: string,
@@ -8,5 +10,4 @@ export class CliError extends Error {
   }
 }
 
-export const errorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error);
+export const errorMessage = safeErrorMessage;

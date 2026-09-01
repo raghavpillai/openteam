@@ -13,10 +13,13 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import {
   COMPOSE_FILENAME,
+  BACKUP_DIRECTORY,
   DEFAULT_IMAGE_PREFIX,
   DEFAULT_REPOSITORY,
   ENV_FILENAME,
   INSTALLATION_FILENAME,
+  UPDATE_LOCK_DIRECTORY,
+  UPDATE_STATE_FILENAME,
 } from "./constants";
 import { CliError } from "./errors";
 
@@ -37,6 +40,9 @@ export interface InstallationPaths {
   compose: string;
   environment: string;
   manifest: string;
+  updateState: string;
+  updateLock: string;
+  backups: string;
 }
 
 export const defaultInstallDirectory = (
@@ -59,6 +65,9 @@ export const installationPaths = (directory: string): InstallationPaths => ({
   compose: join(resolve(directory), COMPOSE_FILENAME),
   environment: join(resolve(directory), ENV_FILENAME),
   manifest: join(resolve(directory), INSTALLATION_FILENAME),
+  updateState: join(resolve(directory), UPDATE_STATE_FILENAME),
+  updateLock: join(resolve(directory), UPDATE_LOCK_DIRECTORY),
+  backups: join(resolve(directory), BACKUP_DIRECTORY),
 });
 
 const assertSingleLine = (name: string, value: string): string => {
@@ -110,10 +119,17 @@ export const createEnvironment = (options: {
     `OPENBOT_POSTGRES_PASSWORD=${randomBytes(32).toString("hex")}`,
     `OPENBOT_CONTROL_TOKEN=${randomBytes(32).toString("hex")}`,
     `OPENBOT_AUTH_SECRET=${randomBytes(32).toString("hex")}`,
+    `OPENBOT_PROXY_SECRET=${randomBytes(32).toString("hex")}`,
+    "OPENBOT_AUTH_MODE=required",
     `OPENBOT_TIME_ZONE=${timeZone}`,
+    "OPENBOT_ACCESS_MODE=local",
     "OPENBOT_BIND_HOST=127.0.0.1",
+    "OPENBOT_VIEWER_BIND_HOST=127.0.0.1",
     "OPENBOT_PUBLIC_HOST=127.0.0.1",
+    "OPENBOT_PUBLIC_URL=http://127.0.0.1:8787",
+    "OPENBOT_AUTH_URL=http://127.0.0.1:8787",
     "OPENBOT_API_PORT=8787",
+    "COMPOSE_PROFILES=direct",
     "OPENBOT_PI_MODEL=gpt-5.5",
     "OPENBOT_PI_THINKING=high",
     "OPENBOT_WORKER_CONCURRENCY=8",
@@ -145,9 +161,23 @@ export const replaceEnvironmentValue = (contents: string, key: string, value: st
 };
 
 export const ensureAuthenticationSecret = (contents: string): string => {
-  const current = parseEnvironment(contents).get("OPENBOT_AUTH_SECRET");
-  if (current && current.length >= 32) return contents;
-  return replaceEnvironmentValue(contents, "OPENBOT_AUTH_SECRET", randomBytes(32).toString("hex"));
+  let updated = contents;
+  const current = parseEnvironment(updated);
+  if ((current.get("OPENBOT_AUTH_SECRET")?.length ?? 0) < 32) {
+    updated = replaceEnvironmentValue(
+      updated,
+      "OPENBOT_AUTH_SECRET",
+      randomBytes(32).toString("hex")
+    );
+  }
+  if ((current.get("OPENBOT_PROXY_SECRET")?.length ?? 0) < 32) {
+    updated = replaceEnvironmentValue(
+      updated,
+      "OPENBOT_PROXY_SECRET",
+      randomBytes(32).toString("hex")
+    );
+  }
+  return updated;
 };
 
 export const ensureDirectory = (path: string): void => {

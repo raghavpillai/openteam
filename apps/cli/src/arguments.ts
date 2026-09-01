@@ -19,12 +19,17 @@ export interface CliOptions {
   repository?: string;
   composeUrl?: string;
   checksumUrl?: string;
+  signatureUrl?: string;
   projectName?: string;
   imagePrefix?: string;
   yes: boolean;
   purge: boolean;
   force: boolean;
+  allowDowngrade: boolean;
+  allowPrerelease: boolean;
+  allowUnsigned: boolean;
   advanced: boolean;
+  jsonProgress: boolean;
   username?: string;
   password: boolean;
 }
@@ -49,6 +54,7 @@ const valueFlags = new Map<
   | "repository"
   | "composeUrl"
   | "checksumUrl"
+  | "signatureUrl"
   | "projectName"
   | "imagePrefix"
   | "username"
@@ -59,6 +65,7 @@ const valueFlags = new Map<
   ["--repository", "repository"],
   ["--compose-url", "composeUrl"],
   ["--checksum-url", "checksumUrl"],
+  ["--signature-url", "signatureUrl"],
   ["--project-name", "projectName"],
   ["--image-prefix", "imagePrefix"],
   ["--username", "username"],
@@ -72,7 +79,11 @@ export const parseArguments = (argv: readonly string[]): CliOptions => {
       yes: false,
       purge: false,
       force: false,
+      allowDowngrade: false,
+      allowPrerelease: false,
+      allowUnsigned: false,
       advanced: false,
+      jsonProgress: false,
       password: false,
     };
   }
@@ -82,7 +93,11 @@ export const parseArguments = (argv: readonly string[]): CliOptions => {
       yes: false,
       purge: false,
       force: false,
+      allowDowngrade: false,
+      allowPrerelease: false,
+      allowUnsigned: false,
       advanced: false,
+      jsonProgress: false,
       password: false,
     };
   }
@@ -107,7 +122,11 @@ export const parseArguments = (argv: readonly string[]): CliOptions => {
     yes: false,
     purge: false,
     force: false,
+    allowDowngrade: false,
+    allowPrerelease: false,
+    allowUnsigned: false,
     advanced: false,
+    jsonProgress: false,
     password: false,
   };
   for (let index = 0; index < rest.length; index += 1) {
@@ -125,8 +144,24 @@ export const parseArguments = (argv: readonly string[]): CliOptions => {
       options.force = true;
       continue;
     }
+    if (flag === "--allow-downgrade") {
+      options.allowDowngrade = true;
+      continue;
+    }
+    if (flag === "--allow-prerelease") {
+      options.allowPrerelease = true;
+      continue;
+    }
+    if (flag === "--allow-unsigned") {
+      options.allowUnsigned = true;
+      continue;
+    }
     if (flag === "--advanced") {
       options.advanced = true;
+      continue;
+    }
+    if (flag === "--json-progress") {
+      options.jsonProgress = true;
       continue;
     }
     if (flag === "--password") {

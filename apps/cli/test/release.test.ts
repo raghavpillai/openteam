@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { downloadRelease, releaseComposeUrl, validateCompose } from "../src/release";
+import {
+  downloadRelease,
+  releaseComposeUrl,
+  validateCompose,
+  verifyReleaseSignature,
+} from "../src/release";
 
 const compose = `name: openbot
 services:
@@ -43,6 +48,7 @@ describe("release downloads", () => {
       version: "1.2.3",
       composeUrl: `${origin}/openbot-compose.yaml`,
       checksumUrl: `${origin}/SHA256SUMS`,
+      allowUnsigned: true,
     });
     expect(release.compose).toBe(compose);
     expect(release.version).toBe("1.2.3");
@@ -65,6 +71,7 @@ describe("release downloads", () => {
         version: "1.2.3",
         composeUrl: `${origin}/openbot-compose.yaml`,
         checksumUrl: `${origin}/SHA256SUMS`,
+        allowUnsigned: true,
       })
     ).rejects.toThrow("Checksum verification failed");
   });
@@ -73,5 +80,16 @@ describe("release downloads", () => {
     expect(() => validateCompose("services:\n  app:\n    image: example\n")).toThrow(
       "unexpected size"
     );
+  });
+
+  test("fails closed for a malformed or untrusted Sigstore bundle", async () => {
+    await expect(
+      verifyReleaseSignature({
+        repository: "owner/repo",
+        version: "1.2.3",
+        compose,
+        serializedBundle: "{}",
+      })
+    ).rejects.toThrow("Sigstore verification failed");
   });
 });

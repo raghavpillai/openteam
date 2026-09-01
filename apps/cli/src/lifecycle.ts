@@ -1,5 +1,7 @@
 import { readFileSync, rmSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { createInterface } from "node:readline/promises";
+import semver from "semver";
 import type { CliOptions } from "./arguments";
 import type { InstallationManifest, InstallationPaths } from "./config";
 import {
@@ -22,6 +24,35 @@ import { CliError } from "./errors";
 import { checkHealth, waitForHealth } from "./health";
 import type { CommandRunner } from "./process";
 import { downloadRelease, latestReleaseVersion } from "./release";
+import {
+  acquireUpdateLock,
+  assertUpdatePreflight,
+  createDatabaseBackup,
+  readUpdateState,
+  writeUpdateState,
+  type PersistedUpdateState,
+} from "./update-safety";
+
+export const UPDATE_PROGRESS_PREFIX = "@@OPENBOT_UPDATE@@";
+export type UpdateProgressPhase =
+  | "checking"
+  | "downloading"
+  | "backing-up"
+  | "pulling"
+  | "restarting"
+  | "verifying"
+  | "rolling-back"
+  | "complete";
+
+const reportUpdateProgress = (
+  options: CliOptions,
+  phase: UpdateProgressPhase,
+  message: string,
+  version?: string
+) => {
+  if (!options.jsonProgress) return;
+  console.log(`${UPDATE_PROGRESS_PREFIX}${JSON.stringify({ phase, message, version })}`);
+};
 
 const requireInstallation = (paths: InstallationPaths): InstallationManifest => {
   if (!installationExists(paths)) {
@@ -38,10 +69,16 @@ const requireInstallation = (paths: InstallationPaths): InstallationManifest => 
 const manifestProjectName = (manifest: InstallationManifest): string =>
   normalizeProjectName(manifest.projectName || PROJECT_NAME);
 
-const startProject = async (project: ComposeProject, paths: InstallationPaths): Promise<void> => {
-  project.runOrThrow(["up", "--detach", "--remove-orphans"], { inherit: true });
+const startProject = async (
+  project: ComposeProject,
+  paths: InstallationPaths,
+  expectedVersion?: string
+): Promise<void> => {
+  project.runOrThrow(["up", "--detach", "--remove-orphans", "--wait", "--wait-timeout", "180"], {
+    inherit: true,
+  });
   process.stdout.write("Waiting for OpenBot");
-  const health = await waitForHealth(paths);
+  const health = await waitForHealth(paths, 180_000, expectedVersion);
   if (!health.ok) throw new CliError(`OpenBot did not become healthy: ${health.detail}`);
   console.log(`OpenBot is ready at ${health.url.replace(/\/api\/v0\/health$/, "")}`);
 };
@@ -76,6 +113,8 @@ export const installCommand = async (
     version,
     composeUrl: options.composeUrl,
     checksumUrl: options.checksumUrl,
+    signatureUrl: options.signatureUrl,
+    allowUnsigned: options.allowUnsigned,
   });
   ensureDirectory(paths.directory);
   const now = new Date().toISOString();
@@ -98,7 +137,7 @@ export const installCommand = async (
   const project = requireComposeProject(paths, runner, projectName);
   console.log("Pulling OpenBot container images…");
   project.runOrThrow(["pull"], { inherit: true });
-  await startProject(project, paths);
+  await startProject(project, paths, version);
   console.log(`Installation configuration: ${paths.directory}`);
   console.log("Next: run openbot setup to configure the server and sign in to OpenAI Codex.");
 };
@@ -131,7 +170,7 @@ export const statusCommand = async (
   if (!health.ok)
     throw new CliError(`OpenBot is not healthy at ${health.url}: ${health.detail}`, 2);
   console.log(
-    `\nHealth: ${health.detail}${health.agent ? `; model ${health.agent}` : ""} (${health.url})`
+    `\nHealth: ${health.detail}${health.version ? `; release ${health.version}` : ""}${health.agent ? `; model ${health.agent}` : ""} (${health.url})`
   );
 };
 
@@ -148,32 +187,79 @@ export const startCommand = async (
   runner: CommandRunner
 ): Promise<void> => {
   const manifest = requireInstallation(paths);
-  await startProject(requireComposeProject(paths, runner, manifestProjectName(manifest)), paths);
+  await startProject(
+    requireComposeProject(paths, runner, manifestProjectName(manifest)),
+    paths,
+    manifest.version
+  );
   if (manifest.uninstalledAt) {
     writeManifest(paths, { ...manifest, uninstalledAt: undefined });
   }
 };
 
-export const updateCommand = async (
+const updateCommandUnlocked = async (
   paths: InstallationPaths,
   options: CliOptions,
   runner: CommandRunner
 ): Promise<void> => {
   const manifest = requireInstallation(paths);
   const repository = normalizeRepository(options.repository || manifest.repository);
+  let persisted: PersistedUpdateState = writeUpdateState(paths, {
+    schemaVersion: 1,
+    jobId: randomUUID(),
+    status: "running",
+    phase: "checking",
+    fromVersion: manifest.version,
+    targetVersion: options.version ? normalizeVersion(options.version) : null,
+    message: "Checking the latest OpenBot release",
+    startedAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  });
+  const report = (
+    phase: UpdateProgressPhase,
+    message: string,
+    version?: string,
+    extra: Partial<PersistedUpdateState> = {}
+  ) => {
+    reportUpdateProgress(options, phase, message, version);
+    persisted = writeUpdateState(paths, {
+      ...persisted,
+      ...extra,
+      phase,
+      status: phase === "complete" ? "complete" : "running",
+      message,
+      targetVersion: version ?? persisted.targetVersion,
+    });
+  };
+  report("checking", "Checking the latest OpenBot release");
   const target = options.version
     ? normalizeVersion(options.version)
     : await latestReleaseVersion(repository);
+  persisted = writeUpdateState(paths, { ...persisted, targetVersion: target });
+  if (semver.lt(target, manifest.version) && !options.allowDowngrade) {
+    throw new CliError(
+      `Refusing to downgrade OpenBot ${manifest.version} to ${target}. Use --allow-downgrade only for an intentional recovery.`
+    );
+  }
+  if (semver.prerelease(target) && !options.allowPrerelease) {
+    throw new CliError(
+      `Refusing prerelease ${target} on the stable channel. Use --allow-prerelease to opt in.`
+    );
+  }
   if (target === manifest.version && !options.force) {
+    report("complete", `OpenBot ${target} is already installed`, target);
     console.log(`OpenBot ${target} is already installed.`);
     return;
   }
   console.log(`Updating OpenBot ${manifest.version} → ${target}…`);
+  report("downloading", `Downloading and verifying OpenBot ${target}`, target);
   const release = await downloadRelease({
     repository,
     version: target,
     composeUrl: options.composeUrl,
     checksumUrl: options.checksumUrl,
+    signatureUrl: options.signatureUrl,
+    allowUnsigned: options.allowUnsigned,
   });
   const previousCompose = readFileSync(paths.compose, "utf8");
   const previousEnvironment = readFileSync(paths.environment, "utf8");
@@ -181,19 +267,37 @@ export const updateCommand = async (
     replaceEnvironmentValue(previousEnvironment, "OPENBOT_VERSION", target)
   );
   const nextCompose = `${paths.compose}.next`;
-  writeFileAtomic(nextCompose, release.compose, 0o600);
-  writeFileAtomic(paths.environment, nextEnvironment, 0o600);
   const project = requireComposeProject(paths, runner, manifestProjectName(manifest));
+  let configurationChanged = false;
   try {
+    writeFileAtomic(nextCompose, release.compose, 0o600);
+    assertUpdatePreflight(paths, runner, project, nextCompose);
+    report("backing-up", `Backing up the OpenBot database before ${target}`, target);
+    const backupPath = createDatabaseBackup(paths, project, manifest.version, target);
+    persisted = writeUpdateState(paths, { ...persisted, backupPath });
+    writeFileAtomic(paths.environment, nextEnvironment, 0o600);
+    configurationChanged = true;
+    report("pulling", `Pulling OpenBot ${target} container images`, target);
     project.runOrThrow(["pull"], { inherit: true, composeFile: nextCompose });
     writeFileAtomic(paths.compose, release.compose, 0o600);
     rmSync(nextCompose, { force: true });
-    await startProject(project, paths);
+    report("restarting", "Restarting the server, worker, and computer", target);
+    await startProject(project, paths, target);
+    report("verifying", `OpenBot ${target} passed its readiness checks`, target);
   } catch (error) {
+    report(
+      "rolling-back",
+      "The update failed; restoring the previous OpenBot configuration",
+      manifest.version
+    );
     writeFileAtomic(paths.compose, previousCompose, 0o600);
     writeFileAtomic(paths.environment, previousEnvironment, 0o600);
     rmSync(nextCompose, { force: true });
-    const recovery = project.run(["up", "--detach", "--remove-orphans"], { inherit: true });
+    const recovery = configurationChanged
+      ? project.run(["up", "--detach", "--remove-orphans", "--wait", "--wait-timeout", "180"], {
+          inherit: true,
+        })
+      : { status: 0 };
     throw new CliError(
       `Update failed and the previous Compose configuration was restored${
         recovery.status === 0 ? " and restarted" : ", but it could not be restarted"
@@ -208,7 +312,32 @@ export const updateCommand = async (
     updatedAt: new Date().toISOString(),
     uninstalledAt: undefined,
   });
+  report("complete", `OpenBot is now running ${target}`, target);
   console.log(`OpenBot is now running ${target}.`);
+};
+
+export const updateCommand = async (
+  paths: InstallationPaths,
+  options: CliOptions,
+  runner: CommandRunner
+): Promise<void> => {
+  const releaseLock = acquireUpdateLock(paths);
+  try {
+    await updateCommandUnlocked(paths, options, runner);
+  } catch (error) {
+    const state = readUpdateState(paths);
+    if (state?.status === "running") {
+      writeUpdateState(paths, {
+        ...state,
+        status: "error",
+        phase: "error",
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+    throw error;
+  } finally {
+    releaseLock();
+  }
 };
 
 const confirmation = async (question: string): Promise<boolean> => {

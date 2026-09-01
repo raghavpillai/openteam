@@ -25,7 +25,7 @@ Usage:
 
 Commands:
   install      Install and start the OpenBot server stack
-  setup        Configure the server, owner account, and OpenAI Codex sign-in
+  setup        Guided access, owner, runtime, launch, and verification stages
   doctor       Check Docker, system resources, configuration, and health
   status       Show the installed version, services, and health
   update       Update to the latest stable OpenBot release
@@ -42,6 +42,10 @@ Options:
   --yes, -y                Skip uninstall confirmation
   --purge                  Permanently delete data during uninstall
   --force                  Reapply an update at the current version
+  --allow-downgrade        Permit an explicit downgrade (advanced recovery only)
+  --allow-prerelease       Permit an explicit prerelease target
+  --allow-unsigned         Permit unsigned test bundles (unsafe; advanced only)
+  --json-progress          Emit machine-readable update progress
   --advanced               Show advanced server prompts during setup
   --username <name>        Set a new owner username with account update
   --password               Prompt for a new password with account update
@@ -51,6 +55,7 @@ Options:
 Advanced release testing:
   --compose-url <url>      Override the release Compose asset URL
   --checksum-url <url>     Override the SHA256SUMS asset URL
+  --signature-url <url>    Override the Sigstore bundle asset URL
   --project-name <name>    Override and persist the Compose project name
   --image-prefix <prefix>  Override the release container image prefix
 `;

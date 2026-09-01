@@ -41,7 +41,7 @@ export class ComposeProject {
 
   run(
     args: readonly string[],
-    options: { inherit?: boolean; composeFile?: string; input?: string } = {}
+    options: { inherit?: boolean; composeFile?: string; input?: string; outputFile?: string } = {}
   ): RunResult {
     const composeFile = options.composeFile ?? this.paths.compose;
     if (!existsSync(composeFile)) throw new CliError(`Compose file not found: ${composeFile}`);
@@ -57,7 +57,12 @@ export class ComposeProject {
         composeFile,
         ...args,
       ],
-      { cwd: this.paths.directory, inherit: options.inherit, input: options.input }
+      {
+        cwd: this.paths.directory,
+        inherit: options.inherit,
+        input: options.input,
+        outputFile: options.outputFile,
+      }
     );
   }
 

@@ -7,6 +7,7 @@ export interface HealthResult {
   url: string;
   detail: string;
   agent?: string;
+  version?: string;
 }
 
 export const healthUrl = (paths: InstallationPaths): string => {
@@ -17,20 +18,41 @@ export const healthUrl = (paths: InstallationPaths): string => {
   return `http://${host}:${port}/api/v0/health`;
 };
 
-export const checkHealth = async (paths: InstallationPaths): Promise<HealthResult> => {
+export const checkHealth = async (
+  paths: InstallationPaths,
+  expectedVersion?: string
+): Promise<HealthResult> => {
   const url = healthUrl(paths);
   try {
     const response = await fetch(url, { signal: AbortSignal.timeout(3_000) });
     const body = (await response.json().catch(() => null)) as {
       status?: unknown;
       runtime?: { agent?: unknown };
+      release?: { releaseVersion?: unknown };
     } | null;
     if (!response.ok) return { ok: false, url, detail: `HTTP ${response.status}` };
+    const status = typeof body?.status === "string" ? body.status : null;
+    const version =
+      typeof body?.release?.releaseVersion === "string" ? body.release.releaseVersion : undefined;
+    if (status !== "ready") {
+      return { ok: false, url, detail: status ? `runtime is ${status}` : "readiness is unknown" };
+    }
+    if (expectedVersion && version !== expectedVersion) {
+      return {
+        ok: false,
+        url,
+        detail: version
+          ? `expected release ${expectedVersion}, but ${version} is responding`
+          : `release ${expectedVersion} was not reported`,
+        version,
+      };
+    }
     return {
       ok: true,
       url,
-      detail: typeof body?.status === "string" ? body.status : "reachable",
+      detail: status,
       agent: typeof body?.runtime?.agent === "string" ? body.runtime.agent : undefined,
+      version,
     };
   } catch (error) {
     return {
@@ -43,14 +65,15 @@ export const checkHealth = async (paths: InstallationPaths): Promise<HealthResul
 
 export const waitForHealth = async (
   paths: InstallationPaths,
-  timeoutMs = 180_000
+  timeoutMs = 180_000,
+  expectedVersion?: string
 ): Promise<HealthResult> => {
   const deadline = Date.now() + timeoutMs;
-  let latest = await checkHealth(paths);
+  let latest = await checkHealth(paths, expectedVersion);
   while (!latest.ok && Date.now() < deadline) {
     process.stdout.write(".");
     await new Promise((resolve) => setTimeout(resolve, 2_000));
-    latest = await checkHealth(paths);
+    latest = await checkHealth(paths, expectedVersion);
   }
   process.stdout.write("\n");
   return latest;

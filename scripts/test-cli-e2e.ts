@@ -99,22 +99,44 @@ const waitForHealth = async (timeoutMs = 180_000): Promise<void> => {
   throw new Error("Timed out waiting for the development OpenBot stack to recover");
 };
 
+const developmentDatabaseCount = (sql: string): number => {
+  const result = run(
+    "bash",
+    [
+      developmentCompose,
+      "exec",
+      "--no-TTY",
+      "postgres",
+      "psql",
+      "--username",
+      "openbot",
+      "--dbname",
+      "openbot",
+      "--tuples-only",
+      "--no-align",
+      "--command",
+      sql,
+    ],
+    { inherit: false }
+  );
+  const count = Number.parseInt(resultText(result), 10);
+  if (!Number.isSafeInteger(count) || count < 0) {
+    throw new Error(`Could not read a development database count: ${resultText(result)}`);
+  }
+  return count;
+};
+
 const assertNoActiveWork = async (): Promise<void> => {
-  const response = await fetch("http://127.0.0.1:8787/api/v0/client-snapshot");
-  if (!response.ok) throw new Error(`Could not inspect the development stack (${response.status})`);
-  const snapshot = (await response.json()) as {
-    runs?: Array<{ status?: string }>;
-    approvals?: Array<{ status?: string }>;
-  };
-  const activeRuns = (snapshot.runs ?? []).filter((run) =>
-    ["running", "queued"].includes(run.status ?? "")
+  // Query the local database instead of weakening or bypassing required HTTP authentication.
+  const activeRuns = developmentDatabaseCount(
+    `SELECT count(*) FROM "Run" WHERE status IN ('running', 'queued')`
   );
-  const pendingApprovals = (snapshot.approvals ?? []).filter(
-    (approval) => approval.status === "pending"
+  const pendingApprovals = developmentDatabaseCount(
+    `SELECT count(*) FROM "Approval" WHERE status = 'pending'`
   );
-  if (activeRuns.length || pendingApprovals.length) {
+  if (activeRuns || pendingApprovals) {
     throw new Error(
-      `Refusing to stop the development stack: ${activeRuns.length} active runs and ${pendingApprovals.length} pending approvals`
+      `Refusing to stop the development stack: ${activeRuns} active runs and ${pendingApprovals} pending approvals`
     );
   }
 };
@@ -228,9 +250,9 @@ const assertPersistenceMarker = async (id: string): Promise<void> => {
 const provisionOwner = async (): Promise<void> => {
   const manifestPath = join(installationDirectory, "installation.json");
   run(
-    "docker",
+    "bash",
     [
-      "compose",
+      developmentCompose,
       "--project-name",
       projectName,
       "--project-directory",
@@ -334,6 +356,8 @@ const main = async (): Promise<void> => {
     "openbot",
     "--version",
     firstVersion,
+    "--allow-prerelease",
+    "--allow-unsigned",
     ...releaseUrls(firstVersion),
   ]);
   await provisionOwner();
@@ -355,6 +379,8 @@ const main = async (): Promise<void> => {
     installationDirectory,
     "--version",
     secondVersion,
+    "--allow-prerelease",
+    "--allow-unsigned",
     ...releaseUrls(secondVersion),
   ]);
   cli(["status", "--dir", installationDirectory]);

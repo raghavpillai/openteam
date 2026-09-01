@@ -90,8 +90,12 @@ describe("interactive setup", () => {
     const configuration = await collectSetupConfiguration(current, false, prompter);
 
     expect(configuration).toEqual({
+      accessMode: "private",
       bindHost: "0.0.0.0",
+      viewerBindHost: "0.0.0.0",
       publicHost: "openbot.lan",
+      publicUrl: "http://openbot.lan:8787",
+      composeProfiles: "direct",
       ownerUsername: "openbot",
       ownerPassword: "correct horse battery staple",
       apiPort: "8787",
@@ -131,8 +135,12 @@ describe("interactive setup", () => {
     });
 
     expect(configuration).toEqual({
+      accessMode: "private",
       bindHost: "0.0.0.0",
+      viewerBindHost: "0.0.0.0",
       publicHost: "openbot.lan",
+      publicUrl: "http://openbot.lan:9444",
+      composeProfiles: "direct",
       ownerUsername: "openbot",
       ownerPassword: "correct horse battery staple",
       apiPort: "9444",
@@ -141,6 +149,60 @@ describe("interactive setup", () => {
       thinking: "xhigh",
       workerConcurrency: "4",
       authenticate: true,
+    });
+  });
+
+  test("fresh setup defaults to automatic public HTTPS with internal ports kept private", async () => {
+    const current = parseEnvironment(createEnvironment({ version: "1.2.3", timeZone: "UTC" }));
+    const prompter = new AnswerPrompter([
+      "",
+      "bot.example.com",
+      "",
+      "correct horse battery staple",
+      "correct horse battery staple",
+      "no",
+    ]);
+
+    const configuration = await collectSetupConfiguration(current, false, prompter, {
+      fresh: true,
+    });
+
+    expect(configuration).toMatchObject({
+      accessMode: "https",
+      bindHost: "127.0.0.1",
+      viewerBindHost: "127.0.0.1",
+      publicHost: "127.0.0.1",
+      publicUrl: "https://bot.example.com",
+      composeProfiles: "https",
+      authenticate: false,
+    });
+  });
+
+  test("public HTTP requires acknowledgement and keeps screen viewers off the Internet", async () => {
+    const current = parseEnvironment(createEnvironment({ version: "1.2.3", timeZone: "UTC" }));
+    const prompter = new AnswerPrompter([
+      "2",
+      "no",
+      "2",
+      "yes",
+      "203.0.113.9",
+      "",
+      "correct horse battery staple",
+      "correct horse battery staple",
+      "no",
+    ]);
+
+    const configuration = await collectSetupConfiguration(current, false, prompter, {
+      fresh: true,
+    });
+
+    expect(configuration).toMatchObject({
+      accessMode: "http",
+      bindHost: "0.0.0.0",
+      viewerBindHost: "127.0.0.1",
+      publicHost: "127.0.0.1",
+      publicUrl: "http://203.0.113.9:8787",
+      composeProfiles: "direct",
     });
   });
 
@@ -217,7 +279,7 @@ describe("interactive setup", () => {
     });
 
     const prompter = new AnswerPrompter([
-      "",
+      "4",
       "",
       "correct horse battery staple",
       "correct horse battery staple",
@@ -248,6 +310,9 @@ describe("interactive setup", () => {
       (call) => call.command === "docker" && call.args.includes("--project-name")
     );
     expect(composeCalls.some((call) => call.args.includes("config"))).toBe(true);
+    expect(
+      composeCalls.some((call) => call.args.includes("stop") && call.args.includes("caddy"))
+    ).toBe(true);
     expect(composeCalls.some((call) => call.args.includes("up"))).toBe(true);
     expect(composeCalls.some((call) => call.args.includes("openbot-pi-login"))).toBe(true);
     const ownerCall = composeCalls.find((call) => call.args.includes("owner-credentials"));

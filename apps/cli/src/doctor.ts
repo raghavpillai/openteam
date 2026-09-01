@@ -6,6 +6,8 @@ import {
   statfsSync,
 } from "node:fs";
 import { createServer } from "node:net";
+import type { EventEmitter } from "node:events";
+import { redactSensitiveText } from "@openbot/product-core/redaction";
 import { arch, freemem, totalmem } from "node:os";
 import { dirname } from "node:path";
 import type { InstallationPaths } from "./config";
@@ -57,7 +59,7 @@ const portAvailable = (host: string, port: number): Promise<boolean> =>
   new Promise((resolve) => {
     const server = createServer();
     server.unref();
-    server.once("error", () => resolve(false));
+    (server as unknown as EventEmitter).once("error", () => resolve(false));
     server.listen({ host, port, exclusive: true }, () => {
       server.close(() => resolve(true));
     });
@@ -191,6 +193,7 @@ export const runDoctor = async (
         "OPENBOT_POSTGRES_PASSWORD",
         "OPENBOT_CONTROL_TOKEN",
         "OPENBOT_AUTH_SECRET",
+        "OPENBOT_PROXY_SECRET",
       ];
       const missingSecrets = requiredSecrets.filter((key) => (values.get(key)?.length ?? 0) < 32);
       checks.push({
@@ -198,7 +201,7 @@ export const runDoctor = async (
         label: "Secret values",
         detail:
           missingSecrets.length === 0
-            ? "database, control, and authentication secrets are configured"
+            ? "database, control, authentication, and proxy secrets are configured"
             : `missing or too short: ${missingSecrets.join(", ")}`,
       });
       checks.push({
@@ -208,14 +211,53 @@ export const runDoctor = async (
           ? `configured for ${manifest.ownerUsername}`
           : "not configured; run openbot setup",
       });
-      checks.push({
-        level: values.get("OPENBOT_BIND_HOST") === "127.0.0.1" ? "pass" : "warn",
-        label: "Network exposure",
-        detail:
-          values.get("OPENBOT_BIND_HOST") === "127.0.0.1"
-            ? "API and screen viewers are loopback-only"
-            : `bound to ${values.get("OPENBOT_BIND_HOST") || "an unspecified address"}`,
-      });
+      const accessMode = values.get("OPENBOT_ACCESS_MODE") || "local";
+      const publicUrl = values.get("OPENBOT_PUBLIC_URL") || "";
+      const apiIsLoopback = values.get("OPENBOT_BIND_HOST") === "127.0.0.1";
+      const viewersAreLoopback =
+        (values.get("OPENBOT_VIEWER_BIND_HOST") || values.get("OPENBOT_BIND_HOST")) === "127.0.0.1";
+      let exposure: DoctorCheck;
+      if (accessMode === "https") {
+        exposure =
+          publicUrl.startsWith("https://") && apiIsLoopback && viewersAreLoopback
+            ? {
+                level: "pass",
+                label: "Network exposure",
+                detail: `public HTTPS through Caddy at ${publicUrl}; internal ports are loopback-only`,
+              }
+            : {
+                level: "fail",
+                label: "Network exposure",
+                detail:
+                  "HTTPS mode requires an https:// public URL and loopback-only internal ports",
+              };
+      } else if (accessMode === "http") {
+        exposure = {
+          level: "warn",
+          label: "Network exposure",
+          detail: `${publicUrl || "public HTTP"} is unencrypted; passwords and sessions are exposed in transit`,
+        };
+      } else if (accessMode === "private") {
+        exposure = {
+          level: "warn",
+          label: "Network exposure",
+          detail: `${publicUrl || "private HTTP"} must remain behind a trusted LAN or VPN`,
+        };
+      } else {
+        exposure =
+          apiIsLoopback && viewersAreLoopback
+            ? {
+                level: "pass",
+                label: "Network exposure",
+                detail: "API and screen viewers are loopback-only",
+              }
+            : {
+                level: "fail",
+                label: "Network exposure",
+                detail: "local mode must keep the API and screen viewers on loopback",
+              };
+      }
+      checks.push(exposure);
     } catch (error) {
       checks.push({
         level: "fail",
@@ -246,7 +288,7 @@ export const runDoctor = async (
 export const printDoctor = (result: DoctorResult): void => {
   const marks: Record<CheckLevel, string> = { pass: "✓", warn: "!", fail: "✗" };
   for (const check of result.checks) {
-    console.log(`${marks[check.level]} ${check.label}: ${check.detail}`);
+    console.log(`${marks[check.level]} ${check.label}: ${redactSensitiveText(check.detail)}`);
   }
   console.log(
     result.ok

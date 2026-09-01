@@ -67,6 +67,10 @@ describe("CLI arguments", () => {
     expect(() => parseArguments(["update", "--version"])).toThrow("--version requires a value");
   });
 
+  test("enables structured progress for desktop-managed server updates", () => {
+    expect(parseArguments(["update", "--json-progress"]).jsonProgress).toBe(true);
+  });
+
   test("rejects unknown commands and options", () => {
     expect(() => parseArguments(["explode"])).toThrow("Unknown command");
     expect(() => parseArguments(["status", "--json"])).toThrow("Unknown option");

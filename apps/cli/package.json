@@ -2,6 +2,11 @@
   "name": "@openbot/cli",
   "version": "0.1.0",
   "description": "Install and manage the self-hosted OpenBot server stack",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/raghavpillai/openbot.git",
+    "directory": "apps/cli"
+  },
   "type": "module",
   "bin": {
     "openbot": "dist/openbot.js"
@@ -16,9 +21,18 @@
     "test": "bun test"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=20.17"
   },
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "provenance": true
+  },
+  "dependencies": {
+    "semver": "7.8.5",
+    "sigstore": "4.1.1"
+  },
+  "devDependencies": {
+    "@openbot/product-core": "workspace:*",
+    "@types/semver": "7.7.1"
   }
 }

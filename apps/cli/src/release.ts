@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { basename } from "node:path";
+import { verify, type Bundle } from "sigstore";
 import { normalizeRepository, normalizeVersion } from "./config";
 import { CliError } from "./errors";
 
@@ -7,6 +8,7 @@ export interface ReleaseArtifact {
   version: string;
   composeUrl: string;
   checksumUrl: string;
+  signatureUrl: string | null;
   compose: string;
 }
 
@@ -28,6 +30,35 @@ const fetchText = async (url: string, accept = "text/plain"): Promise<string> =>
   }
   if (!response.ok) throw new CliError(`Could not download ${url} (HTTP ${response.status})`);
   return response.text();
+};
+
+const escapedPattern = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+export const verifyReleaseSignature = async (options: {
+  repository: string;
+  version: string;
+  compose: string;
+  serializedBundle: string;
+}): Promise<void> => {
+  let bundle: Bundle;
+  try {
+    bundle = JSON.parse(options.serializedBundle) as Bundle;
+  } catch {
+    throw new CliError("The release signature bundle is not valid JSON");
+  }
+  const identity = `https://github.com/${normalizeRepository(options.repository)}/.github/workflows/release.yml@refs/tags/v${normalizeVersion(options.version)}`;
+  try {
+    await verify(bundle, Buffer.from(options.compose), {
+      certificateIssuer: "https://token.actions.githubusercontent.com",
+      certificateIdentityURI: `^${escapedPattern(identity)}$`,
+      ctLogThreshold: 1,
+      tlogThreshold: 1,
+    });
+  } catch (error) {
+    throw new CliError(
+      `Sigstore verification failed for OpenBot ${options.version}: ${error instanceof Error ? error.message : error}`
+    );
+  }
 };
 
 const checksumFor = (contents: string, filename: string): string | null => {
@@ -55,18 +86,35 @@ export const downloadRelease = async (options: {
   version: string;
   composeUrl?: string;
   checksumUrl?: string;
+  signatureUrl?: string;
+  allowUnsigned?: boolean;
 }): Promise<ReleaseArtifact> => {
   const version = normalizeVersion(options.version);
   const composeUrl = options.composeUrl ?? releaseComposeUrl(options.repository, version);
   const checksumUrl = options.checksumUrl ?? new URL("SHA256SUMS", composeUrl).toString();
-  const [compose, checksums] = await Promise.all([fetchText(composeUrl), fetchText(checksumUrl)]);
+  const signatureUrl = options.allowUnsigned
+    ? null
+    : (options.signatureUrl ?? `${composeUrl}.sigstore.json`);
+  const [compose, checksums, signature] = await Promise.all([
+    fetchText(composeUrl),
+    fetchText(checksumUrl),
+    signatureUrl ? fetchText(signatureUrl, "application/json") : Promise.resolve(null),
+  ]);
   validateCompose(compose);
   const filename = basename(new URL(composeUrl).pathname);
   const expected = checksumFor(checksums, filename);
   if (!expected) throw new CliError(`${checksumUrl} does not contain a checksum for ${filename}`);
   const actual = createHash("sha256").update(compose).digest("hex");
   if (actual !== expected) throw new CliError(`Checksum verification failed for ${composeUrl}`);
-  return { version, composeUrl, checksumUrl, compose };
+  if (signature) {
+    await verifyReleaseSignature({
+      repository: options.repository,
+      version,
+      compose,
+      serializedBundle: signature,
+    });
+  }
+  return { version, composeUrl, checksumUrl, signatureUrl, compose };
 };
 
 export const latestReleaseVersion = async (repository: string): Promise<string> => {

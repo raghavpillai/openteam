@@ -289,7 +289,7 @@ export function PluginMarketplaceSheet({
     : null;
 
   return (
-    <View style={[styles.screen, { backgroundColor: theme.background }]}>
+    <View style={[styles.screen, { backgroundColor: theme.dark ? "#141414" : theme.background }]}>
       <View style={styles.header}>
         <IconButton
           label="Back to settings"
@@ -535,7 +535,7 @@ export function PluginMarketplaceSheet({
 
 const styles = StyleSheet.create({
   screen: { flex: 1, paddingHorizontal: 14 },
-  header: { height: 72, flexDirection: "row", alignItems: "center", gap: 10 },
+  header: { height: 66, flexDirection: "row", alignItems: "center", gap: 10 },
   headerTitle: { flex: 1, fontSize: 16, lineHeight: 21, fontWeight: "600" },
   installedPill: {
     height: 38,
@@ -562,7 +562,7 @@ const styles = StyleSheet.create({
   },
   searchInput: { flex: 1, height: 38, padding: 0, fontSize: 14, lineHeight: 18 },
   error: { marginHorizontal: 7, marginTop: 5, fontSize: 12, lineHeight: 17 },
-  catalogContent: { paddingTop: 20, paddingBottom: 42 },
+  catalogContent: { paddingTop: 17, paddingBottom: 42 },
   section: { marginBottom: 22 },
   sectionHeading: {
     height: 28,

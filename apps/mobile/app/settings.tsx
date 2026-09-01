@@ -411,7 +411,7 @@ export default function SettingsScreen() {
       style={[
         styles.safe,
         {
-          backgroundColor: theme.dark ? "#111111" : "#F6F6F4",
+          backgroundColor: theme.dark ? "#141414" : "#F6F6F4",
           borderColor: theme.border,
         },
       ]}

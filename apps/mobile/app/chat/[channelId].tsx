@@ -1,6 +1,6 @@
 import type { ChannelMessageView } from "@openbot/contracts";
+import { addSidebarUnread } from "@openbot/contracts/client-preferences";
 import { mentionHandleFor } from "@openbot/product-core/mentions";
-import { clientErrorMessage } from "@openbot/product-core/redaction";
 import {
   type A2AActivityEntry,
   a2aProjectionFor,
@@ -12,6 +12,7 @@ import {
   messageRenderKey,
   selectA2AExchangeMessages,
 } from "@openbot/product-core/messages";
+import { clientErrorMessage } from "@openbot/product-core/redaction";
 import { isActiveRunStatus } from "@openbot/product-core/statuses";
 import { router, useFocusEffect, useIsFocused, useLocalSearchParams } from "expo-router";
 import { SymbolView } from "expo-symbols";
@@ -29,6 +30,7 @@ import {
   type ViewToken,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { getAuthAccountIdForServer, getAuthTokenForServer } from "../../src/auth";
 import {
   enteringAppendedMessageKeys,
   highestVisibleSequence,
@@ -50,7 +52,6 @@ import {
   discardMobileDeliveryAttachments,
   stageMobileDeliveryAttachment,
 } from "../../src/durable-attachment-stage";
-import { getAuthAccountIdForServer, getAuthTokenForServer } from "../../src/auth";
 import { MOBILE_VIRTUAL_LIST_TUNING } from "../../src/list-scale";
 import { setActiveNotificationChannel } from "../../src/notifications";
 import { useOpenBot } from "../../src/state/openbot-context";
@@ -130,6 +131,8 @@ export default function ConversationScreen() {
     submitSecret,
     resolveApproval,
     markChannelRead,
+    sidebarPreferences,
+    updateSidebarPreferences,
     hydrateChannel,
     releaseChannel,
     loadEarlierMessages,
@@ -213,7 +216,13 @@ export default function ConversationScreen() {
         : mainMessages,
     [channel?.kind, mainMessages]
   );
-  const activeThread = threadRootId ? (threads.get(threadRootId) ?? null) : null;
+  const activeThread = useMemo(() => {
+    if (!threadRootId) return null;
+    const existing = threads.get(threadRootId);
+    if (existing) return existing;
+    const root = byId.get(threadRootId);
+    return root ? { root, replies: [] } : null;
+  }, [byId, threadRootId, threads]);
   const channelHistory = historyState[channelId];
   const activeThreadHasMore = activeThread
     ? mayHaveEarlierThreadReplies(
@@ -320,6 +329,17 @@ export default function ConversationScreen() {
     setReplyTarget(null);
     setReplyEditVersion((current) => current + 1);
   }, []);
+  const markConversationUnread = useCallback(async () => {
+    if (sidebarPreferences.unreadIds.includes(channelId)) return;
+    try {
+      await updateSidebarPreferences(addSidebarUnread(sidebarPreferences, [channelId]));
+    } catch (cause) {
+      Alert.alert(
+        "Could not mark as unread",
+        clientErrorMessage(cause, "OpenBot could not update this conversation.")
+      );
+    }
+  }, [channelId, sidebarPreferences, updateSidebarPreferences]);
 
   const recoverCancelledMessage = useCallback(
     async (nonce: string) => {
@@ -433,6 +453,7 @@ export default function ConversationScreen() {
     return () => cancelAnimationFrame(frame);
   }, [messageId, targetIndex]);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: Activity and timeline counts deliberately retrigger live-edge correction after native layout changes.
   useEffect(() => {
     if (messageId || !didPlaceInitialScroll.current || !atLiveEdgeRef.current) return;
     // FlatList's maintained position can briefly win over onContentSizeChange
@@ -649,6 +670,14 @@ export default function ConversationScreen() {
                   replyPreview={replyPreview}
                   assetUrl={assetUrl}
                   onReply={() => selectReply({ id: item.id, content: item.content })}
+                  onStartThread={() => setThreadRootId(item.id)}
+                  onMarkUnread={() => void markConversationUnread()}
+                  onReport={() =>
+                    Alert.alert(
+                      "Report message",
+                      "Message reporting is not available on this self-hosted server."
+                    )
+                  }
                   onReact={(emoji) => void handleReaction(item.id, emoji)}
                   onWidgetResponse={(value) => respondToWidget(item.id, value)}
                   onWidgetDismiss={() => dismissWidget(item.id)}
@@ -806,6 +835,9 @@ export default function ConversationScreen() {
             assetUrl={assetUrl}
             exchange={a2aExchange}
             onClose={() => setA2APeerId(null)}
+            onOpenComputer={() => {
+              if (bot) router.push(`/computer/${bot.id}`);
+            }}
           />
         ) : null}
         {activityOpen ? (

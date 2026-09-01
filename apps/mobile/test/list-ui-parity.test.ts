@@ -178,13 +178,16 @@ describe("mobile virtual-list UI parity", () => {
     expect(route).toContain("setA2APeerId(peer.id)");
   });
 
-  test("A2A exchanges collapse into a dedicated view-only native transcript", async () => {
+  test("A2A exchanges push a dedicated read-only native transcript over its source", async () => {
     const sheet = await source("src/components/a2a-exchange-sheet.tsx");
     const bubble = await source("src/components/message-bubble.tsx");
 
-    expect(sheet).toContain("View-only exchange");
+    expect(sheet).toContain("Read-only internal conversation");
+    expect(sheet).toContain("new Animated.Value(width)");
+    expect(sheet).toContain("toValue: width");
+    expect(sheet).toContain('label="Back to source conversation"');
     expect(sheet).toContain("a2aProjectionFor(item)");
-    expect(sheet).toContain("alignRight={outgoing}");
+    expect(sheet).toContain("alignRight={false}");
     expect(sheet).toContain("hideA2ALabel");
     expect(sheet).toContain("readOnly");
     expect(sheet).not.toContain("<Composer");
@@ -198,6 +201,10 @@ describe("mobile virtual-list UI parity", () => {
     expect(bubble).toContain("readOnly={readOnly}");
     expect(bubble).toContain("disabled={readOnly}");
     expect(bubble).toContain("speakerName ??");
+    expect(bubble).toContain("Show message actions");
+    expect(bubble).toContain("Start a thread");
+    expect(bubble).toContain("Mark as unread");
+    expect(bubble).toContain(">Report<");
     const richCard = await source("src/components/rich-message-card.tsx");
     expect(richCard).toContain("if (!value || pending || readOnly) return");
     expect(richCard).toContain("editable={!pending && !readOnly}");

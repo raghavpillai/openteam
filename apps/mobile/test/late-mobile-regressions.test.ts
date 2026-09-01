@@ -27,6 +27,10 @@ describe("late native iOS regression guards", () => {
     expect(route).toContain("mayHaveEarlierThreadReplies(");
     expect(route).toContain("historyHasMore={activeThreadHasMore}");
     expect(route).toContain("threadReplyCountIsPartial={threadReplyCountIsPartial}");
+    expect(route).toContain("root ? { root, replies: [] } : null");
+    expect(route).toContain("onStartThread={() => setThreadRootId(item.id)}");
+    expect(route).toContain("addSidebarUnread(sidebarPreferences, [channelId])");
+    expect(route).toContain('"Could not mark as unread"');
     expect(sheet).toContain("threadReplyCountLabel(replyCount, historyHasMore)");
     expect(bubble).toContain("threadReplyCountLabel(threadReplyCount, threadReplyCountIsPartial)");
   });

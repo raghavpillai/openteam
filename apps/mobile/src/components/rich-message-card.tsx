@@ -1,13 +1,12 @@
 import type { ChannelMessageView, RichMessageWidget } from "@openbot/contracts";
 import {
+  widgetOptionValue as optionValue,
   projectRichMessage,
-  resolvedWidgetAnswers,
   richMessageMetadata as record,
+  resolvedWidgetAnswers,
   secretRequestPlaceholder,
   toggleWidgetSelection,
-  type RichMessageMetadata as Metadata,
   widgetOptionLetter,
-  widgetOptionValue as optionValue,
   widgetResponseValue,
 } from "@openbot/product-core/rich-messages";
 import { SymbolView } from "expo-symbols";
@@ -56,14 +55,61 @@ export function MobileRichMessageCard({
   const widget = projection.widget;
   if (local.widgetDismissed === true) {
     return (
-      <View accessibilityLabel="Dismissed question" style={[cardStyle, styles.dismissedCard]}>
-        <View style={styles.headingRow}>
-          <Text style={[styles.title, { color: theme.text }]}>{widget.prompt}</Text>
-          <View style={[styles.dismissedPill, { backgroundColor: theme.surfacePressed }]}>
-            <View style={[styles.dismissedDot, { backgroundColor: theme.textMuted }]} />
-            <Text style={[styles.dismissed, { color: theme.textMuted }]}>Dismissed</Text>
+      <View accessibilityLabel="Dismissed question" style={[cardStyle, styles.dismissedFullCard]}>
+        <View style={[styles.headingRow, styles.cardHeading]}>
+          <View style={styles.headingCopy}>
+            <Text style={[styles.title, { color: theme.text }]}>{widget.prompt}</Text>
+            {widget.helpText ? (
+              <Text style={[styles.help, { color: theme.textMuted }]}>{widget.helpText}</Text>
+            ) : null}
           </View>
         </View>
+        <View
+          style={[
+            styles.optionGroup,
+            { backgroundColor: theme.surfacePressed, borderColor: theme.separator },
+          ]}
+        >
+          {widget.options.map((option, index) => (
+            <View
+              key={`${optionValue(option)}:${option.label}`}
+              style={[
+                styles.option,
+                index > 0 && {
+                  borderTopColor: theme.separator,
+                  borderTopWidth: StyleSheet.hairlineWidth,
+                },
+              ]}
+            >
+              <View
+                style={[
+                  styles.key,
+                  { backgroundColor: theme.surfacePressed, borderColor: theme.separator },
+                ]}
+              >
+                <Text style={[styles.keyText, { color: theme.textMuted }]}>
+                  {widgetOptionLetter(index)}
+                </Text>
+              </View>
+              <View style={styles.optionCopy}>
+                <Text
+                  style={[
+                    styles.optionLabel,
+                    { color: option.style === "danger" ? theme.danger : theme.text },
+                  ]}
+                >
+                  {option.label}
+                </Text>
+                {option.description ? (
+                  <Text style={[styles.help, { color: theme.textMuted }]}>
+                    {option.description}
+                  </Text>
+                ) : null}
+              </View>
+            </View>
+          ))}
+        </View>
+        <Text style={[styles.dismissedStatus, { color: theme.textMuted }]}>dismissed</Text>
       </View>
     );
   }
@@ -72,6 +118,9 @@ export function MobileRichMessageCard({
     return (
       <View accessibilityLabel="Answered question" style={cardStyle}>
         <Text style={[styles.title, { color: theme.text }]}>{widget.prompt}</Text>
+        {widget.helpText ? (
+          <Text style={[styles.help, { color: theme.textMuted }]}>{widget.helpText}</Text>
+        ) : null}
         <View
           accessibilityLabel="Your answer"
           style={[
@@ -94,7 +143,7 @@ export function MobileRichMessageCard({
               ]}
             >
               <Text style={[styles.optionLabel, { color: theme.text }]}>{answer.label}</Text>
-              <SymbolView name="checkmark" size={15} tintColor={theme.text} />
+              <SymbolView name="checkmark" size={15} tintColor={theme.success} />
             </View>
           ))}
         </View>
@@ -399,17 +448,17 @@ const styles = StyleSheet.create({
     width: "100%",
     maxWidth: 520,
     alignSelf: "flex-start",
-    borderRadius: 16,
+    borderRadius: 20,
     overflow: "hidden",
-    padding: 12,
-    gap: 10,
+    padding: 14,
+    gap: 12,
   },
   cardHeading: {},
   headingRow: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
   headingCopy: { flex: 1 },
   title: { flex: 1, fontSize: 14, lineHeight: 20, fontWeight: "600" },
   help: { fontSize: 13, lineHeight: 18 },
-  dismissedCard: { flexDirection: "row", alignItems: "center" },
+  dismissedFullCard: { opacity: 0.48 },
   dismissedPill: {
     flexDirection: "row",
     alignItems: "center",
@@ -420,6 +469,7 @@ const styles = StyleSheet.create({
   },
   dismissedDot: { width: 6, height: 6, borderRadius: 999 },
   dismissed: { fontSize: 12, fontWeight: "600" },
+  dismissedStatus: { fontSize: 13, lineHeight: 18 },
   dismissButton: {
     width: 20,
     height: 20,

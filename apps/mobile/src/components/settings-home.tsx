@@ -340,13 +340,7 @@ export function SettingsHome({
         <>
           <View style={styles.groupGap} />
           <Card>
-            <Row
-              first
-              last
-              onPress={onSignOut}
-              title="Sign Out"
-              trailing={<SymbolView name="chevron.right" size={14} tintColor={theme.danger} />}
-            />
+            <Row first last onPress={onSignOut} title="Sign Out" trailing={<View />} />
           </Card>
         </>
       ) : null}
@@ -363,11 +357,11 @@ export function SettingsHome({
 const styles = StyleSheet.create({
   scroll: { flex: 1 },
   content: { paddingHorizontal: 14, paddingBottom: 72 },
-  header: { height: 100, justifyContent: "flex-start", paddingTop: 12 },
+  header: { height: 80, justifyContent: "flex-start", paddingTop: 12 },
   closeButton: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     borderWidth: StyleSheet.hairlineWidth,
     alignItems: "center",
     justifyContent: "center",
@@ -378,12 +372,12 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     overflow: "hidden",
   },
-  groupGap: { height: 28 },
-  sectionLabel: { marginLeft: 16, marginTop: 36, marginBottom: 10, fontSize: 13, lineHeight: 17 },
+  groupGap: { height: 24 },
+  sectionLabel: { marginLeft: 16, marginTop: 26, marginBottom: 6, fontSize: 13, lineHeight: 17 },
   row: {
-    minHeight: 64,
+    minHeight: 44,
     paddingHorizontal: 18,
-    paddingVertical: 14,
+    paddingVertical: 9,
     borderBottomWidth: StyleSheet.hairlineWidth,
     flexDirection: "row",
     alignItems: "center",
@@ -398,7 +392,7 @@ const styles = StyleSheet.create({
   value: { fontSize: 15, lineHeight: 20 },
   timeZone: { maxWidth: "56%" },
   profileRow: {
-    minHeight: 90,
+    minHeight: 60,
     paddingHorizontal: 18,
     borderBottomWidth: StyleSheet.hairlineWidth,
     flexDirection: "row",
@@ -416,8 +410,8 @@ const styles = StyleSheet.create({
   profileCopy: { flex: 1, minWidth: 0 },
   profileName: { fontSize: 16, lineHeight: 21, fontWeight: "500" },
   profileDetail: { marginTop: 1, fontSize: 13, lineHeight: 17 },
-  about: { alignItems: "center", paddingTop: 64, paddingBottom: 22 },
-  appIcon: { width: 64, height: 64, borderRadius: 16 },
-  appName: { marginTop: 13, fontSize: 22, lineHeight: 27, fontWeight: "500" },
-  appVersion: { marginTop: 2, fontSize: 13, lineHeight: 17 },
+  about: { alignItems: "center", paddingTop: 52, paddingBottom: 22 },
+  appIcon: { width: 46, height: 46, borderRadius: 13 },
+  appName: { marginTop: 13, fontSize: 16, lineHeight: 21, fontWeight: "500" },
+  appVersion: { marginTop: 2, fontSize: 12, lineHeight: 16 },
 });

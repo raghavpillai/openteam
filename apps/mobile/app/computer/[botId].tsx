@@ -79,7 +79,7 @@ function StageButton({
   label,
   name,
   onPress,
-  size = 48,
+  size = 38,
   symbolSize = 19,
 }: {
   active?: boolean;
@@ -614,7 +614,7 @@ export default function ComputerScreen() {
           symbolSize={20}
         />
         <View style={styles.titlePill}>
-          <BotMark color={bot?.color ?? "#8057F5"} icon={bot?.icon} size={34} />
+          <BotMark color={bot?.color ?? "#8057F5"} icon={bot?.icon} size={26} />
           <Text numberOfLines={1} style={styles.title}>
             {bot?.name ?? "OpenBot"}
           </Text>
@@ -820,8 +820,8 @@ export default function ComputerScreen() {
             label="Paste from iPhone clipboard"
             name="clipboard"
             onPress={() => void pasteClipboard()}
-            size={48}
-            symbolSize={19}
+            size={34}
+            symbolSize={17}
           />
           {keyboardOpen ? (
             <TextInput
@@ -847,8 +847,8 @@ export default function ComputerScreen() {
             label={keyboardOpen ? "Close keyboard" : "Type on computer"}
             name="keyboard"
             onPress={() => (keyboardOpen ? closeKeyboard() : openKeyboard())}
-            size={48}
-            symbolSize={19}
+            size={34}
+            symbolSize={17}
           />
         </View>
       </KeyboardAvoidingView>
@@ -882,7 +882,7 @@ const styles = StyleSheet.create({
   titlePill: {
     minWidth: 0,
     maxWidth: 176,
-    height: 48,
+    height: 40,
     paddingHorizontal: 0,
     flexDirection: "row",
     alignItems: "center",
@@ -892,8 +892,8 @@ const styles = StyleSheet.create({
   title: {
     flexShrink: 1,
     color: "#F7F7F4",
-    fontSize: 17,
-    lineHeight: 21,
+    fontSize: 15,
+    lineHeight: 19,
     fontWeight: "600",
   },
   headerActions: { marginLeft: "auto", flexDirection: "row", gap: 8 },
@@ -1054,7 +1054,7 @@ const styles = StyleSheet.create({
   },
   bottomToolbar: {
     minHeight: 64,
-    paddingHorizontal: 22,
+    paddingHorizontal: 16,
     paddingBottom: 4,
     flexDirection: "row",
     alignItems: "center",

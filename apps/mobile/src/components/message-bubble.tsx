@@ -1,4 +1,5 @@
 import type { AssetRef, BotView, ChannelMessageView } from "@openbot/contracts";
+import { durableSendStatusLabel } from "@openbot/product-core/durable-delivery";
 import {
   a2aProjectionFor,
   messageDisplayProjection,
@@ -7,7 +8,6 @@ import {
   threadReplyCountLabel,
   withStableOccurrenceKeys,
 } from "@openbot/product-core/messages";
-import { durableSendStatusLabel } from "@openbot/product-core/durable-delivery";
 import { formatOfflineDeliveryLabel } from "@openbot/product-core/timestamps";
 import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
@@ -15,6 +15,7 @@ import { SymbolView } from "expo-symbols";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AccessibilityInfo,
+  Alert,
   Animated,
   Easing,
   Image,
@@ -87,6 +88,9 @@ export function MessageBubble({
   onWidgetDismiss,
   onSecretSubmit,
   onOpenThread,
+  onStartThread,
+  onMarkUnread,
+  onReport,
   threadReplyCount = 0,
   threadReplyCountIsPartial = false,
   assetUrl,
@@ -115,6 +119,9 @@ export function MessageBubble({
   onWidgetDismiss: () => Promise<boolean>;
   onSecretSubmit: (value: string) => Promise<boolean>;
   onOpenThread?: () => void;
+  onStartThread?: () => void;
+  onMarkUnread?: () => void;
+  onReport?: () => void;
   threadReplyCount?: number;
   threadReplyCountIsPartial?: boolean;
   assetUrl: (asset: Pick<AssetRef, "assetId" | "fileName">, download?: boolean) => string | null;
@@ -373,10 +380,21 @@ export function MessageBubble({
           <Pressable
             accessibilityLabel={`${speakerName ?? (isUser ? "You" : "Agent")}: ${accessibilitySummary}`}
             accessibilityRole="text"
+            accessibilityActions={
+              readOnly ? undefined : [{ name: "showMessageActions", label: "Show message actions" }]
+            }
             accessibilityState={{ busy: pending }}
             accessible={files.length === 0 && stagedFiles.length === 0}
             delayLongPress={280}
             onLongPress={deliveryActionsDisabled ? undefined : openActions}
+            onAccessibilityAction={(event) => {
+              if (
+                event.nativeEvent.actionName === "showMessageActions" &&
+                !deliveryActionsDisabled
+              ) {
+                openActions();
+              }
+            }}
             style={({ pressed }) => [
               styles.bubble,
               advancedMarkdown && styles.advancedMarkdownBubble,
@@ -580,36 +598,62 @@ export function MessageBubble({
           onRequestClose={() => setActionsOpen(false)}
         >
           <Pressable style={styles.overlay} onPress={() => setActionsOpen(false)}>
-            <View style={[styles.actionAnchor, isUser ? styles.actionRight : styles.actionLeft]}>
-              <GlassSurface
-                fallbackColor={theme.surfaceElevated}
-                style={[styles.actionPanel, { borderColor: theme.border }]}
-              >
-                {!readOnly ? (
-                  <>
-                    <View style={styles.emojiRow}>
-                      {QUICK_REACTIONS.map((emoji) => (
-                        <Pressable
-                          accessibilityLabel={`React ${emoji}`}
-                          accessibilityRole="button"
-                          key={emoji}
-                          onPress={() => {
-                            setActionsOpen(false);
-                            onReact(emoji);
-                          }}
-                          style={({ pressed }) => [
-                            styles.emojiAction,
-                            pressed && { backgroundColor: theme.surfacePressed },
-                          ]}
+            <View style={styles.actionAnchor}>
+              {!readOnly ? (
+                <GlassSurface
+                  fallbackColor={theme.surfaceElevated}
+                  style={[styles.reactionPanel, { borderColor: theme.border }]}
+                >
+                  <View style={styles.emojiRow}>
+                    {QUICK_REACTIONS.map((emoji) => (
+                      <Pressable
+                        accessibilityLabel={`React ${emoji}`}
+                        accessibilityRole="button"
+                        key={emoji}
+                        onPress={() => {
+                          setActionsOpen(false);
+                          onReact(emoji);
+                        }}
+                        style={({ pressed }) => [
+                          styles.emojiAction,
+                          pressed && { backgroundColor: theme.surfacePressed },
+                        ]}
+                      >
+                        <Text style={styles.emojiActionText}>{emoji}</Text>
+                      </Pressable>
+                    ))}
+                    <Pressable
+                      accessibilityLabel="More reactions"
+                      accessibilityRole="button"
+                      onPress={() => {
+                        setActionsOpen(false);
+                        Alert.alert(
+                          "More reactions",
+                          "Custom emoji reactions are not available on this server."
+                        );
+                      }}
+                      style={({ pressed }) => [
+                        styles.emojiAction,
+                        pressed && { backgroundColor: theme.surfacePressed },
+                      ]}
+                    >
+                      <View>
+                        <SymbolView name="face.smiling" size={25} tintColor={theme.textMuted} />
+                        <View
+                          style={[styles.reactionPlus, { backgroundColor: theme.surfaceElevated }]}
                         >
-                          <Text style={styles.emojiActionText}>{emoji}</Text>
-                        </Pressable>
-                      ))}
-                    </View>
-                    <View style={[styles.divider, { backgroundColor: theme.separator }]} />
-                  </>
-                ) : null}
-                {!readOnly ? (
+                          <SymbolView name="plus" size={8} tintColor={theme.textMuted} />
+                        </View>
+                      </View>
+                    </Pressable>
+                  </View>
+                </GlassSurface>
+              ) : null}
+              {!readOnly ? (
+                <GlassSurface
+                  fallbackColor={theme.surfaceElevated}
+                  style={[styles.actionPanel, { borderColor: theme.border }]}
+                >
                   <Pressable
                     accessibilityRole="button"
                     onPress={() => {
@@ -624,7 +668,58 @@ export function MessageBubble({
                     <SymbolView name="arrowshape.turn.up.left" size={19} tintColor={theme.text} />
                     <Text style={[styles.menuLabel, { color: theme.text }]}>Reply</Text>
                   </Pressable>
-                ) : null}
+                  {onStartThread ? (
+                    <>
+                      <View style={[styles.divider, { backgroundColor: theme.separator }]} />
+                      <Pressable
+                        accessibilityRole="button"
+                        onPress={() => {
+                          setActionsOpen(false);
+                          onStartThread();
+                        }}
+                        style={({ pressed }) => [
+                          styles.menuRow,
+                          pressed && { backgroundColor: theme.surfacePressed },
+                        ]}
+                      >
+                        <SymbolView
+                          name="bubble.left.and.bubble.right"
+                          size={19}
+                          tintColor={theme.text}
+                        />
+                        <Text style={[styles.menuLabel, { color: theme.text }]}>
+                          Start a thread
+                        </Text>
+                      </Pressable>
+                    </>
+                  ) : null}
+                  {onMarkUnread ? (
+                    <>
+                      <View style={[styles.divider, { backgroundColor: theme.separator }]} />
+                      <Pressable
+                        accessibilityRole="button"
+                        onPress={() => {
+                          setActionsOpen(false);
+                          onMarkUnread();
+                        }}
+                        style={({ pressed }) => [
+                          styles.menuRow,
+                          pressed && { backgroundColor: theme.surfacePressed },
+                        ]}
+                      >
+                        <SymbolView name="bubble.left" size={19} tintColor={theme.text} />
+                        <Text style={[styles.menuLabel, { color: theme.text }]}>
+                          Mark as unread
+                        </Text>
+                      </Pressable>
+                    </>
+                  ) : null}
+                </GlassSurface>
+              ) : null}
+              <GlassSurface
+                fallbackColor={theme.surfaceElevated}
+                style={[styles.actionPanel, { borderColor: theme.border }]}
+              >
                 <Pressable
                   accessibilityRole="button"
                   onPress={() => {
@@ -640,6 +735,27 @@ export function MessageBubble({
                   <Text style={[styles.menuLabel, { color: theme.text }]}>Copy</Text>
                 </Pressable>
               </GlassSurface>
+              {!readOnly && onReport ? (
+                <GlassSurface
+                  fallbackColor={theme.surfaceElevated}
+                  style={[styles.actionPanel, { borderColor: theme.border }]}
+                >
+                  <Pressable
+                    accessibilityRole="button"
+                    onPress={() => {
+                      setActionsOpen(false);
+                      onReport();
+                    }}
+                    style={({ pressed }) => [
+                      styles.menuRow,
+                      pressed && { backgroundColor: theme.surfacePressed },
+                    ]}
+                  >
+                    <SymbolView name="flag" size={19} tintColor={theme.text} />
+                    <Text style={[styles.menuLabel, { color: theme.text }]}>Report</Text>
+                  </Pressable>
+                </GlassSurface>
+              ) : null}
             </View>
           </Pressable>
         </Modal>
@@ -747,24 +863,30 @@ const styles = StyleSheet.create({
   overlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.20)",
-    justifyContent: "center",
-    paddingHorizontal: 18,
+    justifyContent: "flex-end",
+    paddingHorizontal: 14,
+    paddingBottom: 18,
   },
-  actionAnchor: { width: "100%" },
-  actionLeft: { alignItems: "flex-start" },
-  actionRight: { alignItems: "flex-end" },
+  actionAnchor: { width: "100%", gap: 10 },
   actionPanel: {
-    width: 338,
-    maxWidth: "100%",
+    width: "100%",
     borderRadius: 22,
     borderWidth: StyleSheet.hairlineWidth,
-    padding: 8,
+    overflow: "hidden",
     shadowColor: "#000",
     shadowOpacity: 0.22,
     shadowRadius: 24,
     shadowOffset: { width: 0, height: 12 },
   },
-  emojiRow: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 3 },
+  reactionPanel: {
+    width: "100%",
+    borderRadius: 22,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 6,
+    paddingVertical: 5,
+    overflow: "hidden",
+  },
+  emojiRow: { flexDirection: "row", justifyContent: "space-between" },
   emojiAction: {
     width: 48,
     height: 48,
@@ -773,11 +895,20 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   emojiActionText: { fontSize: 27 },
-  divider: { height: StyleSheet.hairlineWidth, marginVertical: 5 },
+  reactionPlus: {
+    position: "absolute",
+    right: -5,
+    bottom: -4,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  divider: { height: StyleSheet.hairlineWidth, marginLeft: 52 },
   menuRow: {
-    height: 48,
-    borderRadius: 14,
-    paddingHorizontal: 12,
+    height: 56,
+    paddingHorizontal: 18,
     flexDirection: "row",
     alignItems: "center",
     gap: 12,

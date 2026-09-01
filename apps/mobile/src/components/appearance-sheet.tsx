@@ -24,7 +24,7 @@ export function AppearanceSheet({ onClose }: { onClose: () => void }) {
   const { accent, preference, setAccent, setPreference } = useAppearance();
 
   return (
-    <View style={[styles.screen, { backgroundColor: theme.background }]}>
+    <View style={[styles.screen, { backgroundColor: theme.dark ? "#141414" : theme.background }]}>
       <View style={styles.header}>
         <IconButton
           label="Back to settings"

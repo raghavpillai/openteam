@@ -161,13 +161,13 @@ const terminalSelect = <Value extends string>(
     const initialIndex = options.findIndex((option) => option.value === current);
     let selectedIndex = initialIndex >= 0 ? initialIndex : 0;
     const wasRaw = input.isRaw;
+    const columns = Math.max(24, process.stdout.columns || 80);
 
     const render = () => {
       const selected = options[selectedIndex];
-      process.stdout.write(
-        `\r\u001b[2K${message}  ${selectedIndex + 1}/${options.length}  › ${selected?.label ?? ""}  ` +
-          "(↑/↓/←/→, Enter)"
-      );
+      const line = `› ${selectedIndex + 1}/${options.length}  ${selected?.label ?? ""}`;
+      const visible = line.length <= columns ? line : `${line.slice(0, columns - 1)}…`;
+      process.stdout.write(`\r\u001b[2K${visible}`);
     };
     const cleanup = () => {
       input.off("keypress", onKeypress);
@@ -211,6 +211,11 @@ const terminalSelect = <Value extends string>(
     input.on("keypress", onKeypress);
     if (input.setRawMode) input.setRawMode(true);
     input.resume();
+    process.stdout.write(
+      columns >= 64
+        ? `${message}  Use ↑/↓/←/→; Enter to confirm.\n`
+        : `${message}\nUse arrows; Enter to confirm.\n`
+    );
     render();
   });
 

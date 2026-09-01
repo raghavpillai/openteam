@@ -37,6 +37,7 @@ public HTTP, private-network, or loopback access; creates the single OpenBot use
 offers to start OpenAI Codex sign-in. Public HTTPS is recommended and uses a bundled Caddy service:
 point a domain's A/AAAA record at the VM and open inbound TCP ports 80 and 443, and Caddy obtains and
 renews the certificate automatically. No certificate needs to exist on the VM beforehand.
+Use Up, Down, Left, or Right in menu prompts, then press Enter to confirm the highlighted option.
 
 Public HTTP accepts an IP address or hostname, but it sends passwords and bearer sessions without
 encryption and is rejected by the iOS app. Setup therefore requires an explicit warning

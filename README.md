@@ -126,6 +126,7 @@ proxy or load balancer, public HTTP, private-network, and loopback access before
 starting OpenAI Codex sign-in. Public HTTPS is the fresh-install default: point a domain's A/AAAA
 record at the VM and open inbound TCP ports 80 and 443, and the bundled Caddy container obtains,
 renews, and terminates TLS automatically. The VM does not need an existing certificate.
+Menu prompts support Up, Down, Left, and Right arrows; press Enter to confirm the highlighted option.
 
 Public HTTP works with a bare VM IP and the configured API port, but setup requires an explicit
 acknowledgement because passwords and bearer sessions travel without encryption; iOS rejects that

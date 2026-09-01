@@ -13,12 +13,26 @@ const equalSecret = (supplied: string, expected: string): boolean => {
   );
 };
 
+const isPrivateAddress = (address: string): boolean => {
+  const normalized = address.toLowerCase().replace(/^::ffff:/, "");
+  return (
+    normalized === "127.0.0.1" ||
+    normalized === "::1" ||
+    /^10\./.test(normalized) ||
+    /^192\.168\./.test(normalized) ||
+    /^172\.(?:1[6-9]|2\d|3[01])\./.test(normalized) ||
+    /^(?:fc|fd)[0-9a-f]{2}:/.test(normalized) ||
+    /^fe[89ab][0-9a-f]:/.test(normalized)
+  );
+};
+
 export const authRequestWithClientIp = (
   request: Request,
   requestServer: RequestIpSource,
   proxySecret: string,
   url?: URL,
-  body?: string
+  body?: string,
+  options: { trustPrivateForwarder?: boolean } = {}
 ): Request => {
   const headers = new Headers(request.headers);
   const proxyAuthenticated =
@@ -26,7 +40,9 @@ export const authRequestWithClientIp = (
     equalSecret(request.headers.get("x-openbot-proxy") ?? "", proxySecret);
   const forwarded = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "";
   const direct = requestServer.requestIP(request)?.address ?? "";
-  const clientIp = proxyAuthenticated && isIP(forwarded) ? forwarded : direct;
+  const trustedForwarder =
+    proxyAuthenticated || (options.trustPrivateForwarder && isPrivateAddress(direct));
+  const clientIp = trustedForwarder && isIP(forwarded) ? forwarded : direct;
   headers.delete("x-openbot-proxy");
   headers.delete("x-forwarded-for");
   headers.delete("x-forwarded-host");

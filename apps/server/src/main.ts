@@ -60,6 +60,7 @@ import { systemVersion } from "./system-version";
 const port = Number(process.env.OPENBOT_PORT ?? 8787);
 const controlToken = process.env.OPENBOT_CONTROL_TOKEN ?? "local-compose-only-change-me";
 const proxySecret = process.env.OPENBOT_PROXY_SECRET ?? "";
+const trustPrivateForwarder = process.env.OPENBOT_ACCESS_MODE === "proxy";
 const authMode = parseAuthMode(process.env.OPENBOT_AUTH_MODE);
 const release = systemVersion();
 
@@ -220,7 +221,8 @@ const server = Bun.serve({
           requestServer,
           proxySecret,
           new URL("/api/auth/sign-in/username", request.url),
-          await request.text()
+          await request.text(),
+          { trustPrivateForwarder }
         );
         return withCors(await auth.handler(loginRequest));
       }
@@ -228,7 +230,14 @@ const server = Bun.serve({
         return json({ error: { code: "not_found", message: "Not found" } }, 404);
       }
       if (request.method === "POST" && url.pathname === "/api/auth/sign-out") {
-        const authRequest = authRequestWithClientIp(request, requestServer, proxySecret);
+        const authRequest = authRequestWithClientIp(
+          request,
+          requestServer,
+          proxySecret,
+          undefined,
+          undefined,
+          { trustPrivateForwarder }
+        );
         if (authMode === "required") {
           const signingOutSession = await auth.api.getSession({ headers: authRequest.headers });
           if (signingOutSession) {
@@ -239,7 +248,11 @@ const server = Bun.serve({
       }
       if (url.pathname.startsWith("/api/auth/")) {
         return withCors(
-          await auth.handler(authRequestWithClientIp(request, requestServer, proxySecret))
+          await auth.handler(
+            authRequestWithClientIp(request, requestServer, proxySecret, undefined, undefined, {
+              trustPrivateForwarder,
+            })
+          )
         );
       }
       if (request.method === "POST" && path === "/api/internal/tools/call") {

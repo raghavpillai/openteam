@@ -27,6 +27,12 @@ export const auth = betterAuth({
     enabled: true,
     storage: "memory",
   },
+  session: {
+    // Explicit sliding policy: a trusted desktop or phone stays signed in for a week,
+    // while active sessions are refreshed daily. Credential changes still revoke all sessions.
+    expiresIn: 60 * 60 * 24 * 7,
+    updateAge: 60 * 60 * 24,
+  },
   database: prismaAdapter(authPrisma, { provider: "postgresql" }),
   emailAndPassword: {
     enabled: true,

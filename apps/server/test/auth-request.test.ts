@@ -45,4 +45,37 @@ describe("authentication client attribution", () => {
     expect(attributed.headers.get("x-openbot-client-ip")).toBe("198.51.100.8");
     expect(attributed.headers.has("x-forwarded-proto")).toBe(false);
   });
+
+  test("accepts a private upstream's forwarded address only in external-proxy mode", () => {
+    const request = new Request("http://server:8787/api/auth/config", {
+      headers: { "x-forwarded-for": "198.51.100.42" },
+    });
+    const attributed = authRequestWithClientIp(
+      request,
+      { requestIP: () => ({ address: "172.20.0.1" }) },
+      proxySecret,
+      undefined,
+      undefined,
+      { trustPrivateForwarder: true }
+    );
+
+    expect(attributed.headers.get("x-openbot-client-ip")).toBe("198.51.100.42");
+  });
+
+  test("recognizes IPv4-mapped and private IPv6 proxy addresses", () => {
+    for (const address of ["::ffff:172.20.0.1", "fd00::1", "fe80::1"]) {
+      const attributed = authRequestWithClientIp(
+        new Request("http://server:8787/api/auth/config", {
+          headers: { "x-forwarded-for": "2001:db8::42" },
+        }),
+        { requestIP: () => ({ address }) },
+        proxySecret,
+        undefined,
+        undefined,
+        { trustPrivateForwarder: true }
+      );
+
+      expect(attributed.headers.get("x-openbot-client-ip")).toBe("2001:db8::42");
+    }
+  });
 });

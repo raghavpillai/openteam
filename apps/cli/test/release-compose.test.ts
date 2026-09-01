@@ -44,7 +44,7 @@ describe("release Compose rendering", () => {
       /^\s*image:.*-(?:server|worker|migrate|computer):\$\{OPENBOT_VERSION/m
     );
     expect(rendered).toContain('profiles: ["https"]');
-    expect(rendered).toContain("caddy:2.10.2-alpine@sha256:");
+    expect(rendered).toContain("caddy:2.11.4-alpine@sha256:");
     expect(rendered).toContain("${OPENBOT_VIEWER_BIND_HOST:-127.0.0.1}:6200-6299");
     expect(rendered).toContain("OPENBOT_AUTH_URL: ${OPENBOT_AUTH_URL");
   });

@@ -52,4 +52,35 @@ describe("setup presentation", () => {
     expect(header).toContain("2/3 Owner");
     expect(header.split("\n").every((line) => line.length <= 40)).toBe(true);
   });
+
+  test("wraps all guided content within a narrow SSH terminal", () => {
+    const output: string[] = [];
+    const presentation = createSetupPresentation({
+      version: "1.2.3",
+      stages,
+      color: false,
+      width: 40,
+      write: (value) => output.push(value),
+    });
+    presentation.start();
+    presentation.stage(0);
+    presentation.choices([
+      {
+        title: "Existing HTTPS proxy",
+        description: "Use nginx, Caddy, Traefik, or a cloud load balancer you already manage.",
+      },
+    ]);
+    presentation.message(
+      "The proxy must replace inbound forwarding headers with values from its own connection.",
+      "warning"
+    );
+    presentation.summary("Configuration ready", [
+      { label: "Address", value: "https://an-intentionally-long-openbot-host.example.com" },
+    ]);
+
+    expect(output.join("\n")).toContain("     cloud load balancer you already");
+    expect(output.flatMap((value) => value.split("\n")).every((line) => line.length <= 40)).toBe(
+      true
+    );
+  });
 });

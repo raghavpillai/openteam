@@ -41,6 +41,37 @@ const paint = (enabled: boolean, value: string, ...codes: string[]): string =>
 const truncate = (value: string, width: number): string =>
   value.length <= width ? value : `${value.slice(0, Math.max(1, width - 1))}…`;
 
+const wrapText = (value: string, width: number): string[] => {
+  const limit = Math.max(1, width);
+  const lines: string[] = [];
+  for (const paragraph of value.split("\n")) {
+    const words = paragraph.trim().split(/\s+/).filter(Boolean);
+    if (!words.length) {
+      lines.push("");
+      continue;
+    }
+    let line = "";
+    for (const originalWord of words) {
+      let word = originalWord;
+      if (line && line.length + 1 + word.length <= limit) {
+        line += ` ${word}`;
+        continue;
+      }
+      if (line) {
+        lines.push(line);
+        line = "";
+      }
+      while (word.length > limit) {
+        lines.push(word.slice(0, limit));
+        word = word.slice(limit);
+      }
+      line = word;
+    }
+    if (line) lines.push(line);
+  }
+  return lines;
+};
+
 export const renderSetupHeader = (input: {
   version: string;
   stages: readonly SetupStage[];
@@ -98,7 +129,7 @@ export const createSetupPresentation = (input: {
 }): SetupPresentation => {
   const write = input.write ?? ((value: string) => console.log(value));
   const styled = input.color ?? colorEnabled();
-  const width = input.width ?? stdout.columns ?? 78;
+  const width = Math.max(32, Math.min(96, input.width ?? stdout.columns ?? 78));
   let activeStage = 0;
   let started = false;
 
@@ -114,13 +145,12 @@ export const createSetupPresentation = (input: {
   return {
     start() {
       write(header());
-      write(
-        paint(
-          styled,
-          "A few guided steps, then OpenBot will verify the whole deployment.",
-          ANSI.dim
-        )
-      );
+      for (const line of wrapText(
+        "A few guided steps, then OpenBot will verify the whole deployment.",
+        width
+      )) {
+        write(paint(styled, line, ANSI.dim));
+      }
       started = true;
     },
     stage(index) {
@@ -130,7 +160,9 @@ export const createSetupPresentation = (input: {
       const stage = input.stages[index];
       if (!stage) return;
       write(`\n${paint(styled, `${index + 1}. ${stage.label}`, ANSI.bold, ANSI.white)}`);
-      write(paint(styled, truncate(stage.description, Math.max(20, width - 4)), ANSI.dim));
+      for (const line of wrapText(stage.description, width)) {
+        write(paint(styled, line, ANSI.dim));
+      }
     },
     choices(items) {
       for (const [index, item] of items.entries()) {
@@ -138,7 +170,9 @@ export const createSetupPresentation = (input: {
         write(
           `  ${paint(styled, String(index + 1), ANSI.bold, ANSI.cyan)}  ${paint(styled, item.title, ANSI.bold)}${badge}`
         );
-        write(`     ${paint(styled, item.description, ANSI.dim)}`);
+        for (const line of wrapText(item.description, width - 5)) {
+          write(`     ${paint(styled, line, ANSI.dim)}`);
+        }
       }
       write("");
     },
@@ -150,13 +184,22 @@ export const createSetupPresentation = (input: {
         warning: [ANSI.yellow],
         muted: [ANSI.dim],
       }[tone];
-      write(`${paint(styled, mark, ...codes)} ${paint(styled, message, ...codes)}`);
+      for (const [index, line] of wrapText(message, width - 2).entries()) {
+        const prefix = index === 0 ? `${paint(styled, mark, ...codes)} ` : "  ";
+        write(`${prefix}${paint(styled, line, ...codes)}`);
+      }
     },
     summary(title, rows) {
       const labelWidth = Math.max(6, ...rows.map((row) => row.label.length));
       write(`\n${paint(styled, `✓ ${title}`, ANSI.bold, ANSI.green)}`);
       for (const row of rows) {
-        write(`  ${paint(styled, row.label.padEnd(labelWidth), ANSI.dim)}  ${row.value}`);
+        const prefix = `  ${row.label.padEnd(labelWidth)}  `;
+        const lines = wrapText(row.value, Math.max(12, width - prefix.length));
+        for (const [index, line] of lines.entries()) {
+          write(
+            `${index === 0 ? `  ${paint(styled, row.label.padEnd(labelWidth), ANSI.dim)}  ` : " ".repeat(prefix.length)}${line}`
+          );
+        }
       }
     },
   };

@@ -281,8 +281,8 @@ automation run ledgers, and action audit JSONL use the same tree.
 
 The current file, runtime, and reconciliation contract lives in
 `packages/messaging/src/agent-data.ts`, `apps/computer/src/grok-agent-store.ts`,
-and their tests. `plans/32-agent-data-filesystem-parity.md` retains the remaining
-source-incomplete edges rather than duplicating the completed implementation record.
+and their tests. Remaining external-event delivery and routine-safety work is tracked
+in `plans/29-update-state-manifest.md` rather than duplicating the completed file-state record.
 
 ## Persistence and recovery
 
@@ -356,6 +356,6 @@ window.openbotPerformance.clear();
 - [Pi compaction](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/compaction.md)
 - [OpenAI Codex authentication](https://learn.chatgpt.com/docs/auth)
 - AI Elements source revision: `apps/desktop/AI_ELEMENTS_REVISION.md`
-- Canonical runtime handoff: `plans/30-canonical-context-handoff.md`
+- Open-work index: `plans/00-index.md`
 
 `packages/codex-client` is retained only as unused migration history and is excluded from the active Bun/Turbo workspace; no runtime service imports it, no image installs Codex CLI, and all live turns use the embedded Pi SDK.

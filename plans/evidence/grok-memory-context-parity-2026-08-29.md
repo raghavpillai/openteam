@@ -295,11 +295,11 @@ The completed v0, Pi migration, filesystem-runtime, and compaction plans were
 removed on 2026-09-01 after their shipped behavior was verified. Current
 authority is `apps/computer/src/grok-compaction.ts`,
 `apps/computer/src/grok-agent-store.ts`, `packages/messaging/src/agent-data.ts`,
-their tests, and `plans/30-canonical-context-handoff.md`.
+their tests, and the current open-work index in `plans/00-index.md`.
 
-`plans/32-agent-data-filesystem-parity.md` remains because external-event
-delivery and source-incomplete routine safety policy still have open gates; its
-historical sketches do not override current code.
+External-event delivery and source-incomplete routine safety policy remain in
+`plans/29-update-state-manifest.md`; completed filesystem design prose was deleted
+so it cannot override current code.
 
 ## Forum claim check
 

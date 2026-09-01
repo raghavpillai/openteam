@@ -3,10 +3,10 @@ import { Schema } from "effect";
 
 export const corsHeaders = {
   "access-control-allow-origin": "*",
-  "access-control-allow-headers": "authorization,content-type,idempotency-key,last-event-id,range",
-  "access-control-allow-methods": "GET,POST,PATCH,DELETE,OPTIONS",
-  "access-control-expose-headers":
-    "accept-ranges,content-disposition,content-length,content-range,etag,server-timing,set-auth-token",
+  "access-control-allow-headers":
+    "authorization,content-type,idempotency-key,last-event-id,x-file-name",
+  "access-control-allow-methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
+  "access-control-expose-headers": "content-length,etag,server-timing,set-auth-token",
   "cache-control": "no-store",
 };
 

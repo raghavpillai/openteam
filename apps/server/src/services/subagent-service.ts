@@ -1,12 +1,14 @@
 import {
   ApiError,
   type CheckSubagentInput,
+  type ComputerSteerRequest,
   type MessageSubagentInput,
   resolveBotAvatarMark,
   type StopSubagentInput,
   type SubagentType,
   type TaskInput,
 } from "@openbot/contracts";
+import { COMPUTER_API_PATHS } from "@openbot/contracts/service-protocol";
 import { Prisma, type PrismaClient } from "@openbot/db";
 import type { AgentMessaging, ToolContext } from "@openbot/messaging";
 import { Effect } from "effect";
@@ -266,13 +268,14 @@ export class SubagentService {
       return { runId: run.id, inboxId: inbox.id, clientMessageId, content, duplicate: false };
     });
     if (!dispatch.duplicate) {
-      const response = await this.computerFetch(`/v1/turns/${dispatch.runId}/steer`, {
+      const input = {
+        inboxId: dispatch.inboxId,
+        clientMessageId: dispatch.clientMessageId,
+        content: dispatch.content,
+      } satisfies ComputerSteerRequest;
+      const response = await this.computerFetch(COMPUTER_API_PATHS.turnSteer(dispatch.runId), {
         method: "POST",
-        body: JSON.stringify({
-          inboxId: dispatch.inboxId,
-          clientMessageId: dispatch.clientMessageId,
-          content: dispatch.content,
-        }),
+        body: JSON.stringify(input),
         signal: AbortSignal.timeout(5_000),
       });
       if (!response.ok) {

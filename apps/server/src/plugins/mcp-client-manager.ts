@@ -190,7 +190,10 @@ export class McpHttpClientManager {
               ? (url, init) =>
                   fetch(url, {
                     ...init,
-                    headers: { ...Object.fromEntries(new Headers(init?.headers)), ...options.headers },
+                    headers: {
+                      ...Object.fromEntries(new Headers(init?.headers)),
+                      ...options.headers,
+                    },
                   })
               : undefined,
           });

@@ -26,4 +26,12 @@ describe("graphical screen lifecycle", () => {
       "Graphical screen was destroyed"
     );
   });
+
+  test("ships the screenshot executable used by the screen broker", async () => {
+    const dockerfile = await Bun.file(
+      new URL("../../../docker/computer.Dockerfile", import.meta.url)
+    ).text();
+
+    expect(dockerfile).toMatch(/apt-get install[\s\S]*?\bimagemagick\b/);
+  });
 });

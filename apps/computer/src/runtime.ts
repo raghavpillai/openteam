@@ -33,7 +33,11 @@ import {
   EXTERNAL_SHELL_TOOL,
   GET_DYNAMIC_TOOLS_TOOL,
   GetDynamicToolsInput,
+  LIST_AGENTS_TOOL,
+  LIST_GROUPS_TOOL,
   LIST_MACHINES_TOOL,
+  ListAgentsInput,
+  ListGroupsInput,
   MESSAGE_SUBAGENT_TOOL,
   MessageSubagentInput,
   NATIVE_TOOLS,
@@ -43,6 +47,8 @@ import {
   ReadToolInput,
   type RuntimeInlineImage,
   SCREENSHOT_TOOL,
+  SEND_TO_USER_CLOSING_NUDGE_PROMPT,
+  SEND_TO_USER_REPLY_NUDGE_PROMPT,
   SEND_TO_AGENT_TOOL,
   SEND_TO_USER_TOOL,
   SendToAgentInput,
@@ -63,8 +69,8 @@ import {
 } from "@openbot/contracts";
 import { Schema } from "effect";
 import { Type } from "typebox";
-import { AsyncQueue } from "./async-queue";
 import { BROWSER_USE_TOOLS, BrowserUseSession } from "./browser-use";
+import { ComputerEventQueue } from "./computer-event-queue";
 import {
   type DynamicNamespaceDefinition,
   type DynamicToolDefinition,
@@ -95,7 +101,7 @@ import {
 import { ScreenBroker } from "./screen-broker";
 
 const OPENBOT_DYNAMIC_DISCOVERY_DESCRIPTION =
-  "Discover and inspect tools available through OpenBot dynamic namespaces. Search by namespace, exact tool name, or bounded regular-expression pattern. Catalog searches abbreviate long descriptions; exact lookups return complete public schemas. Always discover a tool before calling it with CallDynamicTool. The cursor namespace contains OpenBot's supported TodoWrite, plugin lifecycle management, subagent orchestration, agent administration, and channel administration subset.";
+  "Discover and inspect tools available through OpenBot dynamic namespaces. Search by namespace, exact tool name, or bounded regular-expression pattern. Catalog searches abbreviate long descriptions; exact lookups return complete public schemas. Always discover a tool before calling it with CallDynamicTool. The cursor namespace contains OpenBot's supported TodoWrite, bounded agent and group directory lookup, plugin lifecycle management, subagent orchestration, agent administration, and channel administration subset.";
 
 const OPENBOT_DYNAMIC_CALL_DESCRIPTION =
   "Invoke one previously discovered tool from an authorized OpenBot dynamic namespace. The gateway rechecks availability, validates nested arguments against the current schema, and reauthorizes the call at execution time.";
@@ -108,6 +114,14 @@ const GRAPHICAL_WORKER_READ_DESCRIPTION =
 
 const HOST_ROUTING_DESCRIPTION =
   "By default this operates in the agent's isolated box. To target a user's connected computer, first call ListMachines and pass its exact machineId. Local-computer access is permission-gated and the requested command or file is shown to the user.";
+
+export const REPLY_NUDGE_PROMPT = SEND_TO_USER_REPLY_NUDGE_PROMPT;
+
+export const CLOSING_SEND_NUDGE_PROMPT = SEND_TO_USER_CLOSING_NUDGE_PROMPT;
+
+export const isDeliveryOwed = (
+  requestSource: NonNullable<ComputerTurnRequest["requestSource"]>
+): boolean => ["turn", "handoff-resume", "broadcast", "connector"].includes(requestSource);
 
 export const modelVisibleSummaryTools = (
   tools: ReadonlyArray<{
@@ -292,7 +306,7 @@ interface ActiveTurn {
   session: AgentSession | null;
   sessionPath: string | null;
   sessionAttached: boolean;
-  queue: AsyncQueue<ComputerEvent>;
+  queue: ComputerEventQueue;
   unsubscribe: (() => void) | null;
   assistantOrdinal: number;
   currentAssistantId: string | null;
@@ -301,6 +315,8 @@ interface ActiveTurn {
   toolArgs: Map<string, { toolName: string; args: unknown }>;
   lastStopReason: string | null;
   lastErrorMessage: string | null;
+  sentMessageCount: number;
+  toolActivityAfterLastSend: boolean;
   initialUserStarted: boolean;
   pendingSteers: Array<{
     inboxId: string;
@@ -519,7 +535,12 @@ export class ComputerRuntime {
   constructor(
     private readonly screens = new ScreenBroker(),
     private readonly grokStore?: GrokAgentStore,
-    private readonly onTurnEnd?: () => void
+    private readonly onTurnEnd?: (dirty: {
+      botId: string;
+      screenBotId: string;
+      cwd: string;
+      sessionPath: string | null;
+    }) => void
   ) {}
 
   async start(): Promise<void> {
@@ -566,7 +587,7 @@ export class ComputerRuntime {
       throw new Error(`Context ${request.contextSessionId} already has an active Pi turn`);
     }
 
-    const queue = new AsyncQueue<ComputerEvent>();
+    const queue = new ComputerEventQueue();
     const active: ActiveTurn = {
       runId: request.runId,
       botId: request.botId,
@@ -599,6 +620,8 @@ export class ComputerRuntime {
       toolArgs: new Map(),
       lastStopReason: null,
       lastErrorMessage: null,
+      sentMessageCount: 0,
+      toolActivityAfterLastSend: false,
       initialUserStarted: false,
       pendingSteers: [],
       acceptedSteerIds: new Set(),
@@ -1480,6 +1503,16 @@ export class ComputerRuntime {
           : `OpenBot tool host rejected the call (${response.status})`;
       throw new Error(message);
     }
+    if (
+      tool === SEND_TO_USER_TOOL.name &&
+      body &&
+      typeof body === "object" &&
+      !Array.isArray(body) &&
+      (body as Record<string, unknown>).sent === true
+    ) {
+      active.sentMessageCount += 1;
+      active.toolActivityAfterLastSend = false;
+    }
     return {
       content: [
         {
@@ -1556,6 +1589,24 @@ export class ComputerRuntime {
       ...(active.runtimeProfile === "subagent"
         ? []
         : [
+            {
+              name: LIST_AGENTS_TOOL.name,
+              description: LIST_AGENTS_TOOL.description,
+              inputSchema: LIST_AGENTS_TOOL.inputSchema,
+              source: "first-party" as const,
+              decodeArguments: (args: unknown) => Schema.decodeUnknownSync(ListAgentsInput)(args),
+              execute: (turn: ActiveTurn, callId: string, args: unknown, signal?: AbortSignal) =>
+                this.callControlPlaneTool(turn, callId, LIST_AGENTS_TOOL.name, args, signal),
+            },
+            {
+              name: LIST_GROUPS_TOOL.name,
+              description: LIST_GROUPS_TOOL.description,
+              inputSchema: LIST_GROUPS_TOOL.inputSchema,
+              source: "first-party" as const,
+              decodeArguments: (args: unknown) => Schema.decodeUnknownSync(ListGroupsInput)(args),
+              execute: (turn: ActiveTurn, callId: string, args: unknown, signal?: AbortSignal) =>
+                this.callControlPlaneTool(turn, callId, LIST_GROUPS_TOOL.name, args, signal),
+            },
             {
               name: SEND_TO_AGENT_TOOL.name,
               description: SEND_TO_AGENT_TOOL.description,
@@ -1759,7 +1810,7 @@ export class ComputerRuntime {
       {
         name: "cursor",
         description:
-          "OpenBot's supported A2A messaging, TodoWrite, read-only plugin management, subagent orchestration, agent administration, and channel administration tools.",
+          "OpenBot's supported A2A messaging, TodoWrite, bounded agent and group directory lookup, read-only plugin management, subagent orchestration, agent administration, and channel administration tools.",
         kind: "first-party",
         namespaceStatus: "ready",
         tools: cursorTools,
@@ -1809,6 +1860,19 @@ export class ComputerRuntime {
       if (!session) throw new Error("Pi session is not attached");
       await this.compaction.beginUserQuery(active.contextSessionId, active.resetSelfSummaryCount);
       await active.session?.prompt(content, { source: "rpc", images });
+      if (isDeliveryOwed(active.requestSource)) {
+        if (active.sentMessageCount === 0) {
+          await session.prompt(REPLY_NUDGE_PROMPT, {
+            source: "rpc",
+            expandPromptTemplates: false,
+          });
+        } else if (active.toolActivityAfterLastSend) {
+          await session.prompt(CLOSING_SEND_NUDGE_PROMPT, {
+            source: "rpc",
+            expandPromptTemplates: false,
+          });
+        }
+      }
       const completedContext = replaceGrokUserInfo(
         await this.compaction.contextMessages(
           active.contextSessionId,
@@ -1869,7 +1933,12 @@ export class ComputerRuntime {
           rm(directory, { recursive: true, force: true })
         )
       );
-      this.onTurnEnd?.();
+      this.onTurnEnd?.({
+        botId: active.botId,
+        screenBotId: active.screenBotId,
+        cwd: active.cwd,
+        sessionPath: active.sessionPath,
+      });
       active.queue.end();
     }
   }
@@ -1991,6 +2060,9 @@ export class ComputerRuntime {
     }
 
     if (event.type === "tool_execution_start") {
+      if (active.sentMessageCount > 0) {
+        active.toolActivityAfterLastSend = true;
+      }
       active.toolArgs.set(event.toolCallId, {
         toolName: event.toolName,
         args: event.args,

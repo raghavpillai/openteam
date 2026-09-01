@@ -2,18 +2,23 @@ import { describe, expect, test } from "bun:test";
 import { Effect } from "effect";
 import { InternalToolService } from "../src/services/internal-tool-service";
 
-const request = (tool: string) => ({
+const request = (tool: string, argumentsValue: unknown = { type: "text", content: "Hello" }) => ({
   runId: "run-1",
   botId: "bot-1",
   conversationId: "conversation-1",
   channelId: "conversation-1",
   deliveryId: null,
   tool,
-  arguments: { type: "text", content: "Hello" },
+  arguments: argumentsValue,
   callId: `call-${tool}`,
 });
 
-const serviceFixture = () => {
+const serviceFixture = (
+  options: {
+    childIdentity?: Record<string, unknown> | null;
+    administration?: Record<string, unknown>;
+  } = {}
+) => {
   const deliveries: Array<{ type?: string; content?: string }> = [];
   const service = new InternalToolService(
     {
@@ -29,7 +34,7 @@ const serviceFixture = () => {
           inboxEvents: [],
         }),
       },
-      subagent: { findUnique: async () => null },
+      subagent: { findUnique: async () => options.childIdentity ?? null },
     } as never,
     {
       sendVisible: async (_context: unknown, input: { type?: string; content?: string }) => {
@@ -41,7 +46,7 @@ const serviceFixture = () => {
     async () => {},
     {} as never,
     {} as never,
-    {} as never,
+    (options.administration ?? {}) as never,
     {} as never
   );
   return { deliveries, service };
@@ -60,5 +65,54 @@ describe("InternalToolService user-delivery tool name", () => {
       "Unknown tool SendMessage"
     );
     expect(deliveries).toEqual([]);
+  });
+
+  test("routes bounded directory reads for parent agents", async () => {
+    const calls: Array<{ kind: string; botId: string; input: unknown }> = [];
+    const { service } = serviceFixture({
+      administration: {
+        listAgents: async (botId: string, input: unknown) => {
+          calls.push({ kind: "agents", botId, input });
+          return { agents: [] };
+        },
+        listGroups: async (botId: string, input: unknown) => {
+          calls.push({ kind: "groups", botId, input });
+          return { groups: [] };
+        },
+      },
+    });
+
+    await expect(
+      Effect.runPromise(service.execute(request("ListAgents", { query: "research", limit: 3 })))
+    ).resolves.toEqual({ agents: [] });
+    await expect(
+      Effect.runPromise(service.execute(request("ListGroups", { limit: 2 })))
+    ).resolves.toEqual({ groups: [] });
+    expect(calls).toEqual([
+      { kind: "agents", botId: "bot-1", input: { query: "research", limit: 3 } },
+      { kind: "groups", botId: "bot-1", input: { limit: 2 } },
+    ]);
+  });
+
+  test("blocks directory control-plane tools for subagents before routing", async () => {
+    let calls = 0;
+    const { service } = serviceFixture({
+      childIdentity: { id: "child-identity", parentBotId: "parent-id" },
+      administration: {
+        listAgents: async () => {
+          calls += 1;
+        },
+        listGroups: async () => {
+          calls += 1;
+        },
+      },
+    });
+
+    for (const tool of ["ListAgents", "ListGroups"]) {
+      await expect(Effect.runPromise(service.execute(request(tool, {})))).rejects.toThrow(
+        "parent-agent only"
+      );
+    }
+    expect(calls).toBe(0);
   });
 });

@@ -4,6 +4,7 @@ import { prismaAdapter } from "better-auth/adapters/prisma";
 import { bearer, username } from "better-auth/plugins";
 
 const secret = process.env.OPENBOT_AUTH_SECRET ?? process.env.BETTER_AUTH_SECRET;
+const baseURL = process.env.OPENBOT_AUTH_URL || "http://127.0.0.1:8787";
 
 if (!secret || secret.length < 32) {
   throw new Error("OPENBOT_AUTH_SECRET must contain at least 32 characters");
@@ -14,8 +15,18 @@ export const authPrisma = createPrismaClient();
 export const auth = betterAuth({
   appName: "OpenBot",
   secret,
-  baseURL: process.env.OPENBOT_AUTH_URL || "http://127.0.0.1:8787",
+  baseURL,
   basePath: "/api/auth",
+  advanced: {
+    ipAddress: { ipAddressHeaders: ["x-openbot-client-ip"] },
+    useSecureCookies: baseURL.startsWith("https://"),
+  },
+  rateLimit: {
+    // Keep Better Auth's limiter active in local development as well as production.
+    // Its sign-in rule permits three attempts per ten-second window.
+    enabled: true,
+    storage: "memory",
+  },
   database: prismaAdapter(authPrisma, { provider: "postgresql" }),
   emailAndPassword: {
     enabled: true,

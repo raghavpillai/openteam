@@ -10,17 +10,23 @@ import {
   DynamicToolCallRequest,
   InstallPluginInput,
   MarkChannelReadInput,
+  PLUGIN_BOT_ACCESS_PAGE_SIZE,
+  PLUGIN_BOT_ACCESS_QUERY_MAX_LENGTH,
+  PLUGIN_CONNECTION_ID_MAX_LENGTH,
+  PLUGIN_CONNECTION_STATUS_MAX_IDS,
   ReactToChannelMessageInput,
+  RegisterPushDeviceInput,
   RenameChannelInput,
   RenamePluginAccountInput,
-  RegisterPushDeviceInput,
   ResolveApprovalInput,
   ScreenActionInput,
   ScreenPauseInput,
   ScreenTakeoverInput,
   type SearchCategory,
+  SecretSubmissionInput,
   SendMessageInput,
   SetChannelAvatarInput,
+  SetChannelHiddenInput,
   SetChannelMembersInput,
   SetMcpInstructionsInput,
   SetPluginEnablementInput,
@@ -29,21 +35,33 @@ import {
   UpdateBotInput,
   UpdateChannelProfileInput,
   UploadAssetInput,
+  WidgetDismissInput,
+  WidgetResponseInput,
 } from "@openbot/contracts";
 import type { RoutineMutationInput } from "@openbot/messaging";
 import { Effect, Either } from "effect";
 import { AppService } from "./app-service";
-import { authorizedApi, isTrustedLocalApiClient } from "./api-auth";
 import { assetResponse } from "./asset-http";
 import { auth, authPrisma } from "./auth";
+import { parseAuthMode } from "./auth-mode";
+import { authRequestWithClientIp } from "./auth-request";
+import { eventStream } from "./event-stream";
 import { corsHeaders, errorResponse, json, parseBody, withCors } from "./http";
 import { runOwnerCredentialCommand } from "./owner-credentials";
+import {
+  assetUploadByteLimit,
+  decodeFileNameHeader,
+  isAssetUploadEnvelope,
+  requireAssetBody,
+} from "./services/asset-service";
 import { parseAutoReviewInput } from "./services/auto-review-service";
+import { systemVersion } from "./system-version";
 
 const port = Number(process.env.OPENBOT_PORT ?? 8787);
 const controlToken = process.env.OPENBOT_CONTROL_TOKEN ?? "local-compose-only-change-me";
-const apiToken = process.env.OPENBOT_API_TOKEN?.trim() || null;
-const trustLoopbackApi = process.env.OPENBOT_API_TRUST_LOOPBACK !== "false";
+const proxySecret = process.env.OPENBOT_PROXY_SECRET ?? "";
+const authMode = parseAuthMode(process.env.OPENBOT_AUTH_MODE);
+const release = systemVersion();
 
 if (process.argv[2] === "owner-credentials") {
   try {
@@ -53,7 +71,8 @@ if (process.argv[2] === "owner-credentials") {
   }
   process.exit(0);
 }
-const app = new AppService();
+
+const app = new AppService(authMode);
 await Effect.runPromise(app.boot());
 
 const run = async <A>(effect: Effect.Effect<A, Error>): Promise<A> => {
@@ -61,7 +80,6 @@ const run = async <A>(effect: Effect.Effect<A, Error>): Promise<A> => {
   if (Either.isLeft(result)) throw result.left;
   return result.right;
 };
-const encoder = new TextEncoder();
 const searchCategories = new Set<SearchCategory>([
   "all",
   "messages",
@@ -71,6 +89,47 @@ const searchCategories = new Set<SearchCategory>([
   "links",
   "routines",
 ]);
+
+const eventCursor = (value: string | null): bigint => {
+  if (value === null || value === "") return 0n;
+  if (!/^\d+$/.test(value)) {
+    throw new ApiError(400, "invalid_cursor", "Event cursor is invalid");
+  }
+  try {
+    return BigInt(value);
+  } catch {
+    throw new ApiError(400, "invalid_cursor", "Event cursor is invalid");
+  }
+};
+
+const boundedQueryInteger = (
+  value: string | null,
+  fallback: number,
+  maximum: number,
+  name: string
+): number => {
+  if (value === null || value === "") return fallback;
+  if (!/^\d+$/.test(value)) {
+    throw new ApiError(400, "invalid_query_parameter", `${name} must be a non-negative integer`);
+  }
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed > maximum) {
+    throw new ApiError(400, "invalid_query_parameter", `${name} is outside the supported range`);
+  }
+  return parsed;
+};
+
+const historyCursor = (value: string | null): bigint | null => {
+  if (value === null || value === "") return null;
+  if (!/^\d+$/.test(value)) {
+    throw new ApiError(400, "invalid_history_cursor", "History cursor is invalid");
+  }
+  const parsed = BigInt(value);
+  if (parsed < 1n) {
+    throw new ApiError(400, "invalid_history_cursor", "History cursor must be positive");
+  }
+  return parsed;
+};
 
 const authorizedInternal = (request: Request): boolean => {
   const supplied = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? "";
@@ -143,25 +202,45 @@ const server = Bun.serve({
   port,
   idleTimeout: 255,
   maxRequestBodySize: 280 * 1024 * 1024,
-  async fetch(request) {
+  async fetch(request, requestServer) {
     if (request.method === "OPTIONS")
       return new Response(null, { status: 204, headers: corsHeaders });
     const url = new URL(request.url);
     const path = url.pathname.replace(/^\/api\/v0(?=\/|$)/, "/api");
     try {
+      if (request.method === "GET" && path === "/api/auth/config") {
+        return json({ mode: authMode });
+      }
+      if (request.method === "GET" && path === "/api/system/version") {
+        return json(release);
+      }
       if (request.method === "POST" && url.pathname === "/api/auth/login") {
-        const loginRequest = new Request(new URL("/api/auth/sign-in/username", request.url), {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: await request.text(),
-        });
+        const loginRequest = authRequestWithClientIp(
+          request,
+          requestServer,
+          proxySecret,
+          new URL("/api/auth/sign-in/username", request.url),
+          await request.text()
+        );
         return withCors(await auth.handler(loginRequest));
       }
       if (url.pathname === "/api/auth/sign-in/username") {
         return json({ error: { code: "not_found", message: "Not found" } }, 404);
       }
+      if (request.method === "POST" && url.pathname === "/api/auth/sign-out") {
+        const authRequest = authRequestWithClientIp(request, requestServer, proxySecret);
+        if (authMode === "required") {
+          const signingOutSession = await auth.api.getSession({ headers: authRequest.headers });
+          if (signingOutSession) {
+            await run(app.disablePushDevicesForSession(signingOutSession.session.id));
+          }
+        }
+        return withCors(await auth.handler(authRequest));
+      }
       if (url.pathname.startsWith("/api/auth/")) {
-        return withCors(await auth.handler(request));
+        return withCors(
+          await auth.handler(authRequestWithClientIp(request, requestServer, proxySecret))
+        );
       }
       if (request.method === "POST" && path === "/api/internal/tools/call") {
         if (!authorizedInternal(request)) {
@@ -183,47 +262,48 @@ const server = Bun.serve({
         }
         return json(await run(app.broadcast(await parseBody(request, AdminBroadcastInput))));
       }
-      const publicAsset =
-        (request.method === "GET" || request.method === "HEAD") &&
-        /^\/api\/assets\/[a-f0-9]{64}$/.test(path);
-      const publicCallback = request.method === "GET" && path === "/api/plugin-oauth/callback";
-      const clientAddress = server.requestIP(request)?.address;
-      const trustedLocalClient = isTrustedLocalApiClient(
-        clientAddress,
-        url.hostname,
-        trustLoopbackApi
-      );
       if (request.method === "GET" && (url.pathname === "/health" || path === "/api/health")) {
         const runtime = await run(app.health());
-        return json({ status: runtime.server, runtime });
+        return json(
+          { status: runtime.server, runtime, release },
+          runtime.server === "ready" ? 200 : 503
+        );
       }
-      if (!publicAsset && !publicCallback) {
+      const publicAssetMatch = path.match(/^\/api\/assets\/([a-f0-9]{64})$/i);
+      if (["GET", "HEAD"].includes(request.method) && publicAssetMatch?.[1]) {
+        return assetResponse(app.assets, app.agentData, request, url, publicAssetMatch[1]);
+      }
+      const publicCallback = request.method === "GET" && path === "/api/plugin-oauth/callback";
+      let authenticatedSessionId: string | null = null;
+      if (authMode === "required" && !publicCallback) {
         const session = await auth.api.getSession({ headers: request.headers });
-        const apiAuthorized = authorizedApi(request, apiToken, clientAddress, false);
-        if (!session && !apiAuthorized) {
-          if (!apiToken && !trustedLocalClient) {
-            return json(
-              {
-                error: {
-                  code: "api_auth_not_configured",
-                  message: "Remote API access requires OPENBOT_API_TOKEN or an owner session",
-                },
-              },
-              503
-            );
-          }
+        if (!session) {
           return json(
             { error: { code: "unauthorized", message: "Sign in to OpenBot to continue" } },
             401
           );
         }
+        authenticatedSessionId = session.session.id;
       }
       if (request.method === "GET" && ["/api/snapshot", "/api/bootstrap"].includes(path)) {
         return json(await run(app.clientSnapshot()));
       }
       if (request.method === "POST" && path === "/api/notification-devices") {
+        if (authMode === "required" && !authenticatedSessionId) {
+          return json(
+            { error: { code: "unauthorized", message: "Sign in to OpenBot to continue" } },
+            401
+          );
+        }
         return json(
-          await run(app.registerPushDevice(await parseBody(request, RegisterPushDeviceInput))),
+          await run(
+            app.registerPushDevice(
+              await parseBody(request, RegisterPushDeviceInput),
+              authMode === "required"
+                ? { mode: "required", sessionId: authenticatedSessionId as string }
+                : { mode: "disabled" }
+            )
+          ),
           201
         );
       }
@@ -249,12 +329,33 @@ const server = Bun.serve({
           "server-timing": `snapshot;dur=${(performance.now() - startedAt).toFixed(2)}`,
         });
       }
-      if (request.method === "POST" && path === "/api/assets") {
-        return json(await run(app.uploadAsset(await parseBody(request, UploadAssetInput))), 201);
+      if (request.method === "GET" && path === "/api/client-bootstrap") {
+        const startedAt = performance.now();
+        const bootstrap = await run(app.clientBootstrap());
+        return json(bootstrap, 200, {
+          "server-timing": `bootstrap;dur=${(performance.now() - startedAt).toFixed(2)}`,
+        });
       }
-      const assetMatch = path.match(/^\/api\/assets\/([a-f0-9]{64})$/);
-      if ((request.method === "GET" || request.method === "HEAD") && assetMatch?.[1]) {
-        return await assetResponse(app.assets, app.agentData, request, url, assetMatch[1]);
+      if (request.method === "GET" && path === "/api/client-runtime") {
+        return json(await run(app.clientRuntime()));
+      }
+      if (request.method === "POST" && path === "/api/assets") {
+        const encodedFileName = request.headers.get("x-file-name");
+        const contentType = request.headers.get("content-type") ?? "application/octet-stream";
+        if (isAssetUploadEnvelope(contentType, encodedFileName)) {
+          return json(await run(app.uploadAsset(await parseBody(request, UploadAssetInput))), 201);
+        }
+        const fileName = decodeFileNameHeader(encodedFileName);
+        const byteLimit = assetUploadByteLimit(contentType, fileName);
+        const declaredLength = Number(request.headers.get("content-length") ?? 0);
+        if (Number.isFinite(declaredLength) && declaredLength > byteLimit) {
+          throw new ApiError(413, "asset_too_large", `Attachment exceeds ${byteLimit} bytes`);
+        }
+        const stream = requireAssetBody(request.body);
+        return json(
+          await run(app.uploadBinaryAsset(stream, contentType, fileName, request.signal)),
+          201
+        );
       }
       if (request.method === "GET" && path === "/api/search") {
         const startedAt = performance.now();
@@ -270,10 +371,60 @@ const server = Bun.serve({
         });
       }
       if (request.method === "GET" && path === "/api/bots") {
-        return json((await run(app.clientSnapshot())).bots);
+        return json(await run(app.listBots(url.searchParams.get("includeHidden") === "1")));
       }
       if (request.method === "GET" && path === "/api/plugins") {
         return json(await run(app.pluginSettings()));
+      }
+      if (request.method === "GET" && path === "/api/plugin-connections/status") {
+        const requestedConnectionIds = url.searchParams.getAll("id");
+        if (requestedConnectionIds.length === 0) {
+          throw new ApiError(
+            400,
+            "invalid_query_parameter",
+            "At least one connection id is required"
+          );
+        }
+        if (requestedConnectionIds.length > PLUGIN_CONNECTION_STATUS_MAX_IDS) {
+          throw new ApiError(
+            400,
+            "invalid_query_parameter",
+            `At most ${PLUGIN_CONNECTION_STATUS_MAX_IDS} connection ids may be polled`
+          );
+        }
+        const connectionIds = [...new Set(requestedConnectionIds)];
+        if (
+          connectionIds.some((id) => id.length === 0 || id.length > PLUGIN_CONNECTION_ID_MAX_LENGTH)
+        ) {
+          throw new ApiError(400, "invalid_query_parameter", "Connection id is invalid");
+        }
+        return json(await run(app.pluginConnectionStatuses(connectionIds)));
+      }
+      const pluginBotAccessMatch = path.match(/^\/api\/plugins\/([^/]+)\/bot-access$/);
+      if (request.method === "GET" && pluginBotAccessMatch?.[1]) {
+        const query = url.searchParams.get("q") ?? "";
+        if (query.length > PLUGIN_BOT_ACCESS_QUERY_MAX_LENGTH) {
+          throw new ApiError(
+            400,
+            "invalid_query_parameter",
+            `q cannot exceed ${PLUGIN_BOT_ACCESS_QUERY_MAX_LENGTH} characters`
+          );
+        }
+        const offset = boundedQueryInteger(url.searchParams.get("offset"), 0, 100_000, "offset");
+        const limit = boundedQueryInteger(
+          url.searchParams.get("limit"),
+          PLUGIN_BOT_ACCESS_PAGE_SIZE,
+          PLUGIN_BOT_ACCESS_PAGE_SIZE,
+          "limit"
+        );
+        if (limit < 1) {
+          throw new ApiError(400, "invalid_query_parameter", "limit must be at least 1");
+        }
+        return json(
+          await run(
+            app.pluginBotAccess(decodeURIComponent(pluginBotAccessMatch[1]), query, offset, limit)
+          )
+        );
       }
       if (request.method === "GET" && path === "/api/settings") {
         return json(await run(app.rootSettings()));
@@ -440,6 +591,9 @@ const server = Bun.serve({
       if (request.method === "POST" && path === "/api/channels") {
         return json(await run(app.createGroup(await parseBody(request, CreateGroupInput))), 201);
       }
+      if (request.method === "GET" && path === "/api/groups") {
+        return json(await run(app.listGroups(url.searchParams.get("includeHidden") === "1")));
+      }
 
       const screenMatch = path.match(/^\/api\/bots\/([^/]+)\/screen$/);
       if (request.method === "GET" && screenMatch?.[1]) {
@@ -571,6 +725,53 @@ const server = Bun.serve({
           runs: snapshot.runs.filter((candidate) => candidate.channelId === channel.id),
         });
       }
+      if (request.method === "DELETE" && channelMatch?.[1]) {
+        return json(await run(app.deleteGroup(channelMatch[1])));
+      }
+      const channelHistoryMatch = path.match(/^\/api\/channels\/([^/]+)\/history$/);
+      if (request.method === "GET" && channelHistoryMatch?.[1]) {
+        const requestedLimit = Number(url.searchParams.get("limit") ?? 100);
+        return json(
+          await run(
+            app.channelHistory(
+              decodeURIComponent(channelHistoryMatch[1]),
+              historyCursor(url.searchParams.get("before")),
+              requestedLimit
+            )
+          )
+        );
+      }
+      const channelClientStateMatch = path.match(/^\/api\/channels\/([^/]+)\/client-state$/);
+      if (request.method === "GET" && channelClientStateMatch?.[1]) {
+        return json(
+          await run(app.channelClientState(decodeURIComponent(channelClientStateMatch[1])))
+        );
+      }
+      const channelMessageContextMatch = path.match(/^\/api\/channel-messages\/([^/]+)\/context$/);
+      if (request.method === "GET" && channelMessageContextMatch?.[1]) {
+        return json(
+          await run(
+            app.channelMessageContext(
+              decodeURIComponent(channelMessageContextMatch[1]),
+              Number(url.searchParams.get("before") ?? 50),
+              Number(url.searchParams.get("after") ?? 50)
+            )
+          )
+        );
+      }
+      const messageDeliveryMatch = path.match(
+        /^\/api\/channels\/([^/]+)\/message-deliveries\/([^/]+)$/
+      );
+      if (request.method === "GET" && messageDeliveryMatch?.[1] && messageDeliveryMatch[2]) {
+        return json(
+          await run(
+            app.messageDeliveryStatus(
+              decodeURIComponent(messageDeliveryMatch[1]),
+              decodeURIComponent(messageDeliveryMatch[2])
+            )
+          )
+        );
+      }
       const channelMessageMatch = path.match(/^\/api\/channels\/([^/]+)\/messages$/);
       if (request.method === "POST" && channelMessageMatch?.[1]) {
         return json(
@@ -636,6 +837,17 @@ const server = Bun.serve({
           )
         );
       }
+      const channelHiddenMatch = path.match(/^\/api\/channels\/([^/]+)\/hidden$/);
+      if (request.method === "PATCH" && channelHiddenMatch?.[1]) {
+        return json(
+          await run(
+            app.setChannelHidden(
+              channelHiddenMatch[1],
+              await parseBody(request, SetChannelHiddenInput)
+            )
+          )
+        );
+      }
       const channelMessageReactionMatch = path.match(
         /^\/api\/channel-messages\/([^/]+)\/reaction$/
       );
@@ -645,6 +857,41 @@ const server = Bun.serve({
             app.reactToMessage(
               channelMessageReactionMatch[1],
               await parseBody(request, ReactToChannelMessageInput)
+            )
+          ),
+          202
+        );
+      }
+      const widgetResponseMatch = path.match(/^\/api\/channel-messages\/([^/]+)\/widget-response$/);
+      if (request.method === "POST" && widgetResponseMatch?.[1]) {
+        return json(
+          await run(
+            app.respondToWidget(
+              decodeURIComponent(widgetResponseMatch[1]),
+              await parseBody(request, WidgetResponseInput)
+            )
+          ),
+          202
+        );
+      }
+      const widgetDismissMatch = path.match(/^\/api\/channel-messages\/([^/]+)\/widget-dismiss$/);
+      if (request.method === "POST" && widgetDismissMatch?.[1]) {
+        return json(
+          await run(
+            app.dismissWidget(
+              decodeURIComponent(widgetDismissMatch[1]),
+              await parseBody(request, WidgetDismissInput)
+            )
+          )
+        );
+      }
+      const secretSubmissionMatch = path.match(/^\/api\/channel-messages\/([^/]+)\/secret$/);
+      if (request.method === "POST" && secretSubmissionMatch?.[1]) {
+        return json(
+          await run(
+            app.submitSecret(
+              decodeURIComponent(secretSubmissionMatch[1]),
+              await parseBody(request, SecretSubmissionInput)
             )
           ),
           202
@@ -712,37 +959,10 @@ const server = Bun.serve({
         return json(await run(app.resolveApproval(approvalMatch[1], input.decision)));
       }
       if (request.method === "GET" && path === "/api/events") {
-        let cursor = BigInt(
-          url.searchParams.get("after") ?? request.headers.get("last-event-id") ?? "0"
+        const cursor = eventCursor(
+          url.searchParams.get("after") ?? request.headers.get("last-event-id")
         );
-        const body = new ReadableStream<Uint8Array>({
-          async start(controller) {
-            controller.enqueue(encoder.encode(": connected\n\n"));
-            while (!request.signal.aborted) {
-              try {
-                const events = await app.eventsAfter(cursor);
-                for (const event of events) {
-                  cursor = BigInt(event.sequence);
-                  controller.enqueue(
-                    encoder.encode(
-                      `id: ${event.sequence}\nevent: product\ndata: ${JSON.stringify(event)}\n\n`
-                    )
-                  );
-                }
-                if (events.length === 0) controller.enqueue(encoder.encode(": keepalive\n\n"));
-                await new Promise((resolvePromise) => setTimeout(resolvePromise, 750));
-              } catch (error) {
-                controller.enqueue(
-                  encoder.encode(
-                    `event: stream-error\ndata: ${JSON.stringify({ message: error instanceof Error ? error.message : String(error) })}\n\n`
-                  )
-                );
-                await new Promise((resolvePromise) => setTimeout(resolvePromise, 1_500));
-              }
-            }
-            controller.close();
-          },
-        });
+        const body = eventStream(app, cursor, request.signal);
         return new Response(body, {
           headers: {
             ...corsHeaders,

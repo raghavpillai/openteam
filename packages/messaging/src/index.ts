@@ -1,7 +1,7 @@
 import {
+  type AdminBroadcastInput,
   type AgentImageInput,
   type AgentSendToUserInput,
-  type AdminBroadcastInput,
   ApiError,
   type AssetRef,
   type BotTranscriptView,
@@ -9,6 +9,7 @@ import {
   type RuntimeInlineImage,
   type SendToAgentInput,
   type SubagentType,
+  TODO_MAX_ITEMS,
   type TranscriptEventView,
 } from "@openbot/contracts";
 import { Prisma, type PrismaClient } from "@openbot/db";
@@ -17,19 +18,26 @@ import { AgentDataStore, type AgentPromptContext } from "./agent-data";
 import { AssetStore, MAX_MESSAGE_ASSETS } from "./asset-store";
 import {
   GROUP_MAX_MEMBER_TURNS,
+  GROUP_MAX_MEMBERS,
   GROUP_MAX_MESSAGES_PER_TURN,
   GROUP_MAX_ROUNDS,
   groupVisibilityClauses,
   resolveGroupResponderIds,
   rotateGroupResponders,
 } from "./group-routing";
-import { resolveTimeZone, timestampUserTurn } from "./timestamps";
 import { appendRoutineRunLedger } from "./routines";
+import { resolveTimeZone, timestampUserTurn } from "./timestamps";
 
-export { AgentDataStore, renderAgentProfileUpdate } from "./agent-data";
 export type { BotFileTarget } from "./agent-data";
-export { AssetStore } from "./asset-store";
+export { AgentDataStore, renderAgentProfileUpdate } from "./agent-data";
+export {
+  AssetStore,
+  MAX_MESSAGE_ASSETS,
+  REGULAR_ASSET_LIMIT,
+  VIDEO_ASSET_LIMIT,
+} from "./asset-store";
 export * from "./group-routing";
+export { unreadBadgeCount, unreadChannelCount } from "./unread";
 
 export interface MessageReaction {
   by: string;
@@ -115,7 +123,65 @@ const PRIORITY = {
   group: 150,
 } as const;
 
+// Transcript jobs project current state rather than an event payload, so a
+// keyed trailing debounce safely collapses bursts into one projection per bot.
+const TRANSCRIPT_PROJECTION_DEBOUNCE_SECONDS = 1;
+
 const compactName = (value: string): string => value.replace(/\s+/g, " ").trim().slice(0, 160);
+
+export const PLATFORM_PROMPT_PEER_LIMIT = 12;
+export const PLATFORM_PROMPT_RELATED_PEER_LIMIT = 8;
+export const PLATFORM_PROMPT_GROUP_LIMIT = 8;
+
+export interface PlatformPromptPeerTarget {
+  id: string;
+  name: string;
+  hiddenFromSidebar: boolean;
+}
+
+export interface PlatformPromptGroupTarget {
+  id: string;
+  name: string;
+  workingDirectory: string | null;
+}
+
+export const selectPlatformPromptPeers = (
+  related: readonly PlatformPromptPeerTarget[],
+  recent: readonly PlatformPromptPeerTarget[],
+  excludedId?: string
+): PlatformPromptPeerTarget[] => {
+  const selected: PlatformPromptPeerTarget[] = [];
+  const seen = new Set(excludedId ? [excludedId] : []);
+  const append = (candidate: PlatformPromptPeerTarget): boolean => {
+    if (seen.has(candidate.id) || selected.length >= PLATFORM_PROMPT_PEER_LIMIT) return false;
+    seen.add(candidate.id);
+    selected.push(candidate);
+    return true;
+  };
+  let relatedCount = 0;
+  for (const peer of related) {
+    if (append(peer)) relatedCount += 1;
+    if (relatedCount >= PLATFORM_PROMPT_RELATED_PEER_LIMIT) break;
+  }
+  for (const peer of recent) append(peer);
+  return selected;
+};
+
+export const renderPlatformPromptTargetLines = (
+  peers: readonly PlatformPromptPeerTarget[],
+  groups: readonly PlatformPromptGroupTarget[]
+): string[] => [
+  ...peers
+    .slice(0, PLATFORM_PROMPT_PEER_LIMIT)
+    .map(
+      (peer) =>
+        `- Agent ${compactName(peer.name)}: ${peer.id}${peer.hiddenFromSidebar ? " (hidden from the user's sidebar, but reachable)" : ""}`
+    ),
+  ...groups.slice(0, PLATFORM_PROMPT_GROUP_LIMIT).map((group) => {
+    const workingDirectory = group.workingDirectory?.replace(/\s+/g, " ").trim().slice(0, 240);
+    return `- Group ${compactName(group.name)}: ${group.id}${workingDirectory ? ` (project folder: ${workingDirectory})` : ""}`;
+  }),
+];
 
 export const directAgentAcknowledgement = (input: {
   targetName: string;
@@ -126,6 +192,25 @@ export const directAgentAcknowledgement = (input: {
     ? `Sent to ${name} as a priority message — it will interrupt their current non-user work and wake them now.`
     : `Sent to ${name}.`;
   return `${prefix} This is asynchronous — if they reply, it'll arrive later as a new message that wakes you; don't wait on it now.`;
+};
+
+export const buildChannelDeliveryFailureWakePrompt = (input: {
+  channel: string;
+  error: string;
+}): string =>
+  [
+    "[channel-delivery-failed] A message you tried to send to a channel did not go through.",
+    "This is a system notice about your own outbound send, not the user typing in this app. You may have already told the user it was sent, so correct the record.",
+    `- To ${input.channel}: ${input.error}`,
+    "Tell the user plainly here, in this in-app chat (a SendToUser with no channel target), that the message didn't go through and why, so they aren't left believing it was delivered. Don't silently retry the same channel; if it isn't connected, offer to help connect it.",
+  ].join("\n");
+
+export const buildDismissedQuestionsNote = (prompts: readonly string[]): string => {
+  if (prompts.length === 1) {
+    return `The user dismissed your question (${JSON.stringify(prompts[0])}) without answering — they'd rather not respond. Don't ask it again or wait for an answer; continue with what you already know and decide yourself.`;
+  }
+  const list = prompts.map((prompt) => `- ${JSON.stringify(prompt)}`).join("\n");
+  return `The user dismissed these questions without answering — they'd rather not respond:\n${list}\nDon't ask them again or wait for answers; continue with what you already know and decide yourself.`;
 };
 
 export const GROUP_AGENT_MESSAGE_LIMIT = 8_000;
@@ -459,6 +544,7 @@ export interface WakeInput {
     | "bootstrap"
     | "routine"
     | "event"
+    | "connector"
     | "background_revival"
     | "handoff_resume"
     | "broadcast";
@@ -503,6 +589,84 @@ export interface SteerDispatch {
   content: string;
   images: RuntimeInlineImage[];
 }
+
+export const validateSendToUserInput = (value: unknown): void => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new ApiError(400, "invalid_send_to_user", "SendToUser input must be an object");
+  }
+  const input = value as Record<string, unknown>;
+  const type = input.type;
+  if (!["text", "attachment", "widget", "secret-request"].includes(String(type))) {
+    throw new ApiError(400, "unsupported_message_type", "Unsupported SendToUser message type");
+  }
+  const fieldsByType: Record<string, ReadonlySet<string>> = {
+    text: new Set(["type", "content", "images", "reply_to", "channel", "to"]),
+    attachment: new Set(["type", "url", "alt", "reply_to", "channel"]),
+    widget: new Set(["type", "widget", "reply_to"]),
+    "secret-request": new Set(["type", "secret", "reply_to"]),
+  };
+  const allowed = fieldsByType[String(type)];
+  const invalid = Object.keys(input).filter(
+    (key) => input[key] !== undefined && !allowed?.has(key)
+  );
+  if (invalid.length > 0) {
+    throw new ApiError(
+      400,
+      "invalid_send_to_user_fields",
+      `${invalid.join(", ")} ${invalid.length === 1 ? "is" : "are"} not valid for type:${type}; nothing was sent`
+    );
+  }
+  if (input.channel !== undefined && input.to !== undefined) {
+    throw new ApiError(
+      400,
+      "send_to_user_destination_conflict",
+      "channel and to cannot be used together; nothing was sent"
+    );
+  }
+  if (type === "text" && (typeof input.content !== "string" || !input.content.trim())) {
+    throw new ApiError(400, "send_to_user_content_required", "content is required for type:text");
+  }
+  if (type === "attachment" && (typeof input.url !== "string" || !input.url.trim())) {
+    throw new ApiError(400, "send_to_user_url_required", "url is required for type:attachment");
+  }
+  if (type === "widget") {
+    const widget =
+      input.widget && typeof input.widget === "object" && !Array.isArray(input.widget)
+        ? (input.widget as Record<string, unknown>)
+        : null;
+    if (
+      !widget ||
+      typeof widget.prompt !== "string" ||
+      !widget.prompt.trim() ||
+      !Array.isArray(widget.options) ||
+      widget.options.length === 0
+    ) {
+      throw new ApiError(
+        400,
+        "send_to_user_widget_required",
+        "a prompt and at least one option are required for type:widget"
+      );
+    }
+  }
+  if (type === "secret-request") {
+    const secret =
+      input.secret && typeof input.secret === "object" && !Array.isArray(input.secret)
+        ? (input.secret as Record<string, unknown>)
+        : null;
+    if (
+      !secret ||
+      [secret.label, secret.connector, secret.field].some(
+        (field) => typeof field !== "string" || !field.trim()
+      )
+    ) {
+      throw new ApiError(
+        400,
+        "send_to_user_secret_required",
+        "label, connector, and field are required for type:secret-request"
+      );
+    }
+  }
+};
 
 export class AgentMessaging {
   readonly defaultTimeZone: string;
@@ -732,6 +896,35 @@ export class AgentMessaging {
       skippedBotIds,
       runs,
     };
+  }
+
+  async enqueueChannelDeliveryFailure(
+    context: ToolContext,
+    channel: string,
+    error: unknown
+  ): Promise<string | null> {
+    const message = (error instanceof Error ? error.message : String(error)).slice(0, 2_000);
+    return this.prisma.$transaction(async (tx) => {
+      const activeChannel = await tx.channel.findUnique({ where: { id: context.channelId } });
+      if (!activeChannel || activeChannel.kind === "group") return null;
+      const clientId = `channel-delivery-failed:${context.callId}`;
+      const existing = await tx.inboxEvent.findUnique({
+        where: { idempotencyKey: clientId },
+        select: { runId: true },
+      });
+      if (existing) return existing.runId;
+      const wake = await this.enqueueWake(tx, {
+        botId: context.botId,
+        channelId: context.channelId,
+        origin: "connector",
+        type: "channel.delivery_failed",
+        content: buildChannelDeliveryFailureWakePrompt({ channel, error: message }),
+        clientId,
+        priority: PRIORITY.agent,
+        wrapUserContent: false,
+      });
+      return wake.run.id;
+    });
   }
 
   async isTimelineSessionActive(botId: string): Promise<boolean> {
@@ -1115,7 +1308,7 @@ export class AgentMessaging {
     botIds: Iterable<string>
   ): Promise<void> {
     for (const botId of new Set(botIds)) {
-      await this.boss.send(
+      await this.boss.sendDebounced(
         "transcript-project",
         { botId },
         {
@@ -1124,7 +1317,9 @@ export class AgentMessaging {
           retryDelay: 2,
           retryBackoff: true,
           expireInSeconds: 2 * 60,
-        }
+        },
+        TRANSCRIPT_PROJECTION_DEBOUNCE_SECONDS,
+        botId
       );
     }
   }
@@ -1688,7 +1883,7 @@ export class AgentMessaging {
       where: { id: botId },
       include: {
         subagentIdentity: true,
-        todos: { orderBy: { position: "asc" } },
+        todos: { orderBy: { position: "asc" }, take: TODO_MAX_ITEMS },
       },
     });
     const todoContext = bot.todos.map((todo) => `- [${todo.status}] ${todo.id}: ${todo.content}`);
@@ -1733,46 +1928,112 @@ export class AgentMessaging {
       include: { project: true },
       orderBy: { joinedAt: "asc" },
     });
-    const [peers, groups, disconnected, routines] = await Promise.all([
-      this.prisma.bot.findMany({
-        where: {
-          id: { not: botId },
-          status: "active",
-          subagentIdentity: { is: null },
-        },
-        select: { id: true, name: true, hiddenFromSidebar: true },
-        orderBy: { createdAt: "asc" },
-      }),
-      this.prisma.channel.findMany({
-        where: {
-          kind: "group",
-          archivedAt: null,
-          members: { some: { botId } },
-        },
-        select: { id: true, name: true, workingDirectory: true },
-        orderBy: { createdAt: "asc" },
-      }),
-      this.prisma.botConnectorState.findMany({
-        where: { botId, connected: false },
-        select: { platform: true },
-        orderBy: { platform: "asc" },
-      }),
-      this.prisma.routine.findMany({
-        where: { botId, deletedAt: null },
-        orderBy: { updatedAt: "desc" },
-        take: 50,
-      }),
-    ]);
-    const targets = [
-      ...peers.map(
-        (peer) =>
-          `- Agent ${peer.name}: ${peer.id}${peer.hiddenFromSidebar ? " (hidden from the user's sidebar, but reachable)" : ""}`
-      ),
-      ...groups.map(
-        (group) =>
-          `- Group ${group.name}: ${group.id}${group.workingDirectory ? ` (project folder: ${group.workingDirectory})` : ""}`
-      ),
-    ];
+    const [recentPeers, groupRows, disconnected, routines, pendingRichMessages] = await Promise.all(
+      [
+        this.prisma.bot.findMany({
+          where: {
+            id: { not: botId },
+            status: "active",
+            subagentIdentity: { is: null },
+          },
+          select: { id: true, name: true, hiddenFromSidebar: true },
+          orderBy: [{ updatedAt: "desc" }, { id: "asc" }],
+          take: PLATFORM_PROMPT_PEER_LIMIT + 1,
+        }),
+        this.prisma.channel.findMany({
+          where: {
+            kind: "group",
+            archivedAt: null,
+            members: { some: { botId } },
+          },
+          select: {
+            id: true,
+            name: true,
+            workingDirectory: true,
+            members: {
+              where: {
+                botId: { not: botId },
+                bot: { status: "active", subagentIdentity: { is: null } },
+              },
+              orderBy: { ordinal: "asc" },
+              take: GROUP_MAX_MEMBERS,
+              select: {
+                bot: { select: { id: true, name: true, hiddenFromSidebar: true } },
+              },
+            },
+          },
+          orderBy: [{ updatedAt: "desc" }, { id: "asc" }],
+          take: PLATFORM_PROMPT_GROUP_LIMIT + 1,
+        }),
+        this.prisma.botConnectorState.findMany({
+          where: { botId, connected: false },
+          select: { platform: true },
+          orderBy: { platform: "asc" },
+        }),
+        this.prisma.routine.findMany({
+          where: { botId, deletedAt: null },
+          orderBy: { updatedAt: "desc" },
+          take: 50,
+        }),
+        this.prisma.$queryRaw<Array<{ id: string; content: string; metadata: Prisma.JsonValue }>>(
+          Prisma.sql`
+          SELECT message."id", message."content", message."metadata"
+          FROM "ChannelMessage" AS message
+          WHERE message."senderBotId" = ${botId}::uuid
+            AND message."sender" = 'agent'::"ChannelMessageSender"
+            AND message."metadata"->>'type' IN ('widget', 'secret-request')
+            AND (
+              (
+                message."metadata"->>'type' = 'widget'
+                AND NOT (message."metadata" ? 'respondedValue')
+                AND coalesce((message."metadata"->>'widgetDismissedEchoed')::boolean, false) = false
+              )
+              OR (
+                message."metadata"->>'type' = 'secret-request'
+                AND coalesce((message."metadata"->>'secretProvided')::boolean, false) = false
+              )
+            )
+          ORDER BY message."sequence" DESC
+          LIMIT 20
+        `
+        ),
+      ]
+    );
+    const groups = groupRows.slice(0, PLATFORM_PROMPT_GROUP_LIMIT);
+    const relatedPeers = groups.flatMap((group) => group.members.map((member) => member.bot));
+    const peers = selectPlatformPromptPeers(relatedPeers, recentPeers, botId);
+    const targets = renderPlatformPromptTargetLines(peers, groups);
+    const dismissedWidgetPrompts: string[] = [];
+    const richMessagePrompts = pendingRichMessages.flatMap((message) => {
+      const metadata =
+        message.metadata && typeof message.metadata === "object" && !Array.isArray(message.metadata)
+          ? (message.metadata as Record<string, unknown>)
+          : {};
+      if (metadata.type === "widget") {
+        if (metadata.widgetDismissed === true) {
+          dismissedWidgetPrompts.push(message.content);
+          return [];
+        }
+        return [`The user has not answered your question yet: ${JSON.stringify(message.content)}.`];
+      }
+      return [
+        `The user has not provided the requested credential yet: ${JSON.stringify(message.content)}.`,
+      ];
+    });
+    const dismissedIds = pendingRichMessages.flatMap((message) => {
+      const metadata =
+        message.metadata && typeof message.metadata === "object" && !Array.isArray(message.metadata)
+          ? (message.metadata as Record<string, unknown>)
+          : {};
+      return metadata.type === "widget" && metadata.widgetDismissed === true ? [message.id] : [];
+    });
+    if (dismissedIds.length > 0) {
+      await this.prisma.$executeRaw(Prisma.sql`
+        UPDATE "ChannelMessage"
+        SET "metadata" = "metadata" || '{"widgetDismissedEchoed":true}'::jsonb
+        WHERE "id" IN (${Prisma.join(dismissedIds.map((id) => Prisma.sql`${id}::uuid`))})
+      `);
+    }
     const projectContext = projectMemberships.map(
       ({ project }) =>
         `- ${project.name} (${project.slug}): ${project.workingDirectory}${project.description ? ` — ${project.description}` : ""}`
@@ -1785,7 +2046,7 @@ export class AgentMessaging {
       agentPrompt.profileSection,
       bot.instructions ? `Additional durable instructions:\n${bot.instructions}` : "",
       "SendToUser is your only user-visible voice. Plain assistant text is internal and never appears in OpenBot chat.",
-      "Use GetDynamicTools with namespace cursor to discover SendToAgent, TodoWrite, Task/CheckSubagent/MessageSubagent/StopSubagent, CreateAgent/UpdateAgent, and CreateChannel/UpdateChannel. Invoke discovered tools with CallDynamicTool.",
+      "Use GetDynamicTools with namespace cursor to discover SendToAgent, ListAgents/ListGroups, TodoWrite, Task/CheckSubagent/MessageSubagent/StopSubagent, CreateAgent/UpdateAgent, and CreateChannel/UpdateChannel. Invoke discovered tools with CallDynamicTool.",
       A2A_PLATFORM_INSTRUCTIONS,
       MAIN_AGENT_GRAPHICAL_DELEGATION_INSTRUCTIONS,
       `Available Task subagent types are executor, videoReview, watchVideo, computerUse, and browserUse. The available subagent model slug is ${process.env.OPENBOT_PI_MODEL ?? "gpt-5.5"}; omit model unless the user explicitly asks for it.`,
@@ -1799,7 +2060,7 @@ export class AgentMessaging {
       `The computer filesystem is shared. Every agent, room, routine, A2A wake, and subagent starts in ${bot.defaultDirectory}. This shared folder is organizational, not a security boundary.`,
       `Safe peer-readable transcript mirrors live under /home/box/agent-data/agent-transcripts/<bot-id>/<bot-id>.jsonl. Read one only when a task-relevant reason requires it. They are redacted reference projections, not private model context or raw Pi session history.`,
       targets.length > 0
-        ? `Available SendToAgent targets:\n${targets.join("\n")}`
+        ? `Recent and related SendToAgent targets (bounded catalog):\n${targets.join("\n")}\nUse ListAgents or ListGroups for an exact id/name lookup or to discover targets omitted from this catalog.`
         : "No peer or group targets are currently available.",
       agentPrompt.memoryRender
         ? `Durable memory. Later sections have higher instructional precedence (own > project > user):\n${agentPrompt.memoryRender}`
@@ -1813,6 +2074,8 @@ export class AgentMessaging {
       disconnected.length > 0
         ? `Disconnected connector platforms: ${disconnected.map(({ platform }) => platform).join(", ")}`
         : "No connector platform is marked disconnected.",
+      dismissedWidgetPrompts.length > 0 ? buildDismissedQuestionsNote(dismissedWidgetPrompts) : "",
+      richMessagePrompts.length > 0 ? richMessagePrompts.join("\n") : "",
       agentPrompt.warnings.length > 0
         ? `Agent-data filesystem warnings. Invalid settings/skill/automation edits were preserved and fallback values may be active; fix them before relying on those edits:\n${agentPrompt.warnings.map((warning) => `- ${warning}`).join("\n")}`
         : "",
@@ -2235,6 +2498,34 @@ export class AgentMessaging {
           interruptRunId: null,
         };
       }
+      const awaitingUser = await tx.channelMessage.findFirst({
+        where: {
+          channelId: channel.id,
+          sender: "agent",
+          senderBotId: context.botId,
+          sourceRunId: context.runId,
+        },
+        orderBy: { sequence: "desc" },
+      });
+      const awaitingMetadata =
+        awaitingUser?.metadata &&
+        typeof awaitingUser.metadata === "object" &&
+        !Array.isArray(awaitingUser.metadata)
+          ? (awaitingUser.metadata as Record<string, unknown>)
+          : null;
+      if (
+        awaitingMetadata &&
+        ["widget", "secret-request"].includes(String(awaitingMetadata.type)) &&
+        typeof awaitingMetadata.respondedValue !== "string" &&
+        awaitingMetadata.widgetDismissed !== true &&
+        awaitingMetadata.secretProvided !== true
+      ) {
+        throw new ApiError(
+          409,
+          "awaiting_user_response",
+          "A question or secure handoff is already waiting for the user. Stop this turn and wait for them to respond."
+        );
+      }
       if (channel.kind === "group" && context.deliveryId) {
         const priorGroupReplies = await tx.channelMessage.count({
           where: {
@@ -2293,19 +2584,23 @@ export class AgentMessaging {
   private async persistedVisibleInput(
     input: AgentSendToUserInput
   ): Promise<Record<string, unknown> & { reply_to?: string }> {
-    const { images, url, ...rest } = input;
+    const { images, url, secret, ...rest } = input;
     if (input.type === "attachment") {
       if (!url) throw new Error("url is required when type is attachment");
       return {
+        kind: "send-message",
         ...rest,
         attachment: await this.assets.ingestSource({ url, alt: input.alt }),
       };
     }
     if (input.type === "text" && images?.length) {
       const attachments = await this.attachmentsForWake({ images });
-      return { ...rest, attachments };
+      return { kind: "send-message", ...rest, attachments };
     }
-    return rest;
+    if (input.type === "secret-request") {
+      return { kind: "send-message", ...rest, secretRequest: secret };
+    }
+    return { kind: "send-message", ...rest };
   }
 
   private visibleContent(input: AgentSendToUserInput): string {
@@ -2320,10 +2615,6 @@ export class AgentMessaging {
     if (input.type === "widget") {
       if (!input.widget) throw new Error("widget is required when type is widget");
       return input.widget.prompt;
-    }
-    if (input.type === "cursor-agent") {
-      if (!input.bcId) throw new Error("bcId is required when type is cursor-agent");
-      return `Cursor agent ${input.bcId}`;
     }
     if (!input.secret) throw new Error("secret is required when type is secret-request");
     return `Secret requested: ${input.secret.label}`;
@@ -2341,11 +2632,11 @@ export {
   scheduledRoutineWakeContent,
 } from "./routines";
 export {
+  type AgentTimelineEvent,
+  type AutomationChangedAction,
   appendAgentTimelineEvent,
   buildTimelineEventWakePrompt,
   describeAgentTimelineEvent,
-  type AgentTimelineEvent,
-  type AutomationChangedAction,
   type TimelineEventWakeHost,
 } from "./timeline-events";
 export {
@@ -2353,7 +2644,7 @@ export {
   resolveTimeZone,
   timestampUserTurn,
 } from "./timestamps";
-export { PRIORITY };
+export { PRIORITY, TRANSCRIPT_PROJECTION_DEBOUNCE_SECONDS };
 
 const safeVisibleMetadata = (value: unknown): Record<string, unknown> => {
   if (!value || Array.isArray(value) || typeof value !== "object") return {};
@@ -2375,6 +2666,16 @@ const safeVisibleMetadata = (value: unknown): Record<string, unknown> => {
           typeof (reaction as Record<string, unknown>).emoji === "string"
       )
     : [];
+  const widget =
+    record.widget && typeof record.widget === "object" && !Array.isArray(record.widget)
+      ? (record.widget as Record<string, unknown>)
+      : null;
+  const secretRequest =
+    record.secretRequest &&
+    typeof record.secretRequest === "object" &&
+    !Array.isArray(record.secretRequest)
+      ? (record.secretRequest as Record<string, unknown>)
+      : null;
   return {
     ...(typeof record.type === "string" ? { type: record.type } : {}),
     ...(record.kind === "send-message" ? { kind: "send-message" } : {}),
@@ -2385,7 +2686,60 @@ const safeVisibleMetadata = (value: unknown): Record<string, unknown> => {
       : typeof record.reply_to === "string"
         ? { replyTo: record.reply_to }
         : {}),
-    ...(record.widget && typeof record.widget === "object" ? { interactive: true } : {}),
+    ...(widget
+      ? {
+          interactive: true,
+          widget: {
+            ...(typeof widget.prompt === "string" ? { prompt: widget.prompt } : {}),
+            ...(typeof widget.helpText === "string" ? { helpText: widget.helpText } : {}),
+            ...(widget.multiSelect === true ? { multiSelect: true } : {}),
+            ...(widget.allowCustom === true ? { allowCustom: true } : {}),
+            ...(Array.isArray(widget.options)
+              ? {
+                  options: widget.options.flatMap((candidate) => {
+                    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
+                      return [];
+                    }
+                    const option = candidate as Record<string, unknown>;
+                    if (typeof option.label !== "string") return [];
+                    return [
+                      {
+                        label: option.label,
+                        ...(typeof option.value === "string" ? { value: option.value } : {}),
+                        ...(typeof option.description === "string"
+                          ? { description: option.description }
+                          : {}),
+                      },
+                    ];
+                  }),
+                }
+              : {}),
+          },
+          ...(typeof record.respondedValue === "string"
+            ? { respondedValue: record.respondedValue }
+            : {}),
+          ...(typeof record.respondedLabel === "string"
+            ? { respondedLabel: record.respondedLabel }
+            : {}),
+          ...(record.widgetDismissed === true ? { widgetDismissed: true } : {}),
+        }
+      : {}),
+    ...(secretRequest
+      ? {
+          interactive: true,
+          secretRequest: {
+            ...(typeof secretRequest.label === "string" ? { label: secretRequest.label } : {}),
+            ...(typeof secretRequest.connector === "string"
+              ? { connector: secretRequest.connector }
+              : {}),
+            ...(typeof secretRequest.field === "string" ? { field: secretRequest.field } : {}),
+            ...(typeof secretRequest.description === "string"
+              ? { description: secretRequest.description }
+              : {}),
+          },
+          ...(record.secretProvided === true ? { secretProvided: true } : {}),
+        }
+      : {}),
     ...(safeAgent(record.fromAgent) ? { fromAgent: safeAgent(record.fromAgent) } : {}),
     ...(safeAgent(record.toAgent, true) ? { toAgent: safeAgent(record.toAgent, true) } : {}),
     ...(safeAgent(record.author) ? { author: safeAgent(record.author) } : {}),

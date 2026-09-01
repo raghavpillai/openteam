@@ -1,11 +1,20 @@
+import { createHash } from "node:crypto";
 import type {
   AssetRef,
   ComputerEvent,
+  ComputerTurnRequest,
   RunOrigin,
   RuntimeRequestSource,
   RuntimeInlineImage,
   SubagentType,
 } from "@openbot/contracts";
+import { SEND_TO_USER_REPLY_NUDGE_PROMPT } from "@openbot/contracts";
+import {
+  COMPUTER_API_PATHS,
+  parseAgentDirectorySnapshot,
+  parseComputerEvent,
+  type AgentDirectoryRecord,
+} from "@openbot/contracts/service-protocol";
 import {
   agentNotificationPresentation,
   notificationMessageInputReason,
@@ -18,6 +27,7 @@ import {
   AgentMessaging,
   appendRoutineRunLedger,
   buildSafeTranscript,
+  PRIORITY,
   RoutineService,
   renderSubagentRevivalPrompt,
 } from "@openbot/messaging";
@@ -27,6 +37,64 @@ import { Projection } from "./projection";
 import { enqueuePushNotification, PushNotificationDispatcher } from "./push-notifications";
 
 const LEASE_MS = 2 * 60_000;
+export const AUTOMATION_RECONCILE_BATCH_SIZE = 8;
+export const TRANSCRIPT_FINGERPRINT_TTL_MS = 5_000;
+export const TRANSCRIPT_FINGERPRINT_CACHE_MAX_ENTRIES = 1_024;
+
+export const computerEventQueuesPushNotification = (event: ComputerEvent): boolean =>
+  event.type === "approval.requested" || event.type === "turn.completed";
+
+interface TranscriptFingerprintEntry {
+  value: string;
+  expiresAt: number;
+}
+
+/** Small per-process LRU used only to suppress duplicate transcript uploads. */
+export class TranscriptFingerprintCache {
+  private readonly entries = new Map<string, TranscriptFingerprintEntry>();
+
+  constructor(
+    readonly maxEntries = TRANSCRIPT_FINGERPRINT_CACHE_MAX_ENTRIES,
+    readonly ttlMs = TRANSCRIPT_FINGERPRINT_TTL_MS
+  ) {
+    if (!Number.isInteger(maxEntries) || maxEntries < 1) {
+      throw new Error("Transcript fingerprint cache maxEntries must be a positive integer");
+    }
+    if (!Number.isFinite(ttlMs) || ttlMs <= 0) {
+      throw new Error("Transcript fingerprint cache ttlMs must be positive");
+    }
+  }
+
+  matches(botId: string, value: string, now = Date.now()): boolean {
+    const entry = this.entries.get(botId);
+    if (!entry) return false;
+    if (entry.expiresAt <= now) {
+      this.entries.delete(botId);
+      return false;
+    }
+    // Reinsert on access so Map insertion order is the LRU order.
+    this.entries.delete(botId);
+    this.entries.set(botId, entry);
+    return entry.value === value;
+  }
+
+  remember(botId: string, value: string, now = Date.now()): void {
+    this.entries.delete(botId);
+    this.entries.set(botId, { value, expiresAt: now + this.ttlMs });
+    while (this.entries.size > this.maxEntries) {
+      const oldest = this.entries.keys().next().value;
+      if (oldest === undefined) break;
+      this.entries.delete(oldest);
+    }
+  }
+
+  get size(): number {
+    return this.entries.size;
+  }
+}
+
+export const transcriptEventsFingerprint = (events: unknown): string =>
+  createHash("sha256").update(JSON.stringify(events)).digest("hex");
 
 class BotRunLeaseContended extends Error {}
 
@@ -40,20 +108,6 @@ interface ProvisionData {
 
 interface TranscriptData {
   botId: string;
-}
-
-interface AgentDirectoryRecord {
-  id: string;
-  kind: "agent" | "group";
-  name: string;
-  description: string;
-  title: string;
-  createdAt: number;
-  updatedAt: number;
-  hasStore: boolean;
-  notifyOnAgentUpdates: boolean;
-  hiddenFromSidebar: boolean;
-  memberIds: string[];
 }
 
 interface Claimed {
@@ -94,6 +148,7 @@ const REQUEST_SOURCE_BY_ORIGIN = {
   group: "agent",
   routine: "automation",
   event: "event",
+  connector: "connector",
   background_revival: "background-revival",
   handoff_resume: "handoff-resume",
   broadcast: "broadcast",
@@ -101,6 +156,9 @@ const REQUEST_SOURCE_BY_ORIGIN = {
 
 export const runtimeRequestSourceForOrigin = (origin: RunOrigin): RuntimeRequestSource =>
   REQUEST_SOURCE_BY_ORIGIN[origin];
+
+export const runOwesUserDelivery = (origin: RunOrigin): boolean =>
+  ["user", "bootstrap", "connector", "handoff_resume", "broadcast"].includes(origin);
 
 export const subagentRuntimeOwners = (
   botId: string,
@@ -218,6 +276,18 @@ export const terminalRoutineExecutionStatus = (
   return null;
 };
 
+export const terminalGroupRoutineExecutionStatus = (
+  roundStatus: string,
+  deliveryStatuses: readonly string[]
+): "completed" | "failed" | null => {
+  if (roundStatus === "failed") return "failed";
+  if (roundStatus !== "completed") return null;
+  return deliveryStatuses.length > 0 &&
+    deliveryStatuses.every((status) => status === "failed" || status === "skipped")
+    ? "failed"
+    : "completed";
+};
+
 export class WakeWorker {
   readonly prisma: PrismaClient;
   readonly boss: PgBoss;
@@ -234,6 +304,10 @@ export class WakeWorker {
   private pushNotificationTimer: ReturnType<typeof setInterval> | null = null;
   private reconcilingAgentStores = false;
   private routinePassActive = false;
+  private automationReconcileCursor: string | null = null;
+  private agentStoreEtag: string | null = null;
+  private pendingAgentStoreRecords = new Map<string, AgentDirectoryRecord>();
+  private readonly transcriptFingerprints = new TranscriptFingerprintCache();
 
   constructor() {
     const databaseUrl = process.env.DATABASE_URL ?? "";
@@ -244,7 +318,7 @@ export class WakeWorker {
     this.workspaceRoot = process.env.OPENBOT_WORKSPACE_ROOT ?? "/workspace";
     this.agentData = new AgentDataStore(this.prisma, {
       memoryInference: async (request) => {
-        const response = await fetch(`${this.computerUrl}/v1/infer`, {
+        const response = await fetch(`${this.computerUrl}${COMPUTER_API_PATHS.inference}`, {
           method: "POST",
           headers: {
             authorization: `Bearer ${this.controlToken}`,
@@ -355,7 +429,11 @@ export class WakeWorker {
     if (this.routinePassActive) return;
     this.routinePassActive = true;
     try {
-      await this.agentData.reconcileAllAutomationFiles();
+      const reconciliation = await this.agentData.reconcileAutomationFilesBatch(
+        this.automationReconcileCursor,
+        AUTOMATION_RECONCILE_BATCH_SIZE
+      );
+      this.automationReconcileCursor = reconciliation.nextCursor;
       await this.recoverRoutineExecutions();
       await this.routines.dispatchDue();
     } finally {
@@ -364,26 +442,45 @@ export class WakeWorker {
   }
 
   private async reconcileAgentStores(backfill = true): Promise<number> {
-    const directoryResponse = await this.computerFetch("/v1/agent-stores", { method: "GET" });
-    if (!directoryResponse.ok) {
+    const directoryResponse = await this.computerFetch(COMPUTER_API_PATHS.agentStores, {
+      method: "GET",
+      headers:
+        !backfill && this.agentStoreEtag ? { "if-none-match": this.agentStoreEtag } : undefined,
+    });
+    if (directoryResponse.status === 304) {
+      if (this.pendingAgentStoreRecords.size === 0) return 0;
+    } else if (!directoryResponse.ok) {
       throw new Error(`Agent directory discovery failed: ${await directoryResponse.text()}`);
     }
-    const directoryPayload = (await directoryResponse.json()) as { agents?: unknown };
-    const directories = Array.isArray(directoryPayload.agents)
-      ? (directoryPayload.agents as AgentDirectoryRecord[]).filter(
-          (record) =>
-            record &&
-            typeof record.id === "string" &&
-            /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-              record.id
-            )
+    const responseEtag =
+      directoryResponse.status === 304 ? null : directoryResponse.headers.get("etag");
+    const directoryPayload =
+      directoryResponse.status === 304
+        ? null
+        : parseAgentDirectorySnapshot(await directoryResponse.json());
+    const directories = directoryPayload
+      ? directoryPayload.agents.filter((record) =>
+          /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+            record.id
+          )
         )
-      : [];
+      : [...this.pendingAgentStoreRecords.values()];
 
     let adopted = 0;
-    for (const record of directories.filter(({ kind }) => kind === "agent")) {
-      const existing = await this.prisma.bot.findUnique({ where: { id: record.id } });
-      if (existing) continue;
+    const pending = new Map<string, AgentDirectoryRecord>();
+    const agentRecords = directories.filter(({ kind }) => kind === "agent");
+    const existingBotIds = new Set(
+      agentRecords.length === 0
+        ? []
+        : (
+            await this.prisma.bot.findMany({
+              where: { id: { in: agentRecords.map(({ id }) => id) } },
+              select: { id: true },
+            })
+          ).map(({ id }) => id)
+    );
+    for (const record of agentRecords) {
+      if (existingBotIds.has(record.id)) continue;
       const created = await this.prisma.$transaction(async (tx) => {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`adopt-agent:${record.id}`}))`;
         if (await tx.bot.findUnique({ where: { id: record.id } })) return false;
@@ -418,15 +515,43 @@ export class WakeWorker {
       if (created) adopted += 1;
     }
 
-    for (const record of directories.filter(({ kind }) => kind === "group")) {
-      if (await this.prisma.channel.findUnique({ where: { id: record.id } })) continue;
+    const groupRecords = directories.filter(({ kind }) => kind === "group");
+    const existingChannelIds = new Set(
+      groupRecords.length === 0
+        ? []
+        : (
+            await this.prisma.channel.findMany({
+              where: { id: { in: groupRecords.map(({ id }) => id) } },
+              select: { id: true },
+            })
+          ).map(({ id }) => id)
+    );
+    const missingGroupRecords = groupRecords.filter(({ id }) => !existingChannelIds.has(id));
+    const candidateGroupMemberIds = [
+      ...new Set(missingGroupRecords.flatMap(({ memberIds }) => memberIds.slice(0, 6))),
+    ];
+    const activeGroupMemberIds = new Set(
+      candidateGroupMemberIds.length === 0
+        ? []
+        : (
+            await this.prisma.bot.findMany({
+              where: {
+                id: { in: candidateGroupMemberIds },
+                status: "active",
+                subagentIdentity: { is: null },
+              },
+              select: { id: true },
+            })
+          ).map(({ id }) => id)
+    );
+    for (const record of groupRecords) {
+      if (existingChannelIds.has(record.id)) continue;
       const memberIds = [...new Set(record.memberIds)].slice(0, 6);
       if (memberIds.length === 0) continue;
-      const activeMembers = await this.prisma.bot.findMany({
-        where: { id: { in: memberIds }, status: "active", subagentIdentity: { is: null } },
-        select: { id: true },
-      });
-      if (activeMembers.length !== memberIds.length) continue;
+      if (memberIds.some((memberId) => !activeGroupMemberIds.has(memberId))) {
+        pending.set(record.id, record);
+        continue;
+      }
       const created = await this.prisma.$transaction(async (tx) => {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`adopt-group:${record.id}`}))`;
         if (await tx.channel.findUnique({ where: { id: record.id } })) return false;
@@ -448,6 +573,9 @@ export class WakeWorker {
       if (created) adopted += 1;
     }
 
+    this.pendingAgentStoreRecords = pending;
+    if (responseEtag) this.agentStoreEtag = responseEtag;
+
     if (!backfill) return adopted;
 
     const [bots, groups] = await Promise.all([
@@ -463,7 +591,7 @@ export class WakeWorker {
       }),
     ]);
     for (const owner of [...bots, ...groups]) {
-      const response = await this.computerFetch(`/v1/agent-stores/${owner.id}`, {
+      const response = await this.computerFetch(COMPUTER_API_PATHS.agentStore(owner.id), {
         method: "PUT",
         body: JSON.stringify({ createdAt: owner.createdAt.getTime() }),
       });
@@ -471,7 +599,7 @@ export class WakeWorker {
         throw new Error(`Agent store backfill failed for ${owner.id}: ${await response.text()}`);
       }
     }
-    const response = await this.computerFetch("/v1/agent-stores/reconcile", {
+    const response = await this.computerFetch(COMPUTER_API_PATHS.reconcileAgentStores, {
       method: "POST",
       body: JSON.stringify({ ownerIds: [...bots, ...groups].map(({ id }) => id) }),
     });
@@ -575,36 +703,124 @@ export class WakeWorker {
     const executions = await this.prisma.routineExecution.findMany({
       where: {
         status: { in: ["queued", "running", "waiting_approval"] },
-        runId: { not: null },
-        routine: { bot: { status: "active" } },
+        OR: [{ runId: { not: null } }, { channelMessageId: { not: null } }],
+        routine: {
+          OR: [{ bot: { status: "active" } }, { channel: { kind: "group", archivedAt: null } }],
+        },
       },
       select: {
         id: true,
         runId: true,
-        routine: { select: { botId: true } },
+        channelMessageId: true,
+        routine: { select: { botId: true, channelId: true } },
         run: { select: { status: true, completedAt: true, error: true } },
       },
       take: 100,
     });
     for (const execution of executions) {
-      if (!execution.runId || !execution.run) continue;
-      const status = terminalRoutineExecutionStatus(execution.run.status);
-      if (!status) continue;
-      const updated = await this.prisma.routineExecution.updateMany({
+      if (execution.runId && execution.run) {
+        const status = terminalRoutineExecutionStatus(execution.run.status);
+        if (!status) continue;
+        const updated = await this.prisma.routineExecution.updateMany({
+          where: {
+            id: execution.id,
+            status: { in: ["queued", "running", "waiting_approval"] },
+          },
+          data: {
+            status,
+            completedAt: execution.run.completedAt ?? new Date(),
+            ...(status === "completed" ? {} : { error: execution.run.error ?? Prisma.JsonNull }),
+          },
+        });
+        if (updated.count > 0 && execution.routine.botId) {
+          await this.syncRoutineRunFile(execution.routine.botId, execution.runId);
+        }
+        continue;
+      }
+      if (execution.channelMessageId && execution.routine.channelId) {
+        await this.recoverGroupRoutineExecution(execution.id, execution.channelMessageId);
+      }
+    }
+  }
+
+  private async recoverGroupRoutineExecution(
+    executionId: string,
+    rootMessageId: string
+  ): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      const execution = await tx.routineExecution.findUnique({
+        where: { id: executionId },
+        include: { routine: { select: { runLedger: true, channelId: true } } },
+      });
+      if (
+        !execution ||
+        !execution.routine.channelId ||
+        !["queued", "running", "waiting_approval"].includes(execution.status)
+      ) {
+        return;
+      }
+      const round = await tx.channelRound.findFirst({
+        where: { rootMessageId },
+        orderBy: { roundIndex: "desc" },
+        include: { deliveries: { select: { status: true } } },
+      });
+      if (!round) return;
+      const status = terminalGroupRoutineExecutionStatus(
+        round.status,
+        round.deliveries.map(({ status: deliveryStatus }) => deliveryStatus)
+      );
+      if (!status) return;
+      const finishedAt = round.completedAt ?? new Date();
+      const errorKind =
+        status === "failed"
+          ? round.status === "failed"
+            ? "group_routine_round_failed"
+            : "group_routine_delivery_failed"
+          : null;
+      const updated = await tx.routineExecution.updateMany({
         where: {
           id: execution.id,
           status: { in: ["queued", "running", "waiting_approval"] },
         },
         data: {
           status,
-          completedAt: execution.run.completedAt ?? new Date(),
-          ...(status === "completed" ? {} : { error: execution.run.error ?? Prisma.JsonNull }),
+          completedAt: finishedAt,
+          ...(errorKind ? { error: { code: errorKind } } : {}),
         },
       });
-      if (updated.count > 0 && execution.routine.botId) {
-        await this.syncRoutineRunFile(execution.routine.botId, execution.runId);
-      }
-    }
+      if (updated.count === 0) return;
+      await tx.routine.update({
+        where: { id: execution.routineId },
+        data: {
+          runLedger: appendRoutineRunLedger(execution.routine.runLedger, {
+            id: execution.id,
+            trigger: execution.kind === "scheduled" ? "schedule" : "manual",
+            startedAt: (
+              execution.startedAt ??
+              execution.enqueuedAt ??
+              execution.scheduledFor
+            ).getTime(),
+            finishedAt: finishedAt.getTime(),
+            status: status === "completed" ? "ok" : "error",
+            ...(errorKind ? { errorKind } : {}),
+          }),
+        },
+      });
+      await tx.event.create({
+        data: {
+          topic: `routine.execution.${status}`,
+          entityId: execution.id,
+          payload: {
+            executionId: execution.id,
+            routineId: execution.routineId,
+            channelId: execution.routine.channelId,
+            rootMessageId,
+            status,
+            recovered: true,
+          },
+        },
+      });
+    });
   }
 
   private async handleProvision(job: JobWithMetadata<ProvisionData>): Promise<void> {
@@ -758,12 +974,15 @@ export class WakeWorker {
     });
     if (!bot || bot.status === "archived") return;
     const transcript = await buildSafeTranscript(this.prisma, bot.id);
+    const fingerprint = transcriptEventsFingerprint(transcript.events);
+    if (this.transcriptFingerprints.matches(bot.id, fingerprint)) return;
     const response = await this.computerFetch(`/v1/transcripts/${bot.id}`, {
       method: "PUT",
       body: JSON.stringify(transcript),
       signal: AbortSignal.timeout(30_000),
     });
     if (!response.ok) throw new Error(`Transcript projection failed: ${await response.text()}`);
+    this.transcriptFingerprints.remember(bot.id, fingerprint);
   }
 
   private async handle(job: Job<WakeData>): Promise<void> {
@@ -979,43 +1198,44 @@ export class WakeWorker {
         claimed.runtimeProfile,
         pluginContext.skillInstructions
       )}${platformPrompt.instructions}`;
-      const response = await fetch(`${this.computerUrl}/v1/turns`, {
+      const turnRequest = {
+        runId: claimed.runId,
+        botId: claimed.botId,
+        contextSessionId: claimed.contextSessionId,
+        screenBotId: claimed.screenBotId,
+        conversationId: claimed.conversationId,
+        sessionPath: claimed.sessionPath,
+        content: turnContentWithProfileUpdate(platformPrompt.agentProfileUpdate, claimed.content),
+        images: claimed.images,
+        clientMessageId: claimed.clientId,
+        cwd: claimed.cwd,
+        instructions,
+        userInfo: platformPrompt.userInfo,
+        userInfoEpoch: platformPrompt.userInfoEpoch ?? undefined,
+        agentProfileSnapshot: platformPrompt.agentProfileSnapshot ?? undefined,
+        memorySnapshot: platformPrompt.memorySnapshot ?? undefined,
+        todoUpdate: platformPrompt.todoUpdate,
+        automationTrigger: automationTriggerForWake(
+          claimed.origin,
+          claimed.content,
+          claimed.automationTrigger
+        ),
+        resetSelfSummaryCount: wakeResetsSelfSummaryCount(claimed.inboxType),
+        requestSource: runtimeRequestSourceForOrigin(claimed.origin),
+        channelId: claimed.channelId,
+        deliveryId: claimed.deliveryId,
+        runtimeProfile: claimed.runtimeProfile,
+        subagentType: claimed.subagentType ?? undefined,
+        fileAttachments: claimed.fileAttachments,
+        dynamicNamespaces: pluginContext.dynamicNamespaces,
+      } satisfies ComputerTurnRequest;
+      const response = await fetch(`${this.computerUrl}${COMPUTER_API_PATHS.turns}`, {
         method: "POST",
         headers: {
           authorization: `Bearer ${this.controlToken}`,
           "content-type": "application/json",
         },
-        body: JSON.stringify({
-          runId: claimed.runId,
-          botId: claimed.botId,
-          contextSessionId: claimed.contextSessionId,
-          screenBotId: claimed.screenBotId,
-          conversationId: claimed.conversationId,
-          sessionPath: claimed.sessionPath,
-          content: turnContentWithProfileUpdate(platformPrompt.agentProfileUpdate, claimed.content),
-          images: claimed.images,
-          clientMessageId: claimed.clientId,
-          cwd: claimed.cwd,
-          instructions,
-          userInfo: platformPrompt.userInfo,
-          userInfoEpoch: platformPrompt.userInfoEpoch ?? undefined,
-          agentProfileSnapshot: platformPrompt.agentProfileSnapshot ?? undefined,
-          memorySnapshot: platformPrompt.memorySnapshot ?? undefined,
-          todoUpdate: platformPrompt.todoUpdate,
-          automationTrigger: automationTriggerForWake(
-            claimed.origin,
-            claimed.content,
-            claimed.automationTrigger
-          ),
-          resetSelfSummaryCount: wakeResetsSelfSummaryCount(claimed.inboxType),
-          requestSource: runtimeRequestSourceForOrigin(claimed.origin),
-          channelId: claimed.channelId,
-          deliveryId: claimed.deliveryId,
-          runtimeProfile: claimed.runtimeProfile,
-          subagentType: claimed.subagentType ?? undefined,
-          fileAttachments: claimed.fileAttachments,
-          dynamicNamespaces: pluginContext.dynamicNamespaces,
-        }),
+        body: JSON.stringify(turnRequest),
         signal: AbortSignal.timeout(24 * 60 * 60_000),
       });
       if (!response.ok || !response.body) {
@@ -1030,11 +1250,16 @@ export class WakeWorker {
         buffer = lines.pop() ?? "";
         for (const line of lines) {
           if (!line.trim()) continue;
-          const event = JSON.parse(line) as ComputerEvent;
+          const event = parseComputerEvent(JSON.parse(line));
           await this.projection.apply(claimed.runId, claimed.conversationId, claimed.botId, event);
-          void this.pushNotifications
-            .drain()
-            .catch((error) => console.error("push notification delivery", error));
+          // Only approval and completion transitions can enqueue a push. Token
+          // deltas are frequent and previously caused two empty outbox scans
+          // per NDJSON event; the 2s safety timer still covers every other path.
+          if (computerEventQueuesPushNotification(event)) {
+            void this.pushNotifications
+              .drain()
+              .catch((error) => console.error("push notification delivery", error));
+          }
           if (event.type === "turn.completed") completion = event;
         }
         if (done) break;
@@ -1123,9 +1348,6 @@ export class WakeWorker {
       throw new Error("Computer returned an invalid context-state preflight response");
     }
     await this.projection.apply(claimed.runId, claimed.conversationId, claimed.botId, event);
-    void this.pushNotifications
-      .drain()
-      .catch((error) => console.error("push notification delivery", error));
   }
 
   private async heartbeat(claimed: Claimed): Promise<void> {
@@ -1252,6 +1474,24 @@ export class WakeWorker {
               orderBy: { sequence: "desc" },
             })
           : null;
+        if (
+          channel &&
+          !lastMessage &&
+          current.status !== "cancelled" &&
+          runOwesUserDelivery(claimed.origin) &&
+          claimed.inboxType !== "ack.redrive"
+        ) {
+          await this.messaging.enqueueWake(tx, {
+            botId: current.botId,
+            channelId: channel.id,
+            origin: "handoff_resume",
+            type: "ack.redrive",
+            content: SEND_TO_USER_REPLY_NUDGE_PROMPT,
+            clientId: `ack-redrive:${claimed.runId}`,
+            priority: PRIORITY.agent,
+            wrapUserContent: false,
+          });
+        }
         if (
           bot?.notificationsEnabled &&
           !bot.hiddenFromSidebar &&

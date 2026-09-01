@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { nextRoutineRun, nextRoutineTriggerRun, normalizeRoutineSchedule } from "../src/routines";
+import {
+  nextRoutineRun,
+  nextRoutineTriggerRun,
+  normalizeRoutineSchedule,
+  RoutineService,
+} from "../src/routines";
 
 describe("routine schedules", () => {
   test("normalizes aliases and pinned time zones", () => {
@@ -78,5 +83,25 @@ describe("routine schedules", () => {
     const secondFold = nextRoutineRun(fallFold, firstFold);
     expect(firstFold).toEqual(new Date("2026-10-24T22:30:00Z"));
     expect(secondFold).toEqual(new Date("2026-10-24T23:30:00Z"));
+  });
+
+  test("looks up every canonical PostgreSQL UUID without requiring RFC variant bits", async () => {
+    let queriedWhere: unknown;
+    const channelId = "dec8b14f-402f-9e34-1ddd-a3ebb13c2329";
+    const routineId = "a2b83ac9-45c9-e57b-fcbb-18da42d0de11";
+    const service = new RoutineService(
+      {
+        routine: {
+          findFirst: async ({ where }: { where: unknown }) => {
+            queriedWhere = where;
+            return { botId: null, channelId };
+          },
+        },
+      } as never,
+      { defaultTimeZone: "UTC" } as never
+    );
+
+    await expect(service.owner(routineId)).resolves.toEqual({ kind: "group", id: channelId });
+    expect(queriedWhere).toMatchObject({ OR: [{ id: routineId }, { slug: routineId }] });
   });
 });

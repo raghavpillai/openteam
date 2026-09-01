@@ -30,6 +30,7 @@ const notificationProjection = ({
     archivedAt: null,
   };
   const tx = {
+    $queryRaw: async () => [{ count: 0n }],
     run: {
       findUniqueOrThrow: async () => ({ status }),
       findUnique: async () => ({ bot, channel: originChannel }),

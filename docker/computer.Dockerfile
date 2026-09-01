@@ -1,10 +1,11 @@
-FROM oven/bun:1.3.8 AS build
+FROM oven/bun:1.3.8@sha256:371d30538b69303ced927bb5915697ac7e2fa8cb409ee332c66009de64de5aa3 AS build
 
 WORKDIR /app
 COPY package.json bun.lock turbo.json tsconfig.base.json ./
 COPY apps/computer/package.json apps/computer/package.json
 COPY apps/cli/package.json apps/cli/package.json
 COPY apps/desktop/package.json apps/desktop/package.json
+COPY apps/landing/package.json apps/landing/package.json
 COPY apps/mobile/package.json apps/mobile/package.json
 COPY apps/server/package.json apps/server/package.json
 COPY apps/worker/package.json apps/worker/package.json
@@ -12,14 +13,17 @@ COPY packages/client-core/package.json packages/client-core/package.json
 COPY packages/codex-client/package.json packages/codex-client/package.json
 COPY packages/contracts/package.json packages/contracts/package.json
 COPY packages/db/package.json packages/db/package.json
+COPY packages/design-tokens/package.json packages/design-tokens/package.json
 COPY packages/messaging/package.json packages/messaging/package.json
+COPY packages/product-core/package.json packages/product-core/package.json
 COPY patches ./patches
+COPY vendor/sheetjs/xlsx-0.20.3.tgz vendor/sheetjs/xlsx-0.20.3.tgz
 RUN bun install --frozen-lockfile --production --filter @openbot/computer
 COPY apps/computer ./apps/computer
 COPY packages/contracts ./packages/contracts
 RUN bun --filter @openbot/computer build
 
-FROM debian:bookworm-slim AS desktop-assets
+FROM debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171 AS desktop-assets
 
 RUN apt-get update \
   && apt-get install -y --no-install-recommends imagemagick \
@@ -37,7 +41,7 @@ RUN apt-get update \
     /tmp/openbot-wallpaper-base.png \
     /openbot-wallpaper.png
 
-FROM oven/bun:1.3.8-slim AS runtime
+FROM oven/bun:1.3.8-slim@sha256:68fc2eac7f5dcfc2f69a81d1db02786ab08772eda2e4404eae785c038f8d2e41 AS runtime
 
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
@@ -50,6 +54,7 @@ RUN apt-get update \
     gcc \
     gh \
     git \
+    imagemagick \
     jq \
     nodejs \
     npm \
@@ -75,26 +80,23 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/* \
   && groupmod --new-name box bun \
   && usermod --login box --home /home/box --move-home --shell /bin/bash bun \
-  && mkdir -p /opt/pi /app /workspace /home/box/.pi/agent \
-  && cd /app \
-    && bun add @earendil-works/pi-coding-agent@0.84.3 playwright-core@1.55.0 \
-  && cd /opt/pi \
-    && bun add @earendil-works/pi-ai@0.84.3 \
-  && ln -s /opt/pi/node_modules/.bin/pi-ai /usr/local/bin/pi-ai \
+  && mkdir -p /app/apps/computer/dist /workspace /home/box/.pi/agent \
   && mv /usr/bin/chromium /usr/local/bin/google-chrome \
   && chown -R box:box /app /workspace /home/box
 
 COPY --from=ghcr.io/astral-sh/uv:0.8.14 /uv /uvx /usr/local/bin/
 
-COPY --from=build --chown=box:box /app/apps/computer/dist/main.js /app/main.js
-COPY --from=build --chown=box:box /app/apps/computer/node_modules/@earendil-works/pi-coding-agent/dist/core/agent-session.js /app/node_modules/@earendil-works/pi-coding-agent/dist/core/agent-session.js
+COPY --from=build --chown=box:box /app/node_modules /app/node_modules
+COPY --from=build --chown=box:box /app/apps/computer/node_modules /app/apps/computer/node_modules
+COPY --from=build --chown=box:box /app/apps/computer/dist/main.js /app/apps/computer/dist/main.js
 COPY --chown=box:box docker/computer-entrypoint.sh /usr/local/bin/openbot-computer-entrypoint
 COPY --chown=box:box docker/openbot-pi-login /usr/local/bin/openbot-pi-login
 COPY --chown=box:box docker/desktop /usr/share/openbot-desktop
 COPY --chown=box:box docker/openbot-screen-launch /usr/local/bin/openbot-screen-launch
 COPY --chown=box:box docker/openbot-vnc.html /usr/share/novnc/openbot.html
 COPY --from=desktop-assets /openbot-wallpaper.png /usr/share/openbot-desktop/wallpaper.png
-RUN chmod 0755 \
+RUN ln -s /app/apps/computer/node_modules/.bin/pi-ai /usr/local/bin/pi-ai \
+  && chmod 0755 \
     /usr/local/bin/openbot-computer-entrypoint \
     /usr/local/bin/openbot-pi-login \
     /usr/local/bin/openbot-screen-launch
@@ -105,4 +107,4 @@ WORKDIR /workspace
 USER box
 EXPOSE 8790 6200-6299
 ENTRYPOINT ["tini", "--", "openbot-computer-entrypoint"]
-CMD ["bun", "/app/main.js"]
+CMD ["bun", "/app/apps/computer/dist/main.js"]

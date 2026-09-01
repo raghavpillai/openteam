@@ -2,13 +2,21 @@ import type { OAuthClientInformationMixed } from "@modelcontextprotocol/sdk/shar
 import type {
   ConfigurePluginConnectionInput,
   PluginActivityView,
+  PluginBotAccessView,
+  PluginConnectionStatusesView,
   PluginConnectionView,
   PluginDynamicNamespace,
   PluginInstallView,
   PluginSettingsView,
   SetPluginToolPolicyInput,
 } from "@openbot/contracts";
-import { ApiError } from "@openbot/contracts";
+import {
+  ApiError,
+  PLUGIN_BOT_ACCESS_PAGE_SIZE,
+  PLUGIN_BOT_ACCESS_QUERY_MAX_LENGTH,
+  PLUGIN_CONNECTION_ID_MAX_LENGTH,
+  PLUGIN_CONNECTION_STATUS_MAX_IDS,
+} from "@openbot/contracts";
 import type { Prisma, PrismaClient } from "@openbot/db";
 import type { AgentDataStore } from "@openbot/messaging";
 import { Effect } from "effect";
@@ -57,6 +65,69 @@ const statusForRuntime = (status: string): PluginDynamicNamespace["namespaceStat
   if (status === "needs_auth") return "needsAuth";
   if (status === "error") return "error";
   return "loading";
+};
+
+const normalizedConnectorKey = (value: string): string =>
+  value.trim().toLowerCase().replaceAll("_", "-");
+
+const channelDeliveryTool = (tools: readonly PluginToolDefinition[]): PluginToolDefinition | null =>
+  [...tools]
+    .map((tool) => {
+      const name = tool.name.toLowerCase();
+      const description = tool.description.toLowerCase();
+      let score = 0;
+      if (
+        ["conversations_add_message", "chat_postmessage", "send_message", "post_message"].includes(
+          name
+        )
+      )
+        score += 100;
+      if (/(?:send|post|add).*(?:message)/.test(name)) score += 30;
+      if (/(?:send|post).*(?:message)/.test(description)) score += 10;
+      return { tool, score };
+    })
+    .filter(({ score }) => score > 0)
+    .sort((left, right) => right.score - left.score)[0]?.tool ?? null;
+
+const channelDeliveryArguments = (
+  tool: PluginToolDefinition,
+  chat: string,
+  content: string
+): Record<string, unknown> => {
+  const schema = jsonObject(tool.inputSchema);
+  const properties = jsonObject(schema.properties);
+  const args: Record<string, unknown> = {};
+  const channelField = [
+    "channel_id",
+    "channelId",
+    "channel",
+    "conversation_id",
+    "conversationId",
+    "conversation",
+    "chat_id",
+    "chatId",
+    "chat",
+    "recipient",
+  ].find((field) => field in properties);
+  const contentField = ["content", "message", "text", "body", "markdown"].find(
+    (field) => field in properties
+  );
+  if (!channelField || !contentField) {
+    throw new ApiError(
+      409,
+      "connected_channel_tool_incompatible",
+      `The connector's ${tool.name} tool does not expose channel and message fields`
+    );
+  }
+  args[channelField] = chat;
+  const contentSchema = jsonObject(properties[contentField]);
+  if (contentSchema.type === "array") {
+    const item = jsonObject(contentSchema.items);
+    args[contentField] = item.type === "object" ? [{ type: "text", text: content }] : [content];
+  } else {
+    args[contentField] = content;
+  }
+  return args;
 };
 
 const namespaceName = (pluginKey: string, alias: string): string =>
@@ -219,8 +290,149 @@ export class PluginService {
   constructor(
     private readonly prisma: PrismaClient,
     private readonly computerFetch?: (path: string, init?: RequestInit) => Promise<Response>,
-    private readonly agentData?: Pick<AgentDataStore, "syncPluginSkillCache">
+    private readonly agentData?: Pick<
+      AgentDataStore,
+      "syncPluginSkillCache" | "writeConnectorSecret"
+    >
   ) {}
+
+  storeConnectorSecret = async (input: {
+    botId: string;
+    connector: string;
+    field: string;
+    value: string;
+  }): Promise<void> => {
+    await this.agentData?.writeConnectorSecret(
+      input.botId,
+      input.connector,
+      input.field,
+      input.value
+    );
+    const normalized = input.connector.trim().toLowerCase().replaceAll("_", "-");
+    const grants = await this.prisma.botPluginConnectionGrant.findMany({
+      where: {
+        botId: input.botId,
+        enabled: true,
+        connection: {
+          installation: { status: "installed" },
+        },
+      },
+      include: { connection: { include: { installation: true } } },
+    });
+    const match = grants.find(({ connection }) =>
+      [connection.connectorKey, connection.installation.pluginKey]
+        .map((value) => value.toLowerCase().replaceAll("_", "-"))
+        .includes(normalized)
+    )?.connection;
+    if (!match) return;
+    const credentials = jsonObject(match.credentials);
+    const tokenLike = /^(?:token|bearer[-_.]?token|api[-_.]?key)$/i.test(input.field);
+    await this.prisma.pluginConnection.update({
+      where: { id: match.id },
+      data: {
+        credentials: toJson({
+          ...credentials,
+          [input.field]: input.value,
+          ...(tokenLike ? { bearerToken: input.value } : {}),
+        }),
+        status: "disconnected",
+        statusMessage: null,
+      },
+    });
+    await this.http.close(match.id);
+    void Effect.runPromise(this.connect(match.id)).catch(async (error) => {
+      await this.prisma.pluginConnection
+        .update({
+          where: { id: match.id },
+          data: {
+            status: "error",
+            statusMessage: (error instanceof Error ? error.message : String(error)).slice(0, 2_000),
+            lastCheckedAt: new Date(),
+          },
+        })
+        .catch(() => undefined);
+    });
+  };
+
+  deliverConnectedChannel = async (input: {
+    botId: string;
+    runId: string;
+    callId: string;
+    address: string;
+    content: string;
+  }): Promise<{ connectionId: string; toolName: string; result: unknown }> => {
+    const delimiter = input.address.indexOf(":");
+    const platform = delimiter > 0 ? input.address.slice(0, delimiter) : "";
+    const chat = delimiter > 0 ? input.address.slice(delimiter + 1).trim() : "";
+    if (!/^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$/.test(platform) || !chat || chat.length > 500) {
+      throw new ApiError(
+        400,
+        "connected_channel_address_invalid",
+        "Connected channel addresses must be shaped platform:chat"
+      );
+    }
+    const normalized = normalizedConnectorKey(platform);
+    const grants = await this.prisma.botPluginConnectionGrant.findMany({
+      where: {
+        botId: input.botId,
+        enabled: true,
+        connection: {
+          status: "ready",
+          installation: {
+            status: "installed",
+            enablements: { some: { botId: input.botId, enabled: true } },
+          },
+        },
+      },
+      include: { connection: { include: { installation: true } } },
+      orderBy: { connection: { createdAt: "asc" } },
+    });
+    const connection = grants.find(({ connection: candidate }) =>
+      [candidate.connectorKey, candidate.installation.pluginKey]
+        .map(normalizedConnectorKey)
+        .includes(normalized)
+    )?.connection;
+    if (!connection) {
+      throw new ApiError(
+        409,
+        "connected_channel_unavailable",
+        `No ready ${platform} connection is granted to this agent`
+      );
+    }
+    const tool = channelDeliveryTool(toolSnapshot(connection.toolSnapshot));
+    if (!tool) {
+      throw new ApiError(
+        409,
+        "connected_channel_delivery_unsupported",
+        `${connection.name} does not expose a message delivery tool`
+      );
+    }
+    const callId = `connected-channel:${input.callId}`;
+    const previous = await this.prisma.pluginInvocation.findUnique({ where: { callId } });
+    if (previous?.status === "completed") {
+      return { connectionId: connection.id, toolName: tool.name, result: previous.result };
+    }
+    if (previous) {
+      throw new ApiError(
+        409,
+        "connected_channel_delivery_replayed",
+        `Connected channel delivery is already ${previous.status}`
+      );
+    }
+    await this.prisma.pluginInvocation.create({
+      data: {
+        callId,
+        connectionId: connection.id,
+        botId: input.botId,
+        runId: input.runId,
+        toolName: tool.name,
+        decision: "allow",
+        arguments: toJson(channelDeliveryArguments(tool, chat, input.content)),
+      },
+    });
+    const result = await this.executeInvocation(callId);
+    return { connectionId: connection.id, toolName: tool.name, result };
+  };
 
   syncFileCaches = async (): Promise<void> => {
     if (!this.agentData) return;
@@ -280,18 +492,17 @@ export class PluginService {
   settings = () =>
     Effect.tryPromise({
       try: async (): Promise<PluginSettingsView> => {
-        const [catalog, installs, bots, policies, activity] = await Promise.all([
+        const [catalog, installs, botCount, policies, activity] = await Promise.all([
           this.catalog(),
           this.prisma.pluginInstallation.findMany({
-            include: { connections: { include: { grants: true } }, enablements: true },
+            include: { connections: true },
             orderBy: { installedAt: "desc" },
           }),
-          this.prisma.bot.findMany({
-            where: { status: { not: "archived" } },
-            select: { id: true, name: true, icon: true, color: true },
+          this.prisma.bot.count({ where: { status: { not: "archived" } } }),
+          this.prisma.pluginToolPolicy.findMany({
+            where: { botId: null },
             orderBy: { createdAt: "asc" },
           }),
-          this.prisma.pluginToolPolicy.findMany({ orderBy: { createdAt: "asc" } }),
           this.prisma.pluginActivity.findMany({
             include: { installation: { select: { pluginKey: true } } },
             orderBy: { createdAt: "desc" },
@@ -299,11 +510,6 @@ export class PluginService {
           }),
         ]);
         const installedKeys = new Set(installs.map((install) => install.pluginKey));
-        const connectionViews = installs.flatMap((install) =>
-          install.connections.map((connection) =>
-            this.connectionView(install.pluginKey, connection)
-          )
-        );
         return {
           catalog: catalog.map((plugin) => this.catalogView(plugin, installedKeys.has(plugin.key))),
           installs: installs.map(
@@ -316,17 +522,13 @@ export class PluginService {
               publisher: install.publisher,
               status: install.status,
               installedAt: install.installedAt.toISOString(),
-              enabledBotIds: install.enablements
-                .filter((enablement) => enablement.enabled && enablement.skillsEnabled)
-                .map((enablement) => enablement.botId),
               hasSkills: (definitionFromManifest(install.manifest)?.skills.length ?? 0) > 0,
               connections: install.connections.map((connection) =>
                 this.connectionView(install.pluginKey, connection)
               ),
             })
           ),
-          connections: connectionViews,
-          bots,
+          botCount,
           policies: policies.map(({ id, connectionId, botId, toolName, decision }) => ({
             id,
             connectionId,
@@ -345,6 +547,135 @@ export class PluginService {
               createdAt: entry.createdAt.toISOString(),
             })
           ),
+        };
+      },
+      catch: toError,
+    });
+
+  pollConnectionStatuses = (connectionIds: readonly string[]) =>
+    Effect.tryPromise({
+      try: async (): Promise<PluginConnectionStatusesView> => {
+        const ids = [
+          ...new Set(
+            connectionIds.filter(
+              (id) => id.length > 0 && id.length <= PLUGIN_CONNECTION_ID_MAX_LENGTH
+            )
+          ),
+        ].slice(0, PLUGIN_CONNECTION_STATUS_MAX_IDS);
+        if (ids.length === 0) return { connections: [] };
+        return {
+          connections: (
+            await this.prisma.pluginConnection.findMany({
+              where: { id: { in: ids } },
+              select: {
+                id: true,
+                authType: true,
+                status: true,
+                statusMessage: true,
+                configuration: true,
+                credentials: true,
+                toolSnapshot: true,
+                updatedAt: true,
+              },
+              orderBy: { id: "asc" },
+            })
+          ).map((connection) => ({
+            id: connection.id,
+            revision: connection.updatedAt.toISOString(),
+            status: connection.status,
+            statusMessage: connection.statusMessage,
+            authorizationUrl:
+              typeof jsonObject(jsonObject(connection.credentials).oauth).authorizationUrl ===
+              "string"
+                ? String(jsonObject(jsonObject(connection.credentials).oauth).authorizationUrl)
+                : null,
+            configured: this.connectionConfigured(connection),
+            tools: publicTools(connection.toolSnapshot),
+          })),
+        };
+      },
+      catch: toError,
+    });
+
+  botAccess = (pluginKey: string, queryValue: string, offsetValue: number, limitValue: number) =>
+    Effect.tryPromise({
+      try: async (): Promise<PluginBotAccessView> => {
+        const query = queryValue
+          .normalize("NFKC")
+          .replace(/\s+/g, " ")
+          .trim()
+          .slice(0, PLUGIN_BOT_ACCESS_QUERY_MAX_LENGTH);
+        const offset = Number.isInteger(offsetValue) ? Math.max(0, offsetValue) : 0;
+        const limit = Number.isInteger(limitValue)
+          ? Math.max(1, Math.min(PLUGIN_BOT_ACCESS_PAGE_SIZE, limitValue))
+          : PLUGIN_BOT_ACCESS_PAGE_SIZE;
+        const installation = await this.prisma.pluginInstallation.findUnique({
+          where: { pluginKey },
+          select: { id: true },
+        });
+        if (!installation) {
+          throw new ApiError(404, "plugin_not_installed", "Plugin is not installed");
+        }
+        const where: Prisma.BotWhereInput = {
+          status: { not: "archived" },
+          ...(query ? { name: { contains: query, mode: "insensitive" } } : {}),
+        };
+        const [total, bots] = await Promise.all([
+          this.prisma.bot.count({ where }),
+          this.prisma.bot.findMany({
+            where,
+            select: {
+              id: true,
+              name: true,
+              icon: true,
+              color: true,
+            },
+            orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+            skip: offset,
+            take: limit,
+          }),
+        ]);
+        const botIds = bots.map((bot) => bot.id);
+        if (botIds.length === 0) {
+          return { pluginKey, query, offset, total, bots: [] };
+        }
+        const [grants, enablements] = await Promise.all([
+          this.prisma.botPluginConnectionGrant.findMany({
+            where: {
+              botId: { in: botIds },
+              enabled: true,
+              connection: { installationId: installation.id },
+            },
+            select: { botId: true, connectionId: true },
+            orderBy: [{ botId: "asc" }, { connectionId: "asc" }],
+          }),
+          this.prisma.botPluginEnablement.findMany({
+            where: {
+              installationId: installation.id,
+              botId: { in: botIds },
+              enabled: true,
+              skillsEnabled: true,
+            },
+            select: { botId: true },
+          }),
+        ]);
+        const grantsByBot = new Map<string, string[]>();
+        for (const grant of grants) {
+          const connectionIds = grantsByBot.get(grant.botId) ?? [];
+          connectionIds.push(grant.connectionId);
+          grantsByBot.set(grant.botId, connectionIds);
+        }
+        const skillsEnabled = new Set(enablements.map((enablement) => enablement.botId));
+        return {
+          pluginKey,
+          query,
+          offset,
+          total,
+          bots: bots.map((bot) => ({
+            ...bot,
+            skillsEnabled: skillsEnabled.has(bot.id),
+            grantedConnectionIds: grantsByBot.get(bot.id) ?? [],
+          })),
         };
       },
       catch: toError,
@@ -380,7 +711,11 @@ export class PluginService {
     const plugin = await this.definition(pluginKey);
     const installation = await this.prisma.pluginInstallation.findUnique({
       where: { pluginKey },
-      include: { connections: { include: { grants: true } } },
+      include: {
+        connections: {
+          include: { _count: { select: { grants: { where: { enabled: true } } } } },
+        },
+      },
     });
     if (!plugin && !installation) throw new ApiError(404, "plugin_not_found", "Plugin not found");
     return {
@@ -422,7 +757,7 @@ export class PluginService {
           status: connection.status,
           transport: connection.transport,
           auth: connection.authType,
-          grantedBotCount: connection.grants.filter((grant) => grant.enabled).length,
+          grantedBotCount: connection._count.grants,
         })) ?? [],
     };
   };
@@ -431,7 +766,10 @@ export class PluginService {
     connections: await this.prisma.pluginConnection
       .findMany({
         where: connectionId ? { id: connectionId } : undefined,
-        include: { installation: { select: { pluginKey: true, name: true } }, grants: true },
+        include: {
+          installation: { select: { pluginKey: true, name: true } },
+          _count: { select: { grants: { where: { enabled: true } } } },
+        },
         orderBy: { createdAt: "asc" },
       })
       .then((connections) =>
@@ -444,7 +782,7 @@ export class PluginService {
           status: connection.status,
           statusMessage: connection.statusMessage,
           toolCount: toolSnapshot(connection.toolSnapshot).length,
-          grantedBotCount: connection.grants.filter((grant) => grant.enabled).length,
+          grantedBotCount: connection._count.grants,
           lastCheckedAt: connection.lastCheckedAt?.toISOString() ?? null,
         }))
       ),
@@ -1714,11 +2052,12 @@ export class PluginService {
       configuration: Prisma.JsonValue;
       credentials: Prisma.JsonValue;
       toolSnapshot: Prisma.JsonValue;
-      grants: Array<{ botId: string; enabled: boolean }>;
+      updatedAt: Date;
     }
   ): PluginConnectionView {
     return {
       id: connection.id,
+      revision: connection.updatedAt.toISOString(),
       pluginKey,
       connectorKey: connection.connectorKey,
       name: connection.name,
@@ -1741,7 +2080,6 @@ export class PluginService {
           ? String(jsonObject(connection.configuration).command)
           : null,
       tools: publicTools(connection.toolSnapshot),
-      grantedBotIds: connection.grants.filter((grant) => grant.enabled).map((grant) => grant.botId),
     };
   }
 

@@ -4,9 +4,24 @@ import { access, mkdir, readFile, realpath, stat } from "node:fs/promises";
 import { basename, extname, isAbsolute, relative, resolve, sep } from "node:path";
 import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
 import type { ReadToolInput, ShellToolInput, TaskInput } from "@openbot/contracts";
+import {
+  HOST_BRIDGE_PATHS,
+  HOST_INLINE_OUTPUT_MAX_BYTES,
+  HOST_READ_MAX_BYTES,
+  imageMimeTypeForPath,
+  isHostApprovalRequest,
+  parseHostMachinesResponse,
+  parseHostReadResponse,
+  parseHostShellResponse,
+  type HostApprovalRequest,
+  type HostApprovalTokens,
+  type HostAutoReviewRequest,
+  type HostMachine,
+  type HostPermissionUpdateRequest,
+  type HostReadRequest,
+  type HostShellRequest,
+} from "@openbot/contracts/service-protocol";
 
-const MAX_INLINE_BYTES = 100_000;
-const MAX_READ_BYTES = 10 * 1024 * 1024;
 const DEFAULT_BLOCK_MS = 30_000;
 const PROTECTED_AGENT_DATA_TREES = new Set([
   "agents",
@@ -31,26 +46,10 @@ export const sanitizedShellEnvironment = (
   return environment;
 };
 
-const imageMime = (path: string): string | null => {
-  switch (extname(path).toLowerCase()) {
-    case ".png":
-      return "image/png";
-    case ".jpg":
-    case ".jpeg":
-      return "image/jpeg";
-    case ".gif":
-      return "image/gif";
-    case ".webp":
-      return "image/webp";
-    default:
-      return null;
-  }
-};
-
 const bounded = (value: string): string =>
-  value.length <= MAX_INLINE_BYTES
+  value.length <= HOST_INLINE_OUTPUT_MAX_BYTES
     ? value
-    : `${value.slice(0, MAX_INLINE_BYTES)}\n… output truncated; complete output is in the terminal file`;
+    : `${value.slice(0, HOST_INLINE_OUTPUT_MAX_BYTES)}\n… output truncated; complete output is in the terminal file`;
 
 const localPath = (path: string, cwd: string): string =>
   isAbsolute(path) ? resolve(path) : resolve(cwd, path);
@@ -63,40 +62,7 @@ const textResult = (
   details,
 });
 
-interface HostReadResponse {
-  kind: "text" | "image";
-  text?: string;
-  data?: string;
-  mimeType?: string;
-  path: string;
-  lines?: number;
-}
-
-interface HostShellResponse {
-  shell_id: string;
-  status: "completed" | "running";
-  exit_code: number | null;
-  output: string;
-  output_path: string;
-  elapsed_ms: number;
-}
-
-export interface HostMachine {
-  machineId: string;
-  label: string;
-  localToolPermission: "always" | "ask" | "never";
-}
-
-export interface HostApprovalTokens {
-  localApproval?: "allow-once" | "always";
-  autoReviewApproval?: "allow-once" | "always";
-}
-
-export interface HostApprovalRequest {
-  gate: "local" | "auto-review";
-  requestMethod: "openbot/localTool" | "openbot/autoReview";
-  details: Record<string, unknown>;
-}
+export type { HostApprovalRequest, HostApprovalTokens, HostMachine };
 
 export class HostApprovalRequiredError extends Error {
   constructor(readonly approval: HostApprovalRequest) {
@@ -161,8 +127,8 @@ export class NativeToolExecutor {
     let bytes = 0;
     const collect = (chunk: Buffer) => {
       outputFile.write(chunk);
-      if (bytes < MAX_INLINE_BYTES) {
-        const remaining = MAX_INLINE_BYTES - bytes;
+      if (bytes < HOST_INLINE_OUTPUT_MAX_BYTES) {
+        const remaining = HOST_INLINE_OUTPUT_MAX_BYTES - bytes;
         chunks.push(chunk.subarray(0, remaining));
         bytes += Math.min(chunk.length, remaining);
       }
@@ -230,10 +196,12 @@ export class NativeToolExecutor {
     signal?: AbortSignal,
     approvals: HostApprovalTokens = {}
   ): Promise<AgentToolResult<Record<string, unknown>>> {
-    const response = await this.hostFetch<HostShellResponse>(
-      "/v1/shell",
-      { ...input, ...approvals },
-      signal
+    const request = { ...input, ...approvals } satisfies HostShellRequest;
+    const response = await this.hostFetch(
+      HOST_BRIDGE_PATHS.shell,
+      request,
+      signal,
+      parseHostShellResponse
     );
     return textResult(response.output || JSON.stringify(response), {
       ...response,
@@ -245,10 +213,12 @@ export class NativeToolExecutor {
     signal?: AbortSignal,
     approvals: HostApprovalTokens = {}
   ): Promise<AgentToolResult<Record<string, unknown>>> {
-    const response = await this.hostFetch<HostReadResponse>(
-      "/v1/read",
-      { ...input, ...approvals },
-      signal
+    const request = { ...input, ...approvals } satisfies HostReadRequest;
+    const response = await this.hostFetch(
+      HOST_BRIDGE_PATHS.read,
+      request,
+      signal,
+      parseHostReadResponse
     );
     if (response.kind === "image" && response.data && response.mimeType) {
       return {
@@ -267,7 +237,12 @@ export class NativeToolExecutor {
   }
 
   async listMachines(signal?: AbortSignal): Promise<AgentToolResult<Record<string, unknown>>> {
-    const response = await this.hostFetch<{ machines: HostMachine[] }>("/v1/machines", {}, signal);
+    const response = await this.hostFetch(
+      HOST_BRIDGE_PATHS.machines,
+      {},
+      signal,
+      parseHostMachinesResponse
+    );
     return textResult(JSON.stringify(response), {
       machines: response.machines,
     });
@@ -279,28 +254,25 @@ export class NativeToolExecutor {
     approvals: HostApprovalTokens = {}
   ): Promise<void> {
     const task = `Run a task on OpenBot's computer: “${input.prompt}”`;
-    await this.hostFetch(
-      "/v1/auto-review",
-      {
-        surface: "subagentLaunch",
-        summary: task,
-        target: input.subagent_type,
-        arguments: {
-          task,
-          prompt: input.prompt,
-          description: input.description,
-          subagent_type: input.subagent_type,
-          ...(input.model ? { model: input.model } : {}),
-          ...(input.resume ? { resume: input.resume } : {}),
-          ...(input.file_attachments?.length ? { file_attachments: input.file_attachments } : {}),
-          ...(input.run_in_background !== undefined
-            ? { run_in_background: input.run_in_background }
-            : {}),
-        },
-        ...approvals,
+    const request = {
+      surface: "subagentLaunch",
+      summary: task,
+      target: input.subagent_type ?? "generalPurpose",
+      arguments: {
+        task,
+        prompt: input.prompt,
+        description: input.description,
+        subagent_type: input.subagent_type ?? "generalPurpose",
+        ...(input.model ? { model: input.model } : {}),
+        ...(input.resume ? { resume: input.resume } : {}),
+        ...(input.file_attachments?.length ? { file_attachments: input.file_attachments } : {}),
+        ...(input.run_in_background !== undefined
+          ? { run_in_background: input.run_in_background }
+          : {}),
       },
-      signal
-    );
+      ...approvals,
+    } satisfies HostAutoReviewRequest;
+    await this.hostFetch(HOST_BRIDGE_PATHS.autoReview, request, signal);
   }
 
   async setLocalToolPermission(
@@ -308,7 +280,8 @@ export class NativeToolExecutor {
     localToolPermission: HostMachine["localToolPermission"],
     signal?: AbortSignal
   ): Promise<void> {
-    await this.hostFetch("/v1/permissions/update", { machineId, localToolPermission }, signal);
+    const request = { machineId, localToolPermission } satisfies HostPermissionUpdateRequest;
+    await this.hostFetch(HOST_BRIDGE_PATHS.permissionUpdate, request, signal);
   }
 
   private async readLocal(
@@ -321,10 +294,10 @@ export class NativeToolExecutor {
     await this.assertProtectedReadPath(canonical);
     const metadata = await stat(canonical);
     if (!metadata.isFile()) throw new Error(`Not a file: ${path}`);
-    if (metadata.size > MAX_READ_BYTES) {
-      throw new Error(`File exceeds the ${MAX_READ_BYTES} byte read limit`);
+    if (metadata.size > HOST_READ_MAX_BYTES) {
+      throw new Error(`File exceeds the ${HOST_READ_MAX_BYTES} byte read limit`);
     }
-    const mimeType = imageMime(canonical);
+    const mimeType = imageMimeTypeForPath(canonical);
     if (mimeType) {
       const data = await readFile(canonical);
       return {
@@ -397,7 +370,12 @@ export class NativeToolExecutor {
     });
   }
 
-  private async hostFetch<T>(path: string, body: unknown, signal?: AbortSignal): Promise<T> {
+  private async hostFetch<T = unknown>(
+    path: string,
+    body: unknown,
+    signal?: AbortSignal,
+    parse?: (value: unknown) => T
+  ): Promise<T> {
     const timeout = AbortSignal.timeout(120_000);
     const response = await fetch(`${this.hostBridgeUrl}${path}`, {
       method: "POST",
@@ -412,24 +390,25 @@ export class NativeToolExecutor {
         `The physical-host bridge is offline. Open the OpenBot desktop and verify its bridge token. ${error instanceof Error ? error.message : String(error)}`
       );
     });
-    const value = (await response.json().catch(() => ({}))) as T & {
-      error?: string;
-      approval?: HostApprovalRequest;
-    };
+    const value: unknown = await response.json().catch(() => ({}));
+    const envelope =
+      value && typeof value === "object" && !Array.isArray(value)
+        ? (value as Record<string, unknown>)
+        : {};
     if (!response.ok) {
       if (
         response.status === 409 &&
-        value.error === "approval_required" &&
-        value.approval &&
-        ["local", "auto-review"].includes(value.approval.gate) &&
-        typeof value.approval.requestMethod === "string" &&
-        value.approval.details &&
-        typeof value.approval.details === "object"
+        envelope.error === "approval_required" &&
+        isHostApprovalRequest(envelope.approval)
       ) {
-        throw new HostApprovalRequiredError(value.approval);
+        throw new HostApprovalRequiredError(envelope.approval);
       }
-      throw new Error(value.error ?? `Physical-host bridge rejected the call (${response.status})`);
+      throw new Error(
+        typeof envelope.error === "string"
+          ? envelope.error
+          : `Physical-host bridge rejected the call (${response.status})`
+      );
     }
-    return value;
+    return parse ? parse(value) : (value as T);
   }
 }

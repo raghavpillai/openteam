@@ -1,4 +1,8 @@
 import { ApiError } from "@openbot/contracts";
+import {
+  COMPUTER_API_PATHS,
+  type ComputerInferenceRequest,
+} from "@openbot/contracts/service-protocol";
 import type { ComputerFetch } from "./service-utils";
 
 const SURFACES = new Set([
@@ -126,14 +130,15 @@ export class AutoReviewService {
       },
     });
     try {
-      const response = await this.computerFetch("/v1/infer", {
+      const request = {
+        kind: "verification",
+        instructions,
+        prompt,
+        timeoutMs: 15_000,
+      } satisfies ComputerInferenceRequest;
+      const response = await this.computerFetch(COMPUTER_API_PATHS.inference, {
         method: "POST",
-        body: JSON.stringify({
-          kind: "verification",
-          instructions,
-          prompt,
-          timeoutMs: 15_000,
-        }),
+        body: JSON.stringify(request),
         signal: AbortSignal.timeout(15_000),
       });
       if (!response.ok) {

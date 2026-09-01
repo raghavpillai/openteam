@@ -24,6 +24,11 @@ const rangeNotSatisfiable = (byteSize: number) =>
     },
   });
 
+const browserContentType = (mimeType: string): string =>
+  /^text\//i.test(mimeType) && !/;\s*charset=/i.test(mimeType)
+    ? `${mimeType}; charset=utf-8`
+    : mimeType;
+
 export const assetResponse = async (
   assets: AssetStore,
   agentData: Pick<AgentDataStore, "agentAttachmentPath">,
@@ -31,12 +36,20 @@ export const assetResponse = async (
   url: URL,
   assetId: string
 ) => {
-  const agentPath = await agentData.agentAttachmentPath(assetId);
+  let agentPath: string | null = null;
   const metadata = await assets.metadata(assetId).catch(async () => {
+    // The content-addressed store is authoritative for normal asset reads.
+    // Agent-local copies are a compatibility fallback and may require walking
+    // every agent directory, so resolve them only after the central lookup
+    // actually misses.
+    agentPath = await agentData.agentAttachmentPath(assetId);
     if (!agentPath) throw new Error("Attachment not found");
     const file = Bun.file(agentPath);
     const extension = extname(agentPath).toLowerCase();
-    const kinds = new Map<string, { mimeType: string; kind: "image" | "video" | "audio" | "pdf" | "text" }>([
+    const kinds = new Map<
+      string,
+      { mimeType: string; kind: "image" | "video" | "audio" | "pdf" | "text" }
+    >([
       [".png", { mimeType: "image/png", kind: "image" }],
       [".jpg", { mimeType: "image/jpeg", kind: "image" }],
       [".jpeg", { mimeType: "image/jpeg", kind: "image" }],
@@ -100,7 +113,7 @@ export const assetResponse = async (
     "content-security-policy": "sandbox; default-src 'none'",
     "content-disposition": `${inline ? "inline" : "attachment"}; filename="${name}"; filename*=UTF-8''${encodeURIComponent(name)}`,
     "content-length": String(end - start + 1),
-    "content-type": metadata.mimeType,
+    "content-type": browserContentType(metadata.mimeType),
     etag: `"${assetId}"`,
     "cross-origin-resource-policy": "same-origin",
     "x-content-type-options": "nosniff",

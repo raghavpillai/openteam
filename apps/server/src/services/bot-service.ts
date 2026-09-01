@@ -6,6 +6,7 @@ import {
   resolveBotAvatarMark,
   type UpdateBotInput,
 } from "@openbot/contracts";
+import { COMPUTER_API_PATHS } from "@openbot/contracts/service-protocol";
 import { Prisma, type PrismaClient } from "@openbot/db";
 import {
   appendAgentTimelineEvent,
@@ -28,6 +29,26 @@ export class BotService {
     private readonly agentData: AgentDataStore,
     private readonly messaging?: AgentMessaging
   ) {}
+
+  list = (includeHidden = false) =>
+    Effect.tryPromise({
+      try: async () => {
+        const bots = await this.prisma.bot.findMany({
+          where: {
+            status: { not: "archived" },
+            ...(includeHidden ? {} : { hiddenFromSidebar: false }),
+            subagentIdentity: { is: null },
+          },
+          include: {
+            conversation: true,
+            channelMemberships: { include: { channel: true } },
+          },
+          orderBy: { createdAt: "asc" },
+        });
+        return bots.map(toBotView);
+      },
+      catch: toError,
+    });
 
   create = (input: CreateBotInput) =>
     Effect.tryPromise({
@@ -124,7 +145,7 @@ export class BotService {
         if (!bot.conversation)
           throw new ApiError(500, "bot_incomplete", "Bot conversation is missing");
         await this.agentData.projectBot(bot.id);
-        const store = await this.computerFetch(`/v1/agent-stores/${bot.id}`, {
+        const store = await this.computerFetch(COMPUTER_API_PATHS.agentStore(bot.id), {
           method: "PUT",
           body: JSON.stringify({ createdAt: bot.createdAt.getTime() }),
           signal: AbortSignal.timeout(15_000),
@@ -330,7 +351,7 @@ export class BotService {
           activeChildren.flatMap((child) =>
             child.currentRunId
               ? [
-                  this.computerFetch(`/v1/turns/${child.currentRunId}/cancel`, {
+                  this.computerFetch(COMPUTER_API_PATHS.turnCancel(child.currentRunId), {
                     method: "POST",
                     signal: AbortSignal.timeout(5_000),
                   }).catch(() => undefined),

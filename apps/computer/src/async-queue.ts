@@ -1,5 +1,6 @@
 export class AsyncQueue<T> implements AsyncIterable<T> {
   private readonly values: T[] = [];
+  private valueHead = 0;
   private readonly waiters: Array<{
     resolve: (result: IteratorResult<T>) => void;
     reject: (error: unknown) => void;
@@ -32,8 +33,17 @@ export class AsyncQueue<T> implements AsyncIterable<T> {
   [Symbol.asyncIterator](): AsyncIterator<T> {
     return {
       next: async () => {
-        const value = this.values.shift();
-        if (value !== undefined) return { value, done: false };
+        if (this.valueHead < this.values.length) {
+          const value = this.values[this.valueHead] as T;
+          this.valueHead += 1;
+          // Keep dequeue amortized O(1). Array.shift() moved every remaining
+          // token event and became quadratic during long streamed answers.
+          if (this.valueHead >= 1_024 && this.valueHead * 2 >= this.values.length) {
+            this.values.splice(0, this.valueHead);
+            this.valueHead = 0;
+          }
+          return { value, done: false };
+        }
         if (this.failure) throw this.failure;
         if (this.closed) return { value: undefined, done: true };
         return new Promise<IteratorResult<T>>((resolve, reject) => {

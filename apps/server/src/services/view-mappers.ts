@@ -16,6 +16,7 @@ export const toChannelView = (channel: {
   avatarPath?: string | null;
   directKey: string | null;
   workingDirectory: string | null;
+  hiddenFromSidebar?: boolean;
   members: Array<{ botId: string; ordinal: number }>;
   createdAt: Date;
   updatedAt: Date;
@@ -27,6 +28,7 @@ export const toChannelView = (channel: {
   hasAvatar: Boolean(channel.avatarPath),
   directKey: channel.directKey,
   workingDirectory: channel.workingDirectory,
+  hiddenFromSidebar: channel.hiddenFromSidebar ?? false,
   members: channel.members.map(({ botId, ordinal }) => ({ botId, ordinal })),
   createdAt: channel.createdAt.toISOString(),
   updatedAt: channel.updatedAt.toISOString(),

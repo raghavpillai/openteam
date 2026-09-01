@@ -7,25 +7,30 @@ import {
   type ReactToChannelMessageInput,
   type RenameChannelInput,
   type ScreenActionInput,
+  type SecretSubmissionInput,
   type SendMessageInput,
   type SetChannelAvatarInput,
+  type SetChannelHiddenInput,
   type SetChannelMembersInput,
   type UpdateBotInput,
   type UpdateChannelProfileInput,
   type UploadAssetInput,
+  type WidgetDismissInput,
+  type WidgetResponseInput,
 } from "@openbot/contracts";
-import { createPrismaClient, type PrismaClient } from "@openbot/db";
+import { createPrismaClient, Prisma, type PrismaClient } from "@openbot/db";
 import {
-  appendAgentTimelineEvent,
   AgentDataStore,
   AgentMessaging,
   AssetStore,
+  appendAgentTimelineEvent,
   type RoutineMutationInput,
   RoutineService,
   renderSubagentRevivalPrompt,
 } from "@openbot/messaging";
 import { Effect } from "effect";
 import { PgBoss } from "pg-boss";
+import { EventWakeup } from "./event-wakeup";
 import { AdministrationService } from "./services/administration-service";
 import {
   expirePendingApprovalsAfterRestart,
@@ -37,6 +42,7 @@ import { ChannelService } from "./services/channel-service";
 import { InternalToolService } from "./services/internal-tool-service";
 import { NotificationService } from "./services/notification-service";
 import { PluginService } from "./services/plugin-service";
+import { RichMessageService } from "./services/rich-message-service";
 import { RunService } from "./services/run-service";
 import { ScreenService } from "./services/screen-service";
 import { SearchService } from "./services/search-service";
@@ -50,19 +56,6 @@ import { DurableStateService } from "./update-state";
 const COMPUTER_ID = "00000000-0000-0000-0000-000000000001";
 const ASSET_ID = /^[a-f0-9]{64}$/;
 
-const collectAssetIds = (value: unknown, target: Set<string>): void => {
-  if (Array.isArray(value)) {
-    for (const item of value) collectAssetIds(item, target);
-    return;
-  }
-  if (!value || typeof value !== "object") return;
-  const record = value as Record<string, unknown>;
-  if (typeof record.assetId === "string" && ASSET_ID.test(record.assetId)) {
-    target.add(record.assetId);
-  }
-  for (const nested of Object.values(record)) collectAssetIds(nested, target);
-};
-
 export class AppService {
   readonly prisma: PrismaClient;
   readonly boss: PgBoss;
@@ -71,7 +64,6 @@ export class AppService {
   readonly workspaceRoot: string;
   readonly screenViewerHost: string;
   readonly agentData: AgentDataStore;
-  readonly assets: AssetStore;
   readonly messaging: AgentMessaging;
   readonly routines: RoutineService;
   readonly durableState: DurableStateService;
@@ -81,21 +73,28 @@ export class AppService {
   readonly subagents: SubagentService;
   readonly todos: TodoService;
   readonly internalTools: InternalToolService;
-  readonly notifications: NotificationService;
   readonly plugins: PluginService;
+  readonly richMessages: RichMessageService;
   readonly autoReview: AutoReviewService;
   readonly runs: RunService;
   readonly screens: ScreenService;
   readonly searchIndex: SearchService;
   readonly snapshots: SnapshotService;
+  readonly assets: AssetStore;
+  readonly notifications: NotificationService;
+  readonly eventWakeup: EventWakeup;
   private queueReady = false;
   private approvalExpiryTimer: ReturnType<typeof setInterval> | null = null;
+  private eventPruneTimer: ReturnType<typeof setInterval> | null = null;
   private assetCleanupTimer: ReturnType<typeof setInterval> | null = null;
 
-  constructor() {
+  constructor(
+    authMode: import("./services/notification-service").PushAuthenticationMode = "required"
+  ) {
     const databaseUrl = process.env.DATABASE_URL;
     this.prisma = createPrismaClient(databaseUrl);
     this.boss = new PgBoss(databaseUrl ?? "");
+    this.eventWakeup = new EventWakeup(databaseUrl ?? "");
     this.computerUrl = process.env.OPENBOT_COMPUTER_URL ?? "http://127.0.0.1:8790";
     this.controlToken = process.env.OPENBOT_CONTROL_TOKEN ?? "local-compose-only-change-me";
     this.workspaceRoot = resolve(process.env.OPENBOT_WORKSPACE_ROOT ?? "/workspace");
@@ -103,14 +102,6 @@ export class AppService {
     this.agentData = new AgentDataStore(this.prisma, {
       workspaceRoot: this.workspaceRoot,
     });
-    this.assets = new AssetStore({
-      root: this.agentData.assetRoot,
-      allowedFileRoots: [this.workspaceRoot, this.agentData.root],
-    });
-    this.messaging = new AgentMessaging(this.prisma, this.boss, this.agentData, this.assets);
-    this.agentData.setTimelineEventSink((tx, input) =>
-      appendAgentTimelineEvent(tx, this.messaging, input)
-    );
     this.screens = new ScreenService(
       this.prisma,
       this.agentData.root,
@@ -118,6 +109,15 @@ export class AppService {
       (path, init) => this.computerFetch(path, init)
     );
     this.searchIndex = new SearchService(this.prisma);
+    this.assets = new AssetStore({
+      root: this.agentData.assetRoot,
+      allowedFileRoots: [this.workspaceRoot, this.agentData.root],
+    });
+    this.notifications = new NotificationService(this.prisma, authMode);
+    this.messaging = new AgentMessaging(this.prisma, this.boss, this.agentData, this.assets);
+    this.agentData.setTimelineEventSink((tx, input) =>
+      appendAgentTimelineEvent(tx, this.messaging, input)
+    );
     this.bots = new BotService(
       this.prisma,
       this.boss,
@@ -145,6 +145,7 @@ export class AppService {
       (path, init) => this.computerFetch(path, init ?? {}),
       this.agentData
     );
+    this.richMessages = new RichMessageService(this.prisma, this.messaging, this.plugins);
     this.autoReview = new AutoReviewService((path, init) => this.computerFetch(path, init));
     this.runs = new RunService(
       this.prisma,
@@ -199,7 +200,6 @@ export class AppService {
       this.administration,
       this.plugins
     );
-    this.notifications = new NotificationService(this.prisma);
     this.boss.on("error", (error) => console.error("pg-boss", error));
   }
 
@@ -207,6 +207,14 @@ export class AppService {
     Effect.tryPromise({
       try: async () => {
         await this.prisma.$queryRaw`SELECT 1`;
+        await this.eventWakeup.start();
+        await this.snapshots.pruneEvents();
+        this.eventPruneTimer = setInterval(() => {
+          void this.snapshots
+            .pruneEvents()
+            .catch((error) => console.error("event retention", error));
+        }, 5 * 60_000);
+        this.eventPruneTimer.unref?.();
         await this.agentData.startWatching();
         await this.plugins.syncFileCaches();
         await this.boss.start();
@@ -223,7 +231,13 @@ export class AppService {
           );
         }, 60_000);
         this.approvalExpiryTimer.unref?.();
-        await this.pruneUnreferencedAssets();
+        // Asset pruning can scan a large history and filesystem. Keep the
+        // lifecycle behavior without extending the server's critical startup path.
+        queueMicrotask(() => {
+          void this.pruneUnreferencedAssets().catch((error) =>
+            console.error("asset cleanup", error)
+          );
+        });
         this.assetCleanupTimer = setInterval(
           () => {
             void this.pruneUnreferencedAssets().catch((error) =>
@@ -274,10 +288,15 @@ export class AppService {
         clearInterval(this.approvalExpiryTimer);
         this.approvalExpiryTimer = null;
       }
+      if (this.eventPruneTimer) {
+        clearInterval(this.eventPruneTimer);
+        this.eventPruneTimer = null;
+      }
       if (this.assetCleanupTimer) {
         clearInterval(this.assetCleanupTimer);
         this.assetCleanupTimer = null;
       }
+      await this.eventWakeup.stop();
       await this.agentData.stopWatching();
       await this.boss.stop({ graceful: true });
       await this.plugins.close();
@@ -285,11 +304,21 @@ export class AppService {
     });
 
   private async pruneUnreferencedAssets(): Promise<void> {
-    const messages = await this.prisma.channelMessage.findMany({
-      select: { metadata: true },
-    });
-    const referenced = new Set<string>();
-    for (const message of messages) collectAssetIds(message.metadata, referenced);
+    // Extract only candidate ids in PostgreSQL. Pulling every message's complete
+    // JSON metadata into Bun made the six-hour cleanup proportional to total
+    // transcript bytes and could briefly duplicate a very large history in RAM.
+    const candidates = await this.prisma.$queryRaw<Array<{ assetId: string | null }>>(Prisma.sql`
+      SELECT DISTINCT candidate #>> '{}' AS "assetId"
+      FROM "ChannelMessage" AS message
+      CROSS JOIN LATERAL jsonb_path_query(
+        coalesce(message."metadata", '{}'::jsonb),
+        '$.**.assetId'::jsonpath
+      ) AS candidate
+      WHERE jsonb_typeof(candidate) = 'string'
+    `);
+    const referenced = new Set(
+      candidates.flatMap(({ assetId }) => (assetId && ASSET_ID.test(assetId) ? [assetId] : []))
+    );
     await this.assets.prune(referenced);
   }
 
@@ -300,6 +329,8 @@ export class AppService {
       try: () => this.messaging.broadcast(input),
       catch: (error) => (error instanceof Error ? error : new Error(String(error))),
     });
+
+  listBots = (includeHidden = false) => this.bots.list(includeHidden);
 
   updateBot = (botId: string, input: UpdateBotInput) => this.bots.update(botId, input);
 
@@ -418,13 +449,12 @@ export class AppService {
   sendMessage = (conversationId: string, input: SendMessageInput) =>
     this.channels.sendDirectMessage(conversationId, input);
 
-  uploadAsset = (input: UploadAssetInput) =>
-    Effect.tryPromise({
-      try: () => this.assets.decodeUpload(input),
-      catch: (error) => (error instanceof Error ? error : new Error(String(error))),
-    });
+  messageDeliveryStatus = (channelId: string, clientId: string) =>
+    this.channels.messageDeliveryStatus(channelId, clientId);
 
   createGroup = (input: CreateGroupInput) => this.channels.createGroup(input);
+
+  listGroups = (includeHidden = false) => this.channels.listGroups(includeHidden);
 
   renameChannel = (channelId: string, input: RenameChannelInput) =>
     this.channels.renameDirectChannel(channelId, input);
@@ -440,15 +470,35 @@ export class AppService {
   setChannelMembers = (channelId: string, input: SetChannelMembersInput) =>
     this.channels.setGroupMembers(channelId, input);
 
+  setChannelHidden = (channelId: string, input: SetChannelHiddenInput) =>
+    this.channels.setGroupHidden(channelId, input);
+
+  deleteGroup = (channelId: string) => this.channels.deleteGroup(channelId);
+
   sendChannelMessage = (channelId: string, input: SendMessageInput) =>
     this.channels.sendGroupMessage(channelId, input);
 
   reactToMessage = (messageId: string, input: ReactToChannelMessageInput) =>
     this.channels.reactToMessage(messageId, input);
 
+  respondToWidget = (messageId: string, input: WidgetResponseInput) =>
+    this.richMessages.respondToWidget(messageId, input);
+
+  dismissWidget = (messageId: string, input: WidgetDismissInput) =>
+    this.richMessages.dismissWidget(messageId, input);
+
+  submitSecret = (messageId: string, input: SecretSubmissionInput) =>
+    this.richMessages.submitSecret(messageId, input);
+
   handleDynamicTool = (request: DynamicToolCallRequest) => this.internalTools.execute(request);
 
   pluginSettings = () => this.plugins.settings();
+
+  pluginConnectionStatuses = (connectionIds: readonly string[]) =>
+    this.plugins.pollConnectionStatuses(connectionIds);
+
+  pluginBotAccess = (pluginKey: string, query: string, offset: number, limit: number) =>
+    this.plugins.botAccess(pluginKey, query, offset, limit);
 
   rootSettings = () =>
     Effect.tryPromise({
@@ -533,10 +583,54 @@ export class AppService {
   resolveApproval = (approvalId: string, decision: import("@openbot/contracts").ApprovalDecision) =>
     this.runs.resolveApproval(approvalId, decision);
 
-  registerPushDevice = (input: import("@openbot/contracts").RegisterPushDeviceInput) =>
-    this.notifications.register(input);
+  snapshot = () => this.snapshots.full();
+
+  clientSnapshot = () => this.snapshots.client();
+
+  clientBootstrap = () => this.snapshots.bootstrap();
+
+  channelHistory = (channelId: string, beforeSequence: bigint | null, limit: number) =>
+    this.snapshots.history(channelId, beforeSequence, limit);
+
+  channelMessageContext = (messageId: string, before: number, after: number) =>
+    this.snapshots.messageContext(messageId, before, after);
+
+  channelClientState = (channelId: string) => this.snapshots.channelState(channelId);
+
+  clientRuntime = () => this.snapshots.clientRuntime();
+
+  uploadAsset = (input: UploadAssetInput) =>
+    Effect.tryPromise({
+      try: () => this.assets.decodeUpload(input),
+      catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+    });
+
+  uploadBinaryAsset = (
+    stream: ReadableStream<Uint8Array>,
+    contentType: string,
+    fileName: string | null,
+    signal?: AbortSignal
+  ) =>
+    Effect.tryPromise({
+      try: () =>
+        this.assets.ingestStream({
+          stream,
+          mimeType: contentType,
+          fileName: fileName ?? "attachment",
+          signal,
+        }),
+      catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+    });
+
+  registerPushDevice = (
+    input: import("@openbot/contracts").RegisterPushDeviceInput,
+    authentication: import("./services/notification-service").PushRegistrationAuthentication
+  ) => this.notifications.register(input, authentication);
 
   unregisterPushDevice = (installationId: string) => this.notifications.unregister(installationId);
+
+  disablePushDevicesForSession = (sessionId: string) =>
+    this.notifications.disableForSession(sessionId);
 
   markChannelRead = (channelId: string, throughSequence?: string) =>
     this.notifications.markChannelRead(channelId, throughSequence);
@@ -547,16 +641,22 @@ export class AppService {
       catch: (error) => error as Error,
     });
 
-  snapshot = () => this.snapshots.full();
-
-  clientSnapshot = () => this.snapshots.client();
-
   search = (query: string, category: import("@openbot/contracts").SearchCategory) =>
     this.searchIndex.search(query, category);
 
   health = () => this.snapshots.health();
 
   eventsAfter = (sequence: bigint) => this.snapshots.eventsAfter(sequence);
+
+  eventWindowAfter = (sequence: bigint, limit?: number) =>
+    this.snapshots.eventWindowAfter(sequence, limit);
+
+  waitForEvent = (version: number, timeoutMs: number, signal?: AbortSignal) =>
+    this.eventWakeup.wait(version, timeoutMs, signal);
+
+  get eventVersion() {
+    return this.eventWakeup.currentVersion;
+  }
 
   private async recover(): Promise<void> {
     const now = new Date();

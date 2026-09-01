@@ -1,4 +1,9 @@
-import { ApiError, type ApprovalDecision } from "@openbot/contracts";
+import {
+  ApiError,
+  type ApprovalDecision,
+  type ComputerApprovalResolution,
+} from "@openbot/contracts";
+import { COMPUTER_API_PATHS } from "@openbot/contracts/service-protocol";
 import type { ApprovalStatus, PrismaClient } from "@openbot/db";
 import { Effect } from "effect";
 import { appendEvent, type ComputerFetch, toError } from "./service-utils";
@@ -63,7 +68,7 @@ export class RunService {
           await this.stopForegroundChildren(runId);
           return { ok: true, status: "cancelled" };
         }
-        const response = await this.computerFetch(`/v1/turns/${runId}/cancel`, {
+        const response = await this.computerFetch(COMPUTER_API_PATHS.turnCancel(runId), {
           method: "POST",
         });
         if (!response.ok) throw new ApiError(409, "run_not_active", await response.text());
@@ -156,7 +161,7 @@ export class RunService {
       children.flatMap((child) =>
         child.childRunId
           ? [
-              this.computerFetch(`/v1/turns/${child.childRunId}/cancel`, {
+              this.computerFetch(COMPUTER_API_PATHS.turnCancel(child.childRunId), {
                 method: "POST",
               }).catch(() => undefined),
             ]
@@ -269,12 +274,13 @@ export class RunService {
             "This approval decision is not supported"
           );
         }
-        const response = await this.computerFetch("/v1/approvals/resolve", {
+        const input = {
+          approvalId: approval.upstreamRequestId,
+          decision,
+        } satisfies ComputerApprovalResolution;
+        const response = await this.computerFetch(COMPUTER_API_PATHS.approvalResolution, {
           method: "POST",
-          body: JSON.stringify({
-            approvalId: approval.upstreamRequestId,
-            decision,
-          }),
+          body: JSON.stringify(input),
         });
         if (!response.ok) {
           const resolvedAt = new Date();

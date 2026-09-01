@@ -228,54 +228,34 @@ export class Projection {
         });
         break;
       case "agent.delta":
-        await this.prisma.$transaction(async (tx) => {
-          const existing = await tx.message.findUnique({
-            where: {
-              conversationId_upstreamItemId: {
-                conversationId,
-                upstreamItemId: event.itemId,
-              },
-            },
-          });
-          if (existing?.status !== "completed") {
-            if (existing) {
-              await tx.message.update({
-                where: { id: existing.id },
-                data: {
-                  content: `${existing.content}${event.delta}`,
-                  status: "streaming",
-                },
-              });
-            } else {
-              await tx.message.create({
-                data: {
-                  botId,
-                  conversationId,
-                  runId,
-                  upstreamItemId: event.itemId,
-                  role: "assistant",
-                  content: event.delta,
-                  status: "streaming",
-                },
-              });
-            }
-          }
-          await tx.runItem.upsert({
-            where: {
-              runId_upstreamItemId: { runId, upstreamItemId: event.itemId },
-            },
-            create: {
-              runId,
-              upstreamItemId: event.itemId,
-              kind: "agent_message",
-              status: "running",
-              content: { text: event.delta },
-              startedAt: new Date(),
-            },
-            update: { status: "running" },
-          });
-          await this.event(tx, "message.delta", runId, event);
-        });
+        // item.started already created the RunItem. Keep the hot token path to
+        // one atomic statement: wrapping it in a transaction and re-upserting
+        // the same RunItem added three redundant database round trips per
+        // coalesced fragment.
+        await this.prisma.$executeRaw`
+          INSERT INTO "Message" (
+            "id", "botId", "conversationId", "runId", "upstreamItemId",
+            "role", "content", "status", "createdAt", "updatedAt"
+          ) VALUES (
+            ${crypto.randomUUID()}::uuid,
+            ${botId}::uuid,
+            ${conversationId}::uuid,
+            ${runId}::uuid,
+            ${event.itemId},
+            'assistant'::"MessageRole",
+            ${event.delta},
+            'streaming'::"MessageStatus",
+            CURRENT_TIMESTAMP,
+            CURRENT_TIMESTAMP
+          )
+          ON CONFLICT ("conversationId", "upstreamItemId") DO UPDATE SET
+            "content" = "Message"."content" || EXCLUDED."content",
+            "status" = 'streaming'::"MessageStatus",
+            "updatedAt" = CURRENT_TIMESTAMP
+          WHERE "Message"."status" <> 'completed'::"MessageStatus"
+        `;
+        // Product clients refresh on durable item/run boundaries. A global
+        // Event row for every fragment would only create write amplification.
         break;
       case "item.started":
       case "item.completed": {

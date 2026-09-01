@@ -31,20 +31,18 @@ describe("Grok-compatible group routing", () => {
   });
 
   test("no mention and everyone route to all members", () => {
-    expect(resolveGroupResponderIds(members, [{ sender: "user", content: "Please review" }])).toEqual([
-      "one",
-      "two",
-      "three",
-    ]);
+    expect(
+      resolveGroupResponderIds(members, [{ sender: "user", content: "Please review" }])
+    ).toEqual(["one", "two", "three"]);
     expect(
       resolveGroupResponderIds(members, [{ sender: "user", content: "@everyone review" }])
     ).toEqual(["one", "two", "three"]);
   });
 
   test("one or multiple mentions route only to matched members", () => {
-    expect(
-      resolveGroupResponderIds(members, [{ sender: "user", content: "@QA run it" }])
-    ).toEqual(["three"]);
+    expect(resolveGroupResponderIds(members, [{ sender: "user", content: "@QA run it" }])).toEqual([
+      "three",
+    ]);
     expect(
       resolveGroupResponderIds(members, [
         { sender: "user", content: "@Parity start" },
@@ -64,14 +62,12 @@ describe("Grok-compatible group routing", () => {
   });
 
   test("attachment-only first round selects everyone and order rotates", () => {
-    expect(
-      resolveGroupResponderIds(members, [], { attachmentOnlyFirstRound: true })
-    ).toEqual(["one", "two", "three"]);
-    expect(rotateGroupResponders(["one", "two", "three"], 1)).toEqual([
+    expect(resolveGroupResponderIds(members, [], { attachmentOnlyFirstRound: true })).toEqual([
+      "one",
       "two",
       "three",
-      "one",
     ]);
+    expect(rotateGroupResponders(["one", "two", "three"], 1)).toEqual(["two", "three", "one"]);
   });
 
   test("freezes the base snapshot while admitting only earlier same-round outputs", () => {

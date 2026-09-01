@@ -5,6 +5,8 @@ import {
   CreateAgentInput,
   CreateChannelInput,
   type DynamicToolCallRequest,
+  ListAgentsInput,
+  ListGroupsInput,
   MessageSubagentInput,
   ReactToMessageInput,
   SendToAgentInput,
@@ -16,7 +18,7 @@ import {
   UpdateStateInput,
 } from "@openbot/contracts";
 import type { PrismaClient } from "@openbot/db";
-import type { AgentMessaging } from "@openbot/messaging";
+import { type AgentMessaging, validateSendToUserInput } from "@openbot/messaging";
 import { Effect, Schema } from "effect";
 import type { DurableStateService } from "../update-state";
 import type { AdministrationService } from "./administration-service";
@@ -87,6 +89,8 @@ export class InternalToolService {
           "StopSubagent",
           "CreateAgent",
           "UpdateAgent",
+          "ListAgents",
+          "ListGroups",
           "CreateChannel",
           "UpdateChannel",
           "SendToAgent",
@@ -227,6 +231,18 @@ export class InternalToolService {
             Schema.decodeUnknownSync(CreateAgentInput)(request.arguments)
           );
         }
+        if (request.tool === "ListAgents") {
+          return this.administration.listAgents(
+            request.botId,
+            Schema.decodeUnknownSync(ListAgentsInput)(request.arguments)
+          );
+        }
+        if (request.tool === "ListGroups") {
+          return this.administration.listGroups(
+            request.botId,
+            Schema.decodeUnknownSync(ListGroupsInput)(request.arguments)
+          );
+        }
         if (request.tool === "UpdateAgent") {
           return this.administration.updateAgent(
             request.botId,
@@ -248,20 +264,66 @@ export class InternalToolService {
             Schema.decodeUnknownSync(UpdateChannelInput)(request.arguments)
           );
         }
-        const result =
-          request.tool === "SendToAgent"
-            ? await this.messaging.sendToAgent(
+        let result;
+        if (request.tool === "SendToAgent") {
+          result = await this.messaging.sendToAgent(
+            context,
+            Schema.decodeUnknownSync(SendToAgentInput)(request.arguments)
+          );
+        } else if (request.tool === "SendToUser") {
+          validateSendToUserInput(request.arguments);
+          const input = Schema.decodeUnknownSync(AgentSendToUserInput)(request.arguments);
+          if (!input.channel) {
+            result = await this.messaging.sendVisible(context, input);
+          } else {
+            const content =
+              input.type === "text"
+                ? [
+                    input.content ?? "",
+                    ...(input.images ?? []).map((image) =>
+                      image.alt ? `${image.alt}: ${image.url}` : image.url
+                    ),
+                  ]
+                    .filter(Boolean)
+                    .join("\n")
+                : [input.alt, input.url].filter(Boolean).join("\n");
+            try {
+              const delivery = await this.plugins.deliverConnectedChannel({
+                botId: request.botId,
+                runId: request.runId,
+                callId: request.callId,
+                address: input.channel,
+                content,
+              });
+              result = {
+                acknowledgement: {
+                  sent: true,
+                  channel: input.channel,
+                  connection_id: delivery.connectionId,
+                  tool: delivery.toolName,
+                },
+                interruptRunId: null,
+              };
+            } catch (error) {
+              const recoveryRunId = await this.messaging.enqueueChannelDeliveryFailure(
                 context,
-                Schema.decodeUnknownSync(SendToAgentInput)(request.arguments)
-              )
-            : request.tool === "SendToUser"
-              ? await this.messaging.sendVisible(
-                  context,
-                  Schema.decodeUnknownSync(AgentSendToUserInput)(request.arguments)
-                )
-              : (() => {
-                  throw new ApiError(400, "unknown_dynamic_tool", `Unknown tool ${request.tool}`);
-                })();
+                input.channel,
+                error
+              );
+              result = {
+                acknowledgement: {
+                  sent: false,
+                  channel: input.channel,
+                  delivery_failed: true,
+                  recovery_run_id: recoveryRunId,
+                },
+                interruptRunId: null,
+              };
+            }
+          }
+        } else {
+          throw new ApiError(400, "unknown_dynamic_tool", `Unknown tool ${request.tool}`);
+        }
         if (result.interruptRunId) await this.interruptNonUserRun(result.interruptRunId);
         return result.acknowledgement;
       },

@@ -2,7 +2,7 @@ name: openbot
 
 services:
   postgres:
-    image: postgres:17-alpine
+    image: postgres:17-alpine@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73
     environment:
       POSTGRES_DB: openbot
       POSTGRES_USER: openbot
@@ -29,14 +29,14 @@ services:
     restart: "no"
 
   agent-data-init:
-    image: alpine:3.22
+    image: alpine:3.22@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce
     command: ["sh", "-c", "chown -R 1000:1000 /sand-data && chmod 0700 /sand-data"]
     restart: "no"
     volumes:
       - openbot_agent_data:/sand-data
 
   asset-store-init:
-    image: alpine:3.22
+    image: alpine:3.22@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce
     command:
       - sh
       - -c
@@ -57,7 +57,7 @@ services:
       - openbot_assets:/asset-store
 
   computer-home-init:
-    image: alpine:3.22
+    image: alpine:3.22@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce
     command:
       - sh
       - -c
@@ -75,14 +75,14 @@ services:
       - openbot_agent_data:/home/box/sand-data
 
   box-store-init:
-    image: alpine:3.22
+    image: alpine:3.22@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce
     command: ["sh", "-c", "chown -R 1000:1000 /box-store && chmod 0700 /box-store"]
     restart: "no"
     volumes:
       - openbot_box_store:/box-store
 
   workspace-init:
-    image: alpine:3.22
+    image: alpine:3.22@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce
     command: ["sh", "-c", "chown -R 1000:1000 /workspace && chmod 0755 /workspace"]
     restart: "no"
     volumes:
@@ -143,13 +143,13 @@ services:
       dockerfile: docker/app.Dockerfile
       target: server
     environment:
+      OPENBOT_VERSION: ${OPENBOT_VERSION:-0.1.0}
       DATABASE_URL: postgresql://openbot:openbot-local-only@postgres:5432/openbot
       OPENBOT_PORT: 8787
       OPENBOT_COMPUTER_URL: http://computer:8790
       OPENBOT_CONTROL_TOKEN: ${OPENBOT_CONTROL_TOKEN:-local-compose-only-change-me}
       OPENBOT_AUTH_SECRET: ${OPENBOT_AUTH_SECRET:-local-compose-auth-secret-change-me-now}
-      OPENBOT_API_TOKEN: ${OPENBOT_API_TOKEN:-}
-      OPENBOT_API_TRUST_LOOPBACK: ${OPENBOT_API_TRUST_LOOPBACK:-true}
+      OPENBOT_AUTH_MODE: ${OPENBOT_AUTH_MODE:-required}
       OPENBOT_WORKSPACE_ROOT: /workspace
       OPENBOT_TIME_ZONE: ${OPENBOT_TIME_ZONE:-UTC}
       OPENBOT_PI_MODEL: ${OPENBOT_PI_MODEL:-gpt-5.5}
@@ -168,7 +168,7 @@ services:
     ports:
       - "127.0.0.1:8787:8787"
     healthcheck:
-      test: ["CMD", "bun", "-e", "const r=await fetch('http://127.0.0.1:8787/api/v0/health');process.exit(r.ok?0:1)"]
+      test: ["CMD", "bun", "-e", "const r=await fetch('http://127.0.0.1:8787/api/v0/health');const b=await r.json();process.exit(r.ok&&b.status==='ready'?0:1)"]
       interval: 3s
       timeout: 5s
       retries: 30
@@ -187,6 +187,7 @@ services:
       DATABASE_URL: postgresql://openbot:openbot-local-only@postgres:5432/openbot
       OPENBOT_COMPUTER_URL: http://computer:8790
       OPENBOT_CONTROL_TOKEN: ${OPENBOT_CONTROL_TOKEN:-local-compose-only-change-me}
+      OPENBOT_AUTH_MODE: ${OPENBOT_AUTH_MODE:-required}
       EXPO_ACCESS_TOKEN: ${EXPO_ACCESS_TOKEN:-}
       OPENBOT_TIME_ZONE: ${OPENBOT_TIME_ZONE:-UTC}
       OPENBOT_WORKER_CONCURRENCY: ${OPENBOT_WORKER_CONCURRENCY:-8}

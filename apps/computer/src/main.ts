@@ -3,20 +3,25 @@ import { mkdir, realpath, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import {
   type BotTranscriptView,
-  type TranscriptEventView,
   ComputerApprovalResolution,
   ComputerSteerRequest,
   ComputerTurnRequest,
   ScreenActionInput,
   ScreenPauseInput,
   ScreenTakeoverInput,
+  type TranscriptEventView,
 } from "@openbot/contracts";
+import {
+  COMPUTER_API_PATHS,
+  parseComputerInferenceRequest,
+} from "@openbot/contracts/service-protocol";
 import { Schema } from "effect";
 import { BoxStoreSync } from "./box-store-sync";
-import { resolveWorkspacePath } from "./paths";
+import { computerEventStream } from "./computer-event-stream";
 import { GrokAgentStore } from "./grok-agent-store";
-import { ComputerRuntime } from "./runtime";
 import { StdioMcpManager } from "./mcp-manager";
+import { resolveWorkspacePath } from "./paths";
+import { ComputerRuntime } from "./runtime";
 import { ScreenBroker } from "./screen-broker";
 import { TranscriptMirror } from "./transcript-mirror";
 
@@ -30,12 +35,21 @@ const boxStore = new BoxStoreSync({
 });
 await boxStore.start();
 const transcripts = new TranscriptMirror();
-const runtime = new ComputerRuntime(screens, agentStores, () => boxStore.scheduleSnapshot());
+const runtime = new ComputerRuntime(screens, agentStores, ({ botId }) =>
+  boxStore.scheduleSnapshot(5_000, {
+    agentIds: [botId],
+    workspace: true,
+    pi: true,
+    chrome: true,
+  })
+);
 const stdioMcp = new StdioMcpManager();
-const encoder = new TextEncoder();
 
-const json = (value: unknown, status = 200) =>
-  Response.json(value, { status, headers: { "cache-control": "no-store" } });
+const json = (value: unknown, status = 200, headers: Record<string, string> = {}) =>
+  Response.json(value, {
+    status,
+    headers: { "cache-control": "no-store", ...headers },
+  });
 
 const authorized = (request: Request): boolean => {
   const supplied = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? "";
@@ -59,13 +73,13 @@ const transcriptEventFromStore = (
   }
   const at = typeof row.entry.at === "string" ? row.entry.at : new Date(0).toISOString();
   const metadata =
-    row.entry.metadata && typeof row.entry.metadata === "object" && !Array.isArray(row.entry.metadata)
+    row.entry.metadata &&
+    typeof row.entry.metadata === "object" &&
+    !Array.isArray(row.entry.metadata)
       ? (row.entry.metadata as Record<string, unknown>)
       : {};
   const channel =
-    row.entry.channel &&
-    typeof row.entry.channel === "object" &&
-    !Array.isArray(row.entry.channel)
+    row.entry.channel && typeof row.entry.channel === "object" && !Array.isArray(row.entry.channel)
       ? (row.entry.channel as TranscriptEventView["channel"])
       : null;
   if (row.entry.kind === "message") {
@@ -118,6 +132,19 @@ const transcriptEventFromStore = (
   }
   return null;
 };
+
+const conversationEnvelopeFromEvent = (event: TranscriptEventView) => ({
+  role:
+    event.sender?.kind === "agent"
+      ? "assistant"
+      : event.sender?.kind === "user"
+        ? "user"
+        : "system",
+  content: event.content ?? "",
+  eventId: event.id,
+  at: event.at,
+  channel: event.channel,
+});
 
 const server = Bun.serve({
   hostname: "0.0.0.0",
@@ -197,11 +224,12 @@ const server = Bun.serve({
         await mkdir(path, { recursive: true });
         const actual = await realpath(path);
         safePath(actual);
-        boxStore.scheduleSnapshot();
-        return json({ path: actual, screen: await screens.ensure(botId, actual) });
+        const screen = await screens.ensure(botId, actual);
+        boxStore.scheduleSnapshot(5_000, { workspace: true, chrome: true });
+        return json({ path: actual, screen });
       }
 
-      if (request.method === "POST" && url.pathname === "/v1/agent-stores/reconcile") {
+      if (request.method === "POST" && url.pathname === COMPUTER_API_PATHS.reconcileAgentStores) {
         const body = (await request.json()) as { ownerIds?: unknown };
         if (
           !Array.isArray(body.ownerIds) ||
@@ -213,8 +241,16 @@ const server = Bun.serve({
         return json({ agents: await agentStores.listAgentDirectories(), quarantined: [] });
       }
 
-      if (request.method === "GET" && url.pathname === "/v1/agent-stores") {
-        return json({ agents: await agentStores.listAgentDirectories() });
+      if (request.method === "GET" && url.pathname === COMPUTER_API_PATHS.agentStores) {
+        const snapshot = await agentStores.agentDirectorySnapshot();
+        const etag = `"${snapshot.revision}"`;
+        if (request.headers.get("if-none-match") === etag) {
+          return new Response(null, {
+            status: 304,
+            headers: { "cache-control": "no-store", etag },
+          });
+        }
+        return json({ agents: snapshot.agents }, 200, { etag });
       }
 
       const agentStoreMatch = url.pathname.match(/^\/v1\/agent-stores\/([^/]+)$/);
@@ -225,7 +261,7 @@ const server = Bun.serve({
             ? body.createdAt
             : Date.now();
         await agentStores.initializeAgent(agentStoreMatch[1], createdAt);
-        boxStore.scheduleSnapshot();
+        boxStore.scheduleSnapshot(5_000, { agentIds: [agentStoreMatch[1]] });
         return json({ ok: true });
       }
 
@@ -233,9 +269,9 @@ const server = Bun.serve({
       if (request.method === "GET" && transcriptMatch?.[1]) {
         const botId = transcriptMatch[1];
         const rows = await agentStores.readTranscriptEntries(botId, {
-            afterSeq: Number(url.searchParams.get("afterSeq") ?? 0),
-            limit: Number(url.searchParams.get("limit") ?? 10_000),
-          });
+          afterSeq: Number(url.searchParams.get("afterSeq") ?? 0),
+          limit: Number(url.searchParams.get("limit") ?? 10_000),
+        });
         return json({
           botId,
           generatedAt: new Date().toISOString(),
@@ -262,52 +298,53 @@ const server = Bun.serve({
         }
         const transcript = body as BotTranscriptView;
         const result = await transcripts.replace(transcript);
-        await agentStores.openForWake(transcript.botId);
-        const existingIds = new Set(
-          (await agentStores.readTranscriptEntries(transcript.botId)).map(({ id }) => id)
-        );
-        for (const event of transcript.events) {
-          if (existingIds.has(event.id)) continue;
-          await agentStores.appendTranscriptEntry(
-            transcript.botId,
-            event.id,
-            event.type === "visible_message"
-              ? {
-                  kind: "message",
-                  event,
-                  role:
-                    event.sender?.kind === "agent" ? "assistant" : (event.sender?.kind ?? "system"),
-                  content: event.content ?? "",
-                  at: event.at,
-                  channel: event.channel,
-                  metadata: event.metadata,
-                }
-              : {
-                  kind: "event",
-                  event,
-                  type: event.type,
-                  at: event.at,
-                  channel: event.channel,
-                  metadata: event.metadata,
-                }
-          );
-          if (event.type === "visible_message") {
-            await agentStores.appendConversationEnvelope(transcript.botId, {
-              role:
-                event.sender?.kind === "agent"
-                  ? "assistant"
-                  : event.sender?.kind === "user"
-                    ? "user"
-                    : "system",
-              content: event.content ?? "",
-              eventId: event.id,
-              at: event.at,
-              channel: event.channel,
-            });
+        await agentStores.withAgentLease(transcript.botId, async () => {
+          const existingEntries = await agentStores.readTranscriptEntries(transcript.botId);
+          const existingById = new Map(existingEntries.map((entry) => [entry.id, entry]));
+          const conversationEnvelopes: unknown[] = [];
+          for (const event of transcript.events) {
+            const existing = existingById.get(event.id);
+            if (!existing) {
+              await agentStores.appendTranscriptEntry(
+                transcript.botId,
+                event.id,
+                event.type === "visible_message"
+                  ? {
+                      kind: "message",
+                      event,
+                      role:
+                        event.sender?.kind === "agent"
+                          ? "assistant"
+                          : (event.sender?.kind ?? "system"),
+                      content: event.content ?? "",
+                      at: event.at,
+                      channel: event.channel,
+                      metadata: event.metadata,
+                    }
+                  : {
+                      kind: "event",
+                      event,
+                      type: event.type,
+                      at: event.at,
+                      channel: event.channel,
+                      metadata: event.metadata,
+                    }
+              );
+            }
+            const durableEvent = existing
+              ? transcriptEventFromStore(transcript.botId, existing)
+              : event;
+            if (durableEvent?.type === "visible_message") {
+              conversationEnvelopes.push(conversationEnvelopeFromEvent(durableEvent));
+            }
           }
-        }
-        await agentStores.refreshDerivedProjections(transcript.botId);
-        boxStore.scheduleSnapshot();
+          await agentStores.appendConversationEnvelopes(transcript.botId, conversationEnvelopes);
+          await agentStores.refreshDerivedProjections(transcript.botId);
+        });
+        boxStore.scheduleSnapshot(5_000, {
+          agentIds: [transcript.botId],
+          sandPaths: ["search-index.db", `transcript-publish/${transcript.botId}.json`],
+        });
         return json(result);
       }
 
@@ -318,8 +355,8 @@ const server = Bun.serve({
       }
       if (request.method === "DELETE" && screenMatch?.[1]) {
         await screens.destroy(screenMatch[1]);
-        agentStores.closeAgent(screenMatch[1]);
-        boxStore.scheduleSnapshot();
+        await agentStores.closeAgent(screenMatch[1]);
+        boxStore.scheduleSnapshot(5_000, { chrome: true, agentIds: [screenMatch[1]] });
         return json({ ok: true });
       }
 
@@ -392,27 +429,11 @@ const server = Bun.serve({
         return json({ ok: true });
       }
 
-      if (request.method === "POST" && url.pathname === "/v1/turns") {
+      if (request.method === "POST" && url.pathname === COMPUTER_API_PATHS.turns) {
         const input = Schema.decodeUnknownSync(ComputerTurnRequest)(await request.json());
         safePath(input.cwd);
         const events = await runtime.run(input);
-        const body = new ReadableStream<Uint8Array>({
-          async start(controller) {
-            try {
-              for await (const event of events) {
-                controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
-              }
-              controller.close();
-            } catch (error) {
-              controller.enqueue(
-                encoder.encode(
-                  `${JSON.stringify({ type: "runtime.error", message: error instanceof Error ? error.message : String(error), retrying: false })}\n`
-                )
-              );
-              controller.close();
-            }
-          },
-        });
+        const body = computerEventStream(events);
         return new Response(body, {
           headers: {
             "content-type": "application/x-ndjson",
@@ -447,33 +468,14 @@ const server = Bun.serve({
         return json({ ok: true });
       }
 
-      if (request.method === "POST" && url.pathname === "/v1/approvals/resolve") {
+      if (request.method === "POST" && url.pathname === COMPUTER_API_PATHS.approvalResolution) {
         const input = Schema.decodeUnknownSync(ComputerApprovalResolution)(await request.json());
         await runtime.resolveApproval(input.approvalId, input.decision);
         return json({ ok: true });
       }
 
-      if (request.method === "POST" && url.pathname === "/v1/infer") {
-        const body = (await request.json()) as {
-          kind?: unknown;
-          instructions?: unknown;
-          prompt?: unknown;
-          timeoutMs?: unknown;
-          cwd?: unknown;
-        };
-        if (
-          !["extraction", "episode", "synthesis", "verification"].includes(String(body.kind)) ||
-          typeof body.instructions !== "string" ||
-          !body.instructions.trim() ||
-          body.instructions.length > 20_000 ||
-          typeof body.prompt !== "string" ||
-          !body.prompt.trim() ||
-          body.prompt.length > 2_000_000 ||
-          typeof body.timeoutMs !== "number" ||
-          !Number.isFinite(body.timeoutMs)
-        ) {
-          return json({ error: "invalid memory inference request" }, 400);
-        }
+      if (request.method === "POST" && url.pathname === COMPUTER_API_PATHS.inference) {
+        const body = parseComputerInferenceRequest(await request.json());
         const cwd = safePath(typeof body.cwd === "string" ? body.cwd : workspaceRoot);
         const text = await runtime.infer({
           instructions: body.instructions,
@@ -490,5 +492,29 @@ const server = Bun.serve({
     }
   },
 });
+
+let shutdownPromise: Promise<void> | null = null;
+const shutdown = (): Promise<void> => {
+  if (shutdownPromise) return shutdownPromise;
+  server.stop();
+  shutdownPromise = Promise.all([
+    stdioMcp.closeAll(),
+    (async () => {
+      await agentStores.closeAll();
+      boxStore.scheduleSnapshot(0, { sand: true });
+      await boxStore.flushScheduledSnapshots();
+    })(),
+  ]).then(() => undefined);
+  return shutdownPromise;
+};
+
+for (const signal of ["SIGINT", "SIGTERM"] as const) {
+  process.once(signal, () => {
+    void shutdown().catch((error) => {
+      console.error(`OpenBot computer gateway shutdown failed: ${String(error)}`);
+      process.exitCode = 1;
+    });
+  });
+}
 
 console.log(`OpenBot computer gateway listening on ${server.url}`);

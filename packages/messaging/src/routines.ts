@@ -1,4 +1,4 @@
-import { ApiError } from "@openbot/contracts";
+import { ApiError, type RoutineExecutionView, type RoutineView } from "@openbot/contracts";
 import { Prisma, type PrismaClient } from "@openbot/db";
 import { CronExpressionParser } from "cron-parser";
 import {
@@ -8,7 +8,7 @@ import {
   triggerIdentity,
 } from "./automation-trigger";
 import { uniqueSlug } from "./file-state";
-import { appendAgentTimelineEvent, type AutomationChangedAction } from "./timeline-events";
+import { type AutomationChangedAction, appendAgentTimelineEvent } from "./timeline-events";
 
 const MIN_INTERVAL_SECONDS = 5 * 60;
 const MAX_INTERVAL_SECONDS = 30 * 24 * 60 * 60;
@@ -52,54 +52,7 @@ export interface RoutineMutationInput {
   source?: "agent" | "ui";
 }
 
-export interface RoutineExecutionView {
-  id: string;
-  routineId: string;
-  runId: string | null;
-  kind: "scheduled" | "test";
-  status:
-    | "queued"
-    | "running"
-    | "waiting_approval"
-    | "completed"
-    | "failed"
-    | "cancelled"
-    | "skipped";
-  scheduledFor: string;
-  enqueuedAt: string | null;
-  startedAt: string | null;
-  completedAt: string | null;
-  skipReason: string | null;
-  error: unknown;
-  createdAt: string;
-}
-
-export interface RoutineView {
-  id: string;
-  folder: string;
-  ownerId: string;
-  ownerKind: RoutineOwner["kind"];
-  botId: string | null;
-  channelId: string | null;
-  name: string;
-  prompt: string;
-  schedule: string;
-  schedules: string[];
-  scheduleKind: "cron" | "interval" | "event";
-  cronExpression: string | null;
-  intervalSeconds: number | null;
-  timezone: string;
-  timezoneMode: string;
-  enabled: boolean;
-  revision: number;
-  nextRunAt: string | null;
-  lastRunAt: string | null;
-  createdAt: string;
-  updatedAt: string;
-  latestExecution: RoutineExecutionView | null;
-  trigger?: unknown;
-  triggerPresentation: unknown;
-}
+export type { RoutineExecutionView, RoutineView } from "@openbot/contracts";
 
 export interface NormalizedSchedule {
   scheduleText: string;
@@ -166,7 +119,10 @@ const required = (value: string | undefined, field: string): string => {
 const jsonInput = (value: unknown): Prisma.InputJsonValue =>
   JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
 
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+// PostgreSQL's uuid type accepts every canonical 8-4-4-4-12 hexadecimal value.
+// Do not require RFC version/variant bits here: imported data and deterministic
+// fixture IDs can be valid database UUIDs without carrying those annotations.
+const UUID_PATTERN = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
 
 const routineIdentifierWhere = (id: string) =>
   UUID_PATTERN.test(id) ? { OR: [{ id }, { slug: id }] } : { slug: id };
@@ -906,11 +862,18 @@ export class RoutineService {
       if (routineOwner.kind === "group" && channel.kind !== "group") {
         throw new ApiError(409, "routine_channel_unavailable", "The group chat is unavailable");
       }
-      const revision = await tx.routineRevision.findUniqueOrThrow({
+      const revision = await tx.routineRevision.findUnique({
         where: {
           routineId_revision: { routineId: routine.id, revision: routine.revision },
         },
       });
+      if (!revision) {
+        throw new ApiError(
+          409,
+          "routine_revision_unavailable",
+          "This routine needs to be saved again before it can run"
+        );
+      }
       const dedupeKey = `routine:${routine.id}:manual:${requestId}`;
       const execution = await tx.routineExecution.create({
         data: {
@@ -923,7 +886,7 @@ export class RoutineService {
           enqueuedAt: firedAt,
         },
       });
-      let queued;
+      let queued = execution;
       let runId: string | null = null;
       let roundId: string | null = null;
       let completedImmediately = false;

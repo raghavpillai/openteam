@@ -11,12 +11,16 @@
     "test": "bun test --pass-with-no-tests"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "1.25.2",
+    "@modelcontextprotocol/sdk": "1.30.0",
     "@openbot/contracts": "workspace:*",
     "@openbot/db": "workspace:*",
     "@openbot/messaging": "workspace:*",
     "better-auth": "1.7.2",
     "effect": "3.22.1",
+    "pg": "8.23.0",
     "pg-boss": "12.28.0"
+  },
+  "devDependencies": {
+    "@types/pg": "8.15.5"
   }
 }

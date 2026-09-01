@@ -1,6 +1,15 @@
-import type { TodoWriteInput } from "@openbot/contracts";
+import { ApiError, TODO_MAX_ITEMS, type TodoWriteInput } from "@openbot/contracts";
 import type { PrismaClient } from "@openbot/db";
 import { appendEvent } from "./service-utils";
+
+export const uniqueTodoInputs = (todos: TodoWriteInput["todos"]) => {
+  const seen = new Set<string>();
+  return todos.filter((todo) => {
+    if (seen.has(todo.id)) return false;
+    seen.add(todo.id);
+    return true;
+  });
+};
 
 export class TodoService {
   constructor(private readonly prisma: PrismaClient) {}
@@ -8,38 +17,55 @@ export class TodoService {
   async write(botId: string, callId: string, input: TodoWriteInput) {
     const todos = await this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`todos:${botId}`}))`;
-      const byId = new Map(input.todos.map((todo) => [todo.id, todo]));
-      const incoming = input.todos.filter(
-        (todo, index) => input.todos.findIndex((candidate) => candidate.id === todo.id) === index
-      );
+      const incoming = uniqueTodoInputs(input.todos);
+      const incomingIds = incoming.map((todo) => todo.id);
       if (!input.merge) {
         await tx.todoItem.deleteMany({ where: { botId } });
         await tx.todoItem.createMany({
           data: incoming.map((todo, position) => ({ botId, position, ...todo })),
         });
       } else {
-        const existing = await tx.todoItem.findMany({
-          where: { botId },
-          orderBy: { position: "asc" },
-        });
-        let nextPosition = existing.reduce((max, todo) => Math.max(max, todo.position), -1) + 1;
-        const positions = new Map(existing.map((todo) => [todo.id, todo.position]));
-        for (const todo of incoming) {
-          const position = positions.get(todo.id) ?? nextPosition++;
-          await tx.todoItem.upsert({
-            where: { botId_id: { botId, id: todo.id } },
-            create: { botId, position, ...todo },
-            update: { content: todo.content, status: todo.status },
-          });
+        const [matching, last, existingCount] = await Promise.all([
+          tx.todoItem.findMany({
+            where: { botId, id: { in: incomingIds } },
+            select: { id: true, position: true },
+          }),
+          tx.todoItem.findFirst({
+            where: { botId },
+            orderBy: { position: "desc" },
+            select: { position: true },
+          }),
+          tx.todoItem.count({ where: { botId } }),
+        ]);
+        const positions = new Map(matching.map((todo) => [todo.id, todo.position]));
+        const newCount = incoming.length - positions.size;
+        if (newCount > Math.max(0, TODO_MAX_ITEMS - existingCount)) {
+          throw new ApiError(
+            400,
+            "todo_limit_exceeded",
+            `A task queue can contain at most ${TODO_MAX_ITEMS} items`
+          );
         }
+        let nextPosition = (last?.position ?? -1) + 1;
+        const merged = incoming.map((todo) => ({
+          botId,
+          position: positions.get(todo.id) ?? nextPosition++,
+          ...todo,
+        }));
+        await tx.todoItem.deleteMany({ where: { botId, id: { in: incomingIds } } });
+        await tx.todoItem.createMany({ data: merged });
       }
       await appendEvent(tx, "todo.updated", botId, {
         botId,
         callId,
         merge: input.merge,
-        updatedIds: [...byId.keys()],
+        updatedIds: incomingIds,
       });
-      return tx.todoItem.findMany({ where: { botId }, orderBy: { position: "asc" } });
+      return tx.todoItem.findMany({
+        where: { botId },
+        orderBy: { position: "asc" },
+        take: TODO_MAX_ITEMS,
+      });
     });
     return {
       todos: todos.map(({ id, content, status }) => ({ id, content, status })),

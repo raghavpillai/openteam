@@ -1,7 +1,10 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { cp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { ComputerUseActionInput, ScreenActionInput } from "@openbot/contracts";
+import { BrowserBroker } from "./browser-broker";
+import { BrowserProfileAuthority } from "./browser-profile-authority";
 
 const WIDTH = 1280;
 const HEIGHT = 800;
@@ -22,6 +25,7 @@ interface ScreenSession {
   display: number;
   rfbPort: number;
   viewerPort: number;
+  viewerPassword: string;
   browserDebugPort: number;
   profileDirectory: string;
   runtimeDirectory: string;
@@ -31,6 +35,7 @@ interface ScreenSession {
   agentInputPaused: boolean;
   destroyed: boolean;
   processes: ChildProcess[];
+  browserProcess: ChildProcess | null;
   startPromise: Promise<void> | null;
 }
 
@@ -41,17 +46,38 @@ export interface ScreenStatus {
   height: number;
   display: number;
   viewerPort: number;
+  viewerPassword: string;
   humanTakeover: boolean;
   agentInputPaused: boolean;
   apps: Array<"chromium" | "thunar" | "terminal">;
   browserProfileScope: "computer";
   browserSessionScope: "computer";
   browserSessionMechanism: "shared-profiles";
+  browserStateCoverage: Array<
+    | "cookies"
+    | "local-storage"
+    | "session-storage"
+    | "indexed-db"
+    | "service-workers"
+    | "cache-storage"
+    | "extensions"
+    | "saved-passwords"
+    | "client-certificates"
+    | "settings"
+    | "bookmarks"
+    | "history"
+    | "open-tabs"
+  >;
+  browserTargetRouting: "bot-owned-tabs";
   error: string | null;
 }
 
 const processError = (command: string, stderr: string, code: number | null) =>
   new Error(`${command} exited ${code ?? "without a code"}${stderr ? `: ${stderr.trim()}` : ""}`);
+
+// Classic VNC authentication uses only the first eight password characters.
+// Six random bytes encode to eight base64url characters, preserving all 48 bits.
+export const createViewerPassword = (): string => randomBytes(6).toString("base64url");
 
 const run = async (
   command: string,
@@ -92,12 +118,16 @@ export class ScreenBroker {
   private readonly destroyedBotIds = new Set<string>();
   private readonly stateRoot: string;
   private readonly mappingPath: string;
+  private readonly browserBroker: BrowserBroker;
+  private readonly profileAuthority: BrowserProfileAuthority;
   private loaded = false;
   private allocation: Promise<void> = Promise.resolve();
 
   constructor(private readonly home = process.env.HOME ?? "/home/box") {
     this.stateRoot = join(home, ".openbot");
     this.mappingPath = join(home, ".sand-window-assignments.json");
+    this.browserBroker = new BrowserBroker(home);
+    this.profileAuthority = new BrowserProfileAuthority(home);
   }
 
   async ensure(botId: string, cwd: string): Promise<ScreenStatus> {
@@ -118,6 +148,7 @@ export class ScreenBroker {
         display: DISPLAY_BASE + slot,
         rfbPort: RFB_PORT_BASE + slot,
         viewerPort: VIEWER_PORT_BASE + slot,
+        viewerPassword: createViewerPassword(),
         browserDebugPort: BROWSER_DEBUG_PORT_BASE + slot,
         profileDirectory:
           slot === 0
@@ -130,6 +161,7 @@ export class ScreenBroker {
         agentInputPaused: false,
         destroyed: false,
         processes: [],
+        browserProcess: null,
         startPromise: null,
       };
       this.sessions.set(botId, session);
@@ -196,6 +228,14 @@ export class ScreenBroker {
       }
       case "open_app":
         this.openApp(session, input.app);
+        if (input.app === "chromium") {
+          await this.browserBroker.attach(
+            session.botId,
+            session.browserDebugPort,
+            session.profileDirectory,
+            60
+          );
+        }
         await new Promise((resolve) => setTimeout(resolve, input.app === "chromium" ? 1_500 : 700));
         break;
       case "wait":
@@ -238,7 +278,15 @@ export class ScreenBroker {
     const endpoint = `http://127.0.0.1:${session.browserDebugPort}`;
     if (!(await this.browserIsReady(endpoint))) this.openApp(session, "chromium");
     for (let attempt = 0; attempt < 60; attempt += 1) {
-      if (await this.browserIsReady(endpoint)) return endpoint;
+      if (await this.browserIsReady(endpoint)) {
+        await this.browserBroker.attach(
+          session.botId,
+          session.browserDebugPort,
+          session.profileDirectory,
+          60
+        );
+        return endpoint;
+      }
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
     throw new Error("Chromium did not expose its page-control endpoint");
@@ -263,8 +311,9 @@ export class ScreenBroker {
     if (session) {
       session.destroyed = true;
       session.state = "failed";
-      for (const process of [...session.processes]) process.kill("SIGTERM");
-      session.processes = [];
+      await this.browserBroker.detach(botId);
+      await this.stopProcesses(session);
+      await this.profileAuthority.publish(session.profileDirectory);
       await session.startPromise?.catch(() => undefined);
       this.sessions.delete(botId);
       await rm(session.runtimeDirectory, { recursive: true, force: true });
@@ -402,10 +451,16 @@ export class ScreenBroker {
     session.state = "starting";
     session.error = null;
     this.assertNotDestroyed(session);
-    for (const process of session.processes) process.kill("SIGTERM");
-    session.processes = [];
+    const stoppedOwnedBrowser = Boolean(
+      session.browserProcess && session.browserProcess.exitCode === null
+    );
+    await this.browserBroker.detach(session.botId);
+    await this.stopProcesses(session);
     try {
       await mkdir(session.profileDirectory, { recursive: true });
+      if (stoppedOwnedBrowser) await this.profileAuthority.publish(session.profileDirectory);
+      else await this.profileAuthority.seedIfEmpty(session.profileDirectory);
+      await this.profileAuthority.prepare(session.profileDirectory);
       // Chromium's profile survives container restarts, but its process-singleton
       // markers do not. Clear only those ephemeral locks before recreating the
       // bot's desktop; history, cookies, and the rest of the profile stay durable.
@@ -417,6 +472,9 @@ export class ScreenBroker {
       this.assertNotDestroyed(session);
       await rm(session.runtimeDirectory, { recursive: true, force: true });
       await mkdir(session.runtimeDirectory, { recursive: true, mode: 0o700 });
+      session.viewerPassword = createViewerPassword();
+      const viewerPasswordPath = join(session.runtimeDirectory, "viewer-password");
+      await writeFile(viewerPasswordPath, `${session.viewerPassword}\n`, { mode: 0o600 });
       await cp(DESKTOP_CONFIG_ROOT, join(session.runtimeDirectory, "config"), {
         recursive: true,
       });
@@ -469,7 +527,8 @@ export class ScreenBroker {
           "-localhost",
           "-forever",
           "-shared",
-          "-nopw",
+          "-passwdfile",
+          `rm:${viewerPasswordPath}`,
           "-noxdamage",
           "-repeat",
           "-quiet",
@@ -505,6 +564,9 @@ export class ScreenBroker {
   private openApp(session: ScreenSession, app: "chromium" | "thunar" | "terminal"): ChildProcess {
     const env = this.environment(session);
     if (app === "chromium") {
+      if (session.browserProcess && session.browserProcess.exitCode === null) {
+        return session.browserProcess;
+      }
       const child = this.spawnLongLived(
         "google-chrome",
         [
@@ -513,6 +575,7 @@ export class ScreenBroker {
           "--disable-dev-shm-usage",
           "--no-first-run",
           "--disable-default-apps",
+          "--password-store=basic",
           "--hide-crash-restore-bubble",
           "--disable-features=Translate",
           `--user-data-dir=${session.profileDirectory}`,
@@ -524,6 +587,19 @@ export class ScreenBroker {
         ],
         session,
         env
+      );
+      session.browserProcess = child;
+      child.once("exit", () => {
+        if (session.browserProcess === child) session.browserProcess = null;
+        void this.browserBroker
+          .detach(session.botId)
+          .then(() => this.profileAuthority.publish(session.profileDirectory));
+      });
+      void this.browserBroker.attach(
+        session.botId,
+        session.browserDebugPort,
+        session.profileDirectory,
+        60
       );
       return child;
     }
@@ -547,6 +623,32 @@ export class ScreenBroker {
       if (index >= 0) session.processes.splice(index, 1);
     });
     return child;
+  }
+
+  private async stopProcesses(session: ScreenSession): Promise<void> {
+    const processes = [...session.processes];
+    if (processes.length === 0) {
+      session.browserProcess = null;
+      return;
+    }
+    for (const process of processes) process.kill("SIGTERM");
+    await Promise.race([
+      Promise.all(
+        processes.map(
+          (process) =>
+            new Promise<void>((resolve) => {
+              if (process.exitCode !== null) resolve();
+              else process.once("exit", () => resolve());
+            })
+        )
+      ),
+      new Promise((resolve) => setTimeout(resolve, 2_000)),
+    ]);
+    for (const process of processes) {
+      if (process.exitCode === null) process.kill("SIGKILL");
+    }
+    session.processes = [];
+    session.browserProcess = null;
   }
 
   private environment(session: ScreenSession): NodeJS.ProcessEnv {
@@ -583,12 +685,29 @@ export class ScreenBroker {
       height: HEIGHT,
       display: session.display,
       viewerPort: session.viewerPort,
+      viewerPassword: session.viewerPassword,
       humanTakeover: session.humanTakeoverUntil > Date.now(),
       agentInputPaused: session.agentInputPaused,
       apps: ["chromium", "thunar", "terminal"],
       browserProfileScope: "computer",
       browserSessionScope: "computer",
       browserSessionMechanism: "shared-profiles",
+      browserStateCoverage: [
+        "cookies",
+        "local-storage",
+        "session-storage",
+        "indexed-db",
+        "service-workers",
+        "cache-storage",
+        "extensions",
+        "saved-passwords",
+        "client-certificates",
+        "settings",
+        "bookmarks",
+        "history",
+        "open-tabs",
+      ],
+      browserTargetRouting: "bot-owned-tabs",
       error: session.error,
     };
   }

@@ -1,8 +1,15 @@
-import type { PushDeviceView, RegisterPushDeviceInput } from "@openbot/contracts";
-import { ApiError } from "@openbot/contracts";
+import {
+  ApiError,
+  PUSH_DELIVERY_ADVISORY_LOCK,
+  type PushDeviceView,
+  type RegisterPushDeviceInput,
+} from "@openbot/contracts";
 import type { Prisma, PrismaClient } from "@openbot/db";
+import { unreadBadgeCount, unreadChannelCount } from "@openbot/messaging";
 import { Effect } from "effect";
 import { appendEvent, toError } from "./service-utils";
+
+const PUSH_DELIVERY_LOCK_TIMEOUT_MS = 20_000;
 
 const toView = (device: {
   installationId: string;
@@ -16,39 +23,39 @@ const toView = (device: {
   lastSeenAt: device.lastSeenAt.toISOString(),
 });
 
-const unreadBadgeCount = async (tx: Prisma.TransactionClient): Promise<number> => {
-  const channels = await tx.channel.findMany({
-    where: {
-      archivedAt: null,
-      members: {
-        some: { bot: { hiddenFromSidebar: false, subagentIdentity: { is: null } } },
-      },
-    },
-    select: { id: true, readState: { select: { lastReadSequence: true } } },
-  });
-  const readByChannel = new Map(
-    channels.map((channel) => [channel.id, channel.readState?.lastReadSequence ?? 0n] as const)
-  );
-  const messages = await tx.channelMessage.findMany({
-    where: { channelId: { in: channels.map((channel) => channel.id) }, sender: "agent" },
-    select: { channelId: true, sequence: true, metadata: true },
-  });
-  return messages.filter((message) => {
-    if (message.sequence <= (readByChannel.get(message.channelId) ?? 0n)) return false;
-    const metadata =
-      message.metadata && typeof message.metadata === "object" && !Array.isArray(message.metadata)
-        ? (message.metadata as Record<string, unknown>)
-        : {};
-    return !("fromAgent" in metadata) && !("toAgent" in metadata);
-  }).length;
-};
+export type PushRegistrationAuthentication =
+  | { mode: "disabled" }
+  | { mode: "required"; sessionId: string };
+export type PushAuthenticationMode = PushRegistrationAuthentication["mode"];
+
+export const deliverablePushDeviceWhere = (
+  authMode: PushAuthenticationMode,
+  now = new Date()
+): Prisma.PushDeviceWhereInput =>
+  authMode === "disabled"
+    ? { enabled: true, authRequired: false }
+    : {
+        enabled: true,
+        authRequired: true,
+        authSession: { is: { expiresAt: { gt: now } } },
+      };
 
 export class NotificationService {
-  constructor(private readonly prisma: PrismaClient) {}
+  constructor(
+    private readonly prisma: PrismaClient,
+    private readonly authMode: PushAuthenticationMode = "required"
+  ) {}
 
-  register = (input: RegisterPushDeviceInput) =>
+  register = (input: RegisterPushDeviceInput, authentication: PushRegistrationAuthentication) =>
     Effect.tryPromise({
       try: async () => {
+        if (authentication.mode !== this.authMode) {
+          throw new ApiError(
+            409,
+            "auth_mode_changed",
+            "Refresh authentication before registering this push device"
+          );
+        }
         const now = new Date();
         const existingToken = await this.prisma.pushDevice.findUnique({
           where: { pushToken: input.pushToken },
@@ -63,6 +70,8 @@ export class NotificationService {
             installationId: input.installationId,
             platform: input.platform,
             pushToken: input.pushToken,
+            authRequired: authentication.mode === "required",
+            authSessionId: authentication.mode === "required" ? authentication.sessionId : null,
             timeZone: input.timeZone,
             locale: input.locale,
             lastSeenAt: now,
@@ -70,6 +79,8 @@ export class NotificationService {
           update: {
             platform: input.platform,
             pushToken: input.pushToken,
+            authRequired: authentication.mode === "required",
+            authSessionId: authentication.mode === "required" ? authentication.sessionId : null,
             timeZone: input.timeZone,
             locale: input.locale,
             enabled: true,
@@ -77,6 +88,32 @@ export class NotificationService {
           },
         });
         return toView(device);
+      },
+      catch: toError,
+    });
+
+  disableForSession = (sessionId: string) =>
+    Effect.tryPromise({
+      try: async () => {
+        const result = await this.prisma.$transaction(
+          async (tx) => {
+            await tx.$queryRaw`
+              SELECT pg_advisory_xact_lock(
+                ${PUSH_DELIVERY_ADVISORY_LOCK.namespace},
+                ${PUSH_DELIVERY_ADVISORY_LOCK.key}
+              )
+            `;
+            return tx.pushDevice.updateMany({
+              where: { authRequired: true, authSessionId: sessionId, enabled: true },
+              data: { enabled: false },
+            });
+          },
+          {
+            maxWait: PUSH_DELIVERY_LOCK_TIMEOUT_MS,
+            timeout: PUSH_DELIVERY_LOCK_TIMEOUT_MS,
+          }
+        );
+        return { disabledCount: result.count };
       },
       catch: toError,
     });
@@ -135,23 +172,7 @@ export class NotificationService {
               END
           `;
           const state = await tx.channelReadState.findUniqueOrThrow({ where: { channelId } });
-          const unreadMessages = await tx.channelMessage.findMany({
-            where: {
-              channelId,
-              sender: "agent",
-              sequence: { gt: state.lastReadSequence },
-            },
-            select: { metadata: true },
-          });
-          const unreadCount = unreadMessages.filter((message) => {
-            const metadata =
-              message.metadata &&
-              typeof message.metadata === "object" &&
-              !Array.isArray(message.metadata)
-                ? (message.metadata as Record<string, unknown>)
-                : {};
-            return !("fromAgent" in metadata) && !("toAgent" in metadata);
-          }).length;
+          const unreadCount = await unreadChannelCount(tx, channelId, state.lastReadSequence);
           if (!previousState || state.lastReadSequence > previousState.lastReadSequence) {
             await appendEvent(tx, "channel.read", channelId, {
               channelId,
@@ -160,7 +181,10 @@ export class NotificationService {
             });
             const [badgeCount, devices] = await Promise.all([
               unreadBadgeCount(tx),
-              tx.pushDevice.findMany({ where: { enabled: true }, select: { id: true } }),
+              tx.pushDevice.findMany({
+                where: deliverablePushDeviceWhere(this.authMode),
+                select: { id: true },
+              }),
             ]);
             if (devices.length > 0) {
               await tx.outboxDelivery.createMany({

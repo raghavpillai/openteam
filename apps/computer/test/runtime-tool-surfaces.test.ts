@@ -7,7 +7,13 @@ import { NATIVE_TOOL_NAMES } from "@openbot/contracts";
 import { BROWSER_USE_TOOLS } from "../src/browser-use";
 import { GrokCompactionArchiveStore, GrokCompactionCoordinator } from "../src/grok-compaction";
 import { HostApprovalRequiredError } from "../src/native-tool-executor";
-import { ComputerRuntime, modelVisibleSummaryTools } from "../src/runtime";
+import {
+  CLOSING_SEND_NUDGE_PROMPT,
+  ComputerRuntime,
+  isDeliveryOwed,
+  modelVisibleSummaryTools,
+  REPLY_NUDGE_PROMPT,
+} from "../src/runtime";
 
 const temporaryRoots: string[] = [];
 
@@ -82,6 +88,20 @@ const subagentDynamicToolNames = (namespace: string) => {
 };
 
 describe("specialized subagent tool surfaces", () => {
+  test("uses Grok's exact delivery nudges only for user-facing wake sources", () => {
+    expect(REPLY_NUDGE_PROMPT).toContain("ack ≠ delivery");
+    expect(REPLY_NUDGE_PROMPT).toEndWith("they just keep seeing silence.");
+    expect(CLOSING_SEND_NUDGE_PROMPT).toEndWith(
+      "continue it and send the result once you have it."
+    );
+    for (const source of ["turn", "handoff-resume", "broadcast", "connector"] as const) {
+      expect(isDeliveryOwed(source)).toBe(true);
+    }
+    for (const source of ["agent", "automation", "event", "background-revival"] as const) {
+      expect(isDeliveryOwed(source)).toBe(false);
+    }
+  });
+
   test("summary requests receive normal schemas but no executable tool functions", () => {
     const runtime = new ComputerRuntime() as unknown as {
       customTools(active: { subagentType: null }): Array<{
@@ -149,6 +169,50 @@ describe("specialized subagent tool surfaces", () => {
     expect(dynamicToolNames("openbot")).toEqual([]);
     expect(dynamicToolNames("cursor")).toContain("Task");
     expect(dynamicToolNames("cursor")).toContain("SendToAgent");
+    expect(dynamicToolNames("cursor")).toContain("ListAgents");
+    expect(dynamicToolNames("cursor")).toContain("ListGroups");
+  });
+
+  test("directory tools validate bounded inputs and route through the control plane", async () => {
+    const calls: Array<{ tool: string; args: unknown }> = [];
+    const runtime = new ComputerRuntime() as unknown as {
+      callControlPlaneTool(
+        active: unknown,
+        callId: string,
+        tool: string,
+        args: unknown
+      ): Promise<{ content: []; details: Record<string, unknown> }>;
+      dynamicCatalog(active: { runtimeProfile: "agent"; pluginNamespaces: [] }): Array<{
+        name: string;
+        tools: Array<{
+          name: string;
+          decodeArguments(args: unknown): unknown;
+          execute(active: unknown, callId: string, args: unknown): Promise<unknown>;
+        }>;
+      }>;
+    };
+    runtime.callControlPlaneTool = async (_active, _callId, tool, args) => {
+      calls.push({ tool, args });
+      return { content: [], details: {} };
+    };
+    const catalog = runtime
+      .dynamicCatalog({ runtimeProfile: "agent", pluginNamespaces: [] })
+      .find((namespace) => namespace.name === "cursor");
+    const listAgents = catalog?.tools.find((tool) => tool.name === "ListAgents");
+    const listGroups = catalog?.tools.find((tool) => tool.name === "ListGroups");
+
+    expect(listAgents?.decodeArguments({ query: "research", limit: 50 })).toEqual({
+      query: "research",
+      limit: 50,
+    });
+    expect(() => listAgents?.decodeArguments({ limit: 51 })).toThrow();
+    expect(() => listGroups?.decodeArguments({ query: "x".repeat(121) })).toThrow();
+    await listAgents?.execute({}, "call-agents", { query: "target", limit: 3 });
+    await listGroups?.execute({}, "call-groups", { limit: 2 });
+    expect(calls).toEqual([
+      { tool: "ListAgents", args: { query: "target", limit: 3 } },
+      { tool: "ListGroups", args: { limit: 2 } },
+    ]);
   });
 
   test("normal agents expose the complete plugin lifecycle management surface", () => {

@@ -28,7 +28,44 @@ afterEach(async () => {
 describe("bounded asset HTTP responses", () => {
   test("serves immutable content with a sanitized inline filename", async () => {
     const { assets, ref } = await fixture();
+    let fallbackLookups = 0;
     const url = new URL(`http://openbot.test/api/v0/assets/${ref.assetId}?name=../report.txt`);
+    const response = await assetResponse(
+      assets,
+      {
+        agentAttachmentPath: async () => {
+          fallbackLookups += 1;
+          return null;
+        },
+      },
+      new Request(url),
+      url,
+      ref.assetId
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe("0123456789");
+    expect(response.headers.get("content-type")).toBe("text/plain; charset=utf-8");
+    expect(response.headers.get("content-length")).toBe("10");
+    expect(response.headers.get("content-disposition")).toContain('inline; filename="report.txt"');
+    expect(response.headers.get("etag")).toBe(`"${ref.assetId}"`);
+    expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(response.headers.get("content-security-policy")).toBe("sandbox; default-src 'none'");
+    expect(response.headers.get("cross-origin-resource-policy")).toBe("same-origin");
+    expect(fallbackLookups).toBe(0);
+  });
+
+  test("declares UTF-8 for textual attachments so native browser previews preserve Unicode", async () => {
+    const root = await mkdtemp(join(tmpdir(), "openbot-asset-http-unicode-"));
+    roots.push(root);
+    const assets = new AssetStore({ root: join(root, "assets"), allowedFileRoots: [root] });
+    const content = "OpenBot — 日本語 — box ├─ child";
+    const ref = await assets.ingestBytes({
+      fileName: "readme.md",
+      mimeType: "text/markdown",
+      bytes: Buffer.from(content),
+    });
+    const url = new URL(`http://openbot.test/api/v0/assets/${ref.assetId}?name=readme.md`);
     const response = await assetResponse(
       assets,
       noAgentAttachment,
@@ -37,15 +74,8 @@ describe("bounded asset HTTP responses", () => {
       ref.assetId
     );
 
-    expect(response.status).toBe(200);
-    expect(await response.text()).toBe("0123456789");
-    expect(response.headers.get("content-type")).toBe("text/plain");
-    expect(response.headers.get("content-length")).toBe("10");
-    expect(response.headers.get("content-disposition")).toContain('inline; filename="report.txt"');
-    expect(response.headers.get("etag")).toBe(`"${ref.assetId}"`);
-    expect(response.headers.get("x-content-type-options")).toBe("nosniff");
-    expect(response.headers.get("content-security-policy")).toBe("sandbox; default-src 'none'");
-    expect(response.headers.get("cross-origin-resource-policy")).toBe("same-origin");
+    expect(response.headers.get("content-type")).toBe("text/markdown; charset=utf-8");
+    expect(await response.text()).toBe(content);
   });
 
   test("supports exact, suffix, and HEAD ranges", async () => {

@@ -4,10 +4,12 @@ import type {
   SearchResultKind,
   SearchResultView,
 } from "@openbot/contracts";
-import type { PrismaClient } from "@openbot/db";
+import { Prisma, type PrismaClient } from "@openbot/db";
 import { Effect } from "effect";
 
 const RESULT_LIMIT = 24;
+export const SEARCH_CANDIDATE_LIMIT = 512;
+export const SEARCH_RESULT_URL_MAX_LENGTH = 8_192;
 const MAX_QUERY_LENGTH = 200;
 const MAX_QUERY_TERMS = 8;
 
@@ -68,13 +70,105 @@ export class SearchService {
         if (category === "messages" && !normalized) return { query: normalized, results: [] };
         if (normalized && !tsQuery) return { query: normalized, results: [] };
 
-        const rows = await this.prisma.$queryRaw<SearchRow[]>`
-          WITH search_input AS MATERIALIZED (
-            SELECT
-              to_tsquery('simple', NULLIF(${tsQuery}, '')) AS query,
-              ${normalized}::text AS normalized
+        // Keep the full-text predicate directly on SearchDocument. A materialized
+        // search-input CTE turns this into a join filter and prevents PostgreSQL
+        // from using SearchDocument_searchVector_idx.
+        const fullTextPredicate = tsQuery
+          ? Prisma.sql`AND document."searchVector" @@ to_tsquery('simple', ${tsQuery})`
+          : Prisma.empty;
+        const fullTextScore = tsQuery
+          ? Prisma.sql`ts_rank_cd(document."searchVector", to_tsquery('simple', ${tsQuery}), 32)`
+          : Prisma.sql`0`;
+        const candidateColumns = Prisma.sql`
+          document."id",
+          document."kind",
+          document."title",
+          document."subtitle",
+          document."channelId",
+          document."messageId",
+          document."botId",
+          document."url",
+          document."createdAt",
+          document."updatedAt",
+          document."searchVector"
+        `;
+        const eligibleDocumentPredicate = Prisma.sql`
+          WHERE (${kind}::text IS NULL OR document."kind" = ${kind})
+            AND (
+              ${normalized} <> '' OR ${category} <> 'all' OR
+              document."kind" IN ('bot', 'channel', 'routine')
+            )
+            ${fullTextPredicate}
+            AND (
+              (
+                document."kind" IN ('message', 'channel', 'file', 'link')
+                AND document."channelId" IN (SELECT channel."id" FROM visible_channels AS channel)
+              ) OR (
+                document."kind" = 'bot'
+                AND document."botId" IN (SELECT bot."id" FROM visible_bots AS bot)
+              ) OR (
+                document."kind" = 'routine'
+                AND (
+                  document."botId" IN (SELECT bot."id" FROM visible_bots AS bot)
+                  OR document."channelId" IN (
+                    SELECT channel."id" FROM visible_channels AS channel
+                  )
+                )
+              )
+            )
+        `;
+
+        const rows = await this.prisma.$queryRaw<SearchRow[]>(Prisma.sql`
+          WITH visible_bots AS MATERIALIZED (
+            SELECT bot."id"
+            FROM "Bot" AS bot
+            WHERE bot."status" <> 'archived'
+              AND NOT EXISTS (
+                SELECT 1 FROM "Subagent" AS subagent
+                WHERE subagent."childBotId" = bot."id"
+              )
           ),
-          ranked AS MATERIALIZED (
+          visible_channels AS MATERIALIZED (
+            SELECT DISTINCT channel."id"
+            FROM "Channel" AS channel
+            INNER JOIN "ChannelMember" AS member ON member."channelId" = channel."id"
+            INNER JOIN visible_bots AS bot ON bot."id" = member."botId"
+            WHERE channel."archivedAt" IS NULL
+          ),
+          recent_documents AS MATERIALIZED (
+            SELECT
+              ${candidateColumns}
+            FROM "SearchDocument" AS document
+            ${eligibleDocumentPredicate}
+            -- A common prefix can match tens of thousands of rows. Rank only a
+            -- bounded, recent candidate window.
+            ORDER BY document."updatedAt" DESC, document."id" ASC
+            LIMIT ${SEARCH_CANDIDATE_LIMIT}
+          ),
+          exact_title_documents AS MATERIALIZED (
+            SELECT
+              ${candidateColumns}
+            FROM "SearchDocument" AS document
+            ${eligibleDocumentPredicate}
+              -- The hash expression has a compact B-tree index. Rechecking the
+              -- complete lowercase title makes collisions harmless.
+              AND ${normalized} <> ''
+              AND md5(lower(document."title")) = md5(lower(${normalized}))
+              AND lower(document."title") = lower(${normalized})
+            ORDER BY document."updatedAt" DESC, document."id" ASC
+            LIMIT ${RESULT_LIMIT}
+          ),
+          candidate_documents AS MATERIALIZED (
+            SELECT * FROM recent_documents
+            UNION ALL
+            SELECT exact_document.*
+            FROM exact_title_documents AS exact_document
+            WHERE NOT EXISTS (
+              SELECT 1 FROM recent_documents AS recent
+              WHERE recent."id" = exact_document."id"
+            )
+          ),
+          ranked AS (
             SELECT
               document."id",
               document."kind",
@@ -86,59 +180,15 @@ export class SearchService {
               document."url",
               document."createdAt",
               document."updatedAt",
-              CASE WHEN search_input.query IS NULL THEN 0 ELSE
-                ts_rank_cd(document."searchVector", search_input.query, 32)
-              END +
+              ${fullTextScore} +
               CASE
-                WHEN lower(document."title") = lower(search_input.normalized)
-                  AND search_input.normalized <> '' THEN 4
-                WHEN lower(document."title") LIKE lower(search_input.normalized) || '%'
-                  AND search_input.normalized <> '' THEN 1.5
+                WHEN lower(document."title") = lower(${normalized})
+                  AND ${normalized} <> '' THEN 4
+                WHEN lower(document."title") LIKE lower(${normalized}) || '%'
+                  AND ${normalized} <> '' THEN 1.5
                 ELSE 0
               END AS score
-            FROM "SearchDocument" AS document
-            CROSS JOIN search_input
-            WHERE (${kind}::text IS NULL OR document."kind" = ${kind})
-              AND (
-                search_input.normalized <> '' OR ${category} <> 'all' OR
-                document."kind" IN ('bot', 'channel', 'routine')
-              )
-              AND (
-                search_input.query IS NULL OR
-                document."searchVector" @@ search_input.query
-              )
-              AND (
-                document."kind" NOT IN ('message', 'channel', 'file', 'link') OR
-                EXISTS (
-                  SELECT 1
-                  FROM "Channel" AS visible_channel
-                  INNER JOIN "ChannelMember" AS visible_member
-                    ON visible_member."channelId" = visible_channel."id"
-                  INNER JOIN "Bot" AS visible_bot ON visible_bot."id" = visible_member."botId"
-                  WHERE visible_channel."id" = document."channelId"
-                    AND visible_channel."archivedAt" IS NULL
-                    AND visible_bot."status" <> 'archived'
-                    AND NOT visible_bot."hiddenFromSidebar"
-                    AND NOT EXISTS (
-                      SELECT 1 FROM "Subagent" AS visible_subagent
-                      WHERE visible_subagent."childBotId" = visible_bot."id"
-                    )
-                )
-              )
-              AND (
-                document."kind" NOT IN ('bot', 'routine') OR
-                EXISTS (
-                  SELECT 1
-                  FROM "Bot" AS visible_owner
-                  WHERE visible_owner."id" = document."botId"
-                    AND visible_owner."status" <> 'archived'
-                    AND NOT visible_owner."hiddenFromSidebar"
-                    AND NOT EXISTS (
-                      SELECT 1 FROM "Subagent" AS owner_subagent
-                      WHERE owner_subagent."childBotId" = visible_owner."id"
-                    )
-                )
-              )
+            FROM candidate_documents AS document
             ORDER BY score DESC, document."updatedAt" DESC, document."id" ASC
             LIMIT ${RESULT_LIMIT}
           )
@@ -165,18 +215,25 @@ export class SearchService {
                   END
                 WHEN 'file' THEN concat_ws(' · ', channel."name", document."subtitle")
                 WHEN 'link' THEN concat_ws(' · ', channel."name", document."subtitle")
-                WHEN 'routine' THEN concat_ws(' · ', bot."name", document."subtitle")
+                WHEN 'routine' THEN
+                  concat_ws(' · ', coalesce(bot."name", channel."name"), document."subtitle")
                 ELSE document."subtitle"
               END,
               180
             ) AS "subtitle",
             CASE
-              WHEN document."kind" IN ('bot', 'routine') THEN direct_channel."channelId"
+              WHEN document."kind" = 'bot' THEN direct_channel."channelId"
+              WHEN document."kind" = 'routine' THEN
+                coalesce(document."channelId", direct_channel."channelId")
               ELSE document."channelId"
             END AS "channelId",
             document."messageId",
             document."botId",
-            document."url",
+            CASE
+              WHEN char_length(document."url") <= ${SEARCH_RESULT_URL_MAX_LENGTH}
+                THEN document."url"
+              ELSE NULL
+            END AS "url",
             document."createdAt"
           FROM ranked AS document
           LEFT JOIN "Channel" AS channel ON channel."id" = document."channelId"
@@ -191,7 +248,7 @@ export class SearchService {
             LIMIT 1
           ) AS direct_channel ON document."kind" IN ('bot', 'routine')
           ORDER BY document.score DESC, document."updatedAt" DESC, document."id" ASC
-        `;
+        `);
 
         const results: SearchResultView[] = rows.map((row) => ({
           ...row,

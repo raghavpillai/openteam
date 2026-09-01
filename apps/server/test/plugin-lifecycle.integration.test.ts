@@ -48,7 +48,7 @@ test("plugin install, connection, grant, policy, discovery, call, and removal li
 
     await Effect.runPromise(service.install("openbot-utility-lab"));
     const initial = await Effect.runPromise(service.settings());
-    const connection = initial.connections[0];
+    const connection = initial.installs[0]?.connections[0];
     if (!connection) throw new Error("Expected the installed plugin to expose a connection");
     expect(connection.status).toBe("disconnected");
 

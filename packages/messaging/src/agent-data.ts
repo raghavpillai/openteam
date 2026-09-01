@@ -1,17 +1,25 @@
 import { createHash, randomUUID } from "node:crypto";
+import { createReadStream } from "node:fs";
+import type { FileHandle } from "node:fs/promises";
 import {
   appendFile,
   chmod,
   mkdir,
-  readFile,
+  open,
   readdir,
   realpath,
   rename,
   rm,
   stat,
 } from "node:fs/promises";
-import { extname, join, relative, resolve, sep } from "node:path";
+import { dirname, extname, join, relative, resolve, sep } from "node:path";
 import type { AssetRef } from "@openbot/contracts";
+import {
+  emptySidebarPreferences,
+  parseSidebarPreferences,
+  type SidebarPreferences,
+} from "@openbot/contracts/client-preferences";
+import type { ComputerInferenceRequest } from "@openbot/contracts/service-protocol";
 import { Prisma, type PrismaClient } from "@openbot/db";
 import { type FSWatcher, watch } from "chokidar";
 import { parseDocument } from "yaml";
@@ -73,8 +81,70 @@ const ROOT_SETTINGS_VERSION = 1;
 const MAX_FILE_WARNINGS = 20;
 const MAX_FACT_ROWS = 20_000;
 const MAX_SAVED_SKILLS = 100;
+const MAX_MATERIALIZED_ATTACHMENT_BYTES = 200 * 1024 * 1024;
+const ATTACHMENT_COPY_CHUNK_BYTES = 1024 * 1024;
+const MAX_AGENT_ATTACHMENT_PATH_CACHE_ENTRIES = 1_024;
 const UUID_FOLDER = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SQLITE_RUNTIME_FILE = /(?:^|\/)(?:store|conversation-blobs)\.db(?:-(?:wal|shm))?$/;
+
+const writeAttachmentChunk = async (handle: FileHandle, chunk: Uint8Array): Promise<void> => {
+  let offset = 0;
+  while (offset < chunk.byteLength) {
+    const { bytesWritten } = await handle.write(chunk, offset, chunk.byteLength - offset, null);
+    if (bytesWritten <= 0) throw new Error("Attachment staging file could not be written");
+    offset += bytesWritten;
+  }
+};
+
+const stageAttachmentCopy = async (input: {
+  source: string;
+  temporary: string;
+  expectedAssetId: string;
+  expectedByteSize: number;
+}): Promise<boolean> => {
+  let handle: FileHandle | null = await open(input.temporary, "wx", 0o644);
+  let complete = false;
+  let writeFailure: unknown = null;
+  try {
+    const hash = createHash("sha256");
+    let byteSize = 0;
+    try {
+      for await (const chunk of createReadStream(input.source, {
+        highWaterMark: ATTACHMENT_COPY_CHUNK_BYTES,
+      })) {
+        byteSize += chunk.byteLength;
+        if (byteSize > input.expectedByteSize || byteSize > MAX_MATERIALIZED_ATTACHMENT_BYTES) {
+          return false;
+        }
+        hash.update(chunk);
+        try {
+          await writeAttachmentChunk(handle, chunk);
+        } catch (error) {
+          writeFailure = error;
+          throw error;
+        }
+      }
+    } catch {
+      if (writeFailure) throw writeFailure;
+      return false;
+    }
+    if (
+      byteSize === 0 ||
+      byteSize !== input.expectedByteSize ||
+      hash.digest("hex") !== input.expectedAssetId
+    ) {
+      return false;
+    }
+    await handle.sync();
+    await handle.close();
+    handle = null;
+    complete = true;
+    return true;
+  } finally {
+    await handle?.close().catch(() => undefined);
+    if (!complete) await rm(input.temporary, { force: true }).catch(() => undefined);
+  }
+};
 
 export type BotFileTarget = "profile" | "settings" | "instructions" | "avatar" | "projects";
 
@@ -118,12 +188,7 @@ interface PendingEpisodeTurn {
   agent: string;
 }
 
-export interface MemoryInferenceRequest {
-  kind: "extraction" | "episode" | "synthesis" | "verification";
-  instructions: string;
-  prompt: string;
-  timeoutMs: number;
-}
+export type MemoryInferenceRequest = ComputerInferenceRequest;
 
 export type MemoryInference = (request: MemoryInferenceRequest) => Promise<string>;
 
@@ -187,6 +252,12 @@ type Tx = Prisma.TransactionClient;
 
 export interface ReconcileResult {
   warnings: string[];
+}
+
+export interface AutomationReconcileBatchResult extends ReconcileResult {
+  /** The last processed bot ID, or null when the current safety-sweep cycle is complete. */
+  nextCursor: string | null;
+  reconciled: number;
 }
 
 export interface AgentPromptContext {
@@ -258,26 +329,6 @@ export interface RootSettings extends AccountScopedRootSettings {
   accountScopes: Record<string, AccountScopedRootSettings>;
   activeAccountScope?: string;
 }
-
-interface LegacySidebarPreferences {
-  version: 2;
-  pinnedIds: string[];
-  unreadIds: string[];
-  unassignedCollapsed: boolean;
-  sections: Array<{ id: string; name: string; collapsed: boolean }>;
-  sectionByChannel: Record<string, string>;
-  channelOrderByGroup: Record<string, string[]>;
-}
-
-const emptySidebarPreferences = (): LegacySidebarPreferences => ({
-  version: 2,
-  pinnedIds: [],
-  unreadIds: [],
-  unassignedCollapsed: false,
-  sections: [],
-  sectionByChannel: {},
-  channelOrderByGroup: {},
-});
 
 const asInputJson = (value: unknown): Prisma.InputJsonValue =>
   JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
@@ -437,60 +488,6 @@ const defaultRootSettings = (): RootSettings => ({
   settingsMigrations: [...ROOT_SETTINGS_MIGRATIONS],
   accountScopes: {},
 });
-
-const parseSidebarPreferences = (input: unknown): LegacySidebarPreferences => {
-  const value =
-    input === undefined
-      ? emptySidebarPreferences()
-      : parseJsonObject(JSON.stringify(input), "sidebarPreferences");
-  if (value.version !== 2) throw new Error("sidebarPreferences.version must be 2");
-  const arrays = ["pinnedIds", "unreadIds"] as const;
-  for (const key of arrays) {
-    if (!Array.isArray(value[key]) || value[key].some((item) => typeof item !== "string")) {
-      throw new Error(`sidebarPreferences.${key} must be a string array`);
-    }
-  }
-  if (!Array.isArray(value.sections))
-    throw new Error("sidebarPreferences.sections must be an array");
-  const sections = value.sections.map((entry) => {
-    const section = parseJsonObject(JSON.stringify(entry), "sidebar section");
-    if (
-      typeof section.id !== "string" ||
-      typeof section.name !== "string" ||
-      typeof section.collapsed !== "boolean"
-    ) {
-      throw new Error("sidebar section requires string id/name and boolean collapsed");
-    }
-    return { id: section.id, name: section.name, collapsed: section.collapsed };
-  });
-  const sectionByChannel = parseJsonObject(
-    JSON.stringify(value.sectionByChannel),
-    "sectionByChannel"
-  );
-  if (Object.values(sectionByChannel).some((item) => typeof item !== "string")) {
-    throw new Error("sectionByChannel values must be strings");
-  }
-  const channelOrderByGroup = parseJsonObject(
-    JSON.stringify(value.channelOrderByGroup),
-    "channelOrderByGroup"
-  );
-  if (
-    Object.values(channelOrderByGroup).some(
-      (item) => !Array.isArray(item) || item.some((id) => typeof id !== "string")
-    )
-  ) {
-    throw new Error("channelOrderByGroup values must be string arrays");
-  }
-  return {
-    version: 2,
-    pinnedIds: [...new Set(value.pinnedIds as string[])],
-    unreadIds: [...new Set(value.unreadIds as string[])],
-    unassignedCollapsed: value.unassignedCollapsed === true,
-    sections,
-    sectionByChannel: sectionByChannel as Record<string, string>,
-    channelOrderByGroup: channelOrderByGroup as Record<string, string[]>,
-  };
-};
 
 const uniqueStrings = (input: unknown, label: string, allowEmpty = false): string[] => {
   if (!Array.isArray(input) || input.some((item) => typeof item !== "string")) {
@@ -898,6 +895,8 @@ export class AgentDataStore {
   private readonly pendingIdentityAnnouncements = new Map<string, PendingIdentityAnnouncement>();
   private readonly watcherTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly watcherTasks = new Set<Promise<void>>();
+  private readonly agentAttachmentPaths = new Map<string, string>();
+  private readonly agentAttachmentPathLookups = new Map<string, Promise<string | null>>();
   private readonly memoryInference: MemoryInference | null;
   private readonly memoryDreamingEnabled: boolean;
   private readonly memorySynthesisDebounceMs: number;
@@ -1000,6 +999,25 @@ export class AgentDataStore {
     return join(this.root, "connector-secrets");
   }
 
+  async writeConnectorSecret(
+    botId: string,
+    platform: string,
+    field: string,
+    value: string
+  ): Promise<void> {
+    const safeBotId = safeFolderId(botId, "bot id");
+    const safePlatform = safeFolderId(platform, "connector platform");
+    if (!/^[A-Za-z][A-Za-z0-9_.-]{0,127}$/.test(field)) {
+      throw new Error("Connector credential field is invalid");
+    }
+    const directory = join(this.connectorSecretsDirectory(), safeBotId);
+    await mkdir(directory, { recursive: true, mode: 0o700 });
+    await chmod(directory, 0o700);
+    const path = join(directory, `${safePlatform}.json`);
+    const current = parseJsonObject((await readText(path)) ?? "{}", path);
+    await atomicWrite(path, jsonFile({ ...current, [field]: value }), 0o600);
+  }
+
   async ensureRuntimeDirectories(): Promise<void> {
     await mkdir(this.root, { recursive: true, mode: 0o700 });
     const rootSettingsPath = join(this.root, "settings.json");
@@ -1015,6 +1033,7 @@ export class AgentDataStore {
         this.connectorSecretsDirectory(),
       ].map((directory) => mkdir(directory, { recursive: true, mode: 0o755 }))
     );
+    await chmod(this.connectorSecretsDirectory(), 0o700);
   }
 
   async syncPluginSkillCache(
@@ -1598,6 +1617,46 @@ export class AgentDataStore {
       );
     }
     return { warnings: warnings.slice(0, MAX_FILE_WARNINGS) };
+  }
+
+  /**
+   * Reconcile one bounded page of automation folders. The filesystem watcher is
+   * the low-latency path; this round-robin scan is the recovery path for missed
+   * or unavailable watcher events and deliberately caps database/file work.
+   */
+  async reconcileAutomationFilesBatch(
+    afterBotId: string | null,
+    limit: number
+  ): Promise<AutomationReconcileBatchResult> {
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+      throw new Error("automation reconciliation batch size must be an integer from 1 to 100");
+    }
+    const bots = await this.prisma.bot.findMany({
+      where: {
+        status: "active",
+        subagentIdentity: { is: null },
+        ...(afterBotId ? { id: { gt: afterBotId } } : {}),
+      },
+      select: { id: true },
+      orderBy: { id: "asc" },
+      take: limit + 1,
+    });
+    const page = bots.slice(0, limit);
+    const warnings: string[] = [];
+    for (const bot of page) {
+      await this.prisma.$transaction(
+        async (tx) => {
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`agent-files:${bot.id}`}))`;
+          await this.reconcileAutomations(tx, bot.id, warnings);
+        },
+        { maxWait: 10_000, timeout: 60_000 }
+      );
+    }
+    return {
+      warnings: warnings.slice(0, MAX_FILE_WARNINGS),
+      reconciled: page.length,
+      nextCursor: bots.length > limit ? (page.at(-1)?.id ?? null) : null,
+    };
   }
 
   private async migrateLegacyUserMemory(writerId: string): Promise<void> {
@@ -2770,15 +2829,19 @@ export class AgentDataStore {
       }
     }
 
-    const liveMemory = await this.renderMemory(
-      botId,
-      bot.projectMemberships.map((entry) => entry.projectSlug)
-    );
-    let memoryRender = liveMemory;
-    if (process.env.SAND_DISABLE_MEMORY_FREEZE !== "1") {
-      if (snapshot.memoryEpoch === epoch && snapshot.memoryHasFacts) {
-        memoryRender = snapshot.memoryRender;
-      } else if (liveMemory) {
+    const memoryFreezeEnabled = process.env.SAND_DISABLE_MEMORY_FREEZE !== "1";
+    const memoryIsFrozen =
+      memoryFreezeEnabled && snapshot.memoryEpoch === epoch && snapshot.memoryHasFacts;
+    let memoryRender: string;
+    if (memoryIsFrozen) {
+      memoryRender = snapshot.memoryRender;
+    } else {
+      const liveMemory = await this.renderMemory(
+        botId,
+        bot.projectMemberships.map((entry) => entry.projectSlug)
+      );
+      memoryRender = liveMemory;
+      if (memoryFreezeEnabled && liveMemory) {
         const data = {
           memoryEpoch: epoch,
           memoryRender: liveMemory,
@@ -2793,11 +2856,12 @@ export class AgentDataStore {
       }
     }
 
-    const liveSkills = await this.renderSkills(botId);
-    let skillRender = liveSkills;
+    let skillRender: string;
     if (snapshot.skillEpoch === epoch) {
       skillRender = snapshot.skillRender;
     } else {
+      const liveSkills = await this.renderSkills(botId);
+      skillRender = liveSkills;
       const data = { skillEpoch: epoch, skillRender: liveSkills };
       if (contextSessionId) {
         await this.prisma.contextPromptSnapshot.update({ where: { contextSessionId }, data });
@@ -3013,20 +3077,22 @@ export class AgentDataStore {
 
   private async renderSkills(botId: string): Promise<string> {
     void botId;
-    const skills = await this.prisma.savedSkill.findMany({
-      orderBy: { updatedAt: "desc" },
-    });
-    const blocks = skills
-      .slice(0, 100)
-      .map(
-        (skill) =>
-          `- ${skill.name} (${skill.slug}): ${skill.description}\n  Path: ${join(
-            this.workflowsDirectory(),
-            skill.slug,
-            "SKILL.md"
-          )}`
-      );
-    const omitted = skills.length - blocks.length;
+    const [skills, total] = await Promise.all([
+      this.prisma.savedSkill.findMany({
+        orderBy: { updatedAt: "desc" },
+        take: MAX_SAVED_SKILLS,
+      }),
+      this.prisma.savedSkill.count(),
+    ]);
+    const blocks = skills.map(
+      (skill) =>
+        `- ${skill.name} (${skill.slug}): ${skill.description}\n  Path: ${join(
+          this.workflowsDirectory(),
+          skill.slug,
+          "SKILL.md"
+        )}`
+    );
+    const omitted = Math.max(0, total - blocks.length);
     return `${blocks.join("\n\n")}${
       omitted > 0 ? `\n\n[${omitted} additional skills omitted by the catalog budget]` : ""
     }`.trim();
@@ -3128,7 +3194,7 @@ export class AgentDataStore {
     });
   }
 
-  async writeSidebarPreferences(input: unknown): Promise<LegacySidebarPreferences> {
+  async writeSidebarPreferences(input: unknown): Promise<SidebarPreferences> {
     const sidebarPreferences = parseSidebarPreferences(input);
     const channelIds = [
       ...sidebarPreferences.pinnedIds,
@@ -3790,43 +3856,114 @@ export class AgentDataStore {
   ): Promise<string[]> {
     void messageId;
     if (attachments.length === 0) return [];
-    return this.withFileMutation(botId, "attachments", async (tx) => {
-      if (
-        (await tx.bot.count({
-          where: { id: botId, status: { in: ["active", "provisioning"] } },
-        })) === 0
-      ) {
-        return [];
-      }
-      const directory = join(this.botDirectory(botId), "attachments");
-      const paths: string[] = [];
+    if (
+      (await this.prisma.bot.count({
+        where: { id: botId, status: { in: ["active", "provisioning"] } },
+      })) === 0
+    ) {
+      return [];
+    }
+    const directory = join(this.botDirectory(botId), "attachments");
+    const stagingDirectory = join(this.root, ".attachment-staging");
+    await mkdir(stagingDirectory, { recursive: true, mode: 0o700 });
+    const staged: Array<{ assetId: string; temporary: string; path: string }> = [];
+    try {
       for (const attachment of attachments) {
         if (!/^[a-f0-9]{64}$/.test(attachment.assetId)) continue;
+        if (
+          !Number.isSafeInteger(attachment.byteSize) ||
+          attachment.byteSize <= 0 ||
+          attachment.byteSize > MAX_MATERIALIZED_ATTACHMENT_BYTES
+        ) {
+          continue;
+        }
         const source = join(this.assetRoot, `${attachment.assetId}.blob`);
-        let bytes: Buffer;
         try {
           const file = await stat(source);
           if (!file.isFile() || file.size !== attachment.byteSize) continue;
-          bytes = await readFile(source);
         } catch {
           continue;
         }
-        if (bytes.length === 0 || bytes.length > 200 * 1024 * 1024) continue;
-        if (createHash("sha256").update(bytes).digest("hex") !== attachment.assetId) continue;
         const candidateExtension = extname(attachment.fileName).toLowerCase();
         const extension = /^\.[a-z0-9]{1,12}$/.test(candidateExtension)
           ? candidateExtension
           : ".bin";
-        const path = join(directory, `${attachment.assetId}${extension}`);
-        await atomicWrite(path, bytes, 0o644);
-        paths.push(path);
+        const temporary = join(stagingDirectory, `.attachment-part-${randomUUID()}`);
+        if (
+          !(await stageAttachmentCopy({
+            source,
+            temporary,
+            expectedAssetId: attachment.assetId,
+            expectedByteSize: attachment.byteSize,
+          }))
+        ) {
+          continue;
+        }
+        staged.push({
+          assetId: attachment.assetId,
+          temporary,
+          path: join(directory, `${attachment.assetId}${extension}`),
+        });
+      }
+      if (staged.length === 0) return [];
+      const paths = await this.withFileMutation(botId, `attachments:${botId}`, async (tx) => {
+        if (
+          (await tx.bot.count({
+            where: { id: botId, status: { in: ["active", "provisioning"] } },
+          })) === 0
+        ) {
+          return [];
+        }
+        await mkdir(directory, { recursive: true, mode: 0o755 });
+        const paths: string[] = [];
+        for (const entry of staged) {
+          await rename(entry.temporary, entry.path);
+          paths.push(entry.path);
+        }
+        const directoryHandle = await open(directory, "r");
+        try {
+          await directoryHandle.sync();
+        } finally {
+          await directoryHandle.close();
+        }
+        return paths;
+      });
+      for (const entry of staged) {
+        if (paths.includes(entry.path)) this.rememberAgentAttachmentPath(entry.assetId, entry.path);
       }
       return paths;
-    });
+    } finally {
+      await Promise.all(
+        staged.map(({ temporary }) => rm(temporary, { force: true }).catch(() => undefined))
+      );
+    }
   }
 
   async agentAttachmentPath(assetId: string): Promise<string | null> {
     if (!/^[a-f0-9]{64}$/.test(assetId)) return null;
+    const cached = this.agentAttachmentPaths.get(assetId);
+    if (cached) {
+      const canonical = await this.validAgentAttachmentPath(cached);
+      if (canonical) {
+        this.rememberAgentAttachmentPath(assetId, cached);
+        return canonical;
+      }
+      this.agentAttachmentPaths.delete(assetId);
+    }
+    const activeLookup = this.agentAttachmentPathLookups.get(assetId);
+    if (activeLookup) return activeLookup;
+    const lookup = this.findAgentAttachmentPath(assetId);
+    this.agentAttachmentPathLookups.set(assetId, lookup);
+    try {
+      return await lookup;
+    } finally {
+      if (this.agentAttachmentPathLookups.get(assetId) === lookup) {
+        this.agentAttachmentPathLookups.delete(assetId);
+      }
+    }
+  }
+
+  private async findAgentAttachmentPath(assetId: string): Promise<string | null> {
     const agentsRoot = join(this.root, "agents");
     for (const agentId of await listDirectories(agentsRoot)) {
       const attachments = join(agentsRoot, agentId, "attachments");
@@ -3835,11 +3972,31 @@ export class AgentDataStore {
         .sort()[0];
       if (!match) continue;
       const candidate = join(attachments, match);
-      const canonical = await realpath(candidate).catch(() => null);
-      const canonicalRoot = await realpath(attachments).catch(() => attachments);
-      if (canonical && this.isInside(canonical, canonicalRoot)) return canonical;
+      const canonical = await this.validAgentAttachmentPath(candidate);
+      if (canonical) {
+        this.rememberAgentAttachmentPath(assetId, candidate);
+        return canonical;
+      }
     }
     return null;
+  }
+
+  private async validAgentAttachmentPath(candidate: string): Promise<string | null> {
+    const canonical = await realpath(candidate).catch(() => null);
+    if (!canonical) return null;
+    const attachments = dirname(candidate);
+    const canonicalRoot = await realpath(attachments).catch(() => attachments);
+    return this.isInside(canonical, canonicalRoot) ? canonical : null;
+  }
+
+  private rememberAgentAttachmentPath(assetId: string, candidate: string): void {
+    this.agentAttachmentPaths.delete(assetId);
+    this.agentAttachmentPaths.set(assetId, candidate);
+    while (this.agentAttachmentPaths.size > MAX_AGENT_ATTACHMENT_PATH_CACHE_ENTRIES) {
+      const oldest = this.agentAttachmentPaths.keys().next().value;
+      if (oldest === undefined) break;
+      this.agentAttachmentPaths.delete(oldest);
+    }
   }
 
   private async directoryExists(path: string): Promise<boolean> {

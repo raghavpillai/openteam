@@ -84,6 +84,7 @@ enum RunOrigin {
   bootstrap
   routine
   event
+  connector
   background_revival
   handoff_resume
   broadcast
@@ -551,6 +552,7 @@ model Channel {
   avatarPath  String?
   directKey   String?          @unique
   workingDirectory String?
+  hiddenFromSidebar Boolean    @default(false)
   archivedAt  DateTime?
   members     ChannelMember[]
   messages    ChannelMessage[]
@@ -874,6 +876,9 @@ model PushDevice {
   platform       PushDevicePlatform
   pushToken      String             @unique
   enabled        Boolean            @default(true)
+  authRequired   Boolean            @default(true)
+  authSessionId  String?
+  authSession    Session?           @relation(fields: [authSessionId], references: [id], onDelete: SetNull)
   timeZone       String?
   locale         String?
   lastSeenAt     DateTime           @default(now())
@@ -881,6 +886,7 @@ model PushDevice {
   updatedAt      DateTime           @updatedAt
 
   @@index([enabled, platform, lastSeenAt])
+  @@index([enabled, authRequired, authSessionId])
 }
 
 model RunItem {
@@ -1102,6 +1108,7 @@ model Session {
   userAgent String?
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  pushDevices PushDevice[]
 
   @@index([userId])
   @@map("session")
@@ -1134,8 +1141,8 @@ model Verification {
   identifier String
   value      String
   expiresAt  DateTime
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   @@index([identifier])
   @@map("verification")

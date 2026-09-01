@@ -33,12 +33,18 @@
       import RFB from "./core/rfb.js";
 
       const query = new URLSearchParams(window.location.search);
+      const fragment = new URLSearchParams(window.location.hash.slice(1));
+      const password = fragment.get("password");
+      if (!password) throw new Error("Viewer credential is missing");
+      history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
       const path = query.get("path") ?? "websockify";
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
       const socketUrl = new URL(`./${path}`, window.location.href);
       socketUrl.protocol = protocol;
 
-      const rfb = new RFB(document.getElementById("screen"), socketUrl.toString());
+      const rfb = new RFB(document.getElementById("screen"), socketUrl.toString(), {
+        credentials: { password },
+      });
       rfb.viewOnly = query.get("view_only") === "true";
       rfb.scaleViewport = true;
       rfb.resizeSession = false;

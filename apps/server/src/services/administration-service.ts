@@ -1,11 +1,17 @@
 import {
+  AGENT_DIRECTORY_DEFAULT_LIMIT,
+  AGENT_DIRECTORY_MAX_LIMIT,
+  AGENT_DIRECTORY_QUERY_MAX_LENGTH,
   ApiError,
   type CreateAgentInput,
   type CreateChannelInput,
+  type ListAgentsInput,
+  type ListGroupsInput,
   type UpdateAgentInput,
   type UpdateChannelInput,
 } from "@openbot/contracts";
-import type { PrismaClient } from "@openbot/db";
+import { COMPUTER_API_PATHS } from "@openbot/contracts/service-protocol";
+import type { Prisma, PrismaClient } from "@openbot/db";
 import { type AgentDataStore, type AgentMessaging, GROUP_MAX_MEMBERS } from "@openbot/messaging";
 import { Effect } from "effect";
 import type { BotService } from "./bot-service";
@@ -17,6 +23,27 @@ export const CHANNEL_UPDATE_NEEDS_MEMBER =
   "A channel needs at least one member, so this removal was not applied.";
 export const channelNotFoundMessage = (channelId: string) =>
   `No channel found with id ${channelId}.`;
+
+const UUID = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
+
+const directoryQuery = (value?: string): string =>
+  (value ?? "")
+    .normalize("NFKC")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, AGENT_DIRECTORY_QUERY_MAX_LENGTH);
+
+const directoryLimit = (value?: number): number =>
+  Math.max(
+    1,
+    Math.min(
+      AGENT_DIRECTORY_MAX_LIMIT,
+      Number.isInteger(value) ? (value as number) : AGENT_DIRECTORY_DEFAULT_LIMIT
+    )
+  );
+
+const directoryText = (value: string, maximum: number): string =>
+  value.replace(/\s+/g, " ").trim().slice(0, maximum);
 
 export const nextChannelMemberIds = (input: {
   current: readonly string[];
@@ -38,6 +65,146 @@ export class AdministrationService {
     private readonly computerFetch: ComputerFetch,
     private readonly agentData: AgentDataStore
   ) {}
+
+  async listAgents(parentBotId: string, input: ListAgentsInput) {
+    const query = directoryQuery(input.query);
+    const limit = directoryLimit(input.limit);
+    const baseWhere: Prisma.BotWhereInput = {
+      id: { not: parentBotId },
+      status: "active",
+      subagentIdentity: { is: null },
+    };
+    const fetch = (where: Prisma.BotWhereInput) =>
+      this.prisma.bot.findMany({
+        where,
+        select: {
+          id: true,
+          name: true,
+          title: true,
+          description: true,
+          hiddenFromSidebar: true,
+          updatedAt: true,
+        },
+        orderBy: [{ updatedAt: "desc" }, { id: "asc" }],
+        take: limit + 1,
+      });
+
+    let rows: Awaited<ReturnType<typeof fetch>>;
+    if (!query) {
+      rows = await fetch(baseWhere);
+    } else {
+      const exact = await fetch({
+        AND: [
+          baseWhere,
+          {
+            OR: [
+              ...(UUID.test(query) ? [{ id: query }] : []),
+              { name: { equals: query, mode: "insensitive" } },
+            ],
+          },
+        ],
+      });
+      rows =
+        exact.length > 0
+          ? exact
+          : await fetch({
+              AND: [
+                baseWhere,
+                {
+                  OR: [
+                    { name: { contains: query, mode: "insensitive" } },
+                    { title: { contains: query, mode: "insensitive" } },
+                    { description: { contains: query, mode: "insensitive" } },
+                  ],
+                },
+              ],
+            });
+    }
+
+    return {
+      query,
+      agents: rows.slice(0, limit).map((agent) => ({
+        id: agent.id,
+        name: directoryText(agent.name, 160),
+        title: directoryText(agent.title, 160),
+        description: directoryText(agent.description, 500),
+        hiddenFromSidebar: agent.hiddenFromSidebar,
+      })),
+      hasMore: rows.length > limit,
+    };
+  }
+
+  async listGroups(parentBotId: string, input: ListGroupsInput) {
+    const query = directoryQuery(input.query);
+    const limit = directoryLimit(input.limit);
+    const baseWhere: Prisma.ChannelWhereInput = {
+      kind: "group",
+      archivedAt: null,
+      members: { some: { botId: parentBotId } },
+    };
+    const fetch = (where: Prisma.ChannelWhereInput) =>
+      this.prisma.channel.findMany({
+        where,
+        select: {
+          id: true,
+          name: true,
+          description: true,
+          updatedAt: true,
+          members: {
+            orderBy: { ordinal: "asc" },
+            take: GROUP_MAX_MEMBERS,
+            select: { botId: true, bot: { select: { name: true } } },
+          },
+        },
+        orderBy: [{ updatedAt: "desc" }, { id: "asc" }],
+        take: limit + 1,
+      });
+
+    let rows: Awaited<ReturnType<typeof fetch>>;
+    if (!query) {
+      rows = await fetch(baseWhere);
+    } else {
+      const exact = await fetch({
+        AND: [
+          baseWhere,
+          {
+            OR: [
+              ...(UUID.test(query) ? [{ id: query }] : []),
+              { name: { equals: query, mode: "insensitive" } },
+            ],
+          },
+        ],
+      });
+      rows =
+        exact.length > 0
+          ? exact
+          : await fetch({
+              AND: [
+                baseWhere,
+                {
+                  OR: [
+                    { name: { contains: query, mode: "insensitive" } },
+                    { description: { contains: query, mode: "insensitive" } },
+                  ],
+                },
+              ],
+            });
+    }
+
+    return {
+      query,
+      groups: rows.slice(0, limit).map((group) => ({
+        id: group.id,
+        name: directoryText(group.name, 160),
+        description: directoryText(group.description, 500),
+        members: group.members.map((member) => ({
+          id: member.botId,
+          name: directoryText(member.bot.name, 160),
+        })),
+      })),
+      hasMore: rows.length > limit,
+    };
+  }
 
   async createAgent(parentBotId: string, callId: string, input: CreateAgentInput) {
     const bot = await Effect.runPromise(
@@ -185,7 +352,7 @@ export class AdministrationService {
       for (const botId of memberIds) {
         await this.agentData.writeGroupFilesForBot(botId);
       }
-      const store = await this.computerFetch(`/v1/agent-stores/${channel.id}`, {
+      const store = await this.computerFetch(COMPUTER_API_PATHS.agentStore(channel.id), {
         method: "PUT",
         body: JSON.stringify({ createdAt: channel.createdAt.getTime() }),
         signal: AbortSignal.timeout(15_000),

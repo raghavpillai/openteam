@@ -11,17 +11,34 @@ interface ComputerScreenStatus {
   height: number;
   display: number;
   viewerPort: number;
+  viewerPassword: string;
   humanTakeover: boolean;
   agentInputPaused: boolean;
   apps: Array<"chromium" | "thunar" | "terminal">;
   browserProfileScope: "computer";
   browserSessionScope: "computer";
   browserSessionMechanism: "shared-profiles";
+  browserStateCoverage: ScreenStatusView["browserStateCoverage"];
+  browserTargetRouting: "bot-owned-tabs";
   error: string | null;
 }
 
 type ComputerFetch = (path: string, init: RequestInit) => Promise<Response>;
 const MAX_AVATAR_BYTES = 5 * 1024 * 1024;
+
+export const screenViewerUrl = (
+  host: string,
+  viewerPort: number,
+  viewerPassword: string
+): string => {
+  const query = new URLSearchParams({
+    autoconnect: "true",
+    resize: "scale",
+    path: "websockify",
+  });
+  const credential = new URLSearchParams({ password: viewerPassword });
+  return `http://${host}:${viewerPort}/openbot.html?${query}#${credential}`;
+};
 
 export class ScreenService {
   constructor(
@@ -163,28 +180,41 @@ export class ScreenService {
       browserProfileScope: "computer",
       browserSessionScope: "computer",
       browserSessionMechanism: "shared-profiles",
+      browserStateCoverage: [
+        "cookies",
+        "local-storage",
+        "session-storage",
+        "indexed-db",
+        "service-workers",
+        "cache-storage",
+        "extensions",
+        "saved-passwords",
+        "client-certificates",
+        "settings",
+        "bookmarks",
+        "history",
+        "open-tabs",
+      ],
+      browserTargetRouting: "bot-owned-tabs",
     };
   }
 
   private toView(botId: string, status: ComputerScreenStatus): ScreenStatusView {
-    const query = new URLSearchParams({
-      autoconnect: "true",
-      resize: "scale",
-      path: "websockify",
-    });
     return {
       botId,
       state: status.state,
       width: status.width,
       height: status.height,
       display: status.display,
-      viewerUrl: `http://${this.screenViewerHost}:${status.viewerPort}/openbot.html?${query}`,
+      viewerUrl: screenViewerUrl(this.screenViewerHost, status.viewerPort, status.viewerPassword),
       humanTakeover: status.humanTakeover,
       agentInputPaused: status.agentInputPaused,
       apps: status.apps,
       browserProfileScope: status.browserProfileScope,
       browserSessionScope: status.browserSessionScope,
       browserSessionMechanism: status.browserSessionMechanism,
+      browserStateCoverage: status.browserStateCoverage,
+      browserTargetRouting: status.browserTargetRouting,
     };
   }
 

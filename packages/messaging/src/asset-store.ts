@@ -1,20 +1,32 @@
 import { createHash, randomUUID } from "node:crypto";
 import { lookup } from "node:dns/promises";
 import { createReadStream } from "node:fs";
-import { mkdir, open, readdir, readFile, realpath, rename, rm, stat } from "node:fs/promises";
+import type { FileHandle } from "node:fs/promises";
+import { link, mkdir, open, readdir, readFile, realpath, rm, stat } from "node:fs/promises";
 import { isIP } from "node:net";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ApiError, type AssetKind, type AssetRef } from "@openbot/contracts";
+import { CLIENT_CAPABILITIES } from "@openbot/contracts/capabilities";
 
-export const REGULAR_ASSET_LIMIT = 25 * 1024 * 1024;
-export const VIDEO_ASSET_LIMIT = 200 * 1024 * 1024;
-export const MAX_MESSAGE_ASSETS = 6;
+export const REGULAR_ASSET_LIMIT = CLIENT_CAPABILITIES.uploads.maxRegularBytes;
+export const VIDEO_ASSET_LIMIT = CLIENT_CAPABILITIES.uploads.maxVideoBytes;
+export const MAX_MESSAGE_ASSETS = CLIENT_CAPABILITIES.uploads.maxAttachmentsPerMessage;
 const REMOTE_READ_CHUNK = 1024 * 1024;
+export const MAX_VERIFIED_ASSET_CACHE_ENTRIES = 1_024;
 const ASSET_ID = /^[a-f0-9]{64}$/;
 const VIDEO_EXTENSIONS = new Set(["avi", "m4v", "mkv", "mov", "mp4", "mpeg", "mpg", "webm"]);
 const DATA_IMAGE = /^data:image\/(gif|jpeg|png|webp);base64,([A-Za-z0-9+/]*={0,2})$/i;
 const ASSET_KINDS = new Set<AssetKind>(["image", "video", "audio", "pdf", "text", "file"]);
+
+type AssetByteSource = ReadableStream<Uint8Array> | AsyncIterable<Uint8Array>;
+
+interface StagedAsset {
+  path: string;
+  assetId: string;
+  byteSize: number;
+  prefix: Uint8Array;
+}
 
 const privateNetworkAddress = (address: string): boolean => {
   const normalized = address.toLowerCase();
@@ -219,6 +231,101 @@ const strictBase64 = (value: string): Uint8Array => {
   return bytes;
 };
 
+const isWebReadableStream = (source: AssetByteSource): source is ReadableStream<Uint8Array> =>
+  typeof (source as ReadableStream<Uint8Array>).getReader === "function";
+
+const errorCode = (error: unknown): string | undefined =>
+  typeof error === "object" && error !== null && "code" in error
+    ? String((error as { code?: unknown }).code)
+    : undefined;
+
+const abortable = <T>(operation: Promise<T>, signal?: AbortSignal): Promise<T> => {
+  if (!signal) return operation;
+  if (signal.aborted)
+    return Promise.reject(signal.reason ?? new Error("Attachment upload aborted"));
+  return new Promise<T>((resolve, reject) => {
+    const aborted = () => reject(signal.reason ?? new Error("Attachment upload aborted"));
+    signal.addEventListener("abort", aborted, { once: true });
+    operation.then(
+      (value) => {
+        signal.removeEventListener("abort", aborted);
+        resolve(value);
+      },
+      (error) => {
+        signal.removeEventListener("abort", aborted);
+        reject(error);
+      }
+    );
+  });
+};
+
+const writeChunk = async (handle: FileHandle, chunk: Uint8Array): Promise<void> => {
+  let offset = 0;
+  while (offset < chunk.byteLength) {
+    const { bytesWritten } = await handle.write(chunk, offset, chunk.byteLength - offset, null);
+    if (bytesWritten <= 0) throw new Error("Attachment temporary file could not be written");
+    offset += bytesWritten;
+  }
+};
+
+const readAt = async (
+  handle: FileHandle,
+  buffer: Uint8Array,
+  length: number,
+  position: number
+): Promise<boolean> => {
+  let offset = 0;
+  while (offset < length) {
+    const { bytesRead } = await handle.read(buffer, offset, length - offset, position + offset);
+    if (bytesRead === 0) return false;
+    offset += bytesRead;
+  }
+  return true;
+};
+
+const jpegDimensionsFromFile = async (
+  path: string,
+  byteSize: number
+): Promise<{ width: number; height: number } | null> => {
+  const handle = await open(path, "r");
+  const header = Buffer.allocUnsafe(4);
+  try {
+    let offset = 2;
+    while (offset + 9 < byteSize) {
+      if (!(await readAt(handle, header, 4, offset)) || header[0] !== 0xff) return null;
+      const marker = header[1] ?? 0;
+      offset += 2;
+      if (marker === 0xd8 || marker === 0xd9) continue;
+      const length = ((header[2] ?? 0) << 8) | (header[3] ?? 0);
+      if (length < 2 || offset + length > byteSize) return null;
+      if (marker >= 0xc0 && marker <= 0xc3 && length >= 7) {
+        if (!(await readAt(handle, header, 4, offset + 3))) return null;
+        return {
+          height: ((header[0] ?? 0) << 8) | (header[1] ?? 0),
+          width: ((header[2] ?? 0) << 8) | (header[3] ?? 0),
+        };
+      }
+      offset += length;
+    }
+    return null;
+  } finally {
+    await handle.close();
+  }
+};
+
+const classifyStaged = async (
+  path: string,
+  byteSize: number,
+  prefix: Uint8Array,
+  fileName: string,
+  declaredMime?: string
+): Promise<Pick<AssetMetadata, "kind" | "mimeType" | "width" | "height">> => {
+  const detected = classify(prefix, fileName, declaredMime);
+  if (detected.mimeType !== "image/jpeg" || detected.width || detected.height) return detected;
+  const dimensions = await jpegDimensionsFromFile(path, byteSize);
+  return dimensions ? { ...detected, ...dimensions } : detected;
+};
+
 export class AssetStore {
   readonly root: string;
   private readonly allowedFileRoots: string[];
@@ -261,8 +368,10 @@ export class AssetStore {
   }): Promise<AssetRef> {
     const fileName = safeFileName(input.fileName);
     const maximum = videoLike(fileName, input.mimeType) ? VIDEO_ASSET_LIMIT : REGULAR_ASSET_LIMIT;
-    if (input.bytes.length === 0) throw new ApiError(400, "empty_asset", "Attachment is empty");
-    if (input.bytes.length > maximum) {
+    if (input.bytes.byteLength === 0) {
+      throw new ApiError(400, "empty_asset", "Attachment is empty");
+    }
+    if (input.bytes.byteLength > maximum) {
       throw new ApiError(
         413,
         "asset_too_large",
@@ -270,23 +379,31 @@ export class AssetStore {
       );
     }
     const assetId = createHash("sha256").update(input.bytes).digest("hex");
-    const detected = classify(input.bytes, fileName, input.mimeType);
     const metadata: AssetMetadata = {
       assetId,
-      byteSize: input.bytes.length,
-      ...detected,
+      byteSize: input.bytes.byteLength,
+      ...classify(input.bytes, fileName, input.mimeType),
       createdAt: new Date().toISOString(),
     };
     await mkdir(this.root, { recursive: true, mode: 0o700 });
     const blobPath = this.blobPath(assetId);
     const metadataPath = this.metadataPath(assetId);
-    if (!(await stat(blobPath).catch(() => null))) {
-      await this.atomicWrite(blobPath, input.bytes);
+    const [existingBlob, existingMetadata] = await Promise.all([
+      stat(blobPath).catch(() => null),
+      stat(metadataPath).catch(() => null),
+    ]);
+    const installedBlob = existingBlob ? false : await this.atomicCreate(blobPath, input.bytes);
+    const installedMetadata = existingMetadata
+      ? false
+      : await this.atomicCreate(metadataPath, Buffer.from(JSON.stringify(metadata)));
+    let verified: AssetMetadata;
+    if (installedBlob && installedMetadata) {
+      const [blobInfo, metadataInfo] = await Promise.all([stat(blobPath), stat(metadataPath)]);
+      this.rememberVerified(assetId, blobInfo.mtimeMs, metadataInfo.mtimeMs, metadata);
+      verified = metadata;
+    } else {
+      verified = await this.metadata(assetId);
     }
-    if (!(await stat(metadataPath).catch(() => null))) {
-      await this.atomicWrite(metadataPath, Buffer.from(JSON.stringify(metadata)));
-    }
-    const verified = await this.metadata(assetId);
     return {
       assetId,
       fileName,
@@ -297,6 +414,64 @@ export class AssetStore {
       ...(verified.height ? { height: verified.height } : {}),
       ...(input.alt?.trim() ? { alt: input.alt.trim().slice(0, 2_000) } : {}),
     };
+  }
+
+  async ingestStream(input: {
+    fileName: string;
+    mimeType?: string;
+    stream: AssetByteSource;
+    alt?: string;
+    signal?: AbortSignal;
+  }): Promise<AssetRef> {
+    const fileName = safeFileName(input.fileName);
+    const maximum = videoLike(fileName, input.mimeType) ? VIDEO_ASSET_LIMIT : REGULAR_ASSET_LIMIT;
+    const staged = await this.stageStream(input.stream, maximum, input.signal);
+    try {
+      const detected = await classifyStaged(
+        staged.path,
+        staged.byteSize,
+        staged.prefix,
+        fileName,
+        input.mimeType
+      );
+      const metadata: AssetMetadata = {
+        assetId: staged.assetId,
+        byteSize: staged.byteSize,
+        ...detected,
+        createdAt: new Date().toISOString(),
+      };
+      const blobPath = this.blobPath(staged.assetId);
+      const metadataPath = this.metadataPath(staged.assetId);
+      const installedBlob = await this.linkTemporary(staged.path, blobPath);
+      const installedMetadata = await this.atomicCreate(
+        metadataPath,
+        Buffer.from(JSON.stringify(metadata))
+      );
+      let verified: AssetMetadata;
+      if (installedBlob && installedMetadata) {
+        // The digest was computed while staging these bytes and both files
+        // were installed without replacement. Avoid a second full-file read.
+        const [blobInfo, metadataInfo] = await Promise.all([stat(blobPath), stat(metadataPath)]);
+        this.rememberVerified(staged.assetId, blobInfo.mtimeMs, metadataInfo.mtimeMs, metadata);
+        verified = metadata;
+      } else {
+        // Existing or partially recovered assets still take the full integrity
+        // path before the content-addressed bytes are trusted.
+        verified = await this.metadata(staged.assetId);
+      }
+      return {
+        assetId: staged.assetId,
+        fileName,
+        mimeType: verified.mimeType,
+        byteSize: verified.byteSize,
+        kind: verified.kind,
+        ...(verified.width ? { width: verified.width } : {}),
+        ...(verified.height ? { height: verified.height } : {}),
+        ...(input.alt?.trim() ? { alt: input.alt.trim().slice(0, 2_000) } : {}),
+      };
+    } finally {
+      await rm(staged.path, { force: true }).catch(() => undefined);
+    }
   }
 
   async ingestSource(input: {
@@ -351,10 +526,10 @@ export class AssetStore {
       const maximum = videoLike(fileName, input.mimeType) ? VIDEO_ASSET_LIMIT : REGULAR_ASSET_LIMIT;
       if (info.size > maximum)
         throw new ApiError(413, "asset_too_large", "Attachment exceeds its size limit");
-      return this.ingestBytes({
+      return this.ingestStream({
         fileName,
         mimeType: input.mimeType,
-        bytes: await readFile(source),
+        stream: createReadStream(source, { highWaterMark: REMOTE_READ_CHUNK }),
         alt: input.alt,
       });
     }
@@ -376,18 +551,21 @@ export class AssetStore {
       if (response.status < 300 || response.status >= 400) break;
       const location = response.headers.get("location");
       if (!location || redirects === 3) {
+        await response.body?.cancel().catch(() => undefined);
         throw new ApiError(
           400,
           "asset_fetch_failed",
           location ? "Attachment URL redirected too many times" : "Attachment redirect is invalid"
         );
       }
+      await response.body?.cancel().catch(() => undefined);
       remoteUrl = new URL(location, remoteUrl);
     }
     if (!response) {
       throw new ApiError(400, "asset_fetch_failed", "Attachment download failed");
     }
     if (!response.ok || !response.body) {
+      await response.body?.cancel().catch(() => undefined);
       throw new ApiError(
         400,
         "asset_fetch_failed",
@@ -400,28 +578,13 @@ export class AssetStore {
     const maximum = videoLike(fileName, mimeType) ? VIDEO_ASSET_LIMIT : REGULAR_ASSET_LIMIT;
     const declared = Number(response.headers.get("content-length"));
     if (Number.isFinite(declared) && declared > maximum) {
+      await response.body.cancel().catch(() => undefined);
       throw new ApiError(413, "asset_too_large", "Attachment exceeds its size limit");
     }
-    const reader = response.body.getReader();
-    const chunks: Uint8Array[] = [];
-    let size = 0;
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      if (!value) continue;
-      size += value.length;
-      if (size > maximum) {
-        await reader.cancel();
-        throw new ApiError(413, "asset_too_large", "Attachment exceeds its size limit");
-      }
-      for (let offset = 0; offset < value.length; offset += REMOTE_READ_CHUNK) {
-        chunks.push(value.subarray(offset, offset + REMOTE_READ_CHUNK));
-      }
-    }
-    return this.ingestBytes({
+    return this.ingestStream({
       fileName,
       mimeType,
-      bytes: Buffer.concat(chunks.map((chunk) => Buffer.from(chunk))),
+      stream: response.body,
       alt: input.alt,
     });
   }
@@ -469,6 +632,9 @@ export class AssetStore {
       cached.blobMtimeMs === blobInfo.mtimeMs &&
       cached.metadataMtimeMs === metadataInfo.mtimeMs
     ) {
+      // Map insertion order doubles as a compact LRU list.
+      this.verifiedAssets.delete(assetId);
+      this.verifiedAssets.set(assetId, cached);
       return cached.metadata;
     }
     let parsed: AssetMetadata;
@@ -501,11 +667,7 @@ export class AssetStore {
     if (digest.digest("hex") !== assetId) {
       throw new ApiError(409, "asset_corrupt", "Attachment content does not match its id");
     }
-    this.verifiedAssets.set(assetId, {
-      blobMtimeMs: blobInfo.mtimeMs,
-      metadataMtimeMs: metadataInfo.mtimeMs,
-      metadata: parsed,
-    });
+    this.rememberVerified(assetId, blobInfo.mtimeMs, metadataInfo.mtimeMs, parsed);
     return parsed;
   }
 
@@ -563,19 +725,130 @@ export class AssetStore {
     return join(this.root, `${assetId}.json`);
   }
 
-  private async atomicWrite(path: string, bytes: Uint8Array) {
+  private rememberVerified(
+    assetId: string,
+    blobMtimeMs: number,
+    metadataMtimeMs: number,
+    metadata: AssetMetadata
+  ) {
+    this.verifiedAssets.delete(assetId);
+    this.verifiedAssets.set(assetId, { blobMtimeMs, metadataMtimeMs, metadata });
+    while (this.verifiedAssets.size > MAX_VERIFIED_ASSET_CACHE_ENTRIES) {
+      const oldest = this.verifiedAssets.keys().next().value;
+      if (oldest === undefined) break;
+      this.verifiedAssets.delete(oldest);
+    }
+  }
+
+  private async stageStream(
+    source: AssetByteSource,
+    maximum: number,
+    signal?: AbortSignal
+  ): Promise<StagedAsset> {
+    await mkdir(this.root, { recursive: true, mode: 0o700 });
+    const path = join(this.root, `.asset-upload-${randomUUID()}.tmp`);
+    let handle: FileHandle | null = await open(path, "wx", 0o600);
+    const hash = createHash("sha256");
+    let byteSize = 0;
+    const prefix = Buffer.allocUnsafe(8_192);
+    let prefixLength = 0;
+    let webReader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+    let iterator: AsyncIterator<Uint8Array> | null = null;
+    const accept = async (chunk: Uint8Array): Promise<void> => {
+      if (signal?.aborted) throw signal.reason ?? new Error("Attachment upload was aborted");
+      if (!(chunk instanceof Uint8Array)) {
+        throw new ApiError(400, "invalid_asset_bytes", "Attachment stream returned invalid bytes");
+      }
+      byteSize += chunk.byteLength;
+      if (byteSize > maximum) {
+        throw new ApiError(
+          413,
+          "asset_too_large",
+          `Attachment exceeds the ${Math.round(maximum / 1024 / 1024)} MB limit`
+        );
+      }
+      if (chunk.byteLength === 0) return;
+      hash.update(chunk);
+      if (prefixLength < prefix.byteLength) {
+        const copied = Math.min(prefix.byteLength - prefixLength, chunk.byteLength);
+        prefix.set(chunk.subarray(0, copied), prefixLength);
+        prefixLength += copied;
+      }
+      if (!handle) throw new Error("Attachment temporary file is closed");
+      await writeChunk(handle, chunk);
+    };
+    try {
+      if (isWebReadableStream(source)) {
+        webReader = source.getReader();
+        while (true) {
+          const { value, done } = await abortable(webReader.read(), signal);
+          if (done) break;
+          if (value) await accept(value);
+        }
+      } else {
+        iterator = source[Symbol.asyncIterator]();
+        while (true) {
+          const { value, done } = await abortable(iterator.next(), signal);
+          if (done) break;
+          await accept(value);
+        }
+      }
+      if (byteSize === 0) throw new ApiError(400, "empty_asset", "Attachment is empty");
+      await handle.sync();
+      await handle.close();
+      handle = null;
+      return {
+        path,
+        assetId: hash.digest("hex"),
+        byteSize,
+        prefix: prefix.subarray(0, prefixLength),
+      };
+    } catch (error) {
+      await webReader?.cancel(error).catch(() => undefined);
+      await iterator?.return?.().catch(() => undefined);
+      throw error;
+    } finally {
+      // Bun's HTTP request body currently returns a DirectReadableStream reader
+      // without the optional standards releaseLock method. Always finish owned
+      // file cleanup first, then release standards readers when the method is
+      // available. A reader compatibility failure must never strand a staged
+      // upload or turn an otherwise successful ingest into a 500 response.
+      const openHandle = handle;
+      await openHandle?.close().catch(() => undefined);
+      if (openHandle) await rm(path, { force: true }).catch(() => undefined);
+      try {
+        webReader?.releaseLock?.();
+      } catch {
+        // The stream is request-owned; there is no further recovery to perform.
+      }
+    }
+  }
+
+  private async linkTemporary(temporary: string, path: string): Promise<boolean> {
+    try {
+      await link(temporary, path);
+      return true;
+    } catch (error) {
+      if (errorCode(error) === "EEXIST") return false;
+      throw error;
+    } finally {
+      await rm(temporary, { force: true }).catch(() => undefined);
+    }
+  }
+
+  private async atomicCreate(path: string, bytes: Uint8Array): Promise<boolean> {
     await mkdir(dirname(path), { recursive: true, mode: 0o700 });
     const temporary = `${path}.${randomUUID()}.tmp`;
-    const handle = await open(temporary, "wx", 0o600);
+    let handle: FileHandle | null = await open(temporary, "wx", 0o600);
     try {
       await handle.writeFile(bytes);
       await handle.sync();
-    } finally {
       await handle.close();
+      handle = null;
+      return await this.linkTemporary(temporary, path);
+    } finally {
+      await handle?.close().catch(() => undefined);
+      await rm(temporary, { force: true }).catch(() => undefined);
     }
-    await rename(temporary, path).catch(async (error) => {
-      await rm(temporary, { force: true });
-      if (!(await stat(path).catch(() => null))) throw error;
-    });
   }
 }

@@ -100,12 +100,24 @@ const cliInteractive = (args: readonly string[], input: string) => {
     ] as const;
     const program = [
       "set timeout 300",
+      "set env(TERM) xterm-256color",
+      "unset -nocomplain env(NO_COLOR)",
+      "proc expect_prompt {prompt} {",
+      "  expect {",
+      "    -exact $prompt {}",
+      '    timeout { puts stderr "Timed out waiting for: $prompt"; exit 124 }',
+      '    eof { puts stderr "CLI exited before prompt: $prompt"; exit 125 }',
+      "  }",
+      "}",
       `spawn node ${tclQuote(cliPath)} ${args.map(tclQuote).join(" ")}`,
       ...interactions.flatMap(([prompt, answer]) => [
-        `expect ${tclQuote(prompt)}`,
+        `expect_prompt ${tclQuote(prompt)}`,
         `send -- ${tclQuote(answer)}`,
       ]),
-      "expect eof",
+      "expect {",
+      "  eof {}",
+      '  timeout { puts stderr "Timed out waiting for CLI exit"; exit 124 }',
+      "}",
       "set child_status [wait]",
       "exit [lindex $child_status 3]",
     ].join("\n");

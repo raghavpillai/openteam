@@ -10,7 +10,7 @@ describe("Grok-compatible composer while a Bot is working", () => {
       source("../src/renderer/components/openbot/mention-editor.tsx"),
     ]);
 
-    expect(promptInput).toContain("const blocked = Boolean(disabled || submitting)");
+    expect(promptInput).toContain("const blocked = Boolean(disabled || submitting || staging)");
     expect(promptInput).toContain("disabled={Boolean(disabled)}");
     expect(mentionEditor).toContain("const keepCaret = document.activeElement === editor");
     expect(mentionEditor).toContain("editor.focus({ preventScroll: true })");

@@ -597,5 +597,8 @@ describe("durable send controller", () => {
     expect(durableSendPromptDigest({ content: "hello" })).not.toBe(
       durableSendPromptDigest({ content: "different" })
     );
+    expect(durableSendPromptDigest({ content: "hello" })).toBe(
+      "f23ae087ce8941b05740c13f9c1296103253c6505c415b1c6bf1680aff8761bf"
+    );
   });
 });

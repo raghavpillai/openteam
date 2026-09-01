@@ -38,7 +38,9 @@ export const authRequestWithClientIp = (
   const proxyAuthenticated =
     proxySecret.length >= 32 &&
     equalSecret(request.headers.get("x-openbot-proxy") ?? "", proxySecret);
-  const forwarded = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "";
+  // Trust only the hop nearest the directly connected proxy. A client can prepend
+  // arbitrary X-Forwarded-For values when a custom proxy appends instead of replaces.
+  const forwarded = request.headers.get("x-forwarded-for")?.split(",").at(-1)?.trim() ?? "";
   const direct = requestServer.requestIP(request)?.address ?? "";
   const trustedForwarder =
     proxyAuthenticated || (options.trustPrivateForwarder && isPrivateAddress(direct));

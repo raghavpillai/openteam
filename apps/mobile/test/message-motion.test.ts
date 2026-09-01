@@ -72,7 +72,7 @@ test("right-swiping a message reveals the native thread affordance and opens its
   expect(thread).toContain('presentationStyle="fullScreen"');
   expect(thread).toContain('name="chevron.left"');
   expect(thread).toContain("threadTimestamp(thread.root.createdAt)");
-  expect(thread).toContain('placeholder={`Reply ${botName}`}');
+  expect(thread).toContain("placeholder={`Reply ${botName}`}");
   expect(thread).not.toContain(">Replies<");
   expect(composer).toContain("const inputPlaceholder = placeholder ?? `Message ${botName}`");
 });

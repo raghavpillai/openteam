@@ -33,7 +33,7 @@ describe("late native iOS regression guards", () => {
     expect(route).toContain('"Could not mark as unread"');
     expect(sheet).toContain('presentationStyle="fullScreen"');
     expect(sheet).toContain('name="chevron.left"');
-    expect(sheet).toContain('placeholder={`Reply ${botName}`}');
+    expect(sheet).toContain("placeholder={`Reply ${botName}`}");
     expect(sheet).not.toContain("replyPreview=");
     expect(bubble).toContain("threadReplyCountLabel(threadReplyCount, threadReplyCountIsPartial)");
   });

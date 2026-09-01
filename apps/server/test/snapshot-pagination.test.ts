@@ -155,6 +155,18 @@ describe("snapshot pagination", () => {
     expect(context.messages.map(({ sequence }) => sequence)).toEqual(["9", "10"]);
     expect(context.threadContext.map(({ sequence }) => sequence)).toEqual(["1", "2"]);
     expect(threadQueries).toBe(2);
+
+    const afterContext = await Effect.runPromise(service.messageContext(rootMessage.id, 0, 2));
+    expect(afterContext).toMatchObject({
+      targetMessageId: rootMessage.id,
+      beforeSequence: "1",
+      afterSequence: "3",
+      hasMoreBefore: false,
+      hasMoreAfter: true,
+    });
+    expect(afterContext.messages.map(({ sequence }) => sequence)).toEqual(["1", "2", "3"]);
+    expect(afterContext.threadContext).toEqual([]);
+    expect(threadQueries).toBe(2);
   });
 
   test("does not reload a reply target that is already in the requested window", async () => {

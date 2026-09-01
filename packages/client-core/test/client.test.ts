@@ -120,6 +120,8 @@ describe("mobile-safe OpenBot client", () => {
     await client.channelHistory("channel/1", { beforeSequence: "900", limit: 50 });
     await client.channelState("channel/1");
     await client.messageContext("message/1", { before: 20, after: 10 });
+    await client.messageContext("older/edge", { direction: "before", limit: 25 });
+    await client.messageContext("newer/edge", { direction: "after", limit: 30 });
 
     expect(calls).toEqual([
       "http://openbot.test/api/v0/client-bootstrap",
@@ -127,6 +129,8 @@ describe("mobile-safe OpenBot client", () => {
       "http://openbot.test/api/v0/channels/channel%2F1/history?before=900&limit=50",
       "http://openbot.test/api/v0/channels/channel%2F1/client-state",
       "http://openbot.test/api/v0/channel-messages/message%2F1/context?before=20&after=10",
+      "http://openbot.test/api/v0/channel-messages/older%2Fedge/context?direction=before&limit=25",
+      "http://openbot.test/api/v0/channel-messages/newer%2Fedge/context?direction=after&limit=30",
     ]);
   });
 

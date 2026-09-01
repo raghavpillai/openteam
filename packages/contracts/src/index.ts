@@ -1446,6 +1446,27 @@ export interface ChannelMessageView {
   createdAt: string;
 }
 
+/** The side of an anchor message to load while expanding a context window. */
+export type ChannelMessageContextDirection = "before" | "after";
+
+/**
+ * Context requests are either centered around the path message (the legacy
+ * behavior) or expand one side of that message as a pagination anchor.
+ */
+export type ChannelMessageContextOptions =
+  | {
+      direction?: never;
+      before?: number;
+      after?: number;
+      limit?: never;
+    }
+  | {
+      direction: ChannelMessageContextDirection;
+      limit?: number;
+      before?: never;
+      after?: never;
+    };
+
 export type MessageDeliveryStatus =
   | "not_found"
   | "pending"
@@ -1462,7 +1483,7 @@ export interface MessageDeliveryStatusView {
   messageText?: string;
 }
 
-/** A bounded, chronological window around one exact channel message. */
+/** A bounded, chronological window around or immediately beside one anchor message. */
 export interface ChannelMessageContextView {
   channelId: string;
   targetMessageId: string;

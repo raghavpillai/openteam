@@ -1,6 +1,8 @@
 export type {
   ChannelClientState,
   ChannelHistoryPage,
+  ChannelMessageContextDirection,
+  ChannelMessageContextOptions,
   ClientBootstrapView,
   RootSettingsView,
   RoutineExecutionView,

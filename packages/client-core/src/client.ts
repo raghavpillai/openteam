@@ -6,6 +6,7 @@ import type {
   BotView,
   ChannelClientState,
   ChannelHistoryPage,
+  ChannelMessageContextOptions,
   ChannelMessageContextView,
   ChannelMessageView,
   ChannelView,
@@ -16,10 +17,10 @@ import type {
   CreateBotInput,
   CreateGroupInput,
   CreateRoutineInput,
+  MessageDeliveryStatusView,
   PluginBotAccessView,
   PluginConnectionStatusesView,
   PluginSettingsView,
-  MessageDeliveryStatusView,
   ReactToChannelMessageInput,
   ReactToChannelMessageView,
   RegisterPushDeviceInput,
@@ -32,8 +33,8 @@ import type {
   SearchCategory,
   SearchResponse,
   SendMessageInput,
-  SetChannelMembersInput,
   SetChannelHiddenInput,
+  SetChannelMembersInput,
   SetPluginToolPolicyInput,
   SidebarPreferences,
   SystemVersionView,
@@ -261,10 +262,15 @@ export const createOpenBotClient = (options: OpenBotClientOptions) => {
       transport.request<ChannelClientState>(
         `/api/v0/channels/${encodeURIComponent(channelId)}/client-state`
       ),
-    messageContext: (messageId: string, options: { before?: number; after?: number } = {}) => {
+    messageContext: (messageId: string, options: ChannelMessageContextOptions = {}) => {
       const params = new URLSearchParams();
-      if (options.before !== undefined) params.set("before", String(options.before));
-      if (options.after !== undefined) params.set("after", String(options.after));
+      if (options.direction) {
+        params.set("direction", options.direction);
+        if (options.limit !== undefined) params.set("limit", String(options.limit));
+      } else {
+        if (options.before !== undefined) params.set("before", String(options.before));
+        if (options.after !== undefined) params.set("after", String(options.after));
+      }
       const query = params.size > 0 ? `?${params}` : "";
       return transport.request<ChannelMessageContextView>(
         `/api/v0/channel-messages/${encodeURIComponent(messageId)}/context${query}`

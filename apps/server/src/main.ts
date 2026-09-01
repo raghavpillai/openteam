@@ -47,6 +47,7 @@ import { parseAuthMode } from "./auth-mode";
 import { authRequestWithClientIp } from "./auth-request";
 import { eventStream } from "./event-stream";
 import { corsHeaders, errorResponse, json, parseBody, withCors } from "./http";
+import { messageContextExtents } from "./message-context-query";
 import { runOwnerCredentialCommand } from "./owner-credentials";
 import {
   assetUploadByteLimit,
@@ -762,12 +763,13 @@ const server = Bun.serve({
       }
       const channelMessageContextMatch = path.match(/^\/api\/channel-messages\/([^/]+)\/context$/);
       if (request.method === "GET" && channelMessageContextMatch?.[1]) {
+        const extents = messageContextExtents(url.searchParams);
         return json(
           await run(
             app.channelMessageContext(
               decodeURIComponent(channelMessageContextMatch[1]),
-              Number(url.searchParams.get("before") ?? 50),
-              Number(url.searchParams.get("after") ?? 50)
+              extents.before,
+              extents.after
             )
           )
         );

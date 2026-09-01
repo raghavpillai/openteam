@@ -2,6 +2,19 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { cpus, release } from "node:os";
 import { dirname, resolve } from "node:path";
 import {
+  applyPrimaryHistoryPage,
+  type ChannelMessageWindowState,
+  emptyChannelMessageWindow,
+  enterMessageContext,
+  expandMessageContext,
+  MESSAGE_HISTORY_MAX_MESSAGES,
+  MESSAGE_HISTORY_MAX_RETAINED_BYTES,
+  MESSAGE_HISTORY_PAGE_SIZE,
+  type MessageWindowTransition,
+  resetToLatestTail,
+  visibleChannelHistoryMessages,
+} from "../../apps/desktop/src/renderer/lib/message-history-window";
+import {
   computeVirtualLayout,
   computeVirtualRangeFromLayout,
 } from "../../apps/desktop/src/renderer/lib/virtual-window";
@@ -27,9 +40,9 @@ import {
   messageRenderKey,
 } from "../../packages/product-core/src/messages";
 
-const PAGE_SIZE = 100;
-const ROLLING_PAGE_COUNT = 5;
-const ROLLING_MESSAGE_LIMIT = PAGE_SIZE * ROLLING_PAGE_COUNT;
+const PAGE_SIZE = MESSAGE_HISTORY_PAGE_SIZE;
+const ROLLING_MESSAGE_LIMIT = MESSAGE_HISTORY_MAX_MESSAGES;
+const ROLLING_PAGE_COUNT = Math.ceil(ROLLING_MESSAGE_LIMIT / PAGE_SIZE);
 const CONTEXT_BEFORE = 50;
 const CONTEXT_AFTER = 50;
 const SEARCH_NEWER_DISTANCE = 300;
@@ -61,11 +74,26 @@ interface Distribution {
 
 interface TraversalRun {
   state: LoadedChannelHistory;
+  window: ChannelMessageWindowState | null;
   initialMergeMs: number;
   olderMergeMs: number[];
   projectionMs: number[];
   totalMergeMs: number;
   totalProjectionMs: number;
+  evictedOlder: number;
+  evictedNewer: number;
+  peakRetainedBytes: number;
+  maxPrimaryMessages: number;
+}
+
+interface BenchmarkHistoryState {
+  history: LoadedChannelHistory;
+  window: ChannelMessageWindowState | null;
+}
+
+interface ContextExpansionStep {
+  direction: Direction;
+  page: ChannelMessageContextView;
 }
 
 const workloads: WorkloadDefinition[] = [
@@ -264,21 +292,42 @@ const createContext = (
   };
 };
 
-const capPrimaryHistory = (
-  history: LoadedChannelHistory,
-  direction: Direction
-): LoadedChannelHistory => {
-  if (history.messages.length <= ROLLING_MESSAGE_LIMIT) return history;
+const createDirectionalContext = (
+  messages: readonly ChannelMessageView[],
+  anchorIndex: number,
+  direction: Direction,
+  limit = PAGE_SIZE
+): ChannelMessageContextView | null => {
+  const target = messages[anchorIndex];
+  if (!target) return null;
+  const start = direction === "older" ? Math.max(0, anchorIndex - limit) : anchorIndex;
+  const end =
+    direction === "older" ? anchorIndex + 1 : Math.min(messages.length, anchorIndex + limit + 1);
+  const contextMessages = messages.slice(start, end);
+  if (contextMessages.length <= 1) return null;
   return {
-    ...history,
-    messages:
-      direction === "older"
-        ? history.messages.slice(0, ROLLING_MESSAGE_LIMIT)
-        : history.messages.slice(-ROLLING_MESSAGE_LIMIT),
+    channelId: CHANNEL_ID,
+    targetMessageId: target.id,
+    messages: contextMessages,
+    threadContext: [],
+    threadContextTruncated: false,
+    beforeSequence: contextMessages[0]?.sequence ?? target.sequence,
+    afterSequence: contextMessages.at(-1)?.sequence ?? target.sequence,
+    hasMoreBefore: start > 0,
+    hasMoreAfter: end < messages.length,
+    revision: messages.at(-1)?.sequence ?? "0",
   };
 };
 
 const boundedStrategy = (strategy: StrategyId): boolean => strategy !== "A_current_unbounded";
+
+const transitionChecksum = (transition: MessageWindowTransition): number =>
+  transition.history.messages.length * 17 +
+  transition.history.searchContext.length * 31 +
+  transition.window.retainedBytes +
+  transition.evictedOlder * 43 +
+  transition.evictedNewer * 47 +
+  (transition.window.primaryHasNewerGap ? 53 : 0);
 
 /**
  * Mirrors the O(n) / O(n log n) renderer work that changes with retained history size:
@@ -286,8 +335,13 @@ const boundedStrategy = (strategy: StrategyId): boolean => strategy !== "A_curre
  * timeline sorting, full virtual-layout construction, and projection of mounted rows.
  * It intentionally excludes React reconciliation, Markdown parsing, DOM measurement, and paint.
  */
-const projectHistoryForRenderer = (history: LoadedChannelHistory): number => {
-  const messages = loadedChannelHistoryMessages(history);
+const projectHistoryForRenderer = (
+  history: LoadedChannelHistory,
+  window: ChannelMessageWindowState | null = null
+): number => {
+  const messages = window
+    ? visibleChannelHistoryMessages(history, window)
+    : loadedChannelHistoryMessages(history);
   const knownIds = new Set(messages.map((message) => message.id));
   const visibleRecords = messages
     .map((message) => ({
@@ -349,24 +403,47 @@ const projectHistoryForRenderer = (history: LoadedChannelHistory): number => {
 
 const runTraversal = (pages: readonly ChannelHistoryPage[], strategy: StrategyId): TraversalRun => {
   let state: LoadedChannelHistory | undefined;
+  let window = boundedStrategy(strategy) ? emptyChannelMessageWindow() : null;
   let initialMergeMs = 0;
   const olderMergeMs: number[] = [];
   const projectionMs: number[] = [];
   let totalMergeMs = 0;
   let totalProjectionMs = 0;
+  let evictedOlder = 0;
+  let evictedNewer = 0;
+  let peakRetainedBytes = 0;
+  let maxPrimaryMessages = 0;
   for (let pageIndex = 0; pageIndex < pages.length; pageIndex += 1) {
     const page = pages[pageIndex];
     if (!page) continue;
     const mergeStartedAt = performance.now();
-    state = mergeLoadedChannelHistoryPage(state, page, pageIndex === 0 ? "replace" : "older", 1);
-    if (boundedStrategy(strategy)) state = capPrimaryHistory(state, "older");
+    if (window) {
+      const transition = applyPrimaryHistoryPage({
+        current: state,
+        window,
+        page,
+        mode: pageIndex === 0 ? "replace" : "older",
+        atBottom: pageIndex === 0,
+        loadedAt: 1,
+      });
+      state = transition.history;
+      window = transition.window;
+      evictedOlder += transition.evictedOlder;
+      evictedNewer += transition.evictedNewer;
+      peakRetainedBytes = Math.max(peakRetainedBytes, window.retainedBytes);
+      observableChecksum += transitionChecksum(transition);
+    } else {
+      // Keep the current/unbounded arm as the exact pre-production baseline.
+      state = mergeLoadedChannelHistoryPage(state, page, pageIndex === 0 ? "replace" : "older", 1);
+    }
     const mergeMs = performance.now() - mergeStartedAt;
     totalMergeMs += mergeMs;
     if (pageIndex === 0) initialMergeMs = mergeMs;
     else olderMergeMs.push(mergeMs);
+    maxPrimaryMessages = Math.max(maxPrimaryMessages, state.messages.length);
 
     const projectionStartedAt = performance.now();
-    observableChecksum += projectHistoryForRenderer(state);
+    observableChecksum += projectHistoryForRenderer(state, window);
     const projectionDuration = performance.now() - projectionStartedAt;
     projectionMs.push(projectionDuration);
     totalProjectionMs += projectionDuration;
@@ -374,11 +451,16 @@ const runTraversal = (pages: readonly ChannelHistoryPage[], strategy: StrategyId
   if (!state) state = emptyLoadedChannelHistory();
   return {
     state,
+    window,
     initialMergeMs,
     olderMergeMs,
     projectionMs,
     totalMergeMs,
     totalProjectionMs,
+    evictedOlder,
+    evictedNewer,
+    peakRetainedBytes,
+    maxPrimaryMessages,
   };
 };
 
@@ -405,16 +487,35 @@ const collectTraversal = (
       totalProjectionToTraverseHistory: distribution(
         runs.map((candidate) => candidate.totalProjectionMs)
       ),
+      productionWindow:
+        strategy === "A_current_unbounded"
+          ? undefined
+          : {
+              messageLimit: MESSAGE_HISTORY_MAX_MESSAGES,
+              retainedByteLimit: MESSAGE_HISTORY_MAX_RETAINED_BYTES,
+              maxPrimaryMessages: Math.max(
+                ...runs.map((candidate) => candidate.maxPrimaryMessages)
+              ),
+              peakRetainedBytes: Math.max(...runs.map((candidate) => candidate.peakRetainedBytes)),
+              finalRetainedBytes: run.window?.retainedBytes ?? 0,
+              evictedOlder: run.evictedOlder,
+              evictedNewer: run.evictedNewer,
+              primaryHasNewerGap: run.window?.primaryHasNewerGap ?? false,
+            },
     },
   };
 };
 
-const retainedMetrics = (history: LoadedChannelHistory): Record<string, number> => {
+const retainedMetrics = (
+  history: LoadedChannelHistory,
+  window: ChannelMessageWindowState | null = null
+): Record<string, number | boolean> => {
   const lanes = [
     history.messages,
     history.threadContext,
     history.searchContext,
     history.searchThreadContext,
+    ...(window?.latestTail ? [window.latestTail.messages, window.latestTail.threadContext] : []),
   ];
   const unique = new Map<string, ChannelMessageView>();
   for (const lane of lanes) {
@@ -432,6 +533,16 @@ const retainedMetrics = (history: LoadedChannelHistory): Record<string, number> 
       (total, message) => total + payloadByteLength(message),
       0
     ),
+    ...(window
+      ? {
+          latestTailMessages: window.latestTail?.messages.length ?? 0,
+          latestTailThreadContextMessages: window.latestTail?.threadContext.length ?? 0,
+          productionRetainedBytes: window.retainedBytes,
+          productionMessageLimit: MESSAGE_HISTORY_MAX_MESSAGES,
+          productionRetainedByteLimit: MESSAGE_HISTORY_MAX_RETAINED_BYTES,
+          primaryHasNewerGap: window.primaryHasNewerGap,
+        }
+      : {}),
   };
 };
 
@@ -449,13 +560,26 @@ const measurePoint = (work: () => number, samples = pointSamples): Distribution 
 const recentWindowState = (
   pages: readonly ChannelHistoryPage[],
   strategy: StrategyId
-): LoadedChannelHistory => {
+): BenchmarkHistoryState => {
   let state: LoadedChannelHistory | undefined;
+  let window = boundedStrategy(strategy) ? emptyChannelMessageWindow() : null;
   for (const [index, page] of pages.slice(0, ROLLING_PAGE_COUNT).entries()) {
-    state = mergeLoadedChannelHistoryPage(state, page, index === 0 ? "replace" : "older", 1);
-    if (boundedStrategy(strategy)) state = capPrimaryHistory(state, "older");
+    if (window) {
+      const transition = applyPrimaryHistoryPage({
+        current: state,
+        window,
+        page,
+        mode: index === 0 ? "replace" : "older",
+        atBottom: index === 0,
+        loadedAt: 1,
+      });
+      state = transition.history;
+      window = transition.window;
+    } else {
+      state = mergeLoadedChannelHistoryPage(state, page, index === 0 ? "replace" : "older", 1);
+    }
   }
-  return state ?? emptyLoadedChannelHistory();
+  return { history: state ?? emptyLoadedChannelHistory(), window };
 };
 
 const appendPageFor = (messages: readonly ChannelMessageView[], profile: PayloadProfile) => {
@@ -465,29 +589,96 @@ const appendPageFor = (messages: readonly ChannelMessageView[], profile: Payload
 };
 
 const appendMetrics = (
-  base: LoadedChannelHistory,
+  base: BenchmarkHistoryState,
   page: ChannelHistoryPage,
   strategy: StrategyId
 ): Record<string, unknown> => {
-  let projectedState = mergeLoadedChannelHistoryPage(base, page, "refresh", 2);
-  if (boundedStrategy(strategy)) projectedState = capPrimaryHistory(projectedState, "newer");
+  if (strategy === "A_current_unbounded") {
+    const projectedState = mergeLoadedChannelHistoryPage(base.history, page, "refresh", 2);
+    const merge = measurePoint(() => {
+      const next = mergeLoadedChannelHistoryPage(base.history, page, "refresh", 2);
+      return next.messages.length;
+    });
+    return {
+      basePrimaryMessages: base.history.messages.length,
+      mergedPrimaryMessages: projectedState.messages.length,
+      latestPageRefreshMerge: merge,
+      rendererProjectionAfterRefresh: measurePoint(() => projectHistoryForRenderer(projectedState)),
+    };
+  }
+
+  const projected = applyPrimaryHistoryPage({
+    current: base.history,
+    window: base.window ?? emptyChannelMessageWindow(),
+    page,
+    mode: "refresh",
+    atBottom: true,
+    loadedAt: 2,
+  });
   const merge = measurePoint(() => {
-    let next = mergeLoadedChannelHistoryPage(base, page, "refresh", 2);
-    if (boundedStrategy(strategy)) next = capPrimaryHistory(next, "newer");
-    return next.messages.length;
+    const next = applyPrimaryHistoryPage({
+      current: base.history,
+      window: base.window ?? emptyChannelMessageWindow(),
+      page,
+      mode: "refresh",
+      atBottom: true,
+      loadedAt: 2,
+    });
+    return transitionChecksum(next);
   });
   return {
-    basePrimaryMessages: base.messages.length,
-    mergedPrimaryMessages: projectedState.messages.length,
+    basePrimaryMessages: base.history.messages.length,
+    mergedPrimaryMessages: projected.history.messages.length,
+    productionRetainedBytes: projected.window.retainedBytes,
+    evictedOlder: projected.evictedOlder,
+    evictedNewer: projected.evictedNewer,
+    outcome: projected.outcome,
     latestPageRefreshMerge: merge,
-    rendererProjectionAfterRefresh: measurePoint(() => projectHistoryForRenderer(projectedState)),
+    rendererProjectionAfterRefresh: measurePoint(() =>
+      projectHistoryForRenderer(projected.history, projected.window)
+    ),
   };
 };
 
-const finalProjectionMetrics = (state: LoadedChannelHistory): Record<string, unknown> => ({
-  retained: retainedMetrics(state),
-  rendererProjection: measurePoint(() => projectHistoryForRenderer(state)),
+const finalProjectionMetrics = (
+  state: LoadedChannelHistory,
+  window: ChannelMessageWindowState | null
+): Record<string, unknown> => ({
+  retained: retainedMetrics(state, window),
+  rendererProjection: measurePoint(() => projectHistoryForRenderer(state, window)),
 });
+
+const returnToNewestMetrics = (
+  run: TraversalRun,
+  strategy: StrategyId
+): Record<string, unknown> => {
+  if (strategy === "A_current_unbounded") {
+    return {
+      additionalRequests: 0,
+      responseJsonBytes: 0,
+      note: "Newest messages are still retained.",
+    };
+  }
+  const reset = run.window ? resetToLatestTail(run.state, run.window, 2) : null;
+  if (!reset) {
+    return {
+      additionalRequests: 0,
+      responseJsonBytes: 0,
+      note: "The bounded primary window still contains the newest messages.",
+    };
+  }
+  return {
+    additionalRequests: 0,
+    responseJsonBytes: 0,
+    note: "The production reducer swaps its retained latest tail into view without a request.",
+    cachedTailMessages: reset.history.messages.length,
+    cachedTailRetainedBytes: reset.window.retainedBytes,
+    cachedTailResetMerge: measurePoint(() => {
+      const next = run.window ? resetToLatestTail(run.state, run.window, 2) : null;
+      return next ? transitionChecksum(next) : 0;
+    }),
+  };
+};
 
 const mergeSearchWindow = (
   current: readonly ChannelMessageView[],
@@ -499,6 +690,148 @@ const mergeSearchWindow = (
   return direction === "older"
     ? merged.slice(0, ROLLING_MESSAGE_LIMIT)
     : merged.slice(-ROLLING_MESSAGE_LIMIT);
+};
+
+const buildContextExpansionPlan = (
+  messages: readonly ChannelMessageView[],
+  initial: MessageWindowTransition
+): {
+  steps: ContextExpansionStep[];
+  final: MessageWindowTransition;
+  addedOlder: number;
+  addedNewer: number;
+} => {
+  const indexById = new Map(messages.map((message, index) => [message.id, index] as const));
+  const steps: ContextExpansionStep[] = [];
+  let transition = initial;
+  let addedOlder = 0;
+  let addedNewer = 0;
+  for (const direction of ["older", "newer"] as const) {
+    let remaining = Math.max(
+      0,
+      SEARCH_NEWER_DISTANCE - (direction === "older" ? CONTEXT_BEFORE : CONTEXT_AFTER)
+    );
+    while (remaining > 0) {
+      const edge =
+        direction === "older"
+          ? transition.history.searchContext[0]
+          : transition.history.searchContext.at(-1);
+      const anchorIndex = edge ? indexById.get(edge.id) : undefined;
+      if (anchorIndex === undefined) break;
+      const page = createDirectionalContext(
+        messages,
+        anchorIndex,
+        direction,
+        Math.min(PAGE_SIZE, remaining)
+      );
+      if (!page) break;
+      const existingIds = new Set(transition.history.searchContext.map((message) => message.id));
+      const added = page.messages.reduce(
+        (total, message) => total + (existingIds.has(message.id) ? 0 : 1),
+        0
+      );
+      if (added === 0) break;
+      steps.push({ direction, page });
+      transition = expandMessageContext({
+        current: transition.history,
+        window: transition.window,
+        page,
+        direction,
+        loadedAt: 3 + steps.length,
+      });
+      if (direction === "older") addedOlder += added;
+      else addedNewer += added;
+      remaining -= added;
+    }
+  }
+  return { steps, final: transition, addedOlder, addedNewer };
+};
+
+const boundedContextMetrics = (
+  messages: readonly ChannelMessageView[],
+  latestPage: ChannelHistoryPage,
+  context: ChannelMessageContextView
+): Record<string, unknown> => {
+  const recent = applyPrimaryHistoryPage({
+    current: undefined,
+    window: undefined,
+    page: latestPage,
+    mode: "replace",
+    atBottom: true,
+    loadedAt: 1,
+  });
+  const around = enterMessageContext(recent.history, recent.window, context, 2);
+  const aroundMerge = measurePoint(() =>
+    transitionChecksum(enterMessageContext(recent.history, recent.window, context, 2))
+  );
+  const plan = buildContextExpansionPlan(messages, around);
+  const runExpansion = () => {
+    let transition = around;
+    let checksum = 0;
+    let evictedOlder = 0;
+    let evictedNewer = 0;
+    for (const [index, step] of plan.steps.entries()) {
+      transition = expandMessageContext({
+        current: transition.history,
+        window: transition.window,
+        page: step.page,
+        direction: step.direction,
+        loadedAt: 3 + index,
+      });
+      evictedOlder += transition.evictedOlder;
+      evictedNewer += transition.evictedNewer;
+      checksum +=
+        transitionChecksum(transition) +
+        projectHistoryForRenderer(transition.history, transition.window);
+    }
+    return { transition, checksum, evictedOlder, evictedNewer };
+  };
+  runExpansion();
+  const durations: number[] = [];
+  let finalRun = {
+    transition: plan.final,
+    checksum: transitionChecksum(plan.final),
+    evictedOlder: 0,
+    evictedNewer: 0,
+  };
+  for (let sample = 0; sample < pointSamples; sample += 1) {
+    const startedAt = performance.now();
+    finalRun = runExpansion();
+    durations.push(performance.now() - startedAt);
+    observableChecksum += finalRun.checksum;
+  }
+  const requestsByDirection = plan.steps.reduce(
+    (counts, step) => {
+      counts[step.direction] += 1;
+      return counts;
+    },
+    { older: 0, newer: 0 }
+  );
+  return {
+    aroundWindow: {
+      returnedMessages: context.messages.length,
+      visibleMessages: visibleChannelHistoryMessages(around.history, around.window).length,
+      mergeWithProductionReducer: aroundMerge,
+      rendererProjection: measurePoint(() =>
+        projectHistoryForRenderer(around.history, around.window)
+      ),
+      evictedOlder: around.evictedOlder,
+      evictedNewer: around.evictedNewer,
+      retained: retainedMetrics(around.history, around.window),
+    },
+    bidirectionalExpansion: {
+      requestedDistanceFromTargetPerDirection: SEARCH_NEWER_DISTANCE,
+      addedOlderMessages: plan.addedOlder,
+      addedNewerMessages: plan.addedNewer,
+      requests: plan.steps.length,
+      requestsByDirection,
+      responseJsonBytes: plan.steps.reduce((total, step) => total + byteLength(step.page), 0),
+      totalMergeAndProjection: distribution(durations),
+      evictedOlder: finalRun.evictedOlder,
+      evictedNewer: finalRun.evictedNewer,
+      retained: retainedMetrics(finalRun.transition.history, finalRun.transition.window),
+    },
+  };
 };
 
 const deepSearchMetrics = (
@@ -561,6 +894,7 @@ const deepSearchMetrics = (
     continuationState = result.history;
     observableChecksum += result.checksum;
   }
+  const productionBoundedContext = boundedContextMetrics(messages, latestPage, context);
 
   return {
     target: {
@@ -591,6 +925,16 @@ const deepSearchMetrics = (
       ),
       totalMergeAndProjection: distribution(continuationDurations),
       retained: retainedMetrics(continuationState),
+    },
+    productionReducerByBoundedStrategy: {
+      B_bounded_older_only: {
+        aroundWindow: productionBoundedContext.aroundWindow,
+        bidirectionalExpansion: {
+          supported: false,
+          reason: "The older-only strategy does not retain a newer context cursor.",
+        },
+      },
+      C_search_bidirectional: productionBoundedContext,
     },
     supportByStrategy: {
       A_current_unbounded: {
@@ -626,14 +970,16 @@ const benchmarkWorkload = (definition: WorkloadDefinition): Record<string, unkno
   ] as const) {
     const traversal = collectTraversal(pages, strategy);
     const appendBase =
-      strategy === "A_current_unbounded" ? traversal.run.state : recentWindowState(pages, strategy);
+      strategy === "A_current_unbounded"
+        ? { history: traversal.run.state, window: traversal.run.window }
+        : recentWindowState(pages, strategy);
     strategies[strategy] = {
       behavior:
         strategy === "A_current_unbounded"
           ? "Current older-only cursor; every loaded page remains in the active history."
           : strategy === "B_bounded_older_only"
-            ? `Older-only rolling primary window capped at ${ROLLING_MESSAGE_LIMIT} messages; returning newest reloads the latest page.`
-            : `Same bounded normal-history path as B; before/after cursors exist only in a separate search/deep-link context lane.`,
+            ? `Production older-only primary reducer capped at ${ROLLING_MESSAGE_LIMIT} messages and ${MESSAGE_HISTORY_MAX_RETAINED_BYTES} retained bytes; returning newest uses its cached tail or reloads the latest page.`
+            : `Same production bounded normal-history reducer as B; before/after expansion exists only in a separate bounded search/deep-link context lane.`,
       historyTraversal: {
         initialRequests: pages.length > 0 ? 1 : 0,
         olderRequests: Math.max(0, pages.length - 1),
@@ -641,17 +987,12 @@ const benchmarkWorkload = (definition: WorkloadDefinition): Record<string, unkno
         totalResponseJsonBytes: responseBytes.reduce((total, value) => total + value, 0),
         ...traversal.metrics,
       },
-      afterCompleteOlderTraversal: finalProjectionMetrics(traversal.run.state),
+      afterCompleteOlderTraversal: finalProjectionMetrics(
+        traversal.run.state,
+        traversal.run.window
+      ),
       appendAtSteadyState: appendMetrics(appendBase, appendPage, strategy),
-      returnToNewestAfterCompleteOlderTraversal: {
-        additionalRequests: strategy === "A_current_unbounded" || pages.length <= 1 ? 0 : 1,
-        responseJsonBytes:
-          strategy === "A_current_unbounded" || pages.length <= 1 ? 0 : (responseBytes[0] ?? 0),
-        note:
-          strategy === "A_current_unbounded" || pages.length <= 1
-            ? "Newest messages are still retained."
-            : "The rolling window ended at the oldest loaded page; an explicit newest-page reload resets it.",
-      },
+      returnToNewestAfterCompleteOlderTraversal: returnToNewestMetrics(traversal.run, strategy),
     };
   }
 
@@ -709,6 +1050,7 @@ const output = {
     pageSize: PAGE_SIZE,
     rollingPageCount: ROLLING_PAGE_COUNT,
     rollingMessageLimit: ROLLING_MESSAGE_LIMIT,
+    retainedByteLimit: MESSAGE_HISTORY_MAX_RETAINED_BYTES,
     contextBefore: CONTEXT_BEFORE,
     contextAfter: CONTEXT_AFTER,
     searchNewerDistance: SEARCH_NEWER_DISTANCE,
@@ -728,11 +1070,16 @@ const output = {
       "messageDisplayProjection",
       "computeVirtualLayout",
       "computeVirtualRangeFromLayout",
+      "applyPrimaryHistoryPage",
+      "enterMessageContext",
+      "expandMessageContext",
+      "resetToLatestTail",
+      "visibleChannelHistoryMessages",
     ],
     measured:
       "Synchronous client merge and renderer data-projection CPU on deterministic in-memory server pages.",
     retainedBytes:
-      "Exact UTF-8 JSON serialization and content+metadata bytes of unique retained messages; these are deterministic payload-size proxies, not JavaScript heap measurements.",
+      "Exact UTF-8 JSON serialization and content+metadata bytes of unique retained messages, plus the production reducer's retained-byte accounting; these are deterministic payload-size proxies, not JavaScript heap measurements.",
     excluded:
       "HTTP/database latency, React commit, Markdown/highlighter initialization, DOM measurement, image decode, compositor work, and Electron IPC.",
     interpretation:

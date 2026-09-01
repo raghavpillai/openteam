@@ -30,14 +30,14 @@ import { BOT_TEMPLATE_SHARING_ENABLED, type TemplateBot } from "./lib/bot-templa
 import { cn } from "./lib/cn";
 import { deriveUnreadChannelIds, syncDesktopNotificationSnapshot } from "./lib/notifications";
 import {
-  canShowInspector,
   COMPACT_SIDEBAR_WIDTH,
-  maxInspectorWidthForLayout,
+  canShowInspector,
   MIN_INSPECTOR_WIDTH,
+  maxInspectorWidthForLayout,
   resizeInspector,
   shouldForceCompactSidebar,
 } from "./lib/panel-resize";
-import { measureUntilNextPaint } from "./lib/performance";
+import { measureUntilNextPaint, recordPerformance } from "./lib/performance";
 import { enableScreenForSession } from "./lib/screen-session";
 import { useSnapshotIndex } from "./lib/snapshot-index";
 import { readThemePreference, setThemePreference, THEME_CHANGE_EVENT } from "./lib/theme";
@@ -926,6 +926,7 @@ export default function App() {
       selectSidebarChannel(result.channelId);
       if (result.messageId) {
         const nonce = ++searchLoadNonce.current;
+        const startedAt = performance.now();
         setSearchMessageTarget(null);
         const channelId = result.channelId;
         const messageId = result.messageId;
@@ -933,6 +934,16 @@ export default function App() {
           .then((found) => {
             if (!found || searchLoadNonce.current !== nonce) return;
             setSearchMessageTarget({ channelId, messageId, nonce });
+            window.requestAnimationFrame(() => {
+              window.setTimeout(
+                () =>
+                  recordPerformance(
+                    "history.context.target-to-paint",
+                    performance.now() - startedAt
+                  ),
+                0
+              );
+            });
           })
           .catch(() => undefined);
       }

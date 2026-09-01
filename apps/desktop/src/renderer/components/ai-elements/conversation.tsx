@@ -4,6 +4,7 @@ import type { ComponentProps, ReactNode } from "react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { StickToBottom, useStickToBottomContext } from "use-stick-to-bottom";
 import { cn } from "../../lib/cn";
+import { recordPerformance } from "../../lib/performance";
 import { Button } from "../ui/button";
 
 export const Conversation = ({ className, ...props }: ComponentProps<typeof StickToBottom>) => (
@@ -242,6 +243,7 @@ export const ConversationScrollButton = ({
   }, [isAtBottom, onAtBottomChange]);
 
   const onClick = useCallback(async () => {
+    const jumpStartedAt = forceLatest ? performance.now() : null;
     setScrolling(true);
     setNewMessageCount(0);
     try {
@@ -256,13 +258,16 @@ export const ConversationScrollButton = ({
       await scrollToBottom("instant");
       const viewport = scrollRef.current;
       if (viewport) viewport.scrollTop = viewport.scrollHeight;
+      if (jumpStartedAt !== null) {
+        recordPerformance("history.latest.jump-to-paint", performance.now() - jumpStartedAt);
+      }
     } catch {
       // The app-level operation already reports the failure. Keep the current
       // viewport instead of jumping within a stale history window.
     } finally {
       setScrolling(false);
     }
-  }, [onScrollToNewest, scrollRef, scrollToBottom]);
+  }, [forceLatest, onScrollToNewest, scrollRef, scrollToBottom]);
 
   if (visible && trackNewMessages && newMessageCount > 0 && !noticeDismissed) {
     const label = `${newMessageCount} new ${newMessageCount === 1 ? "message" : "messages"}`;

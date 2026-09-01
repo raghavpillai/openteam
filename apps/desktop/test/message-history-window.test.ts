@@ -5,6 +5,7 @@ import type {
   ChannelMessageView,
 } from "@openbot/contracts";
 import { emptyLoadedChannelHistory } from "@openbot/product-core/history";
+import { messageRetainedByteSize } from "@openbot/product-core/message-window";
 import {
   applyPrimaryHistoryPage,
   clearMessageContext,
@@ -12,6 +13,7 @@ import {
   enterMessageContext,
   expandMessageContext,
   MESSAGE_HISTORY_MAX_MESSAGES,
+  MESSAGE_HISTORY_MAX_RETAINED_BYTES,
   resetToLatestTail,
   visibleChannelHistoryMessages,
 } from "../src/renderer/lib/message-history-window";
@@ -30,6 +32,15 @@ const message = (sequence: number, content = `message ${sequence}`): ChannelMess
 
 const messages = (start: number, count: number) =>
   Array.from({ length: count }, (_, index) => message(start + index));
+
+const retainedBytes = (...lanes: ReadonlyArray<readonly ChannelMessageView[]>): number => {
+  const unique = new Map<string, ChannelMessageView>();
+  for (const lane of lanes) for (const candidate of lane) unique.set(candidate.id, candidate);
+  return [...unique.values()].reduce(
+    (total, candidate) => total + messageRetainedByteSize(candidate),
+    0
+  );
+};
 
 const historyPage = (start: number, count: number, hasMore = true): ChannelHistoryPage => ({
   channelId: "channel-1",
@@ -202,6 +213,40 @@ describe("desktop bounded message-history windows", () => {
     );
   });
 
+  test("updates the context anchor metadata when bounded paging evicts the original target", () => {
+    const initial = applyPrimaryHistoryPage({
+      current: undefined,
+      window: undefined,
+      page: historyPage(2_001, 100),
+      mode: "replace",
+      atBottom: true,
+    });
+    let transition = enterMessageContext(
+      initial.history,
+      initial.window,
+      contextPage(1_001, 101, 1_051)
+    );
+    for (const start of [901, 801, 701, 601, 501]) {
+      transition = expandMessageContext({
+        current: transition.history,
+        window: transition.window,
+        page: contextPage(start, 101, start + 100),
+        direction: "older",
+      });
+    }
+
+    expect(transition.history.searchContext).toHaveLength(MESSAGE_HISTORY_MAX_MESSAGES);
+    expect(
+      transition.history.searchContext.some((candidate) => candidate.id === "message-1051")
+    ).toBe(false);
+    expect(
+      transition.history.searchContext.some(
+        (candidate) => candidate.id === transition.window.context?.targetMessageId
+      )
+    ).toBe(true);
+    expect(transition.window.context?.targetMessageId).toBe("message-1000");
+  });
+
   test("closing context restores the preserved primary window without mixing lanes", () => {
     const initial = applyPrimaryHistoryPage({
       current: undefined,
@@ -303,5 +348,163 @@ describe("desktop bounded message-history windows", () => {
     expect(contextual.history.searchContext).toHaveLength(25);
     expect(contextual.window.latestTail).not.toBeNull();
     expect(contextual.window.retainedBytes).toBeLessThanOrEqual(2 * 1024 * 1024);
+  });
+
+  test("deduplicates overlapping primary and latest-tail bytes across the full retained state", () => {
+    const initial = applyPrimaryHistoryPage({
+      current: undefined,
+      window: undefined,
+      page: historyPage(101, 450),
+      mode: "replace",
+      atBottom: true,
+    });
+    const older = applyPrimaryHistoryPage({
+      current: initial.history,
+      window: initial.window,
+      page: historyPage(1, 100, false),
+      mode: "older",
+      atBottom: false,
+    });
+    const tail = older.window.latestTail;
+    expect(tail).not.toBeNull();
+    const expected = retainedBytes(
+      older.history.messages,
+      older.history.threadContext,
+      older.history.searchContext,
+      older.history.searchThreadContext,
+      tail?.messages ?? [],
+      tail?.threadContext ?? []
+    );
+    const doubleCounted =
+      retainedBytes(older.history.messages, older.history.threadContext) +
+      retainedBytes(tail?.messages ?? [], tail?.threadContext ?? []);
+
+    expect(older.window.retainedBytes).toBe(expected);
+    expect(older.window.retainedBytes).toBeLessThan(doubleCounted);
+  });
+
+  test("enforces one byte ceiling across retained primary, context, threads, and latest tail", () => {
+    const richPrimary: ChannelHistoryPage = {
+      ...historyPage(901, 100),
+      messages: messages(901, 100).map((candidate) => ({
+        ...candidate,
+        content: `primary ${"p".repeat(12_000)}`,
+      })),
+    };
+    const richContext: ChannelMessageContextView = {
+      ...contextPage(451, 101, 501),
+      messages: messages(451, 101).map((candidate) => ({
+        ...candidate,
+        content: `context ${"c".repeat(12_000)}`,
+      })),
+    };
+    const initial = applyPrimaryHistoryPage({
+      current: undefined,
+      window: undefined,
+      page: richPrimary,
+      mode: "replace",
+      atBottom: true,
+    });
+    const contextual = enterMessageContext(initial.history, initial.window, richContext);
+    const tail = contextual.window.latestTail;
+    const expected = retainedBytes(
+      contextual.history.messages,
+      contextual.history.threadContext,
+      contextual.history.searchContext,
+      contextual.history.searchThreadContext,
+      tail?.messages ?? [],
+      tail?.threadContext ?? []
+    );
+
+    expect(contextual.history.searchContext.length).toBeLessThan(richContext.messages.length);
+    expect(
+      contextual.history.searchContext.some(({ id }) => id === richContext.targetMessageId)
+    ).toBe(true);
+    expect(contextual.window.retainedBytes).toBe(expected);
+    expect(contextual.window.retainedBytes).toBeLessThanOrEqual(MESSAGE_HISTORY_MAX_RETAINED_BYTES);
+  });
+
+  test("rebalances hidden primary and visible context when a disjoint rich latest tail arrives", () => {
+    const richPage = (start: number, fill: string): ChannelHistoryPage => ({
+      ...historyPage(start, 100),
+      messages: messages(start, 100).map((candidate) => ({
+        ...candidate,
+        content: fill.repeat(12_000),
+      })),
+    });
+    const initial = applyPrimaryHistoryPage({
+      current: undefined,
+      window: undefined,
+      page: richPage(901, "p"),
+      mode: "replace",
+      atBottom: true,
+    });
+    const context: ChannelMessageContextView = {
+      ...contextPage(451, 101, 501),
+      messages: messages(451, 101).map((candidate) => ({
+        ...candidate,
+        content: "c".repeat(4_000),
+      })),
+    };
+    const contextual = enterMessageContext(initial.history, initial.window, context);
+    const refreshed = applyPrimaryHistoryPage({
+      current: contextual.history,
+      window: contextual.window,
+      page: richPage(1_001, "n"),
+      mode: "refresh",
+      atBottom: false,
+    });
+    const tail = refreshed.window.latestTail;
+    const expected = retainedBytes(
+      refreshed.history.messages,
+      refreshed.history.threadContext,
+      refreshed.history.searchContext,
+      refreshed.history.searchThreadContext,
+      tail?.messages ?? [],
+      tail?.threadContext ?? []
+    );
+
+    expect(refreshed.window.primaryHasNewerGap).toBe(true);
+    expect(refreshed.window.context?.hasMoreAfter).toBe(true);
+    expect(refreshed.window.retainedBytes).toBe(expected);
+    expect(refreshed.window.retainedBytes).toBeLessThanOrEqual(MESSAGE_HISTORY_MAX_RETAINED_BYTES);
+  });
+
+  test("uses reserved context capacity without double-counting its overlapping tail", () => {
+    const nearlyFullPrimary: ChannelHistoryPage = {
+      ...historyPage(901, 100),
+      messages: messages(901, 100).map((candidate) => ({
+        ...candidate,
+        content: "p".repeat(21_000),
+      })),
+    };
+    const initial = applyPrimaryHistoryPage({
+      current: undefined,
+      window: undefined,
+      page: nearlyFullPrimary,
+      mode: "replace",
+      atBottom: true,
+    });
+    const contextual = enterMessageContext(
+      initial.history,
+      initial.window,
+      contextPage(451, 101, 551)
+    );
+
+    expect(initial.window.retainedBytes).toBeGreaterThan(
+      MESSAGE_HISTORY_MAX_RETAINED_BYTES - 64 * 1024
+    );
+    expect(contextual.history.searchContext).toHaveLength(101);
+    expect(contextual.window.retainedBytes).toBe(
+      retainedBytes(
+        contextual.history.messages,
+        contextual.history.threadContext,
+        contextual.history.searchContext,
+        contextual.history.searchThreadContext,
+        contextual.window.latestTail?.messages ?? [],
+        contextual.window.latestTail?.threadContext ?? []
+      )
+    );
+    expect(contextual.window.retainedBytes).toBeLessThanOrEqual(MESSAGE_HISTORY_MAX_RETAINED_BYTES);
   });
 });

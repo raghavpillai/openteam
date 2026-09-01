@@ -86,6 +86,7 @@ import {
   formatOfflineDeliveryLabel,
   shouldShowIdleGapTimestamp,
 } from "../../lib/message-timestamps";
+import { recordPerformance } from "../../lib/performance";
 import { addContextGaps } from "../../lib/search-context";
 import { conversationApprovals } from "../../lib/subagent-activity";
 import { deriveThreads, isBranchedMessage } from "../../lib/threads";
@@ -373,7 +374,11 @@ function VirtualizedTimeline<T extends { id: string; type: string }>({
   const lastNewerLoadStartedAt = useRef(0);
   const anchorCleanupTimer = useRef<number | null>(null);
   const pendingScrollAnchor = useRef<{
+    automatic: boolean;
+    direction: "older" | "newer";
     key: string;
+    reported: boolean;
+    startedAt: number;
     viewportOffset: number;
   } | null>(null);
   const estimateSize = useCallback(
@@ -446,30 +451,37 @@ function VirtualizedTimeline<T extends { id: string; type: string }>({
     []
   );
 
-  const captureVisibleAnchor = useCallback(() => {
-    const viewport = scrollRef.current;
-    const content = contentRef.current;
-    if (!viewport || !content) return null;
-    const viewportBounds = viewport.getBoundingClientRect();
-    const rows = content.querySelectorAll<HTMLElement>("[data-virtual-timeline-key]");
-    let visibleRow: HTMLElement | null = null;
-    for (const row of rows) {
-      const bounds = row.getBoundingClientRect();
-      if (bounds.bottom > viewportBounds.top && bounds.top < viewportBounds.bottom) {
-        visibleRow = row;
-        break;
+  const captureVisibleAnchor = useCallback(
+    (direction: "older" | "newer", automatic: boolean) => {
+      const viewport = scrollRef.current;
+      const content = contentRef.current;
+      if (!viewport || !content) return null;
+      const viewportBounds = viewport.getBoundingClientRect();
+      const rows = content.querySelectorAll<HTMLElement>("[data-virtual-timeline-key]");
+      let visibleRow: HTMLElement | null = null;
+      for (const row of rows) {
+        const bounds = row.getBoundingClientRect();
+        if (bounds.bottom > viewportBounds.top && bounds.top < viewportBounds.bottom) {
+          visibleRow = row;
+          break;
+        }
       }
-    }
-    const key = visibleRow?.dataset.virtualTimelineKey;
-    if (!visibleRow || !key) return null;
-    const anchor = {
-      key,
-      viewportOffset: visibleRow.getBoundingClientRect().top - viewportBounds.top,
-    };
-    pendingScrollAnchor.current = anchor;
-    stopScroll();
-    return anchor;
-  }, [scrollRef, stopScroll]);
+      const key = visibleRow?.dataset.virtualTimelineKey;
+      if (!visibleRow || !key) return null;
+      const anchor = {
+        automatic,
+        direction,
+        key,
+        reported: false,
+        startedAt: performance.now(),
+        viewportOffset: visibleRow.getBoundingClientRect().top - viewportBounds.top,
+      };
+      pendingScrollAnchor.current = anchor;
+      stopScroll();
+      return anchor;
+    },
+    [scrollRef, stopScroll]
+  );
 
   const loadOlder = useCallback(
     (automatic = false) => {
@@ -489,7 +501,7 @@ function VirtualizedTimeline<T extends { id: string; type: string }>({
         window.clearTimeout(anchorCleanupTimer.current);
         anchorCleanupTimer.current = null;
       }
-      const anchor = captureVisibleAnchor();
+      const anchor = captureVisibleAnchor("older", automatic);
       void Promise.resolve(onLoadOlder())
         .catch(() => {
           if (anchor && pendingScrollAnchor.current === anchor) pendingScrollAnchor.current = null;
@@ -525,7 +537,7 @@ function VirtualizedTimeline<T extends { id: string; type: string }>({
         window.clearTimeout(anchorCleanupTimer.current);
         anchorCleanupTimer.current = null;
       }
-      const anchor = captureVisibleAnchor();
+      const anchor = captureVisibleAnchor("newer", automatic);
       void Promise.resolve(onLoadNewer())
         .catch(() => {
           if (anchor && pendingScrollAnchor.current === anchor) pendingScrollAnchor.current = null;
@@ -585,6 +597,28 @@ function VirtualizedTimeline<T extends { id: string; type: string }>({
       if (pendingScrollAnchor.current !== anchor) return;
       scrollIndexToViewportOffset(anchorIndex, anchor.viewportOffset);
     };
+    const report = () => {
+      if (pendingScrollAnchor.current !== anchor || anchor.reported) return;
+      const viewport = scrollRef.current;
+      const row = Array.from(
+        contentRef.current?.querySelectorAll<HTMLElement>("[data-virtual-timeline-key]") ?? []
+      ).find((candidate) => candidate.dataset.virtualTimelineKey === anchor.key);
+      if (!viewport || !row) return;
+      anchor.reported = true;
+      const error = Math.abs(
+        row.getBoundingClientRect().top -
+          viewport.getBoundingClientRect().top -
+          anchor.viewportOffset
+      );
+      recordPerformance("history.anchor.error-px", error, {
+        automatic: anchor.automatic,
+        direction: anchor.direction,
+      });
+      recordPerformance("history.page.intent-to-paint", performance.now() - anchor.startedAt, {
+        automatic: anchor.automatic,
+        direction: anchor.direction,
+      });
+    };
     restore();
     // Give ResizeObserver-driven row measurements two layout frames to settle.
     // Later measurements retrigger this effect through totalSize while the
@@ -592,13 +626,16 @@ function VirtualizedTimeline<T extends { id: string; type: string }>({
     let secondFrame: number | null = null;
     const firstFrame = window.requestAnimationFrame(() => {
       restore();
-      secondFrame = window.requestAnimationFrame(restore);
+      secondFrame = window.requestAnimationFrame(() => {
+        restore();
+        report();
+      });
     });
     return () => {
       window.cancelAnimationFrame(firstFrame);
       if (secondFrame !== null) window.cancelAnimationFrame(secondFrame);
     };
-  }, [entries, scrollIndexToViewportOffset, totalSize]);
+  }, [entries, scrollIndexToViewportOffset, scrollRef, totalSize]);
 
   useLayoutEffect(() => {
     if (!focus) return;

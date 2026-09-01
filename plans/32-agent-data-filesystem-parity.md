@@ -1,7 +1,8 @@
 # File-native agent state and filesystem parity
 
 > Superseded on 2026-08-29 by
-> `plans/35-grok-filesystem-runtime-parity.md`. This file is a historical design
+> the implementation in `packages/messaging/src/agent-data.ts` and
+> `apps/computer/src/grok-agent-store.ts`. This file is a historical design
 > and investigation record; its old `/home/openbot`, per-Bot skill, fake-DB,
 > `instructions.md`, and lifecycle decisions are not the current contract.
 

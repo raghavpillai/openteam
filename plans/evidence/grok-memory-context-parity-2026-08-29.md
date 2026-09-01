@@ -132,7 +132,7 @@ distinct path. An active staged asset now survives reconciliation.
 
 The installed app is still version 0.29.0. The prior disposable installed-Grok
 probe in
-[`33-grok-context-compaction-live-validation.md`](../33-grok-context-compaction-live-validation.md)
+[`33-grok-context-compaction-live-validation.md`](./33-grok-context-compaction-live-validation.md)
 remains the strongest live threshold evidence:
 
 - no archive at 242,334 / 256,000 tokens, 866 tokens below the 95% boundary;
@@ -289,28 +289,17 @@ system. OpenBot uses Pi JSONL plus content-addressed JSON manifests and a
 PostgreSQL projection. Observable continuation and file behavior match; private
 serialization bytes and Cursor's cloud object backend do not.
 
-## Planning discrepancies
+## Planning cleanup
 
-Use plan 35 for filesystem/runtime layout and the corrected top/current-state
-sections of plan 33 for compaction. The following text is stale and unsafe as a
-future implementation contract:
+The completed v0, Pi migration, filesystem-runtime, and compaction plans were
+removed on 2026-09-01 after their shipped behavior was verified. Current
+authority is `apps/computer/src/grok-compaction.ts`,
+`apps/computer/src/grok-agent-store.ts`, `packages/messaging/src/agent-data.ts`,
+their tests, and `plans/30-canonical-context-handoff.md`.
 
-1. `plans/18-v0-implementation-status.md` still claims a manual Compact UI,
-   `/home/openbot/agent-data`, and per-Bot skills.
-2. `plans/27-pi-agent-runtime.md` still says Pi is the only compactor and manual
-   compact calls `AgentSession.compact()`.
-3. `plans/32-agent-data-filesystem-parity.md` is marked superseded, but its body
-   still uses `/home/openbot`, per-Bot skills, eager empty directories, and old
-   manual-compaction language.
-4. `plans/33-grok-context-compaction-parity.md` starts with the corrected home
-   context rule, but lower phases and acceptance criteria still require
-   independent home/group contexts and group compactions. The `ContextSession`
-   sketch also retains stale `group`/`subagent` scope language.
-5. `plans/00-index.md` still calls plan 33 a proposed replacement even though it
-   is implemented and live-validated.
-
-These should be rewritten or explicitly fenced as historical before the next
-parity implementation pass.
+`plans/32-agent-data-filesystem-parity.md` remains because external-event
+delivery and source-incomplete routine safety policy still have open gates; its
+historical sketches do not override current code.
 
 ## Forum claim check
 

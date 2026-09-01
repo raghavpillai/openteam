@@ -1,6 +1,6 @@
 # Grok Bot computer research
 
-> OpenBot implementation update (2026-09-01): this research led to the Xvfb/noVNC ScreenBroker, encrypted live BrowserBroker, stopped-profile authority, shared NSS store, and bot-owned target routing in `20-graphical-computer-implementation.md` and `21-shared-workspaces-and-browser-authority.md`. Separate bot screens, shared files, full computer-scoped browser state, and coordinated recovery are implemented.
+> OpenBot implementation update (2026-09-01): this research led to the Xvfb/noVNC ScreenBroker, encrypted live BrowserBroker, stopped-profile authority, shared NSS store, and bot-owned target routing in `apps/computer/src/`. Separate bot screens, shared files, full computer-scoped browser state, and coordinated recovery are implemented.
 
 Status: official behavior confirmed; implementation mechanism partly inferred  
 Last updated: 2026-08-24
@@ -142,7 +142,7 @@ The target image can contain:
 
 Keep the UI image separate from the OpenBot API image if doing so improves rebuild/recovery and limits privileges. This would add a `computer` service to Compose while preserving the single-Compose self-hosting goal.
 
-OpenBot's selected direction is one computer service with a `ScreenBroker` and `BrowserBroker`: bot-scoped logical displays/input leases over computer-scoped home, workspace, and supported browser authentication. Do not mount the Docker socket merely to spawn a sibling desktop container for every bot. See `17-durable-agent-queue-and-screens.md`.
+OpenBot's selected direction is one computer service with a `ScreenBroker` and `BrowserBroker`: bot-scoped logical displays/input leases over computer-scoped home, workspace, and supported browser authentication. Do not mount the Docker socket merely to spawn a sibling desktop container for every bot. The live authority is `apps/computer/src/screen-broker.ts` and `apps/computer/src/browser-broker.ts`.
 
 ## Required technical spike
 

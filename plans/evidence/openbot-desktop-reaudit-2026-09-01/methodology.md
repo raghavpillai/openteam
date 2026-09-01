@@ -64,5 +64,6 @@
 - No signed/notarized artifact, live update/rollback, physical Windows/Linux device, multi-hour
   background-power soak, assistive-technology matrix, or exhaustive native dialog branch was tested.
 
-Exact values are in [`summary.json`](./summary.json); interpretation and prioritized follow-ups are in
-[`../../40-desktop-performance-reaudit.md`](../../40-desktop-performance-reaudit.md).
+Exact values and the final verdict are in [`summary.json`](./summary.json). The
+completed parent plan was removed on 2026-09-01; active pagination follow-up is
+tracked in [`../../41-message-pagination-performance-data.md`](../../41-message-pagination-performance-data.md).

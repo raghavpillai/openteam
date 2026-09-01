@@ -3,7 +3,7 @@
 Status: captured for MVP v0  
 Last updated: 2026-08-24
 
-> Historical request record. The original request named Codex as the driver and planning as the immediate deliverable. The shipped runtime now embeds one Pi session per bot using OpenAI Codex OAuth; implementation and precedence are recorded in `27-pi-agent-runtime.md` and `30-canonical-context-handoff.md`.
+> Historical request record. The original request named Codex as the driver and planning as the immediate deliverable. The shipped runtime now embeds one Pi session per bot using OpenAI Codex OAuth; implementation and precedence are recorded in `apps/computer/src/runtime.ts` and `30-canonical-context-handoff.md`.
 
 ## The user request
 
@@ -88,13 +88,13 @@ Official Grok/Cursor, Codex, Claude Code, Agent Plugins, and MCP documentation c
 
 ## Follow-up agent communication investigation
 
-The new screenshots and supplied descriptors show fire-and-forget direct/group messaging rather than a blocking subagent call. The send commits and acknowledges immediately; the recipient wakes later on a fresh turn; a reply is another message; priority can supersede non-user work for a 1:1 recipient; and the user can inspect the peer transcript without typing into it. Official Grok, Claude Code, OpenAI multi-agent, and Codex documentation supports the mailbox/scheduler design in `12-agent-communication.md`. The two observed tool descriptors are preserved there verbatim as product research artifacts.
+The new screenshots and supplied descriptors show fire-and-forget direct/group messaging rather than a blocking subagent call. The send commits and acknowledges immediately; the recipient wakes later on a fresh turn; a reply is another message; priority can supersede non-user work for a 1:1 recipient; and the user can inspect the peer transcript without typing into it. The captured fixtures remain in `plans/12-agent-communication-*.json` as product research artifacts.
 
 ## Follow-up group-chat runtime investigation
 
 The later group screenshots add a stronger behavioral clue: the bots appear to receive separate ordered wakes, not one parallel/shared generation. Grok replies or skips first; Test #2 wakes later with Grok's committed room message already visible. Each bot says it keeps its own earlier context, receives only the new oldest-first room lines, and publishes only through `SendMessage`; no send means no bubble. Each can see the shared room and its own conversation but not the other bot's private transcript.
 
-Those statements remain unverified reverse-engineering evidence, and the supplied Chat Completions-like JSON is explicitly a sketch. OpenBot adopts a deterministic PostgreSQL group round with a per-member baton, durable cursors, optional silence, and stable Codex `thread/resume` plus `turn/start`. It does not reproduce a guessed provider `messages[]` wire. The exact supplied JSON sketches and the full runtime plan are in `15-agent-group-chat-runtime.md`.
+Those statements remain unverified reverse-engineering evidence, and the supplied Chat Completions-like JSON is explicitly a sketch. OpenBot adopts a deterministic PostgreSQL group round with a per-member baton, durable cursors, optional silence, and one durable Pi session per bot. It does not reproduce a guessed provider `messages[]` wire. The captured sketches remain in the `plans/12-agent-communication-*.json` fixtures.
 
 ## Follow-up native-tool investigation
 

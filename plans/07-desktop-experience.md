@@ -1,6 +1,6 @@
 # Desktop experience
 
-> Implementation update (2026-08-24): the Electron inspector now renders a real bot screen thumbnail and full noVNC viewer with takeover and emergency agent-input pause. Older headless-only acceptance language below records the initial v0 cut; current behavior is specified in `20-graphical-computer-implementation.md`.
+> Implementation update (2026-08-24): the Electron inspector now renders a real bot screen thumbnail and full noVNC viewer with takeover and emergency agent-input pause. Older headless-only acceptance language below records the initial v0 cut; current behavior lives in `apps/desktop/src/renderer/components/openbot/bot-screen.tsx`.
 
 Status: MVP v0 interaction spec  
 Last updated: 2026-08-24
@@ -166,7 +166,7 @@ v0 has no screen thumbnail because the computer is headless. In the first post-v
 
 ## Post-v0 peer handoff UI
 
-When `12-agent-communication.md` is implemented:
+The implemented peer handoff UI provides:
 
 - show `Messaged <Bot>` and `Message from <Bot>` as quiet, clickable transcript events;
 - collapse longer exchanges into `<n> messages with <Bot>` in the bot's home conversation;

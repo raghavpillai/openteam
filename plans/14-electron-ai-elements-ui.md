@@ -226,7 +226,7 @@ The screenshot's `Teach a task` control is evidence of a separate product featur
 
 ### Channels
 
-Post-v0 channel creation uses an OpenBot-owned shadcn dialog: required name, bot search, membership checkboxes, validation, Escape/close behavior, and a disabled `Create` action until the record is valid. It maps to the durable channel design in `12-agent-communication.md` and ordered round runtime in `15-agent-group-chat-runtime.md`; it is not an AI Elements conversation form. The room shows transient per-bot work state, but a bot that completes silently creates no permanent message row.
+Post-v0 channel creation uses an OpenBot-owned shadcn dialog: required name, bot search, membership checkboxes, validation, Escape/close behavior, and a disabled `Create` action until the record is valid. It maps to the durable channel and ordered-round implementation in `apps/server/src/services/channel-service.ts` and `packages/messaging/src/group-routing.ts`; it is not an AI Elements conversation form. The room shows transient per-bot work state, but a bot that completes silently creates no permanent message row.
 
 ## Smoothness and long transcripts
 

@@ -254,7 +254,7 @@ Plugin installation and OAuth connection are separate lifecycles. A plugin can b
 
 ## Reserved post-v0 agent communication records
 
-The design in `12-agent-communication.md` adds:
+The implemented agent-communication domain adds:
 
 - direct/group `AgentChannel` and membership records;
 - immutable `AgentMessage` records with channel ordering and correlation provenance;
@@ -264,7 +264,7 @@ The design in `12-agent-communication.md` adds:
 - `Run.origin`, source peer message, initiating bot, and supersession metadata;
 - typed outbound `SendMessage` records for text, attachments, widgets, and secure requests.
 
-The `SendToAgent` acknowledgement is emitted only after the message, recipient delivery rows or group round, sender projection, and product event commit atomically. Delivery processing is at-least-once with deduplicated enqueue; OpenBot does not claim exactly-once model execution or exactly-once external side effects. Group-specific records and constraints are in `15-agent-group-chat-runtime.md`.
+The `SendToAgent` acknowledgement is emitted only after the message, recipient delivery rows or group round, sender projection, and product event commit atomically. Delivery processing is at-least-once with deduplicated enqueue; OpenBot does not claim exactly-once model execution or exactly-once external side effects. Group routing authority is `packages/messaging/src/group-routing.ts` plus the database schema and worker tests.
 
 ## Reserved native-tool records
 

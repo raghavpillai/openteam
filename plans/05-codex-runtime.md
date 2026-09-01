@@ -1,6 +1,6 @@
 # Codex runtime
 
-Status: superseded by `27-pi-agent-runtime.md`  
+Status: superseded by the shipped Pi runtime; see `30-canonical-context-handoff.md`
 Last updated: 2026-08-25
 
 > Historical decision record only. OpenBot no longer runs Codex app-server. The live runtime embeds Pi and uses Pi's `openai-codex` OAuth provider. Do not implement new behavior against this document.
@@ -168,6 +168,6 @@ The full package, OAuth, multi-account, policy, and rollout design is in `11-plu
 
 The model-supplied schema intentionally has no `sender_id`. The computer gateway binds the callback to its active run, and the server revalidates bot, conversation, channel, delivery, and running status before dispatch. One app-server process may host multiple threads because caller identity is recovered from the gateway's active-turn record rather than accepted from tool arguments.
 
-Each bot has one active turn across every origin. User turns outrank peer work; priority peer messages may interrupt only non-user turns. Details, verbatim observed schemas, and acceptance criteria are in `12-agent-communication.md`.
+Each bot has one active turn across every origin. User turns outrank peer work; priority peer messages may interrupt only non-user turns. Captured compatibility fixtures remain in `plans/12-agent-communication-*.json`; the live runtime is authoritative.
 
-Group chat keeps the same private home thread per bot but adds a PostgreSQL-owned ordered round. Each member gets an independent `turn/start` containing a structured delta; later members may see earlier same-round room replies. Do not construct guessed Chat Completions message arrays or inject forged assistant/tool items. A group turn publishes only through explicit `SendMessage`; ordinary agent output remains internal and no send means `handled_silent`. See `15-agent-group-chat-runtime.md`.
+Group chat keeps the same private home session per bot but adds a PostgreSQL-owned ordered round. Each member gets an independent turn containing a structured delta; later members may see earlier same-round room replies. Do not construct guessed Chat Completions message arrays or inject forged assistant/tool items. A group turn publishes only through explicit `SendMessage`; ordinary agent output remains internal and no send means `handled_silent`. The implementation is in `apps/worker/src/worker.ts` and `packages/messaging/src/group-routing.ts`.

@@ -15,7 +15,7 @@ Evidence directory:
 
 Related records:
 [iOS product/parity specification](./34-ios-mobile-parity.md),
-[post-pull server/search audit](./37-post-pull-performance-and-parity-remediation.md), and
+[post-pull server/search evidence](./evidence/openbot-post-pull-audit-2026-08-31/), and
 [earlier native captures](../apps/mobile/artifacts/README.md).
 
 ## Executive verdict
@@ -282,7 +282,7 @@ The 60-second fallback intentionally remains while SSE is healthy; if streaming 
 event burst still reconciles through a full bootstrap rather than applying a compact domain delta.
 This architecture removes pathological polling and missed-event races, but the roster-proportional
 bootstrap remains the dominant network residual
-([sync scheduler](../apps/mobile/src/state/sync-scheduler.ts),
+([sync scheduler](../packages/client-core/src/sync.ts),
 [`mobile data tests`](../apps/mobile/test/network-data-performance.test.ts), and
 [`client stream tests`](../packages/client-core/test/client.test.ts)). The complete deterministic
 network/chat/auth record is in
@@ -318,7 +318,7 @@ single-session transcript therefore still needs an anchor-preserving data-window
 can be called memory-bounded at arbitrary depth. Snapshot acceptance also reconstructs and sorts
 the retained message array; it is bounded for inactive channels but still proportional to the
 active transcript
-([retention policy](../apps/mobile/src/state/snapshot-retention.ts),
+([retention policy](../packages/product-core/src/history.ts),
 [`snapshot cache`](../apps/mobile/src/snapshot-cache.ts), and
 [`draft journal`](../apps/mobile/src/drafts.ts)).
 
@@ -344,7 +344,7 @@ behavior under process suspension, or cellular retry behavior. A physical-device
 with one 200 MiB video and six 25 MiB files remains required
 ([native upload](../apps/mobile/src/native-asset-upload.ts),
 [`composer`](../apps/mobile/src/components/composer.tsx), and
-[`upload queue`](../apps/mobile/src/upload-queue.ts)).
+[`upload queue`](../packages/client-core/src/async.ts)).
 
 ## Lists, rendering work, and chat behavior
 
@@ -450,8 +450,7 @@ after blur, rapid takeover toggles, single-flight writes, and a forced release. 
 still polls a complete status and refreshes the frame URL every cycle even when nothing changed.
 Revision/ETag-aware frame delivery or a computer event channel is the next bandwidth/decode
 optimization; it should be measured against a real shared computer before changing semantics
-([serial poller](../apps/mobile/src/serial-poller.ts) and
-[`takeover controller`](../apps/mobile/src/serialized-takeover.ts)).
+([serial poller and takeover controller](../packages/client-core/src/screen.ts)).
 
 ## Authentication, push authorization, and sign-out ordering
 

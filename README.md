@@ -279,10 +279,10 @@ external path pointer remains. Root `settings.json`, `agents/active-agent.json`,
 per-bot `projects.json`, project `project.md`, group files, attachment files,
 automation run ledgers, and action audit JSONL use the same tree.
 
-The current file, runtime, and reconciliation contract—and its remaining
-implementation-level boundaries—is documented in
-`plans/35-grok-filesystem-runtime-parity.md`. Plan 32 is retained only as the
-historical design record it supersedes.
+The current file, runtime, and reconciliation contract lives in
+`packages/messaging/src/agent-data.ts`, `apps/computer/src/grok-agent-store.ts`,
+and their tests. `plans/32-agent-data-filesystem-parity.md` retains the remaining
+source-incomplete edges rather than duplicating the completed implementation record.
 
 ## Persistence and recovery
 
@@ -356,6 +356,6 @@ window.openbotPerformance.clear();
 - [Pi compaction](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/compaction.md)
 - [OpenAI Codex authentication](https://learn.chatgpt.com/docs/auth)
 - AI Elements source revision: `apps/desktop/AI_ELEMENTS_REVISION.md`
-- Canonical migration decision: `plans/27-pi-agent-runtime.md`
+- Canonical runtime handoff: `plans/30-canonical-context-handoff.md`
 
 `packages/codex-client` is retained only as unused migration history and is excluded from the active Bun/Turbo workspace; no runtime service imports it, no image installs Codex CLI, and all live turns use the embedded Pi SDK.

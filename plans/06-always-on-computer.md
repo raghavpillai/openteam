@@ -1,6 +1,6 @@
 # Always-on computer
 
-> Implementation update (2026-09-01): the graphical milestone and full computer-scoped browser authority are implemented. See `20-graphical-computer-implementation.md` for the live screen, app, tool, takeover, browser-state, routing, and recovery behavior.
+> Implementation update (2026-09-01): the graphical milestone and full computer-scoped browser authority are implemented. Current authority is `apps/computer/src/screen-broker.ts`, `apps/computer/src/browser-broker.ts`, `apps/computer/src/browser-profile-authority.ts`, and `30-canonical-context-handoff.md`.
 
 Status: v0 boundary and forward design  
 Last updated: 2026-08-24

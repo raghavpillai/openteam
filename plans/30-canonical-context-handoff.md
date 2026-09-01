@@ -7,7 +7,7 @@ Last updated: 2026-09-01
 
 This document is the compact handoff for anyone continuing OpenBot without the original Codex task history. It records the current implementation truth, document precedence, evidence boundaries, source-artifact inventory, and deferred work.
 
-Read this document after `00-index.md` and before relying on an older architecture plan.
+Read this document after `00-index.md` and before relying on a research or still-open architecture plan.
 
 ## Instruction and evidence boundary
 
@@ -26,45 +26,41 @@ In particular:
 
 OpenBot is a self-hosted, desktop-first workspace for durable named bots.
 
-1. **One local user, no OpenBot auth.** The API binds to localhost. Upstream model access still requires operator-owned Pi `openai-codex` OAuth.
-2. **Pi is the live model runtime.** The old Codex app-server design is migration history only. Each bot owns exactly one append-only Pi JSONL session.
+1. **One owner account.** Username/password sessions are required by default. Authentication can be disabled only as an explicit trusted-network deployment mode. Upstream model access still requires operator-owned Pi `openai-codex` OAuth.
+2. **Pi is the live model runtime.** The old Codex app-server design is migration history only. Each bot owns exactly one append-only Pi JSONL session, with OpenBot-owned background summary/adoption policy and archive reconciliation.
 3. **One bot, one continuing context.** DM, peer, group, bootstrap, and later background wakes append to the same bot session. UI channels are addresses, not model sessions.
 4. **PostgreSQL is the product-state authority.** It stores bots, canonical visible messages, mailboxes, runs, leases, group rounds, state, and audit projections. pg-boss supplies wake scheduling and retries without replacing domain inbox records.
 5. **The computer service is always on.** Pi, graphical Linux work surfaces, browser profiles, local shell/read, and scheduled work live in Compose. Electron may close without stopping them; it is required only for approval-gated `ExternalRead`/`ExternalShell` calls against the physical host.
 6. **One installation-scoped Linux computer.** Bots share `/workspace` and computer-level state. Each bot has a separate XFCE/Xvfb display and Chromium profile. Screens and bot folders organize work; they are not security boundaries.
 7. **Browser state is computer-scoped.** Separate Chromium profiles synchronize live origin state through the encrypted BrowserBroker and safely exchange native profile databases through a stopped-profile authority. Client certificates use the shared NSS store; agent browser control is limited to explicitly leased tabs.
 8. **Explicit visible delivery.** `SendMessage` creates user-visible bot output. Dynamically discovered `SendToAgent` is asynchronous fire-and-forget peer/group delivery. `ReactToMessage` applies one idempotent emoji tapback to an addressable user message. Plain assistant text remains internal activity.
-9. **Durable state is separate from compaction.** Pi owns context compaction. `update_state` owns curated memory, scheduled routines, skills, profile/settings, connector disconnect state, projects, and avatar state.
+9. **Durable state is separate from compaction.** OpenBot's compaction policy owns context summaries and archives; `update_state` owns curated memory, scheduled routines, skills, profile/settings, connector disconnect state, projects, and avatar state.
 10. **The direct native catalog is closed and explicit.** Only the ten definitions in `packages/contracts/src/native-tools.json` are direct tools. `Computer` and `SendToAgent` are in the first-party `openbot` dynamic namespace. The separate `cursor` dynamic namespace vendors and registers only nine approved compatibility definitions from the supplied catalog: `TodoWrite`, four subagent controls, two agent-administration tools, and two channel-administration tools. The remaining Cursor tools are not registered or discoverable.
 11. **The renderer is optimized for observation.** Electron uses React, Tailwind, shadcn/ui, and source-owned AI Elements adaptations, with warm views, stable projections, SSE catch-up, and lazy rich rendering.
 
 ## Shipped feature map
 
-| Area | Current implementation | Canonical detail |
+| Area | Current implementation | Code authority |
 |---|---|---|
-| Runtime and compaction | Pi SDK, one durable session per bot, automatic/manual compaction | `27-pi-agent-runtime.md` |
-| Durable workers | Postgres inboxes, pg-boss wake hints, leases, retry/recovery | `17-durable-agent-queue-and-screens.md` |
-| Direct agent messaging | Durable async peer channels and reply wakes | `19-agent-interaction-implementation.md` |
-| Group chats | Deterministic ordered rounds, per-member cursors, silence | `19-agent-interaction-implementation.md` |
-| Graphical computer | XFCE, Xvfb, Chromium, Thunar, terminal, noVNC, structured agent input | `20-graphical-computer-implementation.md` |
-| Shared workspaces | Shared `/workspace`, bot folders, group project folders | `21-shared-workspaces-and-browser-authority.md` |
-| Browser authority | Separate browser UIs with encrypted live origin-state broker, stopped-profile authority, shared NSS certificates, and owned-tab routing | `21-shared-workspaces-and-browser-authority.md` |
-| Desktop UI | Grok-inspired shell using shadcn and AI Elements | `22-grok-parity-and-client-performance.md` |
-| Interactive desktop QA | Click-to-control noVNC, leases, pause, restart behavior | `23-interactive-desktop-and-qa.md` |
-| Client performance | Small client snapshot, memoization, warm inspectors, profiling | `24-performance-optimization.md` |
-| New-bot onboarding | Immediate durable bot, async provisioning, hidden bootstrap wake, proactive greeting | `26-new-bot-onboarding-implementation-plan.md` |
-| Transcript mirror | Per-bot redacted append-only JSONL projection | `26-new-bot-onboarding-implementation-plan.md` |
-| Native tool catalog | Exact ten direct native tools, first-party dynamic `openbot` tools, and the explicitly bounded nine-tool `cursor` subset | `13-native-tool-surface.md` |
+| Runtime and compaction | Pi SDK, one durable session per bot, background summarization/adoption, archive recovery | `apps/computer/src/runtime.ts`, `apps/computer/src/grok-compaction.ts` |
+| Durable workers | Postgres inboxes, pg-boss wake hints, leases, retry/recovery | `apps/worker/src/`, `apps/server/src/services/run-service.ts` |
+| Direct and group messaging | Async peer delivery, ordered group rounds, per-member cursors, silence | `apps/worker/src/worker.ts`, `packages/messaging/src/group-routing.ts` |
+| Graphical computer | XFCE, Xvfb, Chromium, Thunar, terminal, noVNC, structured agent input | `apps/computer/src/screen-broker.ts`, `apps/desktop/src/renderer/components/openbot/bot-screen.tsx` |
+| Shared workspaces and browser authority | Shared files, bot/group folders, live origin-state broker, stopped-profile authority, owned-tab routing | `apps/computer/src/paths.ts`, `apps/computer/src/browser-broker.ts`, `apps/computer/src/browser-profile-authority.ts` |
+| Desktop UI and performance | Grok-inspired shadcn/AI Elements shell, bounded rendering, responsive panes | `apps/desktop/src/renderer/`, `apps/desktop/test/` |
+| New-bot onboarding and transcript mirror | Immediate durable bot, async provisioning, bootstrap wake, redacted JSONL projection | `apps/server/src/services/bot-service.ts`, `apps/computer/src/transcript-mirror.ts` |
+| Native tool catalog | Exact ten direct native tools plus bounded dynamic namespaces | `packages/contracts/src/native-tools.json`, `apps/computer/src/dynamic-tool-gateway.ts` |
 | Durable state | Native `update_state`, including schedule routine lifecycle | `29-update-state-manifest.md` |
 | Scheduled routines | Postgres definitions/revisions/executions and pg-boss dispatch into the existing mailbox | `28-scheduled-routines.md` |
-| Physical-host tools | Authenticated Electron bridge with a native approval for each read or command | `13-native-tool-surface.md` |
-| Current acceptance evidence | Static, integration, live model, GUI, restart, and state tests | `18-v0-implementation-status.md` |
+| Physical-host tools | Authenticated Electron bridge with a native approval for each read or command | `apps/desktop/src/main/host-bridge.ts`, `apps/desktop/src/main/host-approval-queue.ts` |
+| Current acceptance evidence | Static, integration, live model, GUI, restart, and state tests | package test suites and `plans/evidence/` |
 
-## Exact compatibility artifacts preserved in Markdown
+## Exact compatibility artifacts retained
 
-- `12-agent-communication.md` preserves the supplied `SendToAgent` and `SendMessage` descriptors verbatim.
-- `13-native-tool-surface.md` preserves the ten descriptors from `native-tools.json`, with compacted whitespace.
-- `15-agent-group-chat-runtime.md` preserves both supplied group-wake JSON sketches verbatim.
+- `plans/12-agent-communication-*.json` retains the captured direct/group messaging fixtures and live parity results.
+- `packages/contracts/src/native-tools.json` is the canonical ten-tool descriptor set.
+- `packages/contracts/src/cursor-tools.json` is the bounded compatibility catalog actually admitted by OpenBot.
+- `plans/evidence/grok-a2a-2026-08-28/` retains the A2A protocol and desktop interaction evidence.
 - `29-update-state-manifest.md` preserves the complete supplied `update_state` compatibility surface; schedule routines are implemented and non-cron event triggers remain deferred.
 - `31-agent-transcript-archive-findings.md` records the structure, counts, wake forms, tool behavior, and implementation implications extracted from `agent-transcripts.zip`.
 
@@ -94,10 +90,10 @@ The original screenshot path ledger is in `01-product-context.md`. Later named e
 When documents disagree, use this order:
 
 1. current code, migrations, tests, and live health;
-2. this handoff, `00-index.md`, `18-v0-implementation-status.md`, `27-pi-agent-runtime.md`, and `29-update-state-manifest.md`;
-3. implemented feature records `19` through `26` and transcript findings `31`;
-4. research and selected future architecture `10` through `15`, `17`, and `28`;
-5. original scope and historical plans `01` through `09` and `16`.
+2. this handoff, `00-index.md`, and the active contracts in `28`, `29`, `32`, and `41`;
+3. transcript findings `31` and retained evidence under `plans/evidence/`;
+4. research and selected future architecture in the remaining numbered documents;
+5. original scope and superseded historical documents.
 
 Specific supersessions:
 
@@ -111,13 +107,13 @@ Specific supersessions:
 
 ## Intentionally deferred
 
-- external event triggers and routine inspector/test-run UI;
-- plugin marketplace, MCP account lifecycle, grants, and additional dynamic namespaces;
-- remaining rich widget/secure secret-request behavior;
-- public deployment, multi-user auth, and authorization;
-- attachments/voice beyond the currently implemented delivery subset;
-- production-grade remote-screen transport beyond noVNC;
-- transcript viewer/right-click parity that was not established by evidence.
+- external event triggers, source-incomplete routine safety semantics, and the remaining routine inspector/test-run UX;
+- plugin catalog breadth, package update/rollback UI, publishing, and stronger local-stdio sandbox policy;
+- remaining secure-request and full interactive-widget behavior;
+- multi-user/role authorization beyond the single owner-account model;
+- production-grade remote-screen transport beyond local noVNC;
+- physical-device, APNs, distribution archive, accessibility, and App Store release signoff for iOS;
+- production adoption and true Electron A/B for bounded message pagination.
 
 ## Rules for future implementation work
 

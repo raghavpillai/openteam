@@ -1,6 +1,6 @@
 # Plugin architecture and delivery plan
 
-Status: Grok-style marketplace, remote HTTP, OAuth broker, local stdio, accounts, grants, policy, approvals, audit, model management, and desktop UI implemented
+Status: core plugin foundation implemented; catalog breadth, update/rollback UI, publishing, and sandbox follow-ups remain
 Last updated: 2026-08-29
 
 ## Implementation verification — 2026-08-29
@@ -872,5 +872,5 @@ Checked or refreshed on 2026-08-27:
 - [MCP server specification](https://modelcontextprotocol.io/specification/2026-07-28/server/index)
 - [Google Workspace MCP configuration](https://developers.google.com/workspace/guides/configure-mcp-servers)
 - [Gmail MCP reference](https://developers.google.com/workspace/gmail/api/reference/mcp)
-- [Pi runtime plan](./27-pi-agent-runtime.md)
+- [Canonical runtime handoff](./30-canonical-context-handoff.md)
 - [Native tool surface](./13-native-tool-surface.md)

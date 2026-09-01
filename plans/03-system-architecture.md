@@ -1,6 +1,6 @@
 # System architecture
 
-> Implementation update (2026-08-24): `apps/computer` now includes the per-bot Xvfb/noVNC `ScreenBroker`, Chromium, Thunar, terminal, and agent/human input controls described in `20-graphical-computer-implementation.md`. References below to a headless-only v0 describe the initial boundary.
+> Implementation update (2026-08-24): `apps/computer` now includes the per-bot Xvfb/noVNC `ScreenBroker`, Chromium, Thunar, terminal, and agent/human input controls. References below to a headless-only v0 describe the initial boundary; current authority is `apps/computer/src/screen-broker.ts` and `30-canonical-context-handoff.md`.
 
 Status: proposed for MVP v0  
 Last updated: 2026-08-24
@@ -88,7 +88,7 @@ OpenBot/
 
 The first protocol spike may run the Codex child directly under `apps/server`, but the v0 Compose contract moves execution into `apps/computer`. This gives the replaceable Linux image, shared home, workspace, and Codex process an explicit lifecycle. The post-v0 graphical milestone extends this image with displays, Chrome/Chromium, Thunar, terminal, and screen streaming without changing bot or conversation persistence.
 
-The post-v0 packages shown above are reserved boundaries, not folders required in the initial scaffold. Create a package only when its milestone begins. Their selected architectures are in `11-plugin-architecture-research.md` through `15-agent-group-chat-runtime.md`.
+The post-v0 packages shown above are reserved boundaries, not folders required in the initial scaffold. Create a package only when its milestone begins. Remaining architecture work is indexed in `00-index.md`.
 
 ## Process responsibilities
 

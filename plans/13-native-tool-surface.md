@@ -1,9 +1,9 @@
 # Native tool surface
 
-Status: exact ten-tool native surface implemented  
+Status: exact ten-tool native surface implemented; secure requests and full interactive widgets remain
 Last updated: 2026-08-25
 
-> Runtime update: the direct Pi catalog matches the supplied ten native names and input schemas. Local `Shell`/`Read`, reactions, screenshot capture, schedule routines, and the approval-gated physical-host bridge are implemented. `Computer` and `SendToAgent` are discoverable in the first-party `openbot` namespace. A separate `cursor` namespace exposes exactly nine admitted definitions: `TodoWrite`, four subagent controls, two agent-administration tools, and two channel-administration tools; the rest of the supplied Cursor catalog remains excluded. Plugin and MCP namespaces, secure secret requests, and full interactive widget handling remain deferred. See `27-pi-agent-runtime.md`, `28-scheduled-routines.md`, `29-update-state-manifest.md`, and `30-canonical-context-handoff.md`.
+> Runtime update: the direct Pi catalog matches the supplied ten native names and input schemas. Local `Shell`/`Read`, reactions, screenshot capture, schedule routines, and the approval-gated physical-host bridge are implemented. `Computer` and `SendToAgent` are discoverable in the first-party `openbot` namespace. A separate `cursor` namespace exposes exactly nine admitted definitions: `TodoWrite`, four subagent controls, two agent-administration tools, and two channel-administration tools; the rest of the supplied Cursor catalog remains excluded. Plugin and MCP namespaces, secure secret requests, and full interactive widget handling remain deferred. See `28-scheduled-routines.md`, `29-update-state-manifest.md`, and `30-canonical-context-handoff.md`.
 
 ## Decision
 
@@ -82,7 +82,7 @@ Until the graphical computer exists, return a typed `screen_unavailable` result.
 
 ### `SendMessage`
 
-The exact observed descriptor is retained below and in `12-agent-communication.md`. OpenBot's first-party internal MCP server exposes the explicit rich path. The server binds caller bot, conversation, turn, and installation identity; none are accepted from model arguments.
+The exact observed descriptor is retained below and in `plans/12-agent-communication-grok-reference.json`. OpenBot's first-party internal MCP server exposes the explicit rich path. The server binds caller bot, conversation, turn, and installation identity; none are accepted from model arguments.
 
 Delivery rules:
 
@@ -96,7 +96,7 @@ Delivery rules:
 
 Codex can still finish with a normal agent-message item. In a direct user/home turn only, if the turn has not already emitted user-visible `SendMessage` content, the adapter projects the final text as one equivalent text delivery. This prevents an accidental blank direct reply and avoids duplicate final bubbles.
 
-Peer, group, routine, and background turns require explicit `SendMessage`. A normal completion without one is `handled_silent`; ordinary Codex agent text remains internal. This preserves optional group participation and prevents status/reasoning text from leaking into a shared or unrelated channel. The ordered group runtime is in `15-agent-group-chat-runtime.md`.
+Peer, group, routine, and background turns require explicit `SendMessage`. A normal completion without one is `handled_silent`; ordinary agent text remains internal. This preserves optional group participation and prevents status/reasoning text from leaking into a shared or unrelated channel. The ordered group runtime is in `apps/worker/src/worker.ts` and `packages/messaging/src/group-routing.ts`.
 
 The Electron projection uses the AI Elements message/attachment primitives through the safe artifact and transcript adapter in `14-electron-ai-elements-ui.md`; the tool contract does not send UI component code or bypass OpenBot persistence.
 
@@ -462,4 +462,4 @@ The following preserves the descriptor content and JSON shapes from `native-tool
 - [Codex app-server: command execution and filesystem APIs](https://developers.openai.com/codex/app-server/)
 - [Codex app-server: MCP status/resources/tool calls and experimental dynamic tools](https://developers.openai.com/codex/app-server/)
 - `11-plugin-architecture-research.md`
-- `12-agent-communication.md`
+- `plans/12-agent-communication-grok-reference.json`

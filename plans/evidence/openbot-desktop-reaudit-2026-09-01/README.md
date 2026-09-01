@@ -1,7 +1,7 @@
 # Desktop re-audit evidence
 
-Compact evidence for
-[40-desktop-performance-reaudit.md](../../40-desktop-performance-reaudit.md):
+Compact evidence retained after the completed desktop performance re-audit plan
+was removed on 2026-09-01:
 
 - [`summary.json`](./summary.json) contains exact final metrics, fixture sizes, A/B results,
   build/package inventory, validation totals, and parity outcomes in machine-readable form.

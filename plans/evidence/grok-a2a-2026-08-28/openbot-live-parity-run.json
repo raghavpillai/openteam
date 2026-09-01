@@ -9,7 +9,7 @@
     "implementationAudit": "/Users/raghav/Downloads/grok-a2a-impl-audit-2026-08-28.md",
     "remainingAudit": "/Users/raghav/Downloads/a2a-remaining-audit.md",
     "grokLiveRun": "/Users/raghav/Downloads/a2a-live-run.json",
-    "paritySpec": "plans/grok-a2a-parity-spec.md"
+    "paritySpec": "plans/evidence/grok-a2a-2026-08-28/README.md"
   },
   "agents": {
     "source": {

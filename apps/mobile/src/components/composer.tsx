@@ -108,6 +108,7 @@ const recordingTime = (elapsedMs: number) => {
 export function Composer({
   draftKey,
   botName,
+  placeholder,
   mentionOptions = [],
   replyTarget,
   replyEditVersion,
@@ -125,6 +126,7 @@ export function Composer({
 }: {
   draftKey: string;
   botName: string;
+  placeholder?: string;
   mentionOptions?: readonly MentionOption[];
   replyTarget: ReplyTarget | null;
   replyEditVersion: number;
@@ -153,6 +155,7 @@ export function Composer({
   uploadCapabilities?: ClientCapabilities["uploads"];
 }) {
   const theme = useTheme();
+  const inputPlaceholder = placeholder ?? `Message ${botName}`;
   const [text, setText] = useState("");
   const [inputHeight, setInputHeight] = useState(22);
   const [sending, setSending] = useState(false);
@@ -303,7 +306,7 @@ export function Composer({
   }, [draftKey, onRestoreReply]);
 
   useEffect(() => {
-    if (!draftReady) return;
+    if (!draftReady || sending) return;
     latestDraft.current = {
       id: draftId,
       text,
@@ -318,7 +321,17 @@ export function Composer({
       void saveConversationDraft(draftKey, latestDraft.current);
     }, 250);
     return () => clearTimeout(timeout);
-  }, [attachments, draftId, draftKey, draftReady, readyAssets, recoveryNonce, replyTarget, text]);
+  }, [
+    attachments,
+    draftId,
+    draftKey,
+    draftReady,
+    readyAssets,
+    recoveryNonce,
+    replyTarget,
+    sending,
+    text,
+  ]);
 
   useEffect(() => {
     if (!draftReady || !recovery) return;
@@ -714,6 +727,13 @@ export function Composer({
     for (const controller of uploadControllers.current.values()) controller.abort();
     uploadControllers.current.clear();
     let recoverable = pending;
+    // Clear on the tap, not after the journal fsync. The captured payload is
+    // restored below if staging or durable persistence fails.
+    setText("");
+    latestAttachments.current = [];
+    setAttachments([]);
+    setAttachmentError(null);
+    setInputHeight(22);
     try {
       const prepared = await mapWithConcurrency(
         pending,
@@ -747,13 +767,10 @@ export function Composer({
         setRecoveryNonce(null);
       }
       setDraftId(newConversationDraftId());
-      setText("");
-      latestAttachments.current = [];
-      setAttachments([]);
-      setAttachmentError(null);
-      setInputHeight(22);
       Keyboard.dismiss();
     } catch (cause) {
+      setText(content);
+      latestAttachments.current = recoverable;
       setAttachments(recoverable);
       setAttachmentError(clientErrorMessage(cause, "The message could not be sent."));
     } finally {
@@ -835,7 +852,7 @@ export function Composer({
         disabled={sending || picking}
         haptic="light"
         onPress={showAttachmentMenu}
-        size={44}
+        size={38}
         symbolSize={20}
         tone="surface"
       />
@@ -1073,7 +1090,7 @@ export function Composer({
         ) : (
           <View style={styles.inputRow}>
             <TextInput
-              accessibilityLabel={`Message ${botName}`}
+              accessibilityLabel={inputPlaceholder}
               blurOnSubmit={false}
               keyboardAppearance={theme.dark ? "dark" : "light"}
               multiline
@@ -1081,7 +1098,7 @@ export function Composer({
               onContentSizeChange={(event) =>
                 updateMeasuredHeight(event.nativeEvent.contentSize.height)
               }
-              placeholder={`Message ${botName}`}
+              placeholder={inputPlaceholder}
               placeholderTextColor={theme.textFaint}
               ref={textInputRef}
               returnKeyType="default"
@@ -1162,7 +1179,7 @@ const styles = StyleSheet.create({
   menuPressed: { backgroundColor: "rgba(255,255,255,0.08)" },
   disabledMenuItem: { opacity: 0.35 },
   outer: {
-    paddingHorizontal: 16,
+    paddingHorizontal: 24,
     paddingTop: 4,
     paddingBottom: 2,
     flexDirection: "row",

@@ -1,6 +1,7 @@
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { useTheme } from "../theme";
 
 interface HelpItem {
   icon: SymbolViewProps["name"];
@@ -45,17 +46,26 @@ const typing: HelpItem[] = [
 ];
 
 function HelpCard({ items }: { items: HelpItem[] }) {
+  const theme = useTheme();
   return (
-    <View style={styles.card}>
+    <View
+      style={[styles.card, { backgroundColor: theme.surfaceElevated, borderColor: theme.border }]}
+    >
       {items.map((item, index) => (
         <View
           key={item.title}
-          style={[styles.item, index < items.length - 1 && styles.itemDivider]}
+          style={[
+            styles.item,
+            index < items.length - 1 && [
+              styles.itemDivider,
+              { borderBottomColor: theme.separator },
+            ],
+          ]}
         >
-          <SymbolView name={item.icon} size={20} tintColor="#969691" weight="regular" />
+          <SymbolView name={item.icon} size={20} tintColor={theme.textMuted} weight="regular" />
           <View style={styles.itemCopy}>
-            <Text style={styles.itemTitle}>{item.title}</Text>
-            <Text style={styles.itemDetail}>{item.detail}</Text>
+            <Text style={[styles.itemTitle, { color: theme.text }]}>{item.title}</Text>
+            <Text style={[styles.itemDetail, { color: theme.textMuted }]}>{item.detail}</Text>
           </View>
         </View>
       ))}
@@ -64,30 +74,45 @@ function HelpCard({ items }: { items: HelpItem[] }) {
 }
 
 export function ComputerHelpSheet({ onClose, visible }: { onClose: () => void; visible: boolean }) {
+  const theme = useTheme();
   return (
     <Modal animationType="slide" onRequestClose={onClose} transparent visible={visible}>
       <View style={styles.backdrop}>
-        <SafeAreaView edges={["bottom"]} style={styles.safe}>
+        <SafeAreaView
+          edges={["bottom"]}
+          style={[styles.safe, { backgroundColor: theme.background }]}
+        >
           <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
             <View style={styles.header}>
               <Pressable
                 accessibilityLabel="Close computer help"
                 accessibilityRole="button"
                 onPress={onClose}
-                style={({ pressed }) => [styles.close, pressed && styles.pressed]}
+                style={({ pressed }) => [
+                  styles.close,
+                  {
+                    backgroundColor: theme.surfacePressed,
+                    borderColor: theme.border,
+                  },
+                  pressed && styles.pressed,
+                ]}
               >
-                <SymbolView name="xmark" size={20} tintColor="#F7F7F4" weight="medium" />
+                <SymbolView name="xmark" size={20} tintColor={theme.text} weight="medium" />
               </Pressable>
-              <Text style={styles.title}>Using the Computer</Text>
+              <Text style={[styles.title, { color: theme.text }]}>Using the Computer</Text>
             </View>
 
-            <Text style={styles.section}>Moving Around</Text>
+            <Text style={[styles.section, { color: theme.textFaint }]}>Moving Around</Text>
             <HelpCard items={moving} />
 
-            <Text style={styles.section}>Typing and the Clipboard</Text>
+            <Text style={[styles.section, { color: theme.textFaint }]}>
+              Typing and the Clipboard
+            </Text>
             <HelpCard items={typing} />
 
-            <Text style={styles.section}>When a Pointer Is Easier</Text>
+            <Text style={[styles.section, { color: theme.textFaint }]}>
+              When a Pointer Is Easier
+            </Text>
             <HelpCard
               items={[
                 {
@@ -99,7 +124,7 @@ export function ComputerHelpSheet({ onClose, visible }: { onClose: () => void; v
               ]}
             />
 
-            <Text style={styles.section}>Handing It Back</Text>
+            <Text style={[styles.section, { color: theme.textFaint }]}>Handing It Back</Text>
             <HelpCard
               items={[
                 {
@@ -127,36 +152,35 @@ const styles = StyleSheet.create({
     flex: 1,
     borderTopLeftRadius: 34,
     borderTopRightRadius: 34,
-    backgroundColor: "#141414",
     overflow: "hidden",
   },
   content: { paddingHorizontal: 9, paddingTop: 12, paddingBottom: 48 },
-  header: { height: 55, flexDirection: "row", alignItems: "flex-start", gap: 18 },
+  header: {
+    height: 55,
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 18,
+  },
   close: {
     width: 38,
     height: 38,
     borderRadius: 19,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(255,255,255,0.12)",
-    backgroundColor: "#2B2B2B",
     alignItems: "center",
     justifyContent: "center",
   },
   pressed: { opacity: 0.72, transform: [{ scale: 0.96 }] },
-  title: { paddingTop: 8, color: "#F7F7F4", fontSize: 16, lineHeight: 21, fontWeight: "600" },
+  title: { paddingTop: 8, fontSize: 16, lineHeight: 21, fontWeight: "600" },
   section: {
     marginLeft: 18,
     marginTop: 22,
     marginBottom: 10,
-    color: "#61615E",
     fontSize: 13,
     lineHeight: 17,
   },
   card: {
     borderRadius: 18,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(255,255,255,0.08)",
-    backgroundColor: "#202020",
     overflow: "hidden",
   },
   item: {
@@ -170,9 +194,8 @@ const styles = StyleSheet.create({
   },
   itemDivider: {
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "rgba(255,255,255,0.1)",
   },
   itemCopy: { flex: 1, minWidth: 0 },
-  itemTitle: { color: "#F7F7F4", fontSize: 16, lineHeight: 21 },
-  itemDetail: { marginTop: 2, color: "#969691", fontSize: 13, lineHeight: 18 },
+  itemTitle: { fontSize: 16, lineHeight: 21 },
+  itemDetail: { marginTop: 2, fontSize: 13, lineHeight: 18 },
 });

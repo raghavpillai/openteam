@@ -12,7 +12,7 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { MOBILE_VIRTUAL_LIST_TUNING } from "../list-scale";
 import { useTheme } from "../theme";
 import { BotMark } from "./bot-mark";
@@ -41,6 +41,7 @@ export function A2AExchangeSheet({
   onOpenComputer?: () => void;
 }) {
   const theme = useTheme();
+  const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const translateX = useRef(new Animated.Value(width)).current;
   const closing = useRef(false);
@@ -129,7 +130,7 @@ export function A2AExchangeSheet({
             }}
           />
 
-          <View style={styles.header}>
+          <View style={[styles.header, { top: insets.top }]}>
             <IconButton
               haptic="light"
               label="Back to source conversation"
@@ -177,7 +178,6 @@ const styles = StyleSheet.create({
   safe: { flex: 1 },
   header: {
     position: "absolute",
-    top: 0,
     left: 0,
     right: 0,
     zIndex: 4,

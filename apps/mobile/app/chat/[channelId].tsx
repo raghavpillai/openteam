@@ -861,8 +861,8 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   timeline: { flex: 1 },
   header: {
-    height: 56,
-    paddingHorizontal: 7,
+    height: 42,
+    paddingHorizontal: 14,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
@@ -887,7 +887,7 @@ const styles = StyleSheet.create({
   messages: {
     flexGrow: 1,
     justifyContent: "flex-end",
-    paddingHorizontal: 16,
+    paddingHorizontal: 14,
     paddingTop: 22,
     paddingBottom: 8,
   },

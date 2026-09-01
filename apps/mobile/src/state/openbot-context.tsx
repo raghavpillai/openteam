@@ -46,6 +46,7 @@ import {
   type DurableSendController,
   type DurableSendPayload,
   type DurableSendRecord,
+  durableSendAuthoritativeEcho,
   durableSendIsInFlight,
   durableSendMessage,
   durableSendRenderKey,
@@ -88,6 +89,7 @@ import {
   requireAuthenticationForServer,
 } from "../auth";
 import { createMobileDurableSendStorage } from "../durable-send-storage";
+import { recordMobileDeliveryTelemetry } from "../delivery-telemetry";
 import {
   discardMobileDeliveryAttachments,
   mobileDeliveryAttachmentUri,
@@ -344,6 +346,7 @@ export function OpenBotProvider({ children }: { children: React.ReactNode }) {
       },
       isTransportDown: () =>
         AppState.currentState !== "active" || Date.now() < sendTransportDownUntilMsRef.current,
+      onTelemetry: recordMobileDeliveryTelemetry,
       commitStagedAttachments: async (record) => {
         const controller = new AbortController();
         let timedOut = false;
@@ -592,17 +595,29 @@ export function OpenBotProvider({ children }: { children: React.ReactNode }) {
   );
   const visibleSnapshot = useMemo<ClientSnapshot>(() => {
     if (durableSends.length === 0) return snapshot;
+    const authoritativeEchoes = new Map(
+      durableSends.flatMap((delivery) => {
+        const echo = durableSendAuthoritativeEcho(delivery, snapshot.channelMessages);
+        return echo ? [[delivery.nonce, echo] as const] : [];
+      })
+    );
     const outgoingServerIds = new Set(
-      durableSends.flatMap(({ acceptedMessage }) => (acceptedMessage ? [acceptedMessage.id] : []))
+      durableSends.flatMap((delivery) => {
+        const authoritative = authoritativeEchoes.get(delivery.nonce) ?? delivery.acceptedMessage;
+        return authoritative ? [authoritative.id] : [];
+      })
     );
     const authoritativeById = new Map(
       snapshot.channelMessages.map((message) => [message.id, message] as const)
     );
     const projectedOutgoing = durableSends.map((delivery) => {
+      const authoritativeEcho = authoritativeEchoes.get(delivery.nonce);
       const message =
+        authoritativeEcho ??
         (delivery.acceptedMessage
           ? authoritativeById.get(delivery.acceptedMessage.id)
-          : undefined) ?? durableSendMessage(delivery);
+          : undefined) ??
+        durableSendMessage(delivery);
       return {
         ...message,
         metadata: {
@@ -610,11 +625,13 @@ export function OpenBotProvider({ children }: { children: React.ReactNode }) {
           clientDelivery: {
             renderKey: durableSendRenderKey(delivery),
             nonce: delivery.nonce,
-            state: durableSendVisualState(delivery),
-            inFlight: durableSendIsInFlight(delivery),
+            state: authoritativeEcho ? "accepted" : durableSendVisualState(delivery),
+            inFlight: authoritativeEcho ? false : durableSendIsInFlight(delivery),
             composedAtMs: delivery.queuedAtMs,
             queuedAtMs: delivery.queuedAtMs,
-            acceptedAtMs: delivery.acceptedAtMs,
+            acceptedAtMs:
+              delivery.acceptedAtMs ??
+              (authoritativeEcho ? Date.parse(authoritativeEcho.createdAt) : null),
             transportDown:
               delivery.phase === "queued" &&
               (AppState.currentState !== "active" ||
@@ -688,12 +705,13 @@ export function OpenBotProvider({ children }: { children: React.ReactNode }) {
       clearInterval(interval);
       appState.remove();
       unsubscribe();
+      sendController.dispose();
     };
   }, [sendController]);
 
   useEffect(() => {
     if (!sendController) return;
-    void sendController.reconcile(new Set(snapshot.channelMessages.map((message) => message.id)));
+    void sendController.reconcile(snapshot.channelMessages);
   }, [sendController, snapshot.channelMessages]);
 
   useEffect(() => {
@@ -989,6 +1007,9 @@ export function OpenBotProvider({ children }: { children: React.ReactNode }) {
         }
         return shouldRefreshForEvent(productEvent);
       },
+      onHealthChange: (healthy) => {
+        if (healthy) void sendController?.flush();
+      },
     });
 
     const appStateSubscription = AppState.addEventListener("change", (state) => {
@@ -1004,7 +1025,7 @@ export function OpenBotProvider({ children }: { children: React.ReactNode }) {
       liveSync.stop();
       appStateSubscription.remove();
     };
-  }, [client, operationIsCurrent, syncReadyEpoch, syncRemote]);
+  }, [client, operationIsCurrent, sendController, syncReadyEpoch, syncRemote]);
 
   useEffect(() => {
     if (!client || syncReadyEpoch !== connectionEpochRef.current) return;

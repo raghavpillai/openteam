@@ -61,6 +61,7 @@ interface ConversationSection {
   collapsed: boolean;
   data: ConversationItem[];
   id: string | null;
+  itemCount: number;
   title: string;
 }
 
@@ -227,7 +228,9 @@ const ChannelRow = memo(function ChannelRow({
         }
         style={({ pressed }) => [
           styles.row,
-          { backgroundColor: selected ? theme.surface : theme.background },
+          {
+            backgroundColor: selected ? theme.surfacePressed : theme.background,
+          },
           pressed && { backgroundColor: theme.surface },
         ]}
       >
@@ -388,6 +391,7 @@ export default function HomeScreen() {
             ? sectionRows.map((row) => ({ kind: "channel" as const, row }))
             : [{ kind: "empty" as const, id: section.id }],
         id: section.id,
+        itemCount: sectionRows.length,
         title: section.name,
       };
     });
@@ -397,8 +401,12 @@ export default function HomeScreen() {
         collapsed: sidebarPreferences.unassignedCollapsed,
         data: sidebarPreferences.unassignedCollapsed
           ? []
-          : sortRows(unassigned).map((row) => ({ kind: "channel" as const, row })),
+          : sortRows(unassigned).map((row) => ({
+              kind: "channel" as const,
+              row,
+            })),
         id: null,
+        itemCount: unassigned.length,
         title: "Unassigned",
       },
     ];
@@ -406,7 +414,10 @@ export default function HomeScreen() {
 
   const moveDestinations = useMemo<MoveDestination[]>(
     () => [
-      ...sidebarPreferences.sections.map((section) => ({ id: section.id, name: section.name })),
+      ...sidebarPreferences.sections.map((section) => ({
+        id: section.id,
+        name: section.name,
+      })),
       { id: null, name: "Unassigned" },
     ],
     [sidebarPreferences.sections]
@@ -548,7 +559,9 @@ export default function HomeScreen() {
             onPress={() => toggleSection(section)}
             style={styles.sectionHeader}
           >
-            <Text style={[styles.sectionTitle, { color: theme.textMuted }]}>{section.title}</Text>
+            <Text style={[styles.sectionTitle, { color: theme.textMuted }]}>
+              {section.collapsed ? `${section.title} ${section.itemCount}` : section.title}
+            </Text>
             <SymbolView
               name={section.collapsed ? "chevron.right" : "chevron.down"}
               size={11}
@@ -648,13 +661,16 @@ const styles = StyleSheet.create({
   safe: { flex: 1 },
   content: { paddingHorizontal: metrics.pageGutter, paddingBottom: 32 },
   header: {
-    minHeight: 70,
-    paddingTop: 8,
-    paddingBottom: 7,
+    height: 52,
     flexDirection: "row",
     alignItems: "center",
   },
-  profileHit: { width: 48, height: 48, alignItems: "flex-start", justifyContent: "center" },
+  profileHit: {
+    width: 48,
+    height: 48,
+    alignItems: "flex-start",
+    justifyContent: "center",
+  },
   profileCircle: {
     width: 40,
     height: 40,
@@ -664,7 +680,13 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   profileText: { fontSize: 14, lineHeight: 18, fontWeight: "600" },
-  statusTitle: { flex: 1, flexDirection: "row", alignItems: "center", gap: 3, paddingLeft: 6 },
+  statusTitle: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    paddingLeft: 6,
+  },
   statusText: { fontSize: 17, lineHeight: 22, fontWeight: "600" },
   headerActions: { flexDirection: "row", gap: 0 },
   error: { fontSize: 13, lineHeight: 18, marginBottom: 8 },
@@ -693,7 +715,12 @@ const styles = StyleSheet.create({
   rowTitleLine: { flexDirection: "row", alignItems: "center", gap: 7 },
   rowTitle: { flexShrink: 1, fontSize: 16, lineHeight: 20, fontWeight: "600" },
   rowTitleUnread: { fontWeight: "700" },
-  titlePill: { maxWidth: 70, borderRadius: 7, paddingHorizontal: 6, paddingVertical: 2 },
+  titlePill: {
+    maxWidth: 70,
+    borderRadius: 7,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
   titlePillText: { fontSize: 11, lineHeight: 14, fontWeight: "500" },
   time: { marginLeft: "auto", fontSize: 12, lineHeight: 16 },
   previewLine: { flexDirection: "row", alignItems: "center", gap: 6 },
@@ -715,5 +742,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  fixtureNote: { paddingTop: 24, textAlign: "center", fontSize: 11, lineHeight: 15 },
+  fixtureNote: {
+    paddingTop: 24,
+    textAlign: "center",
+    fontSize: 11,
+    lineHeight: 15,
+  },
 });

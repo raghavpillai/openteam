@@ -41,17 +41,38 @@ test("iOS message motion preserves Grokbot entrance and acknowledgement semantic
   expect(deliveryPolicy).toContain('return transportDown ? "Will send when reconnected"');
   expect(deliveryPolicy).toContain('if (phase === "failed") return "Failed to send"');
   expect(bubble).toContain('accessibilityLabel="Failed message actions"');
-  expect(bubble).toContain('outputRange: ["rgba(255,192,0,0)", "rgba(255,192,0,0.22)"]');
-  expect(bubble).toContain("Animated.delay(1_000)");
-  expect(bubble).toContain("duration: 1_500");
+  expect(bubble).not.toContain("failedHighlight");
+  expect(bubble).not.toContain("rgba(255,192,0");
   expect(bubble).toContain("sentOfflineVisibility");
-  expect(bubble).toContain('messageWrap: { maxWidth: "88%", marginVertical: 3 }');
+  expect(bubble).toContain('messageWrap: { maxWidth: "89%", marginVertical: 3 }');
   expect(bubble).toContain(
     "bubble: { borderRadius: 21, paddingHorizontal: 15, paddingVertical: 10 }"
   );
   expect(bubble).toContain("content: { fontSize: 16, lineHeight: 22, letterSpacing: -0.15 }");
-  expect(route).toContain("paddingHorizontal: 16");
+  expect(route).toContain("paddingHorizontal: 14");
   expect(theme).toContain('from "@openbot/design-tokens/mobile-theme"');
   expect(themeTokens).toContain('userBubble: "#0A0A0A"');
   expect(themeTokens).toContain('assistantBubble: "#F1F1EF"');
+});
+
+test("right-swiping a message reveals the native thread affordance and opens its thread", async () => {
+  const [bubble, route, thread, composer] = await Promise.all([
+    source("src/components/message-bubble.tsx"),
+    source("app/chat/[channelId].tsx"),
+    source("src/components/thread-sheet.tsx"),
+    source("src/components/composer.tsx"),
+  ]);
+
+  expect(bubble).toContain("PanResponder.create");
+  expect(bubble).toContain("onMoveShouldSetPanResponderCapture");
+  expect(bubble).toContain("gesture.dx >= 52");
+  expect(bubble).toContain("swipeThreadIndicator");
+  expect(bubble).toContain("if (finished) onStartThread()");
+  expect(route).toContain("onStartThread={() => setThreadRootId(item.id)}");
+  expect(thread).toContain('presentationStyle="fullScreen"');
+  expect(thread).toContain('name="chevron.left"');
+  expect(thread).toContain("threadTimestamp(thread.root.createdAt)");
+  expect(thread).toContain('placeholder={`Reply ${botName}`}');
+  expect(thread).not.toContain(">Replies<");
+  expect(composer).toContain("const inputPlaceholder = placeholder ?? `Message ${botName}`");
 });

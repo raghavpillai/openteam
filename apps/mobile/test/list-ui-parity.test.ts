@@ -65,6 +65,9 @@ describe("mobile virtual-list UI parity", () => {
     expect(routineDetail).toContain("describeRoutineSchedule(routine.schedule)");
     expect(routineDetail).toContain("setRoutineEnabled(previous, enabled)");
     expect(routineDetail).toContain("routineExecutionStatus(execution.status)");
+    expect(routineDetail).toContain("if (instructionOpen)");
+    expect(routineDetail).toContain('accessibilityHint="Opens instruction editing"');
+    expect(routineDetail).toContain("setInstructionEditorOpen(true)");
     expect(route).toContain("Save changes");
     expect(route).toContain("!bot && availableBots.length > BOT_ROSTER_SEARCH_THRESHOLD");
     expect(route).toContain("ListFooterComponent={showStickySaveAction ? null : footer}");
@@ -265,5 +268,7 @@ describe("mobile virtual-list UI parity", () => {
     expect(route).toContain('action: "drag"');
     expect(route).toContain("Clipboard.getStringAsync()");
     expect(route).toContain("<ComputerHelpSheet");
+    expect(route).toContain('accessibilityLabel="Connecting to computer"');
+    expect(route).toContain("Connecting...</Text>");
   });
 });

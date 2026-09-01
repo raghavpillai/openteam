@@ -131,7 +131,7 @@ export function ConversationContextMenu({
           style={styles.backdrop}
         />
 
-        <MenuCard top={168}>
+        <MenuCard top={176}>
           <MenuRow
             icon="bubble.left"
             label={isUnread ? "Mark Read" : "Mark Unread"}
@@ -210,7 +210,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     top: 0,
-    backgroundColor: "rgba(0,0,0,0.72)",
+    backgroundColor: "rgba(0,0,0,0.55)",
   },
   card: {
     position: "absolute",
@@ -233,5 +233,9 @@ const styles = StyleSheet.create({
     gap: 13,
   },
   menuLabel: { flex: 1, fontSize: 16, lineHeight: 21, fontWeight: "400" },
-  separator: { height: StyleSheet.hairlineWidth, marginHorizontal: 18, marginVertical: 3 },
+  separator: {
+    height: StyleSheet.hairlineWidth,
+    marginHorizontal: 18,
+    marginVertical: 3,
+  },
 });

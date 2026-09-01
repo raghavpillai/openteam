@@ -5,11 +5,7 @@ import type {
   DurableStagedAttachment,
 } from "@openbot/product-core/durable-delivery";
 import { clientErrorMessage } from "@openbot/product-core/redaction";
-import {
-  messageMetadata,
-  type ThreadView,
-  threadReplyCountLabel,
-} from "@openbot/product-core/messages";
+import { messageMetadata, type ThreadView } from "@openbot/product-core/messages";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -31,6 +27,7 @@ import {
 } from "../durable-attachment-stage";
 import { useTheme } from "../theme";
 import { Composer, type ComposerRecovery, type ReplyTarget } from "./composer";
+import { IconButton } from "./icon-button";
 import { MessageBubble } from "./message-bubble";
 
 const clientDeliveryFor = (message: ChannelMessageView) => {
@@ -46,6 +43,16 @@ const messageRenderKey = (message: ChannelMessageView) => {
   return message.sender === "user" && message.clientId
     ? `optimistic:${message.clientId}`
     : message.id;
+};
+
+const threadTimestamp = (createdAt: string) => {
+  const date = new Date(createdAt);
+  if (!Number.isFinite(date.getTime())) return "";
+  return new Intl.DateTimeFormat("en-US", {
+    weekday: "long",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(date);
 };
 
 export function ThreadSheet({
@@ -123,8 +130,7 @@ export function ThreadSheet({
   const messages = useMemo(() => (thread ? [thread.root, ...thread.replies] : []), [thread]);
   const byId = useMemo(() => new Map(messages.map((message) => [message.id, message])), [messages]);
   const threadRootId = thread?.root.id ?? null;
-  const replyCount = Math.max(0, messages.length - 1);
-  const replyCountLabel = threadReplyCountLabel(replyCount, historyHasMore);
+  const timestampLabel = thread ? threadTimestamp(thread.root.createdAt) : "";
   const targetIndex = targetMessageId
     ? messages.findIndex((message) => message.id === targetMessageId)
     : -1;
@@ -205,25 +211,19 @@ export function ThreadSheet({
     <Modal
       animationType="slide"
       onRequestClose={onClose}
-      presentationStyle="pageSheet"
+      presentationStyle="fullScreen"
       visible={Boolean(thread)}
     >
       <SafeAreaView style={[styles.safe, { backgroundColor: theme.background }]}>
-        <View style={[styles.header, { borderBottomColor: theme.separator }]}>
-          <Pressable
-            accessible
-            accessibilityLabel="Close thread"
-            accessibilityRole="button"
+        <View style={styles.header}>
+          <IconButton
+            label="Close thread"
+            name="chevron.left"
             onPress={onClose}
-            style={styles.headerAction}
-          >
-            <Text style={[styles.headerActionText, { color: theme.accent }]}>Close</Text>
-          </Pressable>
-          <View style={styles.headerCopy}>
-            <Text style={[styles.title, { color: theme.text }]}>Thread</Text>
-            <Text style={[styles.count, { color: theme.textMuted }]}>{replyCountLabel}</Text>
-          </View>
-          <View style={styles.headerAction} />
+            size={40}
+            symbolSize={18}
+            tone="surface"
+          />
         </View>
         <FlatList
           {...MOBILE_VIRTUAL_LIST_TUNING}
@@ -277,87 +277,81 @@ export function ThreadSheet({
           onViewableItemsChanged={onViewableItemsChanged}
           scrollEventThrottle={32}
           ListHeaderComponent={
-            historyLoading ? (
-              <ActivityIndicator color={theme.textMuted} style={styles.historyAction} />
-            ) : historyHasMore ? (
-              <Pressable
-                accessibilityLabel="Load earlier thread replies"
-                accessibilityRole="button"
-                onPress={() => {
-                  atLiveEdgeRef.current = false;
-                  void onLoadEarlier();
-                }}
-                style={({ pressed }) => [styles.historyAction, pressed && styles.pressed]}
-              >
-                <Text style={[styles.historyLabel, { color: theme.textMuted }]}>
-                  Load earlier thread replies
-                </Text>
-              </Pressable>
-            ) : null
+            <View>
+              {historyLoading ? (
+                <ActivityIndicator color={theme.textMuted} style={styles.historyAction} />
+              ) : historyHasMore ? (
+                <Pressable
+                  accessibilityLabel="Load earlier thread replies"
+                  accessibilityRole="button"
+                  onPress={() => {
+                    atLiveEdgeRef.current = false;
+                    void onLoadEarlier();
+                  }}
+                  style={({ pressed }) => [styles.historyAction, pressed && styles.pressed]}
+                >
+                  <Text style={[styles.historyLabel, { color: theme.textMuted }]}>
+                    Load earlier thread replies
+                  </Text>
+                </Pressable>
+              ) : null}
+              {timestampLabel ? (
+                <Text style={[styles.timestamp, { color: theme.textFaint }]}>{timestampLabel}</Text>
+              ) : null}
+            </View>
           }
-          renderItem={({ item, index }) => {
+          renderItem={({ item }) => {
             const metadata = messageMetadata(item);
             const clientDelivery = clientDeliveryFor(item);
             const deliveryState = clientDelivery?.state;
             const deliveryNonce = clientDelivery?.nonce;
-            const replyId = typeof metadata.replyTo === "string" ? metadata.replyTo : null;
             const peer = metadata.fromAgent ?? metadata.toAgent;
             const peerId =
               peer && typeof peer === "object" && !Array.isArray(peer)
                 ? (peer as Record<string, unknown>).id
                 : null;
             return (
-              <View>
-                {index === 1 ? (
-                  <View style={[styles.divider, { borderTopColor: theme.separator }]}>
-                    <Text style={[styles.dividerText, { color: theme.textMuted }]}>Replies</Text>
-                  </View>
-                ) : null}
-                <MessageBubble
-                  animateEntrance={false}
-                  assetUrl={assetUrl}
-                  message={item}
-                  pending={deliveryState === "pending" || deliveryState === "queued"}
-                  deliveryState={
-                    deliveryState === "pending" ||
-                    deliveryState === "queued" ||
-                    deliveryState === "accepted" ||
-                    deliveryState === "failed"
-                      ? deliveryState
-                      : undefined
-                  }
-                  deliveryNonce={typeof deliveryNonce === "string" ? deliveryNonce : undefined}
-                  deliveryComposedAtMs={
-                    typeof clientDelivery?.composedAtMs === "number"
-                      ? clientDelivery.composedAtMs
-                      : null
-                  }
-                  deliveryQueuedAtMs={
-                    typeof clientDelivery?.queuedAtMs === "number"
-                      ? clientDelivery.queuedAtMs
-                      : null
-                  }
-                  deliveryAcceptedAtMs={
-                    typeof clientDelivery?.acceptedAtMs === "number"
-                      ? clientDelivery.acceptedAtMs
-                      : null
-                  }
-                  deliveryTransportDown={clientDelivery?.transportDown === true}
-                  onResendFailed={(nonce) => void onResendFailed(nonce)}
-                  onDeleteFailed={(nonce) => void onDeleteFailed(nonce)}
-                  onCancelQueued={(nonce) => void recoverCancelledMessage(nonce)}
-                  onReact={(emoji) => void onReact(item.id, emoji)}
-                  onReply={() => {
-                    setReplyTarget({ id: item.id, content: item.content });
-                    setReplyEditVersion((current) => current + 1);
-                  }}
-                  onSecretSubmit={(value) => onSecretSubmit(item.id, value)}
-                  onWidgetDismiss={() => onWidgetDismiss(item.id)}
-                  onWidgetResponse={(value) => onWidgetResponse(item.id, value)}
-                  peerBot={typeof peerId === "string" ? botById.get(peerId) : undefined}
-                  replyPreview={replyId ? byId.get(replyId)?.content : null}
-                />
-              </View>
+              <MessageBubble
+                animateEntrance={false}
+                assetUrl={assetUrl}
+                message={item}
+                pending={deliveryState === "pending" || deliveryState === "queued"}
+                deliveryState={
+                  deliveryState === "pending" ||
+                  deliveryState === "queued" ||
+                  deliveryState === "accepted" ||
+                  deliveryState === "failed"
+                    ? deliveryState
+                    : undefined
+                }
+                deliveryNonce={typeof deliveryNonce === "string" ? deliveryNonce : undefined}
+                deliveryComposedAtMs={
+                  typeof clientDelivery?.composedAtMs === "number"
+                    ? clientDelivery.composedAtMs
+                    : null
+                }
+                deliveryQueuedAtMs={
+                  typeof clientDelivery?.queuedAtMs === "number" ? clientDelivery.queuedAtMs : null
+                }
+                deliveryAcceptedAtMs={
+                  typeof clientDelivery?.acceptedAtMs === "number"
+                    ? clientDelivery.acceptedAtMs
+                    : null
+                }
+                deliveryTransportDown={clientDelivery?.transportDown === true}
+                onResendFailed={(nonce) => void onResendFailed(nonce)}
+                onDeleteFailed={(nonce) => void onDeleteFailed(nonce)}
+                onCancelQueued={(nonce) => void recoverCancelledMessage(nonce)}
+                onReact={(emoji) => void onReact(item.id, emoji)}
+                onReply={() => {
+                  setReplyTarget({ id: item.id, content: item.content });
+                  setReplyEditVersion((current) => current + 1);
+                }}
+                onSecretSubmit={(value) => onSecretSubmit(item.id, value)}
+                onWidgetDismiss={() => onWidgetDismiss(item.id)}
+                onWidgetResponse={(value) => onWidgetResponse(item.id, value)}
+                peerBot={typeof peerId === "string" ? botById.get(peerId) : undefined}
+              />
             );
           }}
         />
@@ -367,6 +361,7 @@ export function ThreadSheet({
             botName={botName}
             draftKey={`${draftKey}:thread:${thread.root.id}`}
             mentionOptions={mentionOptions}
+            placeholder={`Reply ${botName}`}
             recovery={composerRecovery}
             onRecoveryApplied={(id) => {
               setComposerRecovery((current) => (current?.id === id ? null : current));
@@ -399,20 +394,20 @@ const styles = StyleSheet.create({
   safe: { flex: 1 },
   header: {
     minHeight: 58,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 12,
+    paddingHorizontal: 16,
     flexDirection: "row",
     alignItems: "center",
   },
-  headerAction: { width: 72, minHeight: 44, justifyContent: "center" },
-  headerActionText: { fontSize: 16, lineHeight: 21, fontWeight: "600" },
-  headerCopy: { flex: 1, alignItems: "center" },
-  title: { fontSize: 16, lineHeight: 20, fontWeight: "700" },
-  count: { fontSize: 11, lineHeight: 14 },
-  messages: { flexGrow: 1, justifyContent: "flex-end", paddingHorizontal: 16, paddingVertical: 12 },
+  messages: { flexGrow: 1, justifyContent: "flex-end", paddingHorizontal: 14, paddingVertical: 10 },
   historyAction: { minHeight: 44, alignItems: "center", justifyContent: "center" },
   historyLabel: { fontSize: 13, lineHeight: 18, fontWeight: "500" },
+  timestamp: {
+    alignSelf: "center",
+    marginTop: 4,
+    marginBottom: 14,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "500",
+  },
   pressed: { opacity: 0.65 },
-  divider: { marginHorizontal: 10, marginVertical: 10, borderTopWidth: StyleSheet.hairlineWidth },
-  dividerText: { alignSelf: "center", marginTop: -9, paddingHorizontal: 8, fontSize: 11 },
 });

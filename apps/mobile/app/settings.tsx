@@ -724,7 +724,7 @@ const styles = StyleSheet.create({
   safe: {
     flex: 1,
     marginHorizontal: 8,
-    marginTop: 114,
+    marginTop: 117,
     marginBottom: 8,
     borderRadius: 34,
     borderWidth: StyleSheet.hairlineWidth,

@@ -69,6 +69,7 @@ export default function RoutineDetailScreen() {
   const [mutating, setMutating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [instructionOpen, setInstructionOpen] = useState(false);
+  const [instructionEditorOpen, setInstructionEditorOpen] = useState(false);
   const [editorOpen, setEditorOpen] = useState(false);
 
   const refresh = useCallback(async () => {
@@ -142,6 +143,51 @@ export default function RoutineDetailScreen() {
         <Text style={[styles.missing, { color: theme.textMuted }]}>
           {error ?? "Routine not found."}
         </Text>
+      </SafeAreaView>
+    );
+  }
+
+  if (instructionOpen) {
+    return (
+      <SafeAreaView style={[styles.safe, { backgroundColor: canvas }]}>
+        <View style={styles.nav}>
+          <IconButton
+            label="Back"
+            name="chevron.left"
+            onPress={() => setInstructionOpen(false)}
+            size={40}
+            symbolSize={19}
+            tone="surface"
+          />
+          <Text numberOfLines={1} style={[styles.navTitle, { color: theme.text }]}>
+            Instruction
+          </Text>
+        </View>
+        <Pressable
+          accessibilityHint="Opens instruction editing"
+          accessibilityRole="button"
+          onPress={() => setInstructionEditorOpen(true)}
+          style={({ pressed }) => [
+            styles.instructionValue,
+            { backgroundColor: panel },
+            pressed && styles.pressed,
+          ]}
+        >
+          <Text style={[styles.cardText, { color: theme.text }]}>{routine.prompt}</Text>
+        </Pressable>
+        <TextEditorSheet
+          label="Instruction"
+          onClose={() => setInstructionEditorOpen(false)}
+          onSave={async (prompt) => {
+            const updated = await updateRoutine(routine.id, {
+              prompt: prompt.trim(),
+              expectedRevision: routine.revision,
+            });
+            setRoutine(updated);
+          }}
+          value={routine.prompt}
+          visible={instructionEditorOpen}
+        />
       </SafeAreaView>
     );
   }
@@ -237,19 +283,6 @@ export default function RoutineDetailScreen() {
         style={styles.list}
       />
 
-      <TextEditorSheet
-        label="Instruction"
-        onClose={() => setInstructionOpen(false)}
-        onSave={async (prompt) => {
-          const updated = await updateRoutine(routine.id, {
-            prompt: prompt.trim(),
-            expectedRevision: routine.revision,
-          });
-          setRoutine(updated);
-        }}
-        value={routine.prompt}
-        visible={instructionOpen}
-      />
       {editorOpen ? (
         <RoutineEditorSheet
           onClose={() => setEditorOpen(false)}
@@ -301,6 +334,15 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+  },
+  instructionValue: {
+    minHeight: 45,
+    marginHorizontal: 15,
+    marginTop: 12,
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    justifyContent: "center",
   },
   historyLabel: { marginTop: 17, marginBottom: 8 },
   historyRow: {

@@ -648,60 +648,65 @@ export default function ComputerScreen() {
       ) : null}
 
       <View style={styles.stage}>
-        <View
-          style={[styles.screenShell, { aspectRatio }]}
-          onLayout={(event) => setFrameSize(event.nativeEvent.layout)}
-        >
-          {!status && !error ? (
+        {!status && !error ? (
+          <View accessibilityLabel="Connecting to computer" style={styles.connectingState}>
             <ActivityIndicator color="#92928D" />
-          ) : isFixture ? (
-            <View
-              {...panResponder.panHandlers}
-              accessible
-              accessibilityLabel={controlling ? "Tap the preview computer" : "Computer preview"}
-              accessibilityRole="button"
-              style={styles.frame}
-            >
-              <View style={[styles.frame, { transform: [{ scale: screenZoom }] }]}>
-                <FixtureDesktop />
-              </View>
-            </View>
-          ) : frameUrl && ready ? (
-            <View style={styles.frame}>
+            <Text style={styles.connectingCopy}>Connecting...</Text>
+          </View>
+        ) : (
+          <View
+            style={[styles.screenShell, { aspectRatio }]}
+            onLayout={(event) => setFrameSize(event.nativeEvent.layout)}
+          >
+            {isFixture ? (
               <View
                 {...panResponder.panHandlers}
                 accessible
-                accessibilityLabel={controlling ? "Tap the shared computer" : "Shared computer"}
+                accessibilityLabel={controlling ? "Tap the preview computer" : "Computer preview"}
                 accessibilityRole="button"
                 style={styles.frame}
               >
-                <Image
-                  onError={() => setFrameError("The latest computer frame could not be loaded")}
-                  onLoad={() => setFrameError(null)}
-                  resizeMode="contain"
-                  source={{ uri: frameUrl, headers: authHeadersForUrl(frameUrl) }}
-                  style={[styles.frame, { transform: [{ scale: screenZoom }] }]}
-                />
-              </View>
-              {frameError ? (
-                <View pointerEvents="none" style={[styles.centerState, styles.frameErrorOverlay]}>
-                  <SymbolView name="exclamationmark.triangle" size={28} tintColor="#777773" />
-                  <Text style={styles.stateCopy}>{frameError}</Text>
+                <View style={[styles.frame, { transform: [{ scale: screenZoom }] }]}>
+                  <FixtureDesktop />
                 </View>
-              ) : null}
-            </View>
-          ) : (
-            <View style={styles.centerState}>
-              <SymbolView name="desktopcomputer" size={28} tintColor="#777773" />
-              <Text style={styles.stateCopy}>{error ?? "Computer unavailable"}</Text>
-            </View>
-          )}
-          {busy ? (
-            <View pointerEvents="none" style={styles.busyOverlay}>
-              <ActivityIndicator color="#FFFFFF" />
-            </View>
-          ) : null}
-        </View>
+              </View>
+            ) : frameUrl && ready ? (
+              <View style={styles.frame}>
+                <View
+                  {...panResponder.panHandlers}
+                  accessible
+                  accessibilityLabel={controlling ? "Tap the shared computer" : "Shared computer"}
+                  accessibilityRole="button"
+                  style={styles.frame}
+                >
+                  <Image
+                    onError={() => setFrameError("The latest computer frame could not be loaded")}
+                    onLoad={() => setFrameError(null)}
+                    resizeMode="contain"
+                    source={{ uri: frameUrl, headers: authHeadersForUrl(frameUrl) }}
+                    style={[styles.frame, { transform: [{ scale: screenZoom }] }]}
+                  />
+                </View>
+                {frameError ? (
+                  <View pointerEvents="none" style={[styles.centerState, styles.frameErrorOverlay]}>
+                    <SymbolView name="exclamationmark.triangle" size={28} tintColor="#777773" />
+                    <Text style={styles.stateCopy}>{frameError}</Text>
+                  </View>
+                ) : null}
+              </View>
+            ) : (
+              <View style={styles.centerState}>
+                <SymbolView name="desktopcomputer" size={28} tintColor="#777773" />
+                <Text style={styles.stateCopy}>{error ?? "Computer unavailable"}</Text>
+              </View>
+            )}
+            {busy ? (
+              <View pointerEvents="none" style={styles.busyOverlay}>
+                <ActivityIndicator color="#FFFFFF" />
+              </View>
+            ) : null}
+          </View>
+        )}
       </View>
 
       {controlsOpen ? (
@@ -919,6 +924,14 @@ const styles = StyleSheet.create({
   },
   modeToastText: { color: "#F7F7F4", fontSize: 17, lineHeight: 22, fontWeight: "500" },
   stage: { flex: 1, alignItems: "center", justifyContent: "flex-start", paddingTop: 28 },
+  connectingState: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 12,
+    paddingBottom: 44,
+  },
+  connectingCopy: { color: "#F7F7F4", fontSize: 15, lineHeight: 20 },
   screenShell: {
     width: "100%",
     maxHeight: 560,
@@ -1054,7 +1067,7 @@ const styles = StyleSheet.create({
   },
   bottomToolbar: {
     minHeight: 64,
-    paddingHorizontal: 16,
+    paddingHorizontal: 11,
     paddingBottom: 4,
     flexDirection: "row",
     alignItems: "center",

@@ -40,7 +40,7 @@ const emptySettings = (): PluginSettingsView => ({
 function PluginMark({
   logoUrl,
   name,
-  size = 36,
+  size = 34,
   theme,
 }: {
   logoUrl: string | null;
@@ -535,7 +535,7 @@ export function PluginMarketplaceSheet({
 
 const styles = StyleSheet.create({
   screen: { flex: 1, paddingHorizontal: 14 },
-  header: { height: 66, flexDirection: "row", alignItems: "center", gap: 10 },
+  header: { height: 69, flexDirection: "row", alignItems: "center", gap: 10 },
   headerTitle: { flex: 1, fontSize: 16, lineHeight: 21, fontWeight: "600" },
   installedPill: {
     height: 38,
@@ -549,10 +549,16 @@ const styles = StyleSheet.create({
     gap: 7,
   },
   installedText: { fontSize: 14, lineHeight: 18, fontWeight: "500" },
-  searchRow: { height: 47, flexDirection: "row", alignItems: "center", gap: 7 },
+  searchRow: {
+    height: 47,
+    marginTop: -9,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+  },
   searchWrap: {
     flex: 1,
-    height: 38,
+    height: 35,
     borderRadius: 19,
     borderWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: 12,
@@ -560,13 +566,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 8,
   },
-  searchInput: { flex: 1, height: 38, padding: 0, fontSize: 14, lineHeight: 18 },
+  searchInput: { flex: 1, height: 35, padding: 0, fontSize: 14, lineHeight: 18 },
   error: { marginHorizontal: 7, marginTop: 5, fontSize: 12, lineHeight: 17 },
   catalogContent: { paddingTop: 17, paddingBottom: 42 },
   section: { marginBottom: 22 },
   sectionHeading: {
     height: 28,
-    paddingHorizontal: 6,
+    paddingHorizontal: 5,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
@@ -575,7 +581,7 @@ const styles = StyleSheet.create({
   viewAll: { fontSize: 11, lineHeight: 15 },
   pluginRow: {
     minHeight: 71,
-    paddingHorizontal: 6,
+    paddingHorizontal: 5,
     flexDirection: "row",
     alignItems: "center",
     gap: 12,

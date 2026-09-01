@@ -113,7 +113,7 @@ export function AttachmentPreview({ asset, url }: { asset: AssetRef; url: string
       ]}
     >
       <View style={[styles.icon, { backgroundColor: theme.surfacePressed }]}>
-        <SymbolView name={fileSymbol(asset.kind)} size={19} tintColor={theme.textMuted} />
+        <SymbolView name={fileSymbol(asset.kind)} size={15} tintColor={theme.textMuted} />
       </View>
       <View style={styles.copy}>
         <Text numberOfLines={1} style={[styles.title, { color: theme.text }]}>
@@ -129,14 +129,17 @@ export function AttachmentPreview({ asset, url }: { asset: AssetRef; url: string
               ? `Downloading ${Math.max(1, Math.round(progress * 100))}%`
               : state === "opening"
                 ? "Opening preview…"
-                : `${readableSize(asset.byteSize)} · Preview`}
+                : readableSize(asset.byteSize)}
         </Text>
         {state === "downloading" ? (
           <View style={[styles.progressTrack, { backgroundColor: theme.surfacePressed }]}>
             <View
               style={[
                 styles.progressFill,
-                { backgroundColor: theme.text, width: `${Math.max(3, progress * 100)}%` },
+                {
+                  backgroundColor: theme.text,
+                  width: `${Math.max(3, progress * 100)}%`,
+                },
               ]}
             />
           </View>
@@ -155,39 +158,46 @@ export function AttachmentPreview({ asset, url }: { asset: AssetRef; url: string
         >
           <SymbolView name="xmark.circle.fill" size={19} tintColor={theme.textMuted} />
         </Pressable>
-      ) : (
-        <SymbolView
-          name={state === "error" ? "arrow.clockwise.circle" : "eye.circle"}
-          size={19}
-          tintColor={state === "error" ? theme.danger : theme.textMuted}
-        />
-      )}
+      ) : state === "error" ? (
+        <SymbolView name="arrow.clockwise.circle" size={19} tintColor={theme.danger} />
+      ) : null}
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
   card: {
-    minHeight: 58,
-    borderRadius: 15,
+    minHeight: 50,
+    alignSelf: "flex-start",
+    borderRadius: 14,
     borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 8,
-    paddingVertical: 7,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
     flexDirection: "row",
     alignItems: "center",
     gap: 9,
   },
   icon: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
+    width: 28,
+    height: 28,
+    borderRadius: 8,
     alignItems: "center",
     justifyContent: "center",
   },
-  copy: { flex: 1, minWidth: 0, gap: 1 },
+  copy: { minWidth: 78, maxWidth: 174, gap: 1 },
   title: { fontSize: 13, lineHeight: 17, fontWeight: "600" },
   meta: { fontSize: 11, lineHeight: 14 },
-  progressTrack: { height: 3, borderRadius: 2, overflow: "hidden", marginTop: 2 },
+  progressTrack: {
+    height: 3,
+    borderRadius: 2,
+    overflow: "hidden",
+    marginTop: 2,
+  },
   progressFill: { height: 3, borderRadius: 2 },
-  action: { width: 32, height: 40, alignItems: "center", justifyContent: "center" },
+  action: {
+    width: 32,
+    height: 40,
+    alignItems: "center",
+    justifyContent: "center",
+  },
 });

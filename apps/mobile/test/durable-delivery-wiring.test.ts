@@ -16,6 +16,11 @@ describe("mobile durable delivery wiring", () => {
     expect(storage).toContain(".b.json");
     expect(storage).toContain(".next");
     expect(storage).toContain("right.generation - left.generation");
+    expect(storage).toContain("durableSendScopeHash");
+    expect(storage).toContain("DURABLE_SEND_JOURNAL_MAX_BYTES");
+    expect(storage).toContain("writeTails");
+    expect(context).toContain("sendController.dispose()");
+    expect(context).toContain("onTelemetry: recordMobileDeliveryTelemetry");
   });
 
   test("restores cancelled payloads without overwriting a non-empty composer", async () => {
@@ -44,6 +49,9 @@ describe("mobile durable delivery wiring", () => {
 
     expect(composer).toContain("consumedDraft: { key: string; id: string }");
     expect(composer).toContain("{ key: draftKey, id: draftId }");
+    expect(composer).toMatch(/let recoverable = pending;[\s\S]*setText\(""\);[\s\S]*await onSend/);
+    expect(composer).toMatch(/catch \(cause\) \{[\s\S]*setText\(content\);/);
+    expect(composer).toContain("if (!draftReady || sending) return");
     expect(context).toContain("clearConversationDraftIfCurrent(");
     expect(context).toContain("record.payload.consumedDraft.id");
     expect(drafts).toContain("current?.id !== expectedId");

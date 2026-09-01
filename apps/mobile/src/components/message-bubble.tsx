@@ -20,6 +20,7 @@ import {
   Easing,
   Image,
   Modal,
+  PanResponder,
   Pressable,
   StyleSheet,
   Text,
@@ -151,7 +152,8 @@ export function MessageBubble({
   const deliveryOpacity = useRef(new Animated.Value(pending ? 0.55 : 1)).current;
   const entranceOpacity = useRef(new Animated.Value(enters ? 0 : 1)).current;
   const entranceTransform = useRef(new Animated.Value(enters ? 0 : 1)).current;
-  const failedHighlight = useRef(new Animated.Value(0)).current;
+  const swipeOffset = useRef(new Animated.Value(0)).current;
+  const swipeThresholdReached = useRef(false);
   const reactions = useMemo(() => messageReactionPills(message), [message]);
   const display = useMemo(() => messageDisplayProjection(message), [message]);
   const { attachments, stagedAttachments, displayContent, files, images, richMessage } = display;
@@ -175,6 +177,7 @@ export function MessageBubble({
     `${attachmentCount} attached ${attachmentCount === 1 ? "file" : "files"}`;
   const deliveryActionsDisabled =
     pending || deliveryState === "queued" || deliveryState === "failed";
+  const swipeToThreadEnabled = Boolean(onStartThread) && !readOnly && !deliveryActionsDisabled;
   const currentSentOfflineAtMs =
     deliveryState === "accepted" &&
     deliveryQueuedAtMs != null &&
@@ -253,39 +256,70 @@ export function MessageBubble({
     };
   }, [entranceOpacity, entranceTransform, enters]);
 
-  useEffect(() => {
-    if (deliveryState !== "failed") {
-      failedHighlight.stopAnimation();
-      failedHighlight.setValue(0);
-      return;
-    }
-    let cancelled = false;
-    let animation: Animated.CompositeAnimation | null = null;
-    void AccessibilityInfo.isReduceMotionEnabled().then(
-      (reduced) => {
-        if (cancelled) return;
-        failedHighlight.setValue(1);
-        if (reduced) return;
-        animation = Animated.sequence([
-          Animated.delay(1_000),
-          Animated.timing(failedHighlight, {
+  const swipeResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponderCapture: (_event, gesture) =>
+          swipeToThreadEnabled &&
+          gesture.dx > 7 &&
+          Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.2,
+        onPanResponderGrant: () => {
+          swipeOffset.stopAnimation();
+          swipeThresholdReached.current = false;
+        },
+        onPanResponderMove: (_event, gesture) => {
+          const distance = Math.max(0, gesture.dx);
+          const resistedDistance = Math.min(distance, 52) + Math.max(0, distance - 52) * 0.28;
+          swipeOffset.setValue(Math.min(78, resistedDistance));
+          const reached = distance >= 52;
+          if (reached && !swipeThresholdReached.current) {
+            swipeThresholdReached.current = true;
+            void Haptics.selectionAsync();
+          } else if (!reached && distance < 40) {
+            swipeThresholdReached.current = false;
+          }
+        },
+        onPanResponderRelease: (_event, gesture) => {
+          const shouldOpen = gesture.dx >= 52 || (gesture.dx >= 24 && gesture.vx >= 0.65);
+          if (shouldOpen && onStartThread) {
+            if (!swipeThresholdReached.current) {
+              void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            }
+            Animated.timing(swipeOffset, {
+              toValue: 78,
+              duration: 72,
+              easing: Easing.out(Easing.quad),
+              useNativeDriver: true,
+            }).start(({ finished }) => {
+              swipeOffset.setValue(0);
+              swipeThresholdReached.current = false;
+              if (finished) onStartThread();
+            });
+            return;
+          }
+          swipeThresholdReached.current = false;
+          Animated.spring(swipeOffset, {
             toValue: 0,
-            duration: 1_500,
-            easing: Easing.out(Easing.ease),
-            useNativeDriver: false,
-          }),
-        ]);
-        animation.start();
-      },
-      () => {
-        if (!cancelled) failedHighlight.setValue(1);
-      }
-    );
-    return () => {
-      cancelled = true;
-      animation?.stop();
-    };
-  }, [deliveryState, failedHighlight]);
+            damping: 18,
+            stiffness: 260,
+            mass: 0.72,
+            useNativeDriver: true,
+          }).start();
+        },
+        onPanResponderTerminate: () => {
+          swipeThresholdReached.current = false;
+          Animated.spring(swipeOffset, {
+            toValue: 0,
+            damping: 18,
+            stiffness: 260,
+            mass: 0.72,
+            useNativeDriver: true,
+          }).start();
+        },
+        onPanResponderTerminationRequest: () => false,
+      }),
+    [onStartThread, swipeOffset, swipeToThreadEnabled]
+  );
 
   const openActions = () => {
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -313,19 +347,43 @@ export function MessageBubble({
         { opacity: deliveryOpacity },
       ]}
     >
+      {swipeToThreadEnabled ? (
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            styles.swipeThreadIndicator,
+            isUser ? styles.swipeThreadIndicatorRight : styles.swipeThreadIndicatorLeft,
+            {
+              opacity: swipeOffset.interpolate({
+                inputRange: [0, 20, 52],
+                outputRange: [0, 0.3, 1],
+                extrapolate: "clamp",
+              }),
+              transform: [
+                {
+                  scale: swipeOffset.interpolate({
+                    inputRange: [0, 52],
+                    outputRange: [0.72, 1],
+                    extrapolate: "clamp",
+                  }),
+                },
+              ],
+            },
+          ]}
+        >
+          <SymbolView name="arrowshape.turn.up.left" size={19} tintColor={theme.textMuted} />
+        </Animated.View>
+      ) : null}
       <Animated.View
+        {...swipeResponder.panHandlers}
         style={[
           styles.entranceContent,
           isUser ? styles.contentRight : styles.contentLeft,
           {
-            backgroundColor: failedHighlight.interpolate({
-              inputRange: [0, 1],
-              outputRange: ["rgba(255,192,0,0)", "rgba(255,192,0,0.22)"],
-            }),
             opacity: entranceOpacity,
             transform:
               reduceMotion === true
-                ? []
+                ? [{ translateX: swipeOffset }]
                 : [
                     {
                       translateY: entranceTransform.interpolate({
@@ -339,6 +397,7 @@ export function MessageBubble({
                         outputRange: [0.94, 1],
                       }),
                     },
+                    { translateX: swipeOffset },
                   ],
             transformOrigin: isUser ? "100% 100%" : "0% 100%",
           },
@@ -381,7 +440,14 @@ export function MessageBubble({
             accessibilityLabel={`${speakerName ?? (isUser ? "You" : "Agent")}: ${accessibilitySummary}`}
             accessibilityRole="text"
             accessibilityActions={
-              readOnly ? undefined : [{ name: "showMessageActions", label: "Show message actions" }]
+              readOnly
+                ? undefined
+                : [
+                    {
+                      name: "showMessageActions",
+                      label: "Show message actions",
+                    },
+                  ]
             }
             accessibilityState={{ busy: pending }}
             accessible={files.length === 0 && stagedFiles.length === 0}
@@ -469,7 +535,10 @@ export function MessageBubble({
                     key={file.stagingId}
                     style={[
                       styles.stagedFile,
-                      { backgroundColor: theme.surface, borderColor: theme.border },
+                      {
+                        backgroundColor: theme.surface,
+                        borderColor: theme.border,
+                      },
                     ]}
                   >
                     <SymbolView name="doc.fill" size={18} tintColor={theme.textMuted} />
@@ -598,12 +667,17 @@ export function MessageBubble({
           onRequestClose={() => setActionsOpen(false)}
         >
           <Pressable style={styles.overlay} onPress={() => setActionsOpen(false)}>
-            <View style={styles.actionAnchor}>
+            <View
+              style={[
+                styles.actionAnchor,
+                {
+                  backgroundColor: theme.background,
+                  borderColor: theme.border,
+                },
+              ]}
+            >
               {!readOnly ? (
-                <GlassSurface
-                  fallbackColor={theme.surfaceElevated}
-                  style={[styles.reactionPanel, { borderColor: theme.border }]}
-                >
+                <View style={styles.reactionPanel}>
                   <View style={styles.emojiRow}>
                     {QUICK_REACTIONS.map((emoji) => (
                       <Pressable
@@ -647,7 +721,7 @@ export function MessageBubble({
                       </View>
                     </Pressable>
                   </View>
-                </GlassSurface>
+                </View>
               ) : null}
               {!readOnly ? (
                 <GlassSurface
@@ -765,7 +839,7 @@ export function MessageBubble({
 }
 
 const styles = StyleSheet.create({
-  messageWrap: { maxWidth: "88%", marginVertical: 3 },
+  messageWrap: { maxWidth: "89%", marginVertical: 3 },
   // Rich cards contain percentage-width children. Give their wrapping message an
   // explicit width so Yoga does not resolve the circular percentage against the
   // card's min-content width (which can collapse short widget labels vertically).
@@ -775,6 +849,17 @@ const styles = StyleSheet.create({
   contentRight: { alignItems: "flex-end" },
   alignLeft: { alignSelf: "flex-start" },
   alignRight: { alignSelf: "flex-end" },
+  swipeThreadIndicator: {
+    position: "absolute",
+    top: "50%",
+    width: 24,
+    height: 24,
+    marginTop: -12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  swipeThreadIndicatorLeft: { left: 17 },
+  swipeThreadIndicatorRight: { left: -31 },
   bubble: { borderRadius: 21, paddingHorizontal: 15, paddingVertical: 10 },
   advancedMarkdownBubble: { width: "100%" },
   richActionTarget: { width: "100%", maxWidth: 520 },
@@ -789,9 +874,19 @@ const styles = StyleSheet.create({
     marginTop: 7,
   },
   singleImageGallery: { width: 246 },
-  singleImage: { width: 246, height: 184, borderRadius: 16, backgroundColor: "#D6D6D2" },
-  gridImage: { width: 112, height: 104, borderRadius: 14, backgroundColor: "#D6D6D2" },
-  fileList: { width: 246, gap: 5, marginTop: 7 },
+  singleImage: {
+    width: 246,
+    height: 184,
+    borderRadius: 16,
+    backgroundColor: "#D6D6D2",
+  },
+  gridImage: {
+    width: 112,
+    height: 104,
+    borderRadius: 14,
+    backgroundColor: "#D6D6D2",
+  },
+  fileList: { alignSelf: "flex-start", gap: 7, marginTop: 7 },
   stagedFile: {
     width: 246,
     minHeight: 48,
@@ -858,19 +953,33 @@ const styles = StyleSheet.create({
   deliveryStatus: { fontSize: 12, lineHeight: 16, fontWeight: "500" },
   deliveryAction: { minHeight: 28, justifyContent: "center" },
   deliveryActionText: { fontSize: 12, lineHeight: 16, fontWeight: "600" },
-  sentOffline: { overflow: "hidden", paddingHorizontal: 8, fontSize: 11, lineHeight: 15 },
+  sentOffline: {
+    overflow: "hidden",
+    paddingHorizontal: 8,
+    fontSize: 11,
+    lineHeight: 15,
+  },
   sentOfflineRight: { alignSelf: "flex-end" },
   overlay: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.20)",
+    backgroundColor: "rgba(0,0,0,0.50)",
     justifyContent: "flex-end",
-    paddingHorizontal: 14,
-    paddingBottom: 18,
+    paddingHorizontal: 8,
+    paddingBottom: 5,
   },
-  actionAnchor: { width: "100%", gap: 10 },
+  actionAnchor: {
+    width: "100%",
+    gap: 10,
+    paddingHorizontal: 13,
+    paddingTop: 14,
+    paddingBottom: 10,
+    borderRadius: 26,
+    borderWidth: StyleSheet.hairlineWidth,
+    overflow: "hidden",
+  },
   actionPanel: {
     width: "100%",
-    borderRadius: 22,
+    borderRadius: 18,
     borderWidth: StyleSheet.hairlineWidth,
     overflow: "hidden",
     shadowColor: "#000",
@@ -880,21 +989,18 @@ const styles = StyleSheet.create({
   },
   reactionPanel: {
     width: "100%",
-    borderRadius: 22,
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 6,
-    paddingVertical: 5,
-    overflow: "hidden",
+    height: 56,
+    justifyContent: "center",
   },
   emojiRow: { flexDirection: "row", justifyContent: "space-between" },
   emojiAction: {
-    width: 48,
+    width: 44,
     height: 48,
     borderRadius: 16,
     alignItems: "center",
     justifyContent: "center",
   },
-  emojiActionText: { fontSize: 27 },
+  emojiActionText: { fontSize: 22 },
   reactionPlus: {
     position: "absolute",
     right: -5,
@@ -905,13 +1011,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  divider: { height: StyleSheet.hairlineWidth, marginLeft: 52 },
+  divider: { height: StyleSheet.hairlineWidth, marginLeft: 46 },
   menuRow: {
-    height: 56,
+    height: 43,
     paddingHorizontal: 18,
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
   },
-  menuLabel: { fontSize: 17, lineHeight: 22, fontWeight: "500" },
+  menuLabel: { fontSize: 16, lineHeight: 21, fontWeight: "400" },
 });

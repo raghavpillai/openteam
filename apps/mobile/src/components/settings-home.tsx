@@ -230,6 +230,7 @@ export function SettingsHome({
             <Switch
               accessibilityLabel="Auto-review information"
               onValueChange={onAutoReviewInfo}
+              style={styles.compactSwitch}
               trackColor={{ false: theme.surfacePressed, true: "#30D158" }}
               value
             />
@@ -252,6 +253,7 @@ export function SettingsHome({
             <Switch
               accessibilityLabel="Automatic time zone information"
               onValueChange={() => onSystemPreferenceInfo("timezone")}
+              style={styles.compactSwitch}
               trackColor={{ false: theme.surfacePressed, true: "#30D158" }}
               value
             />
@@ -284,6 +286,7 @@ export function SettingsHome({
                 notificationPermission === "loading" || notificationPermission === "unavailable"
               }
               onValueChange={onNotifications}
+              style={styles.compactSwitch}
               trackColor={{ false: theme.surfacePressed, true: "#30D158" }}
               value={notificationsOn}
             />
@@ -357,7 +360,7 @@ export function SettingsHome({
 const styles = StyleSheet.create({
   scroll: { flex: 1 },
   content: { paddingHorizontal: 14, paddingBottom: 72 },
-  header: { height: 80, justifyContent: "flex-start", paddingTop: 12 },
+  header: { height: 84, justifyContent: "flex-start", paddingTop: 16 },
   closeButton: {
     width: 38,
     height: 38,
@@ -376,7 +379,7 @@ const styles = StyleSheet.create({
   sectionLabel: { marginLeft: 16, marginTop: 26, marginBottom: 6, fontSize: 13, lineHeight: 17 },
   row: {
     minHeight: 44,
-    paddingHorizontal: 18,
+    paddingHorizontal: 15,
     paddingVertical: 9,
     borderBottomWidth: StyleSheet.hairlineWidth,
     flexDirection: "row",
@@ -393,25 +396,26 @@ const styles = StyleSheet.create({
   timeZone: { maxWidth: "56%" },
   profileRow: {
     minHeight: 60,
-    paddingHorizontal: 18,
+    paddingHorizontal: 15,
     borderBottomWidth: StyleSheet.hairlineWidth,
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: 9,
   },
   avatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     alignItems: "center",
     justifyContent: "center",
   },
   avatarText: { fontSize: 15, lineHeight: 19, fontWeight: "700" },
+  compactSwitch: { transform: [{ translateX: 4 }, { scale: 0.88 }] },
   profileCopy: { flex: 1, minWidth: 0 },
   profileName: { fontSize: 16, lineHeight: 21, fontWeight: "500" },
   profileDetail: { marginTop: 1, fontSize: 13, lineHeight: 17 },
   about: { alignItems: "center", paddingTop: 52, paddingBottom: 22 },
-  appIcon: { width: 46, height: 46, borderRadius: 13 },
+  appIcon: { width: 43, height: 43, borderRadius: 12 },
   appName: { marginTop: 13, fontSize: 16, lineHeight: 21, fontWeight: "500" },
   appVersion: { marginTop: 2, fontSize: 12, lineHeight: 16 },
 });

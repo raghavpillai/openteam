@@ -341,9 +341,11 @@ export class ChannelService {
             interruptRunId: delivery.interruptRunId,
           };
         });
-        if (accepted.bootstrapRunId) await this.cancelSkippedBootstrap(accepted.bootstrapRunId);
-        if (accepted.interruptRunId) await this.interruptNonUserRun(accepted.interruptRunId);
-        if (accepted.steer) await this.dispatchSteer(accepted.steer);
+        this.afterDurableAcceptance("direct message follow-up", async () => {
+          if (accepted.bootstrapRunId) await this.cancelSkippedBootstrap(accepted.bootstrapRunId);
+          if (accepted.interruptRunId) await this.interruptNonUserRun(accepted.interruptRunId);
+          if (accepted.steer) await this.dispatchSteer(accepted.steer);
+        });
         return accepted.response;
       },
       catch: toError,
@@ -1095,7 +1097,9 @@ export class ChannelService {
           });
           return accepted;
         });
-        await this.messaging.advanceRound(response.round.id);
+        this.afterDurableAcceptance("group message round advancement", () =>
+          this.messaging.advanceRound(response.round.id)
+        );
         return serialize(response);
       },
       catch: toError,
@@ -1221,6 +1225,14 @@ export class ChannelService {
       body: JSON.stringify({ paths }),
     });
     if (!response.ok) throw new ApiError(503, "computer_unavailable", await response.text());
+  }
+
+  private afterDurableAcceptance(label: string, operation: () => Promise<void>): void {
+    void operation().catch((cause) => {
+      // The accepted message and its inbox/round state are already committed.
+      // Startup recovery and queue retry remain authoritative for follow-up work.
+      console.error(label, cause);
+    });
   }
 
   async interruptNonUserRun(runId: string): Promise<void> {

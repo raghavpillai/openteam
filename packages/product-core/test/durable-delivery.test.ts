@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { AssetRef, ChannelMessageView } from "@openbot/contracts";
 import {
   createDurableSendController,
+  DURABLE_SEND_SCHEMA_VERSION,
   type DurableSendJournal,
   type DurableSendRecord,
   durableSendIsInFlight,
@@ -11,7 +12,10 @@ import {
   parseDurableSendJournal,
 } from "../src/durable-delivery";
 
-const acceptedMessage = (id: string): ChannelMessageView => ({
+const acceptedMessage = (
+  id: string,
+  overrides: Partial<ChannelMessageView> = {}
+): ChannelMessageView => ({
   id,
   sequence: "1",
   channelId: "channel-1",
@@ -21,6 +25,7 @@ const acceptedMessage = (id: string): ChannelMessageView => ({
   content: "hello",
   metadata: { type: "text" },
   createdAt: "2026-09-01T00:00:00.000Z",
+  ...overrides,
 });
 
 const input = {
@@ -87,7 +92,7 @@ describe("durable send controller", () => {
     if (!acceptedRecord) throw new Error("accepted delivery was not retained");
     expect(durableSendVisualState(acceptedRecord)).toBe("accepted");
 
-    await controller.reconcile(new Set(["message-1"]));
+    await controller.reconcile([acceptedMessage("message-1")]);
     expect(controller.getSnapshot()).toEqual([]);
     expect(memory.writes.at(-1)?.records).toEqual([]);
   });
@@ -200,7 +205,7 @@ describe("durable send controller", () => {
   test("fails closed on a corrupt or cross-account journal", () => {
     expect(
       parseDurableSendJournal({ schemaVersion: 1, scope: "other", records: [] }, "mine")
-    ).toEqual({ schemaVersion: 1, scope: "mine", records: [] });
+    ).toEqual({ schemaVersion: DURABLE_SEND_SCHEMA_VERSION, scope: "mine", records: [] });
     expect(
       parseDurableSendJournal({ schemaVersion: 1, scope: "mine", records: [{}] }, "mine").records
     ).toEqual([]);
@@ -361,7 +366,8 @@ describe("durable send controller", () => {
     const record = {
       nonce: "nonce-valid-mixed",
       priorNonces: [],
-      promptDigest: durableSendPromptDigest(input.payload),
+      lineageId: "a".repeat(32),
+      promptDigest: durableSendPromptDigest(input.payload, input.target),
       target: input.target,
       payload: input.payload,
       phase: "queued",
@@ -376,8 +382,10 @@ describe("durable send controller", () => {
       failure: null,
     } satisfies DurableSendRecord;
     expect(
-      parseDurableSendJournal({ schemaVersion: 1, scope: "mine", records: [record, {}] }, "mine")
-        .records
+      parseDurableSendJournal(
+        { schemaVersion: DURABLE_SEND_SCHEMA_VERSION, scope: "mine", records: [record, {}] },
+        "mine"
+      ).records
     ).toEqual([]);
     expect(valid.writes).toEqual([]);
   });
@@ -415,7 +423,11 @@ describe("durable send controller", () => {
           committed,
           alreadyUploaded,
         ]);
-        return { message: acceptedMessage("message-staged") };
+        return {
+          message: acceptedMessage("message-staged", {
+            metadata: { type: "text", attachments: [committed, alreadyUploaded] },
+          }),
+        };
       },
       resolveAcceptance: async () => ({ status: "not_found" }),
       classifyError: () => "fatal",
@@ -575,8 +587,9 @@ describe("durable send controller", () => {
       classifyError: () => "fatal",
     });
     await controller.enqueue(input);
-    await waitFor(() => controller.getRecoverySnapshot().length === 1);
-    expect(controller.getRecoverySnapshot()[0]?.failure?.code).toBe("delivery_digest_mismatch");
+    await waitFor(() => controller.getSnapshot()[0]?.phase === "failed");
+    expect(controller.getSnapshot()[0]?.failure?.code).toBe("delivery_digest_mismatch");
+    expect(controller.getRecoverySnapshot()).toEqual([]);
     const journal = memory.read() as DurableSendJournal;
     expect(journal.records[0]?.promptDigest).toMatch(/^[a-f0-9]{64}$/);
 
@@ -590,6 +603,7 @@ describe("durable send controller", () => {
       scope: string;
       records: Array<Record<string, unknown>>;
     };
+    legacy.schemaVersion = 1;
     delete legacy.records[0]?.promptDigest;
     expect(parseDurableSendJournal(legacy, "account-1").records[0]?.promptDigest).toBe(
       journal.records[0]?.promptDigest
@@ -597,8 +611,248 @@ describe("durable send controller", () => {
     expect(durableSendPromptDigest({ content: "hello" })).not.toBe(
       durableSendPromptDigest({ content: "different" })
     );
-    expect(durableSendPromptDigest({ content: "hello" })).toBe(
-      "f23ae087ce8941b05740c13f9c1296103253c6505c415b1c6bf1680aff8761bf"
+    const oldPromptOnlyDigest = "f23ae087ce8941b05740c13f9c1296103253c6505c415b1c6bf1680aff8761bf";
+    legacy.records[0]!.promptDigest = oldPromptOnlyDigest;
+    expect(parseDurableSendJournal(legacy, "account-1").records[0]?.promptDigest).toBe(
+      journal.records[0]?.promptDigest
     );
+    expect(journal.records[0]?.promptDigest).not.toBe(oldPromptOnlyDigest);
+  });
+
+  test("retires immediately when the transcript echoes the nonce before dispatch resolves", async () => {
+    const dispatch = deferred<{ message: ChannelMessageView }>();
+    const telemetry: string[] = [];
+    const controller = createDurableSendController("account-1", memoryStorage().storage, {
+      createNonce: () => "nonce-early-echo",
+      dispatch: () => dispatch.promise,
+      resolveAcceptance: async () => ({ status: "not_found" }),
+      classifyError: () => "ambiguous",
+      onTelemetry: ({ outcome }) => telemetry.push(outcome),
+    });
+
+    await controller.enqueue(input);
+    await waitFor(() => controller.getSnapshot()[0]?.phase === "dispatching");
+    const echo = acceptedMessage("message-early-echo", { clientId: "nonce-early-echo" });
+    await controller.reconcile([echo]);
+    expect(controller.getSnapshot()).toEqual([]);
+    expect(telemetry).toContain("echo-reconciled");
+
+    dispatch.resolve({ message: echo });
+    await Bun.sleep(1);
+    expect(controller.getSnapshot()).toEqual([]);
+  });
+
+  test("reconciles a delayed echo from any prior resend nonce", async () => {
+    const target = input.target;
+    const payload = input.payload;
+    const failed: DurableSendRecord = {
+      nonce: "nonce-old-current",
+      lineageId: "b".repeat(32),
+      priorNonces: ["nonce-old-first"],
+      promptDigest: durableSendPromptDigest(payload, target),
+      target,
+      payload,
+      phase: "failed",
+      createdAtMs: 1,
+      updatedAtMs: 2,
+      attemptCount: 1,
+      dispatchStartedAtMs: 1,
+      queuedAtMs: null,
+      acceptedAtMs: null,
+      acceptedMessage: null,
+      failedAtMs: 2,
+      failure: { code: "ack_expired", message: "Timed out", uncertain: false },
+    };
+    const memory = memoryStorage({
+      schemaVersion: DURABLE_SEND_SCHEMA_VERSION,
+      scope: "account-1",
+      records: [failed],
+    });
+    const controller = createDurableSendController("account-1", memory.storage, {
+      createNonce: () => "nonce-new-current",
+      dispatch: async () => ({ message: acceptedMessage("unused") }),
+      resolveAcceptance: async () => ({ status: "not_found" }),
+      classifyError: () => "offline",
+      isTransportDown: () => true,
+    });
+
+    await controller.restore();
+    const resent = await controller.resendFailed(failed.nonce);
+    expect(resent?.priorNonces).toEqual(["nonce-old-first", "nonce-old-current"]);
+    await controller.reconcile([
+      acceptedMessage("message-late-lineage", { clientId: "nonce-old-first" }),
+    ]);
+    expect(controller.getSnapshot()).toEqual([]);
+  });
+
+  test("binds prompt digests to target and authored attachment identity", () => {
+    const attachment: AssetRef = {
+      assetId: "c".repeat(64),
+      fileName: "proof.png",
+      mimeType: "image/png",
+      byteSize: 42,
+      kind: "image",
+      alt: "proof",
+    };
+    const withAttachment = { ...input.payload, attachments: [attachment] };
+    expect(durableSendPromptDigest(withAttachment, input.target)).not.toBe(
+      durableSendPromptDigest(input.payload, input.target)
+    );
+    expect(durableSendPromptDigest(withAttachment, input.target)).not.toBe(
+      durableSendPromptDigest(withAttachment, {
+        channelId: "channel-2",
+        conversationId: "conversation-2",
+      })
+    );
+    expect(
+      durableSendPromptDigest(
+        {
+          ...input.payload,
+          stagedAttachments: [
+            {
+              stagingId: "stage-digest-1",
+              fileName: attachment.fileName,
+              mimeType: attachment.mimeType,
+              byteSize: attachment.byteSize,
+              kind: attachment.kind,
+              alt: attachment.alt,
+            },
+          ],
+        },
+        input.target
+      )
+    ).not.toBe(durableSendPromptDigest(withAttachment, input.target));
+  });
+
+  test("preserves complete nonce lineage and becomes inert after disposal", async () => {
+    const record: DurableSendRecord = {
+      nonce: "nonce-current-long",
+      lineageId: "c".repeat(32),
+      priorNonces: Array.from({ length: 24 }, (_, index) => `nonce-prior-${index}`),
+      promptDigest: durableSendPromptDigest(input.payload, input.target),
+      target: input.target,
+      payload: input.payload,
+      phase: "queued",
+      createdAtMs: 1,
+      updatedAtMs: 1,
+      attemptCount: 0,
+      dispatchStartedAtMs: null,
+      queuedAtMs: 1,
+      acceptedAtMs: null,
+      acceptedMessage: null,
+      failedAtMs: null,
+      failure: null,
+    };
+    const parsed = parseDurableSendJournal(
+      { schemaVersion: DURABLE_SEND_SCHEMA_VERSION, scope: "account-1", records: [record] },
+      "account-1"
+    );
+    expect(parsed.records[0]?.priorNonces).toHaveLength(24);
+    const missingDigest = structuredClone(record) as Partial<DurableSendRecord>;
+    delete missingDigest.promptDigest;
+    expect(
+      parseDurableSendJournal(
+        {
+          schemaVersion: DURABLE_SEND_SCHEMA_VERSION,
+          scope: "account-1",
+          records: [missingDigest],
+        },
+        "account-1"
+      ).records
+    ).toEqual([]);
+    expect(
+      parseDurableSendJournal(
+        {
+          schemaVersion: DURABLE_SEND_SCHEMA_VERSION,
+          scope: "account-1",
+          records: [
+            record,
+            {
+              ...record,
+              nonce: "nonce-other-long",
+              lineageId: "d".repeat(32),
+              priorNonces: [record.priorNonces[0]],
+            },
+          ],
+        },
+        "account-1"
+      ).records
+    ).toEqual([]);
+    expect(
+      parseDurableSendJournal(
+        {
+          schemaVersion: DURABLE_SEND_SCHEMA_VERSION,
+          scope: "account-1",
+          records: [{ ...record, phase: "accepted-awaiting-echo" }],
+        },
+        "account-1"
+      ).records
+    ).toEqual([]);
+
+    let dispatchCount = 0;
+    let offline = true;
+    const controller = createDurableSendController("account-1", memoryStorage(parsed).storage, {
+      dispatch: async () => {
+        dispatchCount += 1;
+        return { message: acceptedMessage("unused") };
+      },
+      resolveAcceptance: async () => ({ status: "not_found" }),
+      classifyError: () => "offline",
+      isTransportDown: () => offline,
+    });
+    await controller.restore();
+    controller.dispose();
+    offline = false;
+    await controller.flush();
+    expect(dispatchCount).toBe(0);
+    await expect(controller.enqueue(input)).rejects.toThrow("disposed");
+  });
+
+  test("serializes concurrent resends while probing an uncertain failure", async () => {
+    const failed: DurableSendRecord = {
+      nonce: "nonce-concurrent-old",
+      lineageId: "e".repeat(32),
+      priorNonces: [],
+      promptDigest: durableSendPromptDigest(input.payload, input.target),
+      target: input.target,
+      payload: input.payload,
+      phase: "failed",
+      createdAtMs: 1,
+      updatedAtMs: 2,
+      attemptCount: 1,
+      dispatchStartedAtMs: 1,
+      queuedAtMs: null,
+      acceptedAtMs: null,
+      acceptedMessage: null,
+      failedAtMs: 2,
+      failure: { code: "ack_expired", message: "Timed out", uncertain: true },
+    };
+    const resolution = deferred<MessageDeliveryAcceptance>();
+    let nonceCount = 0;
+    const controller = createDurableSendController(
+      "account-1",
+      memoryStorage({
+        schemaVersion: DURABLE_SEND_SCHEMA_VERSION,
+        scope: "account-1",
+        records: [failed],
+      }).storage,
+      {
+        createNonce: () => `nonce-concurrent-new-${++nonceCount}`,
+        dispatch: async () => ({ message: acceptedMessage("unused") }),
+        resolveAcceptance: () => resolution.promise,
+        classifyError: () => "offline",
+        isTransportDown: () => true,
+      }
+    );
+    await controller.restore();
+
+    const first = controller.resendFailed(failed.nonce);
+    const second = controller.resendFailed(failed.nonce);
+    resolution.resolve({ status: "not_found" });
+    const results = await Promise.all([first, second]);
+    expect(results.filter(Boolean)).toHaveLength(1);
+    expect(controller.getSnapshot()).toHaveLength(1);
+    expect(controller.getSnapshot()[0]?.priorNonces).toEqual([failed.nonce]);
+    expect(nonceCount).toBe(1);
   });
 });

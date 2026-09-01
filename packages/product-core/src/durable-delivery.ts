@@ -6,8 +6,11 @@ import type {
 } from "@openbot/contracts";
 import { clientErrorMessage } from "./redaction";
 
-export const DURABLE_SEND_SCHEMA_VERSION = 1;
+export const DURABLE_SEND_SCHEMA_VERSION = 2;
+const DURABLE_SEND_LEGACY_SCHEMA_VERSION = 1;
 export const DURABLE_SEND_ACK_TIMEOUT_MS = 120_000;
+export const DURABLE_SEND_JOURNAL_MAX_BYTES = 16 * 1024 * 1024;
+export const DURABLE_SEND_SCOPE_MAX_LENGTH = 2_048;
 /** A corruption/abuse guard, never a retention policy for live sends. */
 export const DURABLE_SEND_MAX_RECORDS = 10_000;
 
@@ -58,8 +61,10 @@ export interface DurableStagedAttachment {
 
 export interface DurableSendRecord {
   nonce: string;
+  /** Stable resend family. Every replacement keeps this value and the complete nonce history. */
+  lineageId: string;
   priorNonces: string[];
-  /** SHA-256 over the user-authored prompt fields, shared by every nonce in a resend lineage. */
+  /** SHA-256 over the complete currently durable payload and its destination. */
   promptDigest: string;
   target: DurableSendTarget;
   payload: DurableSendPayload;
@@ -109,6 +114,34 @@ export interface DurableSendRuntime {
   createNonce?: () => string;
   now?: () => number;
   ackTimeoutMs?: number;
+  onTelemetry?: (event: DurableSendTelemetryEvent) => void;
+}
+
+export type DurableSendTelemetryOutcome =
+  | "enqueued"
+  | "queued"
+  | "dispatch-started"
+  | "accepted"
+  | "echo-reconciled"
+  | "failed"
+  | "resent"
+  | "deleted"
+  | "cancelled"
+  | "restored";
+
+export interface DurableSendTelemetryEvent {
+  outcome: DurableSendTelemetryOutcome;
+  nonce: string;
+  lineageId: string;
+  channelId: string;
+  atMs: number;
+  ageMs: number;
+  attemptCount: number;
+  attachmentCount: number;
+  queued: boolean;
+  uncertain?: boolean;
+  code?: string;
+  echoedNonce?: string;
 }
 
 export interface EnqueueDurableSendInput {
@@ -119,18 +152,19 @@ export interface EnqueueDurableSendInput {
 
 export interface DurableSendController {
   getSnapshot: () => readonly DurableSendRecord[];
-  /** Deterministic failures hidden from the timeline until their draft is restored. */
+  /** Pre-dispatch failures hidden from the timeline until their draft is restored. */
   getRecoverySnapshot: () => readonly DurableSendRecord[];
   subscribe: (listener: () => void) => () => void;
   restore: () => Promise<void>;
   enqueue: (input: EnqueueDurableSendInput) => Promise<DurableSendRecord>;
   flush: () => Promise<void>;
-  reconcile: (authoritativeMessageIds: ReadonlySet<string>) => Promise<void>;
+  reconcile: (authoritativeMessages: readonly ChannelMessageView[]) => Promise<void>;
   expireAcknowledgements: () => Promise<void>;
   resendFailed: (nonce: string) => Promise<DurableSendRecord | null>;
   deleteFailed: (nonce: string) => Promise<DurableSendPayload | null>;
   cancelQueued: (nonce: string) => Promise<DurableSendPayload | null>;
   acknowledgeRecovery: (nonce: string) => Promise<void>;
+  dispose: () => void;
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -209,7 +243,19 @@ const sha256 = (value: string): string => {
   return hash.map((word) => word.toString(16).padStart(8, "0")).join("");
 };
 
-export const durableSendPromptDigest = (
+/** Validate the account/server namespace used by platform journal stores. */
+export const durableSendScope = (scope: unknown): string => {
+  if (typeof scope !== "string" || !scope || scope.length > DURABLE_SEND_SCOPE_MAX_LENGTH) {
+    throw new Error("Delivery journal scope is invalid");
+  }
+  return scope;
+};
+
+/** Stable, non-reversible account-scope key for platform journal filenames. */
+export const durableSendScopeHash = (scope: string): string =>
+  sha256(durableSendScope(scope)).slice(0, 32);
+
+const legacyDurableSendPromptDigest = (
   payload: Pick<DurableSendPayload, "content" | "richText" | "replyToMessageId" | "isFork">
 ): string =>
   sha256(
@@ -221,14 +267,94 @@ export const durableSendPromptDigest = (
     })
   );
 
-const acceptedMessagePromptDigest = (message: ChannelMessageView): string => {
+type AuthoredAttachment = Pick<
+  AssetRef | DurableStagedAttachment,
+  "fileName" | "mimeType" | "byteSize" | "kind" | "alt"
+> & { contentId: string };
+
+const authoredAttachments = (
+  payload: Pick<DurableSendPayload, "attachments" | "stagedAttachments">
+): AuthoredAttachment[] => {
+  const committed = payload.attachments.map(
+    ({ assetId, fileName, mimeType, byteSize, kind, alt }) => ({
+      contentId: assetId,
+      fileName,
+      mimeType,
+      byteSize,
+      kind,
+      ...(alt ? { alt } : {}),
+    })
+  );
+  const staged = (payload.stagedAttachments ?? []).map(
+    ({ stagingId, fileName, mimeType, byteSize, kind, alt, position }) => ({
+      attachment: {
+        contentId: `staged:${stagingId}`,
+        fileName,
+        mimeType,
+        byteSize,
+        kind,
+        ...(alt ? { alt } : {}),
+      },
+      position,
+    })
+  );
+  if (staged.length === 0) return committed;
+  const total = committed.length + staged.length;
+  const positioned = staged.every(
+    ({ position }) => position !== undefined && position >= 0 && position < total
+  );
+  if (!positioned || new Set(staged.map(({ position }) => position)).size !== staged.length) {
+    return [...committed, ...staged.map(({ attachment }) => attachment)];
+  }
+  const result = new Array<AuthoredAttachment | undefined>(total);
+  for (const { attachment, position } of staged) result[position as number] = attachment;
+  let committedIndex = 0;
+  for (let index = 0; index < result.length; index += 1) {
+    if (!result[index]) result[index] = committed[committedIndex++];
+  }
+  return result.filter((attachment): attachment is AuthoredAttachment => Boolean(attachment));
+};
+
+/** Bind acknowledgement lineage to the complete authored send, including its destination/files. */
+export const durableSendPromptDigest = (
+  payload: Pick<DurableSendPayload, "content" | "richText" | "replyToMessageId" | "isFork"> &
+    Partial<Pick<DurableSendPayload, "attachments" | "stagedAttachments">>,
+  target?: DurableSendTarget
+): string =>
+  sha256(
+    JSON.stringify({
+      target: target
+        ? { channelId: target.channelId, conversationId: target.conversationId }
+        : null,
+      content: payload.content,
+      richText: payload.richText ?? null,
+      replyToMessageId: payload.replyToMessageId ?? null,
+      isFork: payload.isFork ?? false,
+      attachments: authoredAttachments({
+        attachments: payload.attachments ?? [],
+        stagedAttachments: payload.stagedAttachments,
+      }),
+    })
+  );
+
+const acceptedMessagePromptDigest = (
+  message: ChannelMessageView,
+  target: DurableSendTarget
+): string => {
   const metadata = isRecord(message.metadata) ? message.metadata : {};
-  return durableSendPromptDigest({
-    content: message.content,
-    ...(typeof metadata.richText === "string" ? { richText: metadata.richText } : {}),
-    ...(typeof metadata.replyTo === "string" ? { replyToMessageId: metadata.replyTo } : {}),
-    ...(metadata.branched === true ? { isFork: true } : {}),
-  });
+  const attachments = Array.isArray(metadata.attachments)
+    ? metadata.attachments.filter(assetRef)
+    : [];
+  return durableSendPromptDigest(
+    {
+      content: message.content,
+      attachments,
+      ...(typeof metadata.richText === "string" ? { richText: metadata.richText } : {}),
+      ...(typeof metadata.replyTo === "string" ? { replyToMessageId: metadata.replyTo } : {}),
+      ...(metadata.branched === true ? { isFork: true } : {}),
+    },
+    target
+  );
 };
 
 /** Classify transport failures without coupling clients to one concrete HTTP error class. */
@@ -271,14 +397,31 @@ export const messageDeliveryAcceptance = (
 const finiteNumber = (value: unknown): value is number =>
   typeof value === "number" && Number.isFinite(value);
 
+const validNonce = (value: unknown): value is string =>
+  typeof value === "string" && value.length >= 8 && value.length <= 120;
+
 const assetRef = (value: unknown): value is AssetRef => {
   if (!isRecord(value)) return false;
   return (
     typeof value.assetId === "string" &&
+    /^[a-f0-9]{64}$/.test(value.assetId) &&
     typeof value.fileName === "string" &&
+    value.fileName.length > 0 &&
+    value.fileName.length <= 255 &&
     typeof value.mimeType === "string" &&
+    value.mimeType.length > 0 &&
+    value.mimeType.length <= 120 &&
     finiteNumber(value.byteSize) &&
-    typeof value.kind === "string"
+    Number.isSafeInteger(value.byteSize) &&
+    value.byteSize > 0 &&
+    value.byteSize <= 200 * 1024 * 1024 &&
+    typeof value.kind === "string" &&
+    assetKinds.has(value.kind as AssetKind) &&
+    (value.width === undefined ||
+      (finiteNumber(value.width) && Number.isSafeInteger(value.width) && value.width > 0)) &&
+    (value.height === undefined ||
+      (finiteNumber(value.height) && Number.isSafeInteger(value.height) && value.height > 0)) &&
+    (value.alt === undefined || (typeof value.alt === "string" && value.alt.length <= 2_000))
   );
 };
 
@@ -406,15 +549,22 @@ const parseFailure = (value: unknown): DurableSendFailure | null => {
     : null;
 };
 
-const parseDurableSendRecord = (value: unknown): DurableSendRecord | null => {
+const lineageIdFor = (scope: string, nonce: string): string =>
+  sha256(`${scope}\u0000${nonce}`).slice(0, 32);
+
+const parseDurableSendRecord = (
+  value: unknown,
+  schemaVersion: number,
+  scope: string
+): DurableSendRecord | null => {
   if (!isRecord(value) || !isRecord(value.target)) return null;
   const payload = parsePayload(value.payload);
   if (
     !payload ||
-    typeof value.nonce !== "string" ||
-    value.nonce.length < 8 ||
+    !validNonce(value.nonce) ||
     !Array.isArray(value.priorNonces) ||
-    !value.priorNonces.every((nonce) => typeof nonce === "string") ||
+    value.priorNonces.length > DURABLE_SEND_MAX_RECORDS ||
+    !value.priorNonces.every(validNonce) ||
     typeof value.target.channelId !== "string" ||
     (value.target.conversationId !== null && typeof value.target.conversationId !== "string") ||
     !phase(value.phase) ||
@@ -435,27 +585,59 @@ const parseDurableSendRecord = (value: unknown): DurableSendRecord | null => {
   ) {
     return null;
   }
-  const priorNonces = value.priorNonces.slice(-16) as string[];
+  const priorNonces = [...value.priorNonces] as string[];
   const uniquePriorNonces = new Set(priorNonces);
-  const expectedPromptDigest = durableSendPromptDigest(payload);
+  const target = {
+    channelId: value.target.channelId as string,
+    conversationId: value.target.conversationId as string | null,
+  };
+  const expectedPromptDigest = durableSendPromptDigest(payload, target);
+  const legacyPromptDigest = legacyDurableSendPromptDigest(payload);
+  const promptDigestIsValid =
+    schemaVersion === DURABLE_SEND_LEGACY_SCHEMA_VERSION
+      ? value.promptDigest === undefined ||
+        value.promptDigest === expectedPromptDigest ||
+        value.promptDigest === legacyPromptDigest
+      : value.promptDigest === expectedPromptDigest;
+  const acceptedMessage = value.acceptedMessage as ChannelMessageView | null;
+  const parsedFailure = value.failure === null ? null : parseFailure(value.failure);
+  const acceptedMessageIsValid =
+    acceptedMessage === null ||
+    (acceptedMessage.channelId === target.channelId &&
+      acceptedMessagePromptDigest(acceptedMessage, target) === expectedPromptDigest);
+  const phaseStateIsValid =
+    value.phase === "accepted-awaiting-echo"
+      ? acceptedMessage !== null && value.acceptedAtMs !== null && parsedFailure === null
+      : value.phase === "failed"
+        ? parsedFailure !== null && value.failedAtMs !== null
+        : acceptedMessage === null &&
+          value.acceptedAtMs === null &&
+          parsedFailure === null &&
+          value.failedAtMs === null;
+  const lineageId =
+    typeof value.lineageId === "string" && /^[a-f0-9]{32}$/.test(value.lineageId)
+      ? value.lineageId
+      : schemaVersion === DURABLE_SEND_LEGACY_SCHEMA_VERSION
+        ? lineageIdFor(scope, priorNonces[0] ?? (value.nonce as string))
+        : null;
   if (
+    lineageId === null ||
     uniquePriorNonces.size !== priorNonces.length ||
-    priorNonces.some((nonce) => nonce.length < 8 || nonce === value.nonce) ||
-    (value.promptDigest !== undefined &&
-      (typeof value.promptDigest !== "string" || value.promptDigest !== expectedPromptDigest))
+    priorNonces.some((nonce) => nonce === value.nonce) ||
+    !promptDigestIsValid ||
+    !acceptedMessageIsValid ||
+    !phaseStateIsValid
   ) {
     return null;
   }
   return {
     nonce: value.nonce,
+    lineageId,
     priorNonces,
     // Journals created before prompt digests are migrated in memory and write
     // the digest on their next state transition.
     promptDigest: expectedPromptDigest,
-    target: {
-      channelId: value.target.channelId,
-      conversationId: value.target.conversationId,
-    },
+    target,
     payload,
     phase: value.phase,
     createdAtMs: value.createdAtMs,
@@ -464,9 +646,9 @@ const parseDurableSendRecord = (value: unknown): DurableSendRecord | null => {
     dispatchStartedAtMs: value.dispatchStartedAtMs,
     queuedAtMs: value.queuedAtMs,
     acceptedAtMs: value.acceptedAtMs,
-    acceptedMessage: value.acceptedMessage,
+    acceptedMessage,
     failedAtMs: value.failedAtMs,
-    failure: value.failure === null ? null : parseFailure(value.failure),
+    failure: parsedFailure,
   };
 };
 
@@ -476,7 +658,9 @@ export const parseDurableSendJournal = (
 ): DurableSendJournal => {
   if (
     !isRecord(value) ||
-    value.schemaVersion !== DURABLE_SEND_SCHEMA_VERSION ||
+    ![DURABLE_SEND_LEGACY_SCHEMA_VERSION, DURABLE_SEND_SCHEMA_VERSION].includes(
+      Number(value.schemaVersion)
+    ) ||
     value.scope !== expectedScope ||
     !Array.isArray(value.records) ||
     value.records.length > DURABLE_SEND_MAX_RECORDS
@@ -484,14 +668,23 @@ export const parseDurableSendJournal = (
     return { schemaVersion: DURABLE_SEND_SCHEMA_VERSION, scope: expectedScope, records: [] };
   }
   const byNonce = new Map<string, DurableSendRecord>();
+  const claimedNonces = new Set<string>();
+  const lineageIds = new Set<string>();
   for (const candidate of value.records) {
-    const parsed = parseDurableSendRecord(candidate);
+    const parsed = parseDurableSendRecord(candidate, Number(value.schemaVersion), expectedScope);
     // Grok treats a partially corrupt journal as corrupt. Keeping only the
     // parseable subset can violate ordering or resend a nonce without its owner.
-    if (!parsed || byNonce.has(parsed.nonce)) {
+    if (
+      !parsed ||
+      byNonce.has(parsed.nonce) ||
+      lineageIds.has(parsed.lineageId) ||
+      [parsed.nonce, ...parsed.priorNonces].some((nonce) => claimedNonces.has(nonce))
+    ) {
       return { schemaVersion: DURABLE_SEND_SCHEMA_VERSION, scope: expectedScope, records: [] };
     }
     byNonce.set(parsed.nonce, parsed);
+    lineageIds.add(parsed.lineageId);
+    for (const nonce of [parsed.nonce, ...parsed.priorNonces]) claimedNonces.add(nonce);
   }
   return {
     schemaVersion: DURABLE_SEND_SCHEMA_VERSION,
@@ -551,6 +744,28 @@ export const durableSendMessage = (record: DurableSendRecord): ChannelMessageVie
     createdAt: new Date(record.createdAtMs).toISOString(),
   };
 
+/** Resolve a transcript echo even when the direct send response was lost or is still pending. */
+export const durableSendAuthoritativeEcho = (
+  record: DurableSendRecord,
+  authoritativeMessages: readonly ChannelMessageView[]
+): ChannelMessageView | null => {
+  const lineage = new Set([record.nonce, ...record.priorNonces]);
+  const byNonce = authoritativeMessages.find(
+    (message) =>
+      message.channelId === record.target.channelId &&
+      typeof message.clientId === "string" &&
+      lineage.has(message.clientId)
+  );
+  const byAcceptedId = record.acceptedMessage
+    ? authoritativeMessages.find((message) => message.id === record.acceptedMessage?.id)
+    : undefined;
+  const authoritative = byNonce ?? byAcceptedId;
+  if (!authoritative) return null;
+  return acceptedMessagePromptDigest(authoritative, record.target) === record.promptDigest
+    ? authoritative
+    : null;
+};
+
 const fallbackNonce = (): string =>
   globalThis.crypto?.randomUUID?.() ??
   `send-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
@@ -607,13 +822,43 @@ export const createDurableSendController = (
   let persistenceRetry: ReturnType<typeof setTimeout> | null = null;
   let flushRequest: Promise<void> | null = null;
   let flushAgain = false;
+  let disposed = false;
+
+  const emit = (
+    record: DurableSendRecord,
+    outcome: DurableSendTelemetryOutcome,
+    detail: Pick<DurableSendTelemetryEvent, "uncertain" | "code" | "echoedNonce"> = {}
+  ) => {
+    if (!runtime.onTelemetry) return;
+    const atMs = now();
+    try {
+      runtime.onTelemetry({
+        outcome,
+        nonce: record.nonce,
+        lineageId: record.lineageId,
+        channelId: record.target.channelId,
+        atMs,
+        ageMs: Math.max(0, atMs - record.createdAtMs),
+        attemptCount: record.attemptCount,
+        attachmentCount:
+          record.payload.attachments.length + (record.payload.stagedAttachments?.length ?? 0),
+        queued: record.phase === "queued" || record.queuedAtMs !== null,
+        ...detail,
+      });
+    } catch {
+      // Diagnostics must never alter delivery state.
+    }
+  };
 
   const publish = () => {
     snapshot = [...records.values()].sort(
       (left, right) => left.createdAtMs - right.createdAtMs || left.nonce.localeCompare(right.nonce)
     );
     recoverySnapshot = snapshot.filter(
-      (record) => record.phase === "failed" && record.failure?.uncertain === false
+      (record) =>
+        record.phase === "failed" &&
+        record.failure?.uncertain === false &&
+        record.attemptCount === 0
     );
     const recoveryNonces = new Set(recoverySnapshot.map((record) => record.nonce));
     visibleSnapshot = snapshot.filter((record) => !recoveryNonces.has(record.nonce));
@@ -634,10 +879,10 @@ export const createDurableSendController = (
   };
 
   const persistEventually = (): void => {
-    if (persistenceRetry !== null) return;
+    if (disposed || persistenceRetry !== null) return;
     persistenceRetry = setTimeout(() => {
       persistenceRetry = null;
-      void persist().catch(() => persistEventually());
+      if (!disposed) void persist().catch(() => persistEventually());
     }, 1_000);
   };
 
@@ -660,7 +905,7 @@ export const createDurableSendController = (
   ) => {
     const current = records.get(record.nonce);
     if (!current) return;
-    if (acceptedMessagePromptDigest(message) !== current.promptDigest) {
+    if (acceptedMessagePromptDigest(message, current.target) !== current.promptDigest) {
       await fail(current, {
         code: "delivery_digest_mismatch",
         message: "The server acknowledgement did not match this message.",
@@ -668,7 +913,7 @@ export const createDurableSendController = (
       });
       return;
     }
-    replace({
+    const next = replace({
       ...current,
       phase: "accepted-awaiting-echo",
       updatedAtMs: now(),
@@ -677,6 +922,7 @@ export const createDurableSendController = (
       failedAtMs: null,
       failure: null,
     });
+    emit(next, "accepted");
     await persist().catch(() => persistEventually());
   };
 
@@ -684,13 +930,14 @@ export const createDurableSendController = (
     const current = records.get(record.nonce);
     if (!current) return;
     const failedAtMs = now();
-    replace({
+    const next = replace({
       ...current,
       phase: "failed",
       updatedAtMs: failedAtMs,
       failedAtMs,
       failure,
     });
+    emit(next, "failed", { uncertain: failure.uncertain, code: failure.code });
     await persist().catch(() => persistEventually());
   };
 
@@ -699,7 +946,7 @@ export const createDurableSendController = (
     if (!current) return;
     // queuedAtMs is specifically the offline-composition marker used by
     // “Sent while offline”, not a generic time spent behind another send.
-    replace({
+    const next = replace({
       ...current,
       phase: "queued",
       updatedAtMs: now(),
@@ -709,6 +956,7 @@ export const createDurableSendController = (
       failedAtMs: null,
       failure: null,
     });
+    if (current.phase !== "queued") emit(next, "queued");
     await persist().catch(() => persistEventually());
   };
 
@@ -806,13 +1054,15 @@ export const createDurableSendController = (
           return;
         }
         const beforeCommit = current;
+        const committedPayload: DurableSendPayload = {
+          ...current.payload,
+          attachments: mergeCommittedAttachments(current.payload.attachments, staged, committed),
+          stagedAttachments: [],
+        };
         const prepared = replace({
           ...current,
-          payload: {
-            ...current.payload,
-            attachments: mergeCommittedAttachments(current.payload.attachments, staged, committed),
-            stagedAttachments: [],
-          },
+          promptDigest: durableSendPromptDigest(committedPayload, current.target),
+          payload: committedPayload,
           phase: "prepared",
           updatedAtMs: now(),
         });
@@ -839,6 +1089,7 @@ export const createDurableSendController = (
         dispatchStartedAtMs: startedAtMs,
         attemptCount: current.attemptCount + 1,
       });
+      emit(dispatching, "dispatch-started");
       try {
         await persist();
       } catch (cause) {
@@ -881,6 +1132,7 @@ export const createDurableSendController = (
   };
 
   const restore = (): Promise<void> => {
+    if (disposed) return Promise.resolve();
     if (restored) return Promise.resolve();
     if (restoreRequest) return restoreRequest;
     restoreRequest = (async () => {
@@ -889,6 +1141,7 @@ export const createDurableSendController = (
       for (const record of parsed.records) records.set(record.nonce, record);
       restored = true;
       publish();
+      for (const record of parsed.records) emit(record, "restored");
       // Painting restored optimistic rows must not wait for a slow network
       // request, and one stalled conversation must not block composing another.
       void controller.flush();
@@ -907,9 +1160,18 @@ export const createDurableSendController = (
     },
     restore,
     async enqueue(input) {
+      if (disposed) throw new Error("Durable delivery controller is disposed");
       await restore();
       const createdAtMs = now();
       const nonce = input.nonce ?? createNonce();
+      if (
+        !validNonce(nonce) ||
+        snapshot.some(
+          (candidate) => candidate.nonce === nonce || candidate.priorNonces.includes(nonce)
+        )
+      ) {
+        throw new Error("Durable delivery nonce is invalid or already in use");
+      }
       const heldForEarlierSend = snapshot.some(
         (candidate) =>
           candidate.target.channelId === input.target.channelId &&
@@ -920,8 +1182,9 @@ export const createDurableSendController = (
       const startsOffline = runtime.isTransportDown?.() === true;
       const record: DurableSendRecord = {
         nonce,
+        lineageId: lineageIdFor(scope, nonce),
         priorNonces: [],
-        promptDigest: durableSendPromptDigest(input.payload),
+        promptDigest: durableSendPromptDigest(input.payload, input.target),
         target: input.target,
         payload: {
           ...input.payload,
@@ -942,6 +1205,7 @@ export const createDurableSendController = (
         failure: null,
       };
       replace(record);
+      emit(record, "enqueued");
       try {
         await persist();
       } catch (cause) {
@@ -952,6 +1216,7 @@ export const createDurableSendController = (
       return record;
     },
     flush() {
+      if (disposed) return Promise.resolve();
       if (flushRequest) {
         flushAgain = true;
         return flushRequest;
@@ -1008,32 +1273,52 @@ export const createDurableSendController = (
       });
       return flushRequest;
     },
-    async reconcile(authoritativeMessageIds) {
+    async reconcile(authoritativeMessages) {
+      if (disposed || authoritativeMessages.length === 0) return;
+      const authoritativeById = new Map(
+        authoritativeMessages.map((message) => [message.id, message] as const)
+      );
+      const authoritativeByNonce = new Map(
+        authoritativeMessages.flatMap((message) =>
+          typeof message.clientId === "string" ? [[message.clientId, message] as const] : []
+        )
+      );
       let changed = false;
-      const removed: DurableSendRecord[] = [];
       for (const record of snapshot) {
-        if (
+        const echoed = [record.nonce, ...record.priorNonces]
+          .map((nonce) => authoritativeByNonce.get(nonce))
+          .find((message) => message?.channelId === record.target.channelId);
+        const acceptedEcho =
           record.phase === "accepted-awaiting-echo" &&
           record.acceptedMessage &&
-          authoritativeMessageIds.has(record.acceptedMessage.id)
-        ) {
-          records.delete(record.nonce);
-          removed.push(record);
-          changed = true;
+          authoritativeById.has(record.acceptedMessage.id)
+            ? authoritativeById.get(record.acceptedMessage.id)
+            : undefined;
+        const authoritative = echoed ?? acceptedEcho;
+        if (!authoritative) continue;
+        if (acceptedMessagePromptDigest(authoritative, record.target) !== record.promptDigest) {
+          await fail(record, {
+            code: "delivery_digest_mismatch",
+            message: "The transcript acknowledgement did not match this message.",
+            uncertain: false,
+          });
+          continue;
         }
+        records.delete(record.nonce);
+        emit(record, "echo-reconciled", {
+          ...(echoed?.clientId ? { echoedNonce: echoed.clientId } : {}),
+        });
+        changed = true;
       }
       if (!changed) return;
       publish();
-      try {
-        await persist();
-      } catch (cause) {
-        for (const record of removed) records.set(record.nonce, record);
-        publish();
-        throw cause;
-      }
+      // The transcript is authoritative. Never repaint a duplicate merely
+      // because local cleanup persistence needs to retry.
+      await persist().catch(() => persistEventually());
       void controller.flush();
     },
     async expireAcknowledgements() {
+      if (disposed) return;
       const currentTime = now();
       for (const record of [...snapshot]) {
         if (
@@ -1062,6 +1347,7 @@ export const createDurableSendController = (
       }
     },
     async resendFailed(nonce) {
+      if (disposed) return null;
       await restore();
       const failedRecord = records.get(nonce);
       if (!failedRecord || failedRecord.phase !== "failed") return null;
@@ -1077,30 +1363,45 @@ export const createDurableSendController = (
         const outcome = await applyResolution(failedRecord, resolution);
         if (outcome === "accepted") return records.get(nonce) ?? null;
       }
+      const currentFailed = records.get(nonce);
+      if (!currentFailed || currentFailed.phase !== "failed") return null;
       const createdAtMs = now();
+      const freshNonce = createNonce();
+      if (
+        !validNonce(freshNonce) ||
+        freshNonce === currentFailed.nonce ||
+        currentFailed.priorNonces.includes(freshNonce) ||
+        snapshot.some(
+          (candidate) =>
+            candidate.nonce === freshNonce || candidate.priorNonces.includes(freshNonce)
+        )
+      ) {
+        throw new Error("Durable delivery nonce is invalid or already in use");
+      }
       const fresh: DurableSendRecord = {
-        ...failedRecord,
-        nonce: createNonce(),
-        priorNonces: [...failedRecord.priorNonces, failedRecord.nonce].slice(-16),
+        ...currentFailed,
+        nonce: freshNonce,
+        priorNonces: [...currentFailed.priorNonces, currentFailed.nonce],
         phase: runtime.isTransportDown?.() === true ? "queued" : "prepared",
         createdAtMs,
         updatedAtMs: createdAtMs,
         attemptCount: 0,
         dispatchStartedAtMs: null,
-        queuedAtMs: runtime.isTransportDown?.() === true ? createdAtMs : failedRecord.queuedAtMs,
+        queuedAtMs: runtime.isTransportDown?.() === true ? createdAtMs : currentFailed.queuedAtMs,
         acceptedAtMs: null,
         acceptedMessage: null,
         failedAtMs: null,
         failure: null,
       };
-      records.delete(failedRecord.nonce);
+      records.delete(currentFailed.nonce);
       records.set(fresh.nonce, fresh);
       publish();
+      emit(fresh, "resent");
       try {
         await persist();
       } catch (cause) {
         records.delete(fresh.nonce);
-        records.set(failedRecord.nonce, failedRecord);
+        records.set(currentFailed.nonce, currentFailed);
         publish();
         throw cause;
       }
@@ -1108,6 +1409,7 @@ export const createDurableSendController = (
       return fresh;
     },
     async deleteFailed(nonce) {
+      if (disposed) return null;
       await restore();
       const record = records.get(nonce);
       if (!record || record.phase !== "failed") return null;
@@ -1123,9 +1425,11 @@ export const createDurableSendController = (
       } catch {
         // The failed send is already durably deleted. Platform cleanup may retry.
       }
+      emit(record, "deleted");
       return record.payload;
     },
     async cancelQueued(nonce) {
+      if (disposed) return null;
       await restore();
       const record = records.get(nonce);
       if (!record || record.phase !== "queued") return null;
@@ -1145,9 +1449,11 @@ export const createDurableSendController = (
         throw cause;
       }
       void controller.flush();
+      emit(current, "cancelled");
       return current.payload;
     },
     async acknowledgeRecovery(nonce) {
+      if (disposed) return;
       await restore();
       const record = records.get(nonce);
       if (!record || record.phase !== "failed" || record.failure?.uncertain !== false) {
@@ -1175,6 +1481,16 @@ export const createDurableSendController = (
         }
       }
       void controller.flush();
+    },
+    dispose() {
+      if (disposed) return;
+      disposed = true;
+      flushAgain = false;
+      if (persistenceRetry !== null) {
+        clearTimeout(persistenceRetry);
+        persistenceRetry = null;
+      }
+      listeners.clear();
     },
   };
 

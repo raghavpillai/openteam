@@ -1,10 +1,10 @@
 import { useEffect, useRef } from "react";
-import { Animated, Easing, StyleSheet, Text, View } from "react-native";
+import { Animated, Easing, Pressable, StyleSheet, Text, View } from "react-native";
 import { useTheme } from "../theme";
 
 const COLORS = ["#8E5CF6", "#D43683", "#F06B32"];
 
-export function WorkingIndicator({ name }: { name: string }) {
+export function WorkingIndicator({ name, onStop }: { name: string; onStop?: () => void }) {
   const theme = useTheme();
   const values = useRef(COLORS.map(() => new Animated.Value(0.42))).current;
 
@@ -39,23 +39,35 @@ export function WorkingIndicator({ name }: { name: string }) {
   }, [values]);
 
   return (
-    <View
-      accessibilityLabel={`${name} is working`}
-      accessibilityRole="progressbar"
-      style={styles.row}
-    >
-      <View style={styles.dots}>
-        {values.map((value, index) => (
-          <Animated.View
-            key={COLORS[index]}
-            style={[
-              styles.dot,
-              { backgroundColor: COLORS[index], opacity: value, transform: [{ scale: value }] },
-            ]}
-          />
-        ))}
+    <View style={styles.row}>
+      <View
+        accessibilityLabel={`${name} is working`}
+        accessibilityRole="progressbar"
+        style={styles.progress}
+      >
+        <View style={styles.dots}>
+          {values.map((value, index) => (
+            <Animated.View
+              key={COLORS[index]}
+              style={[
+                styles.dot,
+                { backgroundColor: COLORS[index], opacity: value, transform: [{ scale: value }] },
+              ]}
+            />
+          ))}
+        </View>
+        <Text style={[styles.label, { color: theme.textMuted }]}>{name} is working</Text>
       </View>
-      <Text style={[styles.label, { color: theme.textMuted }]}>{name} is working</Text>
+      {onStop ? (
+        <Pressable
+          accessibilityLabel={`Stop ${name}`}
+          accessibilityRole="button"
+          onPress={onStop}
+          style={({ pressed }) => [styles.stop, pressed && styles.pressed]}
+        >
+          <Text style={[styles.stopLabel, { color: theme.danger }]}>Stop</Text>
+        </Pressable>
+      ) : null}
     </View>
   );
 }
@@ -65,10 +77,13 @@ const styles = StyleSheet.create({
     minHeight: 44,
     flexDirection: "row",
     alignItems: "center",
-    gap: 11,
     paddingHorizontal: 20,
   },
+  progress: { flex: 1, flexDirection: "row", alignItems: "center", gap: 11 },
   dots: { width: 34, flexDirection: "row", alignItems: "center", gap: 4 },
   dot: { width: 8, height: 8, borderRadius: 4 },
-  label: { fontSize: 15, lineHeight: 20, fontWeight: "500" },
+  label: { flex: 1, fontSize: 15, lineHeight: 20, fontWeight: "500" },
+  stop: { minWidth: 48, minHeight: 40, alignItems: "center", justifyContent: "center" },
+  stopLabel: { fontSize: 13, lineHeight: 17, fontWeight: "600" },
+  pressed: { opacity: 0.6 },
 });

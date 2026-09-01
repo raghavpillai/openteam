@@ -3,36 +3,16 @@ import type {
   ClientSnapshot,
   SearchCategory,
   SearchResponse,
-  SearchResultKind,
   SearchResultView,
 } from "@openbot/contracts";
+import { normalizeSearchQuery, searchCategoryKind } from "@openbot/product-core/search";
 
 const RESULT_LIMIT = 24;
 
-const normalizeQuery = (value: string) =>
-  value.normalize("NFKC").replace(/\s+/g, " ").trim().slice(0, 200);
+export const normalizeMobileSearchQuery = normalizeSearchQuery;
 
 const cleanCopy = (value: string, limit: number) =>
   value.replace(/\s+/g, " ").trim().slice(0, limit);
-
-const categoryKind = (category: SearchCategory): SearchResultKind | null => {
-  switch (category) {
-    case "messages":
-      return "message";
-    case "bots":
-      return "bot";
-    case "channels":
-      return "channel";
-    case "files":
-      return "file";
-    case "links":
-      return "link";
-    case "routines":
-      return "routine";
-    default:
-      return null;
-  }
-};
 
 const metadataRecord = (value: unknown): Record<string, unknown> =>
   value && typeof value === "object" && !Array.isArray(value)
@@ -84,8 +64,8 @@ export const searchClientSnapshot = (
   queryValue: string,
   category: SearchCategory = "all"
 ): SearchResponse => {
-  const query = normalizeQuery(queryValue);
-  const kind = categoryKind(category);
+  const query = normalizeMobileSearchQuery(queryValue);
+  const kind = searchCategoryKind(category);
   const channelById = new Map(snapshot.channels.map((channel) => [channel.id, channel]));
   const botById = new Map(snapshot.bots.map((bot) => [bot.id, bot]));
   const results: SearchResultView[] = [];

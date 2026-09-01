@@ -5,7 +5,8 @@
     "paths": {
       "@/*": ["./src/*"],
       "@openbot/client-core": ["../../packages/client-core/src/index.ts"],
-      "@openbot/contracts": ["../../packages/contracts/src/index.ts"]
+      "@openbot/contracts": ["../../packages/contracts/src/index.ts"],
+      "@openbot/product-core": ["../../packages/product-core/src/index.ts"]
     }
   },
   "include": ["app", "src", ".expo/types/**/*.ts", "expo-env.d.ts"]

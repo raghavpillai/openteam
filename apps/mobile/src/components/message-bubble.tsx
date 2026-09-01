@@ -1,4 +1,14 @@
-import type { AssetKind, AssetRef, BotView, ChannelMessageView } from "@openbot/contracts";
+import type { AssetRef, BotView, ChannelMessageView } from "@openbot/contracts";
+import {
+  a2aProjectionFor,
+  messageDisplayProjection,
+  messageReactionPills,
+  QUICK_REACTIONS,
+  threadReplyCountLabel,
+  withStableOccurrenceKeys,
+} from "@openbot/product-core/messages";
+import { durableSendStatusLabel } from "@openbot/product-core/durable-delivery";
+import { formatOfflineDeliveryLabel } from "@openbot/product-core/timestamps";
 import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
 import { SymbolView } from "expo-symbols";
@@ -8,126 +18,29 @@ import {
   Animated,
   Easing,
   Image,
-  Linking,
   Modal,
   Pressable,
   StyleSheet,
   Text,
   View,
 } from "react-native";
+import { boundedMobileAccessibilitySummary } from "../mobile-markdown-core";
 import { useTheme } from "../theme";
+import { AttachmentPreview } from "./attachment-preview";
 import { GlassSurface } from "./glass-surface";
-
-const QUICK_REACTIONS = ["👍", "👎", "❤️", "😂", "🎉", "😮"];
-
-const metadataFor = (message: ChannelMessageView): Record<string, unknown> =>
-  message.metadata && typeof message.metadata === "object" && !Array.isArray(message.metadata)
-    ? (message.metadata as Record<string, unknown>)
-    : {};
-
-const reactionPills = (message: ChannelMessageView): Array<{ emoji: string; count: number }> => {
-  const reactions = metadataFor(message).reactions;
-  if (!Array.isArray(reactions)) return [];
-  const counts = new Map<string, number>();
-  for (const item of reactions) {
-    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
-    const emoji = (item as Record<string, unknown>).emoji;
-    if (typeof emoji === "string") counts.set(emoji, (counts.get(emoji) ?? 0) + 1);
-  }
-  return [...counts].map(([emoji, count]) => ({ emoji, count }));
-};
-
-const ASSET_ID = /^[a-f0-9]{64}$/;
-const ASSET_KINDS = new Set<AssetKind>(["image", "video", "audio", "pdf", "text", "file"]);
-
-const parsedAsset = (candidate: unknown): AssetRef | null => {
-  if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return null;
-  const { assetId, fileName, mimeType, byteSize, kind, width, height, alt } = candidate as Record<
-    string,
-    unknown
-  >;
-  if (
-    typeof assetId !== "string" ||
-    !ASSET_ID.test(assetId) ||
-    typeof fileName !== "string" ||
-    !fileName ||
-    typeof mimeType !== "string" ||
-    typeof byteSize !== "number" ||
-    !Number.isSafeInteger(byteSize) ||
-    byteSize < 1 ||
-    typeof kind !== "string" ||
-    !ASSET_KINDS.has(kind as AssetKind)
-  ) {
-    return null;
-  }
-  return {
-    assetId,
-    fileName,
-    mimeType,
-    byteSize,
-    kind: kind as AssetKind,
-    ...(typeof width === "number" ? { width } : {}),
-    ...(typeof height === "number" ? { height } : {}),
-    ...(typeof alt === "string" ? { alt } : {}),
-  };
-};
-
-const messageAssets = (message: ChannelMessageView): AssetRef[] => {
-  const metadata = metadataFor(message);
-  const candidates = [
-    ...(Array.isArray(metadata.attachments) ? metadata.attachments : []),
-    ...(metadata.attachment ? [metadata.attachment] : []),
-  ];
-  const seen = new Set<string>();
-  return candidates.flatMap((candidate) => {
-    const asset = parsedAsset(candidate);
-    if (!asset) return [];
-    const key = `${asset.assetId}:${asset.fileName}`;
-    if (seen.has(key)) return [];
-    seen.add(key);
-    return [asset];
-  });
-};
-
-const readableSize = (bytes: number) => {
-  if (bytes >= 1024 * 1024) {
-    return `${(bytes / 1024 / 1024).toFixed(bytes >= 10 * 1024 * 1024 ? 0 : 1)} MB`;
-  }
-  return `${Math.max(1, Math.round(bytes / 1024))} KB`;
-};
-
-const fileSymbol = (kind: AssetKind) => {
-  if (kind === "pdf") return "doc.richtext.fill" as const;
-  if (kind === "audio") return "waveform" as const;
-  if (kind === "video") return "film.fill" as const;
-  if (kind === "text") return "doc.text.fill" as const;
-  return "doc.fill" as const;
-};
-
-const a2aContextFor = (message: ChannelMessageView) => {
-  const metadata = metadataFor(message);
-  const direction = metadata.fromAgent ? "incoming" : metadata.toAgent ? "outgoing" : null;
-  if (!direction) return null;
-  const candidate = direction === "incoming" ? metadata.fromAgent : metadata.toAgent;
-  const peer =
-    candidate && typeof candidate === "object" && !Array.isArray(candidate)
-      ? (candidate as Record<string, unknown>)
-      : null;
-  return {
-    direction,
-    peerId: typeof peer?.id === "string" ? peer.id : null,
-    peerName: typeof peer?.name === "string" ? peer.name : null,
-  } as const;
-};
+import { MobileMarkdown, messageNeedsMobileMarkdown } from "./mobile-markdown";
+import { MobileRichMessageCard } from "./rich-message-card";
 
 function ReactionPill({
   emoji,
   count,
   onPress,
+  readOnly,
 }: {
   emoji: string;
   count: number;
   onPress: () => void;
+  readOnly: boolean;
 }) {
   const theme = useTheme();
   const scale = useRef(new Animated.Value(0)).current;
@@ -144,7 +57,8 @@ function ReactionPill({
     <Animated.View style={{ transform: [{ scale }] }}>
       <Pressable
         accessibilityLabel={`${emoji} reaction, ${count}`}
-        accessibilityRole="button"
+        accessibilityRole={readOnly ? "text" : "button"}
+        disabled={readOnly}
         onPress={onPress}
         style={({ pressed }) => [
           styles.reactionPill,
@@ -166,57 +80,105 @@ export function MessageBubble({
   replyPreview,
   onReply,
   onReact,
+  onWidgetResponse,
+  onWidgetDismiss,
+  onSecretSubmit,
+  onOpenThread,
+  threadReplyCount = 0,
+  threadReplyCountIsPartial = false,
   assetUrl,
   animateEntrance,
+  alignRight,
+  hideA2ALabel = false,
   pending,
+  deliveryState,
+  deliveryNonce,
+  deliveryComposedAtMs,
+  deliveryQueuedAtMs,
+  deliveryAcceptedAtMs,
+  deliveryTransportDown = false,
+  onResendFailed,
+  onDeleteFailed,
+  onCancelQueued,
+  readOnly = false,
+  speakerName,
 }: {
   message: ChannelMessageView;
   peerBot?: Pick<BotView, "color" | "icon" | "name">;
   replyPreview?: string | null;
   onReply: () => void;
   onReact: (emoji: string) => void;
+  onWidgetResponse: (value: string) => Promise<boolean>;
+  onWidgetDismiss: () => Promise<boolean>;
+  onSecretSubmit: (value: string) => Promise<boolean>;
+  onOpenThread?: () => void;
+  threadReplyCount?: number;
+  threadReplyCountIsPartial?: boolean;
   assetUrl: (asset: Pick<AssetRef, "assetId" | "fileName">, download?: boolean) => string | null;
   animateEntrance: boolean;
+  alignRight?: boolean;
+  hideA2ALabel?: boolean;
   pending: boolean;
+  deliveryState?: "pending" | "queued" | "accepted" | "failed";
+  deliveryNonce?: string;
+  deliveryComposedAtMs?: number | null;
+  deliveryQueuedAtMs?: number | null;
+  deliveryAcceptedAtMs?: number | null;
+  deliveryTransportDown?: boolean;
+  onResendFailed?: (nonce: string) => void;
+  onDeleteFailed?: (nonce: string) => void;
+  onCancelQueued?: (nonce: string) => void;
+  readOnly?: boolean;
+  speakerName?: string;
 }) {
   const theme = useTheme();
   const [actionsOpen, setActionsOpen] = useState(false);
-  const a2aContext = useMemo(() => a2aContextFor(message), [message]);
-  const isUser = message.sender === "user" && !a2aContext;
+  const projectedA2AContext = useMemo(() => a2aProjectionFor(message), [message]);
+  const a2aContext = hideA2ALabel ? null : projectedA2AContext;
+  const isUser = alignRight ?? (message.sender === "user" && !projectedA2AContext);
   const [enters] = useState(animateEntrance);
   const [reduceMotion, setReduceMotion] = useState<boolean | null>(null);
   const deliveryOpacity = useRef(new Animated.Value(pending ? 0.55 : 1)).current;
   const entranceOpacity = useRef(new Animated.Value(enters ? 0 : 1)).current;
   const entranceTransform = useRef(new Animated.Value(enters ? 0 : 1)).current;
-  const reactions = useMemo(() => reactionPills(message), [message]);
-  const attachments = useMemo(() => messageAssets(message), [message]);
-  const images = useMemo(
-    () => attachments.filter((attachment) => attachment.kind === "image"),
-    [attachments]
+  const failedHighlight = useRef(new Animated.Value(0)).current;
+  const reactions = useMemo(() => messageReactionPills(message), [message]);
+  const display = useMemo(() => messageDisplayProjection(message), [message]);
+  const { attachments, stagedAttachments, displayContent, files, images, richMessage } = display;
+  const stagedImages = stagedAttachments.filter(
+    (attachment) => attachment.kind === "image" && attachment.previewUri
   );
-  const files = useMemo(
-    () => attachments.filter((attachment) => attachment.kind !== "image"),
-    [attachments]
+  const stagedFiles = stagedAttachments.filter(
+    (attachment) => attachment.kind !== "image" || !attachment.previewUri
   );
+  const attachmentCount = attachments.length + stagedAttachments.length;
   const keyedImages = useMemo(() => {
-    const occurrences = new Map<string, number>();
-    return images.flatMap((image) => {
+    const resolved = images.flatMap((image) => {
       const url = assetUrl(image);
       if (!url) return [];
-      const fingerprint = `${image.assetId}:${image.fileName}`;
-      const occurrence = occurrences.get(fingerprint) ?? 0;
-      occurrences.set(fingerprint, occurrence + 1);
-      return [{ image, url, key: `${fingerprint}:${occurrence}` }];
+      return [{ image, url }];
     });
+    return withStableOccurrenceKeys(resolved, ({ image }) => `${image.assetId}:${image.fileName}`);
   }, [assetUrl, images]);
-  const attachmentOnly =
-    Boolean(metadataFor(message).attachment) &&
-    attachments.length === 1 &&
-    message.content === attachments[0]?.fileName;
-  const displayContent = attachmentOnly ? "" : message.content;
   const accessibilitySummary =
-    displayContent ||
-    `${attachments.length} attached ${attachments.length === 1 ? "file" : "files"}`;
+    (displayContent && boundedMobileAccessibilitySummary(displayContent)) ||
+    `${attachmentCount} attached ${attachmentCount === 1 ? "file" : "files"}`;
+  const deliveryActionsDisabled =
+    pending || deliveryState === "queued" || deliveryState === "failed";
+  const currentSentOfflineAtMs =
+    deliveryState === "accepted" &&
+    deliveryQueuedAtMs != null &&
+    deliveryAcceptedAtMs != null &&
+    deliveryComposedAtMs != null
+      ? deliveryComposedAtMs
+      : null;
+  const [retainedSentOfflineAtMs, setRetainedSentOfflineAtMs] = useState(currentSentOfflineAtMs);
+  const sentOfflineVisibility = useRef(
+    new Animated.Value(currentSentOfflineAtMs === null ? 0 : 1)
+  ).current;
+  const displayedSentOfflineAtMs = currentSentOfflineAtMs ?? retainedSentOfflineAtMs;
+  const sentOfflineLabel =
+    displayedSentOfflineAtMs === null ? null : formatOfflineDeliveryLabel(displayedSentOfflineAtMs);
 
   useEffect(() => {
     Animated.timing(deliveryOpacity, {
@@ -226,6 +188,22 @@ export function MessageBubble({
       useNativeDriver: true,
     }).start();
   }, [deliveryOpacity, pending]);
+
+  useEffect(() => {
+    if (currentSentOfflineAtMs !== null) {
+      setRetainedSentOfflineAtMs(currentSentOfflineAtMs);
+      sentOfflineVisibility.stopAnimation();
+      sentOfflineVisibility.setValue(1);
+      return;
+    }
+    if (retainedSentOfflineAtMs === null) return;
+    Animated.timing(sentOfflineVisibility, {
+      toValue: 0,
+      duration: 200,
+      easing: Easing.bezier(0.77, 0, 0.175, 1),
+      useNativeDriver: false,
+    }).start();
+  }, [currentSentOfflineAtMs, retainedSentOfflineAtMs, sentOfflineVisibility]);
 
   useEffect(() => {
     if (!enters) return;
@@ -265,15 +243,59 @@ export function MessageBubble({
     };
   }, [entranceOpacity, entranceTransform, enters]);
 
+  useEffect(() => {
+    if (deliveryState !== "failed") {
+      failedHighlight.stopAnimation();
+      failedHighlight.setValue(0);
+      return;
+    }
+    let cancelled = false;
+    let animation: Animated.CompositeAnimation | null = null;
+    void AccessibilityInfo.isReduceMotionEnabled().then(
+      (reduced) => {
+        if (cancelled) return;
+        failedHighlight.setValue(1);
+        if (reduced) return;
+        animation = Animated.sequence([
+          Animated.delay(1_000),
+          Animated.timing(failedHighlight, {
+            toValue: 0,
+            duration: 1_500,
+            easing: Easing.out(Easing.ease),
+            useNativeDriver: false,
+          }),
+        ]);
+        animation.start();
+      },
+      () => {
+        if (!cancelled) failedHighlight.setValue(1);
+      }
+    );
+    return () => {
+      cancelled = true;
+      animation?.stop();
+    };
+  }, [deliveryState, failedHighlight]);
+
   const openActions = () => {
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setActionsOpen(true);
   };
+  const renderedContent = displayContent ? (
+    messageNeedsMobileMarkdown(displayContent) ? (
+      <MobileMarkdown color={isUser ? theme.userText : theme.text} content={displayContent} />
+    ) : (
+      <Text selectable style={[styles.content, { color: isUser ? theme.userText : theme.text }]}>
+        {displayContent}
+      </Text>
+    )
+  ) : null;
 
   return (
     <Animated.View
       style={[
         styles.messageWrap,
+        richMessage && styles.richMessageWrap,
         isUser ? styles.alignRight : styles.alignLeft,
         { opacity: deliveryOpacity },
       ]}
@@ -283,6 +305,10 @@ export function MessageBubble({
           styles.entranceContent,
           isUser ? styles.contentRight : styles.contentLeft,
           {
+            backgroundColor: failedHighlight.interpolate({
+              inputRange: [0, 1],
+              outputRange: ["rgba(255,192,0,0)", "rgba(255,192,0,0.22)"],
+            }),
             opacity: entranceOpacity,
             transform:
               reduceMotion === true
@@ -322,85 +348,118 @@ export function MessageBubble({
             </Text>
           </View>
         ) : null}
-        <Pressable
-          accessibilityLabel={`${isUser ? "You" : "Agent"}: ${accessibilitySummary}`}
-          accessibilityRole="text"
-          accessibilityState={{ busy: pending }}
-          delayLongPress={280}
-          onLongPress={pending ? undefined : openActions}
-          style={({ pressed }) => [
-            styles.bubble,
-            attachments.length > 0 && styles.bubbleWithAttachments,
-            attachments.length > 0 && !displayContent && styles.attachmentOnlyBubble,
-            {
-              backgroundColor: isUser ? theme.userBubble : theme.assistantBubble,
-              opacity: pressed ? 0.82 : 1,
-            },
-          ]}
-        >
-          {displayContent ? (
-            <Text
-              selectable
-              style={[styles.content, { color: isUser ? theme.userText : theme.text }]}
-            >
-              {displayContent}
-            </Text>
-          ) : null}
-          {images.length > 0 ? (
-            <View style={[styles.imageGallery, images.length === 1 && styles.singleImageGallery]}>
-              {keyedImages.map(({ image, url, key }, index) => (
-                <Image
-                  accessibilityLabel={image.alt ?? `Attached image ${index + 1}`}
-                  accessible
-                  key={key}
-                  resizeMode="cover"
-                  source={{ uri: url }}
-                  style={images.length === 1 ? styles.singleImage : styles.gridImage}
-                />
-              ))}
-            </View>
-          ) : null}
-          {files.length > 0 ? (
-            <View style={styles.fileList}>
-              {files.map((file) => (
-                <Pressable
-                  accessibilityLabel={`Open ${file.fileName}`}
-                  accessibilityRole="link"
-                  key={`${file.assetId}:${file.fileName}`}
-                  onPress={() => {
-                    const url = assetUrl(file, true);
-                    if (url) void Linking.openURL(url);
-                  }}
-                  style={({ pressed }) => [
-                    styles.fileCard,
-                    {
-                      backgroundColor: theme.surface,
-                      borderColor: theme.border,
-                      opacity: pressed ? 0.74 : 1,
-                    },
-                  ]}
-                >
-                  <View style={[styles.fileIcon, { backgroundColor: theme.surfacePressed }]}>
-                    <SymbolView
-                      name={fileSymbol(file.kind)}
-                      size={19}
-                      tintColor={theme.textMuted}
-                    />
-                  </View>
-                  <View style={styles.fileCopy}>
-                    <Text numberOfLines={1} style={[styles.fileTitle, { color: theme.text }]}>
+        {richMessage ? (
+          <Pressable
+            accessible={false}
+            delayLongPress={280}
+            onLongPress={deliveryActionsDisabled ? undefined : openActions}
+            style={({ pressed }) => [styles.richActionTarget, pressed && { opacity: 0.82 }]}
+          >
+            <MobileRichMessageCard
+              message={message}
+              onSecretSubmit={onSecretSubmit}
+              onWidgetDismiss={onWidgetDismiss}
+              onWidgetResponse={onWidgetResponse}
+              readOnly={readOnly}
+            />
+          </Pressable>
+        ) : (
+          <Pressable
+            accessibilityLabel={`${speakerName ?? (isUser ? "You" : "Agent")}: ${accessibilitySummary}`}
+            accessibilityRole="text"
+            accessibilityState={{ busy: pending }}
+            accessible={files.length === 0 && stagedFiles.length === 0}
+            delayLongPress={280}
+            onLongPress={deliveryActionsDisabled ? undefined : openActions}
+            style={({ pressed }) => [
+              styles.bubble,
+              attachmentCount > 0 && styles.bubbleWithAttachments,
+              attachmentCount > 0 && !displayContent && styles.attachmentOnlyBubble,
+              {
+                backgroundColor: isUser ? theme.userBubble : theme.assistantBubble,
+                opacity: pressed ? 0.82 : 1,
+              },
+            ]}
+          >
+            {(files.length > 0 || stagedFiles.length > 0) && renderedContent ? (
+              <View
+                accessibilityLabel={`${speakerName ?? (isUser ? "You" : "Agent")}: ${accessibilitySummary}`}
+                accessibilityRole="text"
+                accessibilityState={{ busy: pending }}
+                accessible
+              >
+                {renderedContent}
+              </View>
+            ) : (
+              renderedContent
+            )}
+            {images.length > 0 || stagedImages.length > 0 ? (
+              <View
+                style={[
+                  styles.imageGallery,
+                  images.length + stagedImages.length === 1 && styles.singleImageGallery,
+                ]}
+              >
+                {keyedImages.map(({ value: { image, url }, key }, index) => (
+                  <Image
+                    accessibilityLabel={image.alt ?? `Attached image ${index + 1}`}
+                    accessible
+                    key={key}
+                    resizeMode="cover"
+                    source={{ uri: url }}
+                    style={
+                      images.length + stagedImages.length === 1
+                        ? styles.singleImage
+                        : styles.gridImage
+                    }
+                  />
+                ))}
+                {stagedImages.map((image, index) => (
+                  <Image
+                    accessibilityLabel={image.alt ?? `Attached image ${images.length + index + 1}`}
+                    accessible
+                    key={image.stagingId}
+                    resizeMode="cover"
+                    source={{ uri: image.previewUri }}
+                    style={
+                      images.length + stagedImages.length === 1
+                        ? styles.singleImage
+                        : styles.gridImage
+                    }
+                  />
+                ))}
+              </View>
+            ) : null}
+            {files.length > 0 || stagedFiles.length > 0 ? (
+              <View style={styles.fileList}>
+                {files.map((file) => (
+                  <AttachmentPreview
+                    asset={file}
+                    key={`${file.assetId}:${file.fileName}`}
+                    url={assetUrl(file, true)}
+                  />
+                ))}
+                {stagedFiles.map((file) => (
+                  <View
+                    key={file.stagingId}
+                    style={[
+                      styles.stagedFile,
+                      { backgroundColor: theme.surface, borderColor: theme.border },
+                    ]}
+                  >
+                    <SymbolView name="doc.fill" size={18} tintColor={theme.textMuted} />
+                    <Text
+                      numberOfLines={1}
+                      style={[styles.stagedFileName, { color: theme.textMuted }]}
+                    >
                       {file.fileName}
                     </Text>
-                    <Text style={[styles.fileMeta, { color: theme.textMuted }]}>
-                      {readableSize(file.byteSize)}
-                    </Text>
                   </View>
-                  <SymbolView name="arrow.down.circle" size={18} tintColor={theme.textMuted} />
-                </Pressable>
-              ))}
-            </View>
-          ) : null}
-        </Pressable>
+                ))}
+              </View>
+            ) : null}
+          </Pressable>
+        )}
         {reactions.length > 0 ? (
           <View style={[styles.reactions, isUser ? styles.reactionsRight : styles.reactionsLeft]}>
             {reactions.map((reaction) => (
@@ -408,88 +467,193 @@ export function MessageBubble({
                 key={reaction.emoji}
                 {...reaction}
                 onPress={() => onReact(reaction.emoji)}
+                readOnly={readOnly}
               />
             ))}
           </View>
         ) : null}
+        {threadReplyCount > 0 && onOpenThread ? (
+          <Pressable
+            accessibilityLabel={`Open thread with ${threadReplyCountLabel(threadReplyCount, threadReplyCountIsPartial)}`}
+            accessibilityRole="button"
+            hitSlop={6}
+            onPress={onOpenThread}
+            style={({ pressed }) => [styles.threadButton, { opacity: pressed ? 0.62 : 1 }]}
+          >
+            <SymbolView name="bubble.left.and.bubble.right" size={13} tintColor={theme.accent} />
+            <Text style={[styles.threadLabel, { color: theme.accent }]}>
+              {threadReplyCountLabel(threadReplyCount, threadReplyCountIsPartial)}
+            </Text>
+          </Pressable>
+        ) : null}
+        {deliveryState === "queued" && deliveryNonce ? (
+          <View
+            accessibilityLabel="Queued message actions"
+            style={[styles.deliveryFooter, isUser ? styles.deliveryFooterRight : null]}
+          >
+            <Text style={[styles.deliveryStatus, { color: theme.textMuted }]}>
+              {durableSendStatusLabel("queued", deliveryTransportDown)}
+            </Text>
+            {onCancelQueued ? (
+              <Pressable
+                accessibilityLabel="Cancel queued message"
+                accessibilityRole="button"
+                hitSlop={6}
+                onPress={() => onCancelQueued(deliveryNonce)}
+                style={({ pressed }) => [styles.deliveryAction, { opacity: pressed ? 0.55 : 1 }]}
+              >
+                <Text style={[styles.deliveryActionText, { color: theme.textMuted }]}>Cancel</Text>
+              </Pressable>
+            ) : null}
+          </View>
+        ) : deliveryState === "failed" && deliveryNonce ? (
+          <View
+            accessibilityLabel="Failed message actions"
+            style={[styles.deliveryFooter, isUser ? styles.deliveryFooterRight : null]}
+          >
+            <Text style={[styles.deliveryStatus, { color: theme.danger }]}>
+              {durableSendStatusLabel("failed")}
+            </Text>
+            {onResendFailed ? (
+              <Pressable
+                accessibilityLabel="Resend failed message"
+                accessibilityRole="button"
+                hitSlop={6}
+                onPress={() => onResendFailed(deliveryNonce)}
+                style={({ pressed }) => [styles.deliveryAction, { opacity: pressed ? 0.55 : 1 }]}
+              >
+                <Text style={[styles.deliveryActionText, { color: theme.accent }]}>Resend</Text>
+              </Pressable>
+            ) : null}
+            {onDeleteFailed ? (
+              <Pressable
+                accessibilityLabel="Delete failed message"
+                accessibilityRole="button"
+                hitSlop={6}
+                onPress={() => onDeleteFailed(deliveryNonce)}
+                style={({ pressed }) => [styles.deliveryAction, { opacity: pressed ? 0.55 : 1 }]}
+              >
+                <Text style={[styles.deliveryActionText, { color: theme.textMuted }]}>Delete</Text>
+              </Pressable>
+            ) : null}
+          </View>
+        ) : sentOfflineLabel ? (
+          <Animated.Text
+            accessibilityElementsHidden={currentSentOfflineAtMs === null}
+            importantForAccessibility={
+              currentSentOfflineAtMs === null ? "no-hide-descendants" : "auto"
+            }
+            style={[
+              styles.sentOffline,
+              isUser ? styles.sentOfflineRight : null,
+              { color: theme.textMuted },
+              {
+                maxHeight: sentOfflineVisibility.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [0, 32],
+                }),
+                marginTop: sentOfflineVisibility.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [0, 4],
+                }),
+                opacity: sentOfflineVisibility,
+              },
+            ]}
+          >
+            {sentOfflineLabel}
+          </Animated.Text>
+        ) : null}
       </Animated.View>
 
-      <Modal
-        animationType="fade"
-        transparent
-        visible={actionsOpen}
-        onRequestClose={() => setActionsOpen(false)}
-      >
-        <Pressable style={styles.overlay} onPress={() => setActionsOpen(false)}>
-          <View style={[styles.actionAnchor, isUser ? styles.actionRight : styles.actionLeft]}>
-            <GlassSurface
-              fallbackColor={theme.surfaceElevated}
-              style={[styles.actionPanel, { borderColor: theme.border }]}
-            >
-              <View style={styles.emojiRow}>
-                {QUICK_REACTIONS.map((emoji) => (
+      {actionsOpen ? (
+        <Modal
+          animationType="fade"
+          transparent
+          visible
+          onRequestClose={() => setActionsOpen(false)}
+        >
+          <Pressable style={styles.overlay} onPress={() => setActionsOpen(false)}>
+            <View style={[styles.actionAnchor, isUser ? styles.actionRight : styles.actionLeft]}>
+              <GlassSurface
+                fallbackColor={theme.surfaceElevated}
+                style={[styles.actionPanel, { borderColor: theme.border }]}
+              >
+                {!readOnly ? (
+                  <>
+                    <View style={styles.emojiRow}>
+                      {QUICK_REACTIONS.map((emoji) => (
+                        <Pressable
+                          accessibilityLabel={`React ${emoji}`}
+                          accessibilityRole="button"
+                          key={emoji}
+                          onPress={() => {
+                            setActionsOpen(false);
+                            onReact(emoji);
+                          }}
+                          style={({ pressed }) => [
+                            styles.emojiAction,
+                            pressed && { backgroundColor: theme.surfacePressed },
+                          ]}
+                        >
+                          <Text style={styles.emojiActionText}>{emoji}</Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                    <View style={[styles.divider, { backgroundColor: theme.separator }]} />
+                  </>
+                ) : null}
+                {!readOnly ? (
                   <Pressable
-                    accessibilityLabel={`React ${emoji}`}
                     accessibilityRole="button"
-                    key={emoji}
                     onPress={() => {
                       setActionsOpen(false);
-                      onReact(emoji);
+                      onReply();
                     }}
                     style={({ pressed }) => [
-                      styles.emojiAction,
+                      styles.menuRow,
                       pressed && { backgroundColor: theme.surfacePressed },
                     ]}
                   >
-                    <Text style={styles.emojiActionText}>{emoji}</Text>
+                    <SymbolView name="arrowshape.turn.up.left" size={19} tintColor={theme.text} />
+                    <Text style={[styles.menuLabel, { color: theme.text }]}>Reply</Text>
                   </Pressable>
-                ))}
-              </View>
-              <View style={[styles.divider, { backgroundColor: theme.separator }]} />
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => {
-                  setActionsOpen(false);
-                  onReply();
-                }}
-                style={({ pressed }) => [
-                  styles.menuRow,
-                  pressed && { backgroundColor: theme.surfacePressed },
-                ]}
-              >
-                <SymbolView name="arrowshape.turn.up.left" size={19} tintColor={theme.text} />
-                <Text style={[styles.menuLabel, { color: theme.text }]}>Reply</Text>
-              </Pressable>
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => {
-                  setActionsOpen(false);
-                  void Clipboard.setStringAsync(message.content);
-                }}
-                style={({ pressed }) => [
-                  styles.menuRow,
-                  pressed && { backgroundColor: theme.surfacePressed },
-                ]}
-              >
-                <SymbolView name="doc.on.doc" size={18} tintColor={theme.text} />
-                <Text style={[styles.menuLabel, { color: theme.text }]}>Copy</Text>
-              </Pressable>
-            </GlassSurface>
-          </View>
-        </Pressable>
-      </Modal>
+                ) : null}
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => {
+                    setActionsOpen(false);
+                    void Clipboard.setStringAsync(message.content);
+                  }}
+                  style={({ pressed }) => [
+                    styles.menuRow,
+                    pressed && { backgroundColor: theme.surfacePressed },
+                  ]}
+                >
+                  <SymbolView name="doc.on.doc" size={18} tintColor={theme.text} />
+                  <Text style={[styles.menuLabel, { color: theme.text }]}>Copy</Text>
+                </Pressable>
+              </GlassSurface>
+            </View>
+          </Pressable>
+        </Modal>
+      ) : null}
     </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
   messageWrap: { maxWidth: "88%", marginVertical: 3 },
+  // Rich cards contain percentage-width children. Give their wrapping message an
+  // explicit width so Yoga does not resolve the circular percentage against the
+  // card's min-content width (which can collapse short widget labels vertically).
+  richMessageWrap: { width: "88%" },
   entranceContent: { maxWidth: "100%" },
   contentLeft: { alignItems: "flex-start" },
   contentRight: { alignItems: "flex-end" },
   alignLeft: { alignSelf: "flex-start" },
   alignRight: { alignSelf: "flex-end" },
   bubble: { borderRadius: 21, paddingHorizontal: 15, paddingVertical: 10 },
+  richActionTarget: { width: "100%", maxWidth: 520 },
   bubbleWithAttachments: { paddingHorizontal: 6, paddingBottom: 6 },
   attachmentOnlyBubble: { paddingTop: 6 },
   content: { fontSize: 16, lineHeight: 22, letterSpacing: -0.15 },
@@ -504,26 +668,17 @@ const styles = StyleSheet.create({
   singleImage: { width: 246, height: 184, borderRadius: 16, backgroundColor: "#D6D6D2" },
   gridImage: { width: 112, height: 104, borderRadius: 14, backgroundColor: "#D6D6D2" },
   fileList: { width: 246, gap: 5, marginTop: 7 },
-  fileCard: {
-    minHeight: 54,
-    borderRadius: 15,
+  stagedFile: {
+    width: 246,
+    minHeight: 48,
     borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 8,
-    paddingVertical: 7,
+    borderRadius: 13,
+    paddingHorizontal: 11,
     flexDirection: "row",
     alignItems: "center",
     gap: 9,
   },
-  fileIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  fileCopy: { flex: 1, minWidth: 0 },
-  fileTitle: { fontSize: 13, lineHeight: 17, fontWeight: "600" },
-  fileMeta: { fontSize: 11, lineHeight: 14 },
+  stagedFileName: { flex: 1, fontSize: 13, lineHeight: 17, fontWeight: "500" },
   a2aLabel: {
     minHeight: 24,
     paddingHorizontal: 5,
@@ -559,6 +714,28 @@ const styles = StyleSheet.create({
   },
   reactionEmoji: { fontSize: 14, lineHeight: 18 },
   reactionCount: { fontSize: 11, lineHeight: 14, fontWeight: "700" },
+  threadButton: {
+    minHeight: 32,
+    alignSelf: "flex-start",
+    marginLeft: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+  },
+  threadLabel: { fontSize: 12, lineHeight: 16, fontWeight: "600" },
+  deliveryFooter: {
+    minHeight: 28,
+    paddingHorizontal: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  deliveryFooterRight: { alignSelf: "flex-end" },
+  deliveryStatus: { fontSize: 12, lineHeight: 16, fontWeight: "500" },
+  deliveryAction: { minHeight: 28, justifyContent: "center" },
+  deliveryActionText: { fontSize: 12, lineHeight: 16, fontWeight: "600" },
+  sentOffline: { overflow: "hidden", paddingHorizontal: 8, fontSize: 11, lineHeight: 15 },
+  sentOfflineRight: { alignSelf: "flex-end" },
   overlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.20)",

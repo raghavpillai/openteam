@@ -1,6 +1,10 @@
 import type { ApprovalView } from "@openbot/contracts";
+import { approvalPresentation } from "@openbot/product-core/activity";
+import { clientErrorMessage } from "@openbot/product-core/redaction";
+import * as Haptics from "expo-haptics";
 import { SymbolView } from "expo-symbols";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { useState } from "react";
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import { useTheme } from "../theme";
 
 export function ApprovalCard({
@@ -8,19 +12,29 @@ export function ApprovalCard({
   onResolve,
 }: {
   approval: ApprovalView;
-  onResolve: (decision: "accept" | "decline") => void;
+  onResolve: (decision: "accept" | "decline") => Promise<void>;
 }) {
   const theme = useTheme();
+  const [resolving, setResolving] = useState<"accept" | "decline" | null>(null);
+  const [error, setError] = useState<string | null>(null);
   if (approval.status !== "pending") return null;
-  const details =
-    approval.details && typeof approval.details === "object" && !Array.isArray(approval.details)
-      ? (approval.details as Record<string, unknown>)
-      : {};
-  const title = typeof details.title === "string" ? details.title : "Approval needed";
-  const description =
-    typeof details.description === "string"
-      ? details.description
-      : "Review this action before OpenBot continues.";
+  const { title, description } = approvalPresentation(approval);
+  const resolve = async (decision: "accept" | "decline") => {
+    if (resolving) return;
+    setResolving(decision);
+    setError(null);
+    try {
+      await onResolve(decision);
+      void Haptics.notificationAsync(
+        decision === "accept"
+          ? Haptics.NotificationFeedbackType.Success
+          : Haptics.NotificationFeedbackType.Warning
+      );
+    } catch (cause) {
+      setError(clientErrorMessage(cause, "This approval could not be resolved."));
+      setResolving(null);
+    }
+  };
 
   return (
     <View
@@ -38,24 +52,41 @@ export function ApprovalCard({
       </View>
       <View style={styles.actions}>
         <Pressable
-          onPress={() => onResolve("decline")}
+          accessibilityRole="button"
+          disabled={Boolean(resolving)}
+          onPress={() => void resolve("decline")}
           style={({ pressed }) => [
             styles.button,
             { borderColor: theme.border, opacity: pressed ? 0.65 : 1 },
           ]}
         >
-          <Text style={[styles.buttonText, { color: theme.text }]}>Deny</Text>
+          {resolving === "decline" ? (
+            <ActivityIndicator color={theme.text} size="small" />
+          ) : (
+            <Text style={[styles.buttonText, { color: theme.text }]}>Deny</Text>
+          )}
         </Pressable>
         <Pressable
-          onPress={() => onResolve("accept")}
+          accessibilityRole="button"
+          disabled={Boolean(resolving)}
+          onPress={() => void resolve("accept")}
           style={({ pressed }) => [
             styles.button,
             { backgroundColor: theme.text, borderColor: theme.text, opacity: pressed ? 0.78 : 1 },
           ]}
         >
-          <Text style={[styles.buttonText, { color: theme.background }]}>Approve once</Text>
+          {resolving === "accept" ? (
+            <ActivityIndicator color={theme.background} size="small" />
+          ) : (
+            <Text style={[styles.buttonText, { color: theme.background }]}>Approve once</Text>
+          )}
         </Pressable>
       </View>
+      {error ? (
+        <Text accessibilityLiveRegion="polite" style={[styles.error, { color: theme.danger }]}>
+          {error}
+        </Text>
+      ) : null}
     </View>
   );
 }
@@ -90,4 +121,5 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   buttonText: { fontSize: 15, lineHeight: 19, fontWeight: "600" },
+  error: { marginTop: -7, fontSize: 12, lineHeight: 16 },
 });

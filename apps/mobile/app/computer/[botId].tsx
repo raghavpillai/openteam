@@ -1,11 +1,17 @@
+import {
+  createScreenSessionController,
+  type ScreenSessionController,
+} from "@openbot/client-core/screen";
 import type { ScreenActionInput, ScreenStatusView } from "@openbot/contracts";
+import { clientErrorMessage } from "@openbot/product-core/redaction";
 import * as Haptics from "expo-haptics";
-import { router, useLocalSearchParams } from "expo-router";
+import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  AppState,
   Image,
   Keyboard,
   KeyboardAvoidingView,
@@ -17,10 +23,9 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { authHeadersForUrl } from "../../src/auth";
 import { BotMark } from "../../src/components/bot-mark";
 import { useOpenBot } from "../../src/state/openbot-context";
-import { useTheme } from "../../src/theme";
-import { authHeadersForUrl } from "../../src/auth";
 
 type ScreenApp = ScreenStatusView["apps"][number];
 
@@ -144,45 +149,92 @@ export default function ComputerScreen() {
   const bot = snapshot.bots.find((candidate) => candidate.id === botId);
   const [status, setStatus] = useState<ScreenStatusView | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [frameError, setFrameError] = useState<string | null>(null);
   const [frameRevision, setFrameRevision] = useState(Date.now());
   const [frameSize, setFrameSize] = useState({ width: 1, height: 1 });
   const [typing, setTyping] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [actionBusy, setActionBusy] = useState(false);
+  const [takeoverBusy, setTakeoverBusy] = useState(false);
   const [controlsOpen, setControlsOpen] = useState(false);
   const [keyboardOpen, setKeyboardOpen] = useState(false);
-  const tookControl = useRef(false);
+  const takeoverActive = useRef(false);
+  const refreshEpoch = useRef(0);
+  const statusRevision = useRef(0);
+  const refreshInFlight = useRef(false);
+  const screenSession = useRef<ScreenSessionController | null>(null);
   const inputRef = useRef<TextInput>(null);
+  const busy = actionBusy || takeoverBusy;
 
   const refresh = useCallback(async () => {
-    if (!botId) return;
+    if (!botId || refreshInFlight.current || AppState.currentState !== "active") return;
+    const epoch = refreshEpoch.current;
+    const revision = statusRevision.current;
+    refreshInFlight.current = true;
     try {
       const next = await screenStatus(botId);
+      if (epoch !== refreshEpoch.current || revision !== statusRevision.current) return;
+      takeoverActive.current = next.humanTakeover;
+      screenSession.current?.confirmTakeover(next.humanTakeover);
       setStatus(next);
       setFrameRevision(Date.now());
       setError(null);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not open the shared computer");
+      if (epoch !== refreshEpoch.current || revision !== statusRevision.current) return;
+      setError(clientErrorMessage(cause, "Could not open the shared computer"));
+    } finally {
+      refreshInFlight.current = false;
     }
   }, [botId, screenStatus]);
 
-  useEffect(() => {
-    void refresh();
-    const poll = setInterval(() => void refresh(), 2500);
-    return () => {
-      clearInterval(poll);
-      if (botId && tookControl.current) void setScreenTakeover(botId, false);
-    };
-  }, [botId, refresh, setScreenTakeover]);
+  useFocusEffect(
+    useCallback(() => {
+      setActionBusy(false);
+      setTakeoverBusy(false);
+      const controller = createScreenSessionController({
+        pollIntervalMs: 2_500,
+        pollStatus: refresh,
+        requestTakeover: (active) => setScreenTakeover(botId, active),
+        onTakeoverBusyChange: setTakeoverBusy,
+        onError: (cause) =>
+          setError(clientErrorMessage(cause, "Could not change computer control")),
+        onTakeoverResult: (next) => {
+          statusRevision.current += 1;
+          takeoverActive.current = next.humanTakeover;
+          setStatus(next);
+          setFrameRevision(Date.now());
+          setError(null);
+        },
+      });
+      screenSession.current = controller;
+      const appStateSubscription = AppState.addEventListener("change", (state) => {
+        if (state === "active") {
+          controller.activate();
+          controller.wake();
+          return;
+        }
+        refreshEpoch.current += 1;
+        statusRevision.current += 1;
+        controller.deactivate();
+        takeoverActive.current = false;
+      });
+      if (AppState.currentState === "active") controller.activate();
+      else controller.deactivate();
+      return () => {
+        appStateSubscription.remove();
+        refreshEpoch.current += 1;
+        statusRevision.current += 1;
+        controller.stop();
+        if (screenSession.current === controller) screenSession.current = null;
+        takeoverActive.current = false;
+      };
+    }, [botId, refresh, setScreenTakeover])
+  );
 
   useEffect(() => {
-    if (!botId || !status?.humanTakeover) return;
-    const heartbeat = setInterval(() => {
-      void setScreenTakeover(botId, true)
-        .then(setStatus)
-        .catch(() => undefined);
-    }, 20_000);
-    return () => clearInterval(heartbeat);
-  }, [botId, setScreenTakeover, status?.humanTakeover]);
+    return () => {
+      refreshEpoch.current += 1;
+    };
+  }, []);
 
   useEffect(() => {
     if (!keyboardOpen || !status?.humanTakeover) return;
@@ -192,35 +244,32 @@ export default function ComputerScreen() {
 
   const act = async (input: ScreenActionInput) => {
     if (!botId || busy || !status?.humanTakeover) return;
-    setBusy(true);
+    const epoch = refreshEpoch.current;
+    const revision = statusRevision.current + 1;
+    statusRevision.current = revision;
+    setActionBusy(true);
     try {
-      setStatus(await screenAction(botId, input));
-      setFrameRevision(Date.now());
-      setError(null);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "The computer action failed");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const changeTakeover = async (active: boolean) => {
-    if (!botId || busy) return;
-    setBusy(true);
-    try {
-      const next = await setScreenTakeover(botId, active);
-      tookControl.current = active;
+      const next = await screenAction(botId, input);
+      if (epoch !== refreshEpoch.current || revision !== statusRevision.current) return;
+      statusRevision.current += 1;
       setStatus(next);
       setFrameRevision(Date.now());
       setError(null);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not change computer control");
+      if (epoch !== refreshEpoch.current || revision !== statusRevision.current) return;
+      setError(clientErrorMessage(cause, "The computer action failed"));
     } finally {
-      setBusy(false);
+      if (epoch === refreshEpoch.current) setActionBusy(false);
     }
   };
 
-  const toggleTakeover = () => void changeTakeover(!status?.humanTakeover);
+  const changeTakeover = (active: boolean) => {
+    if (!botId) return;
+    statusRevision.current += 1;
+    screenSession.current?.setTakeover(active);
+  };
+
+  const toggleTakeover = () => changeTakeover(!takeoverActive.current);
 
   const openKeyboard = () => {
     setControlsOpen(false);
@@ -309,28 +358,37 @@ export default function ComputerScreen() {
               <FixtureDesktop />
             </Pressable>
           ) : frameUrl && ready ? (
-            <Pressable
-              accessibilityLabel={controlling ? "Tap the shared computer" : "Shared computer"}
-              disabled={!controlling}
-              onPress={(event) => {
-                if (!status) return;
-                const x = Math.round(
-                  (event.nativeEvent.locationX / frameSize.width) * status.width
-                );
-                const y = Math.round(
-                  (event.nativeEvent.locationY / frameSize.height) * status.height
-                );
-                void act({ action: "click", x, y });
-              }}
-              style={styles.frame}
-            >
-              <Image
-                onError={() => setError("The latest computer frame could not be loaded")}
-                resizeMode="contain"
-                source={{ uri: frameUrl, headers: authHeadersForUrl(frameUrl) }}
+            <View style={styles.frame}>
+              <Pressable
+                accessibilityLabel={controlling ? "Tap the shared computer" : "Shared computer"}
+                disabled={!controlling}
+                onPress={(event) => {
+                  if (!status) return;
+                  const x = Math.round(
+                    (event.nativeEvent.locationX / frameSize.width) * status.width
+                  );
+                  const y = Math.round(
+                    (event.nativeEvent.locationY / frameSize.height) * status.height
+                  );
+                  void act({ action: "click", x, y });
+                }}
                 style={styles.frame}
-              />
-            </Pressable>
+              >
+                <Image
+                  onError={() => setFrameError("The latest computer frame could not be loaded")}
+                  onLoad={() => setFrameError(null)}
+                  resizeMode="contain"
+                  source={{ uri: frameUrl, headers: authHeadersForUrl(frameUrl) }}
+                  style={styles.frame}
+                />
+              </Pressable>
+              {frameError ? (
+                <View pointerEvents="none" style={[styles.centerState, styles.frameErrorOverlay]}>
+                  <SymbolView name="exclamationmark.triangle" size={28} tintColor="#777773" />
+                  <Text style={styles.stateCopy}>{frameError}</Text>
+                </View>
+              ) : null}
+            </View>
           ) : (
             <View style={styles.centerState}>
               <SymbolView name="desktopcomputer" size={28} tintColor="#777773" />
@@ -352,6 +410,7 @@ export default function ComputerScreen() {
               <Text style={styles.trayTitle}>Computer controls</Text>
               <Text style={[styles.trayStatus, error && styles.trayError]}>
                 {error ??
+                  frameError ??
                   (controlling ? "You have control" : ready ? "Watching live" : "Connecting…")}
               </Text>
             </View>
@@ -520,6 +579,12 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.24)",
   },
   centerState: { alignItems: "center", gap: 8 },
+  frameErrorOverlay: {
+    position: "absolute",
+    inset: 0,
+    justifyContent: "center",
+    backgroundColor: "#151515",
+  },
   stateCopy: { color: "#92928D", fontSize: 13, lineHeight: 18 },
   controlTray: {
     position: "absolute",

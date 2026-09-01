@@ -3,16 +3,25 @@
     "name": "OpenBot",
     "slug": "openbot-mobile",
     "version": "0.1.0",
+    "icon": "./assets/openbot-icon-v2.png",
     "orientation": "portrait",
     "scheme": "openbot",
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "dev.openbot.mobile",
+      "entitlements": {
+        "keychain-access-groups": ["$(AppIdentifierPrefix)$(PRODUCT_BUNDLE_IDENTIFIER)"]
+      },
       "infoPlist": {
-        "NSCameraUsageDescription": "OpenBot uses the camera only when you attach a photo to a message.",
-        "NSMicrophoneUsageDescription": "OpenBot uses the microphone only when you dictate a message."
+        "NSCameraUsageDescription": "OpenBot uses the camera only when you choose to take a photo for a message.",
+        "NSLocalNetworkUsageDescription": "OpenBot connects to the self-hosted server you choose on your local network.",
+        "NSMicrophoneUsageDescription": "OpenBot uses the microphone only while you dictate a message.",
+        "NSSpeechRecognitionUsageDescription": "OpenBot converts speech to text only when you choose voice input."
       }
+    },
+    "android": {
+      "package": "dev.openbot.mobile"
     },
     "plugins": [
       "expo-router",
@@ -23,10 +32,15 @@
         {
           "photosPermission": "OpenBot accesses your photo library only when you choose images to attach to a message.",
           "cameraPermission": "OpenBot uses the camera only when you choose to take a photo for a message.",
-          "microphonePermission": false
+          "microphonePermission": "OpenBot uses the microphone only while you dictate a message."
         }
       ],
-      "expo-secure-store"
+      [
+        "expo-secure-store",
+        {
+          "faceIDPermission": false
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

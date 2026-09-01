@@ -13,6 +13,7 @@ export function IconButton({
   size = 38,
   symbolSize = 20,
   disabled = false,
+  haptic = "selection",
   style,
 }: {
   name: SymbolViewProps["name"];
@@ -23,6 +24,7 @@ export function IconButton({
   size?: number;
   symbolSize?: number;
   disabled?: boolean;
+  haptic?: "selection" | "light" | "none";
   style?: StyleProp<ViewStyle>;
 }) {
   const theme = useTheme();
@@ -43,7 +45,11 @@ export function IconButton({
       disabled={disabled}
       hitSlop={6}
       onPress={() => {
-        void Haptics.selectionAsync();
+        if (haptic === "light") {
+          void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        } else if (haptic === "selection") {
+          void Haptics.selectionAsync();
+        }
         onPress?.();
       }}
       style={({ pressed }) => [

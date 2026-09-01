@@ -4,6 +4,15 @@ import type {
   SearchResultKind,
   SearchResultView,
 } from "@openbot/contracts";
+import {
+  createSearchRequestGate,
+  readSearchCache,
+  SEARCH_CATEGORIES,
+  SEARCH_QUERY_MAX_LENGTH,
+  searchCacheKey,
+  searchResultKindLabel,
+  writeSearchCache,
+} from "@openbot/product-core/search";
 import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
@@ -24,6 +33,9 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { BotMark } from "../src/components/bot-mark";
 import { GlassSurface } from "../src/components/glass-surface";
 import { IconButton } from "../src/components/icon-button";
+import { stageRoutineNavigation } from "../src/routine-route";
+import { normalizeMobileSearchQuery } from "../src/search";
+import { searchFailureMessage } from "../src/search-error";
 import { useOpenBot } from "../src/state/openbot-context";
 import { type Theme, useTheme } from "../src/theme";
 
@@ -44,76 +56,54 @@ type PageState = {
 
 const SEARCH_DEBOUNCE_MS = 100;
 
-const SEARCH_SECTIONS: readonly SearchSection[] = [
-  {
-    category: "all",
-    label: "All",
+const SEARCH_SECTION_DETAILS: Record<
+  SearchCategory,
+  Pick<SearchSection, "icon" | "emptyTitle" | "emptyCopy">
+> = {
+  all: {
     icon: "square.grid.2x2",
     emptyTitle: "Nothing found",
     emptyCopy: "Try another name, phrase, file, or link.",
   },
-  {
-    category: "messages",
-    label: "Messages",
+  messages: {
     icon: "bubble.left",
     emptyTitle: "Search messages",
     emptyCopy: "Type a phrase to search across your conversations.",
   },
-  {
-    category: "bots",
-    label: "Bots",
+  bots: {
     icon: "person.crop.circle",
     emptyTitle: "No bots found",
     emptyCopy: "Try a Bot name or description.",
   },
-  {
-    category: "channels",
-    label: "Chats",
+  channels: {
     icon: "number",
     emptyTitle: "No chats found",
     emptyCopy: "Try a conversation or group name.",
   },
-  {
-    category: "files",
-    label: "Files",
+  files: {
     icon: "doc",
     emptyTitle: "No files found",
     emptyCopy: "Files shared in visible conversations appear here.",
   },
-  {
-    category: "links",
-    label: "Links",
+  links: {
     icon: "link",
     emptyTitle: "No links found",
     emptyCopy: "Links shared in visible conversations appear here.",
   },
-  {
-    category: "routines",
-    label: "Routines",
+  routines: {
     icon: "clock",
     emptyTitle: "No routines found",
     emptyCopy: "Try a routine name or description.",
   },
-] as const;
-
-const normalizedQuery = (value: string) => value.normalize("NFKC").replace(/\s+/g, " ").trim();
-
-const resultKindLabel = (kind: SearchResultKind) => {
-  switch (kind) {
-    case "bot":
-      return "Bot";
-    case "channel":
-      return "Chat";
-    case "message":
-      return "Message";
-    case "file":
-      return "File";
-    case "link":
-      return "Link";
-    case "routine":
-      return "Routine";
-  }
 };
+
+const SEARCH_SECTIONS: readonly SearchSection[] = SEARCH_CATEGORIES.filter(
+  ({ category }) => category !== "links"
+).map(({ category, label }) => ({
+  category,
+  label: category === "channels" ? "Groups" : label,
+  ...SEARCH_SECTION_DETAILS[category],
+}));
 
 const resultSymbol = (kind: SearchResultKind): SymbolViewProps["name"] => {
   switch (kind) {
@@ -163,7 +153,7 @@ function SearchResultRow({
   const theme = useTheme();
   return (
     <Pressable
-      accessibilityLabel={`${resultKindLabel(result.kind)}: ${result.title}. ${result.subtitle}`}
+      accessibilityLabel={`${searchResultKindLabel(result.kind)}: ${result.title}. ${result.subtitle}`}
       accessibilityRole="button"
       onPress={onPress}
       style={({ pressed }) => [
@@ -178,7 +168,7 @@ function SearchResultRow({
             {result.title}
           </Text>
           <Text style={[styles.resultKind, { color: theme.textFaint }]}>
-            {resultKindLabel(result.kind)}
+            {result.kind === "channel" ? "Group" : searchResultKindLabel(result.kind)}
           </Text>
         </View>
         <Text numberOfLines={2} style={[styles.resultSubtitle, { color: theme.textMuted }]}>
@@ -190,6 +180,7 @@ function SearchResultRow({
 }
 
 function SearchPage({
+  active,
   botById,
   onOpenResult,
   onRetry,
@@ -199,6 +190,7 @@ function SearchPage({
   theme,
   width,
 }: {
+  active: boolean;
   botById: Map<string, BotView>;
   onOpenResult: (result: SearchResultView) => void;
   onRetry: () => void;
@@ -216,7 +208,11 @@ function SearchPage({
     hasQuery || section.category !== "all" ? section.emptyTitle : "Nothing here yet";
 
   return (
-    <View style={[styles.page, { width }]}>
+    <View
+      accessibilityElementsHidden={!active}
+      importantForAccessibility={active ? "auto" : "no-hide-descendants"}
+      style={[styles.page, { width }]}
+    >
       {waiting ? (
         <View style={styles.centerState}>
           <ActivityIndicator color={theme.textMuted} />
@@ -279,12 +275,15 @@ export default function SearchScreen() {
   const { search, snapshot } = useOpenBot();
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
+  const [filterOpen, setFilterOpen] = useState(false);
   const [pageStates, setPageStates] = useState<Partial<Record<SearchCategory, PageState>>>({});
   const [retryRevision, setRetryRevision] = useState(0);
   const pagesRef = useRef<FlatList<SearchSection>>(null);
   const tabsRef = useRef<FlatList<SearchSection>>(null);
   const cacheRef = useRef(new Map<string, SearchResultView[]>());
-  const normalized = normalizedQuery(query);
+  const cacheCursorRef = useRef(snapshot.cursor);
+  const [requestGate] = useState(createSearchRequestGate);
+  const normalized = normalizeMobileSearchQuery(query);
   const activeSection = SEARCH_SECTIONS[activeIndex] ?? SEARCH_SECTIONS[0];
   const botById = useMemo(
     () => new Map(snapshot.bots.map((bot) => [bot.id, bot])),
@@ -292,14 +291,18 @@ export default function SearchScreen() {
   );
 
   useEffect(() => {
+    if (cacheCursorRef.current === snapshot.cursor) return;
+    cacheCursorRef.current = snapshot.cursor;
+    requestGate.invalidate();
     cacheRef.current.clear();
     setPageStates({});
-  }, [snapshot.cursor]);
+  }, [requestGate, snapshot.cursor]);
 
   useEffect(() => {
+    void retryRevision;
     const category = activeSection.category;
-    const cacheKey = `${category}:${normalized.toLocaleLowerCase()}`;
-    const cached = cacheRef.current.get(cacheKey);
+    const cacheKey = searchCacheKey(snapshot.cursor, category, normalized);
+    const cached = readSearchCache(cacheRef.current, cacheKey);
     if (cached) {
       setPageStates((current) => ({
         ...current,
@@ -309,6 +312,7 @@ export default function SearchScreen() {
     }
 
     const controller = new AbortController();
+    const requestToken = requestGate.begin(cacheKey);
     setPageStates((current) => ({
       ...current,
       [category]: { query: normalized, results: [], loading: true, error: null },
@@ -317,8 +321,8 @@ export default function SearchScreen() {
       () => {
         void search(normalized, category, controller.signal)
           .then((response) => {
-            if (controller.signal.aborted) return;
-            cacheRef.current.set(cacheKey, response.results);
+            if (controller.signal.aborted || !requestGate.isCurrent(requestToken)) return;
+            writeSearchCache(cacheRef.current, cacheKey, response.results);
             setPageStates((current) => ({
               ...current,
               [category]: {
@@ -330,14 +334,14 @@ export default function SearchScreen() {
             }));
           })
           .catch((cause) => {
-            if (controller.signal.aborted) return;
+            if (controller.signal.aborted || !requestGate.isCurrent(requestToken)) return;
             setPageStates((current) => ({
               ...current,
               [category]: {
                 query: normalized,
                 results: [],
                 loading: false,
-                error: cause instanceof Error ? cause.message : "Search failed",
+                error: searchFailureMessage(cause),
               },
             }));
           });
@@ -347,17 +351,19 @@ export default function SearchScreen() {
     return () => {
       clearTimeout(timer);
       controller.abort();
+      if (requestGate.isCurrent(requestToken)) requestGate.invalidate();
     };
-  }, [activeSection.category, normalized, retryRevision, search]);
+  }, [activeSection.category, normalized, requestGate, retryRevision, search, snapshot.cursor]);
 
   useEffect(() => {
     pagesRef.current?.scrollToOffset({ animated: false, offset: activeIndex * width });
-  }, [width]);
+  }, [activeIndex, width]);
 
   const showSection = useCallback(
     (index: number, animated = true) => {
       const nextIndex = Math.max(0, Math.min(SEARCH_SECTIONS.length - 1, index));
       setActiveIndex(nextIndex);
+      setFilterOpen(false);
       pagesRef.current?.scrollToOffset({ animated, offset: nextIndex * width });
       tabsRef.current?.scrollToIndex({ animated: true, index: nextIndex, viewPosition: 0.5 });
     },
@@ -395,7 +401,20 @@ export default function SearchScreen() {
         result.channelId ??
         (result.botId ? snapshot.bots.find((bot) => bot.id === result.botId)?.dmChannelId : null);
       if (!channelId) return;
-      router.replace({
+      if (result.kind === "routine") {
+        const routineId = result.id.startsWith("routine:")
+          ? result.id.slice("routine:".length)
+          : result.id;
+        stageRoutineNavigation(channelId, routineId);
+        // The staged identifier survives Search's native modal replacement. The
+        // Details screen consumes it after its stack transition has settled.
+        router.replace({
+          pathname: "/details/[channelId]",
+          params: { channelId },
+        });
+        return;
+      }
+      router.dismissTo({
         pathname: "/chat/[channelId]",
         params: {
           channelId,
@@ -411,9 +430,10 @@ export default function SearchScreen() {
       <View style={styles.header}>
         <IconButton
           label="Close search"
-          name="chevron.left"
+          name="xmark"
           onPress={() => (router.canGoBack() ? router.back() : router.replace("/"))}
           symbolSize={18}
+          size={40}
           tone="surface"
         />
         <GlassSurface
@@ -421,72 +441,32 @@ export default function SearchScreen() {
           interactive
           style={[styles.searchField, { borderColor: theme.border }]}
         >
-          <SymbolView name="magnifyingglass" size={17} tintColor={theme.textMuted} />
+          <Pressable
+            accessibilityLabel={`Search category: ${activeSection.label}`}
+            accessibilityRole="button"
+            hitSlop={8}
+            onPress={() => {
+              void Haptics.selectionAsync();
+              setFilterOpen((current) => !current);
+            }}
+          >
+            <SymbolView name="magnifyingglass" size={17} tintColor={theme.textMuted} />
+          </Pressable>
           <TextInput
             accessibilityLabel="Search OpenBot"
             autoCapitalize="none"
             autoCorrect={false}
             autoFocus
             clearButtonMode="while-editing"
+            maxLength={SEARCH_QUERY_MAX_LENGTH}
             onChangeText={setQuery}
             placeholder="Search"
             placeholderTextColor={theme.textFaint}
             selectionColor={theme.accent}
             style={[styles.input, { color: theme.text }]}
-            value={query}
           />
         </GlassSurface>
       </View>
-
-      <FlatList
-        contentContainerStyle={styles.tabs}
-        data={SEARCH_SECTIONS}
-        horizontal
-        keyExtractor={(section) => section.category}
-        onScrollToIndexFailed={({ averageItemLength, index }) =>
-          tabsRef.current?.scrollToOffset({
-            animated: true,
-            offset: Math.max(0, averageItemLength * index - width / 2),
-          })
-        }
-        ref={tabsRef}
-        renderItem={({ item, index }) => {
-          const active = index === activeIndex;
-          return (
-            <Pressable
-              accessibilityRole="tab"
-              accessibilityState={{ selected: active }}
-              onPress={() => {
-                void Haptics.selectionAsync();
-                showSection(index);
-              }}
-              style={({ pressed }) => [
-                styles.tab,
-                {
-                  backgroundColor: active ? theme.text : theme.surface,
-                  borderColor: active ? theme.text : theme.border,
-                },
-                pressed && { opacity: 0.72 },
-              ]}
-            >
-              <SymbolView
-                name={item.icon}
-                size={13}
-                tintColor={active ? theme.background : theme.textMuted}
-              />
-              <Text
-                style={[styles.tabLabel, { color: active ? theme.background : theme.textMuted }]}
-              >
-                {item.label}
-              </Text>
-            </Pressable>
-          );
-        }}
-        showsHorizontalScrollIndicator={false}
-        style={styles.tabRail}
-      />
-
-      <View style={[styles.divider, { backgroundColor: theme.separator }]} />
 
       <View style={styles.pages} {...pageSwipe.panHandlers}>
         <FlatList
@@ -497,8 +477,9 @@ export default function SearchScreen() {
           keyExtractor={(section) => `page-${section.category}`}
           keyboardShouldPersistTaps="handled"
           ref={pagesRef}
-          renderItem={({ item }) => (
+          renderItem={({ index, item }) => (
             <SearchPage
+              active={index === activeIndex}
               botById={botById}
               onOpenResult={openResult}
               onRetry={() => setRetryRevision((current) => current + 1)}
@@ -514,6 +495,48 @@ export default function SearchScreen() {
           style={styles.pages}
         />
       </View>
+
+      {filterOpen ? (
+        <>
+          <Pressable
+            accessibilityLabel="Close search categories"
+            onPress={() => setFilterOpen(false)}
+            style={styles.filterBackdrop}
+          />
+          <GlassSurface
+            fallbackColor={theme.dark ? "rgba(49,49,49,0.98)" : "rgba(245,245,245,0.98)"}
+            style={[styles.filterMenu, { borderColor: theme.border, shadowColor: "#000" }]}
+          >
+            {SEARCH_SECTIONS.map((section, index) => {
+              const active = index === activeIndex;
+              return (
+                <Pressable
+                  accessibilityRole="menuitem"
+                  accessibilityState={{ selected: active }}
+                  key={section.category}
+                  onPress={() => {
+                    void Haptics.selectionAsync();
+                    showSection(index);
+                  }}
+                  style={({ pressed }) => [styles.filterRow, pressed && styles.filterRowPressed]}
+                >
+                  <View style={styles.filterCheck}>
+                    {active ? (
+                      <SymbolView
+                        name="checkmark"
+                        size={14}
+                        tintColor={theme.text}
+                        weight="semibold"
+                      />
+                    ) : null}
+                  </View>
+                  <Text style={[styles.filterLabel, { color: theme.text }]}>{section.label}</Text>
+                </Pressable>
+              );
+            })}
+          </GlassSurface>
+        </>
+      ) : null}
     </SafeAreaView>
   );
 }
@@ -522,10 +545,10 @@ const styles = StyleSheet.create({
   safe: { flex: 1 },
   header: {
     minHeight: 58,
-    paddingHorizontal: 7,
+    paddingHorizontal: 12,
     flexDirection: "row",
     alignItems: "center",
-    gap: 2,
+    gap: 3,
   },
   searchField: {
     flex: 1,
@@ -554,7 +577,7 @@ const styles = StyleSheet.create({
   divider: { height: StyleSheet.hairlineWidth },
   pages: { flex: 1 },
   page: { flex: 1 },
-  results: { paddingHorizontal: 16, paddingBottom: 34, paddingTop: 8 },
+  results: { paddingHorizontal: 16, paddingBottom: 34, paddingTop: 26 },
   emptyResults: { flexGrow: 1 },
   resultRow: {
     minHeight: 70,
@@ -602,4 +625,36 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   retryText: { fontSize: 13, lineHeight: 17, fontWeight: "700" },
+  filterBackdrop: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    top: 0,
+    zIndex: 20,
+  },
+  filterMenu: {
+    position: "absolute",
+    right: 8,
+    top: 0,
+    width: 222,
+    zIndex: 21,
+    borderRadius: 25,
+    borderWidth: StyleSheet.hairlineWidth,
+    overflow: "hidden",
+    paddingVertical: 4,
+    shadowOpacity: 0.35,
+    shadowRadius: 24,
+    shadowOffset: { width: 0, height: 12 },
+  },
+  filterRow: {
+    height: 40,
+    paddingHorizontal: 20,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  filterRowPressed: { backgroundColor: "rgba(255,255,255,0.10)" },
+  filterCheck: { width: 18, alignItems: "center" },
+  filterLabel: { fontSize: 16, lineHeight: 21, fontWeight: "400" },
 });

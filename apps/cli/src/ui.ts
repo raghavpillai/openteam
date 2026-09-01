@@ -12,6 +12,15 @@ export interface SetupSummaryRow {
   value: string;
 }
 
+export interface SelectionPromptInput {
+  message: string;
+  label: string;
+  index: number;
+  count: number;
+  color?: boolean;
+  width?: number;
+}
+
 export interface SetupPresentation {
   start(): void;
   stage(index: number): void;
@@ -72,6 +81,35 @@ const wrapText = (value: string, width: number): string[] => {
   return lines;
 };
 
+export const renderSelectionPrompt = (input: SelectionPromptInput): readonly string[] => {
+  const styled = input.color ?? colorEnabled();
+  const width = Math.max(16, Math.min(80, input.width ?? stdout.columns ?? 78));
+  const position = `${input.index + 1}/${input.count}`;
+  const prefix = "  › ";
+  const labelWidth = Math.max(1, width - prefix.length - position.length - 1);
+  const label = truncate(input.label, labelWidth);
+  const gap = " ".repeat(Math.max(1, width - prefix.length - label.length - position.length));
+  const hint = width >= 48 ? "  ↑/↓/←/→ move · Enter select" : "  arrows · Enter";
+
+  return [
+    `${paint(styled, "?", ANSI.cyan)} ${paint(styled, truncate(input.message, width - 2), ANSI.bold)}`,
+    `${paint(styled, prefix, ANSI.cyan)}${paint(styled, label, ANSI.bold)}${gap}${paint(styled, position, ANSI.dim)}`,
+    paint(styled, truncate(hint, width), ANSI.dim),
+  ];
+};
+
+export const renderSelectionResult = (
+  message: string,
+  label: string,
+  color = colorEnabled(),
+  width = stdout.columns ?? 78
+): string => {
+  const limit = Math.max(16, Math.min(80, width));
+  const prefix = `✓ ${message}  `;
+  const selected = truncate(label, Math.max(1, limit - prefix.length));
+  return `${paint(color, "✓", ANSI.green)} ${paint(color, message, ANSI.dim)}  ${paint(color, selected, ANSI.bold)}`;
+};
+
 export const renderSetupHeader = (input: {
   version: string;
   stages: readonly SetupStage[];
@@ -94,7 +132,7 @@ export const renderSetupHeader = (input: {
       width - 4
     );
     return [
-      `${paint(styled, "╭─", ANSI.cyan)}${paint(styled, truncate(heading, width - 4), ANSI.bold, ANSI.white)}${paint(styled, "─".repeat(Math.max(1, width - truncate(heading, width - 4).length - 3)) + "╮", ANSI.cyan)}`,
+      `${paint(styled, "╭─", ANSI.cyan)}${paint(styled, truncate(heading, width - 4), ANSI.bold, ANSI.white)}${paint(styled, `${"─".repeat(Math.max(1, width - truncate(heading, width - 4).length - 3))}╮`, ANSI.cyan)}`,
       `${paint(styled, "│", ANSI.cyan)} ${progress.padEnd(width - 3)}${paint(styled, "│", ANSI.cyan)}`,
       `${paint(styled, `╰${"─".repeat(width - 2)}╯`, ANSI.cyan)}`,
     ].join("\n");

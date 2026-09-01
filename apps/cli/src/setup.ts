@@ -21,7 +21,13 @@ import { CliError } from "./errors";
 import { checkHealth, waitForHealth } from "./health";
 import type { CommandRunner } from "./process";
 import { inspectPublicReadiness } from "./public-readiness";
-import { createSetupPresentation, type SetupPresentation, type SetupStage } from "./ui";
+import {
+  createSetupPresentation,
+  renderSelectionPrompt,
+  renderSelectionResult,
+  type SetupPresentation,
+  type SetupStage,
+} from "./ui";
 
 const THINKING_LEVELS = ["minimal", "low", "medium", "high", "xhigh", "max"] as const;
 const ACCESS_MODES = ["https", "proxy", "http", "private", "local"] as const;
@@ -161,21 +167,49 @@ const terminalSelect = <Value extends string>(
     const initialIndex = options.findIndex((option) => option.value === current);
     let selectedIndex = initialIndex >= 0 ? initialIndex : 0;
     const wasRaw = input.isRaw;
-    const columns = Math.max(24, process.stdout.columns || 80);
+    let renderedLineCount = 0;
 
     const render = () => {
       const selected = options[selectedIndex];
-      const line = `› ${selectedIndex + 1}/${options.length}  ${selected?.label ?? ""}`;
-      const visible = line.length <= columns ? line : `${line.slice(0, columns - 1)}…`;
-      process.stdout.write(`\r\u001b[2K${visible}`);
+      const lines = renderSelectionPrompt({
+        message,
+        label: selected?.label ?? "",
+        index: selectedIndex,
+        count: options.length,
+        width: process.stdout.columns || 80,
+      });
+      if (renderedLineCount > 0) {
+        process.stdout.write(
+          `\r${renderedLineCount > 1 ? `\u001b[${renderedLineCount - 1}A` : ""}`
+        );
+      }
+      for (const [index, line] of lines.entries()) {
+        process.stdout.write(`\u001b[2K${line}${index < lines.length - 1 ? "\n" : ""}`);
+      }
+      renderedLineCount = lines.length;
     };
-    const cleanup = () => {
+    const clear = () => {
+      if (!renderedLineCount) return;
+      process.stdout.write(`\r${renderedLineCount > 1 ? `\u001b[${renderedLineCount - 1}A` : ""}`);
+      for (let index = 0; index < renderedLineCount; index += 1) {
+        process.stdout.write(`\u001b[2K${index < renderedLineCount - 1 ? "\n" : ""}`);
+      }
+      if (renderedLineCount > 1) process.stdout.write(`\r\u001b[${renderedLineCount - 1}A`);
+      renderedLineCount = 0;
+    };
+    const cleanup = (selectedLabel?: string) => {
       input.off("keypress", onKeypress);
+      process.stdout.off("resize", render);
       if (input.setRawMode) input.setRawMode(Boolean(wasRaw));
       // readline will resume stdin for the next text/secret prompt. Pausing here
       // prevents a completed standalone selection from keeping Node or Bun alive.
       input.pause();
-      process.stdout.write("\n");
+      clear();
+      if (selectedLabel !== undefined) {
+        process.stdout.write(
+          `${renderSelectionResult(message, selectedLabel, undefined, process.stdout.columns || 80)}\n`
+        );
+      }
     };
     const onKeypress = (character = "", key: { name?: string; ctrl?: boolean } = {}) => {
       const action = selectionActionForKey(character, key, options);
@@ -186,7 +220,7 @@ const terminalSelect = <Value extends string>(
       }
       if (action === "confirm") {
         const selected = options[selectedIndex];
-        cleanup();
+        cleanup(selected?.label);
         if (selected) resolve(selected.value);
         else reject(new CliError(`${message} has no selected choice.`));
         return;
@@ -209,13 +243,9 @@ const terminalSelect = <Value extends string>(
 
     emitKeypressEvents(input);
     input.on("keypress", onKeypress);
+    process.stdout.on("resize", render);
     if (input.setRawMode) input.setRawMode(true);
     input.resume();
-    process.stdout.write(
-      columns >= 64
-        ? `${message}  Use ↑/↓/←/→; Enter to confirm.\n`
-        : `${message}\nUse arrows; Enter to confirm.\n`
-    );
     render();
   });
 

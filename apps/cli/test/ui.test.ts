@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { createSetupPresentation, renderSetupHeader } from "../src/ui";
+import {
+  createSetupPresentation,
+  renderSelectionPrompt,
+  renderSelectionResult,
+  renderSetupHeader,
+} from "../src/ui";
 
 const stages = [
   { label: "Access", description: "Choose access." },
@@ -8,6 +13,44 @@ const stages = [
 ] as const;
 
 describe("setup presentation", () => {
+  test("renders a restrained interactive selection and a clean settled result", () => {
+    const prompt = renderSelectionPrompt({
+      message: "Access mode",
+      label: "Existing HTTPS proxy",
+      index: 1,
+      count: 5,
+      color: false,
+      width: 72,
+    });
+
+    expect(prompt).toEqual([
+      "? Access mode",
+      "  › Existing HTTPS proxy                                             2/5",
+      "  ↑/↓/←/→ move · Enter select",
+    ]);
+    expect(renderSelectionResult("Access mode", "Existing HTTPS proxy", false, 72)).toBe(
+      "✓ Access mode  Existing HTTPS proxy"
+    );
+  });
+
+  test("keeps interactive selections inside narrow terminals", () => {
+    const prompt = renderSelectionPrompt({
+      message: "Choose an intentionally long setting",
+      label: "An intentionally long selection label",
+      index: 2,
+      count: 5,
+      color: false,
+      width: 24,
+    });
+
+    expect(prompt).toEqual([
+      "? Choose an intentional…",
+      "  › An intentionall… 3/5",
+      "  arrows · Enter",
+    ]);
+    expect(prompt.every((line) => line.length <= 24)).toBe(true);
+  });
+
   test("renders completed, active, and pending stages without terminal escape codes", () => {
     const header = renderSetupHeader({
       version: "1.2.3",

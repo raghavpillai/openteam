@@ -73,11 +73,10 @@ function RootNavigation() {
                 <Stack.Screen
                   name="settings"
                   options={{
+                    animation: "slide_from_bottom",
+                    contentStyle: { backgroundColor: "transparent" },
                     headerShown: false,
-                    presentation: "formSheet",
-                    sheetAllowedDetents: [0.968],
-                    sheetGrabberVisible: false,
-                    sheetInitialDetentIndex: 0,
+                    presentation: "transparentModal",
                   }}
                 />
               </Stack>

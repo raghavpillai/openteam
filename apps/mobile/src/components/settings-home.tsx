@@ -362,7 +362,7 @@ export function SettingsHome({
 
 const styles = StyleSheet.create({
   scroll: { flex: 1 },
-  content: { paddingHorizontal: 20, paddingBottom: 72 },
+  content: { paddingHorizontal: 14, paddingBottom: 72 },
   header: { height: 100, justifyContent: "flex-start", paddingTop: 12 },
   closeButton: {
     width: 50,

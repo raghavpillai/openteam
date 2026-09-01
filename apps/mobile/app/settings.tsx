@@ -406,7 +406,16 @@ export default function SettingsScreen() {
   );
 
   return (
-    <SafeAreaView style={[styles.safe, { backgroundColor: theme.background }]}>
+    <SafeAreaView
+      edges={[]}
+      style={[
+        styles.safe,
+        {
+          backgroundColor: theme.dark ? "#111111" : "#F6F6F4",
+          borderColor: theme.border,
+        },
+      ]}
+    >
       {pluginsOpen ? (
         <PluginManagerSheet onClose={() => setPluginsOpen(false)} visible />
       ) : appearanceOpen ? (
@@ -712,7 +721,15 @@ export default function SettingsScreen() {
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1 },
+  safe: {
+    flex: 1,
+    marginHorizontal: 8,
+    marginTop: 114,
+    marginBottom: 8,
+    borderRadius: 34,
+    borderWidth: StyleSheet.hairlineWidth,
+    overflow: "hidden",
+  },
   header: {
     height: 56,
     paddingHorizontal: 7,

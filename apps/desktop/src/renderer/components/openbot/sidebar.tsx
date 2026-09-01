@@ -2569,15 +2569,22 @@ export const Sidebar = memo(function Sidebar({
     onLayoutChange?.({ compact: storedCompact, width: sidebarWidth });
   }, [onLayoutChange, sidebarWidth, storedCompact]);
   useEffect(() => {
+    const sidebar = sidebarRef.current;
     const resizer = sidebarResizerRef.current;
-    if (!resizer) return;
-    const visibleWidth = forcedCompact ? COMPACT_SIDEBAR_WIDTH : sidebarWidth;
-    resizer.setAttribute("aria-valuenow", String(visibleWidth));
-    resizer.setAttribute(
-      "aria-valuetext",
-      forcedCompact || storedCompact ? "Compact" : `${visibleWidth} pixels`
-    );
-  }, [forcedCompact, sidebarWidth, storedCompact]);
+    if (!sidebar || !resizer) return;
+    const syncAccessibleWidth = () => {
+      const visibleWidth = Math.round(sidebar.getBoundingClientRect().width);
+      resizer.setAttribute("aria-valuenow", String(visibleWidth));
+      resizer.setAttribute(
+        "aria-valuetext",
+        visibleWidth === COMPACT_SIDEBAR_WIDTH ? "Compact" : `${visibleWidth} pixels`
+      );
+    };
+    const observer = new ResizeObserver(syncAccessibleWidth);
+    observer.observe(sidebar);
+    syncAccessibleWidth();
+    return () => observer.disconnect();
+  }, []);
   const allSidebarAgentsHidden =
     rows.length === 0 && hiddenAgentCount > 0 && !creating && !pendingBot;
   const virtualizeExpanded = shouldVirtualizeExpandedSidebar(
@@ -3541,8 +3548,6 @@ export const Sidebar = memo(function Sidebar({
         aria-orientation="vertical"
         aria-valuemax={maxSidebarWidth()}
         aria-valuemin={COMPACT_SIDEBAR_WIDTH}
-        aria-valuenow={forcedCompact ? COMPACT_SIDEBAR_WIDTH : sidebarWidth}
-        aria-valuetext={compact ? "Compact" : `${sidebarWidth} pixels`}
         className={cn(
           "electron-no-drag group absolute inset-y-0 right-0 z-40 w-2 cursor-col-resize touch-none outline-none"
         )}

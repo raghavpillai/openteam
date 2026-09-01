@@ -151,21 +151,85 @@ export const appendedTimelineEntryCount = ({
   nextCount,
   previousLatestKey,
   nextLatestKey,
+  previousLatestMessageKey = previousLatestKey,
+  nextLatestMessageKey = nextLatestKey,
 }: {
   previousCount: number;
   nextCount: number;
   previousLatestKey: string | null;
   nextLatestKey: string | null;
+  previousLatestMessageKey?: string | null;
+  nextLatestMessageKey?: string | null;
 }) => {
-  if (!previousLatestKey || nextCount < previousCount || nextLatestKey === previousLatestKey)
+  if (
+    !previousLatestMessageKey ||
+    !nextLatestMessageKey ||
+    nextCount <= previousCount ||
+    nextLatestMessageKey === previousLatestMessageKey
+  )
     return 0;
-  return Math.max(1, nextCount - previousCount);
+  return nextCount - previousCount;
+};
+
+type ConversationNoticeSnapshot = {
+  conversationId: string;
+  messageCount: number;
+  latestEntryKey: string | null;
+  latestMessageKey: string | null;
+  trackNewMessages: boolean;
+};
+
+export const conversationNoticeTransition = ({
+  previous,
+  next,
+  trackNewMessages,
+}: {
+  previous: ConversationNoticeSnapshot;
+  next: ConversationNoticeSnapshot;
+  trackNewMessages: boolean;
+}) => {
+  if (
+    !trackNewMessages ||
+    !previous.trackNewMessages ||
+    previous.conversationId !== next.conversationId
+  ) {
+    return { appendedCount: 0, reset: true };
+  }
+
+  return {
+    appendedCount: appendedTimelineEntryCount({
+      previousCount: previous.messageCount,
+      nextCount: next.messageCount,
+      previousLatestKey: previous.latestEntryKey,
+      nextLatestKey: next.latestEntryKey,
+      previousLatestMessageKey: previous.latestMessageKey,
+      nextLatestMessageKey: next.latestMessageKey,
+    }),
+    reset: next.messageCount < previous.messageCount,
+  };
+};
+
+type ConversationViewportFocusTarget = {
+  focus: (options?: FocusOptions) => void;
+  hasAttribute: (name: string) => boolean;
+  tabIndex: number;
+};
+
+export const focusConversationViewport = (
+  viewport: ConversationViewportFocusTarget | null
+): boolean => {
+  if (!viewport) return false;
+  if (!viewport.hasAttribute("tabindex")) viewport.tabIndex = -1;
+  viewport.focus({ preventScroll: true });
+  return true;
 };
 
 export const ConversationScrollButton = ({
   conversationId,
   messageCount,
   latestEntryKey,
+  authoritativeMessageCount,
+  latestMessageKey,
   forceLatest = false,
   trackNewMessages = true,
   onAtBottomChange,
@@ -174,6 +238,8 @@ export const ConversationScrollButton = ({
   conversationId: string;
   messageCount: number;
   latestEntryKey: string | null;
+  authoritativeMessageCount?: number;
+  latestMessageKey?: string | null;
   forceLatest?: boolean;
   trackNewMessages?: boolean;
   onAtBottomChange?: (atBottom: boolean) => void;
@@ -184,54 +250,52 @@ export const ConversationScrollButton = ({
   const [newMessageCount, setNewMessageCount] = useState(0);
   const [noticeDismissed, setNoticeDismissed] = useState(false);
   const wasAtBottomRef = useRef(true);
+  const trackedMessageCount = authoritativeMessageCount ?? messageCount;
+  const trackedLatestMessageKey = latestMessageKey ?? latestEntryKey;
   const previousMessagesRef = useRef({
     conversationId,
-    messageCount,
+    messageCount: trackedMessageCount,
     latestEntryKey,
+    latestMessageKey: trackedLatestMessageKey,
+    trackNewMessages,
   });
   const visible = forceLatest || (!isAtBottom && !scrolling);
 
   useEffect(() => {
     const previous = previousMessagesRef.current;
-    previousMessagesRef.current = {
+    const next = {
       conversationId,
-      messageCount,
+      messageCount: trackedMessageCount,
       latestEntryKey,
+      latestMessageKey: trackedLatestMessageKey,
+      trackNewMessages,
     };
+    previousMessagesRef.current = next;
 
-    if (previous.conversationId !== conversationId) {
-      setNewMessageCount(0);
-      setNoticeDismissed(false);
-      return;
-    }
-
-    if (!trackNewMessages) {
-      setNewMessageCount(0);
-      setNoticeDismissed(false);
-      return;
-    }
-
-    const appendedCount = appendedTimelineEntryCount({
-      previousCount: previous.messageCount,
-      nextCount: messageCount,
-      previousLatestKey: previous.latestEntryKey,
-      nextLatestKey: latestEntryKey,
+    const transition = conversationNoticeTransition({
+      previous,
+      next,
+      trackNewMessages,
     });
-    // Cursor pagination prepends older rows, increasing the total without
-    // changing the newest entry. Only an appended/replaced tail is new.
-    if (appendedCount === 0) {
-      if (messageCount < previous.messageCount) {
-        setNewMessageCount(0);
-        setNoticeDismissed(false);
-      }
+    if (transition.reset) {
+      setNewMessageCount(0);
+      setNoticeDismissed(false);
       return;
     }
+
+    if (transition.appendedCount === 0) return;
 
     if (!wasAtBottomRef.current) {
-      setNewMessageCount((count) => count + appendedCount);
+      setNewMessageCount((count) => count + transition.appendedCount);
       setNoticeDismissed(false);
     }
-  }, [conversationId, latestEntryKey, messageCount, trackNewMessages]);
+  }, [
+    conversationId,
+    latestEntryKey,
+    trackNewMessages,
+    trackedLatestMessageKey,
+    trackedMessageCount,
+  ]);
 
   useEffect(() => {
     wasAtBottomRef.current = isAtBottom;
@@ -244,6 +308,8 @@ export const ConversationScrollButton = ({
 
   const onClick = useCallback(async () => {
     const jumpStartedAt = forceLatest ? performance.now() : null;
+    const focusedViewport = scrollRef.current;
+    focusConversationViewport(focusedViewport);
     setScrolling(true);
     setNewMessageCount(0);
     try {
@@ -265,6 +331,13 @@ export const ConversationScrollButton = ({
       // The app-level operation already reports the failure. Keep the current
       // viewport instead of jumping within a stale history window.
     } finally {
+      const currentViewport = scrollRef.current;
+      if (
+        currentViewport !== focusedViewport &&
+        (document.activeElement === focusedViewport || document.activeElement === document.body)
+      ) {
+        focusConversationViewport(currentViewport);
+      }
       setScrolling(false);
     }
   }, [forceLatest, onScrollToNewest, scrollRef, scrollToBottom]);

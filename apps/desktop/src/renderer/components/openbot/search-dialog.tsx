@@ -81,6 +81,16 @@ type DisplayResult =
   | { type: "document"; value: SearchResultView }
   | { type: "action"; value: SearchAction };
 
+const documentSearchKeywords = (result: SearchResultView): string[] => {
+  if (result.kind === "message" || result.kind === "file" || result.kind === "link") {
+    return result.title
+      .normalize("NFKC")
+      .split(/[^\p{L}\p{N}]+/u)
+      .filter(Boolean);
+  }
+  return result.subtitle ? [result.subtitle] : [];
+};
+
 const resultTypeLabel = (result: DisplayResult) => {
   if (result.type === "action") return "Action";
   if (result.value.kind === "channel") return "Group";
@@ -297,21 +307,26 @@ export function SearchDialog({
       .filter((value) => section !== "all" || hasQuery || isDefaultSearchResultKind(value.kind))
       .map((value): DisplayResult => ({ type: "document", value }));
     if (section === "all" && hasQuery) {
-      const agentResults = documentResults.filter(
-        (result) =>
-          result.type === "document" &&
-          (result.value.kind === "bot" || result.value.kind === "channel")
-      );
-      const otherDocumentResults = documentResults.filter(
-        (result) =>
-          result.type !== "document" ||
-          (result.value.kind !== "bot" && result.value.kind !== "channel")
-      );
-      return [
-        ...agentResults,
+      const candidates = [
         ...matchingActions.map((value): DisplayResult => ({ type: "action", value })),
-        ...otherDocumentResults,
+        ...documentResults,
       ];
+      const ranked = rankPaletteItems(
+        candidates.map((result) => ({
+          result,
+          title: result.value.title,
+          keywords:
+            result.type === "action" ? result.value.keywords : documentSearchKeywords(result.value),
+          searchPriority:
+            result.type === "document" &&
+            (result.value.kind === "bot" || result.value.kind === "channel")
+              ? 0
+              : 1,
+        })),
+        query
+      ).map(({ result }) => result);
+      const rankedResults = new Set(ranked);
+      return [...ranked, ...documentResults.filter((result) => !rankedResults.has(result))];
     }
     return documentResults;
   }, [documents, hasQuery, matchingActions, section]);

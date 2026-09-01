@@ -26,6 +26,7 @@ import {
   writeDataUrlToFileAtomically,
 } from "./data-url-file";
 import { discardDeliveryFiles, readDeliveryFile, stageDeliveryFile } from "./delivery-file-stage";
+import { DurableSendJournalStore } from "./durable-send-journal-store";
 import { startHostBridge } from "./host-bridge";
 import { isAddressInUseError } from "./host-bridge-listener";
 import { HostJobManager } from "./host-job-manager";
@@ -53,6 +54,7 @@ let mainWindow: BrowserWindow | null = null;
 let authTokenStore: DesktopAuthTokenStore | null = null;
 let permissionSettings: PermissionSettingsStore | null = null;
 let desktopNotifications: DesktopNotificationManager | null = null;
+let durableSendJournals: DurableSendJournalStore | null = null;
 const activeNotifications = new Set<Notification>();
 const localMachine = { machineId: "this-computer", label: hostname() } as const;
 const windowBackground = () => (nativeTheme.shouldUseDarkColors ? "#080808" : "#fbfbfb");
@@ -542,6 +544,28 @@ ipcMain.handle("openbot:files:discard-delivery-stages", async (event, stagingIds
     throw new Error("Delivery staging IDs are invalid");
   }
   await discardDeliveryFiles(deliveryStageDirectory(), stagingIds);
+});
+
+const requireDurableSendJournals = (event: Electron.IpcMainInvokeEvent) => {
+  requireDeliveryStageSender(event);
+  durableSendJournals ??= new DurableSendJournalStore(
+    join(app.getPath("userData"), "durable-send-journal")
+  );
+  return durableSendJournals;
+};
+
+ipcMain.handle("openbot:delivery-journal:read", (event, scope: unknown) => {
+  if (typeof scope !== "string") throw new Error("Delivery journal scope is invalid");
+  return requireDurableSendJournals(event).read(scope);
+});
+
+ipcMain.handle("openbot:delivery-journal:write", (event, value: unknown) => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Delivery journal write is invalid");
+  }
+  const request = value as Record<string, unknown>;
+  if (typeof request.scope !== "string") throw new Error("Delivery journal scope is invalid");
+  return requireDurableSendJournals(event).write(request.scope, request.journal);
 });
 
 ipcMain.handle("openbot:updates:status", (event) => {

@@ -148,6 +148,7 @@ export const fuzzyPaletteScore = (field: string, token: string): number | null =
 export interface PaletteSearchItem {
   title: string;
   keywords?: readonly string[];
+  searchPriority?: number;
 }
 
 export const scorePaletteItem = (query: string, item: PaletteSearchItem): number | null => {
@@ -184,7 +185,12 @@ export const rankPaletteItems = <Item extends PaletteSearchItem>(
       (candidate): candidate is { item: Item; index: number; score: number } =>
         candidate.score !== null
     )
-    .sort((left, right) => right.score - left.score || left.index - right.index)
+    .sort(
+      (left, right) =>
+        (left.item.searchPriority ?? 1) - (right.item.searchPriority ?? 1) ||
+        right.score - left.score ||
+        left.index - right.index
+    )
     .map(({ item }) => item);
 };
 

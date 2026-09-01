@@ -33,10 +33,8 @@ test("message entrance and acknowledgement motion match Grokbot", async () => {
   expect(styles).toMatch(
     /\.message-row\[data-pending\],\s*\.thread-message-row\[data-pending\]\s*\{\s*opacity: 0\.55;\s*transition: opacity 120ms ease;/
   );
-  expect(styles).toMatch(
-    /@keyframes message-send-failed-highlight[\s\S]*0%,\s*40%[\s\S]*#ffc000 22%[\s\S]*100%[\s\S]*transparent;/
-  );
-  expect(styles).toContain("animation: message-send-failed-highlight 2.5s ease-out forwards;");
+  expect(styles).not.toContain("message-send-failed-highlight");
+  expect(styles).not.toContain("#ffc000");
   expect(styles).toContain(".sent-while-offline-notice[data-cleared]");
   expect(styles).toContain("transform-origin: right bottom;");
   expect(styles).not.toMatch(/\.message-row(?:\[[^\]]+\])?\s*\{[^}]*content-visibility/);
@@ -44,7 +42,8 @@ test("message entrance and acknowledgement motion match Grokbot", async () => {
   expect(chatPane).toContain('event.animationName === "message-row-enter"');
   expect(chatPane).toContain('event.animationName === "message-row-enter-reduced"');
   expect(chatPane).toContain("setEntranceActive(false)");
-  expect(chatPane).toContain("sendController.reconcile(authoritativeIds)");
+  expect(chatPane).toContain("sendController.reconcile(messages)");
+  expect(chatPane).toContain("durableSendAuthoritativeEcho(delivery, messages)");
   expect(chatPane).toContain("durableSendStatusLabel");
   expect(chatPane).toContain(
     "knownMessageIds.current = new Set(messages.map((message) => message.id))"
@@ -58,6 +57,8 @@ test("message entrance and acknowledgement motion match Grokbot", async () => {
   expect(threadTray).toContain("messageDisplayProjection(message)");
   expect(threadTray).toContain("MessageImageGallery");
   expect(threadTray).toContain("MessageFileAttachments");
+  expect(threadTray).toContain('window.matchMedia("(prefers-reduced-motion: reduce)").matches');
+  expect(threadTray).toContain('? "auto" : "smooth"');
   expect(threadTray).toContain('data-staged-attachment=""');
   expect(durableSends).toContain("scopeIsActive");
   expect(durableSends).toContain("!scopeIsActive() || desktopSendTransportDown()");

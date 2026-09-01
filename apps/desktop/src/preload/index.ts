@@ -114,6 +114,20 @@ const deliveryStageIds = (value: string[]) => {
   return value.map(stagingId);
 };
 
+const deliveryJournalScope = (value: string): string => {
+  if (typeof value !== "string" || !value || value.length > 2_048) {
+    throw new Error("Delivery journal scope is invalid");
+  }
+  return value;
+};
+
+const deliveryJournal = (value: unknown): unknown => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Delivery journal is invalid");
+  }
+  return value;
+};
+
 const serverUpdateRequest = (value: unknown) => {
   const input = record(value, "Server update request");
   if (
@@ -174,6 +188,15 @@ contextBridge.exposeInMainWorld("openbot", {
       ipcRenderer.invoke("openbot:files:read-delivery-stage", stagingId(id)) as Promise<Uint8Array>,
     discardDeliveryStages: (ids: string[]) =>
       ipcRenderer.invoke("openbot:files:discard-delivery-stages", deliveryStageIds(ids)),
+  },
+  deliveryJournal: {
+    read: (scope: string) =>
+      ipcRenderer.invoke("openbot:delivery-journal:read", deliveryJournalScope(scope)),
+    write: (scope: string, journal: unknown) =>
+      ipcRenderer.invoke("openbot:delivery-journal:write", {
+        scope: deliveryJournalScope(scope),
+        journal: deliveryJournal(journal),
+      }),
   },
   updates: {
     status: () => ipcRenderer.invoke("openbot:updates:status"),

@@ -14,7 +14,9 @@ import {
 import {
   type BoundMessageWindowOptions,
   boundMessageWindow,
+  boundMessageWindowAroundViewport,
   latestRefreshOverlap,
+  type MessageViewportFillDirection,
   messageRetainedByteSize,
 } from "@openbot/product-core/message-window";
 
@@ -25,6 +27,11 @@ const MIN_VISIBLE_WINDOW_BYTES = 64 * 1024;
 const MAX_RETAINED_REBALANCE_PASSES = 12;
 
 export type MessageHistoryDirection = "older" | "newer";
+
+export interface MessageViewportRetention {
+  fill: MessageViewportFillDirection;
+  messageIds: ReadonlySet<string>;
+}
 
 export interface MessageContextWindowState {
   targetMessageId: string;
@@ -128,7 +135,10 @@ const retainedContextTargetId = (
   return nearest?.id ?? targetMessageId;
 };
 
-type RetainedLaneOptions = Omit<BoundMessageWindowOptions, "maxBytes">;
+type RetainedLaneOptions = Omit<BoundMessageWindowOptions, "maxBytes"> & {
+  viewportFill?: MessageViewportFillDirection;
+  viewportMessageIds?: ReadonlySet<string>;
+};
 
 const retainedStatsFit = ({ messages, bytes }: ReturnType<typeof retainedStats>): boolean =>
   messages <= MESSAGE_HISTORY_MAX_MESSAGES && bytes <= MESSAGE_HISTORY_MAX_RETAINED_BYTES;
@@ -150,9 +160,23 @@ const boundRetainedLane = (
   options: RetainedLaneOptions,
   otherLanes: ReadonlyArray<readonly ChannelMessageView[]>
 ): RetainedLaneFit => {
+  const { viewportFill, viewportMessageIds, ...edgeOptions } = options;
+  const applyBound = (maxMessages: number, maxBytes: number) => {
+    if (!viewportMessageIds || viewportMessageIds.size === 0) {
+      return boundMessageWindow(messages, { ...edgeOptions, maxBytes, maxMessages });
+    }
+    const { retain, ...viewportOptions } = edgeOptions;
+    return boundMessageWindowAroundViewport(messages, {
+      ...viewportOptions,
+      fill: viewportFill ?? (retain === "oldest" ? "older-first" : "newer-first"),
+      maxBytes,
+      maxMessages,
+      viewportMessageIds,
+    });
+  };
   let maxMessages = Math.min(MESSAGE_HISTORY_MAX_MESSAGES, Math.max(1, messages.length));
   let maxBytes = MESSAGE_HISTORY_MAX_RETAINED_BYTES;
-  let bounded = boundMessageWindow(messages, { ...options, maxBytes, maxMessages });
+  let bounded = applyBound(maxMessages, maxBytes);
   for (let attempt = 0; attempt < MAX_RETAINED_REBALANCE_PASSES; attempt += 1) {
     const total = retainedStats(bounded.messages, bounded.threadContext, ...otherLanes);
     if (retainedStatsFit(total)) return { bounded, fits: true };
@@ -171,7 +195,7 @@ const boundRetainedLane = (
     }
     maxMessages = Math.min(maxMessages, nextMaxMessages);
     maxBytes = nextMaxBytes;
-    bounded = boundMessageWindow(messages, { ...options, maxBytes, maxMessages });
+    bounded = applyBound(maxMessages, maxBytes);
   }
   // A pathological overlap layout can make marginal progress irregular. One
   // conservative pass treats every retained byte/ID as new; it can over-trim,
@@ -179,11 +203,10 @@ const boundRetainedLane = (
   const other = retainedStats(...otherLanes);
   const conservativeMaxMessages = Math.max(1, MESSAGE_HISTORY_MAX_MESSAGES - other.messages);
   const conservativeMaxBytes = Math.max(1, MESSAGE_HISTORY_MAX_RETAINED_BYTES - other.bytes);
-  bounded = boundMessageWindow(messages, {
-    ...options,
-    maxMessages: Math.min(maxMessages, conservativeMaxMessages),
-    maxBytes: Math.min(maxBytes, conservativeMaxBytes),
-  });
+  bounded = applyBound(
+    Math.min(maxMessages, conservativeMaxMessages),
+    Math.min(maxBytes, conservativeMaxBytes)
+  );
   return {
     bounded,
     fits: retainedStatsFit(retainedStats(bounded.messages, bounded.threadContext, ...otherLanes)),
@@ -195,23 +218,33 @@ const boundedHistory = (
   retain: "oldest" | "newest",
   maxBytes: number,
   gaps: { older: boolean; newer: boolean },
-  protectedIds?: ReadonlySet<string>
-) =>
-  boundMessageWindow(history.messages, {
+  protectedIds?: ReadonlySet<string>,
+  viewport?: MessageViewportRetention
+) => {
+  const options = {
     maxMessages: MESSAGE_HISTORY_MAX_MESSAGES,
     maxBytes,
-    retain,
-    protectedIds,
     threadContext: history.threadContext,
     existingGaps: gaps,
-  });
+  };
+  const viewportIntersectsHistory =
+    viewport && history.messages.some((message) => viewport.messageIds.has(message.id));
+  return viewportIntersectsHistory
+    ? boundMessageWindowAroundViewport(history.messages, {
+        ...options,
+        fill: viewport.fill,
+        viewportMessageIds: viewport.messageIds,
+      })
+    : boundMessageWindow(history.messages, { ...options, retain, protectedIds });
+};
 
 const boundedHistoryAgainst = (
   history: LoadedChannelHistory,
   retain: "oldest" | "newest",
   gaps: { older: boolean; newer: boolean },
   otherLanes: ReadonlyArray<readonly ChannelMessageView[]>,
-  protectedIds?: ReadonlySet<string>
+  protectedIds?: ReadonlySet<string>,
+  viewport?: MessageViewportRetention
 ) =>
   boundRetainedLane(
     history.messages,
@@ -219,6 +252,8 @@ const boundedHistoryAgainst = (
       maxMessages: MESSAGE_HISTORY_MAX_MESSAGES,
       retain,
       protectedIds,
+      viewportFill: viewport?.fill,
+      viewportMessageIds: viewport?.messageIds,
       threadContext: history.threadContext,
       existingGaps: gaps,
     },
@@ -351,10 +386,22 @@ const genuineSoftExcess = (bounded: ReturnType<typeof boundMessageWindow>): bool
   bounded.softExcess.protected ||
   (bounded.messages.length === 1 && bounded.threadContext.length > 0);
 
+const viewportRetentionForLanes = (
+  viewport: MessageViewportRetention | undefined,
+  ...lanes: ReadonlyArray<readonly ChannelMessageView[]>
+): MessageViewportRetention | undefined => {
+  if (!viewport || viewport.messageIds.size === 0) return undefined;
+  const available = new Set<string>();
+  for (const lane of lanes) for (const message of lane) available.add(message.id);
+  const messageIds = new Set([...viewport.messageIds].filter((id) => available.has(id)));
+  return messageIds.size > 0 ? { fill: viewport.fill, messageIds } : undefined;
+};
+
 const rebalanceRetainedState = (
   history: LoadedChannelHistory,
   window: ChannelMessageWindowState,
-  protectedMessageId?: string
+  protectedMessageId?: string,
+  viewport?: MessageViewportRetention
 ): { history: LoadedChannelHistory; window: ChannelMessageWindowState } => {
   const originalPrimary = history.messages;
   const originalPrimaryThread = history.threadContext;
@@ -372,7 +419,8 @@ const rebalanceRetainedState = (
       [contextMessages, contextThread, ...latestTailLanes(latestTail)],
       protectedMessageId && history.messages.some(({ id }) => id === protectedMessageId)
         ? new Set([protectedMessageId])
-        : undefined
+        : undefined,
+      undefined
     );
     nextHistory = withBoundedPrimary(
       history,
@@ -389,6 +437,7 @@ const rebalanceRetainedState = (
       nextHistory.threadContext,
       ...latestTailLanes(latestTail),
     ];
+    const contextViewport = viewportRetentionForLanes(viewport, contextMessages, contextThread);
     let contextFit = boundRetainedLane(
       contextMessages,
       {
@@ -404,6 +453,8 @@ const rebalanceRetainedState = (
           older: window.context.hasMoreBefore,
           newer: window.context.hasMoreAfter,
         },
+        viewportFill: contextViewport?.fill,
+        viewportMessageIds: contextViewport?.messageIds,
       },
       contextOtherLanes
     );
@@ -434,6 +485,8 @@ const rebalanceRetainedState = (
             older: window.context.hasMoreBefore,
             newer: window.context.hasMoreAfter,
           },
+          viewportFill: contextViewport?.fill,
+          viewportMessageIds: contextViewport?.messageIds,
         },
         []
       );
@@ -457,6 +510,8 @@ const rebalanceRetainedState = (
             older: window.context.hasMoreBefore,
             newer: window.context.hasMoreAfter,
           },
+          viewportFill: contextViewport?.fill,
+          viewportMessageIds: contextViewport?.messageIds,
         },
         latestTailLanes(latestTail)
       );
@@ -527,6 +582,11 @@ const rebalanceRetainedState = (
   }
 
   const primaryRetain = primaryRetentionEdge(window);
+  const primaryViewport = viewportRetentionForLanes(
+    viewport,
+    history.messages,
+    history.threadContext
+  );
   let primaryFit = boundedHistoryAgainst(
     history,
     primaryRetain,
@@ -535,7 +595,8 @@ const rebalanceRetainedState = (
     protectedMessageId &&
       [...history.messages, ...history.threadContext].some(({ id }) => id === protectedMessageId)
       ? new Set([protectedMessageId])
-      : undefined
+      : undefined,
+    primaryViewport
   );
   if (!primaryFit.fits) {
     const primaryAlone = boundedHistoryAgainst(
@@ -543,7 +604,8 @@ const rebalanceRetainedState = (
       primaryRetain,
       { older: history.hasMore, newer: window.primaryHasNewerGap },
       [],
-      protectedMessageId ? new Set([protectedMessageId]) : undefined
+      protectedMessageId ? new Set([protectedMessageId]) : undefined,
+      primaryViewport
     );
     const fittedTail = latestTailFit(latestTail, [
       primaryAlone.bounded.messages,
@@ -555,7 +617,8 @@ const rebalanceRetainedState = (
       primaryRetain,
       { older: history.hasMore, newer: window.primaryHasNewerGap },
       latestTailLanes(latestTail),
-      protectedMessageId ? new Set([protectedMessageId]) : undefined
+      protectedMessageId ? new Set([protectedMessageId]) : undefined,
+      primaryViewport
     );
     if (!primaryFit.fits) {
       latestTail = null;
@@ -605,7 +668,8 @@ const preservedHistory = (
   window: ChannelMessageWindowState,
   page: ChannelHistoryPage,
   loadedAt: number,
-  context: MessageContextWindowState | null = window.context
+  context: MessageContextWindowState | null = window.context,
+  viewport?: MessageViewportRetention
 ): MessageWindowTransition => {
   const latestTail = latestTailFromPage(page);
   const contextIds = new Set(history.searchContext.map((message) => message.id));
@@ -636,6 +700,11 @@ const preservedHistory = (
     evictedNewer += boundedPrimary.bounded.eviction.newer?.count ?? 0;
 
     const contextMessages = sortedUniqueMessages(history.searchContext).sort(compareEntitySequence);
+    const contextViewport = viewportRetentionForLanes(
+      viewport,
+      contextMessages,
+      history.searchThreadContext
+    );
     const bounded = boundRetainedLane(
       contextMessages,
       {
@@ -646,6 +715,8 @@ const preservedHistory = (
           older: nextContext.hasMoreBefore,
           newer: nextContext.hasMoreAfter,
         },
+        viewportFill: contextViewport?.fill,
+        viewportMessageIds: contextViewport?.messageIds,
       },
       [nextHistory.messages, nextHistory.threadContext, ...latestTailLanes(latestTail)]
     );
@@ -673,7 +744,9 @@ const preservedHistory = (
       nextHistory,
       "oldest",
       { older: history.hasMore, newer: primaryHasNewerGap },
-      [history.searchContext, history.searchThreadContext, ...latestTailLanes(latestTail)]
+      [history.searchContext, history.searchThreadContext, ...latestTailLanes(latestTail)],
+      undefined,
+      viewportRetentionForLanes(viewport, nextHistory.messages, nextHistory.threadContext)
     );
     nextHistory = withBoundedPrimary(nextHistory, bounded.bounded);
     primaryHasNewerGap = bounded.bounded.gaps.newer;
@@ -681,13 +754,18 @@ const preservedHistory = (
     evictedNewer += bounded.bounded.eviction.newer?.count ?? 0;
   }
 
-  const rebalanced = rebalanceRetainedState(nextHistory, {
-    ...window,
-    primaryHasNewerGap,
-    context: boundedContext,
-    latestTail,
-    retainedBytes: retainedStateBytes(nextHistory, latestTail),
-  });
+  const rebalanced = rebalanceRetainedState(
+    nextHistory,
+    {
+      ...window,
+      primaryHasNewerGap,
+      context: boundedContext,
+      latestTail,
+      retainedBytes: retainedStateBytes(nextHistory, latestTail),
+    },
+    undefined,
+    viewport
+  );
   return {
     history: rebalanced.history,
     window: rebalanced.window,
@@ -704,6 +782,7 @@ export const applyPrimaryHistoryPage = ({
   mode,
   atBottom,
   loadedAt = Date.now(),
+  viewport,
 }: {
   current: LoadedChannelHistory | undefined;
   window: ChannelMessageWindowState | undefined;
@@ -711,24 +790,43 @@ export const applyPrimaryHistoryPage = ({
   mode: "replace" | "refresh" | "older";
   atBottom: boolean;
   loadedAt?: number;
+  viewport?: MessageViewportRetention;
 }): MessageWindowTransition => {
   const base = current ?? emptyLoadedChannelHistory();
   const state = window ?? emptyChannelMessageWindow();
+  const pagingViewport =
+    atBottom && mode !== "older"
+      ? undefined
+      : mode === "older" && viewport
+        ? { ...viewport, fill: "older-first" as const }
+        : viewport;
 
   if (mode === "replace" || base.loadedAt === 0) {
     const merged = mergeLoadedChannelHistoryPage(base, page, "replace", loadedAt);
-    const bounded = boundedHistory(merged, "newest", MESSAGE_HISTORY_MAX_RETAINED_BYTES, {
-      older: page.hasMore,
-      newer: false,
-    });
+    const bounded = boundedHistory(
+      merged,
+      "newest",
+      MESSAGE_HISTORY_MAX_RETAINED_BYTES,
+      {
+        older: page.hasMore,
+        newer: false,
+      },
+      undefined,
+      pagingViewport
+    );
     const history = clearLoadedChannelSearchContext(withBoundedPrimary(merged, bounded));
-    const rebalanced = rebalanceRetainedState(history, {
-      generation: state.generation + 1,
-      primaryHasNewerGap: false,
-      context: null,
-      latestTail: null,
-      retainedBytes: retainedStateBytes(history, null),
-    });
+    const rebalanced = rebalanceRetainedState(
+      history,
+      {
+        generation: state.generation + 1,
+        primaryHasNewerGap: false,
+        context: null,
+        latestTail: null,
+        retainedBytes: retainedStateBytes(history, null),
+      },
+      undefined,
+      pagingViewport
+    );
     return {
       history: rebalanced.history,
       window: rebalanced.window,
@@ -740,10 +838,17 @@ export const applyPrimaryHistoryPage = ({
 
   if (mode === "older") {
     const merged = mergeLoadedChannelHistoryPage(base, page, "older", loadedAt);
-    const firstPass = boundedHistory(merged, "oldest", MESSAGE_HISTORY_MAX_RETAINED_BYTES, {
-      older: page.hasMore,
-      newer: state.primaryHasNewerGap,
-    });
+    const firstPass = boundedHistory(
+      merged,
+      "oldest",
+      MESSAGE_HISTORY_MAX_RETAINED_BYTES,
+      {
+        older: page.hasMore,
+        newer: state.primaryHasNewerGap,
+      },
+      undefined,
+      pagingViewport
+    );
     const needsTail = state.primaryHasNewerGap || firstPass.eviction.newer !== null;
     const latestTail = needsTail ? (state.latestTail ?? latestTailFromHistory(base)) : null;
     const bounded = boundedHistoryAgainst(
@@ -753,15 +858,22 @@ export const applyPrimaryHistoryPage = ({
         older: page.hasMore,
         newer: state.primaryHasNewerGap,
       },
-      [merged.searchContext, merged.searchThreadContext, ...latestTailLanes(latestTail)]
+      [merged.searchContext, merged.searchThreadContext, ...latestTailLanes(latestTail)],
+      undefined,
+      pagingViewport
     );
     const history = withBoundedPrimary(merged, bounded.bounded);
-    const rebalanced = rebalanceRetainedState(history, {
-      ...state,
-      primaryHasNewerGap: bounded.bounded.gaps.newer,
-      latestTail,
-      retainedBytes: retainedStateBytes(history, latestTail),
-    });
+    const rebalanced = rebalanceRetainedState(
+      history,
+      {
+        ...state,
+        primaryHasNewerGap: bounded.bounded.gaps.newer,
+        latestTail,
+        retainedBytes: retainedStateBytes(history, latestTail),
+      },
+      undefined,
+      pagingViewport
+    );
     return {
       history: rebalanced.history,
       window: rebalanced.window,
@@ -772,12 +884,12 @@ export const applyPrimaryHistoryPage = ({
   }
 
   if (state.context || state.primaryHasNewerGap) {
-    return preservedHistory(base, state, page, loadedAt);
+    return preservedHistory(base, state, page, loadedAt, state.context, viewport);
   }
 
   const overlap = latestRefreshOverlap(base.messages, page.messages);
   if (overlap.requiresReset && !atBottom) {
-    return preservedHistory(base, state, page, loadedAt);
+    return preservedHistory(base, state, page, loadedAt, state.context, viewport);
   }
 
   const merged = mergeLoadedChannelHistoryPage(
@@ -786,21 +898,33 @@ export const applyPrimaryHistoryPage = ({
     overlap.requiresReset ? "replace" : "refresh",
     loadedAt
   );
-  const bounded = boundedHistory(merged, "newest", MESSAGE_HISTORY_MAX_RETAINED_BYTES, {
-    older: page.hasMore || base.hasMore,
-    newer: false,
-  });
-  if (bounded.eviction.older && !atBottom) {
-    return preservedHistory(base, state, page, loadedAt);
+  const bounded = boundedHistory(
+    merged,
+    "newest",
+    MESSAGE_HISTORY_MAX_RETAINED_BYTES,
+    {
+      older: page.hasMore || base.hasMore,
+      newer: false,
+    },
+    undefined,
+    viewport
+  );
+  if ((bounded.eviction.older || bounded.eviction.newer) && !atBottom) {
+    return preservedHistory(base, state, page, loadedAt, state.context, viewport);
   }
 
   const history = withBoundedPrimary(merged, bounded);
-  const rebalanced = rebalanceRetainedState(history, {
-    ...state,
-    primaryHasNewerGap: false,
-    latestTail: null,
-    retainedBytes: retainedStateBytes(history, null),
-  });
+  const rebalanced = rebalanceRetainedState(
+    history,
+    {
+      ...state,
+      primaryHasNewerGap: false,
+      latestTail: null,
+      retainedBytes: retainedStateBytes(history, null),
+    },
+    undefined,
+    viewport
+  );
   return {
     history: rebalanced.history,
     window: rebalanced.window,
@@ -893,12 +1017,14 @@ export const expandMessageContext = ({
   page,
   direction,
   loadedAt = Date.now(),
+  viewport,
 }: {
   current: LoadedChannelHistory;
   window: ChannelMessageWindowState;
   page: ChannelMessageContextView;
   direction: MessageHistoryDirection;
   loadedAt?: number;
+  viewport?: MessageViewportRetention;
 }): MessageWindowTransition => {
   if (!window.context) {
     return enterMessageContext(current, window, page, loadedAt);
@@ -911,6 +1037,13 @@ export const expandMessageContext = ({
     ...page.threadContext,
     ...current.searchContext,
   ]).sort(compareEntitySequence);
+  const pagingViewport = viewport
+    ? {
+        ...viewport,
+        fill: direction === "older" ? ("older-first" as const) : ("newer-first" as const),
+      }
+    : undefined;
+  const contextViewport = viewportRetentionForLanes(pagingViewport, messages, threadContext);
   const bounded = boundRetainedLane(
     messages,
     {
@@ -921,6 +1054,8 @@ export const expandMessageContext = ({
         older: direction === "older" ? page.hasMoreBefore : window.context.hasMoreBefore,
         newer: direction === "newer" ? page.hasMoreAfter : window.context.hasMoreAfter,
       },
+      viewportFill: contextViewport?.fill,
+      viewportMessageIds: contextViewport?.messageIds,
     },
     latestTailLanes(window.latestTail)
   );
@@ -931,21 +1066,26 @@ export const expandMessageContext = ({
     current.searchThreadContextTruncated || page.threadContextTruncated,
     loadedAt
   );
-  const rebalanced = rebalanceRetainedState(history, {
-    ...window,
-    context: {
-      ...window.context,
-      targetMessageId: retainedContextTargetId(window.context.targetMessageId, messages, [
-        ...bounded.bounded.threadContext,
-        ...bounded.bounded.messages,
-      ]),
-      hasMoreBefore: bounded.bounded.gaps.older,
-      hasMoreAfter: bounded.bounded.gaps.newer,
-      loadingDirection: null,
-      retentionEdge: direction === "older" ? "oldest" : "newest",
+  const rebalanced = rebalanceRetainedState(
+    history,
+    {
+      ...window,
+      context: {
+        ...window.context,
+        targetMessageId: retainedContextTargetId(window.context.targetMessageId, messages, [
+          ...bounded.bounded.threadContext,
+          ...bounded.bounded.messages,
+        ]),
+        hasMoreBefore: bounded.bounded.gaps.older,
+        hasMoreAfter: bounded.bounded.gaps.newer,
+        loadingDirection: null,
+        retentionEdge: direction === "older" ? "oldest" : "newest",
+      },
+      retainedBytes: retainedStateBytes(history, window.latestTail),
     },
-    retainedBytes: retainedStateBytes(history, window.latestTail),
-  });
+    undefined,
+    pagingViewport
+  );
   return {
     history: rebalanced.history,
     window: rebalanced.window,
@@ -1024,7 +1164,7 @@ export const retainedMessageWindowStats = (
   );
 
 const replaceRetainedMessage = (
-  values: readonly ChannelMessageView[],
+  values: ChannelMessageView[],
   message: ChannelMessageView
 ): { changed: boolean; values: ChannelMessageView[] } => {
   let changed = false;
@@ -1033,7 +1173,7 @@ const replaceRetainedMessage = (
     changed = true;
     return message;
   });
-  return { changed, values: changed ? next : [...values] };
+  return { changed, values: changed ? next : values };
 };
 
 /**
@@ -1046,7 +1186,8 @@ const replaceRetainedMessage = (
 export const patchRetainedMessageWindow = (
   current: LoadedChannelHistory,
   window: ChannelMessageWindowState,
-  message: ChannelMessageView
+  message: ChannelMessageView,
+  viewport?: MessageViewportRetention
 ): MessageWindowTransition | null => {
   const primary = replaceRetainedMessage(current.messages, message);
   const primaryThread = replaceRetainedMessage(current.threadContext, message);
@@ -1091,7 +1232,12 @@ export const patchRetainedMessageWindow = (
     latestTail,
     retainedBytes: retainedStateBytes(history, latestTail),
   };
-  const rebalanced = rebalanceRetainedState(history, provisionalWindow, message.id);
+  // A reported viewport already protects the patched row when it is visible.
+  // Do not otherwise protect an off-screen patch by ID: edge-to-ID protection
+  // would retain every intervening row and could turn one large middle update
+  // into an unbounded contiguous soft excess. Inactive/off-screen rows may be
+  // evicted and fetched again; visible rows keep their pivot and exact object.
+  const rebalanced = rebalanceRetainedState(history, provisionalWindow, undefined, viewport);
   return {
     history: rebalanced.history,
     window: rebalanced.window,

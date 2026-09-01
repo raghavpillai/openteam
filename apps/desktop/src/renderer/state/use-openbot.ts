@@ -14,7 +14,10 @@ import { startTransition, useCallback, useEffect, useMemo, useRef, useState } fr
 import { createDesktopLiveSyncController, shouldRefreshForEvent } from "../client/event-stream";
 import { ClientError } from "../client/http";
 import { api, type ChannelClientState, type ClientBootstrapView } from "../client/openbot-api";
-import { DURABLE_SEND_ACCEPTED_EVENT } from "../lib/durable-sends";
+import {
+  DURABLE_SEND_ACCEPTED_EVENT,
+  setDesktopSendLiveTransportHealthy,
+} from "../lib/durable-sends";
 import { nextHistoryPageLoadStartedAt } from "../lib/history-pagination";
 import {
   applyPrimaryHistoryPage,
@@ -25,8 +28,10 @@ import {
   expandMessageContext,
   MESSAGE_HISTORY_PAGE_SIZE,
   type MessageHistoryDirection,
+  type MessageViewportRetention,
   patchRetainedMessageWindow,
   resetToLatestTail,
+  retainedMessageWindowStats,
   setContextLoading,
   visibleChannelHistoryMessages,
 } from "../lib/message-history-window";
@@ -36,6 +41,7 @@ import { createSnapshotCaches, reconcileClientSnapshot } from "../lib/snapshot-r
 export type OpenBotMutation = <T>(operation: () => Promise<T>) => Promise<T>;
 
 export interface ChannelHistoryStatus {
+  generation: number;
   mode: "latest" | "history" | "context";
   hasOlder: boolean;
   hasNewer: boolean;
@@ -115,6 +121,7 @@ export function useOpenBot() {
   const historyLoadStartedAt = useRef(new Map<string, number>());
   const contextNewerLoadStartedAt = useRef(new Map<string, number>());
   const historyViewportAtBottom = useRef(new Map<string, boolean>());
+  const historyViewports = useRef(new Map<string, MessageViewportRetention>());
   const searchContextRequests = useRef(createKeyedRequestCoordinator());
   const historyLru = useRef<string[]>([]);
   const threadContextIdsCache = useRef(new Map<string, ReadonlySet<string>>());
@@ -170,6 +177,7 @@ export function useOpenBot() {
     historyLoadStartedAt.current.delete(channelId);
     contextNewerLoadStartedAt.current.delete(channelId);
     historyViewportAtBottom.current.delete(channelId);
+    historyViewports.current.delete(channelId);
     // The request cannot be cancelled here, but removing it lets a later
     // selection start a current request. Its epoch guard prevents the old
     // promise from repopulating an evicted cache.
@@ -192,6 +200,16 @@ export function useOpenBot() {
       if (evictedHistory) setHistoryRevision((value) => value + 1);
     },
     [invalidateHistory]
+  );
+
+  const setHistoryViewport = useCallback(
+    (channelId: string, messageIds: readonly string[], fill: MessageViewportRetention["fill"]) => {
+      const nextIds = new Set(messageIds);
+      const previous = historyViewports.current.get(channelId);
+      if (previous?.fill === fill && sameStringSet(previous.messageIds, nextIds)) return;
+      historyViewports.current.set(channelId, { fill, messageIds: nextIds });
+    },
+    []
   );
 
   const fetchChannel = useCallback(
@@ -243,15 +261,21 @@ export function useOpenBot() {
             page,
             mode: shouldReplace ? "replace" : "refresh",
             atBottom: historyViewportAtBottom.current.get(channelId) ?? true,
+            viewport: historyViewports.current.get(channelId),
           });
           histories.current.set(channelId, transition.history);
           historyWindows.current.set(channelId, transition.window);
+          const retained = retainedMessageWindowStats(transition.history, transition.window);
+          const viewport = historyViewports.current.get(channelId);
           recordPerformance("history.page.merge", performance.now() - mergeStartedAt, {
             direction: "latest",
             mode: shouldReplace ? "replace" : "refresh",
             outcome: transition.outcome,
             messages: transition.history.messages.length,
             retainedBytes: transition.window.retainedBytes,
+            retainedMessages: retained.messages,
+            viewportFill: viewport?.fill ?? "none",
+            viewportProtected: viewport?.messageIds.size ?? 0,
             evictedOlder: transition.evictedOlder,
             evictedNewer: transition.evictedNewer,
           });
@@ -307,8 +331,14 @@ export function useOpenBot() {
   );
 
   const loadContextPage = useCallback(
-    async (channelId: string, direction: MessageHistoryDirection) => {
+    async (
+      channelId: string,
+      direction: MessageHistoryDirection,
+      viewportMessageIds?: readonly string[]
+    ) => {
       if (legacyMode.current) return;
+      const fill = direction === "older" ? ("older-first" as const) : ("newer-first" as const);
+      if (viewportMessageIds) setHistoryViewport(channelId, viewportMessageIds, fill);
       const existing = histories.current.get(channelId);
       const window = historyWindows.current.get(channelId);
       const context = window?.context;
@@ -369,21 +399,27 @@ export function useOpenBot() {
           return;
         }
         const mergeStartedAt = performance.now();
+        const currentViewport = historyViewports.current.get(channelId);
         const transition = expandMessageContext({
           current,
           window: currentWindow,
           page,
           direction,
+          viewport: currentViewport ? { ...currentViewport, fill } : undefined,
         });
         histories.current.set(channelId, transition.history);
         historyWindows.current.set(channelId, transition.window);
         setHistoryRevision((value) => value + 1);
         publishBootstrap(true);
+        const retained = retainedMessageWindowStats(transition.history, transition.window);
         recordPerformance("history.page.merge", performance.now() - mergeStartedAt, {
           direction,
           mode: "context",
           messages: transition.history.searchContext.length,
           retainedBytes: transition.window.retainedBytes,
+          retainedMessages: retained.messages,
+          viewportFill: fill,
+          viewportProtected: currentViewport?.messageIds.size ?? 0,
           evictedOlder: transition.evictedOlder,
           evictedNewer: transition.evictedNewer,
         });
@@ -409,15 +445,18 @@ export function useOpenBot() {
         }
       }
     },
-    [publishBootstrap]
+    [publishBootstrap, setHistoryViewport]
   );
 
   const loadOlder = useCallback(
-    async (channelId: string) => {
+    async (channelId: string, viewportMessageIds?: readonly string[]) => {
       if (legacyMode.current) return;
       const existing = histories.current.get(channelId);
       const window = historyWindows.current.get(channelId);
-      if (window?.context) return loadContextPage(channelId, "older");
+      if (viewportMessageIds) {
+        setHistoryViewport(channelId, viewportMessageIds, "older-first");
+      }
+      if (window?.context) return loadContextPage(channelId, "older", viewportMessageIds);
       if (!existing || existing.loading || !existing.hasMore || !existing.beforeSequence) return;
       const startedAt = nextHistoryPageLoadStartedAt({
         now: performance.now(),
@@ -449,16 +488,22 @@ export function useOpenBot() {
           page,
           mode: "older",
           atBottom: false,
+          viewport: historyViewports.current.get(channelId),
         });
         histories.current.set(channelId, transition.history);
         historyWindows.current.set(channelId, transition.window);
         setHistoryRevision((value) => value + 1);
         publishBootstrap(true);
+        const retained = retainedMessageWindowStats(transition.history, transition.window);
+        const viewport = historyViewports.current.get(channelId);
         recordPerformance("history.page.merge", performance.now() - mergeStartedAt, {
           direction: "older",
           mode: transition.window.primaryHasNewerGap ? "history" : "latest",
           messages: transition.history.messages.length,
           retainedBytes: transition.window.retainedBytes,
+          retainedMessages: retained.messages,
+          viewportFill: "older-first",
+          viewportProtected: viewport?.messageIds.size ?? 0,
           evictedOlder: transition.evictedOlder,
           evictedNewer: transition.evictedNewer,
         });
@@ -474,11 +519,12 @@ export function useOpenBot() {
         }
       }
     },
-    [loadContextPage, publishBootstrap]
+    [loadContextPage, publishBootstrap, setHistoryViewport]
   );
 
   const loadNewer = useCallback(
-    (channelId: string) => loadContextPage(channelId, "newer"),
+    (channelId: string, viewportMessageIds?: readonly string[]) =>
+      loadContextPage(channelId, "newer", viewportMessageIds),
     [loadContextPage]
   );
 
@@ -616,7 +662,12 @@ export function useOpenBot() {
         if (channelId !== message.channelId) continue;
         const window = historyWindows.current.get(channelId);
         if (!window) continue;
-        const transition = patchRetainedMessageWindow(history, window, message);
+        const transition = patchRetainedMessageWindow(
+          history,
+          window,
+          message,
+          historyViewports.current.get(channelId)
+        );
         if (!transition) continue;
         // A page started before this authoritative patch can carry an older
         // copy of the same boundary row. Invalidate both lanes and clear their
@@ -845,6 +896,7 @@ export function useOpenBot() {
         return shouldRefreshForEvent(productEvent);
       },
       onHealthChange: (healthy) => {
+        setDesktopSendLiveTransportHealthy(healthy);
         setError(healthy ? null : "Live updates are reconnecting");
       },
     });
@@ -892,6 +944,7 @@ export function useOpenBot() {
       const window = historyWindows.current.get(channelId) ?? emptyChannelMessageWindow();
       const context = window.context;
       status.set(channelId, {
+        generation: window.generation,
         mode: context ? "context" : window.primaryHasNewerGap ? "history" : "latest",
         hasOlder: context?.hasMoreBefore ?? history.hasMore,
         hasNewer: context?.hasMoreAfter ?? false,
@@ -955,6 +1008,7 @@ export function useOpenBot() {
     clearSearchContext,
     jumpToLatest,
     setHistoryViewportAtBottom,
+    setHistoryViewport,
     reactToMessage,
     historyByChannel,
     threadContextMessageIdsByChannel,

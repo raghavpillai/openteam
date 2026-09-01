@@ -137,6 +137,7 @@ export default function App() {
     loadOlder,
     loadNewer,
     setHistoryViewportAtBottom,
+    setHistoryViewport,
     threadContextMessageIdsByChannel,
     searchContextMessageIdsByChannel,
   } = useOpenBot();
@@ -641,12 +642,44 @@ export default function App() {
     [recentIds, selectedId]
   );
   const loadOlderHandlers = useMemo(
-    () => new Map(warmIds.map((channelId) => [channelId, () => loadOlder(channelId)] as const)),
+    () =>
+      new Map(
+        warmIds.map(
+          (channelId) =>
+            [
+              channelId,
+              (messageIds?: readonly string[]) => loadOlder(channelId, messageIds),
+            ] as const
+        )
+      ),
     [loadOlder, warmIds]
   );
   const loadNewerHandlers = useMemo(
-    () => new Map(warmIds.map((channelId) => [channelId, () => loadNewer(channelId)] as const)),
+    () =>
+      new Map(
+        warmIds.map(
+          (channelId) =>
+            [
+              channelId,
+              (messageIds?: readonly string[]) => loadNewer(channelId, messageIds),
+            ] as const
+        )
+      ),
     [loadNewer, warmIds]
+  );
+  const viewportMessageHandlers = useMemo(
+    () =>
+      new Map(
+        warmIds.map(
+          (channelId) =>
+            [
+              channelId,
+              (messageIds: readonly string[], fill: "older-first" | "newer-first") =>
+                setHistoryViewport(channelId, messageIds, fill),
+            ] as const
+        )
+      ),
+    [setHistoryViewport, warmIds]
   );
   const scrollNewestHandlers = useMemo(
     () =>
@@ -954,16 +987,21 @@ export default function App() {
           .then((found) => {
             if (!found || searchLoadNonce.current !== nonce) return;
             setSearchMessageTarget({ channelId, messageId, nonce });
-            window.requestAnimationFrame(() => {
-              window.setTimeout(
-                () =>
-                  recordPerformance(
-                    "history.context.target-to-paint",
-                    performance.now() - startedAt
-                  ),
-                0
-              );
-            });
+            // ChatPane centers and highlights the target after its 80 ms
+            // virtualization settle. Measure the first paint after that work,
+            // and record whether the actual target row survived the window.
+            window.setTimeout(() => {
+              window.requestAnimationFrame(() => {
+                const painted = Boolean(
+                  document.querySelector(`[data-message-id="${CSS.escape(messageId)}"]`)
+                );
+                recordPerformance(
+                  "history.context.target-to-paint",
+                  performance.now() - startedAt,
+                  { targetPainted: painted }
+                );
+              });
+            }, 96);
           })
           .catch(() => undefined);
       }
@@ -1138,6 +1176,7 @@ export default function App() {
                         hasNewer={historyStatus?.hasNewer ?? false}
                         hasNewerGap={historyStatus?.hasNewerGap ?? false}
                         hasOlder={historyStatus?.hasOlder ?? false}
+                        historyGeneration={historyStatus?.generation ?? 0}
                         historyMode={historyStatus?.mode ?? "latest"}
                         itemsByRun={index.itemsByRun}
                         messages={index.messagesByChannel.get(channelId) ?? []}
@@ -1149,6 +1188,7 @@ export default function App() {
                         onReactMessage={reactToMessage}
                         onScrollToNewest={scrollNewestHandlers.get(channelId)}
                         onViewportAtBottomChange={viewportBottomHandlers.get(channelId)}
+                        onViewportMessagesChange={viewportMessageHandlers.get(channelId)}
                         onCloseViewOnly={
                           channel.kind === "agent_dm" ? closeViewOnlyChat : undefined
                         }

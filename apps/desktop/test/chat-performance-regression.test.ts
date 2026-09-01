@@ -20,7 +20,8 @@ describe("chat performance and functionality reconciliation", () => {
     const chat = await source("components/openbot/chat-pane.tsx");
 
     expect(chat).toContain("maxItems: 80");
-    expect(chat).toContain("acceptedMessage ? [acceptedMessage.id] : []");
+    expect(chat).toContain("durableSendAuthoritativeEcho(delivery, messages)");
+    expect(chat).toContain("return authoritative ? [authoritative.id] : []");
     expect(chat).toContain("authoritativeById.get(delivery.acceptedMessage.id)");
     expect(chat).toContain("messageDisplayProjection(message)");
     expect(chat).toContain("@openbot/product-core");

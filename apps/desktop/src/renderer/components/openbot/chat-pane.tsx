@@ -16,6 +16,7 @@ import {
   channelMessageAddress,
   type DurableSendPayload,
   type DurableSendRecord,
+  durableSendAuthoritativeEcho,
   durableSendIsInFlight,
   durableSendMessage,
   durableSendRenderKey,
@@ -73,6 +74,10 @@ import {
 } from "../../lib/channel-events";
 import { cn } from "../../lib/cn";
 import {
+  type ConversationScrollState,
+  resolveConversationScrollRestore,
+} from "../../lib/conversation-scroll-state";
+import {
   desktopDurableSendController,
   desktopSendTransportSnapshot,
   discardDesktopDeliveryStages,
@@ -89,6 +94,7 @@ import {
 import { recordPerformance } from "../../lib/performance";
 import { addContextGaps } from "../../lib/search-context";
 import { conversationApprovals } from "../../lib/subagent-activity";
+import { mergeThreadTrayPin, type ThreadTrayPin } from "../../lib/thread-pin";
 import { deriveThreads, isBranchedMessage } from "../../lib/threads";
 import {
   Conversation,
@@ -163,17 +169,22 @@ interface ChatPaneProps {
   activityTruncated?: boolean;
   threadContextTruncated?: boolean;
   focusMessage: { messageId: string; nonce: number } | null;
+  historyGeneration?: number;
   historyMode?: "latest" | "history" | "context";
   hasOlder?: boolean;
   hasNewer?: boolean;
   hasNewerGap?: boolean;
   loadingOlder?: boolean;
   loadingNewer?: boolean;
-  onLoadOlder?: () => unknown;
-  onLoadNewer?: () => unknown;
+  onLoadOlder?: (viewportMessageIds?: readonly string[]) => unknown;
+  onLoadNewer?: (viewportMessageIds?: readonly string[]) => unknown;
   onReactMessage?: (messageId: string, emoji: string) => Promise<unknown>;
   onScrollToNewest?: () => unknown;
   onViewportAtBottomChange?: (atBottom: boolean) => void;
+  onViewportMessagesChange?: (
+    messageIds: readonly string[],
+    fill: "older-first" | "newer-first"
+  ) => void;
   onCloseViewOnly?: () => void;
   onOpenA2A?: (sourceBotId: string, peerId: string, trigger: HTMLButtonElement) => void;
   onOpenRoutine?: (routineId: string) => void;
@@ -215,6 +226,7 @@ const chatPanePropsEqual = (previous: ChatPaneProps, next: ChatPaneProps) =>
   previous.activityTruncated === next.activityTruncated &&
   previous.threadContextTruncated === next.threadContextTruncated &&
   previous.focusMessage === next.focusMessage &&
+  previous.historyGeneration === next.historyGeneration &&
   previous.historyMode === next.historyMode &&
   previous.hasOlder === next.hasOlder &&
   previous.hasNewer === next.hasNewer &&
@@ -226,6 +238,7 @@ const chatPanePropsEqual = (previous: ChatPaneProps, next: ChatPaneProps) =>
   previous.onReactMessage === next.onReactMessage &&
   previous.onScrollToNewest === next.onScrollToNewest &&
   previous.onViewportAtBottomChange === next.onViewportAtBottomChange &&
+  previous.onViewportMessagesChange === next.onViewportMessagesChange &&
   previous.onCloseViewOnly === next.onCloseViewOnly &&
   previous.onOpenA2A === next.onOpenA2A &&
   previous.onOpenRoutine === next.onOpenRoutine &&
@@ -327,10 +340,7 @@ const useDayClock = (active: boolean) => {
   return now;
 };
 
-const conversationScrollPositions = new Map<
-  string,
-  { bottomDistance: number; scrollTop: number }
->();
+const conversationScrollPositions = new Map<string, ConversationScrollState>();
 
 interface MessageTimelineEntry {
   type: "message";
@@ -342,6 +352,17 @@ interface MessageTimelineEntry {
   delivery: DurableSendRecord | null;
 }
 
+interface PendingScrollAnchor {
+  automatic: boolean;
+  direction: "older" | "newer";
+  key: string;
+  maxErrorPx: number;
+  reported: boolean;
+  startedAt: number;
+  survived: boolean;
+  viewportOffset: number;
+}
+
 function VirtualizedTimeline<T extends { id: string; type: string }>({
   conversationId,
   entries,
@@ -350,8 +371,11 @@ function VirtualizedTimeline<T extends { id: string; type: string }>({
   hasNewer = false,
   loadingOlder = false,
   loadingNewer = false,
+  historyGeneration = 0,
   onLoadOlder,
   onLoadNewer,
+  onViewportMessagesChange,
+  messageIdsForEntry,
   renderEntry,
 }: {
   conversationId: string;
@@ -361,8 +385,14 @@ function VirtualizedTimeline<T extends { id: string; type: string }>({
   hasNewer?: boolean;
   loadingOlder?: boolean;
   loadingNewer?: boolean;
-  onLoadOlder?: () => unknown;
-  onLoadNewer?: () => unknown;
+  historyGeneration?: number;
+  onLoadOlder?: (viewportMessageIds?: readonly string[]) => unknown;
+  onLoadNewer?: (viewportMessageIds?: readonly string[]) => unknown;
+  onViewportMessagesChange?: (
+    messageIds: readonly string[],
+    fill: "older-first" | "newer-first"
+  ) => void;
+  messageIdsForEntry: (entry: T) => readonly string[];
   renderEntry: (entry: T, index: number) => ReactNode;
 }) {
   const { scrollRef, stopScroll } = useStickToBottomContext();
@@ -373,14 +403,11 @@ function VirtualizedTimeline<T extends { id: string; type: string }>({
   const lastOlderLoadStartedAt = useRef(0);
   const lastNewerLoadStartedAt = useRef(0);
   const anchorCleanupTimer = useRef<number | null>(null);
-  const pendingScrollAnchor = useRef<{
-    automatic: boolean;
-    direction: "older" | "newer";
-    key: string;
-    reported: boolean;
-    startedAt: number;
-    viewportOffset: number;
-  } | null>(null);
+  const viewportReportFrame = useRef<number | null>(null);
+  const viewportFill = useRef<"older-first" | "newer-first">("newer-first");
+  const lastReportedViewport = useRef("");
+  const saveConversationScrollStateRef = useRef<() => void>(() => undefined);
+  const pendingScrollAnchor = useRef<PendingScrollAnchor | null>(null);
   const estimateSize = useCallback(
     (index: number) => {
       const entry = entries[index];
@@ -414,38 +441,110 @@ function VirtualizedTimeline<T extends { id: string; type: string }>({
       scopeRef: contentRef,
     });
 
+  const visibleMessageIds = useCallback((): string[] => {
+    const viewport = scrollRef.current;
+    const content = contentRef.current;
+    if (!viewport || !content) return [];
+    const viewportBounds = viewport.getBoundingClientRect();
+    const ids = new Set<string>();
+    for (const row of content.querySelectorAll<HTMLElement>("[data-virtual-timeline-index]")) {
+      const bounds = row.getBoundingClientRect();
+      if (bounds.bottom <= viewportBounds.top || bounds.top >= viewportBounds.bottom) continue;
+      const index = Number(row.dataset.virtualTimelineIndex);
+      const entry = Number.isSafeInteger(index) ? entries[index] : undefined;
+      if (!entry) continue;
+      for (const id of messageIdsForEntry(entry)) ids.add(id);
+    }
+    return [...ids];
+  }, [entries, messageIdsForEntry, scrollRef]);
+
+  const reportVisibleMessages = useCallback(
+    (fill = viewportFill.current): string[] => {
+      const messageIds = visibleMessageIds();
+      const signature = `${fill}:${messageIds.join("\u0000")}`;
+      if (signature === lastReportedViewport.current) return messageIds;
+      lastReportedViewport.current = signature;
+      onViewportMessagesChange?.(messageIds, fill);
+      return messageIds;
+    },
+    [onViewportMessagesChange, visibleMessageIds]
+  );
+
+  const scheduleViewportReport = useCallback(() => {
+    if (viewportReportFrame.current !== null) return;
+    viewportReportFrame.current = window.requestAnimationFrame(() => {
+      viewportReportFrame.current = null;
+      reportVisibleMessages();
+    });
+  }, [reportVisibleMessages]);
+
   useLayoutEffect(() => {
     if (initializedScroll.current || entries.length === 0) return;
     const viewport = scrollRef.current;
     if (!viewport) return;
     initializedScroll.current = true;
-    const stored = conversationScrollPositions.get(conversationId);
-    viewport.scrollTop =
-      stored && stored.bottomDistance > 2 ? stored.scrollTop : viewport.scrollHeight;
-  }, [conversationId, entries.length, scrollRef, totalSize]);
+    const restore = resolveConversationScrollRestore({
+      currentGeneration: historyGeneration,
+      messageIds: entries.map((entry) => messageIdsForEntry(entry)[0] ?? null),
+      stored: conversationScrollPositions.get(conversationId),
+    });
+    if (restore.kind === "message") {
+      scrollIndexToViewportOffset(restore.index, restore.viewportOffset);
+    } else {
+      viewport.scrollTop = viewport.scrollHeight;
+    }
+  }, [
+    conversationId,
+    entries,
+    historyGeneration,
+    messageIdsForEntry,
+    scrollIndexToViewportOffset,
+    scrollRef,
+  ]);
 
-  useEffect(() => {
+  const saveConversationScrollState = useCallback(() => {
     const viewport = scrollRef.current;
-    if (!viewport) return;
-    const save = () => {
-      conversationScrollPositions.set(conversationId, {
-        bottomDistance: Math.max(
-          0,
-          viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop
-        ),
-        scrollTop: viewport.scrollTop,
-      });
-      if (conversationScrollPositions.size > 20) {
-        conversationScrollPositions.delete(conversationScrollPositions.keys().next().value!);
-      }
-    };
-    return save;
-  }, [conversationId, scrollRef]);
+    const content = contentRef.current;
+    if (!viewport || !content || viewport.clientHeight <= 0) return;
+    const viewportBounds = viewport.getBoundingClientRect();
+    const visibleRow = Array.from(
+      content.querySelectorAll<HTMLElement>("[data-virtual-timeline-index]")
+    ).find((row) => {
+      const bounds = row.getBoundingClientRect();
+      return bounds.bottom > viewportBounds.top && bounds.top < viewportBounds.bottom;
+    });
+    const visibleIndex = Number(visibleRow?.dataset.virtualTimelineIndex);
+    const visibleEntry = Number.isSafeInteger(visibleIndex) ? entries[visibleIndex] : undefined;
+    conversationScrollPositions.set(conversationId, {
+      bottomDistance: Math.max(
+        0,
+        viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop
+      ),
+      historyGeneration,
+      messageId: visibleEntry ? (messageIdsForEntry(visibleEntry)[0] ?? null) : null,
+      viewportOffset: visibleRow ? visibleRow.getBoundingClientRect().top - viewportBounds.top : 0,
+    });
+    if (conversationScrollPositions.size > 20) {
+      const oldestConversationId = conversationScrollPositions.keys().next().value;
+      if (oldestConversationId) conversationScrollPositions.delete(oldestConversationId);
+    }
+  }, [conversationId, entries, historyGeneration, messageIdsForEntry, scrollRef]);
+  saveConversationScrollStateRef.current = saveConversationScrollState;
+
+  useEffect(
+    () => () => {
+      saveConversationScrollStateRef.current();
+    },
+    []
+  );
 
   useEffect(
     () => () => {
       if (anchorCleanupTimer.current !== null) {
         window.clearTimeout(anchorCleanupTimer.current);
+      }
+      if (viewportReportFrame.current !== null) {
+        window.cancelAnimationFrame(viewportReportFrame.current);
       }
     },
     []
@@ -472,8 +571,10 @@ function VirtualizedTimeline<T extends { id: string; type: string }>({
         automatic,
         direction,
         key,
+        maxErrorPx: 0,
         reported: false,
         startedAt: performance.now(),
+        survived: true,
         viewportOffset: visibleRow.getBoundingClientRect().top - viewportBounds.top,
       };
       pendingScrollAnchor.current = anchor;
@@ -481,6 +582,46 @@ function VirtualizedTimeline<T extends { id: string; type: string }>({
       return anchor;
     },
     [scrollRef, stopScroll]
+  );
+
+  const sampleScrollAnchor = useCallback(
+    (anchor: PendingScrollAnchor): number | null => {
+      if (pendingScrollAnchor.current !== anchor) return null;
+      const viewport = scrollRef.current;
+      const row = Array.from(
+        contentRef.current?.querySelectorAll<HTMLElement>("[data-virtual-timeline-key]") ?? []
+      ).find((candidate) => candidate.dataset.virtualTimelineKey === anchor.key);
+      if (!viewport || !row) {
+        anchor.survived = false;
+        return null;
+      }
+      const error = Math.abs(
+        row.getBoundingClientRect().top -
+          viewport.getBoundingClientRect().top -
+          anchor.viewportOffset
+      );
+      anchor.maxErrorPx = Math.max(anchor.maxErrorPx, error);
+      return error;
+    },
+    [scrollRef]
+  );
+
+  const finishScrollAnchor = useCallback(
+    (anchor: PendingScrollAnchor) => {
+      if (pendingScrollAnchor.current !== anchor) return;
+      sampleScrollAnchor(anchor);
+      recordPerformance("history.anchor.max-error-px", anchor.maxErrorPx, {
+        automatic: anchor.automatic,
+        direction: anchor.direction,
+        settleMs: Math.round(performance.now() - anchor.startedAt),
+      });
+      recordPerformance("history.anchor.row-survived", anchor.survived ? 1 : 0, {
+        automatic: anchor.automatic,
+        direction: anchor.direction,
+      });
+      pendingScrollAnchor.current = null;
+    },
+    [sampleScrollAnchor]
   );
 
   const loadOlder = useCallback(
@@ -502,21 +643,29 @@ function VirtualizedTimeline<T extends { id: string; type: string }>({
         anchorCleanupTimer.current = null;
       }
       const anchor = captureVisibleAnchor("older", automatic);
-      void Promise.resolve(onLoadOlder())
+      viewportFill.current = "older-first";
+      const viewportMessageIds = reportVisibleMessages("older-first");
+      void Promise.resolve(onLoadOlder(viewportMessageIds))
         .catch(() => {
           if (anchor && pendingScrollAnchor.current === anchor) pendingScrollAnchor.current = null;
         })
         .finally(() => {
           loadingRequest.current = false;
           anchorCleanupTimer.current = window.setTimeout(() => {
-            if (anchor && pendingScrollAnchor.current === anchor) {
-              pendingScrollAnchor.current = null;
-            }
+            if (anchor) finishScrollAnchor(anchor);
             anchorCleanupTimer.current = null;
           }, 1_000);
         });
     },
-    [captureVisibleAnchor, hasOlder, loadingOlder, onLoadOlder, scrollRef]
+    [
+      captureVisibleAnchor,
+      finishScrollAnchor,
+      hasOlder,
+      loadingOlder,
+      onLoadOlder,
+      reportVisibleMessages,
+      scrollRef,
+    ]
   );
 
   const loadNewer = useCallback(
@@ -538,22 +687,55 @@ function VirtualizedTimeline<T extends { id: string; type: string }>({
         anchorCleanupTimer.current = null;
       }
       const anchor = captureVisibleAnchor("newer", automatic);
-      void Promise.resolve(onLoadNewer())
+      viewportFill.current = "newer-first";
+      const viewportMessageIds = reportVisibleMessages("newer-first");
+      void Promise.resolve(onLoadNewer(viewportMessageIds))
         .catch(() => {
           if (anchor && pendingScrollAnchor.current === anchor) pendingScrollAnchor.current = null;
         })
         .finally(() => {
           loadingRequest.current = false;
           anchorCleanupTimer.current = window.setTimeout(() => {
-            if (anchor && pendingScrollAnchor.current === anchor) {
-              pendingScrollAnchor.current = null;
-            }
+            if (anchor) finishScrollAnchor(anchor);
             anchorCleanupTimer.current = null;
           }, 1_000);
         });
     },
-    [captureVisibleAnchor, hasNewer, loadingNewer, onLoadNewer, scrollRef]
+    [
+      captureVisibleAnchor,
+      finishScrollAnchor,
+      hasNewer,
+      loadingNewer,
+      onLoadNewer,
+      reportVisibleMessages,
+      scrollRef,
+    ]
   );
+
+  useEffect(() => {
+    const viewport = scrollRef.current;
+    if (!viewport) return;
+    let previousTop = viewport.scrollTop;
+    const onScroll = () => {
+      const nextTop = viewport.scrollTop;
+      if (!pendingScrollAnchor.current) {
+        if (nextTop < previousTop - 1) viewportFill.current = "older-first";
+        else if (nextTop > previousTop + 1) viewportFill.current = "newer-first";
+      }
+      previousTop = nextTop;
+      saveConversationScrollState();
+      scheduleViewportReport();
+    };
+    viewport.addEventListener("scroll", onScroll, { passive: true });
+    scheduleViewportReport();
+    return () => viewport.removeEventListener("scroll", onScroll);
+  }, [saveConversationScrollState, scheduleViewportReport, scrollRef]);
+
+  useLayoutEffect(() => {
+    void entries;
+    void totalSize;
+    scheduleViewportReport();
+  }, [entries, scheduleViewportReport, totalSize]);
 
   useEffect(() => {
     const viewport = scrollRef.current;
@@ -590,26 +772,20 @@ function VirtualizedTimeline<T extends { id: string; type: string }>({
     if (!anchor) return;
     const anchorIndex = entries.findIndex((entry) => `${entry.type}:${entry.id}` === anchor.key);
     if (anchorIndex < 0) {
-      pendingScrollAnchor.current = null;
+      anchor.survived = false;
+      finishScrollAnchor(anchor);
       return;
     }
     const restore = () => {
       if (pendingScrollAnchor.current !== anchor) return;
       scrollIndexToViewportOffset(anchorIndex, anchor.viewportOffset);
+      sampleScrollAnchor(anchor);
     };
     const report = () => {
       if (pendingScrollAnchor.current !== anchor || anchor.reported) return;
-      const viewport = scrollRef.current;
-      const row = Array.from(
-        contentRef.current?.querySelectorAll<HTMLElement>("[data-virtual-timeline-key]") ?? []
-      ).find((candidate) => candidate.dataset.virtualTimelineKey === anchor.key);
-      if (!viewport || !row) return;
+      const error = sampleScrollAnchor(anchor);
+      if (error === null) return;
       anchor.reported = true;
-      const error = Math.abs(
-        row.getBoundingClientRect().top -
-          viewport.getBoundingClientRect().top -
-          anchor.viewportOffset
-      );
       recordPerformance("history.anchor.error-px", error, {
         automatic: anchor.automatic,
         direction: anchor.direction,
@@ -635,7 +811,7 @@ function VirtualizedTimeline<T extends { id: string; type: string }>({
       window.cancelAnimationFrame(firstFrame);
       if (secondFrame !== null) window.cancelAnimationFrame(secondFrame);
     };
-  }, [entries, scrollIndexToViewportOffset, scrollRef, totalSize]);
+  }, [entries, finishScrollAnchor, sampleScrollAnchor, scrollIndexToViewportOffset, totalSize]);
 
   useLayoutEffect(() => {
     if (!focus) return;
@@ -672,7 +848,7 @@ function VirtualizedTimeline<T extends { id: string; type: string }>({
       }
     }, 80);
     return () => window.clearTimeout(timer);
-  }, [focus, scrollToIndex, stopScroll, totalSize]);
+  }, [focus, scrollToIndex, stopScroll]);
 
   useEffect(() => {
     const viewport = scrollRef.current;
@@ -694,11 +870,13 @@ function VirtualizedTimeline<T extends { id: string; type: string }>({
   }, [scrollRef]);
 
   return (
+    // biome-ignore lint/a11y/useSemanticElements: Virtualization requires a single explicitly-sized positioning element.
     <div
       aria-label={`${entries.length} timeline entries`}
       className="relative w-full"
       data-virtual-timeline-count={entries.length}
       ref={contentRef}
+      role="list"
       style={{ height: totalSize }}
     >
       {hasOlder && (
@@ -725,6 +903,7 @@ function VirtualizedTimeline<T extends { id: string; type: string }>({
         const entry = entries[virtualItem.index];
         if (!entry) return null;
         return (
+          // biome-ignore lint/a11y/useSemanticElements: Virtual rows must remain measurable absolutely-positioned elements.
           <div
             aria-posinset={virtualItem.index + 1}
             aria-setsize={hasOlder || hasNewer ? -1 : entries.length}
@@ -1770,6 +1949,7 @@ export const ChatPane = memo(function ChatPane({
   activityTruncated = false,
   threadContextTruncated = false,
   focusMessage,
+  historyGeneration = 0,
   historyMode = "latest",
   hasOlder,
   hasNewer,
@@ -1781,6 +1961,7 @@ export const ChatPane = memo(function ChatPane({
   onReactMessage,
   onScrollToNewest,
   onViewportAtBottomChange,
+  onViewportMessagesChange,
   onCloseViewOnly,
   onOpenA2A,
   onOpenRoutine,
@@ -1789,7 +1970,7 @@ export const ChatPane = memo(function ChatPane({
   const now = useDayClock(active);
   const [replyTarget, setReplyTarget] = useState<{
     channelId: string;
-    messageId: string;
+    message: ChannelMessageView;
   } | null>(null);
   const [pendingAttachmentCount, setPendingAttachmentCount] = useState(0);
   const [composerExpanded, setComposerExpanded] = useState(false);
@@ -1811,8 +1992,8 @@ export const ChatPane = memo(function ChatPane({
     durable?: boolean;
   } | null>(null);
   const [threadState, setThreadState] = useState<{
-    rootId: string;
     open: boolean;
+    pin: ThreadTrayPin;
   } | null>(null);
   const threadCloseTimer = useRef<number | null>(null);
   const knownMessageIds = useRef<Set<string> | null>(null);
@@ -1841,8 +2022,7 @@ export const ChatPane = memo(function ChatPane({
     knownMessageIds.current = new Set(messages.map((message) => message.id));
   }, [channel.id, historyMode, messages]);
   useEffect(() => {
-    const authoritativeIds = new Set(messages.map((message) => message.id));
-    void sendController.reconcile(authoritativeIds);
+    void sendController.reconcile(messages);
   }, [messages, sendController]);
   const channelSends = useMemo(
     () => durableSends.filter((record) => record.target.channelId === channel.id),
@@ -1853,8 +2033,17 @@ export const ChatPane = memo(function ChatPane({
     [channel.id, durableRecoveries]
   );
   const visibleMessages = useMemo(() => {
+    const authoritativeEchoes = new Map(
+      channelSends.flatMap((delivery) => {
+        const echo = durableSendAuthoritativeEcho(delivery, messages);
+        return echo ? [[delivery.nonce, echo] as const] : [];
+      })
+    );
     const optimisticServerIds = new Set(
-      channelSends.flatMap(({ acceptedMessage }) => (acceptedMessage ? [acceptedMessage.id] : []))
+      channelSends.flatMap((delivery) => {
+        const authoritative = authoritativeEchoes.get(delivery.nonce) ?? delivery.acceptedMessage;
+        return authoritative ? [authoritative.id] : [];
+      })
     );
     const authoritativeById = new Map(messages.map((message) => [message.id, message] as const));
     return [
@@ -1868,14 +2057,29 @@ export const ChatPane = memo(function ChatPane({
           delivery: null,
         })),
       ...channelSends.map((delivery) => ({
-        renderKey: durableSendRenderKey(delivery),
+        renderKey: authoritativeEchoes.get(delivery.nonce)
+          ? messageRenderKey(authoritativeEchoes.get(delivery.nonce) as ChannelMessageView)
+          : durableSendRenderKey(delivery),
         message:
+          authoritativeEchoes.get(delivery.nonce) ??
           (delivery.acceptedMessage
             ? authoritativeById.get(delivery.acceptedMessage.id)
-            : undefined) ?? durableSendMessage(delivery),
-        pending: durableSendIsInFlight(delivery),
+            : undefined) ??
+          durableSendMessage(delivery),
+        pending: authoritativeEchoes.has(delivery.nonce) ? false : durableSendIsInFlight(delivery),
         animateEntrance: true,
-        delivery,
+        delivery: authoritativeEchoes.has(delivery.nonce)
+          ? {
+              ...delivery,
+              phase: "accepted-awaiting-echo" as const,
+              acceptedMessage: authoritativeEchoes.get(delivery.nonce) as ChannelMessageView,
+              acceptedAtMs:
+                delivery.acceptedAtMs ??
+                Date.parse(
+                  (authoritativeEchoes.get(delivery.nonce) as ChannelMessageView).createdAt
+                ),
+            }
+          : delivery,
       })),
     ].sort(
       (left, right) =>
@@ -1888,11 +2092,23 @@ export const ChatPane = memo(function ChatPane({
     [visibleMessages]
   );
   useEffect(() => {
+    setReplyTarget((current) => {
+      if (!current || current.channelId !== channel.id) return current;
+      const authoritative = messagesById.get(current.message.id);
+      return authoritative && authoritative !== current.message
+        ? { ...current, message: authoritative }
+        : current;
+    });
+  }, [channel.id, messagesById]);
+  useEffect(() => {
     if (composerRecovery) return;
     const recovery = channelRecoveries.find((record) => record.payload.isFork !== true);
     if (!recovery) return;
     if (recovery.payload.replyToMessageId && messagesById.has(recovery.payload.replyToMessageId)) {
-      setReplyTarget({ channelId: channel.id, messageId: recovery.payload.replyToMessageId });
+      setReplyTarget({
+        channelId: channel.id,
+        message: messagesById.get(recovery.payload.replyToMessageId) as ChannelMessageView,
+      });
     }
     setComposerRecovery({ id: recovery.nonce, payload: recovery.payload, durable: true });
   }, [channel.id, channelRecoveries, composerRecovery, messagesById]);
@@ -1918,9 +2134,39 @@ export const ChatPane = memo(function ChatPane({
   }, [focusMessage, messagesById, threads]);
   useEffect(() => {
     if (!focusedThreadRootId) return;
+    // A fresh search focus must reopen/refocus an already-known thread root.
+    void focusMessage?.nonce;
     if (threadCloseTimer.current) window.clearTimeout(threadCloseTimer.current);
-    setThreadState({ rootId: focusedThreadRootId, open: true });
-  }, [focusMessage?.nonce, focusedThreadRootId]);
+    const root = messagesById.get(focusedThreadRootId);
+    if (!root) return;
+    setThreadState({
+      open: true,
+      pin: mergeThreadTrayPin({
+        replies: threads.get(focusedThreadRootId)?.replies ?? [],
+        root,
+        truncated: threadContextTruncated,
+      }),
+    });
+  }, [focusMessage?.nonce, focusedThreadRootId, messagesById, threadContextTruncated, threads]);
+
+  useEffect(() => {
+    setThreadState((current) => {
+      if (!current) return current;
+      const rootId = current.pin.root.id;
+      const root = messagesById.get(rootId);
+      const liveThread = threads.get(rootId);
+      if (!root && !liveThread) return current;
+      return {
+        ...current,
+        pin: mergeThreadTrayPin({
+          previous: current.pin,
+          replies: liveThread?.replies ?? [],
+          root: root ?? current.pin.root,
+          truncated: threadContextTruncated,
+        }),
+      };
+    });
+  }, [messagesById, threadContextTruncated, threads]);
   const mainMessageRecords = useMemo(
     () =>
       visibleMessages.filter(({ message }) => {
@@ -2006,20 +2252,27 @@ export const ChatPane = memo(function ChatPane({
         left.id.localeCompare(right.id)
     );
   }, [approvals, channel.kind, mainMessageRecords, visibleContextMessageIds]);
-  const replyingTo =
-    replyTarget?.channelId === channel.id
-      ? (messagesById.get(replyTarget.messageId) ?? null)
-      : null;
+  const replyingTo = replyTarget?.channelId === channel.id ? replyTarget.message : null;
   const replyToMessage = useCallback(
     (message: ChannelMessageView) => {
-      setReplyTarget({ channelId: channel.id, messageId: message.id });
+      setReplyTarget({ channelId: channel.id, message });
     },
     [channel.id]
   );
-  const openThread = useCallback((message: ChannelMessageView) => {
-    if (threadCloseTimer.current) window.clearTimeout(threadCloseTimer.current);
-    setThreadState({ rootId: message.id, open: true });
-  }, []);
+  const openThread = useCallback(
+    (message: ChannelMessageView) => {
+      if (threadCloseTimer.current) window.clearTimeout(threadCloseTimer.current);
+      setThreadState({
+        open: true,
+        pin: mergeThreadTrayPin({
+          replies: threads.get(message.id)?.replies ?? [],
+          root: message,
+          truncated: threadContextTruncated,
+        }),
+      });
+    },
+    [threadContextTruncated, threads]
+  );
   const closeThread = useCallback(() => {
     setThreadState((current) => (current ? { ...current, open: false } : null));
     if (threadCloseTimer.current) window.clearTimeout(threadCloseTimer.current);
@@ -2127,7 +2380,10 @@ export const ChatPane = memo(function ChatPane({
       const payload = await sendController.cancelQueued(nonce);
       if (!payload) return;
       if (payload.replyToMessageId && messagesById.has(payload.replyToMessageId)) {
-        setReplyTarget({ channelId: channel.id, messageId: payload.replyToMessageId });
+        setReplyTarget({
+          channelId: channel.id,
+          message: messagesById.get(payload.replyToMessageId) as ChannelMessageView,
+        });
       }
       setComposerRecovery({ id: `${nonce}:${Date.now()}`, payload });
     },
@@ -2162,6 +2418,11 @@ export const ChatPane = memo(function ChatPane({
       },
     ];
   }, [activeRun, botById, channel.createdAt, selectedBot, thinkingPhase, timeline]);
+  const timelineMessageIds = useCallback((entry: (typeof renderedTimeline)[number]) => {
+    if (entry.type === "message") return [entry.message.id];
+    if (entry.type === "a2a") return entry.entries.map((candidate) => candidate.message.id);
+    return [];
+  }, []);
   const focusedRenderedTimelineEntry = useMemo(() => {
     if (!focusMessage || !messagesById.has(focusMessage.messageId)) return null;
     const index = renderedTimeline.findIndex(
@@ -2252,8 +2513,11 @@ export const ChatPane = memo(function ChatPane({
                 hasNewer={hasNewer}
                 loadingOlder={loadingOlder}
                 loadingNewer={loadingNewer}
+                historyGeneration={historyGeneration}
                 onLoadOlder={onLoadOlder}
                 onLoadNewer={onLoadNewer}
+                onViewportMessagesChange={onViewportMessagesChange}
+                messageIdsForEntry={timelineMessageIds}
                 renderEntry={(entry, index) =>
                   entry.type === "context_gap" ? (
                     <div
@@ -2407,6 +2671,7 @@ export const ChatPane = memo(function ChatPane({
             active={composerExpanded || pendingAttachmentCount > 0 || Boolean(pendingLocalApproval)}
           />
           <ConversationScrollButton
+            authoritativeMessageCount={messages.length}
             conversationId={channel.id}
             forceLatest={historyMode !== "latest" || hasNewerGap}
             latestEntryKey={
@@ -2414,6 +2679,7 @@ export const ChatPane = memo(function ChatPane({
                 ? `${renderedTimeline[renderedTimeline.length - 1]?.type}:${renderedTimeline[renderedTimeline.length - 1]?.id}`
                 : null
             }
+            latestMessageKey={messages.at(-1)?.id ?? null}
             messageCount={renderedTimeline.length}
             onAtBottomChange={onViewportAtBottomChange}
             onScrollToNewest={onScrollToNewest}
@@ -2493,7 +2759,7 @@ export const ChatPane = memo(function ChatPane({
           )}
         </div>
       )}
-      {threadState && messagesById.get(threadState.rootId) && (
+      {threadState && (
         <ThreadTray
           botById={botById}
           deliveries={channelSends}
@@ -2506,8 +2772,7 @@ export const ChatPane = memo(function ChatPane({
           onResendSend={(nonce) => sendController.resendFailed(nonce)}
           onAcknowledgeRecovery={(nonce) => sendController.acknowledgeRecovery(nonce)}
           onSubmit={(content, attachments, options) => {
-            const thread = threads.get(threadState.rootId);
-            const replyTargetId = thread?.replies.at(-1)?.id ?? threadState.rootId;
+            const replyTargetId = threadState.pin.latestReplyId ?? threadState.pin.root.id;
             return enqueueDurableSend(content, attachments, replyTargetId, {
               ...options,
               isFork: true,
@@ -2516,8 +2781,9 @@ export const ChatPane = memo(function ChatPane({
           onStage={stageDesktopDeliveryFile}
           onDiscardStages={discardDesktopDeliveryStages}
           open={threadState.open}
-          replies={threads.get(threadState.rootId)?.replies ?? []}
-          root={messagesById.get(threadState.rootId) as ChannelMessageView}
+          replies={threadState.pin.replies}
+          repliesTruncated={threadState.pin.truncated}
+          root={threadState.pin.root}
         />
       )}
     </div>

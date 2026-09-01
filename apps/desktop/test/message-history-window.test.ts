@@ -582,6 +582,81 @@ describe("desktop bounded message-history windows", () => {
     expect(stats.messages).toBeLessThanOrEqual(MESSAGE_HISTORY_MAX_MESSAGES);
   });
 
+  test("pivots a rich older page around the visible rows without losing the scroll anchor", () => {
+    const initial = applyPrimaryHistoryPage({
+      current: undefined,
+      window: undefined,
+      page: historyPage(101, 500),
+      mode: "replace",
+      atBottom: true,
+    });
+    const richOlder: ChannelHistoryPage = {
+      ...historyPage(1, 100, false),
+      messages: messages(1, 100).map((candidate) => ({
+        ...candidate,
+        content: "x".repeat(30_000),
+      })),
+    };
+    const older = applyPrimaryHistoryPage({
+      current: initial.history,
+      window: initial.window,
+      page: richOlder,
+      mode: "older",
+      atBottom: false,
+      viewport: {
+        fill: "older-first",
+        messageIds: new Set(["message-101", "message-102"]),
+      },
+    });
+    const stats = retainedMessageWindowStats(older.history, older.window);
+
+    expect(older.history.messages.some(({ id }) => id === "message-101")).toBe(true);
+    expect(older.history.messages.some(({ id }) => id === "message-102")).toBe(true);
+    expect(older.history.messages[0]?.id).not.toBe("message-1");
+    expect(stats.messages).toBeLessThanOrEqual(MESSAGE_HISTORY_MAX_MESSAGES);
+    expect(stats.bytes).toBeLessThanOrEqual(MESSAGE_HISTORY_MAX_RETAINED_BYTES);
+  });
+
+  test("keeps the live-refresh viewport and preserves runway in the reported scroll direction", () => {
+    const initial = applyPrimaryHistoryPage({
+      current: undefined,
+      window: undefined,
+      page: historyPage(1, 500),
+      mode: "replace",
+      atBottom: true,
+    });
+    const refreshPage = historyPage(402, 100);
+    const apply = (fill: "older-first" | "newer-first", window = initial.window) =>
+      applyPrimaryHistoryPage({
+        current: initial.history,
+        window,
+        page: refreshPage,
+        mode: "refresh",
+        atBottom: false,
+        viewport: {
+          fill,
+          messageIds: new Set(["message-450", "message-495"]),
+        },
+      });
+    const movingOlder = apply("older-first");
+    const movingNewer = apply("newer-first");
+    const existingGap = apply("newer-first", {
+      ...initial.window,
+      primaryHasNewerGap: true,
+    });
+
+    for (const transition of [movingOlder, movingNewer, existingGap]) {
+      expect(transition.history.messages.some(({ id }) => id === "message-450")).toBe(true);
+      expect(transition.history.messages.some(({ id }) => id === "message-495")).toBe(true);
+      const stats = retainedMessageWindowStats(transition.history, transition.window);
+      expect(stats.messages).toBeLessThanOrEqual(MESSAGE_HISTORY_MAX_MESSAGES);
+      expect(stats.bytes).toBeLessThanOrEqual(MESSAGE_HISTORY_MAX_RETAINED_BYTES);
+    }
+    expect(Number(movingNewer.history.messages.at(-1)?.sequence)).toBeGreaterThan(
+      Number(movingOlder.history.messages.at(-1)?.sequence)
+    );
+  });
+
   test("allows only an indivisible oversized visible message to be a byte soft excess", () => {
     const oversized = message(1, "x".repeat(MESSAGE_HISTORY_MAX_RETAINED_BYTES + 1));
     const transition = applyPrimaryHistoryPage({
@@ -655,5 +730,63 @@ describe("desktop bounded message-history windows", () => {
     expect(stats.bytes).toBeLessThanOrEqual(MESSAGE_HISTORY_MAX_RETAINED_BYTES);
     const reset = resetToLatestTail(patched.history, patched.window);
     expect(reset?.history.threadContext.find(({ id }) => id === root.id)).toBe(updated);
+  });
+
+  test("re-bounds the retained union when a patched visible message grows", () => {
+    const richPage: ChannelHistoryPage = {
+      ...historyPage(1, 300, false),
+      messages: messages(1, 300).map((candidate) => ({
+        ...candidate,
+        content: "x".repeat(5_000),
+      })),
+    };
+    const initial = applyPrimaryHistoryPage({
+      current: undefined,
+      window: undefined,
+      page: richPage,
+      mode: "replace",
+      atBottom: true,
+    });
+    const originalCount = initial.history.messages.length;
+    const updated = {
+      ...(initial.history.messages.at(-1) as ChannelMessageView),
+      content: "y".repeat(1_000_000),
+    };
+    const patched = patchRetainedMessageWindow(initial.history, initial.window, updated, {
+      fill: "newer-first",
+      messageIds: new Set([updated.id]),
+    });
+
+    expect(patched).not.toBeNull();
+    if (!patched) throw new Error("expected patched retained state");
+    const stats = retainedMessageWindowStats(patched.history, patched.window);
+    expect(patched.history.messages.find(({ id }) => id === updated.id)).toBe(updated);
+    expect(patched.history.messages.length).toBeLessThan(originalCount);
+    expect(stats.messages).toBeLessThanOrEqual(MESSAGE_HISTORY_MAX_MESSAGES);
+    expect(stats.bytes).toBeLessThanOrEqual(MESSAGE_HISTORY_MAX_RETAINED_BYTES);
+    expect(stats.bytes).toBe(patched.window.retainedBytes);
+  });
+
+  test("evicts a distant oversized patch instead of protecting its edge-to-row range", () => {
+    const initial = applyPrimaryHistoryPage({
+      current: undefined,
+      window: undefined,
+      page: historyPage(1, 500, false),
+      mode: "replace",
+      atBottom: true,
+    });
+    const updated = {
+      ...(initial.history.messages[249] as ChannelMessageView),
+      content: "z".repeat(MESSAGE_HISTORY_MAX_RETAINED_BYTES + 1),
+    };
+    const patched = patchRetainedMessageWindow(initial.history, initial.window, updated);
+
+    expect(patched).not.toBeNull();
+    if (!patched) throw new Error("expected patched retained state");
+    const stats = retainedMessageWindowStats(patched.history, patched.window);
+    expect(patched.history.messages.some(({ id }) => id === updated.id)).toBe(false);
+    expect(stats.messages).toBeLessThanOrEqual(MESSAGE_HISTORY_MAX_MESSAGES);
+    expect(stats.bytes).toBeLessThanOrEqual(MESSAGE_HISTORY_MAX_RETAINED_BYTES);
+    expect(stats.bytes).toBe(patched.window.retainedBytes);
   });
 });

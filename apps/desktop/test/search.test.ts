@@ -73,6 +73,9 @@ describe("local action matching", () => {
     ];
 
     expect(rankPaletteItems(commands, "cookies").map((command) => command.title)).toEqual([]);
+    expect(rankPaletteItems(commands, "model").map((command) => command.title)).toEqual([]);
+    expect(rankPaletteItems(commands, "notifications").map((command) => command.title)).toEqual([]);
+    expect(rankPaletteItems(commands, "security").map((command) => command.title)).toEqual([]);
     expect(rankPaletteItems(commands, "release track").map((command) => command.title)).toEqual([
       "Settings: Updates",
     ]);
@@ -88,6 +91,22 @@ describe("local action matching", () => {
     const updates = commands.find((command) => command.title === "Settings: Updates");
     if (!updates) throw new Error("Expected the Updates palette command");
     expect(scorePaletteItem("release missing", updates)).toBeNull();
+  });
+
+  test("keeps bots and groups ahead of other scored results, then sorts by score", () => {
+    const ranked = rankPaletteItems(
+      [
+        { title: "Settings: General", searchPriority: 1 },
+        { title: "settings", searchPriority: 1 },
+        { title: "Settings Bot", searchPriority: 0 },
+      ],
+      "settings"
+    );
+    expect(ranked.map((item) => item.title)).toEqual([
+      "Settings Bot",
+      "settings",
+      "Settings: General",
+    ]);
   });
 
   test("normalizes punctuation and accents and highlights only visible literal matches", () => {

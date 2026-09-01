@@ -381,22 +381,6 @@ textarea,
   transition: opacity 120ms ease;
 }
 
-@keyframes message-send-failed-highlight {
-  0%,
-  40% {
-    background-color: color-mix(in srgb, #ffc000 22%, transparent);
-  }
-
-  100% {
-    background-color: transparent;
-  }
-}
-
-.message-row[data-failed],
-.thread-message-row[data-failed] {
-  animation: message-send-failed-highlight 2.5s ease-out forwards;
-}
-
 .sent-while-offline-notice {
   max-height: 32px;
   margin-top: 4px;
@@ -1559,12 +1543,6 @@ textarea,
   .message-row[data-pending],
   .thread-message-row[data-pending] {
     transition-duration: 120ms !important;
-  }
-
-  .message-row[data-failed],
-  .thread-message-row[data-failed] {
-    animation-name: none !important;
-    background-color: color-mix(in srgb, #ffc000 22%, transparent);
   }
 
   .message-row[data-enter="new"] > .message-row-content {

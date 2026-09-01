@@ -10,14 +10,15 @@ import {
   messageDeliveryAcceptance,
   type MessageDeliveryAcceptance,
 } from "@openbot/product-core/durable-delivery";
-import { getAuthSnapshot } from "../client/auth";
+import { getAuthSnapshot, subscribeAuthSnapshot } from "../client/auth";
 import { API_BASE } from "../client/http";
 import { api } from "../client/openbot-api";
+import { recordPerformance } from "./performance";
 
 export const DURABLE_SEND_ACCEPTED_EVENT = "openbot:durable-send-accepted";
 
 const controllers = new Map<string, DurableSendController>();
-const startedControllers = new WeakSet<DurableSendController>();
+const controllerCleanups = new Map<DurableSendController, () => void>();
 let transportDownUntilMs = 0;
 let transportDownSnapshot = navigator.onLine === false;
 const transportListeners = new Set<() => void>();
@@ -53,18 +54,49 @@ const storageKey = (scope: string): string => `openbot:send-journal:v1:${scope}`
 
 const storageFor = (scope: string) => ({
   read: async (): Promise<unknown> => {
+    const host = window.openbot?.deliveryJournal;
+    if (host) {
+      try {
+        const journal = await host.read(scope);
+        if (journal) return journal;
+      } catch {
+        // A legacy renderer journal is still a valid crash-recovery source if
+        // the host bridge is temporarily unavailable during startup.
+      }
+    }
     const encoded = localStorage.getItem(storageKey(scope));
     if (!encoded) return null;
+    let journal: unknown;
     try {
-      return JSON.parse(encoded) as unknown;
+      journal = JSON.parse(encoded) as unknown;
     } catch {
       return null;
     }
+    if (host) {
+      try {
+        await host.write(scope, journal);
+        localStorage.removeItem(storageKey(scope));
+      } catch {
+        // Keep the legacy copy until a later host-backed write succeeds.
+      }
+    }
+    return journal;
   },
   write: async (journal: DurableSendJournal): Promise<void> => {
+    if (window.openbot?.deliveryJournal) {
+      await window.openbot.deliveryJournal.write(scope, journal);
+      localStorage.removeItem(storageKey(scope));
+      return;
+    }
     localStorage.setItem(storageKey(scope), JSON.stringify(journal));
   },
 });
+
+export const setDesktopSendLiveTransportHealthy = (healthy: boolean): void => {
+  if (healthy) {
+    for (const controller of controllers.values()) void controller.flush();
+  }
+};
 
 export const stageDesktopDeliveryFile = async (
   file: Blob,
@@ -202,8 +234,7 @@ const dispatch = async (record: DurableSendRecord) => {
 };
 
 const startLifecycle = (controller: DurableSendController) => {
-  if (startedControllers.has(controller)) return;
-  startedControllers.add(controller);
+  if (controllerCleanups.has(controller)) return;
   void controller.restore();
   const flush = () => void controller.flush();
   const noteTransportChange = () => {
@@ -213,18 +244,39 @@ const startLifecycle = (controller: DurableSendController) => {
   window.addEventListener("online", noteTransportChange);
   window.addEventListener("offline", noteTransportChange);
   window.addEventListener("focus", flush);
-  document.addEventListener("visibilitychange", () => {
+  const onVisibilityChange = () => {
     if (document.visibilityState === "visible") flush();
-  });
-  window.setInterval(() => {
+  };
+  document.addEventListener("visibilitychange", onVisibilityChange);
+  const interval = window.setInterval(() => {
     refreshTransportSnapshot();
     void controller.expireAcknowledgements();
     if (navigator.onLine !== false) void controller.flush();
   }, 5_000);
+  controllerCleanups.set(controller, () => {
+    window.removeEventListener("online", noteTransportChange);
+    window.removeEventListener("offline", noteTransportChange);
+    window.removeEventListener("focus", flush);
+    document.removeEventListener("visibilitychange", onVisibilityChange);
+    window.clearInterval(interval);
+    controller.dispose();
+  });
 };
+
+const disposeInactiveControllers = (activeScope: string) => {
+  for (const [scope, controller] of controllers) {
+    if (scope === activeScope) continue;
+    controllerCleanups.get(controller)?.();
+    controllerCleanups.delete(controller);
+    controllers.delete(scope);
+  }
+};
+
+subscribeAuthSnapshot(() => disposeInactiveControllers(accountScope()));
 
 export const desktopDurableSendController = (): DurableSendController => {
   const scope = accountScope();
+  disposeInactiveControllers(scope);
   const existing = controllers.get(scope);
   if (existing) return existing;
   const scopeIsActive = () => accountScope() === scope;
@@ -253,6 +305,15 @@ export const desktopDurableSendController = (): DurableSendController => {
     discardStagedAttachments: discardDesktopDeliveryStages,
     isTransportDown: () => !scopeIsActive() || desktopSendTransportDown(),
     createNonce: () => crypto.randomUUID(),
+    onTelemetry: (event) =>
+      recordPerformance(`delivery.${event.outcome}`, event.ageMs, {
+        channelId: event.channelId,
+        attempts: event.attemptCount,
+        attachments: event.attachmentCount,
+        queued: event.queued,
+        uncertain: event.uncertain ?? false,
+        code: event.code ?? "",
+      }),
   });
   controllers.set(scope, controller);
   startLifecycle(controller);

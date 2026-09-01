@@ -30,6 +30,10 @@ interface Window {
       readDeliveryStage: (stagingId: string) => Promise<Uint8Array>;
       discardDeliveryStages: (stagingIds: string[]) => Promise<void>;
     };
+    deliveryJournal: {
+      read: (scope: string) => Promise<unknown>;
+      write: (scope: string, journal: unknown) => Promise<void>;
+    };
     updates: {
       status: () => Promise<OpenBotUpdateStatus>;
       check: () => Promise<OpenBotUpdateStatus>;

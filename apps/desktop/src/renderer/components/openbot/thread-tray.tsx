@@ -1,12 +1,12 @@
 import type { AssetRef, BotView, ChannelMessageView } from "@openbot/contracts";
 import {
+  type DurableSendPayload,
+  type DurableSendRecord,
+  type DurableStagedAttachment,
   durableSendIsInFlight,
   durableSendMessage,
   durableSendRenderKey,
   durableSendStatusLabel,
-  type DurableSendPayload,
-  type DurableSendRecord,
-  type DurableStagedAttachment,
 } from "@openbot/product-core/durable-delivery";
 import {
   messageDisplayProjection,
@@ -35,8 +35,8 @@ import {
   subscribeDesktopSendTransport,
 } from "../../lib/durable-sends";
 import type { MentionOption } from "../../lib/mentions";
-import { PromptInput } from "../ai-elements/prompt-input";
 import { MessageContent, MessageResponse } from "../ai-elements/message";
+import { PromptInput } from "../ai-elements/prompt-input";
 import { BotAvatar } from "./avatar";
 import { MessageImageGallery } from "./image-attachment";
 
@@ -183,6 +183,7 @@ export function ThreadTray({
   mentionOptions,
   open,
   replies,
+  repliesTruncated = false,
   root,
   focusMessageId,
   deliveries,
@@ -200,6 +201,7 @@ export function ThreadTray({
   mentionOptions: readonly MentionOption[];
   open: boolean;
   replies: readonly ChannelMessageView[];
+  repliesTruncated?: boolean;
   root: ChannelMessageView;
   focusMessageId?: string | null;
   deliveries: readonly DurableSendRecord[];
@@ -276,7 +278,10 @@ export function ThreadTray({
       const row = scrollRef.current?.querySelector<HTMLElement>(
         `[data-thread-message-id="${CSS.escape(focusMessageId)}"]`
       );
-      row?.scrollIntoView({ block: "center", behavior: "smooth" });
+      row?.scrollIntoView({
+        block: "center",
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+      });
     }, 80);
     return () => window.clearTimeout(timer);
   }, [focusMessageId, messages, open, scrollToIndex]);
@@ -313,12 +318,22 @@ export function ThreadTray({
             <X className="size-4" />
           </button>
         </header>
+        {repliesTruncated && (
+          <div
+            className="shrink-0 border-b bg-muted/35 px-4 py-2 text-[11px] text-muted-foreground"
+            role="status"
+          >
+            Some older replies are omitted from this open thread snapshot.
+          </div>
+        )}
+        {/* biome-ignore lint/a11y/useSemanticElements: The virtualized rows need a non-list positioning wrapper between the scrollport and rows. */}
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4" ref={scrollRef} role="list">
           <div className="relative w-full" style={{ height: totalSize }}>
             {virtualItems.map((virtualItem) => {
               const message = messages[virtualItem.index];
               if (!message) return null;
               return (
+                // biome-ignore lint/a11y/useSemanticElements: Virtual rows must remain measurable absolutely-positioned elements.
                 <div
                   aria-posinset={virtualItem.index + 1}
                   aria-setsize={messages.length}

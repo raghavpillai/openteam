@@ -1,8 +1,17 @@
 import { describe, expect, test } from "bun:test";
 import {
+  SETTINGS_PALETTE_SECTIONS,
+  THEME_PALETTE_COMMANDS,
+  updatePalettePresentation,
+} from "../src/renderer/lib/command-palette";
+import {
   isDefaultSearchResultKind,
   moveSearchSection,
   moveSearchSelection,
+  normalizePaletteText,
+  paletteHighlightSegments,
+  rankPaletteItems,
+  scorePaletteItem,
   searchSectionDirectionForKey,
   searchTextMatches,
 } from "../src/renderer/lib/search";
@@ -51,9 +60,67 @@ describe("local action matching", () => {
     expect(searchTextMatches("channel settings", "Chat settings")).toBe(false);
   });
 
+  test("matches and ranks settings using Grok Bot's fuzzy label and keyword rules", () => {
+    const commands = [
+      ...SETTINGS_PALETTE_SECTIONS.map((settings) => ({
+        title: `Settings: ${settings.label}`,
+        keywords: settings.keywords,
+      })),
+      ...THEME_PALETTE_COMMANDS.map((theme) => ({
+        title: `Theme: ${theme.label}`,
+        keywords: theme.keywords,
+      })),
+    ];
+
+    expect(rankPaletteItems(commands, "cookies").map((command) => command.title)).toEqual([]);
+    expect(rankPaletteItems(commands, "release track").map((command) => command.title)).toEqual([
+      "Settings: Updates",
+    ]);
+    expect(rankPaletteItems(commands, "appearance").map((command) => command.title)).toEqual([
+      "Settings: General",
+      "Theme: System",
+      "Theme: Light",
+      "Theme: Dark",
+    ]);
+    expect(rankPaletteItems(commands, "stngs gen").map((command) => command.title)).toEqual([
+      "Settings: General",
+    ]);
+    const updates = commands.find((command) => command.title === "Settings: Updates");
+    if (!updates) throw new Error("Expected the Updates palette command");
+    expect(scorePaletteItem("release missing", updates)).toBeNull();
+  });
+
+  test("normalizes punctuation and accents and highlights only visible literal matches", () => {
+    expect(normalizePaletteText("  Rélease—Track / BETA ")).toBe("release track beta");
+    expect(paletteHighlightSegments("Settings: Updates", "updates")).toEqual([
+      { text: "Settings: ", isMatch: false, start: 0 },
+      { text: "Updates", isMatch: true, start: 10 },
+    ]);
+    expect(paletteHighlightSegments("Settings: Updates", "release")).toEqual([
+      { text: "Settings: Updates", isMatch: false, start: 0 },
+    ]);
+  });
+
+  test("keeps unsupported settings out of the command registry", () => {
+    expect(SETTINGS_PALETTE_SECTIONS.map((settings) => settings.label)).toEqual([
+      "General",
+      "Computer",
+      "Updates",
+    ]);
+  });
+
+  test("mirrors Grok Bot's stateful update command labels", () => {
+    expect(updatePalettePresentation("idle").title).toBe("Check for Updates");
+    expect(updatePalettePresentation("checking").title).toBe("Checking for Updates…");
+    expect(updatePalettePresentation("available").title).toBe("Downloading Update…");
+    expect(updatePalettePresentation("backing-up").title).toBe("Preparing Update…");
+    expect(updatePalettePresentation("downloaded").title).toBe("Restart to Update");
+    expect(updatePalettePresentation("installing").title).toBe("Update in Progress…");
+  });
+
   test("Chat Settings opens the editable inspector instead of the summary", async () => {
     const source = await Bun.file(new URL("../src/renderer/App.tsx", import.meta.url)).text();
-    const actionStart = source.indexOf('id: "chat-details"');
+    const actionStart = source.indexOf('id: "info:settings"');
     const actionEnd = source.indexOf("},", source.indexOf("setDetailsOpen(true);", actionStart));
     const action = source.slice(actionStart, actionEnd);
 

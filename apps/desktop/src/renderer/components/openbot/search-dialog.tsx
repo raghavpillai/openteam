@@ -19,24 +19,28 @@ import {
   ListRestart,
   LoaderCircle,
   Monitor,
+  Moon,
   Palette,
   Puzzle,
+  RefreshCw,
   Search,
   Send,
   Settings2,
+  Sun,
   UserRound,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../client/openbot-api";
 import { cn } from "../../lib/cn";
 import {
+  isDefaultSearchResultKind,
   moveSearchSection,
   moveSearchSelection,
+  paletteHighlightSegments,
+  rankPaletteItems,
   SEARCH_SECTIONS,
   type SearchSection,
-  isDefaultSearchResultKind,
   searchSectionDirectionForKey,
-  searchTextMatches,
   searchTimeLabel,
 } from "../../lib/search";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "../ui/dialog";
@@ -54,7 +58,7 @@ export interface SearchAction {
   id: string;
   title: string;
   subtitle: string;
-  keywords?: string;
+  keywords?: readonly string[];
   icon:
     | "bot"
     | "channel"
@@ -64,7 +68,11 @@ export interface SearchAction {
     | "hidden"
     | "plugins"
     | "theme"
-    | "updates";
+    | "theme-system"
+    | "theme-light"
+    | "theme-dark"
+    | "updates"
+    | "refresh";
   current?: boolean;
   run: () => void;
 }
@@ -133,17 +141,25 @@ function ActionIcon({ action }: { action: SearchAction }) {
         ? Hash
         : action.icon === "computer"
           ? Monitor
-          : action.icon === "plugins"
-            ? Puzzle
-            : action.icon === "theme"
-              ? Palette
-              : action.icon === "updates"
-                ? CloudDownload
-                : action.icon === "hidden"
-                  ? EyeOff
-                  : action.icon === "details"
-                    ? ListRestart
-                    : Settings2;
+          : action.icon === "theme-system"
+            ? Monitor
+            : action.icon === "theme-light"
+              ? Sun
+              : action.icon === "theme-dark"
+                ? Moon
+                : action.icon === "plugins"
+                  ? Puzzle
+                  : action.icon === "theme"
+                    ? Palette
+                    : action.icon === "updates"
+                      ? CloudDownload
+                      : action.icon === "refresh"
+                        ? RefreshCw
+                        : action.icon === "hidden"
+                          ? EyeOff
+                          : action.icon === "details"
+                            ? ListRestart
+                            : Settings2;
   return (
     <span className="grid size-7 shrink-0 place-items-center rounded-[9px] bg-subtle text-foreground-secondary">
       <Icon className="size-3.5" />
@@ -271,13 +287,7 @@ export function SearchDialog({
     };
   }, [open, query, requestGate, section]);
 
-  const matchingActions = useMemo(
-    () =>
-      actions.filter((action) =>
-        searchTextMatches(query, action.title, action.subtitle, action.keywords ?? "")
-      ),
-    [actions, query]
-  );
+  const matchingActions = useMemo(() => rankPaletteItems(actions, query), [actions, query]);
   const hasQuery = query.trim().length > 0;
   const results = useMemo<DisplayResult[]>(() => {
     if (section === "actions") {
@@ -287,9 +297,20 @@ export function SearchDialog({
       .filter((value) => section !== "all" || hasQuery || isDefaultSearchResultKind(value.kind))
       .map((value): DisplayResult => ({ type: "document", value }));
     if (section === "all" && hasQuery) {
+      const agentResults = documentResults.filter(
+        (result) =>
+          result.type === "document" &&
+          (result.value.kind === "bot" || result.value.kind === "channel")
+      );
+      const otherDocumentResults = documentResults.filter(
+        (result) =>
+          result.type !== "document" ||
+          (result.value.kind !== "bot" && result.value.kind !== "channel")
+      );
       return [
+        ...agentResults,
         ...matchingActions.map((value): DisplayResult => ({ type: "action", value })),
-        ...documentResults,
+        ...otherDocumentResults,
       ];
     }
     return documentResults;
@@ -452,7 +473,15 @@ export function SearchDialog({
                   )}
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-[13px] font-medium leading-[18px]">
-                      {result.value.title}
+                      {paletteHighlightSegments(result.value.title, query).map((segment) =>
+                        segment.isMatch ? (
+                          <span className="font-semibold" key={segment.start}>
+                            {segment.text}
+                          </span>
+                        ) : (
+                          segment.text
+                        )
+                      )}
                     </span>
                     <span className="block truncate text-[12px] leading-[17px] text-foreground-secondary">
                       {result.value.subtitle}

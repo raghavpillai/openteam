@@ -28,6 +28,15 @@ import {
 import { activeAsyncTaskChannelIds, activeAsyncTasksForBot } from "./lib/async-tasks";
 import { BOT_TEMPLATE_SHARING_ENABLED, type TemplateBot } from "./lib/bot-template";
 import { cn } from "./lib/cn";
+import {
+  CHAT_SETTINGS_KEYWORDS,
+  HIDDEN_BOTS_PALETTE_KEYWORDS,
+  PLUGINS_PALETTE_KEYWORDS,
+  SETTINGS_PALETTE_SECTIONS,
+  THEME_PALETTE_COMMANDS,
+  UPDATE_PALETTE_KEYWORDS,
+  updatePalettePresentation,
+} from "./lib/command-palette";
 import { deriveUnreadChannelIds, syncDesktopNotificationSnapshot } from "./lib/notifications";
 import {
   COMPACT_SIDEBAR_WIDTH,
@@ -137,6 +146,7 @@ export default function App() {
   const [aboutOpen, setAboutOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [themePreference, setThemePreferenceState] = useState(readThemePreference);
+  const [paletteUpdateStatus, setPaletteUpdateStatus] = useState<OpenBotUpdateStatus | null>(null);
   const [pluginsOpen, setPluginsOpen] = useState(false);
   const [templateImport, setTemplateImport] = useState<TemplateBot | null>(null);
   const [templateShareRequest, setTemplateShareRequest] = useState<{
@@ -320,15 +330,7 @@ export default function App() {
       snapshot,
       sidebarPreferences.unreadIds
     );
-  }, [
-    sidebarPreferences.unreadIds,
-    snapshot?.approvals,
-    snapshot?.bots,
-    snapshot?.channelMessages,
-    snapshot?.channels,
-    snapshot?.cursor,
-    snapshot?.runs,
-  ]);
+  }, [sidebarPreferences.unreadIds, snapshot]);
   useEffect(() => {
     const publishVisibleChannel = () =>
       window.openbot?.notifications.setVisibleChannel(document.hasFocus() ? selectedId : null);
@@ -395,6 +397,21 @@ export default function App() {
     window.addEventListener(THEME_CHANGE_EVENT, syncThemePreference);
     return () => window.removeEventListener(THEME_CHANGE_EVENT, syncThemePreference);
   }, []);
+  useEffect(() => {
+    if (!searchOpen || !window.openbot) return;
+    let active = true;
+    void window.openbot.updates
+      .status()
+      .then((status) => active && setPaletteUpdateStatus(status))
+      .catch(() => undefined);
+    const unsubscribe = window.openbot.updates.onClientProgress((status) => {
+      if (active) setPaletteUpdateStatus(status);
+    });
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, [searchOpen]);
   useEffect(() => {
     if (!appReady) return;
     // Search is frequent enough that evaluating it on the first click is visible,
@@ -823,15 +840,16 @@ export default function App() {
           ? index.channelById.get(lastWritableChannelId.current)?.members[0]?.botId
           : undefined))
       : undefined;
+  const updatePaletteAction = updatePalettePresentation(paletteUpdateStatus?.status);
   const searchActions = useMemo<SearchAction[]>(
     () => [
       ...(selected
         ? [
             {
-              id: "chat-details",
+              id: "info:settings",
               title: "Chat Settings",
               subtitle: "Current chat",
-              keywords: "current channel members info",
+              keywords: CHAT_SETTINGS_KEYWORDS,
               icon: "details" as const,
               run: () => {
                 setInspectorMode("settings");
@@ -840,35 +858,19 @@ export default function App() {
             },
           ]
         : []),
-      {
-        id: "settings-general",
-        title: "Settings: General",
+      ...SETTINGS_PALETTE_SECTIONS.map((settings) => ({
+        id: `settings:${settings.id}`,
+        title: `Settings: ${settings.label}`,
         subtitle: "Settings",
-        keywords: "account appearance bot defaults",
-        icon: "settings",
-        run: openSettings,
-      },
+        keywords: settings.keywords,
+        icon: settings.icon,
+        run: () => openSettingsTarget(settings.target),
+      })),
       {
-        id: "settings-computer",
-        title: "Settings: Computer",
-        subtitle: "Settings",
-        keywords: "local execution host computers permissions",
-        icon: "computer",
-        run: () => openSettingsTarget("computers"),
-      },
-      {
-        id: "settings-updates",
-        title: "Settings: Updates",
-        subtitle: "Settings",
-        keywords: "desktop server version upgrade",
-        icon: "updates",
-        run: () => openSettingsTarget("update-status"),
-      },
-      {
-        id: "plugins",
+        id: "overlay:plugins",
         title: "Plugins",
         subtitle: "",
-        keywords: "connectors integrations tools",
+        keywords: PLUGINS_PALETTE_KEYWORDS,
         icon: "plugins",
         run: openPlugins,
       },
@@ -878,41 +880,59 @@ export default function App() {
               id: "hidden-bots",
               title: "Open Hidden Bots",
               subtitle: "Sidebar",
-              keywords: "hidden bots agents groups unhide",
+              keywords: HIDDEN_BOTS_PALETTE_KEYWORDS,
               icon: "hidden" as const,
               run: openHiddenAgents,
             },
           ]
         : []),
-      ...(["system", "light", "dark"] as const).map((preference) => ({
-        id: `theme-${preference}`,
-        title: `Theme: ${preference === "system" ? "System" : preference === "light" ? "Light" : "Dark"}`,
+      ...THEME_PALETTE_COMMANDS.map((theme) => ({
+        id: `theme:${theme.preference}`,
+        title: `Theme: ${theme.label}`,
         subtitle: "Settings · Appearance",
-        keywords: "theme appearance color mode",
-        icon: "theme" as const,
-        current: themePreference === preference,
-        run: () => setThemePreference(preference),
+        keywords: theme.keywords,
+        icon: theme.icon,
+        current: themePreference === theme.preference,
+        run: () => setThemePreference(theme.preference),
       })),
-      {
-        id: "check-for-updates",
-        title: "Check for Updates",
-        subtitle: "Updates",
-        keywords: "desktop server version upgrade",
-        icon: "updates",
-        run: () => {
-          openSettingsTarget("update-status");
-          void window.openbot?.updates.check().catch(() => undefined);
-        },
-      },
+      ...(window.openbot
+        ? [
+            {
+              id: "update:app",
+              title: updatePaletteAction.title,
+              subtitle: "Updates",
+              keywords: UPDATE_PALETTE_KEYWORDS,
+              icon: updatePaletteAction.icon,
+              run: () => {
+                if (paletteUpdateStatus?.status === "downloaded") {
+                  void window.openbot?.updates.installClient().catch(() => undefined);
+                  return;
+                }
+                openSettingsTarget("update-status");
+                if (
+                  !paletteUpdateStatus ||
+                  ["idle", "up-to-date", "error"].includes(paletteUpdateStatus.status)
+                ) {
+                  void window.openbot?.updates
+                    .check()
+                    .then(setPaletteUpdateStatus)
+                    .catch(() => undefined);
+                }
+              },
+            } satisfies SearchAction,
+          ]
+        : []),
     ],
     [
       hiddenAgentCount,
       openHiddenAgents,
       openPlugins,
-      openSettings,
       openSettingsTarget,
+      paletteUpdateStatus,
       selected,
       themePreference,
+      updatePaletteAction.icon,
+      updatePaletteAction.title,
     ]
   );
 
@@ -1183,7 +1203,7 @@ export default function App() {
                   </Suspense>
                 )}
               </div>
-              <div
+              <section
                 aria-label="Conversation details"
                 aria-hidden={!visibleDetailsOpen}
                 className={cn(
@@ -1201,6 +1221,7 @@ export default function App() {
                   ref={inspectorContentRef}
                   style={{ width: renderedInspectorWidth }}
                 >
+                  {/* biome-ignore lint/a11y/useSemanticElements: This interactive separator contains a visible resize handle and exposes range semantics. */}
                   <div
                     aria-label="Resize details"
                     aria-orientation="vertical"
@@ -1299,7 +1320,7 @@ export default function App() {
                     </div>
                   )}
                 </div>
-              </div>
+              </section>
             </div>
           ) : (
             <div className="grid flex-1 place-items-center text-sm text-muted-foreground">

@@ -16,10 +16,10 @@ export * from "./selection";
 export * from "./snapshot";
 export * from "./snapshot-reconcile";
 export {
+  type ActiveRunStatus,
   hasTransientRoutineExecution,
   isActiveRunStatus,
   isTransientRoutineExecutionStatus,
-  type ActiveRunStatus,
   type TransientRoutineExecutionStatus,
 } from "./statuses";
 export * from "./timestamps";

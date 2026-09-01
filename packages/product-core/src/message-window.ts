@@ -173,11 +173,10 @@ export const boundMessageWindow = (
     retainedBytes += additions.bytes;
   }
 
-  const indexes =
-    options.retain === "newest"
-      ? Array.from({ length: messages.length }, (_, offset) => messages.length - 1 - offset)
-      : Array.from({ length: messages.length }, (_, index) => index);
-  for (const index of indexes) {
+  const startIndex = options.retain === "newest" ? messages.length - 1 : 0;
+  const endIndex = options.retain === "newest" ? -1 : messages.length;
+  const step = options.retain === "newest" ? -1 : 1;
+  for (let index = startIndex; index !== endIndex; index += step) {
     const message = messages[index];
     if (!message) continue;
     const additions = additionsFor(message.id);
@@ -204,26 +203,31 @@ export const boundMessageWindow = (
   }
 
   const selected = messages.filter((message) => selectedIds.has(message.id));
-  const selectedIndexStart =
-    selected.length === 0 ? messages.length : primaryIndexById.get(selected[0]!.id)!;
+  const firstSelected = selected[0] ?? null;
+  const lastSelected = selected.at(-1) ?? null;
+  const selectedIndexStart = firstSelected
+    ? (primaryIndexById.get(firstSelected.id) ?? messages.length)
+    : messages.length;
   const selectedIndexEnd =
-    selected.length === 0 ? -1 : primaryIndexById.get(selected[selected.length - 1]!.id)!;
+    lastSelected === null ? -1 : (primaryIndexById.get(lastSelected.id) ?? -1);
   const olderCount = selectedIndexStart;
   const newerCount = messages.length - selectedIndexEnd - 1;
+  const adjacentOlder = messages[selectedIndexStart - 1] ?? null;
+  const adjacentNewer = messages[selectedIndexEnd + 1] ?? null;
   const olderEviction =
-    olderCount > 0 && selected[0]
+    olderCount > 0 && firstSelected && adjacentOlder
       ? {
           count: olderCount,
-          adjacentEvictedMessageId: messages[selectedIndexStart - 1]!.id,
-          boundaryRetainedMessageId: selected[0].id,
+          adjacentEvictedMessageId: adjacentOlder.id,
+          boundaryRetainedMessageId: firstSelected.id,
         }
       : null;
   const newerEviction =
-    newerCount > 0 && selected.at(-1)
+    newerCount > 0 && lastSelected && adjacentNewer
       ? {
           count: newerCount,
-          adjacentEvictedMessageId: messages[selectedIndexEnd + 1]!.id,
-          boundaryRetainedMessageId: selected.at(-1)!.id,
+          adjacentEvictedMessageId: adjacentNewer.id,
+          boundaryRetainedMessageId: lastSelected.id,
         }
       : null;
 

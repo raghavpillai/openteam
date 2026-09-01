@@ -4,12 +4,11 @@ import {
   SCREEN_FRAME_REFRESH_MS,
   type ScreenSessionController,
 } from "@openbot/client-core";
-import type { BotView, ScreenStatusView } from "@openbot/contracts";
+import type { BotView, ScreenActionInput, ScreenStatusView } from "@openbot/contracts";
 import { clientErrorMessage } from "@openbot/product-core/redaction";
 import { LoaderCircle, Minimize2, Monitor, RefreshCw } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../../client/openbot-api";
-import { resolveViewerUrl } from "../../client/runtime-url";
 import { measureUntilNextPaint, recordPerformance } from "../../lib/performance";
 import { useAuthenticatedResource } from "../../hooks/use-authenticated-resource";
 import {
@@ -47,6 +46,14 @@ export function BotScreen({
   const takeoverRef = useRef(false);
   const screenSession = useRef<ScreenSessionController | null>(null);
   const viewerOpenedAt = useRef(0);
+  const actionTail = useRef(Promise.resolve());
+  const pointerGesture = useRef<{
+    moved: boolean;
+    path: Array<{ x: number; y: number }>;
+    pointerId: number;
+    start: { x: number; y: number };
+  } | null>(null);
+  const suppressNextClick = useRef(false);
   const screenRef = useRef(screen);
   const enabledRef = useRef(enabled);
   const activeRef = useRef(active);
@@ -85,7 +92,7 @@ export function BotScreen({
       }
     };
     refreshFrame();
-    if (!enabled || !active || open || screen?.state !== "ready") return;
+    if (!enabled || !active || screen?.state !== "ready") return;
     const timer = window.setInterval(refreshFrame, SCREEN_FRAME_REFRESH_MS);
     document.addEventListener("visibilitychange", refreshFrame);
     return () => {
@@ -192,15 +199,82 @@ export function BotScreen({
     setOpen(true);
     if (!screen) void refreshStatus();
   };
-  const viewerUrl = useMemo(() => {
-    if (!screen?.viewerUrl) return "";
-    const url = new URL(resolveViewerUrl(screen.viewerUrl, window.location.href));
-    url.searchParams.set("view_only", "false");
-    return url.toString();
-  }, [screen]);
-  const viewerReady = Boolean(screen?.state === "ready" && screen.humanTakeover && viewerUrl);
+  const viewerReady = Boolean(screen?.state === "ready" && screen.humanTakeover);
   const frameSource = useAuthenticatedResource(
-    enabled && screen?.state === "ready" && !open ? api.screenFrameUrl(bot.id, frameRevision) : null
+    enabled && screen?.state === "ready" ? api.screenFrameUrl(bot.id, frameRevision) : null
+  );
+  const act = useCallback(
+    (input: ScreenActionInput) => {
+      const request = actionTail.current
+        .catch(() => undefined)
+        .then(async () => {
+          if (!takeoverRef.current) return;
+          try {
+            const next = await api.screenAction(bot.id, input);
+            setScreen(next);
+            setFrameRevision(Date.now());
+            setError(null);
+          } catch (cause) {
+            setError(clientErrorMessage(cause, "The computer action failed"));
+          }
+        });
+      actionTail.current = request;
+      return request;
+    },
+    [bot.id]
+  );
+  const remotePoint = useCallback(
+    (element: HTMLElement, clientX: number, clientY: number) => {
+      const bounds = element.getBoundingClientRect();
+      const width = screen?.width || 1280;
+      const height = screen?.height || 800;
+      return {
+        x: Math.max(
+          0,
+          Math.min(width - 1, Math.round(((clientX - bounds.left) / bounds.width) * width))
+        ),
+        y: Math.max(
+          0,
+          Math.min(height - 1, Math.round(((clientY - bounds.top) / bounds.height) * height))
+        ),
+      };
+    },
+    [screen?.height, screen?.width]
+  );
+  const handleRemoteKey = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      if (event.key === "Escape") return;
+      const names: Record<string, string> = {
+        Enter: "Return",
+        Backspace: "BackSpace",
+        Delete: "Delete",
+        Tab: "Tab",
+        ArrowLeft: "Left",
+        ArrowRight: "Right",
+        ArrowUp: "Up",
+        ArrowDown: "Down",
+        Home: "Home",
+        End: "End",
+        PageUp: "Page_Up",
+        PageDown: "Page_Down",
+      };
+      const key = names[event.key];
+      const modifiers = [
+        event.ctrlKey ? "Control" : "",
+        event.altKey ? "Alt" : "",
+        event.metaKey ? "Super" : "",
+        event.shiftKey && (key || event.ctrlKey || event.altKey || event.metaKey) ? "Shift" : "",
+      ].filter(Boolean);
+      if (key || modifiers.length) {
+        event.preventDefault();
+        const finalKey = key || event.key.toLowerCase();
+        void act({ action: "key", keys: [[...modifiers, finalKey].join("+")] });
+      } else if (event.key.length === 1) {
+        event.preventDefault();
+        void act({ action: "type", text: event.key });
+      }
+    },
+    [act]
   );
   const retryConnection = () => {
     setError(null);
@@ -278,23 +352,105 @@ export function BotScreen({
               className="relative aspect-[16/10] w-full overflow-hidden rounded-[6px] bg-[#1b1d1f]"
               style={{ maxWidth: "calc((100vh - 60px) * 1.6)" }}
             >
-              {viewerReady ? (
-                <iframe
-                  className="absolute inset-0 size-full border-0 bg-[#1b1d1f]"
-                  key={viewerUrl}
-                  onLoad={() => {
-                    if (!viewerOpenedAt.current) return;
-                    recordPerformance(
-                      "view.desktop-ready",
-                      performance.now() - viewerOpenedAt.current,
-                      { botId: bot.id }
-                    );
-                    viewerOpenedAt.current = 0;
+              {viewerReady && frameSource ? (
+                <div
+                  aria-label={`${bot.name}'s interactive Linux computer`}
+                  className="absolute inset-0 size-full cursor-crosshair bg-[#1b1d1f] outline-none"
+                  onClick={(event) => {
+                    if (suppressNextClick.current) {
+                      suppressNextClick.current = false;
+                      return;
+                    }
+                    event.currentTarget.focus();
+                    void act({
+                      action: "click",
+                      ...remotePoint(event.currentTarget, event.clientX, event.clientY),
+                      ...(event.detail > 1 ? { double: true } : {}),
+                    });
                   }}
-                  sandbox="allow-scripts allow-same-origin allow-forms allow-pointer-lock"
-                  src={viewerUrl}
-                  title={`${bot.name}'s Linux computer`}
-                />
+                  onContextMenu={(event) => {
+                    event.preventDefault();
+                    void act({
+                      action: "click",
+                      ...remotePoint(event.currentTarget, event.clientX, event.clientY),
+                      button: "right",
+                    });
+                  }}
+                  onKeyDown={handleRemoteKey}
+                  onPointerCancel={(event) => {
+                    if (pointerGesture.current?.pointerId === event.pointerId) {
+                      pointerGesture.current = null;
+                    }
+                  }}
+                  onPointerDown={(event) => {
+                    if (event.button !== 0) return;
+                    const start = remotePoint(event.currentTarget, event.clientX, event.clientY);
+                    pointerGesture.current = {
+                      moved: false,
+                      path: [start],
+                      pointerId: event.pointerId,
+                      start,
+                    };
+                    event.currentTarget.setPointerCapture(event.pointerId);
+                  }}
+                  onPointerMove={(event) => {
+                    const gesture = pointerGesture.current;
+                    if (!gesture || gesture.pointerId !== event.pointerId || !(event.buttons & 1)) {
+                      return;
+                    }
+                    const point = remotePoint(event.currentTarget, event.clientX, event.clientY);
+                    if (Math.hypot(point.x - gesture.start.x, point.y - gesture.start.y) >= 4) {
+                      gesture.moved = true;
+                    }
+                    const previous = gesture.path.at(-1);
+                    if (
+                      gesture.path.length < 100 &&
+                      (!previous || Math.hypot(point.x - previous.x, point.y - previous.y) >= 4)
+                    ) {
+                      gesture.path.push(point);
+                    }
+                  }}
+                  onPointerUp={(event) => {
+                    const gesture = pointerGesture.current;
+                    if (!gesture || gesture.pointerId !== event.pointerId) return;
+                    pointerGesture.current = null;
+                    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+                      event.currentTarget.releasePointerCapture(event.pointerId);
+                    }
+                    if (!gesture.moved) return;
+                    const end = remotePoint(event.currentTarget, event.clientX, event.clientY);
+                    const previous = gesture.path.at(-1);
+                    if (!previous || previous.x !== end.x || previous.y !== end.y) {
+                      gesture.path.push(end);
+                    }
+                    suppressNextClick.current = true;
+                    if (gesture.path.length >= 2) void act({ action: "drag", path: gesture.path });
+                  }}
+                  onWheel={(event) => {
+                    event.preventDefault();
+                    const deltaY = Math.max(-20, Math.min(20, Math.round(event.deltaY / 24)));
+                    if (deltaY) void act({ action: "scroll", deltaY });
+                  }}
+                  role="application"
+                  tabIndex={0}
+                >
+                  <img
+                    alt={`${bot.name}'s Linux screen`}
+                    className="pointer-events-none size-full select-none object-contain"
+                    draggable={false}
+                    key={frameSource}
+                    onLoad={() => {
+                      if (!viewerOpenedAt.current) return;
+                      recordPerformance(
+                        "view.desktop-ready",
+                        performance.now() - viewerOpenedAt.current,
+                        { botId: bot.id }
+                      );
+                      viewerOpenedAt.current = 0;
+                    }}
+                    src={frameSource}
+                  />
+                </div>
               ) : (
                 <div className="absolute inset-0 grid place-items-center text-center">
                   <div>

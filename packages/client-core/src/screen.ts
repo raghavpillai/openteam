@@ -37,7 +37,12 @@ export const shouldRefreshScreenFrame = ({
   documentVisible: boolean;
   viewerOpen: boolean;
   state: ScreenStatusView["state"] | undefined;
-}): boolean => enabled && inspectorActive && documentVisible && !viewerOpen && state === "ready";
+}): boolean => {
+  // Full-screen clients use the same authenticated frame broker as previews, so opening
+  // the viewer must not pause screenshot refreshes.
+  void viewerOpen;
+  return enabled && inspectorActive && documentVisible && state === "ready";
+};
 
 export interface ScreenSessionController {
   activate: () => void;

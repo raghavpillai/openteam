@@ -14,4 +14,13 @@ describe("desktop shared client controllers", () => {
       /const release = \(\) => \{\s*screenSession\.current\?\.deactivate\(\);\s*takeoverRef\.current = false;\s*api\.releaseScreenTakeover\(bot\.id\);/
     );
   });
+
+  test("brokers remote desktop frames and input through the authenticated API", async () => {
+    const screen = await source("components/openbot/bot-screen.tsx");
+
+    expect(screen).toContain("api.screenFrameUrl");
+    expect(screen).toContain("api.screenAction");
+    expect(screen).not.toContain("<iframe");
+    expect(screen).not.toContain("resolveViewerUrl");
+  });
 });

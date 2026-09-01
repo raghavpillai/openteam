@@ -254,5 +254,9 @@ describe("mobile virtual-list UI parity", () => {
     expect(route).toContain("styles.frameErrorOverlay");
     expect(route).toContain('controlling ? "You have control"');
     expect(route).toContain('controlling ? "Return control" : "Take control"');
+    expect(route).toContain("PanResponder.create");
+    expect(route).toContain('action: "drag"');
+    expect(route).toContain("Clipboard.getStringAsync()");
+    expect(route).toContain("<ComputerHelpSheet");
   });
 });

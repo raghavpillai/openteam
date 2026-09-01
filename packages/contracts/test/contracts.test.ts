@@ -347,6 +347,21 @@ describe("API contracts", () => {
         keys: ["ctrl+l;rm"],
       })
     ).toThrow();
+    expect(
+      Schema.decodeUnknownSync(ScreenActionInput)({
+        action: "drag",
+        path: [
+          { x: 20, y: 40 },
+          { x: 300, y: 420 },
+        ],
+      })
+    ).toEqual({
+      action: "drag",
+      path: [
+        { x: 20, y: 40 },
+        { x: 300, y: 420 },
+      ],
+    });
   });
 
   test("declares screenshot and structured computer tools", () => {

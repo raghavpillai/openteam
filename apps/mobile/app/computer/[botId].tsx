@@ -4,17 +4,19 @@ import {
 } from "@openbot/client-core/screen";
 import type { ScreenActionInput, ScreenStatusView } from "@openbot/contracts";
 import { clientErrorMessage } from "@openbot/product-core/redaction";
+import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   AppState,
   Image,
   Keyboard,
   KeyboardAvoidingView,
+  PanResponder,
   Platform,
   Pressable,
   StyleSheet,
@@ -25,9 +27,16 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { authHeadersForUrl } from "../../src/auth";
 import { BotMark } from "../../src/components/bot-mark";
+import { ComputerHelpSheet } from "../../src/components/computer-help-sheet";
 import { useOpenBot } from "../../src/state/openbot-context";
 
 type ScreenApp = ScreenStatusView["apps"][number];
+
+const touchDistance = (touches: ReadonlyArray<{ pageX: number; pageY: number }>) => {
+  const [first, second] = touches;
+  if (!first || !second) return 0;
+  return Math.hypot(second.pageX - first.pageX, second.pageY - first.pageY);
+};
 
 const appDetails: Record<ScreenApp, { label: string; icon: SymbolViewProps["name"] }> = {
   chromium: { label: "Browser", icon: "safari" },
@@ -157,12 +166,35 @@ export default function ComputerScreen() {
   const [takeoverBusy, setTakeoverBusy] = useState(false);
   const [controlsOpen, setControlsOpen] = useState(false);
   const [keyboardOpen, setKeyboardOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [trackpadMode, setTrackpadMode] = useState(false);
+  const [screenZoom, setScreenZoom] = useState(1);
+  const [modeToast, setModeToast] = useState<string | null>(null);
   const takeoverActive = useRef(false);
   const refreshEpoch = useRef(0);
   const statusRevision = useRef(0);
   const refreshInFlight = useRef(false);
   const screenSession = useRef<ScreenSessionController | null>(null);
   const inputRef = useRef<TextInput>(null);
+  const actionTail = useRef<Promise<void>>(Promise.resolve());
+  const pendingActions = useRef(0);
+  const keyboardValue = useRef("");
+  const keyboardBuffer = useRef("");
+  const keyboardTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pointer = useRef({ x: 640, y: 400 });
+  const zoomRef = useRef(1);
+  const lastTapAt = useRef(0);
+  const gesture = useRef({
+    startedAt: 0,
+    touches: 1,
+    startDistance: 0,
+    startZoom: 1,
+    startPoint: { x: 640, y: 400 },
+    pointerStart: { x: 640, y: 400 },
+    path: [] as Array<{ x: number; y: number }>,
+    pinching: false,
+    trackpadDrag: false,
+  });
   const busy = actionBusy || takeoverBusy;
 
   const refresh = useCallback(async () => {
@@ -233,6 +265,7 @@ export default function ComputerScreen() {
   useEffect(() => {
     return () => {
       refreshEpoch.current += 1;
+      if (keyboardTimer.current) clearTimeout(keyboardTimer.current);
     };
   }, []);
 
@@ -242,26 +275,44 @@ export default function ComputerScreen() {
     return () => cancelAnimationFrame(frame);
   }, [keyboardOpen, status?.humanTakeover]);
 
-  const act = async (input: ScreenActionInput) => {
-    if (!botId || busy || !status?.humanTakeover) return;
-    const epoch = refreshEpoch.current;
-    const revision = statusRevision.current + 1;
-    statusRevision.current = revision;
-    setActionBusy(true);
-    try {
-      const next = await screenAction(botId, input);
-      if (epoch !== refreshEpoch.current || revision !== statusRevision.current) return;
-      statusRevision.current += 1;
-      setStatus(next);
-      setFrameRevision(Date.now());
-      setError(null);
-    } catch (cause) {
-      if (epoch !== refreshEpoch.current || revision !== statusRevision.current) return;
-      setError(clientErrorMessage(cause, "The computer action failed"));
-    } finally {
-      if (epoch === refreshEpoch.current) setActionBusy(false);
-    }
-  };
+  useEffect(() => {
+    zoomRef.current = screenZoom;
+  }, [screenZoom]);
+
+  const performAction = useCallback(
+    async (input: ScreenActionInput) => {
+      if (!botId || !takeoverActive.current) return;
+      const epoch = refreshEpoch.current;
+      const revision = statusRevision.current + 1;
+      statusRevision.current = revision;
+      pendingActions.current += 1;
+      setActionBusy(true);
+      try {
+        const next = await screenAction(botId, input);
+        if (epoch !== refreshEpoch.current || revision !== statusRevision.current) return;
+        statusRevision.current += 1;
+        setStatus(next);
+        setFrameRevision(Date.now());
+        setError(null);
+      } catch (cause) {
+        if (epoch !== refreshEpoch.current || revision !== statusRevision.current) return;
+        setError(clientErrorMessage(cause, "The computer action failed"));
+      } finally {
+        pendingActions.current = Math.max(0, pendingActions.current - 1);
+        if (epoch === refreshEpoch.current && pendingActions.current === 0) setActionBusy(false);
+      }
+    },
+    [botId, screenAction]
+  );
+
+  const act = useCallback(
+    (input: ScreenActionInput): Promise<void> => {
+      const next = actionTail.current.catch(() => undefined).then(() => performAction(input));
+      actionTail.current = next;
+      return next;
+    },
+    [performAction]
+  );
 
   const changeTakeover = (active: boolean) => {
     if (!botId) return;
@@ -288,11 +339,264 @@ export default function ComputerScreen() {
   const aspectRatio =
     status && status.width > 0 && status.height > 0 ? status.width / status.height : 1.6;
 
-  const sendTypedText = () => {
-    const text = typing;
-    if (!text || !controlling) return;
+  const flushKeyboardBuffer = useCallback(() => {
+    if (keyboardTimer.current) {
+      clearTimeout(keyboardTimer.current);
+      keyboardTimer.current = null;
+    }
+    const text = keyboardBuffer.current;
+    keyboardBuffer.current = "";
+    if (text) void act({ action: "type", text });
+  }, [act]);
+
+  const handleKeyboardChange = useCallback(
+    (value: string) => {
+      const previous = keyboardValue.current;
+      keyboardValue.current = value;
+      setTyping(value);
+      if (value.startsWith(previous) && value.length > previous.length) {
+        keyboardBuffer.current += value.slice(previous.length);
+        if (keyboardTimer.current) clearTimeout(keyboardTimer.current);
+        keyboardTimer.current = setTimeout(flushKeyboardBuffer, 90);
+        return;
+      }
+      flushKeyboardBuffer();
+      let commonLength = 0;
+      while (
+        commonLength < previous.length &&
+        commonLength < value.length &&
+        previous[commonLength] === value[commonLength]
+      ) {
+        commonLength += 1;
+      }
+      const deletedCount = previous.length - commonLength;
+      for (let offset = 0; offset < deletedCount; offset += 12) {
+        const count = Math.min(12, deletedCount - offset);
+        void act({ action: "key", keys: Array.from({ length: count }, () => "BackSpace") });
+      }
+      const inserted = value.slice(commonLength);
+      if (inserted) void act({ action: "type", text: inserted });
+    },
+    [act, flushKeyboardBuffer]
+  );
+
+  const submitKeyboard = useCallback(() => {
+    flushKeyboardBuffer();
+    void act({ action: "key", keys: ["Return"] });
+    keyboardValue.current = "";
     setTyping("");
-    void act({ action: "type", text });
+  }, [act, flushKeyboardBuffer]);
+
+  const remotePoint = useCallback(
+    (localX: number, localY: number) => {
+      const width = Math.max(1, frameSize.width);
+      const height = Math.max(1, frameSize.height);
+      const zoom = zoomRef.current;
+      const normalizedX = ((localX - width / 2) / zoom + width / 2) / width;
+      const normalizedY = ((localY - height / 2) / zoom + height / 2) / height;
+      return {
+        x: Math.max(
+          0,
+          Math.min((status?.width ?? 1280) - 1, Math.round(normalizedX * (status?.width ?? 1280)))
+        ),
+        y: Math.max(
+          0,
+          Math.min((status?.height ?? 800) - 1, Math.round(normalizedY * (status?.height ?? 800)))
+        ),
+      };
+    },
+    [frameSize.height, frameSize.width, status?.height, status?.width]
+  );
+
+  const panResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => controlling,
+        onMoveShouldSetPanResponder: () => controlling,
+        onPanResponderGrant: (event) => {
+          const touches = event.nativeEvent.touches;
+          const startPoint = remotePoint(event.nativeEvent.locationX, event.nativeEvent.locationY);
+          const startedAt = Date.now();
+          gesture.current = {
+            startedAt,
+            touches: Math.max(1, touches.length),
+            startDistance: touchDistance(touches),
+            startZoom: zoomRef.current,
+            startPoint,
+            pointerStart: { ...pointer.current },
+            path: [startPoint],
+            pinching: false,
+            trackpadDrag: trackpadMode && startedAt - lastTapAt.current < 320,
+          };
+        },
+        onPanResponderMove: (event, state) => {
+          const touches = event.nativeEvent.touches;
+          gesture.current.touches = Math.max(gesture.current.touches, touches.length);
+          if (touches.length >= 2) {
+            const distance = touchDistance(touches);
+            if (gesture.current.startDistance <= 0) {
+              gesture.current.startDistance = distance;
+              gesture.current.startZoom = zoomRef.current;
+              return;
+            }
+            const ratio = distance / gesture.current.startDistance;
+            if (Math.abs(ratio - 1) > 0.04 || gesture.current.pinching) {
+              gesture.current.pinching = true;
+              const nextZoom = Math.max(1, Math.min(3, gesture.current.startZoom * ratio));
+              zoomRef.current = nextZoom;
+              setScreenZoom(nextZoom);
+            }
+            return;
+          }
+          if (trackpadMode) {
+            const width = Math.max(1, frameSize.width);
+            const height = Math.max(1, frameSize.height);
+            pointer.current = {
+              x: Math.max(
+                0,
+                Math.min(
+                  (status?.width ?? 1280) - 1,
+                  Math.round(
+                    gesture.current.pointerStart.x +
+                      (state.dx / width) * (status?.width ?? 1280) * 1.65
+                  )
+                )
+              ),
+              y: Math.max(
+                0,
+                Math.min(
+                  (status?.height ?? 800) - 1,
+                  Math.round(
+                    gesture.current.pointerStart.y +
+                      (state.dy / height) * (status?.height ?? 800) * 1.65
+                  )
+                )
+              ),
+            };
+            return;
+          }
+          if (gesture.current.path.length < 100) {
+            const nextPoint = remotePoint(event.nativeEvent.locationX, event.nativeEvent.locationY);
+            const previous = gesture.current.path.at(-1);
+            if (!previous || Math.hypot(nextPoint.x - previous.x, nextPoint.y - previous.y) > 5) {
+              gesture.current.path.push(nextPoint);
+            }
+          }
+        },
+        onPanResponderRelease: (_event, state) => {
+          if (gesture.current.pinching) return;
+          const distance = Math.hypot(state.dx, state.dy);
+          const held = Date.now() - gesture.current.startedAt;
+          if (gesture.current.touches >= 2) {
+            if (distance < 10) {
+              void act({ action: "click", ...gesture.current.startPoint, button: "right" });
+            } else if (zoomRef.current <= 1.01) {
+              const deltaY = Math.max(-20, Math.min(20, Math.round(state.dy / 18)));
+              if (deltaY) void act({ action: "scroll", deltaY });
+            }
+            return;
+          }
+          if (trackpadMode) {
+            if (distance >= 4) {
+              void act(
+                gesture.current.trackpadDrag
+                  ? {
+                      action: "drag",
+                      path: [gesture.current.pointerStart, { ...pointer.current }],
+                    }
+                  : { action: "move", ...pointer.current }
+              );
+            }
+            if (distance < 10) {
+              const now = Date.now();
+              const double = now - lastTapAt.current < 320;
+              lastTapAt.current = now;
+              void act({
+                action: "click",
+                ...pointer.current,
+                ...(double ? { double: true } : {}),
+              });
+            }
+            return;
+          }
+          if (distance < 10) {
+            const now = Date.now();
+            const double = now - lastTapAt.current < 320;
+            lastTapAt.current = now;
+            void act({
+              action: "click",
+              ...gesture.current.startPoint,
+              ...(held >= 550 ? { button: "right" as const } : double ? { double: true } : {}),
+            });
+            return;
+          }
+          const lastPoint = gesture.current.path.at(-1);
+          const end =
+            lastPoint && gesture.current.path.length > 1
+              ? lastPoint
+              : {
+                  x: Math.max(
+                    0,
+                    Math.min(
+                      (status?.width ?? 1280) - 1,
+                      Math.round(
+                        gesture.current.startPoint.x +
+                          ((state.dx / Math.max(1, frameSize.width)) * (status?.width ?? 1280)) /
+                            zoomRef.current
+                      )
+                    )
+                  ),
+                  y: Math.max(
+                    0,
+                    Math.min(
+                      (status?.height ?? 800) - 1,
+                      Math.round(
+                        gesture.current.startPoint.y +
+                          ((state.dy / Math.max(1, frameSize.height)) * (status?.height ?? 800)) /
+                            zoomRef.current
+                      )
+                    )
+                  ),
+                };
+          const path = [...gesture.current.path, end].filter((point, index, points) => {
+            const previous = points[index - 1];
+            return !previous || point.x !== previous.x || point.y !== previous.y;
+          });
+          if (path.length >= 2) void act({ action: "drag", path });
+        },
+        onPanResponderTerminationRequest: () => false,
+      }),
+    [
+      act,
+      controlling,
+      frameSize.height,
+      frameSize.width,
+      remotePoint,
+      status?.height,
+      status?.width,
+      trackpadMode,
+    ]
+  );
+
+  const showModeToast = useCallback((message: string) => {
+    setModeToast(message);
+    setTimeout(() => setModeToast((current) => (current === message ? null : current)), 1_600);
+  }, []);
+
+  const pasteClipboard = async () => {
+    if (!ready) return;
+    if (!controlling) {
+      changeTakeover(true);
+      showModeToast("Taking control");
+      return;
+    }
+    const text = await Clipboard.getStringAsync();
+    if (!text) {
+      showModeToast("Clipboard is empty");
+      return;
+    }
+    await act({ action: "type", text });
+    showModeToast("Pasted from iPhone");
   };
 
   return (
@@ -313,24 +617,31 @@ export default function ComputerScreen() {
         </View>
         <View style={styles.headerActions}>
           <StageButton
-            active={keyboardOpen}
-            disabled={!ready}
-            label="Type on computer"
-            name="keyboard"
-            onPress={() => (keyboardOpen ? closeKeyboard() : openKeyboard())}
+            active={helpOpen}
+            label="Using the computer"
+            name="questionmark"
+            onPress={() => setHelpOpen(true)}
           />
           <StageButton
             active={controlsOpen}
             label="Computer controls"
             name="ellipsis"
-            onPress={() => {
-              closeKeyboard();
-              setControlsOpen((current) => !current);
-            }}
+            onPress={() => setControlsOpen((current) => !current)}
             symbolSize={21}
           />
         </View>
       </View>
+
+      {modeToast ? (
+        <View pointerEvents="none" style={styles.modeToast}>
+          <SymbolView
+            name={trackpadMode ? "rectangle.and.hand.point.up.left" : "checkmark"}
+            size={18}
+            tintColor="#F7F7F4"
+          />
+          <Text style={styles.modeToastText}>{modeToast}</Text>
+        </View>
+      ) : null}
 
       <View style={styles.stage}>
         <View
@@ -340,38 +651,24 @@ export default function ComputerScreen() {
           {!status && !error ? (
             <ActivityIndicator color="#92928D" />
           ) : isFixture ? (
-            <Pressable
+            <View
+              {...panResponder.panHandlers}
+              accessible
               accessibilityLabel={controlling ? "Tap the preview computer" : "Computer preview"}
-              disabled={!controlling}
-              onPress={(event) => {
-                if (!status) return;
-                const x = Math.round(
-                  (event.nativeEvent.locationX / frameSize.width) * status.width
-                );
-                const y = Math.round(
-                  (event.nativeEvent.locationY / frameSize.height) * status.height
-                );
-                void act({ action: "click", x, y });
-              }}
+              accessibilityRole="button"
               style={styles.frame}
             >
-              <FixtureDesktop />
-            </Pressable>
+              <View style={[styles.frame, { transform: [{ scale: screenZoom }] }]}>
+                <FixtureDesktop />
+              </View>
+            </View>
           ) : frameUrl && ready ? (
             <View style={styles.frame}>
-              <Pressable
+              <View
+                {...panResponder.panHandlers}
+                accessible
                 accessibilityLabel={controlling ? "Tap the shared computer" : "Shared computer"}
-                disabled={!controlling}
-                onPress={(event) => {
-                  if (!status) return;
-                  const x = Math.round(
-                    (event.nativeEvent.locationX / frameSize.width) * status.width
-                  );
-                  const y = Math.round(
-                    (event.nativeEvent.locationY / frameSize.height) * status.height
-                  );
-                  void act({ action: "click", x, y });
-                }}
+                accessibilityRole="button"
                 style={styles.frame}
               >
                 <Image
@@ -379,9 +676,9 @@ export default function ComputerScreen() {
                   onLoad={() => setFrameError(null)}
                   resizeMode="contain"
                   source={{ uri: frameUrl, headers: authHeadersForUrl(frameUrl) }}
-                  style={styles.frame}
+                  style={[styles.frame, { transform: [{ scale: screenZoom }] }]}
                 />
-              </Pressable>
+              </View>
               {frameError ? (
                 <View pointerEvents="none" style={[styles.centerState, styles.frameErrorOverlay]}>
                   <SymbolView name="exclamationmark.triangle" size={28} tintColor="#777773" />
@@ -396,7 +693,7 @@ export default function ComputerScreen() {
             </View>
           )}
           {busy ? (
-            <View style={styles.busyOverlay}>
+            <View pointerEvents="none" style={styles.busyOverlay}>
               <ActivityIndicator color="#FFFFFF" />
             </View>
           ) : null}
@@ -405,6 +702,24 @@ export default function ComputerScreen() {
 
       {controlsOpen ? (
         <View style={styles.controlTray}>
+          <Pressable
+            accessibilityLabel="Trackpad mode"
+            accessibilityRole="switch"
+            accessibilityState={{ checked: trackpadMode }}
+            onPress={() => {
+              const next = !trackpadMode;
+              setTrackpadMode(next);
+              setControlsOpen(false);
+              showModeToast(next ? "Trackpad mode" : "Direct touch");
+            }}
+            style={({ pressed }) => [styles.modeRow, pressed && styles.stageButtonPressed]}
+          >
+            <SymbolView name="rectangle.and.hand.point.up.left" size={20} tintColor="#F7F7F4" />
+            <Text style={styles.modeRowLabel}>Trackpad Mode</Text>
+            <View style={[styles.modeSwitch, trackpadMode && styles.modeSwitchOn]}>
+              <View style={[styles.modeSwitchKnob, trackpadMode && styles.modeSwitchKnobOn]} />
+            </View>
+          </Pressable>
           <View style={styles.trayHeadingRow}>
             <View>
               <Text style={styles.trayTitle}>Computer controls</Text>
@@ -472,47 +787,63 @@ export default function ComputerScreen() {
               />
             </View>
           </View>
+          {screenZoom > 1.01 ? (
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => {
+                zoomRef.current = 1;
+                setScreenZoom(1);
+                setControlsOpen(false);
+                showModeToast("Zoom reset");
+              }}
+              style={({ pressed }) => [styles.resetZoom, pressed && styles.stageButtonPressed]}
+            >
+              <SymbolView name="arrow.down.right.and.arrow.up.left" size={15} tintColor="#B9B9B5" />
+              <Text style={styles.resetZoomLabel}>Reset zoom</Text>
+            </Pressable>
+          ) : null}
         </View>
       ) : null}
 
-      {keyboardOpen ? (
-        <KeyboardAvoidingView
-          behavior={Platform.OS === "ios" ? "padding" : undefined}
-          pointerEvents="box-none"
-          style={styles.keyboardLayer}
-        >
-          <View style={styles.keyboardDock}>
-            <StageButton
-              label="Close keyboard"
-              name="chevron.down"
-              onPress={closeKeyboard}
-              size={38}
-              symbolSize={14}
-            />
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        pointerEvents="box-none"
+        style={styles.keyboardLayer}
+      >
+        <View style={styles.bottomToolbar}>
+          <StageButton
+            disabled={!ready || takeoverBusy}
+            label="Paste from iPhone clipboard"
+            name="clipboard"
+            onPress={() => void pasteClipboard()}
+            size={48}
+            symbolSize={19}
+          />
+          {keyboardOpen ? (
             <TextInput
               accessibilityLabel="Type on shared computer"
-              editable={controlling && !busy}
-              onChangeText={setTyping}
-              onSubmitEditing={sendTypedText}
-              placeholder={controlling ? "Type on computer" : "Taking control…"}
-              placeholderTextColor="#777773"
+              editable={controlling}
+              onChangeText={handleKeyboardChange}
+              onSubmitEditing={submitKeyboard}
               ref={inputRef}
               returnKeyType="send"
-              style={styles.typeInput}
+              style={styles.hiddenInput}
               value={typing}
             />
-            <StageButton
-              active={Boolean(controlling && typing)}
-              disabled={!controlling || !typing || busy}
-              label="Send text to computer"
-              name="arrow.up"
-              onPress={sendTypedText}
-              size={38}
-              symbolSize={16}
-            />
-          </View>
-        </KeyboardAvoidingView>
-      ) : null}
+          ) : null}
+          <StageButton
+            active={keyboardOpen}
+            disabled={!ready}
+            label={keyboardOpen ? "Close keyboard" : "Type on computer"}
+            name="keyboard"
+            onPress={() => (keyboardOpen ? closeKeyboard() : openKeyboard())}
+            size={48}
+            symbolSize={19}
+          />
+        </View>
+      </KeyboardAvoidingView>
+
+      <ComputerHelpSheet onClose={() => setHelpOpen(false)} visible={helpOpen} />
     </SafeAreaView>
   );
 }
@@ -540,14 +871,9 @@ const styles = StyleSheet.create({
   disabled: { opacity: 0.34 },
   titlePill: {
     minWidth: 0,
-    maxWidth: 188,
+    maxWidth: 176,
     height: 48,
-    borderRadius: 24,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(255,255,255,0.09)",
-    backgroundColor: "#292929",
-    paddingLeft: 7,
-    paddingRight: 15,
+    paddingHorizontal: 0,
     flexDirection: "row",
     alignItems: "center",
     gap: 9,
@@ -561,7 +887,28 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   headerActions: { marginLeft: "auto", flexDirection: "row", gap: 8 },
-  stage: { flex: 1, alignItems: "center", justifyContent: "center" },
+  modeToast: {
+    position: "absolute",
+    zIndex: 12,
+    top: 8,
+    right: 12,
+    minWidth: 210,
+    height: 58,
+    borderRadius: 29,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(255,255,255,0.16)",
+    backgroundColor: "rgba(43,43,43,0.96)",
+    paddingHorizontal: 22,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 13,
+    shadowColor: "#000",
+    shadowOpacity: 0.34,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 8 },
+  },
+  modeToastText: { color: "#F7F7F4", fontSize: 17, lineHeight: 22, fontWeight: "500" },
+  stage: { flex: 1, alignItems: "center", justifyContent: "flex-start", paddingTop: 28 },
   screenShell: {
     width: "100%",
     maxHeight: 560,
@@ -590,7 +937,7 @@ const styles = StyleSheet.create({
     position: "absolute",
     left: 14,
     right: 14,
-    bottom: 14,
+    bottom: 82,
     borderRadius: 28,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: "rgba(255,255,255,0.12)",
@@ -601,6 +948,31 @@ const styles = StyleSheet.create({
     shadowRadius: 24,
     shadowOffset: { width: 0, height: 12 },
   },
+  modeRow: {
+    minHeight: 52,
+    paddingHorizontal: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "rgba(255,255,255,0.1)",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 11,
+  },
+  modeRowLabel: { flex: 1, color: "#F7F7F4", fontSize: 15, lineHeight: 20, fontWeight: "600" },
+  modeSwitch: {
+    width: 44,
+    height: 26,
+    borderRadius: 13,
+    padding: 2,
+    backgroundColor: "#4A4A48",
+  },
+  modeSwitchOn: { backgroundColor: "#30D158" },
+  modeSwitchKnob: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: "#FFFFFF",
+  },
+  modeSwitchKnobOn: { alignSelf: "flex-end" },
   trayHeadingRow: {
     minHeight: 44,
     flexDirection: "row",
@@ -650,36 +1022,42 @@ const styles = StyleSheet.create({
   takeoverLabel: { color: "#111111", fontSize: 13, lineHeight: 17, fontWeight: "700" },
   takeoverLabelControlling: { color: "#F7F7F4" },
   scrollControls: { flexDirection: "row", gap: 4 },
+  resetZoom: {
+    minHeight: 40,
+    marginTop: 8,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "rgba(255,255,255,0.1)",
+    paddingHorizontal: 10,
+    paddingTop: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  resetZoomLabel: { color: "#B9B9B5", fontSize: 13, lineHeight: 17 },
   keyboardLayer: {
     position: "absolute",
     left: 0,
     right: 0,
+    top: 0,
     bottom: 0,
     justifyContent: "flex-end",
   },
-  keyboardDock: {
+  bottomToolbar: {
     minHeight: 64,
-    marginHorizontal: 14,
-    marginBottom: 10,
-    borderRadius: 28,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(255,255,255,0.12)",
-    backgroundColor: "rgba(28,28,27,0.98)",
-    padding: 7,
+    paddingHorizontal: 22,
+    paddingBottom: 4,
     flexDirection: "row",
     alignItems: "center",
-    gap: 7,
+    justifyContent: "space-between",
   },
-  typeInput: {
-    flex: 1,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: "#292929",
-    color: "#F7F7F4",
-    paddingHorizontal: 16,
-    paddingVertical: 0,
-    fontSize: 15,
-    lineHeight: 20,
+  hiddenInput: {
+    position: "absolute",
+    left: "50%",
+    bottom: 0,
+    width: 1,
+    height: 1,
+    opacity: 0.01,
+    color: "transparent",
   },
   fixtureDesktop: {
     flex: 1,

@@ -823,6 +823,16 @@ export const ScreenActionInput = Schema.Union(
     double: Schema.optional(Schema.Boolean),
   }),
   Schema.Struct({
+    action: Schema.Literal("drag"),
+    path: Schema.Array(
+      Schema.Struct({
+        x: Schema.Number.pipe(Schema.int(), Schema.between(0, 1279)),
+        y: Schema.Number.pipe(Schema.int(), Schema.between(0, 799)),
+      })
+    ).pipe(Schema.minItems(2), Schema.maxItems(100)),
+    button: Schema.optional(Schema.Literal("left", "middle", "right")),
+  }),
+  Schema.Struct({
     action: Schema.Literal("type"),
     text: Schema.String.pipe(Schema.maxLength(10_000)),
   }),

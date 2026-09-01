@@ -210,6 +210,27 @@ export class ScreenBroker {
         await run("xdotool", args, { env });
         break;
       }
+      case "drag": {
+        const button = input.button === "right" ? "3" : input.button === "middle" ? "2" : "1";
+        const [first, ...rest] = input.path;
+        if (!first) throw new Error("A drag path needs at least two points");
+        await run(
+          "xdotool",
+          [
+            "mousemove",
+            "--sync",
+            String(first.x),
+            String(first.y),
+            "mousedown",
+            button,
+            ...rest.flatMap((point) => ["mousemove", "--sync", String(point.x), String(point.y)]),
+            "mouseup",
+            button,
+          ],
+          { env }
+        );
+        break;
+      }
       case "type":
         await run("xdotool", ["type", "--clearmodifiers", "--delay", "2", "--", input.text], {
           env,

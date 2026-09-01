@@ -30,7 +30,7 @@ describe("screen session activity", () => {
     ).toBe(false);
   });
 
-  test("keeps the session enabled while suspending hidden and redundant work", () => {
+  test("keeps the session enabled while suspending hidden work", () => {
     expect(shouldLoadScreenStatus(true, false)).toBe(false);
     expect(shouldPollScreenStatus(true, false, "starting")).toBe(false);
     expect(
@@ -39,15 +39,6 @@ describe("screen session activity", () => {
         inspectorActive: false,
         documentVisible: true,
         viewerOpen: false,
-        state: "ready",
-      })
-    ).toBe(false);
-    expect(
-      shouldRefreshScreenFrame({
-        enabled: true,
-        inspectorActive: true,
-        documentVisible: true,
-        viewerOpen: true,
         state: "ready",
       })
     ).toBe(false);
@@ -72,6 +63,15 @@ describe("screen session activity", () => {
         inspectorActive: true,
         documentVisible: true,
         viewerOpen: false,
+        state: "ready",
+      })
+    ).toBe(true);
+    expect(
+      shouldRefreshScreenFrame({
+        enabled: true,
+        inspectorActive: true,
+        documentVisible: true,
+        viewerOpen: true,
         state: "ready",
       })
     ).toBe(true);

@@ -53,7 +53,8 @@ effort, or concurrent bot job limit.
 Use `openbot provider login` to repair Codex sign-in without repeating server setup. `openbot logs`
 shows the most recent 200 lines; add `--follow`, `--tail <lines>`, or `--service <name>` to narrow a
 diagnostic session. Existing-proxy mode keeps OpenBot on loopback and prints the HTTP upstream; the
-external proxy must forward HTTPS and WebSocket upgrades to it.
+external proxy must forward HTTPS and WebSocket upgrades to it and replace inbound
+`X-Forwarded-*` headers with values derived from its own connection.
 
 Install and update verify the release Compose file against its GitHub Actions Sigstore identity and
 checksum. Updates are serialized by an installation lock, reject downgrades and prereleases by

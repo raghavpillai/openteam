@@ -150,7 +150,8 @@ Re-running `openbot setup` preserves the owner credentials and active sessions. 
 access or runtime settings; use `openbot provider login` to repair only the Codex provider login.
 `openbot logs --service server --follow` streams a targeted service log when `doctor` identifies a
 problem. Existing-proxy mode binds OpenBot to loopback and prints the local HTTP upstream to use;
-the proxy must forward WebSocket upgrades as well as ordinary HTTP requests.
+the proxy must forward WebSocket upgrades as well as ordinary HTTP requests. Configure that proxy
+to replace (not preserve) inbound `X-Forwarded-*` headers with values derived from its own connection.
 
 `uninstall` preserves configuration and Docker volumes so `start` can recover the same installation.
 `uninstall --purge` permanently deletes PostgreSQL, Pi sessions and OAuth, agent data, and workspace

@@ -89,7 +89,9 @@ const expression = String.raw`(async () => {
   ) {
     timelineScroll = timelineScroll.parentElement;
   }
-  const newestButton = document.querySelector('button[aria-label="Scroll to newest message"]');
+  const newestButton = document.querySelector(
+    'button[aria-label="Scroll to newest message"], button[aria-label="Jump to latest message"]'
+  );
   return {
     url: location.href,
     title: document.title,

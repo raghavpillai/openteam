@@ -106,11 +106,11 @@ const startupCssBytes = result.renderer.startup.files
 // to 165,357 bytes. Keep less than 0.4% headroom and stay below upstream's
 // 178.8 KB rather than moving established surfaces behind first-open boundaries.
 atMost("startup CSS bytes", startupCssBytes, 166_000);
-// Durable recovery, command-palette parity, direct computer control, and
-// bounded-history reconciliation bring the complete renderer to 15,555,107 bytes.
-// Keep less than 0.006% headroom while the compressed, startup, and nested
+// Durable recovery, viewport-aware history, scroll restoration, and thread
+// retention bring the complete renderer to 15,568,972 bytes. Keep less than
+// 0.007% headroom while the compressed, startup, and nested
 // Shiki/Mermaid ceilings continue to guard delivery and first interaction.
-atMost("renderer bytes", result.renderer.bytes, 15_556_000);
+atMost("renderer bytes", result.renderer.bytes, 15_570_000);
 atMost("renderer gzip bytes", result.renderer.gzipBytes, 3_800_000);
 atMost("build-analysis metadata bytes", result.renderer.buildMetadata.bytes, 256_000);
 atMost("Electron runtime bytes", result.electron.bytes, 2_300_000);

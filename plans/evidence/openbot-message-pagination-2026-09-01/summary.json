@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-09-01T20:04:50.276Z",
+  "generatedAt": "2026-09-01T21:34:43.020Z",
   "runtime": {
     "bun": "1.3.8",
     "platform": "darwin",
@@ -13,6 +13,7 @@
     "pageSize": 100,
     "rollingPageCount": 5,
     "rollingMessageLimit": 500,
+    "retainedByteLimit": 2097152,
     "contextBefore": 50,
     "contextAfter": 50,
     "searchNewerDistance": 300,
@@ -31,10 +32,15 @@
       "channelMessageAddress",
       "messageDisplayProjection",
       "computeVirtualLayout",
-      "computeVirtualRangeFromLayout"
+      "computeVirtualRangeFromLayout",
+      "applyPrimaryHistoryPage",
+      "enterMessageContext",
+      "expandMessageContext",
+      "resetToLatestTail",
+      "visibleChannelHistoryMessages"
     ],
     "measured": "Synchronous client merge and renderer data-projection CPU on deterministic in-memory server pages.",
-    "retainedBytes": "Exact UTF-8 JSON serialization and content+metadata bytes of unique retained messages; these are deterministic payload-size proxies, not JavaScript heap measurements.",
+    "retainedBytes": "Exact UTF-8 JSON serialization and content+metadata bytes of unique retained messages, plus the production reducer's retained-byte accounting; these are deterministic payload-size proxies, not JavaScript heap measurements.",
     "excluded": "HTTP/database latency, React commit, Markdown/highlighter initialization, DOM measurement, image decode, compositor work, and Electron IPC.",
     "interpretation": "Compare ratios and scaling on the same machine. Sub-millisecond absolute timings are timer/JIT sensitive."
   },
@@ -59,11 +65,11 @@
             "totalRequests": 1,
             "totalResponseJsonBytes": 60956,
             "initialPageMerge": {
-              "minMs": 0.051,
-              "p50Ms": 0.06,
-              "p95Ms": 0.077,
-              "maxMs": 0.077,
-              "meanMs": 0.062,
+              "minMs": 0.046,
+              "p50Ms": 0.054,
+              "p95Ms": 0.082,
+              "maxMs": 0.082,
+              "meanMs": 0.061,
               "samples": 7
             },
             "olderPageMergeAcrossDepths": {
@@ -75,27 +81,27 @@
               "samples": 0
             },
             "totalMergeToTraverseHistory": {
-              "minMs": 0.051,
-              "p50Ms": 0.06,
-              "p95Ms": 0.077,
-              "maxMs": 0.077,
-              "meanMs": 0.062,
+              "minMs": 0.046,
+              "p50Ms": 0.054,
+              "p95Ms": 0.082,
+              "maxMs": 0.082,
+              "meanMs": 0.061,
               "samples": 7
             },
             "projectionAfterEachPageAcrossDepths": {
-              "minMs": 0.15,
-              "p50Ms": 0.172,
-              "p95Ms": 0.27,
-              "maxMs": 0.27,
-              "meanMs": 0.187,
+              "minMs": 0.133,
+              "p50Ms": 0.168,
+              "p95Ms": 0.31,
+              "maxMs": 0.31,
+              "meanMs": 0.185,
               "samples": 7
             },
             "totalProjectionToTraverseHistory": {
-              "minMs": 0.15,
-              "p50Ms": 0.172,
-              "p95Ms": 0.27,
-              "maxMs": 0.27,
-              "meanMs": 0.187,
+              "minMs": 0.133,
+              "p50Ms": 0.168,
+              "p95Ms": 0.31,
+              "maxMs": 0.31,
+              "meanMs": 0.185,
               "samples": 7
             }
           },
@@ -110,11 +116,11 @@
               "contentAndMetadataUtf8Bytes": 38080
             },
             "rendererProjection": {
-              "minMs": 0.115,
-              "p50Ms": 0.129,
-              "p95Ms": 0.409,
-              "maxMs": 0.428,
-              "meanMs": 0.152,
+              "minMs": 0.114,
+              "p50Ms": 0.131,
+              "p95Ms": 0.232,
+              "maxMs": 0.255,
+              "meanMs": 0.141,
               "samples": 31
             }
           },
@@ -122,19 +128,19 @@
             "basePrimaryMessages": 100,
             "mergedPrimaryMessages": 101,
             "latestPageRefreshMerge": {
-              "minMs": 0.04,
+              "minMs": 0.041,
               "p50Ms": 0.05,
               "p95Ms": 0.061,
-              "maxMs": 0.062,
+              "maxMs": 0.063,
               "meanMs": 0.05,
               "samples": 31
             },
             "rendererProjectionAfterRefresh": {
-              "minMs": 0.1,
-              "p50Ms": 0.111,
-              "p95Ms": 0.123,
-              "maxMs": 0.124,
-              "meanMs": 0.112,
+              "minMs": 0.105,
+              "p50Ms": 0.116,
+              "p95Ms": 0.127,
+              "maxMs": 0.139,
+              "meanMs": 0.116,
               "samples": 31
             }
           },
@@ -145,18 +151,18 @@
           }
         },
         "B_bounded_older_only": {
-          "behavior": "Older-only rolling primary window capped at 500 messages; returning newest reloads the latest page.",
+          "behavior": "Production older-only primary reducer capped at 500 messages and 2097152 retained bytes; returning newest uses its cached tail or reloads the latest page.",
           "historyTraversal": {
             "initialRequests": 1,
             "olderRequests": 0,
             "totalRequests": 1,
             "totalResponseJsonBytes": 60956,
             "initialPageMerge": {
-              "minMs": 0.044,
-              "p50Ms": 0.049,
-              "p95Ms": 0.071,
-              "maxMs": 0.071,
-              "meanMs": 0.052,
+              "minMs": 0.217,
+              "p50Ms": 0.247,
+              "p95Ms": 0.478,
+              "maxMs": 0.478,
+              "meanMs": 0.282,
               "samples": 7
             },
             "olderPageMergeAcrossDepths": {
@@ -168,28 +174,38 @@
               "samples": 0
             },
             "totalMergeToTraverseHistory": {
-              "minMs": 0.044,
-              "p50Ms": 0.049,
-              "p95Ms": 0.071,
-              "maxMs": 0.071,
-              "meanMs": 0.052,
+              "minMs": 0.217,
+              "p50Ms": 0.247,
+              "p95Ms": 0.478,
+              "maxMs": 0.478,
+              "meanMs": 0.282,
               "samples": 7
             },
             "projectionAfterEachPageAcrossDepths": {
-              "minMs": 0.099,
-              "p50Ms": 0.112,
-              "p95Ms": 0.128,
-              "maxMs": 0.128,
-              "meanMs": 0.113,
+              "minMs": 0.1,
+              "p50Ms": 0.107,
+              "p95Ms": 0.114,
+              "maxMs": 0.114,
+              "meanMs": 0.108,
               "samples": 7
             },
             "totalProjectionToTraverseHistory": {
-              "minMs": 0.099,
-              "p50Ms": 0.112,
-              "p95Ms": 0.128,
-              "maxMs": 0.128,
-              "meanMs": 0.113,
+              "minMs": 0.1,
+              "p50Ms": 0.107,
+              "p95Ms": 0.114,
+              "maxMs": 0.114,
+              "meanMs": 0.108,
               "samples": 7
+            },
+            "productionWindow": {
+              "messageLimit": 500,
+              "retainedByteLimit": 2097152,
+              "maxPrimaryMessages": 100,
+              "peakRetainedBytes": 60695,
+              "finalRetainedBytes": 60695,
+              "evictedOlder": 0,
+              "evictedNewer": 0,
+              "primaryHasNewerGap": false
             }
           },
           "afterCompleteOlderTraversal": {
@@ -200,56 +216,66 @@
               "laneMessageReferences": 100,
               "uniqueMessages": 100,
               "serializedMessageBytes": 60796,
-              "contentAndMetadataUtf8Bytes": 38080
+              "contentAndMetadataUtf8Bytes": 38080,
+              "latestTailMessages": 0,
+              "latestTailThreadContextMessages": 0,
+              "productionRetainedBytes": 60695,
+              "productionMessageLimit": 500,
+              "productionRetainedByteLimit": 2097152,
+              "primaryHasNewerGap": false
             },
             "rendererProjection": {
-              "minMs": 0.092,
-              "p50Ms": 0.103,
-              "p95Ms": 0.455,
-              "maxMs": 0.615,
-              "meanMs": 0.179,
-              "samples": 31
-            }
-          },
-          "appendAtSteadyState": {
-            "basePrimaryMessages": 100,
-            "mergedPrimaryMessages": 101,
-            "latestPageRefreshMerge": {
-              "minMs": 0.037,
-              "p50Ms": 0.039,
-              "p95Ms": 0.08,
-              "maxMs": 0.101,
-              "meanMs": 0.043,
-              "samples": 31
-            },
-            "rendererProjectionAfterRefresh": {
-              "minMs": 0.088,
-              "p50Ms": 0.092,
-              "p95Ms": 0.108,
-              "maxMs": 0.141,
+              "minMs": 0.089,
+              "p50Ms": 0.093,
+              "p95Ms": 0.106,
+              "maxMs": 0.113,
               "meanMs": 0.095,
               "samples": 31
             }
           },
+          "appendAtSteadyState": {
+            "basePrimaryMessages": 100,
+            "mergedPrimaryMessages": 101,
+            "productionRetainedBytes": 61077,
+            "evictedOlder": 0,
+            "evictedNewer": 0,
+            "outcome": "applied",
+            "latestPageRefreshMerge": {
+              "minMs": 0.256,
+              "p50Ms": 0.289,
+              "p95Ms": 0.344,
+              "maxMs": 0.784,
+              "meanMs": 0.308,
+              "samples": 31
+            },
+            "rendererProjectionAfterRefresh": {
+              "minMs": 0.091,
+              "p50Ms": 0.095,
+              "p95Ms": 0.104,
+              "maxMs": 0.163,
+              "meanMs": 0.097,
+              "samples": 31
+            }
+          },
           "returnToNewestAfterCompleteOlderTraversal": {
             "additionalRequests": 0,
             "responseJsonBytes": 0,
-            "note": "Newest messages are still retained."
+            "note": "The bounded primary window still contains the newest messages."
           }
         },
         "C_search_bidirectional": {
-          "behavior": "Same bounded normal-history path as B; before/after cursors exist only in a separate search/deep-link context lane.",
+          "behavior": "Same production bounded normal-history reducer as B; before/after expansion exists only in a separate bounded search/deep-link context lane.",
           "historyTraversal": {
             "initialRequests": 1,
             "olderRequests": 0,
             "totalRequests": 1,
             "totalResponseJsonBytes": 60956,
             "initialPageMerge": {
-              "minMs": 0.043,
-              "p50Ms": 0.044,
-              "p95Ms": 0.051,
-              "maxMs": 0.051,
-              "meanMs": 0.046,
+              "minMs": 0.183,
+              "p50Ms": 0.206,
+              "p95Ms": 0.266,
+              "maxMs": 0.266,
+              "meanMs": 0.21,
               "samples": 7
             },
             "olderPageMergeAcrossDepths": {
@@ -261,28 +287,38 @@
               "samples": 0
             },
             "totalMergeToTraverseHistory": {
-              "minMs": 0.043,
-              "p50Ms": 0.044,
-              "p95Ms": 0.051,
-              "maxMs": 0.051,
-              "meanMs": 0.046,
+              "minMs": 0.183,
+              "p50Ms": 0.206,
+              "p95Ms": 0.266,
+              "maxMs": 0.266,
+              "meanMs": 0.21,
               "samples": 7
             },
             "projectionAfterEachPageAcrossDepths": {
-              "minMs": 0.095,
-              "p50Ms": 0.098,
-              "p95Ms": 0.105,
-              "maxMs": 0.105,
-              "meanMs": 0.1,
+              "minMs": 0.096,
+              "p50Ms": 0.103,
+              "p95Ms": 0.127,
+              "maxMs": 0.127,
+              "meanMs": 0.104,
               "samples": 7
             },
             "totalProjectionToTraverseHistory": {
-              "minMs": 0.095,
-              "p50Ms": 0.098,
-              "p95Ms": 0.105,
-              "maxMs": 0.105,
-              "meanMs": 0.1,
+              "minMs": 0.096,
+              "p50Ms": 0.103,
+              "p95Ms": 0.127,
+              "maxMs": 0.127,
+              "meanMs": 0.104,
               "samples": 7
+            },
+            "productionWindow": {
+              "messageLimit": 500,
+              "retainedByteLimit": 2097152,
+              "maxPrimaryMessages": 100,
+              "peakRetainedBytes": 60695,
+              "finalRetainedBytes": 60695,
+              "evictedOlder": 0,
+              "evictedNewer": 0,
+              "primaryHasNewerGap": false
             }
           },
           "afterCompleteOlderTraversal": {
@@ -293,41 +329,51 @@
               "laneMessageReferences": 100,
               "uniqueMessages": 100,
               "serializedMessageBytes": 60796,
-              "contentAndMetadataUtf8Bytes": 38080
+              "contentAndMetadataUtf8Bytes": 38080,
+              "latestTailMessages": 0,
+              "latestTailThreadContextMessages": 0,
+              "productionRetainedBytes": 60695,
+              "productionMessageLimit": 500,
+              "productionRetainedByteLimit": 2097152,
+              "primaryHasNewerGap": false
             },
             "rendererProjection": {
-              "minMs": 0.089,
-              "p50Ms": 0.098,
-              "p95Ms": 0.118,
-              "maxMs": 0.12,
-              "meanMs": 0.1,
+              "minMs": 0.095,
+              "p50Ms": 0.101,
+              "p95Ms": 0.11,
+              "maxMs": 0.112,
+              "meanMs": 0.101,
               "samples": 31
             }
           },
           "appendAtSteadyState": {
             "basePrimaryMessages": 100,
             "mergedPrimaryMessages": 101,
+            "productionRetainedBytes": 61077,
+            "evictedOlder": 0,
+            "evictedNewer": 0,
+            "outcome": "applied",
             "latestPageRefreshMerge": {
-              "minMs": 0.033,
-              "p50Ms": 0.039,
-              "p95Ms": 0.065,
-              "maxMs": 0.098,
-              "meanMs": 0.042,
+              "minMs": 0.238,
+              "p50Ms": 0.25,
+              "p95Ms": 0.347,
+              "maxMs": 0.597,
+              "meanMs": 0.269,
               "samples": 31
             },
             "rendererProjectionAfterRefresh": {
-              "minMs": 0.087,
-              "p50Ms": 0.089,
-              "p95Ms": 0.094,
-              "maxMs": 0.098,
-              "meanMs": 0.089,
+              "minMs": 0.091,
+              "p50Ms": 0.099,
+              "p95Ms": 0.105,
+              "maxMs": 0.107,
+              "meanMs": 0.098,
               "samples": 31
             }
           },
           "returnToNewestAfterCompleteOlderTraversal": {
             "additionalRequests": 0,
             "responseJsonBytes": 0,
-            "note": "Newest messages are still retained."
+            "note": "The bounded primary window still contains the newest messages."
           }
         }
       },
@@ -357,43 +403,43 @@
             "totalRequests": 10,
             "totalResponseJsonBytes": 606118,
             "initialPageMerge": {
-              "minMs": 0.048,
-              "p50Ms": 0.055,
-              "p95Ms": 0.064,
-              "maxMs": 0.064,
-              "meanMs": 0.055,
+              "minMs": 0.049,
+              "p50Ms": 0.049,
+              "p95Ms": 0.063,
+              "maxMs": 0.063,
+              "meanMs": 0.051,
               "samples": 7
             },
             "olderPageMergeAcrossDepths": {
-              "minMs": 0.073,
-              "p50Ms": 0.212,
-              "p95Ms": 0.348,
-              "maxMs": 0.398,
-              "meanMs": 0.212,
+              "minMs": 0.069,
+              "p50Ms": 0.205,
+              "p95Ms": 0.346,
+              "maxMs": 0.378,
+              "meanMs": 0.209,
               "samples": 63
             },
             "totalMergeToTraverseHistory": {
-              "minMs": 1.839,
-              "p50Ms": 1.932,
-              "p95Ms": 2.14,
-              "maxMs": 2.14,
-              "meanMs": 1.959,
+              "minMs": 1.852,
+              "p50Ms": 1.925,
+              "p95Ms": 1.984,
+              "maxMs": 1.984,
+              "meanMs": 1.932,
               "samples": 7
             },
             "projectionAfterEachPageAcrossDepths": {
-              "minMs": 0.101,
-              "p50Ms": 0.497,
-              "p95Ms": 0.847,
-              "maxMs": 0.905,
-              "meanMs": 0.484,
+              "minMs": 0.097,
+              "p50Ms": 0.441,
+              "p95Ms": 0.868,
+              "maxMs": 0.964,
+              "meanMs": 0.485,
               "samples": 70
             },
             "totalProjectionToTraverseHistory": {
-              "minMs": 4.702,
-              "p50Ms": 4.792,
-              "p95Ms": 5.204,
-              "maxMs": 5.204,
-              "meanMs": 4.84,
+              "minMs": 4.699,
+              "p50Ms": 4.77,
+              "p95Ms": 5.275,
+              "maxMs": 5.275,
+              "meanMs": 4.852,
               "samples": 7
             }
           },
@@ -408,11 +454,11 @@
               "contentAndMetadataUtf8Bytes": 376679
             },
             "rendererProjection": {
-              "minMs": 0.82,
-              "p50Ms": 0.846,
-              "p95Ms": 0.902,
-              "maxMs": 1.164,
-              "meanMs": 0.863,
+              "minMs": 0.843,
+              "p50Ms": 0.885,
+              "p95Ms": 1.022,
+              "maxMs": 1.326,
+              "meanMs": 0.919,
               "samples": 31
             }
           },
@@ -420,19 +466,19 @@
             "basePrimaryMessages": 1000,
             "mergedPrimaryMessages": 1001,
             "latestPageRefreshMerge": {
-              "minMs": 0.328,
-              "p50Ms": 0.343,
-              "p95Ms": 0.385,
-              "maxMs": 0.599,
-              "meanMs": 0.351,
+              "minMs": 0.32,
+              "p50Ms": 0.333,
+              "p95Ms": 0.412,
+              "maxMs": 0.65,
+              "meanMs": 0.346,
               "samples": 31
             },
             "rendererProjectionAfterRefresh": {
-              "minMs": 0.833,
-              "p50Ms": 0.875,
-              "p95Ms": 1.001,
-              "maxMs": 1.237,
-              "meanMs": 0.89,
+              "minMs": 0.842,
+              "p50Ms": 0.905,
+              "p95Ms": 0.981,
+              "maxMs": 1.234,
+              "meanMs": 0.91,
               "samples": 31
             }
           },
@@ -443,189 +489,249 @@
           }
         },
         "B_bounded_older_only": {
-          "behavior": "Older-only rolling primary window capped at 500 messages; returning newest reloads the latest page.",
+          "behavior": "Production older-only primary reducer capped at 500 messages and 2097152 retained bytes; returning newest uses its cached tail or reloads the latest page.",
           "historyTraversal": {
             "initialRequests": 1,
             "olderRequests": 9,
             "totalRequests": 10,
             "totalResponseJsonBytes": 606118,
             "initialPageMerge": {
-              "minMs": 0.043,
-              "p50Ms": 0.046,
-              "p95Ms": 0.048,
-              "maxMs": 0.048,
-              "meanMs": 0.046,
+              "minMs": 0.197,
+              "p50Ms": 0.212,
+              "p95Ms": 0.252,
+              "maxMs": 0.252,
+              "meanMs": 0.219,
               "samples": 7
             },
             "olderPageMergeAcrossDepths": {
-              "minMs": 0.069,
-              "p50Ms": 0.194,
-              "p95Ms": 0.21,
-              "maxMs": 0.275,
-              "meanMs": 0.166,
+              "minMs": 0.436,
+              "p50Ms": 1.286,
+              "p95Ms": 1.844,
+              "maxMs": 1.933,
+              "meanMs": 1.18,
               "samples": 63
             },
             "totalMergeToTraverseHistory": {
-              "minMs": 1.472,
-              "p50Ms": 1.547,
-              "p95Ms": 1.59,
-              "maxMs": 1.59,
-              "meanMs": 1.539,
+              "minMs": 10.43,
+              "p50Ms": 10.799,
+              "p95Ms": 11.381,
+              "maxMs": 11.381,
+              "meanMs": 10.84,
               "samples": 7
             },
             "projectionAfterEachPageAcrossDepths": {
-              "minMs": 0.097,
-              "p50Ms": 0.413,
-              "p95Ms": 0.444,
-              "maxMs": 0.502,
-              "meanMs": 0.345,
+              "minMs": 0.098,
+              "p50Ms": 0.352,
+              "p95Ms": 0.437,
+              "maxMs": 0.517,
+              "meanMs": 0.32,
               "samples": 70
             },
             "totalProjectionToTraverseHistory": {
-              "minMs": 3.321,
-              "p50Ms": 3.442,
-              "p95Ms": 3.578,
-              "maxMs": 3.578,
-              "meanMs": 3.454,
+              "minMs": 3.08,
+              "p50Ms": 3.172,
+              "p95Ms": 3.369,
+              "maxMs": 3.369,
+              "meanMs": 3.199,
               "samples": 7
+            },
+            "productionWindow": {
+              "messageLimit": 500,
+              "retainedByteLimit": 2097152,
+              "maxPrimaryMessages": 500,
+              "peakRetainedBytes": 302384,
+              "finalRetainedBytes": 301432,
+              "evictedOlder": 0,
+              "evictedNewer": 600,
+              "primaryHasNewerGap": true
             }
           },
           "afterCompleteOlderTraversal": {
             "retained": {
-              "primaryMessages": 500,
+              "primaryMessages": 400,
               "searchContextMessages": 0,
               "threadContextMessages": 0,
               "laneMessageReferences": 500,
               "uniqueMessages": 500,
-              "serializedMessageBytes": 301701,
-              "contentAndMetadataUtf8Bytes": 187869
+              "serializedMessageBytes": 301933,
+              "contentAndMetadataUtf8Bytes": 188094,
+              "latestTailMessages": 100,
+              "latestTailThreadContextMessages": 0,
+              "productionRetainedBytes": 301432,
+              "productionMessageLimit": 500,
+              "productionRetainedByteLimit": 2097152,
+              "primaryHasNewerGap": true
             },
             "rendererProjection": {
-              "minMs": 0.405,
-              "p50Ms": 0.429,
-              "p95Ms": 0.561,
-              "maxMs": 0.785,
-              "meanMs": 0.441,
+              "minMs": 0.333,
+              "p50Ms": 0.345,
+              "p95Ms": 0.444,
+              "maxMs": 0.452,
+              "meanMs": 0.359,
               "samples": 31
             }
           },
           "appendAtSteadyState": {
             "basePrimaryMessages": 500,
             "mergedPrimaryMessages": 500,
+            "productionRetainedBytes": 302301,
+            "evictedOlder": 1,
+            "evictedNewer": 0,
+            "outcome": "applied",
             "latestPageRefreshMerge": {
-              "minMs": 0.161,
-              "p50Ms": 0.166,
-              "p95Ms": 0.187,
-              "maxMs": 0.266,
-              "meanMs": 0.171,
+              "minMs": 0.89,
+              "p50Ms": 0.924,
+              "p95Ms": 1.238,
+              "maxMs": 1.251,
+              "meanMs": 0.967,
               "samples": 31
             },
             "rendererProjectionAfterRefresh": {
-              "minMs": 0.419,
-              "p50Ms": 0.439,
-              "p95Ms": 0.465,
-              "maxMs": 0.757,
-              "meanMs": 0.447,
+              "minMs": 0.422,
+              "p50Ms": 0.437,
+              "p95Ms": 0.612,
+              "maxMs": 0.831,
+              "meanMs": 0.458,
               "samples": 31
             }
           },
           "returnToNewestAfterCompleteOlderTraversal": {
-            "additionalRequests": 1,
-            "responseJsonBytes": 62142,
-            "note": "The rolling window ended at the oldest loaded page; an explicit newest-page reload resets it."
+            "additionalRequests": 0,
+            "responseJsonBytes": 0,
+            "note": "The production reducer swaps its retained latest tail into view without a request.",
+            "cachedTailMessages": 100,
+            "cachedTailRetainedBytes": 61879,
+            "cachedTailResetMerge": {
+              "minMs": 0.064,
+              "p50Ms": 0.066,
+              "p95Ms": 0.077,
+              "maxMs": 0.079,
+              "meanMs": 0.067,
+              "samples": 31
+            }
           }
         },
         "C_search_bidirectional": {
-          "behavior": "Same bounded normal-history path as B; before/after cursors exist only in a separate search/deep-link context lane.",
+          "behavior": "Same production bounded normal-history reducer as B; before/after expansion exists only in a separate bounded search/deep-link context lane.",
           "historyTraversal": {
             "initialRequests": 1,
             "olderRequests": 9,
             "totalRequests": 10,
             "totalResponseJsonBytes": 606118,
             "initialPageMerge": {
-              "minMs": 0.042,
-              "p50Ms": 0.043,
-              "p95Ms": 0.054,
-              "maxMs": 0.054,
-              "meanMs": 0.045,
+              "minMs": 0.174,
+              "p50Ms": 0.186,
+              "p95Ms": 0.288,
+              "maxMs": 0.288,
+              "meanMs": 0.198,
               "samples": 7
             },
             "olderPageMergeAcrossDepths": {
-              "minMs": 0.067,
-              "p50Ms": 0.194,
-              "p95Ms": 0.204,
-              "maxMs": 0.268,
-              "meanMs": 0.164,
+              "minMs": 0.413,
+              "p50Ms": 1.22,
+              "p95Ms": 1.738,
+              "maxMs": 2.284,
+              "meanMs": 1.125,
               "samples": 63
             },
             "totalMergeToTraverseHistory": {
-              "minMs": 1.472,
-              "p50Ms": 1.526,
-              "p95Ms": 1.556,
-              "maxMs": 1.556,
-              "meanMs": 1.52,
+              "minMs": 10.15,
+              "p50Ms": 10.297,
+              "p95Ms": 10.561,
+              "maxMs": 10.561,
+              "meanMs": 10.32,
               "samples": 7
             },
             "projectionAfterEachPageAcrossDepths": {
               "minMs": 0.095,
-              "p50Ms": 0.415,
-              "p95Ms": 0.443,
-              "maxMs": 0.545,
-              "meanMs": 0.344,
+              "p50Ms": 0.346,
+              "p95Ms": 0.426,
+              "maxMs": 0.435,
+              "meanMs": 0.311,
               "samples": 70
             },
             "totalProjectionToTraverseHistory": {
-              "minMs": 3.328,
-              "p50Ms": 3.42,
-              "p95Ms": 3.622,
-              "maxMs": 3.622,
-              "meanMs": 3.443,
+              "minMs": 3.038,
+              "p50Ms": 3.11,
+              "p95Ms": 3.219,
+              "maxMs": 3.219,
+              "meanMs": 3.11,
               "samples": 7
+            },
+            "productionWindow": {
+              "messageLimit": 500,
+              "retainedByteLimit": 2097152,
+              "maxPrimaryMessages": 500,
+              "peakRetainedBytes": 302384,
+              "finalRetainedBytes": 301432,
+              "evictedOlder": 0,
+              "evictedNewer": 600,
+              "primaryHasNewerGap": true
             }
           },
           "afterCompleteOlderTraversal": {
             "retained": {
-              "primaryMessages": 500,
+              "primaryMessages": 400,
               "searchContextMessages": 0,
               "threadContextMessages": 0,
               "laneMessageReferences": 500,
               "uniqueMessages": 500,
-              "serializedMessageBytes": 301701,
-              "contentAndMetadataUtf8Bytes": 187869
+              "serializedMessageBytes": 301933,
+              "contentAndMetadataUtf8Bytes": 188094,
+              "latestTailMessages": 100,
+              "latestTailThreadContextMessages": 0,
+              "productionRetainedBytes": 301432,
+              "productionMessageLimit": 500,
+              "productionRetainedByteLimit": 2097152,
+              "primaryHasNewerGap": true
             },
             "rendererProjection": {
-              "minMs": 0.407,
-              "p50Ms": 0.419,
-              "p95Ms": 0.492,
-              "maxMs": 0.888,
-              "meanMs": 0.437,
+              "minMs": 0.331,
+              "p50Ms": 0.336,
+              "p95Ms": 0.355,
+              "maxMs": 0.376,
+              "meanMs": 0.341,
               "samples": 31
             }
           },
           "appendAtSteadyState": {
             "basePrimaryMessages": 500,
             "mergedPrimaryMessages": 500,
+            "productionRetainedBytes": 302301,
+            "evictedOlder": 1,
+            "evictedNewer": 0,
+            "outcome": "applied",
             "latestPageRefreshMerge": {
-              "minMs": 0.161,
-              "p50Ms": 0.163,
-              "p95Ms": 0.167,
-              "maxMs": 0.168,
-              "meanMs": 0.163,
+              "minMs": 0.885,
+              "p50Ms": 0.929,
+              "p95Ms": 1.242,
+              "maxMs": 1.26,
+              "meanMs": 0.959,
               "samples": 31
             },
             "rendererProjectionAfterRefresh": {
-              "minMs": 0.403,
-              "p50Ms": 0.412,
-              "p95Ms": 0.433,
-              "maxMs": 0.709,
-              "meanMs": 0.423,
+              "minMs": 0.414,
+              "p50Ms": 0.437,
+              "p95Ms": 0.526,
+              "maxMs": 0.823,
+              "meanMs": 0.459,
               "samples": 31
             }
           },
           "returnToNewestAfterCompleteOlderTraversal": {
-            "additionalRequests": 1,
-            "responseJsonBytes": 62142,
-            "note": "The rolling window ended at the oldest loaded page; an explicit newest-page reload resets it."
+            "additionalRequests": 0,
+            "responseJsonBytes": 0,
+            "note": "The production reducer swaps its retained latest tail into view without a request.",
+            "cachedTailMessages": 100,
+            "cachedTailRetainedBytes": 61879,
+            "cachedTailResetMerge": {
+              "minMs": 0.065,
+              "p50Ms": 0.07,
+              "p95Ms": 0.082,
+              "maxMs": 0.085,
+              "meanMs": 0.071,
+              "samples": 31
+            }
           }
         }
       },
@@ -645,19 +751,19 @@
           "returnedMessages": 101,
           "responseJsonBytes": 56215,
           "mergeIntoExistingRecentLane": {
-            "minMs": 0.038,
-            "p50Ms": 0.041,
-            "p95Ms": 0.316,
-            "maxMs": 0.509,
-            "meanMs": 0.067,
+            "minMs": 0.037,
+            "p50Ms": 0.038,
+            "p95Ms": 0.046,
+            "maxMs": 0.046,
+            "meanMs": 0.039,
             "samples": 31
           },
           "rendererProjection": {
-            "minMs": 0.167,
-            "p50Ms": 0.176,
-            "p95Ms": 0.182,
-            "maxMs": 0.201,
-            "meanMs": 0.176,
+            "minMs": 0.172,
+            "p50Ms": 0.177,
+            "p95Ms": 0.204,
+            "maxMs": 0.232,
+            "meanMs": 0.179,
             "samples": 31
           },
           "retained": {
@@ -676,11 +782,11 @@
           "additionalRequests": 3,
           "additionalResponseMessageBytes": 151343,
           "totalMergeAndProjection": {
-            "minMs": 1.483,
-            "p50Ms": 1.553,
-            "p95Ms": 1.826,
-            "maxMs": 2.201,
-            "meanMs": 1.597,
+            "minMs": 1.503,
+            "p50Ms": 1.61,
+            "p95Ms": 2.048,
+            "maxMs": 2.057,
+            "meanMs": 1.66,
             "samples": 31
           },
           "retained": {
@@ -691,6 +797,126 @@
             "uniqueMessages": 451,
             "serializedMessageBytes": 269289,
             "contentAndMetadataUtf8Bytes": 166633
+          }
+        },
+        "productionReducerByBoundedStrategy": {
+          "B_bounded_older_only": {
+            "aroundWindow": {
+              "returnedMessages": 101,
+              "visibleMessages": 101,
+              "mergeWithProductionReducer": {
+                "minMs": 0.392,
+                "p50Ms": 0.411,
+                "p95Ms": 0.586,
+                "maxMs": 0.774,
+                "meanMs": 0.434,
+                "samples": 31
+              },
+              "rendererProjection": {
+                "minMs": 0.089,
+                "p50Ms": 0.095,
+                "p95Ms": 0.102,
+                "maxMs": 0.103,
+                "meanMs": 0.096,
+                "samples": 31
+              },
+              "evictedOlder": 0,
+              "evictedNewer": 0,
+              "retained": {
+                "primaryMessages": 100,
+                "searchContextMessages": 101,
+                "threadContextMessages": 0,
+                "laneMessageReferences": 301,
+                "uniqueMessages": 201,
+                "serializedMessageBytes": 117949,
+                "contentAndMetadataUtf8Bytes": 72268,
+                "latestTailMessages": 100,
+                "latestTailThreadContextMessages": 0,
+                "productionRetainedBytes": 117747,
+                "productionMessageLimit": 500,
+                "productionRetainedByteLimit": 2097152,
+                "primaryHasNewerGap": false
+              }
+            },
+            "bidirectionalExpansion": {
+              "supported": false,
+              "reason": "The older-only strategy does not retain a newer context cursor."
+            }
+          },
+          "C_search_bidirectional": {
+            "aroundWindow": {
+              "returnedMessages": 101,
+              "visibleMessages": 101,
+              "mergeWithProductionReducer": {
+                "minMs": 0.392,
+                "p50Ms": 0.411,
+                "p95Ms": 0.586,
+                "maxMs": 0.774,
+                "meanMs": 0.434,
+                "samples": 31
+              },
+              "rendererProjection": {
+                "minMs": 0.089,
+                "p50Ms": 0.095,
+                "p95Ms": 0.102,
+                "maxMs": 0.103,
+                "meanMs": 0.096,
+                "samples": 31
+              },
+              "evictedOlder": 0,
+              "evictedNewer": 0,
+              "retained": {
+                "primaryMessages": 100,
+                "searchContextMessages": 101,
+                "threadContextMessages": 0,
+                "laneMessageReferences": 301,
+                "uniqueMessages": 201,
+                "serializedMessageBytes": 117949,
+                "contentAndMetadataUtf8Bytes": 72268,
+                "latestTailMessages": 100,
+                "latestTailThreadContextMessages": 0,
+                "productionRetainedBytes": 117747,
+                "productionMessageLimit": 500,
+                "productionRetainedByteLimit": 2097152,
+                "primaryHasNewerGap": false
+              }
+            },
+            "bidirectionalExpansion": {
+              "requestedDistanceFromTargetPerDirection": 300,
+              "addedOlderMessages": 150,
+              "addedNewerMessages": 250,
+              "requests": 5,
+              "requestsByDirection": {
+                "older": 2,
+                "newer": 3
+              },
+              "responseJsonBytes": 249283,
+              "totalMergeAndProjection": {
+                "minMs": 6.188,
+                "p50Ms": 6.859,
+                "p95Ms": 7.422,
+                "maxMs": 7.769,
+                "meanMs": 6.868,
+                "samples": 31
+              },
+              "evictedOlder": 101,
+              "evictedNewer": 0,
+              "retained": {
+                "primaryMessages": 100,
+                "searchContextMessages": 400,
+                "threadContextMessages": 0,
+                "laneMessageReferences": 600,
+                "uniqueMessages": 500,
+                "serializedMessageBytes": 302885,
+                "contentAndMetadataUtf8Bytes": 188927,
+                "latestTailMessages": 100,
+                "latestTailThreadContextMessages": 0,
+                "productionRetainedBytes": 302384,
+                "productionMessageLimit": 500,
+                "productionRetainedByteLimit": 2097152,
+                "primaryHasNewerGap": false
+              }
+            }
           }
         },
         "supportByStrategy": {
@@ -736,43 +962,43 @@
             "totalRequests": 10,
             "totalResponseJsonBytes": 8309956,
             "initialPageMerge": {
-              "minMs": 0.05,
-              "p50Ms": 0.056,
-              "p95Ms": 0.072,
-              "maxMs": 0.072,
-              "meanMs": 0.058,
+              "minMs": 0.047,
+              "p50Ms": 0.058,
+              "p95Ms": 0.062,
+              "maxMs": 0.062,
+              "meanMs": 0.057,
               "samples": 7
             },
             "olderPageMergeAcrossDepths": {
-              "minMs": 0.071,
-              "p50Ms": 0.211,
-              "p95Ms": 0.336,
-              "maxMs": 0.356,
-              "meanMs": 0.208,
+              "minMs": 0.074,
+              "p50Ms": 0.215,
+              "p95Ms": 0.349,
+              "maxMs": 0.379,
+              "meanMs": 0.213,
               "samples": 63
             },
             "totalMergeToTraverseHistory": {
-              "minMs": 1.876,
-              "p50Ms": 1.929,
-              "p95Ms": 1.97,
-              "maxMs": 1.97,
-              "meanMs": 1.934,
+              "minMs": 1.923,
+              "p50Ms": 1.976,
+              "p95Ms": 2.004,
+              "maxMs": 2.004,
+              "meanMs": 1.973,
               "samples": 7
             },
             "projectionAfterEachPageAcrossDepths": {
-              "minMs": 0.142,
-              "p50Ms": 0.488,
-              "p95Ms": 0.877,
-              "maxMs": 0.971,
-              "meanMs": 0.516,
+              "minMs": 0.124,
+              "p50Ms": 0.504,
+              "p95Ms": 0.91,
+              "maxMs": 0.932,
+              "meanMs": 0.527,
               "samples": 70
             },
             "totalProjectionToTraverseHistory": {
-              "minMs": 4.946,
-              "p50Ms": 5.155,
-              "p95Ms": 5.387,
-              "maxMs": 5.387,
-              "meanMs": 5.159,
+              "minMs": 5.08,
+              "p50Ms": 5.304,
+              "p95Ms": 5.406,
+              "maxMs": 5.406,
+              "meanMs": 5.265,
               "samples": 7
             }
           },
@@ -787,11 +1013,11 @@
               "contentAndMetadataUtf8Bytes": 7876397
             },
             "rendererProjection": {
-              "minMs": 0.856,
-              "p50Ms": 0.899,
-              "p95Ms": 1.365,
-              "maxMs": 2.277,
-              "meanMs": 0.966,
+              "minMs": 0.862,
+              "p50Ms": 0.891,
+              "p95Ms": 1.209,
+              "maxMs": 2.03,
+              "meanMs": 0.947,
               "samples": 31
             }
           },
@@ -799,19 +1025,19 @@
             "basePrimaryMessages": 1000,
             "mergedPrimaryMessages": 1001,
             "latestPageRefreshMerge": {
-              "minMs": 0.333,
-              "p50Ms": 0.34,
-              "p95Ms": 0.373,
-              "maxMs": 0.681,
-              "meanMs": 0.352,
+              "minMs": 0.33,
+              "p50Ms": 0.347,
+              "p95Ms": 1.208,
+              "maxMs": 1.703,
+              "meanMs": 0.552,
               "samples": 31
             },
             "rendererProjectionAfterRefresh": {
-              "minMs": 0.85,
-              "p50Ms": 0.914,
-              "p95Ms": 1.292,
-              "maxMs": 1.645,
-              "meanMs": 0.946,
+              "minMs": 0.856,
+              "p50Ms": 0.884,
+              "p95Ms": 1.257,
+              "maxMs": 1.319,
+              "meanMs": 0.924,
               "samples": 31
             }
           },
@@ -822,189 +1048,249 @@
           }
         },
         "B_bounded_older_only": {
-          "behavior": "Older-only rolling primary window capped at 500 messages; returning newest reloads the latest page.",
+          "behavior": "Production older-only primary reducer capped at 500 messages and 2097152 retained bytes; returning newest uses its cached tail or reloads the latest page.",
           "historyTraversal": {
             "initialRequests": 1,
             "olderRequests": 9,
             "totalRequests": 10,
             "totalResponseJsonBytes": 8309956,
             "initialPageMerge": {
-              "minMs": 0.053,
-              "p50Ms": 0.061,
-              "p95Ms": 0.068,
-              "maxMs": 0.068,
-              "meanMs": 0.06,
+              "minMs": 0.182,
+              "p50Ms": 0.191,
+              "p95Ms": 0.219,
+              "maxMs": 0.219,
+              "meanMs": 0.196,
               "samples": 7
             },
             "olderPageMergeAcrossDepths": {
-              "minMs": 0.074,
-              "p50Ms": 0.205,
-              "p95Ms": 0.223,
-              "maxMs": 0.358,
-              "meanMs": 0.179,
+              "minMs": 0.419,
+              "p50Ms": 0.612,
+              "p95Ms": 1.194,
+              "maxMs": 1.221,
+              "meanMs": 0.662,
               "samples": 63
             },
             "totalMergeToTraverseHistory": {
-              "minMs": 1.592,
-              "p50Ms": 1.678,
+              "minMs": 6.009,
+              "p50Ms": 6.173,
+              "p95Ms": 6.252,
+              "maxMs": 6.252,
+              "meanMs": 6.149,
+              "samples": 7
+            },
+            "projectionAfterEachPageAcrossDepths": {
+              "minMs": 0.126,
+              "p50Ms": 0.168,
+              "p95Ms": 0.555,
+              "maxMs": 0.675,
+              "meanMs": 0.21,
+              "samples": 70
+            },
+            "totalProjectionToTraverseHistory": {
+              "minMs": 2.031,
+              "p50Ms": 2.11,
+              "p95Ms": 2.208,
+              "maxMs": 2.208,
+              "meanMs": 2.099,
+              "samples": 7
+            },
+            "productionWindow": {
+              "messageLimit": 500,
+              "retainedByteLimit": 2097152,
+              "maxPrimaryMessages": 200,
+              "peakRetainedBytes": 2094254,
+              "finalRetainedBytes": 2089698,
+              "evictedOlder": 0,
+              "evictedNewer": 846,
+              "primaryHasNewerGap": true
+            }
+          },
+          "afterCompleteOlderTraversal": {
+            "retained": {
+              "primaryMessages": 154,
+              "searchContextMessages": 0,
+              "threadContextMessages": 0,
+              "laneMessageReferences": 254,
+              "uniqueMessages": 254,
+              "serializedMessageBytes": 2089953,
+              "contentAndMetadataUtf8Bytes": 1980332,
+              "latestTailMessages": 100,
+              "latestTailThreadContextMessages": 0,
+              "productionRetainedBytes": 2089698,
+              "productionMessageLimit": 500,
+              "productionRetainedByteLimit": 2097152,
+              "primaryHasNewerGap": true
+            },
+            "rendererProjection": {
+              "minMs": 0.164,
+              "p50Ms": 0.174,
+              "p95Ms": 0.212,
+              "maxMs": 0.6,
+              "meanMs": 0.188,
+              "samples": 31
+            }
+          },
+          "appendAtSteadyState": {
+            "basePrimaryMessages": 151,
+            "mergedPrimaryMessages": 151,
+            "productionRetainedBytes": 2092376,
+            "evictedOlder": 0,
+            "evictedNewer": 0,
+            "outcome": "preserved-gap",
+            "latestPageRefreshMerge": {
+              "minMs": 0.306,
+              "p50Ms": 0.319,
+              "p95Ms": 0.704,
+              "maxMs": 0.721,
+              "meanMs": 0.355,
+              "samples": 31
+            },
+            "rendererProjectionAfterRefresh": {
+              "minMs": 0.159,
+              "p50Ms": 0.167,
+              "p95Ms": 0.186,
+              "maxMs": 0.194,
+              "meanMs": 0.169,
+              "samples": 31
+            }
+          },
+          "returnToNewestAfterCompleteOlderTraversal": {
+            "additionalRequests": 0,
+            "responseJsonBytes": 0,
+            "note": "The production reducer swaps its retained latest tail into view without a request.",
+            "cachedTailMessages": 100,
+            "cachedTailRetainedBytes": 834361,
+            "cachedTailResetMerge": {
+              "minMs": 0.06,
+              "p50Ms": 0.066,
+              "p95Ms": 0.102,
+              "maxMs": 0.123,
+              "meanMs": 0.07,
+              "samples": 31
+            }
+          }
+        },
+        "C_search_bidirectional": {
+          "behavior": "Same production bounded normal-history reducer as B; before/after expansion exists only in a separate bounded search/deep-link context lane.",
+          "historyTraversal": {
+            "initialRequests": 1,
+            "olderRequests": 9,
+            "totalRequests": 10,
+            "totalResponseJsonBytes": 8309956,
+            "initialPageMerge": {
+              "minMs": 0.174,
+              "p50Ms": 0.183,
+              "p95Ms": 0.203,
+              "maxMs": 0.203,
+              "meanMs": 0.188,
+              "samples": 7
+            },
+            "olderPageMergeAcrossDepths": {
+              "minMs": 0.414,
+              "p50Ms": 0.617,
+              "p95Ms": 1.199,
+              "maxMs": 1.238,
+              "meanMs": 0.665,
+              "samples": 63
+            },
+            "totalMergeToTraverseHistory": {
+              "minMs": 6.019,
+              "p50Ms": 6.088,
+              "p95Ms": 6.34,
+              "maxMs": 6.34,
+              "meanMs": 6.169,
+              "samples": 7
+            },
+            "projectionAfterEachPageAcrossDepths": {
+              "minMs": 0.122,
+              "p50Ms": 0.165,
+              "p95Ms": 0.209,
+              "maxMs": 0.217,
+              "meanMs": 0.167,
+              "samples": 70
+            },
+            "totalProjectionToTraverseHistory": {
+              "minMs": 1.634,
+              "p50Ms": 1.657,
               "p95Ms": 1.732,
               "maxMs": 1.732,
               "meanMs": 1.672,
               "samples": 7
             },
-            "projectionAfterEachPageAcrossDepths": {
-              "minMs": 0.141,
-              "p50Ms": 0.462,
-              "p95Ms": 0.497,
-              "maxMs": 0.607,
-              "meanMs": 0.394,
-              "samples": 70
-            },
-            "totalProjectionToTraverseHistory": {
-              "minMs": 3.849,
-              "p50Ms": 3.923,
-              "p95Ms": 4.135,
-              "maxMs": 4.135,
-              "meanMs": 3.944,
-              "samples": 7
+            "productionWindow": {
+              "messageLimit": 500,
+              "retainedByteLimit": 2097152,
+              "maxPrimaryMessages": 200,
+              "peakRetainedBytes": 2094254,
+              "finalRetainedBytes": 2089698,
+              "evictedOlder": 0,
+              "evictedNewer": 846,
+              "primaryHasNewerGap": true
             }
           },
           "afterCompleteOlderTraversal": {
             "retained": {
-              "primaryMessages": 500,
+              "primaryMessages": 154,
               "searchContextMessages": 0,
               "threadContextMessages": 0,
-              "laneMessageReferences": 500,
-              "uniqueMessages": 500,
-              "serializedMessageBytes": 4140383,
-              "contentAndMetadataUtf8Bytes": 3924491
+              "laneMessageReferences": 254,
+              "uniqueMessages": 254,
+              "serializedMessageBytes": 2089953,
+              "contentAndMetadataUtf8Bytes": 1980332,
+              "latestTailMessages": 100,
+              "latestTailThreadContextMessages": 0,
+              "productionRetainedBytes": 2089698,
+              "productionMessageLimit": 500,
+              "productionRetainedByteLimit": 2097152,
+              "primaryHasNewerGap": true
             },
             "rendererProjection": {
-              "minMs": 0.45,
-              "p50Ms": 0.467,
-              "p95Ms": 0.528,
-              "maxMs": 1.666,
-              "meanMs": 0.509,
+              "minMs": 0.158,
+              "p50Ms": 0.164,
+              "p95Ms": 0.2,
+              "maxMs": 0.554,
+              "meanMs": 0.178,
               "samples": 31
             }
           },
           "appendAtSteadyState": {
-            "basePrimaryMessages": 500,
-            "mergedPrimaryMessages": 500,
+            "basePrimaryMessages": 151,
+            "mergedPrimaryMessages": 151,
+            "productionRetainedBytes": 2092376,
+            "evictedOlder": 0,
+            "evictedNewer": 0,
+            "outcome": "preserved-gap",
             "latestPageRefreshMerge": {
-              "minMs": 0.169,
-              "p50Ms": 0.175,
-              "p95Ms": 0.204,
-              "maxMs": 0.224,
-              "meanMs": 0.179,
+              "minMs": 0.297,
+              "p50Ms": 0.304,
+              "p95Ms": 0.626,
+              "maxMs": 0.708,
+              "meanMs": 0.328,
               "samples": 31
             },
             "rendererProjectionAfterRefresh": {
-              "minMs": 0.459,
-              "p50Ms": 0.474,
-              "p95Ms": 0.886,
-              "maxMs": 0.936,
-              "meanMs": 0.511,
+              "minMs": 0.157,
+              "p50Ms": 0.161,
+              "p95Ms": 0.173,
+              "maxMs": 0.177,
+              "meanMs": 0.162,
               "samples": 31
             }
           },
           "returnToNewestAfterCompleteOlderTraversal": {
-            "additionalRequests": 1,
-            "responseJsonBytes": 834624,
-            "note": "The rolling window ended at the oldest loaded page; an explicit newest-page reload resets it."
-          }
-        },
-        "C_search_bidirectional": {
-          "behavior": "Same bounded normal-history path as B; before/after cursors exist only in a separate search/deep-link context lane.",
-          "historyTraversal": {
-            "initialRequests": 1,
-            "olderRequests": 9,
-            "totalRequests": 10,
-            "totalResponseJsonBytes": 8309956,
-            "initialPageMerge": {
-              "minMs": 0.053,
-              "p50Ms": 0.061,
-              "p95Ms": 0.067,
-              "maxMs": 0.067,
-              "meanMs": 0.06,
-              "samples": 7
-            },
-            "olderPageMergeAcrossDepths": {
-              "minMs": 0.072,
-              "p50Ms": 0.203,
-              "p95Ms": 0.221,
-              "maxMs": 0.271,
-              "meanMs": 0.175,
-              "samples": 63
-            },
-            "totalMergeToTraverseHistory": {
-              "minMs": 1.581,
-              "p50Ms": 1.628,
-              "p95Ms": 1.753,
-              "maxMs": 1.753,
-              "meanMs": 1.637,
-              "samples": 7
-            },
-            "projectionAfterEachPageAcrossDepths": {
-              "minMs": 0.137,
-              "p50Ms": 0.454,
-              "p95Ms": 0.5,
-              "maxMs": 0.698,
-              "meanMs": 0.391,
-              "samples": 70
-            },
-            "totalProjectionToTraverseHistory": {
-              "minMs": 3.743,
-              "p50Ms": 3.908,
-              "p95Ms": 4.206,
-              "maxMs": 4.206,
-              "meanMs": 3.907,
-              "samples": 7
-            }
-          },
-          "afterCompleteOlderTraversal": {
-            "retained": {
-              "primaryMessages": 500,
-              "searchContextMessages": 0,
-              "threadContextMessages": 0,
-              "laneMessageReferences": 500,
-              "uniqueMessages": 500,
-              "serializedMessageBytes": 4140383,
-              "contentAndMetadataUtf8Bytes": 3924491
-            },
-            "rendererProjection": {
-              "minMs": 0.45,
-              "p50Ms": 0.466,
-              "p95Ms": 0.516,
-              "maxMs": 1.659,
-              "meanMs": 0.511,
+            "additionalRequests": 0,
+            "responseJsonBytes": 0,
+            "note": "The production reducer swaps its retained latest tail into view without a request.",
+            "cachedTailMessages": 100,
+            "cachedTailRetainedBytes": 834361,
+            "cachedTailResetMerge": {
+              "minMs": 0.062,
+              "p50Ms": 0.065,
+              "p95Ms": 0.087,
+              "maxMs": 0.089,
+              "meanMs": 0.066,
               "samples": 31
             }
-          },
-          "appendAtSteadyState": {
-            "basePrimaryMessages": 500,
-            "mergedPrimaryMessages": 500,
-            "latestPageRefreshMerge": {
-              "minMs": 0.171,
-              "p50Ms": 0.176,
-              "p95Ms": 0.222,
-              "maxMs": 0.497,
-              "meanMs": 0.189,
-              "samples": 31
-            },
-            "rendererProjectionAfterRefresh": {
-              "minMs": 0.448,
-              "p50Ms": 0.472,
-              "p95Ms": 0.798,
-              "maxMs": 0.919,
-              "meanMs": 0.5,
-              "samples": 31
-            }
-          },
-          "returnToNewestAfterCompleteOlderTraversal": {
-            "additionalRequests": 1,
-            "responseJsonBytes": 834624,
-            "note": "The rolling window ended at the oldest loaded page; an explicit newest-page reload resets it."
           }
         }
       },
@@ -1024,19 +1310,19 @@
           "returnedMessages": 101,
           "responseJsonBytes": 842948,
           "mergeIntoExistingRecentLane": {
-            "minMs": 0.037,
-            "p50Ms": 0.039,
-            "p95Ms": 0.066,
-            "maxMs": 0.066,
-            "meanMs": 0.042,
+            "minMs": 0.039,
+            "p50Ms": 0.04,
+            "p95Ms": 0.046,
+            "maxMs": 0.05,
+            "meanMs": 0.041,
             "samples": 31
           },
           "rendererProjection": {
-            "minMs": 0.194,
-            "p50Ms": 0.204,
-            "p95Ms": 0.247,
-            "maxMs": 0.301,
-            "meanMs": 0.209,
+            "minMs": 0.192,
+            "p50Ms": 0.201,
+            "p95Ms": 0.214,
+            "maxMs": 0.285,
+            "meanMs": 0.203,
             "samples": 31
           },
           "retained": {
@@ -1055,11 +1341,11 @@
           "additionalRequests": 3,
           "additionalResponseMessageBytes": 2083923,
           "totalMergeAndProjection": {
-            "minMs": 1.615,
-            "p50Ms": 1.719,
-            "p95Ms": 2.253,
-            "maxMs": 2.325,
-            "meanMs": 1.809,
+            "minMs": 1.631,
+            "p50Ms": 1.71,
+            "p95Ms": 2.145,
+            "maxMs": 2.193,
+            "meanMs": 1.786,
             "samples": 31
           },
           "retained": {
@@ -1070,6 +1356,126 @@
             "uniqueMessages": 451,
             "serializedMessageBytes": 3761084,
             "contentAndMetadataUtf8Bytes": 3566238
+          }
+        },
+        "productionReducerByBoundedStrategy": {
+          "B_bounded_older_only": {
+            "aroundWindow": {
+              "returnedMessages": 101,
+              "visibleMessages": 101,
+              "mergeWithProductionReducer": {
+                "minMs": 0.39,
+                "p50Ms": 0.413,
+                "p95Ms": 0.473,
+                "maxMs": 0.858,
+                "meanMs": 0.429,
+                "samples": 31
+              },
+              "rendererProjection": {
+                "minMs": 0.112,
+                "p50Ms": 0.119,
+                "p95Ms": 0.164,
+                "maxMs": 0.171,
+                "meanMs": 0.123,
+                "samples": 31
+              },
+              "evictedOlder": 0,
+              "evictedNewer": 0,
+              "retained": {
+                "primaryMessages": 100,
+                "searchContextMessages": 101,
+                "threadContextMessages": 0,
+                "laneMessageReferences": 301,
+                "uniqueMessages": 201,
+                "serializedMessageBytes": 1677164,
+                "contentAndMetadataUtf8Bytes": 1590323,
+                "latestTailMessages": 100,
+                "latestTailThreadContextMessages": 0,
+                "productionRetainedBytes": 1676962,
+                "productionMessageLimit": 500,
+                "productionRetainedByteLimit": 2097152,
+                "primaryHasNewerGap": false
+              }
+            },
+            "bidirectionalExpansion": {
+              "supported": false,
+              "reason": "The older-only strategy does not retain a newer context cursor."
+            }
+          },
+          "C_search_bidirectional": {
+            "aroundWindow": {
+              "returnedMessages": 101,
+              "visibleMessages": 101,
+              "mergeWithProductionReducer": {
+                "minMs": 0.39,
+                "p50Ms": 0.413,
+                "p95Ms": 0.473,
+                "maxMs": 0.858,
+                "meanMs": 0.429,
+                "samples": 31
+              },
+              "rendererProjection": {
+                "minMs": 0.112,
+                "p50Ms": 0.119,
+                "p95Ms": 0.164,
+                "maxMs": 0.171,
+                "meanMs": 0.123,
+                "samples": 31
+              },
+              "evictedOlder": 0,
+              "evictedNewer": 0,
+              "retained": {
+                "primaryMessages": 100,
+                "searchContextMessages": 101,
+                "threadContextMessages": 0,
+                "laneMessageReferences": 301,
+                "uniqueMessages": 201,
+                "serializedMessageBytes": 1677164,
+                "contentAndMetadataUtf8Bytes": 1590323,
+                "latestTailMessages": 100,
+                "latestTailThreadContextMessages": 0,
+                "productionRetainedBytes": 1676962,
+                "productionMessageLimit": 500,
+                "productionRetainedByteLimit": 2097152,
+                "primaryHasNewerGap": false
+              }
+            },
+            "bidirectionalExpansion": {
+              "requestedDistanceFromTargetPerDirection": 300,
+              "addedOlderMessages": 150,
+              "addedNewerMessages": 250,
+              "requests": 5,
+              "requestsByDirection": {
+                "older": 2,
+                "newer": 3
+              },
+              "responseJsonBytes": 3348841,
+              "totalMergeAndProjection": {
+                "minMs": 4.352,
+                "p50Ms": 4.841,
+                "p95Ms": 5.505,
+                "maxMs": 5.645,
+                "meanMs": 4.881,
+                "samples": 31
+              },
+              "evictedOlder": 254,
+              "evictedNewer": 97,
+              "retained": {
+                "primaryMessages": 100,
+                "searchContextMessages": 150,
+                "threadContextMessages": 0,
+                "laneMessageReferences": 350,
+                "uniqueMessages": 250,
+                "serializedMessageBytes": 2083816,
+                "contentAndMetadataUtf8Bytes": 1975804,
+                "latestTailMessages": 100,
+                "latestTailThreadContextMessages": 0,
+                "productionRetainedBytes": 2083565,
+                "productionMessageLimit": 500,
+                "productionRetainedByteLimit": 2097152,
+                "primaryHasNewerGap": false
+              }
+            }
           }
         },
         "supportByStrategy": {
@@ -1091,7 +1497,7 @@
         }
       },
       "derived": {
-        "boundedRetainedSerializedByteReductionPercent": 50.2,
+        "boundedRetainedSerializedByteReductionPercent": 74.8,
         "normalPathCEqualsBByDesign": true
       }
     },
@@ -1115,43 +1521,43 @@
             "totalRequests": 100,
             "totalResponseJsonBytes": 6081389,
             "initialPageMerge": {
-              "minMs": 0.06,
-              "p50Ms": 0.065,
-              "p95Ms": 0.071,
-              "maxMs": 0.071,
-              "meanMs": 0.065,
+              "minMs": 0.057,
+              "p50Ms": 0.062,
+              "p95Ms": 0.064,
+              "maxMs": 0.064,
+              "meanMs": 0.061,
               "samples": 7
             },
             "olderPageMergeAcrossDepths": {
-              "minMs": 0.075,
-              "p50Ms": 1.947,
-              "p95Ms": 3.689,
-              "maxMs": 10.658,
-              "meanMs": 1.934,
+              "minMs": 0.072,
+              "p50Ms": 1.856,
+              "p95Ms": 3.495,
+              "maxMs": 4.604,
+              "meanMs": 1.838,
               "samples": 693
             },
             "totalMergeToTraverseHistory": {
-              "minMs": 182.421,
-              "p50Ms": 189.757,
-              "p95Ms": 206.713,
-              "maxMs": 206.713,
-              "meanMs": 191.507,
+              "minMs": 178.303,
+              "p50Ms": 181.944,
+              "p95Ms": 185.638,
+              "maxMs": 185.638,
+              "meanMs": 182.023,
               "samples": 7
             },
             "projectionAfterEachPageAcrossDepths": {
-              "minMs": 0.117,
-              "p50Ms": 4.761,
-              "p95Ms": 9.363,
-              "maxMs": 27.043,
-              "meanMs": 4.808,
+              "minMs": 0.109,
+              "p50Ms": 4.637,
+              "p95Ms": 8.882,
+              "maxMs": 9.864,
+              "meanMs": 4.624,
               "samples": 700
             },
             "totalProjectionToTraverseHistory": {
-              "minMs": 458.571,
-              "p50Ms": 475.666,
-              "p95Ms": 525.245,
-              "maxMs": 525.245,
-              "meanMs": 480.825,
+              "minMs": 458.472,
+              "p50Ms": 461.646,
+              "p95Ms": 466.951,
+              "maxMs": 466.951,
+              "meanMs": 462.412,
               "samples": 7
             }
           },
@@ -1166,11 +1572,11 @@
               "contentAndMetadataUtf8Bytes": 3777009
             },
             "rendererProjection": {
-              "minMs": 8.31,
-              "p50Ms": 9.056,
-              "p95Ms": 9.976,
-              "maxMs": 10.41,
-              "meanMs": 9.093,
+              "minMs": 8.389,
+              "p50Ms": 9.188,
+              "p95Ms": 9.736,
+              "maxMs": 10.338,
+              "meanMs": 9.109,
               "samples": 31
             }
           },
@@ -1178,19 +1584,19 @@
             "basePrimaryMessages": 10000,
             "mergedPrimaryMessages": 10001,
             "latestPageRefreshMerge": {
-              "minMs": 3.233,
-              "p50Ms": 3.491,
-              "p95Ms": 4.013,
-              "maxMs": 6.296,
-              "meanMs": 3.618,
+              "minMs": 3.242,
+              "p50Ms": 3.456,
+              "p95Ms": 3.895,
+              "maxMs": 4.024,
+              "meanMs": 3.539,
               "samples": 31
             },
             "rendererProjectionAfterRefresh": {
-              "minMs": 8.263,
-              "p50Ms": 9.026,
-              "p95Ms": 9.938,
-              "maxMs": 10.329,
-              "meanMs": 9.037,
+              "minMs": 8.384,
+              "p50Ms": 9.033,
+              "p95Ms": 10.003,
+              "maxMs": 10.762,
+              "meanMs": 9.122,
               "samples": 31
             }
           },
@@ -1201,189 +1607,249 @@
           }
         },
         "B_bounded_older_only": {
-          "behavior": "Older-only rolling primary window capped at 500 messages; returning newest reloads the latest page.",
+          "behavior": "Production older-only primary reducer capped at 500 messages and 2097152 retained bytes; returning newest uses its cached tail or reloads the latest page.",
           "historyTraversal": {
             "initialRequests": 1,
             "olderRequests": 99,
             "totalRequests": 100,
             "totalResponseJsonBytes": 6081389,
             "initialPageMerge": {
-              "minMs": 0.049,
-              "p50Ms": 0.053,
-              "p95Ms": 0.062,
-              "maxMs": 0.062,
-              "meanMs": 0.055,
+              "minMs": 0.19,
+              "p50Ms": 0.212,
+              "p95Ms": 0.221,
+              "maxMs": 0.221,
+              "meanMs": 0.207,
               "samples": 7
             },
             "olderPageMergeAcrossDepths": {
-              "minMs": 0.073,
-              "p50Ms": 0.205,
-              "p95Ms": 0.224,
-              "maxMs": 1.827,
-              "meanMs": 0.209,
+              "minMs": 0.408,
+              "p50Ms": 1.263,
+              "p95Ms": 1.871,
+              "maxMs": 3.753,
+              "meanMs": 1.364,
               "samples": 693
             },
             "totalMergeToTraverseHistory": {
-              "minMs": 20.021,
-              "p50Ms": 20.276,
-              "p95Ms": 22.624,
-              "maxMs": 22.624,
-              "meanMs": 20.722,
+              "minMs": 131.627,
+              "p50Ms": 135.5,
+              "p95Ms": 140.394,
+              "maxMs": 140.394,
+              "meanMs": 135.232,
               "samples": 7
             },
             "projectionAfterEachPageAcrossDepths": {
               "minMs": 0.103,
-              "p50Ms": 0.429,
-              "p95Ms": 0.67,
-              "maxMs": 1.987,
-              "meanMs": 0.442,
+              "p50Ms": 0.355,
+              "p95Ms": 0.449,
+              "maxMs": 1.015,
+              "meanMs": 0.375,
               "samples": 700
             },
             "totalProjectionToTraverseHistory": {
-              "minMs": 43.414,
-              "p50Ms": 43.718,
-              "p95Ms": 46.666,
-              "maxMs": 46.666,
-              "meanMs": 44.172,
+              "minMs": 35.148,
+              "p50Ms": 36.012,
+              "p95Ms": 40.839,
+              "maxMs": 40.839,
+              "meanMs": 37.523,
               "samples": 7
+            },
+            "productionWindow": {
+              "messageLimit": 500,
+              "retainedByteLimit": 2097152,
+              "maxPrimaryMessages": 500,
+              "peakRetainedBytes": 306498,
+              "finalRetainedBytes": 302141,
+              "evictedOlder": 0,
+              "evictedNewer": 9600,
+              "primaryHasNewerGap": true
             }
           },
           "afterCompleteOlderTraversal": {
             "retained": {
-              "primaryMessages": 500,
+              "primaryMessages": 400,
               "searchContextMessages": 0,
               "threadContextMessages": 0,
               "laneMessageReferences": 500,
               "uniqueMessages": 500,
-              "serializedMessageBytes": 301701,
-              "contentAndMetadataUtf8Bytes": 187869
+              "serializedMessageBytes": 302642,
+              "contentAndMetadataUtf8Bytes": 188686,
+              "latestTailMessages": 100,
+              "latestTailThreadContextMessages": 0,
+              "productionRetainedBytes": 302141,
+              "productionMessageLimit": 500,
+              "productionRetainedByteLimit": 2097152,
+              "primaryHasNewerGap": true
             },
             "rendererProjection": {
-              "minMs": 0.408,
-              "p50Ms": 0.428,
-              "p95Ms": 0.488,
-              "maxMs": 0.7,
-              "meanMs": 0.438,
+              "minMs": 0.325,
+              "p50Ms": 0.347,
+              "p95Ms": 0.451,
+              "maxMs": 0.935,
+              "meanMs": 0.368,
               "samples": 31
             }
           },
           "appendAtSteadyState": {
             "basePrimaryMessages": 500,
             "mergedPrimaryMessages": 500,
+            "productionRetainedBytes": 306132,
+            "evictedOlder": 1,
+            "evictedNewer": 0,
+            "outcome": "applied",
             "latestPageRefreshMerge": {
-              "minMs": 0.164,
-              "p50Ms": 0.174,
-              "p95Ms": 0.198,
-              "maxMs": 0.395,
-              "meanMs": 0.183,
+              "minMs": 0.885,
+              "p50Ms": 0.965,
+              "p95Ms": 1.524,
+              "maxMs": 1.652,
+              "meanMs": 1.03,
               "samples": 31
             },
             "rendererProjectionAfterRefresh": {
-              "minMs": 0.402,
-              "p50Ms": 0.42,
-              "p95Ms": 0.518,
-              "maxMs": 0.647,
-              "meanMs": 0.435,
+              "minMs": 0.421,
+              "p50Ms": 0.429,
+              "p95Ms": 0.519,
+              "maxMs": 1.082,
+              "meanMs": 0.454,
               "samples": 31
             }
           },
           "returnToNewestAfterCompleteOlderTraversal": {
-            "additionalRequests": 1,
-            "responseJsonBytes": 62853,
-            "note": "The rolling window ended at the oldest loaded page; an explicit newest-page reload resets it."
+            "additionalRequests": 0,
+            "responseJsonBytes": 0,
+            "note": "The production reducer swaps its retained latest tail into view without a request.",
+            "cachedTailMessages": 100,
+            "cachedTailRetainedBytes": 62588,
+            "cachedTailResetMerge": {
+              "minMs": 0.062,
+              "p50Ms": 0.066,
+              "p95Ms": 0.077,
+              "maxMs": 0.079,
+              "meanMs": 0.067,
+              "samples": 31
+            }
           }
         },
         "C_search_bidirectional": {
-          "behavior": "Same bounded normal-history path as B; before/after cursors exist only in a separate search/deep-link context lane.",
+          "behavior": "Same production bounded normal-history reducer as B; before/after expansion exists only in a separate bounded search/deep-link context lane.",
           "historyTraversal": {
             "initialRequests": 1,
             "olderRequests": 99,
             "totalRequests": 100,
             "totalResponseJsonBytes": 6081389,
             "initialPageMerge": {
-              "minMs": 0.048,
-              "p50Ms": 0.05,
-              "p95Ms": 0.059,
-              "maxMs": 0.059,
-              "meanMs": 0.053,
+              "minMs": 0.189,
+              "p50Ms": 0.197,
+              "p95Ms": 0.224,
+              "maxMs": 0.224,
+              "meanMs": 0.205,
               "samples": 7
             },
             "olderPageMergeAcrossDepths": {
-              "minMs": 0.069,
-              "p50Ms": 0.202,
-              "p95Ms": 0.225,
-              "maxMs": 0.422,
-              "meanMs": 0.203,
+              "minMs": 0.414,
+              "p50Ms": 1.27,
+              "p95Ms": 1.886,
+              "maxMs": 3.982,
+              "meanMs": 1.361,
               "samples": 693
             },
             "totalMergeToTraverseHistory": {
-              "minMs": 19.92,
-              "p50Ms": 20.144,
-              "p95Ms": 20.544,
-              "maxMs": 20.544,
-              "meanMs": 20.164,
+              "minMs": 130.947,
+              "p50Ms": 134.64,
+              "p95Ms": 139.976,
+              "maxMs": 139.976,
+              "meanMs": 134.902,
               "samples": 7
             },
             "projectionAfterEachPageAcrossDepths": {
               "minMs": 0.101,
-              "p50Ms": 0.42,
-              "p95Ms": 0.546,
-              "maxMs": 1.03,
-              "meanMs": 0.432,
+              "p50Ms": 0.356,
+              "p95Ms": 0.866,
+              "maxMs": 1.042,
+              "meanMs": 0.398,
               "samples": 700
             },
             "totalProjectionToTraverseHistory": {
-              "minMs": 41.971,
-              "p50Ms": 43.043,
-              "p95Ms": 44.057,
-              "maxMs": 44.057,
-              "meanMs": 43.168,
+              "minMs": 38.622,
+              "p50Ms": 39.687,
+              "p95Ms": 40.971,
+              "maxMs": 40.971,
+              "meanMs": 39.83,
               "samples": 7
+            },
+            "productionWindow": {
+              "messageLimit": 500,
+              "retainedByteLimit": 2097152,
+              "maxPrimaryMessages": 500,
+              "peakRetainedBytes": 306498,
+              "finalRetainedBytes": 302141,
+              "evictedOlder": 0,
+              "evictedNewer": 9600,
+              "primaryHasNewerGap": true
             }
           },
           "afterCompleteOlderTraversal": {
             "retained": {
-              "primaryMessages": 500,
+              "primaryMessages": 400,
               "searchContextMessages": 0,
               "threadContextMessages": 0,
               "laneMessageReferences": 500,
               "uniqueMessages": 500,
-              "serializedMessageBytes": 301701,
-              "contentAndMetadataUtf8Bytes": 187869
+              "serializedMessageBytes": 302642,
+              "contentAndMetadataUtf8Bytes": 188686,
+              "latestTailMessages": 100,
+              "latestTailThreadContextMessages": 0,
+              "productionRetainedBytes": 302141,
+              "productionMessageLimit": 500,
+              "productionRetainedByteLimit": 2097152,
+              "primaryHasNewerGap": true
             },
             "rendererProjection": {
-              "minMs": 0.409,
-              "p50Ms": 0.419,
-              "p95Ms": 0.473,
-              "maxMs": 0.684,
-              "meanMs": 0.43,
+              "minMs": 0.334,
+              "p50Ms": 0.35,
+              "p95Ms": 0.408,
+              "maxMs": 0.892,
+              "meanMs": 0.366,
               "samples": 31
             }
           },
           "appendAtSteadyState": {
             "basePrimaryMessages": 500,
             "mergedPrimaryMessages": 500,
+            "productionRetainedBytes": 306132,
+            "evictedOlder": 1,
+            "evictedNewer": 0,
+            "outcome": "applied",
             "latestPageRefreshMerge": {
-              "minMs": 0.157,
-              "p50Ms": 0.173,
-              "p95Ms": 0.307,
-              "maxMs": 0.398,
-              "meanMs": 0.188,
+              "minMs": 0.883,
+              "p50Ms": 0.934,
+              "p95Ms": 1.434,
+              "maxMs": 1.44,
+              "meanMs": 1.005,
               "samples": 31
             },
             "rendererProjectionAfterRefresh": {
-              "minMs": 0.401,
-              "p50Ms": 0.424,
-              "p95Ms": 0.558,
-              "maxMs": 0.836,
-              "meanMs": 0.442,
+              "minMs": 0.406,
+              "p50Ms": 0.416,
+              "p95Ms": 0.904,
+              "maxMs": 0.939,
+              "meanMs": 0.462,
               "samples": 31
             }
           },
           "returnToNewestAfterCompleteOlderTraversal": {
-            "additionalRequests": 1,
-            "responseJsonBytes": 62853,
-            "note": "The rolling window ended at the oldest loaded page; an explicit newest-page reload resets it."
+            "additionalRequests": 0,
+            "responseJsonBytes": 0,
+            "note": "The production reducer swaps its retained latest tail into view without a request.",
+            "cachedTailMessages": 100,
+            "cachedTailRetainedBytes": 62588,
+            "cachedTailResetMerge": {
+              "minMs": 0.065,
+              "p50Ms": 0.067,
+              "p95Ms": 0.071,
+              "maxMs": 0.08,
+              "meanMs": 0.068,
+              "samples": 31
+            }
           }
         }
       },
@@ -1403,19 +1869,19 @@
           "returnedMessages": 101,
           "responseJsonBytes": 63281,
           "mergeIntoExistingRecentLane": {
-            "minMs": 0.036,
-            "p50Ms": 0.038,
-            "p95Ms": 0.047,
-            "maxMs": 0.048,
-            "meanMs": 0.04,
+            "minMs": 0.037,
+            "p50Ms": 0.041,
+            "p95Ms": 0.048,
+            "maxMs": 0.051,
+            "meanMs": 0.041,
             "samples": 31
           },
           "rendererProjection": {
-            "minMs": 0.172,
-            "p50Ms": 0.177,
-            "p95Ms": 0.186,
-            "maxMs": 0.189,
-            "meanMs": 0.178,
+            "minMs": 0.173,
+            "p50Ms": 0.179,
+            "p95Ms": 0.205,
+            "maxMs": 0.277,
+            "meanMs": 0.185,
             "samples": 31
           },
           "retained": {
@@ -1435,10 +1901,10 @@
           "additionalResponseMessageBytes": 153566,
           "totalMergeAndProjection": {
             "minMs": 1.524,
-            "p50Ms": 1.616,
-            "p95Ms": 1.984,
-            "maxMs": 2.057,
-            "meanMs": 1.662,
+            "p50Ms": 1.614,
+            "p95Ms": 2.267,
+            "maxMs": 2.418,
+            "meanMs": 1.72,
             "samples": 31
           },
           "retained": {
@@ -1449,6 +1915,126 @@
             "uniqueMessages": 451,
             "serializedMessageBytes": 279284,
             "contentAndMetadataUtf8Bytes": 175888
+          }
+        },
+        "productionReducerByBoundedStrategy": {
+          "B_bounded_older_only": {
+            "aroundWindow": {
+              "returnedMessages": 101,
+              "visibleMessages": 101,
+              "mergeWithProductionReducer": {
+                "minMs": 0.382,
+                "p50Ms": 0.402,
+                "p95Ms": 0.936,
+                "maxMs": 0.992,
+                "meanMs": 0.443,
+                "samples": 31
+              },
+              "rendererProjection": {
+                "minMs": 0.089,
+                "p50Ms": 0.093,
+                "p95Ms": 0.104,
+                "maxMs": 0.119,
+                "meanMs": 0.095,
+                "samples": 31
+              },
+              "evictedOlder": 0,
+              "evictedNewer": 0,
+              "retained": {
+                "primaryMessages": 100,
+                "searchContextMessages": 101,
+                "threadContextMessages": 0,
+                "laneMessageReferences": 301,
+                "uniqueMessages": 201,
+                "serializedMessageBytes": 125721,
+                "contentAndMetadataUtf8Bytes": 79595,
+                "latestTailMessages": 100,
+                "latestTailThreadContextMessages": 0,
+                "productionRetainedBytes": 125519,
+                "productionMessageLimit": 500,
+                "productionRetainedByteLimit": 2097152,
+                "primaryHasNewerGap": false
+              }
+            },
+            "bidirectionalExpansion": {
+              "supported": false,
+              "reason": "The older-only strategy does not retain a newer context cursor."
+            }
+          },
+          "C_search_bidirectional": {
+            "aroundWindow": {
+              "returnedMessages": 101,
+              "visibleMessages": 101,
+              "mergeWithProductionReducer": {
+                "minMs": 0.382,
+                "p50Ms": 0.402,
+                "p95Ms": 0.936,
+                "maxMs": 0.992,
+                "meanMs": 0.443,
+                "samples": 31
+              },
+              "rendererProjection": {
+                "minMs": 0.089,
+                "p50Ms": 0.093,
+                "p95Ms": 0.104,
+                "maxMs": 0.119,
+                "meanMs": 0.095,
+                "samples": 31
+              },
+              "evictedOlder": 0,
+              "evictedNewer": 0,
+              "retained": {
+                "primaryMessages": 100,
+                "searchContextMessages": 101,
+                "threadContextMessages": 0,
+                "laneMessageReferences": 301,
+                "uniqueMessages": 201,
+                "serializedMessageBytes": 125721,
+                "contentAndMetadataUtf8Bytes": 79595,
+                "latestTailMessages": 100,
+                "latestTailThreadContextMessages": 0,
+                "productionRetainedBytes": 125519,
+                "productionMessageLimit": 500,
+                "productionRetainedByteLimit": 2097152,
+                "primaryHasNewerGap": false
+              }
+            },
+            "bidirectionalExpansion": {
+              "requestedDistanceFromTargetPerDirection": 300,
+              "addedOlderMessages": 250,
+              "addedNewerMessages": 250,
+              "requests": 6,
+              "requestsByDirection": {
+                "older": 3,
+                "newer": 3
+              },
+              "responseJsonBytes": 317358,
+              "totalMergeAndProjection": {
+                "minMs": 8.754,
+                "p50Ms": 9.437,
+                "p95Ms": 10.207,
+                "maxMs": 10.34,
+                "meanMs": 9.504,
+                "samples": 31
+              },
+              "evictedOlder": 201,
+              "evictedNewer": 0,
+              "retained": {
+                "primaryMessages": 100,
+                "searchContextMessages": 400,
+                "threadContextMessages": 0,
+                "laneMessageReferences": 600,
+                "uniqueMessages": 500,
+                "serializedMessageBytes": 306760,
+                "contentAndMetadataUtf8Bytes": 192214,
+                "latestTailMessages": 100,
+                "latestTailThreadContextMessages": 0,
+                "productionRetainedBytes": 306259,
+                "productionMessageLimit": 500,
+                "productionRetainedByteLimit": 2097152,
+                "primaryHasNewerGap": false
+              }
+            }
           }
         },
         "supportByStrategy": {
@@ -1494,43 +2080,43 @@
             "totalRequests": 100,
             "totalResponseJsonBytes": 85594897,
             "initialPageMerge": {
-              "minMs": 0.073,
-              "p50Ms": 0.079,
-              "p95Ms": 0.088,
-              "maxMs": 0.088,
-              "meanMs": 0.08,
+              "minMs": 0.068,
+              "p50Ms": 0.072,
+              "p95Ms": 0.084,
+              "maxMs": 0.084,
+              "meanMs": 0.074,
               "samples": 7
             },
             "olderPageMergeAcrossDepths": {
-              "minMs": 0.079,
-              "p50Ms": 1.908,
-              "p95Ms": 4.037,
-              "maxMs": 5.049,
-              "meanMs": 1.979,
+              "minMs": 0.076,
+              "p50Ms": 1.983,
+              "p95Ms": 3.981,
+              "maxMs": 6.98,
+              "meanMs": 2.009,
               "samples": 693
             },
             "totalMergeToTraverseHistory": {
-              "minMs": 186.173,
-              "p50Ms": 194.063,
-              "p95Ms": 206.159,
-              "maxMs": 206.159,
-              "meanMs": 196.024,
+              "minMs": 195.749,
+              "p50Ms": 197.983,
+              "p95Ms": 203.898,
+              "maxMs": 203.898,
+              "meanMs": 198.921,
               "samples": 7
             },
             "projectionAfterEachPageAcrossDepths": {
-              "minMs": 0.151,
-              "p50Ms": 4.803,
-              "p95Ms": 9.698,
-              "maxMs": 11.35,
-              "meanMs": 4.893,
+              "minMs": 0.152,
+              "p50Ms": 4.869,
+              "p95Ms": 9.859,
+              "maxMs": 11.738,
+              "meanMs": 4.999,
               "samples": 700
             },
             "totalProjectionToTraverseHistory": {
-              "minMs": 471.549,
-              "p50Ms": 481.461,
-              "p95Ms": 510.768,
-              "maxMs": 510.768,
-              "meanMs": 489.301,
+              "minMs": 492.783,
+              "p50Ms": 498.477,
+              "p95Ms": 505.589,
+              "maxMs": 505.589,
+              "meanMs": 499.918,
               "samples": 7
             }
           },
@@ -1545,11 +2131,11 @@
               "contentAndMetadataUtf8Bytes": 81247427
             },
             "rendererProjection": {
-              "minMs": 9.655,
-              "p50Ms": 10.96,
-              "p95Ms": 12.648,
-              "maxMs": 14.888,
-              "meanMs": 11.151,
+              "minMs": 9.523,
+              "p50Ms": 10.747,
+              "p95Ms": 17.175,
+              "maxMs": 18.689,
+              "meanMs": 11.334,
               "samples": 31
             }
           },
@@ -1557,19 +2143,19 @@
             "basePrimaryMessages": 10000,
             "mergedPrimaryMessages": 10001,
             "latestPageRefreshMerge": {
-              "minMs": 3.477,
-              "p50Ms": 3.826,
-              "p95Ms": 7.063,
-              "maxMs": 10.405,
-              "meanMs": 4.365,
+              "minMs": 3.409,
+              "p50Ms": 3.868,
+              "p95Ms": 4.713,
+              "maxMs": 4.809,
+              "meanMs": 3.954,
               "samples": 31
             },
             "rendererProjectionAfterRefresh": {
-              "minMs": 9.74,
-              "p50Ms": 11.39,
-              "p95Ms": 14.657,
-              "maxMs": 20.561,
-              "meanMs": 12.026,
+              "minMs": 9.481,
+              "p50Ms": 10.27,
+              "p95Ms": 11.538,
+              "maxMs": 12.07,
+              "meanMs": 10.445,
               "samples": 31
             }
           },
@@ -1580,189 +2166,249 @@
           }
         },
         "B_bounded_older_only": {
-          "behavior": "Older-only rolling primary window capped at 500 messages; returning newest reloads the latest page.",
+          "behavior": "Production older-only primary reducer capped at 500 messages and 2097152 retained bytes; returning newest uses its cached tail or reloads the latest page.",
           "historyTraversal": {
             "initialRequests": 1,
             "olderRequests": 99,
             "totalRequests": 100,
             "totalResponseJsonBytes": 85594897,
             "initialPageMerge": {
-              "minMs": 0.075,
-              "p50Ms": 0.077,
-              "p95Ms": 0.084,
-              "maxMs": 0.084,
-              "meanMs": 0.078,
+              "minMs": 0.227,
+              "p50Ms": 0.232,
+              "p95Ms": 1.152,
+              "maxMs": 1.152,
+              "meanMs": 0.366,
               "samples": 7
             },
             "olderPageMergeAcrossDepths": {
-              "minMs": 0.083,
-              "p50Ms": 0.223,
-              "p95Ms": 0.247,
-              "maxMs": 0.349,
-              "meanMs": 0.222,
+              "minMs": 0.456,
+              "p50Ms": 0.612,
+              "p95Ms": 0.751,
+              "maxMs": 2.359,
+              "meanMs": 0.644,
               "samples": 693
             },
             "totalMergeToTraverseHistory": {
-              "minMs": 21.855,
-              "p50Ms": 22.069,
-              "p95Ms": 22.406,
-              "maxMs": 22.406,
-              "meanMs": 22.083,
-              "samples": 7
-            },
-            "projectionAfterEachPageAcrossDepths": {
-              "minMs": 0.148,
-              "p50Ms": 0.467,
-              "p95Ms": 0.538,
-              "maxMs": 2.732,
-              "meanMs": 0.469,
-              "samples": 700
-            },
-            "totalProjectionToTraverseHistory": {
-              "minMs": 46.052,
-              "p50Ms": 46.55,
-              "p95Ms": 48.987,
-              "maxMs": 48.987,
-              "meanMs": 46.904,
-              "samples": 7
-            }
-          },
-          "afterCompleteOlderTraversal": {
-            "retained": {
-              "primaryMessages": 500,
-              "searchContextMessages": 0,
-              "threadContextMessages": 0,
-              "laneMessageReferences": 500,
-              "uniqueMessages": 500,
-              "serializedMessageBytes": 4140383,
-              "contentAndMetadataUtf8Bytes": 3924491
-            },
-            "rendererProjection": {
-              "minMs": 0.471,
-              "p50Ms": 0.517,
-              "p95Ms": 0.572,
-              "maxMs": 1.594,
-              "meanMs": 0.555,
-              "samples": 31
-            }
-          },
-          "appendAtSteadyState": {
-            "basePrimaryMessages": 500,
-            "mergedPrimaryMessages": 500,
-            "latestPageRefreshMerge": {
-              "minMs": 0.171,
-              "p50Ms": 0.184,
-              "p95Ms": 0.194,
-              "maxMs": 0.269,
-              "meanMs": 0.186,
-              "samples": 31
-            },
-            "rendererProjectionAfterRefresh": {
-              "minMs": 0.447,
-              "p50Ms": 0.462,
-              "p95Ms": 0.53,
-              "maxMs": 0.594,
-              "meanMs": 0.476,
-              "samples": 31
-            }
-          },
-          "returnToNewestAfterCompleteOlderTraversal": {
-            "additionalRequests": 1,
-            "responseJsonBytes": 859761,
-            "note": "The rolling window ended at the oldest loaded page; an explicit newest-page reload resets it."
-          }
-        },
-        "C_search_bidirectional": {
-          "behavior": "Same bounded normal-history path as B; before/after cursors exist only in a separate search/deep-link context lane.",
-          "historyTraversal": {
-            "initialRequests": 1,
-            "olderRequests": 99,
-            "totalRequests": 100,
-            "totalResponseJsonBytes": 85594897,
-            "initialPageMerge": {
-              "minMs": 0.065,
-              "p50Ms": 0.078,
-              "p95Ms": 0.088,
-              "maxMs": 0.088,
-              "meanMs": 0.076,
-              "samples": 7
-            },
-            "olderPageMergeAcrossDepths": {
-              "minMs": 0.081,
-              "p50Ms": 0.221,
-              "p95Ms": 0.257,
-              "maxMs": 0.327,
-              "meanMs": 0.222,
-              "samples": 693
-            },
-            "totalMergeToTraverseHistory": {
-              "minMs": 21.889,
-              "p50Ms": 22.068,
-              "p95Ms": 22.282,
-              "maxMs": 22.282,
-              "meanMs": 22.078,
+              "minMs": 62.073,
+              "p50Ms": 63.443,
+              "p95Ms": 69.817,
+              "maxMs": 69.817,
+              "meanMs": 64.142,
               "samples": 7
             },
             "projectionAfterEachPageAcrossDepths": {
               "minMs": 0.139,
-              "p50Ms": 0.463,
-              "p95Ms": 0.535,
-              "maxMs": 0.616,
-              "meanMs": 0.464,
+              "p50Ms": 0.16,
+              "p95Ms": 0.193,
+              "maxMs": 1.21,
+              "meanMs": 0.166,
               "samples": 700
             },
             "totalProjectionToTraverseHistory": {
-              "minMs": 46.043,
-              "p50Ms": 46.3,
-              "p95Ms": 46.758,
-              "maxMs": 46.758,
-              "meanMs": 46.42,
+              "minMs": 16.195,
+              "p50Ms": 16.367,
+              "p95Ms": 17.99,
+              "maxMs": 17.99,
+              "meanMs": 16.608,
               "samples": 7
+            },
+            "productionWindow": {
+              "messageLimit": 500,
+              "retainedByteLimit": 2097152,
+              "maxPrimaryMessages": 200,
+              "peakRetainedBytes": 2097141,
+              "finalRetainedBytes": 2089782,
+              "evictedOlder": 0,
+              "evictedNewer": 9849,
+              "primaryHasNewerGap": true
             }
           },
           "afterCompleteOlderTraversal": {
             "retained": {
-              "primaryMessages": 500,
+              "primaryMessages": 151,
               "searchContextMessages": 0,
               "threadContextMessages": 0,
-              "laneMessageReferences": 500,
-              "uniqueMessages": 500,
-              "serializedMessageBytes": 4140383,
-              "contentAndMetadataUtf8Bytes": 3924491
+              "laneMessageReferences": 251,
+              "uniqueMessages": 251,
+              "serializedMessageBytes": 2090034,
+              "contentAndMetadataUtf8Bytes": 1981588,
+              "latestTailMessages": 100,
+              "latestTailThreadContextMessages": 0,
+              "productionRetainedBytes": 2089782,
+              "productionMessageLimit": 500,
+              "productionRetainedByteLimit": 2097152,
+              "primaryHasNewerGap": true
             },
             "rendererProjection": {
-              "minMs": 0.44,
-              "p50Ms": 0.464,
-              "p95Ms": 0.514,
-              "maxMs": 1.483,
-              "meanMs": 0.497,
+              "minMs": 0.153,
+              "p50Ms": 0.16,
+              "p95Ms": 0.172,
+              "maxMs": 0.174,
+              "meanMs": 0.161,
               "samples": 31
             }
           },
           "appendAtSteadyState": {
-            "basePrimaryMessages": 500,
-            "mergedPrimaryMessages": 500,
+            "basePrimaryMessages": 144,
+            "mergedPrimaryMessages": 144,
+            "productionRetainedBytes": 2096726,
+            "evictedOlder": 0,
+            "evictedNewer": 0,
+            "outcome": "preserved-gap",
             "latestPageRefreshMerge": {
-              "minMs": 0.171,
-              "p50Ms": 0.175,
-              "p95Ms": 0.193,
-              "maxMs": 0.262,
-              "meanMs": 0.179,
+              "minMs": 0.311,
+              "p50Ms": 0.318,
+              "p95Ms": 0.356,
+              "maxMs": 0.359,
+              "meanMs": 0.323,
               "samples": 31
             },
             "rendererProjectionAfterRefresh": {
-              "minMs": 0.444,
-              "p50Ms": 0.476,
-              "p95Ms": 0.506,
-              "maxMs": 0.619,
-              "meanMs": 0.477,
+              "minMs": 0.146,
+              "p50Ms": 0.154,
+              "p95Ms": 0.163,
+              "maxMs": 0.165,
+              "meanMs": 0.153,
               "samples": 31
             }
           },
           "returnToNewestAfterCompleteOlderTraversal": {
-            "additionalRequests": 1,
-            "responseJsonBytes": 859761,
-            "note": "The rolling window ended at the oldest loaded page; an explicit newest-page reload resets it."
+            "additionalRequests": 0,
+            "responseJsonBytes": 0,
+            "note": "The production reducer swaps its retained latest tail into view without a request.",
+            "cachedTailMessages": 100,
+            "cachedTailRetainedBytes": 859496,
+            "cachedTailResetMerge": {
+              "minMs": 0.065,
+              "p50Ms": 0.067,
+              "p95Ms": 0.072,
+              "maxMs": 0.072,
+              "meanMs": 0.067,
+              "samples": 31
+            }
+          }
+        },
+        "C_search_bidirectional": {
+          "behavior": "Same production bounded normal-history reducer as B; before/after expansion exists only in a separate bounded search/deep-link context lane.",
+          "historyTraversal": {
+            "initialRequests": 1,
+            "olderRequests": 99,
+            "totalRequests": 100,
+            "totalResponseJsonBytes": 85594897,
+            "initialPageMerge": {
+              "minMs": 0.216,
+              "p50Ms": 0.247,
+              "p95Ms": 0.408,
+              "maxMs": 0.408,
+              "meanMs": 0.265,
+              "samples": 7
+            },
+            "olderPageMergeAcrossDepths": {
+              "minMs": 0.443,
+              "p50Ms": 0.611,
+              "p95Ms": 0.729,
+              "maxMs": 1.772,
+              "meanMs": 0.64,
+              "samples": 693
+            },
+            "totalMergeToTraverseHistory": {
+              "minMs": 61.04,
+              "p50Ms": 62.475,
+              "p95Ms": 68.1,
+              "maxMs": 68.1,
+              "meanMs": 63.648,
+              "samples": 7
+            },
+            "projectionAfterEachPageAcrossDepths": {
+              "minMs": 0.137,
+              "p50Ms": 0.161,
+              "p95Ms": 0.2,
+              "maxMs": 0.996,
+              "meanMs": 0.168,
+              "samples": 700
+            },
+            "totalProjectionToTraverseHistory": {
+              "minMs": 16.211,
+              "p50Ms": 16.35,
+              "p95Ms": 18.443,
+              "maxMs": 18.443,
+              "meanMs": 16.788,
+              "samples": 7
+            },
+            "productionWindow": {
+              "messageLimit": 500,
+              "retainedByteLimit": 2097152,
+              "maxPrimaryMessages": 200,
+              "peakRetainedBytes": 2097141,
+              "finalRetainedBytes": 2089782,
+              "evictedOlder": 0,
+              "evictedNewer": 9849,
+              "primaryHasNewerGap": true
+            }
+          },
+          "afterCompleteOlderTraversal": {
+            "retained": {
+              "primaryMessages": 151,
+              "searchContextMessages": 0,
+              "threadContextMessages": 0,
+              "laneMessageReferences": 251,
+              "uniqueMessages": 251,
+              "serializedMessageBytes": 2090034,
+              "contentAndMetadataUtf8Bytes": 1981588,
+              "latestTailMessages": 100,
+              "latestTailThreadContextMessages": 0,
+              "productionRetainedBytes": 2089782,
+              "productionMessageLimit": 500,
+              "productionRetainedByteLimit": 2097152,
+              "primaryHasNewerGap": true
+            },
+            "rendererProjection": {
+              "minMs": 0.155,
+              "p50Ms": 0.161,
+              "p95Ms": 0.184,
+              "maxMs": 0.22,
+              "meanMs": 0.164,
+              "samples": 31
+            }
+          },
+          "appendAtSteadyState": {
+            "basePrimaryMessages": 144,
+            "mergedPrimaryMessages": 144,
+            "productionRetainedBytes": 2096726,
+            "evictedOlder": 0,
+            "evictedNewer": 0,
+            "outcome": "preserved-gap",
+            "latestPageRefreshMerge": {
+              "minMs": 0.308,
+              "p50Ms": 0.323,
+              "p95Ms": 0.407,
+              "maxMs": 0.414,
+              "meanMs": 0.333,
+              "samples": 31
+            },
+            "rendererProjectionAfterRefresh": {
+              "minMs": 0.146,
+              "p50Ms": 0.158,
+              "p95Ms": 0.169,
+              "maxMs": 0.17,
+              "meanMs": 0.157,
+              "samples": 31
+            }
+          },
+          "returnToNewestAfterCompleteOlderTraversal": {
+            "additionalRequests": 0,
+            "responseJsonBytes": 0,
+            "note": "The production reducer swaps its retained latest tail into view without a request.",
+            "cachedTailMessages": 100,
+            "cachedTailRetainedBytes": 859496,
+            "cachedTailResetMerge": {
+              "minMs": 0.064,
+              "p50Ms": 0.07,
+              "p95Ms": 0.107,
+              "maxMs": 0.115,
+              "meanMs": 0.073,
+              "samples": 31
+            }
           }
         }
       },
@@ -1782,19 +2428,19 @@
           "returnedMessages": 101,
           "responseJsonBytes": 868160,
           "mergeIntoExistingRecentLane": {
-            "minMs": 0.039,
-            "p50Ms": 0.047,
-            "p95Ms": 0.086,
-            "maxMs": 2.105,
-            "meanMs": 0.115,
+            "minMs": 0.037,
+            "p50Ms": 0.043,
+            "p95Ms": 0.051,
+            "maxMs": 0.056,
+            "meanMs": 0.043,
             "samples": 31
           },
           "rendererProjection": {
-            "minMs": 0.194,
-            "p50Ms": 0.208,
-            "p95Ms": 0.224,
-            "maxMs": 0.245,
-            "meanMs": 0.21,
+            "minMs": 0.192,
+            "p50Ms": 0.199,
+            "p95Ms": 0.208,
+            "maxMs": 0.219,
+            "meanMs": 0.2,
             "samples": 31
           },
           "retained": {
@@ -1813,11 +2459,11 @@
           "additionalRequests": 3,
           "additionalResponseMessageBytes": 2146362,
           "totalMergeAndProjection": {
-            "minMs": 1.729,
-            "p50Ms": 1.832,
-            "p95Ms": 2.179,
-            "maxMs": 2.295,
-            "meanMs": 1.862,
+            "minMs": 1.639,
+            "p50Ms": 1.745,
+            "p95Ms": 1.921,
+            "maxMs": 2.006,
+            "meanMs": 1.764,
             "samples": 31
           },
           "retained": {
@@ -1828,6 +2474,126 @@
             "uniqueMessages": 451,
             "serializedMessageBytes": 3873867,
             "contentAndMetadataUtf8Bytes": 3678491
+          }
+        },
+        "productionReducerByBoundedStrategy": {
+          "B_bounded_older_only": {
+            "aroundWindow": {
+              "returnedMessages": 101,
+              "visibleMessages": 101,
+              "mergeWithProductionReducer": {
+                "minMs": 0.395,
+                "p50Ms": 0.481,
+                "p95Ms": 0.57,
+                "maxMs": 1.683,
+                "meanMs": 0.524,
+                "samples": 31
+              },
+              "rendererProjection": {
+                "minMs": 0.107,
+                "p50Ms": 0.11,
+                "p95Ms": 0.12,
+                "maxMs": 0.127,
+                "meanMs": 0.112,
+                "samples": 31
+              },
+              "evictedOlder": 0,
+              "evictedNewer": 0,
+              "retained": {
+                "primaryMessages": 100,
+                "searchContextMessages": 101,
+                "threadContextMessages": 0,
+                "laneMessageReferences": 301,
+                "uniqueMessages": 201,
+                "serializedMessageBytes": 1727508,
+                "contentAndMetadataUtf8Bytes": 1640432,
+                "latestTailMessages": 100,
+                "latestTailThreadContextMessages": 0,
+                "productionRetainedBytes": 1727306,
+                "productionMessageLimit": 500,
+                "productionRetainedByteLimit": 2097152,
+                "primaryHasNewerGap": false
+              }
+            },
+            "bidirectionalExpansion": {
+              "supported": false,
+              "reason": "The older-only strategy does not retain a newer context cursor."
+            }
+          },
+          "C_search_bidirectional": {
+            "aroundWindow": {
+              "returnedMessages": 101,
+              "visibleMessages": 101,
+              "mergeWithProductionReducer": {
+                "minMs": 0.395,
+                "p50Ms": 0.481,
+                "p95Ms": 0.57,
+                "maxMs": 1.683,
+                "meanMs": 0.524,
+                "samples": 31
+              },
+              "rendererProjection": {
+                "minMs": 0.107,
+                "p50Ms": 0.11,
+                "p95Ms": 0.12,
+                "maxMs": 0.127,
+                "meanMs": 0.112,
+                "samples": 31
+              },
+              "evictedOlder": 0,
+              "evictedNewer": 0,
+              "retained": {
+                "primaryMessages": 100,
+                "searchContextMessages": 101,
+                "threadContextMessages": 0,
+                "laneMessageReferences": 301,
+                "uniqueMessages": 201,
+                "serializedMessageBytes": 1727508,
+                "contentAndMetadataUtf8Bytes": 1640432,
+                "latestTailMessages": 100,
+                "latestTailThreadContextMessages": 0,
+                "productionRetainedBytes": 1727306,
+                "productionMessageLimit": 500,
+                "productionRetainedByteLimit": 2097152,
+                "primaryHasNewerGap": false
+              }
+            },
+            "bidirectionalExpansion": {
+              "requestedDistanceFromTargetPerDirection": 300,
+              "addedOlderMessages": 250,
+              "addedNewerMessages": 250,
+              "requests": 6,
+              "requestsByDirection": {
+                "older": 3,
+                "newer": 3
+              },
+              "responseJsonBytes": 4345293,
+              "totalMergeAndProjection": {
+                "minMs": 5.151,
+                "p50Ms": 5.434,
+                "p95Ms": 6.392,
+                "maxMs": 6.402,
+                "meanMs": 5.486,
+                "samples": 31
+              },
+              "evictedOlder": 250,
+              "evictedNewer": 207,
+              "retained": {
+                "primaryMessages": 100,
+                "searchContextMessages": 144,
+                "threadContextMessages": 0,
+                "laneMessageReferences": 344,
+                "uniqueMessages": 244,
+                "serializedMessageBytes": 2097211,
+                "contentAndMetadataUtf8Bytes": 1991500,
+                "latestTailMessages": 100,
+                "latestTailThreadContextMessages": 0,
+                "productionRetainedBytes": 2096966,
+                "productionMessageLimit": 500,
+                "productionRetainedByteLimit": 2097152,
+                "primaryHasNewerGap": false
+              }
+            }
           }
         },
         "supportByStrategy": {
@@ -1849,11 +2615,11 @@
         }
       },
       "derived": {
-        "boundedRetainedSerializedByteReductionPercent": 95.2,
+        "boundedRetainedSerializedByteReductionPercent": 97.6,
         "normalPathCEqualsBByDesign": true
       }
     }
   ],
-  "elapsedMs": 16629.902,
-  "observableChecksum": 1448303310
+  "elapsedMs": 19898.449,
+  "observableChecksum": 7077200170
 }

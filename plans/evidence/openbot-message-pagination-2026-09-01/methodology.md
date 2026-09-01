@@ -1,12 +1,26 @@
-# OpenBot message-history pagination benchmark
+# Deterministic message-window benchmark
 
-This benchmark compares three client-side history policies without changing production code:
+## Question and arms
 
-- **A — current/unbounded:** the existing older-only cursor and `mergeLoadedChannelHistoryPage`; every page loaded into the active channel remains retained.
-- **B — bounded/older-only:** the same API and merge behavior, with a rolling five-page/500-message primary window. Loading toward older history evicts the newest edge; returning to the newest messages reloads the latest page.
-- **C — search-only bidirectional:** the same bounded normal path as B, plus a separate 50-before/target/50-after lane for search and deep links. Only that lane retains and uses the server's existing `beforeSequence`, `afterSequence`, `hasMoreBefore`, and `hasMoreAfter` fields.
+This benchmark isolates the synchronous work whose scale changes when a user traverses a long
+conversation. It compares:
 
-The five-page cap is an explicitly modeled policy, not a claim about current production behavior.
+- **A — prior unbounded renderer:** the pre-feature older-only merge policy; every traversed page
+  remains in the active history array.
+- **B — bounded control:** the production count/byte reducer on normal older-only history, but
+  without newer context expansion.
+- **C — bounded candidate:** the actual candidate policy—bounded normal history, a cached latest
+  tail, and a separate bidirectional search/deep-link/gap context.
+
+C is the product decision. B exists only to isolate the value and cost of bidirectional context.
+B and C share the same normal-history algorithm, so small differences on that path are timing
+noise.
+
+The production ceiling is an aggregate unique-ID union: at most 500 retained channel-window
+messages and 2,097,152 retained bytes across primary history, thread ancestry, centered context,
+and the cached latest tail. It is not simply “five visible pages.” After a deep mixed traversal, for
+example, the candidate retains 400 primary rows plus a 100-row latest tail. Rich messages hit the
+byte limit before the count limit.
 
 ## Reproduction
 
@@ -14,88 +28,109 @@ From the repository root:
 
 ```sh
 bun scripts/performance/benchmark-message-pagination.ts \
-  --output=plans/evidence/openbot-message-pagination-2026-09-01/summary.json \
-  > /dev/null
+  --output=plans/evidence/openbot-message-pagination-2026-09-01/summary.json
 ```
 
-The committed evidence used Bun 1.3.8 on an Apple M4 Pro, with seven complete traversal iterations and 31 point samples. Fixtures are deterministic, use a fixed timestamp, and contain stable IDs, message content, metadata, attachments, reactions, and reply shapes.
+The retained run used Bun 1.3.8 on an Apple M4 Pro, seven complete traversal iterations, and 31
+point samples. A fixed epoch, stable IDs, and deterministic content, metadata, attachments,
+reactions, and reply shapes make outcomes reproducible. The full result contains observable
+checksum `7077200170`; a second full run against the later viewport-pivot worktree reproduced the
+same checksum.
 
-## What is measured
+## Production code exercised
 
-The script exercises the actual OpenBot helpers for history page/context merging, message normalization, render keys, address indexes, thread derivation, message display projection, and virtual layout/range calculation. It measures:
+The bounded arms call the real desktop reducer:
 
-- initial and older-page merge CPU;
-- cumulative merge CPU while traversing all older pages;
-- cumulative renderer data-projection work after each page;
-- steady-state latest-page refresh/append work;
-- exact UTF-8 JSON and content-plus-metadata bytes for unique retained messages;
-- deterministic request counts and response JSON bytes for history and deep-search journeys.
+- `applyPrimaryHistoryPage`;
+- `enterMessageContext` and `expandMessageContext`;
+- `resetToLatestTail`;
+- `visibleChannelHistoryMessages`;
+- the shared count/byte window helpers and exact retained-byte accounting.
 
-The renderer proxy covers the synchronous work whose cost changes with retained message count. It does **not** claim to measure React commit, Markdown/highlighter initialization, DOM measurement, image decode, paint, HTTP latency, database latency, or Electron IPC. Serialized bytes are a deterministic payload-size proxy, not JavaScript heap size; real heap retention includes engine/object overhead and can be larger.
+All arms also run the real history normalization, thread derivation, render-key/address indexes,
+message projection, and virtual-layout/range helpers. Each page therefore incurs the same
+deterministic renderer data-projection proxy after merge.
 
-## Workloads
+This harness does **not** have a DOM viewport. It does not measure the candidate's viewport-pivot
+selection, anchor restoration, React commit, Markdown/highlighter initialization, DOM measurement,
+image decode, paint, Electron IPC, HTTP, or PostgreSQL. Those belong to focused reducer tests and
+the packaged Electron A/B. “Retained JSON” is deterministic serialized payload size, and
+“production retained bytes” is the reducer's per-message byte accounting; neither is JavaScript
+heap.
 
-| Workload | Messages | Mean serialized message | Pages | Purpose |
+## Fixtures
+
+| Workload | Messages | Mean serialized row | Pages | Classification |
 |---|---:|---:|---:|---|
-| Recent mixed | 100 | 608 B | 1 | Normal open |
-| Long mixed | 1,000 | 604 B | 10 | Realistic long conversation |
-| Long rich | 1,000 | 8,308 B | 10 | Markdown and attachment-heavy stress |
-| Extreme mixed | 10,000 | 607 B | 100 | Exhaustive-scroll stress |
-| Extreme rich | 10,000 | 8,558 B | 100 | Combined history-depth and payload-size stress |
+| Recent mixed | 100 | 608 B | 1 | realistic open |
+| Long mixed | 1,000 | 604 B | 10 | realistic long chat |
+| Long rich | 1,000 | 8,308 B | 10 | rich-content stress |
+| Extreme mixed | 10,000 | 607 B | 100 | depth stress |
+| Extreme rich | 10,000 | 8,558 B | 100 | depth + payload stress |
 
-## Results
+## Normal-history results
 
-All timings below are p50 values in milliseconds. B and C deliberately share the same normal-history algorithm, so small timing differences between their separate runs are measurement noise rather than an algorithmic difference.
+All CPU figures below are p50 milliseconds. “Traverse” is cumulative across every page; “final
+projection” is one projection after the complete walk. C is the actual candidate.
 
-| Workload | Policy | Retained JSON | Traverse merge | Traverse projection | Final projection | Latest refresh merge |
-|---|---|---:|---:|---:|---:|---:|
-| 100 mixed | A | 60.8 KB | 0.060 | 0.172 | 0.129 | 0.050 |
-| 100 mixed | B | 60.8 KB | 0.049 | 0.112 | 0.103 | 0.039 |
-| 1,000 mixed | A | 604.5 KB | 1.932 | 4.792 | 0.846 | 0.343 |
-| 1,000 mixed | B | 301.7 KB | 1.547 | 3.442 | 0.429 | 0.166 |
-| 1,000 rich | A | 8.31 MB | 1.929 | 5.155 | 0.899 | 0.340 |
-| 1,000 rich | B | 4.14 MB | 1.678 | 3.923 | 0.467 | 0.175 |
-| 10,000 mixed | A | 6.07 MB | 189.757 | 475.666 | 9.056 | 3.491 |
-| 10,000 mixed | B | 301.7 KB | 20.276 | 43.718 | 0.428 | 0.174 |
-| 10,000 rich | A | 85.58 MB | 194.063 | 481.461 | 10.960 | 3.826 |
-| 10,000 rich | B | 4.14 MB | 22.069 | 46.550 | 0.517 | 0.184 |
+| Workload | Arm | Retained JSON | Unique rows | Traverse merge | Traverse projection | Final projection | Latest refresh merge |
+|---|---|---:|---:|---:|---:|---:|---:|
+| 100 mixed | A | 60.8 KB | 100 | 0.054 | 0.168 | 0.131 | 0.050 |
+| 100 mixed | C | 60.8 KB | 100 | 0.206 | 0.103 | 0.101 | 0.250 |
+| 1,000 mixed | A | 604.5 KB | 1,000 | 1.925 | 4.770 | 0.885 | 0.333 |
+| 1,000 mixed | C | 301.9 KB | 500 | 10.297 | 3.110 | 0.336 | 0.929 |
+| 1,000 rich | A | 8.31 MB | 1,000 | 1.976 | 5.304 | 0.891 | 0.347 |
+| 1,000 rich | C | 2.09 MB | 254 | 6.088 | 1.657 | 0.164 | 0.304 |
+| 10,000 mixed | A | 6.07 MB | 10,000 | 181.944 | 461.646 | 9.188 | 3.456 |
+| 10,000 mixed | C | 302.6 KB | 500 | 134.640 | 39.687 | 0.350 | 0.934 |
+| 10,000 rich | A | 85.58 MB | 10,000 | 197.983 | 498.477 | 10.747 | 3.868 |
+| 10,000 rich | C | 2.09 MB | 251 | 62.475 | 16.350 | 0.161 | 0.323 |
 
-At 10,000 mixed messages, the 500-message window reduces the deterministic retained payload by **95%**, cumulative merge work by **9.4×**, cumulative renderer projection by **10.9×**, final projection by **21.2×**, and latest-page refresh merge by **20.1×**. The combined 10,000-message/rich-payload case retains 85.58 MB unbounded versus 4.14 MB bounded, a **95.2%** reduction, with similar CPU ratios. At 1,000 messages, the memory and steady-state CPU benefit is approximately 2×. At 100 messages, bounding provides no material benefit because the history already fits in one page.
+The trade is visible rather than hidden:
 
-Rich content changes retained bytes far more than these projection timings because the benchmark deliberately excludes Markdown parsing and only projects the virtualized mounted rows. A 500-message count cap retains 4.14 MB in the rich fixture, which supports combining a count cap with a byte budget rather than relying on count alone.
+- At 100 rows, union accounting adds about 0.15–0.20 ms to merge work and produces no memory
+  benefit. It remains well below one millisecond in this CPU-only harness.
+- At 1,000 mixed rows, the bounded reducer spends more cumulative merge CPU (10.297 versus
+  1.925 ms) to enforce the aggregate union, although final projection is 2.6× lower and retained
+  payload is halved. This is the crossover region, not a universal speedup.
+- At 10,000 mixed rows, retained payload falls 95.0%, cumulative projection falls 11.6×, final
+  projection falls 26.3×, and latest refresh merge falls 3.7×. Merge plus projection over the full
+  walk falls from 643.590 to 174.327 ms.
+- At 10,000 rich rows, the byte ceiling cuts retained payload 97.6%; cumulative projection is
+  30.5× lower, final projection 66.8× lower, and latest refresh merge 12.0× lower.
 
-## Request and UX trade-offs
+Every bounded fixture stayed at or below both production ceilings. The largest observed traversal
+peak was 2,097,141 bytes—11 bytes below 2 MiB. The separate tests cover the only documented soft
+excesses: one indivisible oversized row or a mandatory visible protected span.
 
-| Journey | A: current | B: bounded older-only | C: search-only bidirectional |
-|---|---:|---:|---:|
-| Open newest 100 | 1 request | 1 | 1 |
-| Traverse all 10,000 toward older | 100 total | 100 | 100 |
-| Return newest after exhaustive older traversal | 0 | 1 | 1 |
-| Open a deep search hit in an already-open channel | 1 context request | 1 | 1 |
-| Reach the 20%-depth hit without the context endpoint | 80 total history pages | 80 | 80 |
-| Continue from the search hit to 300 messages newer | Unsupported past returned context | Unsupported | 3 additional pages |
-| Jump directly from search context to newest | 0; recent lane already retained | 0 | 0 |
+## Search and navigation
 
-The policy trade-offs are:
+For the 10,000-message fixtures, the target is at 20% transcript depth. The existing context
+endpoint opens it with one context request (two total on a cold channel, including latest-tail
+initialization); sequential older-only history would need 80 page requests.
 
-- **A** has the simplest continuity model: every loaded row remains locally scrollable, returning to newest costs no request, and live appends join one array. Its cost is unbounded renderer memory and history-sized merge/projection work.
-- **B** bounds normal-history CPU and memory without changing the server API. Its downside is UX, not raw speed: after the rolling window evicts the newer edge, ordinary downward scrolling cannot cross that gap. The app needs an explicit “jump to newest” reset, and live appends while viewing an old window need a separate newest/unread lane rather than being inserted as though the array were continuous.
-- **C** has B's bounded common path and adds newer-page state only when navigation began from a search result or deep link. It preserves direct search and instant jump-to-newest behavior while allowing continuous reading around the target. It does require explicit two-lane/gap semantics, overlap deduplication, cursor invalidation, and realtime-insert tests.
+The 50-before/target/50-after context initially returns 101 rows. Expanding 300 messages in each
+direction takes six additional requests. In the mixed fixture, the production reducer's six-page
+merge-plus-projection is 9.437 ms p50 and finishes at the 500-row aggregate cap. In the rich
+fixture it is 5.434 ms p50 and finishes with 244 unique rows / 2,096,966 production bytes because
+the byte limit wins first. Network payload for those six rich pages is 4.35 MB, which is paid only
+when a user actually explores both directions around that old result.
 
-The current server context endpoint is already the important optimization: a deep target takes one warm request instead of up to 80 sequential history pages in the 10,000-message fixture. The current desktop client, however, discards the returned newer cursor. Retaining it only for search/deep-link mode enables continuous exploration beyond the 50 newer messages already returned.
+After exhaustive normal history traversal, `resetToLatestTail` restores the cached newest 100 rows
+without a request in 0.067 ms p50 for the 10,000 mixed fixture and 0.070 ms for rich. This is why
+the candidate caches a small latest tail instead of adding universal downward pagination.
 
-Continuing 300 messages newer from a search hit takes three additional 100-message requests. The measured total merge-plus-projection cost is 1.62 ms p50 for the 10,000 mixed fixture and 1.83 ms for the 10,000 rich fixture. The three response-page payloads are 154 KB mixed or 2.15 MB rich. No additional requests occur unless the user actually crosses the newer edge of the search window.
+## Interpretation
 
-## Decision supported by the data
+The data supports a bounded common path with targeted bidirectional contexts:
 
-The best cost/complexity balance is C:
+1. Keep 100-row keyset pages; the live API benchmark shows little local benefit from smaller pages.
+2. Keep ordinary chat older-only and spend context state only on search, deep links, and real gaps.
+3. Bound by both count and bytes across all retained lanes, not by primary-array length alone.
+4. Keep the latest 100-row tail for an immediate, request-free jump to the present.
+5. Preserve the actual visible span and fill in the user's scroll direction before trimming the
+   opposite edge; validate that UI behavior in Electron rather than inferring it from this harness.
 
-1. Keep ordinary conversation navigation older-only; normal chat does not need a newer cursor.
-2. Bound the active primary history, initially testing five pages/500 messages plus a byte ceiling.
-3. Preserve the current direct `around` lookup and retain bidirectional cursors only while a search/deep-link context is active.
-4. Keep the recent lane available so “jump to newest” remains immediate from search mode.
-5. When ordinary older exploration evicts the newest edge, expose an explicit gap/jump affordance and reload the latest page rather than silently pretending the window is continuous.
-
-This avoids bidirectional-state complexity on every conversation, captures the measured bounded-memory and bounded-CPU gains, and spends extra network requests only on the uncommon action that actually needs downward pagination: reading forward from an old searched or linked message.
-
-Before production rollout, validate scroll anchoring, thread context, realtime inserts, gap affordances, search-context clearing, keyboard focus, and exact visual parity in Electron. This microbenchmark establishes the scaling trade-off; it is not a replacement for that CUA A/B pass.
+The deterministic benchmark establishes the scaling curve and exposes the small/medium-history
+overhead honestly. It is not sufficient rollout evidence without scroll anchoring, frame, heap,
+focus, accessibility, reply/thread, and visual-parity checks.

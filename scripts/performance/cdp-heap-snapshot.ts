@@ -1,9 +1,7 @@
 const endpoint = process.env.OPENBOT_AUDIT_CDP_URL ?? "http://127.0.0.1:9333";
-const expression = process.argv.slice(2).join(" ").trim();
+const output = process.env.OPENBOT_AUDIT_OUTPUT;
 
-if (!expression) {
-  throw new Error("Usage: bun scripts/performance/cdp-evaluate.ts <JavaScript expression>");
-}
+if (!output) throw new Error("OPENBOT_AUDIT_OUTPUT is required");
 
 interface Target {
   type: string;
@@ -29,12 +27,19 @@ const pending = new Map<
   number,
   { resolve: (value: unknown) => void; reject: (error: Error) => void }
 >();
+const chunks: string[] = [];
 socket.addEventListener("message", (event) => {
   const message = JSON.parse(String(event.data)) as {
     id?: number;
+    method?: string;
+    params?: { chunk?: string };
     result?: unknown;
     error?: { message?: string };
   };
+  if (message.method === "HeapProfiler.addHeapSnapshotChunk" && message.params?.chunk) {
+    chunks.push(message.params.chunk);
+    return;
+  }
   if (typeof message.id !== "number") return;
   const waiter = pending.get(message.id);
   if (!waiter) return;
@@ -53,26 +58,16 @@ const command = <T>(method: string, params: Record<string, unknown> = {}) =>
     socket.send(JSON.stringify({ id, method, params }));
   });
 
-await command("Runtime.enable");
-const evaluated = await command<{
-  result: { value?: unknown; description?: string };
-  exceptionDetails?: { text?: string };
-}>("Runtime.evaluate", {
-  expression,
-  awaitPromise: true,
-  includeCommandLineAPI: true,
-  returnByValue: true,
-});
+await command("HeapProfiler.enable");
+await command("HeapProfiler.collectGarbage");
+await command("HeapProfiler.takeHeapSnapshot", { reportProgress: false });
 socket.close();
 
-if (evaluated.exceptionDetails) {
-  throw new Error(
-    evaluated.exceptionDetails.text ?? evaluated.result.description ?? "Evaluation failed"
-  );
-}
-
-const serialized = JSON.stringify(evaluated.result.value ?? null, null, 2);
-if (process.env.OPENBOT_AUDIT_OUTPUT) {
-  await Bun.write(process.env.OPENBOT_AUDIT_OUTPUT, `${serialized}\n`);
-}
-console.log(serialized);
+await Bun.write(output, chunks.join(""));
+console.log(
+  JSON.stringify({
+    output,
+    chunks: chunks.length,
+    bytes: chunks.reduce((sum, chunk) => sum + chunk.length, 0),
+  })
+);

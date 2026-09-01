@@ -112,16 +112,18 @@ const hottest = [...durationByNode]
   .sort((left, right) => right.selfMs - left.selfMs)
   .slice(0, 40);
 
-console.log(
-  JSON.stringify(
-    {
-      capturedAt: new Date().toISOString(),
-      durationMs: (profile.endTime - profile.startTime) / 1_000,
-      samplingIntervalUs,
-      samples: profile.samples?.length ?? 0,
-      hottest,
-    },
-    null,
-    2
-  )
+const serialized = JSON.stringify(
+  {
+    capturedAt: new Date().toISOString(),
+    durationMs: (profile.endTime - profile.startTime) / 1_000,
+    samplingIntervalUs,
+    samples: profile.samples?.length ?? 0,
+    hottest,
+  },
+  null,
+  2
 );
+if (process.env.OPENBOT_AUDIT_OUTPUT) {
+  await Bun.write(process.env.OPENBOT_AUDIT_OUTPUT, `${serialized}\n`);
+}
+console.log(serialized);

@@ -11,7 +11,9 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -214,177 +216,190 @@ export function ThreadSheet({
       presentationStyle="fullScreen"
       visible={Boolean(thread)}
     >
-      <SafeAreaView style={[styles.safe, { backgroundColor: theme.background }]}>
-        <View style={styles.header}>
-          <IconButton
-            label="Close thread"
-            name="chevron.left"
-            onPress={onClose}
-            size={40}
-            symbolSize={18}
-            tone="surface"
-          />
-        </View>
-        <FlatList
-          {...MOBILE_VIRTUAL_LIST_TUNING}
-          ref={listRef}
-          contentContainerStyle={styles.messages}
-          data={messages}
-          keyExtractor={messageRenderKey}
-          keyboardDismissMode="interactive"
-          keyboardShouldPersistTaps="handled"
-          maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
-          onContentSizeChange={() => {
-            if (!threadRootId) return;
-            if (placedThreadIdRef.current !== threadRootId) {
-              placedThreadIdRef.current = threadRootId;
-              if (targetIndex >= 0) {
+      <SafeAreaView
+        accessibilityViewIsModal
+        style={[styles.safe, { backgroundColor: theme.background }]}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          keyboardVerticalOffset={0}
+          style={styles.safe}
+        >
+          <View style={styles.header}>
+            <IconButton
+              label="Close thread"
+              name="chevron.left"
+              onPress={onClose}
+              size={40}
+              symbolSize={18}
+              tone="surface"
+            />
+          </View>
+          <FlatList
+            {...MOBILE_VIRTUAL_LIST_TUNING}
+            ref={listRef}
+            contentContainerStyle={styles.messages}
+            data={messages}
+            keyExtractor={messageRenderKey}
+            keyboardDismissMode="interactive"
+            keyboardShouldPersistTaps="handled"
+            maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
+            onContentSizeChange={() => {
+              if (!threadRootId) return;
+              if (placedThreadIdRef.current !== threadRootId) {
+                placedThreadIdRef.current = threadRootId;
+                if (targetIndex >= 0) {
+                  listRef.current?.scrollToIndex({
+                    animated: false,
+                    index: targetIndex,
+                    viewPosition: 0.5,
+                  });
+                } else {
+                  listRef.current?.scrollToEnd({ animated: false });
+                }
+                return;
+              }
+              if (atLiveEdgeRef.current) listRef.current?.scrollToEnd({ animated: true });
+            }}
+            onScroll={(event) => {
+              const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+              atLiveEdgeRef.current = isNearLiveEdge(
+                contentOffset.y,
+                layoutMeasurement.height,
+                contentSize.height
+              );
+            }}
+            onScrollToIndexFailed={({ index, averageItemLength }) => {
+              listRef.current?.scrollToOffset({
+                animated: false,
+                offset: Math.max(0, averageItemLength * index),
+              });
+              if (targetScrollRetries.current >= 2) return;
+              targetScrollRetries.current += 1;
+              requestAnimationFrame(() => {
                 listRef.current?.scrollToIndex({
                   animated: false,
-                  index: targetIndex,
+                  index,
                   viewPosition: 0.5,
                 });
-              } else {
-                listRef.current?.scrollToEnd({ animated: false });
-              }
-              return;
-            }
-            if (atLiveEdgeRef.current) listRef.current?.scrollToEnd({ animated: true });
-          }}
-          onScroll={(event) => {
-            const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
-            atLiveEdgeRef.current = isNearLiveEdge(
-              contentOffset.y,
-              layoutMeasurement.height,
-              contentSize.height
-            );
-          }}
-          onScrollToIndexFailed={({ index, averageItemLength }) => {
-            listRef.current?.scrollToOffset({
-              animated: false,
-              offset: Math.max(0, averageItemLength * index),
-            });
-            if (targetScrollRetries.current >= 2) return;
-            targetScrollRetries.current += 1;
-            requestAnimationFrame(() => {
-              listRef.current?.scrollToIndex({
-                animated: false,
-                index,
-                viewPosition: 0.5,
               });
-            });
-          }}
-          onViewableItemsChanged={onViewableItemsChanged}
-          scrollEventThrottle={32}
-          ListHeaderComponent={
-            <View>
-              {historyLoading ? (
-                <ActivityIndicator color={theme.textMuted} style={styles.historyAction} />
-              ) : historyHasMore ? (
-                <Pressable
-                  accessibilityLabel="Load earlier thread replies"
-                  accessibilityRole="button"
-                  onPress={() => {
-                    atLiveEdgeRef.current = false;
-                    void onLoadEarlier();
-                  }}
-                  style={({ pressed }) => [styles.historyAction, pressed && styles.pressed]}
-                >
-                  <Text style={[styles.historyLabel, { color: theme.textMuted }]}>
-                    Load earlier thread replies
+            }}
+            onViewableItemsChanged={onViewableItemsChanged}
+            scrollEventThrottle={32}
+            ListHeaderComponent={
+              <View>
+                {historyLoading ? (
+                  <ActivityIndicator color={theme.textMuted} style={styles.historyAction} />
+                ) : historyHasMore ? (
+                  <Pressable
+                    accessibilityLabel="Load earlier thread replies"
+                    accessibilityRole="button"
+                    onPress={() => {
+                      atLiveEdgeRef.current = false;
+                      void onLoadEarlier();
+                    }}
+                    style={({ pressed }) => [styles.historyAction, pressed && styles.pressed]}
+                  >
+                    <Text style={[styles.historyLabel, { color: theme.textMuted }]}>
+                      Load earlier thread replies
+                    </Text>
+                  </Pressable>
+                ) : null}
+                {timestampLabel ? (
+                  <Text style={[styles.timestamp, { color: theme.textFaint }]}>
+                    {timestampLabel}
                   </Text>
-                </Pressable>
-              ) : null}
-              {timestampLabel ? (
-                <Text style={[styles.timestamp, { color: theme.textFaint }]}>{timestampLabel}</Text>
-              ) : null}
-            </View>
-          }
-          renderItem={({ item }) => {
-            const metadata = messageMetadata(item);
-            const clientDelivery = clientDeliveryFor(item);
-            const deliveryState = clientDelivery?.state;
-            const deliveryNonce = clientDelivery?.nonce;
-            const peer = metadata.fromAgent ?? metadata.toAgent;
-            const peerId =
-              peer && typeof peer === "object" && !Array.isArray(peer)
-                ? (peer as Record<string, unknown>).id
-                : null;
-            return (
-              <MessageBubble
-                animateEntrance={false}
-                assetUrl={assetUrl}
-                message={item}
-                pending={deliveryState === "pending" || deliveryState === "queued"}
-                deliveryState={
-                  deliveryState === "pending" ||
-                  deliveryState === "queued" ||
-                  deliveryState === "accepted" ||
-                  deliveryState === "failed"
-                    ? deliveryState
-                    : undefined
-                }
-                deliveryNonce={typeof deliveryNonce === "string" ? deliveryNonce : undefined}
-                deliveryComposedAtMs={
-                  typeof clientDelivery?.composedAtMs === "number"
-                    ? clientDelivery.composedAtMs
-                    : null
-                }
-                deliveryQueuedAtMs={
-                  typeof clientDelivery?.queuedAtMs === "number" ? clientDelivery.queuedAtMs : null
-                }
-                deliveryAcceptedAtMs={
-                  typeof clientDelivery?.acceptedAtMs === "number"
-                    ? clientDelivery.acceptedAtMs
-                    : null
-                }
-                deliveryTransportDown={clientDelivery?.transportDown === true}
-                onResendFailed={(nonce) => void onResendFailed(nonce)}
-                onDeleteFailed={(nonce) => void onDeleteFailed(nonce)}
-                onCancelQueued={(nonce) => void recoverCancelledMessage(nonce)}
-                onReact={(emoji) => void onReact(item.id, emoji)}
-                onReply={() => {
-                  setReplyTarget({ id: item.id, content: item.content });
-                  setReplyEditVersion((current) => current + 1);
-                }}
-                onSecretSubmit={(value) => onSecretSubmit(item.id, value)}
-                onWidgetDismiss={() => onWidgetDismiss(item.id)}
-                onWidgetResponse={(value) => onWidgetResponse(item.id, value)}
-                peerBot={typeof peerId === "string" ? botById.get(peerId) : undefined}
-              />
-            );
-          }}
-        />
-        {thread ? (
-          <Composer
-            assetUrl={assetUrl}
-            botName={botName}
-            draftKey={`${draftKey}:thread:${thread.root.id}`}
-            mentionOptions={mentionOptions}
-            placeholder={`Reply ${botName}`}
-            recovery={composerRecovery}
-            onRecoveryApplied={(id) => {
-              setComposerRecovery((current) => (current?.id === id ? null : current));
+                ) : null}
+              </View>
+            }
+            renderItem={({ item }) => {
+              const metadata = messageMetadata(item);
+              const clientDelivery = clientDeliveryFor(item);
+              const deliveryState = clientDelivery?.state;
+              const deliveryNonce = clientDelivery?.nonce;
+              const peer = metadata.fromAgent ?? metadata.toAgent;
+              const peerId =
+                peer && typeof peer === "object" && !Array.isArray(peer)
+                  ? (peer as Record<string, unknown>).id
+                  : null;
+              return (
+                <MessageBubble
+                  animateEntrance={false}
+                  assetUrl={assetUrl}
+                  message={item}
+                  pending={deliveryState === "pending" || deliveryState === "queued"}
+                  deliveryState={
+                    deliveryState === "pending" ||
+                    deliveryState === "queued" ||
+                    deliveryState === "accepted" ||
+                    deliveryState === "failed"
+                      ? deliveryState
+                      : undefined
+                  }
+                  deliveryNonce={typeof deliveryNonce === "string" ? deliveryNonce : undefined}
+                  deliveryComposedAtMs={
+                    typeof clientDelivery?.composedAtMs === "number"
+                      ? clientDelivery.composedAtMs
+                      : null
+                  }
+                  deliveryQueuedAtMs={
+                    typeof clientDelivery?.queuedAtMs === "number"
+                      ? clientDelivery.queuedAtMs
+                      : null
+                  }
+                  deliveryAcceptedAtMs={
+                    typeof clientDelivery?.acceptedAtMs === "number"
+                      ? clientDelivery.acceptedAtMs
+                      : null
+                  }
+                  deliveryTransportDown={clientDelivery?.transportDown === true}
+                  onResendFailed={(nonce) => void onResendFailed(nonce)}
+                  onDeleteFailed={(nonce) => void onDeleteFailed(nonce)}
+                  onCancelQueued={(nonce) => void recoverCancelledMessage(nonce)}
+                  onReact={(emoji) => void onReact(item.id, emoji)}
+                  onReply={() => {
+                    setReplyTarget({ id: item.id, content: item.content });
+                    setReplyEditVersion((current) => current + 1);
+                  }}
+                  onSecretSubmit={(value) => onSecretSubmit(item.id, value)}
+                  onWidgetDismiss={() => onWidgetDismiss(item.id)}
+                  onWidgetResponse={(value) => onWidgetResponse(item.id, value)}
+                  peerBot={typeof peerId === "string" ? botById.get(peerId) : undefined}
+                />
+              );
             }}
-            onRecoveryConsumed={onAcknowledgeRecovery}
-            onClearReply={() => {
-              setReplyTarget(null);
-              setReplyEditVersion((current) => current + 1);
-            }}
-            onRestoreReply={setReplyTarget}
-            onSend={async (content, attachments, stagedAttachments, consumedDraft) => {
-              const replyTo = replyTarget?.id ?? thread.root.id;
-              await onSend(content, attachments, stagedAttachments, replyTo, consumedDraft);
-              setReplyTarget(null);
-            }}
-            onStage={stageMobileDeliveryAttachment}
-            onDiscardStages={discardMobileDeliveryAttachments}
-            onUpload={onUpload}
-            replyEditVersion={replyEditVersion}
-            replyTarget={replyTarget}
-            uploadCapabilities={uploadCapabilities}
           />
-        ) : null}
+          {thread ? (
+            <Composer
+              assetUrl={assetUrl}
+              botName={botName}
+              draftKey={`${draftKey}:thread:${thread.root.id}`}
+              mentionOptions={mentionOptions}
+              placeholder={`Reply ${botName}`}
+              recovery={composerRecovery}
+              onRecoveryApplied={(id) => {
+                setComposerRecovery((current) => (current?.id === id ? null : current));
+              }}
+              onRecoveryConsumed={onAcknowledgeRecovery}
+              onClearReply={() => {
+                setReplyTarget(null);
+                setReplyEditVersion((current) => current + 1);
+              }}
+              onRestoreReply={setReplyTarget}
+              onSend={async (content, attachments, stagedAttachments, consumedDraft) => {
+                const replyTo = replyTarget?.id ?? thread.root.id;
+                await onSend(content, attachments, stagedAttachments, replyTo, consumedDraft);
+                setReplyTarget(null);
+              }}
+              onStage={stageMobileDeliveryAttachment}
+              onDiscardStages={discardMobileDeliveryAttachments}
+              onUpload={onUpload}
+              replyEditVersion={replyEditVersion}
+              replyTarget={replyTarget}
+              uploadCapabilities={uploadCapabilities}
+            />
+          ) : null}
+        </KeyboardAvoidingView>
       </SafeAreaView>
     </Modal>
   );

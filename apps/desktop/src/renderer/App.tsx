@@ -641,6 +641,11 @@ export default function App() {
       selectedId ? [selectedId, ...recentIds.filter((id) => id !== selectedId)].slice(0, 3) : [],
     [recentIds, selectedId]
   );
+  // History revisions change on every page. Keep the jump handlers stable and
+  // read the latest status at invocation time so mounted sidebar/chat callbacks
+  // cannot retain one complete snapshot index per traversed page.
+  const historyByChannelRef = useRef(historyByChannel);
+  historyByChannelRef.current = historyByChannel;
   const loadOlderHandlers = useMemo(
     () =>
       new Map(
@@ -685,10 +690,10 @@ export default function App() {
     () =>
       new Map(
         warmIds.map((channelId) => {
-          const historyStatus = historyByChannel.get(channelId);
           return [
             channelId,
             async () => {
+              const historyStatus = historyByChannelRef.current.get(channelId);
               searchLoadNonce.current += 1;
               setSearchMessageTarget((current) =>
                 current?.channelId === channelId ? null : current
@@ -700,7 +705,7 @@ export default function App() {
           ] as const;
         })
       ),
-    [historyByChannel, jumpToLatest, warmIds]
+    [jumpToLatest, warmIds]
   );
   const viewportBottomHandlers = useMemo(
     () =>

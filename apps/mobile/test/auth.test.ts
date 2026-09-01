@@ -43,6 +43,7 @@ mock.module("expo-secure-store", () => ({
 
 const {
   authenticateConnection,
+  authenticatedUserForServer,
   authHeadersForUrl,
   configureAuthServer,
   getAuthAccountIdForServer,
@@ -307,6 +308,33 @@ describe("mobile authentication discovery", () => {
         authorization: "Bearer signed-session",
       },
     ]);
+  });
+
+  test("loads the signed-in profile only from its configured server", async () => {
+    const calls: string[] = [];
+    globalThis.fetch = (async (url: string | URL | Request) => {
+      const requestUrl = String(url);
+      calls.push(requestUrl);
+      if (requestUrl.endsWith("/api/auth/login")) {
+        return Response.json({}, { headers: { "set-auth-token": "profile-session" } });
+      }
+      return Response.json({
+        session: { id: "profile-session-id" },
+        user: { id: "owner-profile", name: "OpenBot Owner", email: "owner@example.test" },
+      });
+    }) as typeof fetch;
+
+    await signIn("https://profile.openbot.test", "owner", "password");
+    await expect(authenticatedUserForServer("https://profile.openbot.test/")).resolves.toEqual({
+      id: "owner-profile",
+      name: "OpenBot Owner",
+      email: "owner@example.test",
+      username: null,
+      image: null,
+    });
+    const configuredCalls = calls.length;
+    await expect(authenticatedUserForServer("https://other.openbot.test")).resolves.toBeNull();
+    expect(calls).toHaveLength(configuredCalls);
   });
 
   test("does not reuse a session after changing server URLs", async () => {

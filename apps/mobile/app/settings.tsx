@@ -1,3 +1,4 @@
+import type { OpenBotAuthUser } from "@openbot/client-core/auth";
 import type { BotView } from "@openbot/contracts";
 import { clientErrorMessage } from "@openbot/product-core/redaction";
 import * as Clipboard from "expo-clipboard";
@@ -18,10 +19,16 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAppearance } from "../src/appearance";
-import { cachedAuthModeForServer, type OpenBotAuthMode, signOut } from "../src/auth";
+import {
+  authenticatedUserForServer,
+  cachedAuthModeForServer,
+  type OpenBotAuthMode,
+  signOut,
+} from "../src/auth";
 import { AppearanceSheet } from "../src/components/appearance-sheet";
 import { IconButton } from "../src/components/icon-button";
 import { PluginMarketplaceSheet as PluginManagerSheet } from "../src/components/plugin-marketplace-sheet";
+import { SettingsHome } from "../src/components/settings-home";
 import {
   BOT_ROSTER_SEARCH_THRESHOLD,
   filterBotRoster,
@@ -131,7 +138,7 @@ const HiddenBotRow = memo(function HiddenBotRow({
 
 export default function SettingsScreen() {
   const theme = useTheme();
-  const { preference: appearance } = useAppearance();
+  const { accent, preference: appearance } = useAppearance();
   const {
     notificationPermission,
     notificationError,
@@ -153,7 +160,9 @@ export default function SettingsScreen() {
   const [botQuery, setBotQuery] = useState("");
   const [pluginsOpen, setPluginsOpen] = useState(false);
   const [appearanceOpen, setAppearanceOpen] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const [authMode, setAuthMode] = useState<OpenBotAuthMode | null>(null);
+  const [authUser, setAuthUser] = useState<OpenBotAuthUser | null>(null);
   const appVersion = Constants.expoConfig?.version ?? "0.1.0";
 
   useEffect(() => {
@@ -175,6 +184,25 @@ export default function SettingsScreen() {
       })
       .catch(() => {
         if (active) setAuthMode(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [connection.serverUrl, isFixture]);
+
+  useEffect(() => {
+    let active = true;
+    setAuthUser(null);
+    if (isFixture)
+      return () => {
+        active = false;
+      };
+    void authenticatedUserForServer(connection.serverUrl)
+      .then((user) => {
+        if (active) setAuthUser(user);
+      })
+      .catch(() => {
+        if (active) setAuthUser(null);
       });
     return () => {
       active = false;
@@ -383,18 +411,73 @@ export default function SettingsScreen() {
         <PluginManagerSheet onClose={() => setPluginsOpen(false)} visible />
       ) : appearanceOpen ? (
         <AppearanceSheet onClose={() => setAppearanceOpen(false)} />
+      ) : !advancedOpen ? (
+        <SettingsHome
+          accent={accent}
+          appVersion={appVersion}
+          appearance={appearance}
+          authRequired={authMode === "required"}
+          notificationPermission={notificationPermission}
+          onAccount={() => setAdvancedOpen(true)}
+          onAppearance={() => setAppearanceOpen(true)}
+          onAutoReviewInfo={() =>
+            Alert.alert(
+              "Managed by the desktop host",
+              "Auto-review protects actions on the computer that runs OpenBot. Open Advanced to manage the connected server and per-Bot alerts; permission rules stay on that computer."
+            )
+          }
+          onClose={() => (router.canGoBack() ? router.back() : router.replace("/"))}
+          onFeedback={() =>
+            void Clipboard.setStringAsync(
+              `OpenBot feedback\nVersion ${appVersion}\nServer ${connection.serverUrl}`
+            ).then(() =>
+              Alert.alert(
+                "Feedback details copied",
+                "Paste them into your preferred support channel."
+              )
+            )
+          }
+          onNotifications={() => void action()}
+          onPlugins={() => setPluginsOpen(true)}
+          onSignOut={() =>
+            Alert.alert(
+              "Sign out of OpenBot?",
+              "Your server endpoint stays saved on this device.",
+              [
+                { text: "Cancel", style: "cancel" },
+                { text: "Sign Out", style: "destructive", onPress: () => void signOut() },
+              ]
+            )
+          }
+          onSystemPreferenceInfo={(setting) => {
+            const copy = {
+              haptics: "OpenBot follows the native iOS haptic behavior for interactive controls.",
+              language: "OpenBot currently follows this device’s system language.",
+              timezone: "OpenBot uses the time zone reported by this device for routine schedules.",
+            }[setting];
+            Alert.alert(
+              setting === "timezone"
+                ? "Time Zone"
+                : setting === "language"
+                  ? "Language"
+                  : "Haptics",
+              copy
+            );
+          }}
+          user={authUser}
+        />
       ) : (
         <>
           <View style={styles.header}>
             <IconButton
-              label="Back"
+              label="Back to settings"
               name="chevron.left"
-              onPress={() => (router.canGoBack() ? router.back() : router.replace("/"))}
+              onPress={() => setAdvancedOpen(false)}
               size={38}
               symbolSize={18}
               tone="surface"
             />
-            <Text style={[styles.headerTitle, { color: theme.text }]}>Settings</Text>
+            <Text style={[styles.headerTitle, { color: theme.text }]}>Advanced</Text>
             <View style={styles.headerSpacer} />
           </View>
 

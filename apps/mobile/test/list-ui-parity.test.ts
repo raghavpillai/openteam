@@ -75,7 +75,10 @@ describe("mobile virtual-list UI parity", () => {
   });
 
   test("settings keeps every alert, hidden action, appearance, and account control", async () => {
-    const route = await source("app/settings.tsx");
+    const [route, home] = await Promise.all([
+      source("app/settings.tsx"),
+      source("src/components/settings-home.tsx"),
+    ]);
 
     expect(route).toContain("<SectionList");
     expect(route).not.toContain("ScrollView");
@@ -95,6 +98,13 @@ describe("mobile virtual-list UI parity", () => {
     expect(route).toContain("AppearanceSheet");
     expect(route).toContain('accessibilityLabel="Appearance"');
     expect(route).not.toContain("this iPhone");
+    expect(route).toContain("<SettingsHome");
+    expect(route).toContain("authenticatedUserForServer(connection.serverUrl)");
+    expect(home).toContain('title="Usage"');
+    expect(home).toContain('title="Plugins"');
+    expect(home).toContain('title="Notifications"');
+    expect(home).toContain('title="Appearance"');
+    expect(home).toContain('title="Send Feedback"');
   });
 
   test("login exposes the self-hosted endpoint in the shared mobile auth gate", async () => {

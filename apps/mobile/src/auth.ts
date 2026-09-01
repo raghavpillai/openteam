@@ -3,6 +3,7 @@ import {
   AuthSessionSupersededError,
   createOpenBotAuthClient,
   authHeadersForUrl as sharedAuthHeadersForUrl,
+  type OpenBotAuthUser,
 } from "@openbot/client-core/auth";
 import { normalizeOptionalBaseUrl, OpenBotClientError } from "@openbot/client-core/http";
 import * as SecureStore from "expo-secure-store";
@@ -186,6 +187,16 @@ export const getAuthTokenForServer = (serverUrl: string): string | null =>
 
 export const getAuthAccountIdForServer = (serverUrl: string): string | null =>
   normalizeAuthServer(serverUrl) === authServerUrl ? accountId : null;
+
+export const authenticatedUserForServer = async (
+  serverUrl: string
+): Promise<OpenBotAuthUser | null> => {
+  const normalized = normalizeAuthServer(serverUrl);
+  if (!normalized || normalized !== authServerUrl) return null;
+  const currentToken = (await loadAuthToken()) ?? getAuthTokenForServer(normalized);
+  if (!currentToken || normalized !== authServerUrl) return null;
+  return (await authClient(normalized).getSession(currentToken))?.user ?? null;
+};
 
 export const requireAuthentication = (): void => {
   authRequestGeneration += 1;

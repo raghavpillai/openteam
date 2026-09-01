@@ -89,7 +89,12 @@ export const renderSelectionPrompt = (input: SelectionPromptInput): readonly str
   const labelWidth = Math.max(1, width - prefix.length - position.length - 1);
   const label = truncate(input.label, labelWidth);
   const gap = " ".repeat(Math.max(1, width - prefix.length - label.length - position.length));
-  const hint = width >= 48 ? "  ↑/↓/←/→ move · Enter select" : "  arrows · Enter";
+  const hint =
+    width >= 48
+      ? "  ↑/↓/←/→ move · Enter select"
+      : width >= 21
+        ? "  arrows move · Enter"
+        : "  ↑↓ · Enter";
 
   return [
     `${paint(styled, "?", ANSI.cyan)} ${paint(styled, truncate(input.message, width - 2), ANSI.bold)}`,
@@ -105,9 +110,13 @@ export const renderSelectionResult = (
   width = stdout.columns ?? 78
 ): string => {
   const limit = Math.max(16, Math.min(80, width));
-  const prefix = `✓ ${message}  `;
-  const selected = truncate(label, Math.max(1, limit - prefix.length));
-  return `${paint(color, "✓", ANSI.green)} ${paint(color, message, ANSI.dim)}  ${paint(color, selected, ANSI.bold)}`;
+  const available = limit - 4;
+  const fits = message.length + label.length <= available;
+  const labelWidth = fits
+    ? label.length
+    : Math.max(7, Math.min(label.length, Math.floor(available / 2)));
+  const messageWidth = Math.max(1, available - labelWidth);
+  return `${paint(color, "✓", ANSI.green)} ${paint(color, truncate(message, messageWidth), ANSI.dim)}  ${paint(color, truncate(label, labelWidth), ANSI.bold)}`;
 };
 
 export const renderSetupHeader = (input: {

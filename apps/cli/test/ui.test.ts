@@ -46,9 +46,35 @@ describe("setup presentation", () => {
     expect(prompt).toEqual([
       "? Choose an intentional…",
       "  › An intentionall… 3/5",
-      "  arrows · Enter",
+      "  arrows move · Enter",
     ]);
     expect(prompt.every((line) => line.length <= 24)).toBe(true);
+    expect(renderSelectionResult("Deployment exposure", "This machine only", false, 24)).toBe(
+      "✓ Deploymen…  This mach…"
+    );
+    expect(renderSelectionResult("Deployment exposure", "This machine only", false, 16)).toBe(
+      "✓ Depl…  This m…"
+    );
+  });
+
+  test("keeps ANSI styling out of width calculations", () => {
+    const prompt = renderSelectionPrompt({
+      message: "Access mode",
+      label: "Existing HTTPS proxy",
+      index: 1,
+      count: 5,
+      color: true,
+      width: 32,
+    });
+    const stripAnsi = (value: string) =>
+      ["\u001b[36m", "\u001b[1m", "\u001b[2m", "\u001b[0m"].reduce(
+        (plain, sequence) => plain.replaceAll(sequence, ""),
+        value
+      );
+
+    expect(prompt[0]).toContain("\u001b[36m?\u001b[0m");
+    expect(prompt[1]).toContain("\u001b[1mExisting HTTPS proxy\u001b[0m");
+    expect(prompt.every((line) => stripAnsi(line).length <= 32)).toBe(true);
   });
 
   test("renders completed, active, and pending stages without terminal escape codes", () => {

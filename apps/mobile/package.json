@@ -34,7 +34,7 @@
     "expo-secure-store": "~57.0.2",
     "expo-status-bar": "57.0.1",
     "expo-symbols": "57.0.2",
-    "dompurify": "3.3.3",
+    "dompurify": "3.4.14",
     "katex": "0.16.47",
     "marked": "16.3.0",
     "mermaid": "11.17.1",

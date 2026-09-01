@@ -827,7 +827,7 @@ export default function ComputerScreen() {
             <TextInput
               accessibilityLabel="Type on shared computer"
               autoFocus
-              editable={ready && !takeoverBusy}
+              editable={ready}
               onChangeText={handleKeyboardChange}
               onSubmitEditing={submitKeyboard}
               ref={inputRef}

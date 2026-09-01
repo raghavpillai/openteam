@@ -95,6 +95,28 @@ describe("bounded message windows", () => {
     expect(result.gaps.older).toBe(true);
   });
 
+  test("stops at an exact byte boundary before the count cap", () => {
+    const values = messages(5);
+    const maxBytes = values
+      .slice(3)
+      .reduce((total, value) => total + messageRetainedByteSize(value), 0);
+    const result = boundMessageWindow(values, {
+      maxMessages: 5,
+      maxBytes,
+      retain: "newest",
+    });
+
+    expect(result.messages.map(({ id }) => id)).toEqual(["message-4", "message-5"]);
+    expect(result.retainedBytes).toBe(maxBytes);
+    expect(result.softExcess).toEqual({
+      messages: 0,
+      bytes: 0,
+      protected: false,
+      oversized: false,
+    });
+    expect(result.eviction.older?.count).toBe(3);
+  });
+
   test("classifies a single indivisible message as oversized without needing a following row", () => {
     const rich = message(1, { content: "rich".repeat(10_000) });
     const result = boundMessageWindow([rich], {
@@ -139,6 +161,26 @@ describe("bounded message windows", () => {
       oversized: false,
     });
     expect(result.eviction.older?.count).toBe(449);
+  });
+
+  test("symmetrically preserves a protected target while retaining the oldest edge", () => {
+    const result = boundMessageWindow(messages(1_000), {
+      maxMessages: 500,
+      maxBytes: generousBytes,
+      retain: "oldest",
+      protectedIds: new Set(["message-550"]),
+    });
+
+    expect(result.messages).toHaveLength(550);
+    expect(result.messages[0]?.id).toBe("message-1");
+    expect(result.messages.at(-1)?.id).toBe("message-550");
+    expect(result.softExcess).toEqual({
+      messages: 50,
+      bytes: 0,
+      protected: true,
+      oversized: false,
+    });
+    expect(result.eviction.newer?.count).toBe(450);
   });
 
   test("moves transitive reply ancestors outside the primary cap into thread context", () => {

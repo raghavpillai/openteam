@@ -7,6 +7,11 @@ import type {
   PluginSettingsView,
 } from "@openbot/contracts";
 import {
+  PLUGIN_MARKETPLACE_CATEGORIES,
+  type PluginMarketplaceCategory,
+  pluginMatchesMarketplaceCategory,
+} from "@openbot/client-core/plugin-marketplace";
+import {
   executePluginAccessTransition,
   planPluginConnectionGrant,
   planPluginSkillAccess,
@@ -46,31 +51,6 @@ const PluginAuthSelect = lazy(() =>
 );
 
 type MarketplacePage = "marketplace" | "installed" | "detail" | "custom";
-
-const marketplaceCategories = [
-  "All",
-  "Featured",
-  "Team plugins",
-  "Agent Orchestration",
-  "Canvas",
-  "Customer Support",
-  "Data Analytics",
-  "Design",
-  "Documents And Files",
-  "Finance And Legal",
-  "Inbox And Collaboration",
-  "Infrastructure",
-  "MCP",
-  "Payments",
-  "Productivity",
-  "Research",
-  "Sales",
-  "Scheduling",
-] as const;
-
-const categoryAliases: Record<string, string> = {
-  "Documents And Files": "Documents & Files",
-};
 
 const primaryButton =
   "inline-flex h-[26px] shrink-0 items-center justify-center gap-1.5 rounded-full bg-black px-3 text-[13px] font-medium text-white outline-none transition-opacity hover:opacity-80 disabled:cursor-wait disabled:opacity-45 dark:bg-white dark:text-black";
@@ -326,17 +306,11 @@ function MarketplaceView({
   onShowInstalled: () => void;
 }) {
   const [query, setQuery] = useState("");
-  const [category, setCategory] = useState<string>("All");
+  const [category, setCategory] = useState<PluginMarketplaceCategory>("All");
   const normalized = query.trim().toLowerCase();
-  const categoryValue = categoryAliases[category] ?? category;
   const filtered = data.catalog.filter((plugin) => {
-    const categoryMatches =
-      category === "All" ||
-      (category === "Featured" && plugin.featured) ||
-      plugin.category === categoryValue ||
-      (category === "MCP" && plugin.components.includes("mcp"));
     return (
-      categoryMatches &&
+      pluginMatchesMarketplaceCategory(plugin, category) &&
       `${plugin.name} ${plugin.description} ${plugin.publisher}`.toLowerCase().includes(normalized)
     );
   });
@@ -364,7 +338,7 @@ function MarketplaceView({
       ) : null}
       <SearchField onChange={setQuery} query={query} />
       <div className="mt-3 flex max-h-[94px] flex-wrap gap-2 overflow-y-auto">
-        {marketplaceCategories.map((item) => (
+        {PLUGIN_MARKETPLACE_CATEGORIES.map((item) => (
           <button
             className={cn(
               "h-[26px] rounded-[6px] border-[0.5px] px-2 text-[13px] leading-[18px] outline-none transition-colors",

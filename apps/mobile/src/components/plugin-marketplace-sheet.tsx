@@ -4,6 +4,11 @@ import type {
   PluginInstallView,
   PluginSettingsView,
 } from "@openbot/contracts";
+import {
+  PLUGIN_MARKETPLACE_CATEGORIES,
+  type PluginMarketplaceCategory,
+  pluginMatchesMarketplaceCategory,
+} from "@openbot/client-core/plugin-marketplace";
 import { clientErrorMessage } from "@openbot/product-core/redaction";
 import { SymbolView } from "expo-symbols";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -24,34 +29,6 @@ import { GlassSurface } from "./glass-surface";
 import { IconButton } from "./icon-button";
 import { PluginManagerSheet as InstalledPluginManager } from "./plugin-manager-sheet";
 
-const categories = [
-  "All",
-  "Featured",
-  "Team plugins",
-  "Agent Orchestration",
-  "Canvas",
-  "Customer Support",
-  "Data Analytics",
-  "Design",
-  "Documents And Files",
-  "Finance And Legal",
-  "Inbox And Collaboration",
-  "Infrastructure",
-  "MCP",
-  "Payments",
-  "Productivity",
-  "Research",
-  "Sales",
-  "Scheduling",
-] as const;
-
-type MarketplaceCategory = (typeof categories)[number];
-
-const aliases: Record<string, string> = {
-  "Documents And Files": "Documents & Files",
-  "Inbox And Collaboration": "Inbox & Collaboration",
-};
-
 const emptySettings = (): PluginSettingsView => ({
   catalog: [],
   installs: [],
@@ -59,14 +36,6 @@ const emptySettings = (): PluginSettingsView => ({
   policies: [],
   activity: [],
 });
-
-const matchesCategory = (plugin: PluginCatalogItemView, category: MarketplaceCategory) => {
-  if (category === "All") return true;
-  if (category === "Featured") return plugin.featured;
-  if (category === "Team plugins") return !plugin.featured;
-  if (category === "MCP") return plugin.components.includes("mcp");
-  return plugin.category === (aliases[category] ?? category);
-};
 
 function PluginMark({
   logoUrl,
@@ -203,7 +172,7 @@ export function PluginMarketplaceSheet({
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
-  const [category, setCategory] = useState<MarketplaceCategory>("All");
+  const [category, setCategory] = useState<PluginMarketplaceCategory>("All");
   const [filterOpen, setFilterOpen] = useState(false);
   const [installedOpen, setInstalledOpen] = useState(false);
   const [setupPlugin, setSetupPlugin] = useState<PluginCatalogItemView | null>(null);
@@ -239,7 +208,7 @@ export function PluginMarketplaceSheet({
     () =>
       data.catalog.filter(
         (plugin) =>
-          matchesCategory(plugin, category) &&
+          pluginMatchesMarketplaceCategory(plugin, category) &&
           (!normalizedQuery ||
             `${plugin.name} ${plugin.description} ${plugin.publisher} ${plugin.category}`
               .toLocaleLowerCase("en-US")
@@ -466,7 +435,7 @@ export function PluginMarketplaceSheet({
               persistentScrollbar
               showsVerticalScrollIndicator
             >
-              {categories.map((item) => (
+              {PLUGIN_MARKETPLACE_CATEGORIES.map((item) => (
                 <Pressable
                   accessibilityRole="menuitem"
                   accessibilityState={{ selected: item === category }}

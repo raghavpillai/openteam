@@ -10,6 +10,7 @@
     "./client": "./src/client.ts",
     "./events": "./src/events.ts",
     "./http": "./src/http.ts",
+    "./plugin-marketplace": "./src/plugin-marketplace.ts",
     "./screen": "./src/screen.ts",
     "./snapshot": "./src/snapshot.ts",
     "./sync": "./src/sync.ts"

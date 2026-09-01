@@ -4,11 +4,16 @@ const source = (path: string) => Bun.file(new URL(`../${path}`, import.meta.url)
 
 describe("mobile plugin manager scale and access wiring", () => {
   test("presents the native marketplace hierarchy and category menu", async () => {
-    const marketplace = await source("src/components/plugin-marketplace-sheet.tsx");
+    const [marketplace, sharedMarketplace] = await Promise.all([
+      source("src/components/plugin-marketplace-sheet.tsx"),
+      source("../../packages/client-core/src/plugin-marketplace.ts"),
+    ]);
 
-    expect(marketplace).toContain('"Team plugins"');
-    expect(marketplace).toContain('"Agent Orchestration"');
-    expect(marketplace).toContain('"Documents And Files"');
+    expect(sharedMarketplace).toContain('"Team plugins"');
+    expect(sharedMarketplace).toContain('"Agent Orchestration"');
+    expect(sharedMarketplace).toContain('"Documents And Files"');
+    expect(marketplace).toContain("PLUGIN_MARKETPLACE_CATEGORIES.map");
+    expect(marketplace).toContain("pluginMatchesMarketplaceCategory(plugin, category)");
     expect(marketplace).toContain('accessibilityLabel="Search plugins"');
     expect(marketplace).toContain('label="Filter plugins"');
     expect(marketplace).toContain("data.installs.length} installed");

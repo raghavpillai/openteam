@@ -123,8 +123,11 @@ export default function App() {
     ensureMessageLoaded,
     reactToMessage,
     historyByChannel,
+    jumpToLatest,
     loadChannel,
     loadOlder,
+    loadNewer,
+    setHistoryViewportAtBottom,
     threadContextMessageIdsByChannel,
     searchContextMessageIdsByChannel,
   } = useOpenBot();
@@ -201,7 +204,9 @@ export default function App() {
   const forcedSidebarCompact = shouldForceCompactSidebar(viewportWidth, sidebarLayout.width);
   const effectiveSidebarWidth =
     forcedSidebarCompact || sidebarLayout.compact ? COMPACT_SIDEBAR_WIDTH : sidebarLayout.width;
-  const visibleDetailsOpen = detailsOpen && canShowInspector(viewportWidth, effectiveSidebarWidth);
+  const detailsDocked = canShowInspector(viewportWidth, effectiveSidebarWidth);
+  const visibleDetailsOpen = detailsOpen;
+  const detailsOverlay = detailsOpen && !detailsDocked;
   const inspectorMaxWidth = maxInspectorWidthForLayout(viewportWidth, effectiveSidebarWidth);
   const renderedInspectorWidth = clampInspectorWidth(
     inspectorWidth,
@@ -622,18 +627,43 @@ export default function App() {
     () => new Map(warmIds.map((channelId) => [channelId, () => loadOlder(channelId)] as const)),
     [loadOlder, warmIds]
   );
-  const clearSearchNavigation = useCallback(
-    (channelId: string) => {
-      invalidateSearchNavigation(channelId);
-    },
-    [invalidateSearchNavigation]
+  const loadNewerHandlers = useMemo(
+    () => new Map(warmIds.map((channelId) => [channelId, () => loadNewer(channelId)] as const)),
+    [loadNewer, warmIds]
   );
   const scrollNewestHandlers = useMemo(
     () =>
       new Map(
-        warmIds.map((channelId) => [channelId, () => clearSearchNavigation(channelId)] as const)
+        warmIds.map((channelId) => {
+          const historyStatus = historyByChannel.get(channelId);
+          return [
+            channelId,
+            async () => {
+              searchLoadNonce.current += 1;
+              setSearchMessageTarget((current) =>
+                current?.channelId === channelId ? null : current
+              );
+              if (historyStatus && (historyStatus.mode !== "latest" || historyStatus.hasNewerGap)) {
+                await jumpToLatest(channelId);
+              }
+            },
+          ] as const;
+        })
       ),
-    [clearSearchNavigation, warmIds]
+    [historyByChannel, jumpToLatest, warmIds]
+  );
+  const viewportBottomHandlers = useMemo(
+    () =>
+      new Map(
+        warmIds.map(
+          (channelId) =>
+            [
+              channelId,
+              (atBottom: boolean) => setHistoryViewportAtBottom(channelId, atBottom),
+            ] as const
+        )
+      ),
+    [setHistoryViewportAtBottom, warmIds]
   );
   const openRoutineHandlers = useMemo(
     () =>
@@ -804,7 +834,7 @@ export default function App() {
               keywords: "current channel members info",
               icon: "details" as const,
               run: () => {
-                setInspectorMode("summary");
+                setInspectorMode("settings");
                 setDetailsOpen(true);
               },
             },
@@ -1045,6 +1075,7 @@ export default function App() {
                 {warmIds.map((channelId) => {
                   const channel = index.channelById.get(channelId);
                   if (!channel) return null;
+                  const historyStatus = historyByChannel.get(channelId);
                   const bot =
                     channel.kind === "bot_dm"
                       ? index.botById.get(channel.members[0]?.botId ?? "")
@@ -1073,14 +1104,20 @@ export default function App() {
                         focusMessage={
                           searchMessageTarget?.channelId === channelId ? searchMessageTarget : null
                         }
-                        hasOlder={historyByChannel.get(channelId)?.hasMore ?? false}
+                        hasNewer={historyStatus?.hasNewer ?? false}
+                        hasNewerGap={historyStatus?.hasNewerGap ?? false}
+                        hasOlder={historyStatus?.hasOlder ?? false}
+                        historyMode={historyStatus?.mode ?? "latest"}
                         itemsByRun={index.itemsByRun}
                         messages={index.messagesByChannel.get(channelId) ?? []}
-                        loadingOlder={historyByChannel.get(channelId)?.loading ?? false}
+                        loadingNewer={historyStatus?.loadingNewer ?? false}
+                        loadingOlder={historyStatus?.loadingOlder ?? false}
                         mutate={mutate}
                         onLoadOlder={loadOlderHandlers.get(channelId)}
+                        onLoadNewer={loadNewerHandlers.get(channelId)}
                         onReactMessage={reactToMessage}
                         onScrollToNewest={scrollNewestHandlers.get(channelId)}
+                        onViewportAtBottomChange={viewportBottomHandlers.get(channelId)}
                         onCloseViewOnly={
                           channel.kind === "agent_dm" ? closeViewOnlyChat : undefined
                         }
@@ -1140,6 +1177,7 @@ export default function App() {
                 aria-hidden={!visibleDetailsOpen}
                 className={cn(
                   "shrink-0 overflow-hidden bg-inspector opacity-100",
+                  detailsOverlay && "absolute inset-y-0 right-0 z-20 shadow-2xl",
                   !inspectorResizing && "transition-[width,opacity] duration-150 ease-out",
                   !visibleDetailsOpen && "pointer-events-none opacity-0"
                 )}

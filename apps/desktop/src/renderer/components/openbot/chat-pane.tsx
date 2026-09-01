@@ -89,7 +89,6 @@ import {
 import { addContextGaps } from "../../lib/search-context";
 import { conversationApprovals } from "../../lib/subagent-activity";
 import { deriveThreads, isBranchedMessage } from "../../lib/threads";
-import { preservePrependScrollOffset } from "../../lib/virtual-window";
 import {
   Conversation,
   ConversationContent,
@@ -163,11 +162,17 @@ interface ChatPaneProps {
   activityTruncated?: boolean;
   threadContextTruncated?: boolean;
   focusMessage: { messageId: string; nonce: number } | null;
+  historyMode?: "latest" | "history" | "context";
   hasOlder?: boolean;
+  hasNewer?: boolean;
+  hasNewerGap?: boolean;
   loadingOlder?: boolean;
-  onLoadOlder?: () => Promise<unknown> | void;
+  loadingNewer?: boolean;
+  onLoadOlder?: () => unknown;
+  onLoadNewer?: () => unknown;
   onReactMessage?: (messageId: string, emoji: string) => Promise<unknown>;
-  onScrollToNewest?: () => void;
+  onScrollToNewest?: () => unknown;
+  onViewportAtBottomChange?: (atBottom: boolean) => void;
   onCloseViewOnly?: () => void;
   onOpenA2A?: (sourceBotId: string, peerId: string, trigger: HTMLButtonElement) => void;
   onOpenRoutine?: (routineId: string) => void;
@@ -209,11 +214,17 @@ const chatPanePropsEqual = (previous: ChatPaneProps, next: ChatPaneProps) =>
   previous.activityTruncated === next.activityTruncated &&
   previous.threadContextTruncated === next.threadContextTruncated &&
   previous.focusMessage === next.focusMessage &&
+  previous.historyMode === next.historyMode &&
   previous.hasOlder === next.hasOlder &&
+  previous.hasNewer === next.hasNewer &&
+  previous.hasNewerGap === next.hasNewerGap &&
   previous.loadingOlder === next.loadingOlder &&
+  previous.loadingNewer === next.loadingNewer &&
   previous.onLoadOlder === next.onLoadOlder &&
+  previous.onLoadNewer === next.onLoadNewer &&
   previous.onReactMessage === next.onReactMessage &&
   previous.onScrollToNewest === next.onScrollToNewest &&
+  previous.onViewportAtBottomChange === next.onViewportAtBottomChange &&
   previous.onCloseViewOnly === next.onCloseViewOnly &&
   previous.onOpenA2A === next.onOpenA2A &&
   previous.onOpenRoutine === next.onOpenRoutine &&
@@ -335,16 +346,22 @@ function VirtualizedTimeline<T extends { id: string; type: string }>({
   entries,
   focus,
   hasOlder = false,
+  hasNewer = false,
   loadingOlder = false,
+  loadingNewer = false,
   onLoadOlder,
+  onLoadNewer,
   renderEntry,
 }: {
   conversationId: string;
   entries: T[];
   focus: { index: number; messageId: string; nonce: number } | null;
   hasOlder?: boolean;
+  hasNewer?: boolean;
   loadingOlder?: boolean;
-  onLoadOlder?: () => Promise<unknown> | void;
+  loadingNewer?: boolean;
+  onLoadOlder?: () => unknown;
+  onLoadNewer?: () => unknown;
   renderEntry: (entry: T, index: number) => ReactNode;
 }) {
   const { scrollRef, stopScroll } = useStickToBottomContext();
@@ -353,12 +370,11 @@ function VirtualizedTimeline<T extends { id: string; type: string }>({
   const initializedScroll = useRef(false);
   const loadingRequest = useRef(false);
   const lastOlderLoadStartedAt = useRef(0);
+  const lastNewerLoadStartedAt = useRef(0);
   const anchorCleanupTimer = useRef<number | null>(null);
   const pendingScrollAnchor = useRef<{
-    count: number;
-    firstKey: string | null;
-    height: number;
-    top: number;
+    key: string;
+    viewportOffset: number;
   } | null>(null);
   const estimateSize = useCallback(
     (index: number) => {
@@ -379,17 +395,19 @@ function VirtualizedTimeline<T extends { id: string; type: string }>({
     },
     [entries]
   );
-  const { measureElement, scrollToIndex, totalSize, virtualItems } = useVirtualWindow({
-    count: entries.length,
-    activeIndex: focus?.index,
-    estimateSize,
-    getKey,
-    scrollRef,
-    initialAlign: "end",
-    initialViewportSize: 900,
-    maxItems: 80,
-    overscan: 900,
-  });
+  const { measureElement, scrollIndexToViewportOffset, scrollToIndex, totalSize, virtualItems } =
+    useVirtualWindow({
+      count: entries.length,
+      activeIndex: focus?.index,
+      estimateSize,
+      getKey,
+      scrollRef,
+      initialAlign: "end",
+      initialViewportSize: 900,
+      maxItems: 80,
+      overscan: 900,
+      scopeRef: contentRef,
+    });
 
   useLayoutEffect(() => {
     if (initializedScroll.current || entries.length === 0) return;
@@ -428,6 +446,31 @@ function VirtualizedTimeline<T extends { id: string; type: string }>({
     []
   );
 
+  const captureVisibleAnchor = useCallback(() => {
+    const viewport = scrollRef.current;
+    const content = contentRef.current;
+    if (!viewport || !content) return null;
+    const viewportBounds = viewport.getBoundingClientRect();
+    const rows = content.querySelectorAll<HTMLElement>("[data-virtual-timeline-key]");
+    let visibleRow: HTMLElement | null = null;
+    for (const row of rows) {
+      const bounds = row.getBoundingClientRect();
+      if (bounds.bottom > viewportBounds.top && bounds.top < viewportBounds.bottom) {
+        visibleRow = row;
+        break;
+      }
+    }
+    const key = visibleRow?.dataset.virtualTimelineKey;
+    if (!visibleRow || !key) return null;
+    const anchor = {
+      key,
+      viewportOffset: visibleRow.getBoundingClientRect().top - viewportBounds.top,
+    };
+    pendingScrollAnchor.current = anchor;
+    stopScroll();
+    return anchor;
+  }, [scrollRef, stopScroll]);
+
   const loadOlder = useCallback(
     (automatic = false) => {
       const viewport = scrollRef.current;
@@ -446,26 +489,58 @@ function VirtualizedTimeline<T extends { id: string; type: string }>({
         window.clearTimeout(anchorCleanupTimer.current);
         anchorCleanupTimer.current = null;
       }
-      const anchor = {
-        count: entries.length,
-        firstKey: entries[0] ? `${entries[0].type}:${entries[0].id}` : null,
-        height: viewport.scrollHeight,
-        top: viewport.scrollTop,
-      };
-      pendingScrollAnchor.current = anchor;
+      const anchor = captureVisibleAnchor();
       void Promise.resolve(onLoadOlder())
         .catch(() => {
-          if (pendingScrollAnchor.current === anchor) pendingScrollAnchor.current = null;
+          if (anchor && pendingScrollAnchor.current === anchor) pendingScrollAnchor.current = null;
         })
         .finally(() => {
           loadingRequest.current = false;
           anchorCleanupTimer.current = window.setTimeout(() => {
-            if (pendingScrollAnchor.current === anchor) pendingScrollAnchor.current = null;
+            if (anchor && pendingScrollAnchor.current === anchor) {
+              pendingScrollAnchor.current = null;
+            }
             anchorCleanupTimer.current = null;
           }, 1_000);
         });
     },
-    [entries.length, hasOlder, loadingOlder, onLoadOlder, scrollRef]
+    [captureVisibleAnchor, hasOlder, loadingOlder, onLoadOlder, scrollRef]
+  );
+
+  const loadNewer = useCallback(
+    (automatic = false) => {
+      const viewport = scrollRef.current;
+      if (!viewport || !hasNewer || loadingNewer || loadingRequest.current || !onLoadNewer) return;
+      const now = performance.now();
+      const startedAt = automatic
+        ? nextHistoryPageLoadStartedAt({
+            now,
+            lastStartedAt: lastNewerLoadStartedAt.current || null,
+          })
+        : now;
+      if (startedAt === null) return;
+      lastNewerLoadStartedAt.current = startedAt;
+      loadingRequest.current = true;
+      if (anchorCleanupTimer.current !== null) {
+        window.clearTimeout(anchorCleanupTimer.current);
+        anchorCleanupTimer.current = null;
+      }
+      const anchor = captureVisibleAnchor();
+      void Promise.resolve(onLoadNewer())
+        .catch(() => {
+          if (anchor && pendingScrollAnchor.current === anchor) pendingScrollAnchor.current = null;
+        })
+        .finally(() => {
+          loadingRequest.current = false;
+          anchorCleanupTimer.current = window.setTimeout(() => {
+            if (anchor && pendingScrollAnchor.current === anchor) {
+              pendingScrollAnchor.current = null;
+            }
+            anchorCleanupTimer.current = null;
+          }, 1_000);
+        });
+    },
+    [captureVisibleAnchor, hasNewer, loadingNewer, onLoadNewer, scrollRef]
   );
 
   useEffect(() => {
@@ -482,21 +557,48 @@ function VirtualizedTimeline<T extends { id: string; type: string }>({
     return () => viewport.removeEventListener("scroll", onScroll);
   }, [hasOlder, loadOlder, onLoadOlder, scrollRef]);
 
-  useLayoutEffect(() => {
-    const anchor = pendingScrollAnchor.current;
+  useEffect(() => {
     const viewport = scrollRef.current;
-    if (!anchor || !viewport || entries.length <= anchor.count) return;
-    const firstKey = entries[0] ? `${entries[0].type}:${entries[0].id}` : null;
-    pendingScrollAnchor.current = null;
-    if (firstKey === anchor.firstKey) return;
-    const delta = viewport.scrollHeight - anchor.height;
-    if (delta <= 0) return;
-    viewport.scrollTop = preservePrependScrollOffset(
-      anchor.top,
-      anchor.height,
-      viewport.scrollHeight
-    );
-  }, [entries.length, scrollRef, totalSize]);
+    if (!viewport || !hasNewer || !onLoadNewer) return;
+    let previousTop = viewport.scrollTop;
+    const onScroll = () => {
+      const nextTop = viewport.scrollTop;
+      const movingTowardNewer = nextTop > previousTop + 1;
+      previousTop = nextTop;
+      const bottomDistance = Math.max(0, viewport.scrollHeight - viewport.clientHeight - nextTop);
+      if (movingTowardNewer && bottomDistance <= 600) loadNewer(true);
+    };
+    viewport.addEventListener("scroll", onScroll, { passive: true });
+    return () => viewport.removeEventListener("scroll", onScroll);
+  }, [hasNewer, loadNewer, onLoadNewer, scrollRef]);
+
+  useLayoutEffect(() => {
+    void totalSize;
+    const anchor = pendingScrollAnchor.current;
+    if (!anchor) return;
+    const anchorIndex = entries.findIndex((entry) => `${entry.type}:${entry.id}` === anchor.key);
+    if (anchorIndex < 0) {
+      pendingScrollAnchor.current = null;
+      return;
+    }
+    const restore = () => {
+      if (pendingScrollAnchor.current !== anchor) return;
+      scrollIndexToViewportOffset(anchorIndex, anchor.viewportOffset);
+    };
+    restore();
+    // Give ResizeObserver-driven row measurements two layout frames to settle.
+    // Later measurements retrigger this effect through totalSize while the
+    // short-lived anchor remains armed.
+    let secondFrame: number | null = null;
+    const firstFrame = window.requestAnimationFrame(() => {
+      restore();
+      secondFrame = window.requestAnimationFrame(restore);
+    });
+    return () => {
+      window.cancelAnimationFrame(firstFrame);
+      if (secondFrame !== null) window.cancelAnimationFrame(secondFrame);
+    };
+  }, [entries, scrollIndexToViewportOffset, totalSize]);
 
   useLayoutEffect(() => {
     if (!focus) return;
@@ -540,6 +642,7 @@ function VirtualizedTimeline<T extends { id: string; type: string }>({
     if (!viewport) return;
     const cancelFocusWindow = () => {
       if (focusWindowRef.current) focusWindowRef.current.expiresAt = 0;
+      pendingScrollAnchor.current = null;
     };
     viewport.addEventListener("wheel", cancelFocusWindow, { passive: true });
     viewport.addEventListener("touchstart", cancelFocusWindow, { passive: true });
@@ -571,15 +674,26 @@ function VirtualizedTimeline<T extends { id: string; type: string }>({
           {loadingOlder ? "Loading older messages…" : "Load older messages"}
         </button>
       )}
+      {hasNewer && (
+        <button
+          className="sr-only focus:not-sr-only focus:absolute focus:bottom-2 focus:left-1/2 focus:z-20 focus:-translate-x-1/2 focus:rounded-full focus:bg-background focus:px-3 focus:py-1.5 focus:text-xs focus:shadow"
+          disabled={loadingNewer}
+          onClick={() => loadNewer(false)}
+          type="button"
+        >
+          {loadingNewer ? "Loading newer messages…" : "Load newer messages"}
+        </button>
+      )}
       {virtualItems.map((virtualItem) => {
         const entry = entries[virtualItem.index];
         if (!entry) return null;
         return (
           <div
             aria-posinset={virtualItem.index + 1}
-            aria-setsize={entries.length}
+            aria-setsize={hasOlder || hasNewer ? -1 : entries.length}
             className="absolute inset-x-0 top-0 flex w-full flex-col gap-1 pb-1"
             data-virtual-timeline-index={virtualItem.index}
+            data-virtual-timeline-key={virtualItem.key}
             key={virtualItem.key}
             ref={(node) => measureElement(virtualItem.index, virtualItem.key, node)}
             role="listitem"
@@ -1619,11 +1733,17 @@ export const ChatPane = memo(function ChatPane({
   activityTruncated = false,
   threadContextTruncated = false,
   focusMessage,
+  historyMode = "latest",
   hasOlder,
+  hasNewer,
+  hasNewerGap = false,
   loadingOlder,
+  loadingNewer,
   onLoadOlder,
+  onLoadNewer,
   onReactMessage,
   onScrollToNewest,
+  onViewportAtBottomChange,
   onCloseViewOnly,
   onOpenA2A,
   onOpenRoutine,
@@ -1660,17 +1780,29 @@ export const ChatPane = memo(function ChatPane({
   const threadCloseTimer = useRef<number | null>(null);
   const knownMessageIds = useRef<Set<string> | null>(null);
   const knownMessageChannelId = useRef(channel.id);
+  const knownMessageHistoryMode = useRef(historyMode);
+  const knownLatestMessageId = useRef<string | null>(null);
   const enteringMessageIds = useMemo(() => {
     const known = knownMessageChannelId.current === channel.id ? knownMessageIds.current : null;
-    if (!known) return new Set<string>();
+    const latestMessageId = messages.at(-1)?.id ?? null;
+    if (
+      !known ||
+      historyMode !== "latest" ||
+      knownMessageHistoryMode.current !== "latest" ||
+      knownLatestMessageId.current === latestMessageId
+    ) {
+      return new Set<string>();
+    }
     return new Set(
       messages.filter((message) => !known.has(message.id)).map((message) => message.id)
     );
-  }, [channel.id, messages]);
+  }, [channel.id, historyMode, messages]);
   useEffect(() => {
     knownMessageChannelId.current = channel.id;
+    knownMessageHistoryMode.current = historyMode;
+    knownLatestMessageId.current = messages.at(-1)?.id ?? null;
     knownMessageIds.current = new Set(messages.map((message) => message.id));
-  }, [channel.id, messages]);
+  }, [channel.id, historyMode, messages]);
   useEffect(() => {
     const authoritativeIds = new Set(messages.map((message) => message.id));
     void sendController.reconcile(authoritativeIds);
@@ -2080,8 +2212,11 @@ export const ChatPane = memo(function ChatPane({
                 entries={renderedTimeline}
                 focus={focusedRenderedTimelineEntry}
                 hasOlder={hasOlder}
+                hasNewer={hasNewer}
                 loadingOlder={loadingOlder}
+                loadingNewer={loadingNewer}
                 onLoadOlder={onLoadOlder}
+                onLoadNewer={onLoadNewer}
                 renderEntry={(entry, index) =>
                   entry.type === "context_gap" ? (
                     <div
@@ -2236,13 +2371,16 @@ export const ChatPane = memo(function ChatPane({
           />
           <ConversationScrollButton
             conversationId={channel.id}
+            forceLatest={historyMode !== "latest" || hasNewerGap}
             latestEntryKey={
               renderedTimeline.length > 0
                 ? `${renderedTimeline[renderedTimeline.length - 1]?.type}:${renderedTimeline[renderedTimeline.length - 1]?.id}`
                 : null
             }
             messageCount={renderedTimeline.length}
+            onAtBottomChange={onViewportAtBottomChange}
             onScrollToNewest={onScrollToNewest}
+            trackNewMessages={historyMode === "latest"}
           />
         </Conversation>
       )}

@@ -165,12 +165,18 @@ export const ConversationScrollButton = ({
   conversationId,
   messageCount,
   latestEntryKey,
+  forceLatest = false,
+  trackNewMessages = true,
+  onAtBottomChange,
   onScrollToNewest,
 }: {
   conversationId: string;
   messageCount: number;
   latestEntryKey: string | null;
-  onScrollToNewest?: () => void;
+  forceLatest?: boolean;
+  trackNewMessages?: boolean;
+  onAtBottomChange?: (atBottom: boolean) => void;
+  onScrollToNewest?: () => unknown;
 }) => {
   const { isAtBottom, scrollRef, scrollToBottom } = useStickToBottomContext();
   const [scrolling, setScrolling] = useState(false);
@@ -182,7 +188,7 @@ export const ConversationScrollButton = ({
     messageCount,
     latestEntryKey,
   });
-  const visible = !isAtBottom && !scrolling;
+  const visible = forceLatest || (!isAtBottom && !scrolling);
 
   useEffect(() => {
     const previous = previousMessagesRef.current;
@@ -193,6 +199,12 @@ export const ConversationScrollButton = ({
     };
 
     if (previous.conversationId !== conversationId) {
+      setNewMessageCount(0);
+      setNoticeDismissed(false);
+      return;
+    }
+
+    if (!trackNewMessages) {
       setNewMessageCount(0);
       setNoticeDismissed(false);
       return;
@@ -218,34 +230,41 @@ export const ConversationScrollButton = ({
       setNewMessageCount((count) => count + appendedCount);
       setNoticeDismissed(false);
     }
-  }, [conversationId, latestEntryKey, messageCount]);
+  }, [conversationId, latestEntryKey, messageCount, trackNewMessages]);
 
   useEffect(() => {
     wasAtBottomRef.current = isAtBottom;
+    onAtBottomChange?.(isAtBottom);
     if (isAtBottom) {
       setNewMessageCount(0);
       setNoticeDismissed(false);
     }
-  }, [isAtBottom]);
+  }, [isAtBottom, onAtBottomChange]);
 
   const onClick = useCallback(async () => {
-    onScrollToNewest?.();
     setScrolling(true);
     setNewMessageCount(0);
-    await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
-    await scrollToBottom({
-      duration: new Promise<void>((resolve) =>
-        window.requestAnimationFrame(() => window.requestAnimationFrame(() => resolve()))
-      ),
-      ignoreEscapes: true,
-    });
-    await scrollToBottom("instant");
-    const viewport = scrollRef.current;
-    if (viewport) viewport.scrollTop = viewport.scrollHeight;
-    setScrolling(false);
+    try {
+      await onScrollToNewest?.();
+      await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+      await scrollToBottom({
+        duration: new Promise<void>((resolve) =>
+          window.requestAnimationFrame(() => window.requestAnimationFrame(() => resolve()))
+        ),
+        ignoreEscapes: true,
+      });
+      await scrollToBottom("instant");
+      const viewport = scrollRef.current;
+      if (viewport) viewport.scrollTop = viewport.scrollHeight;
+    } catch {
+      // The app-level operation already reports the failure. Keep the current
+      // viewport instead of jumping within a stale history window.
+    } finally {
+      setScrolling(false);
+    }
   }, [onScrollToNewest, scrollRef, scrollToBottom]);
 
-  if (visible && newMessageCount > 0 && !noticeDismissed) {
+  if (visible && trackNewMessages && newMessageCount > 0 && !noticeDismissed) {
     const label = `${newMessageCount} new ${newMessageCount === 1 ? "message" : "messages"}`;
     return (
       <div
@@ -280,7 +299,7 @@ export const ConversationScrollButton = ({
   return (
     <Button
       aria-hidden={!visible}
-      aria-label="Scroll to newest message"
+      aria-label={forceLatest ? "Jump to latest message" : "Scroll to newest message"}
       className={cn(
         "absolute bottom-2 left-1/2 z-10 size-8 -translate-x-1/2 transform-gpu rounded-full bg-[#fcfcfc] text-[#141414] transition-[opacity,transform] duration-200 ease-out will-change-[opacity,transform] hover:bg-[#fcfcfc] motion-reduce:transition-none dark:bg-[#2f2f2f] dark:text-[#fcfcfc] dark:hover:bg-[#2f2f2f]",
         visible ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-2 opacity-0"

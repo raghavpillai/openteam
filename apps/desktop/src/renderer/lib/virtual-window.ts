@@ -28,6 +28,38 @@ export interface VirtualScopeVisibilityInput {
   overscan: number;
 }
 
+export interface AnchoredItemScrollInput {
+  /** The item's start in coordinates local to the virtual list. */
+  itemStart: number;
+  /** The virtual list's start in coordinates local to the scrollport. */
+  scopeOrigin?: number;
+  /** The item's previous top relative to the scrollport's top. */
+  viewportOffset: number;
+  /** The scrollport's largest valid scrollTop. */
+  maxScrollTop?: number;
+}
+
+/**
+ * Restores an item to the same visual offset in a scrollport. Unlike a
+ * scroll-height delta, this remains correct when rows are added at one edge
+ * and evicted at the other, leaving the total row count or height unchanged.
+ */
+export function scrollTopForAnchoredItem({
+  itemStart,
+  scopeOrigin = 0,
+  viewportOffset,
+  maxScrollTop = Number.POSITIVE_INFINITY,
+}: AnchoredItemScrollInput) {
+  const target =
+    (Number.isFinite(scopeOrigin) ? scopeOrigin : 0) +
+    (Number.isFinite(itemStart) ? itemStart : 0) -
+    (Number.isFinite(viewportOffset) ? viewportOffset : 0);
+  const maximum = Number.isFinite(maxScrollTop)
+    ? Math.max(0, maxScrollTop)
+    : Number.POSITIVE_INFINITY;
+  return Math.min(maximum, Math.max(0, target));
+}
+
 /**
  * Returns whether a nested virtual scope intersects the scrollport (including
  * overscan). This keeps a sidebar with many groups from mounting a window for

@@ -4,6 +4,7 @@ import {
   computeVirtualRange,
   isVirtualScopeVisible,
   preservePrependScrollOffset,
+  scrollTopForAnchoredItem,
 } from "../src/renderer/lib/virtual-window";
 
 describe("bounded virtual windows", () => {
@@ -49,6 +50,59 @@ describe("bounded virtual windows", () => {
   test("keeps the same content anchored when older rows are prepended", () => {
     expect(preservePrependScrollOffset(240, 1_200, 1_920)).toBe(960);
     expect(preservePrependScrollOffset(240, 1_200, 1_100)).toBe(240);
+  });
+
+  test("restores an item by identity when prepend and newer-edge eviction keep count flat", () => {
+    const previousKeys = Array.from({ length: 10 }, (_, index) => `message-${index}`);
+    const nextKeys = ["message--2", "message--1", ...previousKeys.slice(0, 8)];
+    const anchorKey = "message-4";
+    const nextIndex = nextKeys.indexOf(anchorKey);
+    // The key moved from index 4 to index 6 after two older rows arrived and
+    // two newer rows were evicted. Its top stays 20px below the viewport.
+    expect(nextKeys).toHaveLength(previousKeys.length);
+    expect(nextIndex).toBe(6);
+    expect(
+      scrollTopForAnchoredItem({
+        itemStart: nextIndex * 50,
+        viewportOffset: 20,
+        maxScrollTop: 1_000,
+      })
+    ).toBe(280);
+  });
+
+  test("restores an item when append and older-edge eviction move its index backward", () => {
+    const previousKeys = Array.from({ length: 10 }, (_, index) => `message-${index}`);
+    const nextKeys = [...previousKeys.slice(2), "message-10", "message-11"];
+    const anchorKey = "message-4";
+    const nextIndex = nextKeys.indexOf(anchorKey);
+    // The key moved from index 4 to index 2 after two older rows were evicted.
+    expect(nextKeys).toHaveLength(previousKeys.length);
+    expect(nextIndex).toBe(2);
+    expect(
+      scrollTopForAnchoredItem({
+        itemStart: nextIndex * 50,
+        scopeOrigin: 32,
+        viewportOffset: -10,
+        maxScrollTop: 1_000,
+      })
+    ).toBe(142);
+  });
+
+  test("clamps an anchored restoration to the scrollport bounds", () => {
+    expect(
+      scrollTopForAnchoredItem({
+        itemStart: 900,
+        viewportOffset: 10,
+        maxScrollTop: 640,
+      })
+    ).toBe(640);
+    expect(
+      scrollTopForAnchoredItem({
+        itemStart: 10,
+        viewportOffset: 40,
+        maxScrollTop: 640,
+      })
+    ).toBe(0);
   });
 
   test("does not turn a manual history load's anchor correction into a second page", () => {

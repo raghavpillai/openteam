@@ -11,6 +11,7 @@ import {
   computeVirtualLayout,
   computeVirtualRangeFromLayout,
   isVirtualScopeVisible,
+  scrollTopForAnchoredItem,
 } from "../lib/virtual-window";
 
 export interface VirtualItem {
@@ -273,6 +274,21 @@ export function useVirtualWindow({
     [count, estimateSize, getKey, scopeOrigin, scrollRef]
   );
 
+  const scrollIndexToViewportOffset = useCallback(
+    (index: number, viewportOffset: number) => {
+      const element = scrollRef.current;
+      if (!element || index < 0 || index >= count) return false;
+      element.scrollTop = scrollTopForAnchoredItem({
+        itemStart: range.offsets[index] ?? 0,
+        scopeOrigin: scopeOrigin(),
+        viewportOffset,
+        maxScrollTop: Math.max(0, element.scrollHeight - element.clientHeight),
+      });
+      return true;
+    },
+    [count, range.offsets, scopeOrigin, scrollRef]
+  );
+
   const followedActiveItem = useRef<string | null>(null);
 
   useLayoutEffect(() => {
@@ -296,6 +312,7 @@ export function useVirtualWindow({
 
   return {
     measureElement,
+    scrollIndexToViewportOffset,
     scrollToIndex,
     totalSize: range.totalSize,
     virtualItems,

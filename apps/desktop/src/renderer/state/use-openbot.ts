@@ -2,16 +2,13 @@ import { createKeyedRequestCoordinator } from "@openbot/client-core";
 import type { ChannelMessageView, ClientSnapshot } from "@openbot/contracts";
 import { CLIENT_CAPABILITIES, type ClientCapabilities } from "@openbot/contracts/capabilities";
 import {
-  clearLoadedChannelSearchContext,
   compareEntitySequence as compareSequence,
-  loadedChannelHistoryMessages,
   loadingChannelHistory,
   mergeBootstrapActivityStates,
-  mergeLoadedChannelHistoryPage,
-  mergeLoadedChannelMessageContext,
   type LoadedChannelHistory,
   uniqueEntitiesById as mergeEntities,
 } from "@openbot/product-core/history";
+import { messageRetainedByteSize } from "@openbot/product-core/message-window";
 import { toggleOwnReaction } from "@openbot/product-core/messages";
 import { clientErrorMessage } from "@openbot/product-core/redaction";
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -20,20 +17,37 @@ import { ClientError } from "../client/http";
 import { api, type ChannelClientState, type ClientBootstrapView } from "../client/openbot-api";
 import { DURABLE_SEND_ACCEPTED_EVENT } from "../lib/durable-sends";
 import { nextHistoryPageLoadStartedAt } from "../lib/history-pagination";
+import {
+  applyPrimaryHistoryPage,
+  type ChannelMessageWindowState,
+  clearMessageContext,
+  emptyChannelMessageWindow,
+  enterMessageContext,
+  expandMessageContext,
+  MESSAGE_HISTORY_PAGE_SIZE,
+  type MessageHistoryDirection,
+  resetToLatestTail,
+  setContextLoading,
+  visibleChannelHistoryMessages,
+} from "../lib/message-history-window";
 import { recordPerformance } from "../lib/performance";
 import { createSnapshotCaches, reconcileClientSnapshot } from "../lib/snapshot-reconcile";
 
 export type OpenBotMutation = <T>(operation: () => Promise<T>) => Promise<T>;
 
 export interface ChannelHistoryStatus {
-  hasMore: boolean;
-  loading: boolean;
+  mode: "latest" | "history" | "context";
+  hasOlder: boolean;
+  hasNewer: boolean;
+  hasNewerGap: boolean;
+  loadingOlder: boolean;
+  loadingNewer: boolean;
   loadedMessages: number;
+  retainedBytes: number;
   activityTruncated: boolean;
   threadContextTruncated: boolean;
 }
 
-const HISTORY_PAGE_SIZE = 100;
 const MAX_WARM_HISTORIES = 3;
 
 const sameCapabilities = (left: ClientCapabilities, right: ClientCapabilities) =>
@@ -50,6 +64,7 @@ const sameStringSet = (left: ReadonlySet<string>, right: ReadonlySet<string>) =>
 const bootstrapSnapshot = (
   bootstrap: ClientBootstrapView,
   histories: ReadonlyMap<string, LoadedChannelHistory>,
+  windows: ReadonlyMap<string, ChannelMessageWindowState>,
   channelStates: ReadonlyMap<string, ChannelClientState>
 ): ClientSnapshot => {
   const latestByChannel = new Map(
@@ -59,9 +74,10 @@ const bootstrapSnapshot = (
     const latest = latestByChannel.get(channel.id);
     const loaded = histories.get(channel.id);
     if (!loaded) return latest ? [latest] : [];
-    return mergeEntities(loadedChannelHistoryMessages(loaded), latest ? [latest] : []).sort(
-      compareSequence
-    );
+    const window = windows.get(channel.id) ?? emptyChannelMessageWindow();
+    const visible = visibleChannelHistoryMessages(loaded, window);
+    const mayMergeLatest = !window.context && !window.primaryHasNewerGap;
+    return mergeEntities(visible, mayMergeLatest && latest ? [latest] : []).sort(compareSequence);
   });
   const states = [...channelStates.values()];
   const activity = mergeBootstrapActivityStates(bootstrap, states);
@@ -92,10 +108,13 @@ export function useOpenBot() {
   const bootstrapRef = useRef<ClientBootstrapView | null>(null);
   const bootstrapEpoch = useRef(0);
   const histories = useRef(new Map<string, LoadedChannelHistory>());
+  const historyWindows = useRef(new Map<string, ChannelMessageWindowState>());
   const channelStates = useRef(new Map<string, ChannelClientState>());
   const channelLoads = useRef(new Map<string, Promise<void>>());
   const historyRequests = useRef(createKeyedRequestCoordinator());
   const historyLoadStartedAt = useRef(new Map<string, number>());
+  const contextNewerLoadStartedAt = useRef(new Map<string, number>());
+  const historyViewportAtBottom = useRef(new Map<string, boolean>());
   const searchContextRequests = useRef(createKeyedRequestCoordinator());
   const historyLru = useRef<string[]>([]);
   const threadContextIdsCache = useRef(new Map<string, ReadonlySet<string>>());
@@ -129,7 +148,15 @@ export function useOpenBot() {
       setCapabilities((current) =>
         sameCapabilities(current, nextCapabilities) ? current : nextCapabilities
       );
-      publish(bootstrapSnapshot(bootstrap, histories.current, channelStates.current), quiet);
+      publish(
+        bootstrapSnapshot(
+          bootstrap,
+          histories.current,
+          historyWindows.current,
+          channelStates.current
+        ),
+        quiet
+      );
     },
     [publish]
   );
@@ -138,8 +165,11 @@ export function useOpenBot() {
     historyRequests.current.invalidate(channelId);
     searchContextRequests.current.invalidate(channelId);
     histories.current.delete(channelId);
+    historyWindows.current.delete(channelId);
     channelStates.current.delete(channelId);
     historyLoadStartedAt.current.delete(channelId);
+    contextNewerLoadStartedAt.current.delete(channelId);
+    historyViewportAtBottom.current.delete(channelId);
     // The request cannot be cancelled here, but removing it lets a later
     // selection start a current request. Its epoch guard prevents the old
     // promise from repopulating an evicted cache.
@@ -184,7 +214,7 @@ export function useOpenBot() {
           for (let attempt = 0; attempt < 2; attempt += 1) {
             const requestBootstrapEpoch = bootstrapEpoch.current;
             [page, state] = await Promise.all([
-              api.channelHistory(channelId, { limit: HISTORY_PAGE_SIZE }),
+              api.channelHistory(channelId, { limit: MESSAGE_HISTORY_PAGE_SIZE }),
               api.channelState(channelId),
             ]);
             if (
@@ -206,10 +236,25 @@ export function useOpenBot() {
           }
           const current = histories.current.get(channelId);
           const shouldReplace = replaceHistory || !current || current.loadedAt === 0;
-          histories.current.set(
-            channelId,
-            mergeLoadedChannelHistoryPage(current, page, shouldReplace ? "replace" : "refresh")
-          );
+          const mergeStartedAt = performance.now();
+          const transition = applyPrimaryHistoryPage({
+            current,
+            window: historyWindows.current.get(channelId),
+            page,
+            mode: shouldReplace ? "replace" : "refresh",
+            atBottom: historyViewportAtBottom.current.get(channelId) ?? true,
+          });
+          histories.current.set(channelId, transition.history);
+          historyWindows.current.set(channelId, transition.window);
+          recordPerformance("history.page.merge", performance.now() - mergeStartedAt, {
+            direction: "latest",
+            mode: shouldReplace ? "replace" : "refresh",
+            outcome: transition.outcome,
+            messages: transition.history.messages.length,
+            retainedBytes: transition.window.retainedBytes,
+            evictedOlder: transition.evictedOlder,
+            evictedNewer: transition.evictedNewer,
+          });
           if (stateIsCurrent) channelStates.current.set(channelId, state);
           else channelStates.current.delete(channelId);
           setHistoryRevision((value) => value + 1);
@@ -244,12 +289,15 @@ export function useOpenBot() {
       if (bootstrap && !bootstrap.channels.some((channel) => channel.id === channelId)) return;
       touchHistory(channelId);
       let existing = histories.current.get(channelId);
+      const window = historyWindows.current.get(channelId) ?? emptyChannelMessageWindow();
       if (
         existing &&
         (existing.searchContext.length > 0 || existing.searchThreadContext.length > 0)
       ) {
-        existing = clearLoadedChannelSearchContext(existing);
-        histories.current.set(channelId, existing);
+        const transition = clearMessageContext(existing, window);
+        existing = transition.history;
+        histories.current.set(channelId, transition.history);
+        historyWindows.current.set(channelId, transition.window);
         setHistoryRevision((value) => value + 1);
         publishBootstrap(true);
       }
@@ -258,10 +306,118 @@ export function useOpenBot() {
     [fetchChannel, publishBootstrap, touchHistory]
   );
 
+  const loadContextPage = useCallback(
+    async (channelId: string, direction: MessageHistoryDirection) => {
+      if (legacyMode.current) return;
+      const existing = histories.current.get(channelId);
+      const window = historyWindows.current.get(channelId);
+      const context = window?.context;
+      if (!existing || !window || !context || context.loadingDirection) return;
+      const hasMore = direction === "older" ? context.hasMoreBefore : context.hasMoreAfter;
+      if (!hasMore) return;
+      const startedAt = nextHistoryPageLoadStartedAt({
+        now: performance.now(),
+        lastStartedAt:
+          (direction === "older"
+            ? historyLoadStartedAt.current
+            : contextNewerLoadStartedAt.current
+          ).get(channelId) ?? null,
+      });
+      if (startedAt === null) return;
+      const startedAtMap =
+        direction === "older" ? historyLoadStartedAt.current : contextNewerLoadStartedAt.current;
+      startedAtMap.set(channelId, startedAt);
+      const edgeMessage =
+        direction === "older" ? existing.searchContext[0] : existing.searchContext.at(-1);
+      if (!edgeMessage) return;
+      const requestLease = searchContextRequests.current.supersede(channelId);
+      const requestedGeneration = window.generation;
+      const requestedEdgeId = edgeMessage.id;
+      historyWindows.current.set(channelId, setContextLoading(window, direction));
+      setHistoryRevision((value) => value + 1);
+      const requestStartedAt = performance.now();
+      try {
+        const page = await api.messageContext(requestedEdgeId, {
+          direction: direction === "older" ? "before" : "after",
+          limit: MESSAGE_HISTORY_PAGE_SIZE,
+        });
+        if (
+          !searchContextRequests.current.isCurrent(requestLease) ||
+          !historyLru.current.includes(channelId)
+        ) {
+          recordPerformance("history.page.stale-discard", performance.now() - requestStartedAt, {
+            direction,
+            reason: "request",
+          });
+          return;
+        }
+        const current = histories.current.get(channelId);
+        const currentWindow = historyWindows.current.get(channelId);
+        const currentEdge =
+          direction === "older" ? current?.searchContext[0] : current?.searchContext.at(-1);
+        if (
+          !current ||
+          !currentWindow?.context ||
+          currentWindow.generation !== requestedGeneration ||
+          currentEdge?.id !== requestedEdgeId ||
+          page.channelId !== channelId
+        ) {
+          recordPerformance("history.page.stale-discard", performance.now() - requestStartedAt, {
+            direction,
+            reason: "generation",
+          });
+          return;
+        }
+        const mergeStartedAt = performance.now();
+        const transition = expandMessageContext({
+          current,
+          window: currentWindow,
+          page,
+          direction,
+        });
+        histories.current.set(channelId, transition.history);
+        historyWindows.current.set(channelId, transition.window);
+        setHistoryRevision((value) => value + 1);
+        publishBootstrap(true);
+        recordPerformance("history.page.merge", performance.now() - mergeStartedAt, {
+          direction,
+          mode: "context",
+          messages: transition.history.searchContext.length,
+          retainedBytes: transition.window.retainedBytes,
+          evictedOlder: transition.evictedOlder,
+          evictedNewer: transition.evictedNewer,
+        });
+      } catch (cause) {
+        const stillCurrent =
+          searchContextRequests.current.isCurrent(requestLease) &&
+          historyLru.current.includes(channelId);
+        if (stillCurrent) {
+          const currentWindow = historyWindows.current.get(channelId);
+          if (currentWindow) {
+            historyWindows.current.set(channelId, setContextLoading(currentWindow, null));
+          }
+          setHistoryRevision((value) => value + 1);
+          setError(
+            clientErrorMessage(
+              cause,
+              direction === "older"
+                ? "Could not load earlier message context"
+                : "Could not load later message context"
+            )
+          );
+          throw cause;
+        }
+      }
+    },
+    [publishBootstrap]
+  );
+
   const loadOlder = useCallback(
     async (channelId: string) => {
       if (legacyMode.current) return;
       const existing = histories.current.get(channelId);
+      const window = historyWindows.current.get(channelId);
+      if (window?.context) return loadContextPage(channelId, "older");
       if (!existing || existing.loading || !existing.hasMore || !existing.beforeSequence) return;
       const startedAt = nextHistoryPageLoadStartedAt({
         now: performance.now(),
@@ -276,7 +432,7 @@ export function useOpenBot() {
       try {
         const page = await api.channelHistory(channelId, {
           beforeSequence: requestedBefore,
-          limit: HISTORY_PAGE_SIZE,
+          limit: MESSAGE_HISTORY_PAGE_SIZE,
         });
         if (
           !historyRequests.current.isCurrent(requestLease) ||
@@ -286,9 +442,26 @@ export function useOpenBot() {
         }
         const current = histories.current.get(channelId);
         if (!current || current.beforeSequence !== requestedBefore) return;
-        histories.current.set(channelId, mergeLoadedChannelHistoryPage(current, page, "older"));
+        const mergeStartedAt = performance.now();
+        const transition = applyPrimaryHistoryPage({
+          current,
+          window: historyWindows.current.get(channelId),
+          page,
+          mode: "older",
+          atBottom: false,
+        });
+        histories.current.set(channelId, transition.history);
+        historyWindows.current.set(channelId, transition.window);
         setHistoryRevision((value) => value + 1);
         publishBootstrap(true);
+        recordPerformance("history.page.merge", performance.now() - mergeStartedAt, {
+          direction: "older",
+          mode: transition.window.primaryHasNewerGap ? "history" : "latest",
+          messages: transition.history.messages.length,
+          retainedBytes: transition.window.retainedBytes,
+          evictedOlder: transition.evictedOlder,
+          evictedNewer: transition.evictedNewer,
+        });
       } catch (cause) {
         const stillCurrent =
           historyRequests.current.isCurrent(requestLease) && historyLru.current.includes(channelId);
@@ -301,12 +474,16 @@ export function useOpenBot() {
         }
       }
     },
-    [publishBootstrap]
+    [loadContextPage, publishBootstrap]
+  );
+
+  const loadNewer = useCallback(
+    (channelId: string) => loadContextPage(channelId, "newer"),
+    [loadContextPage]
   );
 
   const ensureMessageLoaded = useCallback(
     async (channelId: string, messageId: string): Promise<boolean> => {
-      const contextLease = searchContextRequests.current.supersede(channelId);
       const snapshotHasTarget = Boolean(
         snapshotRef.current?.channelMessages.some(
           (message) => message.channelId === channelId && message.id === messageId
@@ -314,15 +491,39 @@ export function useOpenBot() {
       );
       if (legacyMode.current) return snapshotHasTarget;
       const cached = histories.current.get(channelId);
-      const targetIsPrimary = Boolean(
-        cached?.messages.some((message) => message.id === messageId) ||
-          bootstrapRef.current?.latestMessages.some((message) => message.id === messageId)
-      );
+      const targetIsPrimary = Boolean(cached?.messages.some((message) => message.id === messageId));
       if (targetIsPrimary) {
         if (cached && (cached.searchContext.length > 0 || cached.searchThreadContext.length > 0)) {
-          histories.current.set(channelId, clearLoadedChannelSearchContext(cached));
+          const transition = clearMessageContext(
+            cached,
+            historyWindows.current.get(channelId) ?? emptyChannelMessageWindow()
+          );
+          histories.current.set(channelId, transition.history);
+          historyWindows.current.set(channelId, transition.window);
           setHistoryRevision((value) => value + 1);
           publishBootstrap(true);
+        }
+        return true;
+      }
+      const targetIsBootstrapLatest = Boolean(
+        bootstrapRef.current?.latestMessages.some((message) => message.id === messageId)
+      );
+      if (targetIsBootstrapLatest) {
+        const window = historyWindows.current.get(channelId);
+        if (cached && window && (window.context || window.primaryHasNewerGap)) {
+          const tailHasTarget = window.latestTail?.messages.some(
+            (message) => message.id === messageId
+          );
+          const reset = tailHasTarget ? resetToLatestTail(cached, window) : null;
+          if (reset) {
+            histories.current.set(channelId, reset.history);
+            historyWindows.current.set(channelId, reset.window);
+            setHistoryRevision((value) => value + 1);
+            publishBootstrap(false);
+          } else {
+            touchHistory(channelId);
+            await fetchChannel(channelId, true, true);
+          }
         }
         return true;
       }
@@ -332,12 +533,19 @@ export function useOpenBot() {
       if (loaded?.messages.some((message) => message.id === messageId)) return true;
 
       try {
+        const contextLease = searchContextRequests.current.supersede(channelId);
         const context = await api.messageContext(messageId);
         if (context.channelId !== channelId) return false;
         if (!searchContextRequests.current.isCurrent(contextLease)) return false;
         const current = histories.current.get(channelId);
         if (!current || !historyLru.current.includes(channelId)) return false;
-        histories.current.set(channelId, mergeLoadedChannelMessageContext(current, context));
+        const transition = enterMessageContext(
+          current,
+          historyWindows.current.get(channelId) ?? emptyChannelMessageWindow(),
+          context
+        );
+        histories.current.set(channelId, transition.history);
+        historyWindows.current.set(channelId, transition.window);
         setHistoryRevision((value) => value + 1);
         publishBootstrap(true);
         return context.messages.some((message) => message.id === messageId);
@@ -346,24 +554,60 @@ export function useOpenBot() {
         throw cause;
       }
     },
-    [loadChannel, publishBootstrap]
+    [fetchChannel, loadChannel, publishBootstrap, touchHistory]
   );
 
   const clearSearchContext = useCallback(
     (channelId: string) => {
       searchContextRequests.current.invalidate(channelId);
       const current = histories.current.get(channelId);
+      const window = historyWindows.current.get(channelId);
       if (
         !current ||
+        !window ||
         (current.searchContext.length === 0 && current.searchThreadContext.length === 0)
       )
         return;
-      histories.current.set(channelId, clearLoadedChannelSearchContext(current));
+      const transition = clearMessageContext(current, window);
+      histories.current.set(channelId, transition.history);
+      historyWindows.current.set(channelId, transition.window);
       setHistoryRevision((value) => value + 1);
       publishBootstrap(true);
     },
     [publishBootstrap]
   );
+
+  const jumpToLatest = useCallback(
+    async (channelId: string) => {
+      if (legacyMode.current) return;
+      const current = histories.current.get(channelId);
+      const window = historyWindows.current.get(channelId);
+      if (!current || !window || (!window.context && !window.primaryHasNewerGap)) return;
+      searchContextRequests.current.invalidate(channelId);
+      historyRequests.current.invalidate(channelId);
+      channelLoads.current.delete(channelId);
+      const cached = current && window ? resetToLatestTail(current, window) : null;
+      if (cached) {
+        histories.current.set(channelId, cached.history);
+        historyWindows.current.set(channelId, cached.window);
+        setHistoryRevision((value) => value + 1);
+        publishBootstrap(false);
+        recordPerformance("history.latest.jump", 0, { source: "cache" });
+        void fetchChannel(channelId, true, true).catch(() => undefined);
+        return;
+      }
+      const startedAt = performance.now();
+      await fetchChannel(channelId, true, true);
+      recordPerformance("history.latest.jump", performance.now() - startedAt, {
+        source: "network",
+      });
+    },
+    [fetchChannel, publishBootstrap]
+  );
+
+  const setHistoryViewportAtBottom = useCallback((channelId: string, atBottom: boolean) => {
+    historyViewportAtBottom.current.set(channelId, atBottom);
+  }, []);
 
   const patchMessage = useCallback(
     (message: ChannelMessageView) => {
@@ -403,6 +647,27 @@ export function useOpenBot() {
         }
         if (nextHistory !== history) {
           histories.current.set(channelId, nextHistory);
+          changed = true;
+        }
+        const window = historyWindows.current.get(channelId);
+        const tailIndex = window?.latestTail?.messages.findIndex(
+          (candidate) => candidate.id === message.id
+        );
+        if (window?.latestTail && tailIndex !== undefined && tailIndex >= 0) {
+          const previousTailMessage = window.latestTail.messages[tailIndex];
+          const messages = window.latestTail.messages.slice();
+          messages[tailIndex] = message;
+          const retainedBytes = Math.max(
+            0,
+            window.latestTail.retainedBytes -
+              (previousTailMessage ? messageRetainedByteSize(previousTailMessage) : 0) +
+              messageRetainedByteSize(message)
+          );
+          historyWindows.current.set(channelId, {
+            ...window,
+            latestTail: { ...window.latestTail, messages, retainedBytes },
+            retainedBytes: window.retainedBytes - window.latestTail.retainedBytes + retainedBytes,
+          });
           changed = true;
         }
       }
@@ -664,13 +929,21 @@ export function useOpenBot() {
     const status = new Map<string, ChannelHistoryStatus>();
     for (const [channelId, history] of histories.current) {
       const state = channelStates.current.get(channelId);
+      const window = historyWindows.current.get(channelId) ?? emptyChannelMessageWindow();
+      const context = window.context;
       status.set(channelId, {
-        hasMore: history.hasMore,
-        loading: history.loading,
-        loadedMessages: history.messages.length,
+        mode: context ? "context" : window.primaryHasNewerGap ? "history" : "latest",
+        hasOlder: context?.hasMoreBefore ?? history.hasMore,
+        hasNewer: context?.hasMoreAfter ?? false,
+        hasNewerGap: context?.hasMoreAfter ?? window.primaryHasNewerGap,
+        loadingOlder: context ? context.loadingDirection === "older" : history.loading,
+        loadingNewer: context?.loadingDirection === "newer",
+        loadedMessages: context ? history.searchContext.length : history.messages.length,
+        retainedBytes: window.retainedBytes,
         activityTruncated: state?.truncated ? Object.values(state.truncated).some(Boolean) : false,
-        threadContextTruncated:
-          history.threadContextTruncated || history.searchThreadContextTruncated,
+        threadContextTruncated: context
+          ? history.searchThreadContextTruncated
+          : history.threadContextTruncated,
       });
     }
     return status;
@@ -680,11 +953,11 @@ export function useOpenBot() {
     const next = new Map<string, ReadonlySet<string>>();
     for (const [channelId, history] of histories.current) {
       const ids = new Set<string>();
-      const visibleIds = new Set([
-        ...history.messages.map((message) => message.id),
-        ...history.searchContext.map((message) => message.id),
-      ]);
-      for (const message of [...history.threadContext, ...history.searchThreadContext]) {
+      const context = historyWindows.current.get(channelId)?.context;
+      const visibleMessages = context ? history.searchContext : history.messages;
+      const threadMessages = context ? history.searchThreadContext : history.threadContext;
+      const visibleIds = new Set(visibleMessages.map((message) => message.id));
+      for (const message of threadMessages) {
         if (!visibleIds.has(message.id)) ids.add(message.id);
       }
       const previous = threadContextIdsCache.current.get(channelId);
@@ -715,8 +988,11 @@ export function useOpenBot() {
     mutate,
     loadChannel,
     loadOlder,
+    loadNewer,
     ensureMessageLoaded,
     clearSearchContext,
+    jumpToLatest,
+    setHistoryViewportAtBottom,
     reactToMessage,
     historyByChannel,
     threadContextMessageIdsByChannel,

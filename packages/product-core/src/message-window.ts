@@ -70,6 +70,16 @@ export interface BoundMessageWindowResult {
   missingAncestorIds: string[];
 }
 
+export type MessageViewportFillDirection = "older-first" | "newer-first";
+
+export interface BoundMessageViewportWindowOptions
+  extends Omit<BoundMessageWindowOptions, "protectedIds" | "retain"> {
+  /** Actual message IDs intersecting the viewport at the time paging began. */
+  viewportMessageIds: ReadonlySet<string>;
+  /** Which adjacent side gets the remaining budget first. */
+  fill: MessageViewportFillDirection;
+}
+
 /** Exact retained-payload proxy used by the history window's byte budget. */
 export const messageRetainedByteSize = (message: ChannelMessageView): number => {
   const cached = retainedByteSizeByMessage.get(message);
@@ -273,6 +283,109 @@ export const boundMessageWindow = (
     },
     missingProtectedIds,
     missingAncestorIds: [...missingAncestorIds].sort((left, right) => left.localeCompare(right)),
+  };
+};
+
+/**
+ * Bound a contiguous window around the rows that are actually visible.
+ *
+ * A regular protected edge window has to retain every row between that edge and
+ * a protected anchor. That is the wrong shape for virtualized chat pagination:
+ * one rich older page could otherwise turn an anchor near the old boundary into
+ * a multi-megabyte edge-to-anchor soft excess. This two-pass pivot keeps only
+ * the visible span mandatory, fills the requested adjacent direction first,
+ * then spends any remaining count/byte budget on the opposite side.
+ */
+export const boundMessageWindowAroundViewport = (
+  input: readonly ChannelMessageView[],
+  options: BoundMessageViewportWindowOptions
+): BoundMessageWindowResult => {
+  const messages = normalizedMessages(input);
+  const indexById = new Map(messages.map((message, index) => [message.id, index] as const));
+  const viewportIndexes = [...options.viewportMessageIds].flatMap((id) => {
+    const index = indexById.get(id);
+    return index === undefined ? [] : [index];
+  });
+  const fallbackRetain = options.fill === "older-first" ? "oldest" : "newest";
+  if (viewportIndexes.length === 0) {
+    return boundMessageWindow(messages, {
+      ...options,
+      protectedIds: options.viewportMessageIds,
+      retain: fallbackRetain,
+    });
+  }
+
+  const firstViewportIndex = Math.min(...viewportIndexes);
+  const lastViewportIndex = Math.max(...viewportIndexes);
+  // Every primary message remains available as an ancestry candidate even
+  // while each pass operates on just one side of the pivot.
+  const ancestryCandidates = [...messages, ...(options.threadContext ?? [])];
+  const firstPass =
+    options.fill === "older-first"
+      ? boundMessageWindow(messages.slice(0, lastViewportIndex + 1), {
+          ...options,
+          protectedIds: options.viewportMessageIds,
+          retain: "newest",
+          threadContext: ancestryCandidates,
+        })
+      : boundMessageWindow(messages.slice(firstViewportIndex), {
+          ...options,
+          protectedIds: options.viewportMessageIds,
+          retain: "oldest",
+          threadContext: ancestryCandidates,
+        });
+  const carriedProtectedIds = new Set([
+    ...options.viewportMessageIds,
+    ...firstPass.messages.map((message) => message.id),
+  ]);
+  const firstSelectedIndex = indexById.get(firstPass.messages[0]?.id ?? "") ?? firstViewportIndex;
+  const lastSelectedIndex = indexById.get(firstPass.messages.at(-1)?.id ?? "") ?? lastViewportIndex;
+  const bounded =
+    options.fill === "older-first"
+      ? boundMessageWindow(messages.slice(firstSelectedIndex), {
+          ...options,
+          protectedIds: carriedProtectedIds,
+          retain: "oldest",
+          threadContext: ancestryCandidates,
+        })
+      : boundMessageWindow(messages.slice(0, lastSelectedIndex + 1), {
+          ...options,
+          protectedIds: carriedProtectedIds,
+          retain: "newest",
+          threadContext: ancestryCandidates,
+        });
+
+  const firstSelected = bounded.messages[0] ?? null;
+  const lastSelected = bounded.messages.at(-1) ?? null;
+  const selectedStart = firstSelected ? (indexById.get(firstSelected.id) ?? messages.length) : 0;
+  const selectedEnd = lastSelected ? (indexById.get(lastSelected.id) ?? -1) : -1;
+  const adjacentOlder = messages[selectedStart - 1] ?? null;
+  const adjacentNewer = messages[selectedEnd + 1] ?? null;
+  const olderCount = firstSelected ? selectedStart : messages.length;
+  const newerCount = lastSelected ? messages.length - selectedEnd - 1 : 0;
+  const older =
+    olderCount > 0 && firstSelected && adjacentOlder
+      ? {
+          count: olderCount,
+          adjacentEvictedMessageId: adjacentOlder.id,
+          boundaryRetainedMessageId: firstSelected.id,
+        }
+      : null;
+  const newer =
+    newerCount > 0 && lastSelected && adjacentNewer
+      ? {
+          count: newerCount,
+          adjacentEvictedMessageId: adjacentNewer.id,
+          boundaryRetainedMessageId: lastSelected.id,
+        }
+      : null;
+  return {
+    ...bounded,
+    eviction: { older, newer },
+    gaps: {
+      older: options.existingGaps?.older === true || older !== null,
+      newer: options.existingGaps?.newer === true || newer !== null,
+    },
   };
 };
 

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { ChannelMessageView } from "@openbot/contracts";
 import {
   boundMessageWindow,
+  boundMessageWindowAroundViewport,
   latestRefreshOverlap,
   messageRetainedByteSize,
 } from "../src/message-window";
@@ -181,6 +182,74 @@ describe("bounded message windows", () => {
       oversized: false,
     });
     expect(result.eviction.newer?.count).toBe(450);
+  });
+
+  test("pivots around the visible span without retaining a rich edge-to-anchor range", () => {
+    const values = messages(600, 1).map((candidate, index) =>
+      index < 100 ? { ...candidate, content: "rich".repeat(7_500) } : candidate
+    );
+    const result = boundMessageWindowAroundViewport(values, {
+      maxMessages: 500,
+      maxBytes: 2 * 1024 * 1024,
+      fill: "older-first",
+      viewportMessageIds: new Set(["message-101"]),
+    });
+
+    expect(result.messages.some(({ id }) => id === "message-101")).toBe(true);
+    expect(result.messages[0]?.id).not.toBe("message-1");
+    expect(result.retainedBytes).toBeLessThanOrEqual(2 * 1024 * 1024);
+    expect(result.softExcess.protected).toBe(false);
+    expect(result.gaps).toEqual({ older: true, newer: true });
+  });
+
+  test("fills the requested side of a visible pivot before the opposite side", () => {
+    const older = boundMessageWindowAroundViewport(messages(10), {
+      maxMessages: 5,
+      maxBytes: generousBytes,
+      fill: "older-first",
+      viewportMessageIds: new Set(["message-5"]),
+    });
+    const newer = boundMessageWindowAroundViewport(messages(10), {
+      maxMessages: 5,
+      maxBytes: generousBytes,
+      fill: "newer-first",
+      viewportMessageIds: new Set(["message-5"]),
+    });
+
+    expect(older.messages.map(({ id }) => id)).toEqual([
+      "message-1",
+      "message-2",
+      "message-3",
+      "message-4",
+      "message-5",
+    ]);
+    expect(newer.messages.map(({ id }) => id)).toEqual([
+      "message-5",
+      "message-6",
+      "message-7",
+      "message-8",
+      "message-9",
+    ]);
+  });
+
+  test("allows only the mandatory visible span to create a protected byte excess", () => {
+    const rich = messages(5).map((candidate) => ({
+      ...candidate,
+      content: "x".repeat(1_000),
+    }));
+    const spanBytes = rich
+      .slice(1, 4)
+      .reduce((total, candidate) => total + messageRetainedByteSize(candidate), 0);
+    const result = boundMessageWindowAroundViewport(rich, {
+      maxMessages: 5,
+      maxBytes: spanBytes - 1,
+      fill: "older-first",
+      viewportMessageIds: new Set(["message-2", "message-4"]),
+    });
+
+    expect(result.messages.map(({ id }) => id)).toEqual(["message-2", "message-3", "message-4"]);
+    expect(result.retainedBytes).toBe(spanBytes);
+    expect(result.softExcess).toMatchObject({ protected: true, oversized: false });
   });
 
   test("moves transitive reply ancestors outside the primary cap into thread context", () => {

@@ -1,14 +1,14 @@
+import {
+  PLUGIN_MARKETPLACE_CATEGORIES,
+  type PluginMarketplaceCategory,
+  pluginMatchesMarketplaceCategory,
+} from "@openbot/client-core/plugin-marketplace";
 import type {
   PluginCatalogItemView,
   PluginConnectionView,
   PluginInstallView,
   PluginSettingsView,
 } from "@openbot/contracts";
-import {
-  PLUGIN_MARKETPLACE_CATEGORIES,
-  type PluginMarketplaceCategory,
-  pluginMatchesMarketplaceCategory,
-} from "@openbot/client-core/plugin-marketplace";
 import { clientErrorMessage } from "@openbot/product-core/redaction";
 import { SymbolView } from "expo-symbols";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -338,6 +338,7 @@ export function PluginMarketplaceSheet({
             autoCapitalize="none"
             autoCorrect={false}
             clearButtonMode="while-editing"
+            keyboardAppearance={theme.dark ? "dark" : "light"}
             onChangeText={setQuery}
             placeholder="Search plugins"
             placeholderTextColor={theme.textFaint}
@@ -427,7 +428,7 @@ export function PluginMarketplaceSheet({
             style={StyleSheet.absoluteFill}
           />
           <GlassSurface
-            fallbackColor="rgba(55,55,55,0.97)"
+            fallbackColor={theme.dark ? "rgba(55,55,55,0.97)" : "rgba(245,245,245,0.98)"}
             style={[styles.filterMenu, { borderColor: theme.border }]}
           >
             <ScrollView
@@ -444,7 +445,12 @@ export function PluginMarketplaceSheet({
                     setCategory(item);
                     setFilterOpen(false);
                   }}
-                  style={({ pressed }) => [styles.filterItem, pressed && styles.filterPressed]}
+                  style={({ pressed }) => [
+                    styles.filterItem,
+                    pressed && {
+                      backgroundColor: theme.dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)",
+                    },
+                  ]}
                 >
                   <View style={styles.checkSlot}>
                     {item === category ? (
@@ -486,6 +492,7 @@ export function PluginMarketplaceSheet({
                 accessibilityLabel={field.label}
                 autoCapitalize="none"
                 autoCorrect={false}
+                keyboardAppearance={theme.dark ? "dark" : "light"}
                 key={field.key}
                 onChangeText={(value) =>
                   setSetupValues((current) => ({ ...current, [field.key]: value }))
@@ -527,7 +534,7 @@ export function PluginMarketplaceSheet({
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, paddingHorizontal: 20 },
+  screen: { flex: 1, paddingHorizontal: 14 },
   header: { height: 72, flexDirection: "row", alignItems: "center", gap: 10 },
   headerTitle: { flex: 1, fontSize: 16, lineHeight: 21, fontWeight: "600" },
   installedPill: {
@@ -592,7 +599,7 @@ const styles = StyleSheet.create({
   filterMenu: {
     position: "absolute",
     right: 1,
-    top: 64,
+    top: 42,
     width: 222,
     maxHeight: 470,
     borderRadius: 26,
@@ -605,7 +612,6 @@ const styles = StyleSheet.create({
   },
   filterContent: { paddingVertical: 9, paddingRight: 5 },
   filterItem: { minHeight: 38, paddingHorizontal: 13, flexDirection: "row", alignItems: "center" },
-  filterPressed: { backgroundColor: "rgba(255,255,255,0.08)" },
   checkSlot: { width: 26, alignItems: "flex-start" },
   filterLabel: { flex: 1, fontSize: 15, lineHeight: 20 },
   setupBackdrop: { backgroundColor: "rgba(0,0,0,0.24)" },

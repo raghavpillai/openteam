@@ -322,12 +322,19 @@ export default function SearchScreen() {
         void search(normalized, category, controller.signal)
           .then((response) => {
             if (controller.signal.aborted || !requestGate.isCurrent(requestToken)) return;
-            writeSearchCache(cacheRef.current, cacheKey, response.results);
+            const results =
+              category === "all" && !normalized
+                ? response.results.filter(
+                    (result) =>
+                      result.kind === "bot" || (result.kind === "channel" && result.botId === null)
+                  )
+                : response.results;
+            writeSearchCache(cacheRef.current, cacheKey, results);
             setPageStates((current) => ({
               ...current,
               [category]: {
                 query: normalized,
-                results: response.results,
+                results,
                 loading: false,
                 error: null,
               },
@@ -441,23 +448,14 @@ export default function SearchScreen() {
           interactive
           style={[styles.searchField, { borderColor: theme.border }]}
         >
-          <Pressable
-            accessibilityLabel={`Search category: ${activeSection.label}`}
-            accessibilityRole="button"
-            hitSlop={8}
-            onPress={() => {
-              void Haptics.selectionAsync();
-              setFilterOpen((current) => !current);
-            }}
-          >
-            <SymbolView name="magnifyingglass" size={17} tintColor={theme.textMuted} />
-          </Pressable>
+          <SymbolView name="magnifyingglass" size={17} tintColor={theme.textMuted} />
           <TextInput
             accessibilityLabel="Search OpenBot"
             autoCapitalize="none"
             autoCorrect={false}
             autoFocus
             clearButtonMode="while-editing"
+            keyboardAppearance={theme.dark ? "dark" : "light"}
             maxLength={SEARCH_QUERY_MAX_LENGTH}
             onChangeText={setQuery}
             placeholder="Search"
@@ -466,6 +464,17 @@ export default function SearchScreen() {
             style={[styles.input, { color: theme.text }]}
           />
         </GlassSurface>
+        <IconButton
+          label={`Search category: ${activeSection.label}`}
+          name="line.3.horizontal.decrease"
+          onPress={() => {
+            void Haptics.selectionAsync();
+            setFilterOpen((current) => !current);
+          }}
+          size={40}
+          symbolSize={18}
+          tone="surface"
+        />
       </View>
 
       <View style={styles.pages} {...pageSwipe.panHandlers}>
@@ -518,7 +527,12 @@ export default function SearchScreen() {
                     void Haptics.selectionAsync();
                     showSection(index);
                   }}
-                  style={({ pressed }) => [styles.filterRow, pressed && styles.filterRowPressed]}
+                  style={({ pressed }) => [
+                    styles.filterRow,
+                    pressed && {
+                      backgroundColor: theme.dark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.07)",
+                    },
+                  ]}
                 >
                   <View style={styles.filterCheck}>
                     {active ? (
@@ -548,7 +562,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     flexDirection: "row",
     alignItems: "center",
-    gap: 3,
+    gap: 7,
   },
   searchField: {
     flex: 1,
@@ -654,7 +668,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 10,
   },
-  filterRowPressed: { backgroundColor: "rgba(255,255,255,0.10)" },
   filterCheck: { width: 18, alignItems: "center" },
   filterLabel: { fontSize: 16, lineHeight: 21, fontWeight: "400" },
 });

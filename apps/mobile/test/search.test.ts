@@ -18,7 +18,11 @@ describe("mobile fixture search", () => {
     const response = searchClientSnapshot(mobileFixture, "", "all");
 
     expect(response.results.length).toBeGreaterThan(0);
-    expect(response.results.every((result) => ["bot", "channel"].includes(result.kind))).toBe(true);
+    expect(
+      response.results.every(
+        (result) => result.kind === "bot" || (result.kind === "channel" && result.botId === null)
+      )
+    ).toBe(true);
   });
 
   test("separates files and links into swipeable categories", () => {

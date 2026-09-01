@@ -99,7 +99,19 @@ export function AppearanceSheet({ onClose }: { onClose: () => void }) {
                   pressed && styles.pressed,
                 ]}
               >
-                <View style={[styles.accentDot, { backgroundColor: option.color }]} />
+                <View
+                  style={[
+                    styles.accentDot,
+                    {
+                      backgroundColor:
+                        option.value === "black"
+                          ? theme.dark
+                            ? "#FFFFFF"
+                            : "#111111"
+                          : option.color,
+                    },
+                  ]}
+                />
               </Pressable>
               <Text
                 style={[
@@ -119,7 +131,7 @@ export function AppearanceSheet({ onClose }: { onClose: () => void }) {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, paddingHorizontal: 20 },
+  screen: { flex: 1, paddingHorizontal: 14 },
   header: {
     height: 72,
     flexDirection: "row",

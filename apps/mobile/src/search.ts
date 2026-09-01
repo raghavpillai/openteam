@@ -156,7 +156,7 @@ export const searchClientSnapshot = (
       .filter((result) => {
         if (query) return matchesTerms(result, terms);
         if (category !== "all") return true;
-        return result.kind === "bot" || result.kind === "channel" || result.kind === "routine";
+        return result.kind === "bot" || (result.kind === "channel" && result.botId === null);
       })
       .sort(
         (left, right) =>

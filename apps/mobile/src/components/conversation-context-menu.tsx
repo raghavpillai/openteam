@@ -30,7 +30,12 @@ function MenuRow({ destructive = false, icon, label, onPress, trailing }: MenuRo
         void Haptics.selectionAsync();
         onPress();
       }}
-      style={({ pressed }) => [styles.menuRow, pressed && styles.menuRowPressed]}
+      style={({ pressed }) => [
+        styles.menuRow,
+        pressed && {
+          backgroundColor: theme.dark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.07)",
+        },
+      ]}
     >
       <SymbolView name={icon} size={18} tintColor={tint} weight="regular" />
       <Text numberOfLines={1} style={[styles.menuLabel, { color: tint }]}>
@@ -227,7 +232,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 13,
   },
-  menuRowPressed: { backgroundColor: "rgba(255,255,255,0.10)" },
   menuLabel: { flex: 1, fontSize: 16, lineHeight: 21, fontWeight: "400" },
   separator: { height: StyleSheet.hairlineWidth, marginHorizontal: 18, marginVertical: 3 },
 });

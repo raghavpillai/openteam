@@ -24,7 +24,10 @@ import {
   Text,
   View,
 } from "react-native";
-import { boundedMobileAccessibilitySummary } from "../mobile-markdown-core";
+import {
+  boundedMobileAccessibilitySummary,
+  messageNeedsAdvancedMobileMarkdown,
+} from "../mobile-markdown-core";
 import { useTheme } from "../theme";
 import { AttachmentPreview } from "./attachment-preview";
 import { GlassSurface } from "./glass-surface";
@@ -290,12 +293,15 @@ export function MessageBubble({
       </Text>
     )
   ) : null;
+  const advancedMarkdown = Boolean(
+    displayContent && messageNeedsAdvancedMobileMarkdown(displayContent)
+  );
 
   return (
     <Animated.View
       style={[
         styles.messageWrap,
-        richMessage && styles.richMessageWrap,
+        (richMessage || advancedMarkdown) && styles.richMessageWrap,
         isUser ? styles.alignRight : styles.alignLeft,
         { opacity: deliveryOpacity },
       ]}
@@ -373,6 +379,7 @@ export function MessageBubble({
             onLongPress={deliveryActionsDisabled ? undefined : openActions}
             style={({ pressed }) => [
               styles.bubble,
+              advancedMarkdown && styles.advancedMarkdownBubble,
               attachmentCount > 0 && styles.bubbleWithAttachments,
               attachmentCount > 0 && !displayContent && styles.attachmentOnlyBubble,
               {
@@ -653,6 +660,7 @@ const styles = StyleSheet.create({
   alignLeft: { alignSelf: "flex-start" },
   alignRight: { alignSelf: "flex-end" },
   bubble: { borderRadius: 21, paddingHorizontal: 15, paddingVertical: 10 },
+  advancedMarkdownBubble: { width: "100%" },
   richActionTarget: { width: "100%", maxWidth: 520 },
   bubbleWithAttachments: { paddingHorizontal: 6, paddingBottom: 6 },
   attachmentOnlyBubble: { paddingTop: 6 },

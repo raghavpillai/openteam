@@ -782,7 +782,7 @@ export function Composer({
             style={StyleSheet.absoluteFill}
           />
           <GlassSurface
-            fallbackColor="rgba(55,55,55,0.97)"
+            fallbackColor={theme.dark ? "rgba(55,55,55,0.97)" : "rgba(245,245,245,0.98)"}
             style={[styles.attachmentMenu, { borderColor: theme.border }]}
           >
             <Pressable
@@ -1075,6 +1075,7 @@ export function Composer({
             <TextInput
               accessibilityLabel={`Message ${botName}`}
               blurOnSubmit={false}
+              keyboardAppearance={theme.dark ? "dark" : "light"}
               multiline
               onChangeText={updateText}
               onContentSizeChange={(event) =>

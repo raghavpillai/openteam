@@ -1,0 +1,309 @@
+import type { ChannelMessageView } from "@openbot/contracts";
+import { compareEntitySequence, sortedUniqueMessages } from "./history";
+import { replyTargetId } from "./messages";
+
+const utf8 = new TextEncoder();
+
+/** Which chronological edge remains canonical when a message window is trimmed. */
+export type MessageWindowRetentionEdge = "oldest" | "newest";
+
+export interface MessageWindowGapState {
+  older: boolean;
+  newer: boolean;
+}
+
+export interface MessageWindowEdgeEviction {
+  count: number;
+  /** The evicted message immediately across the gap from the retained window. */
+  adjacentEvictedMessageId: string;
+  /** The retained primary message immediately across the gap. */
+  boundaryRetainedMessageId: string;
+}
+
+export interface MessageWindowEviction {
+  older: MessageWindowEdgeEviction | null;
+  newer: MessageWindowEdgeEviction | null;
+}
+
+export interface BoundMessageWindowOptions {
+  /** Maximum primary-lane messages before protected messages create a soft excess. */
+  maxMessages: number;
+  /** Maximum UTF-8 JSON bytes across primary and required context messages. */
+  maxBytes: number;
+  /** Keep this chronological edge and evict from the opposite edge. */
+  retain: MessageWindowRetentionEdge;
+  /** Messages that must survive trimming, such as an anchor, target, or pending send. */
+  protectedIds?: ReadonlySet<string>;
+  /** Candidate reply ancestors/roots outside the primary lane. */
+  threadContext?: readonly ChannelMessageView[];
+  /** Gaps that existed before this trim operation. */
+  existingGaps?: Partial<MessageWindowGapState>;
+}
+
+export interface MessageWindowSoftExcess {
+  messages: number;
+  bytes: number;
+  /** A protected ID forced the contiguous primary window past a configured limit. */
+  protected: boolean;
+  /** One indivisible message (plus any required ancestry) exceeded the byte limit. */
+  oversized: boolean;
+}
+
+export interface BoundMessageWindowResult {
+  /** Chronological, unique, contiguous primary messages. */
+  messages: ChannelMessageView[];
+  /** Required reply ancestors/roots that sit outside the primary window. */
+  threadContext: ChannelMessageView[];
+  primaryBytes: number;
+  contextBytes: number;
+  retainedBytes: number;
+  eviction: MessageWindowEviction;
+  gaps: MessageWindowGapState;
+  softExcess: MessageWindowSoftExcess;
+  /** Protected IDs not present in either supplied lane. */
+  missingProtectedIds: string[];
+  /** Referenced ancestor IDs not present in either supplied lane. */
+  missingAncestorIds: string[];
+}
+
+/** Exact retained-payload proxy used by the history window's byte budget. */
+export const messageRetainedByteSize = (message: ChannelMessageView): number =>
+  utf8.encode(JSON.stringify(message)).byteLength;
+
+const normalizedMessages = (messages: readonly ChannelMessageView[]): ChannelMessageView[] =>
+  sortedUniqueMessages(messages).sort(compareEntitySequence);
+
+const assertLimit = (value: number, name: string): void => {
+  if (!Number.isSafeInteger(value) || value < 1) {
+    throw new RangeError(`${name} must be a positive safe integer`);
+  }
+};
+
+/**
+ * Bound one chronological message lane without creating an internal hole.
+ *
+ * Count applies to primary messages. The byte limit applies to primary messages plus the reply
+ * ancestry needed to render them. Protected messages and one indivisible oversized message are
+ * retained as a deliberate soft excess so trimming never breaks the visible anchor or a send.
+ */
+export const boundMessageWindow = (
+  input: readonly ChannelMessageView[],
+  options: BoundMessageWindowOptions
+): BoundMessageWindowResult => {
+  assertLimit(options.maxMessages, "maxMessages");
+  assertLimit(options.maxBytes, "maxBytes");
+
+  const messages = normalizedMessages(input);
+  const contextCandidates = normalizedMessages(options.threadContext ?? []);
+  const allById = new Map<string, ChannelMessageView>();
+  for (const message of contextCandidates) allById.set(message.id, message);
+  for (const message of messages) allById.set(message.id, message);
+
+  const byteSizeById = new Map<string, number>();
+  const byteSize = (id: string): number => {
+    const cached = byteSizeById.get(id);
+    if (cached !== undefined) return cached;
+    const message = allById.get(id);
+    const measured = message ? messageRetainedByteSize(message) : 0;
+    byteSizeById.set(id, measured);
+    return measured;
+  };
+
+  const protectedIds = options.protectedIds ?? new Set<string>();
+  const missingProtectedIds = [...protectedIds]
+    .filter((id) => !allById.has(id))
+    .sort((left, right) => left.localeCompare(right));
+  const primaryIndexById = new Map(messages.map((message, index) => [message.id, index] as const));
+  const protectedPrimaryIndexes = [...protectedIds].flatMap((id) => {
+    const index = primaryIndexById.get(id);
+    return index === undefined ? [] : [index];
+  });
+  const requiredBoundary =
+    protectedPrimaryIndexes.length === 0
+      ? null
+      : options.retain === "newest"
+        ? Math.min(...protectedPrimaryIndexes)
+        : Math.max(...protectedPrimaryIndexes);
+
+  const selectedIds = new Set<string>();
+  const retainedIds = new Set<string>();
+  const missingAncestorIds = new Set<string>();
+  let retainedBytes = 0;
+  let protectionCausedExcess = false;
+
+  const additionsFor = (id: string): { ids: string[]; missing: string[]; bytes: number } => {
+    const additions: string[] = [];
+    const missing: string[] = [];
+    const seen = new Set<string>([id]);
+    let currentId: string | null = id;
+    while (currentId) {
+      if (!retainedIds.has(currentId)) additions.push(currentId);
+      const current = allById.get(currentId);
+      const parentId = current ? replyTargetId(current) : null;
+      if (!parentId || retainedIds.has(parentId)) break;
+      if (seen.has(parentId)) break;
+      seen.add(parentId);
+      if (!allById.has(parentId)) {
+        missing.push(parentId);
+        break;
+      }
+      currentId = parentId;
+    }
+    return {
+      ids: additions,
+      missing,
+      bytes: additions.reduce((total, addition) => total + byteSize(addition), 0),
+    };
+  };
+
+  const commit = (id: string, additions: ReturnType<typeof additionsFor>): void => {
+    selectedIds.add(id);
+    for (const addition of additions.ids) retainedIds.add(addition);
+    for (const missing of additions.missing) missingAncestorIds.add(missing);
+    retainedBytes += additions.bytes;
+  };
+
+  // Protected supplemental context is always retained and participates in the byte accounting.
+  for (const id of [...protectedIds].sort((left, right) => left.localeCompare(right))) {
+    if (primaryIndexById.has(id) || !allById.has(id)) continue;
+    const additions = additionsFor(id);
+    if (retainedBytes + additions.bytes > options.maxBytes) protectionCausedExcess = true;
+    for (const addition of additions.ids) retainedIds.add(addition);
+    for (const missing of additions.missing) missingAncestorIds.add(missing);
+    retainedBytes += additions.bytes;
+  }
+
+  const indexes =
+    options.retain === "newest"
+      ? Array.from({ length: messages.length }, (_, offset) => messages.length - 1 - offset)
+      : Array.from({ length: messages.length }, (_, index) => index);
+  for (const index of indexes) {
+    const message = messages[index];
+    if (!message) continue;
+    const additions = additionsFor(message.id);
+    const nextCount = selectedIds.size + 1;
+    const nextBytes = retainedBytes + additions.bytes;
+    const requiredForProtection =
+      requiredBoundary !== null &&
+      (options.retain === "newest" ? index >= requiredBoundary : index <= requiredBoundary);
+    const firstPrimary = selectedIds.size === 0;
+    if (
+      !firstPrimary &&
+      !requiredForProtection &&
+      (nextCount > options.maxMessages || nextBytes > options.maxBytes)
+    ) {
+      break;
+    }
+    if (
+      requiredForProtection &&
+      (nextCount > options.maxMessages || nextBytes > options.maxBytes)
+    ) {
+      protectionCausedExcess = true;
+    }
+    commit(message.id, additions);
+  }
+
+  const selected = messages.filter((message) => selectedIds.has(message.id));
+  const selectedIndexStart =
+    selected.length === 0 ? messages.length : primaryIndexById.get(selected[0]!.id)!;
+  const selectedIndexEnd =
+    selected.length === 0 ? -1 : primaryIndexById.get(selected[selected.length - 1]!.id)!;
+  const olderCount = selectedIndexStart;
+  const newerCount = messages.length - selectedIndexEnd - 1;
+  const olderEviction =
+    olderCount > 0 && selected[0]
+      ? {
+          count: olderCount,
+          adjacentEvictedMessageId: messages[selectedIndexStart - 1]!.id,
+          boundaryRetainedMessageId: selected[0].id,
+        }
+      : null;
+  const newerEviction =
+    newerCount > 0 && selected.at(-1)
+      ? {
+          count: newerCount,
+          adjacentEvictedMessageId: messages[selectedIndexEnd + 1]!.id,
+          boundaryRetainedMessageId: selected.at(-1)!.id,
+        }
+      : null;
+
+  const selectedIdSet = new Set(selected.map((message) => message.id));
+  const threadContext = normalizedMessages(
+    [...retainedIds].flatMap((id) => {
+      const message = allById.get(id);
+      return message && !selectedIdSet.has(id) ? [message] : [];
+    })
+  );
+  const primaryBytes = selected.reduce((total, message) => total + byteSize(message.id), 0);
+  const contextBytes = threadContext.reduce((total, message) => total + byteSize(message.id), 0);
+  const excessMessages = Math.max(0, selected.length - options.maxMessages);
+  const excessBytes = Math.max(0, retainedBytes - options.maxBytes);
+  protectionCausedExcess &&= excessMessages > 0 || excessBytes > 0;
+  const oversized = excessBytes > 0 && !protectionCausedExcess && selected.length === 1;
+
+  return {
+    messages: selected,
+    threadContext,
+    primaryBytes,
+    contextBytes,
+    retainedBytes,
+    eviction: { older: olderEviction, newer: newerEviction },
+    gaps: {
+      older: options.existingGaps?.older === true || olderEviction !== null,
+      newer: options.existingGaps?.newer === true || newerEviction !== null,
+    },
+    softExcess: {
+      messages: excessMessages,
+      bytes: excessBytes,
+      protected: protectionCausedExcess,
+      oversized,
+    },
+    missingProtectedIds,
+    missingAncestorIds: [...missingAncestorIds].sort((left, right) => left.localeCompare(right)),
+  };
+};
+
+export type LatestRefreshDisposition = "empty" | "initialize" | "merge" | "reset";
+
+export interface LatestRefreshOverlap {
+  disposition: LatestRefreshDisposition;
+  overlaps: boolean;
+  requiresReset: boolean;
+  overlapIds: string[];
+  retainedNewestMessageId: string | null;
+  refreshOldestMessageId: string | null;
+  refreshNewestMessageId: string | null;
+}
+
+/**
+ * Classify a latest-page refresh using message identity, never sequence adjacency.
+ * A non-empty refresh with no retained ID in common represents an explicit reconnect gap.
+ */
+export const latestRefreshOverlap = (
+  retainedPrimary: readonly ChannelMessageView[],
+  latestPage: readonly ChannelMessageView[]
+): LatestRefreshOverlap => {
+  const retained = normalizedMessages(retainedPrimary);
+  const latest = normalizedMessages(latestPage);
+  const retainedIds = new Set(retained.map((message) => message.id));
+  const overlapIds = latest
+    .filter((message) => retainedIds.has(message.id))
+    .map((message) => message.id);
+  const disposition: LatestRefreshDisposition =
+    latest.length === 0
+      ? "empty"
+      : retained.length === 0
+        ? "initialize"
+        : overlapIds.length > 0
+          ? "merge"
+          : "reset";
+  return {
+    disposition,
+    overlaps: overlapIds.length > 0,
+    requiresReset: disposition === "reset",
+    overlapIds,
+    retainedNewestMessageId: retained.at(-1)?.id ?? null,
+    refreshOldestMessageId: latest[0]?.id ?? null,
+    refreshNewestMessageId: latest.at(-1)?.id ?? null,
+  };
+};

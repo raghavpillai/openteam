@@ -12,6 +12,7 @@
     "./history": "./src/history.ts",
     "./markdown": "./src/markdown.ts",
     "./mentions": "./src/mentions.ts",
+    "./message-window": "./src/message-window.ts",
     "./messages": "./src/messages.ts",
     "./plugin-access": "./src/plugin-access.ts",
     "./redaction": "./src/redaction.ts",

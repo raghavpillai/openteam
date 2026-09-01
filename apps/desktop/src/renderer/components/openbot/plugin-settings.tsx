@@ -1,9 +1,17 @@
 import type {
+  PluginBotAccessItemView,
+  PluginBotAccessView,
   PluginCatalogItemView,
   PluginConnectionView,
   PluginInstallView,
   PluginSettingsView,
 } from "@openbot/contracts";
+import {
+  executePluginAccessTransition,
+  planPluginConnectionGrant,
+  planPluginSkillAccess,
+} from "@openbot/product-core/plugin-access";
+import { clientErrorMessage } from "@openbot/product-core/redaction";
 import {
   Check,
   ChevronDown,
@@ -17,11 +25,25 @@ import {
   Search,
   X,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../../client/openbot-api";
 import { cn } from "../../lib/cn";
+import {
+  createCoalescedRefresh,
+  mergePluginConnectionStatuses,
+  PLUGIN_BOT_ACCESS_PAGE_SIZE,
+  PLUGIN_BOT_ACCESS_QUERY_MAX_LENGTH,
+  pluginBotAccessWindow,
+} from "../../lib/plugin-settings-scale";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "../ui/dialog";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
+
+const loadPluginSettingsDetail = () => import("./plugin-settings-detail");
+const PluginPolicySelect = lazy(() =>
+  loadPluginSettingsDetail().then((module) => ({ default: module.PluginPolicySelect }))
+);
+const PluginAuthSelect = lazy(() =>
+  loadPluginSettingsDetail().then((module) => ({ default: module.PluginAuthSelect }))
+);
 
 type MarketplacePage = "marketplace" | "installed" | "detail" | "custom";
 
@@ -55,7 +77,7 @@ const primaryButton =
 const secondaryButton =
   "inline-flex h-[26px] shrink-0 items-center justify-center gap-1.5 rounded-full bg-black/[0.055] px-3 text-[13px] text-foreground outline-none transition-colors hover:bg-black/[0.09] disabled:cursor-wait disabled:opacity-45 dark:bg-[#222222] dark:hover:bg-[#2b2b2b]";
 
-const errorMessage = (cause: unknown) => (cause instanceof Error ? cause.message : String(cause));
+const errorMessage = (cause: unknown) => clientErrorMessage(cause, "Plugin operation failed");
 
 function PluginMark({
   logoUrl,
@@ -674,19 +696,25 @@ function CustomMcpView({
           <>
             <div className="text-[11px] text-foreground-secondary">
               <span>Authentication</span>
-              <Select onValueChange={(value) => setAuth(value as typeof auth)} value={auth}>
-                <SelectTrigger
-                  aria-label="Authentication"
+              <Suspense
+                fallback={
+                  <span
+                    aria-hidden="true"
+                    className={cn(
+                      field,
+                      "mt-1.5 flex items-center text-foreground capitalize shadow-none"
+                    )}
+                  >
+                    {auth}
+                  </span>
+                }
+              >
+                <PluginAuthSelect
                   className={cn(field, "mt-1.5 text-foreground shadow-none")}
-                >
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">None</SelectItem>
-                  <SelectItem value="token">Token or headers</SelectItem>
-                  <SelectItem value="oauth">OAuth</SelectItem>
-                </SelectContent>
-              </Select>
+                  onChange={setAuth}
+                  value={auth}
+                />
+              </Suspense>
             </div>
             <label className="block text-[11px] text-foreground-secondary">
               Headers JSON (optional)
@@ -725,11 +753,13 @@ function DetailBlock({
   children,
   count,
   label,
+  onOpenChange,
   open = true,
 }: {
   children: React.ReactNode;
   count: number;
   label: string;
+  onOpenChange?: (open: boolean) => void;
   open?: boolean;
 }) {
   const singular =
@@ -749,6 +779,7 @@ function DetailBlock({
       <div className="mb-1.5 px-3 text-[10.5px] text-foreground-tertiary">{label}</div>
       <details
         className="group overflow-hidden rounded-[13px] bg-black/[0.045] dark:bg-white/[0.06]"
+        onToggle={(event) => onOpenChange?.(event.currentTarget.open)}
         open={open}
       >
         <summary className="flex h-9 cursor-pointer list-none items-center px-3 text-[11.5px] outline-none [&::-webkit-details-marker]:hidden">
@@ -1184,6 +1215,7 @@ function ConnectionSettingsRow({
 }
 
 function PluginDetail({
+  accessEpoch,
   busy,
   data,
   plugin,
@@ -1202,11 +1234,16 @@ function PluginDetail({
   onSkill,
   onToggle,
 }: {
+  accessEpoch: number;
   busy: string | null;
   data: PluginSettingsView;
   plugin: PluginCatalogItemView;
   onAddAccount: (connection: PluginConnectionView) => void;
-  onGrant: (connection: PluginConnectionView, botId: string, enabled: boolean) => void;
+  onGrant: (
+    connection: PluginConnectionView,
+    bot: PluginBotAccessItemView,
+    enabled: boolean
+  ) => void;
   onAuthenticate: (connection: PluginConnectionView) => void;
   onConfigureToken: (connection: PluginConnectionView, token: string) => void;
   onConfigureOAuth: (
@@ -1220,13 +1257,21 @@ function PluginDetail({
   onRename: (connection: PluginConnectionView, alias: string) => void;
   onRemove: (plugin: PluginCatalogItemView) => void;
   onRestart: (connection: PluginConnectionView) => void;
-  onSkill: (pluginKey: string, botId: string, enabled: boolean) => void;
+  onSkill: (pluginKey: string, bot: PluginBotAccessItemView, enabled: boolean) => void;
   onToggle: (connection: PluginConnectionView) => void;
 }) {
   const [setupValues, setSetupValues] = useState<Record<string, string>>({});
   const [shared, setShared] = useState(false);
+  const [botAccessExpanded, setBotAccessExpanded] = useState(false);
+  const [botAccessQuery, setBotAccessQuery] = useState("");
+  const [botAccessOffset, setBotAccessOffset] = useState(0);
+  const [botAccess, setBotAccess] = useState<PluginBotAccessView | null>(null);
+  const [botAccessLoading, setBotAccessLoading] = useState(false);
+  const [botAccessError, setBotAccessError] = useState<string | null>(null);
   const install = installFor(data, plugin.key);
   const connections = install?.connections ?? [];
+  const hasBotAccess = Boolean(install && (install.connections.length || install.hasSkills));
+  const botAccessScope = install ? `${accessEpoch}:${install.id}` : "";
   const needsAuth = connections.find((connection) => connection.status === "needs_auth");
   const setupConnection = plugin.setup?.connectionKey
     ? connections.find((connection) => connection.connectorKey === plugin.setup?.connectionKey)
@@ -1234,6 +1279,52 @@ function PluginDetail({
   const recentActivity = data.activity
     .filter((entry) => entry.pluginKey === plugin.key)
     .slice(0, 8);
+  useEffect(() => {
+    if (!botAccessScope || !hasBotAccess) {
+      setBotAccess(null);
+      return;
+    }
+    if (!botAccessExpanded) return;
+    const controller = new AbortController();
+    setBotAccess(null);
+    setBotAccessError(null);
+    const timer = window.setTimeout(
+      () => {
+        setBotAccessLoading(true);
+        api
+          .pluginBotAccess(plugin.key, {
+            query: botAccessQuery,
+            offset: botAccessOffset,
+            limit: PLUGIN_BOT_ACCESS_PAGE_SIZE,
+            signal: controller.signal,
+          })
+          .then(setBotAccess)
+          .catch((cause) => {
+            if (!controller.signal.aborted) setBotAccessError(errorMessage(cause));
+          })
+          .finally(() => {
+            if (!controller.signal.aborted) setBotAccessLoading(false);
+          });
+      },
+      botAccessQuery ? 150 : 0
+    );
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [
+    botAccessExpanded,
+    botAccessOffset,
+    botAccessQuery,
+    botAccessScope,
+    hasBotAccess,
+    plugin.key,
+  ]);
+  const botAccessWindow = useMemo(
+    () => pluginBotAccessWindow(botAccess?.bots ?? [], "", PLUGIN_BOT_ACCESS_PAGE_SIZE),
+    [botAccess]
+  );
+  const visibleBots = botAccessWindow.items;
   const shareUrl =
     plugin.sourceUrl ??
     plugin.homepageUrl ??
@@ -1407,60 +1498,139 @@ function PluginDetail({
         </DetailBlock>
       ) : null}
 
-      {install && (connections.length || install.hasSkills) && data.bots.length ? (
-        <DetailBlock count={data.bots.length} label="Bot access" open={false}>
-          {connections.map((connection) => (
-            <div
-              className="flex min-h-10 items-center gap-3 border-t border-black/[0.055] px-3 first:border-t-0 dark:border-white/[0.065]"
-              key={connection.id}
-            >
-              <span className="min-w-[145px] flex-1 truncate text-[11.5px]">{connection.name}</span>
-              <div className="flex flex-wrap justify-end gap-3">
-                {data.bots.map((bot) => {
-                  const checked = connection.grantedBotIds.includes(bot.id);
-                  const key = `${connection.id}:${bot.id}`;
-                  return (
-                    <div
-                      className="flex items-center gap-1.5 text-[10.5px] text-foreground-secondary"
-                      key={bot.id}
-                    >
-                      <span className="max-w-24 truncate">{bot.name}</span>
-                      <SquareToggle
-                        busy={busy === key}
-                        checked={checked}
-                        label={`${checked ? "Revoke" : "Grant"} ${connection.name} for ${bot.name}`}
-                        onClick={() => onGrant(connection, bot.id, !checked)}
-                      />
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          ))}
-          {install.hasSkills ? (
-            <div className="flex min-h-10 items-center gap-3 border-t border-black/[0.055] px-3 dark:border-white/[0.065]">
-              <span className="min-w-[145px] flex-1 truncate text-[11.5px]">Plugin skills</span>
-              <div className="flex flex-wrap justify-end gap-3">
-                {data.bots.map((bot) => {
-                  const checked = install.enabledBotIds.includes(bot.id);
-                  const key = `skill:${plugin.key}:${bot.id}`;
-                  return (
-                    <div
-                      className="flex items-center gap-1.5 text-[10.5px] text-foreground-secondary"
-                      key={bot.id}
-                    >
-                      <span className="max-w-24 truncate">{bot.name}</span>
-                      <SquareToggle
-                        busy={busy === key}
-                        checked={checked}
-                        label={`${checked ? "Disable" : "Enable"} ${plugin.name} skills for ${bot.name}`}
-                        onClick={() => onSkill(plugin.key, bot.id, !checked)}
-                      />
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
+      {install && (connections.length || install.hasSkills) && data.botCount > 0 ? (
+        <DetailBlock
+          count={botAccessQuery ? (botAccess?.total ?? 0) : data.botCount}
+          label="Bot access"
+          onOpenChange={setBotAccessExpanded}
+          open={false}
+        >
+          {botAccessExpanded ? (
+            <>
+              {botAccessQuery || data.botCount > PLUGIN_BOT_ACCESS_PAGE_SIZE ? (
+                <div className="border-t border-black/[0.055] p-2 first:border-t-0 dark:border-white/[0.065]">
+                  <div className="relative">
+                    <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3 -translate-y-1/2 text-foreground-tertiary" />
+                    <input
+                      aria-label="Filter Bot access"
+                      className="h-8 w-full rounded-[8px] border border-black/[0.07] bg-background pl-8 pr-2.5 text-[11px] outline-none placeholder:text-foreground-tertiary focus:border-black/15 dark:border-white/[0.09] dark:focus:border-white/20"
+                      maxLength={PLUGIN_BOT_ACCESS_QUERY_MAX_LENGTH}
+                      onChange={(event) => {
+                        setBotAccessOffset(0);
+                        setBotAccessQuery(event.target.value);
+                      }}
+                      placeholder="Filter Bots"
+                      value={botAccessQuery}
+                    />
+                  </div>
+                </div>
+              ) : null}
+              {connections.map((connection) => (
+                <div
+                  className="flex min-h-10 items-center gap-3 border-t border-black/[0.055] px-3 first:border-t-0 dark:border-white/[0.065]"
+                  key={connection.id}
+                >
+                  <span className="min-w-[145px] flex-1 truncate text-[11.5px]">
+                    {connection.name}
+                  </span>
+                  <div className="flex flex-wrap justify-end gap-3">
+                    {visibleBots.map((bot) => {
+                      const checked = bot.grantedConnectionIds.includes(connection.id);
+                      const key = `${connection.id}:${bot.id}`;
+                      return (
+                        <div
+                          className="flex items-center gap-1.5 text-[10.5px] text-foreground-secondary"
+                          key={bot.id}
+                        >
+                          <span className="max-w-24 truncate">{bot.name}</span>
+                          <SquareToggle
+                            busy={busy === key}
+                            checked={checked}
+                            label={`${checked ? "Revoke" : "Grant"} ${connection.name} for ${bot.name}`}
+                            onClick={() => onGrant(connection, bot, !checked)}
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+              {install.hasSkills ? (
+                <div className="flex min-h-10 items-center gap-3 border-t border-black/[0.055] px-3 dark:border-white/[0.065]">
+                  <span className="min-w-[145px] flex-1 truncate text-[11.5px]">Plugin skills</span>
+                  <div className="flex flex-wrap justify-end gap-3">
+                    {visibleBots.map((bot) => {
+                      const checked = bot.skillsEnabled;
+                      const key = `skill:${plugin.key}:${bot.id}`;
+                      return (
+                        <div
+                          className="flex items-center gap-1.5 text-[10.5px] text-foreground-secondary"
+                          key={bot.id}
+                        >
+                          <span className="max-w-24 truncate">{bot.name}</span>
+                          <SquareToggle
+                            busy={busy === key}
+                            checked={checked}
+                            label={`${checked ? "Disable" : "Enable"} ${plugin.name} skills for ${bot.name}`}
+                            onClick={() => onSkill(plugin.key, bot, !checked)}
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : null}
+              {botAccess &&
+              (botAccess.offset > 0 ||
+                botAccess.offset + botAccess.bots.length < botAccess.total) ? (
+                <div className="flex h-9 items-center justify-between border-t border-black/[0.055] px-3 text-[10.5px] text-foreground-secondary dark:border-white/[0.065]">
+                  <button
+                    className="inline-flex items-center gap-1 hover:text-foreground disabled:opacity-35"
+                    disabled={botAccessLoading || botAccess.offset === 0}
+                    onClick={() =>
+                      setBotAccessOffset(
+                        Math.max(0, botAccess.offset - PLUGIN_BOT_ACCESS_PAGE_SIZE)
+                      )
+                    }
+                    type="button"
+                  >
+                    <ChevronLeft className="size-3" /> Previous
+                  </button>
+                  <span>
+                    {botAccess.bots.length ? botAccess.offset + 1 : 0}–
+                    {botAccess.offset + botAccess.bots.length} of {botAccess.total}
+                  </span>
+                  <button
+                    className="inline-flex items-center gap-1 hover:text-foreground disabled:opacity-35"
+                    disabled={
+                      botAccessLoading ||
+                      botAccess.offset + botAccess.bots.length >= botAccess.total
+                    }
+                    onClick={() =>
+                      setBotAccessOffset(botAccess.offset + PLUGIN_BOT_ACCESS_PAGE_SIZE)
+                    }
+                    type="button"
+                  >
+                    Next <ChevronRight className="size-3" />
+                  </button>
+                </div>
+              ) : null}
+              {botAccessLoading && !botAccess ? (
+                <div className="grid h-12 place-items-center border-t border-black/[0.055] dark:border-white/[0.065]">
+                  <LoaderCircle className="size-3.5 animate-spin text-foreground-tertiary" />
+                </div>
+              ) : null}
+              {botAccess && botAccess.total === 0 ? (
+                <div className="border-t border-black/[0.055] px-3 py-3 text-[10.5px] text-foreground-tertiary dark:border-white/[0.065]">
+                  No Bots match that filter.
+                </div>
+              ) : null}
+              {botAccessError ? (
+                <div className="border-t border-black/[0.055] px-3 py-3 text-[10.5px] text-red-600 dark:border-white/[0.065] dark:text-red-400">
+                  {botAccessError}
+                </div>
+              ) : null}
+            </>
           ) : null}
         </DetailBlock>
       ) : null}
@@ -1486,25 +1656,20 @@ function PluginDetail({
                   key={key}
                 >
                   <span className="min-w-0 flex-1 truncate text-[11.5px]">{tool.name}</span>
-                  <Select
-                    disabled={busy === key}
-                    onValueChange={(value) =>
-                      onPolicy(connection.id, tool.name, value as "deny" | "prompt" | "allow")
+                  <Suspense
+                    fallback={
+                      <span className="inline-flex h-7 items-center rounded-[7px] border border-black/[0.07] bg-background px-2 text-[10.5px] capitalize text-foreground-secondary dark:border-white/[0.09]">
+                        {policy?.decision ?? tool.defaultDecision}
+                      </span>
                     }
-                    value={policy?.decision ?? tool.defaultDecision}
                   >
-                    <SelectTrigger
-                      aria-label={`Policy for ${tool.name}`}
-                      className="h-7 rounded-[7px] border-black/[0.07] bg-background px-2 text-[10.5px] shadow-none dark:border-white/[0.09]"
-                    >
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="deny">Deny</SelectItem>
-                      <SelectItem value="prompt">Ask first</SelectItem>
-                      <SelectItem value="allow">Allow</SelectItem>
-                    </SelectContent>
-                  </Select>
+                    <PluginPolicySelect
+                      disabled={busy === key}
+                      label={`Policy for ${tool.name}`}
+                      onChange={(value) => onPolicy(connection.id, tool.name, value)}
+                      value={policy?.decision ?? tool.defaultDecision}
+                    />
+                  </Suspense>
                 </div>
               );
             })
@@ -1553,23 +1718,52 @@ export function PluginDialog({
   const [page, setPage] = useState<MarketplacePage>("marketplace");
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [data, setData] = useState<PluginSettingsView | null>(null);
+  const [settingsEpoch, setSettingsEpoch] = useState(0);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [removeArmed, setRemoveArmed] = useState<string | null>(null);
 
-  const refresh = useCallback(async () => setData(await api.pluginSettings()), []);
+  const refresh = useMemo(
+    () =>
+      createCoalescedRefresh(api.pluginSettings, (settings) => {
+        setData(settings);
+        setSettingsEpoch((epoch) => epoch + 1);
+      }),
+    []
+  );
+  const needsAuthConnectionIds = useMemo(
+    () =>
+      (data?.installs ?? [])
+        .flatMap((install) => install.connections)
+        .filter((connection) => connection.status === "needs_auth")
+        .map((connection) => connection.id)
+        .sort(),
+    [data]
+  );
+  const statusRefresh = useMemo(
+    () =>
+      createCoalescedRefresh(
+        () => api.pluginConnectionStatuses(needsAuthConnectionIds),
+        (statuses) => {
+          setData((current) =>
+            current ? mergePluginConnectionStatuses(current, statuses) : current
+          );
+        }
+      ),
+    [needsAuthConnectionIds]
+  );
   useEffect(() => {
     if (!open) return;
     refresh().catch((cause) => setError(errorMessage(cause)));
   }, [open, refresh]);
+  const needsPluginAuthentication = needsAuthConnectionIds.length > 0;
   useEffect(() => {
-    if (!open || !data?.connections.some((connection) => connection.status === "needs_auth"))
-      return;
+    if (!open || !needsPluginAuthentication) return;
     const timer = window.setInterval(() => {
-      refresh().catch(() => undefined);
+      statusRefresh().catch(() => undefined);
     }, 2_000);
     return () => window.clearInterval(timer);
-  }, [data?.connections, open, refresh]);
+  }, [needsPluginAuthentication, open, statusRefresh]);
   useEffect(() => {
     if (open) return;
     setPage("marketplace");
@@ -1603,6 +1797,7 @@ export function PluginDialog({
     return install ? catalogPluginForInstall(install) : null;
   }, [data, selectedKey]);
   const openDetail = (plugin: PluginCatalogItemView) => {
+    void loadPluginSettingsDetail();
     setSelectedKey(plugin.key);
     setPage("detail");
     setError(null);
@@ -1717,7 +1912,10 @@ export function PluginDialog({
             busy={busy}
             data={data}
             onBack={() => setPage("marketplace")}
-            onCustom={() => setPage("custom")}
+            onCustom={() => {
+              void loadPluginSettingsDetail();
+              setPage("custom");
+            }}
             onOpen={openDetail}
           />
         ) : page === "custom" ? (
@@ -1732,8 +1930,10 @@ export function PluginDialog({
           />
         ) : selected ? (
           <PluginDetail
+            accessEpoch={settingsEpoch}
             busy={busy}
             data={data}
+            key={selected.key}
             onAddAccount={(connection) => {
               const alias = window.prompt(`Name the additional ${connection.name} account`, "work");
               if (alias?.trim())
@@ -1741,11 +1941,20 @@ export function PluginDialog({
                   api.addPluginAccount(connection.id, alias.trim())
                 );
             }}
-            onGrant={(connection, botId, enabled) =>
-              void mutate(`${connection.id}:${botId}`, () =>
-                api.setPluginGrant(connection.id, botId, enabled)
-              )
-            }
+            onGrant={(connection, bot, enabled) => {
+              const transition = planPluginConnectionGrant(
+                selected.key,
+                bot,
+                connection.id,
+                enabled
+              );
+              void mutate(`${connection.id}:${bot.id}`, () =>
+                executePluginAccessTransition(transition, {
+                  setEnablement: api.setPluginEnablement,
+                  setGrant: api.setPluginGrant,
+                })
+              );
+            }}
             onAuthenticate={authenticateConnection}
             onConfigureToken={(connection, token) =>
               void mutate(connection.id, async () => {
@@ -1791,11 +2000,15 @@ export function PluginDialog({
                 setRemoveArmed(null);
               });
             }}
-            onSkill={(pluginKey, botId, enabled) =>
-              void mutate(`skill:${pluginKey}:${botId}`, () =>
-                api.setPluginEnablement(pluginKey, botId, enabled)
-              )
-            }
+            onSkill={(pluginKey, bot, enabled) => {
+              const transition = planPluginSkillAccess(pluginKey, bot, enabled);
+              void mutate(`skill:${pluginKey}:${bot.id}`, () =>
+                executePluginAccessTransition(transition, {
+                  setEnablement: api.setPluginEnablement,
+                  setGrant: api.setPluginGrant,
+                })
+              );
+            }}
             onRestart={(connection) =>
               void mutate(connection.id, () => api.restartPluginConnection(connection.id))
             }

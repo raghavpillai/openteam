@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { searchEmojis } from "../src/renderer/components/openbot/emoji-picker";
+import { searchEmojis } from "../src/renderer/components/openbot/emoji-data";
 
 describe("searchEmojis", () => {
   test("matches common text emoticons", () => {

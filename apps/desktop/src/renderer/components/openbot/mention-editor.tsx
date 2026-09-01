@@ -1,13 +1,14 @@
 import type { ClipboardEvent, KeyboardEvent, MutableRefObject } from "react";
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useVirtualWindow } from "../../hooks/use-virtual-window";
 import { cn } from "../../lib/cn";
 import {
+  type MentionOption,
+  type MentionSegment,
   mentionPlainText,
   mentionRichText,
   moveMentionSelection,
   shouldRefreshMentionPickerOnKeyUp,
-  type MentionOption,
-  type MentionSegment,
 } from "../../lib/mentions";
 import { BotAvatar } from "./avatar";
 
@@ -93,15 +94,43 @@ export function MentionEditor({
   const mentionRange = useRef<Range | null>(null);
   const queryRef = useRef<string | null>(null);
   const optionAvatarById = useRef(new Map<string, HTMLElement>());
+  const listScrollRef = useRef<HTMLDivElement>(null);
   const listboxId = useId();
 
+  const searchableOptions = useMemo(
+    () =>
+      options.map((option) => ({
+        option,
+        label: option.label.toLocaleLowerCase("en-US"),
+        handle: option.handle.toLocaleLowerCase("en-US"),
+      })),
+    [options]
+  );
   const filtered = useMemo(() => {
     if (query === null) return [];
-    return options.filter(
-      (option) =>
-        option.label.toLocaleLowerCase("en-US").includes(query) || option.handle.includes(query)
-    );
-  }, [options, query]);
+    return searchableOptions
+      .filter((option) => option.label.includes(query) || option.handle.includes(query))
+      .map(({ option }) => option);
+  }, [query, searchableOptions]);
+  const estimateOptionSize = useCallback(() => 28, []);
+  const optionKey = useCallback(
+    (index: number) => filtered[index]?.id ?? `missing:${index}`,
+    [filtered]
+  );
+  const {
+    measureElement: measureOption,
+    totalSize: optionListSize,
+    virtualItems: virtualOptions,
+  } = useVirtualWindow({
+    activeIndex,
+    count: filtered.length,
+    estimateSize: estimateOptionSize,
+    getKey: optionKey,
+    initialViewportSize: 320,
+    maxItems: 32,
+    overscan: 112,
+    scrollRef: listScrollRef,
+  });
 
   const emit = useCallback(() => {
     const editor = editorRef.current;
@@ -126,33 +155,37 @@ export function MentionEditor({
     if (queryRef.current !== mention.query) setActiveIndex(0);
     queryRef.current = mention.query;
     setQuery(mention.query);
-    const visibleCount = options.filter(
-      (option) =>
-        option.label.toLocaleLowerCase("en-US").includes(mention.query) ||
-        option.handle.includes(mention.query)
-    ).length;
-    const pickerHeight = visibleCount === 0 ? 50 : Math.min(320, visibleCount * 28 + 12);
-    const anchorRange = mention.range.cloneRange();
-    anchorRange.setStart(mention.range.startContainer, mention.startOffset);
+  }, [editorRef]);
+
+  useLayoutEffect(() => {
+    if (query === null) return;
+    const range = mentionRange.current;
+    if (!range || range.startContainer.nodeType !== Node.TEXT_NODE) return;
+    const pickerHeight = filtered.length === 0 ? 50 : Math.min(320, filtered.length * 28 + 12);
+    const startOffset = Math.max(0, range.startOffset - query.length - 1);
+    const anchorRange = range.cloneRange();
+    anchorRange.setStart(range.startContainer, startOffset);
     anchorRange.setEnd(
-      mention.range.startContainer,
-      Math.min(mention.startOffset + 1, mention.range.startContainer.textContent?.length ?? 0)
+      range.startContainer,
+      Math.min(startOffset + 1, range.startContainer.textContent?.length ?? 0)
     );
     const anchor = anchorRange.getBoundingClientRect();
-    const caret = mention.range.getBoundingClientRect();
+    const caret = range.getBoundingClientRect();
     const width = Math.min(360, window.innerWidth - 16);
     setPickerPosition({
       left: Math.round(Math.max(8, Math.min(anchor.left, window.innerWidth - width - 8))),
       top: Math.round(Math.max(8, caret.top - pickerHeight - 8)),
     });
-  }, [editorRef, options]);
+  }, [filtered.length, query]);
 
   const insertMention = useCallback(
     (option: MentionOption) => {
       const editor = editorRef.current;
       const range = mentionRange.current;
-      if (!editor || !range || range.startContainer.nodeType !== Node.TEXT_NODE) return;
-      range.setStart(range.startContainer, Math.max(0, range.startOffset - query!.length - 1));
+      if (!editor || !range || query === null || range.startContainer.nodeType !== Node.TEXT_NODE) {
+        return;
+      }
+      range.setStart(range.startContainer, Math.max(0, range.startOffset - query.length - 1));
       range.deleteContents();
       const token = document.createElement("span");
       token.contentEditable = "false";
@@ -316,65 +349,78 @@ export function MentionEditor({
               </span>
             </div>
           ) : (
-            <div className="max-h-80 w-full overscroll-contain overflow-y-auto">
+            <div className="max-h-80 w-full overscroll-contain overflow-y-auto" ref={listScrollRef}>
               <ul
                 aria-label="Mention"
-                className="m-0 list-none px-1.5 py-1.5"
+                className="relative m-0 list-none px-1.5"
                 id={listboxId}
                 role="listbox"
+                style={{ height: optionListSize }}
               >
-                {filtered.map((option, index) => (
-                  <li key={option.id} role="presentation">
-                    <button
-                      aria-selected={index === activeIndex}
-                      className={cn(
-                        "flex h-7 w-full min-w-0 cursor-pointer items-center gap-1.5 rounded-[6px] border-0 bg-transparent px-2 text-left text-[14px] leading-5 text-foreground outline-none",
-                        index === activeIndex && "bg-[#e9e9e9] dark:bg-[#464646]"
-                      )}
-                      data-mention-option-id={option.id}
-                      id={`${listboxId}-option-${index}`}
-                      onPointerDown={(event) => {
-                        if (event.button !== 0) return;
-                        event.preventDefault();
-                        insertMention(option);
-                      }}
-                      onPointerMove={() => setActiveIndex(index)}
-                      role="option"
-                      tabIndex={-1}
-                      type="button"
+                {virtualOptions.map((virtualOption) => {
+                  const option = filtered[virtualOption.index];
+                  if (!option) return null;
+                  return (
+                    <li
+                      aria-posinset={virtualOption.index + 1}
+                      aria-setsize={filtered.length}
+                      className="absolute inset-x-1.5 top-0"
+                      key={option.id}
+                      ref={(node) => measureOption(virtualOption.index, virtualOption.key, node)}
+                      role="presentation"
+                      style={{ transform: `translateY(${virtualOption.start}px)` }}
                     >
-                      <span
-                        className="grid size-4 shrink-0 place-items-center overflow-hidden"
-                        data-mention-avatar=""
-                        ref={(node) => {
-                          if (node) optionAvatarById.current.set(option.id, node);
-                          else optionAvatarById.current.delete(option.id);
-                        }}
-                      >
-                        {option.id === "__everyone__" ? (
-                          <span className="grid size-4 place-items-center rounded-full bg-[#e9e9e9] text-[11px] font-semibold leading-none text-[#737373] dark:bg-[#464646] dark:text-[#a8a8a8]">
-                            @
-                          </span>
-                        ) : (
-                          <BotAvatar
-                            bot={{
-                              id: option.id,
-                              color: option.color ?? "#878787",
-                              icon: option.icon ?? "circle",
-                              hasAvatar: option.hasAvatar,
-                              updatedAt: option.updatedAt,
-                            }}
-                            size="activity"
-                          />
+                      <button
+                        aria-selected={virtualOption.index === activeIndex}
+                        className={cn(
+                          "flex h-7 w-full min-w-0 cursor-pointer items-center gap-1.5 rounded-[6px] border-0 bg-transparent px-2 text-left text-[14px] leading-5 text-foreground outline-none",
+                          virtualOption.index === activeIndex && "bg-[#e9e9e9] dark:bg-[#464646]"
                         )}
-                      </span>
-                      <span className="min-w-0 flex-1 truncate">{option.label}</span>
-                      <span className="shrink-0 text-[14px] text-[#737373] dark:text-[#a8a8a8]">
-                        Bot
-                      </span>
-                    </button>
-                  </li>
-                ))}
+                        data-mention-option-id={option.id}
+                        id={`${listboxId}-option-${virtualOption.index}`}
+                        onPointerDown={(event) => {
+                          if (event.button !== 0) return;
+                          event.preventDefault();
+                          insertMention(option);
+                        }}
+                        onPointerMove={() => setActiveIndex(virtualOption.index)}
+                        role="option"
+                        tabIndex={-1}
+                        type="button"
+                      >
+                        <span
+                          className="grid size-4 shrink-0 place-items-center overflow-hidden"
+                          data-mention-avatar=""
+                          ref={(node) => {
+                            if (node) optionAvatarById.current.set(option.id, node);
+                            else optionAvatarById.current.delete(option.id);
+                          }}
+                        >
+                          {option.id === "__everyone__" ? (
+                            <span className="grid size-4 place-items-center rounded-full bg-[#e9e9e9] text-[11px] font-semibold leading-none text-[#737373] dark:bg-[#464646] dark:text-[#a8a8a8]">
+                              @
+                            </span>
+                          ) : (
+                            <BotAvatar
+                              bot={{
+                                id: option.id,
+                                color: option.color ?? "#878787",
+                                icon: option.icon ?? "circle",
+                                hasAvatar: option.hasAvatar,
+                                updatedAt: option.updatedAt,
+                              }}
+                              size="activity"
+                            />
+                          )}
+                        </span>
+                        <span className="min-w-0 flex-1 truncate">{option.label}</span>
+                        <span className="shrink-0 text-[14px] text-[#737373] dark:text-[#a8a8a8]">
+                          Bot
+                        </span>
+                      </button>
+                    </li>
+                  );
+                })}
               </ul>
             </div>
           )}

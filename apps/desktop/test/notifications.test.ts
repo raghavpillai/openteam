@@ -4,6 +4,7 @@ import {
   deriveAgentNotifications,
   deriveUnreadChannelIds,
   desktopNotificationSnapshot,
+  syncDesktopNotificationSnapshot,
 } from "../src/renderer/lib/notifications";
 
 const base = {
@@ -11,9 +12,27 @@ const base = {
   channels: [{ id: "channel", name: "Probe" }],
   channelMessages: [{ id: "before", channelId: "channel", createdAt: "2026-01-01T00:00:00Z" }],
   runs: [],
+  approvals: [],
 } as unknown as ClientSnapshot;
 
 describe("Grok-compatible notification transitions", () => {
+  test("creates the native projection only when a sync target can consume it", () => {
+    const unreadIds = new Set(["channel"]);
+    const published: ReturnType<typeof desktopNotificationSnapshot>[] = [];
+
+    expect(syncDesktopNotificationSnapshot(undefined, base, unreadIds)).toBe(false);
+    expect(published).toEqual([]);
+
+    expect(
+      syncDesktopNotificationSnapshot(
+        { sync: (snapshot) => published.push(snapshot) },
+        base,
+        unreadIds
+      )
+    ).toBe(true);
+    expect(published).toEqual([desktopNotificationSnapshot(base, unreadIds)]);
+  });
+
   test("notifies only on entering needs-input and finishing with a new last message", () => {
     const running = {
       ...base,

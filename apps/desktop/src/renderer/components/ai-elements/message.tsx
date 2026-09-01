@@ -1,9 +1,15 @@
 // Source-owned adaptation of AI Elements message.tsx.
 // https://elements.ai-sdk.dev/components/message
+import { messageContainsMarkdownSyntax } from "@openbot/product-core/markdown";
 import { type ComponentProps, type HTMLAttributes, lazy, memo, Suspense } from "react";
 import { cn } from "../../lib/cn";
 import { Button } from "../ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
+import {
+  advancedMessageCapabilitiesFor,
+  messageNeedsAdvancedRenderer,
+} from "./message-response-capabilities";
+import { loadAdvancedMessagePlugins } from "./message-response-plugins";
 
 export function Message({
   from,
@@ -55,23 +61,31 @@ export function MessageContent({
 
 const MarkdownMessageResponse = lazy(() => import("./message-response"));
 const AdvancedMessageResponse = lazy(() => import("./message-response-rich"));
-const MARKDOWN_PATTERN =
-  /(?:^|\n)(?:#{1,6}\s|[-*+]\s|\d+\.\s|>\s|```|~~~)|\[[^\]]+\]\([^)]+\)|(?:^|[\s([{])(?:\*{1,2}|_{1,2}|~{2})(?=\S)|`|<\/?[a-z][^>]*>/i;
-const ADVANCED_PATTERN = /```|~~~|\$\$|\\[[(]|(?:^|[^\\$])\$(?![$\s])(?:\\.|[^$\n])+\$/;
-
+const messageContainsDesktopMarkup = (content: string) =>
+  messageContainsMarkdownSyntax(content) || /<\/?[a-z][^>]*>/i.test(content);
 export const messageNeedsMarkdown = (content: string) =>
-  MARKDOWN_PATTERN.test(content) || ADVANCED_PATTERN.test(content);
+  messageContainsDesktopMarkup(content) || messageNeedsAdvancedRenderer(content);
 
 export const MessageResponse = memo(function MessageResponse({ children }: { children: string }) {
-  if (!messageNeedsMarkdown(children)) {
+  const capabilities = advancedMessageCapabilitiesFor(children);
+  if (!messageContainsDesktopMarkup(children) && !capabilities) {
     return <span className="whitespace-pre-wrap">{children}</span>;
   }
-  const Renderer = ADVANCED_PATTERN.test(children)
-    ? AdvancedMessageResponse
-    : MarkdownMessageResponse;
+  if (capabilities) {
+    // Begin the selected plug-in requests in parallel with the lazy Streamdown
+    // renderer. The rich component consumes this same cached promise.
+    void loadAdvancedMessagePlugins(capabilities);
+  }
+  if (capabilities) {
+    return (
+      <Suspense fallback={<span className="whitespace-pre-wrap">{children}</span>}>
+        <AdvancedMessageResponse capabilities={capabilities}>{children}</AdvancedMessageResponse>
+      </Suspense>
+    );
+  }
   return (
     <Suspense fallback={<span className="whitespace-pre-wrap">{children}</span>}>
-      <Renderer>{children}</Renderer>
+      <MarkdownMessageResponse>{children}</MarkdownMessageResponse>
     </Suspense>
   );
 });

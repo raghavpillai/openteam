@@ -7,6 +7,18 @@ const componentSource = () =>
     "utf8"
   );
 
+const summarySource = () =>
+  readFile(
+    new URL("../src/renderer/components/openbot/routine-summary.tsx", import.meta.url),
+    "utf8"
+  );
+
+const eventFieldsSource = () =>
+  readFile(
+    new URL("../src/renderer/components/openbot/routine-event-fields.tsx", import.meta.url),
+    "utf8"
+  );
+
 const rendererSource = (path: string) =>
   readFile(new URL(`../src/renderer/${path}`, import.meta.url), "utf8");
 
@@ -42,7 +54,7 @@ describe("Grok routine UI parity", () => {
   });
 
   test("keeps Grok's complete saved-webhook credential layout", async () => {
-    const source = await componentSource();
+    const source = await eventFieldsSource();
 
     expect(source).toContain("<span className={labelClass}>POST to</span>");
     expect(source).toContain("<span className={labelClass}>key</span>");
@@ -53,16 +65,32 @@ describe("Grok routine UI parity", () => {
   });
 
   test("preserves Grok's list ordering, empty state, and one-shot conflict rebase", async () => {
-    const source = await componentSource();
+    const [source, summary] = await Promise.all([componentSource(), summarySource()]);
 
-    expect(source).toContain("routines?.filter((routine) => routine.enabled)");
-    expect(source).toContain("routines?.filter((routine) => !routine.enabled)");
-    expect(source).toContain("Routines are recurring tasks this Bot runs on a schedule.");
-    expect(source).toContain('data-routines-list=""');
+    expect(summary).toContain("routines?.filter((routine) => routine.enabled)");
+    expect(summary).toContain("routines?.filter((routine) => !routine.enabled)");
+    expect(summary).toContain("Routines are recurring tasks this Bot runs on a schedule.");
+    expect(summary).toContain('data-routines-list=""');
     expect(source).toContain("error instanceof ClientError");
     expect(source).toContain("error.status !== 409");
     expect(source).toContain("const latest = await api.routine(current.id)");
     expect(source).toContain("await api.deleteRoutine(latest)");
+  });
+
+  test("keeps owner-scoped saves lossless and refresh work active-only", async () => {
+    const [source, summary] = await Promise.all([componentSource(), summarySource()]);
+
+    expect(source).toContain('ownerKind: "bot" | "group"');
+    expect(source).toContain("api.createRoutine(context.ownerId, context.ownerKind");
+    expect(source).toContain('const contextKey = `${ownerKind}:${ownerId}:${routineId ?? "new"}`');
+    expect(source).toContain("saveContext.dirty && draftValid(saveContext.draft)");
+    expect(source).toContain("void persist(saveContext, saveContext.draft)");
+    expect(source).toContain("if (!active || !current) return");
+    expect(source).toContain("if (document.hidden)");
+    expect(summary).toContain("api.routines(ownerId, ownerKind)");
+    expect(summary).toContain("routineSummaryProjectionEqual(current, next) ? current : next");
+    expect(summary).toContain('contentVisibility: "auto"');
+    expect(summary).toContain("if (!active) return");
   });
 
   test("keeps Active lifecycle separate while inactive routines remain testable", async () => {

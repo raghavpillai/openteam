@@ -1,15 +1,14 @@
 import type { SearchCategory } from "@openbot/contracts";
+import {
+  normalizeSearchQuery,
+  SEARCH_CATEGORIES,
+  searchTextMatches,
+} from "@openbot/product-core/search";
 
 export type SearchSection = SearchCategory | "actions";
 
 export const SEARCH_SECTIONS: ReadonlyArray<{ id: SearchSection; label: string }> = [
-  { id: "all", label: "All" },
-  { id: "messages", label: "Messages" },
-  { id: "bots", label: "Bots" },
-  { id: "channels", label: "Channels" },
-  { id: "files", label: "Files" },
-  { id: "links", label: "Links" },
-  { id: "routines", label: "Routines" },
+  ...SEARCH_CATEGORIES.map(({ category, label }) => ({ id: category, label })),
   { id: "actions", label: "Actions" },
 ];
 
@@ -28,14 +27,9 @@ export const moveSearchSelection = (current: number, count: number, direction: -
 };
 
 export const normalizeClientSearch = (value: string) =>
-  value.normalize("NFKC").toLocaleLowerCase().replace(/\s+/g, " ").trim();
+  normalizeSearchQuery(value, { lowercase: true });
 
-export const searchTextMatches = (query: string, ...values: string[]) => {
-  const normalized = normalizeClientSearch(query);
-  if (!normalized) return true;
-  const haystack = normalizeClientSearch(values.join(" "));
-  return normalized.split(" ").every((term) => haystack.includes(term));
-};
+export { searchTextMatches };
 
 export const searchTimeLabel = (value: string) => {
   const elapsed = Date.now() - new Date(value).getTime();

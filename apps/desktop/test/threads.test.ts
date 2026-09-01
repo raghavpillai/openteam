@@ -31,4 +31,18 @@ describe("Grok-compatible branched threads", () => {
     expect([...threads.keys()]).toEqual(["root"]);
     expect(threads.get("root")?.replies.map(({ id }) => id)).toEqual(["first", "second"]);
   });
+
+  test("path-compresses deeply nested replies without losing their root", () => {
+    const messages = [message("root", 0)];
+    for (let index = 1; index <= 5_000; index += 1) {
+      messages.push(
+        message(`reply-${index}`, index, index === 1 ? "root" : `reply-${index - 1}`, true)
+      );
+    }
+
+    const replies = deriveThreads(messages).get("root")?.replies;
+    expect(replies).toHaveLength(5_000);
+    expect(replies?.at(0)?.id).toBe("reply-1");
+    expect(replies?.at(-1)?.id).toBe("reply-5000");
+  });
 });

@@ -5,11 +5,30 @@ import type {
   BotView,
   ChannelMessageView,
   ChannelView,
+  ClientCapabilities,
   ClientSnapshot,
   RunItemView,
   RunView,
   SubagentActivityView,
 } from "@openbot/contracts";
+import {
+  approvalPresentation,
+  channelMessageAddress,
+  type DurableSendPayload,
+  type DurableSendRecord,
+  durableSendIsInFlight,
+  durableSendMessage,
+  durableSendRenderKey,
+  durableSendStatusLabel,
+  messageAssets,
+  messageDisplayProjection,
+  messageMetadata,
+  messageReactionPills,
+  messageRenderKey,
+  messageSenderLabel,
+  ownReactionEmojiSet,
+  replyTargetFor,
+} from "@openbot/product-core";
 import {
   Check,
   ChevronDown,
@@ -19,6 +38,7 @@ import {
   Copy,
   Download,
   Ellipsis,
+  File,
   LoaderCircle,
   LockKeyhole,
   MessageCircle,
@@ -28,33 +48,55 @@ import {
   Users,
   X,
 } from "lucide-react";
-import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api } from "../../client/openbot-api";
-import { a2aProjectionFor, collapseA2ATimeline } from "../../lib/a2a-events";
 import {
-  BOT_TEMPLATE_REQUEST,
-  type BotTemplateRecord,
-  botTemplateFor,
-  createBotTemplateDraft,
-} from "../../lib/bot-template";
+  Fragment,
+  lazy,
+  memo,
+  type ReactNode,
+  Suspense,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
+import { useStickToBottomContext } from "use-stick-to-bottom";
+import { api } from "../../client/openbot-api";
+import { useVirtualWindow } from "../../hooks/use-virtual-window";
+import { a2aProjectionFor, collapseA2ATimeline } from "../../lib/a2a-events";
 import {
   channelNameChangedEventFor,
   routineChangedActionLabel,
   routineChangedEventFor,
 } from "../../lib/channel-events";
 import { cn } from "../../lib/cn";
+import {
+  desktopDurableSendController,
+  desktopSendTransportSnapshot,
+  discardDesktopDeliveryStages,
+  stageDesktopDeliveryFile,
+  subscribeDesktopSendTransport,
+} from "../../lib/durable-sends";
+import { nextHistoryPageLoadStartedAt } from "../../lib/history-pagination";
 import { type MentionOption, mentionHandleFor } from "../../lib/mentions";
-import { formatIdleGapTimestamp, shouldShowIdleGapTimestamp } from "../../lib/message-timestamps";
+import {
+  formatIdleGapTimestamp,
+  formatOfflineDeliveryLabel,
+  shouldShowIdleGapTimestamp,
+} from "../../lib/message-timestamps";
+import { addContextGaps } from "../../lib/search-context";
 import { conversationApprovals } from "../../lib/subagent-activity";
 import { deriveThreads, isBranchedMessage } from "../../lib/threads";
+import { preservePrependScrollOffset } from "../../lib/virtual-window";
 import {
   Conversation,
   ConversationContent,
   ConversationEmptyState,
-  ConversationInitialBottom,
-  ConversationNewMessageBottom,
   ConversationScrollButton,
   ConversationTopDivider,
+  ConversationViewportAnchor,
 } from "../ai-elements/conversation";
 import {
   Message,
@@ -82,22 +124,30 @@ import {
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
 import { BotAvatar } from "./avatar";
-import {
-  BotTemplateCard,
-  BotTemplateDetailsDialog,
-  TemplateAudienceQuestion,
-  useBotTemplateRecord,
-} from "./bot-template-share";
 import { EmojiPanel, EmojiPicker, MoreEmojiIcon, QUICK_REACTIONS } from "./emoji-picker";
-import { downloadAttachments, MessageFileAttachments } from "./file-attachment";
 import { MessageImageGallery } from "./image-attachment";
+import { RichMessage } from "./rich-message";
 import { ThreadTray } from "./thread-tray";
+
+const MessageFileAttachments = lazy(() =>
+  import("./file-attachment").then((module) => ({ default: module.MessageFileAttachments }))
+);
+const BotTemplateConversationFlow = lazy(() =>
+  import("./bot-template-share").then((module) => ({
+    default: module.BotTemplateConversationFlow,
+  }))
+);
+
+const downloadAttachments = async (attachments: readonly AssetRef[]) =>
+  (await import("./file-attachment")).downloadAttachments(attachments);
 
 type Mutate = <T>(operation: () => Promise<T>) => Promise<T>;
 
 interface ChatPaneProps {
+  active?: boolean;
   agentNameById: ReadonlyMap<string, string>;
   channel: ChannelView;
+  capabilities: ClientCapabilities;
   selectedBot?: BotView;
   messages: ChannelMessageView[];
   runs: RunView[];
@@ -108,9 +158,18 @@ interface ChatPaneProps {
   activeRun?: RunView;
   runtime: ClientSnapshot["runtime"];
   mutate: Mutate;
+  threadContextMessageIds?: ReadonlySet<string>;
+  searchContextMessageIds?: ReadonlySet<string>;
+  activityTruncated?: boolean;
+  threadContextTruncated?: boolean;
   focusMessage: { messageId: string; nonce: number } | null;
+  hasOlder?: boolean;
+  loadingOlder?: boolean;
+  onLoadOlder?: () => Promise<unknown> | void;
+  onReactMessage?: (messageId: string, emoji: string) => Promise<unknown>;
+  onScrollToNewest?: () => void;
   onCloseViewOnly?: () => void;
-  onOpenA2A?: (peerId: string, trigger: HTMLButtonElement) => void;
+  onOpenA2A?: (sourceBotId: string, peerId: string, trigger: HTMLButtonElement) => void;
   onOpenRoutine?: (routineId: string) => void;
   templateShareRequest?: { botId: string; nonce: number } | null;
 }
@@ -133,7 +192,9 @@ const subagentApprovalGroupsEqual = (
   );
 
 const chatPanePropsEqual = (previous: ChatPaneProps, next: ChatPaneProps) =>
+  previous.active === next.active &&
   previous.channel === next.channel &&
+  previous.capabilities === next.capabilities &&
   previous.agentNameById === next.agentNameById &&
   previous.selectedBot === next.selectedBot &&
   previous.messages === next.messages &&
@@ -143,7 +204,16 @@ const chatPanePropsEqual = (previous: ChatPaneProps, next: ChatPaneProps) =>
   previous.activeRun === next.activeRun &&
   previous.runtime === next.runtime &&
   previous.mutate === next.mutate &&
+  previous.threadContextMessageIds === next.threadContextMessageIds &&
+  previous.searchContextMessageIds === next.searchContextMessageIds &&
+  previous.activityTruncated === next.activityTruncated &&
+  previous.threadContextTruncated === next.threadContextTruncated &&
   previous.focusMessage === next.focusMessage &&
+  previous.hasOlder === next.hasOlder &&
+  previous.loadingOlder === next.loadingOlder &&
+  previous.onLoadOlder === next.onLoadOlder &&
+  previous.onReactMessage === next.onReactMessage &&
+  previous.onScrollToNewest === next.onScrollToNewest &&
   previous.onCloseViewOnly === next.onCloseViewOnly &&
   previous.onOpenA2A === next.onOpenA2A &&
   previous.onOpenRoutine === next.onOpenRoutine &&
@@ -156,13 +226,6 @@ type MessageGroupPosition = "single" | "first" | "middle" | "last";
 type ThinkingPhase = "hidden" | "visible" | "exiting";
 
 const THINKING_EXIT_MS = 140;
-
-interface OptimisticMessage {
-  localId: string;
-  message: ChannelMessageView;
-  pending: boolean;
-  serverMessageId: string | null;
-}
 
 const messagesShareGroup = (
   previous: ChannelMessageView | undefined,
@@ -227,70 +290,335 @@ const useThinkingPresence = (active: boolean): ThinkingPhase => {
   return active ? "visible" : phase;
 };
 
-const messageMetadata = (message: ChannelMessageView): Record<string, unknown> =>
-  message.metadata && typeof message.metadata === "object" && !Array.isArray(message.metadata)
-    ? (message.metadata as Record<string, unknown>)
-    : {};
-
-const messageAttachments = (message: ChannelMessageView): AssetRef[] => {
-  const metadata = messageMetadata(message);
-  const candidates = [
-    ...(Array.isArray(metadata.attachments) ? metadata.attachments : []),
-    ...(metadata.attachment ? [metadata.attachment] : []),
-  ];
-  return candidates.filter(
-    (candidate): candidate is AssetRef =>
-      Boolean(candidate) &&
-      typeof candidate === "object" &&
-      !Array.isArray(candidate) &&
-      typeof (candidate as { assetId?: unknown }).assetId === "string" &&
-      /^[a-f0-9]{64}$/.test((candidate as { assetId: string }).assetId) &&
-      typeof (candidate as { fileName?: unknown }).fileName === "string"
-  );
+const nextLocalMidnightDelay = (now: Date) => {
+  const next = new Date(now);
+  next.setHours(24, 0, 1, 0);
+  return Math.max(1_000, next.getTime() - now.getTime());
 };
 
-const messageImages = (message: ChannelMessageView) =>
-  messageAttachments(message)
+/** Timestamp labels only change when the local calendar day changes. */
+const useDayClock = (active: boolean) => {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    if (!active) return;
+    let timer = 0;
+    const schedule = () => {
+      const current = new Date();
+      timer = window.setTimeout(() => {
+        setNow(new Date());
+        schedule();
+      }, nextLocalMidnightDelay(current));
+    };
+    schedule();
+    return () => window.clearTimeout(timer);
+  }, [active]);
+  return now;
+};
+
+const conversationScrollPositions = new Map<
+  string,
+  { bottomDistance: number; scrollTop: number }
+>();
+
+interface MessageTimelineEntry {
+  type: "message";
+  id: string;
+  createdAt: string;
+  message: ChannelMessageView;
+  animateEntrance: boolean;
+  pending: boolean;
+  delivery: DurableSendRecord | null;
+}
+
+function VirtualizedTimeline<T extends { id: string; type: string }>({
+  conversationId,
+  entries,
+  focus,
+  hasOlder = false,
+  loadingOlder = false,
+  onLoadOlder,
+  renderEntry,
+}: {
+  conversationId: string;
+  entries: T[];
+  focus: { index: number; messageId: string; nonce: number } | null;
+  hasOlder?: boolean;
+  loadingOlder?: boolean;
+  onLoadOlder?: () => Promise<unknown> | void;
+  renderEntry: (entry: T, index: number) => ReactNode;
+}) {
+  const { scrollRef, stopScroll } = useStickToBottomContext();
+  const contentRef = useRef<HTMLDivElement>(null);
+  const focusWindowRef = useRef<{ key: string; expiresAt: number } | null>(null);
+  const initializedScroll = useRef(false);
+  const loadingRequest = useRef(false);
+  const lastOlderLoadStartedAt = useRef(0);
+  const anchorCleanupTimer = useRef<number | null>(null);
+  const pendingScrollAnchor = useRef<{
+    count: number;
+    firstKey: string | null;
+    height: number;
+    top: number;
+  } | null>(null);
+  const estimateSize = useCallback(
+    (index: number) => {
+      const entry = entries[index];
+      if (!entry) return 72;
+      if (entry.type === "approval") return 180;
+      if (entry.type === "a2a") return 40;
+      if (entry.type === "thinking") return 36;
+      if (entry.type === "context_gap") return 52;
+      return 72;
+    },
+    [entries]
+  );
+  const getKey = useCallback(
+    (index: number) => {
+      const entry = entries[index];
+      return entry ? `${entry.type}:${entry.id}` : `missing:${index}`;
+    },
+    [entries]
+  );
+  const { measureElement, scrollToIndex, totalSize, virtualItems } = useVirtualWindow({
+    count: entries.length,
+    activeIndex: focus?.index,
+    estimateSize,
+    getKey,
+    scrollRef,
+    initialAlign: "end",
+    initialViewportSize: 900,
+    maxItems: 80,
+    overscan: 900,
+  });
+
+  useLayoutEffect(() => {
+    if (initializedScroll.current || entries.length === 0) return;
+    const viewport = scrollRef.current;
+    if (!viewport) return;
+    initializedScroll.current = true;
+    const stored = conversationScrollPositions.get(conversationId);
+    viewport.scrollTop =
+      stored && stored.bottomDistance > 2 ? stored.scrollTop : viewport.scrollHeight;
+  }, [conversationId, entries.length, scrollRef, totalSize]);
+
+  useEffect(() => {
+    const viewport = scrollRef.current;
+    if (!viewport) return;
+    const save = () => {
+      conversationScrollPositions.set(conversationId, {
+        bottomDistance: Math.max(
+          0,
+          viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop
+        ),
+        scrollTop: viewport.scrollTop,
+      });
+      if (conversationScrollPositions.size > 20) {
+        conversationScrollPositions.delete(conversationScrollPositions.keys().next().value!);
+      }
+    };
+    return save;
+  }, [conversationId, scrollRef]);
+
+  useEffect(
+    () => () => {
+      if (anchorCleanupTimer.current !== null) {
+        window.clearTimeout(anchorCleanupTimer.current);
+      }
+    },
+    []
+  );
+
+  const loadOlder = useCallback(
+    (automatic = false) => {
+      const viewport = scrollRef.current;
+      if (!viewport || !hasOlder || loadingOlder || loadingRequest.current || !onLoadOlder) return;
+      const now = performance.now();
+      const startedAt = automatic
+        ? nextHistoryPageLoadStartedAt({
+            now,
+            lastStartedAt: lastOlderLoadStartedAt.current || null,
+          })
+        : now;
+      if (startedAt === null) return;
+      lastOlderLoadStartedAt.current = startedAt;
+      loadingRequest.current = true;
+      if (anchorCleanupTimer.current !== null) {
+        window.clearTimeout(anchorCleanupTimer.current);
+        anchorCleanupTimer.current = null;
+      }
+      const anchor = {
+        count: entries.length,
+        firstKey: entries[0] ? `${entries[0].type}:${entries[0].id}` : null,
+        height: viewport.scrollHeight,
+        top: viewport.scrollTop,
+      };
+      pendingScrollAnchor.current = anchor;
+      void Promise.resolve(onLoadOlder())
+        .catch(() => {
+          if (pendingScrollAnchor.current === anchor) pendingScrollAnchor.current = null;
+        })
+        .finally(() => {
+          loadingRequest.current = false;
+          anchorCleanupTimer.current = window.setTimeout(() => {
+            if (pendingScrollAnchor.current === anchor) pendingScrollAnchor.current = null;
+            anchorCleanupTimer.current = null;
+          }, 1_000);
+        });
+    },
+    [entries.length, hasOlder, loadingOlder, onLoadOlder, scrollRef]
+  );
+
+  useEffect(() => {
+    const viewport = scrollRef.current;
+    if (!viewport || !hasOlder || !onLoadOlder) return;
+    let previousTop = viewport.scrollTop;
+    const onScroll = () => {
+      const nextTop = viewport.scrollTop;
+      const movingTowardOlder = nextTop < previousTop - 1;
+      previousTop = nextTop;
+      if (movingTowardOlder && nextTop <= 600) loadOlder(true);
+    };
+    viewport.addEventListener("scroll", onScroll, { passive: true });
+    return () => viewport.removeEventListener("scroll", onScroll);
+  }, [hasOlder, loadOlder, onLoadOlder, scrollRef]);
+
+  useLayoutEffect(() => {
+    const anchor = pendingScrollAnchor.current;
+    const viewport = scrollRef.current;
+    if (!anchor || !viewport || entries.length <= anchor.count) return;
+    const firstKey = entries[0] ? `${entries[0].type}:${entries[0].id}` : null;
+    pendingScrollAnchor.current = null;
+    if (firstKey === anchor.firstKey) return;
+    const delta = viewport.scrollHeight - anchor.height;
+    if (delta <= 0) return;
+    viewport.scrollTop = preservePrependScrollOffset(
+      anchor.top,
+      anchor.height,
+      viewport.scrollHeight
+    );
+  }, [entries.length, scrollRef, totalSize]);
+
+  useLayoutEffect(() => {
+    if (!focus) return;
+    const key = `${focus.messageId}:${focus.nonce}`;
+    if (focusWindowRef.current?.key !== key) {
+      focusWindowRef.current = { key, expiresAt: performance.now() + 1_000 };
+    } else if (performance.now() > focusWindowRef.current.expiresAt) {
+      return;
+    }
+    // A search context is inserted while the conversation is still locked to
+    // the newest message. Release that lock before the virtual list grows, or
+    // use-stick-to-bottom's resize observer can immediately undo this jump.
+    stopScroll();
+    scrollToIndex(focus.index, { align: "center" });
+    const timer = window.setTimeout(() => {
+      const row = contentRef.current?.querySelector<HTMLElement>(
+        `[data-message-id="${CSS.escape(focus.messageId)}"]`
+      );
+      if (!row) return;
+      const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      row.scrollIntoView({
+        behavior: "auto",
+        block: "center",
+      });
+      if (!reduceMotion) {
+        row.animate(
+          [
+            { filter: "brightness(1)", transform: "translateZ(0)" },
+            { filter: "brightness(0.88)", transform: "translateZ(0)" },
+            { filter: "brightness(1)", transform: "translateZ(0)" },
+          ],
+          { duration: 760, easing: "cubic-bezier(0.22, 1, 0.36, 1)" }
+        );
+      }
+    }, 80);
+    return () => window.clearTimeout(timer);
+  }, [focus, scrollToIndex, stopScroll, totalSize]);
+
+  useEffect(() => {
+    const viewport = scrollRef.current;
+    if (!viewport) return;
+    const cancelFocusWindow = () => {
+      if (focusWindowRef.current) focusWindowRef.current.expiresAt = 0;
+    };
+    viewport.addEventListener("wheel", cancelFocusWindow, { passive: true });
+    viewport.addEventListener("touchstart", cancelFocusWindow, { passive: true });
+    viewport.addEventListener("pointerdown", cancelFocusWindow, { passive: true });
+    viewport.addEventListener("keydown", cancelFocusWindow);
+    return () => {
+      viewport.removeEventListener("wheel", cancelFocusWindow);
+      viewport.removeEventListener("touchstart", cancelFocusWindow);
+      viewport.removeEventListener("pointerdown", cancelFocusWindow);
+      viewport.removeEventListener("keydown", cancelFocusWindow);
+    };
+  }, [scrollRef]);
+
+  return (
+    <div
+      aria-label={`${entries.length} timeline entries`}
+      className="relative w-full"
+      data-virtual-timeline-count={entries.length}
+      ref={contentRef}
+      style={{ height: totalSize }}
+    >
+      {hasOlder && (
+        <button
+          className="sr-only focus:not-sr-only focus:absolute focus:left-1/2 focus:top-2 focus:z-20 focus:-translate-x-1/2 focus:rounded-full focus:bg-background focus:px-3 focus:py-1.5 focus:text-xs focus:shadow"
+          disabled={loadingOlder}
+          onClick={() => loadOlder(false)}
+          type="button"
+        >
+          {loadingOlder ? "Loading older messages…" : "Load older messages"}
+        </button>
+      )}
+      {virtualItems.map((virtualItem) => {
+        const entry = entries[virtualItem.index];
+        if (!entry) return null;
+        return (
+          <div
+            aria-posinset={virtualItem.index + 1}
+            aria-setsize={entries.length}
+            className="absolute inset-x-0 top-0 flex w-full flex-col gap-1 pb-1"
+            data-virtual-timeline-index={virtualItem.index}
+            key={virtualItem.key}
+            ref={(node) => measureElement(virtualItem.index, virtualItem.key, node)}
+            role="listitem"
+            style={{ transform: `translateY(${virtualItem.start}px)` }}
+          >
+            {renderEntry(entry, virtualItem.index)}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+const messageImages = (message: ChannelMessageView) => {
+  const canonical = messageAssets(message)
     .filter((attachment) => attachment.kind === "image")
     .map((attachment) => ({
       url: api.assetUrl(attachment),
       alt: attachment.alt ?? attachment.fileName,
     }));
+  if (canonical.length > 0) return canonical;
 
-const channelMessageAddress = (message: ChannelMessageView): string => {
-  if (message.sender === "user") return `t${message.sequence}u`;
-  const address = messageMetadata(message).address;
-  return typeof address === "string" ? address : `t${message.sequence}a0`;
-};
-
-const getUserReactions = (message: ChannelMessageView): string[] => {
-  const metadata = messageMetadata(message);
-  if (!Array.isArray(metadata.reactions)) return [];
-  return [
-    ...new Set(
-      metadata.reactions.flatMap((reaction) => {
-        if (!reaction || typeof reaction !== "object" || Array.isArray(reaction)) return [];
-        const candidate = reaction as Record<string, unknown>;
-        return candidate.by === "me" && typeof candidate.emoji === "string"
-          ? [candidate.emoji]
-          : [];
-      })
-    ),
-  ];
-};
-
-const replyPreviewFor = (
-  message: ChannelMessageView,
-  messagesById: ReadonlyMap<string, ChannelMessageView>,
-  messagesByAddress: ReadonlyMap<string, ChannelMessageView>
-): ChannelMessageView | { content: string; sender: ChannelMessageView["sender"] } | null => {
-  const metadata = messageMetadata(message);
-  if (typeof metadata.replyTo === "string") {
-    const target = messagesById.get(metadata.replyTo);
-    if (target) return target;
-  }
-  const address = typeof metadata.reply_to === "string" ? metadata.reply_to : null;
-  return address ? (messagesByAddress.get(address) ?? null) : null;
+  const legacyImages = messageMetadata(message).images;
+  if (!Array.isArray(legacyImages)) return [];
+  return legacyImages.flatMap((image) => {
+    if (!image || typeof image !== "object" || Array.isArray(image)) return [];
+    const { url, alt } = image as Record<string, unknown>;
+    if (
+      typeof url !== "string" ||
+      !(
+        url.startsWith("/api/v0/assets/") ||
+        url.startsWith("data:image/") ||
+        url.startsWith("https://")
+      )
+    ) {
+      return [];
+    }
+    return [{ url, ...(typeof alt === "string" ? { alt } : {}) }];
+  });
 };
 
 const copyMessage = (message: ChannelMessageView) => {
@@ -303,29 +631,107 @@ const copyRequestId = (message: ChannelMessageView) => {
   void navigator.clipboard.writeText(message.id).catch(() => undefined);
 };
 
-const senderLabelFor = (
-  message: Pick<ChannelMessageView, "sender" | "senderBotId"> & {
-    metadata?: unknown;
-  },
-  botById: ReadonlyMap<string, BotView>
-) => {
-  if (
-    message.metadata &&
-    typeof message.metadata === "object" &&
-    !Array.isArray(message.metadata)
-  ) {
-    const metadata = message.metadata as Record<string, unknown>;
-    const direction = metadata.fromAgent ? "incoming" : metadata.toAgent ? "outgoing" : null;
-    const peer = direction === "incoming" ? metadata.fromAgent : metadata.toAgent;
-    if (peer && typeof peer === "object" && !Array.isArray(peer)) {
-      const peerName = (peer as Record<string, unknown>).name;
-      if (typeof peerName === "string") return peerName;
-    }
+const DeliveryFooter = memo(function DeliveryFooter({
+  delivery,
+  onCancel,
+  onDelete,
+  onResend,
+}: {
+  delivery: DurableSendRecord | null;
+  onCancel: (nonce: string) => Promise<void>;
+  onDelete: (nonce: string) => Promise<void>;
+  onResend: (nonce: string) => Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+  const transportDown = useSyncExternalStore(
+    subscribeDesktopSendTransport,
+    desktopSendTransportSnapshot,
+    desktopSendTransportSnapshot
+  );
+  const currentOfflineAtMs = delivery?.queuedAtMs ?? null;
+  const [retainedOfflineAtMs, setRetainedOfflineAtMs] = useState(currentOfflineAtMs);
+  useEffect(() => {
+    if (currentOfflineAtMs !== null) setRetainedOfflineAtMs(currentOfflineAtMs);
+  }, [currentOfflineAtMs]);
+  const act = (operation: () => Promise<void>) => {
+    if (busy) return;
+    setBusy(true);
+    void operation()
+      .catch(() => undefined)
+      .finally(() => setBusy(false));
+  };
+  const actionClass =
+    "rounded px-0.5 text-[11px] font-medium leading-4 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35 disabled:opacity-50";
+  if (delivery?.phase === "failed") {
+    return (
+      <div
+        aria-label="Failed message actions"
+        className="mt-1 flex flex-wrap items-center justify-end gap-1 self-end text-[11px] leading-4"
+        data-failed-send-actions=""
+        role="group"
+      >
+        <span className="font-medium text-destructive" role="status">
+          {durableSendStatusLabel(delivery.phase)}
+        </span>
+        <button
+          className={actionClass}
+          disabled={busy}
+          onClick={() => act(() => onResend(delivery.nonce))}
+          type="button"
+        >
+          Resend
+        </button>
+        <button
+          className={actionClass}
+          disabled={busy}
+          onClick={() => act(() => onDelete(delivery.nonce))}
+          type="button"
+        >
+          Delete
+        </button>
+      </div>
+    );
   }
-  if (message.sender === "user") return "You";
-  if (message.sender === "system") return "System";
-  return message.senderBotId ? (botById.get(message.senderBotId)?.name ?? "Bot") : "Bot";
-};
+  if (delivery?.phase === "queued") {
+    return (
+      <div
+        className="mt-1 flex flex-wrap items-center justify-end gap-1 self-end text-[11px] leading-4 text-muted-foreground"
+        data-queued-send-notice=""
+        role="status"
+      >
+        <span>{durableSendStatusLabel(delivery.phase, transportDown)}</span>
+        <button
+          className={actionClass}
+          disabled={busy}
+          onClick={() => act(() => onCancel(delivery.nonce))}
+          type="button"
+        >
+          Cancel
+        </button>
+      </div>
+    );
+  }
+  const offlineAtMs = currentOfflineAtMs ?? retainedOfflineAtMs;
+  if (
+    offlineAtMs !== null &&
+    ((delivery?.phase === "accepted-awaiting-echo" && currentOfflineAtMs !== null) ||
+      (delivery === null && retainedOfflineAtMs !== null))
+  ) {
+    const clearing = delivery === null;
+    return (
+      <div
+        aria-hidden={clearing || undefined}
+        className="sent-while-offline-notice self-end text-[11px] leading-4 text-muted-foreground"
+        data-cleared={clearing || undefined}
+        data-sent-while-offline=""
+        role="status"
+      >
+        {formatOfflineDeliveryLabel(offlineAtMs)}
+      </div>
+    );
+  }
+  return null;
+});
 
 const MessageRow = memo(function MessageRow({
   message,
@@ -343,6 +749,10 @@ const MessageRow = memo(function MessageRow({
   threadReplyCount,
   animateEntrance,
   pending,
+  delivery,
+  onCancelSend,
+  onDeleteSend,
+  onResendSend,
 }: {
   message: ChannelMessageView;
   channel: ChannelView;
@@ -359,6 +769,10 @@ const MessageRow = memo(function MessageRow({
   threadReplyCount: number;
   animateEntrance: boolean;
   pending: boolean;
+  delivery: DurableSendRecord | null;
+  onCancelSend: (nonce: string) => Promise<void>;
+  onDeleteSend: (nonce: string) => Promise<void>;
+  onResendSend: (nonce: string) => Promise<void>;
 }) {
   const [entranceActive, setEntranceActive] = useState(animateEntrance);
   const channelEvent = channelNameChangedEventFor(message);
@@ -369,36 +783,23 @@ const MessageRow = memo(function MessageRow({
   const showAgentAvatar =
     hasAgentGutter && (groupPosition === "single" || groupPosition === "last");
   const a2aProjection = channel.kind === "bot_dm" ? a2aProjectionFor(message) : null;
-  const userReactions = getUserReactions(message);
-  const userReactionSet = new Set(userReactions);
-  const attachments = messageAttachments(message);
-  const images = messageImages(message);
-  const fileAttachments = attachments.filter((attachment) => attachment.kind !== "image");
-  const displayContent = messageMetadata(message).type === "attachment" ? "" : message.content;
-  const reactions =
-    message.metadata &&
-    typeof message.metadata === "object" &&
-    !Array.isArray(message.metadata) &&
-    Array.isArray((message.metadata as { reactions?: unknown }).reactions)
-      ? (message.metadata as { reactions: unknown[] }).reactions.filter(
-          (reaction): reaction is { by: string; emoji: string } =>
-            Boolean(reaction) &&
-            typeof reaction === "object" &&
-            typeof (reaction as { by?: unknown }).by === "string" &&
-            typeof (reaction as { emoji?: unknown }).emoji === "string"
-        )
-      : [];
-  const reactionPills = Array.from(
-    reactions
-      .map((reaction) => reaction.emoji)
-      .reduce((pills, emoji) => {
-        const pill = pills.get(emoji);
-        if (pill) pill.count += 1;
-        else pills.set(emoji, { emoji, count: 1 });
-        return pills;
-      }, new Map<string, { emoji: string; count: number }>())
-      .values()
+  const userReactionSet = ownReactionEmojiSet(message);
+  const display = messageDisplayProjection(message);
+  const { attachments, stagedAttachments, displayContent, files: fileAttachments } = display;
+  const stagedImageAttachments = stagedAttachments.filter(
+    (attachment) => attachment.kind === "image" && attachment.previewUri
   );
+  const stagedFileAttachments = stagedAttachments.filter(
+    (attachment) => attachment.kind !== "image" || !attachment.previewUri
+  );
+  const images = [
+    ...messageImages(message),
+    ...stagedImageAttachments.map((attachment) => ({
+      url: attachment.previewUri as string,
+      alt: attachment.alt ?? attachment.fileName,
+    })),
+  ];
+  const reactionPills = messageReactionPills(message);
   const previousReactionKeys = useRef<ReadonlySet<string> | null>(null);
   const newReactionKeys = new Set(
     previousReactionKeys.current
@@ -517,6 +918,7 @@ const MessageRow = memo(function MessageRow({
           data-enter={entranceActive ? "new" : undefined}
           data-message-address={channelMessageAddress(message)}
           data-message-id={message.id}
+          data-failed={delivery?.phase === "failed" || undefined}
           data-pending={pending || undefined}
           from={from}
           onAnimationEnd={(event) => {
@@ -561,7 +963,9 @@ const MessageRow = memo(function MessageRow({
           )}
           <div
             className={`flex w-full max-w-full ${hasAgentGutter ? "gap-[5px]" : "gap-2"} ${
-              images.length > 0 || fileAttachments.length > 0 ? "items-end" : "items-center"
+              images.length > 0 || fileAttachments.length > 0 || stagedFileAttachments.length > 0
+                ? "items-end"
+                : "items-center"
             } ${from === "user" ? "justify-end" : "justify-start"}`}
           >
             {from === "user" && actions}
@@ -573,7 +977,11 @@ const MessageRow = memo(function MessageRow({
                 {showAgentAvatar && <BotAvatar bot={senderBot} size="sm" />}
               </div>
             )}
-            {images.length > 0 || fileAttachments.length > 0 ? (
+            {display.richMessage ? (
+              <RichMessage message={message} />
+            ) : images.length > 0 ||
+              fileAttachments.length > 0 ||
+              stagedFileAttachments.length > 0 ? (
               <div
                 className={`flex max-w-[min(88%,640px,calc(100%-82px))] flex-col gap-1.5 ${
                   from === "user" ? "items-end" : "items-start"
@@ -581,7 +989,23 @@ const MessageRow = memo(function MessageRow({
                 data-message-bubble-id={message.id}
               >
                 <MessageImageGallery images={images} />
-                <MessageFileAttachments attachments={fileAttachments} />
+                {fileAttachments.length > 0 && (
+                  <Suspense fallback={null}>
+                    <MessageFileAttachments attachments={fileAttachments} />
+                  </Suspense>
+                )}
+                {stagedFileAttachments.map((attachment) => (
+                  <article
+                    className="flex h-[52px] w-[246px] max-w-full items-center gap-2 rounded-[12px] border border-black/10 bg-background px-3 dark:border-white/15"
+                    data-staged-attachment=""
+                    key={attachment.stagingId}
+                  >
+                    <File className="size-[17px] shrink-0 text-foreground-secondary" />
+                    <span className="min-w-0 flex-1 truncate text-[13px] font-medium">
+                      {attachment.fileName}
+                    </span>
+                  </article>
+                ))}
                 {displayContent && (
                   <MessageContent
                     className="max-w-full"
@@ -603,7 +1027,7 @@ const MessageRow = memo(function MessageRow({
             )}
             {from !== "user" && actions}
           </div>
-          {(reactions.length > 0 || userReactions.length > 0) && (
+          {(reactionPills.length > 0 || userReactionSet.size > 0) && (
             <div
               className={`relative -mt-2 flex flex-row flex-wrap gap-1 ${
                 from === "user" ? "ml-auto mr-2.5 self-end justify-end" : "ml-2.5 self-start"
@@ -652,6 +1076,12 @@ const MessageRow = memo(function MessageRow({
               {threadReplyCount} {threadReplyCount === 1 ? "reply" : "replies"}
             </button>
           )}
+          <DeliveryFooter
+            delivery={delivery}
+            onCancel={onCancelSend}
+            onDelete={onDeleteSend}
+            onResend={onResendSend}
+          />
         </Message>
       </ContextMenuTrigger>
       <ContextMenuContent className="w-[246px]">
@@ -726,12 +1156,7 @@ const approvalSecondaryButtonClass = cn(
 );
 
 const isLocalApproval = (approval: ApprovalView) =>
-  Boolean(
-    approval.details &&
-      typeof approval.details === "object" &&
-      !Array.isArray(approval.details) &&
-      (approval.details as Record<string, unknown>).type === "localTool"
-  );
+  approvalPresentation(approval).kind === "local-tool";
 
 const isPendingLocalApproval = (approval: ApprovalView) =>
   approval.status === "pending" && isLocalApproval(approval);
@@ -747,56 +1172,32 @@ function ApprovalCard({
   onResolve: (decision: ApprovalDecision) => Promise<void>;
 }) {
   const [detailsOpen, setDetailsOpen] = useState(false);
-  const pending = approval.status === "pending";
+  const presentation = approvalPresentation(approval);
+  const {
+    details,
+    detailsLabel,
+    effect,
+    heading,
+    machineLabel,
+    pending,
+    proposedRule,
+    rawDetails,
+    reason,
+    resolution,
+    reviewSummary,
+    statusLabel,
+    supportsAlwaysAllow,
+    supportsNever,
+    taskReview,
+    visibleArguments,
+  } = presentation;
   useEffect(() => {
     if (!pending) setDetailsOpen(false);
   }, [pending]);
-  const details =
-    approval.details && typeof approval.details === "object" && !Array.isArray(approval.details)
-      ? (approval.details as Record<string, unknown>)
-      : {};
-  const action = typeof details.action === "string" ? details.action : null;
-  const toolName = typeof details.toolName === "string" ? details.toolName : null;
-  const heading = action
-    ? action.replace(/([a-z])([A-Z])/g, "$1 $2")
-    : toolName
-      ? `Allow ${toolName}`
-      : "Approval required";
-  const effect = typeof details.effect === "string" ? details.effect : null;
-  const supportsAlwaysAllow = details.supportsAlwaysAllow === true;
-  const supportsNever = details.supportsNever === true;
-  const localTool = details.type === "localTool";
-  const autoReview = details.type === "autoReview";
-  const resolution = typeof details.resolution === "string" ? details.resolution : null;
-  const localCapability = details.action === "readFile" ? "read files on" : "run commands on";
-  const visibleArguments = details.arguments;
-  const argumentRecord =
-    visibleArguments && typeof visibleArguments === "object" && !Array.isArray(visibleArguments)
-      ? (visibleArguments as Record<string, unknown>)
-      : {};
-  const machineLabel =
-    typeof details.machineLabel === "string" && details.machineLabel.trim()
-      ? details.machineLabel.trim()
-      : "this computer";
+  const localTool = presentation.kind === "local-tool";
+  const autoReview = presentation.kind === "auto-review";
 
   if (localTool) {
-    const command = typeof argumentRecord.command === "string" ? argumentRecord.command : null;
-    const path = typeof argumentRecord.path === "string" ? argumentRecord.path : null;
-    const rawDetails = command ?? path;
-    const detailsLabel = command ? "command" : "details";
-    const statusLabel =
-      resolution === "accept"
-        ? `OpenBot can ${localCapability} your computer this time.`
-        : resolution === "always_allow"
-          ? `OpenBot can always ${localCapability} your computer.`
-          : approval.status === "declined"
-            ? `OpenBot was not allowed to ${localCapability} your computer.`
-            : approval.status === "cancelled"
-              ? "Local computer approval was cancelled."
-              : approval.status === "expired"
-                ? "Local computer approval expired."
-                : "OpenBot was not allowed to use your computer.";
-
     if (!pending) {
       return (
         <div
@@ -901,48 +1302,6 @@ function ApprovalCard({
   }
 
   if (autoReview) {
-    const command = typeof argumentRecord.command === "string" ? argumentRecord.command : null;
-    const path = typeof argumentRecord.path === "string" ? argumentRecord.path : null;
-    const task = typeof argumentRecord.task === "string" ? argumentRecord.task : null;
-    const prompt = typeof argumentRecord.prompt === "string" ? argumentRecord.prompt : null;
-    const rawDetails =
-      command ?? path ?? task ?? prompt ?? JSON.stringify(visibleArguments ?? {}, null, 2);
-    const detailsLabel = command ? "command" : "details";
-    const taskReview = details.action === "runTask";
-    const suppliedSummary =
-      typeof details.summary === "string" && details.summary.trim()
-        ? details.summary.trim()
-        : action === "readFile" && path
-          ? `Read ${path}`
-          : action === "runCommand"
-            ? "Run a command"
-            : heading;
-    const reviewSummary = suppliedSummary;
-    const reason = typeof details.reason === "string" ? details.reason : effect;
-    const proposedRule =
-      typeof details.proposedRule === "string" && details.proposedRule.trim()
-        ? details.proposedRule.trim()
-        : null;
-    const reviewTitle =
-      action === "runCommand"
-        ? "The Bot wants to run a command"
-        : action === "readFile"
-          ? "The Bot wants to read a file"
-          : "The Bot wants to run a task";
-    const reviewStatus = pending
-      ? "Approval needed"
-      : approval.status === "accepted"
-        ? resolution === "always_allow"
-          ? "Always allowed"
-          : "Allowed once"
-        : approval.status === "declined"
-          ? "Denied"
-          : approval.status === "cancelled"
-            ? "Cancelled"
-            : approval.status === "expired"
-              ? "Expired"
-              : "Reviewed";
-
     return (
       <div
         aria-label="Auto-review approval"
@@ -953,7 +1312,7 @@ function ApprovalCard({
       >
         <div className={approvalContentClass}>
           <div className="flex w-full min-w-0 items-start gap-2">
-            <div className={approvalTitleClass}>{reviewTitle}</div>
+            <div className={approvalTitleClass}>{presentation.title}</div>
             <span
               className={cn(
                 "inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-[13px] font-medium leading-[18px]",
@@ -969,7 +1328,7 @@ function ApprovalCard({
               ) : approval.status === "declined" ? (
                 <span aria-hidden="true" className="size-1.5 rounded-full bg-current" />
               ) : null}
-              {reviewStatus}
+              {statusLabel}
             </span>
           </div>
 
@@ -1047,17 +1406,6 @@ function ApprovalCard({
       </div>
     );
   }
-
-  const statusLabel =
-    approval.status === "accepted"
-      ? "Approved"
-      : approval.status === "declined"
-        ? "Declined"
-        : approval.status === "cancelled"
-          ? "Cancelled"
-          : approval.status === "expired"
-            ? "Expired"
-            : "Approval required";
 
   return (
     <div
@@ -1253,8 +1601,10 @@ const A2AActivityRow = memo(function A2AActivityRow({
 });
 
 export const ChatPane = memo(function ChatPane({
+  active = true,
   agentNameById,
   channel,
+  capabilities,
   selectedBot,
   messages,
   runs,
@@ -1264,27 +1614,45 @@ export const ChatPane = memo(function ChatPane({
   activeRun,
   runtime,
   mutate,
+  threadContextMessageIds,
+  searchContextMessageIds,
+  activityTruncated = false,
+  threadContextTruncated = false,
   focusMessage,
+  hasOlder,
+  loadingOlder,
+  onLoadOlder,
+  onReactMessage,
+  onScrollToNewest,
   onCloseViewOnly,
   onOpenA2A,
   onOpenRoutine,
   templateShareRequest,
 }: ChatPaneProps) {
-  const [now, setNow] = useState(() => new Date());
+  const now = useDayClock(active);
   const [replyTarget, setReplyTarget] = useState<{
     channelId: string;
     messageId: string;
   } | null>(null);
-  const [composerHeight, setComposerHeight] = useState(60);
-  const [optimisticMessages, setOptimisticMessages] = useState<OptimisticMessage[]>([]);
-  const [templateFlow, setTemplateFlow] = useState<
-    { stage: "audience" } | { stage: "draft"; template: BotTemplateRecord } | null
-  >(null);
-  const [templatePreview, setTemplatePreview] = useState<BotTemplateRecord | null>(null);
-  const handledTemplateRequest = useRef<number | null>(null);
-  const templateFlowRef = useRef<HTMLDivElement | null>(null);
-  const composerDockRef = useRef<HTMLDivElement | null>(null);
-  const storedTemplate = useBotTemplateRecord(selectedBot?.id ?? "");
+  const [pendingAttachmentCount, setPendingAttachmentCount] = useState(0);
+  const [composerExpanded, setComposerExpanded] = useState(false);
+  const fileDropTargetRef = useRef<HTMLDivElement>(null);
+  const [sendController] = useState(desktopDurableSendController);
+  const durableSends = useSyncExternalStore(
+    sendController.subscribe,
+    sendController.getSnapshot,
+    sendController.getSnapshot
+  );
+  const durableRecoveries = useSyncExternalStore(
+    sendController.subscribe,
+    sendController.getRecoverySnapshot,
+    sendController.getRecoverySnapshot
+  );
+  const [composerRecovery, setComposerRecovery] = useState<{
+    id: string;
+    payload: DurableSendPayload;
+    durable?: boolean;
+  } | null>(null);
   const [threadState, setThreadState] = useState<{
     rootId: string;
     open: boolean;
@@ -1303,41 +1671,62 @@ export const ChatPane = memo(function ChatPane({
     knownMessageChannelId.current = channel.id;
     knownMessageIds.current = new Set(messages.map((message) => message.id));
   }, [channel.id, messages]);
+  useEffect(() => {
+    const authoritativeIds = new Set(messages.map((message) => message.id));
+    void sendController.reconcile(authoritativeIds);
+  }, [messages, sendController]);
+  const channelSends = useMemo(
+    () => durableSends.filter((record) => record.target.channelId === channel.id),
+    [channel.id, durableSends]
+  );
+  const channelRecoveries = useMemo(
+    () => durableRecoveries.filter((record) => record.target.channelId === channel.id),
+    [channel.id, durableRecoveries]
+  );
   const visibleMessages = useMemo(() => {
     const optimisticServerIds = new Set(
-      optimisticMessages.flatMap(({ serverMessageId }) =>
-        serverMessageId ? [serverMessageId] : []
-      )
+      channelSends.flatMap(({ acceptedMessage }) => (acceptedMessage ? [acceptedMessage.id] : []))
     );
     const authoritativeById = new Map(messages.map((message) => [message.id, message] as const));
     return [
       ...messages
         .filter((message) => !optimisticServerIds.has(message.id))
         .map((message) => ({
-          renderKey: message.id,
+          renderKey: messageRenderKey(message),
           message,
           pending: false,
           animateEntrance: enteringMessageIds.has(message.id),
+          delivery: null,
         })),
-      ...optimisticMessages.map((optimistic) => ({
-        renderKey: optimistic.localId,
+      ...channelSends.map((delivery) => ({
+        renderKey: durableSendRenderKey(delivery),
         message:
-          (optimistic.serverMessageId
-            ? authoritativeById.get(optimistic.serverMessageId)
-            : undefined) ?? optimistic.message,
-        pending: optimistic.pending,
+          (delivery.acceptedMessage
+            ? authoritativeById.get(delivery.acceptedMessage.id)
+            : undefined) ?? durableSendMessage(delivery),
+        pending: durableSendIsInFlight(delivery),
         animateEntrance: true,
+        delivery,
       })),
     ].sort(
       (left, right) =>
         new Date(left.message.createdAt).getTime() - new Date(right.message.createdAt).getTime() ||
         left.renderKey.localeCompare(right.renderKey)
     );
-  }, [enteringMessageIds, messages, optimisticMessages]);
+  }, [channelSends, enteringMessageIds, messages]);
   const messagesById = useMemo(
     () => new Map(visibleMessages.map(({ message }) => [message.id, message] as const)),
     [visibleMessages]
   );
+  useEffect(() => {
+    if (composerRecovery) return;
+    const recovery = channelRecoveries.find((record) => record.payload.isFork !== true);
+    if (!recovery) return;
+    if (recovery.payload.replyToMessageId && messagesById.has(recovery.payload.replyToMessageId)) {
+      setReplyTarget({ channelId: channel.id, messageId: recovery.payload.replyToMessageId });
+    }
+    setComposerRecovery({ id: recovery.nonce, payload: recovery.payload, durable: true });
+  }, [channel.id, channelRecoveries, composerRecovery, messagesById]);
   const messagesByAddress = useMemo(
     () =>
       new Map(
@@ -1349,9 +1738,50 @@ export const ChatPane = memo(function ChatPane({
     () => deriveThreads(visibleMessages.map(({ message }) => message)),
     [visibleMessages]
   );
+  const focusedThreadRootId = useMemo(() => {
+    if (!focusMessage) return null;
+    const target = messagesById.get(focusMessage.messageId);
+    if (!target || !isBranchedMessage(target)) return null;
+    for (const [rootId, thread] of threads) {
+      if (thread.replies.some((reply) => reply.id === target.id)) return rootId;
+    }
+    return null;
+  }, [focusMessage, messagesById, threads]);
+  useEffect(() => {
+    if (!focusedThreadRootId) return;
+    if (threadCloseTimer.current) window.clearTimeout(threadCloseTimer.current);
+    setThreadState({ rootId: focusedThreadRootId, open: true });
+  }, [focusMessage?.nonce, focusedThreadRootId]);
+  const mainMessageRecords = useMemo(
+    () =>
+      visibleMessages.filter(({ message }) => {
+        if (isBranchedMessage(message)) {
+          return message.id === focusMessage?.messageId && !focusedThreadRootId;
+        }
+        return !threadContextMessageIds?.has(message.id) || threads.has(message.id);
+      }),
+    [
+      focusMessage?.messageId,
+      focusedThreadRootId,
+      threadContextMessageIds,
+      threads,
+      visibleMessages,
+    ]
+  );
   const mainMessages = useMemo(
-    () => visibleMessages.filter(({ message }) => !isBranchedMessage(message)),
-    [visibleMessages]
+    () => mainMessageRecords.map(({ message }) => message),
+    [mainMessageRecords]
+  );
+  const visibleContextMessageIds = useMemo(() => {
+    const ids = new Set(searchContextMessageIds ?? []);
+    for (const message of mainMessages) {
+      if (threadContextMessageIds?.has(message.id)) ids.add(message.id);
+    }
+    return ids;
+  }, [mainMessages, searchContextMessageIds, threadContextMessageIds]);
+  const mainMessageIndexById = useMemo(
+    () => new Map(mainMessages.map((message, index) => [message.id, index] as const)),
+    [mainMessages]
   );
   const approvals = useMemo(
     () => conversationApprovals(runs, subagents, approvalsByRun),
@@ -1363,29 +1793,36 @@ export const ChatPane = memo(function ChatPane({
       approvals
         .filter(isPendingLocalApproval)
         .sort(
-          (left, right) =>
-            new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime()
+          (left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime()
         )
         .at(-1) ?? null,
     [approvals]
   );
   const timeline = useMemo(() => {
-    const ordered = mainMessages
-      .map(({ animateEntrance, message, pending, renderKey }) => ({
-        type: "message" as const,
-        id: renderKey,
-        createdAt: message.createdAt,
-        message,
-        animateEntrance,
-        pending,
-      }))
+    const ordered: MessageTimelineEntry[] = mainMessageRecords
+      .map(
+        ({ animateEntrance, delivery, message, pending, renderKey }): MessageTimelineEntry => ({
+          type: "message" as const,
+          id: renderKey,
+          createdAt: message.createdAt,
+          message,
+          animateEntrance,
+          pending,
+          delivery,
+        })
+      )
       .sort(
         (left, right) =>
           new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime() ||
           left.id.localeCompare(right.id)
       );
-    const messageTimeline =
+    const collapsed =
       channel.kind === "bot_dm" ? collapseA2ATimeline(ordered, (entry) => entry.message) : ordered;
+    const messageTimeline = addContextGaps(collapsed, (entry) =>
+      entry.type === "message"
+        ? visibleContextMessageIds.has(entry.message.id)
+        : entry.entries.some((candidate) => visibleContextMessageIds.has(candidate.message.id))
+    );
     return [
       ...messageTimeline,
       ...approvals.map((approval) => ({
@@ -1399,40 +1836,11 @@ export const ChatPane = memo(function ChatPane({
         new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime() ||
         left.id.localeCompare(right.id)
     );
-  }, [approvals, channel.kind, mainMessages]);
+  }, [approvals, channel.kind, mainMessageRecords, visibleContextMessageIds]);
   const replyingTo =
     replyTarget?.channelId === channel.id
       ? (messagesById.get(replyTarget.messageId) ?? null)
       : null;
-  useEffect(() => {
-    if (!focusMessage || !messagesById.has(focusMessage.messageId)) return;
-    const timer = window.setTimeout(() => {
-      const row = document.querySelector<HTMLElement>(
-        `[data-message-id="${CSS.escape(focusMessage.messageId)}"]`
-      );
-      if (!row) return;
-      const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-      row.scrollIntoView({
-        behavior: reduceMotion ? "auto" : "smooth",
-        block: "center",
-      });
-      if (!reduceMotion) {
-        row.animate(
-          [
-            { filter: "brightness(1)", transform: "translateZ(0)" },
-            { filter: "brightness(0.88)", transform: "translateZ(0)" },
-            { filter: "brightness(1)", transform: "translateZ(0)" },
-          ],
-          { duration: 760, easing: "cubic-bezier(0.22, 1, 0.36, 1)" }
-        );
-      }
-    }, 80);
-    return () => window.clearTimeout(timer);
-  }, [focusMessage, messagesById]);
-  useEffect(() => {
-    const timer = window.setInterval(() => setNow(new Date()), 60_000);
-    return () => window.clearInterval(timer);
-  }, []);
   const replyToMessage = useCallback(
     (message: ChannelMessageView) => {
       setReplyTarget({ channelId: channel.id, messageId: message.id });
@@ -1456,9 +1864,10 @@ export const ChatPane = memo(function ChatPane({
   );
   const reactToMessage = useCallback(
     (message: ChannelMessageView, emoji: string) => {
-      void mutate(() => api.reactToMessage(message.id, emoji));
+      if (!onReactMessage) return;
+      void onReactMessage(message.id, emoji).catch(() => undefined);
     },
-    [mutate]
+    [onReactMessage]
   );
   const mentionOptions = useMemo<MentionOption[]>(() => {
     const bots =
@@ -1491,77 +1900,77 @@ export const ChatPane = memo(function ChatPane({
       })),
     ];
   }, [botById, channel.kind, channel.members, selectedBot?.id]);
-  const submit = useCallback(
-    async (content: string, attachments: AssetRef[], options?: { richText?: string }) => {
-      const localId = `optimistic:${crypto.randomUUID()}`;
-      const optimistic: OptimisticMessage = {
-        localId,
-        pending: true,
-        serverMessageId: null,
-        message: {
-          id: localId,
-          sequence: localId,
-          channelId: channel.id,
-          sender: "user",
-          senderBotId: null,
-          sourceRunId: null,
-          content,
-          metadata: {
-            type: "text",
-            ...(attachments.length ? { attachments } : {}),
-            ...(replyingTo ? { replyTo: replyingTo.id } : {}),
-            ...(options?.richText ? { richText: options.richText } : {}),
-          },
-          createdAt: new Date().toISOString(),
-        },
-      };
-      setOptimisticMessages((current) => [...current, optimistic]);
-      try {
-        return await mutate(async () => {
-          const accepted =
-            channel.kind === "bot_dm" && selectedBot
-              ? await api.sendMessage(
-                  selectedBot.conversationId,
-                  content,
-                  attachments,
-                  replyingTo?.id,
-                  options
-                )
-              : await api.sendChannelMessage(
-                  channel.id,
-                  content,
-                  attachments,
-                  replyingTo?.id,
-                  options
-                );
-          setOptimisticMessages((current) =>
-            current.map((candidate) =>
-              candidate.localId === localId
-                ? {
-                    ...candidate,
-                    message: accepted.message,
-                    pending: false,
-                    serverMessageId: accepted.message.id,
-                  }
-                : candidate
-            )
-          );
-          return accepted;
-        });
-      } catch (error) {
-        setOptimisticMessages((current) =>
-          current.filter((candidate) => candidate.localId !== localId)
-        );
-        throw error;
+  const enqueueDurableSend = useCallback(
+    (
+      content: string,
+      attachments: AssetRef[],
+      replyToMessageId?: string,
+      options?: {
+        richText?: string;
+        isFork?: boolean;
+        stagedAttachments?: DurableSendPayload["stagedAttachments"];
       }
+    ) =>
+      sendController.enqueue({
+        target: {
+          channelId: channel.id,
+          conversationId:
+            channel.kind === "bot_dm" && selectedBot ? selectedBot.conversationId : null,
+        },
+        payload: {
+          content,
+          attachments,
+          ...(options?.stagedAttachments?.length
+            ? { stagedAttachments: options.stagedAttachments }
+            : {}),
+          ...(replyToMessageId ? { replyToMessageId } : {}),
+          ...(options?.richText ? { richText: options.richText } : {}),
+          ...(options?.isFork !== undefined ? { isFork: options.isFork } : {}),
+        },
+      }),
+    [channel.id, channel.kind, selectedBot, sendController]
+  );
+  const submit = useCallback(
+    (
+      content: string,
+      attachments: AssetRef[],
+      options?: {
+        richText?: string;
+        stagedAttachments?: DurableSendPayload["stagedAttachments"];
+      }
+    ) => enqueueDurableSend(content, attachments, replyingTo?.id, options),
+    [enqueueDurableSend, replyingTo?.id]
+  );
+  const resendDurableSend = useCallback(
+    async (nonce: string) => {
+      await sendController.resendFailed(nonce);
     },
-    [channel.id, channel.kind, mutate, replyingTo?.id, selectedBot]
+    [sendController]
+  );
+  const deleteDurableSend = useCallback(
+    async (nonce: string) => {
+      await sendController.deleteFailed(nonce);
+    },
+    [sendController]
+  );
+  const cancelDurableSend = useCallback(
+    async (nonce: string) => {
+      const payload = await sendController.cancelQueued(nonce);
+      if (!payload) return;
+      if (payload.replyToMessageId && messagesById.has(payload.replyToMessageId)) {
+        setReplyTarget({ channelId: channel.id, messageId: payload.replyToMessageId });
+      }
+      setComposerRecovery({ id: `${nonce}:${Date.now()}`, payload });
+    },
+    [channel.id, messagesById, sendController]
   );
   const botCanQueue = selectedBot && ["provisioning", "active"].includes(selectedBot.status);
   const onboardingInProgress = Boolean(
     selectedBot && ["pending", "queued", "running"].includes(selectedBot.onboardingStatus)
   );
-  const composerVisible = channel.kind !== "agent_dm" && !onboardingInProgress;
+  const canSend =
+    channel.kind !== "agent_dm" &&
+    (channel.kind === "bot_dm" ? Boolean(botCanQueue) : runtime.agent === "ready");
   const showThinkingIndicator = Boolean(
     activeRun && !hasPendingApproval && !(visibleMessages.length === 0 && onboardingInProgress)
   );
@@ -1571,31 +1980,32 @@ export const ChatPane = memo(function ChatPane({
     const transcriptTimeline = timeline.filter(
       (entry) => entry.type !== "approval" || !isPendingLocalApproval(entry.approval)
     );
-    return transcriptTimeline.length === 0
-      ? transcriptTimeline
-      : [
-          ...transcriptTimeline,
-          {
-            type: "thinking" as const,
-            id: "thinking-slot",
-            createdAt:
-              activeRun?.createdAt ?? transcriptTimeline.at(-1)?.createdAt ?? channel.createdAt,
-            phase: thinkingPhase,
-            bot: activeRun ? botById.get(activeRun.botId) : selectedBot,
-          },
-        ];
-  },
-    [activeRun, botById, channel.createdAt, selectedBot, thinkingPhase, timeline]
-  );
-  const transcriptBottomInset = composerVisible ? composerHeight + 24 : 4;
-  const canSend =
-    channel.kind !== "agent_dm" &&
-    (channel.kind === "bot_dm" ? Boolean(botCanQueue) : runtime.agent === "ready");
+    if (thinkingPhase === "hidden") return transcriptTimeline;
+    return [
+      ...transcriptTimeline,
+      {
+        type: "thinking" as const,
+        id: "thinking-slot",
+        createdAt:
+          activeRun?.createdAt ?? transcriptTimeline.at(-1)?.createdAt ?? channel.createdAt,
+        phase: thinkingPhase,
+        bot: activeRun ? botById.get(activeRun.botId) : selectedBot,
+      },
+    ];
+  }, [activeRun, botById, channel.createdAt, selectedBot, thinkingPhase, timeline]);
+  const focusedRenderedTimelineEntry = useMemo(() => {
+    if (!focusMessage || !messagesById.has(focusMessage.messageId)) return null;
+    const index = renderedTimeline.findIndex(
+      (entry) => entry.type === "message" && entry.message.id === focusMessage.messageId
+    );
+    return index < 0
+      ? null
+      : { index, messageId: focusMessage.messageId, nonce: focusMessage.nonce };
+  }, [focusMessage, messagesById, renderedTimeline]);
   const resolveApproval = useCallback(
     (approvalId: string, decision: ApprovalDecision) =>
       mutate(() => api.resolveApproval(approvalId, decision)).then((value) => {
-        const body =
-          value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+        const body = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
         const result =
           body.result && typeof body.result === "object"
             ? (body.result as Record<string, unknown>)
@@ -1606,254 +2016,236 @@ export const ChatPane = memo(function ChatPane({
       }),
     [mutate]
   );
-  useEffect(() => {
-    const dock = composerDockRef.current;
-    if (!(composerVisible && dock)) return;
-
-    const update = () => {
-      const nextHeight = dock.getBoundingClientRect().height;
-      if (nextHeight <= 0) return;
-      setComposerHeight((current) => (Math.abs(current - nextHeight) < 0.5 ? current : nextHeight));
-    };
-    const observer = new ResizeObserver(update);
-    observer.observe(dock);
-    update();
-    return () => observer.disconnect();
-  }, [channel.id, composerVisible]);
-  useEffect(() => {
-    if (!selectedBot || templateShareRequest?.botId !== selectedBot.id) return;
-    if (handledTemplateRequest.current === templateShareRequest.nonce) return;
-    handledTemplateRequest.current = templateShareRequest.nonce;
-    const existing = botTemplateFor(selectedBot.id);
-    if (existing?.status === "published") {
-      setTemplatePreview(existing);
-      return;
-    }
-    setTemplateFlow({ stage: "audience" });
-  }, [selectedBot, templateShareRequest]);
-  useEffect(() => {
-    setTemplateFlow((current) => {
-      if (storedTemplate) {
-        return current?.stage === "audience"
-          ? current
-          : { stage: "draft", template: storedTemplate };
-      }
-      return current?.stage === "draft" ? null : current;
-    });
-  }, [storedTemplate]);
-  useEffect(() => {
-    if (!templateFlow) return;
-    const frame = window.requestAnimationFrame(() => {
-      templateFlowRef.current?.scrollIntoView({
-        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
-        block: "end",
-      });
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [templateFlow]);
   return (
-    <div className="relative flex size-full min-h-0 flex-col bg-background">
-      <Conversation>
-        <ConversationTopDivider />
-        <ConversationContent
-          className="max-w-none gap-1 px-4 pt-10"
-          style={{ paddingBottom: transcriptBottomInset }}
-        >
-          {timeline.length === 0 && onboardingInProgress ? (
-            <>
-              <div className="flex justify-center pb-3 pt-[26.5px]">
-                <time
-                  className="select-none text-xs tabular-nums text-muted-foreground"
-                  dateTime={channel.createdAt}
-                >
-                  {formatIdleGapTimestamp(channel.createdAt, now)}
-                </time>
+    <div
+      className="relative flex size-full min-h-0 flex-col bg-background"
+      data-chat-drop-target=""
+      ref={fileDropTargetRef}
+    >
+      {active && (
+        <Conversation>
+          <ConversationTopDivider />
+          <ConversationContent
+            className="max-w-none gap-1 px-4 pt-10"
+            style={{ paddingBottom: 24 }}
+          >
+            {activityTruncated && (
+              <div
+                className="mx-auto mb-2 w-full max-w-[640px] rounded-lg border border-border bg-muted/45 px-3 py-2 text-xs text-muted-foreground"
+                role="status"
+              >
+                Older run details are summarized; active runs and pending approvals remain visible.
               </div>
-              <BotThinkingSlot bot={selectedBot} phase="visible" />
-            </>
-          ) : timeline.length === 0 ? (
-            <ConversationEmptyState
-              description={
-                channel.kind === "group"
-                  ? "One room, delivered to each bot in order."
-                  : "Messages wake the same durable Pi session."
-              }
-              icon={
-                channel.kind === "group" ? (
-                  <Users className="size-8" />
-                ) : (
-                  <MessageCircle className="size-8" />
-                )
-              }
-              title={channel.kind === "group" ? "Start the group" : "Start a conversation"}
-            />
-          ) : (
-            renderedTimeline.map((entry, index) => (
-              <Fragment key={`${entry.type}:${entry.id}`}>
-                {entry.type !== "thinking" &&
-                  shouldShowIdleGapTimestamp(
-                    renderedTimeline[index - 1]?.createdAt,
-                    entry.createdAt
-                  ) && (
-                    <div
-                      className={`flex justify-center pb-3 ${index === 0 ? "pt-[26.5px]" : "pt-6"}`}
-                    >
-                      <time
-                        className="select-none text-xs tabular-nums text-muted-foreground"
-                        dateTime={entry.createdAt}
-                      >
-                        {formatIdleGapTimestamp(entry.createdAt, now)}
-                      </time>
-                    </div>
-                  )}
-                {entry.type === "thinking" ? (
-                  <BotThinkingSlot bot={entry.bot} phase={entry.phase} />
-                ) : entry.type === "a2a" ? (
-                  <A2AActivityRow
-                    count={entry.entries.length}
-                    onOpen={
-                      entry.peerId && onOpenA2A
-                        ? (trigger) => onOpenA2A(entry.peerId as string, trigger)
-                        : undefined
-                    }
-                    peer={entry.peerId ? botById.get(entry.peerId) : undefined}
-                    peerName={entry.peerName ?? "another agent"}
-                  />
-                ) : entry.type === "approval" ? (
-                  <div
-                    className={
-                      isResolvedLocalApproval(entry.approval)
-                          ? "mt-2 w-full min-w-0"
-                          : "mr-auto mt-2 w-full min-w-0 max-w-[min(88%,520px,calc(100%-82px))]"
-                    }
+            )}
+            {threadContextTruncated && (
+              <div
+                className="mx-auto mb-2 w-full max-w-[640px] rounded-lg border border-border bg-muted/45 px-3 py-2 text-xs text-muted-foreground"
+                role="status"
+              >
+                Some older thread context is omitted. Open or search an older reply to load its
+                local thread window.
+              </div>
+            )}
+            {timeline.length === 0 && onboardingInProgress ? (
+              <>
+                <div className="flex justify-center pb-3 pt-[26.5px]">
+                  <time
+                    className="select-none text-xs tabular-nums text-muted-foreground"
+                    dateTime={channel.createdAt}
                   >
-                    <ApprovalCard
-                      approval={entry.approval}
-                      onResolve={(decision) => resolveApproval(entry.approval.id, decision)}
-                    />
-                  </div>
-                ) : (
-                  <MessageRow
-                    animateEntrance={entry.animateEntrance}
-                    canInteract={canSend && !entry.pending && entry.message.sender !== "system"}
-                    channel={channel}
-                    groupPosition={appendThinkingIndicatorToGroup(
-                      getMessageGroupPosition(
-                        mainMessages.map(({ message }) => message),
-                        mainMessages.findIndex(({ message }) => message.id === entry.message.id)
-                      ),
-                      (() => {
-                        const following = renderedTimeline[index + 1];
-                        return Boolean(
-                          thinkingMounted &&
-                            following?.type === "thinking" &&
-                            entry.message.sender === "agent" &&
-                            (!entry.message.senderBotId ||
-                              !following.bot?.id ||
-                              entry.message.senderBotId === following.bot.id)
-                        );
-                      })()
-                    )}
-                    message={entry.message}
-                    pending={entry.pending}
-                    onReact={reactToMessage}
-                    onReply={replyToMessage}
-                    onOpenThread={openThread}
-                    onOpenRoutine={onOpenRoutine}
-                    replyPreview={(() => {
-                      const preview = replyPreviewFor(
-                        entry.message,
-                        messagesById,
-                        messagesByAddress
-                      );
-                      if (!preview) return null;
-                      return {
-                        content:
-                          preview.content ||
-                          ("senderBotId" in preview && messageImages(preview).length > 0
-                            ? "Image"
-                            : ""),
-                        senderLabel: senderLabelFor(
-                          "senderBotId" in preview ? preview : { ...preview, senderBotId: null },
-                          botById
-                        ),
-                      };
-                    })()}
-                    separatedFromPrevious={(() => {
-                      const previous = renderedTimeline[index - 1];
-                      return Boolean(
-                        previous &&
-                          (previous.type !== "message" ||
-                            !messagesShareGroup(previous.message, entry.message)) &&
-                          !shouldShowIdleGapTimestamp(previous.createdAt, entry.message.createdAt)
-                      );
-                    })()}
-                    senderBot={
-                      entry.message.senderBotId ? botById.get(entry.message.senderBotId) : undefined
-                    }
-                    senderName={
-                      entry.message.senderBotId
-                        ? agentNameById.get(entry.message.senderBotId)
-                        : undefined
-                    }
-                    threadReplyCount={threads.get(entry.message.id)?.replies.length ?? 0}
-                  />
-                )}
-              </Fragment>
-            ))
-          )}
-          {templateFlow && selectedBot && (
-            <div
-              className="mt-2 flex flex-col gap-2 px-2 pb-1"
-              data-bot-template-flow=""
-              ref={templateFlowRef}
-            >
-              <div className="ml-auto max-w-[min(78%,520px)] rounded-[20px] bg-primary px-4 py-2.5 text-[14px] leading-5 text-primary-foreground">
-                {BOT_TEMPLATE_REQUEST}
-              </div>
-              <div className="mr-auto flex w-full max-w-[560px] items-end gap-2">
-                <BotAvatar bot={selectedBot} size="activity" />
-                <div className="min-w-0 flex-1">
-                  <div className="mb-1.5 text-[13px] leading-[18px] text-foreground-secondary">
-                    {templateFlow.stage === "audience"
-                      ? "I’ll make a shareable copy of this bot."
-                      : `${templateFlow.template.audience === "team" ? "Team" : "Public"} template ready.`}
-                  </div>
-                  {templateFlow.stage === "audience" ? (
-                    <TemplateAudienceQuestion
-                      onDismiss={() => setTemplateFlow(null)}
-                      onSelect={(audience) => {
-                        const template = createBotTemplateDraft(selectedBot, audience);
-                        setTemplateFlow({
-                          stage: "draft",
-                          template,
-                        });
-                      }}
-                    />
-                  ) : (
-                    <BotTemplateCard
-                      onChange={(template) => setTemplateFlow({ stage: "draft", template })}
-                      onView={() => setTemplatePreview(templateFlow.template)}
-                      template={templateFlow.template}
-                    />
-                  )}
+                    {formatIdleGapTimestamp(channel.createdAt, now)}
+                  </time>
                 </div>
-              </div>
-            </div>
-          )}
-        </ConversationContent>
-        <ConversationInitialBottom />
-        <ConversationNewMessageBottom
-          conversationId={channel.id}
-          messageCount={timeline.length}
-          showTail={thinkingMounted}
-        />
-        <ConversationScrollButton
-          bottomInset={composerVisible ? composerHeight + 8 : 8}
-          conversationId={channel.id}
-          messageCount={timeline.length}
-        />
-      </Conversation>
+                <BotThinkingSlot bot={selectedBot} phase="visible" />
+              </>
+            ) : timeline.length === 0 ? (
+              <ConversationEmptyState
+                description={
+                  channel.kind === "group"
+                    ? "One room, delivered to each bot in order."
+                    : "Messages wake the same durable Pi session."
+                }
+                icon={
+                  channel.kind === "group" ? (
+                    <Users className="size-8" />
+                  ) : (
+                    <MessageCircle className="size-8" />
+                  )
+                }
+                title={channel.kind === "group" ? "Start the group" : "Start a conversation"}
+              />
+            ) : (
+              <VirtualizedTimeline
+                conversationId={channel.id}
+                entries={renderedTimeline}
+                focus={focusedRenderedTimelineEntry}
+                hasOlder={hasOlder}
+                loadingOlder={loadingOlder}
+                onLoadOlder={onLoadOlder}
+                renderEntry={(entry, index) =>
+                  entry.type === "context_gap" ? (
+                    <div
+                      aria-label="Messages between this search context and the latest view are omitted"
+                      className="mx-auto my-2 flex w-full max-w-[640px] items-center gap-3 px-4 text-[11px] text-muted-foreground"
+                      role="separator"
+                    >
+                      <span className="h-px flex-1 bg-border" />
+                      <span>
+                        Messages between this search context and the latest view are omitted
+                      </span>
+                      <span className="h-px flex-1 bg-border" />
+                    </div>
+                  ) : (
+                    <Fragment>
+                      {entry.type !== "thinking" &&
+                        shouldShowIdleGapTimestamp(
+                          renderedTimeline[index - 1]?.createdAt,
+                          entry.createdAt
+                        ) && (
+                          <div
+                            className={`flex justify-center pb-3 ${index === 0 ? "pt-[26.5px]" : "pt-6"}`}
+                          >
+                            <time
+                              className="select-none text-xs tabular-nums text-muted-foreground"
+                              dateTime={entry.createdAt}
+                            >
+                              {formatIdleGapTimestamp(entry.createdAt, now)}
+                            </time>
+                          </div>
+                        )}
+                      {entry.type === "thinking" ? (
+                        <BotThinkingSlot bot={entry.bot} phase={entry.phase} />
+                      ) : entry.type === "a2a" ? (
+                        <A2AActivityRow
+                          count={entry.entries.length}
+                          onOpen={
+                            entry.peerId && onOpenA2A && selectedBot
+                              ? (trigger) =>
+                                  onOpenA2A(selectedBot.id, entry.peerId as string, trigger)
+                              : undefined
+                          }
+                          peer={entry.peerId ? botById.get(entry.peerId) : undefined}
+                          peerName={entry.peerName ?? "another agent"}
+                        />
+                      ) : entry.type === "approval" ? (
+                        <div
+                          className={
+                            isResolvedLocalApproval(entry.approval)
+                              ? "mt-2 w-full min-w-0"
+                              : "mr-auto mt-2 w-full min-w-0 max-w-[min(88%,520px,calc(100%-82px))]"
+                          }
+                        >
+                          <ApprovalCard
+                            approval={entry.approval}
+                            onResolve={(decision) => resolveApproval(entry.approval.id, decision)}
+                          />
+                        </div>
+                      ) : (
+                        <MessageRow
+                          animateEntrance={entry.animateEntrance}
+                          canInteract={
+                            canSend &&
+                            !entry.pending &&
+                            entry.delivery?.phase !== "failed" &&
+                            entry.message.sender !== "system"
+                          }
+                          channel={channel}
+                          groupPosition={appendThinkingIndicatorToGroup(
+                            getMessageGroupPosition(
+                              mainMessages,
+                              mainMessageIndexById.get(entry.message.id) ?? -1
+                            ),
+                            (() => {
+                              const following = renderedTimeline[index + 1];
+                              return Boolean(
+                                thinkingMounted &&
+                                  following?.type === "thinking" &&
+                                  entry.message.sender === "agent" &&
+                                  (!entry.message.senderBotId ||
+                                    !following.bot?.id ||
+                                    entry.message.senderBotId === following.bot.id)
+                              );
+                            })()
+                          )}
+                          message={entry.message}
+                          delivery={entry.delivery}
+                          pending={entry.pending}
+                          onCancelSend={cancelDurableSend}
+                          onDeleteSend={deleteDurableSend}
+                          onReact={reactToMessage}
+                          onReply={replyToMessage}
+                          onResendSend={resendDurableSend}
+                          onOpenThread={openThread}
+                          onOpenRoutine={onOpenRoutine}
+                          replyPreview={(() => {
+                            const preview = replyTargetFor(
+                              entry.message,
+                              messagesById,
+                              messagesByAddress
+                            );
+                            if (!preview) return null;
+                            return {
+                              content:
+                                preview.content ||
+                                (messageImages(preview).length > 0 ? "Image" : ""),
+                              senderLabel: messageSenderLabel(preview, botById),
+                            };
+                          })()}
+                          separatedFromPrevious={(() => {
+                            const previous = renderedTimeline[index - 1];
+                            return Boolean(
+                              previous &&
+                                (previous.type !== "message" ||
+                                  !messagesShareGroup(previous.message, entry.message)) &&
+                                !shouldShowIdleGapTimestamp(
+                                  previous.createdAt,
+                                  entry.message.createdAt
+                                )
+                            );
+                          })()}
+                          senderBot={
+                            entry.message.senderBotId
+                              ? botById.get(entry.message.senderBotId)
+                              : undefined
+                          }
+                          senderName={
+                            entry.message.senderBotId
+                              ? agentNameById.get(entry.message.senderBotId)
+                              : undefined
+                          }
+                          threadReplyCount={threads.get(entry.message.id)?.replies.length ?? 0}
+                        />
+                      )}
+                    </Fragment>
+                  )
+                }
+              />
+            )}
+            {templateShareRequest && selectedBot && (
+              <Suspense fallback={null}>
+                <BotTemplateConversationFlow
+                  bot={selectedBot}
+                  onSubmitPrompt={(content) => enqueueDurableSend(content, [])}
+                  request={templateShareRequest}
+                />
+              </Suspense>
+            )}
+          </ConversationContent>
+          <ConversationViewportAnchor
+            active={composerExpanded || pendingAttachmentCount > 0 || Boolean(pendingLocalApproval)}
+          />
+          <ConversationScrollButton
+            conversationId={channel.id}
+            latestEntryKey={
+              renderedTimeline.length > 0
+                ? `${renderedTimeline[renderedTimeline.length - 1]?.type}:${renderedTimeline[renderedTimeline.length - 1]?.id}`
+                : null
+            }
+            messageCount={renderedTimeline.length}
+            onScrollToNewest={onScrollToNewest}
+          />
+        </Conversation>
+      )}
       {channel.kind === "agent_dm" ? (
         <div className="a2a-exchange-footer mx-auto w-full max-w-[1040px] px-5 pb-4">
           <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
@@ -1871,11 +2263,7 @@ export const ChatPane = memo(function ChatPane({
           </div>
         </div>
       ) : onboardingInProgress ? null : (
-        <div
-          className="pointer-events-none absolute inset-x-0 bottom-0 z-[3]"
-          data-composer-dock=""
-          ref={composerDockRef}
-        >
+        <div className="relative z-[3] w-full shrink-0" data-composer-dock="">
           {pendingLocalApproval ? (
             <div
               className="pointer-events-auto relative z-[3] w-full min-w-0 px-4 pb-2"
@@ -1886,75 +2274,75 @@ export const ChatPane = memo(function ChatPane({
                 onResolve={(decision) => resolveApproval(pendingLocalApproval.id, decision)}
               />
             </div>
-          ) : null}
-          <PromptInput
-            disabled={!canSend}
-            docked
-            key={channel.id}
-            onCancelReply={() => setReplyTarget(null)}
-            assetUrl={api.assetUrl}
-            onUpload={api.uploadAsset}
-            mentionOptions={mentionOptions}
-            onSubmit={submit}
-            placeholder={
-              selectedBot?.status === "provisioning"
-                ? `Message ${channel.name} — it will be queued`
-                : runtime.agent !== "ready"
-                  ? channel.kind === "bot_dm"
-                    ? `Message ${channel.name} — it will be queued`
-                    : "Pi runtime is not ready"
-                  : `Message ${channel.name}`
-            }
-            reply={
-              replyingTo
-                ? {
-                    id: replyingTo.id,
-                    content:
-                      replyingTo.content || (messageImages(replyingTo).length > 0 ? "Image" : ""),
-                  }
-                : null
-            }
-          />
+          ) : (
+            <PromptInput
+              uploadCapabilities={capabilities.uploads}
+              disabled={!canSend}
+              docked
+              dropTargetRef={fileDropTargetRef}
+              key={channel.id}
+              recovery={composerRecovery}
+              onAttachmentsChange={setPendingAttachmentCount}
+              onCancelReply={() => setReplyTarget(null)}
+              onExpandedChange={setComposerExpanded}
+              onRecoveryApplied={() =>
+                setComposerRecovery((current) => (current?.durable ? current : null))
+              }
+              onRecoveryConsumed={async (nonce) => {
+                await sendController.acknowledgeRecovery(nonce);
+                setComposerRecovery((current) => (current?.id === nonce ? null : current));
+              }}
+              onSubmit={submit}
+              onStage={stageDesktopDeliveryFile}
+              onDiscardStages={discardDesktopDeliveryStages}
+              mentionOptions={mentionOptions}
+              placeholder={
+                selectedBot?.status === "provisioning"
+                  ? `Message ${channel.name} — it will be queued`
+                  : runtime.agent !== "ready"
+                    ? channel.kind === "bot_dm"
+                      ? `Message ${channel.name} — it will be queued`
+                      : "Pi runtime is not ready"
+                    : `Message ${channel.name}`
+              }
+              reply={
+                replyingTo
+                  ? {
+                      id: replyingTo.id,
+                      content:
+                        replyingTo.content || (messageImages(replyingTo).length > 0 ? "Image" : ""),
+                    }
+                  : null
+              }
+            />
+          )}
         </div>
       )}
       {threadState && messagesById.get(threadState.rootId) && (
         <ThreadTray
-          assetUrl={api.assetUrl}
           botById={botById}
+          deliveries={channelSends}
+          recoveries={channelRecoveries}
+          focusMessageId={focusedThreadRootId && focusMessage ? focusMessage.messageId : null}
           mentionOptions={mentionOptions}
           onClose={closeThread}
+          onCancelSend={(nonce) => sendController.cancelQueued(nonce)}
+          onDeleteSend={(nonce) => sendController.deleteFailed(nonce)}
+          onResendSend={(nonce) => sendController.resendFailed(nonce)}
+          onAcknowledgeRecovery={(nonce) => sendController.acknowledgeRecovery(nonce)}
           onSubmit={(content, attachments, options) => {
             const thread = threads.get(threadState.rootId);
             const replyTargetId = thread?.replies.at(-1)?.id ?? threadState.rootId;
-            return mutate(() =>
-              channel.kind === "bot_dm" && selectedBot
-                ? api.sendMessage(selectedBot.conversationId, content, attachments, replyTargetId, {
-                    ...options,
-                    isFork: true,
-                  })
-                : api.sendChannelMessage(channel.id, content, attachments, replyTargetId, {
-                    ...options,
-                    isFork: true,
-                  })
-            );
+            return enqueueDurableSend(content, attachments, replyTargetId, {
+              ...options,
+              isFork: true,
+            });
           }}
-          onUpload={api.uploadAsset}
+          onStage={stageDesktopDeliveryFile}
+          onDiscardStages={discardDesktopDeliveryStages}
           open={threadState.open}
           replies={threads.get(threadState.rootId)?.replies ?? []}
           root={messagesById.get(threadState.rootId) as ChannelMessageView}
-        />
-      )}
-      {templatePreview && (
-        <BotTemplateDetailsDialog
-          onChange={(template) => {
-            setTemplatePreview(template);
-            setTemplateFlow((current) =>
-              current?.stage === "draft" ? { stage: "draft", template } : current
-            );
-          }}
-          onOpenChange={(open) => !open && setTemplatePreview(null)}
-          open
-          template={templatePreview}
         />
       )}
     </div>

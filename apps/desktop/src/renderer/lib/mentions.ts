@@ -1,19 +1,11 @@
-export interface MentionOption {
-  id: string;
-  label: string;
-  handle: string;
-  color?: string;
-  icon?: string;
-  hasAvatar?: boolean;
-  updatedAt?: string;
-}
+export {
+  mentionHandleFor,
+  type MentionOption,
+} from "@openbot/product-core/mentions";
 
 export type MentionSegment =
   | { type: "text"; text: string }
   | { type: "mention"; id: string; label: string; handle: string };
-
-export const mentionHandleFor = (label: string): string =>
-  label.trim().replace(/\s+/g, "").toLocaleLowerCase("en-US");
 
 export const moveMentionSelection = (current: number, count: number, direction: -1 | 1): number =>
   count > 0 ? (current + direction + count) % count : 0;

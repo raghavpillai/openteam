@@ -4,6 +4,7 @@ import type { Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startHostBridge } from "../src/main/host-bridge";
+import { executeHostJob } from "../src/main/host-jobs";
 import { createPermissionSettingsStore } from "../src/main/permission-settings";
 
 const roots: string[] = [];
@@ -40,6 +41,7 @@ const bridge = async (review: "allow" | "block" = "allow") => {
       reason: review === "allow" ? "safe test command" : "requires confirmation",
       proposedRule: "Allow this test command",
     }),
+    runJob: executeHostJob,
   });
   servers.push(server);
   const address = server.address();

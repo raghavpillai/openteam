@@ -1,7 +1,6 @@
 import type { BotView } from "@openbot/contracts";
 
-// Keep the completed sharing flow dormant until template sharing is ready to ship.
-export const BOT_TEMPLATE_SHARING_ENABLED = false;
+export const BOT_TEMPLATE_SHARING_ENABLED = true;
 export const BOT_TEMPLATE_REQUEST =
   "Create a template of yourself that I can share with somebody else.";
 export const BOT_TEMPLATE_CHANGED_EVENT = "openbot:bot-template-changed";

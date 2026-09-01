@@ -122,6 +122,28 @@ describe("DesktopNotificationManager", () => {
     expect(badges).toEqual(["5"]);
   });
 
+  test("updates the visible channel badge without another roster snapshot", () => {
+    const badges: string[] = [];
+    const manager = new DesktopNotificationManager({
+      isFocused: () => true,
+      isSupported: () => true,
+      deliver: () => undefined,
+      setBadge: (label) => badges.push(label),
+    });
+    manager.sync({
+      agents: [
+        agent({ unreadCount: 3 }),
+        agent({ botId: "bot-2", channelId: "channel-2", unreadCount: 2 }),
+      ],
+    });
+
+    manager.setVisibleChannel("channel-1");
+    manager.setVisibleChannel("channel-2");
+    manager.setVisibleChannel(null);
+
+    expect(badges).toEqual(["5", "2", "3", "5"]);
+  });
+
   test("throttles repeated transition kinds per Bot for five seconds", () => {
     let now = 10_000;
     const delivered: string[] = [];
@@ -143,5 +165,26 @@ describe("DesktopNotificationManager", () => {
     manager.sync({ agents: [agent({ awaitingReason: null })] });
     manager.sync({ agents: [agent({ awaitingReason: "Third" })] });
     expect(delivered).toEqual(["agent-needs-input", "agent-needs-input"]);
+  });
+
+  test("prunes transition state when a Bot leaves the snapshot", () => {
+    const delivered: string[] = [];
+    const manager = new DesktopNotificationManager(
+      {
+        isFocused: () => false,
+        isSupported: () => true,
+        deliver: (event) => delivered.push(event.body),
+        setBadge: () => undefined,
+      },
+      () => 10_000
+    );
+
+    manager.sync({ agents: [agent()] });
+    manager.sync({ agents: [agent({ awaitingReason: "Before removal" })] });
+    manager.sync({ agents: [] });
+    manager.sync({ agents: [agent()] });
+    manager.sync({ agents: [agent({ awaitingReason: "After re-adding" })] });
+
+    expect(delivered).toEqual(["Before removal", "After re-adding"]);
   });
 });

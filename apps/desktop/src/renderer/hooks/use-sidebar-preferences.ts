@@ -1,48 +1,26 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  addSidebarUnread,
+  emptySidebarPreferences,
+  normalizeSidebarPreferences,
+  removeSidebarUnread,
+  toggleSidebarPinned,
+  toggleSidebarUnread,
+  type SidebarPreferences,
+  type SidebarSectionPreference,
+} from "@openbot/contracts/client-preferences";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../client/openbot-api";
 
 const STORAGE_KEY = "openbot:sidebar-preferences";
+const REMOTE_SAVE_DELAY_MS = 250;
 
 export const PINNED_GROUP_ID = "__pinned";
 export const UNASSIGNED_GROUP_ID = "__unassigned";
 
-export type SidebarSection = {
-  id: string;
-  name: string;
-  collapsed: boolean;
-};
+export type SidebarSection = SidebarSectionPreference;
+export type { SidebarPreferences } from "@openbot/contracts/client-preferences";
 
-export type SidebarPreferences = {
-  version: 2;
-  pinnedIds: string[];
-  unreadIds: string[];
-  unassignedCollapsed: boolean;
-  sections: SidebarSection[];
-  sectionByChannel: Record<string, string>;
-  channelOrderByGroup: Record<string, string[]>;
-};
-
-const EMPTY_PREFERENCES: SidebarPreferences = {
-  version: 2,
-  pinnedIds: [],
-  unreadIds: [],
-  unassignedCollapsed: false,
-  sections: [],
-  sectionByChannel: {},
-  channelOrderByGroup: {},
-};
-
-const stringArray = (value: unknown) =>
-  Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
-
-const stringRecord = (value: unknown) =>
-  value && typeof value === "object"
-    ? Object.fromEntries(
-        Object.entries(value).filter(
-          (entry): entry is [string, string] => typeof entry[1] === "string"
-        )
-      )
-    : {};
+const EMPTY_PREFERENCES = emptySidebarPreferences();
 
 function readPreferences(input?: unknown): SidebarPreferences {
   try {
@@ -50,66 +28,7 @@ function readPreferences(input?: unknown): SidebarPreferences {
       input === undefined
         ? (JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "null") as unknown)
         : input;
-    if (!value || typeof value !== "object") return EMPTY_PREFERENCES;
-    const record = value as Record<string, unknown>;
-    const pinnedIds = stringArray(record.pinnedIds);
-    const unreadIds = stringArray(record.unreadIds);
-    const storedMapping = stringRecord(record.sectionByChannel);
-
-    if (record.version === 2 && Array.isArray(record.sections)) {
-      const sections = record.sections.flatMap((section) => {
-        if (!section || typeof section !== "object") return [];
-        const candidate = section as Record<string, unknown>;
-        if (typeof candidate.id !== "string" || typeof candidate.name !== "string") return [];
-        return [
-          {
-            id: candidate.id,
-            name: candidate.name,
-            collapsed: candidate.collapsed === true,
-          },
-        ];
-      });
-      const sectionIds = new Set(sections.map((section) => section.id));
-      const channelOrderByGroup =
-        record.channelOrderByGroup && typeof record.channelOrderByGroup === "object"
-          ? Object.fromEntries(
-              Object.entries(record.channelOrderByGroup).map(([groupId, ids]) => [
-                groupId,
-                stringArray(ids),
-              ])
-            )
-          : {};
-      return {
-        version: 2,
-        pinnedIds,
-        unreadIds,
-        unassignedCollapsed: record.unassignedCollapsed === true,
-        sections,
-        sectionByChannel: Object.fromEntries(
-          Object.entries(storedMapping).filter(([, sectionId]) => sectionIds.has(sectionId))
-        ),
-        channelOrderByGroup,
-      };
-    }
-
-    const legacyNames = Array.from(new Set(Object.values(storedMapping)));
-    const sections = legacyNames.map((name, index) => ({
-      id: `legacy-section-${index}`,
-      name,
-      collapsed: false,
-    }));
-    const idByName = new Map(sections.map((section) => [section.name, section.id]));
-    return {
-      version: 2,
-      pinnedIds,
-      unreadIds,
-      unassignedCollapsed: false,
-      sections,
-      sectionByChannel: Object.fromEntries(
-        Object.entries(storedMapping).map(([channelId, name]) => [channelId, idByName.get(name)!])
-      ),
-      channelOrderByGroup: {},
-    };
+    return normalizeSidebarPreferences(value, EMPTY_PREFERENCES);
   } catch {
     return EMPTY_PREFERENCES;
   }
@@ -120,61 +39,54 @@ const withoutChannel = (orders: Record<string, string[]>, channelId: string) =>
     Object.entries(orders).map(([groupId, ids]) => [groupId, ids.filter((id) => id !== channelId)])
   );
 
-const withHostSettings = (
-  local: SidebarPreferences,
-  settings: {
-    pinnedAgentIds?: string[];
-    sidebarSections?: Array<{
-      id: string;
-      name: string;
-      agentIds: string[];
-      isCollapsed: boolean;
-    }>;
-  }
-): SidebarPreferences => {
-  const hostSections = settings.sidebarSections
-    ?.filter((section) => section.id !== "__agents__")
-    .map((section) => ({
-      id: section.id,
-      name: section.name,
-      collapsed: section.isCollapsed,
-    }));
-  const hostSectionIds = new Set(hostSections?.map((section) => section.id) ?? []);
-  return {
-    ...local,
-    ...(settings.pinnedAgentIds ? { pinnedIds: stringArray(settings.pinnedAgentIds) } : {}),
-    ...(hostSections
-      ? {
-          sections: hostSections,
-          sectionByChannel: Object.fromEntries(
-            (settings.sidebarSections ?? []).flatMap((section) =>
-              section.id === "__agents__" || !hostSectionIds.has(section.id)
-                ? []
-                : section.agentIds.map((agentId) => [agentId, section.id])
-            )
-          ),
-        }
-      : {}),
-  };
-};
-
 export function useSidebarPreferences() {
   const [preferences, setPreferences] = useState(readPreferences);
+  const pendingRemote = useRef<SidebarPreferences | null>(null);
+  const remoteTimer = useRef<number | null>(null);
+  const remoteSaving = useRef(false);
+  const localRevision = useRef(0);
+
+  const drainRemote = useCallback(async () => {
+    if (remoteSaving.current) return;
+    remoteSaving.current = true;
+    try {
+      while (pendingRemote.current) {
+        const next = pendingRemote.current;
+        pendingRemote.current = null;
+        await api.updateSidebarPreferences(next).catch(() => undefined);
+      }
+    } finally {
+      remoteSaving.current = false;
+    }
+  }, []);
+
+  const scheduleRemote = useCallback(
+    (next: SidebarPreferences) => {
+      pendingRemote.current = next;
+      if (remoteTimer.current !== null) window.clearTimeout(remoteTimer.current);
+      remoteTimer.current = window.setTimeout(() => {
+        remoteTimer.current = null;
+        void drainRemote();
+      }, REMOTE_SAVE_DELAY_MS);
+    },
+    [drainRemote]
+  );
 
   useEffect(() => {
     let cancelled = false;
+    const revisionAtStart = localRevision.current;
     void api
       .rootSettings()
       .then((result) => {
-        if (cancelled) return;
-        if (result.valid) {
-          const remote = withHostSettings(readPreferences(), result.settings);
+        if (cancelled || localRevision.current !== revisionAtStart) return;
+        if (result.valid && result.settings.sidebarPreferences) {
+          const remote = readPreferences(result.settings.sidebarPreferences);
           localStorage.setItem(STORAGE_KEY, JSON.stringify(remote));
           setPreferences(remote);
           return;
         }
         setPreferences((current) => {
-          void api.updateSidebarPreferences(current).catch(() => undefined);
+          scheduleRemote(current);
           return current;
         });
       })
@@ -182,64 +94,67 @@ export function useSidebarPreferences() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [scheduleRemote]);
 
-  const update = useCallback((change: (current: SidebarPreferences) => SidebarPreferences) => {
-    setPreferences((current) => {
-      const next = change(current);
-      if (next === current) return current;
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-      void api.updateSidebarPreferences(next).catch(() => undefined);
-      return next;
-    });
-  }, []);
+  useEffect(
+    () => () => {
+      if (remoteTimer.current !== null) window.clearTimeout(remoteTimer.current);
+      const final = pendingRemote.current;
+      pendingRemote.current = null;
+      if (final) void api.updateSidebarPreferences(final).catch(() => undefined);
+    },
+    []
+  );
+
+  const update = useCallback(
+    (change: (current: SidebarPreferences) => SidebarPreferences) => {
+      setPreferences((current) => {
+        const next = change(current);
+        if (next === current) return current;
+        localRevision.current += 1;
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+        scheduleRemote(next);
+        return next;
+      });
+    },
+    [scheduleRemote]
+  );
 
   const togglePinned = useCallback(
     (channelId: string) => {
-      update((current) => ({
-        ...current,
-        pinnedIds: current.pinnedIds.includes(channelId)
-          ? current.pinnedIds.filter((id) => id !== channelId)
-          : [...current.pinnedIds, channelId],
-      }));
+      update((current) => toggleSidebarPinned(current, channelId));
     },
     [update]
   );
 
   const toggleUnread = useCallback(
     (channelId: string) => {
-      update((current) => ({
-        ...current,
-        unreadIds: current.unreadIds.includes(channelId)
-          ? current.unreadIds.filter((id) => id !== channelId)
-          : [...current.unreadIds, channelId],
-      }));
+      update((current) => toggleSidebarUnread(current, channelId));
     },
     [update]
   );
 
   const markRead = useCallback(
     (channelId: string) => {
-      update((current) =>
-        current.unreadIds.includes(channelId)
-          ? {
-              ...current,
-              unreadIds: current.unreadIds.filter((id) => id !== channelId),
-            }
-          : current
-      );
+      update((current) => removeSidebarUnread(current, [channelId]));
     },
+    [update]
+  );
+
+  const markReadMany = useCallback(
+    (channelIds: Iterable<string>) => update((current) => removeSidebarUnread(current, channelIds)),
     [update]
   );
 
   const markUnread = useCallback(
     (channelId: string) => {
-      update((current) =>
-        current.unreadIds.includes(channelId)
-          ? current
-          : { ...current, unreadIds: [...current.unreadIds, channelId] }
-      );
+      update((current) => addSidebarUnread(current, [channelId]));
     },
+    [update]
+  );
+
+  const markUnreadMany = useCallback(
+    (channelIds: Iterable<string>) => update((current) => addSidebarUnread(current, channelIds)),
     [update]
   );
 
@@ -408,7 +323,9 @@ export function useSidebarPreferences() {
       createSection,
       deleteSection,
       markRead,
+      markReadMany,
       markUnread,
+      markUnreadMany,
       moveChannel,
       moveSection,
       moveToSection,
@@ -428,7 +345,9 @@ export function useSidebarPreferences() {
       createSection,
       deleteSection,
       markRead,
+      markReadMany,
       markUnread,
+      markUnreadMany,
       moveChannel,
       moveSection,
       moveToSection,

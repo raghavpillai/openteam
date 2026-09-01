@@ -61,7 +61,7 @@ describe("A2A timeline events", () => {
     });
   });
 
-  test("keeps a nearby ping and ACK together across visible status updates", () => {
+  test("keeps a visible status update between separate nearby A2A events", () => {
     const first = entry(projected("1", "outgoing", 0));
     const ordinary = {
       type: "task" as const,
@@ -72,8 +72,9 @@ describe("A2A timeline events", () => {
     const collapsed = collapseA2ATimeline([first, ordinary, afterActivity], (candidate) =>
       "message" in candidate ? candidate.message : null
     );
-    expect(collapsed.map((candidate) => candidate.type)).toEqual(["a2a", "task"]);
-    expect(collapsed[0]).toMatchObject({ entries: [first, afterActivity] });
+    expect(collapsed.map((candidate) => candidate.type)).toEqual(["a2a", "task", "a2a"]);
+    expect(collapsed[0]).toMatchObject({ entries: [first] });
+    expect(collapsed[2]).toMatchObject({ entries: [afterActivity] });
   });
 
   test("does not merge different peers or idle gaps", () => {

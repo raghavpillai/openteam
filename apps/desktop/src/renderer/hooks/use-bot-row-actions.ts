@@ -5,6 +5,7 @@ import type { BotRowAction } from "../components/openbot/sidebar";
 import type { OpenBotMutation } from "../state/use-openbot";
 
 export type InspectorMode = "summary" | "settings" | "routine";
+type SupportedBotRowAction = BotRowAction | "shareAsTemplate";
 
 export function useBotRowActions(options: {
   mutate: OpenBotMutation;
@@ -22,7 +23,7 @@ export function useBotRowActions(options: {
   } | null>(null);
 
   const handleBotRowAction = useCallback(
-    (bot: BotView, action: BotRowAction) => {
+    (bot: BotView, action: SupportedBotRowAction) => {
       if (action === "togglePin") {
         options.togglePinned(bot.dmChannelId);
         return;

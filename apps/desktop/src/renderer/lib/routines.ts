@@ -1,3 +1,37 @@
+import type { RoutineExecutionView, RoutineView } from "@openbot/contracts";
+import {
+  formatRoutineExecutionCalendarTime,
+  routineOrdinalLabel,
+} from "@openbot/product-core/routines";
+import { isTransientRoutineExecutionStatus } from "@openbot/product-core/statuses";
+
+export type { RoutineExecutionView, RoutineView } from "@openbot/contracts";
+
+/**
+ * The routine summary refreshes while it is visible. Preserve the current
+ * array when none of the fields that can change the visible rows changed, so
+ * a poll does not rebuild a large list every three seconds.
+ */
+export const routineSummaryProjectionEqual = (
+  current: RoutineView[] | null,
+  next: RoutineView[]
+): boolean =>
+  current !== null &&
+  current.length === next.length &&
+  current.every((routine, index) => {
+    const candidate = next[index];
+    return (
+      candidate !== undefined &&
+      routine.id === candidate.id &&
+      routine.revision === candidate.revision &&
+      routine.name === candidate.name &&
+      routine.enabled === candidate.enabled &&
+      routine.schedule === candidate.schedule &&
+      routine.latestExecution?.id === candidate.latestExecution?.id &&
+      routine.latestExecution?.status === candidate.latestExecution?.status
+    );
+  });
+
 export type RoutineSchedulePreset =
   | "hourly"
   | "daily"
@@ -7,28 +41,6 @@ export type RoutineSchedulePreset =
   | "interval"
   | "advanced"
   | "custom";
-
-export interface RoutineExecutionView {
-  id: string;
-  routineId: string;
-  runId: string | null;
-  kind: "scheduled" | "test";
-  status:
-    | "queued"
-    | "running"
-    | "waiting_approval"
-    | "completed"
-    | "failed"
-    | "cancelled"
-    | "skipped";
-  scheduledFor: string;
-  enqueuedAt: string | null;
-  startedAt: string | null;
-  completedAt: string | null;
-  skipReason: string | null;
-  error: unknown;
-  createdAt: string;
-}
 
 export const formatRoutineExecutionTime = (
   execution: RoutineExecutionView,
@@ -42,50 +54,8 @@ export const formatRoutineExecutionTime = (
     return `${Math.floor(elapsed / 60_000)} min ago`;
   }
 
-  const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const startThen = new Date(when.getFullYear(), when.getMonth(), when.getDate());
-  const calendarDays = Math.round((startToday.getTime() - startThen.getTime()) / 86_400_000);
-  const time = when.toLocaleTimeString(locale, { hour: "numeric", minute: "2-digit" });
-  if (calendarDays === 0) return `Today at ${time}`;
-  if (calendarDays === 1) return `Yesterday at ${time}`;
-  if (calendarDays > 1 && calendarDays < 7) {
-    const weekday = when.toLocaleDateString(locale, { weekday: "long" });
-    return `Last ${weekday} at ${time}`;
-  }
-  return when.toLocaleString(locale, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
+  return formatRoutineExecutionCalendarTime(execution, now, locale);
 };
-
-export interface RoutineView {
-  id: string;
-  folder: string;
-  ownerId: string;
-  ownerKind: "bot" | "group";
-  botId: string | null;
-  channelId: string | null;
-  name: string;
-  prompt: string;
-  schedule: string;
-  schedules: string[];
-  scheduleKind: "cron" | "interval" | "event";
-  cronExpression: string | null;
-  intervalSeconds: number | null;
-  timezone: string;
-  timezoneMode: string;
-  enabled: boolean;
-  revision: number;
-  nextRunAt: string | null;
-  lastRunAt: string | null;
-  createdAt: string;
-  updatedAt: string;
-  latestExecution: RoutineExecutionView | null;
-  trigger?: unknown;
-  triggerPresentation: unknown;
-}
 
 export interface RoutineScheduleDraft {
   preset: RoutineSchedulePreset;
@@ -405,7 +375,7 @@ export const describeRoutineSchedule = (draft: RoutineScheduleDraft): string => 
     case "weekly":
       return `Every ${WEEKDAYS[draft.weekDay] ?? "Monday"} at ${formatTime(draft.time)}`;
     case "monthly":
-      return `Monthly on the ${ordinal(draft.monthDay)} at ${formatTime(draft.time)}`;
+      return `Monthly on the ${routineOrdinalLabel(draft.monthDay)} at ${formatTime(draft.time)}`;
     case "interval":
       return `Every ${draft.intervalAmount} ${unitLabel(draft.intervalUnit, draft.intervalAmount)}`;
     case "advanced": {
@@ -415,7 +385,7 @@ export const describeRoutineSchedule = (draft: RoutineScheduleDraft): string => 
           return `Every ${WEEKDAYS[draft.advancedWeekDays[0] ?? 1] ?? "Monday"} at ${time}`;
         }
         if (draft.advancedDayMode === "month-days" && draft.advancedMonthDays.length === 1) {
-          return `Monthly on the ${ordinal(draft.advancedMonthDays[0] ?? 1)} at ${time}`;
+          return `Monthly on the ${routineOrdinalLabel(draft.advancedMonthDays[0] ?? 1)} at ${time}`;
         }
         if (draft.advancedDayMode === "every-day") return `Every day at ${time}`;
       }
@@ -431,7 +401,7 @@ export const describeRoutineSchedule = (draft: RoutineScheduleDraft): string => 
         return `${cadence} on ${days.join(", ")}`;
       }
       if (draft.advancedDayMode === "month-days") {
-        return `${cadence} on the ${draft.advancedMonthDays.map(ordinal).join(", ")}`;
+        return `${cadence} on the ${draft.advancedMonthDays.map(routineOrdinalLabel).join(", ")}`;
       }
       return cadence;
     }
@@ -454,25 +424,9 @@ const unitLabel = (unit: RoutineScheduleDraft["intervalUnit"], amount: number) =
   return amount === 1 ? label : `${label}s`;
 };
 
-const ordinal = (value: number) => {
-  const mod100 = value % 100;
-  const suffix =
-    mod100 >= 11 && mod100 <= 13
-      ? "th"
-      : value % 10 === 1
-        ? "st"
-        : value % 10 === 2
-          ? "nd"
-          : value % 10 === 3
-            ? "rd"
-            : "th";
-  return `${value}${suffix}`;
-};
-
 export const routineIsRunning = (routine: RoutineView): boolean =>
   Boolean(
-    routine.latestExecution &&
-      ["queued", "running", "waiting_approval"].includes(routine.latestExecution.status)
+    routine.latestExecution && isTransientRoutineExecutionStatus(routine.latestExecution.status)
   );
 
 export const routineDraftValid = (input: {

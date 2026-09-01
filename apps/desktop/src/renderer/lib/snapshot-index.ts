@@ -9,102 +9,22 @@ import type {
   RunView,
   SubagentActivityView,
 } from "@openbot/contracts";
+import {
+  createSnapshotIndex,
+  indexA2AAgentNames,
+  type SnapshotIndex,
+  selectActiveRun,
+} from "@openbot/product-core/snapshot";
+import { ACTIVE_RUN_STATUSES } from "@openbot/product-core/statuses";
 import { useMemo, useRef } from "react";
 
-export const ACTIVE_RUN_STATUSES = new Set(["queued", "running", "waiting_approval"]);
-
-const activeRunRank = (run: RunView): number => (run.status === "queued" ? 1 : 2);
-
-const selectActiveRun = (active: Map<string, RunView>, run: RunView): void => {
-  if (!run.channelId || !ACTIVE_RUN_STATUSES.has(run.status)) return;
-  const current = active.get(run.channelId);
-  if (!current || activeRunRank(run) >= activeRunRank(current)) {
-    active.set(run.channelId, run);
-  }
-};
-
-export interface SnapshotIndex {
-  botById: ReadonlyMap<string, BotView>;
-  agentNameById: ReadonlyMap<string, string>;
-  channelById: ReadonlyMap<string, ChannelView>;
-  messagesByChannel: ReadonlyMap<string, ChannelMessageView[]>;
-  runsByChannel: ReadonlyMap<string, RunView[]>;
-  itemsByRun: ReadonlyMap<string, RunItemView[]>;
-  approvalsByRun: ReadonlyMap<string, ApprovalView[]>;
-  subagentsByChannel: ReadonlyMap<string, SubagentActivityView[]>;
-  roundsByChannel: ReadonlyMap<string, ChannelRoundView[]>;
-  latestMessageByChannel: ReadonlyMap<string, ChannelMessageView>;
-  activeRunByChannel: ReadonlyMap<string, RunView>;
-}
+export { ACTIVE_RUN_STATUSES, createSnapshotIndex, type SnapshotIndex };
 
 const append = <T>(map: Map<string, T[]>, key: string, value: T) => {
   const existing = map.get(key);
   if (existing) existing.push(value);
   else map.set(key, [value]);
 };
-
-const appendA2AAgentNames = (
-  names: Map<string, string>,
-  metadata: ChannelMessageView["metadata"]
-) => {
-  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return;
-  for (const key of ["fromAgent", "toAgent"] as const) {
-    const agent = (metadata as Record<string, unknown>)[key];
-    if (!agent || typeof agent !== "object" || Array.isArray(agent)) continue;
-    const { id, name } = agent as Record<string, unknown>;
-    if (typeof id === "string" && typeof name === "string") names.set(id, name);
-  }
-};
-
-const indexA2AAgentNames = (messages: ChannelMessageView[]) => {
-  const names = new Map<string, string>();
-  for (const message of messages) appendA2AAgentNames(names, message.metadata);
-  return names;
-};
-
-export function createSnapshotIndex(snapshot: ClientSnapshot): SnapshotIndex {
-  const botById = new Map(snapshot.bots.map((bot) => [bot.id, bot]));
-  const agentNameById = indexA2AAgentNames(snapshot.channelMessages);
-  const channelById = new Map(snapshot.channels.map((channel) => [channel.id, channel]));
-  const messagesByChannel = new Map<string, ChannelMessageView[]>();
-  const runsByChannel = new Map<string, RunView[]>();
-  const itemsByRun = new Map<string, RunItemView[]>();
-  const approvalsByRun = new Map<string, ApprovalView[]>();
-  const subagentsByChannel = new Map<string, SubagentActivityView[]>();
-  const roundsByChannel = new Map<string, ChannelRoundView[]>();
-  const latestMessageByChannel = new Map<string, ChannelMessageView>();
-  const activeRunByChannel = new Map<string, RunView>();
-
-  for (const message of snapshot.channelMessages) {
-    append(messagesByChannel, message.channelId, message);
-    latestMessageByChannel.set(message.channelId, message);
-  }
-  for (const run of snapshot.runs) {
-    if (!run.channelId) continue;
-    append(runsByChannel, run.channelId, run);
-    selectActiveRun(activeRunByChannel, run);
-  }
-  for (const item of snapshot.runItems) append(itemsByRun, item.runId, item);
-  for (const approval of snapshot.approvals) append(approvalsByRun, approval.runId, approval);
-  for (const subagent of snapshot.subagents ?? []) {
-    append(subagentsByChannel, subagent.parentChannelId, subagent);
-  }
-  for (const round of snapshot.channelRounds) append(roundsByChannel, round.channelId, round);
-
-  return {
-    botById,
-    agentNameById,
-    channelById,
-    messagesByChannel,
-    runsByChannel,
-    itemsByRun,
-    approvalsByRun,
-    subagentsByChannel,
-    roundsByChannel,
-    latestMessageByChannel,
-    activeRunByChannel,
-  };
-}
 
 function stableGrouped<T extends { id: string }>(
   values: T[],
@@ -159,7 +79,19 @@ export function useSnapshotIndex(snapshot: ClientSnapshot | null): SnapshotIndex
   const subagents = snapshot?.subagents ?? EMPTY_SUBAGENTS;
   const channelRounds = snapshot?.channelRounds ?? EMPTY_ROUNDS;
   const botById = useMemo(() => new Map(bots.map((bot) => [bot.id, bot])), [bots]);
-  const agentNameById = useMemo(() => indexA2AAgentNames(channelMessages), [channelMessages]);
+  const previousAgentNames = useRef<ReadonlyMap<string, string> | undefined>(undefined);
+  const agentNameById = useMemo(() => {
+    const next = indexA2AAgentNames(channelMessages);
+    const previous = previousAgentNames.current;
+    if (
+      previous?.size === next.size &&
+      [...next].every(([id, name]) => previous.get(id) === name)
+    ) {
+      return previous;
+    }
+    previousAgentNames.current = next;
+    return next;
+  }, [channelMessages]);
   const channelById = useMemo(
     () => new Map(channels.map((channel) => [channel.id, channel])),
     [channels]

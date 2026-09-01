@@ -172,4 +172,35 @@ describe("sidebar grouping", () => {
       "older-but-reconciled",
     ]);
   });
+
+  test("keeps the exact pinned, custom-section, and unassigned display order", () => {
+    const rows = [
+      { channel: channel("unassigned", "2026-08-27T10:00:00.000Z") },
+      { channel: channel("second-old", "2026-08-27T11:00:00.000Z") },
+      { channel: channel("pinned-old", "2026-08-27T12:00:00.000Z") },
+      { channel: channel("first", "2026-08-27T13:00:00.000Z") },
+      { channel: channel("pinned-new", "2026-08-27T14:00:00.000Z") },
+      { channel: channel("second-new", "2026-08-27T15:00:00.000Z") },
+    ] satisfies SidebarChannelRow[];
+    const sections = [{ id: "first-section" }, { id: "second-section" }];
+    const groups = groupSidebarRows(rows, new Set(["pinned-old", "pinned-new"]), sections, {
+      first: "first-section",
+      "second-old": "second-section",
+      "second-new": "second-section",
+    });
+    const visibleOrder = [
+      ...groups.pinned,
+      ...sections.flatMap((section) => groups.bySection[section.id] ?? []),
+      ...groups.unassigned,
+    ].map((row) => row.channel.id);
+
+    expect(visibleOrder).toEqual([
+      "pinned-new",
+      "pinned-old",
+      "first",
+      "second-new",
+      "second-old",
+      "unassigned",
+    ]);
+  });
 });

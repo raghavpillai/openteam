@@ -16,10 +16,12 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   BOT_TEMPLATE_CHANGED_EVENT,
+  BOT_TEMPLATE_REQUEST,
   type BotTemplateAudience,
   type BotTemplateRecord,
   botTemplateFor,
   copyBotTemplateLink,
+  createBotTemplateDraft,
   deleteBotTemplate,
   publishBotTemplate,
   type TemplateBot,
@@ -168,7 +170,7 @@ export function TemplateAudienceQuestion({
       <div className="relative px-3 pb-2.5 pt-3">
         <div className="font-medium">Who should this template be for?</div>
         <p className="mt-0.5 pr-5 text-[12px] leading-[17px] text-muted-foreground">
-          Team templates can keep internal workflow details. Public ones stay generic.
+          Team stays inside your workspace. Public can be shared with anyone.
         </p>
         <button
           aria-label="Dismiss question"
@@ -183,7 +185,7 @@ export function TemplateAudienceQuestion({
         {(["team", "public"] as const).map((audience) => (
           <button
             aria-label={audience === "team" ? "Team" : "Public"}
-            className="flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-[13px] hover:bg-black/5 dark:hover:bg-white/5"
+            className="flex min-h-12 w-full items-center gap-2 rounded-lg px-2 text-left hover:bg-black/5 dark:hover:bg-white/5"
             key={audience}
             onClick={() => onSelect(audience)}
             type="button"
@@ -191,7 +193,16 @@ export function TemplateAudienceQuestion({
             <span className="grid size-4 place-items-center rounded bg-black/[0.06] text-[10px] text-muted-foreground dark:bg-white/10">
               {audience === "team" ? "A" : "B"}
             </span>
-            {audience === "team" ? "Team" : "Public"}
+            <span className="min-w-0">
+              <span className="block text-[13px] leading-[17px]">
+                {audience === "team" ? "Team" : "Public"}
+              </span>
+              <span className="block text-[11px] leading-[15px] text-muted-foreground">
+                {audience === "team"
+                  ? "People in your team can use it"
+                  : "Anyone with the link can use it"}
+              </span>
+            </span>
           </button>
         ))}
       </div>
@@ -407,6 +418,115 @@ export function BotTemplateSettingsFooter({ bot, onShare }: { bot: BotView; onSh
         open={detailsOpen}
         template={template}
       />
+    </>
+  );
+}
+
+export function BotTemplateConversationFlow({
+  bot,
+  onSubmitPrompt,
+  request,
+}: {
+  bot: BotView;
+  onSubmitPrompt: (content: string) => Promise<unknown>;
+  request: { botId: string; nonce: number };
+}) {
+  const [flow, setFlow] = useState<
+    { stage: "audience" } | { stage: "draft"; template: BotTemplateRecord } | null
+  >(null);
+  const [preview, setPreview] = useState<BotTemplateRecord | null>(null);
+  const handledRequest = useRef<number | null>(null);
+  const flowRef = useRef<HTMLDivElement | null>(null);
+  const storedTemplate = useBotTemplateRecord(bot.id);
+
+  useEffect(() => {
+    if (request.botId !== bot.id || handledRequest.current === request.nonce) return;
+    handledRequest.current = request.nonce;
+    const existing = botTemplateFor(bot.id);
+    if (existing?.status === "published") {
+      setPreview(existing);
+      setFlow(null);
+      return;
+    }
+    setFlow(null);
+    void onSubmitPrompt(BOT_TEMPLATE_REQUEST).then(
+      () => {
+        if (handledRequest.current === request.nonce) setFlow({ stage: "audience" });
+      },
+      () => undefined
+    );
+  }, [bot.id, onSubmitPrompt, request]);
+
+  useEffect(() => {
+    setFlow((current) => {
+      if (storedTemplate) {
+        return current?.stage === "audience"
+          ? current
+          : { stage: "draft", template: storedTemplate };
+      }
+      return current?.stage === "draft" ? null : current;
+    });
+  }, [storedTemplate]);
+
+  useEffect(() => {
+    if (!flow) return;
+    const frame = window.requestAnimationFrame(() => {
+      flowRef.current?.scrollIntoView({
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+        block: "end",
+      });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [flow]);
+
+  return (
+    <>
+      {flow && (
+        <div className="mt-2 flex flex-col gap-2 px-2 pb-1" data-bot-template-flow="" ref={flowRef}>
+          <div className="mr-auto flex w-full max-w-[560px] items-end gap-2">
+            <div aria-label={`${bot.name} is working`} role="status">
+              <BotAvatar bot={bot} size="activity" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="mb-1.5 text-[13px] leading-[18px] text-foreground-secondary">
+                {flow.stage === "audience"
+                  ? "I’ll pull together a shareable template of this bot."
+                  : `${flow.template.audience === "team" ? "Team" : "Public"} template ready.`}
+              </div>
+              {flow.stage === "audience" ? (
+                <TemplateAudienceQuestion
+                  onDismiss={() => setFlow(null)}
+                  onSelect={(audience) => {
+                    setFlow({
+                      stage: "draft",
+                      template: createBotTemplateDraft(bot, audience),
+                    });
+                  }}
+                />
+              ) : (
+                <BotTemplateCard
+                  onChange={(template) => setFlow({ stage: "draft", template })}
+                  onView={() => setPreview(flow.template)}
+                  template={flow.template}
+                />
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+      {preview && (
+        <BotTemplateDetailsDialog
+          onChange={(template) => {
+            setPreview(template);
+            setFlow((current) =>
+              current?.stage === "draft" ? { stage: "draft", template } : current
+            );
+          }}
+          onOpenChange={(open) => !open && setPreview(null)}
+          open
+          template={preview}
+        />
+      )}
     </>
   );
 }

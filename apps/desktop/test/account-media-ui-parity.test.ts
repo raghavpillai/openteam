@@ -3,13 +3,12 @@ import { describe, expect, test } from "bun:test";
 const read = async (path: string) => Bun.file(new URL(path, import.meta.url)).text();
 
 describe("Grok account and media UI parity guards", () => {
-  test("keeps the source-verified account actions in Grok's menu order", async () => {
+  test("keeps the applicable account actions in Grok's menu order", async () => {
     const source = await read("../src/renderer/components/openbot/sidebar.tsx");
     const menuStart = source.indexOf("<DropdownMenuContent");
     const menuEnd = source.indexOf("</DropdownMenuContent>", menuStart);
     const menu = source.slice(menuStart, menuEnd);
     const labels = [
-      "Weekly usage",
       "Get OpenBot for iOS",
       "Settings",
       "About",
@@ -20,9 +19,9 @@ describe("Grok account and media UI parity guards", () => {
     const offsets = labels.map((label) => menu.indexOf(label));
     expect(offsets.every((offset) => offset >= 0)).toBe(true);
     expect(offsets).toEqual([...offsets].sort((left, right) => left - right));
+    expect(menu).not.toContain("Weekly usage");
     expect(source).toContain("New update available");
     expect(source).toContain("openbot?.updates.openDownload()");
-    expect(source).toContain("openbot:deep-link");
   });
 
   test("keeps source-verified Grok dialog and file-viewer geometry", async () => {
@@ -39,6 +38,7 @@ describe("Grok account and media UI parity guards", () => {
     expect(settings).toContain('surface="transparent"');
     expect(settings).toContain("dark:bg-[#070707]");
     expect(settings).toContain("dark:bg-[#111111]");
+    expect(settings).toContain('aria-label="Close"');
     expect(plugins).toContain("h-[min(700px,calc(100vh-96px))]");
     expect(plugins).toContain("w-[min(1000px,calc(100vw-40px))]");
     expect(plugins).toContain('surface={page === "detail" ? "transparent" : "modal"}');
@@ -57,16 +57,19 @@ describe("Grok account and media UI parity guards", () => {
   });
 
   test("keeps document previews, download-all, and media navigation wired", async () => {
-    const [attachment, chat, image, response] = await Promise.all([
+    const [attachment, docxParser, tableParser, chat, image, response] = await Promise.all([
       read("../src/renderer/components/openbot/file-attachment.tsx"),
+      read("../src/renderer/components/openbot/document-preview-docx-parser.ts"),
+      read("../src/renderer/components/openbot/document-preview-spreadsheet-parser.ts"),
       read("../src/renderer/components/openbot/chat-pane.tsx"),
       read("../src/renderer/components/openbot/image-attachment.tsx"),
       read("../src/renderer/components/ai-elements/message-response-config.tsx"),
     ]);
 
     expect(attachment).toContain('import("pdfjs-dist")');
-    expect(attachment).toContain('import("mammoth")');
-    expect(attachment).toContain('import("xlsx")');
+    expect(attachment).toContain("parseDocumentPreview(kind, buffer, controller.signal)");
+    expect(docxParser).toContain('import("mammoth")');
+    expect(tableParser).toContain('import("xlsx")');
     expect(attachment).toContain("<audio className");
     expect(attachment).toContain("<video className");
     expect(chat).toContain("Download all");
@@ -80,15 +83,25 @@ describe("Grok account and media UI parity guards", () => {
     expect(response).toContain("panZoom: true");
   });
 
-  test("keeps native bulk download and update IPC behind validated preload APIs", async () => {
-    const [main, preload] = await Promise.all([
+  test("keeps native media menus, bulk download, and update IPC behind Electron boundaries", async () => {
+    const [main, preload, image] = await Promise.all([
       read("../src/main/index.ts"),
       read("../src/preload/index.ts"),
+      read("../src/renderer/components/openbot/image-attachment.tsx"),
     ]);
+    expect(main).toContain('webContents.on("context-menu"');
+    expect(main).toContain('params.mediaType !== "image"');
+    expect(preload).not.toContain("openbot:image-context-menu");
+    expect(image).not.toContain("showImageContextMenu");
+    expect(image.match(/onContextMenu=\{\(event\) => event\.stopPropagation\(\)\}/g)).toHaveLength(
+      3
+    );
     expect(main).toContain('ipcMain.handle("openbot:files:download-all"');
     expect(main).toContain('ipcMain.handle("openbot:updates:check"');
     expect(main).toContain('ipcMain.handle("openbot:updates:open-download"');
+    expect(main).toContain('ipcMain.handle("openbot:updates:update-server"');
     expect(preload).toContain('ipcRenderer.invoke("openbot:files:download-all"');
     expect(preload).toContain('ipcRenderer.invoke("openbot:updates:check"');
+    expect(preload).toContain('ipcRenderer.invoke("openbot:updates:update-server"');
   });
 });

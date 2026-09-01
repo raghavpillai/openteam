@@ -4,15 +4,51 @@
     <meta charset="UTF-8" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: http://127.0.0.1:8787 http://localhost:8787; connect-src 'self' http://127.0.0.1:8787 http://localhost:8787; frame-src http://127.0.0.1:* http://localhost:*; font-src 'self' data:; worker-src 'self' blob:"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: openbot-staged: http://127.0.0.1:8787 http://localhost:8787; connect-src 'self' http://127.0.0.1:8787 http://localhost:8787; frame-src http://127.0.0.1:* http://localhost:*; font-src 'self' data:; worker-src 'self' blob:"
     />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="light dark" />
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 64 64%22><circle cx=%2232%22 cy=%2232%22 r=%2228%22 fill=%22%232563eb%22/><circle cx=%2232%22 cy=%2232%22 r=%228%22 fill=%22white%22/></svg>" />
     <title>OpenBot</title>
+    <style>
+      :root { --openbot-boot-background: #fbfbfb; --openbot-boot-ink: #111111; }
+      @media (prefers-color-scheme: dark) {
+        :root { --openbot-boot-background: #080808; --openbot-boot-ink: #f5f5f5; }
+      }
+      :root[data-theme="light"] { --openbot-boot-background: #fbfbfb; --openbot-boot-ink: #111111; }
+      :root[data-theme="dark"] { --openbot-boot-background: #080808; --openbot-boot-ink: #f5f5f5; }
+      html, body { margin: 0; background: var(--openbot-boot-background); }
+      #openbot-boot-shell {
+        position: fixed;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        background: var(--openbot-boot-background);
+        color: var(--openbot-boot-ink);
+      }
+      #openbot-boot-shell > svg {
+        opacity: 0;
+        animation: openbot-boot-reveal 300ms ease-out 180ms forwards;
+      }
+      #root:not(:empty) + #openbot-boot-shell { display: none; }
+      @keyframes openbot-boot-reveal { to { opacity: 1; } }
+      @media (prefers-reduced-motion: reduce) {
+        #openbot-boot-shell > svg { opacity: 1; animation: none; }
+      }
+    </style>
+    <script type="module" src="/src/renderer/boot-theme.ts"></script>
   </head>
   <body>
     <div id="root"></div>
+    <div id="openbot-boot-shell" aria-hidden="true">
+      <svg width="56" height="56" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg">
+        <path d="M15 2.8C10.4 3.5 5.1 7 2.3 12 .5 16.5.5 23.8 2.8 27.5 5 32 10.5 34.5 16.5 36.3c4.2 1.05 9.5 1.05 13.5-.2 5.8-2.4 7.6-7 8.4-11.4C39.1 19 36.5 12 32.5 7.5 30.3 3 25 1.5 15 2.8Z" fill="currentColor" />
+        <g fill="var(--openbot-boot-background)">
+          <rect height="6.4" rx="1.875" transform="rotate(-16 21.05 15.8)" width="3.75" x="19.075" y="12.6" />
+          <rect height="6.4" rx="1.45" transform="rotate(-16 31.7 14.5)" width="2.9" x="30.25" y="11.3" />
+        </g>
+      </svg>
+    </div>
     <script type="module" src="/src/renderer/index.tsx"></script>
   </body>
 </html>

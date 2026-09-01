@@ -8,7 +8,9 @@ import {
   routinePresentationValue,
   routineScheduleValue,
   routineScheduleValues,
+  routineSummaryProjectionEqual,
   routineTriggerValue,
+  type RoutineView,
 } from "../src/renderer/lib/routines";
 
 describe("Grok-compatible routine schedule editor", () => {
@@ -47,18 +49,18 @@ describe("Grok-compatible routine schedule editor", () => {
   });
 
   test("uses Grok's defaults and summary wording", () => {
-    expect(
-      describeRoutineSchedule({ ...DEFAULT_ROUTINE_SCHEDULE, preset: "weekly" })
-    ).toBe("Every Monday at 8:00 AM");
-    expect(
-      describeRoutineSchedule({ ...DEFAULT_ROUTINE_SCHEDULE, preset: "monthly" })
-    ).toBe("Monthly on the 1st at 8:00 AM");
-    expect(
-      describeRoutineSchedule({ ...DEFAULT_ROUTINE_SCHEDULE, preset: "interval" })
-    ).toBe("Every 30 minutes");
-    expect(
-      describeRoutineSchedule({ ...DEFAULT_ROUTINE_SCHEDULE, preset: "custom" })
-    ).toBe("Every 30 minutes");
+    expect(describeRoutineSchedule({ ...DEFAULT_ROUTINE_SCHEDULE, preset: "weekly" })).toBe(
+      "Every Monday at 8:00 AM"
+    );
+    expect(describeRoutineSchedule({ ...DEFAULT_ROUTINE_SCHEDULE, preset: "monthly" })).toBe(
+      "Monthly on the 1st at 8:00 AM"
+    );
+    expect(describeRoutineSchedule({ ...DEFAULT_ROUTINE_SCHEDULE, preset: "interval" })).toBe(
+      "Every 30 minutes"
+    );
+    expect(describeRoutineSchedule({ ...DEFAULT_ROUTINE_SCHEDULE, preset: "custom" })).toBe(
+      "Every 30 minutes"
+    );
     expect(
       describeRoutineSchedule({
         ...DEFAULT_ROUTINE_SCHEDULE,
@@ -111,5 +113,31 @@ describe("Grok-compatible routine schedule editor", () => {
         schedules: [{ ...presentation.schedules[0], time: "99:99" }],
       })
     ).toBeNull();
+  });
+
+  test("does not rebuild a large routine summary when a poll is visibly unchanged", () => {
+    const routine = {
+      id: "routine-1",
+      revision: 2,
+      name: "Audit",
+      enabled: true,
+      schedule: "0 9 * * 1-5",
+      latestExecution: {
+        id: "execution-1",
+        status: "completed",
+      },
+    } as unknown as RoutineView;
+    expect(routineSummaryProjectionEqual([routine], [{ ...routine }])).toBe(true);
+    expect(
+      routineSummaryProjectionEqual(
+        [routine],
+        [
+          {
+            ...routine,
+            latestExecution: { ...routine.latestExecution, status: "running" },
+          },
+        ]
+      )
+    ).toBe(false);
   });
 });

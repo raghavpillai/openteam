@@ -1,6 +1,8 @@
-import { writeFile } from "node:fs/promises";
+import { open, rename, unlink } from "node:fs/promises";
 import { hostname } from "node:os";
 import { extname, join } from "node:path";
+import { compareOpenBotVersions, isOpenBotVersion } from "@openbot/contracts/version-compatibility";
+import { safeErrorMessage } from "@openbot/product-core/redaction";
 import {
   app,
   BrowserWindow,
@@ -11,11 +13,22 @@ import {
   Notification,
   nativeTheme,
   net,
+  protocol,
+  safeStorage,
   shell,
 } from "electron";
+import type { AppUpdater } from "electron-updater";
+import { DesktopAuthTokenStore } from "./auth-token-store";
 import { resolveControlToken } from "./control-token";
+import {
+  MAX_IMAGE_SAVE_BYTES,
+  writeBytesFully,
+  writeDataUrlToFileAtomically,
+} from "./data-url-file";
+import { discardDeliveryFiles, readDeliveryFile, stageDeliveryFile } from "./delivery-file-stage";
 import { startHostBridge } from "./host-bridge";
 import { isAddressInUseError } from "./host-bridge-listener";
+import { HostJobManager } from "./host-job-manager";
 import type { AutoReviewMode, AutoReviewResult, HostAction } from "./host-permissions";
 import {
   type DesktopAgentNotificationState,
@@ -29,8 +42,15 @@ import {
   type PermissionSettings,
   type PermissionSettingsStore,
 } from "./permission-settings";
+import { ServerUpdater } from "./server-updater";
+import {
+  classifyDesktopUpdateError,
+  type DesktopUpdateSnapshot,
+  parseDesktopReleaseManifest,
+} from "./update-status";
 
 let mainWindow: BrowserWindow | null = null;
+let authTokenStore: DesktopAuthTokenStore | null = null;
 let permissionSettings: PermissionSettingsStore | null = null;
 let desktopNotifications: DesktopNotificationManager | null = null;
 const activeNotifications = new Set<Notification>();
@@ -38,43 +58,140 @@ const localMachine = { machineId: "this-computer", label: hostname() } as const;
 const windowBackground = () => (nativeTheme.shouldUseDarkColors ? "#080808" : "#fbfbfb");
 const releasePage = "https://github.com/raghavpillai/openbot/releases/latest";
 
-type DesktopUpdateSnapshot = {
-  currentVersion: string;
-  latestVersion: string | null;
-  downloadUrl: string;
-  status: "idle" | "checking" | "up-to-date" | "available" | "error";
-  message: string | null;
-};
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: "openbot-staged",
+    privileges: { standard: true, secure: true, supportFetchAPI: true },
+  },
+]);
 
 let desktopUpdateSnapshot: DesktopUpdateSnapshot = {
   currentVersion: app.getVersion(),
   latestVersion: null,
   downloadUrl: releasePage,
   status: "idle",
+  progress: null,
   message: null,
+  failureKind: null,
+  track: "stable",
 };
 
-const versionParts = (value: string) =>
-  value
-    .replace(/^v/i, "")
-    .split(".")
-    .slice(0, 3)
-    .map((part) => Number.parseInt(part, 10) || 0);
+let desktopUpdaterConfigured = false;
+let desktopUpdaterPromise: Promise<AppUpdater> | null = null;
+let desktopUpdateTimer: ReturnType<typeof setInterval> | null = null;
+const publishDesktopUpdate = (next: Partial<DesktopUpdateSnapshot>) => {
+  desktopUpdateSnapshot = { ...desktopUpdateSnapshot, ...next };
+  mainWindow?.webContents.send("openbot:desktop-update-progress", desktopUpdateSnapshot);
+};
 
-const isNewerVersion = (candidate: string, current: string) => {
-  const left = versionParts(candidate);
-  const right = versionParts(current);
-  for (let index = 0; index < 3; index += 1) {
-    if ((left[index] ?? 0) !== (right[index] ?? 0)) {
-      return (left[index] ?? 0) > (right[index] ?? 0);
+const loadDesktopUpdater = () => {
+  desktopUpdaterPromise ??= import("electron-updater").then((module) => module.autoUpdater);
+  return desktopUpdaterPromise;
+};
+
+const configureDesktopUpdater = async (): Promise<AppUpdater | null> => {
+  if (!app.isPackaged) return null;
+  const autoUpdater = await loadDesktopUpdater();
+  if (desktopUpdaterConfigured) return autoUpdater;
+  desktopUpdaterConfigured = true;
+  autoUpdater.autoDownload = false;
+  autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.disableWebInstaller = true;
+  autoUpdater.on("checking-for-update", () =>
+    publishDesktopUpdate({ status: "checking", progress: null, message: null, failureKind: null })
+  );
+  autoUpdater.on("update-available", (info) =>
+    publishDesktopUpdate({
+      status: "available",
+      latestVersion: info.version,
+      progress: null,
+      message: null,
+      failureKind: null,
+    })
+  );
+  autoUpdater.on("update-not-available", (info) =>
+    publishDesktopUpdate({
+      status: "up-to-date",
+      latestVersion: info.version,
+      progress: null,
+      message: "You’re up to date",
+      failureKind: null,
+    })
+  );
+  autoUpdater.on("download-progress", (progress) =>
+    publishDesktopUpdate({
+      status: "downloading",
+      progress: Math.max(0, Math.min(100, progress.percent)),
+      message: `Downloading ${Math.round(progress.percent)}%`,
+      failureKind: null,
+    })
+  );
+  autoUpdater.on("update-downloaded", (info) =>
+    publishDesktopUpdate({
+      status: "downloaded",
+      latestVersion: info.version,
+      progress: 100,
+      message: "Restart OpenBot to finish installing the update",
+      failureKind: null,
+    })
+  );
+  autoUpdater.on("error", (error) => {
+    const failure = classifyDesktopUpdateError(error, desktopUpdateSnapshot.status);
+    publishDesktopUpdate({ status: "error", progress: null, ...failure });
+  });
+  return autoUpdater;
+};
+
+const scheduleDesktopUpdateChecks = () => {
+  if (!app.isPackaged || desktopUpdateTimer) return;
+  const check = () => {
+    if (
+      ["checking", "downloading", "downloaded", "installing"].includes(desktopUpdateSnapshot.status)
+    ) {
+      return;
     }
-  }
-  return false;
+    void checkForDesktopUpdate().catch((error) =>
+      console.warn("Automatic desktop update check failed", safeErrorMessage(error))
+    );
+  };
+  const initial = setTimeout(check, 15_000);
+  initial.unref?.();
+  desktopUpdateTimer = setInterval(check, 6 * 60 * 60_000);
+  desktopUpdateTimer.unref?.();
 };
+
+const serverUpdater = new ServerUpdater({
+  cliPath: app.isPackaged
+    ? join(process.resourcesPath, "app.asar.unpacked", "dist-electron", "openbot-cli.js")
+    : join(import.meta.dirname, "openbot-cli.js"),
+  executablePath: process.execPath,
+  fetcher: (input, init) => net.fetch(input instanceof URL ? input.toString() : input, init),
+  onStatus: (status) => mainWindow?.webContents.send("openbot:server-update-progress", status),
+});
 
 const checkForDesktopUpdate = async (): Promise<DesktopUpdateSnapshot> => {
-  desktopUpdateSnapshot = { ...desktopUpdateSnapshot, status: "checking", message: null };
+  desktopUpdateSnapshot = {
+    ...desktopUpdateSnapshot,
+    status: "checking",
+    progress: null,
+    message: null,
+    failureKind: null,
+  };
   try {
+    if (app.isPackaged) {
+      const autoUpdater = await configureDesktopUpdater();
+      if (!autoUpdater) throw new Error("The desktop update service is unavailable");
+      const result = await autoUpdater.checkForUpdates();
+      if (!result) throw new Error("The desktop update service did not return a result");
+      desktopUpdateSnapshot = {
+        ...desktopUpdateSnapshot,
+        latestVersion: result.updateInfo.version,
+        status: result.isUpdateAvailable ? "available" : "up-to-date",
+        message: result.isUpdateAvailable ? null : "You’re up to date",
+        failureKind: null,
+      };
+      return desktopUpdateSnapshot;
+    }
     const manifestUrl =
       process.env.OPENBOT_UPDATE_MANIFEST_URL ??
       "https://api.github.com/repos/raghavpillai/openbot/releases/latest";
@@ -86,28 +203,32 @@ const checkForDesktopUpdate = async (): Promise<DesktopUpdateSnapshot> => {
         ...desktopUpdateSnapshot,
         latestVersion: null,
         status: "up-to-date",
+        progress: null,
         message: "No published desktop release is available yet.",
+        failureKind: null,
       };
       return desktopUpdateSnapshot;
     }
     if (!response.ok) throw new Error(`Update service returned ${response.status}`);
-    const result = (await response.json()) as Record<string, unknown>;
-    const latestVersion = String(result.tag_name ?? result.version ?? "").replace(/^v/i, "");
-    if (!latestVersion) throw new Error("Update service did not return a version");
-    const candidateUrl = String(result.html_url ?? result.url ?? releasePage);
-    const downloadUrl = candidateUrl.startsWith("https://") ? candidateUrl : releasePage;
+    const release = parseDesktopReleaseManifest(await response.json(), releasePage);
+    const updateAvailable = (compareOpenBotVersions(release.version, app.getVersion()) ?? 0) > 0;
     desktopUpdateSnapshot = {
       currentVersion: app.getVersion(),
-      latestVersion,
-      downloadUrl,
-      status: isNewerVersion(latestVersion, app.getVersion()) ? "available" : "up-to-date",
-      message: null,
+      latestVersion: release.version,
+      downloadUrl: release.downloadUrl,
+      status: updateAvailable ? "available" : "up-to-date",
+      progress: null,
+      message: updateAvailable ? null : "You’re up to date",
+      failureKind: null,
+      track: "stable",
     };
   } catch (error) {
+    const failure = classifyDesktopUpdateError(error, desktopUpdateSnapshot.status);
     desktopUpdateSnapshot = {
       ...desktopUpdateSnapshot,
       status: "error",
-      message: error instanceof Error ? error.message : String(error),
+      progress: null,
+      ...failure,
     };
   }
   return desktopUpdateSnapshot;
@@ -118,6 +239,7 @@ interface ImageContextMenuRequest {
   sourceUrl: string;
   x: number;
   y: number;
+  suggestedFilename?: string;
 }
 
 interface DownloadAssetRequest {
@@ -155,51 +277,69 @@ const imageFilenameFor = (sourceUrl: string, altText: string) => {
     : `${safe}${imageExtensionFor(sourceUrl)}`;
 };
 
-const loadImageBytes = async (sourceUrl: string) => {
+const saveRendererBlobTo = (window: BrowserWindow, sourceUrl: string, destination: string) =>
+  new Promise<void>((resolve, reject) => {
+    const session = window.webContents.session;
+    const timeout = setTimeout(() => finish(new Error("Image download did not start")), 10_000);
+    const finish = (error?: Error) => {
+      clearTimeout(timeout);
+      session.removeListener("will-download", onDownload);
+      if (error) reject(error);
+      else resolve();
+    };
+    const onDownload = (
+      _event: Electron.Event,
+      item: Electron.DownloadItem,
+      webContents: Electron.WebContents
+    ) => {
+      if (webContents !== window.webContents || item.getURL() !== sourceUrl) return;
+      item.setSavePath(destination);
+      item.once("done", (_doneEvent, state) => {
+        finish(state === "completed" ? undefined : new Error(`Image download ${state}`));
+      });
+    };
+    session.on("will-download", onDownload);
+    try {
+      window.webContents.downloadURL(sourceUrl);
+    } catch (error) {
+      finish(error instanceof Error ? error : new Error(String(error)));
+    }
+  });
+
+const saveImageTo = async (window: BrowserWindow, sourceUrl: string, destination: string) => {
+  if (sourceUrl.startsWith("blob:")) {
+    await saveRendererBlobTo(window, sourceUrl, destination);
+    return;
+  }
   if (sourceUrl.startsWith("data:")) {
-    const separator = sourceUrl.indexOf(",");
-    if (separator < 0) throw new Error("Invalid image data URL");
-    const metadata = sourceUrl.slice(5, separator);
-    const payload = sourceUrl.slice(separator + 1);
-    return metadata.split(";").includes("base64")
-      ? Buffer.from(payload, "base64")
-      : Buffer.from(decodeURIComponent(payload));
+    await writeDataUrlToFileAtomically(sourceUrl, destination, {
+      maxBytes: MAX_IMAGE_SAVE_BYTES,
+    });
+    return;
   }
+  const temporary = `${destination}.openbot-${crypto.randomUUID()}.tmp`;
   const url = new URL(sourceUrl);
-  if (
-    !["http:", "https:"].includes(url.protocol) ||
-    !/^\/api\/v0\/assets\/[a-f0-9]{64}$/.test(url.pathname)
-  ) {
-    throw new Error("Unsupported image URL");
-  }
+  const loopbackHttp =
+    url.protocol === "http:" && ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname);
+  if (url.protocol !== "https:" && !loopbackHttp) throw new Error("Unsupported image URL");
   const response = await net.fetch(url.toString());
   if (!response.ok) throw new Error(`Image request failed (${response.status})`);
-  return Buffer.from(await response.arrayBuffer());
-};
-
-const isImageContextMenuRequest = (value: unknown): value is ImageContextMenuRequest => {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  const request = value as Partial<ImageContextMenuRequest>;
-  const assetUrl = (() => {
-    try {
-      const url = new URL(request.sourceUrl ?? "");
-      return (
-        ["http:", "https:"].includes(url.protocol) &&
-        /^\/api\/v0\/assets\/[a-f0-9]{64}$/.test(url.pathname)
-      );
-    } catch {
-      return false;
+  if (!response.body) throw new Error("Image response was empty");
+  const file = await open(temporary, "wx", 0o600);
+  let bytesWritten = 0;
+  try {
+    for await (const chunk of response.body as unknown as AsyncIterable<Uint8Array>) {
+      bytesWritten += chunk.byteLength;
+      if (bytesWritten > MAX_IMAGE_SAVE_BYTES) throw new Error("Image exceeds 100 MiB");
+      await writeBytesFully(file, chunk);
     }
-  })();
-  return (
-    typeof request.altText === "string" &&
-    typeof request.sourceUrl === "string" &&
-    (request.sourceUrl.startsWith("data:image/") || assetUrl) &&
-    typeof request.x === "number" &&
-    Number.isFinite(request.x) &&
-    typeof request.y === "number" &&
-    Number.isFinite(request.y)
-  );
+    await file.close();
+    await rename(temporary, destination);
+  } catch (error) {
+    await file.close().catch(() => undefined);
+    await unlink(temporary).catch(() => undefined);
+    throw error;
+  }
 };
 
 const showImageContextMenu = (window: BrowserWindow, request: ImageContextMenuRequest) => {
@@ -212,13 +352,14 @@ const showImageContextMenu = (window: BrowserWindow, request: ImageContextMenuRe
       label: "Save image…",
       click: () => {
         void (async () => {
-          const filename = imageFilenameFor(request.sourceUrl, request.altText);
+          const filename =
+            request.suggestedFilename || imageFilenameFor(request.sourceUrl, request.altText);
           const result = await dialog.showSaveDialog(window, {
             defaultPath: join(app.getPath("downloads"), filename),
           });
           if (result.canceled || !result.filePath) return;
           try {
-            await writeFile(result.filePath, await loadImageBytes(request.sourceUrl));
+            await saveImageTo(window, request.sourceUrl, result.filePath);
           } catch (error) {
             await dialog.showMessageBox(window, {
               type: "error",
@@ -237,17 +378,6 @@ const showImageContextMenu = (window: BrowserWindow, request: ImageContextMenuRe
   ]);
   menu.popup({ window });
 };
-
-ipcMain.on("openbot:image-context-menu", (event, request: unknown) => {
-  if (
-    !mainWindow ||
-    event.sender !== mainWindow.webContents ||
-    !isImageContextMenuRequest(request)
-  ) {
-    return;
-  }
-  showImageContextMenu(mainWindow, request);
-});
 
 const safeDownloadName = (value: string) => {
   const leaf = value.normalize("NFKC").split(/[\\/]/).at(-1)?.trim() || "attachment";
@@ -304,16 +434,27 @@ const downloadAssetRequests = (value: unknown): DownloadAssetRequest[] | null =>
     : null;
 };
 
-const writeUniqueDownload = async (directory: string, name: string, bytes: Buffer) => {
+const writeUniqueDownload = async (directory: string, name: string, url: string) => {
   const extension = extname(name);
   const base = extension ? name.slice(0, -extension.length) : name;
   for (let suffix = 0; suffix < 1_000; suffix += 1) {
     const candidate = join(directory, suffix === 0 ? name : `${base}-${suffix + 1}${extension}`);
+    let file: Awaited<ReturnType<typeof open>> | null = null;
     try {
-      await writeFile(candidate, bytes, { flag: "wx" });
+      file = await open(candidate, "wx", 0o600);
+      const response = await net.fetch(url);
+      if (!response.ok) throw new Error(`request failed (${response.status})`);
+      if (!response.body) throw new Error("request returned an empty body");
+      for await (const chunk of response.body as unknown as AsyncIterable<Uint8Array>) {
+        await writeBytesFully(file, chunk);
+      }
+      await file.close();
       return candidate;
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      await file?.close().catch(() => undefined);
+      if ((error as NodeJS.ErrnoException).code === "EEXIST") continue;
+      if (file) await unlink(candidate).catch(() => undefined);
+      throw error;
     }
   }
   throw new Error(`Could not choose an unused filename for ${name}`);
@@ -337,13 +478,7 @@ ipcMain.handle("openbot:files:download-all", async (event, value: unknown) => {
   let saved = 0;
   for (const request of requests) {
     try {
-      const response = await net.fetch(request.url);
-      if (!response.ok) throw new Error(`request failed (${response.status})`);
-      await writeUniqueDownload(
-        directory,
-        request.fileName,
-        Buffer.from(await response.arrayBuffer())
-      );
+      await writeUniqueDownload(directory, request.fileName, request.url);
       saved += 1;
     } catch (error) {
       failures.push(
@@ -362,12 +497,75 @@ ipcMain.handle("openbot:files:download-all", async (event, value: unknown) => {
   return { canceled: false, saved, directory };
 });
 
+const deliveryStageDirectory = () => join(app.getPath("userData"), "durable-send-files");
+const requireDeliveryStageSender = (event: Electron.IpcMainInvokeEvent) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) {
+    throw new Error("Delivery file staging is unavailable");
+  }
+};
+
+ipcMain.handle("openbot:files:stage-delivery", async (event, value: unknown) => {
+  requireDeliveryStageSender(event);
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Delivery staging request is invalid");
+  }
+  const request = value as Record<string, unknown>;
+  const bytes = request.bytes;
+  if (
+    typeof request.stagingId !== "string" ||
+    !(bytes instanceof ArrayBuffer || ArrayBuffer.isView(bytes))
+  ) {
+    throw new Error("Delivery staging request is invalid");
+  }
+  await stageDeliveryFile(deliveryStageDirectory(), {
+    stagingId: request.stagingId,
+    bytes:
+      bytes instanceof ArrayBuffer
+        ? bytes
+        : new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength),
+  });
+});
+
+ipcMain.handle("openbot:files:read-delivery-stage", async (event, stagingId: unknown) => {
+  requireDeliveryStageSender(event);
+  if (typeof stagingId !== "string") throw new Error("Delivery staging ID is invalid");
+  return readDeliveryFile(deliveryStageDirectory(), stagingId);
+});
+
+ipcMain.handle("openbot:files:discard-delivery-stages", async (event, stagingIds: unknown) => {
+  requireDeliveryStageSender(event);
+  if (
+    !Array.isArray(stagingIds) ||
+    stagingIds.length > 24 ||
+    !stagingIds.every((value) => typeof value === "string")
+  ) {
+    throw new Error("Delivery staging IDs are invalid");
+  }
+  await discardDeliveryFiles(deliveryStageDirectory(), stagingIds);
+});
+
 ipcMain.handle("openbot:updates:status", (event) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) {
     throw new Error("Update status is unavailable");
   }
   return desktopUpdateSnapshot;
 });
+
+const requireAuthTokenStore = (event: Electron.IpcMainInvokeEvent) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents || !authTokenStore) {
+    throw new Error("Secure authentication storage is unavailable");
+  }
+  return authTokenStore;
+};
+
+ipcMain.handle("openbot:auth-token:read", (event) => requireAuthTokenStore(event).read());
+ipcMain.handle("openbot:auth-token:write", (event, value: unknown) => {
+  if (typeof value !== "string" || !value.trim() || value.length > 16 * 1024) {
+    throw new Error("Authentication token is invalid");
+  }
+  return requireAuthTokenStore(event).write(value);
+});
+ipcMain.handle("openbot:auth-token:clear", (event) => requireAuthTokenStore(event).clear());
 
 ipcMain.handle("openbot:updates:check", async (event) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) {
@@ -380,7 +578,84 @@ ipcMain.handle("openbot:updates:open-download", async (event) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) {
     throw new Error("Update status is unavailable");
   }
+  if (app.isPackaged) {
+    const autoUpdater = await configureDesktopUpdater();
+    if (!autoUpdater) throw new Error("The desktop update service is unavailable");
+    if (desktopUpdateSnapshot.status !== "available") {
+      throw new Error("Check for a desktop update before downloading it");
+    }
+    publishDesktopUpdate({
+      status: "downloading",
+      progress: 0,
+      message: "Starting download",
+      failureKind: null,
+    });
+    await autoUpdater.downloadUpdate();
+    return;
+  }
   await shell.openExternal(desktopUpdateSnapshot.downloadUrl || releasePage);
+});
+
+ipcMain.handle("openbot:updates:install-client", async (event) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) {
+    throw new Error("Desktop update installation is unavailable");
+  }
+  if (!app.isPackaged || desktopUpdateSnapshot.status !== "downloaded") {
+    throw new Error("Download the desktop update before installing it");
+  }
+  publishDesktopUpdate({
+    status: "installing",
+    message: "Restarting to install the update",
+    failureKind: null,
+  });
+  const autoUpdater = await configureDesktopUpdater();
+  if (!autoUpdater) throw new Error("The desktop update service is unavailable");
+  autoUpdater.quitAndInstall(false, true);
+});
+
+const serverUpdateRequest = (value: unknown) => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Server update request is invalid");
+  }
+  const candidate = value as Record<string, unknown>;
+  if (typeof candidate.serverUrl !== "string" || candidate.serverUrl.length > 2_000) {
+    throw new Error("Server URL is invalid");
+  }
+  if (
+    candidate.targetVersion !== undefined &&
+    candidate.targetVersion !== null &&
+    (typeof candidate.targetVersion !== "string" || !isOpenBotVersion(candidate.targetVersion))
+  ) {
+    throw new Error("Target version is invalid");
+  }
+  if (
+    candidate.sshTarget !== undefined &&
+    candidate.sshTarget !== null &&
+    typeof candidate.sshTarget !== "string"
+  ) {
+    throw new Error("SSH destination is invalid");
+  }
+  const targetVersion =
+    typeof candidate.targetVersion === "string" ? candidate.targetVersion.replace(/^v/i, "") : null;
+  const sshTarget =
+    typeof candidate.sshTarget === "string" ? candidate.sshTarget.trim() || null : null;
+  return { serverUrl: candidate.serverUrl, targetVersion, sshTarget };
+};
+
+ipcMain.handle("openbot:updates:server-status", async (event, value) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) {
+    throw new Error("Server update status is unavailable");
+  }
+  const request = serverUpdateRequest(value);
+  return serverUpdater.status(request.serverUrl, request.targetVersion, request.sshTarget);
+});
+
+ipcMain.handle("openbot:updates:update-server", async (event, value) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) {
+    throw new Error("Server update is unavailable");
+  }
+  const request = serverUpdateRequest(value);
+  return serverUpdater.update(request.serverUrl, request.targetVersion, request.sshTarget);
 });
 
 const desktopAgentState = (value: unknown): DesktopAgentNotificationState | null => {
@@ -425,6 +700,17 @@ ipcMain.on("openbot:notifications:sync", (event, request: unknown) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) return;
   const snapshot = desktopNotificationSnapshot(request);
   if (snapshot) desktopNotifications?.sync(snapshot);
+});
+
+ipcMain.on("openbot:notifications:visible-channel", (event, channelId: unknown) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) return;
+  if (
+    channelId !== null &&
+    (typeof channelId !== "string" || !channelId.trim() || channelId.length > 512)
+  ) {
+    return;
+  }
+  desktopNotifications?.setVisibleChannel(channelId as string | null);
 });
 
 ipcMain.handle("openbot:notifications:status", async (event) => {
@@ -540,6 +826,18 @@ ipcMain.handle("openbot:permissions:remove-rule", async (event, value: unknown) 
   );
 });
 
+ipcMain.handle("openbot:performance-snapshot", async (event) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) {
+    throw new Error("Performance metrics are only available to the main window");
+  }
+  return {
+    at: Date.now(),
+    app: app.getAppMetrics(),
+    main: await process.getProcessMemoryInfo(),
+    gpu: app.getGPUFeatureStatus(),
+  };
+});
+
 const createWindow = async () => {
   mainWindow = new BrowserWindow({
     show: false,
@@ -551,6 +849,7 @@ const createWindow = async () => {
     titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "default",
     trafficLightPosition: { x: 16, y: 15 },
     webPreferences: {
+      additionalArguments: [`--openbot-app-version=${encodeURIComponent(app.getVersion())}`],
       preload: join(import.meta.dirname, "preload.cjs"),
       // Native completion and needs-input notifications depend on the renderer's
       // product-event stream even while the window is minimized.
@@ -575,12 +874,31 @@ const createWindow = async () => {
     const current = mainWindow?.webContents.getURL();
     if (current && url !== current) event.preventDefault();
   });
-  const rendererUrl = process.env.OPENBOT_RENDERER_URL;
+  mainWindow.webContents.on("context-menu", (_event, params) => {
+    if (params.mediaType !== "image" || !params.hasImageContents || !params.srcURL) return;
+    showImageContextMenu(mainWindow as BrowserWindow, {
+      altText: params.altText,
+      sourceUrl: params.srcURL,
+      x: params.x,
+      y: params.y,
+      suggestedFilename: params.suggestedFilename,
+    });
+  });
+  mainWindow.webContents.on("unresponsive", () =>
+    console.warn("OpenBot renderer became unresponsive")
+  );
+  mainWindow.webContents.on("render-process-gone", (_event, details) =>
+    console.error("OpenBot renderer process exited", details)
+  );
+  // Never expose the packaged preload bridge to an environment-selected page.
+  // Development retains explicit remote/Tailscale renderer support by design.
+  const rendererUrl = app.isPackaged ? undefined : process.env.OPENBOT_RENDERER_URL;
   if (rendererUrl) await mainWindow.loadURL(rendererUrl);
   else await mainWindow.loadFile(join(import.meta.dirname, "..", "dist", "index.html"));
 };
 
 let hostBridge: Awaited<ReturnType<typeof startHostBridge>> | null = null;
+const hostJobs = new HostJobManager();
 
 const focusMainWindow = () => {
   if (!mainWindow) return;
@@ -594,6 +912,9 @@ const focusMainWindow = () => {
 const hasSingleInstanceLock = !app.isPackaged || app.requestSingleInstanceLock();
 
 app.on("second-instance", focusMainWindow);
+app.on("child-process-gone", (_event, details) =>
+  console.error("OpenBot child process exited", details)
+);
 
 if (!hasSingleInstanceLock) {
   app.quit();
@@ -601,6 +922,47 @@ if (!hasSingleInstanceLock) {
   void app
     .whenReady()
     .then(async () => {
+      authTokenStore = new DesktopAuthTokenStore(
+        join(app.getPath("userData"), "auth-session.bin"),
+        {
+          backend: () => {
+            if (process.platform !== "linux")
+              return process.platform === "darwin" ? "keychain" : "dpapi";
+            try {
+              return safeStorage.getSelectedStorageBackend();
+            } catch {
+              return "unavailable";
+            }
+          },
+          decrypt: (value) => safeStorage.decryptString(value),
+          encrypt: (value) => safeStorage.encryptString(value),
+          isAvailable: () => {
+            if (!safeStorage.isEncryptionAvailable()) return false;
+            if (process.platform !== "linux") return true;
+            try {
+              return safeStorage.getSelectedStorageBackend() !== "basic_text";
+            } catch {
+              return false;
+            }
+          },
+        }
+      );
+      const authStorageWarmup = authTokenStore.read();
+      await protocol.handle("openbot-staged", async (request) => {
+        try {
+          const url = new URL(request.url);
+          if (url.hostname !== "file") return new Response("Not found", { status: 404 });
+          const id = url.pathname.replace(/^\//, "");
+          const mimeType = url.searchParams.get("mime") ?? "application/octet-stream";
+          if (!mimeType.startsWith("image/")) return new Response("Not found", { status: 404 });
+          const bytes = await readDeliveryFile(deliveryStageDirectory(), id);
+          return new Response(Uint8Array.from(bytes).buffer, {
+            headers: { "content-type": mimeType, "cache-control": "no-store" },
+          });
+        } catch {
+          return new Response("Not found", { status: 404 });
+        }
+      });
       permissionSettings = createPermissionSettingsStore(
         join(app.getPath("userData"), "permission-settings.json")
       );
@@ -639,7 +1001,13 @@ if (!hasSingleInstanceLock) {
           notification.show();
         },
       });
-      await createWindow();
+      const [, authStorage] = await Promise.all([createWindow(), authStorageWarmup]);
+      if (authStorage.persistence === "memory") {
+        console.warn(
+          "OpenBot OS secure storage is unavailable; the desktop session will remain in memory and will not persist after restart."
+        );
+      }
+      scheduleDesktopUpdateChecks();
       const port = Number(process.env.OPENBOT_HOST_BRIDGE_PORT ?? 8791);
       const token = resolveControlToken({
         environmentToken: process.env.OPENBOT_CONTROL_TOKEN,
@@ -706,6 +1074,7 @@ if (!hasSingleInstanceLock) {
           machineId: localMachine.machineId,
           machineLabel: localMachine.label,
           reviewAction,
+          runJob: hostJobs.run,
         });
       } catch (error) {
         if (!isAddressInUseError(error)) throw error;
@@ -717,14 +1086,17 @@ if (!hasSingleInstanceLock) {
       });
     })
     .catch((error) => {
-      console.error("Failed to start OpenBot desktop", error);
+      console.error("Failed to start OpenBot desktop", safeErrorMessage(error));
       app.quit();
     });
 }
 
 app.on("before-quit", () => {
+  if (desktopUpdateTimer) clearInterval(desktopUpdateTimer);
+  desktopUpdateTimer = null;
   desktopNotifications?.clear();
   hostBridge?.close();
+  hostJobs.close();
 });
 
 nativeTheme.on("updated", () => mainWindow?.setBackgroundColor(windowBackground()));

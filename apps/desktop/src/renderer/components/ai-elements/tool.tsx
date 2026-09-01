@@ -1,6 +1,7 @@
 // Source-owned adaptation of the AI Elements tool presentation.
 // Upstream: vercel/ai-elements@6a9d5b1822ffb10bba4bd97175f01edd7d8651cd
 import { Check, ChevronDown, Circle, LoaderCircle, X } from "lucide-react";
+import { activityContentSummary } from "@openbot/product-core/activity";
 import { Collapsible } from "radix-ui";
 import { cn } from "../../lib/cn";
 
@@ -48,7 +49,7 @@ export function Tool({
       </Collapsible.Trigger>
       <Collapsible.Content>
         <pre className="max-h-64 overflow-auto border-t bg-muted/45 p-3 font-mono text-[11px] leading-5 whitespace-pre-wrap">
-          {JSON.stringify(content, null, 2)}
+          {activityContentSummary(content) ?? ""}
         </pre>
       </Collapsible.Content>
     </Collapsible.Root>

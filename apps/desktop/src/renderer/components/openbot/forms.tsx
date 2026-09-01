@@ -1,6 +1,9 @@
 import type { BotView, CreateBotInput } from "@openbot/contracts";
+import { GROUP_MEMBER_LIMIT, toggleBoundedSelection } from "@openbot/product-core/selection";
+import { clientErrorMessage } from "@openbot/product-core/redaction";
 import { ChevronDown, LoaderCircle, Search } from "lucide-react";
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useVirtualWindow } from "../../hooks/use-virtual-window";
 import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
 import { DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../ui/dialog";
@@ -43,7 +46,7 @@ export function NewBotForm({
         color,
       });
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      setError(clientErrorMessage(cause, "OpenBot could not create this Bot"));
     } finally {
       setBusy(false);
     }
@@ -232,6 +235,7 @@ export function GroupForm({
   const [selected, setSelected] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
+  const botListRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => nameRef.current?.focus());
     return () => window.cancelAnimationFrame(frame);
@@ -242,17 +246,25 @@ export function GroupForm({
     return normalized ? bots.filter((bot) => bot.name.toLowerCase().includes(normalized)) : bots;
   }, [bots, query]);
   const toggle = useCallback((id: string) => {
-    setSelected((current) =>
-      current.includes(id)
-        ? current.filter((candidate) => candidate !== id)
-        : current.length < 6
-          ? [...current, id]
-          : current
-    );
+    setSelected((current) => [...toggleBoundedSelection(current, id, { max: GROUP_MEMBER_LIMIT })]);
   }, []);
+  const estimateBotSize = useCallback(() => 40, []);
+  const botKey = useCallback(
+    (index: number) => filteredBots[index]?.id ?? `missing:${index}`,
+    [filteredBots]
+  );
+  const { measureElement, totalSize, virtualItems } = useVirtualWindow({
+    count: filteredBots.length,
+    estimateSize: estimateBotSize,
+    getKey: botKey,
+    initialViewportSize: 280,
+    maxItems: 24,
+    overscan: 160,
+    scrollRef: botListRef,
+  });
   const submit = async (event: FormEvent) => {
     event.preventDefault();
-    if (!name.trim() || selected.length < 1 || selected.length > 6 || busy) return;
+    if (!name.trim() || selected.length < 1 || selected.length > GROUP_MEMBER_LIMIT || busy) return;
     setBusy(true);
     try {
       await onSubmit(name.trim(), selected);
@@ -296,31 +308,44 @@ export function GroupForm({
                 value={query}
               />
             </div>
-            <div className="grok-scrollbar max-h-[280px] min-h-44 overflow-y-auto py-1.5">
-              {filteredBots.map((bot) => {
-                const checked = selected.includes(bot.id);
-                const checkboxId = `group-bot-${bot.id}`;
-                return (
-                  <div
-                    className="flex h-10 w-full items-center gap-2.5 px-3 transition-colors hover:bg-accent"
-                    key={bot.id}
-                  >
-                    <Checkbox
-                      checked={checked}
-                      disabled={!checked && selected.length >= 6}
-                      id={checkboxId}
-                      onCheckedChange={() => toggle(bot.id)}
-                    />
-                    <Label
-                      className="flex min-w-0 flex-1 cursor-pointer items-center gap-2.5"
-                      htmlFor={checkboxId}
+            <div
+              className="grok-scrollbar max-h-[280px] min-h-44 overflow-y-auto py-1.5"
+              ref={botListRef}
+              role="list"
+            >
+              <div className="relative w-full" style={{ height: totalSize }}>
+                {virtualItems.map((virtualItem) => {
+                  const bot = filteredBots[virtualItem.index];
+                  if (!bot) return null;
+                  const checked = selected.includes(bot.id);
+                  const checkboxId = `group-bot-${bot.id}`;
+                  return (
+                    <div
+                      aria-posinset={virtualItem.index + 1}
+                      aria-setsize={filteredBots.length}
+                      className="absolute inset-x-0 top-0 flex h-10 w-full items-center gap-2.5 px-3 transition-colors hover:bg-accent"
+                      key={bot.id}
+                      ref={(node) => measureElement(virtualItem.index, virtualItem.key, node)}
+                      role="listitem"
+                      style={{ transform: `translateY(${virtualItem.start}px)` }}
                     >
-                      <BotAvatar bot={bot} size="sm" />
-                      <span className="truncate text-[13px] font-medium">{bot.name}</span>
-                    </Label>
-                  </div>
-                );
-              })}
+                      <Checkbox
+                        checked={checked}
+                        disabled={!checked && selected.length >= GROUP_MEMBER_LIMIT}
+                        id={checkboxId}
+                        onCheckedChange={() => toggle(bot.id)}
+                      />
+                      <Label
+                        className="flex min-w-0 flex-1 cursor-pointer items-center gap-2.5"
+                        htmlFor={checkboxId}
+                      >
+                        <BotAvatar bot={bot} size="sm" />
+                        <span className="truncate text-[13px] font-medium">{bot.name}</span>
+                      </Label>
+                    </div>
+                  );
+                })}
+              </div>
               {filteredBots.length === 0 && (
                 <div className="grid min-h-32 place-items-center px-4 text-[12px] text-muted-foreground">
                   No bots found
@@ -333,7 +358,9 @@ export function GroupForm({
       <DialogFooter className="border-t px-4 py-3">
         <Button
           className="min-w-[78px]"
-          disabled={!name.trim() || selected.length < 1 || selected.length > 6 || busy}
+          disabled={
+            !name.trim() || selected.length < 1 || selected.length > GROUP_MEMBER_LIMIT || busy
+          }
           type="submit"
         >
           {busy && <LoaderCircle className="size-4 animate-spin" />}

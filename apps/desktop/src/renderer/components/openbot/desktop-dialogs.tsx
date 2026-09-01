@@ -1,4 +1,4 @@
-import type { BotTranscriptView, BotView } from "@openbot/contracts";
+import type { BotTranscriptView, BotView, ChannelView } from "@openbot/contracts";
 import { LoaderCircle } from "lucide-react";
 import { lazy, Suspense } from "react";
 import {
@@ -19,21 +19,27 @@ const GroupForm = lazy(() => import("./forms").then((module) => ({ default: modu
 export function DesktopDialogs({
   activeBots,
   deleteBotTarget,
+  deleteGroupTarget,
   newGroupOpen,
   rowTranscript,
   onConfirmDeleteBot,
+  onConfirmDeleteGroup,
   onCreateGroup,
   onDeleteBotOpenChange,
+  onDeleteGroupOpenChange,
   onNewGroupOpenChange,
   onTranscriptOpenChange,
 }: {
   activeBots: BotView[];
   deleteBotTarget: BotView | null;
+  deleteGroupTarget: ChannelView | null;
   newGroupOpen: boolean;
   rowTranscript: { bot: BotView; transcript: BotTranscriptView | null } | null;
   onConfirmDeleteBot: () => void;
+  onConfirmDeleteGroup: () => void;
   onCreateGroup: (name: string, botIds: string[]) => Promise<void>;
   onDeleteBotOpenChange: (open: boolean) => void;
+  onDeleteGroupOpenChange: (open: boolean) => void;
   onNewGroupOpenChange: (open: boolean) => void;
   onTranscriptOpenChange: (open: boolean) => void;
 }) {
@@ -52,6 +58,21 @@ export function DesktopDialogs({
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={onConfirmDeleteBot}>Delete</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog onOpenChange={onDeleteGroupOpenChange} open={Boolean(deleteGroupTarget)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete “{deleteGroupTarget?.name}”</AlertDialogTitle>
+            <AlertDialogDescription>
+              This permanently deletes the group and its chat history. The Bots in it are not
+              deleted and remain available individually. This can't be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={onConfirmDeleteGroup}>Delete</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

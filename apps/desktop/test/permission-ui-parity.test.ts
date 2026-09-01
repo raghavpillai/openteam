@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 
 const source = () =>
   Bun.file(new URL("../src/renderer/components/openbot/chat-pane.tsx", import.meta.url)).text();
+const productSource = () =>
+  Bun.file(new URL("../../../packages/product-core/src/activity.ts", import.meta.url)).text();
 const styles = () => Bun.file(new URL("../src/renderer/styles.css", import.meta.url)).text();
 
 describe("Grok permission UI parity", () => {
@@ -19,18 +21,17 @@ describe("Grok permission UI parity", () => {
   });
 
   test("supports the exact command and task Auto-review variants", async () => {
-    const value = await source();
-    expect(value).toContain("The Bot wants to run a command");
-    expect(value).toContain("The Bot wants to run a task");
-    expect(value).toContain('const taskReview = details.action === "runTask"');
+    const [value, product] = await Promise.all([source(), productSource()]);
+    expect(value).toContain("approvalPresentation(approval)");
+    expect(product).toContain("The Bot wants to run a command");
+    expect(product).toContain("The Bot wants to run a task");
+    expect(product).toContain('const taskReview = action === "runTask"');
     expect(value).toContain("Show the ${detailsLabel}");
     expect(value).toContain('aria-label="Copy code"');
     expect(value).toContain('approval.status === "declined"');
-    expect(value).toContain('if (!pending) setDetailsOpen(false)');
+    expect(value).toContain("if (!pending) setDetailsOpen(false)");
     expect(value).toContain("Runs on your local computer");
-    expect(value).toContain(
-      "A rule always allowing this was added to your Auto-review settings${"
-    );
+    expect(value).toContain("A rule always allowing this was added to your Auto-review settings${");
   });
 
   test("locks the extracted Grok card tokens and pending-dock geometry", async () => {
@@ -40,13 +41,13 @@ describe("Grok permission UI parity", () => {
     expect(value).toContain("text-[14px] font-medium leading-[22px]");
     expect(value).toContain("h-8 rounded-lg px-2.5");
     expect(value).toContain("text-[13px] leading-[18px]");
-    expect(value).toContain(
-      'entry.type !== "approval" || !isPendingLocalApproval(entry.approval)'
-    );
+    expect(value).toContain('entry.type !== "approval" || !isPendingLocalApproval(entry.approval)');
     expect(value).toContain('data-local-tool-permission-dock=""');
-    expect(value).toContain('className="pointer-events-auto relative z-[3] w-full min-w-0 px-4 pb-2"');
     expect(value).toContain(
-      'isResolvedLocalApproval(entry.approval)\n                          ? "mt-2 w-full min-w-0"'
+      'className="pointer-events-auto relative z-[3] w-full min-w-0 px-4 pb-2"'
+    );
+    expect(value).toMatch(
+      /isResolvedLocalApproval\(entry\.approval\)\s*\?\s*"mt-2 w-full min-w-0"/
     );
     expect(value).toContain("max-w-[min(88%,520px,calc(100%-82px))]");
     expect(value).toContain("!hasPendingApproval");

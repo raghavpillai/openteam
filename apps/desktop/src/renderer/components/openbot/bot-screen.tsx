@@ -1,4 +1,11 @@
+import {
+  createKeyedRequestCoordinator,
+  createScreenSessionController,
+  SCREEN_FRAME_REFRESH_MS,
+  type ScreenSessionController,
+} from "@openbot/client-core";
 import type { BotView, ScreenStatusView } from "@openbot/contracts";
+import { clientErrorMessage } from "@openbot/product-core/redaction";
 import { LoaderCircle, Minimize2, Monitor, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../client/openbot-api";
@@ -14,14 +21,10 @@ import { Button } from "../ui/button";
 import { Skeleton } from "../ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
 
-const statusRequests = new Map<string, Promise<ScreenStatusView>>();
+const statusRequests = createKeyedRequestCoordinator();
 
 function loadScreenStatus(botId: string) {
-  const current = statusRequests.get(botId);
-  if (current) return current;
-  const request = api.screenStatus(botId).finally(() => statusRequests.delete(botId));
-  statusRequests.set(botId, request);
-  return request;
+  return statusRequests.run(botId, () => api.screenStatus(botId));
 }
 
 export function BotScreen({
@@ -42,16 +45,24 @@ export function BotScreen({
   const [frameRevision, setFrameRevision] = useState(Date.now());
   const [open, setOpen] = useState(false);
   const takeoverRef = useRef(false);
+  const screenSession = useRef<ScreenSessionController | null>(null);
   const viewerOpenedAt = useRef(0);
+  const screenRef = useRef(screen);
+  const enabledRef = useRef(enabled);
+  const activeRef = useRef(active);
+  screenRef.current = screen;
+  enabledRef.current = enabled;
+  activeRef.current = active;
 
   const refreshStatus = useCallback(async () => {
     try {
       const next = await loadScreenStatus(bot.id);
+      screenSession.current?.confirmTakeover(next.humanTakeover);
       setScreen(next);
       setError(null);
       return next;
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      setError(clientErrorMessage(cause, "Could not load the shared computer"));
       return null;
     }
   }, [bot.id]);
@@ -75,7 +86,7 @@ export function BotScreen({
     };
     refreshFrame();
     if (!enabled || !active || open || screen?.state !== "ready") return;
-    const timer = window.setInterval(refreshFrame, 5_000);
+    const timer = window.setInterval(refreshFrame, SCREEN_FRAME_REFRESH_MS);
     document.addEventListener("visibilitychange", refreshFrame);
     return () => {
       window.clearInterval(timer);
@@ -83,55 +94,57 @@ export function BotScreen({
     };
   }, [active, enabled, open, screen?.state]);
   useEffect(() => {
-    if (!shouldPollScreenStatus(enabled, active, screen?.state)) return;
-    const refreshWhenVisible = () => {
-      if (document.visibilityState === "visible") void refreshStatus();
-    };
-    refreshWhenVisible();
-    const timer = window.setInterval(refreshWhenVisible, 4_000);
-    document.addEventListener("visibilitychange", refreshWhenVisible);
-    return () => {
-      window.clearInterval(timer);
-      document.removeEventListener("visibilitychange", refreshWhenVisible);
-    };
-  }, [active, enabled, refreshStatus, screen?.state]);
-  useEffect(() => {
-    if (!open || screen?.state !== "ready" || screen.humanTakeover) return;
-    let cancelled = false;
-    void api
-      .screenTakeover(bot.id, true)
-      .then((next) => {
-        if (cancelled) {
-          if (next.humanTakeover) api.releaseScreenTakeover(bot.id);
+    const controller = createScreenSessionController({
+      pollStatus: async () => {
+        if (
+          document.visibilityState !== "visible" ||
+          !shouldPollScreenStatus(enabledRef.current, activeRef.current, screenRef.current?.state)
+        ) {
           return;
         }
+        await refreshStatus();
+      },
+      requestTakeover: (active) => api.screenTakeover(bot.id, active),
+      onError: (cause) => setError(clientErrorMessage(cause, "Could not change computer control")),
+      onTakeoverResult: (next) => {
         takeoverRef.current = next.humanTakeover;
         setScreen(next);
         setError(null);
-      })
-      .catch((cause) => {
-        if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause));
-      });
+      },
+    });
+    screenSession.current = controller;
     return () => {
-      cancelled = true;
+      controller.stop();
+      if (screenSession.current === controller) screenSession.current = null;
+      takeoverRef.current = false;
+      api.releaseScreenTakeover(bot.id);
     };
-  }, [bot.id, open, screen?.humanTakeover, screen?.state]);
+  }, [bot.id, refreshStatus]);
   useEffect(() => {
-    if (!open || !screen?.humanTakeover) return;
-    const heartbeat = window.setInterval(() => {
-      void api
-        .screenTakeover(bot.id, true)
-        .then(setScreen)
-        .catch(() => undefined);
-    }, 20_000);
-    return () => window.clearInterval(heartbeat);
-  }, [bot.id, open, screen?.humanTakeover]);
+    const controller = screenSession.current;
+    if (!controller) return;
+    const syncActivity = () => {
+      if (shouldLoadScreenStatus(enabled, active)) controller.activate();
+      else controller.deactivate();
+    };
+    const wakeWhenVisible = () => {
+      if (document.visibilityState === "visible") controller.wake();
+    };
+    syncActivity();
+    document.addEventListener("visibilitychange", wakeWhenVisible);
+    return () => document.removeEventListener("visibilitychange", wakeWhenVisible);
+  }, [active, bot.id, enabled]);
+  useEffect(() => {
+    if (!open || screen?.state !== "ready" || screen.humanTakeover) return;
+    screenSession.current?.setTakeover(true);
+  }, [open, screen?.humanTakeover, screen?.state]);
   useEffect(() => {
     takeoverRef.current = Boolean(screen?.humanTakeover);
+    screenSession.current?.confirmTakeover(Boolean(screen?.humanTakeover));
   }, [screen?.humanTakeover]);
   useEffect(() => {
     const release = () => {
-      if (!takeoverRef.current) return;
+      screenSession.current?.deactivate();
       takeoverRef.current = false;
       api.releaseScreenTakeover(bot.id);
     };
@@ -147,16 +160,17 @@ export function BotScreen({
     setScreen((current) =>
       current?.humanTakeover ? { ...current, humanTakeover: false } : current
     );
-    if (takeoverRef.current) {
-      takeoverRef.current = false;
-      api.releaseScreenTakeover(bot.id);
-    }
+    screenSession.current?.setTakeover(false);
+    if (!takeoverRef.current) return;
+    takeoverRef.current = false;
+    api.releaseScreenTakeover(bot.id);
   }, [active, bot.id, open]);
   const closeViewer = useCallback(() => {
     setOpen(false);
     setScreen((current) =>
       current?.humanTakeover ? { ...current, humanTakeover: false } : current
     );
+    screenSession.current?.setTakeover(false);
     if (!takeoverRef.current) return;
     takeoverRef.current = false;
     api.releaseScreenTakeover(bot.id);
@@ -198,7 +212,7 @@ export function BotScreen({
     <>
       <div className="mt-[3px] w-full overflow-hidden rounded-[7px] border border-[#d9d9d9] bg-[#f0f0f0] dark:border-[#323232] dark:bg-[#1b1b1b]">
         <Button
-          aria-label={`Open ${bot.name}'s screen`}
+          aria-label="Open computer"
           className="group relative block h-auto aspect-[16/10] w-full !cursor-pointer overflow-hidden rounded-none bg-[#f0f0f0] p-0 transition-colors duration-150 hover:bg-[#ededed] dark:bg-[#1b1b1b] dark:hover:bg-[#232323]"
           disabled={bot.status === "failed"}
           onClick={openViewer}

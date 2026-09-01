@@ -1,10 +1,20 @@
 // Source-owned adaptation of AI Elements prompt-input.tsx.
 // https://elements.ai-sdk.dev/components/prompt-input
-import type { AssetRef } from "@openbot/contracts";
-import { File, ImagePlus, Paperclip, X } from "lucide-react";
-import type { ClipboardEvent, DragEvent, FormEvent } from "react";
+import { MAX_PARALLEL_UPLOADS, mapWithConcurrency } from "@openbot/client-core";
+import type { AssetRef, ClientCapabilities } from "@openbot/contracts";
+import { CLIENT_CAPABILITIES } from "@openbot/contracts/capabilities";
+import {
+  attachmentOverflowMessage,
+  firstOversizedAttachment,
+  remainingAttachmentCapacity,
+} from "@openbot/product-core/attachments";
+import type { DurableStagedAttachment } from "@openbot/product-core/durable-delivery";
+import { File, Paperclip, X } from "lucide-react";
+import type { ClipboardEvent, FormEvent, DragEvent as ReactDragEvent, RefObject } from "react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { cn } from "../../lib/cn";
+import { fileDragContainsFiles } from "../../lib/file-drop";
 import type { MentionOption } from "../../lib/mentions";
 import { ImageAttachment } from "../openbot/image-attachment";
 import { MentionEditor } from "../openbot/mention-editor";
@@ -16,9 +26,6 @@ import {
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
 
-const MAX_ATTACHMENTS = 6;
-const MAX_FILE_BYTES = 25 * 1024 * 1024;
-const MAX_VIDEO_BYTES = 200 * 1024 * 1024;
 const MAX_TEXTAREA_HEIGHT = 120;
 const MULTILINE_THRESHOLD = 39;
 const SECONDARY_ACTION_CLASS =
@@ -76,71 +83,112 @@ function GrokCloseIcon({ className }: { className?: string }) {
   );
 }
 
-interface PendingAsset extends AssetRef {
+interface PendingAttachment {
   id: string;
+  file: File;
+  asset?: AssetRef;
+  staged?: DurableStagedAttachment;
+  previewUrl?: string;
 }
-
-const fileAsBase64 = (file: File) =>
-  new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.addEventListener("load", () => {
-      if (typeof reader.result !== "string") return reject(new Error("read failed"));
-      const encoded = reader.result.split(",", 2)[1];
-      return encoded ? resolve(encoded) : reject(new Error("read failed"));
-    });
-    reader.addEventListener("error", () => reject(reader.error ?? new Error("read failed")));
-    reader.readAsDataURL(file);
-  });
 
 export function PromptInput({
   docked,
   disabled,
   placeholder,
   reply,
+  recovery,
+  dropTargetRef,
   onCancelReply,
   onExpandedChange,
+  onRecoveryApplied,
+  onRecoveryConsumed,
   onAttachmentsChange,
-  onUpload,
-  assetUrl,
+  onStage,
+  onDiscardStages,
   onSubmit,
   mentionOptions = [],
+  uploadCapabilities = CLIENT_CAPABILITIES.uploads,
 }: {
   docked?: boolean;
   disabled?: boolean;
   placeholder?: string;
   reply?: { id: string; content: string } | null;
+  recovery?: {
+    id: string;
+    payload: {
+      content: string;
+      attachments: AssetRef[];
+      stagedAttachments?: DurableStagedAttachment[];
+      richText?: string;
+    };
+  } | null;
+  dropTargetRef?: RefObject<HTMLElement | null>;
   onCancelReply?: () => void;
   onExpandedChange?: (expanded: boolean) => void;
+  onRecoveryApplied?: () => void;
+  onRecoveryConsumed?: (nonce: string) => Promise<void>;
   onAttachmentsChange?: (count: number) => void;
-  onUpload: (input: {
-    fileName: string;
-    mimeType?: string;
-    bytesBase64: string;
-  }) => Promise<AssetRef>;
-  assetUrl: (asset: Pick<AssetRef, "assetId" | "fileName">) => string;
+  onStage: (file: Blob, fileName?: string) => Promise<DurableStagedAttachment>;
+  onDiscardStages?: (attachments: readonly DurableStagedAttachment[]) => Promise<void>;
   mentionOptions?: readonly MentionOption[];
+  uploadCapabilities?: ClientCapabilities["uploads"];
   onSubmit: (
     value: string,
     attachments: AssetRef[],
-    options?: { richText?: string }
+    options?: { richText?: string; stagedAttachments?: DurableStagedAttachment[] }
   ) => Promise<unknown> | undefined;
 }) {
   const [value, setValue] = useState("");
   const [richText, setRichText] = useState<string | undefined>();
-  const [attachments, setAttachments] = useState<PendingAsset[]>([]);
+  const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [staging, setStaging] = useState(false);
   const [retainedReply, setRetainedReply] = useState(reply);
   const [autoExpanded, setAutoExpanded] = useState(false);
   const [textareaHeight, setTextareaHeight] = useState(20);
   const textareaRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const previewUrls = useRef(new Set<string>());
+  const attachmentsRef = useRef<PendingAttachment[]>([]);
+  const appliedRecoveryId = useRef<string | null>(null);
+  const appliedRecoveryNonce = useRef<string | null>(null);
+  const mounted = useRef(true);
+  const replaceAttachments = useCallback((next: PendingAttachment[]) => {
+    attachmentsRef.current = next;
+    setAttachments(next);
+  }, []);
   const renderedReply = reply ?? retainedReply;
   const replyOpen = Boolean(reply);
   const hasText = value.trim().length > 0;
   const hasPayload = hasText || attachments.length > 0;
   const expanded = autoExpanded || replyOpen || attachments.length > 0 || Boolean(attachmentError);
+  const maxAttachments = uploadCapabilities.maxAttachmentsPerMessage;
+
+  useEffect(() => {
+    if (!recovery || appliedRecoveryId.current === recovery.id) return;
+    if (value.trim() || attachmentsRef.current.length > 0) return;
+    appliedRecoveryId.current = recovery.id;
+    appliedRecoveryNonce.current = recovery.id;
+    setValue(recovery.payload.content);
+    setRichText(recovery.payload.richText);
+    replaceAttachments([
+      ...recovery.payload.attachments.map((asset) => ({
+        id: crypto.randomUUID(),
+        file: new globalThis.File([], asset.fileName, { type: asset.mimeType }),
+        asset,
+      })),
+      ...(recovery.payload.stagedAttachments ?? []).map((staged) => ({
+        id: crypto.randomUUID(),
+        file: new globalThis.File([], staged.fileName, { type: staged.mimeType }),
+        staged,
+      })),
+    ]);
+    setAttachmentError(null);
+    onRecoveryApplied?.();
+    window.requestAnimationFrame(() => textareaRef.current?.focus());
+  }, [onRecoveryApplied, recovery, replaceAttachments, value]);
 
   useEffect(() => {
     if (reply) {
@@ -159,6 +207,22 @@ export function PromptInput({
   useEffect(() => {
     onAttachmentsChange?.(attachments.length);
   }, [attachments.length, onAttachmentsChange]);
+
+  useEffect(
+    () => {
+      mounted.current = true;
+      return () => {
+        mounted.current = false;
+        for (const url of previewUrls.current) URL.revokeObjectURL(url);
+        previewUrls.current.clear();
+        const staged = attachmentsRef.current.flatMap((attachment) =>
+          attachment.staged ? [attachment.staged] : []
+        );
+        if (staged.length > 0) void onDiscardStages?.(staged);
+      };
+    },
+    [onDiscardStages]
+  );
 
   useEffect(() => {
     onExpandedChange?.(expanded);
@@ -199,20 +263,23 @@ export function PromptInput({
   const addFiles = useCallback(
     async (files: File[]) => {
       setAttachmentError(null);
-      const remaining = MAX_ATTACHMENTS - attachments.length;
+      const remaining = remainingAttachmentCapacity(
+        attachmentsRef.current.length,
+        uploadCapabilities
+      );
       if (remaining <= 0) {
-        setAttachmentError(`You can attach up to ${MAX_ATTACHMENTS} files.`);
+        setAttachmentError(`You can attach up to ${maxAttachments} files.`);
         return;
       }
 
       const selected = files.slice(0, remaining);
-      const tooLarge = selected.find((file) => {
-        const video = file.type.startsWith("video/");
-        return file.size > (video ? MAX_VIDEO_BYTES : MAX_FILE_BYTES);
-      });
+      const tooLarge = firstOversizedAttachment(
+        selected.map((file) => ({ fileName: file.name, mimeType: file.type, byteSize: file.size })),
+        uploadCapabilities
+      );
       if (tooLarge) {
         setAttachmentError(
-          `${tooLarge.name} is larger than ${tooLarge.type.startsWith("video/") ? 200 : 25} MB.`
+          `${tooLarge.candidate.fileName} is larger than ${Math.floor(tooLarge.limit / 1024 / 1024)} MB.`
         );
         return;
       }
@@ -221,57 +288,184 @@ export function PromptInput({
         return;
       }
       if (files.length > selected.length) {
-        setAttachmentError(`Only the first ${remaining} files were added.`);
+        setAttachmentError(attachmentOverflowMessage(remaining));
       }
 
       try {
-        const loaded: PendingAsset[] = [];
-        for (const file of selected) {
-          const asset = await onUpload({
-            fileName: file.name,
-            mimeType: file.type || undefined,
-            bytesBase64: await fileAsBase64(file),
+        setStaging(true);
+        const stagedSoFar: DurableStagedAttachment[] = [];
+        let staged: DurableStagedAttachment[];
+        try {
+          staged = await mapWithConcurrency(selected, MAX_PARALLEL_UPLOADS, async (file) => {
+            const retained = await onStage(file, file.name);
+            stagedSoFar.push(retained);
+            return retained;
           });
-          loaded.push({
-            ...asset,
-            id: `${asset.assetId}:${crypto.randomUUID()}`,
-          });
+        } catch (cause) {
+          await onDiscardStages?.(stagedSoFar).catch(() => undefined);
+          throw cause;
         }
-        setAttachments((current) => [...current, ...loaded].slice(0, MAX_ATTACHMENTS));
-        textareaRef.current?.focus();
-      } catch (error) {
-        setAttachmentError(
-          error instanceof Error ? error.message : "One of the files could not be uploaded."
+        if (!mounted.current) {
+          await onDiscardStages?.(staged).catch(() => undefined);
+          return;
+        }
+        const loaded = selected.map((file, index) => {
+          const previewUrl = file.type.startsWith("image/") ? URL.createObjectURL(file) : undefined;
+          if (previewUrl) previewUrls.current.add(previewUrl);
+          return { id: crypto.randomUUID(), file, previewUrl, staged: staged[index] };
+        });
+        const nextRemaining = remainingAttachmentCapacity(
+          attachmentsRef.current.length,
+          uploadCapabilities
         );
+        const accepted = loaded.slice(0, nextRemaining);
+        const rejectedStages = loaded
+          .slice(nextRemaining)
+          .flatMap((attachment) => (attachment.staged ? [attachment.staged] : []));
+        if (rejectedStages.length > 0) {
+          await onDiscardStages?.(rejectedStages).catch(() => undefined);
+        }
+        for (const dropped of loaded.slice(nextRemaining)) {
+          if (!dropped.previewUrl) continue;
+          URL.revokeObjectURL(dropped.previewUrl);
+          previewUrls.current.delete(dropped.previewUrl);
+        }
+        replaceAttachments([...attachmentsRef.current, ...accepted]);
+        if (accepted.length < loaded.length) {
+          setAttachmentError(`You can attach up to ${maxAttachments} files.`);
+        }
+        textareaRef.current?.focus();
+      } catch (cause) {
+        setAttachmentError(
+          cause instanceof Error
+            ? `One of the files could not be retained: ${cause.message}`
+            : "One of the files could not be retained."
+        );
+      } finally {
+        if (mounted.current) setStaging(false);
       }
     },
-    [attachments.length, onUpload]
+    [maxAttachments, onDiscardStages, onStage, replaceAttachments, uploadCapabilities]
   );
 
-  const blocked = Boolean(disabled || submitting);
+  const blocked = Boolean(disabled || submitting || staging);
+
+  useEffect(() => {
+    const target = dropTargetRef?.current;
+    if (!target) return;
+
+    let dragDepth = 0;
+    const resetDragState = () => {
+      dragDepth = 0;
+      setDragging(false);
+      delete target.dataset.dragOver;
+    };
+    const onDragEnter = (event: globalThis.DragEvent) => {
+      if (blocked || !fileDragContainsFiles(event.dataTransfer)) return;
+      event.preventDefault();
+      dragDepth += 1;
+      target.dataset.dragOver = "true";
+      setDragging(true);
+    };
+    const onDragOver = (event: globalThis.DragEvent) => {
+      if (blocked || !fileDragContainsFiles(event.dataTransfer)) return;
+      event.preventDefault();
+      if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+    };
+    const onDragLeave = (event: globalThis.DragEvent) => {
+      if (!fileDragContainsFiles(event.dataTransfer)) return;
+      dragDepth = Math.max(0, dragDepth - 1);
+      if (dragDepth === 0) resetDragState();
+    };
+    const onDrop = (event: globalThis.DragEvent) => {
+      if (!fileDragContainsFiles(event.dataTransfer)) return;
+      event.preventDefault();
+      resetDragState();
+      if (blocked) return;
+      const files = Array.from(event.dataTransfer?.files ?? []);
+      if (files.length > 0) void addFiles(files);
+    };
+
+    target.addEventListener("dragenter", onDragEnter);
+    target.addEventListener("dragleave", onDragLeave);
+    target.addEventListener("dragover", onDragOver);
+    target.addEventListener("drop", onDrop);
+    return () => {
+      target.removeEventListener("dragenter", onDragEnter);
+      target.removeEventListener("dragleave", onDragLeave);
+      target.removeEventListener("dragover", onDragOver);
+      target.removeEventListener("drop", onDrop);
+      resetDragState();
+    };
+  }, [addFiles, blocked, dropTargetRef]);
 
   const submit = async (event?: FormEvent) => {
     event?.preventDefault();
     const content = value.trim();
     if ((!content && attachments.length === 0) || blocked) return;
-    const pendingAttachments = attachments;
+    const pendingAttachments = attachmentsRef.current;
+    let recoverableAttachments = pendingAttachments;
     const pendingRichText = richText;
     setValue("");
     setRichText(undefined);
-    setAttachments([]);
+    replaceAttachments([]);
     setAttachmentError(null);
     setSubmitting(true);
     try {
+      const preparedAttachments = await mapWithConcurrency(
+        pendingAttachments,
+        MAX_PARALLEL_UPLOADS,
+        (
+          attachment
+        ): Promise<
+          { asset: AssetRef; staged?: never } | { asset?: never; staged: DurableStagedAttachment }
+        > =>
+          attachment.asset
+            ? Promise.resolve({ asset: attachment.asset })
+            : attachment.staged
+              ? Promise.resolve({ staged: attachment.staged })
+              : onStage(attachment.file, attachment.file.name).then((staged) => ({ staged }))
+      );
+      const uploadedAttachments = preparedAttachments.flatMap((attachment) =>
+        attachment.asset ? [attachment.asset] : []
+      );
+      const stagedAttachments = preparedAttachments.flatMap((attachment, index) =>
+        attachment.staged ? [{ ...attachment.staged, position: index }] : []
+      );
+      recoverableAttachments = pendingAttachments.map((attachment, index) => ({
+        ...attachment,
+        ...(preparedAttachments[index]?.staged
+          ? { staged: preparedAttachments[index].staged }
+          : {}),
+      }));
       await onSubmit(
         content,
-        pendingAttachments.map(({ id: _id, ...asset }) => asset),
-        pendingRichText ? { richText: pendingRichText } : undefined
+        uploadedAttachments,
+        pendingRichText || stagedAttachments.length > 0
+          ? {
+              ...(pendingRichText ? { richText: pendingRichText } : {}),
+              ...(stagedAttachments.length > 0 ? { stagedAttachments } : {}),
+            }
+          : undefined
       );
+      const recoveryNonce = appliedRecoveryNonce.current;
+      if (recoveryNonce) {
+        await onRecoveryConsumed?.(recoveryNonce);
+        appliedRecoveryNonce.current = null;
+      }
+      for (const attachment of pendingAttachments) {
+        if (!attachment.previewUrl) continue;
+        URL.revokeObjectURL(attachment.previewUrl);
+        previewUrls.current.delete(attachment.previewUrl);
+      }
       onCancelReply?.();
-    } catch {
+    } catch (error) {
       setValue(content);
       setRichText(pendingRichText);
-      setAttachments(pendingAttachments);
+      replaceAttachments(recoverableAttachments);
+      setAttachmentError(
+        error instanceof Error ? `Could not send file: ${error.message}` : "Could not send file."
+      );
     } finally {
       setSubmitting(false);
     }
@@ -286,27 +480,63 @@ export function PromptInput({
     void addFiles(files);
   };
 
-  const onDrop = (event: DragEvent<HTMLFormElement>) => {
+  const onDrop = (event: ReactDragEvent<HTMLFormElement>) => {
+    if (!fileDragContainsFiles(event.dataTransfer)) return;
     event.preventDefault();
     setDragging(false);
     if (blocked) return;
-    void addFiles(Array.from(event.dataTransfer.files));
+    const files = Array.from(event.dataTransfer.files);
+    if (files.length > 0) void addFiles(files);
   };
+
+  const dropOverlay = dragging ? (
+    <div
+      aria-hidden="true"
+      className="pointer-events-none absolute inset-0 z-[6] flex items-center justify-center bg-[#1084fe2b] animate-in fade-in-0 duration-[120ms] ease-out motion-reduce:animate-none"
+      data-chat-drop-overlay=""
+    >
+      <div className="rounded-full bg-[#1084fe] px-3 py-1.5 text-[14px] font-normal leading-5 text-[#fcfcfc]">
+        Drop files to add to chat
+      </div>
+    </div>
+  ) : null;
 
   return (
     <form
       className={cn("relative z-[3] w-full px-4 pb-4", docked && "pointer-events-auto")}
-      onDragEnter={(event) => {
-        event.preventDefault();
-        if (!blocked) setDragging(true);
-      }}
-      onDragLeave={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false);
-      }}
-      onDragOver={(event) => event.preventDefault()}
-      onDrop={onDrop}
+      onDragEnter={
+        dropTargetRef
+          ? undefined
+          : (event) => {
+              if (blocked || !fileDragContainsFiles(event.dataTransfer)) return;
+              event.preventDefault();
+              setDragging(true);
+            }
+      }
+      onDragLeave={
+        dropTargetRef
+          ? undefined
+          : (event) => {
+              if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+                setDragging(false);
+              }
+            }
+      }
+      onDragOver={
+        dropTargetRef
+          ? undefined
+          : (event) => {
+              if (blocked || !fileDragContainsFiles(event.dataTransfer)) return;
+              event.preventDefault();
+              event.dataTransfer.dropEffect = "copy";
+            }
+      }
+      onDrop={dropTargetRef ? undefined : onDrop}
       onSubmit={submit}
     >
+      {dropTargetRef?.current && dropOverlay
+        ? createPortal(dropOverlay, dropTargetRef.current)
+        : dropOverlay}
       <input
         aria-label="Choose files"
         className="sr-only"
@@ -334,19 +564,10 @@ export function PromptInput({
             expanded ? "rounded-[18px] px-3 pb-[7px] pt-[9px]" : "rounded-[22px] px-1 py-1",
             "overflow-hidden transition-[border-radius,padding,border-color,background-color,box-shadow,transform] duration-[300ms,300ms,150ms,150ms,150ms,150ms] ease-[cubic-bezier(0.22,1,0.36,1),cubic-bezier(0.22,1,0.36,1),ease,ease,ease,ease] motion-reduce:duration-[120ms,120ms,150ms,150ms,150ms,150ms] motion-reduce:ease-in-out",
             disabled && "opacity-70",
-            dragging &&
-              "scale-[1.003] shadow-[inset_0_0_0_1.5px_#111,0_8px_24px_rgba(0,0,0,0.13)] dark:shadow-[inset_0_0_0_1.5px_#eee,0_8px_24px_rgba(0,0,0,0.4)]"
+            dragging && !dropTargetRef && "scale-[1.003]"
           )}
           data-prompt-surface
         >
-          {dragging && (
-            <div className="pointer-events-none absolute inset-1 z-20 grid place-items-center rounded-[18px] bg-background/90 text-sm font-medium backdrop-blur-sm">
-              <span className="flex items-center gap-2">
-                <ImagePlus className="size-4" /> Drop files here
-              </span>
-            </div>
-          )}
-
           <div
             aria-hidden={!replyOpen}
             className={cn(
@@ -379,17 +600,22 @@ export function PromptInput({
 
           {attachments.length > 0 && (
             <div className="flex max-w-full gap-2 overflow-x-auto px-1 pb-1 pt-0.5">
-              {attachments.map((attachment) =>
-                attachment.kind === "image" ? (
+              {attachments.map((attachment) => {
+                const remove = () => {
+                  if (attachment.staged) void onDiscardStages?.([attachment.staged]);
+                  if (attachment.previewUrl) {
+                    URL.revokeObjectURL(attachment.previewUrl);
+                    previewUrls.current.delete(attachment.previewUrl);
+                  }
+                  replaceAttachments(
+                    attachmentsRef.current.filter(({ id }) => id !== attachment.id)
+                  );
+                };
+                return attachment.previewUrl ? (
                   <ImageAttachment
-                    image={{
-                      url: assetUrl(attachment),
-                      alt: attachment.alt ?? attachment.fileName,
-                    }}
+                    image={{ url: attachment.previewUrl, alt: attachment.file.name }}
                     key={attachment.id}
-                    onRemove={() =>
-                      setAttachments((current) => current.filter(({ id }) => id !== attachment.id))
-                    }
+                    onRemove={remove}
                   />
                 ) : (
                   <div
@@ -398,26 +624,26 @@ export function PromptInput({
                   >
                     <File className="size-5 shrink-0 text-muted-foreground" />
                     <div className="min-w-0">
-                      <div className="truncate text-xs font-medium">{attachment.fileName}</div>
+                      <div className="truncate text-xs font-medium">{attachment.file.name}</div>
                       <div className="text-[10px] text-muted-foreground">
-                        {Math.max(1, Math.ceil(attachment.byteSize / 1024))} KB
+                        {Math.max(
+                          1,
+                          Math.ceil((attachment.asset?.byteSize ?? attachment.file.size) / 1024)
+                        )}{" "}
+                        KB
                       </div>
                     </div>
                     <button
-                      aria-label={`Remove ${attachment.fileName}`}
+                      aria-label={`Remove ${attachment.file.name}`}
                       className="absolute right-1 top-1 grid size-6 place-items-center rounded-full bg-black/85 text-white opacity-0 transition group-hover/file:opacity-100"
-                      onClick={() =>
-                        setAttachments((current) =>
-                          current.filter(({ id }) => id !== attachment.id)
-                        )
-                      }
+                      onClick={remove}
                       type="button"
                     >
                       <X className="size-4" />
                     </button>
                   </div>
-                )
-              )}
+                );
+              })}
             </div>
           )}
 

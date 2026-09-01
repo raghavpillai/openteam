@@ -13,9 +13,8 @@ describe("Grok Bot deep-link routing parity", () => {
       expect(parsed).toEqual({ kind: "settings", anchor });
       if (parsed?.kind === "settings") expect(settingsViewForAnchor(parsed.anchor)).toBeString();
     }
-    expect(settingsViewForAnchor("plan")).toBe("usage");
-    expect(settingsViewForAnchor("update-channel")).toBe("updates");
-    expect(settingsViewForAnchor("chrome-cookie-import")).toBe("computer");
+    expect(settingsViewForAnchor("update-status")).toBe("updates");
+    expect(settingsViewForAnchor("local-execution")).toBe("computer");
   });
 
   test("preserves the stable plugin id and rejects malformed or unsupported links", () => {
@@ -24,6 +23,9 @@ describe("Grok Bot deep-link routing parity", () => {
       pluginId: "google-calendar",
     });
     expect(parseOpenBotDeepLink("grokbot://app/v1/settings?id=not-a-real-anchor")).toBeNull();
+    expect(parseOpenBotDeepLink("grokbot://app/v1/settings?id=plan")).toBeNull();
+    expect(parseOpenBotDeepLink("grokbot://app/v1/settings?id=language")).toBeNull();
+    expect(parseOpenBotDeepLink("grokbot://app/v1/settings?id=update-channel")).toBeNull();
     expect(parseOpenBotDeepLink("https://app/v1/settings?id=theme")).toBeNull();
     expect(parseOpenBotDeepLink("grokbot://app/v1/plugin/add?id=")).toBeNull();
   });

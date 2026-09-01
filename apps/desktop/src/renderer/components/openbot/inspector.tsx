@@ -1,8 +1,16 @@
 import type { BotView, ChannelView, UpdateBotInput } from "@openbot/contracts";
-import { Plus, X } from "lucide-react";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Plus } from "lucide-react";
+import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BOT_TEMPLATE_SHARING_ENABLED } from "../../lib/bot-template";
-import { Button } from "../ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "../ui/alert-dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -14,11 +22,27 @@ import { Label } from "../ui/label";
 import { Switch } from "../ui/switch";
 import { Textarea } from "../ui/textarea";
 import { BotAvatar } from "./avatar";
-import { AvatarPicker } from "./avatar-picker";
-import { BotScreen } from "./bot-screen";
-import { BotTemplateSettingsFooter } from "./bot-template-share";
-import { GroupAvatarEditor } from "./group-avatar-editor";
-import { RoutineEditor, RoutinesSummary } from "./routine-panel";
+
+const AvatarPicker = lazy(() =>
+  import("./avatar-picker").then((module) => ({ default: module.AvatarPicker }))
+);
+const BotScreen = lazy(() =>
+  import("./bot-screen").then((module) => ({ default: module.BotScreen }))
+);
+const RoutineEditor = lazy(() =>
+  import("./routine-panel").then((module) => ({ default: module.RoutineEditor }))
+);
+const RoutinesSummary = lazy(() =>
+  import("./routine-summary").then((module) => ({ default: module.RoutinesSummary }))
+);
+const BotTemplateSettingsFooter = lazy(() =>
+  import("./bot-template-share").then((module) => ({
+    default: module.BotTemplateSettingsFooter,
+  }))
+);
+const GroupAvatarEditor = lazy(() =>
+  import("./group-avatar-editor").then((module) => ({ default: module.GroupAvatarEditor }))
+);
 
 type InspectorMode = "summary" | "settings" | "routine";
 
@@ -42,12 +66,10 @@ const draftOf = (bot: BotView): ProfileDraft => ({
 
 function BotSettings({
   bot,
-  onBack,
   onShareAsTemplate,
   onUpdate,
 }: {
   bot: BotView;
-  onBack: () => void;
   onShareAsTemplate: () => void;
   onUpdate: (input: UpdateBotInput) => Promise<BotView>;
 }) {
@@ -56,6 +78,8 @@ function BotSettings({
   const draftRef = useRef(draft);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const revision = useRef(0);
+  const updateRef = useRef(onUpdate);
+  updateRef.current = onUpdate;
 
   const persist = useCallback(
     async (next: ProfileDraft, includeAvatar = false) => {
@@ -84,7 +108,12 @@ function BotSettings({
       if (timer.current) clearTimeout(timer.current);
       timer.current = null;
       if (immediate) void persist(next, includeAvatar);
-      else timer.current = setTimeout(() => void persist(draftRef.current), 400);
+      else {
+        timer.current = setTimeout(() => {
+          timer.current = null;
+          void persist(draftRef.current);
+        }, 400);
+      }
     },
     [persist]
   );
@@ -96,18 +125,40 @@ function BotSettings({
     void persist(draftRef.current);
   };
 
+  useEffect(
+    () => () => {
+      revision.current += 1;
+      if (!timer.current) return;
+      clearTimeout(timer.current);
+      timer.current = null;
+      const next = draftRef.current;
+      void updateRef
+        .current({
+          name: next.name.trim() || "New Bot",
+          title: next.title,
+          description: next.description,
+          notificationsEnabled: next.notificationsEnabled,
+        })
+        .catch(() => undefined);
+    },
+    []
+  );
+
   return (
-    <div className="flex size-full flex-col overflow-y-auto px-4 pb-3 pt-[70px]">
-      <button className="sr-only" onClick={onBack} type="button">
-        Back to bot details
-      </button>
+    <div className="flex size-full flex-col overflow-y-auto px-4 pb-5 pt-[70px]">
       <div className="flex justify-center">
-        <AvatarPicker
-          botId={bot.id}
-          color={draft.color}
-          icon={draft.icon}
-          onChange={(next) => queue({ ...draft, ...next }, true, true)}
-        />
+        <Suspense
+          fallback={
+            <div aria-label="Loading avatar options" className="size-[76px]" role="status" />
+          }
+        >
+          <AvatarPicker
+            botId={bot.id}
+            color={draft.color}
+            icon={draft.icon}
+            onChange={(next) => queue({ ...draft, ...next }, true, true)}
+          />
+        </Suspense>
       </div>
       <div className="mt-8 grid gap-2">
         <div className="grid gap-[2px]">
@@ -118,11 +169,13 @@ function BotSettings({
             Name
           </Label>
           <Input
+            aria-label="Bot name"
             className="h-9 rounded-[7px] border-[#d9d9d9] px-2.5 text-[14px] shadow-none focus-visible:ring-0 dark:border-[#393939] dark:bg-[#181818]"
             id={`settings-name-${bot.id}`}
             maxLength={80}
             onBlur={flush}
             onChange={(event) => queue({ ...draft, name: event.target.value })}
+            placeholder="Bob"
             value={draft.name}
           />
         </div>
@@ -134,6 +187,7 @@ function BotSettings({
             Label (optional)
           </Label>
           <Input
+            aria-label="Bot label"
             className="h-9 rounded-[7px] border-[#d9d9d9] px-2.5 text-[14px] shadow-none focus-visible:ring-0 dark:border-[#393939] dark:bg-[#181818]"
             id={`settings-title-${bot.id}`}
             maxLength={120}
@@ -151,6 +205,7 @@ function BotSettings({
             Description
           </Label>
           <Textarea
+            aria-label="Bot description"
             className="min-h-20 resize-none rounded-[7px] border-[#d9d9d9] px-2.5 py-2 text-[14px] shadow-none focus-visible:ring-0 dark:border-[#393939] dark:bg-[#181818]"
             id={`settings-description-${bot.id}`}
             maxLength={2_000}
@@ -168,7 +223,7 @@ function BotSettings({
             </div>
           </div>
           <Switch
-            aria-label="Bot notifications"
+            aria-label="Notifications"
             checked={draft.notificationsEnabled}
             className="-mr-1 data-[state=checked]:bg-[#070707] dark:data-[state=checked]:bg-[#626262]"
             onCheckedChange={(checked) => queue({ ...draft, notificationsEnabled: checked }, true)}
@@ -179,9 +234,11 @@ function BotSettings({
         )}
       </div>
       {BOT_TEMPLATE_SHARING_ENABLED && (
-        <div className="mt-auto pt-6">
-          <BotTemplateSettingsFooter bot={bot} onShare={onShareAsTemplate} />
-        </div>
+        <Suspense fallback={<div className="mt-auto h-10 pt-6" />}>
+          <div className="mt-auto pt-6">
+            <BotTemplateSettingsFooter bot={bot} onShare={onShareAsTemplate} />
+          </div>
+        </Suspense>
       )}
     </div>
   );
@@ -190,13 +247,11 @@ function BotSettings({
 function GroupSettings({
   botById,
   channel,
-  onBack,
   onSetAvatar,
   onUpdate,
 }: {
   botById: ReadonlyMap<string, BotView>;
   channel: ChannelView;
-  onBack: () => void;
   onSetAvatar: (pngBase64: string | null) => Promise<void>;
   onUpdate: (name: string, description: string) => Promise<ChannelView>;
 }) {
@@ -204,17 +259,19 @@ function GroupSettings({
     name: channel.name,
     description: channel.description,
   }));
-  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "error">("idle");
   const draftRef = useRef(draft);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const revision = useRef(0);
+  const updateRef = useRef(onUpdate);
+  updateRef.current = onUpdate;
 
   useEffect(() => {
     const next = { name: channel.name, description: channel.description };
     draftRef.current = next;
     setDraft(next);
     setSaveState("idle");
-  }, [channel.name, channel.description]);
+  }, [channel.description, channel.name]);
 
   const persist = useCallback(
     async (next: typeof draft) => {
@@ -222,7 +279,7 @@ function GroupSettings({
       setSaveState("saving");
       try {
         await onUpdate(next.name.trim() || "New Group", next.description);
-        if (requestRevision === revision.current) setSaveState("saved");
+        if (requestRevision === revision.current) setSaveState("idle");
       } catch {
         if (requestRevision === revision.current) setSaveState("error");
       }
@@ -235,7 +292,10 @@ function GroupSettings({
       draftRef.current = next;
       setDraft(next);
       if (timer.current) clearTimeout(timer.current);
-      timer.current = setTimeout(() => void persist(draftRef.current), 400);
+      timer.current = setTimeout(() => {
+        timer.current = null;
+        void persist(draftRef.current);
+      }, 400);
     },
     [persist]
   );
@@ -246,12 +306,25 @@ function GroupSettings({
     void persist(draftRef.current);
   };
 
+  useEffect(
+    () => () => {
+      revision.current += 1;
+      if (!timer.current) return;
+      clearTimeout(timer.current);
+      timer.current = null;
+      const next = draftRef.current;
+      void updateRef
+        .current(next.name.trim() || "New Group", next.description)
+        .catch(() => undefined);
+    },
+    []
+  );
+
   return (
     <div className="flex size-full flex-col overflow-y-auto px-4 pb-5 pt-[70px]">
-      <button className="sr-only" onClick={onBack} type="button">
-        Back to conversation details
-      </button>
-      <GroupAvatarEditor botById={botById} channel={channel} onSave={onSetAvatar} />
+      <Suspense fallback={<div aria-label="Loading group avatar" className="h-[76px]" />}>
+        <GroupAvatarEditor botById={botById} channel={channel} onSave={onSetAvatar} />
+      </Suspense>
       <div className="mt-8 grid gap-2">
         <div className="grid gap-[2px]">
           <Label
@@ -282,7 +355,7 @@ function GroupSettings({
             maxLength={2_000}
             onBlur={flush}
             onChange={(event) => queue({ ...draft, description: event.target.value })}
-            placeholder="what this channel for"
+            placeholder="What this conversation is for"
             value={draft.description}
           />
         </div>
@@ -296,7 +369,6 @@ function GroupSettings({
 
 export const Inspector = memo(function Inspector({
   channel,
-  workspaceRoot,
   botById,
   active,
   screenEnabled,
@@ -313,7 +385,6 @@ export const Inspector = memo(function Inspector({
   routineOpenRequest,
 }: {
   channel: ChannelView;
-  workspaceRoot: string;
   botById: ReadonlyMap<string, BotView>;
   active: boolean;
   screenEnabled: boolean;
@@ -326,12 +397,12 @@ export const Inspector = memo(function Inspector({
   onOpenBot: (botId: string) => void;
   onSetGroupAvatar: (channelId: string, pngBase64: string | null) => Promise<void>;
   onSetMembers: (channelId: string, botIds: string[]) => Promise<void>;
-  routineOpenRequest?: { routineId: string; nonce: number } | null;
   onUpdateGroupProfile: (
     channelId: string,
     name: string,
     description: string
   ) => Promise<ChannelView>;
+  routineOpenRequest?: { routineId: string; nonce: number } | null;
 }) {
   const members = useMemo(
     () =>
@@ -344,20 +415,48 @@ export const Inspector = memo(function Inspector({
   );
   const bot = channel.kind === "bot_dm" ? members[0] : undefined;
   const [selectedRoutineId, setSelectedRoutineId] = useState<string | null>(null);
-  const [memberSaveState, setMemberSaveState] = useState<"idle" | "saving" | "error">("idle");
+  const [memberMutationPending, setMemberMutationPending] = useState(false);
+  const [memberMutationError, setMemberMutationError] = useState<string | null>(null);
+  const [removeMemberTarget, setRemoveMemberTarget] = useState<BotView | null>(null);
+  const memberIds = useMemo(() => members.map((member) => member.id), [members]);
+  const memberIdSet = useMemo(() => new Set(memberIds), [memberIds]);
+  const addableMembers = useMemo(
+    () =>
+      [...botById.values()].filter(
+        (candidate) => candidate.status === "active" && !memberIdSet.has(candidate.id)
+      ),
+    [botById, memberIdSet]
+  );
+  const setMembers = useCallback(
+    async (nextMemberIds: string[], failureMessage: string) => {
+      setMemberMutationPending(true);
+      setMemberMutationError(null);
+      try {
+        await onSetMembers(channel.id, nextMemberIds);
+        return true;
+      } catch {
+        setMemberMutationError(failureMessage);
+        return false;
+      } finally {
+        setMemberMutationPending(false);
+      }
+    },
+    [channel.id, onSetMembers]
+  );
+  useEffect(() => {
+    setMemberMutationPending(false);
+    setMemberMutationError(null);
+    setRemoveMemberTarget(null);
+  }, [channel.id]);
   useEffect(() => {
     if (routineOpenRequest) setSelectedRoutineId(routineOpenRequest.routineId);
   }, [routineOpenRequest]);
-  useEffect(() => {
-    setMemberSaveState("idle");
-  }, [channel.id]);
 
   if (bot && mode === "settings") {
     return (
-      <aside className="size-full bg-background">
+      <aside aria-label="Settings" className="size-full bg-background">
         <BotSettings
           bot={bot}
-          onBack={() => onModeChange("summary")}
           onShareAsTemplate={() => onShareAsTemplate(bot)}
           onUpdate={(input) => onUpdateBot(bot.id, input)}
         />
@@ -365,46 +464,13 @@ export const Inspector = memo(function Inspector({
     );
   }
 
-  if (bot && mode === "routine") {
-    return (
-      <aside className="size-full bg-background">
-        <RoutineEditor
-          ownerId={bot.id}
-          ownerKind="bot"
-          onDeleted={() => {
-            setSelectedRoutineId(null);
-            onModeChange("summary");
-          }}
-          routineId={selectedRoutineId}
-        />
-      </aside>
-    );
-  }
-
-  if (!bot && mode === "routine") {
-    return (
-      <aside className="size-full bg-background">
-        <RoutineEditor
-          ownerId={channel.id}
-          ownerKind="group"
-          onDeleted={() => {
-            setSelectedRoutineId(null);
-            onModeChange("summary");
-          }}
-          routineId={selectedRoutineId}
-        />
-      </aside>
-    );
-  }
-
   if (!bot && mode === "settings") {
     return (
-      <aside className="size-full bg-background">
+      <aside aria-label="Settings" className="size-full bg-background">
         <GroupSettings
           botById={botById}
           channel={channel}
           key={channel.id}
-          onBack={() => onModeChange("summary")}
           onSetAvatar={(pngBase64) => onSetGroupAvatar(channel.id, pngBase64)}
           onUpdate={(name, description) => onUpdateGroupProfile(channel.id, name, description)}
         />
@@ -412,23 +478,49 @@ export const Inspector = memo(function Inspector({
     );
   }
 
+  if (mode === "routine") {
+    return (
+      <aside className="size-full bg-background">
+        <Suspense
+          fallback={<div aria-label="Loading routine editor" className="size-full" role="status" />}
+        >
+          <RoutineEditor
+            active={active}
+            ownerId={bot?.id ?? channel.id}
+            ownerKind={bot ? "bot" : "group"}
+            onDeleted={() => {
+              setSelectedRoutineId(null);
+              onModeChange("summary");
+            }}
+            routineId={selectedRoutineId}
+          />
+        </Suspense>
+      </aside>
+    );
+  }
+
   return (
     <aside className="flex size-full flex-col bg-background px-3 pb-5 pt-[41px]">
       {bot ? (
-        <>
-          <BotScreen
-            active={active}
-            bot={bot}
-            enabled={screenEnabled}
-            onEnable={() => onEnableScreen(bot.id)}
-            onRetry={() => onRetryBot(bot.id)}
-          />
-          <div className="mt-2 text-center text-[12px] leading-4 text-muted-foreground">
-            {bot.status === "provisioning"
-              ? `Starting ${bot.name}'s screen…`
-              : `${bot.name}'s screen`}
-          </div>
+        <Suspense
+          fallback={<div aria-label="Loading bot details" className="size-full" role="status" />}
+        >
+          <section aria-label="Computer preview">
+            <BotScreen
+              active={active}
+              bot={bot}
+              enabled={screenEnabled}
+              onEnable={() => onEnableScreen(bot.id)}
+              onRetry={() => onRetryBot(bot.id)}
+            />
+            <div className="mt-2 text-center text-[12px] leading-4 text-muted-foreground">
+              {bot.status === "provisioning"
+                ? `Starting ${bot.name}'s screen…`
+                : `${bot.name}'s screen`}
+            </div>
+          </section>
           <RoutinesSummary
+            active={active}
             ownerId={bot.id}
             ownerKind="bot"
             onOpen={(routineId) => {
@@ -436,110 +528,122 @@ export const Inspector = memo(function Inspector({
               onModeChange("routine");
             }}
           />
-        </>
+        </Suspense>
       ) : (
         <>
-          <div className="text-sm font-medium">Members</div>
-          <ul aria-label="Members" className="mt-2 space-y-1">
-            {members.map((member) => (
-              <li className="group flex h-9 items-center" key={member.id}>
-                <button
-                  aria-label={`Open ${member.name}'s chat`}
-                  className="flex min-w-0 flex-1 items-center gap-3 rounded-lg px-2 py-1.5 text-left hover:bg-accent"
-                  onClick={() => onOpenBot(member.id)}
-                  type="button"
+          <section aria-label="Members" className="sand-group-members-section">
+            <div className="px-2 text-[12px] leading-5 text-foreground-secondary">Members</div>
+            <div className="mt-1">
+              {members.map((member) => (
+                <div
+                  className="sand-group-member-row group flex h-10 items-center rounded-[9px] px-1 hover:bg-accent"
+                  key={member.id}
                 >
-                  <BotAvatar bot={member} size="sm" />
-                  <span className="min-w-0 flex-1 truncate text-sm font-medium">{member.name}</span>
-                </button>
-                <Button
-                  aria-label={`Remove ${member.name}`}
-                  className="size-7 shrink-0 rounded-full text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
-                  disabled={members.length <= 1 || memberSaveState === "saving"}
-                  onClick={() => {
-                    if (!window.confirm(`Remove ${member.name} from this conversation?`)) return;
-                    setMemberSaveState("saving");
-                    void onSetMembers(
-                      channel.id,
-                      members.filter((candidate) => candidate.id !== member.id).map(({ id }) => id)
-                    ).then(
-                      () => setMemberSaveState("idle"),
-                      () => setMemberSaveState("error")
-                    );
-                  }}
-                  size="icon-sm"
-                  variant="ghost"
-                >
-                  <X className="size-3.5" />
-                </Button>
-              </li>
-            ))}
-            <li>
+                  <button
+                    aria-label={`Open ${member.name}'s chat`}
+                    className="sand-group-member-open flex min-w-0 flex-1 items-center gap-2.5 rounded-[8px] px-1.5 py-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/35"
+                    onClick={() => onOpenBot(member.id)}
+                    type="button"
+                  >
+                    <BotAvatar bot={member} size="sm" />
+                    <span className="sand-group-member-name min-w-0 flex-1 truncate text-[13px]">
+                      {member.name}
+                    </span>
+                  </button>
+                  <button
+                    className="mr-1 rounded-[7px] px-2 py-1 text-[11px] text-foreground-secondary opacity-0 outline-none transition-opacity hover:bg-black/[0.055] hover:text-foreground focus:opacity-100 focus-visible:ring-2 focus-visible:ring-ring/35 group-hover:opacity-100 disabled:pointer-events-none dark:hover:bg-white/[0.08]"
+                    disabled={members.length <= 1 || memberMutationPending}
+                    onClick={() => setRemoveMemberTarget(member)}
+                    type="button"
+                  >
+                    Remove
+                  </button>
+                </div>
+              ))}
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <button
-                    aria-label="Add Member"
-                    className="flex h-9 w-full items-center gap-3 rounded-lg px-2 text-sm text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
+                    className="sand-group-member-add-row sand-group-member-add mt-0.5 flex h-9 w-full items-center gap-2 rounded-[9px] px-2 text-left text-[13px] text-foreground-secondary outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/35 disabled:pointer-events-none disabled:opacity-45"
                     disabled={
-                      members.length >= 6 ||
-                      memberSaveState === "saving" ||
-                      ![...botById.values()].some(
-                        (candidate) =>
-                          candidate.status === "active" &&
-                          !members.some((member) => member.id === candidate.id)
-                      )
+                      members.length >= 6 || addableMembers.length === 0 || memberMutationPending
                     }
                     type="button"
                   >
-                    <span className="grid size-[22px] place-items-center">
-                      <Plus className="size-3.5" />
-                    </span>
+                    <Plus className="size-4" strokeWidth={1.7} />
                     <span>Add Member</span>
                   </button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" aria-label="Add Member" className="w-[216px]">
-                  {[...botById.values()]
-                    .filter(
-                      (candidate) =>
-                        candidate.status === "active" &&
-                        !members.some((member) => member.id === candidate.id)
-                    )
-                    .map((candidate) => (
-                      <DropdownMenuItem
-                        key={candidate.id}
-                        onSelect={() => {
-                          setMemberSaveState("saving");
-                          void onSetMembers(channel.id, [
-                            ...members.map(({ id }) => id),
-                            candidate.id,
-                          ]).then(
-                            () => setMemberSaveState("idle"),
-                            () => setMemberSaveState("error")
-                          );
-                        }}
-                      >
-                        <BotAvatar bot={candidate} size="sm" />
-                        <span className="truncate">{candidate.name}</span>
-                      </DropdownMenuItem>
-                    ))}
+                <DropdownMenuContent
+                  align="start"
+                  className="max-h-[300px] w-[260px] overflow-y-auto rounded-[12px] p-1.5"
+                >
+                  {addableMembers.map((candidate) => (
+                    <DropdownMenuItem
+                      className="h-10 gap-2.5 rounded-[9px] px-2 text-[13px]"
+                      disabled={memberMutationPending}
+                      key={candidate.id}
+                      onSelect={() =>
+                        void setMembers(
+                          [...memberIds, candidate.id],
+                          "Adding failed. Check your connection and try again."
+                        )
+                      }
+                    >
+                      <BotAvatar bot={candidate} size="sm" />
+                      <span className="min-w-0 flex-1 truncate">{candidate.name}</span>
+                    </DropdownMenuItem>
+                  ))}
                 </DropdownMenuContent>
               </DropdownMenu>
-            </li>
-          </ul>
-          {memberSaveState === "error" && (
-            <p className="mt-2 text-[11px] text-destructive">Could not update members.</p>
-          )}
-          <RoutinesSummary
-            ownerId={channel.id}
-            ownerKind="group"
-            onOpen={(routineId) => {
-              setSelectedRoutineId(routineId);
-              onModeChange("routine");
-            }}
-          />
+            </div>
+            {memberMutationError && (
+              <p className="mt-1 px-2 text-[11px] text-destructive">{memberMutationError}</p>
+            )}
+          </section>
+          <Suspense fallback={<div aria-label="Loading group routines" className="mt-4 h-16" />}>
+            <RoutinesSummary
+              active={active}
+              ownerId={channel.id}
+              ownerKind="group"
+              onOpen={(routineId) => {
+                setSelectedRoutineId(routineId);
+                onModeChange("routine");
+              }}
+            />
+          </Suspense>
+          <AlertDialog
+            onOpenChange={(open) => !open && setRemoveMemberTarget(null)}
+            open={Boolean(removeMemberTarget)}
+          >
+            <AlertDialogContent aria-describedby={undefined}>
+              <AlertDialogHeader>
+                <AlertDialogTitle>
+                  Remove {removeMemberTarget?.name} from this conversation?
+                </AlertDialogTitle>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  disabled={memberMutationPending}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    const targetId = removeMemberTarget?.id;
+                    if (!targetId || memberIds.length <= 1) return;
+                    void setMembers(
+                      memberIds.filter((id) => id !== targetId),
+                      "Removing failed. Check your connection and try again."
+                    ).then((updated) => {
+                      if (updated) setRemoveMemberTarget(null);
+                    });
+                  }}
+                >
+                  {memberMutationPending ? "Removing..." : "Remove"}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </>
       )}
-      <div className="sr-only">Workspace root: {workspaceRoot}</div>
     </aside>
   );
 });

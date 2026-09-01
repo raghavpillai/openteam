@@ -5,6 +5,24 @@ const componentSource = (name: string) =>
   readFile(new URL(`../src/renderer/components/openbot/${name}.tsx`, import.meta.url), "utf8");
 
 describe("Grok bot-profile UI parity", () => {
+  test("opens Bot settings from Grok's compact header identity control", async () => {
+    const header = await componentSource("desktop-header");
+
+    expect(header).toContain('aria-label="View conversation details"');
+    expect(header).toMatch(
+      /aria-label="View conversation details"[\s\S]*?<BotAvatar[\s\S]*?\{selected\.name\}/
+    );
+    expect(header).toMatch(/changeDetails\(true\);\s*onShowSettings\(\);/);
+    expect(header).toContain("aria-label={selected.name}");
+    expect(header).toContain("OpenBot's Computer");
+    expect(header).toContain('aria-label="Back to details"');
+    expect(header).toContain('aria-label="Close details"');
+    expect(header).not.toContain("Back to bot details");
+    expect(header).not.toContain("Hide details");
+    expect(header).not.toContain("Rename chat");
+    expect(header).not.toContain("<Pencil");
+  });
+
   test("projects the optional label into the roster and autosaves silently", async () => {
     const [inspector, sidebar] = await Promise.all([
       componentSource("inspector"),
@@ -12,11 +30,36 @@ describe("Grok bot-profile UI parity", () => {
     ]);
 
     expect(inspector).toContain("Label (optional)");
+    expect(inspector).toContain('aria-label="Bot name"');
+    expect(inspector).toContain('placeholder="Bob"');
+    expect(inspector).toContain('aria-label="Bot label"');
+    expect(inspector).toContain('aria-label="Bot description"');
+    expect(inspector).toContain('aria-label="Notifications"');
+    expect(inspector).toContain('aria-label="Computer preview"');
+    expect(inspector).toContain('aria-label="Settings"');
+    expect(inspector).not.toContain("Back to bot details");
     expect(inspector).not.toContain('saveState === "saved" ? "Saved"');
     expect(inspector).toContain("BotTemplateSettingsFooter");
     expect(inspector).toContain("onShareAsTemplate(bot)");
     expect(sidebar).toContain("{bot.title}");
     expect(sidebar).toContain("max-w-24 shrink-0 truncate rounded-[4px]");
+  });
+
+  test("matches Grok's details-pane and computer accessibility structure", async () => {
+    const [app, avatar, screen, routines] = await Promise.all([
+      readFile(new URL("../src/renderer/App.tsx", import.meta.url), "utf8"),
+      componentSource("avatar-picker"),
+      componentSource("bot-screen"),
+      componentSource("routine-summary"),
+    ]);
+
+    expect(app).toContain('aria-label="Conversation details"');
+    expect(app).toContain('aria-label="Resize details"');
+    expect(app).not.toContain('aria-label="Resize details sidebar"');
+    expect(avatar).toContain('aria-label="Edit Bot avatar"');
+    expect(screen).toContain('aria-label="Open computer"');
+    expect(routines).toContain('aria-label="Routines"');
+    expect(routines).toContain('role="list"');
   });
 
   test("matches Grok's pinned-grid spacing and permits group channels", async () => {
@@ -27,7 +70,9 @@ describe("Grok bot-profile UI parity", () => {
     expect(sidebar).toContain(
       'className="grid w-full justify-center gap-x-2 gap-y-3 rounded-[12px] p-[6px]"'
     );
-    expect(sidebar).toContain('gridTemplateColumns: "repeat(auto-fit, minmax(80px, max-content))"');
+    expect(sidebar).toMatch(
+      /gridTemplateColumns:\s*"repeat\(auto-fit, minmax\(80px, max-content\)\)"/
+    );
     expect(sidebar).toContain('<ChannelAvatar botById={botById} channel={channel} size="lg" />');
     expect(sidebar.match(/aria-label="Toggle compact sidebar"/g)?.length).toBe(1);
     expect(sidebar).toContain("<PanelLeftClose");
@@ -36,9 +81,7 @@ describe("Grok bot-profile UI parity", () => {
     expect(sidebar).toContain(
       'className="electron-drag flex h-[61px] shrink-0 items-end justify-center pb-px"'
     );
-    expect(sidebar).toContain(
-      'className="h-[0.5px] w-[54px] bg-[#dddddd] dark:bg-[#3a3a3a]"'
-    );
+    expect(sidebar).toContain('className="h-[0.5px] w-[54px] bg-[#dddddd] dark:bg-[#3a3a3a]"');
     expect(sidebar).toContain('data-compact-header-divider=""');
   });
 
@@ -61,7 +104,9 @@ describe("Grok bot-profile UI parity", () => {
   test("shows Grok's blue unread badge on compact Bot and group avatars", async () => {
     const sidebar = await componentSource("sidebar");
 
-    expect(sidebar).toContain('data-unread-indicator={unread && !needsAttention ? "true" : undefined}');
+    expect(sidebar).toContain(
+      'data-unread-indicator={unread && !needsAttention ? "true" : undefined}'
+    );
     expect(sidebar).toContain('needsAttention ? "bg-amber-500" : "bg-[#3062bf]"');
     expect(sidebar).toContain("bottom-[7px] right-[7px] z-20 size-2 rounded-full border-2");
     expect(sidebar).toContain('selected ? "border-selected" : "border-sidebar"');
@@ -79,6 +124,10 @@ describe("Grok bot-profile UI parity", () => {
     expect(sidebar).toContain("setSidebarTopFade(viewport.scrollTop > 5)");
     expect(sidebar).toContain("sidebarUnreadJumpTargets(metrics");
     expect(sidebar).toContain("viewport.scrollTo({ top });");
+    expect(sidebar).toContain("virtualJumpHandlersRef.current.get(group)");
+    expect(sidebar).toContain('scrollToIndex(index, { align: "center" })');
+    expect(sidebar).toContain("VIRTUAL_SECTIONS_JUMP_KEY");
+    expect(sidebar).not.toContain('viewport.querySelectorAll<HTMLElement>("[data-channel-id]")');
   });
 
   test("gives group chats Grok's pin, section, unread, and profile paths", async () => {
@@ -99,12 +148,19 @@ describe("Grok bot-profile UI parity", () => {
       componentSource("bot-template-share"),
     ]);
 
-    expect(chat).toContain("BOT_TEMPLATE_REQUEST");
-    expect(chat).toContain("TemplateAudienceQuestion");
-    expect(chat).toContain("createBotTemplateDraft(selectedBot, audience)");
-    expect(chat).toContain("BotTemplateCard");
+    expect(chat).toContain('import("./bot-template-share")');
+    expect(chat).toContain("BotTemplateConversationFlow");
+    expect(chat).toContain("onSubmitPrompt={(content) => enqueueDurableSend(content, [])}");
+    expect(sharing).toContain("BOT_TEMPLATE_REQUEST");
+    expect(sharing).toContain("onSubmitPrompt(BOT_TEMPLATE_REQUEST)");
+    expect(sharing).toContain("TemplateAudienceQuestion");
+    expect(sharing).toContain("createBotTemplateDraft(bot, audience)");
+    expect(sharing).toContain("BotTemplateCard");
     expect(sharing).toContain("Who should this template be for?");
-    expect(sharing).toContain("Team templates can keep internal workflow details");
+    expect(sharing).toContain("Team stays inside your workspace");
+    expect(sharing).toContain("People in your team can use it");
+    expect(sharing).toContain("Anyone with the link can use it");
+    expect(sharing).toContain("I’ll pull together a shareable template of this bot.");
     expect(sharing).toContain("View Details");
     expect(sharing).toContain("Publishing…");
     expect(sharing).toContain("Copy link");

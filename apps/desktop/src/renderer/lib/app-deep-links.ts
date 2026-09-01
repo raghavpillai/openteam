@@ -1,56 +1,27 @@
 export const SETTINGS_ANCHORS = [
   "theme",
-  "language",
-  "microphone",
-  "hardware-acceleration",
-  "hardware-acceleration-restart",
-  "notification-sound-enabled",
-  "notification-sound",
-  "timezone",
   "local-execution",
   "computers",
-  "chrome-cookie-import",
   "auto-review",
-  "security-keys",
-  "plan",
-  "cancel-trial",
-  "on-demand",
-  "egress",
   "update-status",
-  "update-channel",
+  "server-update",
   "automatic-updates",
-  "update-computer",
-  "reset-computer",
 ] as const;
 
 export type SettingsAnchor = (typeof SETTINGS_ANCHORS)[number];
-export type SettingsView = "general" | "computer" | "usage" | "updates";
+export type SettingsView = "general" | "computer" | "updates";
+export const OPENBOT_DEEP_LINK_EVENT = "openbot:deep-link";
 
 const settingsAnchorSet = new Set<string>(SETTINGS_ANCHORS);
 
 const viewByAnchor: Record<SettingsAnchor, SettingsView> = {
   theme: "general",
-  language: "general",
-  microphone: "general",
-  "hardware-acceleration": "general",
-  "hardware-acceleration-restart": "general",
-  "notification-sound-enabled": "general",
-  "notification-sound": "general",
-  timezone: "general",
   "local-execution": "computer",
   computers: "computer",
-  "chrome-cookie-import": "computer",
   "auto-review": "general",
-  "security-keys": "general",
-  plan: "usage",
-  "cancel-trial": "usage",
-  "on-demand": "usage",
-  egress: "usage",
   "update-status": "updates",
-  "update-channel": "updates",
+  "server-update": "updates",
   "automatic-updates": "updates",
-  "update-computer": "updates",
-  "reset-computer": "updates",
 };
 
 export type OpenBotDeepLink =

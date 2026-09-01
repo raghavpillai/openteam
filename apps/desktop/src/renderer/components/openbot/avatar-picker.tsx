@@ -1,4 +1,4 @@
-import { resolveBotAvatarMark } from "@openbot/contracts";
+import { resolveBotAvatarMark } from "@openbot/contracts/bot-avatar";
 import { Pipette } from "lucide-react";
 import { Popover as PopoverPrimitive } from "radix-ui";
 import { useState } from "react";
@@ -70,7 +70,7 @@ export function AvatarPicker({
         <TooltipTrigger asChild>
           <PopoverPrimitive.Trigger asChild>
             <button
-              aria-label="Edit avatar"
+              aria-label="Edit Bot avatar"
               className="group relative grid size-16 place-items-center outline-none"
               type="button"
             >
@@ -108,7 +108,7 @@ export function AvatarPicker({
           </PopoverPrimitive.Trigger>
         </TooltipTrigger>
         <TooltipContent side="bottom" sideOffset={10}>
-          Edit Avatar
+          Edit Bot avatar
         </TooltipContent>
       </Tooltip>
 

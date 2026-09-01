@@ -1,7 +1,16 @@
 import type { BotView, ChannelView, SearchCategory, SearchResultView } from "@openbot/contracts";
 import {
+  createSearchRequestGate,
+  normalizeSearchQuery,
+  readSearchCache,
+  searchCacheKey,
+  searchResultKindLabel,
+  writeSearchCache,
+} from "@openbot/product-core/search";
+import {
   Bot,
   Clock3,
+  EyeOff,
   FileText,
   Hash,
   Link,
@@ -29,7 +38,7 @@ import { BotAvatar, ChannelAvatar } from "./avatar";
 const SEARCH_DEBOUNCE_MS = 50;
 const CACHE_TTL_MS = 15_000;
 const CACHE_LIMIT = 40;
-const DEFAULT_SEARCH_KEY = "all:";
+const DEFAULT_SEARCH_KEY = searchCacheKey("", "all", "");
 
 type CachedResults = { createdAt: number; results: SearchResultView[] };
 const resultCache = new Map<string, CachedResults>();
@@ -39,7 +48,7 @@ export interface SearchAction {
   title: string;
   subtitle: string;
   keywords?: string;
-  icon: "bot" | "channel" | "settings" | "details";
+  icon: "bot" | "channel" | "settings" | "details" | "hidden";
   run: () => void;
 }
 
@@ -49,37 +58,17 @@ type DisplayResult =
 
 const resultTypeLabel = (result: DisplayResult) => {
   if (result.type === "action") return "Action";
-  switch (result.value.kind) {
-    case "bot":
-      return "Bot";
-    case "channel":
-      return "Channel";
-    case "message":
-      return "Message";
-    case "file":
-      return "File";
-    case "link":
-      return "Link";
-    case "routine":
-      return "Routine";
-  }
+  return searchResultKindLabel(result.value.kind);
 };
 
-const normalizedCacheQuery = (query: string) =>
-  query.normalize("NFKC").replace(/\s+/g, " ").trim().toLowerCase();
 const cacheKey = (query: string, category: SearchCategory) =>
-  `${category}:${normalizedCacheQuery(query)}`;
+  searchCacheKey("", category, normalizeSearchQuery(query));
 const freshCachedResults = (key: string) => {
-  const cached = resultCache.get(key);
+  const cached = readSearchCache(resultCache, key);
   return cached && Date.now() - cached.createdAt < CACHE_TTL_MS ? cached.results : undefined;
 };
 const setCachedResults = (key: string, results: SearchResultView[]) => {
-  resultCache.delete(key);
-  resultCache.set(key, { createdAt: Date.now(), results });
-  if (resultCache.size > CACHE_LIMIT) {
-    const oldest = resultCache.keys().next().value;
-    if (oldest) resultCache.delete(oldest);
-  }
+  writeSearchCache(resultCache, key, { createdAt: Date.now(), results }, CACHE_LIMIT);
 };
 
 function ResultIcon({
@@ -124,9 +113,11 @@ function ActionIcon({ action }: { action: SearchAction }) {
       ? Bot
       : action.icon === "channel"
         ? Hash
-        : action.icon === "details"
-          ? ListRestart
-          : Settings2;
+        : action.icon === "hidden"
+          ? EyeOff
+          : action.icon === "details"
+            ? ListRestart
+            : Settings2;
   return (
     <span className="grid size-7 shrink-0 place-items-center rounded-[9px] bg-subtle text-foreground-secondary">
       <Icon className="size-3.5" />
@@ -158,8 +149,10 @@ export function SearchDialog({
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const [requestGate] = useState(createSearchRequestGate);
 
   useEffect(() => {
+    if (!open) return;
     if (freshCachedResults(DEFAULT_SEARCH_KEY)) return;
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
@@ -173,7 +166,7 @@ export function SearchDialog({
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, []);
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -210,13 +203,14 @@ export function SearchDialog({
   }, [open]);
 
   useEffect(() => {
+    requestGate.invalidate();
     if (!open || section === "actions") {
       setLoading(false);
       setError(null);
       return;
     }
     const category = section as SearchCategory;
-    const normalizedQuery = query.trim();
+    const normalizedQuery = normalizeSearchQuery(query);
     const key = cacheKey(normalizedQuery, category);
     const cached = freshCachedResults(key);
     if (cached) {
@@ -226,6 +220,7 @@ export function SearchDialog({
       return;
     }
 
+    const requestToken = requestGate.begin(key);
     const controller = new AbortController();
     const timer = window.setTimeout(
       () => {
@@ -234,17 +229,19 @@ export function SearchDialog({
         void api
           .search(normalizedQuery, category, controller.signal)
           .then((response) => {
-            if (controller.signal.aborted) return;
+            if (controller.signal.aborted || !requestGate.isCurrent(requestToken)) return;
             setCachedResults(key, response.results);
             setDocuments(response.results);
           })
           .catch((requestError) => {
-            if (controller.signal.aborted) return;
+            if (controller.signal.aborted || !requestGate.isCurrent(requestToken)) return;
             setDocuments([]);
             setError(requestError instanceof Error ? requestError.message : "Search failed");
           })
           .finally(() => {
-            if (!controller.signal.aborted) setLoading(false);
+            if (!controller.signal.aborted && requestGate.isCurrent(requestToken)) {
+              setLoading(false);
+            }
           });
       },
       normalizedQuery ? SEARCH_DEBOUNCE_MS : 0
@@ -252,8 +249,9 @@ export function SearchDialog({
     return () => {
       window.clearTimeout(timer);
       controller.abort();
+      requestGate.invalidate();
     };
-  }, [open, query, section]);
+  }, [open, query, requestGate, section]);
 
   const matchingActions = useMemo(
     () =>

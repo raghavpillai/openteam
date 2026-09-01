@@ -4,18 +4,14 @@ import {
   ChevronLeft,
   ChevronsRight,
   Info,
-  LoaderCircle,
   MessageCircle,
   Monitor,
-  Pencil,
   Settings,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
 import type { A2AExchangePhase } from "../../lib/a2a-exchange";
 import { cn } from "../../lib/cn";
 import { measureUntilNextPaint } from "../../lib/performance";
 import { Button } from "../ui/button";
-import { Input } from "../ui/input";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
 import { BotAvatar, ChannelAvatar } from "./avatar";
 
@@ -33,7 +29,6 @@ export function DesktopHeader({
   onDetailsOpenChange,
   onShowSettings,
   onShowSummary,
-  onRename,
 }: {
   agentNameById: ReadonlyMap<string, string>;
   botById: ReadonlyMap<string, BotView>;
@@ -52,48 +47,7 @@ export function DesktopHeader({
   onDetailsOpenChange: (open: boolean) => void;
   onShowSettings: () => void;
   onShowSummary: () => void;
-  onRename: (channelId: string, name: string) => Promise<void>;
 }) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(selected?.name ?? "");
-  const [saving, setSaving] = useState(false);
-  const [renameError, setRenameError] = useState(false);
-  const finishing = useRef(false);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: switching chats must cancel editing even when the names match.
-  useEffect(() => {
-    setEditing(false);
-    setDraft(selected?.name ?? "");
-    setRenameError(false);
-  }, [selected?.id, selected?.name]);
-
-  const finishRename = async (save: boolean) => {
-    if (finishing.current || !selected) return;
-    const name = draft.replace(/\s+/g, " ").trim();
-    if (!save || !name || name === selected.name) {
-      if (!save) {
-        finishing.current = true;
-        window.setTimeout(() => {
-          finishing.current = false;
-        }, 0);
-      }
-      setDraft(selected.name);
-      setEditing(false);
-      setRenameError(false);
-      return;
-    }
-    finishing.current = true;
-    setSaving(true);
-    setRenameError(false);
-    try {
-      await onRename(selected.id, name);
-      setEditing(false);
-    } catch {
-      setRenameError(true);
-    } finally {
-      finishing.current = false;
-      setSaving(false);
-    }
-  };
   const changeDetails = (open: boolean) => {
     measureUntilNextPaint("view.details-toggle", { opening: open });
     onDetailsOpenChange(open);
@@ -131,7 +85,8 @@ export function DesktopHeader({
       {selected ? (
         <>
           <div className="flex h-full min-w-0 flex-1 items-center px-4">
-            <div
+            <h2
+              aria-label={selected.name}
               className="electron-drag pointer-events-auto inline-flex h-6 max-w-full items-center gap-1.5 overflow-hidden"
               data-chat-header-title=""
             >
@@ -156,61 +111,34 @@ export function DesktopHeader({
                     directTail
                   )}
                 </div>
+              ) : selected.kind === "bot_dm" ? (
+                <button
+                  aria-label="View conversation details"
+                  className="electron-no-drag inline-flex min-w-0 items-center gap-1.5 rounded-[5px] outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
+                  onClick={() => {
+                    changeDetails(true);
+                    onShowSettings();
+                  }}
+                  type="button"
+                >
+                  {selectedBot ? (
+                    <BotAvatar bot={selectedBot} size="xs" />
+                  ) : (
+                    <MessageCircle className="size-4 text-violet-500" />
+                  )}
+                  <span className="truncate text-[13px] font-medium">{selected.name}</span>
+                </button>
               ) : (
                 <>
-                  {selected.kind === "bot_dm" ? (
-                    selectedBot ? (
-                      <BotAvatar bot={selectedBot} size="xs" />
-                    ) : (
-                      <MessageCircle className="size-4 text-violet-500" />
-                    )
-                  ) : selected.kind === "group" ? (
+                  {selected.kind === "group" ? (
                     <ChannelAvatar botById={botById} channel={selected} size="sm" />
                   ) : (
                     <MessageCircle className="size-4 text-violet-500" />
                   )}
-                  {editing ? (
-                    <Input
-                      aria-invalid={renameError}
-                      aria-label="Chat name"
-                      autoFocus
-                      className="electron-no-drag h-6 w-[min(280px,42vw)] rounded-md border-border bg-background px-1.5 text-[13px] font-medium shadow-none focus-visible:ring-1"
-                      disabled={saving}
-                      maxLength={80}
-                      onBlur={() => void finishRename(true)}
-                      onChange={(event) => setDraft(event.target.value)}
-                      onFocus={(event) => event.currentTarget.select()}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") {
-                          event.preventDefault();
-                          void finishRename(true);
-                        }
-                        if (event.key === "Escape") {
-                          event.preventDefault();
-                          void finishRename(false);
-                        }
-                      }}
-                      title={renameError ? "Could not rename this chat" : undefined}
-                      value={draft}
-                    />
-                  ) : selected.kind === "bot_dm" ? (
-                    <button
-                      aria-label={`Rename ${selected.name}`}
-                      className="electron-no-drag group/name inline-flex min-w-0 items-center gap-1 rounded px-0.5 py-0.5 outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-ring/30"
-                      onClick={() => setEditing(true)}
-                      title="Rename chat"
-                      type="button"
-                    >
-                      <span className="truncate text-[13px] font-medium">{selected.name}</span>
-                      <Pencil className="size-3 shrink-0 opacity-0 transition-opacity group-hover/name:opacity-60 group-focus-visible/name:opacity-60" />
-                    </button>
-                  ) : (
-                    <span className="truncate text-[13px] font-medium">{selected.name}</span>
-                  )}
+                  <span className="truncate text-[13px] font-medium">{selected.name}</span>
                 </>
               )}
-              {saving && <LoaderCircle className="size-3.5 animate-spin text-muted-foreground" />}
-            </div>
+            </h2>
           </div>
 
           <div
@@ -239,11 +167,7 @@ export function DesktopHeader({
               {inspectorMode === "settings" ? (
                 <>
                   <Button
-                    aria-label={
-                      selected.kind === "group"
-                        ? "Back to conversation details"
-                        : "Back to bot details"
-                    }
+                    aria-label="Back to details"
                     className="rounded-full text-foreground-tertiary"
                     onClick={onShowSummary}
                     size="icon-sm"
@@ -303,7 +227,7 @@ export function DesktopHeader({
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
-                      aria-label="Hide details"
+                      aria-label="Close details"
                       className="rounded-full text-foreground-tertiary hover:bg-transparent hover:text-foreground"
                       onClick={() => changeDetails(false)}
                       size="icon-sm"
@@ -312,7 +236,7 @@ export function DesktopHeader({
                       <ChevronsRight className="size-4" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>Hide details</TooltipContent>
+                  <TooltipContent>Close details</TooltipContent>
                 </Tooltip>
               </div>
             </div>
@@ -329,7 +253,9 @@ export function DesktopHeader({
                   <TooltipTrigger asChild>
                     <Button
                       aria-label={
-                        selected.kind === "group" ? "View conversation details" : "Show computer"
+                        selected.kind === "group"
+                          ? "View conversation details"
+                          : "OpenBot's Computer"
                       }
                       className="rounded-full text-foreground-tertiary"
                       onClick={() => changeDetails(true)}
@@ -344,7 +270,7 @@ export function DesktopHeader({
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent>
-                    {selected.kind === "group" ? "Conversation details" : "Show computer"}
+                    {selected.kind === "group" ? "Conversation details" : "OpenBot's Computer"}
                   </TooltipContent>
                 </Tooltip>
               </div>

@@ -1,4 +1,5 @@
 import type { AssetRef } from "@openbot/contracts";
+import { clientErrorMessage } from "@openbot/product-core/redaction";
 import {
   ChevronLeft,
   ChevronRight,
@@ -14,9 +15,9 @@ import {
   X,
 } from "lucide-react";
 import type { PDFDocumentLoadingTask, PDFDocumentProxy, PDFPageProxy } from "pdfjs-dist";
-import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { api } from "../../client/openbot-api";
+import { useVirtualWindow } from "../../hooks/use-virtual-window";
 import {
   type AttachmentPreviewKind,
   attachmentPreviewKind,
@@ -25,6 +26,11 @@ import {
 import { cn } from "../../lib/cn";
 import { MessageResponse } from "../ai-elements/message";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "../ui/dialog";
+import {
+  renderSanitizedDocumentProgressively,
+  sanitizePreviewDocument,
+} from "./document-preview-progressive-dom";
+import { parseDocumentPreview } from "./document-preview-worker-client";
 
 export const downloadAttachments = async (attachments: readonly AssetRef[]) => {
   const files = attachments.map((attachment) => ({
@@ -59,26 +65,69 @@ const splitFileName = (fileName: string) => {
     : { base: fileName, extension: "" };
 };
 
-const sanitizePreviewHtml = (value: string) => {
-  const document = new DOMParser().parseFromString(value, "text/html");
-  for (const element of document.querySelectorAll(
-    "script,style,iframe,object,embed,form,input,button,textarea,select,link,meta"
-  )) {
-    element.remove();
+const readBoundedResponse = async (
+  response: Response,
+  maximumBytes: number,
+  truncate: boolean
+): Promise<{ buffer: ArrayBuffer; truncated: boolean }> => {
+  const declaredLength = Number(response.headers.get("content-length") ?? 0);
+  if (!truncate && Number.isFinite(declaredLength) && declaredLength > maximumBytes) {
+    throw new Error("This file is too large to preview here. Download it to open it in full.");
   }
-  for (const element of document.querySelectorAll<HTMLElement>("*")) {
-    for (const attribute of Array.from(element.attributes)) {
-      const name = attribute.name.toLowerCase();
-      if (name.startsWith("on") || name === "srcdoc") element.removeAttribute(attribute.name);
-      if (
-        ["href", "src"].includes(name) &&
-        !/^(?:https?:|data:image\/|#|\/)/i.test(attribute.value)
-      ) {
-        element.removeAttribute(attribute.name);
-      }
+
+  if (!response.body) {
+    const buffer = await response.arrayBuffer();
+    if (!truncate && buffer.byteLength > maximumBytes) {
+      throw new Error("This file is too large to preview here. Download it to open it in full.");
     }
+    return {
+      buffer: buffer.byteLength > maximumBytes ? buffer.slice(0, maximumBytes) : buffer,
+      truncated: buffer.byteLength > maximumBytes,
+    };
   }
-  return document.body.innerHTML;
+
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let received = 0;
+  let wasTruncated = false;
+  try {
+    while (received <= maximumBytes) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+      const remaining = maximumBytes - received;
+      if (value.byteLength > remaining) {
+        if (!truncate) {
+          await reader.cancel();
+          throw new Error(
+            "This file is too large to preview here. Download it to open it in full."
+          );
+        }
+        if (remaining > 0) chunks.push(value.subarray(0, remaining));
+        received = maximumBytes;
+        wasTruncated = true;
+        await reader.cancel();
+        break;
+      }
+      chunks.push(value);
+      received += value.byteLength;
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  const merged = new Uint8Array(received);
+  let offset = 0;
+  for (const chunk of chunks) {
+    merged.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return {
+    buffer: merged.buffer,
+    truncated:
+      wasTruncated ||
+      (Number.isFinite(declaredLength) && declaredLength > 0 && declaredLength > received),
+  };
 };
 
 function PreviewStatus({
@@ -121,26 +170,29 @@ function PdfPage({
   useEffect(() => {
     let active = true;
     let renderTask: { cancel: () => void; promise: Promise<unknown> } | null = null;
-    void pdf.getPage(pageNumber).then((page: PDFPageProxy) => {
-      if (!active || !canvasRef.current) return;
-      const viewport = page.getViewport({ scale: 1.35 });
-      const ratio = Math.min(window.devicePixelRatio || 1, 2);
-      const canvas = canvasRef.current;
-      canvas.width = Math.floor(viewport.width * ratio);
-      canvas.height = Math.floor(viewport.height * ratio);
-      canvas.style.width = `${Math.floor(viewport.width)}px`;
-      canvas.style.height = `${Math.floor(viewport.height)}px`;
-      const context = canvas.getContext("2d");
-      if (!context) return;
-      const currentTask = page.render({
-        canvas,
-        canvasContext: context,
-        transform: ratio === 1 ? undefined : [ratio, 0, 0, ratio, 0, 0],
-        viewport,
-      });
-      renderTask = currentTask;
-      void currentTask.promise.catch(() => undefined);
-    });
+    void pdf
+      .getPage(pageNumber)
+      .then((page: PDFPageProxy) => {
+        if (!active || !canvasRef.current) return;
+        const viewport = page.getViewport({ scale: 1.35 });
+        const ratio = Math.min(window.devicePixelRatio || 1, 2);
+        const canvas = canvasRef.current;
+        canvas.width = Math.floor(viewport.width * ratio);
+        canvas.height = Math.floor(viewport.height * ratio);
+        canvas.style.width = `${Math.floor(viewport.width)}px`;
+        canvas.style.height = `${Math.floor(viewport.height)}px`;
+        const context = canvas.getContext("2d");
+        if (!context) return;
+        const currentTask = page.render({
+          canvas,
+          canvasContext: context,
+          transform: ratio === 1 ? undefined : [ratio, 0, 0, ratio, 0, 0],
+          viewport,
+        });
+        renderTask = currentTask;
+        void currentTask.promise.catch(() => undefined);
+      })
+      .catch(() => undefined);
     return () => {
       active = false;
       renderTask?.cancel();
@@ -158,19 +210,34 @@ function PdfPage({
 function PdfPreview({ url }: { url: string }) {
   const [document, setDocument] = useState<PDFDocumentProxy | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const estimatePageSize = useCallback(() => 1_120, []);
+  const pageKey = useCallback((index: number) => `pdf-page:${index + 1}`, []);
+  const { measureElement, totalSize, virtualItems } = useVirtualWindow({
+    count: document?.numPages ?? 0,
+    estimateSize: estimatePageSize,
+    getKey: pageKey,
+    initialViewportSize: 720,
+    maxItems: 6,
+    overscan: 1_120,
+    scrollRef,
+  });
 
   useEffect(() => {
     let active = true;
     let task: PDFDocumentLoadingTask | null = null;
-    void import("pdfjs-dist")
-      .then(async (pdfjs) => {
+    setDocument(null);
+    setError(null);
+    void Promise.all([import("pdfjs-dist"), import("pdfjs-dist/build/pdf.worker.min.mjs?url")])
+      .then(async ([pdfjs, worker]) => {
+        const pdfWorkerUrl = worker.default;
         pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
         const currentTask = pdfjs.getDocument({ url });
         task = currentTask;
         const loaded = await currentTask.promise;
         if (active) setDocument(loaded);
       })
-      .catch((cause) => active && setError(cause instanceof Error ? cause.message : String(cause)));
+      .catch((cause) => active && setError(clientErrorMessage(cause, "Preview unavailable")));
     return () => {
       active = false;
       void task?.destroy();
@@ -180,12 +247,56 @@ function PdfPreview({ url }: { url: string }) {
   if (error) return <PreviewStatus detail={error} title="Couldn’t render this PDF" />;
   if (!document) return <PreviewStatus loading title="Loading PDF…" />;
   return (
-    <div className="flex min-h-full flex-col items-center gap-4 bg-[#ececec] p-5 dark:bg-[#111]">
-      {Array.from({ length: document.numPages }, (_, index) => (
-        // biome-ignore lint/suspicious/noArrayIndexKey: PDF page numbers are stable document identities.
-        <PdfPage document={document} key={index + 1} pageNumber={index + 1} />
-      ))}
+    <div
+      aria-label={`${document.numPages} page PDF preview`}
+      className="grok-scrollbar h-full min-h-[360px] overflow-auto bg-[#ececec] dark:bg-[#111]"
+      ref={scrollRef}
+    >
+      <div className="relative w-full" style={{ height: totalSize }}>
+        {virtualItems.map((item) => (
+          <div
+            className="absolute inset-x-0 top-0 flex justify-center px-5 py-2"
+            key={item.key}
+            ref={(node) => measureElement(item.index, item.key, node)}
+            style={{ transform: `translateY(${item.start}px)` }}
+          >
+            <PdfPage document={document} pageNumber={item.index + 1} />
+          </div>
+        ))}
+      </div>
     </div>
+  );
+}
+
+function ProgressiveHtmlPreview({ source }: { source: HTMLElement }) {
+  const articleRef = useRef<HTMLElement>(null);
+  const [completedSource, setCompletedSource] = useState<HTMLElement | null>(null);
+  const complete = completedSource === source;
+
+  useLayoutEffect(() => {
+    const article = articleRef.current;
+    if (!article) return;
+    let releaseFrame: number | null = null;
+    const stopRendering = renderSanitizedDocumentProgressively(source, article, {
+      onComplete: () => {
+        setCompletedSource(source);
+        // Defer releasing the detached sanitized tree so React Strict Mode can
+        // cancel its first effect pass without losing the source document.
+        releaseFrame = requestAnimationFrame(() => source.replaceChildren());
+      },
+    });
+    return () => {
+      stopRendering();
+      if (releaseFrame !== null) cancelAnimationFrame(releaseFrame);
+    };
+  }, [source]);
+
+  return (
+    <article
+      aria-busy={complete ? undefined : true}
+      className="openbot-document-preview mx-auto min-h-full w-full max-w-[860px] bg-white px-12 py-10 text-[#222] shadow-sm"
+      ref={articleRef}
+    />
   );
 }
 
@@ -202,7 +313,7 @@ function LoadedDocumentPreview({
     | { kind: "idle" }
     | { kind: "loading" }
     | { kind: "text"; value: string; truncated: boolean }
-    | { kind: "html"; value: string }
+    | { kind: "html"; value: HTMLElement }
     | { kind: "error"; message: string }
   >({ kind: "idle" });
   const url = api.assetUrl(attachment);
@@ -214,40 +325,21 @@ function LoadedDocumentPreview({
     void (async () => {
       const response = await fetch(url, { signal: controller.signal });
       if (!response.ok) throw new Error(`File request failed (${response.status})`);
-      const buffer = await response.arrayBuffer();
-      if (kind === "docx") {
-        if (buffer.byteLength > 16 * 1024 * 1024) {
-          throw new Error(
-            "This document is too large to preview here. Download it to open in Word."
-          );
-        }
-        const mammoth = await import("mammoth");
-        const result = await mammoth.convertToHtml(
-          { arrayBuffer: buffer },
-          { convertImage: mammoth.images.dataUri }
-        );
-        setState({ kind: "html", value: sanitizePreviewHtml(result.value) });
+      const maximum =
+        kind === "docx" ? 16 * 1024 * 1024 : kind === "table" ? 12 * 1024 * 1024 : 1024 * 1024;
+      const loaded = await readBoundedResponse(
+        response,
+        maximum,
+        !["docx", "table"].includes(kind)
+      );
+      const { buffer } = loaded;
+      if (kind === "docx" || kind === "table") {
+        const html = await parseDocumentPreview(kind, buffer, controller.signal);
+        if (controller.signal.aborted) return;
+        setState({ kind: "html", value: sanitizePreviewDocument(html) });
         return;
       }
-      if (kind === "table") {
-        if (buffer.byteLength > 12 * 1024 * 1024) {
-          throw new Error(
-            "This spreadsheet is too large to preview here. Download it to open it in full."
-          );
-        }
-        const XLSX = await import("xlsx");
-        const workbook = XLSX.read(buffer, { type: "array" });
-        const first = workbook.SheetNames[0];
-        if (!first) throw new Error("This spreadsheet is empty.");
-        const sheet = workbook.Sheets[first];
-        if (!sheet) throw new Error("This spreadsheet is empty.");
-        const html = XLSX.utils.sheet_to_html(sheet);
-        setState({ kind: "html", value: sanitizePreviewHtml(html) });
-        return;
-      }
-      const maximum = 1024 * 1024;
-      const bytes = buffer.byteLength > maximum ? buffer.slice(0, maximum) : buffer;
-      const decoded = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+      const decoded = new TextDecoder("utf-8", { fatal: false }).decode(buffer);
       const value =
         kind === "json"
           ? (() => {
@@ -258,10 +350,11 @@ function LoadedDocumentPreview({
               }
             })()
           : decoded;
-      setState({ kind: "text", value, truncated: buffer.byteLength > maximum });
+      if (controller.signal.aborted) return;
+      setState({ kind: "text", value, truncated: loaded.truncated });
     })().catch((cause) => {
       if (controller.signal.aborted) return;
-      setState({ kind: "error", message: cause instanceof Error ? cause.message : String(cause) });
+      setState({ kind: "error", message: clientErrorMessage(cause, "Preview unavailable") });
     });
     return () => controller.abort();
   }, [kind, open, url]);
@@ -301,14 +394,7 @@ function LoadedDocumentPreview({
   if (state.kind === "error")
     return <PreviewStatus detail={state.message} title="Couldn’t read file" />;
   if (state.kind === "html") {
-    return (
-      <article
-        className="openbot-document-preview mx-auto min-h-full w-full max-w-[860px] bg-white px-12 py-10 text-[#222] shadow-sm"
-        // Content is generated locally, then stripped of active/embedded elements and event handlers.
-        // biome-ignore lint/security/noDangerouslySetInnerHtml: sanitizePreviewHtml removes executable markup first.
-        dangerouslySetInnerHTML={{ __html: state.value }}
-      />
-    );
+    return <ProgressiveHtmlPreview source={state.value} />;
   }
   return (
     <div className="mx-auto min-h-full w-full max-w-[960px] bg-background px-8 py-7">

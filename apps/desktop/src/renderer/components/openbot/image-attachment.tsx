@@ -1,5 +1,6 @@
+import { withStableOccurrenceKeys } from "@openbot/product-core/messages";
 import { ChevronLeft, ChevronRight, Download, X } from "lucide-react";
-import { type MouseEvent, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { API_BASE } from "../../client/http";
 import { useAuthenticatedResource } from "../../hooks/use-authenticated-resource";
 import { cn } from "../../lib/cn";
@@ -38,18 +39,6 @@ export function ImageAttachment({
           width: `${messageWidth}px`,
         }
       : undefined;
-  const onImageContextMenu = (event: MouseEvent<HTMLElement>) => {
-    event.stopPropagation();
-    if (!window.openbot?.showImageContextMenu) return;
-    event.preventDefault();
-    window.openbot.showImageContextMenu({
-      altText: label,
-      sourceUrl: image.url,
-      x: event.clientX,
-      y: event.clientY,
-    });
-  };
-
   return (
     <>
       <div
@@ -68,7 +57,6 @@ export function ImageAttachment({
             "size-full"
           )}
           onClick={() => (onOpen ? onOpen() : setOpen(true))}
-          onContextMenu={onImageContextMenu}
           style={{ cursor: "zoom-in" }}
           type="button"
         >
@@ -77,6 +65,9 @@ export function ImageAttachment({
             className={cn(
               variant === "message" ? "size-full object-contain" : "size-full object-cover"
             )}
+            decoding="async"
+            loading={variant === "composer" ? "eager" : "lazy"}
+            onContextMenu={(event) => event.stopPropagation()}
             onLoad={(event) => {
               if (variant !== "message") return;
               const { naturalHeight, naturalWidth } = event.currentTarget;
@@ -118,13 +109,14 @@ export function ImageAttachment({
               aria-label={`Close ${label}`}
               className="block overflow-hidden rounded-[12px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80"
               onClick={() => setOpen(false)}
-              onContextMenu={onImageContextMenu}
               style={{ cursor: "zoom-out" }}
               type="button"
             >
               <img
                 alt={label}
                 className="block max-h-[calc(100vh-112px)] max-w-[calc(100vw-64px)] bg-white object-contain"
+                decoding="async"
+                onContextMenu={(event) => event.stopPropagation()}
                 src={source ?? undefined}
               />
             </button>
@@ -187,28 +179,9 @@ export function MessageImageGallery({ images }: { images: DisplayImage[] }) {
     anchor.download = activeLabel;
     anchor.click();
   };
-  const onActiveContextMenu = (event: MouseEvent<HTMLElement>) => {
-    if (!activeImage || !window.openbot?.showImageContextMenu) return;
-    event.preventDefault();
-    window.openbot.showImageContextMenu({
-      altText: activeLabel,
-      sourceUrl: activeImage.url,
-      x: event.clientX,
-      y: event.clientY,
-    });
-  };
-  const occurrences = new Map<string, number>();
-  const keyedImages = images.map((image) => {
-    const fingerprint = [
-      image.alt ?? "",
-      image.url.length,
-      image.url.slice(0, 32),
-      image.url.slice(-32),
-    ].join(":");
-    const occurrence = (occurrences.get(fingerprint) ?? 0) + 1;
-    occurrences.set(fingerprint, occurrence);
-    return { image, key: `${fingerprint}:${occurrence}` };
-  });
+  const keyedImages = withStableOccurrenceKeys(images, (image) =>
+    [image.alt ?? "", image.url.length, image.url.slice(0, 32), image.url.slice(-32)].join(":")
+  );
   return (
     <>
       <div
@@ -218,7 +191,7 @@ export function MessageImageGallery({ images }: { images: DisplayImage[] }) {
             : "grid w-[min(360px,66vw)] max-w-full grid-cols-2 gap-1.5"
         )}
       >
-        {keyedImages.map(({ image, key }, index) => (
+        {keyedImages.map(({ value: image, key }, index) => (
           <ImageAttachment
             image={image}
             key={key}
@@ -250,13 +223,14 @@ export function MessageImageGallery({ images }: { images: DisplayImage[] }) {
                 aria-label={`Close ${activeLabel}`}
                 className="block overflow-hidden rounded-[12px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80"
                 onClick={() => setActiveIndex(null)}
-                onContextMenu={onActiveContextMenu}
                 style={{ cursor: "zoom-out" }}
                 type="button"
               >
                 <img
                   alt={activeLabel}
                   className="block max-h-[calc(100vh-112px)] max-w-[calc(100vw-128px)] bg-white object-contain"
+                  decoding="async"
+                  onContextMenu={(event) => event.stopPropagation()}
                   src={activeSource ?? undefined}
                 />
               </button>

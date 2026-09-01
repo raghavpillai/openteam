@@ -1,12 +1,10 @@
+import type { ClientSnapshot, RunView } from "@openbot/contracts";
 import {
-  type ClientSnapshot,
   notificationApprovalReason,
   notificationMessageInputReason,
   notificationMessagePreview,
-  type RunView,
-} from "@openbot/contracts";
-
-const ACTIVE = new Set(["queued", "running", "waiting_approval"]);
+} from "@openbot/contracts/notification-content";
+import { isActiveRunStatus } from "@openbot/product-core/statuses";
 
 export interface AgentNotificationEvent {
   botId: string;
@@ -86,10 +84,29 @@ export const desktopNotificationSnapshot = (
   };
 };
 
+export interface DesktopNotificationSyncTarget {
+  sync: (snapshot: ReturnType<typeof desktopNotificationSnapshot>) => void;
+}
+
+/**
+ * Build the native-notification projection only while publishing it. Keeping
+ * the large derived roster out of a React render binding prevents unrelated
+ * event-handler closures from retaining an old copy of it.
+ */
+export const syncDesktopNotificationSnapshot = (
+  target: DesktopNotificationSyncTarget | undefined,
+  snapshot: ClientSnapshot | null,
+  unreadIds: ReadonlySet<string>
+): boolean => {
+  if (!target || !snapshot) return false;
+  target.sync(desktopNotificationSnapshot(snapshot, unreadIds));
+  return true;
+};
+
 const activeRunsByBot = (snapshot: ClientSnapshot) => {
   const active = new Map<string, RunView>();
   for (const run of snapshot.runs) {
-    if (!ACTIVE.has(run.status)) continue;
+    if (!isActiveRunStatus(run.status)) continue;
     const prior = active.get(run.botId);
     if (!prior || run.updatedAt >= prior.updatedAt) active.set(run.botId, run);
   }
@@ -99,7 +116,7 @@ const activeRunsByBot = (snapshot: ClientSnapshot) => {
 const activeRunsByChannel = (snapshot: ClientSnapshot) => {
   const active = new Map<string, RunView>();
   for (const run of snapshot.runs) {
-    if (!run.channelId || !ACTIVE.has(run.status)) continue;
+    if (!run.channelId || !isActiveRunStatus(run.status)) continue;
     const prior = active.get(run.channelId);
     if (!prior || run.updatedAt >= prior.updatedAt) active.set(run.channelId, run);
   }

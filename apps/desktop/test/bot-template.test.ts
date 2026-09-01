@@ -9,8 +9,8 @@ import {
 } from "../src/renderer/lib/bot-template";
 
 describe("OpenBot template sharing", () => {
-  test("remains disabled until the feature is ready to ship", () => {
-    expect(BOT_TEMPLATE_SHARING_ENABLED).toBe(false);
+  test("ships the Grok-parity template-sharing flow", () => {
+    expect(BOT_TEMPLATE_SHARING_ENABLED).toBe(true);
   });
 
   test("exports only reusable profile and instruction fields", () => {

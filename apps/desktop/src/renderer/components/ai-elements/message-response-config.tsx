@@ -7,10 +7,12 @@ import {
   type ThemeInput,
   type UrlTransform,
 } from "streamdown";
+import { OPENBOT_DEEP_LINK_EVENT } from "../../lib/app-deep-links";
+
+export { OPENBOT_DEEP_LINK_EVENT } from "../../lib/app-deep-links";
 
 const SANITIZED_MESSAGE_LINK_PREFIX = "streamdown:sand-msg:";
 const SANITIZED_GROK_BOT_LINK_PREFIX = "streamdown:grokbot:";
-export const OPENBOT_DEEP_LINK_EVENT = "openbot:deep-link";
 
 export const streamdownControls: ControlsConfig = {
   code: { copy: true, download: false },

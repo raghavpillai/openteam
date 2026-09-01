@@ -1,7 +1,4 @@
-import { cjk } from "@streamdown/cjk";
-import { code } from "@streamdown/code";
-import { createMathPlugin } from "@streamdown/math";
-import { mermaid } from "@streamdown/mermaid";
+import { use } from "react";
 import { Streamdown } from "streamdown";
 import {
   messageComponents,
@@ -11,10 +8,17 @@ import {
   prepareMessageMarkdown,
   streamdownControls,
 } from "./message-response-config";
+import type { AdvancedMessageCapabilities } from "./message-response-capabilities";
+import { loadAdvancedMessagePlugins } from "./message-response-plugins";
 
-const math = createMathPlugin({ singleDollarTextMath: true });
-
-export default function AdvancedMessageResponse({ children }: { children: string }) {
+export default function AdvancedMessageResponse({
+  capabilities,
+  children,
+}: {
+  capabilities: AdvancedMessageCapabilities;
+  children: string;
+}) {
+  const plugins = use(loadAdvancedMessagePlugins(capabilities));
   return (
     <Streamdown
       className="grok-markdown"
@@ -22,7 +26,7 @@ export default function AdvancedMessageResponse({ children }: { children: string
       controls={streamdownControls}
       lineNumbers={false}
       mermaid={grokMermaidOptions}
-      plugins={{ cjk, code, math, mermaid }}
+      plugins={plugins}
       shikiTheme={grokShikiTheme}
       urlTransform={messageUrlTransform}
     >

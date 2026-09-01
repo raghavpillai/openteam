@@ -3,12 +3,11 @@ import type { ChannelMessageView, ClientSnapshot } from "@openbot/contracts";
 import { CLIENT_CAPABILITIES, type ClientCapabilities } from "@openbot/contracts/capabilities";
 import {
   compareEntitySequence as compareSequence,
+  type LoadedChannelHistory,
   loadingChannelHistory,
   mergeBootstrapActivityStates,
-  type LoadedChannelHistory,
   uniqueEntitiesById as mergeEntities,
 } from "@openbot/product-core/history";
-import { messageRetainedByteSize } from "@openbot/product-core/message-window";
 import { toggleOwnReaction } from "@openbot/product-core/messages";
 import { clientErrorMessage } from "@openbot/product-core/redaction";
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -26,6 +25,7 @@ import {
   expandMessageContext,
   MESSAGE_HISTORY_PAGE_SIZE,
   type MessageHistoryDirection,
+  patchRetainedMessageWindow,
   resetToLatestTail,
   setContextLoading,
   visibleChannelHistoryMessages,
@@ -614,62 +614,19 @@ export function useOpenBot() {
       let changed = false;
       for (const [channelId, history] of histories.current) {
         if (channelId !== message.channelId) continue;
-        const primaryIndex = history.messages.findIndex((candidate) => candidate.id === message.id);
-        const contextIndex = history.threadContext.findIndex(
-          (candidate) => candidate.id === message.id
-        );
-        const searchIndex = history.searchContext.findIndex(
-          (candidate) => candidate.id === message.id
-        );
-        const searchThreadIndex = history.searchThreadContext.findIndex(
-          (candidate) => candidate.id === message.id
-        );
-        let nextHistory = history;
-        if (primaryIndex >= 0) {
-          const messages = nextHistory.messages.slice();
-          messages[primaryIndex] = message;
-          nextHistory = { ...nextHistory, messages };
-        }
-        if (searchIndex >= 0) {
-          const searchContext = nextHistory.searchContext.slice();
-          searchContext[searchIndex] = message;
-          nextHistory = { ...nextHistory, searchContext };
-        }
-        if (contextIndex >= 0) {
-          const threadContext = nextHistory.threadContext.slice();
-          threadContext[contextIndex] = message;
-          nextHistory = { ...nextHistory, threadContext };
-        }
-        if (searchThreadIndex >= 0) {
-          const searchThreadContext = nextHistory.searchThreadContext.slice();
-          searchThreadContext[searchThreadIndex] = message;
-          nextHistory = { ...nextHistory, searchThreadContext };
-        }
-        if (nextHistory !== history) {
-          histories.current.set(channelId, nextHistory);
-          changed = true;
-        }
         const window = historyWindows.current.get(channelId);
-        const tailIndex = window?.latestTail?.messages.findIndex(
-          (candidate) => candidate.id === message.id
-        );
-        if (window?.latestTail && tailIndex !== undefined && tailIndex >= 0) {
-          const previousTailMessage = window.latestTail.messages[tailIndex];
-          const messages = window.latestTail.messages.slice();
-          messages[tailIndex] = message;
-          const retainedBytes = Math.max(
-            0,
-            window.latestTail.retainedBytes -
-              (previousTailMessage ? messageRetainedByteSize(previousTailMessage) : 0) +
-              messageRetainedByteSize(message)
-          );
-          historyWindows.current.set(channelId, {
-            ...window,
-            latestTail: { ...window.latestTail, messages, retainedBytes },
-            retainedBytes: window.retainedBytes - window.latestTail.retainedBytes + retainedBytes,
-          });
-          changed = true;
-        }
+        if (!window) continue;
+        const transition = patchRetainedMessageWindow(history, window, message);
+        if (!transition) continue;
+        // A page started before this authoritative patch can carry an older
+        // copy of the same boundary row. Invalidate both lanes and clear their
+        // loading state through the pure reconciliation above before publish.
+        historyRequests.current.invalidate(channelId);
+        searchContextRequests.current.invalidate(channelId);
+        channelLoads.current.delete(channelId);
+        histories.current.set(channelId, transition.history);
+        historyWindows.current.set(channelId, transition.window);
+        changed = true;
       }
       const bootstrap = bootstrapRef.current;
       if (bootstrap) {
@@ -825,6 +782,7 @@ export function useOpenBot() {
     };
   }, [refresh]);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: Snapshot presence starts one poller; refs and publishBootstrap carry the latest snapshot.
   useEffect(() => {
     if (!snapshot || legacyMode.current || runtimeEndpointMissing.current) return;
     let cancelled = false;
@@ -876,6 +834,7 @@ export function useOpenBot() {
     };
   }, [publishBootstrap, snapshot !== null]);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: Snapshot presence starts one live-sync controller; refresh and cursor refs carry current state.
   useEffect(() => {
     if (!snapshot) return;
     const liveSync = createDesktopLiveSyncController({
@@ -925,6 +884,7 @@ export function useOpenBot() {
     [refresh]
   );
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: The revision deliberately invalidates projections derived from mutable history refs.
   const historyByChannel = useMemo(() => {
     const status = new Map<string, ChannelHistoryStatus>();
     for (const [channelId, history] of histories.current) {
@@ -949,6 +909,7 @@ export function useOpenBot() {
     return status;
   }, [historyRevision]);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: The revision deliberately invalidates projections derived from mutable history refs.
   const threadContextMessageIdsByChannel = useMemo(() => {
     const next = new Map<string, ReadonlySet<string>>();
     for (const [channelId, history] of histories.current) {
@@ -967,6 +928,7 @@ export function useOpenBot() {
     return next;
   }, [historyRevision]);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: The revision deliberately invalidates projections derived from mutable history refs.
   const searchContextMessageIdsByChannel = useMemo(() => {
     const next = new Map<string, ReadonlySet<string>>();
     for (const [channelId, history] of histories.current) {

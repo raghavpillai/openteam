@@ -22,7 +22,7 @@ export const MESSAGE_HISTORY_PAGE_SIZE = 100;
 export const MESSAGE_HISTORY_MAX_MESSAGES = 500;
 export const MESSAGE_HISTORY_MAX_RETAINED_BYTES = 2 * 1024 * 1024;
 const MIN_VISIBLE_WINDOW_BYTES = 64 * 1024;
-const MAX_RETAINED_REBALANCE_PASSES = 4;
+const MAX_RETAINED_REBALANCE_PASSES = 12;
 
 export type MessageHistoryDirection = "older" | "newer";
 
@@ -31,6 +31,7 @@ export interface MessageContextWindowState {
   hasMoreBefore: boolean;
   hasMoreAfter: boolean;
   loadingDirection: MessageHistoryDirection | null;
+  retentionEdge: "oldest" | "newest";
 }
 
 export interface MessageLatestTail {
@@ -67,13 +68,23 @@ export const emptyChannelMessageWindow = (): ChannelMessageWindowState => ({
   retainedBytes: 0,
 });
 
-const uniqueRetainedBytes = (...lanes: ReadonlyArray<readonly ChannelMessageView[]>): number => {
+const uniqueRetainedMessages = (
+  ...lanes: ReadonlyArray<readonly ChannelMessageView[]>
+): Map<string, ChannelMessageView> => {
   const byId = new Map<string, ChannelMessageView>();
   for (const lane of lanes) for (const message of lane) byId.set(message.id, message);
+  return byId;
+};
+
+const retainedStats = (...lanes: ReadonlyArray<readonly ChannelMessageView[]>) => {
+  const byId = uniqueRetainedMessages(...lanes);
   let total = 0;
   for (const message of byId.values()) total += messageRetainedByteSize(message);
-  return total;
+  return { messages: byId.size, bytes: total };
 };
+
+const uniqueRetainedBytes = (...lanes: ReadonlyArray<readonly ChannelMessageView[]>): number =>
+  retainedStats(...lanes).bytes;
 
 const latestTailLanes = (
   latestTail: MessageLatestTail | null
@@ -119,38 +130,64 @@ const retainedContextTargetId = (
 
 type RetainedLaneOptions = Omit<BoundMessageWindowOptions, "maxBytes">;
 
+const retainedStatsFit = ({ messages, bytes }: ReturnType<typeof retainedStats>): boolean =>
+  messages <= MESSAGE_HISTORY_MAX_MESSAGES && bytes <= MESSAGE_HISTORY_MAX_RETAINED_BYTES;
+
+interface RetainedLaneFit {
+  bounded: ReturnType<typeof boundMessageWindow>;
+  fits: boolean;
+}
+
 /**
- * Bound one lane against every other retained lane. Starting with the full
- * ceiling lets IDs shared with a cached tail consume bytes only once. If the
- * exact union is still too large, the active lane is tightened until the
- * union fits or reaches the documented minimum/indivisible soft excess.
+ * Bound one lane against every other retained lane. Count and bytes are both
+ * measured over the exact unique-ID union, so overlap with a cached tail is
+ * free. A protected span or one indivisible oversized row can still return a
+ * non-fitting result; the state-level rebalancer then evicts lower-priority
+ * lanes before accepting that documented soft excess.
  */
 const boundRetainedLane = (
   messages: readonly ChannelMessageView[],
   options: RetainedLaneOptions,
   otherLanes: ReadonlyArray<readonly ChannelMessageView[]>
-): ReturnType<typeof boundMessageWindow> => {
+): RetainedLaneFit => {
+  let maxMessages = Math.min(MESSAGE_HISTORY_MAX_MESSAGES, Math.max(1, messages.length));
   let maxBytes = MESSAGE_HISTORY_MAX_RETAINED_BYTES;
-  let bounded = boundMessageWindow(messages, { ...options, maxBytes });
+  let bounded = boundMessageWindow(messages, { ...options, maxBytes, maxMessages });
   for (let attempt = 0; attempt < MAX_RETAINED_REBALANCE_PASSES; attempt += 1) {
-    const total = uniqueRetainedBytes(bounded.messages, bounded.threadContext, ...otherLanes);
-    if (total <= MESSAGE_HISTORY_MAX_RETAINED_BYTES) return bounded;
-    const excess = total - MESSAGE_HISTORY_MAX_RETAINED_BYTES;
-    const nextMaxBytes = Math.max(MIN_VISIBLE_WINDOW_BYTES, bounded.retainedBytes - excess);
-    if (nextMaxBytes >= maxBytes) return bounded;
+    const total = retainedStats(bounded.messages, bounded.threadContext, ...otherLanes);
+    if (retainedStatsFit(total)) return { bounded, fits: true };
+    const excessMessages = Math.max(0, total.messages - MESSAGE_HISTORY_MAX_MESSAGES);
+    const excessBytes = Math.max(0, total.bytes - MESSAGE_HISTORY_MAX_RETAINED_BYTES);
+    const nextMaxMessages = Math.min(
+      maxMessages,
+      Math.max(1, bounded.messages.length - Math.max(excessMessages, excessMessages > 0 ? 1 : 0))
+    );
+    const nextMaxBytes = Math.min(
+      maxBytes,
+      Math.max(1, bounded.retainedBytes - Math.max(excessBytes, excessBytes > 0 ? 1 : 0))
+    );
+    if (nextMaxMessages >= maxMessages && nextMaxBytes >= maxBytes) {
+      return { bounded, fits: false };
+    }
+    maxMessages = Math.min(maxMessages, nextMaxMessages);
     maxBytes = nextMaxBytes;
-    bounded = boundMessageWindow(messages, { ...options, maxBytes });
+    bounded = boundMessageWindow(messages, { ...options, maxBytes, maxMessages });
   }
-  // A pathological overlap layout can evict IDs that remain in another lane,
-  // producing little union reduction per pass. Fall back to treating every
-  // active byte as marginal so rebalance work stays bounded on the UI thread.
-  const conservativeMaxBytes = Math.max(
-    MIN_VISIBLE_WINDOW_BYTES,
-    MESSAGE_HISTORY_MAX_RETAINED_BYTES - uniqueRetainedBytes(...otherLanes)
-  );
-  return conservativeMaxBytes < maxBytes
-    ? boundMessageWindow(messages, { ...options, maxBytes: conservativeMaxBytes })
-    : bounded;
+  // A pathological overlap layout can make marginal progress irregular. One
+  // conservative pass treats every retained byte/ID as new; it can over-trim,
+  // but it cannot violate either hard union ceiling.
+  const other = retainedStats(...otherLanes);
+  const conservativeMaxMessages = Math.max(1, MESSAGE_HISTORY_MAX_MESSAGES - other.messages);
+  const conservativeMaxBytes = Math.max(1, MESSAGE_HISTORY_MAX_RETAINED_BYTES - other.bytes);
+  bounded = boundMessageWindow(messages, {
+    ...options,
+    maxMessages: Math.min(maxMessages, conservativeMaxMessages),
+    maxBytes: Math.min(maxBytes, conservativeMaxBytes),
+  });
+  return {
+    bounded,
+    fits: retainedStatsFit(retainedStats(bounded.messages, bounded.threadContext, ...otherLanes)),
+  };
 };
 
 const boundedHistory = (
@@ -255,6 +292,304 @@ export const latestTailFromHistory = (history: LoadedChannelHistory): MessageLat
     revision: "0",
   });
 
+const emptyBoundedLane = (
+  messages: readonly ChannelMessageView[],
+  retain: "oldest" | "newest",
+  gaps: { older: boolean; newer: boolean }
+): ReturnType<typeof boundMessageWindow> => ({
+  messages: [],
+  threadContext: [],
+  primaryBytes: 0,
+  contextBytes: 0,
+  retainedBytes: 0,
+  eviction: { older: null, newer: null },
+  gaps: {
+    older: gaps.older || (messages.length > 0 && retain === "newest"),
+    newer: gaps.newer || (messages.length > 0 && retain === "oldest"),
+  },
+  softExcess: { messages: 0, bytes: 0, protected: false, oversized: false },
+  missingProtectedIds: [],
+  missingAncestorIds: [],
+});
+
+const primaryRetentionEdge = (window: ChannelMessageWindowState): "oldest" | "newest" =>
+  window.primaryHasNewerGap ? "oldest" : "newest";
+
+const latestTailFit = (
+  tail: MessageLatestTail | null,
+  otherLanes: ReadonlyArray<readonly ChannelMessageView[]>,
+  protectedMessageId?: string
+): { tail: MessageLatestTail | null; fits: boolean } => {
+  if (!tail) return { tail: null, fits: retainedStatsFit(retainedStats(...otherLanes)) };
+  const fit = boundRetainedLane(
+    tail.messages,
+    {
+      maxMessages: MESSAGE_HISTORY_PAGE_SIZE,
+      retain: "newest",
+      protectedIds: protectedMessageId ? new Set([protectedMessageId]) : undefined,
+      threadContext: [...tail.messages, ...tail.threadContext],
+      existingGaps: { older: tail.hasMore },
+    },
+    otherLanes
+  );
+  if (!fit.fits) return { tail, fits: false };
+  return {
+    tail: {
+      ...tail,
+      messages: fit.bounded.messages,
+      threadContext: fit.bounded.threadContext,
+      beforeSequence: fit.bounded.messages[0]?.sequence ?? null,
+      hasMore: fit.bounded.gaps.older,
+      retainedBytes: fit.bounded.retainedBytes,
+    },
+    fits: true,
+  };
+};
+
+const genuineSoftExcess = (bounded: ReturnType<typeof boundMessageWindow>): boolean =>
+  bounded.softExcess.oversized ||
+  bounded.softExcess.protected ||
+  (bounded.messages.length === 1 && bounded.threadContext.length > 0);
+
+const rebalanceRetainedState = (
+  history: LoadedChannelHistory,
+  window: ChannelMessageWindowState,
+  protectedMessageId?: string
+): { history: LoadedChannelHistory; window: ChannelMessageWindowState } => {
+  const originalPrimary = history.messages;
+  const originalPrimaryThread = history.threadContext;
+  let nextHistory = history;
+  let latestTail = window.latestTail;
+
+  if (window.context) {
+    const contextMessages = history.searchContext;
+    const contextThread = history.searchThreadContext;
+    const primaryRetain = primaryRetentionEdge(window);
+    const primaryFit = boundedHistoryAgainst(
+      history,
+      primaryRetain,
+      { older: history.hasMore, newer: window.primaryHasNewerGap },
+      [contextMessages, contextThread, ...latestTailLanes(latestTail)],
+      protectedMessageId && history.messages.some(({ id }) => id === protectedMessageId)
+        ? new Set([protectedMessageId])
+        : undefined
+    );
+    nextHistory = withBoundedPrimary(
+      history,
+      primaryFit.fits
+        ? primaryFit.bounded
+        : emptyBoundedLane(history.messages, primaryRetain, {
+            older: history.hasMore,
+            newer: window.primaryHasNewerGap,
+          })
+    );
+
+    const contextOtherLanes = [
+      nextHistory.messages,
+      nextHistory.threadContext,
+      ...latestTailLanes(latestTail),
+    ];
+    let contextFit = boundRetainedLane(
+      contextMessages,
+      {
+        maxMessages: MESSAGE_HISTORY_MAX_MESSAGES,
+        retain: window.context.retentionEdge,
+        protectedIds:
+          protectedMessageId &&
+          [...contextMessages, ...contextThread].some(({ id }) => id === protectedMessageId)
+            ? new Set([protectedMessageId])
+            : undefined,
+        threadContext: contextThread,
+        existingGaps: {
+          older: window.context.hasMoreBefore,
+          newer: window.context.hasMoreAfter,
+        },
+      },
+      contextOtherLanes
+    );
+
+    if (!contextFit.fits) {
+      // The hidden primary was already the first eviction target. If a protected
+      // context span still cannot coexist with the cached tail, shrink the tail
+      // before accepting a genuine context-only soft excess.
+      nextHistory = withBoundedPrimary(
+        history,
+        emptyBoundedLane(history.messages, primaryRetain, {
+          older: history.hasMore,
+          newer: window.primaryHasNewerGap,
+        })
+      );
+      const contextAlone = boundRetainedLane(
+        contextMessages,
+        {
+          maxMessages: MESSAGE_HISTORY_MAX_MESSAGES,
+          retain: window.context.retentionEdge,
+          protectedIds:
+            protectedMessageId &&
+            [...contextMessages, ...contextThread].some(({ id }) => id === protectedMessageId)
+              ? new Set([protectedMessageId])
+              : undefined,
+          threadContext: contextThread,
+          existingGaps: {
+            older: window.context.hasMoreBefore,
+            newer: window.context.hasMoreAfter,
+          },
+        },
+        []
+      );
+      const fittedTail = latestTailFit(latestTail, [
+        contextAlone.bounded.messages,
+        contextAlone.bounded.threadContext,
+      ]);
+      latestTail = fittedTail.fits ? fittedTail.tail : null;
+      contextFit = boundRetainedLane(
+        contextMessages,
+        {
+          maxMessages: MESSAGE_HISTORY_MAX_MESSAGES,
+          retain: window.context.retentionEdge,
+          protectedIds:
+            protectedMessageId &&
+            [...contextMessages, ...contextThread].some(({ id }) => id === protectedMessageId)
+              ? new Set([protectedMessageId])
+              : undefined,
+          threadContext: contextThread,
+          existingGaps: {
+            older: window.context.hasMoreBefore,
+            newer: window.context.hasMoreAfter,
+          },
+        },
+        latestTailLanes(latestTail)
+      );
+      if (!contextFit.fits) {
+        latestTail = null;
+        contextFit = contextAlone;
+      }
+    }
+
+    const finalContext = contextFit.bounded;
+    nextHistory = {
+      ...nextHistory,
+      searchContext: finalContext.messages,
+      searchThreadContext: finalContext.threadContext,
+      loading: false,
+    };
+    const context = {
+      ...window.context,
+      targetMessageId: retainedContextTargetId(window.context.targetMessageId, contextMessages, [
+        ...finalContext.threadContext,
+        ...finalContext.messages,
+      ]),
+      hasMoreBefore: finalContext.gaps.older,
+      hasMoreAfter: finalContext.gaps.newer,
+    };
+
+    // Refill any exact capacity left after fitting the active context and tail.
+    const refill = boundRetainedLane(
+      originalPrimary,
+      {
+        maxMessages: MESSAGE_HISTORY_MAX_MESSAGES,
+        retain: primaryRetain,
+        threadContext: originalPrimaryThread,
+        existingGaps: { older: history.hasMore, newer: window.primaryHasNewerGap },
+      },
+      [nextHistory.searchContext, nextHistory.searchThreadContext, ...latestTailLanes(latestTail)]
+    );
+    if (refill.fits) nextHistory = withBoundedPrimary(nextHistory, refill.bounded);
+
+    const union = retainedStats(
+      nextHistory.messages,
+      nextHistory.threadContext,
+      nextHistory.searchContext,
+      nextHistory.searchThreadContext,
+      ...latestTailLanes(latestTail)
+    );
+    if (!retainedStatsFit(union) && !genuineSoftExcess(finalContext)) {
+      // A non-protected overage is never allowed. This fallback is intentionally
+      // conservative and should only be reachable for pathological ancestry.
+      nextHistory = withBoundedPrimary(
+        nextHistory,
+        emptyBoundedLane(nextHistory.messages, primaryRetain, {
+          older: nextHistory.hasMore,
+          newer: window.primaryHasNewerGap,
+        })
+      );
+      latestTail = null;
+    }
+    return {
+      history: nextHistory,
+      window: {
+        ...window,
+        context,
+        latestTail,
+        retainedBytes: retainedStateBytes(nextHistory, latestTail),
+      },
+    };
+  }
+
+  const primaryRetain = primaryRetentionEdge(window);
+  let primaryFit = boundedHistoryAgainst(
+    history,
+    primaryRetain,
+    { older: history.hasMore, newer: window.primaryHasNewerGap },
+    latestTailLanes(latestTail),
+    protectedMessageId &&
+      [...history.messages, ...history.threadContext].some(({ id }) => id === protectedMessageId)
+      ? new Set([protectedMessageId])
+      : undefined
+  );
+  if (!primaryFit.fits) {
+    const primaryAlone = boundedHistoryAgainst(
+      history,
+      primaryRetain,
+      { older: history.hasMore, newer: window.primaryHasNewerGap },
+      [],
+      protectedMessageId ? new Set([protectedMessageId]) : undefined
+    );
+    const fittedTail = latestTailFit(latestTail, [
+      primaryAlone.bounded.messages,
+      primaryAlone.bounded.threadContext,
+    ]);
+    latestTail = fittedTail.fits ? fittedTail.tail : null;
+    primaryFit = boundedHistoryAgainst(
+      history,
+      primaryRetain,
+      { older: history.hasMore, newer: window.primaryHasNewerGap },
+      latestTailLanes(latestTail),
+      protectedMessageId ? new Set([protectedMessageId]) : undefined
+    );
+    if (!primaryFit.fits) {
+      latestTail = null;
+      primaryFit = primaryAlone;
+    }
+  }
+  const boundedPrimary = primaryFit.bounded;
+  nextHistory = withBoundedPrimary(history, boundedPrimary);
+  const union = retainedStats(
+    nextHistory.messages,
+    nextHistory.threadContext,
+    ...latestTailLanes(latestTail)
+  );
+  if (!retainedStatsFit(union) && !genuineSoftExcess(boundedPrimary)) {
+    nextHistory = withBoundedPrimary(
+      history,
+      emptyBoundedLane(history.messages, primaryRetain, {
+        older: history.hasMore,
+        newer: window.primaryHasNewerGap,
+      })
+    );
+    latestTail = null;
+  }
+  return {
+    history: nextHistory,
+    window: {
+      ...window,
+      primaryHasNewerGap: boundedPrimary.gaps.newer,
+      latestTail,
+      retainedBytes: retainedStateBytes(nextHistory, latestTail),
+    },
+  };
+};
+
 export const visibleChannelHistoryMessages = (
   history: LoadedChannelHistory,
   window: ChannelMessageWindowState
@@ -295,17 +630,17 @@ const preservedHistory = (
       { older: history.hasMore, newer: primaryHasNewerGap },
       [history.searchContext, history.searchThreadContext, ...latestTailLanes(latestTail)]
     );
-    nextHistory = withBoundedPrimary(nextHistory, boundedPrimary);
-    primaryHasNewerGap = boundedPrimary.gaps.newer;
-    evictedOlder += boundedPrimary.eviction.older?.count ?? 0;
-    evictedNewer += boundedPrimary.eviction.newer?.count ?? 0;
+    nextHistory = withBoundedPrimary(nextHistory, boundedPrimary.bounded);
+    primaryHasNewerGap = boundedPrimary.bounded.gaps.newer;
+    evictedOlder += boundedPrimary.bounded.eviction.older?.count ?? 0;
+    evictedNewer += boundedPrimary.bounded.eviction.newer?.count ?? 0;
 
     const contextMessages = sortedUniqueMessages(history.searchContext).sort(compareEntitySequence);
     const bounded = boundRetainedLane(
       contextMessages,
       {
         maxMessages: MESSAGE_HISTORY_MAX_MESSAGES,
-        retain: "newest",
+        retain: nextContext.retentionEdge,
         threadContext: history.searchThreadContext,
         existingGaps: {
           older: nextContext.hasMoreBefore,
@@ -316,23 +651,23 @@ const preservedHistory = (
     );
     nextHistory = contextHistory(
       nextHistory,
-      bounded.messages,
-      bounded.threadContext,
+      bounded.bounded.messages,
+      bounded.bounded.threadContext,
       history.searchThreadContextTruncated,
       loadedAt
     );
     boundedContext = {
       ...nextContext,
       targetMessageId: retainedContextTargetId(nextContext.targetMessageId, contextMessages, [
-        ...bounded.threadContext,
-        ...bounded.messages,
+        ...bounded.bounded.threadContext,
+        ...bounded.bounded.messages,
       ]),
-      hasMoreBefore: bounded.gaps.older,
-      hasMoreAfter: bounded.gaps.newer,
+      hasMoreBefore: bounded.bounded.gaps.older,
+      hasMoreAfter: bounded.bounded.gaps.newer,
       loadingDirection: null,
     };
-    evictedOlder += bounded.eviction.older?.count ?? 0;
-    evictedNewer += bounded.eviction.newer?.count ?? 0;
+    evictedOlder += bounded.bounded.eviction.older?.count ?? 0;
+    evictedNewer += bounded.bounded.eviction.newer?.count ?? 0;
   } else {
     const bounded = boundedHistoryAgainst(
       nextHistory,
@@ -340,21 +675,22 @@ const preservedHistory = (
       { older: history.hasMore, newer: primaryHasNewerGap },
       [history.searchContext, history.searchThreadContext, ...latestTailLanes(latestTail)]
     );
-    nextHistory = withBoundedPrimary(nextHistory, bounded);
-    primaryHasNewerGap = bounded.gaps.newer;
-    evictedOlder += bounded.eviction.older?.count ?? 0;
-    evictedNewer += bounded.eviction.newer?.count ?? 0;
+    nextHistory = withBoundedPrimary(nextHistory, bounded.bounded);
+    primaryHasNewerGap = bounded.bounded.gaps.newer;
+    evictedOlder += bounded.bounded.eviction.older?.count ?? 0;
+    evictedNewer += bounded.bounded.eviction.newer?.count ?? 0;
   }
 
+  const rebalanced = rebalanceRetainedState(nextHistory, {
+    ...window,
+    primaryHasNewerGap,
+    context: boundedContext,
+    latestTail,
+    retainedBytes: retainedStateBytes(nextHistory, latestTail),
+  });
   return {
-    history: nextHistory,
-    window: {
-      ...window,
-      primaryHasNewerGap,
-      context: boundedContext,
-      latestTail,
-      retainedBytes: retainedStateBytes(nextHistory, latestTail),
-    },
+    history: rebalanced.history,
+    window: rebalanced.window,
     outcome: "preserved-gap",
     evictedOlder,
     evictedNewer,
@@ -386,15 +722,16 @@ export const applyPrimaryHistoryPage = ({
       newer: false,
     });
     const history = clearLoadedChannelSearchContext(withBoundedPrimary(merged, bounded));
+    const rebalanced = rebalanceRetainedState(history, {
+      generation: state.generation + 1,
+      primaryHasNewerGap: false,
+      context: null,
+      latestTail: null,
+      retainedBytes: retainedStateBytes(history, null),
+    });
     return {
-      history,
-      window: {
-        generation: state.generation + 1,
-        primaryHasNewerGap: false,
-        context: null,
-        latestTail: null,
-        retainedBytes: retainedStateBytes(history, null),
-      },
+      history: rebalanced.history,
+      window: rebalanced.window,
       outcome: "applied",
       evictedOlder: bounded.eviction.older?.count ?? 0,
       evictedNewer: bounded.eviction.newer?.count ?? 0,
@@ -418,18 +755,19 @@ export const applyPrimaryHistoryPage = ({
       },
       [merged.searchContext, merged.searchThreadContext, ...latestTailLanes(latestTail)]
     );
-    const history = withBoundedPrimary(merged, bounded);
+    const history = withBoundedPrimary(merged, bounded.bounded);
+    const rebalanced = rebalanceRetainedState(history, {
+      ...state,
+      primaryHasNewerGap: bounded.bounded.gaps.newer,
+      latestTail,
+      retainedBytes: retainedStateBytes(history, latestTail),
+    });
     return {
-      history,
-      window: {
-        ...state,
-        primaryHasNewerGap: bounded.gaps.newer,
-        latestTail,
-        retainedBytes: retainedStateBytes(history, latestTail),
-      },
+      history: rebalanced.history,
+      window: rebalanced.window,
       outcome: "applied",
-      evictedOlder: bounded.eviction.older?.count ?? 0,
-      evictedNewer: bounded.eviction.newer?.count ?? 0,
+      evictedOlder: bounded.bounded.eviction.older?.count ?? 0,
+      evictedNewer: bounded.bounded.eviction.newer?.count ?? 0,
     };
   }
 
@@ -457,14 +795,15 @@ export const applyPrimaryHistoryPage = ({
   }
 
   const history = withBoundedPrimary(merged, bounded);
+  const rebalanced = rebalanceRetainedState(history, {
+    ...state,
+    primaryHasNewerGap: false,
+    latestTail: null,
+    retainedBytes: retainedStateBytes(history, null),
+  });
   return {
-    history,
-    window: {
-      ...state,
-      primaryHasNewerGap: false,
-      latestTail: null,
-      retainedBytes: retainedStateBytes(history, null),
-    },
+    history: rebalanced.history,
+    window: rebalanced.window,
     outcome: "applied",
     evictedOlder: bounded.eviction.older?.count ?? 0,
     evictedNewer: bounded.eviction.newer?.count ?? 0,
@@ -505,32 +844,38 @@ export const enterMessageContext = (
         newer: context.hasMoreAfter,
       },
     },
-    [current.messages, current.threadContext, ...latestTailLanes(latestTail)]
+    latestTailLanes(latestTail)
   );
   const history = contextHistory(
     current,
-    bounded.messages,
-    bounded.threadContext,
+    bounded.bounded.messages,
+    bounded.bounded.threadContext,
     context.threadContextTruncated,
     loadedAt
   );
-  return {
+  const rebalanced = rebalanceRetainedState(
     history,
-    window: {
+    {
       ...window,
       generation: window.generation + 1,
       context: {
         targetMessageId: context.targetMessageId,
-        hasMoreBefore: bounded.gaps.older,
-        hasMoreAfter: bounded.gaps.newer,
+        hasMoreBefore: bounded.bounded.gaps.older,
+        hasMoreAfter: bounded.bounded.gaps.newer,
         loadingDirection: null,
+        retentionEdge: "newest",
       },
       latestTail,
       retainedBytes: retainedStateBytes(history, latestTail),
     },
+    context.targetMessageId
+  );
+  return {
+    history: rebalanced.history,
+    window: rebalanced.window,
     outcome: "applied",
-    evictedOlder: bounded.eviction.older?.count ?? 0,
-    evictedNewer: bounded.eviction.newer?.count ?? 0,
+    evictedOlder: bounded.bounded.eviction.older?.count ?? 0,
+    evictedNewer: bounded.bounded.eviction.newer?.count ?? 0,
   };
 };
 
@@ -577,34 +922,36 @@ export const expandMessageContext = ({
         newer: direction === "newer" ? page.hasMoreAfter : window.context.hasMoreAfter,
       },
     },
-    [current.messages, current.threadContext, ...latestTailLanes(window.latestTail)]
+    latestTailLanes(window.latestTail)
   );
   const history = contextHistory(
     current,
-    bounded.messages,
-    bounded.threadContext,
+    bounded.bounded.messages,
+    bounded.bounded.threadContext,
     current.searchThreadContextTruncated || page.threadContextTruncated,
     loadedAt
   );
-  return {
-    history,
-    window: {
-      ...window,
-      context: {
-        ...window.context,
-        targetMessageId: retainedContextTargetId(window.context.targetMessageId, messages, [
-          ...bounded.threadContext,
-          ...bounded.messages,
-        ]),
-        hasMoreBefore: bounded.gaps.older,
-        hasMoreAfter: bounded.gaps.newer,
-        loadingDirection: null,
-      },
-      retainedBytes: retainedStateBytes(history, window.latestTail),
+  const rebalanced = rebalanceRetainedState(history, {
+    ...window,
+    context: {
+      ...window.context,
+      targetMessageId: retainedContextTargetId(window.context.targetMessageId, messages, [
+        ...bounded.bounded.threadContext,
+        ...bounded.bounded.messages,
+      ]),
+      hasMoreBefore: bounded.bounded.gaps.older,
+      hasMoreAfter: bounded.bounded.gaps.newer,
+      loadingDirection: null,
+      retentionEdge: direction === "older" ? "oldest" : "newest",
     },
+    retainedBytes: retainedStateBytes(history, window.latestTail),
+  });
+  return {
+    history: rebalanced.history,
+    window: rebalanced.window,
     outcome: "applied",
-    evictedOlder: bounded.eviction.older?.count ?? 0,
-    evictedNewer: bounded.eviction.newer?.count ?? 0,
+    evictedOlder: bounded.bounded.eviction.older?.count ?? 0,
+    evictedNewer: bounded.bounded.eviction.newer?.count ?? 0,
   };
 };
 
@@ -613,14 +960,15 @@ export const clearMessageContext = (
   window: ChannelMessageWindowState
 ): MessageWindowTransition => {
   const history = clearLoadedChannelSearchContext(current);
+  const rebalanced = rebalanceRetainedState(history, {
+    ...window,
+    generation: window.generation + 1,
+    context: null,
+    retainedBytes: retainedStateBytes(history, window.latestTail),
+  });
   return {
-    history,
-    window: {
-      ...window,
-      generation: window.generation + 1,
-      context: null,
-      retainedBytes: retainedStateBytes(history, window.latestTail),
-    },
+    history: rebalanced.history,
+    window: rebalanced.window,
     outcome: "applied",
     evictedOlder: 0,
     evictedNewer: 0,
@@ -647,15 +995,106 @@ export const resetToLatestTail = (
     loading: false,
     loadedAt,
   };
+  const rebalanced = rebalanceRetainedState(history, {
+    generation: window.generation + 1,
+    primaryHasNewerGap: false,
+    context: null,
+    latestTail: null,
+    retainedBytes: retainedStateBytes(history, null),
+  });
   return {
-    history,
-    window: {
-      generation: window.generation + 1,
-      primaryHasNewerGap: false,
-      context: null,
-      latestTail: null,
-      retainedBytes: retainedStateBytes(history, null),
-    },
+    history: rebalanced.history,
+    window: rebalanced.window,
+    outcome: "applied",
+    evictedOlder: 0,
+    evictedNewer: 0,
+  };
+};
+
+export const retainedMessageWindowStats = (
+  history: LoadedChannelHistory,
+  window: ChannelMessageWindowState
+): { messages: number; bytes: number } =>
+  retainedStats(
+    history.messages,
+    history.threadContext,
+    history.searchContext,
+    history.searchThreadContext,
+    ...latestTailLanes(window.latestTail)
+  );
+
+const replaceRetainedMessage = (
+  values: readonly ChannelMessageView[],
+  message: ChannelMessageView
+): { changed: boolean; values: ChannelMessageView[] } => {
+  let changed = false;
+  const next = values.map((candidate) => {
+    if (candidate.id !== message.id) return candidate;
+    changed = true;
+    return message;
+  });
+  return { changed, values: changed ? next : [...values] };
+};
+
+/**
+ * Reconcile an authoritative message across every retained copy, then run the
+ * same global cap policy used by page transitions. This deliberately avoids a
+ * byte delta: one ID can overlap primary, context, and tail lanes, and payload
+ * growth can require a real opposite-edge eviction rather than only a counter
+ * update.
+ */
+export const patchRetainedMessageWindow = (
+  current: LoadedChannelHistory,
+  window: ChannelMessageWindowState,
+  message: ChannelMessageView
+): MessageWindowTransition | null => {
+  const primary = replaceRetainedMessage(current.messages, message);
+  const primaryThread = replaceRetainedMessage(current.threadContext, message);
+  const context = replaceRetainedMessage(current.searchContext, message);
+  const contextThread = replaceRetainedMessage(current.searchThreadContext, message);
+  const tailMessages = window.latestTail
+    ? replaceRetainedMessage(window.latestTail.messages, message)
+    : null;
+  const tailThread = window.latestTail
+    ? replaceRetainedMessage(window.latestTail.threadContext, message)
+    : null;
+  const changed =
+    primary.changed ||
+    primaryThread.changed ||
+    context.changed ||
+    contextThread.changed ||
+    tailMessages?.changed === true ||
+    tailThread?.changed === true;
+  if (!changed) return null;
+
+  const history: LoadedChannelHistory = {
+    ...current,
+    messages: primary.values,
+    threadContext: primaryThread.values,
+    searchContext: context.values,
+    searchThreadContext: contextThread.values,
+    loading: false,
+  };
+  const latestTail =
+    window.latestTail && tailMessages && tailThread
+      ? {
+          ...window.latestTail,
+          messages: tailMessages.values,
+          threadContext: tailThread.values,
+          retainedBytes: uniqueRetainedBytes(tailMessages.values, tailThread.values),
+        }
+      : window.latestTail;
+  const provisionalWindow: ChannelMessageWindowState = {
+    ...window,
+    generation: window.context ? window.generation + 1 : window.generation,
+    context: window.context ? { ...window.context, loadingDirection: null } : window.context,
+    latestTail,
+    retainedBytes: retainedStateBytes(history, latestTail),
+  };
+  const rebalanced = rebalanceRetainedState(history, provisionalWindow, message.id);
+  return {
+    history: rebalanced.history,
+    window: rebalanced.window,
     outcome: "applied",
     evictedOlder: 0,
     evictedNewer: 0,

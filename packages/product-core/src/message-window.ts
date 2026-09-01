@@ -3,6 +3,10 @@ import { compareEntitySequence, sortedUniqueMessages } from "./history";
 import { replyTargetId } from "./messages";
 
 const utf8 = new TextEncoder();
+// ChannelMessageView snapshots are treated as immutable throughout the clients. Cache by object
+// identity so repeated union rebalancing does not stringify and UTF-8 encode the same payload on
+// every pass; a patched message is represented by a new object and therefore receives a new entry.
+const retainedByteSizeByMessage = new WeakMap<ChannelMessageView, number>();
 
 /** Which chronological edge remains canonical when a message window is trimmed. */
 export type MessageWindowRetentionEdge = "oldest" | "newest";
@@ -67,8 +71,13 @@ export interface BoundMessageWindowResult {
 }
 
 /** Exact retained-payload proxy used by the history window's byte budget. */
-export const messageRetainedByteSize = (message: ChannelMessageView): number =>
-  utf8.encode(JSON.stringify(message)).byteLength;
+export const messageRetainedByteSize = (message: ChannelMessageView): number => {
+  const cached = retainedByteSizeByMessage.get(message);
+  if (cached !== undefined) return cached;
+  const measured = utf8.encode(JSON.stringify(message)).byteLength;
+  retainedByteSizeByMessage.set(message, measured);
+  return measured;
+};
 
 const normalizedMessages = (messages: readonly ChannelMessageView[]): ChannelMessageView[] =>
   sortedUniqueMessages(messages).sort(compareEntitySequence);

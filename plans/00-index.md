@@ -20,7 +20,7 @@ The numbered files preserve research and design history; a lower number is not a
 1. The product has one implicit local user. There is no OpenBot account, login page, team, or authorization model.
 2. OpenAI still requires upstream authentication. The operator completes Pi's `openai-codex` OAuth flow outside Electron; the credential stays in the private computer-home volume.
 3. A bot is a durable actor: identity, instructions, exactly one Pi JSONL session, one Postgres inbox, and an association to the shared OpenBot computer. DM, room, peer, bootstrap, and later routine wakes append to that same session rather than creating model sessions per UI surface.
-4. The always-on computer is a graphical, user/installation-scoped Linux environment: bots share its filesystem while keeping separate conversations and separate virtual displays. Physical-host access is a distinct Electron bridge that requires a native approval for each read or command. Browser profiles remain bot-scoped writable stores, while an implemented encrypted cookie broker makes ordinary authenticated browser sessions computer-scoped.
+4. The always-on computer is a graphical, user/installation-scoped Linux environment: bots share its filesystem while keeping separate conversations and separate virtual displays. Physical-host access is a distinct Electron bridge that requires a native approval for each read or command. Browser profiles remain separately writable for Chromium safety, while live origin state, stopped native profile state, client certificates, recovery, and owned-tab routing are computer-scoped.
 5. The Electron app is a native client. Docker Compose owns the server, shared Linux computer/runtime, Postgres database, and persistent volumes. Electron itself is not a Compose service; the bot computer's remote graphical desktop can be.
 6. OpenBot embeds Pi through its TypeScript `AgentSession` API inside the computer service. It does not shell out to the Pi TUI or reconstruct a chat messages array in the worker.
 7. Postgres stores OpenBot product state and the UI/audit projection. Pi's append-only JSONL session tree lives under the persistent computer home; `/workspace` is a separate volume. Postgres, computer home, and workspace must be backed up together.
@@ -48,7 +48,7 @@ The numbered files preserve research and design history; a lower number is not a
 - `18-v0-implementation-status.md`: shipped scope, verification evidence, operator prerequisites, and intentionally deferred work.
 - `19-agent-interaction-implementation.md`: the implemented direct-agent and ordered-group runtime, exact tool contracts, delivery invariants, API/UI surface, and validation evidence.
 - `20-graphical-computer-implementation.md`: the implemented per-bot Linux desktops, screen/input API, Electron viewer, safety boundary, live validation, and remaining browser-session work.
-- `21-shared-workspaces-and-browser-authority.md`: implemented bot/group folder semantics, group-turn cwd routing, separate browser UIs with computer-scoped cookie authority, limits, and validation plan.
+- `21-shared-workspaces-and-browser-authority.md`: implemented bot/group folder semantics, group-turn cwd routing, separate browser UIs with full computer-scoped browser authority, owned-tab routing, recovery, limits, and validation.
 - `22-grok-parity-and-client-performance.md`: the shadcn/AI Elements rewrite, Grok-reference parity, warm bot tabs, lazy rich rendering, lightweight reconnect behavior, and live close/reopen validation.
 - `23-interactive-desktop-and-qa.md`: click-to-control noVNC behavior, lease cleanup, restart/background-run validation, full v0 QA evidence, and the bugs fixed during that pass.
 - `24-performance-optimization.md`: renderer request-loop diagnosis, client snapshot projection, stable React identities, warm inspectors, lazy rich rendering, local performance instrumentation, measured budgets, and production profiling evidence.
@@ -61,6 +61,9 @@ The numbered files preserve research and design history; a lower number is not a
 - `32-agent-data-filesystem-parity.md`: implemented file-native profile, settings, memory, skills, routines, avatars, prompt snapshots, and lifecycle parity, plus the remaining source-incomplete edges.
 - `33-grok-context-compaction-parity.md`: proposed replacement of Pi-default compaction with Grok-style background SelfSummarizer semantics, per-transcript scope, restart-safe archives, reconciliation, byte GC, and a full validation gate.
 - `34-ios-mobile-parity.md`: evidence-graded Grok Bot iPhone research, live-capture protocol, screen and interaction specification, React Native reuse boundary, security constraints, delivery slices, and parity acceptance gates.
+- `38-ios-performance-and-parity-audit.md`: source, bundle, dependency, sync, cache, upload, list, search, computer, authentication, and API-scale audit with measured remediation.
+- `39-ios-native-simulator-validation.md`: signed Release simulator build/install, native Computer Use coverage, long-chat A/B, CPU/network/footprint evidence, final gates, and physical-device release gaps.
+- `40-desktop-performance-reaudit.md`: completed dependency, Electron-main, renderer, search, realistic-workload, and 1,100-chat stress re-audit with before/after fixes, packaged smoke, CUA parity, and residual bottlenecks.
 
 ## Vocabulary
 
@@ -77,7 +80,7 @@ The numbered files preserve research and design history; a lower number is not a
 - **Agent channel**: a durable direct or group transcript shared by participating bots and inspectable by the user.
 - **Peer message**: a fire-and-forget message that durably queues a later recipient wake; a reply is a new message, not a tool return value.
 - **Inbox event**: an immutable durable wake payload for one bot; pg-boss schedules its processing but is not its source of truth.
-- **Bot screen**: a bot-scoped graphical work surface on the shared computer; it does not isolate files or CLI credentials. Chromium profiles are separately writable, while BrowserBroker synchronizes ordinary session cookies at the computer boundary.
+- **Bot screen**: a bot-scoped graphical work surface on the shared computer; it does not isolate files, CLI credentials, or browser state. Chromium profiles are separately writable while live origin state, stopped native-profile state, and client certificates use computer-scoped authorities.
 - **Group round**: one durable, ordered pass over the eligible bots in a group after room activity; every member receives a separate turn and may respond once or stay silent.
 - **Native tool**: a first-party capability supplied by Pi, the OpenBot control plane, the computer service, or the native host bridge rather than an installable third-party plugin.
 - **Tool gateway**: the OpenBot policy boundary that computes a bot's effective catalog, validates calls, requests approvals, dispatches to first-party or MCP backends, and records redacted audit events.

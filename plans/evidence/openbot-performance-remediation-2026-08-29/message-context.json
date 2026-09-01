@@ -1,0 +1,16 @@
+{
+  "targetMessageId": "db5ebd11-6170-165d-5afc-e2660397a8a9",
+  "runs": [
+    { "timeToFirstByteSeconds": 0.00879, "totalSeconds": 0.009045, "bytes": 41399 },
+    { "timeToFirstByteSeconds": 0.006391, "totalSeconds": 0.006534, "bytes": 41399 },
+    { "timeToFirstByteSeconds": 0.003764, "totalSeconds": 0.003902, "bytes": 41399 },
+    { "timeToFirstByteSeconds": 0.003327, "totalSeconds": 0.003582, "bytes": 41399 },
+    { "timeToFirstByteSeconds": 0.004324, "totalSeconds": 0.004449, "bytes": 41399 }
+  ],
+  "messages": 101,
+  "threadContextMessages": 0,
+  "beforeSequence": "26950",
+  "afterSequence": "27050",
+  "hasMoreBefore": true,
+  "hasMoreAfter": true
+}

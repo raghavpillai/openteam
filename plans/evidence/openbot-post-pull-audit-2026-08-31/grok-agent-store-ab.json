@@ -1,0 +1,44 @@
+{
+  "recordType": "audit-transcript-summary",
+  "measuredAt": "2026-08-31",
+  "sqliteHandleFixture": {
+    "agentsVisited": 1000,
+    "unboundedBefore": {
+      "retainedAgents": 1000,
+      "retainedSqliteObjects": 2000,
+      "additionalOsFileDescriptors": 6000,
+      "visitMsObserved": [4522.3, 6848.1]
+    },
+    "boundedAfter": {
+      "maximumRetainedAgents": 32,
+      "retainedSqliteObjects": 64,
+      "additionalOsFileDescriptors": 192,
+      "visitMsObserved": [5093.3, 4799.4]
+    },
+    "fileDescriptorReduction": 31.25,
+    "baselineFileDescriptorsAfterCloseAll": 5,
+    "notes": "Visit timing is cache-sensitive; the deterministic result is the handle/FD cap, not a startup-speed claim."
+  },
+  "transcriptFixture": {
+    "uniqueEnvelopes": 5000,
+    "fixedClock": true,
+    "sequentialBefore": {
+      "elapsedMs": 1808.7,
+      "blobAttempts": 5000,
+      "rootPublications": 5000,
+      "rootBytesWritten": 837922500
+    },
+    "bulkAfter": {
+      "elapsedMs": 17.6,
+      "blobAttempts": 5000,
+      "rootPublications": 1,
+      "rootBytesWritten": 335051
+    },
+    "elapsedSpeedup": 102.66,
+    "rootWriteByteReduction": 2500.88,
+    "finalBytes": 335051,
+    "finalRows": 5001,
+    "finalSha256": "73298180ff6bd622956a2dfda296e5577ebac3315483cc0458998da9d7bf5f08",
+    "exactFinalParity": true
+  }
+}

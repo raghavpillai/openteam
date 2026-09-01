@@ -1,0 +1,22 @@
+{
+  "recordType": "audit-transcript-summary",
+  "measuredAt": "2026-08-31",
+  "legacyAllPeerCatalogBytes": {
+    "10": 289,
+    "1000": 30889,
+    "10000": 318889
+  },
+  "boundedRecentRelatedCatalogBytes": {
+    "10": 481,
+    "1000": 541,
+    "10000": 541
+  },
+  "limits": {
+    "peers": 12,
+    "groups": 8
+  },
+  "notes": [
+    "Arbitrary canonical UUID/name lookup is retained through bounded ListAgents/ListGroups tools.",
+    "Exact arbitrary lookup and SQL caps are covered by server and messaging tests."
+  ]
+}

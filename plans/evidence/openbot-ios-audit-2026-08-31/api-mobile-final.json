@@ -1,0 +1,146 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-09-01T03:10:21.591Z",
+  "measurementClass": "isolated Docker API fixture and alternating source A/B",
+  "fixture": {
+    "authMode": "disabled",
+    "bots": 1000,
+    "channels": 1100,
+    "channelMessages": 32006,
+    "routines": 1100,
+    "searchDocuments": 36207,
+    "cursorFenceABDatabaseSize": "63 MB",
+    "finalFrozenDatabaseSize": "61 MB",
+    "databaseStorage": "Docker tmpfs",
+    "cursorFenceABMigrationsApplied": 33,
+    "finalFrozenMigrationsApplied": 34
+  },
+  "bootstrapCursorFenceAB": {
+    "intervention": "Capture the latest Event cursor before all bootstrap projection reads so any concurrent commit is replayed over SSE instead of skipped.",
+    "armOrder": ["post", "pre", "post", "pre"],
+    "warmupsPerArm": 10,
+    "samplesPerArm": 50,
+    "pre": {
+      "imageId": "ac65009e4292",
+      "endToEndP50Ms": [40.826084, 38.798667],
+      "serverP50Ms": [31.96, 30.85],
+      "meanOfP50EndToEndMs": 39.812376,
+      "meanOfP50ServerMs": 31.405
+    },
+    "post": {
+      "imageId": "71882cc44569",
+      "endToEndP50Ms": [40.2725, 38.230083],
+      "serverP50Ms": [31.59, 30.19],
+      "meanOfP50EndToEndMs": 39.251292,
+      "meanOfP50ServerMs": 30.89
+    },
+    "observedDeltaPercent": {
+      "endToEndP50": -1.41,
+      "serverP50": -1.64
+    },
+    "interpretation": "The consistency fence introduced no measurable slowdown in the alternating local run. The small observed improvement is treated as host noise, not a performance claim."
+  },
+  "cursorFencePostArm": {
+    "measuredAt": "2026-09-01T02:12:24.189Z",
+    "warmups": 10,
+    "samples": 50,
+    "bootstrap": {
+      "bytes": 1554958,
+      "endToEndMs": {
+        "min": 34.143917,
+        "p50": 38.230083,
+        "p95": 47.026417,
+        "max": 49.973834,
+        "mean": 39.264245
+      },
+      "serverMs": {
+        "min": 26.48,
+        "p50": 30.19,
+        "p95": 37.73,
+        "max": 41.39,
+        "mean": 31.258
+      }
+    },
+    "runtime": {
+      "bytes": 100,
+      "endToEndP50Ms": 0.499041,
+      "endToEndP95Ms": 1.053791
+    },
+    "history100": {
+      "bytes": 40920,
+      "endToEndP50Ms": 1.964875,
+      "endToEndP95Ms": 3.00175
+    },
+    "compatibilitySnapshot": {
+      "bytes": 14878194,
+      "endToEndP50Ms": 146.793959,
+      "endToEndP95Ms": 170.198958,
+      "serverP50Ms": 87.86,
+      "serverP95Ms": 104.12
+    }
+  },
+  "finalFrozenTreeRerun": {
+    "serverImageId": "734af988b7eb",
+    "measuredAt": "2026-09-01T03:10:21.591Z",
+    "warmups": 10,
+    "samples": 50,
+    "bootstrap": {
+      "bytes": 1554957,
+      "endToEndMs": {
+        "min": 33.700917,
+        "p50": 40.039583,
+        "p95": 49.095708,
+        "max": 51.359,
+        "mean": 40.658055
+      },
+      "serverMs": {
+        "min": 25.5,
+        "p50": 31.71,
+        "p95": 40.15,
+        "max": 43.18,
+        "mean": 32.3318
+      }
+    },
+    "runtime": {
+      "bytes": 100,
+      "endToEndP50Ms": 0.461,
+      "endToEndP95Ms": 1.711542
+    },
+    "history100": {
+      "bytes": 40919,
+      "endToEndP50Ms": 1.934208,
+      "endToEndP95Ms": 4.027958
+    },
+    "compatibilitySnapshot": {
+      "bytes": 14878193,
+      "endToEndP50Ms": 150.3035,
+      "endToEndP95Ms": 164.781708,
+      "serverP50Ms": 88.99,
+      "serverP95Ms": 96.8
+    }
+  },
+  "modeledHealthyForegroundHour": {
+    "notes": "Payload-only model after initial load; excludes HTTP/SSE headers, TLS, keepalives, radio effects, and event-triggered reconciliations.",
+    "beforeTwoSecondPolling": {
+      "bootstrapRequests": 1800,
+      "bootstrapBytes": 2798922600,
+      "historyRequestsWhenOpen": 1800,
+      "historyBytesWhenOpen": 73654200,
+      "combinedBytesWhenOpen": 2872576800
+    },
+    "afterSixtySecondSafetyFallback": {
+      "bootstrapRequests": 60,
+      "bootstrapBytes": 93297420,
+      "historyRequestsWhenOpen": 60,
+      "historyBytesWhenOpen": 2455140,
+      "combinedBytesWhenOpen": 95752560
+    },
+    "requestAndPayloadReductionPercent": 96.67
+  },
+  "environmentNotes": [
+    "The normal Compose volume could not initialize because the user's Docker VM was full. No unrelated Docker data was pruned.",
+    "The same freshly built production server/migration images and environment were run on an isolated network with PostgreSQL and mutable server paths backed by tmpfs.",
+    "The final frozen-tree rerun used server image 734af988b7eb after all 34 migrations, including push-device session binding.",
+    "The audit containers, network, and tmpfs database are disposable and are removed after the final gates."
+  ]
+}

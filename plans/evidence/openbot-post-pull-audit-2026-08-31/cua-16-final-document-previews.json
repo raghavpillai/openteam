@@ -1,0 +1,39 @@
+{
+  "scenario": "lazy document preview responsiveness in Electron",
+  "fixture": {
+    "spreadsheet": "openbot-performance-12000.xlsx",
+    "docx": "openbot-performance-5000.docx"
+  },
+  "spreadsheet": {
+    "sourceRows": 12000,
+    "previewRows": 200,
+    "previewCells": 800,
+    "textLength": 10752,
+    "frameIntervals": {
+      "count": 303,
+      "max": 17.79999999998836,
+      "over20": 0,
+      "over50": 0
+    },
+    "longTasks": [],
+    "assetRequestObserved": true
+  },
+  "docx": {
+    "paragraphs": 5001,
+    "nodes": 5015,
+    "textLength": 599001,
+    "frameIntervals": {
+      "count": 253,
+      "max": 17.800000000046566,
+      "over20": 0,
+      "over50": 0
+    },
+    "longTasks": [],
+    "assetRequestObserved": true
+  },
+  "ui": {
+    "previewTitleAndDownloadPreserved": true,
+    "closeControlPreserved": true
+  },
+  "verifiedAt": "2026-09-01T00:49:19.614Z"
+}

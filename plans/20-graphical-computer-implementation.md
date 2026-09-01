@@ -21,7 +21,7 @@ computer container
 └── ScreenBroker
     ├── bot A → Xvfb :100 → x11vnc 5900 → noVNC 6200
     │           ├── XFWM + xfdesktop + XFCE Panel
-    │           ├── Chromium (bot A profile + shared-cookie CDP broker)
+    │           ├── Chromium (bot A profile + live origin-state broker)
     │           ├── Thunar
     │           └── XFCE Terminal
     └── bot B → Xvfb :101 → x11vnc 5901 → noVNC 6201
@@ -91,12 +91,12 @@ Contract tests cover valid and invalid action bounds and verify the declared too
 
 ## Browser authority
 
-Each bot still has an independent Chromium process, window, display, and writable profile. Every process exposes a loopback-only DevTools endpoint on an unexposed per-screen port. `BrowserBroker` reads and reconciles cookies through `Storage.getCookies` and `Storage.setCookies`; deletion uses an already-expired replacement for compatibility with Chromium builds that omit browser-level `Storage.deleteCookies`. Logging in on one bot screen therefore becomes available to other running bot browsers without two processes writing one profile.
+Each bot still has an independent Chromium process, window, display, and writable profile. Every process exposes a loopback-only DevTools endpoint on an unexposed per-screen port. `BrowserBroker` reconciles cookies, local storage, IndexedDB, Cache Storage, and service-worker registrations through trusted CDP sessions. Logging in or changing durable origin state on one bot screen therefore becomes available to other running bot browsers without two processes writing one profile.
 
-The canonical persistent cookie jar is AES-256-GCM encrypted under `/home/openbot/.openbot`; its random key is a separate mode-0600 file in the same private computer-home volume. Session cookies also synchronize in memory for the lifetime of the computer service. The UI describes browser sessions as computer-scoped while retaining profile separation as an implementation safety detail.
+The canonical persistent cookie and origin-state store is AES-256-GCM encrypted under `/home/openbot/.openbot`; its random key is a separate mode-0600 file in the same private computer-home volume. Session cookies also synchronize in memory for the lifetime of the computer service. Session Storage and the remaining native profile state use stopped-profile publication. The UI describes browser sessions as computer-scoped while retaining profile separation as an implementation safety detail.
 
 ## Honest limitations
 
-Cookie synchronization covers most ordinary web sign-ins, but it is not full profile replication. Local storage, IndexedDB, service-worker state, extensions, saved passwords, client certificates, and arbitrary Chromium settings remain bot-local. A site that binds authentication to non-cookie state may still require a separate login. The next browser milestone is explicit target routing and selective storage adapters for sites that need them.
+Browser state now uses two safe authority lanes. Cookies, local storage, IndexedDB, Cache Storage, and service-worker registrations reconcile live through the encrypted BrowserBroker. Session Storage, extensions and state, saved passwords/Web Data, preferences, bookmarks, history, and session tabs publish only after Chromium stops and hydrate before another bot profile launches. Client certificates use the shared computer-user NSS store. Browser-use target routing leases only agent-created tabs and popups; model-issued CDP calls cannot manage browser-wide targets or storage.
 
-Additional production work includes authenticated remote access beyond localhost, encrypted VNC transport when leaving loopback, a more efficient streaming transport, GPU/audio/clipboard policy, resource caps per screen, and automated browser/session recovery tests. Chromium currently relies on the outer container isolation and runs with `--no-sandbox`; this is acceptable only for the local v0 boundary and must be revisited before untrusted remote deployment.
+Additional production work includes authenticated remote access beyond localhost, encrypted VNC transport when leaving loopback, a more efficient streaming transport, GPU/audio/clipboard policy, and resource caps per screen. Chromium currently relies on the outer container isolation and runs with `--no-sandbox`; this is acceptable only for the local v0 boundary and must be revisited before untrusted remote deployment.

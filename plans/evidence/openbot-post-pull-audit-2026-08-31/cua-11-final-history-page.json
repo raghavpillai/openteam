@@ -1,0 +1,1214 @@
+{
+  "label": "final-history-page",
+  "capturedAt": "2026-09-01T00:33:29.326Z",
+  "target": {
+    "type": "page",
+    "url": "http://127.0.0.1:5174/?profile=1"
+  },
+  "dom": {
+    "documents": 2,
+    "nodes": 3416,
+    "jsEventListeners": 1522
+  },
+  "runtime": {
+    "usedSize": 47648088,
+    "totalSize": 70877184,
+    "embedderHeapUsedSize": 11409344,
+    "backingStorageSize": 3214104
+  },
+  "performance": {
+    "Timestamp": 1684509.776927,
+    "AudioHandlers": 0,
+    "AudioWorkletProcessors": 0,
+    "Documents": 2,
+    "Frames": 1,
+    "JSEventListeners": 1522,
+    "LayoutObjects": 3217,
+    "MediaKeySessions": 0,
+    "MediaKeys": 0,
+    "Nodes": 3416,
+    "Resources": 22,
+    "ContextLifecycleStateObservers": 6,
+    "V8PerContextDatas": 2,
+    "WorkerGlobalScopes": 0,
+    "UACSSResources": 0,
+    "RTCPeerConnections": 0,
+    "ResourceFetchers": 2,
+    "AdSubframes": 0,
+    "DetachedScriptStates": 0,
+    "ArrayBufferContents": 6,
+    "LayoutCount": 0,
+    "RecalcStyleCount": 0,
+    "LayoutDuration": 0,
+    "RecalcStyleDuration": 0,
+    "DevToolsCommandDuration": 0.000072,
+    "ScriptDuration": 0,
+    "V8CompileDuration": 0,
+    "TaskDuration": 0.000084,
+    "TaskOtherDuration": 0.000012,
+    "ThreadTime": 0.000106,
+    "ProcessTime": 5.17864,
+    "JSHeapUsedSize": 47648088,
+    "JSHeapTotalSize": 70877184,
+    "FirstMeaningfulPaint": 1684428.38548,
+    "DomContentLoaded": 1684428.071118,
+    "NavigationStart": 1684428.001978
+  },
+  "page": {
+    "url": "http://127.0.0.1:5174/?profile=1",
+    "title": "OpenBot",
+    "readyState": "complete",
+    "elements": 1400,
+    "buttons": 146,
+    "images": 0,
+    "dialogs": 0,
+    "virtualization": {
+      "sidebarEnabled": true,
+      "mountedChannelRows": 17,
+      "mountedPinnedRows": 0,
+      "declaredSidebarRows": [1100],
+      "declaredPinnedRows": [],
+      "declaredSections": [],
+      "mountedCompactRows": 0,
+      "declaredCompactRows": [],
+      "mountedTimelineRows": 38,
+      "declaredTimelines": [300],
+      "memberEditorOpen": false,
+      "mountedMemberRows": 0,
+      "declaredMemberRows": []
+    },
+    "scroll": {
+      "top": 0,
+      "height": 860,
+      "viewport": 860,
+      "bottomDistance": 0
+    },
+    "timelineScroll": {
+      "top": 14400,
+      "height": 21669,
+      "viewport": 860,
+      "bottomDistance": 6409
+    },
+    "newestButton": {
+      "ariaHidden": "false",
+      "tabIndex": 0,
+      "opacity": "1",
+      "pointerEvents": "auto"
+    },
+    "scrollCandidates": [
+      {
+        "role": null,
+        "className": "grok-scrollbar flex min-h-0 w-full flex-1 flex-col overflow-y-auto px-[12px]",
+        "top": 0,
+        "height": 63800,
+        "viewport": 730,
+        "bottomDistance": 63070
+      },
+      {
+        "role": null,
+        "className": "min-h-0 overflow-hidden",
+        "top": 0,
+        "height": 102,
+        "viewport": 0,
+        "bottomDistance": 102
+      },
+      {
+        "role": null,
+        "className": "pointer-events-none col-start-1 row-start-1 overflow-hidden h-0",
+        "top": 0,
+        "height": 110,
+        "viewport": 0,
+        "bottomDistance": 110
+      },
+      {
+        "role": null,
+        "className": "rounded-[12px] transition-colors duration-150 ease-out flex min-h-[36px] flex-1 flex-col",
+        "top": 0,
+        "height": 63800,
+        "viewport": 730,
+        "bottomDistance": 63070
+      },
+      {
+        "role": null,
+        "className": "",
+        "top": 14400,
+        "height": 21669,
+        "viewport": 860,
+        "bottomDistance": 6409
+      },
+      {
+        "role": null,
+        "className": "sr-only focus:not-sr-only focus:absolute focus:left-1/2 focus:top-2 focus:z-20 focus:-translate-x-1/2 focus:rounded-full focus:bg-background focus:px-3 focus:py-1.5 focus:text-xs focus:shadow",
+        "top": 0,
+        "height": 24,
+        "viewport": 1,
+        "bottomDistance": 23
+      },
+      {
+        "role": null,
+        "className": "sr-only",
+        "top": 0,
+        "height": 24,
+        "viewport": 1,
+        "bottomDistance": 23
+      },
+      {
+        "role": null,
+        "className": "relative",
+        "top": 0,
+        "height": 60,
+        "viewport": 44,
+        "bottomDistance": 16
+      }
+    ],
+    "heap": {
+      "usedJSHeapSize": 50903542,
+      "totalJSHeapSize": 74092406,
+      "jsHeapSizeLimit": 4395630592
+    },
+    "navigation": {
+      "name": "http://127.0.0.1:5174/?profile=1",
+      "entryType": "navigation",
+      "startTime": 0,
+      "duration": 69.39999985694885,
+      "initiatorType": "navigation",
+      "deliveryType": "",
+      "nextHopProtocol": "http/1.1",
+      "renderBlockingStatus": "non-blocking",
+      "contentType": "text/html",
+      "contentEncoding": "",
+      "workerStart": 0,
+      "workerRouterEvaluationStart": 0,
+      "workerCacheLookupStart": 0,
+      "workerMatchedSourceType": "",
+      "workerFinalSourceType": "",
+      "redirectStart": 0,
+      "redirectEnd": 0,
+      "fetchStart": 1.8999998569488525,
+      "domainLookupStart": 28.299999952316284,
+      "domainLookupEnd": 28.5,
+      "connectStart": 28.5,
+      "secureConnectionStart": 0,
+      "connectEnd": 28.5,
+      "requestStart": 28.59999990463257,
+      "responseStart": 28.799999952316284,
+      "firstInterimResponseStart": 0,
+      "finalResponseHeadersStart": 28.799999952316284,
+      "responseEnd": 29.199999809265137,
+      "transferSize": 2714,
+      "encodedBodySize": 2414,
+      "decodedBodySize": 2414,
+      "responseStatus": 200,
+      "serverTiming": [],
+      "unloadEventStart": 0,
+      "unloadEventEnd": 0,
+      "domInteractive": 50.19999980926514,
+      "domContentLoadedEventStart": 69.19999980926514,
+      "domContentLoadedEventEnd": 69.19999980926514,
+      "domComplete": 69.39999985694885,
+      "loadEventStart": 69.39999985694885,
+      "loadEventEnd": 69.39999985694885,
+      "type": "navigate",
+      "redirectCount": 0,
+      "activationStart": 0,
+      "criticalCHRestart": 0,
+      "notRestoredReasons": null,
+      "confidence": {}
+    },
+    "resourceCount": 86,
+    "resourceBytes": 4929149,
+    "resources": [
+      {
+        "name": "http://127.0.0.1:5174/assets/rolldown-runtime-hePW80VL.js",
+        "startTime": 49.69999980926514,
+        "duration": 4.400000095367432,
+        "transferSize": 1016,
+        "decodedBodySize": 716
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/react-CwJFpaho.js",
+        "startTime": 49.69999980926514,
+        "duration": 4.5,
+        "transferSize": 7832,
+        "decodedBodySize": 7532
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/index-dEIrtGPw.js",
+        "startTime": 49.69999980926514,
+        "duration": 4.400000095367432,
+        "transferSize": 606934,
+        "decodedBodySize": 606634
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/react-dom-DX3XddaT.js",
+        "startTime": 49.799999952316284,
+        "duration": 5,
+        "transferSize": 3883,
+        "decodedBodySize": 3583
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/bundle-mjs-qiYaKUnm.js",
+        "startTime": 49.799999952316284,
+        "duration": 4.700000047683716,
+        "transferSize": 27528,
+        "decodedBodySize": 27228
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/createLucideIcon-_dfI7Arx.js",
+        "startTime": 49.799999952316284,
+        "duration": 5.299999952316284,
+        "transferSize": 1718,
+        "decodedBodySize": 1418
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/auth-C9-OGUZk.js",
+        "startTime": 49.799999952316284,
+        "duration": 5.3999998569488525,
+        "transferSize": 3272,
+        "decodedBodySize": 2972
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/jsx-runtime-NZYk81nU.js",
+        "startTime": 49.799999952316284,
+        "duration": 6,
+        "transferSize": 735,
+        "decodedBodySize": 435
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/dist-D3KwE4UJ.js",
+        "startTime": 49.799999952316284,
+        "duration": 6.099999904632568,
+        "transferSize": 4203,
+        "decodedBodySize": 3903
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/dist-C3f-by9T.js",
+        "startTime": 49.799999952316284,
+        "duration": 6.599999904632568,
+        "transferSize": 800,
+        "decodedBodySize": 500
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/dist-7gydKSQ5.js",
+        "startTime": 49.799999952316284,
+        "duration": 6.8999998569488525,
+        "transferSize": 1692,
+        "decodedBodySize": 1392
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/cn-CKGDm0xD.js",
+        "startTime": 49.799999952316284,
+        "duration": 7.099999904632568,
+        "transferSize": 384,
+        "decodedBodySize": 84
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/dist-BZk5GJjv.js",
+        "startTime": 49.799999952316284,
+        "duration": 7.099999904632568,
+        "transferSize": 2389,
+        "decodedBodySize": 2089
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/dist-BrcDxpHx.js",
+        "startTime": 49.799999952316284,
+        "duration": 7.700000047683716,
+        "transferSize": 1498,
+        "decodedBodySize": 1198
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/dist-Bit7BNr5.js",
+        "startTime": 49.89999985694885,
+        "duration": 7.299999952316284,
+        "transferSize": 4461,
+        "decodedBodySize": 4161
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/es2015-7g75nosU.js",
+        "startTime": 49.89999985694885,
+        "duration": 7.400000095367432,
+        "transferSize": 16510,
+        "decodedBodySize": 16210
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/dist-qF62cgop.js",
+        "startTime": 49.89999985694885,
+        "duration": 7.700000047683716,
+        "transferSize": 881,
+        "decodedBodySize": 581
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/dist-65eAEt0W.js",
+        "startTime": 49.89999985694885,
+        "duration": 7.900000095367432,
+        "transferSize": 26365,
+        "decodedBodySize": 26065
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/index-CCX0abSH.css",
+        "startTime": 50,
+        "duration": 5.699999809265137,
+        "transferSize": 161006,
+        "decodedBodySize": 160706
+      },
+      {
+        "name": "http://127.0.0.1:5174/api/auth/config",
+        "startTime": 72.59999990463257,
+        "duration": 4.599999904632568,
+        "transferSize": 319,
+        "decodedBodySize": 19
+      },
+      {
+        "name": "http://127.0.0.1:5174/api/v0/client-bootstrap",
+        "startTime": 79.39999985694885,
+        "duration": 135.90000009536743,
+        "transferSize": 1555806,
+        "decodedBodySize": 1555506
+      },
+      {
+        "name": "http://127.0.0.1:5174/api/v0/settings",
+        "startTime": 79.5,
+        "duration": 52.69999980926514,
+        "transferSize": 673,
+        "decodedBodySize": 373
+      },
+      {
+        "name": "http://127.0.0.1:5174/api/v0/active-agent",
+        "startTime": 234,
+        "duration": 5.8999998569488525,
+        "transferSize": 356,
+        "decodedBodySize": 56
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/file-attachment-PNc99Kfw.js",
+        "startTime": 261.69999980926514,
+        "duration": 0.9000000953674316,
+        "transferSize": 15814,
+        "decodedBodySize": 15514
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/file-text-BJU7eAl4.js",
+        "startTime": 261.89999985694885,
+        "duration": 1,
+        "transferSize": 685,
+        "decodedBodySize": 385
+      },
+      {
+        "name": "http://127.0.0.1:5174/api/v0/channels/6a29c3f3-fdc8-4039-338e-a5df06bf6fc1/history?limit=100",
+        "startTime": 272.19999980926514,
+        "duration": 11.100000143051147,
+        "transferSize": 12489,
+        "decodedBodySize": 12189
+      },
+      {
+        "name": "http://127.0.0.1:5174/api/v0/channels/6a29c3f3-fdc8-4039-338e-a5df06bf6fc1/client-state",
+        "startTime": 272.2999999523163,
+        "duration": 20.200000047683716,
+        "transferSize": 999,
+        "decodedBodySize": 699
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/lib-Csis5nyC.js",
+        "startTime": 307.19999980926514,
+        "duration": 1.9000000953674316,
+        "transferSize": 2423,
+        "decodedBodySize": 2123
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/message-response-code-3ghJl46L.js",
+        "startTime": 307.19999980926514,
+        "duration": 1.2000000476837158,
+        "transferSize": 187971,
+        "decodedBodySize": 187671
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/message-response-config-BtzVzsi6.js",
+        "startTime": 307.19999980926514,
+        "duration": 2,
+        "transferSize": 437266,
+        "decodedBodySize": 436966
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/lib-D41SvWik.js",
+        "startTime": 307.2999999523163,
+        "duration": 2.8999998569488525,
+        "transferSize": 997,
+        "decodedBodySize": 697
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/micromark-factory-space-CJCDte29.js",
+        "startTime": 307.2999999523163,
+        "duration": 3.799999952316284,
+        "transferSize": 22005,
+        "decodedBodySize": 21705
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/message-response-rich-WknQBj1a.js",
+        "startTime": 307.39999985694885,
+        "duration": 4.6000001430511475,
+        "transferSize": 819,
+        "decodedBodySize": 519
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/message-response-CoYAJvKA.js",
+        "startTime": 308.19999980926514,
+        "duration": 3.4000000953674316,
+        "transferSize": 603,
+        "decodedBodySize": 303
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/highlighted-body-KPVGNVTW-Bf6NC5YJ.js",
+        "startTime": 445.09999990463257,
+        "duration": 1.2999999523162842,
+        "transferSize": 935,
+        "decodedBodySize": 635
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/message-response-math-Di6S0xrV.js",
+        "startTime": 445.69999980926514,
+        "duration": 1.3000001907348633,
+        "transferSize": 12214,
+        "decodedBodySize": 11914
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/katex-DhON-x74.js",
+        "startTime": 445.69999980926514,
+        "duration": 1.9000000953674316,
+        "transferSize": 259352,
+        "decodedBodySize": 259052
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/message-response-math-B_xb1mF7.css",
+        "startTime": 445.7999999523163,
+        "duration": 0.8999998569488525,
+        "transferSize": 26488,
+        "decodedBodySize": 26188
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/chunk-Y2CYZVJY-DsF7k-Jl.js",
+        "startTime": 466,
+        "duration": 1.5,
+        "transferSize": 455,
+        "decodedBodySize": 155
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/src-B6xuSHsQ.js",
+        "startTime": 466,
+        "duration": 2,
+        "transferSize": 45980,
+        "decodedBodySize": 45680
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/message-response-mermaid-BwgNBatv.js",
+        "startTime": 466,
+        "duration": 1.7999999523162842,
+        "transferSize": 97698,
+        "decodedBodySize": 97398
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/chunk-75Z2AOVW-BEYjWF8B.js",
+        "startTime": 466.09999990463257,
+        "duration": 2.5,
+        "transferSize": 31055,
+        "decodedBodySize": 30755
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/dist-v5Q1xZ2K.js",
+        "startTime": 466.09999990463257,
+        "duration": 2.9000000953674316,
+        "transferSize": 2473,
+        "decodedBodySize": 2173
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/chunk-DU6HZSFF-BobwGCKs.js",
+        "startTime": 466.09999990463257,
+        "duration": 2.200000047683716,
+        "transferSize": 235978,
+        "decodedBodySize": 235678
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/chunk-P2QGCYS3-wYFbJgHM.js",
+        "startTime": 466.19999980926514,
+        "duration": 3,
+        "transferSize": 2247,
+        "decodedBodySize": 1947
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/chunk-PWAF6VOD-C7_HT8Mg.js",
+        "startTime": 466.19999980926514,
+        "duration": 3.3000001907348633,
+        "transferSize": 6133,
+        "decodedBodySize": 5833
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/chunk-GMAD6QVW-CwrQMXlo.js",
+        "startTime": 466.19999980926514,
+        "duration": 2.6000001430511475,
+        "transferSize": 52144,
+        "decodedBodySize": 51844
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/chunk-4HAMMTFA-CcP869E_.js",
+        "startTime": 466.2999999523163,
+        "duration": 4.200000047683716,
+        "transferSize": 105155,
+        "decodedBodySize": 104855
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/chunk-GVQU2GXP-LD4bMfoA.js",
+        "startTime": 466.39999985694885,
+        "duration": 3.6000001430511475,
+        "transferSize": 1716,
+        "decodedBodySize": 1416
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/rough.esm-Dy-Kn_BL.js",
+        "startTime": 466.39999985694885,
+        "duration": 3.4000000953674316,
+        "transferSize": 27409,
+        "decodedBodySize": 27109
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/chunk-L3NEJ4N5-MuX1Ao83.js",
+        "startTime": 466.39999985694885,
+        "duration": 4,
+        "transferSize": 9986,
+        "decodedBodySize": 9686
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/chunk-OSK3NFVY-BOTGrycO.js",
+        "startTime": 466.39999985694885,
+        "duration": 4.900000095367432,
+        "transferSize": 36771,
+        "decodedBodySize": 36471
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/line-Bljy7hC8.js",
+        "startTime": 466.5,
+        "duration": 4.299999952316284,
+        "transferSize": 1243,
+        "decodedBodySize": 943
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/path-fybaL0A-.js",
+        "startTime": 466.5,
+        "duration": 4.599999904632568,
+        "transferSize": 2578,
+        "decodedBodySize": 2278
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/array-BifhSqXX.js",
+        "startTime": 466.5,
+        "duration": 5.199999809265137,
+        "transferSize": 407,
+        "decodedBodySize": 107
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/graphlib-DS17s2tU.js",
+        "startTime": 466.59999990463257,
+        "duration": 5.400000095367432,
+        "transferSize": 24204,
+        "decodedBodySize": 23904
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/message-response-cjk-CVDLBHP-.js",
+        "startTime": 467.09999990463257,
+        "duration": 4.400000095367432,
+        "transferSize": 25253,
+        "decodedBodySize": 24953
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/mermaid-HWGCJPDP-CFLBGp06.js",
+        "startTime": 495.7999999523163,
+        "duration": 0.8999998569488525,
+        "transferSize": 379,
+        "decodedBodySize": 79
+      },
+      {
+        "name": "http://127.0.0.1:5174/api/v0/settings/sidebar",
+        "startTime": 501.89999985694885,
+        "duration": 19.100000143051147,
+        "transferSize": 43175,
+        "decodedBodySize": 42875
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/typescript-BydbNFcO.js",
+        "startTime": 764.5,
+        "duration": 1,
+        "transferSize": 181446,
+        "decodedBodySize": 181146
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/javascript-obGGvMPs.js",
+        "startTime": 764.7999999523163,
+        "duration": 1,
+        "transferSize": 175193,
+        "decodedBodySize": 174893
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/KaTeX_Math-Italic-t53AETM-.woff2",
+        "startTime": 837.6999998092651,
+        "duration": 11,
+        "transferSize": 16740,
+        "decodedBodySize": 16440
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/KaTeX_Main-Regular-B22Nviop.woff2",
+        "startTime": 837.6999998092651,
+        "duration": 11.300000190734863,
+        "transferSize": 26572,
+        "decodedBodySize": 26272
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/KaTeX_Size1-Regular-mCD8mA8B.woff2",
+        "startTime": 837.7999999523163,
+        "duration": 11.399999856948853,
+        "transferSize": 5768,
+        "decodedBodySize": 5468
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/sequenceDiagram-WJ2MYXX4-Xb1DjLV2.js",
+        "startTime": 1168.0999999046326,
+        "duration": 2.0999999046325684,
+        "transferSize": 116056,
+        "decodedBodySize": 115756
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/chunk-F27PBJKO-Cuwk-_cf.js",
+        "startTime": 1168.3999998569489,
+        "duration": 2.299999952316284,
+        "transferSize": 2272,
+        "decodedBodySize": 1972
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/chunk-2Q5K7J3B-C1jixKkw.js",
+        "startTime": 1168.5,
+        "duration": 2.6999998092651367,
+        "transferSize": 491,
+        "decodedBodySize": 191
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/flowDiagram-T62WH6J4-RI02KXNN.js",
+        "startTime": 1191.5999999046326,
+        "duration": 1.0999999046325684,
+        "transferSize": 887,
+        "decodedBodySize": 587
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/chunk-XXDRQBXY-DqAYeljN.js",
+        "startTime": 1191.7999999523163,
+        "duration": 1.2000000476837158,
+        "transferSize": 562,
+        "decodedBodySize": 262
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/chunk-POPQ4Y6H-CMztv0tP.js",
+        "startTime": 1191.8999998569489,
+        "duration": 1.6000001430511475,
+        "transferSize": 874,
+        "decodedBodySize": 574
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/channel-DFmFpn3M.js",
+        "startTime": 1191.8999998569489,
+        "duration": 2.200000047683716,
+        "transferSize": 414,
+        "decodedBodySize": 114
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/chunk-3NF5O7KM-BcvTOtZB.js",
+        "startTime": 1191.8999998569489,
+        "duration": 2,
+        "transferSize": 61511,
+        "decodedBodySize": 61211
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/chunk-5VM5RSS4-ZNzvKenW.js",
+        "startTime": 1192,
+        "duration": 2.299999952316284,
+        "transferSize": 662,
+        "decodedBodySize": 362
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/dagre-OS7QT2EB-B5keH4mH.js",
+        "startTime": 1203.7999999523163,
+        "duration": 1,
+        "transferSize": 11291,
+        "decodedBodySize": 10991
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/dagre-PrKaheQc.js",
+        "startTime": 1204,
+        "duration": 2,
+        "transferSize": 37154,
+        "decodedBodySize": 36854
+      },
+      {
+        "name": "http://127.0.0.1:5174/api/v0/client-runtime",
+        "startTime": 30236,
+        "duration": 28.199999809265137,
+        "transferSize": 400,
+        "decodedBodySize": 100
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/search-dialog-D-gMYsuw.js",
+        "startTime": 36311.5,
+        "duration": 1.0999999046325684,
+        "transferSize": 10650,
+        "decodedBodySize": 10350
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/bot-DbB9BKL0.js",
+        "startTime": 36311.699999809265,
+        "duration": 1,
+        "transferSize": 628,
+        "decodedBodySize": 328
+      },
+      {
+        "name": "http://127.0.0.1:5174/api/v0/search?q=&category=all",
+        "startTime": 36625.09999990463,
+        "duration": 38.700000047683716,
+        "transferSize": 7188,
+        "decodedBodySize": 6888
+      },
+      {
+        "name": "http://127.0.0.1:5174/api/v0/search?q=Audit+Bot+0001&category=all",
+        "startTime": 48397,
+        "duration": 31.799999952316284,
+        "transferSize": 9471,
+        "decodedBodySize": 9171
+      },
+      {
+        "name": "http://127.0.0.1:5174/api/v0/active-agent",
+        "startTime": 52663.5,
+        "duration": 19.699999809265137,
+        "transferSize": 356,
+        "decodedBodySize": 56
+      },
+      {
+        "name": "http://127.0.0.1:5174/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?limit=100",
+        "startTime": 52677.799999952316,
+        "duration": 20.200000047683716,
+        "transferSize": 41220,
+        "decodedBodySize": 40920
+      },
+      {
+        "name": "http://127.0.0.1:5174/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/client-state",
+        "startTime": 52677.799999952316,
+        "duration": 42.5,
+        "transferSize": 545,
+        "decodedBodySize": 245
+      },
+      {
+        "name": "http://127.0.0.1:5174/api/v0/client-runtime",
+        "startTime": 60267,
+        "duration": 5.3999998569488525,
+        "transferSize": 400,
+        "decodedBodySize": 100
+      },
+      {
+        "name": "http://127.0.0.1:5174/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=31901&limit=100",
+        "startTime": 70569.39999985695,
+        "duration": 18.799999952316284,
+        "transferSize": 41219,
+        "decodedBodySize": 40919
+      },
+      {
+        "name": "http://127.0.0.1:5174/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=31801&limit=100",
+        "startTime": 71252,
+        "duration": 8,
+        "transferSize": 41219,
+        "decodedBodySize": 40919
+      }
+    ],
+    "frameGaps": {
+      "samples": 120,
+      "max": 17.799999952316284,
+      "over20ms": 0,
+      "over50ms": 0
+    },
+    "openbot": [
+      {
+        "name": "startup.first-ui-paint",
+        "duration": 98.19999980926514,
+        "at": 1788222725655
+      },
+      {
+        "name": "browser.first-paint",
+        "duration": 120,
+        "at": 1788222725679
+      },
+      {
+        "name": "browser.first-contentful-paint",
+        "duration": 120,
+        "at": 1788222725679
+      },
+      {
+        "name": "api.request",
+        "duration": 53,
+        "at": 1788222725689,
+        "detail": {
+          "path": "/api/v0/settings",
+          "status": 200,
+          "bytes": 373,
+          "serverTiming": "",
+          "failed": false
+        }
+      },
+      {
+        "name": "api.request",
+        "duration": 137.5,
+        "at": 1788222725774,
+        "detail": {
+          "path": "/api/v0/client-bootstrap",
+          "status": 200,
+          "bytes": 0,
+          "serverTiming": "bootstrap;dur=105.79",
+          "failed": false
+        }
+      },
+      {
+        "name": "snapshot.reconcile",
+        "duration": 2.0999999046325684,
+        "at": 1788222725776,
+        "detail": {
+          "changed": true,
+          "mode": "bounded",
+          "messages": 1100
+        }
+      },
+      {
+        "name": "browser.long-task",
+        "duration": 69,
+        "at": 1788222725852
+      },
+      {
+        "name": "api.request",
+        "duration": 62.89999985694885,
+        "at": 1788222725854,
+        "detail": {
+          "path": "/api/v0/active-agent",
+          "status": 200,
+          "bytes": 56,
+          "serverTiming": "",
+          "failed": false
+        }
+      },
+      {
+        "name": "api.request",
+        "duration": 24.700000047683716,
+        "at": 1788222725854,
+        "detail": {
+          "path": "/api/v0/channels/6a29c3f3-fdc8-4039-338e-a5df06bf6fc1/history?limit=100",
+          "status": 200,
+          "bytes": 12189,
+          "serverTiming": "",
+          "failed": false
+        }
+      },
+      {
+        "name": "api.request",
+        "duration": 24.700000047683716,
+        "at": 1788222725854,
+        "detail": {
+          "path": "/api/v0/channels/6a29c3f3-fdc8-4039-338e-a5df06bf6fc1/client-state",
+          "status": 200,
+          "bytes": 699,
+          "serverTiming": "",
+          "failed": false
+        }
+      },
+      {
+        "name": "snapshot.reconcile",
+        "duration": 0.2999999523162842,
+        "at": 1788222725855,
+        "detail": {
+          "changed": true,
+          "mode": "bounded",
+          "messages": 1126
+        }
+      },
+      {
+        "name": "api.request",
+        "duration": 19.5,
+        "at": 1788222726078,
+        "detail": {
+          "path": "/api/v0/settings/sidebar",
+          "status": 200,
+          "bytes": 42875,
+          "serverTiming": "",
+          "failed": false
+        }
+      },
+      {
+        "name": "browser.long-task",
+        "duration": 69,
+        "at": 1788222726406
+      },
+      {
+        "name": "browser.long-task",
+        "duration": 100,
+        "at": 1788222726511
+      },
+      {
+        "name": "api.request",
+        "duration": 28.700000047683716,
+        "at": 1788222755822,
+        "detail": {
+          "path": "/api/v0/client-runtime",
+          "status": 200,
+          "bytes": 100,
+          "serverTiming": "",
+          "failed": false
+        }
+      },
+      {
+        "name": "browser.interaction",
+        "duration": 16,
+        "at": 1788222761870,
+        "detail": {
+          "event": "click"
+        }
+      },
+      {
+        "name": "api.request",
+        "duration": 38.90000009536743,
+        "at": 1788222762221,
+        "detail": {
+          "path": "/api/v0/search?q=&category=all",
+          "status": 200,
+          "bytes": 6888,
+          "serverTiming": "search;dur=33.23",
+          "failed": false
+        }
+      },
+      {
+        "name": "browser.interaction",
+        "duration": 56,
+        "at": 1788222768118,
+        "detail": {
+          "event": "keydown"
+        }
+      },
+      {
+        "name": "api.request",
+        "duration": 32.200000047683716,
+        "at": 1788222773986,
+        "detail": {
+          "path": "/api/v0/search?q=Audit+Bot+0001&category=all",
+          "status": 200,
+          "bytes": 9171,
+          "serverTiming": "search;dur=28.69",
+          "failed": false
+        }
+      },
+      {
+        "name": "view.channel-switch",
+        "duration": 35.40000009536743,
+        "at": 1788222778256,
+        "detail": {
+          "from": "6a29c3f3-fdc8-4039-338e-a5df06bf6fc1",
+          "to": "00afa798-6702-a4d8-ad9b-08737550b907"
+        }
+      },
+      {
+        "name": "api.request",
+        "duration": 37.799999952316284,
+        "at": 1788222778259,
+        "detail": {
+          "path": "/api/v0/active-agent",
+          "status": 200,
+          "bytes": 56,
+          "serverTiming": "",
+          "failed": false
+        }
+      },
+      {
+        "name": "api.request",
+        "duration": 23.5,
+        "at": 1788222778259,
+        "detail": {
+          "path": "/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?limit=100",
+          "status": 200,
+          "bytes": 40920,
+          "serverTiming": "",
+          "failed": false
+        }
+      },
+      {
+        "name": "browser.interaction",
+        "duration": 80,
+        "at": 1788222778268,
+        "detail": {
+          "event": "click"
+        }
+      },
+      {
+        "name": "api.request",
+        "duration": 42.700000047683716,
+        "at": 1788222778278,
+        "detail": {
+          "path": "/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/client-state",
+          "status": 200,
+          "bytes": 245,
+          "serverTiming": "",
+          "failed": false
+        }
+      },
+      {
+        "name": "snapshot.reconcile",
+        "duration": 0.5,
+        "at": 1788222778279,
+        "detail": {
+          "changed": true,
+          "mode": "bounded",
+          "messages": 1225
+        }
+      },
+      {
+        "name": "api.request",
+        "duration": 5.799999952316284,
+        "at": 1788222785830,
+        "detail": {
+          "path": "/api/v0/client-runtime",
+          "status": 200,
+          "bytes": 100,
+          "serverTiming": "",
+          "failed": false
+        }
+      },
+      {
+        "name": "api.request",
+        "duration": 19.799999952316284,
+        "at": 1788222796147,
+        "detail": {
+          "path": "/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=31901&limit=100",
+          "status": 200,
+          "bytes": 40919,
+          "serverTiming": "",
+          "failed": false
+        }
+      },
+      {
+        "name": "snapshot.reconcile",
+        "duration": 0.40000009536743164,
+        "at": 1788222796147,
+        "detail": {
+          "changed": true,
+          "mode": "bounded",
+          "messages": 1325
+        }
+      },
+      {
+        "name": "api.request",
+        "duration": 8.199999809265137,
+        "at": 1788222796818,
+        "detail": {
+          "path": "/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=31801&limit=100",
+          "status": 200,
+          "bytes": 40919,
+          "serverTiming": "",
+          "failed": false
+        }
+      },
+      {
+        "name": "snapshot.reconcile",
+        "duration": 0.5,
+        "at": 1788222796819,
+        "detail": {
+          "changed": true,
+          "mode": "bounded",
+          "messages": 1425
+        }
+      }
+    ],
+    "processes": {
+      "at": 1788222809322,
+      "app": [
+        {
+          "cpu": {
+            "cumulativeCPUUsage": 0.849606,
+            "percentCPUUsage": 0.050851234507059584,
+            "idleWakeupsPerSecond": 2
+          },
+          "pid": 84514,
+          "type": "Browser",
+          "creationTime": 1788222725320.092,
+          "memory": {
+            "workingSetSize": 165904,
+            "peakWorkingSetSize": 169264
+          },
+          "sandboxed": false
+        },
+        {
+          "cpu": {
+            "cumulativeCPUUsage": 5.881999,
+            "percentCPUUsage": 0.03781311597724976,
+            "idleWakeupsPerSecond": 18
+          },
+          "pid": 84515,
+          "type": "GPU",
+          "creationTime": 1788222725437.763,
+          "serviceName": "GPU",
+          "memory": {
+            "workingSetSize": 95616,
+            "peakWorkingSetSize": 107632
+          },
+          "sandboxed": true
+        },
+        {
+          "cpu": {
+            "cumulativeCPUUsage": 0.122517,
+            "percentCPUUsage": 0.0016105488571399786,
+            "idleWakeupsPerSecond": 0
+          },
+          "pid": 84516,
+          "type": "Utility",
+          "creationTime": 1788222725438.518,
+          "serviceName": "network.mojom.NetworkService",
+          "name": "Network Service",
+          "memory": {
+            "workingSetSize": 46160,
+            "peakWorkingSetSize": 53024
+          },
+          "sandboxed": true
+        },
+        {
+          "cpu": {
+            "cumulativeCPUUsage": 5.251534,
+            "percentCPUUsage": 0.18553836920154118,
+            "idleWakeupsPerSecond": 11
+          },
+          "pid": 84519,
+          "type": "Tab",
+          "creationTime": 1788222725563.166,
+          "memory": {
+            "workingSetSize": 292560,
+            "peakWorkingSetSize": 302944
+          },
+          "sandboxed": true
+        }
+      ],
+      "main": {
+        "private": 44945,
+        "shared": 624
+      },
+      "gpu": {
+        "2d_canvas": "enabled",
+        "direct_rendering_display_compositor": "disabled_off_ok",
+        "gpu_compositing": "enabled",
+        "multiple_raster_threads": "enabled_on",
+        "opengl": "enabled_on",
+        "rasterization": "enabled",
+        "raw_draw": "disabled_off_ok",
+        "skia_graphite": "enabled_on",
+        "trees_in_viz": "disabled_off",
+        "video_decode": "enabled",
+        "video_encode": "enabled",
+        "webgl": "enabled",
+        "webgpu": "enabled",
+        "webnn": "disabled_off"
+      }
+    }
+  }
+}

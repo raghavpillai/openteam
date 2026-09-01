@@ -1,0 +1,39 @@
+{
+  "measuredAt": "2026-09-01T00:00:51.486Z",
+  "queue": {
+    "items": 50000,
+    "samples": 5,
+    "legacyArrayShiftMs": [
+      3.050542, 3.2442079999999986, 2.599958000000001, 2.546249999999997, 2.642541999999999
+    ],
+    "legacyMedianMs": 2.642541999999999,
+    "amortizedQueueMs": [
+      2.3847499999999986, 2.283083999999999, 1.9406250000000007, 1.7047089999999976,
+      1.6465000000000032
+    ],
+    "amortizedMedianMs": 1.9406250000000007
+  },
+  "tokenProjection": {
+    "inputFragments": 10000,
+    "outputCharacters": 10000,
+    "legacyDeltaEvents": 10000,
+    "coalescedDeltaEvents": 3,
+    "legacyHotPathDatabaseStatements": 40000,
+    "currentHotPathDatabaseStatements": 3
+  },
+  "stalledPeer": {
+    "retainedBacklogEvents": 100000,
+    "legacyStartLoopPullCalls": 100001,
+    "pullDrivenBufferedCalls": 1
+  },
+  "stalledSsePeer": {
+    "retainedBacklogEvents": 100000,
+    "legacyBatchSize": 500,
+    "legacyWindowQueries": 200,
+    "legacyQueuedProductEvents": 100000,
+    "windowQueriesBeforeConnectedChunkRead": 0,
+    "windowQueriesAfterConnectedChunkRead": 1,
+    "currentWindowLimits": [64],
+    "currentQueuedProductEvents": 64
+  }
+}

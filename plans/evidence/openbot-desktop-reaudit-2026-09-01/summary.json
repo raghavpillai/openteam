@@ -1,0 +1,262 @@
+{
+  "schemaVersion": 1,
+  "audit": {
+    "name": "OpenBot desktop performance re-audit",
+    "date": "2026-09-01",
+    "status": "complete",
+    "platform": "macOS Electron",
+    "syntheticAbTimestamp": "2026-09-01T18:28:18.990Z"
+  },
+  "fixtures": {
+    "realistic": {
+      "bots": 250,
+      "groups": 25,
+      "channels": 275,
+      "messages": 5506,
+      "routines": 275,
+      "searchDocuments": 6557,
+      "databaseBytesApprox": 21000000
+    },
+    "heavy": {
+      "bots": 1104,
+      "channels": 1105,
+      "messages": 32409,
+      "routines": 1354,
+      "searchDocuments": 35967,
+      "largestConversationMessages": 10020
+    }
+  },
+  "realisticUi": {
+    "coldLaunchMs": {
+      "navigationComplete": 71.3,
+      "firstUi": 82.8,
+      "firstContentfulPaint": 124
+    },
+    "resources": {
+      "count": 48,
+      "decodedBytes": 2194238,
+      "bootstrapBytes": 393971,
+      "bootstrapResourceMs": 87.4,
+      "bootstrapTtfbMs": 86.8,
+      "bootstrapServerMs": 81.85
+    },
+    "initialFrames": {
+      "sampleCount": 120,
+      "maxMs": 17.8,
+      "over20Ms": 0,
+      "over50Ms": 0
+    },
+    "initialBounds": {
+      "sidebarMounted": 17,
+      "sidebarTotal": 275,
+      "timelineMounted": 18,
+      "timelineTotal": 20,
+      "heapAfterGcBytesApprox": 15370000
+    },
+    "coldFirstOpenMs": {
+      "samples": 10,
+      "selectionP50": 14.0,
+      "selectionP95": 17.1,
+      "viewP50": 13.9,
+      "viewP95": 16.8,
+      "historyP50": 8.6,
+      "historyP95": 32.2,
+      "stateP50": 9.9,
+      "stateP95": 57.0,
+      "readP50": 17.6,
+      "readP95": 59.8,
+      "networkReadyP50": 29.6,
+      "networkReadyP95": 84.6,
+      "twoFrameP50": 49.6,
+      "twoFrameP95": 111.0,
+      "longTasks": 0
+    },
+    "warmSwitchMs": {
+      "samples": 30,
+      "cycledChannels": 4,
+      "selectionP50": 8.6,
+      "selectionP95": 9.3,
+      "viewP50": 8.9,
+      "viewP95": 10.3,
+      "historyP50": 12.5,
+      "historyP95": 18.8,
+      "stateP50": 16.5,
+      "stateP95": 28.6,
+      "networkReadyP50": 35.3,
+      "networkReadyP95": 48.2,
+      "twoFrameP50": 58.2,
+      "twoFrameP95": 60.3,
+      "max": 74.8,
+      "longTasks": 0
+    },
+    "sidebarTraversal": {
+      "distancePx": 15220,
+      "frames": 120,
+      "p50Ms": 16.7,
+      "p95Ms": 17.6,
+      "maxMs": 18.5,
+      "over20Ms": 0,
+      "over50Ms": 0,
+      "documentElements": 992
+    }
+  },
+  "stressUi": {
+    "rapidSwitchMs": {
+      "samples": 60,
+      "selectionP50": 8.7,
+      "selectionP95": 10.3,
+      "networkReadyP50": 28.4,
+      "networkReadyP95": 41.1,
+      "max": 64.9,
+      "longTasks": 0
+    },
+    "scrollMaxFrameMs": 19.7,
+    "finalRichReplay": {
+      "heapAfterGcBytes": 41199324,
+      "elements": 1016,
+      "sidebarMounted": 17,
+      "sidebarTotal": 1105,
+      "timelineMounted": 18,
+      "timelineTotal": 20,
+      "frames": 120,
+      "maxFrameMs": 23.2,
+      "over20Ms": 1,
+      "over50Ms": 0
+    },
+    "comparableViewAb": {
+      "warmPaintBeforeMs": 42.3,
+      "warmPaintAfterMedianMs": 18.8,
+      "clickBeforeMs": 88,
+      "clickAfterMedianMs": 64,
+      "rendererWorkingSetBeforeMbApprox": 177,
+      "rendererWorkingSetAfterMbApprox": 142,
+      "heapBeforeMb": 22.97,
+      "heapAfterMb": 20.8,
+      "listenersBefore": 494,
+      "listenersAfter": 344,
+      "cpuIdleBeforePercent": 97.6,
+      "cpuIdleAfterPercent": 98.0
+    }
+  },
+  "search": {
+    "firstOpenBeforeMs": 317.9,
+    "finalCuaInteractionToInputMs": 22,
+    "debounceMs": 50,
+    "realisticEndToEndMs": {
+      "all": { "p50": 13.331, "p95": 21.839 },
+      "messages": { "p50": 9.380, "p95": 11.041 },
+      "bots": { "p50": 8.125, "p95": 9.756 },
+      "channels": { "p50": 3.716, "p95": 4.677 },
+      "files": { "p50": 8.137, "p95": 11.942 },
+      "links": { "p50": 5.151, "p95": 5.993 },
+      "routines": { "p50": 7.296, "p95": 8.253 },
+      "missing": { "p50": 1.951, "p95": 2.725 }
+    },
+    "heavyEndToEndMs": {
+      "all": { "p50": 17.72, "p95": 20.19 },
+      "messages": { "p50": 8.81, "p95": 10.52 },
+      "bots": { "p50": 14.05, "p95": 15.72 },
+      "channels": { "p50": 5.50, "p95": 6.85 },
+      "files": { "p50": 14.07, "p95": 16.82 },
+      "links": { "p50": 9.03, "p95": 10.65 },
+      "routines": { "p50": 5.61, "p95": 6.56 },
+      "missing": { "p50": 2.22, "p95": 3.45 }
+    }
+  },
+  "apiEndToEnd": {
+    "realistic": {
+      "bootstrap": { "bytes": 393971, "p50Ms": 16.311, "p95Ms": 27.117 },
+      "runtime": { "bytes": 100, "p50Ms": 0.539, "p95Ms": 0.855 },
+      "history100": { "bytes": 9072, "p50Ms": 1.780, "p95Ms": 3.113 },
+      "compatibility": { "bytes": 2704285, "p50Ms": 36.539, "p95Ms": 48.626 }
+    },
+    "heavy": {
+      "bootstrap": { "bytes": 1582172, "p50Ms": 45.09, "p95Ms": 57.93 },
+      "runtime": { "bytes": 100, "p50Ms": 0.424, "p95Ms": 0.616 },
+      "history100": { "bytes": 40920, "p50Ms": 2.09, "p95Ms": 2.87 },
+      "compatibility": { "bytes": 15826809, "p50Ms": 167.91, "p95Ms": 177.80 }
+    }
+  },
+  "isolatedAbMs": {
+    "notification1000": { "baselineP50": 7.950334, "optimizedP50": 0.000334 },
+    "notification10000": { "baselineP50": 86.465416, "optimizedP50": 0.000375 },
+    "updater32MiBNoNewline": { "baseline": 2944.908084, "optimized": 0.703958, "remainingBufferedBytes": 0 },
+    "mention10000": { "baselineP50": 18.840792, "optimizedP50": 0.152 },
+    "virtualRows80": { "baselineP50": 0.057959, "optimizedP50": 0.006875 },
+    "unchangedRoutines2500": { "baselineP50": 0.118834, "optimizedP50": 0.005875 }
+  },
+  "notificationRetention": {
+    "switches": 60,
+    "heapBeforeMb": 25.70,
+    "heapAfterMb": 40.75,
+    "retainedProjectionArrays": 79,
+    "agentsPerProjection": 997,
+    "retainedAgentRecords": 78763,
+    "additionalPreviewStringInstances": 58823,
+    "additionalPreviewStringBytes": 6590000,
+    "postFixMatchingProjectionArrays": 0,
+    "postFixMatchingPreviewStringCohorts": 0,
+    "postFixTotalHeapComparable": false
+  },
+  "listeners": {
+    "beforeDelegation": { "totalEnumerated": 367, "documentKeydownsFromRichWidgets": 72 },
+    "finalInitialSurfaces": { "cdpMetric": 341, "totalEnumerated": 339, "documentKeydowns": 42 },
+    "finalExpandedSurfaces": { "cdpMetric": 489, "totalEnumerated": 484, "documentKeydowns": 58 },
+    "finalRichWidgetDuplicateClassPresent": false,
+    "remainingDocumentKeydownsIdentifiedAsRadixModalityHandlers": true
+  },
+  "buildBytes": {
+    "rendererTotal": 15515138,
+    "rendererGzip": 3764476,
+    "rendererStartup": 943042,
+    "rendererJsEntry": 633706,
+    "startupCss": 164604,
+    "electronMain": 100836,
+    "electronUpdater": 541972,
+    "electronUtility": 22799,
+    "electronCli": 1476174,
+    "electronPreload": 7918,
+    "electronTotal": 2151503,
+    "electronTotalGzip": 532504
+  },
+  "package": {
+    "asarBytes": 16306603,
+    "entries": 440,
+    "topLevel": ["dist", "dist-electron", "package.json"],
+    "nodeModulesEntries": 0,
+    "sourceMaps": 0,
+    "wasmFiles": 0,
+    "nativeModules": 0,
+    "freshProfileFileNavigationMs": 78.8,
+    "freshProfileFirstUiMs": 96.1,
+    "frameSample": 120,
+    "framesOver20Ms": 0,
+    "reachedUsernamePasswordAuthGate": true,
+    "emptyProfileKeychainHangFixed": true
+  },
+  "validation": {
+    "desktopTestsPassed": 303,
+    "desktopTestsFailed": 0,
+    "typecheck": "passed",
+    "productionBuild": "passed",
+    "budgetGate": "passed",
+    "packageInspection": "passed",
+    "cuaParity": "passed"
+  },
+  "cua": {
+    "usedInstalledUserProfile": false,
+    "messagesSent": 0,
+    "composerEmptyAtEnd": true,
+    "searchResultNavigatedAndFocused": true,
+    "nativeImageMenu": ["Copy image", "Save image…", "Copy image address"],
+    "reactionMenuInterceptedImage": false,
+    "mentionDownEscapeWorked": true,
+    "attachmentDrawerOpenedAndDismissed": true,
+    "compactSidebarRestoredPx": 280,
+    "settingsSectionsOpened": ["General", "Computer", "Updates"]
+  },
+  "limitations": [
+    "The packaged directory smoke used the normal port-8787 user tunnel; data-rich CUA used the frozen production renderer on port 5175 and disposable server on port 8879.",
+    "No signed/notarized release, update installation or rollback, physical Windows/Linux run, multi-hour power soak, or exhaustive native file-dialog coverage was performed."
+  ]
+}

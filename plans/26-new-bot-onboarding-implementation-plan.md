@@ -93,7 +93,7 @@ OpenBot already has most of the hard primitives:
 - `SendMessage` is the only visible agent voice;
 - the client snapshot already includes non-archived provisioning and failed bots;
 - the inspector already renders a starting screen card and live bot display;
-- the shared workspace, bot-scoped displays, browser profiles, and cookie broker are implemented.
+- the shared workspace, bot-scoped displays, separate writable browser profiles, and full computer-scoped browser authority are implemented.
 
 At plan authoring, the remaining gaps were orchestration and product semantics:
 server creation blocked on `ScreenBroker.ensure`, onboarding had no first-class

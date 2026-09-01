@@ -1,0 +1,1260 @@
+{
+  "label": "snapshot",
+  "capturedAt": "2026-08-29T16:28:29.212Z",
+  "target": {
+    "type": "page",
+    "url": "http://127.0.0.1:5174/?profile=1&variant=packaged-cua-final&fixture=1000-bots-10020-messages"
+  },
+  "dom": {
+    "documents": 2,
+    "nodes": 1876,
+    "jsEventListeners": 536
+  },
+  "runtime": {
+    "usedSize": 33126388,
+    "totalSize": 35487744,
+    "embedderHeapUsedSize": 4627064,
+    "backingStorageSize": 3111589
+  },
+  "performance": {
+    "Timestamp": 1482611.055437,
+    "AudioHandlers": 0,
+    "AudioWorkletProcessors": 0,
+    "Documents": 2,
+    "Frames": 1,
+    "JSEventListeners": 536,
+    "LayoutObjects": 1238,
+    "MediaKeySessions": 0,
+    "MediaKeys": 0,
+    "Nodes": 1876,
+    "Resources": 22,
+    "ContextLifecycleStateObservers": 6,
+    "V8PerContextDatas": 2,
+    "WorkerGlobalScopes": 0,
+    "UACSSResources": 0,
+    "RTCPeerConnections": 0,
+    "ResourceFetchers": 2,
+    "AdSubframes": 0,
+    "DetachedScriptStates": 0,
+    "ArrayBufferContents": 2,
+    "LayoutCount": 0,
+    "RecalcStyleCount": 0,
+    "LayoutDuration": 0,
+    "RecalcStyleDuration": 0,
+    "DevToolsCommandDuration": 0.000209,
+    "ScriptDuration": 0,
+    "V8CompileDuration": 0,
+    "TaskDuration": 0.000214,
+    "TaskOtherDuration": 0.000005,
+    "ThreadTime": 0.000254,
+    "ProcessTime": 1.483924,
+    "JSHeapUsedSize": 33126388,
+    "JSHeapTotalSize": 35487744,
+    "FirstMeaningfulPaint": 1482550.179984,
+    "DomContentLoaded": 1482549.435873,
+    "NavigationStart": 1482549.221004
+  },
+  "page": {
+    "url": "http://127.0.0.1:5174/?profile=1&variant=packaged-cua-final&fixture=1000-bots-10020-messages",
+    "title": "OpenBot",
+    "readyState": "complete",
+    "elements": 1174,
+    "buttons": 81,
+    "images": 0,
+    "dialogs": 0,
+    "virtualization": {
+      "sidebarEnabled": true,
+      "mountedChannelRows": 17,
+      "mountedPinnedRows": 0,
+      "declaredSidebarRows": [1100],
+      "declaredPinnedRows": [],
+      "declaredSections": [],
+      "mountedCompactRows": 0,
+      "declaredCompactRows": [],
+      "mountedTimelineRows": 15,
+      "declaredTimelines": [26],
+      "memberEditorOpen": false,
+      "mountedMemberRows": 0,
+      "declaredMemberRows": []
+    },
+    "scroll": {
+      "top": 0,
+      "height": 860,
+      "viewport": 860,
+      "bottomDistance": 0
+    },
+    "timelineScroll": {
+      "top": 2057,
+      "height": 2918,
+      "viewport": 860,
+      "bottomDistance": 1
+    },
+    "newestButton": {
+      "ariaHidden": "true",
+      "tabIndex": -1,
+      "opacity": "0",
+      "pointerEvents": "none"
+    },
+    "scrollCandidates": [
+      {
+        "role": null,
+        "className": "grok-scrollbar flex min-h-0 flex-1 flex-col overflow-y-auto px-[12px]",
+        "top": 0,
+        "height": 63800,
+        "viewport": 730,
+        "bottomDistance": 63070
+      },
+      {
+        "role": null,
+        "className": "min-h-0 overflow-hidden",
+        "top": 0,
+        "height": 102,
+        "viewport": 0,
+        "bottomDistance": 102
+      },
+      {
+        "role": null,
+        "className": "pointer-events-none col-start-1 row-start-1 overflow-hidden h-0",
+        "top": 0,
+        "height": 110,
+        "viewport": 0,
+        "bottomDistance": 110
+      },
+      {
+        "role": null,
+        "className": "rounded-[12px] transition-colors duration-150 ease-out flex min-h-[36px] flex-1 flex-col",
+        "top": 0,
+        "height": 63800,
+        "viewport": 730,
+        "bottomDistance": 63070
+      },
+      {
+        "role": null,
+        "className": "",
+        "top": 2057,
+        "height": 2918,
+        "viewport": 860,
+        "bottomDistance": 1
+      },
+      {
+        "role": null,
+        "className": "space-y-4 whitespace-normal [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 grok-markdown",
+        "top": 0,
+        "height": 58,
+        "viewport": 53,
+        "bottomDistance": 5
+      },
+      {
+        "role": null,
+        "className": "",
+        "top": 0,
+        "height": 28,
+        "viewport": 23,
+        "bottomDistance": 5
+      },
+      {
+        "role": null,
+        "className": "katex-mathml",
+        "top": 0,
+        "height": 26,
+        "viewport": 1,
+        "bottomDistance": 25
+      },
+      {
+        "role": null,
+        "className": "",
+        "top": 0,
+        "height": 26,
+        "viewport": 21,
+        "bottomDistance": 5
+      },
+      {
+        "role": null,
+        "className": "",
+        "top": 0,
+        "height": 26,
+        "viewport": 21,
+        "bottomDistance": 5
+      },
+      {
+        "role": null,
+        "className": "",
+        "top": 0,
+        "height": 26,
+        "viewport": 21,
+        "bottomDistance": 5
+      },
+      {
+        "role": null,
+        "className": "",
+        "top": 0,
+        "height": 24,
+        "viewport": 19,
+        "bottomDistance": 5
+      }
+    ],
+    "heap": {
+      "usedJSHeapSize": 36309070,
+      "totalJSHeapSize": 38600346,
+      "jsHeapSizeLimit": 4395630592
+    },
+    "navigation": {
+      "name": "http://127.0.0.1:5174/?profile=1&variant=packaged-cua-final&fixture=1000-bots-10020-messages",
+      "entryType": "navigation",
+      "startTime": 0,
+      "duration": 214.90000009536743,
+      "initiatorType": "navigation",
+      "deliveryType": "",
+      "nextHopProtocol": "http/1.1",
+      "renderBlockingStatus": "non-blocking",
+      "contentType": "text/html",
+      "contentEncoding": "",
+      "workerStart": 0,
+      "workerRouterEvaluationStart": 0,
+      "workerCacheLookupStart": 0,
+      "workerMatchedSourceType": "",
+      "workerFinalSourceType": "",
+      "redirectStart": 0,
+      "redirectEnd": 0,
+      "fetchStart": 2.4000000953674316,
+      "domainLookupStart": 29.299999952316284,
+      "domainLookupEnd": 29.40000009536743,
+      "connectStart": 29.40000009536743,
+      "secureConnectionStart": 0,
+      "connectEnd": 29.59999990463257,
+      "requestStart": 29.700000047683716,
+      "responseStart": 30,
+      "firstInterimResponseStart": 0,
+      "finalResponseHeadersStart": 30,
+      "responseEnd": 30.299999952316284,
+      "transferSize": 2093,
+      "encodedBodySize": 1793,
+      "decodedBodySize": 1793,
+      "responseStatus": 200,
+      "serverTiming": [],
+      "unloadEventStart": 0,
+      "unloadEventEnd": 0,
+      "domInteractive": 194.90000009536743,
+      "domContentLoadedEventStart": 214.90000009536743,
+      "domContentLoadedEventEnd": 214.90000009536743,
+      "domComplete": 214.90000009536743,
+      "loadEventStart": 214.90000009536743,
+      "loadEventEnd": 214.90000009536743,
+      "type": "navigate",
+      "redirectCount": 0,
+      "activationStart": 0,
+      "criticalCHRestart": 0,
+      "notRestoredReasons": null,
+      "confidence": {}
+    },
+    "resourceCount": 75,
+    "resourceBytes": 4612178,
+    "resources": [
+      {
+        "name": "http://127.0.0.1:5174/assets/index-Br_z-qfA.js",
+        "startTime": 194.40000009536743,
+        "duration": 6.599999904632568,
+        "transferSize": 581563,
+        "decodedBodySize": 581263
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/rolldown-runtime-hePW80VL.js",
+        "startTime": 194.59999990463257,
+        "duration": 6.5,
+        "transferSize": 1016,
+        "decodedBodySize": 716
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/dist-EsZIwjNv.js",
+        "startTime": 194.59999990463257,
+        "duration": 6.900000095367432,
+        "transferSize": 5268,
+        "decodedBodySize": 4968
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/react-dom-BeHA8YhG.js",
+        "startTime": 194.59999990463257,
+        "duration": 7.1000001430511475,
+        "transferSize": 3893,
+        "decodedBodySize": 3593
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/cn-B6JTjo3F.js",
+        "startTime": 194.59999990463257,
+        "duration": 7.400000095367432,
+        "transferSize": 1767,
+        "decodedBodySize": 1467
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/bundle-mjs-Biv_LCeL.js",
+        "startTime": 194.59999990463257,
+        "duration": 6.800000190734863,
+        "transferSize": 35069,
+        "decodedBodySize": 34769
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/jsx-runtime-NZYk81nU.js",
+        "startTime": 194.59999990463257,
+        "duration": 7.5,
+        "transferSize": 735,
+        "decodedBodySize": 435
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/index-lhsm319L.css",
+        "startTime": 194.70000004768372,
+        "duration": 8.099999904632568,
+        "transferSize": 124062,
+        "decodedBodySize": 123762
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/dist-DOW7mrG-.js",
+        "startTime": 194.70000004768372,
+        "duration": 8.399999856948853,
+        "transferSize": 896,
+        "decodedBodySize": 596
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/es2015-BHChpcYc.js",
+        "startTime": 194.70000004768372,
+        "duration": 8.200000047683716,
+        "transferSize": 16520,
+        "decodedBodySize": 16220
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/dist-C94jGQUy.js",
+        "startTime": 194.70000004768372,
+        "duration": 8.5,
+        "transferSize": 6387,
+        "decodedBodySize": 6087
+      },
+      {
+        "name": "http://127.0.0.1:5174/api/v0/client-bootstrap",
+        "startTime": 226.09999990463257,
+        "duration": 160.40000009536743,
+        "transferSize": 1498487,
+        "decodedBodySize": 1498187
+      },
+      {
+        "name": "http://127.0.0.1:5174/api/v0/settings",
+        "startTime": 226.20000004768372,
+        "duration": 61,
+        "transferSize": 608,
+        "decodedBodySize": 308
+      },
+      {
+        "name": "http://127.0.0.1:5174/api/v0/active-agent",
+        "startTime": 411.2999999523163,
+        "duration": 2.9000000953674316,
+        "transferSize": 356,
+        "decodedBodySize": 56
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/message-response-code-ChLcUocL.js",
+        "startTime": 430.7000000476837,
+        "duration": 1.5,
+        "transferSize": 187970,
+        "decodedBodySize": 187670
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/lib-Csis5nyC.js",
+        "startTime": 430.7999999523163,
+        "duration": 3.5,
+        "transferSize": 2423,
+        "decodedBodySize": 2123
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/message-response-config-DBIPHf64.js",
+        "startTime": 430.7999999523163,
+        "duration": 3.1000001430511475,
+        "transferSize": 436886,
+        "decodedBodySize": 436586
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/lib-D41SvWik.js",
+        "startTime": 430.90000009536743,
+        "duration": 3.5999999046325684,
+        "transferSize": 997,
+        "decodedBodySize": 697
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/micromark-factory-space-CJCDte29.js",
+        "startTime": 430.90000009536743,
+        "duration": 4.599999904632568,
+        "transferSize": 22005,
+        "decodedBodySize": 21705
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/message-response-rich-B2Wcw_YU.js",
+        "startTime": 431.2000000476837,
+        "duration": 4.5,
+        "transferSize": 829,
+        "decodedBodySize": 529
+      },
+      {
+        "name": "http://127.0.0.1:5174/api/v0/channels/b1ab14a5-603d-09ed-f6c9-626d15054fda/history?limit=100",
+        "startTime": 441,
+        "duration": 7.799999952316284,
+        "transferSize": 9306,
+        "decodedBodySize": 9006
+      },
+      {
+        "name": "http://127.0.0.1:5174/api/v0/channels/b1ab14a5-603d-09ed-f6c9-626d15054fda/client-state",
+        "startTime": 441.09999990463257,
+        "duration": 19.200000047683716,
+        "transferSize": 542,
+        "decodedBodySize": 242
+      },
+      {
+        "name": "http://127.0.0.1:5174/api/v0/channels/55e44a24-e3f8-e2e4-589e-fe8dbcd57d3c/history?limit=100",
+        "startTime": 451.40000009536743,
+        "duration": 4.799999952316284,
+        "transferSize": 9301,
+        "decodedBodySize": 9001
+      },
+      {
+        "name": "http://127.0.0.1:5174/api/v0/channels/55e44a24-e3f8-e2e4-589e-fe8dbcd57d3c/client-state",
+        "startTime": 451.5,
+        "duration": 15,
+        "transferSize": 542,
+        "decodedBodySize": 242
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/bot-DedOEd_L.js",
+        "startTime": 19161.400000095367,
+        "duration": 1.1999998092651367,
+        "transferSize": 614,
+        "decodedBodySize": 314
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/search-dialog-B81G3PBw.js",
+        "startTime": 19161.400000095367,
+        "duration": 1,
+        "transferSize": 10921,
+        "decodedBodySize": 10621
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/clock-3-CEu5NdHN.js",
+        "startTime": 19161.400000095367,
+        "duration": 1.3999998569488525,
+        "transferSize": 455,
+        "decodedBodySize": 155
+      },
+      {
+        "name": "http://127.0.0.1:5174/api/v0/search?q=&category=all",
+        "startTime": 19489.299999952316,
+        "duration": 14,
+        "transferSize": 6324,
+        "decodedBodySize": 6024
+      },
+      {
+        "name": "http://127.0.0.1:5174/api/v0/search?q=Audit+Bot+0002&category=all",
+        "startTime": 25998.200000047684,
+        "duration": 9.799999952316284,
+        "transferSize": 9946,
+        "decodedBodySize": 9646
+      },
+      {
+        "name": "http://127.0.0.1:5174/api/v0/client-runtime",
+        "startTime": 30413.299999952316,
+        "duration": 10.100000143051147,
+        "transferSize": 400,
+        "decodedBodySize": 100
+      },
+      {
+        "name": "http://127.0.0.1:5174/api/v0/active-agent",
+        "startTime": 31227.900000095367,
+        "duration": 21.399999856948853,
+        "transferSize": 356,
+        "decodedBodySize": 56
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/message-response-cjk-CVDLBHP-.js",
+        "startTime": 31232.400000095367,
+        "duration": 3.6999998092651367,
+        "transferSize": 25253,
+        "decodedBodySize": 24953
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/message-response-math-Di6S0xrV.js",
+        "startTime": 31232.599999904633,
+        "duration": 4.5,
+        "transferSize": 12214,
+        "decodedBodySize": 11914
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/message-response-math-B_xb1mF7.css",
+        "startTime": 31232.700000047684,
+        "duration": 3.700000047683716,
+        "transferSize": 26488,
+        "decodedBodySize": 26188
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/katex-DhON-x74.js",
+        "startTime": 31232.700000047684,
+        "duration": 5.099999904632568,
+        "transferSize": 259352,
+        "decodedBodySize": 259052
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/chunk-Y2CYZVJY-DsF7k-Jl.js",
+        "startTime": 31232.799999952316,
+        "duration": 5.1000001430511475,
+        "transferSize": 455,
+        "decodedBodySize": 155
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/src-B6xuSHsQ.js",
+        "startTime": 31232.799999952316,
+        "duration": 5.299999952316284,
+        "transferSize": 45980,
+        "decodedBodySize": 45680
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/message-response-mermaid-B58XFjwW.js",
+        "startTime": 31232.799999952316,
+        "duration": 5.6000001430511475,
+        "transferSize": 96556,
+        "decodedBodySize": 96256
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/chunk-75Z2AOVW-DoDxttt5.js",
+        "startTime": 31232.900000095367,
+        "duration": 5.699999809265137,
+        "transferSize": 31055,
+        "decodedBodySize": 30755
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/chunk-DU6HZSFF-Yz2ZcOA5.js",
+        "startTime": 31232.900000095367,
+        "duration": 6.599999904632568,
+        "transferSize": 235977,
+        "decodedBodySize": 235677
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/dist-v5Q1xZ2K.js",
+        "startTime": 31233,
+        "duration": 5.900000095367432,
+        "transferSize": 2473,
+        "decodedBodySize": 2173
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/chunk-P2QGCYS3-D0EcZ0f7.js",
+        "startTime": 31233,
+        "duration": 7.099999904632568,
+        "transferSize": 2247,
+        "decodedBodySize": 1947
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/chunk-PWAF6VOD-FC95nsxI.js",
+        "startTime": 31233.099999904633,
+        "duration": 6.6000001430511475,
+        "transferSize": 6133,
+        "decodedBodySize": 5833
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/chunk-GMAD6QVW-BrpUnMFt.js",
+        "startTime": 31233.099999904633,
+        "duration": 6.800000190734863,
+        "transferSize": 52144,
+        "decodedBodySize": 51844
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/chunk-4HAMMTFA-DUbYs74H.js",
+        "startTime": 31233.099999904633,
+        "duration": 8.100000143051147,
+        "transferSize": 105155,
+        "decodedBodySize": 104855
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/rough.esm-Dy-Kn_BL.js",
+        "startTime": 31233.200000047684,
+        "duration": 7.099999904632568,
+        "transferSize": 27409,
+        "decodedBodySize": 27109
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/chunk-GVQU2GXP-czMXlVtP.js",
+        "startTime": 31233.200000047684,
+        "duration": 7.599999904632568,
+        "transferSize": 1716,
+        "decodedBodySize": 1416
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/chunk-L3NEJ4N5-CR193IoK.js",
+        "startTime": 31233.200000047684,
+        "duration": 9,
+        "transferSize": 9986,
+        "decodedBodySize": 9686
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/line-a8ziRdz9.js",
+        "startTime": 31233.299999952316,
+        "duration": 8.400000095367432,
+        "transferSize": 1243,
+        "decodedBodySize": 943
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/chunk-OSK3NFVY-3FZHrpnq.js",
+        "startTime": 31233.299999952316,
+        "duration": 8.100000143051147,
+        "transferSize": 36771,
+        "decodedBodySize": 36471
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/array-BifhSqXX.js",
+        "startTime": 31233.299999952316,
+        "duration": 9,
+        "transferSize": 407,
+        "decodedBodySize": 107
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/path-fybaL0A-.js",
+        "startTime": 31233.299999952316,
+        "duration": 9.400000095367432,
+        "transferSize": 2578,
+        "decodedBodySize": 2278
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/graphlib-DS17s2tU.js",
+        "startTime": 31233.400000095367,
+        "duration": 9,
+        "transferSize": 24204,
+        "decodedBodySize": 23904
+      },
+      {
+        "name": "http://127.0.0.1:5174/api/v0/channels/6a29c3f3-fdc8-4039-338e-a5df06bf6fc1/client-state",
+        "startTime": 31240.299999952316,
+        "duration": 23.5,
+        "transferSize": 542,
+        "decodedBodySize": 242
+      },
+      {
+        "name": "http://127.0.0.1:5174/api/v0/channels/6a29c3f3-fdc8-4039-338e-a5df06bf6fc1/history?limit=100",
+        "startTime": 31240.299999952316,
+        "duration": 23.600000143051147,
+        "transferSize": 11676,
+        "decodedBodySize": 11376
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/highlighted-body-KPVGNVTW-CxeRGMoq.js",
+        "startTime": 31281.5,
+        "duration": 0.9000000953674316,
+        "transferSize": 945,
+        "decodedBodySize": 645
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/message-response-BNMjmzdc.js",
+        "startTime": 31291.799999952316,
+        "duration": 1,
+        "transferSize": 603,
+        "decodedBodySize": 303
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/typescript-BydbNFcO.js",
+        "startTime": 31442,
+        "duration": 1.2000000476837158,
+        "transferSize": 181446,
+        "decodedBodySize": 181146
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/javascript-obGGvMPs.js",
+        "startTime": 31442.200000047684,
+        "duration": 1.5,
+        "transferSize": 175193,
+        "decodedBodySize": 174893
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/mermaid-HWGCJPDP-Dzxfkmgx.js",
+        "startTime": 31442.599999904633,
+        "duration": 1.1000001430511475,
+        "transferSize": 379,
+        "decodedBodySize": 79
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/KaTeX_Math-Italic-t53AETM-.woff2",
+        "startTime": 31448.099999904633,
+        "duration": 14.200000047683716,
+        "transferSize": 16740,
+        "decodedBodySize": 16440
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/KaTeX_Main-Regular-B22Nviop.woff2",
+        "startTime": 31448.099999904633,
+        "duration": 14.5,
+        "transferSize": 26572,
+        "decodedBodySize": 26272
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/KaTeX_Size1-Regular-mCD8mA8B.woff2",
+        "startTime": 31448.400000095367,
+        "duration": 14.599999904632568,
+        "transferSize": 5768,
+        "decodedBodySize": 5468
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/flowDiagram-T62WH6J4-KxRPutlS.js",
+        "startTime": 32058,
+        "duration": 1.7000000476837158,
+        "transferSize": 887,
+        "decodedBodySize": 587
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/chunk-F27PBJKO-B5cGpp1J.js",
+        "startTime": 32058.200000047684,
+        "duration": 2.0999999046325684,
+        "transferSize": 2272,
+        "decodedBodySize": 1972
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/chunk-XXDRQBXY-DqAYeljN.js",
+        "startTime": 32058.200000047684,
+        "duration": 2.5,
+        "transferSize": 562,
+        "decodedBodySize": 262
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/chunk-POPQ4Y6H-BQH2Fcpm.js",
+        "startTime": 32058.200000047684,
+        "duration": 2.8999998569488525,
+        "transferSize": 874,
+        "decodedBodySize": 574
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/chunk-3NF5O7KM-Bib4-dSe.js",
+        "startTime": 32058.299999952316,
+        "duration": 2.9000000953674316,
+        "transferSize": 61511,
+        "decodedBodySize": 61211
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/chunk-5VM5RSS4-ZNzvKenW.js",
+        "startTime": 32058.400000095367,
+        "duration": 3,
+        "transferSize": 662,
+        "decodedBodySize": 362
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/channel-DkEJ5oML.js",
+        "startTime": 32058.400000095367,
+        "duration": 3.1999998092651367,
+        "transferSize": 414,
+        "decodedBodySize": 114
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/dagre-OS7QT2EB-CJshPQ9v.js",
+        "startTime": 32068.700000047684,
+        "duration": 0.7999999523162842,
+        "transferSize": 11291,
+        "decodedBodySize": 10991
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/dagre-PrKaheQc.js",
+        "startTime": 32068.900000095367,
+        "duration": 0.8999998569488525,
+        "transferSize": 37154,
+        "decodedBodySize": 36854
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/sequenceDiagram-WJ2MYXX4-dm436c7v.js",
+        "startTime": 32122.5,
+        "duration": 1,
+        "transferSize": 116056,
+        "decodedBodySize": 115756
+      },
+      {
+        "name": "http://127.0.0.1:5174/assets/chunk-2Q5K7J3B-C1jixKkw.js",
+        "startTime": 32122.599999904633,
+        "duration": 1,
+        "transferSize": 491,
+        "decodedBodySize": 191
+      },
+      {
+        "name": "http://127.0.0.1:5174/api/v0/client-runtime",
+        "startTime": 60426.299999952316,
+        "duration": 7.400000095367432,
+        "transferSize": 400,
+        "decodedBodySize": 100
+      }
+    ],
+    "frameGaps": {
+      "samples": 120,
+      "max": 20.899999856948853,
+      "over20ms": 8,
+      "over50ms": 0
+    },
+    "openbot": [
+      {
+        "name": "startup.first-ui-paint",
+        "duration": 235.59999990463257,
+        "at": 1788020845617
+      },
+      {
+        "name": "api.request",
+        "duration": 61.39999985694885,
+        "at": 1788020845669,
+        "detail": {
+          "path": "/api/v0/settings",
+          "status": 200,
+          "bytes": 308,
+          "serverTiming": "",
+          "failed": false
+        }
+      },
+      {
+        "name": "api.request",
+        "duration": 163.60000014305115,
+        "at": 1788020845771,
+        "detail": {
+          "path": "/api/v0/client-bootstrap",
+          "status": 200,
+          "bytes": 0,
+          "serverTiming": "bootstrap;dur=98.08",
+          "failed": false
+        }
+      },
+      {
+        "name": "snapshot.reconcile",
+        "duration": 1.9000000953674316,
+        "at": 1788020845773,
+        "detail": {
+          "changed": true,
+          "mode": "bounded",
+          "messages": 1100
+        }
+      },
+      {
+        "name": "browser.long-task",
+        "duration": 50,
+        "at": 1788020845825
+      },
+      {
+        "name": "api.request",
+        "duration": 32.799999952316284,
+        "at": 1788020845825,
+        "detail": {
+          "path": "/api/v0/active-agent",
+          "status": 200,
+          "bytes": 56,
+          "serverTiming": "",
+          "failed": false
+        }
+      },
+      {
+        "name": "api.request",
+        "duration": 30.09999990463257,
+        "at": 1788020845852,
+        "detail": {
+          "path": "/api/v0/channels/b1ab14a5-603d-09ed-f6c9-626d15054fda/history?limit=100",
+          "status": 200,
+          "bytes": 9006,
+          "serverTiming": "",
+          "failed": false
+        }
+      },
+      {
+        "name": "view.channel-switch",
+        "duration": 27,
+        "at": 1788020845853,
+        "detail": {
+          "from": "b1ab14a5-603d-09ed-f6c9-626d15054fda",
+          "to": "55e44a24-e3f8-e2e4-589e-fe8dbcd57d3c"
+        }
+      },
+      {
+        "name": "api.request",
+        "duration": 20,
+        "at": 1788020845853,
+        "detail": {
+          "path": "/api/v0/channels/55e44a24-e3f8-e2e4-589e-fe8dbcd57d3c/history?limit=100",
+          "status": 200,
+          "bytes": 9001,
+          "serverTiming": "",
+          "failed": false
+        }
+      },
+      {
+        "name": "api.request",
+        "duration": 31,
+        "at": 1788020845853,
+        "detail": {
+          "path": "/api/v0/channels/b1ab14a5-603d-09ed-f6c9-626d15054fda/client-state",
+          "status": 200,
+          "bytes": 242,
+          "serverTiming": "",
+          "failed": false
+        }
+      },
+      {
+        "name": "snapshot.reconcile",
+        "duration": 0.5,
+        "at": 1788020845854,
+        "detail": {
+          "changed": true,
+          "mode": "bounded",
+          "messages": 1119
+        }
+      },
+      {
+        "name": "api.request",
+        "duration": 21.299999952316284,
+        "at": 1788020845854,
+        "detail": {
+          "path": "/api/v0/channels/55e44a24-e3f8-e2e4-589e-fe8dbcd57d3c/client-state",
+          "status": 200,
+          "bytes": 242,
+          "serverTiming": "",
+          "failed": false
+        }
+      },
+      {
+        "name": "snapshot.reconcile",
+        "duration": 0.39999985694885254,
+        "at": 1788020845855,
+        "detail": {
+          "changed": true,
+          "mode": "bounded",
+          "messages": 1138
+        }
+      },
+      {
+        "name": "browser.first-paint",
+        "duration": 496,
+        "at": 1788020845878
+      },
+      {
+        "name": "browser.first-contentful-paint",
+        "duration": 496,
+        "at": 1788020845878
+      },
+      {
+        "name": "browser.interaction",
+        "duration": 24,
+        "at": 1788020864551,
+        "detail": {
+          "event": "click"
+        }
+      },
+      {
+        "name": "api.request",
+        "duration": 14.299999952316284,
+        "at": 1788020864885,
+        "detail": {
+          "path": "/api/v0/search?q=&category=all",
+          "status": 200,
+          "bytes": 6024,
+          "serverTiming": "search;dur=11.46",
+          "failed": false
+        }
+      },
+      {
+        "name": "browser.interaction",
+        "duration": 80,
+        "at": 1788020871318,
+        "detail": {
+          "event": "keydown"
+        }
+      },
+      {
+        "name": "browser.interaction",
+        "duration": 80,
+        "at": 1788020871318,
+        "detail": {
+          "event": "keydown"
+        }
+      },
+      {
+        "name": "browser.interaction",
+        "duration": 72,
+        "at": 1788020871318,
+        "detail": {
+          "event": "keydown"
+        }
+      },
+      {
+        "name": "browser.interaction",
+        "duration": 64,
+        "at": 1788020871318,
+        "detail": {
+          "event": "keydown"
+        }
+      },
+      {
+        "name": "browser.interaction",
+        "duration": 64,
+        "at": 1788020871336,
+        "detail": {
+          "event": "keydown"
+        }
+      },
+      {
+        "name": "browser.interaction",
+        "duration": 56,
+        "at": 1788020871336,
+        "detail": {
+          "event": "keydown"
+        }
+      },
+      {
+        "name": "browser.interaction",
+        "duration": 56,
+        "at": 1788020871336,
+        "detail": {
+          "event": "keydown"
+        }
+      },
+      {
+        "name": "browser.interaction",
+        "duration": 64,
+        "at": 1788020871350,
+        "detail": {
+          "event": "keydown"
+        }
+      },
+      {
+        "name": "browser.interaction",
+        "duration": 64,
+        "at": 1788020871350,
+        "detail": {
+          "event": "keydown"
+        }
+      },
+      {
+        "name": "browser.interaction",
+        "duration": 56,
+        "at": 1788020871350,
+        "detail": {
+          "event": "keydown"
+        }
+      },
+      {
+        "name": "browser.interaction",
+        "duration": 56,
+        "at": 1788020871350,
+        "detail": {
+          "event": "keydown"
+        }
+      },
+      {
+        "name": "browser.interaction",
+        "duration": 80,
+        "at": 1788020871367,
+        "detail": {
+          "event": "keydown"
+        }
+      },
+      {
+        "name": "browser.interaction",
+        "duration": 80,
+        "at": 1788020871367,
+        "detail": {
+          "event": "keydown"
+        }
+      },
+      {
+        "name": "browser.interaction",
+        "duration": 72,
+        "at": 1788020871367,
+        "detail": {
+          "event": "keydown"
+        }
+      },
+      {
+        "name": "api.request",
+        "duration": 10,
+        "at": 1788020871390,
+        "detail": {
+          "path": "/api/v0/search?q=Audit+Bot+0002&category=all",
+          "status": 200,
+          "bytes": 9646,
+          "serverTiming": "search;dur=7.85",
+          "failed": false
+        }
+      },
+      {
+        "name": "api.request",
+        "duration": 10.5,
+        "at": 1788020875805,
+        "detail": {
+          "path": "/api/v0/client-runtime",
+          "status": 200,
+          "bytes": 100,
+          "serverTiming": "",
+          "failed": false
+        }
+      },
+      {
+        "name": "view.channel-switch",
+        "duration": 25,
+        "at": 1788020876634,
+        "detail": {
+          "from": "55e44a24-e3f8-e2e4-589e-fe8dbcd57d3c",
+          "to": "6a29c3f3-fdc8-4039-338e-a5df06bf6fc1"
+        }
+      },
+      {
+        "name": "api.request",
+        "duration": 31.200000047683716,
+        "at": 1788020876640,
+        "detail": {
+          "path": "/api/v0/active-agent",
+          "status": 200,
+          "bytes": 56,
+          "serverTiming": "",
+          "failed": false
+        }
+      },
+      {
+        "name": "browser.interaction",
+        "duration": 72,
+        "at": 1788020876658,
+        "detail": {
+          "event": "keydown"
+        }
+      },
+      {
+        "name": "api.request",
+        "duration": 41.40000009536743,
+        "at": 1788020876663,
+        "detail": {
+          "path": "/api/v0/channels/6a29c3f3-fdc8-4039-338e-a5df06bf6fc1/client-state",
+          "status": 200,
+          "bytes": 242,
+          "serverTiming": "",
+          "failed": false
+        }
+      },
+      {
+        "name": "api.request",
+        "duration": 41.5,
+        "at": 1788020876663,
+        "detail": {
+          "path": "/api/v0/channels/6a29c3f3-fdc8-4039-338e-a5df06bf6fc1/history?limit=100",
+          "status": 200,
+          "bytes": 11376,
+          "serverTiming": "",
+          "failed": false
+        }
+      },
+      {
+        "name": "snapshot.reconcile",
+        "duration": 0.6000001430511475,
+        "at": 1788020876664,
+        "detail": {
+          "changed": true,
+          "mode": "bounded",
+          "messages": 1163
+        }
+      },
+      {
+        "name": "browser.long-task",
+        "duration": 65,
+        "at": 1788020877020
+      },
+      {
+        "name": "browser.long-task",
+        "duration": 96,
+        "at": 1788020877020
+      },
+      {
+        "name": "api.request",
+        "duration": 7.799999952316284,
+        "at": 1788020905816,
+        "detail": {
+          "path": "/api/v0/client-runtime",
+          "status": 200,
+          "bytes": 100,
+          "serverTiming": "",
+          "failed": false
+        }
+      }
+    ],
+    "processes": {
+      "at": 1788020909204,
+      "app": [
+        {
+          "cpu": {
+            "cumulativeCPUUsage": 0.863097,
+            "percentCPUUsage": 0,
+            "idleWakeupsPerSecond": 0
+          },
+          "pid": 89012,
+          "type": "Browser",
+          "creationTime": 1788020844062.689,
+          "memory": {
+            "workingSetSize": 178304,
+            "peakWorkingSetSize": 178304
+          },
+          "sandboxed": false
+        },
+        {
+          "cpu": {
+            "cumulativeCPUUsage": 0.605959,
+            "percentCPUUsage": 0,
+            "idleWakeupsPerSecond": 0
+          },
+          "pid": 89018,
+          "type": "GPU",
+          "creationTime": 1788020845283.809,
+          "serviceName": "GPU",
+          "memory": {
+            "workingSetSize": 104928,
+            "peakWorkingSetSize": 109872
+          },
+          "sandboxed": true
+        },
+        {
+          "cpu": {
+            "cumulativeCPUUsage": 0.102224,
+            "percentCPUUsage": 0,
+            "idleWakeupsPerSecond": 0
+          },
+          "pid": 89019,
+          "type": "Utility",
+          "creationTime": 1788020845286.395,
+          "serviceName": "network.mojom.NetworkService",
+          "name": "Network Service",
+          "memory": {
+            "workingSetSize": 52048,
+            "peakWorkingSetSize": 52240
+          },
+          "sandboxed": true
+        },
+        {
+          "cpu": {
+            "cumulativeCPUUsage": 1.547379,
+            "percentCPUUsage": 0,
+            "idleWakeupsPerSecond": 0
+          },
+          "pid": 89021,
+          "type": "Tab",
+          "creationTime": 1788020845387.992,
+          "memory": {
+            "workingSetSize": 257056,
+            "peakWorkingSetSize": 280992
+          },
+          "sandboxed": true
+        }
+      ],
+      "main": {
+        "private": 44001,
+        "shared": 624
+      },
+      "gpu": {
+        "2d_canvas": "enabled",
+        "direct_rendering_display_compositor": "disabled_off_ok",
+        "gpu_compositing": "enabled",
+        "multiple_raster_threads": "enabled_on",
+        "opengl": "enabled_on",
+        "rasterization": "enabled",
+        "raw_draw": "disabled_off_ok",
+        "skia_graphite": "enabled_on",
+        "trees_in_viz": "disabled_off",
+        "video_decode": "enabled",
+        "video_encode": "enabled",
+        "webgl": "enabled",
+        "webgpu": "enabled",
+        "webnn": "disabled_off"
+      }
+    }
+  }
+}

@@ -1,6 +1,6 @@
 # Always-on computer
 
-> Implementation update (2026-08-24): the graphical milestone is now implemented. See `20-graphical-computer-implementation.md` for the live screen, app, tool, and takeover behavior and for the remaining shared-cookie limitation.
+> Implementation update (2026-09-01): the graphical milestone and full computer-scoped browser authority are implemented. See `20-graphical-computer-implementation.md` for the live screen, app, tool, takeover, browser-state, routing, and recovery behavior.
 
 Status: v0 boundary and forward design  
 Last updated: 2026-08-24

@@ -279,10 +279,7 @@
   "clientPairTranscript": {
     "channelId": "a86cad7b-7689-4a5e-b955-1e9e4af575f3",
     "viewOnly": true,
-    "messageIds": [
-      "eb1c184a-1794-4c5d-bff3-770f76c7a09d",
-      "767ed90e-b57d-4dd6-a5b4-26af24a7f331"
-    ],
+    "messageIds": ["eb1c184a-1794-4c5d-bff3-770f76c7a09d", "767ed90e-b57d-4dd6-a5b4-26af24a7f331"],
     "messagesEqualCanonicalMessages": true,
     "homeTimelineProjection": "2 messages with Parity Probe"
   },

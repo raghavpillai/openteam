@@ -1,0 +1,27 @@
+{
+  "scenario": "trusted no-auth account and lazy Settings parity",
+  "auth": {
+    "serverMode": "disabled",
+    "accountMenuLogoutPresent": true,
+    "logoutActionMessage": "This server is running in trusted no-auth mode, so there is no account session to remove.",
+    "sessionRemoved": false
+  },
+  "settings": {
+    "signOutDisabled": true,
+    "sections": ["General", "Computer", "Usage & Billing", "Updates"],
+    "computerLabelPresent": true,
+    "executionPolicyPresent": true,
+    "usageSelfHostedCopyPresent": true,
+    "versionPresent": true,
+    "updateCheckPresent": true,
+    "preferencesMutated": false
+  },
+  "openFrameIntervals": {
+    "count": 108,
+    "max": 17.70000000001164,
+    "over20": 0,
+    "over50": 0
+  },
+  "openLongTasks": [],
+  "verifiedAt": "2026-09-01T00:47:46.949Z"
+}

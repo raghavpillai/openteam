@@ -1,0 +1,123 @@
+{
+  "schemaVersion": 1,
+  "measuredAt": "2026-09-01T09:40:19.489Z",
+  "scope": {
+    "source": "latest apps/server/dist/main.js built 2026-09-01T04:57:34 after search-service.ts changed 2026-09-01T04:47:54",
+    "database": "disposable clone of the iOS performance fixture with the current migration applied",
+    "searchDocuments": 35955,
+    "samplesPerCase": 20,
+    "warmupsPerCase": 3,
+    "baseUrl": "temporary loopback server; removed after capture"
+  },
+  "limitations": [
+    "This is server data-layer evidence, not native input-to-paint latency.",
+    "The cloned fixture had 35,955 indexed documents and is not byte-for-byte identical to the earlier 36,207-document fixture.",
+    "Broad results are deliberately bounded to 24 and are not exhaustive or paginated."
+  ],
+  "results": [
+    {
+      "category": "all",
+      "query": "performance",
+      "resultCount": 24,
+      "endToEndMs": {
+        "min": 16.602,
+        "p50": 17.471416,
+        "p95": 20.105875,
+        "max": 20.713542,
+        "mean": 17.7852334
+      },
+      "serverMs": { "min": 15.75, "p50": 16.34, "p95": 18.92, "max": 19.52, "mean": 16.7285 }
+    },
+    {
+      "category": "messages",
+      "query": "synthetic",
+      "resultCount": 24,
+      "endToEndMs": {
+        "min": 8.477042,
+        "p50": 9.330583,
+        "p95": 10.535334,
+        "max": 11.113292,
+        "mean": 9.3756063
+      },
+      "serverMs": { "min": 7.51, "p50": 7.91, "p95": 9.2, "max": 9.23, "mean": 8.1095 }
+    },
+    {
+      "category": "bots",
+      "query": "Audit Bot",
+      "resultCount": 24,
+      "endToEndMs": {
+        "min": 13.847458,
+        "p50": 14.517709,
+        "p95": 16.512375,
+        "max": 16.845916,
+        "mean": 14.90688955
+      },
+      "serverMs": { "min": 12.95, "p50": 13.29, "p95": 14.45, "max": 14.64, "mean": 13.5075 }
+    },
+    {
+      "category": "channels",
+      "query": "Audit Group",
+      "resultCount": 24,
+      "endToEndMs": {
+        "min": 4.692334,
+        "p50": 5.333084,
+        "p95": 7.817416,
+        "max": 8.011791,
+        "mean": 5.75840005
+      },
+      "serverMs": { "min": 3.91, "p50": 4.25, "p95": 5.58, "max": 5.91, "mean": 4.4385 }
+    },
+    {
+      "category": "files",
+      "query": "audit-report",
+      "resultCount": 24,
+      "endToEndMs": {
+        "min": 13.192,
+        "p50": 14.721875,
+        "p95": 16.303125,
+        "max": 16.906916,
+        "mean": 14.6457124
+      },
+      "serverMs": { "min": 12.11, "p50": 12.62, "p95": 14.5, "max": 15.01, "mean": 13.041 }
+    },
+    {
+      "category": "links",
+      "query": "openbot",
+      "resultCount": 24,
+      "endToEndMs": {
+        "min": 8.182,
+        "p50": 9.606458,
+        "p95": 15.603375,
+        "max": 16.1615,
+        "mean": 10.59274995
+      },
+      "serverMs": { "min": 7.19, "p50": 7.97, "p95": 12.26, "max": 12.98, "mean": 8.922 }
+    },
+    {
+      "category": "routines",
+      "query": "Audit Routine",
+      "resultCount": 24,
+      "endToEndMs": {
+        "min": 5.472458,
+        "p50": 6.019625,
+        "p95": 9.794833,
+        "max": 12.181,
+        "mean": 6.83619175
+      },
+      "serverMs": { "min": 4.53, "p50": 5.04, "p95": 6.5, "max": 11.1, "mean": 5.42 }
+    },
+    {
+      "category": "all",
+      "query": "definitely-missing-openbot-term",
+      "resultCount": 0,
+      "endToEndMs": {
+        "min": 2.671917,
+        "p50": 3.106542,
+        "p95": 4.108208,
+        "max": 4.804916,
+        "mean": 3.3046062
+      },
+      "serverMs": { "min": 1.98, "p50": 2.12, "p95": 2.78, "max": 2.99, "mean": 2.2865 }
+    }
+  ]
+}

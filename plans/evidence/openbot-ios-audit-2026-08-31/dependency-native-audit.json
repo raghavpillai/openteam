@@ -1,0 +1,182 @@
+{
+  "schemaVersion": 1,
+  "auditDate": "2026-08-31",
+  "repositoryCommit": "32eb185c7f90a97e77219c86cf2bee2b75a80a9a",
+  "expoDoctor": {
+    "command": "cd apps/mobile && bunx expo-doctor",
+    "checksPassed": 19,
+    "checksTotal": 21,
+    "exitCode": 1,
+    "failures": [
+      {
+        "check": "duplicate native dependencies",
+        "packages": [
+          "expo",
+          "expo-constants",
+          "expo-file-system",
+          "expo-font",
+          "expo-glass-effect",
+          "expo-linking",
+          "expo-symbols",
+          "@expo/dom-webview",
+          "@expo/log-box"
+        ],
+        "detail": "Bun isolated workspace links expose multiple filesystem installations of the same versions. The deterministic native-config gate resolves 22 unique Expo packages and 23 unique Apple pods, and Podfile.lock resolves one source for each inspected native module. Doctor therefore identifies package-layout risk, not proof of duplicate native code in this binary; a clean EAS/Xcode archive remains the hard native-build gate."
+      },
+      {
+        "check": "app config fields may not sync in a non-CNG project",
+        "fields": ["icon", "orientation", "scheme", "userInterfaceStyle", "ios", "plugins"],
+        "detail": "Because ios/ is checked in, app.json changes require explicit native-project synchronization or a controlled prebuild. The mobile test command now runs Expo introspection and fails when checked-in permission/version metadata drifts."
+      }
+    ]
+  },
+  "dependencyAudit": {
+    "command": "bun audit --json",
+    "exitCode": 1,
+    "critical": 0,
+    "high": 2,
+    "moderate": 2,
+    "advisories": [
+      {
+        "package": "image-size",
+        "installedVersion": "1.2.1",
+        "severity": "high",
+        "advisory": "GHSA-w3rx-r6r6-pgpr",
+        "path": "metro -> image-size",
+        "runtimeClassification": "Metro build tooling; absent from the production iOS source map"
+      },
+      {
+        "package": "image-size",
+        "installedVersion": "1.2.1",
+        "severity": "high",
+        "advisory": "GHSA-5p2g-fcmc-qvqq",
+        "path": "metro -> image-size",
+        "runtimeClassification": "Metro build tooling; absent from the production iOS source map"
+      },
+      {
+        "package": "decode-uri-component",
+        "installedVersion": "0.2.2",
+        "severity": "moderate",
+        "advisory": "GHSA-vcc3-ghjq-m6fr",
+        "path": "expo-router -> query-string -> decode-uri-component",
+        "runtimeClassification": "One module remains in the production iOS source map"
+      },
+      {
+        "package": "uuid",
+        "installedVersion": "7.0.3",
+        "severity": "moderate",
+        "advisory": "GHSA-w5hq-g745-h8pq",
+        "path": "expo -> @expo/config-plugins -> xcode -> uuid",
+        "runtimeClassification": "Expo native configuration/build tooling; absent from the production iOS source map"
+      }
+    ]
+  },
+  "nativeConfiguration": {
+    "positiveControls": [
+      "Hermes enabled",
+      "React Native New Architecture/Fabric enabled",
+      "React Native and Expo precompiled modules enabled by default",
+      "iOS deployment target 16.4",
+      "CADisableMinimumFrameDurationOnPhone enabled",
+      "Release assertions disabled and deployment product validation enabled",
+      "No UIBackgroundModes declared",
+      "Camera and selected-photo-library usage strings match Expo introspection; unused Face ID and microphone usage strings are absent",
+      "App, package, Info.plist, and both Xcode configurations use marketing version 0.1.0",
+      "Expo Apple autolinking resolves 22 unique packages and 23 unique pods under Bun's isolated workspace layout",
+      "Production Expo export contains no JavaScript source map"
+    ],
+    "reviewItems": [
+      {
+        "priority": "P2",
+        "finding": "Marketing-version metadata is aligned; the production build number is intentionally owned by remote EAS versioning and must be verified in the archive.",
+        "evidence": {
+          "appJsonVersion": "0.1.0",
+          "infoPlistShortVersion": "0.1.0",
+          "infoPlistBuildVersion": "1",
+          "xcodeMarketingVersion": "0.1.0",
+          "xcodeCurrentProjectVersion": "1",
+          "easAppVersionSource": "remote",
+          "easProductionAutoIncrement": true
+        },
+        "recommendation": "Keep the local parity gate passing, and assert the remotely managed CFBundleVersion is monotonically increasing in the signed production archive."
+      },
+      {
+        "priority": "P1",
+        "finding": "Production APNs entitlement correctness can only be proven from the codesigned archive.",
+        "evidence": "Expo SDK 57 intentionally generates aps-environment=development in source; Xcode derives production for a distribution archive from the provisioning profile.",
+        "recommendation": "Preserve the generated development source value, then inspect the codesigned production archive and require aps-environment=production before App Store delivery."
+      },
+      {
+        "priority": "P2",
+        "finding": "Expo Updates is intentionally disabled for store-only binary releases.",
+        "evidence": "EXUpdatesEnabled=false, expo-updates is absent, and no runtime version or update channels are configured.",
+        "recommendation": "Keep this policy unless OTA updates are deliberately adopted with explicit runtime-version compatibility and channel testing."
+      },
+      {
+        "priority": "P2",
+        "finding": "Native production archive size, launch time, dSYM, and signed entitlements could not be measured on this machine.",
+        "evidence": "xcode-select points to /Library/Developer/CommandLineTools and no /Applications/Xcode*.app is installed",
+        "recommendation": "Add an EAS/macOS CI archive job that records IPA/app bytes, app-thinning report, launch metric, dSYM presence, and codesigned entitlements."
+      }
+    ]
+  },
+  "nativeBranding": {
+    "status": "present after remediation in the shared audit pass",
+    "appIcon": {
+      "source": "apps/mobile/assets/openbot-icon-v2.png",
+      "native": "apps/mobile/ios/OpenBot/Images.xcassets/AppIcon.appiconset/OpenBot-App-Icon-v2.png",
+      "bytesEach": 1059127,
+      "dimensions": "1024x1024",
+      "hasAlpha": false,
+      "sha256": "8790242e97fe1cc6d350040506347737786ad453f93c6c4a89be5ff8bbb2206b"
+    },
+    "splash": {
+      "storyboardImageName": "SplashScreenLogo",
+      "oneX": {
+        "dimensions": "120x120",
+        "bytes": 13550
+      },
+      "twoX": {
+        "dimensions": "240x240",
+        "bytes": 42808
+      },
+      "threeX": {
+        "dimensions": "360x360",
+        "bytes": 88276
+      }
+    },
+    "runtimeExportAccounting": "The icon and splash are native resources. They are not among the 23 Metro runtime assets and are intentionally outside the JavaScript export budget."
+  },
+  "bundleTopology": {
+    "productionNativeCodeSplitting": false,
+    "detail": "Expo Router native production exports are a single Hermes bytecode bundle. Route files remain synchronous in that HBC; Hermes memory mapping mitigates load cost, while the total-bundle gate prevents dependency regressions.",
+    "officialReferences": [
+      "https://docs.expo.dev/router/web/async-routes/",
+      "https://docs.expo.dev/router/migrate/sdk-55-to-56/",
+      "https://docs.expo.dev/router/installation/"
+    ]
+  },
+  "dependencyDecisions": {
+    "removed": [
+      {
+        "package": "@react-navigation/native",
+        "reason": "No remaining direct imports; Expo SDK 56+ app code should consume navigation exports through expo-router, and the source-map A/B proved the external package closure was removed."
+      }
+    ],
+    "retained": [
+      {
+        "packages": [
+          "react-native-reanimated",
+          "react-native-worklets",
+          "react-native-gesture-handler",
+          "react-native-screens"
+        ],
+        "reason": "They remain in Expo Router's production navigation/transition closure; removal was not assumed safe."
+      },
+      {
+        "package": "expo-font",
+        "reason": "The app ships no custom font files, but Expo and expo-symbols retain expo-font transitively, so removing only the direct declaration/plugin was not shown to reduce the native graph."
+      }
+    ]
+  }
+}

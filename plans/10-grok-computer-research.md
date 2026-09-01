@@ -1,6 +1,6 @@
 # Grok Bot computer research
 
-> OpenBot implementation update (2026-08-25): this research led to the Xvfb/noVNC ScreenBroker and encrypted BrowserBroker in `20-graphical-computer-implementation.md` and `21-shared-workspaces-and-browser-authority.md`. Separate bot screens, shared files, and computer-scoped ordinary browser cookies are implemented. Non-cookie browser storage, saved-password synchronization, and stronger browser routing remain deferred.
+> OpenBot implementation update (2026-09-01): this research led to the Xvfb/noVNC ScreenBroker, encrypted live BrowserBroker, stopped-profile authority, shared NSS store, and bot-owned target routing in `20-graphical-computer-implementation.md` and `21-shared-workspaces-and-browser-authority.md`. Separate bot screens, shared files, full computer-scoped browser state, and coordinated recovery are implemented.
 
 Status: official behavior confirmed; implementation mechanism partly inferred  
 Last updated: 2026-08-24

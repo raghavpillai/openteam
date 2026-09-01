@@ -1,0 +1,485 @@
+{
+  "measuredAt": "2026-08-29T16:30:25.868Z",
+  "renderer": {
+    "files": 391,
+    "bytes": 13103419,
+    "gzipBytes": 3044885,
+    "byExtension": {
+      "js": {
+        "files": 368,
+        "bytes": 12522371,
+        "gzipBytes": 2744335
+      },
+      "css": {
+        "files": 2,
+        "bytes": 149950,
+        "gzipBytes": 28183
+      },
+      "woff2": {
+        "files": 19,
+        "bytes": 256168,
+        "gzipBytes": 256635
+      },
+      "html": {
+        "files": 1,
+        "bytes": 1793,
+        "gzipBytes": 701
+      }
+    },
+    "startup": {
+      "files": [
+        {
+          "path": "assets/bundle-mjs-Biv_LCeL.js",
+          "bytes": 34769,
+          "gzipBytes": 11333
+        },
+        {
+          "path": "assets/cn-B6JTjo3F.js",
+          "bytes": 1467,
+          "gzipBytes": 818
+        },
+        {
+          "path": "assets/dist-C94jGQUy.js",
+          "bytes": 6087,
+          "gzipBytes": 2220
+        },
+        {
+          "path": "assets/dist-DOW7mrG-.js",
+          "bytes": 596,
+          "gzipBytes": 377
+        },
+        {
+          "path": "assets/dist-EsZIwjNv.js",
+          "bytes": 4968,
+          "gzipBytes": 2095
+        },
+        {
+          "path": "assets/es2015-BHChpcYc.js",
+          "bytes": 16220,
+          "gzipBytes": 6135
+        },
+        {
+          "path": "assets/index-Br_z-qfA.js",
+          "bytes": 581263,
+          "gzipBytes": 177884
+        },
+        {
+          "path": "assets/index-lhsm319L.css",
+          "bytes": 123762,
+          "gzipBytes": 20813
+        },
+        {
+          "path": "assets/jsx-runtime-NZYk81nU.js",
+          "bytes": 435,
+          "gzipBytes": 306
+        },
+        {
+          "path": "assets/react-dom-BeHA8YhG.js",
+          "bytes": 3593,
+          "gzipBytes": 1363
+        },
+        {
+          "path": "assets/rolldown-runtime-hePW80VL.js",
+          "bytes": 716,
+          "gzipBytes": 428
+        }
+      ],
+      "bytes": 773876,
+      "gzipBytes": 223772
+    },
+    "largestJavaScript": [
+      {
+        "path": "assets/emacs-lisp-C9PiwqqW.js",
+        "bytes": 779847,
+        "gzipBytes": 195962
+      },
+      {
+        "path": "assets/chunk-FOHPRMQF-DHwB1DNv.js",
+        "bytes": 662120,
+        "gzipBytes": 141598
+      },
+      {
+        "path": "assets/cpp-DjoE5qBx.js",
+        "bytes": 626137,
+        "gzipBytes": 43883
+      },
+      {
+        "path": "assets/index-Br_z-qfA.js",
+        "bytes": 581263,
+        "gzipBytes": 177884
+      },
+      {
+        "path": "assets/message-response-config-DBIPHf64.js",
+        "bytes": 436586,
+        "gzipBytes": 131555
+      },
+      {
+        "path": "assets/cytoscape.esm-C2x7inlt.js",
+        "bytes": 434924,
+        "gzipBytes": 136514
+      },
+      {
+        "path": "assets/wolfram-DLL8P-h_.js",
+        "bytes": 262384,
+        "gzipBytes": 77051
+      },
+      {
+        "path": "assets/katex-DhON-x74.js",
+        "bytes": 259052,
+        "gzipBytes": 76363
+      },
+      {
+        "path": "assets/emoji-panel-CLVIZkLx.js",
+        "bytes": 240748,
+        "gzipBytes": 51119
+      },
+      {
+        "path": "assets/chunk-DU6HZSFF-Yz2ZcOA5.js",
+        "bytes": 235677,
+        "gzipBytes": 35190
+      },
+      {
+        "path": "assets/vue-vine-pWqEcBkW.js",
+        "bytes": 190058,
+        "gzipBytes": 17617
+      },
+      {
+        "path": "assets/message-response-code-ChLcUocL.js",
+        "bytes": 187670,
+        "gzipBytes": 58331
+      },
+      {
+        "path": "assets/angular-ts-BVPGOT0K.js",
+        "bytes": 183731,
+        "gzipBytes": 16236
+      },
+      {
+        "path": "assets/typescript-BydbNFcO.js",
+        "bytes": 181146,
+        "gzipBytes": 15751
+      },
+      {
+        "path": "assets/jsx-gTgmArGx.js",
+        "bytes": 177858,
+        "gzipBytes": 16285
+      },
+      {
+        "path": "assets/tsx-CUOciP0b.js",
+        "bytes": 175602,
+        "gzipBytes": 16189
+      },
+      {
+        "path": "assets/javascript-obGGvMPs.js",
+        "bytes": 174893,
+        "gzipBytes": 16192
+      },
+      {
+        "path": "assets/objective-cpp-BsSzOQcm.js",
+        "bytes": 171965,
+        "gzipBytes": 30388
+      },
+      {
+        "path": "assets/architectureDiagram-5GKGNRK7-BGuug8Xi.js",
+        "bytes": 148935,
+        "gzipBytes": 40721
+      },
+      {
+        "path": "assets/mdx-DQZ5AkYe.js",
+        "bytes": 136107,
+        "gzipBytes": 23278
+      }
+    ],
+    "lazyClosures": {
+      "basicMarkdown": {
+        "sources": ["src/renderer/components/ai-elements/message-response.tsx"],
+        "isDynamicEntry": true,
+        "nonDynamicSources": [],
+        "files": 5,
+        "bytes": 461414,
+        "gzipBytes": 140756
+      },
+      "advancedRich": {
+        "sources": ["src/renderer/components/ai-elements/message-response-rich.tsx"],
+        "isDynamicEntry": true,
+        "nonDynamicSources": [],
+        "files": 5,
+        "bytes": 461640,
+        "gzipBytes": 140877
+      },
+      "cjk": {
+        "sources": [
+          "src/renderer/components/ai-elements/message-response-rich.tsx",
+          "src/renderer/components/ai-elements/message-response-cjk.ts"
+        ],
+        "isDynamicEntry": true,
+        "nonDynamicSources": [],
+        "files": 6,
+        "bytes": 486593,
+        "gzipBytes": 149511
+      },
+      "code": {
+        "sources": [
+          "src/renderer/components/ai-elements/message-response-rich.tsx",
+          "src/renderer/components/ai-elements/message-response-code.ts"
+        ],
+        "isDynamicEntry": true,
+        "nonDynamicSources": [],
+        "files": 6,
+        "bytes": 649310,
+        "gzipBytes": 199208
+      },
+      "math": {
+        "sources": [
+          "src/renderer/components/ai-elements/message-response-rich.tsx",
+          "src/renderer/components/ai-elements/message-response-math.ts"
+        ],
+        "isDynamicEntry": true,
+        "nonDynamicSources": [],
+        "files": 27,
+        "bytes": 1014962,
+        "gzipBytes": 485814
+      },
+      "mermaid": {
+        "sources": [
+          "src/renderer/components/ai-elements/message-response-rich.tsx",
+          "src/renderer/components/ai-elements/message-response-mermaid.ts"
+        ],
+        "isDynamicEntry": true,
+        "nonDynamicSources": [],
+        "files": 23,
+        "bytes": 1138729,
+        "gzipBytes": 309899
+      },
+      "emojiPanel": {
+        "sources": ["src/renderer/components/openbot/emoji-panel.tsx"],
+        "isDynamicEntry": true,
+        "nonDynamicSources": [],
+        "files": 1,
+        "bytes": 240748,
+        "gzipBytes": 51119
+      },
+      "a2aExchange": {
+        "sources": ["src/renderer/components/openbot/a2a-exchange-sheet.tsx"],
+        "isDynamicEntry": true,
+        "nonDynamicSources": [],
+        "files": 1,
+        "bytes": 439,
+        "gzipBytes": 271
+      },
+      "asyncTasks": {
+        "sources": ["src/renderer/components/openbot/async-tasks-panel.tsx"],
+        "isDynamicEntry": true,
+        "nonDynamicSources": [],
+        "files": 3,
+        "bytes": 4420,
+        "gzipBytes": 2003
+      },
+      "desktopDialogs": {
+        "sources": ["src/renderer/components/openbot/desktop-dialogs.tsx"],
+        "isDynamicEntry": true,
+        "nonDynamicSources": [],
+        "files": 1,
+        "bytes": 3769,
+        "gzipBytes": 1741
+      },
+      "groupForm": {
+        "sources": ["src/renderer/components/openbot/forms.tsx"],
+        "isDynamicEntry": true,
+        "nonDynamicSources": [],
+        "files": 2,
+        "bytes": 8868,
+        "gzipBytes": 3774
+      },
+      "inspector": {
+        "sources": ["src/renderer/components/openbot/inspector.tsx"],
+        "isDynamicEntry": true,
+        "nonDynamicSources": [],
+        "files": 2,
+        "bytes": 18822,
+        "gzipBytes": 6870
+      },
+      "avatarPicker": {
+        "sources": ["src/renderer/components/openbot/avatar-picker.tsx"],
+        "isDynamicEntry": true,
+        "nonDynamicSources": [],
+        "files": 1,
+        "bytes": 4652,
+        "gzipBytes": 1737
+      },
+      "botScreen": {
+        "sources": ["src/renderer/components/openbot/bot-screen.tsx"],
+        "isDynamicEntry": true,
+        "nonDynamicSources": [],
+        "files": 1,
+        "bytes": 6912,
+        "gzipBytes": 2558
+      },
+      "routineSummary": {
+        "sources": ["src/renderer/components/openbot/routine-summary.tsx"],
+        "isDynamicEntry": true,
+        "nonDynamicSources": [],
+        "files": 2,
+        "bytes": 11055,
+        "gzipBytes": 3910
+      },
+      "routineEditor": {
+        "sources": ["src/renderer/components/openbot/routine-panel.tsx"],
+        "isDynamicEntry": true,
+        "nonDynamicSources": [],
+        "files": 5,
+        "bytes": 67665,
+        "gzipBytes": 21845
+      },
+      "newBot": {
+        "sources": ["src/renderer/components/openbot/new-bot-screen.tsx"],
+        "isDynamicEntry": true,
+        "nonDynamicSources": [],
+        "files": 1,
+        "bytes": 4346,
+        "gzipBytes": 1850
+      },
+      "pluginSettings": {
+        "sources": ["src/renderer/components/openbot/plugin-settings.tsx"],
+        "isDynamicEntry": true,
+        "nonDynamicSources": [],
+        "files": 1,
+        "bytes": 21522,
+        "gzipBytes": 5639
+      },
+      "search": {
+        "sources": ["src/renderer/components/openbot/search-dialog.tsx"],
+        "isDynamicEntry": true,
+        "nonDynamicSources": [],
+        "files": 3,
+        "bytes": 11090,
+        "gzipBytes": 4491
+      },
+      "settingsAbout": {
+        "sources": ["src/renderer/components/openbot/settings-panel.tsx"],
+        "isDynamicEntry": true,
+        "nonDynamicSources": [],
+        "files": 1,
+        "bytes": 12456,
+        "gzipBytes": 3752
+      }
+    },
+    "lazyBoundaryAudit": {
+      "coveredSources": [
+        "src/renderer/components/ai-elements/message-response-cjk.ts",
+        "src/renderer/components/ai-elements/message-response-code.ts",
+        "src/renderer/components/ai-elements/message-response-math.ts",
+        "src/renderer/components/ai-elements/message-response-mermaid.ts",
+        "src/renderer/components/ai-elements/message-response-rich.tsx",
+        "src/renderer/components/ai-elements/message-response.tsx",
+        "src/renderer/components/openbot/a2a-exchange-sheet.tsx",
+        "src/renderer/components/openbot/async-tasks-panel.tsx",
+        "src/renderer/components/openbot/avatar-picker.tsx",
+        "src/renderer/components/openbot/bot-screen.tsx",
+        "src/renderer/components/openbot/desktop-dialogs.tsx",
+        "src/renderer/components/openbot/emoji-panel.tsx",
+        "src/renderer/components/openbot/forms.tsx",
+        "src/renderer/components/openbot/inspector.tsx",
+        "src/renderer/components/openbot/new-bot-screen.tsx",
+        "src/renderer/components/openbot/plugin-settings.tsx",
+        "src/renderer/components/openbot/routine-panel.tsx",
+        "src/renderer/components/openbot/routine-summary.tsx",
+        "src/renderer/components/openbot/search-dialog.tsx",
+        "src/renderer/components/openbot/settings-panel.tsx"
+      ],
+      "dynamicSources": [
+        "src/renderer/components/ai-elements/message-response-cjk.ts",
+        "src/renderer/components/ai-elements/message-response-code.ts",
+        "src/renderer/components/ai-elements/message-response-math.ts",
+        "src/renderer/components/ai-elements/message-response-mermaid.ts",
+        "src/renderer/components/ai-elements/message-response-rich.tsx",
+        "src/renderer/components/ai-elements/message-response.tsx",
+        "src/renderer/components/openbot/a2a-exchange-sheet.tsx",
+        "src/renderer/components/openbot/async-tasks-panel.tsx",
+        "src/renderer/components/openbot/avatar-picker.tsx",
+        "src/renderer/components/openbot/bot-screen.tsx",
+        "src/renderer/components/openbot/desktop-dialogs.tsx",
+        "src/renderer/components/openbot/emoji-panel.tsx",
+        "src/renderer/components/openbot/forms.tsx",
+        "src/renderer/components/openbot/inspector.tsx",
+        "src/renderer/components/openbot/new-bot-screen.tsx",
+        "src/renderer/components/openbot/plugin-settings.tsx",
+        "src/renderer/components/openbot/routine-panel.tsx",
+        "src/renderer/components/openbot/routine-summary.tsx",
+        "src/renderer/components/openbot/search-dialog.tsx",
+        "src/renderer/components/openbot/settings-panel.tsx"
+      ],
+      "shikiLanguageEntries": 213,
+      "shikiThemeEntries": 0,
+      "uncoveredDynamicSources": []
+    },
+    "violations": {
+      "sourceMaps": [],
+      "wasm": []
+    }
+  },
+  "package": {
+    "platform": "darwin",
+    "arch": "arm64",
+    "releaseArtifacts": [
+      {
+        "path": "OpenBot-0.1.0-mac-arm64.dmg",
+        "kind": "dmg",
+        "bytes": 121499455,
+        "mtimeMs": 1788021010006
+      },
+      {
+        "path": "OpenBot-0.1.0-mac-arm64.zip",
+        "kind": "zip",
+        "bytes": 121618243,
+        "mtimeMs": 1788021011337
+      },
+      {
+        "path": "mac-arm64/OpenBot.app/Contents/Resources/app.asar",
+        "kind": "asar",
+        "bytes": 13256142,
+        "mtimeMs": 1788020995554
+      }
+    ],
+    "asarCandidates": ["mac-arm64/OpenBot.app/Contents/Resources/app.asar"],
+    "newestBuildMtimeMs": 1788020993717,
+    "asarBytes": 13256142,
+    "asarMtimeMs": 1788020995554,
+    "asar": {
+      "headerBytes": 104900,
+      "headerPickleBytes": 104892,
+      "logicalBytes": 13151242,
+      "files": 395,
+      "directories": 3,
+      "topLevel": ["dist", "dist-electron", "package.json"],
+      "buildComparison": {
+        "expected": 394,
+        "matched": 394,
+        "missing": [],
+        "changed": [],
+        "unexpected": []
+      },
+      "violations": {
+        "nodeModules": [],
+        "sourceMaps": [],
+        "wasm": [],
+        "nativeModules": [],
+        "stalePreload": [],
+        "missingTopLevel": [],
+        "unexpectedTopLevel": [],
+        "packageJson": []
+      }
+    },
+    "zipBytes": 121618243,
+    "zipMtimeMs": 1788021011337,
+    "dmgBytes": 121499455,
+    "dmgMtimeMs": 1788021010006,
+    "zipAsarVerification": {
+      "embeddedPath": "OpenBot.app/Contents/Resources/app.asar",
+      "embeddedBytes": 13256142,
+      "embeddedSha256": "efaf77e404091fff8a593356f972a19ed891d6d11f505e89ae965d2a732ab82b",
+      "packagedSha256": "efaf77e404091fff8a593356f972a19ed891d6d11f505e89ae965d2a732ab82b",
+      "verified": true,
+      "error": null
+    }
+  }
+}

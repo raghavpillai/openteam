@@ -177,11 +177,7 @@
     "group": {
       "roomOpened": true,
       "unreadClearedOnOpen": true,
-      "mentionSuggestions": [
-        "everyone",
-        "A2A UI Probe 2330",
-        "A2A UI Source 2330"
-      ]
+      "mentionSuggestions": ["everyone", "A2A UI Probe 2330", "A2A UI Source 2330"]
     }
   },
   "verification": {
@@ -241,11 +237,7 @@
       "viewOnlySheet": true,
       "closeRestoresSource": true,
       "latestGroupTranscriptVisible": true,
-      "mentionSuggestions": [
-        "everyone",
-        "A2A UI Probe 2330",
-        "A2A UI Source 2330"
-      ],
+      "mentionSuggestions": ["everyone", "A2A UI Probe 2330", "A2A UI Source 2330"],
       "unsentDraftCleared": true
     },
     "finalRepositoryGate": {

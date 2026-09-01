@@ -1,7 +1,7 @@
 # iOS mobile parity research and implementation specification
 
-Status: public evidence captured; React Native iOS shell, A2A projection, brokered shared-computer control, and native Liquid Glass chrome implemented and validated against fixture and live local services; physical-reference capture remains outstanding
-Last updated: 2026-08-29
+Status: React Native companion flows and the 2026-09-01 Release-simulator acceptance pass are complete; production archive, APNs, physical-device, and full accessibility/reference-app signoff remain open
+Last updated: 2026-09-01
 
 ## Outcome
 
@@ -16,7 +16,7 @@ The first mobile release is a companion and control surface, not a second runtim
 5. viewing and pausing recurring work;
 6. receiving useful background notifications and returning to the exact item.
 
-The initial implementation may connect to the existing OpenBot server only over a trusted local or Tailscale network. The current v0 server has no end-user authentication, uses wildcard CORS, and is explicitly documented as unsafe to publish. Public TestFlight/App Store distribution requires an authenticated HTTPS control plane first.
+The server now requires the owner’s revocable username/password session by default, and the iPhone stores only its bearer session in Keychain. Trusted development can explicitly disable authentication. Public TestFlight/App Store distribution still requires HTTPS, a restricted origin policy, rate limits, scoped viewer authorization, and a production security review.
 
 ## Evidence boundary
 
@@ -100,10 +100,8 @@ Additional evidence:
 ### Desktop-only or desktop-primary
 
 - Teach-by-demonstration.
-- Routine instruction/schedule editing, testing, detailed run history, and deletion.
-- Agent-computer update/reset and advanced recovery.
-- Full local-computer execution administration.
-- Advanced plugin/MCP and other administration surfaces unless a mobile-specific flow is verified.
+- Agent-computer provisioning, update/reset, advanced recovery, and full local-execution administration.
+- Electron-specific updater/distribution UI, drag regions, keyboard shortcuts, and other host-shell administration.
 
 ## Information architecture
 
@@ -281,18 +279,26 @@ Behavior:
 - Tool status is derived from typed run-item state, not model-authored status text.
 - Large conversations must paginate and virtualize; never keep the full rich-render tree mounted.
 
-A2A projection implemented on 2026-08-29:
+A2A projection implemented on 2026-08-29 and hardened on 2026-09-01:
 
 - Mobile consumes the same mirrored A2A rows as desktop instead of inventing a second message contract.
 - `metadata.fromAgent` and `metadata.toAgent` override the mirrored row's transport sender for presentation, preventing an inbound A2A row with `sender: "user"` from looking like a human-authored message.
 - Direct and group exchanges render compact `Message from <peer>` and `Messaged <peer>` labels with the peer Bot identity where available.
+- Only contiguous messages with the same peer collapse. An ordinary message, another peer, or a qualifying idle gap ends the group, preserving transcript chronology.
+- Opening a collapsed exchange presents the currently loaded matching messages in a view-only sheet. Reply, reaction, widget, and secret mutations are disabled there; the sheet does not independently fetch or paginate older A2A history.
 - Live-server validation covered both direct and group A2A history in the iOS simulator; the captured state is `plans/evidence/openbot-ios/live-a2a-light.png`.
+
+The 2026-09-01 thread implementation removes resolved branched replies from the main transcript,
+opens them in a native paginated sheet, supports reply/mention/attachment/widget/secret/reaction
+flows there, and reports partial counts while older context may still exist. Channel hydration now
+also includes bounded rounds, runs, run items, approvals, and subagents; the native activity sheet
+reports truncation instead of implying that a bounded projection is complete.
 
 Unknowns requiring live capture:
 
 - message bubble padding, radius, max width, and cluster gaps in points;
 - context-menu layout and reaction-row order;
-- thread presentation (push, sheet, or inline);
+- exact native thread-sheet transition/detent and reference-app equivalence;
 - reaction insertion spring and haptic;
 - timestamp grouping threshold;
 - markdown/code/diagram interaction and selection;
@@ -328,7 +334,9 @@ Required state machine:
 - `attachments`: attachment strip/previews with remove actions and upload state.
 - `mentioning`: Bot/group/routine/connector suggestion surface anchored above the keyboard.
 - `sending`: optimistic local item and idempotent client id; preserve recoverable draft on failure.
-- `voice`: permission, recording, cancellation, and transcript states only after live behavior is documented.
+- `voice`: native speech/microphone permission, requesting, recording timer/waveform, cancellation,
+  processing, transcript insertion, and transcribe-and-send. A runtime without an audio input must
+  return to the composer with a useful error instead of crashing.
 
 Behavioral requirements:
 
@@ -382,7 +390,7 @@ Required states:
 - disconnected/retrying;
 - unavailable with desktop recovery guidance.
 
-The current OpenBot noVNC surface is loopback-only and unauthenticated. A mobile stream cannot expose those viewer ports directly. The server must broker an authenticated, short-lived viewer session or provide a secure WebRTC/WebSocket surface before this screen can ship outside a trusted dev network.
+The underlying OpenBot noVNC viewer remains loopback-only. Mobile does not expose that port: it uses the owner-authenticated server frame/input broker. Public deployment still needs HTTPS and a separately scoped, short-lived viewer authorization rather than treating the owner's broad session as a least-privilege viewer token.
 
 Trusted-network implementation validated on 2026-08-29:
 
@@ -390,15 +398,15 @@ Trusted-network implementation validated on 2026-08-29:
 - Watch mode can refresh the live frame; takeover mode supports mapped frame taps, text entry, vertical scrolling, and launching Browser, Files, or Terminal through typed screen actions.
 - Takeover is released on explicit return and when the screen unmounts, including native back/close navigation.
 - A live Docker-backed computer session rendered in the iOS simulator, accepted takeover, and returned to `humanTakeover: false` after close; the watch-state capture is `plans/evidence/openbot-ios/live-computer-light.png`.
-- This remains a trusted-network development surface until the authentication and secure viewer requirements in this document are complete.
+- This remains a trusted-network development surface until production HTTPS and separately scoped viewer authorization are complete.
 
 ### 8. Routines on iOS
 
 - List routines from Bot details.
-- Show name, Active state, schedule/trigger summary, next run, last result, and instruction read-only.
-- Allow Active pause/resume with expected revision and conflict handling.
-- Do not expose edit/test/history/delete controls in the initial iOS parity surface.
-- Link to desktop guidance for unsupported administration.
+- Show name, Active state, schedule/trigger summary, next run, last result, and instruction.
+- Create and edit simple routines; preserve composite/mixed triggers exactly when editing unrelated fields.
+- Pause/resume with expected revision and conflict handling, run immediately, poll transient execution history, and delete with confirmation.
+- Keep desktop-only provisioning and advanced runtime administration out of the mobile surface.
 
 ### 9. Search
 
@@ -409,6 +417,13 @@ Trusted-network implementation validated on 2026-08-29:
 - Selecting a message deep-links to an anchored transcript position, loading older pages if necessary.
 - Empty query may show recents and useful actions; verify current Grok Bot behavior live.
 - Keyboard dismissal, result highlighting, VoiceOver order, and back behavior require live capture.
+
+The implemented connected path normalizes NFKC/whitespace, caps input at 200 characters, debounces
+for 100 ms, combines abort with a generation guard, and retains at most 64
+cursor/category/query result sets. It uses bounded server search rather than scanning the 1,000-Bot
+fixture on-device. Results remain capped rather than infinitely paginated; the 2026-09-01 Simulator
+pass proves the native result/navigation path, not app-only input-to-paint latency or full VoiceOver
+behavior.
 
 ## Visual system
 
@@ -505,6 +520,11 @@ Recommended initial stack, verified against current official releases on 2026-08
 - Expo Image/Document Picker and Camera for attachments;
 - native context menus/sheets where they materially improve iOS fidelity.
 
+The implemented stack uses React Native `FlatList`/`SectionList`, native safe-area and keyboard
+insets, FileSystem-backed bounded JSON snapshot/draft storage, SecureStore, and fetch-backed SSE.
+FlashList, SQLite, and a separate keyboard-controller package remain design alternatives, not
+claims about dependencies currently shipped by OpenBot.
+
 Use the New Architecture by default. Native modules should be narrow: secure viewer transport, advanced text composition if needed, ActivityKit later, and any iOS-only context-menu behavior that cannot reach parity in JS.
 
 ### Proposed workspace shape
@@ -541,7 +561,7 @@ Extract into shared pure packages:
 - notification derivation;
 - channel selection/restoration;
 - async-task and A2A projection;
-- routine view types and read-only presentation formatting;
+- routine trigger/revision projection and editing/preservation helpers;
 - semantic design tokens and deterministic Bot-mark selection.
 
 Reimplement natively:
@@ -570,8 +590,8 @@ For the trusted-network MVP:
 - user scans or enters an `https://` or Tailscale server URL;
 - configuration is stored in SecureStore;
 - a health/protocol handshake verifies compatibility;
-- API data is cached in SQLite;
-- SSE is implemented with a React Native-compatible streaming client or replaced by a server WebSocket endpoint;
+- bounded API snapshots and drafts are cached as recoverable FileSystem JSON records;
+- product invalidation uses a fetch-backed SSE consumer with bounded fallback reconciliation;
 - a reconnect always performs snapshot reconciliation before enabling mutations.
 
 ## Security blockers before public distribution
@@ -579,21 +599,20 @@ For the trusted-network MVP:
 Current server facts:
 
 - binds `0.0.0.0` inside its runtime;
-- v0 user routes have no authorization;
+- product routes require the owner’s Better Auth bearer session by default; an explicit `disabled` mode exists only for isolated development;
+- content-addressed asset URLs remain unlisted capabilities, while other asset and shared-computer routes require the owner session;
 - CORS allows `*`;
 - the Compose host mapping is loopback-only by default;
 - the Tailscale dev path assumes a trusted private network;
-- noVNC viewers are loopback-only and have no independent authentication.
+- the mobile frame/input broker is authenticated but does not yet issue a separately scoped, short-lived viewer token.
 
 Required public/mobile control-plane work:
 
-- device/user authentication and revocable sessions;
 - HTTPS only;
-- per-request authorization across every user-facing route;
 - scoped mobile viewer tokens;
 - CSRF/origin policy appropriate to browser surfaces;
 - APNs device-token ownership and revocation;
-- rate limits and bounded pagination;
+- rate limits (bounded mobile history pagination is implemented);
 - server-side attachment normalization and antivirus/content checks;
 - privacy-safe telemetry and request ids;
 - protocol/version negotiation.
@@ -627,8 +646,8 @@ The following walkthrough must be performed on the current iPhone app in both li
 13. Keyboard show/hide, interactive dismiss, rotation policy, predictive bar, hardware keyboard if supported.
 14. Approval once/deny/already resolved/stale/offline.
 15. Shared computer connect/watch/take over/return/disconnect/error.
-16. Bot/group details, notification toggle, members, routine list/detail/pause/resume.
-17. Settings, appearance, haptics, plugins, usage, about/version, sign out boundary.
+16. Bot/group details, notification toggle, members, and routine list/create/edit/pause/resume/run/history/delete.
+17. Settings, appearance, haptics, plugin catalog/setup/connect/access, usage, about/version, sign out boundary.
 18. Notification and deep-link landing behavior.
 19. VoiceOver rotor/order/actions; Dynamic Type; Reduce Motion; dark/light/high contrast.
 
@@ -649,16 +668,31 @@ The following walkthrough must be performed on the current iPhone app in both li
 
 ## Delivery slices
 
-### Implemented foundation on 2026-08-28, parity pass on 2026-08-29
+### Implemented foundation on 2026-08-28, parity passes through 2026-09-01
 
 - `packages/client-core`: platform-neutral JSON transport, typed API facade, stable mobile client errors, snapshot indexing, active-run selection, home-row projection, and event refresh policy.
-- `apps/mobile`: iPhone-only Expo Router shell with current fixture and trusted-server modes, evidence-aligned unboxed home roster and standalone pinned marks, shared deterministic Bot avatar geometry, conversation, optimistic text/image send, native photo-library/camera/image-file selection with removable previews, long-press reactions/reply/copy, animated split reply composer, approval resolution, working indicator, full-screen local conversation/message search with exact-message routing, typed A2A presentation, brokered shared-computer watch/takeover, native Liquid Glass functional chrome with fallback, native SF Symbols, haptics, safe areas, keyboard avoidance, and light/dark semantic tokens.
+- `apps/mobile`: iPhone-only Expo Router shell with fixture and authenticated/explicitly-disabled server modes, evidence-aligned unboxed home roster and standalone pinned marks, shared deterministic Bot avatar geometry, virtualized conversation and native thread/activity/A2A sheets, optimistic messaging and native-backed attachments, bounded server search with exact-message routing, routine administration, plugin management, brokered shared-computer watch/takeover, native Liquid Glass functional chrome with fallback, native SF Symbols, haptics, safe areas, keyboard avoidance, and light/dark semantic tokens.
 - Partial/reconnecting snapshots are normalized at the portable client boundary so a missing server list cannot crash launch with an undefined `.length`, `.map`, or iterator access.
-- Native validation completed with stable Xcode `26.6`, iOS `26.5`, and an iPhone 17 Pro simulator: clean CocoaPods/codegen compile, Xcode build with zero errors, installation into the simulator, and a Metro bundle of `2,568` modules.
-- Simulator interaction checks cover the home roster, conversation, exact-message search routing, light/dark appearance, reaction count updates, safe-area behavior, deep-link back fallback, and keyboard/composer multiline growth. A clipped explicit-newline case found during this pass now has a line-count fallback in addition to native content-size measurement.
-- The dark-mode audit now covers live system appearance switching, cold launch, home, conversation, search/results, approval controls, reply expansion/dismissal, and multiline send state. The empty microphone uses the same high-contrast light treatment as send in dark mode while remaining a subtle inset control in light mode.
+- An earlier 2026-08-29 checkpoint completed a clean CocoaPods/codegen compile, Xcode build, installation, and a `2,568`-module Metro export on Xcode `26.6`, iOS `26.5`, and an iPhone 17 Pro simulator. Its interaction captures remain useful history, not current-tree bundle or acceptance evidence.
+- That earlier interaction pass covered the home roster, conversation, exact-message search routing, light/dark appearance, reaction count updates, safe-area behavior, deep-link back fallback, and keyboard/composer multiline growth. A clipped explicit-newline case found during that pass gained a line-count fallback in addition to native content-size measurement.
+- The dark-mode audit now covers live system appearance switching, cold launch, home, conversation, search/results, approval controls, reply expansion/dismissal, and multiline send state. The composer exposes the iOS keyboard for system dictation instead of presenting a nonfunctional microphone control.
 - The 2026-08-29 live-service pass confirmed real direct/group A2A history, a real server-brokered computer frame, takeover, input routing, and automatic release on close. A follow-up native upload pass selected a seeded photo, rendered the removable composer preview, sent an image-only direct message, persisted its data-URL metadata through the server, and rendered it after snapshot refresh (`plans/evidence/openbot-ios/live-image-upload.png`).
-- Still intentionally absent: production authentication, APNs, persisted drafts/cache, arbitrary non-image file attachments, dictation, routines UI, full VoiceOver/Dynamic Type audit, live Grok motion measurements, and signed physical-device validation. Camera capture remains implemented but requires physical-device testing.
+- The 2026-08-31 pass added owner authentication, bounded startup/history loading, last-known snapshot caching, persisted per-conversation drafts, arbitrary file attachments, create/edit/duplicate/hide/delete conversation controls, group mentions, routine list/pause/resume, appearance selection, and sign-out.
+- Historical checkpoint: the 2026-08-31 code-only pass had 16 mobile tests, a `2,493`-module export, and no usable Xcode/Simulator on its then-current host. Those numbers and that host limitation are superseded by the current validation record.
+- The authoritative 2026-09-01 result is [the native iOS Simulator validation](./39-ios-native-simulator-validation.md): current-tree Release build/install and CUA replay covered both auth modes, large roster/search/chat/thread/activity/routine/plugin/rich-content surfaces, and retained the established UI style. Its exact artifact, bundle, stress, test, diagnostic, and evidence-boundary details live there rather than being duplicated here.
+- The post-audit mobile parity pass adds native speech recognition with Grok-aligned
+  requesting/recording/processing/error states, timer, live level visualization, cancellation,
+  transcript insertion, and transcribe-and-send. It also adds cancellable/progress-aware attachment
+  uploads with retry and local previews, authenticated native Quick Look downloads, advanced
+  Markdown tables/math/Mermaid rendering, and the account/usage/about settings surfaces identified
+  by the desktop comparison. Plugin install/connect/access and routine create/edit/run/history were
+  already functional and were not duplicated.
+- Still intentionally absent or externally blocked: production APNs/EAS configuration, a maintained
+  XCTest/XCUITest app target, full VoiceOver/Dynamic Type/Reduce Motion/Reduce Transparency signoff,
+  live Grok motion measurements, production archive inspection, and signed physical-device
+  validation. Hardware-only microphone transcription/levels, camera/HEIC/iCloud, LAN prompt,
+  haptics, Keychain/provisioning, cellular/background transfer, memory pressure, energy, and thermal
+  behavior remain unproved.
 
 ### Slice 0: research harness
 
@@ -689,15 +723,15 @@ The following walkthrough must be performed on the current iPhone app in both li
 ### Slice 4: shared computer and routines
 
 - Secure viewer/takeover session.
-- Read-only routine detail and pause/resume.
+- Routine create/edit/pause/resume/run/history/delete with composite-trigger preservation.
 
 ### Slice 5: public-distribution hardening
 
-- Authenticated HTTPS control plane.
+- Production HTTPS and restricted origin policy for the implemented authenticated control plane.
 - Device/session management, secure viewer tokens, rate limits, and privacy review.
 - TestFlight accessibility, performance, crash, and lifecycle matrix.
 
-## Acceptance gates
+## Release acceptance gates
 
 - No screen claims pixel parity without a matched raw reference screenshot.
 - No animation claims parity without a frame-timed reference recording.
@@ -708,10 +742,12 @@ The following walkthrough must be performed on the current iPhone app in both li
 - Approval actions reconcile current status before mutation.
 - VoiceOver, Dynamic Type, Reduce Motion, dark mode, and 44-point targets pass the critical-flow audit.
 - The app never embeds or exposes the server's internal control token.
-- Public distribution is blocked until user auth, HTTPS, and scoped viewer authorization exist.
+- Public distribution is blocked until HTTPS, scoped viewer authorization, production signing/APNs,
+  and the physical-device accessibility/performance/lifecycle matrix are complete; owner user auth
+  is already implemented.
 
 ## Current blockers and unknowns
 
 1. Exact reference-app UI metrics, gesture timing, haptics, motion, and accessibility remain unknown until a current Grok Bot build is captured on a physical iPhone. Public marketing images are not sufficient for point-level claims.
-2. Simulator validation cannot prove camera, microphone, physical haptics, APNs, HEIC picker, device performance, or signed-device lifecycle behavior.
-3. Production mobile access needs an authenticated control plane. The current trusted-network API is acceptable only for a deliberately scoped development companion.
+2. The 2026-09-01 Simulator pass is comprehensive within its boundary, but cannot prove production APNs, real microphone transcription/levels, camera/photo-library/HEIC/iCloud behavior, LAN permission, physical haptics and Keychain, cellular/background transfer, memory pressure, energy/thermals, or device frame pacing.
+3. Production distribution still needs Expo/EAS project configuration, Apple team/signing and APNs credentials, a signed archive inspection, HTTPS deployment, restricted CORS/origin policy, rate limits, scoped shared-computer viewer authorization, and physical-device accessibility/lifecycle validation.

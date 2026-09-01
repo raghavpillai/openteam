@@ -33,7 +33,7 @@ The Electron client is a real packaged application rather than a mockup. The Com
 - fire-and-forget peer mail, priority interruption restricted to non-user work, duplicate-safe tool calls, and explicit reply wakes;
 - durable group rounds with immutable per-member deliveries, stable member ordering, silence semantics, and restart recovery;
 - persistent bot working folders and group-owned shared project folders, with group turns automatically rooted in the room project and explicit UI paths;
-- encrypted computer-scoped browser-cookie synchronization across separate Chromium processes and profiles;
+- encrypted computer-scoped live origin-state synchronization plus stopped native-profile publication, shared client certificates, owned-tab routing, and coordinated recovery across separate Chromium processes and profiles;
 - bot rail, group creation, member/round inspector, search, create/edit/archive, light/dark theme, runtime inspector, live screen preview, fullscreen noVNC viewer, app launchers, takeover, agent-input pause, approval cards, activity projection, stop, manual compact, offline/degraded states, and missing-credential gating;
 - one-command Compose startup, coordinated backup script, local packaging config, and operator documentation.
 - bidirectional `/home/openbot/agent-data` projections for profile, settings, avatar pointers, Markdown memory, per-bot skills, and routine definitions, with valid hand-edit import and deterministic regeneration;
@@ -57,7 +57,7 @@ The release was checked with:
 12. a live graphical smoke proving two displays (`:100`/`:101`), two loopback noVNC viewers, Chromium navigation, Thunar, terminal input, immediate shared-file visibility, successful model-driven `Screenshot`/`Computer` calls, and takeover rejection of agent input;
 13. an unsigned macOS arm64 DMG and ZIP package build.
 14. a live shared-project smoke proving two bots retained different Pi session IDs, ran from the same persisted group directory, and immediately read each other's files;
-15. a live browser-authority smoke proving cookie addition and deletion across separate Chromium profiles, encrypted durable-cookie recovery into a newly created bot after service restart, and removal of all temporary probe state.
+15. browser-authority tests proving cookie and origin-state reconciliation across separate Chromium peers, encrypted durable recovery, native profile hydration, client-certificate backup coverage, stale-profile seeding protection, and removal of temporary probe state.
 16. a live renderer smoke proving an agent turn completes after the client closes, a new client restores the canonical reply, and recent bot switches preserve unsent per-bot drafts.
 17. authenticated live `update_state` smokes proving exact-memory recall across turns, shared user-memory recall by a different bot, saved-skill projection, project provisioning through the computer service, avatar serving, duplicate-safe host calls, typed validation errors, and destructive actions for forget/delete/leave/clear.
 
@@ -67,6 +67,6 @@ OpenBot itself has no v0 authentication, but Pi's `openai-codex` provider still 
 
 ## Deliberately deferred
 
-The following remain post-v0 work and are not represented by fake controls: synchronization of non-cookie browser storage and saved passwords, WebRTC/Xpra-class streaming optimization, plugins/MCP marketplace, live external connector adapters and event-triggered routines, routine inspector/test-run UI, secure secret requests, voice, full attachment normalization, interactive widget handling, and public deployment/auth.
+The following remain post-v0 work and are not represented by fake controls: WebRTC/Xpra-class streaming optimization, plugins/MCP marketplace, live external connector adapters and event-triggered routines, routine inspector/test-run UI, voice, full attachment normalization, and public deployment/auth. Interactive widgets, secure secret requests, and computer-scoped non-cookie/profile browser state now ship.
 
 The graphical implementation and its explicit limits are recorded in `20-graphical-computer-implementation.md` and `21-shared-workspaces-and-browser-authority.md`; the remaining architecture plans continue in `10-grok-computer-research.md` through `17-durable-agent-queue-and-screens.md`.

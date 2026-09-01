@@ -1,0 +1,31 @@
+{
+  "measuredAt": "2026-08-31T23:14:00Z",
+  "runtime": "Electron 43.4.1 renderer through the Chrome DevTools Protocol",
+  "spreadsheetFixture": {
+    "rows": 10000,
+    "columns": 20,
+    "bytes": 1401308,
+    "previewHtmlCharacters": 303352
+  },
+  "mainThreadVariant": {
+    "parseLongTaskMs": 310.8,
+    "frameGapMs": 307.2
+  },
+  "workerVariant": {
+    "endToEndLatencyMs": 320.7,
+    "maximumFrameGapMs": 16.8,
+    "framesDuringParse": 20
+  },
+  "equivalence": {
+    "spreadsheetHtmlExactMatch": true,
+    "docxHtmlExactMatch": true,
+    "docxHtml": "<p>Worker DOCX parity</p>"
+  },
+  "lazyPayloads": {
+    "workerShellBytes": 373,
+    "docxClosureBytes": 500668,
+    "spreadsheetClosureBytes": 361925,
+    "fileAttachmentClosureBytes": 14987,
+    "startupBytes": 866585
+  }
+}

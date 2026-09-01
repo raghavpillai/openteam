@@ -1,7 +1,7 @@
 # Canonical context handoff
 
 Status: canonical future-agent entry point  
-Last updated: 2026-08-25
+Last updated: 2026-09-01
 
 ## Purpose
 
@@ -32,7 +32,7 @@ OpenBot is a self-hosted, desktop-first workspace for durable named bots.
 4. **PostgreSQL is the product-state authority.** It stores bots, canonical visible messages, mailboxes, runs, leases, group rounds, state, and audit projections. pg-boss supplies wake scheduling and retries without replacing domain inbox records.
 5. **The computer service is always on.** Pi, graphical Linux work surfaces, browser profiles, local shell/read, and scheduled work live in Compose. Electron may close without stopping them; it is required only for approval-gated `ExternalRead`/`ExternalShell` calls against the physical host.
 6. **One installation-scoped Linux computer.** Bots share `/workspace` and computer-level state. Each bot has a separate XFCE/Xvfb display and Chromium profile. Screens and bot folders organize work; they are not security boundaries.
-7. **Browser cookies are computer-scoped.** Separate Chromium profiles synchronize ordinary cookies through the encrypted BrowserBroker. Other browser storage and saved passwords are not yet synchronized.
+7. **Browser state is computer-scoped.** Separate Chromium profiles synchronize live origin state through the encrypted BrowserBroker and safely exchange native profile databases through a stopped-profile authority. Client certificates use the shared NSS store; agent browser control is limited to explicitly leased tabs.
 8. **Explicit visible delivery.** `SendMessage` creates user-visible bot output. Dynamically discovered `SendToAgent` is asynchronous fire-and-forget peer/group delivery. `ReactToMessage` applies one idempotent emoji tapback to an addressable user message. Plain assistant text remains internal activity.
 9. **Durable state is separate from compaction.** Pi owns context compaction. `update_state` owns curated memory, scheduled routines, skills, profile/settings, connector disconnect state, projects, and avatar state.
 10. **The direct native catalog is closed and explicit.** Only the ten definitions in `packages/contracts/src/native-tools.json` are direct tools. `Computer` and `SendToAgent` are in the first-party `openbot` dynamic namespace. The separate `cursor` dynamic namespace vendors and registers only nine approved compatibility definitions from the supplied catalog: `TodoWrite`, four subagent controls, two agent-administration tools, and two channel-administration tools. The remaining Cursor tools are not registered or discoverable.
@@ -48,7 +48,7 @@ OpenBot is a self-hosted, desktop-first workspace for durable named bots.
 | Group chats | Deterministic ordered rounds, per-member cursors, silence | `19-agent-interaction-implementation.md` |
 | Graphical computer | XFCE, Xvfb, Chromium, Thunar, terminal, noVNC, structured agent input | `20-graphical-computer-implementation.md` |
 | Shared workspaces | Shared `/workspace`, bot folders, group project folders | `21-shared-workspaces-and-browser-authority.md` |
-| Browser authority | Separate browser UIs with encrypted shared-cookie broker | `21-shared-workspaces-and-browser-authority.md` |
+| Browser authority | Separate browser UIs with encrypted live origin-state broker, stopped-profile authority, shared NSS certificates, and owned-tab routing | `21-shared-workspaces-and-browser-authority.md` |
 | Desktop UI | Grok-inspired shell using shadcn and AI Elements | `22-grok-parity-and-client-performance.md` |
 | Interactive desktop QA | Click-to-control noVNC, leases, pause, restart behavior | `23-interactive-desktop-and-qa.md` |
 | Client performance | Small client snapshot, memoization, warm inspectors, profiling | `24-performance-optimization.md` |
@@ -103,7 +103,7 @@ Specific supersessions:
 
 - every live-runtime reference to Codex app-server, Codex threads, `thread/start`, or `thread/resume` is superseded by Pi sessions unless a document explicitly labels it historical;
 - the old headless-only computer scope is superseded by the shipped XFCE/noVNC environment;
-- the old “shared browser cookies remain unimplemented” statement is superseded by BrowserBroker, subject to its documented non-cookie limits;
+- the old cookie-only browser statement is superseded by the live BrowserBroker, stopped-profile authority, shared NSS certificate store, and owned-tab routing;
 - agent-to-agent messaging and group chats are shipped, not merely post-v0 proposals;
 - durable state and schedule routines are shipped through `update_state`; non-cron event triggers remain planned;
 - the exact ten native tools are shipped; direct Pi built-ins stay disabled, while the `cursor` namespace exposes only the approved nine-tool Todo/subagent/agent/channel compatibility subset;
@@ -114,7 +114,6 @@ Specific supersessions:
 - external event triggers and routine inspector/test-run UI;
 - plugin marketplace, MCP account lifecycle, grants, and additional dynamic namespaces;
 - remaining rich widget/secure secret-request behavior;
-- browser local-storage/password synchronization and CDP target routing;
 - public deployment, multi-user auth, and authorization;
 - attachments/voice beyond the currently implemented delivery subset;
 - production-grade remote-screen transport beyond noVNC;

@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "measuredAt": "2026-09-01T03:14:04.093Z",
+  "measurementClass": "alternating local Docker API A/B on the final server image",
+  "serverImageId": "734af988b7eb",
+  "fixture": {
+    "bots": 1000,
+    "channels": 1100,
+    "channelMessages": 32006,
+    "migrationsApplied": 34,
+    "databaseStorage": "Docker tmpfs"
+  },
+  "targetPath": "/api/v0/client-runtime",
+  "sampleCount": 100,
+  "warmupCount": 10,
+  "requestOrder": "alternating",
+  "responseParity": {
+    "bytes": 100,
+    "sha256": "806b5ccf3e727ef71e08068c4bc562298f676183e5ded436859bb9bb44c63352",
+    "exact": true
+  },
+  "results": [
+    {
+      "label": "disabled",
+      "endToEndMs": {
+        "min": 0.31,
+        "p50": 0.571167,
+        "p95": 1.305625,
+        "max": 3.038375,
+        "mean": 0.695587
+      }
+    },
+    {
+      "label": "required",
+      "endToEndMs": {
+        "min": 1.251666,
+        "p50": 1.958417,
+        "p95": 4.225209,
+        "max": 4.770625,
+        "mean": 2.261404
+      }
+    }
+  ],
+  "requiredModeOverheadMs": {
+    "p50": 1.38725,
+    "p95": 2.919584,
+    "mean": 1.565817
+  },
+  "notes": [
+    "Both arms used the same final server image, database fixture, stub computer, and protected response body.",
+    "The required arm used a real Better Auth username/password bearer session; the disabled arm sent no bearer.",
+    "This is loopback end-to-end latency, not cellular or device radio timing."
+  ]
+}

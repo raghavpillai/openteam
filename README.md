@@ -57,6 +57,17 @@ computer gateway ── embedded Pi AgentSession
 
 Postgres remains a product projection for mailboxes, visible chat, group delivery, run audit, and client replay. Grok-compatible `store.db` and `conversation-blobs.db` files retain per-Bot prompt snapshots, transcript rows, and content-addressed message envelopes; Pi's JSONL/context archive retains runtime continuation and adopted summary reconstruction. All wake types resume the Bot's home context from `/workspace`.
 
+Shared code follows strict dependency layers:
+
+- `packages/contracts` owns serializable API, event, routine, preference, capability, and internal service protocol types plus boundary parsers.
+- `packages/client-core` is a platform-neutral HTTP/SSE API client. It contains transport behavior only, not product workflows or UI state.
+- `packages/product-core` owns pure client-side projections such as snapshot indexing, message/thread derivation, and reconciliation.
+- `packages/design-tokens` owns renderer-neutral theme values and avatar artwork data; desktop and mobile render those values with their own platform primitives.
+- desktop, iOS, and landing remain clients: they own platform UI, lifecycle, storage, and integration adapters but do not import database or server-domain code.
+- `packages/messaging` and the server/worker/computer apps retain domain execution, persistence, orchestration, and privileged tools.
+
+`bun run check:architecture` enforces these import directions, contract/database enum parity, and the absence of server tool catalogs from the built mobile bundle.
+
 ## Install the released server stack
 
 Docker with Compose is the only system prerequisite. Install the versioned server, worker,
@@ -73,9 +84,9 @@ npx @openbot/cli install
 ```
 
 The installer verifies Docker and the host, generates private installation secrets, verifies the
-release bundle checksum, pulls prebuilt `linux/amd64` or `linux/arm64` images, starts the Compose
-project in the background, and waits for OpenBot health. The API and screen viewers remain bound to
-loopback. Run diagnostics and manage the installation with:
+release bundle checksum and Sigstore identity, pulls digest-pinned `linux/amd64` or `linux/arm64`
+images, starts the Compose project in the background, and waits for exact-release readiness. The API
+and screen viewers remain bound to loopback. Run diagnostics and manage the installation with:
 
 ```sh
 bunx --bun @openbot/cli doctor
@@ -89,20 +100,53 @@ bunx --bun @openbot/cli update
 bunx --bun @openbot/cli uninstall
 ```
 
-After installation, `openbot setup` asks whether the server should be local or available on a
-private network, creates the single OpenBot username/password account, then offers to start OpenAI
-Codex sign-in. Password input is hidden, is never written to the installation `.env`, and is hashed
-by Better Auth in Postgres. `openbot account update` interactively changes both credentials;
+The Electron app exposes the same managed update from **Settings → Updates**. For a loopback server
+installed in the current user's OpenBot directory, the desktop runs its bundled CLI updater. For a
+server on another computer, enter an SSH destination such as `owner@openbot-host`; OpenBot uses the
+operating system SSH agent, requires an existing `known_hosts` entry, and runs the same CLI without
+storing a password or granting the web server Docker access. If SSH has not been configured, the UI
+offers a copyable command. Update progress covers verification, backup, image pull, restart,
+readiness, and configuration rollback. The CLI persists the latest job record for diagnostics and
+reconnecting management tools.
+
+Before changing the stack, the updater acquires a cross-process lock, validates free disk and the
+next Compose configuration, rejects unexpected downgrades or prereleases, and writes a PostgreSQL
+dump under the installation's `backups` directory. A successful update must report `ready` from the
+requested release after Compose has confirmed the server, worker, computer, database, and migration
+states. Patch releases in a compatible protocol line are advisory rather than blocking; the client
+shows a blocking banner only when the client, server, or API protocol falls outside the published
+compatibility window. Signed desktop releases download in-app and install after an explicit restart.
+
+After installation, the staged `openbot setup` flow offers public HTTPS, public HTTP, private
+network, and loopback access before creating the single OpenBot username/password account and
+starting OpenAI Codex sign-in. Public HTTPS is the fresh-install default: point a domain's A/AAAA
+record at the VM and open inbound TCP ports 80 and 443, and the bundled Caddy container obtains,
+renews, and terminates TLS automatically. The VM does not need an existing certificate.
+
+Public HTTP works with a bare VM IP and the configured API port, but setup requires an explicit
+acknowledgement because passwords and bearer sessions travel without encryption; iOS rejects that
+public cleartext connection. In both Internet-facing modes, the raw noVNC range stays bound to
+loopback. Private-network mode can expose it only to a trusted LAN or VPN.
+
+Password input is hidden, is never written to the installation `.env`, and is hashed by Better Auth
+in Postgres. `openbot account update` interactively changes both credentials;
 `--username <name>` changes only the username, `--password` securely prompts for only a new
 password, and the flags can be combined. `openbot password reset` remains a password-only alias.
-Every credential change signs out all desktop and mobile sessions. Use `openbot setup --advanced` to override the hostname, port,
-time zone, model, reasoning effort, or concurrent bot job limit.
+Every credential change signs out all desktop and mobile sessions. Use `openbot setup --advanced`
+to override the hostname, local API port, time zone, model, reasoning effort, or concurrent bot job
+limit.
+
+OpenBot defaults to `OPENBOT_AUTH_MODE=required`. Desktop, iPhone, and headless clients sign in
+with the owner username/password and then use the resulting session; no separate API token is
+needed. A fully trusted, isolated deployment may explicitly set `OPENBOT_AUTH_MODE=disabled` to
+remove product API authentication. Disabled mode grants every client complete API access, so never
+use it on an internet-facing host, an untrusted LAN, or behind a proxy that exposes the API.
 
 `uninstall` preserves configuration and Docker volumes so `start` can recover the same installation.
 `uninstall --purge` permanently deletes PostgreSQL, Pi sessions and OAuth, agent data, and workspace
-files. Released Compose configuration and checksums come from the matching GitHub Release; container
-images come from GHCR. Model authentication remains an onboarding step and is reported separately by
-`doctor`.
+files. Released Compose configuration, Sigstore bundles, and checksums come from the matching GitHub
+Release; immutable container digests resolve to GHCR. Model authentication remains an onboarding
+step and is reported separately by `doctor`.
 
 ## Start the development stack
 
@@ -112,8 +156,8 @@ Prerequisites: Docker Desktop or another Docker Compose implementation, plus [Bu
 cp .env.example .env
 ```
 
-Replace `OPENBOT_CONTROL_TOKEN` and `OPENBOT_AUTH_SECRET` with different random values, for example
-from `openssl rand -hex 32`, then build and start the persistent services:
+Replace `OPENBOT_CONTROL_TOKEN`, `OPENBOT_AUTH_SECRET`, and `OPENBOT_PROXY_SECRET` with different
+random values, for example from `openssl rand -hex 32`, then build and start the persistent services:
 
 Set `OPENBOT_TIME_ZONE` to the installation's IANA time zone (for example,
 `America/New_York`). Desktop user messages also carry the viewer's detected IANA zone so bot turns
@@ -303,4 +347,4 @@ window.openbotPerformance.clear();
 - AI Elements source revision: `apps/desktop/AI_ELEMENTS_REVISION.md`
 - Canonical migration decision: `plans/27-pi-agent-runtime.md`
 
-`packages/codex-client` is retained only as unused migration history; no runtime service imports it, no image installs Codex CLI, and all live turns use the embedded Pi SDK.
+`packages/codex-client` is retained only as unused migration history and is excluded from the active Bun/Turbo workspace; no runtime service imports it, no image installs Codex CLI, and all live turns use the embedded Pi SDK.

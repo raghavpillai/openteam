@@ -1,0 +1,45 @@
+{
+  "measuredAt": "2026-09-01T00:33:16.709Z",
+  "targetPath": "/api/v0/client-runtime",
+  "sampleCount": 100,
+  "warmupCount": 10,
+  "requestOrder": "alternating",
+  "responseParity": {
+    "bytes": 100,
+    "sha256": "806b5ccf3e727ef71e08068c4bc562298f676183e5ded436859bb9bb44c63352",
+    "exact": true
+  },
+  "results": [
+    {
+      "label": "disabled",
+      "baseUrl": "http://127.0.0.1:8877",
+      "bytes": [100],
+      "sha256": ["806b5ccf3e727ef71e08068c4bc562298f676183e5ded436859bb9bb44c63352"],
+      "endToEndMs": {
+        "min": 0.3852080000000342,
+        "p50": 0.5799590000000308,
+        "p95": 0.9516250000000355,
+        "max": 2.290666999999985,
+        "mean": 0.6271137200000004
+      }
+    },
+    {
+      "label": "required",
+      "baseUrl": "http://127.0.0.1:8878",
+      "bytes": [100],
+      "sha256": ["806b5ccf3e727ef71e08068c4bc562298f676183e5ded436859bb9bb44c63352"],
+      "endToEndMs": {
+        "min": 1.1302080000000387,
+        "p50": 1.7136670000001004,
+        "p95": 3.2819589999999152,
+        "max": 5.838374999999985,
+        "mean": 1.9408912399999998
+      }
+    }
+  ],
+  "requiredModeOverheadMs": {
+    "p50": 1.1337080000000697,
+    "p95": 2.33033399999988,
+    "mean": 1.3137775199999995
+  }
+}

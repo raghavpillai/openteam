@@ -1,0 +1,67 @@
+{
+  "generatedAt": "2026-09-01T00:53:55.983Z",
+  "command": "NO_COLOR=1 bun audit --json --audit-level=high",
+  "exitCode": 1,
+  "findings": {
+    "decode-uri-component": [
+      {
+        "id": 1147955,
+        "url": "https://github.com/advisories/GHSA-vcc3-ghjq-m6fr",
+        "title": "decode-uri-component: Denial of service via exponential decoding of malformed percent-encoded input",
+        "severity": "moderate",
+        "vulnerable_versions": "<=0.4.2",
+        "cwe": ["CWE-400", "CWE-405", "CWE-407", "CWE-1176"],
+        "cvss": {
+          "score": 0,
+          "vectorString": null
+        }
+      }
+    ],
+    "image-size": [
+      {
+        "id": 1138808,
+        "url": "https://github.com/advisories/GHSA-w3rx-r6r6-pgpr",
+        "title": "image-size: ICNS parser allows denial of service through an infinite loop",
+        "severity": "high",
+        "vulnerable_versions": "<=2.0.2",
+        "cwe": ["CWE-835"],
+        "cvss": {
+          "score": 7.5,
+          "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H"
+        }
+      },
+      {
+        "id": 1138809,
+        "url": "https://github.com/advisories/GHSA-5p2g-fcmc-qvqq",
+        "title": "image-size: JXL and HEIF parsers allow denial of service through infinite loops",
+        "severity": "high",
+        "vulnerable_versions": "<=2.0.2",
+        "cwe": ["CWE-835"],
+        "cvss": {
+          "score": 7.5,
+          "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H"
+        }
+      }
+    ],
+    "uuid": [
+      {
+        "id": 1119441,
+        "url": "https://github.com/advisories/GHSA-w5hq-g745-h8pq",
+        "title": "uuid: Missing buffer bounds check in v3/v5/v6 when buf is provided",
+        "severity": "moderate",
+        "vulnerable_versions": "<11.1.1",
+        "cwe": ["CWE-787", "CWE-1285"],
+        "cvss": {
+          "score": 7.5,
+          "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:H/A:N"
+        }
+      }
+    ]
+  },
+  "scope": {
+    "highSeverityPackages": ["image-size"],
+    "remainingHighPath": "@react-native/metro-config -> metro@0.87.0 -> image-size@1.2.1",
+    "remainingHighScope": "mobile React Native build/development tooling; not present in the packaged desktop ASAR or server, worker, or computer runtime graphs",
+    "shippedDesktopServerWorkerComputerHighFindings": 0
+  }
+}

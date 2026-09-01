@@ -1,0 +1,11 @@
+{
+  "generatedBytes": 134217728,
+  "inlineBytes": 100000,
+  "inlineBudget": 100000,
+  "logBytes": 67107916,
+  "logBudget": 67108864,
+  "status": "failed",
+  "exitCode": null,
+  "elapsedMs": 29.101125000000003,
+  "peakRssBytes": 105349120
+}

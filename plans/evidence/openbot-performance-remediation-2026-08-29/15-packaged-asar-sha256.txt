@@ -1,0 +1,2 @@
+efaf77e404091fff8a593356f972a19ed891d6d11f505e89ae965d2a732ab82b  /Users/raghav/OpenBot/apps/desktop/release/mac-arm64/OpenBot.app/Contents/Resources/app.asar
+efaf77e404091fff8a593356f972a19ed891d6d11f505e89ae965d2a732ab82b  /tmp/openbot-perf-cua-app.tCizWg/OpenBot Audit.app/Contents/Resources/app.asar

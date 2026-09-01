@@ -1,0 +1,2 @@
+{"arm":"legacy","inputBytes":10485760,"lines":5242881,"outputBytes":100014,"elapsedMs":343.743917,"rssDeltaBytes":909213696,"rssAfterBytes":939589632}
+{"arm":"bounded","inputBytes":10485760,"lines":5242881,"outputBytes":100014,"elapsedMs":37.533166,"rssDeltaBytes":25214976,"rssAfterBytes":55459840}

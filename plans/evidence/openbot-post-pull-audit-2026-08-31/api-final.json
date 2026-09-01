@@ -1,0 +1,75 @@
+{
+  "baseUrl": "http://127.0.0.1:8877",
+  "measuredAt": "2026-09-01T00:33:24.485Z",
+  "sampleCount": 10,
+  "warmupCount": 2,
+  "transcriptChannelId": "00afa798-6702-a4d8-ad9b-08737550b907",
+  "results": [
+    {
+      "label": "bootstrap",
+      "path": "/api/v0/client-bootstrap",
+      "timingName": "bootstrap",
+      "bytes": [1555506],
+      "endToEndMs": {
+        "min": 31.501582999999982,
+        "p50": 35.780542000000025,
+        "p95": 40.78162500000002,
+        "max": 40.78162500000002,
+        "mean": 36.56931250000001
+      },
+      "serverMs": {
+        "min": 25.64,
+        "p50": 29.78,
+        "p95": 35.21,
+        "max": 35.21,
+        "mean": 30.415
+      }
+    },
+    {
+      "label": "runtime",
+      "path": "/api/v0/client-runtime",
+      "bytes": [100],
+      "endToEndMs": {
+        "min": 0.3781249999999545,
+        "p50": 0.4409169999998994,
+        "p95": 1.7277910000000247,
+        "max": 1.7277910000000247,
+        "mean": 0.6007956000000035
+      },
+      "serverMs": null
+    },
+    {
+      "label": "history-100",
+      "path": "/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?limit=100",
+      "bytes": [40920],
+      "endToEndMs": {
+        "min": 1.3832499999999754,
+        "p50": 1.5711250000000518,
+        "p95": 2.8427919999999176,
+        "max": 2.8427919999999176,
+        "mean": 1.743549999999982
+      },
+      "serverMs": null
+    },
+    {
+      "label": "compatibility-snapshot",
+      "path": "/api/v0/client-snapshot",
+      "timingName": "snapshot",
+      "bytes": [14879358],
+      "endToEndMs": {
+        "min": 133.719292,
+        "p50": 138.21620800000005,
+        "p95": 154.65954199999987,
+        "max": 154.65954199999987,
+        "mean": 139.31335839999997
+      },
+      "serverMs": {
+        "min": 72.41,
+        "p50": 76.18,
+        "p95": 94.17,
+        "max": 94.17,
+        "mean": 78.216
+      }
+    }
+  ]
+}

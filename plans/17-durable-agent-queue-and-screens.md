@@ -3,7 +3,7 @@
 Status: durable queue, ScreenBroker, and BrowserBroker implemented  
 Last updated: 2026-08-25
 
-> Runtime update: each durable actor now owns one Pi session rather than one Codex thread. The Postgres/pg-boss mailbox model is unchanged. The encrypted computer-scoped cookie broker described as future work in older passages now ships; non-cookie browser state remains deferred. See `21-shared-workspaces-and-browser-authority.md` and `27-pi-agent-runtime.md`.
+> Runtime update: each durable actor now owns one Pi session rather than one Codex thread. The Postgres/pg-boss mailbox model is unchanged. Computer-scoped browser state now combines an encrypted live origin-state broker, a stopped-profile authority, shared NSS certificates, and bot-owned target routing. See `21-shared-workspaces-and-browser-authority.md` and `27-pi-agent-runtime.md`.
 
 ## Decision
 
@@ -109,7 +109,7 @@ Separate bot containers mounting the same `/workspace` would share files, but in
 
 ## Selected OpenBot computer boundary
 
-Use one Compose `computer` service per installation in the no-auth v0. The durable core, `ScreenBroker`, and encrypted cookie `BrowserBroker` share this boundary without changing bot, filesystem, or queue identity:
+Use one Compose `computer` service per installation in the no-auth v0. The durable core, `ScreenBroker`, encrypted live origin-state `BrowserBroker`, stopped-profile authority, and shared NSS store use this boundary without changing bot, filesystem, or queue identity:
 
 ```text
 computer service
@@ -126,7 +126,7 @@ computer service
     └── Bot B windows/targets
 ```
 
-The completed first spike chose one Xvfb-backed XFCE desktop per bot inside the same computer container. This delivered correct independent pixels, focus, capture, input, and shared-file behavior quickly. Chromium profiles remain bot-scoped to prevent concurrent profile locking/corruption, while BrowserBroker synchronizes ordinary cookies through loopback CDP and an encrypted computer-scoped jar. Local storage, IndexedDB, saved passwords, extensions, and explicit focus-independent target routing remain outside that parity boundary.
+The completed first spike chose one Xvfb-backed XFCE desktop per bot inside the same computer container. This delivered correct independent pixels, focus, capture, input, and shared-file behavior quickly. Chromium profiles remain separately writable to prevent concurrent locking/corruption. BrowserBroker synchronizes live origin state over loopback CDP, BrowserProfileAuthority publishes native profile databases only after a browser stops, the Linux NSS certificate database is shared by the computer user, and BrowserUseSession routes actions only to bot-owned tabs.
 
 If one shared compositor cannot provide safe parallel focus/input, test nested compositors or virtual displays while preserving a central browser/session broker. Do not solve screen separation by silently changing filesystem, credential, or cookie scope.
 

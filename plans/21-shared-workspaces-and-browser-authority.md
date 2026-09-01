@@ -1,7 +1,7 @@
 # Shared workspaces and browser authority
 
 Status: implemented; live validation recorded during the v0 acceptance pass  
-Last updated: 2026-08-25
+Last updated: 2026-09-01
 
 > Runtime update: every reference below to a durable Codex thread now maps to the bot's durable Pi session. Filesystem, group cwd, screen, and BrowserBroker semantics are unchanged. See `27-pi-agent-runtime.md`.
 
@@ -14,7 +14,7 @@ OpenBot now matches the useful workspace semantics inferred from the supplied Gr
 - every group owns one durable shared project folder;
 - all bots can see the full `/workspace` tree;
 - every bot has a separate XFCE display and Chromium UI;
-- ordinary browser sign-in cookies belong to the computer and synchronize across those separate Chromium processes.
+- browser identity and durable profile state belong to the computer while each bot keeps a separate safe Chromium process and UI.
 
 This is why multiple bots can have different screens and Chrome windows yet immediately see the same files. Screens are views into one computer, not containers with separate filesystems.
 
@@ -41,7 +41,7 @@ Pi still resumes the same bot session. Switching cwd for a group turn does not f
 
 The Electron inspector calls these paths **Working folder** and **Shared project folder**. It explicitly says the full workspace is shared so users do not mistake organizational folders for access control.
 
-## Separate browser UIs, shared sessions
+## Separate browser UIs, computer-scoped profile authority
 
 Pointing multiple live Chromium processes at one writable profile is unsafe because Chromium uses process-singleton locks and assumes one profile owner. OpenBot therefore keeps:
 
@@ -51,29 +51,25 @@ Pointing multiple live Chromium processes at one writable profile is unsafe beca
 
 for each bot. The browser windows, history, tabs, downloads, local storage, and settings are independent. Each process receives a unique loopback-only remote-debugging port derived from its stable screen slot.
 
-`BrowserBroker` is the computer-scoped authority for cookies:
+`BrowserBroker` is the encrypted live authority for origin state:
 
 1. discover the bot Chromium browser through its loopback DevTools endpoint;
-2. read its current cookie set;
-3. merge newly observed cookies into the computer jar;
-4. propagate additions, changes, and deletions to every attached bot browser;
-5. persist only durable cookies in an AES-256-GCM encrypted file;
+2. reconcile cookies, local storage, IndexedDB, Cache Storage, and service-worker registrations;
+3. propagate additions, changes, and deletions to attached pages for the same origin;
+4. preserve structured-clone IndexedDB values, including binary/blob/container types;
+5. persist durable cookies and origin state in one AES-256-GCM encrypted authority file;
 6. retain session cookies in memory while the computer service is alive;
-7. reconcile one final time before a screen is destroyed or recreated.
+7. reconcile one final time before a browser or screen is destroyed or recreated.
+
+`BrowserProfileAuthority` covers the profile databases that Chromium cannot safely share live. After a browser stops, it atomically publishes Session Storage, settings, bookmarks, history, session tabs, extensions and extension state, saved-password/Web Data databases, and related portable state. Before another bot browser starts, that stopped-profile snapshot is hydrated into its separate profile. A pre-authority profile may seed an empty authority once, but a dormant stale profile cannot replace an existing snapshot merely by launching. Linux client certificates already live at the shared computer-user NSS path (`~/.pki/nssdb`). Chrome uses a deterministic computer-local password backend so copied login databases remain decryptable by the other bot profiles.
+
+Agent page control is separately scoped: `BrowserUseSession` leases only pages it creates, assigns stable `viewId` values, follows owned popups, and never adopts unrelated human or bot tabs. Browser-level CDP storage and target-management commands remain denied to model-issued calls; only the trusted broker can route them.
 
 Neither DevTools ports nor the encryption key are exposed through Compose. GUI child environments remove the control token, database URL, and OpenAI API key. The encrypted jar and key remain inside the private `openbot_computer_home` volume and are included in coordinated backups.
 
-## Deliberate limits
+## Concurrency semantics
 
-The browser broker synchronizes cookies, not arbitrary profile databases. It does not yet copy:
-
-- local storage or IndexedDB;
-- service-worker caches;
-- extensions and extension state;
-- saved passwords, passkeys, or client certificates;
-- browser preferences, bookmarks, or open tabs.
-
-Most cookie-based sessions should carry across bot screens. Sites that bind login to another browser store may require per-bot authentication until a narrowly scoped adapter exists. OpenBot must not claim full browser-profile parity for those sites.
+Origin state synchronizes live across attached pages. Native Chromium profile databases use stopped-profile publication because copying LevelDB/profile files while two Chromium owners are writing them can corrupt both profiles. A browser that is already running receives live origin state immediately; native settings, extensions, password databases, and restored tabs are applied on its next browser launch. If two running profiles change the same native preference, the last safely stopped browser becomes the next published snapshot.
 
 ## Persistence and recovery
 
@@ -84,7 +80,7 @@ The following remain one coordinated recovery set:
 - Postgres records and group directory pointers;
 - shared workspace volume;
 - Pi session tree in the computer-home volume;
-- computer home, including browser profiles and encrypted cookie authority.
+- computer home, including browser profiles, encrypted live authority, stopped-profile authority, and the shared NSS certificate store.
 
 Restoring only one store can produce a valid-looking UI with missing context, files, or browser state and must not be presented as a successful recovery.
 
@@ -102,3 +98,5 @@ The 2026-08-24 live Compose pass verified:
 8. After restarting the computer service, a fresh Gamma profile received a durable cookie restored from the encrypted authority.
 9. Authority files were mode `0600`, plaintext probes were absent, and cleanup left zero test cookies.
 10. Compose health and the full repository check remained green after the implementation.
+
+The 2026-09-01 expansion added focused coverage for all live origin-state families, stopped-profile publish/hydrate, explicit bot-owned tab routing, and coordinated backup of the encrypted authority, native authority, and NSS database.

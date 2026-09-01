@@ -92,14 +92,7 @@ export function MobileRichMessageCard({
                 </Text>
               </View>
               <View style={styles.optionCopy}>
-                <Text
-                  style={[
-                    styles.optionLabel,
-                    { color: option.style === "danger" ? theme.danger : theme.text },
-                  ]}
-                >
-                  {option.label}
-                </Text>
+                <Text style={[styles.optionLabel, { color: theme.text }]}>{option.label}</Text>
                 {option.description ? (
                   <Text style={[styles.help, { color: theme.textMuted }]}>
                     {option.description}
@@ -448,10 +441,10 @@ const styles = StyleSheet.create({
     width: "100%",
     maxWidth: 520,
     alignSelf: "flex-start",
-    borderRadius: 20,
+    borderRadius: 16,
     overflow: "hidden",
-    padding: 14,
-    gap: 12,
+    padding: 12,
+    gap: 10,
   },
   cardHeading: {},
   headingRow: { flexDirection: "row", alignItems: "flex-start", gap: 8 },

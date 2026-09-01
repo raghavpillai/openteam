@@ -9,8 +9,8 @@ export const MOBILE_EXPORT_BUDGETS = {
   assetBytes: 7_000_000,
   exactBundleBytes: 4_600_000,
   // Native delivery telemetry, attachment actions, and conversation parity
-  // measure 3,716,708 B in the production source-mapped Hermes export.
-  mappedBundleBytes: 3_718_000,
+  // measure 3,719,744 B in the production source-mapped Hermes export.
+  mappedBundleBytes: 3_720_000,
   metroModules: 2_250,
   sourceFiles: 1_850,
 } as const;

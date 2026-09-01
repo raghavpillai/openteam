@@ -91,7 +91,9 @@ frames or lost anchors is a failed trade.
 - No duplicate/missing IDs within a continuous window; gaps must be explicit.
 - An older-page load, context expansion, live refresh, or direction reversal must retain the
   reported visible rows. First-settled anchor error should be at most 1 px, with the row still
-  present after one second.
+  present after one second. The one-second maximum-error value is judged only when no later user
+  scroll occurs inside that sampling window; intentional direction changes move the row and are
+  not anchor drift.
 - Search opens the requested target, can expand in both directions, and can return immediately to
   the cached latest tail.
 - No unintended visual, motion, keyboard-focus, screen-reader-order, reply, thread, composer,

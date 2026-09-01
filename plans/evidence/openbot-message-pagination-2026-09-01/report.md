@@ -62,6 +62,24 @@ candidate proving all three together:
 One indivisible oversized row or a mandatory visible protected span may create a reported soft byte
 excess. Other lanes are evicted first; an ordinary disjoint union is a hard cap.
 
+## Industry pattern check
+
+The design matches the pattern used by mature chat clients: cursor-paginated transport, a bounded
+client cache, and DOM virtualization are separate controls. Slack's published lazy-loading work
+describes why ever-growing local caches become counterproductive; Discord exposes `before`,
+`after`, and `around` navigation for message windows; TanStack's current infinite-query and chat
+virtualization guidance explicitly supports bounded pages and stable prepend/end anchoring.
+
+- [Slack: making Slack faster by being lazy](https://slack.engineering/making-slack-faster-by-being-lazy/)
+- [Discord message API](https://docs.discord.com/developers/resources/message)
+- [TanStack infinite-query guide](https://tanstack.com/query/latest/docs/framework/react/guides/infinite-queries)
+- [TanStack Virtual chat guide](https://tanstack.com/virtual/latest/docs/chat)
+- [Electron performance guidance](https://www.electronjs.org/docs/latest/tutorial/performance)
+
+OpenBot keeps its custom store and virtual list rather than adding a data-fetching dependency, but
+uses the same boundaries. Message transformation remains in the renderer, the Electron main process
+does not receive full history snapshots, and no synchronous IPC was introduced.
+
 ## Deterministic A/B
 
 The full JSON is [`summary.json`](./summary.json); exact method and limitations are in

@@ -107,7 +107,7 @@ const startupCssBytes = result.renderer.startup.files
 // 178.8 KB rather than moving established surfaces behind first-open boundaries.
 atMost("startup CSS bytes", startupCssBytes, 166_000);
 // Durable recovery, viewport-aware history, scroll restoration, and thread
-// retention bring the complete renderer to 15,568,972 bytes. Keep less than
+// retention bring the complete renderer to 15,569,275 bytes. Keep less than
 // 0.007% headroom while the compressed, startup, and nested
 // Shiki/Mermaid ceilings continue to guard delivery and first interaction.
 atMost("renderer bytes", result.renderer.bytes, 15_570_000);

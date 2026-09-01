@@ -19,6 +19,7 @@ import {
   type SetupPrompter,
   selectionActionForKey,
   setupCommand,
+  supportsInteractiveSelection,
 } from "../src/setup";
 
 class AnswerPrompter implements SetupPrompter {
@@ -75,6 +76,12 @@ afterEach(() => {
 });
 
 describe("interactive setup", () => {
+  test("falls back to typed prompts in terminals without cursor controls", () => {
+    expect(supportsInteractiveSelection({ TERM: "dumb" })).toBe(false);
+    expect(supportsInteractiveSelection({ TERM: "xterm-256color" })).toBe(true);
+    expect(supportsInteractiveSelection({})).toBe(true);
+  });
+
   test("maps all four arrow keys, number jumps, shortcuts, Enter, and Ctrl-C", () => {
     const options = [{ shortcut: "y" }, { shortcut: "n" }, {}];
 

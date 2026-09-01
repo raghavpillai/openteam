@@ -88,6 +88,10 @@ export interface SetupCommandOptions {
   ownerConfigured?: boolean;
 }
 
+export const supportsInteractiveSelection = (
+  environment: NodeJS.ProcessEnv = process.env
+): boolean => environment.TERM?.toLowerCase() !== "dumb";
+
 const requireInstallation = (paths: InstallationPaths): InstallationManifest => {
   if (!installationExists(paths)) {
     throw new CliError(
@@ -121,16 +125,19 @@ export const createTerminalPrompter = (): SetupPrompter => {
       if (secret) process.stdout.write("\n");
     }
   };
-  return {
+  const prompter: SetupPrompter = {
     question: (message) => question(message),
     secret: (message) => question(message, true),
-    select: <Value extends string>(
+    close: () => undefined,
+  };
+  if (supportsInteractiveSelection()) {
+    prompter.select = <Value extends string>(
       message: string,
       options: readonly { label: string; value: Value; shortcut?: string }[],
       current: Value
-    ) => terminalSelect(message, options, current),
-    close: () => undefined,
-  };
+    ) => terminalSelect(message, options, current);
+  }
+  return prompter;
 };
 
 type SelectionAction = "previous" | "next" | "confirm" | "cancel" | number | null;

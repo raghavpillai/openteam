@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { isIP } from "node:net";
 import { networkInterfaces } from "node:os";
+import { emitKeypressEvents } from "node:readline";
 import { createInterface } from "node:readline/promises";
 import { Writable } from "node:stream";
 import type { InstallationManifest, InstallationPaths } from "./config";
@@ -49,6 +50,11 @@ const SETUP_KEYS = [
 export interface SetupPrompter {
   question(prompt: string): Promise<string>;
   secret(prompt: string): Promise<string>;
+  select?<Value extends string>(
+    prompt: string,
+    options: readonly { label: string; value: Value; shortcut?: string }[],
+    current: Value
+  ): Promise<Value>;
   close(): void;
 }
 
@@ -92,29 +98,122 @@ export const createTerminalPrompter = (): SetupPrompter => {
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     throw new CliError("This OpenBot command is interactive and requires a terminal.");
   }
-  let muted = false;
-  const output = new Writable({
-    write(chunk, _encoding, callback) {
-      if (!muted) process.stdout.write(chunk);
-      callback();
-    },
-  });
-  const prompt = createInterface({ input: process.stdin, output, terminal: true });
+  const question = async (message: string, secret = false): Promise<string> => {
+    const output = secret
+      ? new Writable({
+          write(_chunk, _encoding, callback) {
+            callback();
+          },
+        })
+      : process.stdout;
+    const prompt = createInterface({ input: process.stdin, output, terminal: true });
+    try {
+      if (secret) process.stdout.write(message);
+      return await prompt.question(secret ? "" : message);
+    } finally {
+      prompt.close();
+      if (secret) process.stdout.write("\n");
+    }
+  };
   return {
-    question: (message) => prompt.question(message),
-    secret: async (message) => {
-      process.stdout.write(message);
-      muted = true;
-      try {
-        return await prompt.question("");
-      } finally {
-        muted = false;
-        process.stdout.write("\n");
-      }
-    },
-    close: () => prompt.close(),
+    question: (message) => question(message),
+    secret: (message) => question(message, true),
+    select: <Value extends string>(
+      message: string,
+      options: readonly { label: string; value: Value; shortcut?: string }[],
+      current: Value
+    ) => terminalSelect(message, options, current),
+    close: () => undefined,
   };
 };
+
+type SelectionAction = "previous" | "next" | "confirm" | "cancel" | number | null;
+
+export const selectionActionForKey = (
+  character: string,
+  key: { name?: string; ctrl?: boolean },
+  options: readonly { shortcut?: string }[]
+): SelectionAction => {
+  if (key.ctrl && key.name === "c") return "cancel";
+  if (key.name === "up" || key.name === "left") return "previous";
+  if (key.name === "down" || key.name === "right") return "next";
+  if (key.name === "return" || key.name === "enter") return "confirm";
+  if (/^[1-9]$/.test(character)) {
+    const index = Number(character) - 1;
+    if (index < options.length) return index;
+  }
+  const shortcut = character.toLowerCase();
+  const shortcutIndex = options.findIndex(
+    (option) => option.shortcut?.toLowerCase() === shortcut
+  );
+  return shortcutIndex >= 0 ? shortcutIndex : null;
+};
+
+const terminalSelect = <Value extends string>(
+  message: string,
+  options: readonly { label: string; value: Value; shortcut?: string }[],
+  current: Value
+): Promise<Value> =>
+  new Promise((resolve, reject) => {
+    if (!options.length) {
+      reject(new CliError(`${message} has no choices.`));
+      return;
+    }
+    const input = process.stdin;
+    const initialIndex = options.findIndex((option) => option.value === current);
+    let selectedIndex = initialIndex >= 0 ? initialIndex : 0;
+    const wasRaw = input.isRaw;
+    const wasPaused = input.isPaused();
+
+    const render = () => {
+      const selected = options[selectedIndex];
+      process.stdout.write(
+        `\r\u001b[2K${message}  ${selectedIndex + 1}/${options.length}  › ${selected?.label ?? ""}  ` +
+          "(↑/↓/←/→, Enter)"
+      );
+    };
+    const cleanup = () => {
+      input.off("keypress", onKeypress);
+      if (input.setRawMode) input.setRawMode(Boolean(wasRaw));
+      if (wasPaused) input.pause();
+      process.stdout.write("\n");
+    };
+    const onKeypress = (character = "", key: { name?: string; ctrl?: boolean } = {}) => {
+      const action = selectionActionForKey(character, key, options);
+      if (action === "cancel") {
+        cleanup();
+        reject(new CliError("Setup cancelled."));
+        return;
+      }
+      if (action === "confirm") {
+        const selected = options[selectedIndex];
+        cleanup();
+        if (selected) resolve(selected.value);
+        else reject(new CliError(`${message} has no selected choice.`));
+        return;
+      }
+      if (action === "previous") {
+        selectedIndex = (selectedIndex - 1 + options.length) % options.length;
+        render();
+        return;
+      }
+      if (action === "next") {
+        selectedIndex = (selectedIndex + 1) % options.length;
+        render();
+        return;
+      }
+      if (typeof action === "number") {
+        selectedIndex = action;
+        render();
+      }
+    };
+
+    emitKeypressEvents(input);
+    input.on("keypress", onKeypress);
+    if (input.setRawMode) input.setRawMode(true);
+    input.resume();
+    render();
+  });
 
 export const validateOwnerUsername = (value: string): string => {
   const username = value.trim().toLowerCase();
@@ -180,6 +279,17 @@ const confirm = async (
   label: string,
   defaultValue: boolean
 ): Promise<boolean> => {
+  if (prompter.select) {
+    const selected = await prompter.select(
+      label,
+      [
+        { label: "Yes", value: "yes", shortcut: "y" },
+        { label: "No", value: "no", shortcut: "n" },
+      ] as const,
+      defaultValue ? "yes" : "no"
+    );
+    return selected === "yes";
+  }
   const hint = defaultValue ? "Y/n" : "y/N";
   while (true) {
     const answer = (await prompter.question(`${label} [${hint}] `)).trim().toLowerCase();
@@ -369,34 +479,45 @@ export const collectSetupConfiguration = async (
       title: "Public HTTPS",
       description: "A domain plus automatic TLS from the bundled Caddy proxy.",
       recommended: true,
+      value: "https",
     },
     {
       title: "Existing HTTPS proxy",
       description: "Use nginx, Caddy, Traefik, or a cloud load balancer you already manage.",
+      value: "proxy",
     },
     {
       title: "Public HTTP",
       description: "An IP or hostname without encryption; desktop/testing only, not iOS.",
+      value: "http",
     },
     {
       title: "Private network",
       description: "A LAN, Tailscale, WireGuard, or another trusted private network.",
+      value: "private",
     },
     {
       title: "This machine only",
       description: "Loopback access for development or an SSH tunnel.",
+      value: "local",
     },
   ] as const;
   const currentAccess = configuredAccessMode(current, options.fresh ?? false);
   let selectedAccess: SetupConfiguration["accessMode"];
   while (true) {
     presentation?.choices(choices);
-    selectedAccess = await ask(
-      prompter,
-      "Access mode",
-      String(ACCESS_MODES.indexOf(currentAccess) + 1),
-      accessMode
-    );
+    selectedAccess = prompter.select
+      ? await prompter.select(
+          "Access mode",
+          choices.map((choice) => ({ label: choice.title, value: choice.value })),
+          currentAccess
+        )
+      : await ask(
+          prompter,
+          "Access mode",
+          String(ACCESS_MODES.indexOf(currentAccess) + 1),
+          accessMode
+        );
     if (selectedAccess !== "http") break;
     presentation?.message(
       "Public HTTP exposes the owner password and every session token to network observers.",
@@ -521,12 +642,18 @@ export const collectSetupConfiguration = async (
     );
     configuration.timeZone = await ask(prompter, "Time zone", configuration.timeZone, timeZone);
     configuration.model = await ask(prompter, "OpenAI Codex model", configuration.model, model);
-    configuration.thinking = await ask(
-      prompter,
-      "Reasoning effort (minimal/low/medium/high/xhigh/max)",
-      configuration.thinking,
-      thinking
-    );
+    configuration.thinking = prompter.select
+      ? await prompter.select(
+          "Reasoning effort",
+          THINKING_LEVELS.map((value) => ({ label: value, value })),
+          configuration.thinking
+        )
+      : await ask(
+          prompter,
+          "Reasoning effort (minimal/low/medium/high/xhigh/max)",
+          configuration.thinking,
+          thinking
+        );
     configuration.workerConcurrency = await ask(
       prompter,
       "Concurrent bot jobs",
@@ -637,9 +764,19 @@ export const setupCommand = async (
         );
       }
       while (true) {
-        const answer = (await prompter.question("Apply this configuration? [Y/n/back] "))
-          .trim()
-          .toLowerCase();
+        const answer = prompter.select
+          ? await prompter.select(
+              "Apply this configuration?",
+              [
+                { label: "Apply and start OpenBot", value: "yes", shortcut: "y" },
+                { label: "Go back", value: "back", shortcut: "b" },
+                { label: "Cancel without changes", value: "no", shortcut: "n" },
+              ] as const,
+              "yes"
+            )
+          : (await prompter.question("Apply this configuration? [Y/n/back] "))
+              .trim()
+              .toLowerCase();
         if (!answer || answer === "y" || answer === "yes") {
           configuration = candidate;
           break;

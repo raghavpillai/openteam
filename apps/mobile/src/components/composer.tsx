@@ -78,6 +78,7 @@ interface PendingAttachment {
   asset: AssetRef | null;
   staged: DurableStagedAttachment | null;
   error: string | null;
+  recoveryOwned?: boolean;
 }
 
 const VOICE_LEVEL_KEYS = Array.from({ length: 12 }, (_, index) => `voice-level-${index}`);
@@ -112,6 +113,7 @@ export function Composer({
   replyEditVersion,
   recovery,
   onRecoveryApplied,
+  onRecoveryConsumed,
   onRestoreReply,
   onClearReply,
   onSend,
@@ -128,6 +130,7 @@ export function Composer({
   replyEditVersion: number;
   recovery?: ComposerRecovery | null;
   onRecoveryApplied?: (id: string) => void;
+  onRecoveryConsumed?: (nonce: string) => Promise<void>;
   onRestoreReply: (target: ReplyTarget | null) => void;
   onClearReply: () => void;
   onSend: (
@@ -159,8 +162,10 @@ export function Composer({
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [draftReady, setDraftReady] = useState(false);
   const [draftId, setDraftId] = useState(newConversationDraftId);
+  const [recoveryNonce, setRecoveryNonce] = useState<string | null>(null);
   const uploadControllers = useRef(new Map<string, AbortController>());
   const mounted = useRef(true);
+  const appliedRecoveryNonce = useRef<string | null>(null);
   const textInputRef = useRef<TextInput>(null);
   const inputBaseline = useRef<number | null>(null);
   const replyProgress = useRef(new Animated.Value(replyTarget ? 1 : 0)).current;
@@ -226,10 +231,14 @@ export function Composer({
     draftReadyRef.current = false;
     setDraftReady(false);
     setDraftId(newConversationDraftId());
+    setRecoveryNonce(null);
+    appliedRecoveryNonce.current = null;
     void loadConversationDraft(draftKey)
       .then((draft) => {
         if (!active) return;
         setDraftId(draft?.id ?? newConversationDraftId());
+        setRecoveryNonce(draft?.recoveryNonce ?? null);
+        appliedRecoveryNonce.current = draft?.recoveryNonce ?? null;
         if (draftHydrationGuard.isUntouched(hydrationCheckpoint, "text")) {
           setText(draft?.text ?? "");
         }
@@ -303,12 +312,13 @@ export function Composer({
         attachment.staged ? [attachment.staged] : []
       ),
       replyTarget,
+      ...(recoveryNonce ? { recoveryNonce } : {}),
     };
     const timeout = setTimeout(() => {
       void saveConversationDraft(draftKey, latestDraft.current);
     }, 250);
     return () => clearTimeout(timeout);
-  }, [attachments, draftId, draftKey, draftReady, readyAssets, replyTarget, text]);
+  }, [attachments, draftId, draftKey, draftReady, readyAssets, recoveryNonce, replyTarget, text]);
 
   useEffect(() => {
     if (!draftReady || !recovery) return;
@@ -319,6 +329,8 @@ export function Composer({
     draftHydrationGuardRef.current.markEdited("attachments");
     draftHydrationGuardRef.current.markEdited("reply");
     setText(recovery.text);
+    appliedRecoveryNonce.current = recovery.id;
+    setRecoveryNonce(recovery.id);
     setInputHeight(Math.min(102, Math.max(22, recovery.text.split("\n").length * 22)));
     setAttachments([
       ...recovery.attachments.map((asset) => ({
@@ -345,6 +357,7 @@ export function Composer({
         asset: null,
         staged,
         error: null,
+        recoveryOwned: true,
       })),
     ]);
     onRestoreReply(recovery.replyTarget);
@@ -422,7 +435,9 @@ export function Composer({
           });
         },
       });
-      if (attachment.staged) await onDiscardStages?.([attachment.staged]);
+      if (attachment.staged && !attachment.recoveryOwned) {
+        await onDiscardStages?.([attachment.staged]);
+      }
       updateAttachment(attachment.id, {
         state: "ready",
         progress: 1,
@@ -466,7 +481,9 @@ export function Composer({
   const removeAttachment = (attachment: PendingAttachment) => {
     uploadControllers.current.get(attachment.id)?.abort();
     uploadControllers.current.delete(attachment.id);
-    if (attachment.staged) void onDiscardStages?.([attachment.staged]);
+    if (attachment.staged && !attachment.recoveryOwned) {
+      void onDiscardStages?.([attachment.staged]);
+    }
     draftHydrationGuardRef.current.markEdited("attachments");
     setAttachments((current) => current.filter(({ id }) => id !== attachment.id));
   };
@@ -712,6 +729,12 @@ export function Composer({
           : {}),
       }));
       await onSend(content, assets, stagedAttachments, { key: draftKey, id: draftId });
+      const recoveryNonce = appliedRecoveryNonce.current;
+      if (recoveryNonce) {
+        await onRecoveryConsumed?.(recoveryNonce);
+        appliedRecoveryNonce.current = null;
+        setRecoveryNonce(null);
+      }
       setDraftId(newConversationDraftId());
       setText("");
       latestAttachments.current = [];

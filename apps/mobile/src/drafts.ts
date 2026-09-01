@@ -8,6 +8,7 @@ export interface ConversationDraft {
   attachments: AssetRef[];
   stagedAttachments: DurableStagedAttachment[];
   replyTarget: { id: string; content: string } | null;
+  recoveryNonce?: string;
 }
 
 const draftsDirectory = FileSystem.documentDirectory
@@ -96,6 +97,9 @@ export const loadConversationDraft = async (
       reply && typeof reply.id === "string" && typeof reply.content === "string"
         ? { id: reply.id, content: reply.content }
         : null,
+    ...(typeof candidate.recoveryNonce === "string" && candidate.recoveryNonce.length >= 8
+      ? { recoveryNonce: candidate.recoveryNonce }
+      : {}),
   };
 };
 
@@ -139,7 +143,8 @@ export const saveConversationDraft = async (
       !draft.text &&
       draft.attachments.length === 0 &&
       draft.stagedAttachments.length === 0 &&
-      !draft.replyTarget;
+      !draft.replyTarget &&
+      !draft.recoveryNonce;
     if (empty) {
       await FileSystem.deleteAsync(path, { idempotent: true }).catch(() => undefined);
       await FileSystem.deleteAsync(`${path}.previous`, { idempotent: true }).catch(() => undefined);

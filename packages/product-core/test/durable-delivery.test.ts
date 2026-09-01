@@ -473,4 +473,129 @@ describe("durable send controller", () => {
     await waitFor(() => controller.getSnapshot()[0]?.phase === "queued");
     expect(controller.getSnapshot()[0]?.queuedAtMs).toBe(4_000);
   });
+
+  test("hides deterministic rejection, restores it after a crash, and retires it after recovery", async () => {
+    const memory = memoryStorage();
+    const discarded: string[] = [];
+    const runtime = {
+      createNonce: () => "nonce-rejected-1",
+      commitStagedAttachments: async () => {
+        throw Object.assign(new Error("Attachment cannot be committed."), {
+          code: "attachment_commit_invalid",
+          status: 422,
+        });
+      },
+      discardStagedAttachments: async (attachments: readonly { stagingId: string }[]) => {
+        discarded.push(...attachments.map(({ stagingId }) => stagingId));
+      },
+      dispatch: async () => ({ message: acceptedMessage("unused") }),
+      resolveAcceptance: async () => ({ status: "not_found" as const }),
+      classifyError: () => "fatal" as const,
+    };
+    const controller = createDurableSendController("account-1", memory.storage, runtime);
+    await controller.enqueue({
+      ...input,
+      payload: {
+        ...input.payload,
+        stagedAttachments: [
+          {
+            stagingId: "stage-rejected-1",
+            fileName: "rejected.txt",
+            mimeType: "text/plain",
+            byteSize: 12,
+            kind: "text",
+          },
+        ],
+      },
+    });
+    await waitFor(() => controller.getRecoverySnapshot().length === 1);
+    expect(controller.getSnapshot()).toEqual([]);
+    expect(controller.getRecoverySnapshot()[0]?.failure).toMatchObject({
+      code: "attachment_commit_invalid",
+      uncertain: false,
+    });
+    await waitFor(() => (memory.read() as DurableSendJournal).records[0]?.phase === "failed");
+    expect((memory.read() as DurableSendJournal).records[0]?.phase).toBe("failed");
+
+    const restored = createDurableSendController("account-1", memory.storage, runtime);
+    await restored.restore();
+    expect(restored.getSnapshot()).toEqual([]);
+    expect(restored.getRecoverySnapshot()[0]?.payload.content).toBe("hello");
+    await restored.acknowledgeRecovery("nonce-rejected-1");
+    expect(restored.getRecoverySnapshot()).toEqual([]);
+    expect(discarded).toEqual(["stage-rejected-1"]);
+    expect((memory.read() as DurableSendJournal).records).toEqual([]);
+  });
+
+  test("retains recovered staged bytes when a replacement journal owns them", async () => {
+    let offline = false;
+    let nonceIndex = 0;
+    const memory = memoryStorage();
+    const discarded: string[] = [];
+    const controller = createDurableSendController("account-1", memory.storage, {
+      createNonce: () => `nonce-recovery-owner-${++nonceIndex}`,
+      commitStagedAttachments: async () => {
+        throw Object.assign(new Error("Rejected"), { status: 422 });
+      },
+      discardStagedAttachments: async (attachments) => {
+        discarded.push(...attachments.map(({ stagingId }) => stagingId));
+      },
+      dispatch: async () => ({ message: acceptedMessage("unused") }),
+      resolveAcceptance: async () => ({ status: "not_found" }),
+      classifyError: () => "fatal",
+      isTransportDown: () => offline,
+    });
+    const recoveryPayload = {
+      ...input.payload,
+      stagedAttachments: [
+        {
+          stagingId: "stage-recovery-owned",
+          fileName: "owned.txt",
+          mimeType: "text/plain",
+          byteSize: 12,
+          kind: "text" as const,
+        },
+      ],
+    };
+    await controller.enqueue({ ...input, payload: recoveryPayload });
+    await waitFor(() => controller.getRecoverySnapshot().length === 1);
+    offline = true;
+    await controller.enqueue({ ...input, payload: recoveryPayload });
+    await controller.acknowledgeRecovery("nonce-recovery-owner-1");
+    expect(controller.getSnapshot()).toHaveLength(1);
+    expect(discarded).toEqual([]);
+  });
+
+  test("binds restored and lineage acknowledgements to the authored prompt digest", async () => {
+    const memory = memoryStorage();
+    const controller = createDurableSendController("account-1", memory.storage, {
+      createNonce: () => "nonce-digest-1",
+      dispatch: async () => ({ message: { ...acceptedMessage("wrong"), content: "different" } }),
+      resolveAcceptance: async () => ({ status: "not_found" }),
+      classifyError: () => "fatal",
+    });
+    await controller.enqueue(input);
+    await waitFor(() => controller.getRecoverySnapshot().length === 1);
+    expect(controller.getRecoverySnapshot()[0]?.failure?.code).toBe("delivery_digest_mismatch");
+    const journal = memory.read() as DurableSendJournal;
+    expect(journal.records[0]?.promptDigest).toMatch(/^[a-f0-9]{64}$/);
+
+    const tampered = structuredClone(journal);
+    if (!tampered.records[0]) throw new Error("missing digest record");
+    tampered.records[0].payload.content = "tampered";
+    expect(parseDurableSendJournal(tampered, "account-1").records).toEqual([]);
+
+    const legacy = structuredClone(journal) as unknown as {
+      schemaVersion: 1;
+      scope: string;
+      records: Array<Record<string, unknown>>;
+    };
+    delete legacy.records[0]?.promptDigest;
+    expect(parseDurableSendJournal(legacy, "account-1").records[0]?.promptDigest).toBe(
+      journal.records[0]?.promptDigest
+    );
+    expect(durableSendPromptDigest({ content: "hello" })).not.toBe(
+      durableSendPromptDigest({ content: "different" })
+    );
+  });
 });

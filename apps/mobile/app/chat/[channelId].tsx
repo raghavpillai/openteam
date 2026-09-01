@@ -120,6 +120,8 @@ export default function ConversationScreen() {
     resendFailedMessage,
     deleteFailedMessage,
     cancelQueuedMessage,
+    deliveryRecoveries,
+    acknowledgeDeliveryRecovery,
     uploadAsset,
     assetUrl,
     reactToMessage,
@@ -140,6 +142,7 @@ export default function ConversationScreen() {
   const [replyTarget, setReplyTarget] = useState<ReplyTarget | null>(null);
   const [replyEditVersion, setReplyEditVersion] = useState(0);
   const [composerRecovery, setComposerRecovery] = useState<ComposerRecovery | null>(null);
+  const presentedRecoveryNonces = useRef(new Set<string>());
   const [visibleReadSequence, setVisibleReadSequence] = useState<string | null>(null);
   const [atLiveEdge, setAtLiveEdge] = useState(!messageId);
   const [threadRootId, setThreadRootId] = useState<string | null>(null);
@@ -167,6 +170,29 @@ export default function ConversationScreen() {
     [channelId, snapshot.channelMessages]
   );
   const byId = useMemo(() => new Map(messages.map((message) => [message.id, message])), [messages]);
+  useEffect(() => {
+    if (composerRecovery) return;
+    const recovery = deliveryRecoveries.find(
+      (record) =>
+        record.target.channelId === channelId &&
+        record.payload.isFork !== true &&
+        !presentedRecoveryNonces.current.has(record.nonce)
+    );
+    if (!recovery) return;
+    presentedRecoveryNonces.current.add(recovery.nonce);
+    setComposerRecovery({
+      id: recovery.nonce,
+      text: recovery.payload.content,
+      attachments: recovery.payload.attachments,
+      stagedAttachments: recovery.payload.stagedAttachments,
+      replyTarget: recovery.payload.replyToMessageId
+        ? {
+            id: recovery.payload.replyToMessageId,
+            content: byId.get(recovery.payload.replyToMessageId)?.content ?? "Reply",
+          }
+        : null,
+    });
+  }, [byId, channelId, composerRecovery, deliveryRecoveries]);
   const threads = useMemo(() => deriveThreads(messages), [messages]);
   const threadRootByReplyId = useMemo(() => {
     const roots = new Map<string, string>();
@@ -721,6 +747,7 @@ export default function ConversationScreen() {
           onRecoveryApplied={(id) => {
             setComposerRecovery((current) => (current?.id === id ? null : current));
           }}
+          onRecoveryConsumed={acknowledgeDeliveryRecovery}
           replyTarget={replyTarget}
           replyEditVersion={replyEditVersion}
           onRestoreReply={setReplyTarget}
@@ -753,6 +780,10 @@ export default function ConversationScreen() {
             onResendFailed={resendFailed}
             onDeleteFailed={deleteFailed}
             onCancelQueued={cancelQueuedMessage}
+            deliveryRecoveries={deliveryRecoveries.filter(
+              (record) => record.target.channelId === channelId && record.payload.isFork === true
+            )}
+            onAcknowledgeRecovery={acknowledgeDeliveryRecovery}
             onSecretSubmit={submitSecret}
             onSend={(content, attachments, stagedAttachments, replyToMessageId, consumedDraft) =>
               sendMessage(channelId, content, attachments, replyToMessageId, {

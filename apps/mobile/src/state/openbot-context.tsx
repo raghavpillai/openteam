@@ -211,6 +211,8 @@ interface OpenBotState {
   resendFailedMessage: (nonce: string) => Promise<void>;
   deleteFailedMessage: (nonce: string) => Promise<void>;
   cancelQueuedMessage: (nonce: string) => Promise<DurableSendPayload | null>;
+  deliveryRecoveries: readonly DurableSendRecord[];
+  acknowledgeDeliveryRecovery: (nonce: string) => Promise<void>;
   uploadAsset: (input: {
     uri: string;
     fileName: string;
@@ -437,6 +439,7 @@ export function OpenBotProvider({ children }: { children: React.ReactNode }) {
     useState<SidebarPreferences>(emptySidebarPreferences);
   const sidebarPreferencesRef = useRef(sidebarPreferences);
   const [durableSends, setDurableSends] = useState<readonly DurableSendRecord[]>([]);
+  const [deliveryRecoveries, setDeliveryRecoveries] = useState<readonly DurableSendRecord[]>([]);
   const snapshotRef = useRef(snapshot);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -645,18 +648,21 @@ export function OpenBotProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!sendController) {
       setDurableSends([]);
+      setDeliveryRecoveries([]);
       return;
     }
-    const publish = () => setDurableSends(sendController.getSnapshot());
+    const publish = () => {
+      setDurableSends(sendController.getSnapshot());
+      setDeliveryRecoveries(sendController.getRecoverySnapshot());
+    };
     publish();
     const unsubscribe = sendController.subscribe(publish);
     void sendController
       .restore()
       .then(() =>
         Promise.all(
-          sendController
-            .getSnapshot()
-            .flatMap((record) =>
+          [...sendController.getSnapshot(), ...sendController.getRecoverySnapshot()].flatMap(
+            (record) =>
               record.payload.consumedDraft
                 ? [
                     clearConversationDraftIfCurrent(
@@ -665,7 +671,7 @@ export function OpenBotProvider({ children }: { children: React.ReactNode }) {
                     ),
                   ]
                 : []
-            )
+          )
         )
       )
       .catch(() => undefined);
@@ -1955,6 +1961,11 @@ export function OpenBotProvider({ children }: { children: React.ReactNode }) {
     [sendController]
   );
 
+  const acknowledgeDeliveryRecovery = useCallback(
+    (nonce: string) => sendController?.acknowledgeRecovery(nonce) ?? Promise.resolve(),
+    [sendController]
+  );
+
   const reactToMessage = useCallback(
     async (messageId: string, emoji: string) => {
       const previous = snapshotRef.current.channelMessages.find(
@@ -2238,6 +2249,8 @@ export function OpenBotProvider({ children }: { children: React.ReactNode }) {
       resendFailedMessage,
       deleteFailedMessage,
       cancelQueuedMessage,
+      deliveryRecoveries,
+      acknowledgeDeliveryRecovery,
       uploadAsset,
       assetUrl,
       reactToMessage,
@@ -2318,6 +2331,8 @@ export function OpenBotProvider({ children }: { children: React.ReactNode }) {
       resendFailedMessage,
       deleteFailedMessage,
       cancelQueuedMessage,
+      deliveryRecoveries,
+      acknowledgeDeliveryRecovery,
       uploadAsset,
       setScreenTakeover,
       visibleSnapshot,

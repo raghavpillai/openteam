@@ -1,6 +1,7 @@
 import type { AssetRef, BotView, ChannelMessageView, ClientCapabilities } from "@openbot/contracts";
 import type {
   DurableSendPayload,
+  DurableSendRecord,
   DurableStagedAttachment,
 } from "@openbot/product-core/durable-delivery";
 import { clientErrorMessage } from "@openbot/product-core/redaction";
@@ -61,6 +62,8 @@ export function ThreadSheet({
   onResendFailed,
   onDeleteFailed,
   onCancelQueued,
+  deliveryRecoveries,
+  onAcknowledgeRecovery,
   onSecretSubmit,
   onSend,
   onUpload,
@@ -84,6 +87,8 @@ export function ThreadSheet({
   onResendFailed: (nonce: string) => Promise<void>;
   onDeleteFailed: (nonce: string) => Promise<void>;
   onCancelQueued: (nonce: string) => Promise<DurableSendPayload | null>;
+  deliveryRecoveries: readonly DurableSendRecord[];
+  onAcknowledgeRecovery: (nonce: string) => Promise<void>;
   onSecretSubmit: (messageId: string, value: string) => Promise<boolean>;
   onSend: (
     content: string,
@@ -109,6 +114,7 @@ export function ThreadSheet({
   const [replyTarget, setReplyTarget] = useState<ReplyTarget | null>(null);
   const [replyEditVersion, setReplyEditVersion] = useState(0);
   const [composerRecovery, setComposerRecovery] = useState<ComposerRecovery | null>(null);
+  const presentedRecoveryNonces = useRef(new Set<string>());
   const listRef = useRef<FlatList<ChannelMessageView>>(null);
   const atLiveEdgeRef = useRef(true);
   const placedThreadIdRef = useRef<string | null>(null);
@@ -144,6 +150,31 @@ export function ThreadSheet({
     placedThreadIdRef.current = null;
     targetScrollRetries.current = 0;
   }, [threadRootId]);
+
+  useEffect(() => {
+    if (composerRecovery) return;
+    const messageIds = new Set(messages.map((message) => message.id));
+    const recovery = deliveryRecoveries.find(
+      (record) =>
+        Boolean(record.payload.replyToMessageId) &&
+        messageIds.has(record.payload.replyToMessageId as string) &&
+        !presentedRecoveryNonces.current.has(record.nonce)
+    );
+    if (!recovery) return;
+    presentedRecoveryNonces.current.add(recovery.nonce);
+    setComposerRecovery({
+      id: recovery.nonce,
+      text: recovery.payload.content,
+      attachments: recovery.payload.attachments,
+      stagedAttachments: recovery.payload.stagedAttachments,
+      replyTarget: recovery.payload.replyToMessageId
+        ? {
+            id: recovery.payload.replyToMessageId,
+            content: byId.get(recovery.payload.replyToMessageId)?.content ?? "Reply",
+          }
+        : null,
+    });
+  }, [byId, composerRecovery, deliveryRecoveries, messages]);
 
   const recoverCancelledMessage = async (nonce: string) => {
     try {
@@ -340,6 +371,7 @@ export function ThreadSheet({
             onRecoveryApplied={(id) => {
               setComposerRecovery((current) => (current?.id === id ? null : current));
             }}
+            onRecoveryConsumed={onAcknowledgeRecovery}
             onClearReply={() => {
               setReplyTarget(null);
               setReplyEditVersion((current) => current + 1);

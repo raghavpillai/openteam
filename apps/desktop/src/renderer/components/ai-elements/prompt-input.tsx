@@ -89,6 +89,7 @@ interface PendingAttachment {
   asset?: AssetRef;
   staged?: DurableStagedAttachment;
   previewUrl?: string;
+  recoveryOwned?: boolean;
 }
 
 export function PromptInput({
@@ -183,6 +184,7 @@ export function PromptInput({
         id: crypto.randomUUID(),
         file: new globalThis.File([], staged.fileName, { type: staged.mimeType }),
         staged,
+        recoveryOwned: true,
       })),
     ]);
     setAttachmentError(null);
@@ -208,21 +210,18 @@ export function PromptInput({
     onAttachmentsChange?.(attachments.length);
   }, [attachments.length, onAttachmentsChange]);
 
-  useEffect(
-    () => {
-      mounted.current = true;
-      return () => {
-        mounted.current = false;
-        for (const url of previewUrls.current) URL.revokeObjectURL(url);
-        previewUrls.current.clear();
-        const staged = attachmentsRef.current.flatMap((attachment) =>
-          attachment.staged ? [attachment.staged] : []
-        );
-        if (staged.length > 0) void onDiscardStages?.(staged);
-      };
-    },
-    [onDiscardStages]
-  );
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      for (const url of previewUrls.current) URL.revokeObjectURL(url);
+      previewUrls.current.clear();
+      const staged = attachmentsRef.current.flatMap((attachment) =>
+        attachment.staged && !attachment.recoveryOwned ? [attachment.staged] : []
+      );
+      if (staged.length > 0) void onDiscardStages?.(staged);
+    };
+  }, [onDiscardStages]);
 
   useEffect(() => {
     onExpandedChange?.(expanded);
@@ -602,7 +601,9 @@ export function PromptInput({
             <div className="flex max-w-full gap-2 overflow-x-auto px-1 pb-1 pt-0.5">
               {attachments.map((attachment) => {
                 const remove = () => {
-                  if (attachment.staged) void onDiscardStages?.([attachment.staged]);
+                  if (attachment.staged && !attachment.recoveryOwned) {
+                    void onDiscardStages?.([attachment.staged]);
+                  }
                   if (attachment.previewUrl) {
                     URL.revokeObjectURL(attachment.previewUrl);
                     previewUrls.current.delete(attachment.previewUrl);

@@ -203,6 +203,11 @@ export default function App() {
     forcedSidebarCompact || sidebarLayout.compact ? COMPACT_SIDEBAR_WIDTH : sidebarLayout.width;
   const visibleDetailsOpen = detailsOpen && canShowInspector(viewportWidth, effectiveSidebarWidth);
   const inspectorMaxWidth = maxInspectorWidthForLayout(viewportWidth, effectiveSidebarWidth);
+  const renderedInspectorWidth = clampInspectorWidth(
+    inspectorWidth,
+    viewportWidth,
+    effectiveSidebarWidth
+  );
   const handleSidebarLayoutChange = useCallback((layout: { compact: boolean; width: number }) => {
     setSidebarLayout((current) =>
       current.compact === layout.compact && current.width === layout.width ? current : layout
@@ -261,9 +266,6 @@ export default function App() {
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
   }, []);
-  useEffect(() => {
-    setInspectorWidth((width) => clampInspectorWidth(width, viewportWidth, effectiveSidebarWidth));
-  }, [effectiveSidebarWidth, viewportWidth]);
   useEffect(() => {
     const handleDeepLink = (event: Event) => {
       const url = (event as CustomEvent<{ url?: string }>).detail?.url;
@@ -867,7 +869,10 @@ export default function App() {
         subtitle: "Updates",
         keywords: "desktop server version upgrade",
         icon: "updates",
-        run: () => openSettingsTarget("update-status"),
+        run: () => {
+          openSettingsTarget("update-status");
+          void window.openbot?.updates.check().catch(() => undefined);
+        },
       },
     ],
     [
@@ -1140,19 +1145,19 @@ export default function App() {
                 )}
                 inert={!visibleDetailsOpen}
                 ref={inspectorPanelRef}
-                style={{ width: visibleDetailsOpen ? inspectorWidth : 0 }}
+                style={{ width: visibleDetailsOpen ? renderedInspectorWidth : 0 }}
               >
                 <div
                   className="relative h-full"
                   ref={inspectorContentRef}
-                  style={{ width: inspectorWidth }}
+                  style={{ width: renderedInspectorWidth }}
                 >
                   <div
                     aria-label="Resize details"
                     aria-orientation="vertical"
                     aria-valuemax={inspectorMaxWidth}
                     aria-valuemin={MIN_INSPECTOR_WIDTH}
-                    aria-valuenow={inspectorWidth}
+                    aria-valuenow={renderedInspectorWidth}
                     className="electron-no-drag group absolute inset-y-0 left-0 z-40 w-2 cursor-col-resize touch-none outline-none"
                     data-inspector-resizer=""
                     data-resizing={inspectorResizing ? "true" : "false"}
@@ -1161,7 +1166,7 @@ export default function App() {
                       localStorage.setItem(INSPECTOR_WIDTH_KEY, String(DEFAULT_INSPECTOR_WIDTH));
                     }}
                     onKeyDown={(event) => {
-                      let next = inspectorWidth;
+                      let next = renderedInspectorWidth;
                       if (event.key === "ArrowLeft") next += 16;
                       else if (event.key === "ArrowRight") next -= 16;
                       else if (event.key === "Home") next = MIN_INSPECTOR_WIDTH;
@@ -1182,8 +1187,8 @@ export default function App() {
                       inspectorResizeSessionRef.current = {
                         pointerId: event.pointerId,
                         startX: event.clientX,
-                        startWidth: inspectorWidth,
-                        width: inspectorWidth,
+                        startWidth: renderedInspectorWidth,
+                        width: renderedInspectorWidth,
                         shouldClose: false,
                         cursor: document.body.style.cursor,
                         userSelect: document.body.style.userSelect,

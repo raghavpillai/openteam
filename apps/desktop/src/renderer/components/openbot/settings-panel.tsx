@@ -93,7 +93,7 @@ export function SettingsPanel({
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>
       <DialogContent
-        className="grid h-[min(700px,calc(100vh-96px))] w-[min(1000px,calc(100vw-40px))] max-w-none grid-cols-[198px_minmax(0,1fr)] gap-0 overflow-hidden rounded-[15px] border-black/10 bg-[#fcfcfc] p-0 shadow-[0_22px_70px_rgba(0,0,0,0.20)] dark:border-[#303030] dark:bg-[#070707] max-sm:grid-cols-[160px_minmax(0,1fr)]"
+        className="grid h-[min(700px,calc(100vh-96px))] w-[min(1000px,calc(100vw-40px))] max-w-none grid-cols-[198px_minmax(0,1fr)] gap-0 overflow-hidden rounded-[15px] border-black/10 bg-[#fcfcfc] p-0 shadow-[0_22px_70px_rgba(0,0,0,0.20)] dark:border-[#303030] dark:bg-[#070707] max-sm:grid-cols-1 max-sm:grid-rows-[auto_minmax(0,1fr)]"
         showCloseButton={false}
         surface="transparent"
       >
@@ -101,8 +101,11 @@ export function SettingsPanel({
         <DialogDescription className="sr-only">
           Configure OpenBot and application updates.
         </DialogDescription>
-        <aside className="border-r-[0.5px] border-black/[0.07] bg-[#f7f7f7] px-3 pb-4 pt-4 dark:border-white/[0.07] dark:bg-[#111111]">
-          <nav aria-label="Settings sections" className="space-y-0.5">
+        <aside className="border-r-[0.5px] border-black/[0.07] bg-[#f7f7f7] px-3 pb-4 pt-4 dark:border-white/[0.07] dark:bg-[#111111] max-sm:border-b-[0.5px] max-sm:border-r-0 max-sm:py-2">
+          <nav
+            aria-label="Settings sections"
+            className="space-y-0.5 max-sm:flex max-sm:gap-1 max-sm:space-y-0"
+          >
             {navigation.map((item) => {
               const Icon = item.icon;
               const preload = () => void sectionLoaders[item.id]();
@@ -111,7 +114,7 @@ export function SettingsPanel({
                   aria-current={view === item.id ? "page" : undefined}
                   aria-disabled={!item.available}
                   className={cn(
-                    "flex h-7 w-full items-center gap-2 rounded-[7px] px-2 text-left text-[12.5px] font-normal outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/35",
+                    "flex h-7 w-full items-center gap-2 rounded-[7px] px-2 text-left text-[12.5px] font-normal outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/35 max-sm:justify-center",
                     view === item.id
                       ? "bg-black/[0.1] dark:bg-white/[0.1]"
                       : item.available

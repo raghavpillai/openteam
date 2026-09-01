@@ -16,6 +16,7 @@ import { accountUpdateCommand, passwordResetCommand } from "../src/password";
 import {
   collectSetupConfiguration,
   detectPrivateNetworkHost,
+  selectionActionForKey,
   type SetupPrompter,
   setupCommand,
 } from "../src/setup";
@@ -74,6 +75,20 @@ afterEach(() => {
 });
 
 describe("interactive setup", () => {
+  test("maps all four arrow keys, number jumps, shortcuts, Enter, and Ctrl-C", () => {
+    const options = [{ shortcut: "y" }, { shortcut: "n" }, {}];
+
+    expect(selectionActionForKey("", { name: "up" }, options)).toBe("previous");
+    expect(selectionActionForKey("", { name: "left" }, options)).toBe("previous");
+    expect(selectionActionForKey("", { name: "down" }, options)).toBe("next");
+    expect(selectionActionForKey("", { name: "right" }, options)).toBe("next");
+    expect(selectionActionForKey("", { name: "return" }, options)).toBe("confirm");
+    expect(selectionActionForKey("2", { name: "2" }, options)).toBe(1);
+    expect(selectionActionForKey("Y", { name: "y" }, options)).toBe(0);
+    expect(selectionActionForKey("", { name: "c", ctrl: true }, options)).toBe("cancel");
+    expect(selectionActionForKey("x", { name: "x" }, options)).toBeNull();
+  });
+
   test("quick setup asks only for connection, owner credentials, and provider sign-in", async () => {
     const current = parseEnvironment(
       replaceEnvironmentValue(

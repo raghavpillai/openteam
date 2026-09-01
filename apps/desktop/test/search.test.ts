@@ -50,4 +50,15 @@ describe("local action matching", () => {
     expect(searchTextMatches("bot new", "Create a new bot", "New Bot")).toBe(true);
     expect(searchTextMatches("channel settings", "Chat settings")).toBe(false);
   });
+
+  test("Chat Settings opens the editable inspector instead of the summary", async () => {
+    const source = await Bun.file(new URL("../src/renderer/App.tsx", import.meta.url)).text();
+    const actionStart = source.indexOf('id: "chat-details"');
+    const actionEnd = source.indexOf("},", source.indexOf("setDetailsOpen(true);", actionStart));
+    const action = source.slice(actionStart, actionEnd);
+
+    expect(action).toContain('title: "Chat Settings"');
+    expect(action).toContain('setInspectorMode("settings")');
+    expect(action).not.toContain('setInspectorMode("summary")');
+  });
 });

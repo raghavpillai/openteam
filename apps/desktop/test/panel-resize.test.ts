@@ -1,15 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import {
-  canShowInspector,
   CHAT_MIN_WIDTH,
   COMPACT_SIDEBAR_WIDTH,
-  maxInspectorWidthForLayout,
+  canShowInspector,
   MIN_EXPANDED_SIDEBAR_WIDTH,
   MIN_INSPECTOR_WIDTH,
+  maxInspectorWidthForLayout,
   moveSnappedSidebar,
   resizeInspector,
-  shouldForceCompactSidebar,
   type SnappedSidebarResizeState,
+  shouldForceCompactSidebar,
 } from "../src/renderer/lib/panel-resize";
 
 describe("panel resize snapping", () => {
@@ -112,5 +112,13 @@ describe("panel resize snapping", () => {
     expect(maxInspectorWidthForLayout(1_024, 280)).toBe(320);
     expect(maxInspectorWidthForLayout(984, 280)).toBe(MIN_INSPECTOR_WIDTH);
     expect(maxInspectorWidthForLayout(800, COMPACT_SIDEBAR_WIDTH)).toBe(288);
+  });
+
+  test("keeps details usable as an overlay below the dock threshold", async () => {
+    const source = await Bun.file(new URL("../src/renderer/App.tsx", import.meta.url)).text();
+
+    expect(source).toContain("const visibleDetailsOpen = detailsOpen;");
+    expect(source).toContain("const detailsOverlay = detailsOpen && !detailsDocked;");
+    expect(source).toContain('detailsOverlay && "absolute inset-y-0 right-0 z-20 shadow-2xl"');
   });
 });

@@ -102,15 +102,15 @@ atMost("startup bytes", result.renderer.startup.bytes, 1_200_000);
 const startupCssBytes = result.renderer.startup.files
   .filter((file) => file.path.endsWith(".css"))
   .reduce((total, file) => total + file.bytes, 0);
-// The feature-complete post-pull UI emits 160.4 KB after safe source scoping.
-// Keep a tight ceiling below upstream's 178.8 KB rather than hiding 82.5 KB
-// behind every first-open lazy surface merely to preserve the older shell-only gate.
-atMost("startup CSS bytes", startupCssBytes, 165_000);
-// Durable recovery plus the responsive/search and direct-computer-control pass
-// brings the feature-complete renderer to 15,526,913 bytes. Keep less than 0.06%
-// headroom while the compressed, startup, and nested Shiki/Mermaid ceilings
-// continue to guard the bytes that affect delivery and first interaction.
-atMost("renderer bytes", result.renderer.bytes, 15_535_000);
+// Responsive settings and details layouts bring the complete startup stylesheet
+// to 165,357 bytes. Keep less than 0.4% headroom and stay below upstream's
+// 178.8 KB rather than moving established surfaces behind first-open boundaries.
+atMost("startup CSS bytes", startupCssBytes, 166_000);
+// Durable recovery, responsive/search parity, direct computer control, and
+// bounded-history telemetry bring the complete renderer to 15,546,357 bytes.
+// Keep less than 0.06% headroom while the compressed, startup, and nested
+// Shiki/Mermaid ceilings continue to guard delivery and first interaction.
+atMost("renderer bytes", result.renderer.bytes, 15_555_000);
 atMost("renderer gzip bytes", result.renderer.gzipBytes, 3_800_000);
 atMost("build-analysis metadata bytes", result.renderer.buildMetadata.bytes, 256_000);
 atMost("Electron runtime bytes", result.electron.bytes, 2_300_000);

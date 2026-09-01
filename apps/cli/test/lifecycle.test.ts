@@ -20,8 +20,12 @@ import { readUpdateState } from "../src/update-safety";
 
 class HealthyDockerRunner implements CommandRunner {
   readonly calls: Array<{ command: string; args: readonly string[]; options?: RunOptions }> = [];
+  private failedStart = false;
 
-  constructor(private readonly failPull = false) {}
+  constructor(
+    private readonly failPull = false,
+    private readonly failFirstStart = false
+  ) {}
 
   run(command: string, args: readonly string[], options?: RunOptions): RunResult {
     this.calls.push({ command, args, options });
@@ -34,8 +38,15 @@ class HealthyDockerRunner implements CommandRunner {
     if (command === "docker" && args[0] === "compose" && args[1] === "version") {
       return { status: 0, stdout: "Docker Compose version v2.30.0", stderr: "" };
     }
+    if (args.includes("ps") && args.includes("--services")) {
+      return { status: 0, stdout: "postgres\nserver\nworker\ncomputer\n", stderr: "" };
+    }
     if (this.failPull && args.includes("pull")) {
       return { status: 1, stdout: "", stderr: "fixture pull failed" };
+    }
+    if (this.failFirstStart && !this.failedStart && args.includes("up")) {
+      this.failedStart = true;
+      return { status: 1, stdout: "", stderr: "fixture startup failed" };
     }
     if (args.includes("pg_dump") && options?.outputFile) {
       writeFileSync(options.outputFile, "-- OpenBot test database backup\nSELECT 1;\n", {
@@ -190,8 +201,8 @@ describe("installed lifecycle", () => {
     expect(phases).toEqual([
       "checking",
       "downloading",
-      "backing-up",
       "pulling",
+      "backing-up",
       "restarting",
       "verifying",
       "complete",
@@ -214,7 +225,7 @@ describe("installed lifecycle", () => {
           parseArguments(["update", "--version", "1.3.0", "--json-progress", ...releaseFixture()]),
           runner
         )
-      ).rejects.toThrow("previous Compose configuration was restored and restarted");
+      ).rejects.toThrow("previous Compose configuration was restored");
     } finally {
       log.mockRestore();
     }
@@ -223,7 +234,30 @@ describe("installed lifecycle", () => {
     expect(readFileSync(paths.environment, "utf8")).toBe(previousEnvironment);
     expect(readManifest(paths)?.version).toBe("1.2.3");
     expect(messages.some((message) => message.includes('"phase":"rolling-back"'))).toBe(true);
-    expect(runner.calls.at(-1)?.args).toContain("up");
+    expect(runner.calls.at(-1)?.args).toContain("pull");
+  });
+
+  test("restores the database before restarting the prior release after startup fails", async () => {
+    const { paths } = fixture();
+    const runner = new HealthyDockerRunner(false, true);
+    await expect(
+      updateCommand(
+        paths,
+        parseArguments(["update", "--version", "1.3.0", ...releaseFixture()]),
+        runner
+      )
+    ).rejects.toThrow("previous Compose configuration was restored and restarted");
+
+    expect(runner.calls.some((call) => call.args.includes("dropdb"))).toBe(true);
+    expect(runner.calls.some((call) => call.args.includes("createdb"))).toBe(true);
+    expect(runner.calls.some((call) => Boolean(call.options?.inputFile))).toBe(true);
+    const restoreIndex = runner.calls.findIndex((call) => Boolean(call.options?.inputFile));
+    const stopIndexes = runner.calls
+      .map((call, index) => (call.args.includes("stop") ? index : -1))
+      .filter((index) => index >= 0);
+    expect(stopIndexes).toHaveLength(2);
+    expect(stopIndexes.at(-1)).toBeLessThan(restoreIndex);
+    expect(readManifest(paths)?.version).toBe("1.2.3");
   });
 
   test("rejects downgrades and prereleases before downloading a release", async () => {

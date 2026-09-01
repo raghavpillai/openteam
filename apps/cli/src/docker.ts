@@ -3,11 +3,15 @@ import type { InstallationPaths } from "./config";
 import { PROJECT_NAME } from "./constants";
 import { CliError } from "./errors";
 import type { CommandRunner, RunResult } from "./process";
+import semver from "semver";
+
+export const MINIMUM_COMPOSE_VERSION = "2.20.0";
 
 export interface ComposeCommand {
   executable: string;
   prefix: readonly string[];
   version: string;
+  supported: boolean;
 }
 
 const usefulFailure = (result: RunResult): string =>
@@ -20,13 +24,22 @@ export const dockerDaemon = (runner: CommandRunner): RunResult =>
   runner.run("docker", ["info", "--format", "{{.ServerVersion}}"]);
 
 export const findCompose = (runner: CommandRunner): ComposeCommand | null => {
+  const command = (executable: string, prefix: readonly string[], version: string) => {
+    const parsed = semver.coerce(version);
+    return {
+      executable,
+      prefix,
+      version,
+      supported: Boolean(parsed && semver.gte(parsed, MINIMUM_COMPOSE_VERSION)),
+    };
+  };
   const plugin = runner.run("docker", ["compose", "version"]);
   if (plugin.status === 0) {
-    return { executable: "docker", prefix: ["compose"], version: plugin.stdout.trim() };
+    return command("docker", ["compose"], plugin.stdout.trim());
   }
   const standalone = runner.run("docker-compose", ["version"]);
   if (standalone.status === 0) {
-    return { executable: "docker-compose", prefix: [], version: standalone.stdout.trim() };
+    return command("docker-compose", [], standalone.stdout.trim());
   }
   return null;
 };
@@ -41,7 +54,13 @@ export class ComposeProject {
 
   run(
     args: readonly string[],
-    options: { inherit?: boolean; composeFile?: string; input?: string; outputFile?: string } = {}
+    options: {
+      inherit?: boolean;
+      composeFile?: string;
+      input?: string;
+      inputFile?: string;
+      outputFile?: string;
+    } = {}
   ): RunResult {
     const composeFile = options.composeFile ?? this.paths.compose;
     if (!existsSync(composeFile)) throw new CliError(`Compose file not found: ${composeFile}`);
@@ -61,6 +80,7 @@ export class ComposeProject {
         cwd: this.paths.directory,
         inherit: options.inherit,
         input: options.input,
+        inputFile: options.inputFile,
         outputFile: options.outputFile,
       }
     );
@@ -68,7 +88,7 @@ export class ComposeProject {
 
   runOrThrow(
     args: readonly string[],
-    options: { inherit?: boolean; composeFile?: string; input?: string } = {}
+    options: { inherit?: boolean; composeFile?: string; input?: string; inputFile?: string } = {}
   ): void {
     const result = this.run(args, options);
     if (result.status !== 0) {
@@ -86,6 +106,11 @@ export const requireComposeProject = (
   if (!compose) {
     throw new CliError(
       "Docker Compose is not available. Install Docker Desktop or the Docker Compose plugin first."
+    );
+  }
+  if (!compose.supported) {
+    throw new CliError(
+      `OpenBot requires Docker Compose ${MINIMUM_COMPOSE_VERSION} or newer; found ${compose.version || "an unknown version"}. Update Docker Desktop or the Compose plugin first.`
     );
   }
   return new ComposeProject(paths, compose, runner, projectName);

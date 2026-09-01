@@ -55,6 +55,9 @@ class SetupRunner implements CommandRunner {
     if (command === "docker" && args[0] === "compose" && args[1] === "version") {
       return { status: 0, stdout: "Docker Compose version v2.30.0", stderr: "" };
     }
+    if (args.includes("ps") && args.includes("--services")) {
+      return { status: 0, stdout: "postgres\nserver\nworker\ncomputer\n", stderr: "" };
+    }
     if (args.includes("openbot-pi-login")) this.onLogin();
     return { status: 0, stdout: "", stderr: "" };
   }
@@ -178,12 +181,31 @@ describe("interactive setup", () => {
     });
   });
 
+  test("reconfiguration keeps the existing owner and does not ask for a password", async () => {
+    const current = parseEnvironment(createEnvironment({ version: "1.2.3", timeZone: "UTC" }));
+    const prompter = new AnswerPrompter(["local", "no"]);
+
+    const configuration = await collectSetupConfiguration(
+      current,
+      false,
+      prompter,
+      {
+        ownerConfigured: true,
+      },
+      "existing.owner"
+    );
+
+    expect(configuration.ownerUsername).toBe("existing.owner");
+    expect(configuration.ownerPassword).toBeUndefined();
+    expect(prompter.prompts.some((prompt) => prompt.includes("password"))).toBe(false);
+  });
+
   test("public HTTP requires acknowledgement and keeps screen viewers off the Internet", async () => {
     const current = parseEnvironment(createEnvironment({ version: "1.2.3", timeZone: "UTC" }));
     const prompter = new AnswerPrompter([
-      "2",
+      "3",
       "no",
-      "2",
+      "3",
       "yes",
       "203.0.113.9",
       "",
@@ -279,7 +301,7 @@ describe("interactive setup", () => {
     });
 
     const prompter = new AnswerPrompter([
-      "4",
+      "5",
       "",
       "correct horse battery staple",
       "correct horse battery staple",
@@ -288,6 +310,7 @@ describe("interactive setup", () => {
       "",
       "xhigh",
       "4",
+      "yes",
       "yes",
     ]);
     const runner = new SetupRunner(() => {

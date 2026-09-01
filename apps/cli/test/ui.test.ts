@@ -40,4 +40,16 @@ describe("setup presentation", () => {
     expect(output.join("\n")).toContain("✓ OpenBot is ready");
     expect(output.join("\n")).toContain("https://bot.example.com");
   });
+
+  test("uses a compact progress bar in narrow SSH terminals", () => {
+    const header = renderSetupHeader({
+      version: "1.2.3",
+      stages,
+      activeStage: 1,
+      color: false,
+      width: 40,
+    });
+    expect(header).toContain("2/3 Owner");
+    expect(header.split("\n").every((line) => line.length <= 40)).toBe(true);
+  });
 });

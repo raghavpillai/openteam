@@ -25,9 +25,16 @@ import {
   VIEWER_PORT_END,
   VIEWER_PORT_START,
 } from "./constants";
-import { ComposeProject, dockerDaemon, dockerVersion, findCompose } from "./docker";
+import {
+  ComposeProject,
+  dockerDaemon,
+  dockerVersion,
+  findCompose,
+  MINIMUM_COMPOSE_VERSION,
+} from "./docker";
 import { checkHealth } from "./health";
 import type { CommandRunner } from "./process";
+import { inspectPublicReadiness } from "./public-readiness";
 
 type CheckLevel = "pass" | "warn" | "fail";
 
@@ -55,7 +62,7 @@ const nearestExistingDirectory = (path: string): string => {
 
 const formatBytes = (bytes: number): string => `${(bytes / 1024 ** 3).toFixed(1)} GiB`;
 
-const portAvailable = (host: string, port: number): Promise<boolean> =>
+export const portAvailable = (host: string, port: number): Promise<boolean> =>
   new Promise((resolve) => {
     const server = createServer();
     server.unref();
@@ -137,9 +144,11 @@ export const runDoctor = async (
   }
   const compose = findCompose(runner);
   checks.push({
-    level: compose ? "pass" : "fail",
+    level: compose?.supported ? "pass" : "fail",
     label: "Docker Compose",
-    detail: compose?.version || "not found",
+    detail: compose
+      ? `${compose.version}${compose.supported ? "" : `; OpenBot requires ${MINIMUM_COMPOSE_VERSION}+`}`
+      : "not found",
   });
 
   if (!installed) {
@@ -171,13 +180,11 @@ export const runDoctor = async (
         ? "configuration permissions are private"
         : `${paths.environment} is readable by other users`,
     });
-    if (compose) {
-      const validation = new ComposeProject(
-        paths,
-        compose,
-        runner,
-        manifest?.projectName || requestedProjectName
-      ).run(["config", "--quiet"]);
+    const project = compose?.supported
+      ? new ComposeProject(paths, compose, runner, manifest?.projectName || requestedProjectName)
+      : null;
+    if (project) {
+      const validation = project.run(["config", "--quiet"]);
       checks.push({
         level: validation.status === 0 ? "pass" : "fail",
         label: "Compose configuration",
@@ -217,13 +224,16 @@ export const runDoctor = async (
       const viewersAreLoopback =
         (values.get("OPENBOT_VIEWER_BIND_HOST") || values.get("OPENBOT_BIND_HOST")) === "127.0.0.1";
       let exposure: DoctorCheck;
-      if (accessMode === "https") {
+      if (accessMode === "https" || accessMode === "proxy") {
         exposure =
           publicUrl.startsWith("https://") && apiIsLoopback && viewersAreLoopback
             ? {
                 level: "pass",
                 label: "Network exposure",
-                detail: `public HTTPS through Caddy at ${publicUrl}; internal ports are loopback-only`,
+                detail:
+                  accessMode === "https"
+                    ? `public HTTPS through bundled Caddy at ${publicUrl}; internal ports are loopback-only`
+                    : `public HTTPS through an external proxy at ${publicUrl}; OpenBot ports are loopback-only`,
               }
             : {
                 level: "fail",
@@ -258,6 +268,52 @@ export const runDoctor = async (
               };
       }
       checks.push(exposure);
+
+      if (project) {
+        const running = project.run(["ps", "--status", "running", "--services"]);
+        const runningServices = new Set(
+          running.status === 0
+            ? running.stdout
+                .split(/\r?\n/)
+                .map((value) => value.trim())
+                .filter(Boolean)
+            : []
+        );
+        const expected = ["postgres", "server", "worker", "computer"];
+        if (accessMode === "https") expected.push("caddy");
+        const missing = expected.filter((service) => !runningServices.has(service));
+        checks.push({
+          level: running.status === 0 && missing.length === 0 ? "pass" : "fail",
+          label: "Compose services",
+          detail:
+            running.status !== 0
+              ? running.stderr.trim() || running.stdout.trim() || "could not read service state"
+              : missing.length
+                ? `not running: ${missing.join(", ")}`
+                : `${expected.join(", ")} are running`,
+        });
+      }
+
+      if (["https", "proxy", "http"].includes(accessMode) && publicUrl) {
+        const readiness = await inspectPublicReadiness(publicUrl);
+        checks.push({
+          level: readiness.dns.ok ? "pass" : "fail",
+          label: "Public DNS",
+          detail: readiness.dns.detail,
+        });
+        if (readiness.tls) {
+          checks.push({
+            level: readiness.tls.ok ? "pass" : "fail",
+            label: "TLS certificate",
+            detail: readiness.tls.detail,
+          });
+        }
+        checks.push({
+          level: readiness.endpoint.ok ? "pass" : "fail",
+          label: "Public endpoint",
+          detail: readiness.endpoint.detail,
+        });
+      }
     } catch (error) {
       checks.push({
         level: "fail",

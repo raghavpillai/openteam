@@ -14,6 +14,26 @@ describe("CLI arguments", () => {
     });
   });
 
+  test("supports operational logs, provider repair, and command-local help", () => {
+    expect(parseArguments(["provider", "login"]).command).toBe("provider-login");
+    expect(
+      parseArguments(["logs", "--follow", "--tail", "50", "--service", "server"])
+    ).toMatchObject({ command: "logs", follow: true, tail: "50", service: "server" });
+    expect(parseArguments(["setup", "--help"]).command).toBe("help");
+  });
+
+  test("rejects unsafe or malformed log selectors", () => {
+    expect(() => parseArguments(["logs", "--tail", "1.5"])).toThrow(
+      "--tail must be a whole number"
+    );
+    expect(() => parseArguments(["logs", "--service", "-f"])).toThrow(
+      "--service must be a Compose service name"
+    );
+    expect(() => parseArguments(["logs", "--service", "server;whoami"])).toThrow(
+      "--service must be a Compose service name"
+    );
+  });
+
   test("recognizes the nested password reset command", () => {
     expect(parseArguments(["password", "reset", "--dir", "/tmp/openbot"])).toMatchObject({
       command: "password-reset",

@@ -15,14 +15,15 @@ import {
 } from "./config";
 import { PROJECT_NAME } from "./constants";
 import { requireComposeProject } from "./docker";
-import { printDoctor, runDoctor } from "./doctor";
+import { portAvailable, printDoctor, runDoctor } from "./doctor";
 import { CliError } from "./errors";
 import { checkHealth, waitForHealth } from "./health";
 import type { CommandRunner } from "./process";
+import { inspectPublicReadiness } from "./public-readiness";
 import { createSetupPresentation, type SetupPresentation, type SetupStage } from "./ui";
 
 const THINKING_LEVELS = ["minimal", "low", "medium", "high", "xhigh", "max"] as const;
-const ACCESS_MODES = ["https", "http", "private", "local"] as const;
+const ACCESS_MODES = ["https", "proxy", "http", "private", "local"] as const;
 const SETUP_STAGES: readonly SetupStage[] = [
   { label: "Access", description: "Choose how desktop and mobile apps reach this server." },
   { label: "Owner", description: "Create the single username and password for this OpenBot." },
@@ -64,7 +65,7 @@ export interface SetupConfiguration {
   publicUrl: string;
   composeProfiles: "https" | "direct";
   ownerUsername: string;
-  ownerPassword: string;
+  ownerPassword?: string;
   authenticate: boolean;
 }
 
@@ -72,6 +73,7 @@ export interface SetupCommandOptions {
   advanced?: boolean;
   fresh?: boolean;
   presentation?: SetupPresentation;
+  ownerConfigured?: boolean;
 }
 
 const requireInstallation = (paths: InstallationPaths): InstallationManifest => {
@@ -236,25 +238,29 @@ const accessMode = (value: string): SetupConfiguration["accessMode"] => {
     https: "https",
     public: "https",
     "public-https": "https",
-    "2": "http",
+    "2": "proxy",
     http: "http",
     "public-http": "http",
-    "3": "private",
+    proxy: "proxy",
+    "external-proxy": "proxy",
+    "3": "http",
+    "4": "private",
     private: "private",
     vpn: "private",
     tailnet: "private",
-    "4": "local",
+    "5": "local",
     local: "local",
     loopback: "local",
   };
   const selected = aliases[normalized];
   if (selected) return selected;
-  throw new Error("Choose 1, 2, 3, or 4.");
+  throw new Error("Choose 1, 2, 3, 4, or 5.");
 };
 
 const accessLabel = (value: SetupConfiguration["accessMode"]): string =>
   ({
     https: "Public HTTPS",
+    proxy: "Existing HTTPS proxy",
     http: "Public HTTP",
     private: "Private network",
     local: "This machine only",
@@ -344,7 +350,7 @@ const publicUrlFor = (
   host: string,
   apiPort: string
 ): string => {
-  if (mode === "https") return `https://${host}`;
+  if (mode === "https" || mode === "proxy") return `https://${host}`;
   const port = apiPort === "80" ? "" : `:${apiPort}`;
   return `http://${host}${port}`;
 };
@@ -363,6 +369,10 @@ export const collectSetupConfiguration = async (
       title: "Public HTTPS",
       description: "A domain plus automatic TLS from the bundled Caddy proxy.",
       recommended: true,
+    },
+    {
+      title: "Existing HTTPS proxy",
+      description: "Use nginx, Caddy, Traefik, or a cloud load balancer you already manage.",
     },
     {
       title: "Public HTTP",
@@ -410,17 +420,24 @@ export const collectSetupConfiguration = async (
         ? existingPublicHost
         : null;
   let reachableHost = "127.0.0.1";
-  if (selectedAccess === "https") {
+  if (selectedAccess === "https" || selectedAccess === "proxy") {
     reachableHost = await askRequired(
       prompter,
       "Public domain (A/AAAA record points to this server)",
       existingReachableHost,
       publicDomain
     );
-    presentation?.message(
-      "OpenBot will publish ports 80/443; Caddy will obtain and renew the certificate.",
-      "info"
-    );
+    if (selectedAccess === "https") {
+      presentation?.message(
+        "OpenBot will publish ports 80/443; Caddy will obtain and renew the certificate.",
+        "info"
+      );
+    } else {
+      presentation?.message(
+        "OpenBot will listen on loopback only. Point your HTTPS proxy at the local API port shown in the summary.",
+        "info"
+      );
+    }
   } else if (selectedAccess === "http") {
     reachableHost = await askRequired(
       prompter,
@@ -450,7 +467,7 @@ export const collectSetupConfiguration = async (
   const viewerBindHost: SetupConfiguration["viewerBindHost"] =
     selectedAccess === "private" ? "0.0.0.0" : "127.0.0.1";
   const screenViewerHost = selectedAccess === "private" ? reachableHost : "127.0.0.1";
-  if (selectedAccess === "https" || selectedAccess === "http") {
+  if (selectedAccess === "https" || selectedAccess === "proxy" || selectedAccess === "http") {
     presentation?.message(
       "Raw screen-viewer ports will remain loopback-only in this Internet-facing mode.",
       "success"
@@ -459,8 +476,21 @@ export const collectSetupConfiguration = async (
 
   presentation?.stage(1);
   const currentThinking = current.get("OPENBOT_PI_THINKING") || "high";
-  const ownerUsername = await collectOwnerUsername(prompter, currentOwnerUsername);
-  const ownerPassword = await collectConfirmedPassword(prompter);
+  let ownerUsername = currentOwnerUsername;
+  let ownerPassword: string | undefined;
+  if (options.ownerConfigured) {
+    presentation?.message(
+      `Keeping the existing owner account (${currentOwnerUsername}) and active sessions.`,
+      "success"
+    );
+    presentation?.message(
+      "Use openbot account update when you intentionally want to change credentials.",
+      "muted"
+    );
+  } else {
+    ownerUsername = await collectOwnerUsername(prompter, currentOwnerUsername);
+    ownerPassword = await collectConfirmedPassword(prompter);
+  }
 
   const configuration: SetupConfiguration = {
     accessMode: selectedAccess,
@@ -550,19 +580,6 @@ const waitForAuthentication = async (
   return false;
 };
 
-const checkPublicEndpoint = async (publicUrl: string): Promise<string | null> => {
-  try {
-    const response = await fetch(new URL("/api/v0/health", publicUrl), {
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (!response.ok) return `HTTP ${response.status}`;
-    const body = (await response.json().catch(() => null)) as { status?: unknown } | null;
-    return body?.status === "ready" ? null : "the public endpoint did not report ready";
-  } catch (error) {
-    return error instanceof Error ? error.message : String(error);
-  }
-};
-
 export const setupCommand = async (
   paths: InstallationPaths,
   runner: CommandRunner,
@@ -582,38 +599,78 @@ export const setupCommand = async (
   presentation.start();
   presentation.message(`Installation: ${paths.directory}`, "muted");
   presentation.message("Press Enter to keep the value shown in brackets.", "muted");
-  let configuration: SetupConfiguration;
+  let configuration: SetupConfiguration | null = null;
   try {
-    configuration = await collectSetupConfiguration(
-      current,
-      initialHealth.agent === "ready",
-      prompter,
-      {
-        ...options,
-        fresh: options.fresh ?? !manifest.ownerUsername,
-        presentation,
-      },
-      manifest.ownerUsername || "openbot"
-    );
+    while (!configuration) {
+      const candidate = await collectSetupConfiguration(
+        current,
+        initialHealth.agent === "ready",
+        prompter,
+        {
+          ...options,
+          fresh: options.fresh ?? !manifest.ownerUsername,
+          ownerConfigured: Boolean(manifest.ownerUsername),
+          presentation,
+        },
+        manifest.ownerUsername || "openbot"
+      );
+
+      if (!options.advanced) {
+        presentation.message(
+          `Using ${candidate.model}, ${candidate.thinking} reasoning, and local API port ${candidate.apiPort}.`,
+          "info"
+        );
+        presentation.message("Run openbot setup --advanced to change these settings.", "muted");
+      }
+
+      presentation.stage(3);
+      presentation.summary("Configuration ready", [
+        { label: "Access", value: accessLabel(candidate.accessMode) },
+        { label: "Address", value: candidate.publicUrl },
+        { label: "Owner", value: candidate.ownerUsername },
+        { label: "Model", value: `${candidate.model} · ${candidate.thinking}` },
+      ]);
+      if (candidate.accessMode === "proxy") {
+        presentation.message(
+          `Proxy target: http://127.0.0.1:${candidate.apiPort} (WebSocket upgrades must be enabled).`,
+          "info"
+        );
+      }
+      while (true) {
+        const answer = (await prompter.question("Apply this configuration? [Y/n/back] "))
+          .trim()
+          .toLowerCase();
+        if (!answer || answer === "y" || answer === "yes") {
+          configuration = candidate;
+          break;
+        }
+        if (answer === "n" || answer === "no") {
+          presentation.message("Setup cancelled; no configuration was changed.", "muted");
+          return;
+        }
+        if (answer === "b" || answer === "back") {
+          presentation.message("Returning to the access stage.", "muted");
+          break;
+        }
+        presentation.message("Enter yes, no, or back.", "warning");
+      }
+    }
   } finally {
     if (!suppliedPrompter) prompter.close();
   }
-
-  if (!options.advanced) {
-    presentation.message(
-      `Using ${configuration.model}, ${configuration.thinking} reasoning, and local API port ${configuration.apiPort}.`,
-      "info"
-    );
-    presentation.message("Run openbot setup --advanced to change these settings.", "muted");
+  const previousAccessMode = current.get("OPENBOT_ACCESS_MODE") || "local";
+  if (configuration.accessMode === "https" && previousAccessMode !== "https") {
+    const occupied = (
+      await Promise.all(
+        [80, 443].map(async (port) => ({ port, available: await portAvailable("0.0.0.0", port) }))
+      )
+    ).filter(({ available }) => !available);
+    if (occupied.length) {
+      throw new CliError(
+        `Bundled HTTPS cannot start because port${occupied.length === 1 ? "" : "s"} ${occupied.map(({ port }) => port).join(", ")} ${occupied.length === 1 ? "is" : "are"} already in use. Stop the conflicting proxy or rerun setup and choose Existing HTTPS proxy.`
+      );
+    }
   }
-
-  presentation.stage(3);
-  presentation.summary("Configuration ready", [
-    { label: "Access", value: accessLabel(configuration.accessMode) },
-    { label: "Address", value: configuration.publicUrl },
-    { label: "Owner", value: configuration.ownerUsername },
-    { label: "Model", value: `${configuration.model} · ${configuration.thinking}` },
-  ]);
   const nextEnvironment = ensureAuthenticationSecret(
     updateEnvironment(previousEnvironment, configuration)
   );
@@ -667,20 +724,22 @@ export const setupCommand = async (
     );
   }
 
-  presentation.message("Setting the OpenBot owner credentials…", "info");
-  project.runOrThrow(["exec", "--no-TTY", "server", "bun", "main.js", "owner-credentials"], {
-    input: JSON.stringify({
-      operation: "setup",
-      username: configuration.ownerUsername,
-      password: configuration.ownerPassword,
-    }),
-  });
-  writeManifest(paths, {
-    ...manifest,
-    ownerUsername: configuration.ownerUsername,
-    uninstalledAt: undefined,
-  });
-  presentation.message(`OpenBot sign-in is ready for ${configuration.ownerUsername}.`, "success");
+  if (configuration.ownerPassword) {
+    presentation.message("Setting the OpenBot owner credentials…", "info");
+    project.runOrThrow(["exec", "--no-TTY", "server", "bun", "main.js", "owner-credentials"], {
+      input: JSON.stringify({
+        operation: "setup",
+        username: configuration.ownerUsername,
+        password: configuration.ownerPassword,
+      }),
+    });
+    writeManifest(paths, {
+      ...manifest,
+      ownerUsername: configuration.ownerUsername,
+      uninstalledAt: undefined,
+    });
+    presentation.message(`OpenBot sign-in is ready for ${configuration.ownerUsername}.`, "success");
+  }
 
   if (configuration.authenticate) {
     presentation.message("Starting OpenAI Codex sign-in…", "info");
@@ -691,7 +750,7 @@ export const setupCommand = async (
     project.runOrThrow(["exec", "computer", "openbot-pi-login"], { inherit: true });
     if (!(await waitForAuthentication(paths))) {
       throw new CliError(
-        "OpenAI Codex sign-in completed, but OpenBot still reports authentication as missing."
+        "OpenAI Codex sign-in completed, but OpenBot still reports authentication as missing. Run openbot provider login to retry only this step."
       );
     }
     presentation.message("OpenAI Codex authentication is ready.", "success");
@@ -702,19 +761,26 @@ export const setupCommand = async (
   const diagnosis = await runDoctor(paths, runner, manifest.projectName || PROJECT_NAME);
   printDoctor(diagnosis);
   if (!diagnosis.ok) throw new CliError("Setup completed with blocking doctor failures.", 2);
-  if (configuration.accessMode === "https" || configuration.accessMode === "http") {
-    const publicFailure = await checkPublicEndpoint(configuration.publicUrl);
+  if (["https", "proxy", "http"].includes(configuration.accessMode)) {
+    const readiness = await inspectPublicReadiness(configuration.publicUrl);
+    const publicFailure = [
+      readiness.dns.ok ? null : `DNS: ${readiness.dns.detail}`,
+      readiness.endpoint.ok ? null : `endpoint: ${readiness.endpoint.detail}`,
+      readiness.tls && !readiness.tls.ok ? `TLS: ${readiness.tls.detail}` : null,
+    ]
+      .filter(Boolean)
+      .join("; ");
     if (publicFailure) {
-      presentation.message(
-        `The local stack is healthy, but ${configuration.publicUrl} could not be verified: ${publicFailure}`,
-        "warning"
+      throw new CliError(
+        `The local stack is healthy, but the configured public endpoint ${configuration.publicUrl} could not be verified: ${publicFailure}. ${
+          configuration.accessMode === "https"
+            ? "Confirm DNS points here and inbound TCP ports 80 and 443 are open, then run openbot doctor."
+            : configuration.accessMode === "proxy"
+              ? `Confirm your proxy forwards HTTPS and WebSockets to http://127.0.0.1:${configuration.apiPort}, then run openbot doctor.`
+              : "Confirm the host, port, and cloud firewall rules, then run openbot doctor."
+        }`,
+        2
       );
-      if (configuration.accessMode === "https") {
-        presentation.message(
-          "Confirm DNS points here and inbound TCP ports 80 and 443 are open, then run openbot doctor.",
-          "warning"
-        );
-      }
     } else {
       presentation.message(`Public endpoint verified at ${configuration.publicUrl}.`, "success");
     }

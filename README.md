@@ -70,8 +70,8 @@ Shared code follows strict dependency layers:
 
 ## Install the released server stack
 
-Docker with Compose is the only system prerequisite. Install the versioned server, worker,
-PostgreSQL database, migrations, and shared graphical computer with Bun:
+Install Docker with Compose 2.20 or newer, plus either Bun or Node 20.17+. Then install and configure
+the versioned server, worker, PostgreSQL database, migrations, and shared graphical computer with Bun:
 
 ```sh
 bunx --bun @openbot/cli install
@@ -85,8 +85,8 @@ npx @openbot/cli install
 
 The installer verifies Docker and the host, generates private installation secrets, verifies the
 release bundle checksum and Sigstore identity, pulls digest-pinned `linux/amd64` or `linux/arm64`
-images, starts the Compose project in the background, and waits for exact-release readiness. The API
-and screen viewers remain bound to loopback. Run diagnostics and manage the installation with:
+images, opens the staged setup in the same command, starts the selected Compose deployment in the
+background, and verifies local and public readiness. Run diagnostics and manage the installation with:
 
 ```sh
 bunx --bun @openbot/cli doctor
@@ -94,6 +94,8 @@ bunx --bun @openbot/cli setup
 bunx --bun @openbot/cli status
 bunx --bun @openbot/cli stop
 bunx --bun @openbot/cli start
+bunx --bun @openbot/cli logs
+bunx --bun @openbot/cli provider login
 bunx --bun @openbot/cli account update
 bunx --bun @openbot/cli password reset
 bunx --bun @openbot/cli update
@@ -110,15 +112,17 @@ readiness, and configuration rollback. The CLI persists the latest job record fo
 reconnecting management tools.
 
 Before changing the stack, the updater acquires a cross-process lock, validates free disk and the
-next Compose configuration, rejects unexpected downgrades or prereleases, and writes a PostgreSQL
-dump under the installation's `backups` directory. A successful update must report `ready` from the
+next Compose configuration, rejects unexpected downgrades or prereleases, pulls the next images,
+briefly stops writers, and writes a PostgreSQL dump under the installation's `backups` directory.
+If startup fails after migrations begin, it restores both the old Compose configuration and database
+before restarting the old release. A successful update must report `ready` from the
 requested release after Compose has confirmed the server, worker, computer, database, and migration
 states. Patch releases in a compatible protocol line are advisory rather than blocking; the client
 shows a blocking banner only when the client, server, or API protocol falls outside the published
 compatibility window. Signed desktop releases download in-app and install after an explicit restart.
 
-After installation, the staged `openbot setup` flow offers public HTTPS, public HTTP, private
-network, and loopback access before creating the single OpenBot username/password account and
+The staged setup inside `openbot install` offers bundled public HTTPS, an existing HTTPS reverse
+proxy or load balancer, public HTTP, private-network, and loopback access before creating the single OpenBot username/password account and
 starting OpenAI Codex sign-in. Public HTTPS is the fresh-install default: point a domain's A/AAAA
 record at the VM and open inbound TCP ports 80 and 443, and the bundled Caddy container obtains,
 renews, and terminates TLS automatically. The VM does not need an existing certificate.
@@ -141,6 +145,12 @@ with the owner username/password and then use the resulting session; no separate
 needed. A fully trusted, isolated deployment may explicitly set `OPENBOT_AUTH_MODE=disabled` to
 remove product API authentication. Disabled mode grants every client complete API access, so never
 use it on an internet-facing host, an untrusted LAN, or behind a proxy that exposes the API.
+
+Re-running `openbot setup` preserves the owner credentials and active sessions. Use it to change
+access or runtime settings; use `openbot provider login` to repair only the Codex provider login.
+`openbot logs --service server --follow` streams a targeted service log when `doctor` identifies a
+problem. Existing-proxy mode binds OpenBot to loopback and prints the local HTTP upstream to use;
+the proxy must forward WebSocket upgrades as well as ordinary HTTP requests.
 
 `uninstall` preserves configuration and Docker volumes so `start` can recover the same installation.
 `uninstall --purge` permanently deletes PostgreSQL, Pi sessions and OAuth, agent data, and workspace

@@ -12,6 +12,7 @@ import {
   normalizeProjectName,
   normalizeRepository,
   normalizeVersion,
+  parseEnvironment,
   readManifest,
   replaceEnvironmentValue,
   writeFileAtomic,
@@ -24,11 +25,13 @@ import { CliError } from "./errors";
 import { checkHealth, waitForHealth } from "./health";
 import type { CommandRunner } from "./process";
 import { downloadRelease, latestReleaseVersion } from "./release";
+import { setupCommand, type SetupPrompter } from "./setup";
 import {
   acquireUpdateLock,
   assertUpdatePreflight,
   createDatabaseBackup,
   readUpdateState,
+  restoreDatabaseBackup,
   writeUpdateState,
   type PersistedUpdateState,
 } from "./update-safety";
@@ -86,7 +89,8 @@ const startProject = async (
 export const installCommand = async (
   paths: InstallationPaths,
   options: CliOptions,
-  runner: CommandRunner
+  runner: CommandRunner,
+  suppliedPrompter?: SetupPrompter
 ): Promise<void> => {
   if (installationExists(paths)) {
     const existing = requireInstallation(paths);
@@ -95,8 +99,20 @@ export const installCommand = async (
         `OpenBot ${existing.version} is already installed. Use openbot update --version ${normalizeVersion(options.version)}.`
       );
     }
-    console.log(`OpenBot ${existing.version} is already installed; starting it.`);
-    await startCommand(paths, runner);
+    if (!existing.ownerUsername && !options.noSetup) {
+      console.log(
+        `OpenBot ${existing.version} is installed but setup is incomplete; resuming setup.`
+      );
+      await setupCommand(
+        paths,
+        runner,
+        { advanced: options.advanced, fresh: true },
+        suppliedPrompter
+      );
+    } else {
+      console.log(`OpenBot ${existing.version} is already installed; starting it.`);
+      await startCommand(paths, runner);
+    }
     return;
   }
 
@@ -137,9 +153,13 @@ export const installCommand = async (
   const project = requireComposeProject(paths, runner, projectName);
   console.log("Pulling OpenBot container images…");
   project.runOrThrow(["pull"], { inherit: true });
-  await startProject(project, paths, version);
-  console.log(`Installation configuration: ${paths.directory}`);
-  console.log("Next: run openbot setup to configure the server and sign in to OpenAI Codex.");
+  if (options.noSetup) {
+    await startProject(project, paths, version);
+    console.log(`Installation configuration: ${paths.directory}`);
+    console.log("Guided setup was skipped. Run this same launcher with: setup");
+    return;
+  }
+  await setupCommand(paths, runner, { advanced: options.advanced, fresh: true }, suppliedPrompter);
 };
 
 export const doctorCommand = async (
@@ -163,6 +183,11 @@ export const statusCommand = async (
   const manifest = requireInstallation(paths);
   console.log(`OpenBot ${manifest.version}`);
   console.log(`Installation: ${paths.directory}\n`);
+  const environment = parseEnvironment(readFileSync(paths.environment, "utf8"));
+  const accessMode = environment.get("OPENBOT_ACCESS_MODE") || "local";
+  const publicUrl = environment.get("OPENBOT_PUBLIC_URL") || "not configured";
+  console.log(`Access: ${accessMode}`);
+  console.log(`Server: ${publicUrl}\n`);
   const project = requireComposeProject(paths, runner, manifestProjectName(manifest));
   const status = project.run(["ps"], { inherit: true });
   if (status.status !== 0) throw new CliError("Could not read Docker Compose service status.");
@@ -195,6 +220,42 @@ export const startCommand = async (
   if (manifest.uninstalledAt) {
     writeManifest(paths, { ...manifest, uninstalledAt: undefined });
   }
+};
+
+export const logsCommand = (
+  paths: InstallationPaths,
+  runner: CommandRunner,
+  options: CliOptions
+): void => {
+  const manifest = requireInstallation(paths);
+  const args = ["logs", "--tail", options.tail || "200"];
+  if (options.follow) args.push("--follow");
+  if (options.service) args.push(options.service);
+  requireComposeProject(paths, runner, manifestProjectName(manifest)).runOrThrow(args, {
+    inherit: true,
+  });
+};
+
+export const providerLoginCommand = async (
+  paths: InstallationPaths,
+  runner: CommandRunner
+): Promise<void> => {
+  const manifest = requireInstallation(paths);
+  const project = requireComposeProject(paths, runner, manifestProjectName(manifest));
+  console.log("Starting OpenAI Codex sign-in…");
+  project.runOrThrow(["exec", "computer", "openbot-pi-login"], { inherit: true });
+  const deadline = Date.now() + 15_000;
+  while (Date.now() < deadline) {
+    const health = await checkHealth(paths);
+    if (health.ok && health.agent === "ready") {
+      console.log("OpenAI Codex authentication is ready.");
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+  }
+  throw new CliError(
+    "Provider sign-in finished, but OpenBot still reports authentication as missing. Run openbot doctor and openbot logs --service computer."
+  );
 };
 
 const updateCommandUnlocked = async (
@@ -268,20 +329,24 @@ const updateCommandUnlocked = async (
   );
   const nextCompose = `${paths.compose}.next`;
   const project = requireComposeProject(paths, runner, manifestProjectName(manifest));
-  let configurationChanged = false;
+  let maintenanceStarted = false;
+  let newStackStarted = false;
+  let backupPath: string | null = null;
   try {
     writeFileAtomic(nextCompose, release.compose, 0o600);
     assertUpdatePreflight(paths, runner, project, nextCompose);
-    report("backing-up", `Backing up the OpenBot database before ${target}`, target);
-    const backupPath = createDatabaseBackup(paths, project, manifest.version, target);
-    persisted = writeUpdateState(paths, { ...persisted, backupPath });
-    writeFileAtomic(paths.environment, nextEnvironment, 0o600);
-    configurationChanged = true;
     report("pulling", `Pulling OpenBot ${target} container images`, target);
     project.runOrThrow(["pull"], { inherit: true, composeFile: nextCompose });
+    maintenanceStarted = true;
+    project.runOrThrow(["stop", "server", "worker", "computer"], { inherit: true });
+    report("backing-up", `Backing up the OpenBot database before ${target}`, target);
+    backupPath = createDatabaseBackup(paths, project, manifest.version, target);
+    persisted = writeUpdateState(paths, { ...persisted, backupPath });
+    writeFileAtomic(paths.environment, nextEnvironment, 0o600);
     writeFileAtomic(paths.compose, release.compose, 0o600);
     rmSync(nextCompose, { force: true });
     report("restarting", "Restarting the server, worker, and computer", target);
+    newStackStarted = true;
     await startProject(project, paths, target);
     report("verifying", `OpenBot ${target} passed its readiness checks`, target);
   } catch (error) {
@@ -293,15 +358,28 @@ const updateCommandUnlocked = async (
     writeFileAtomic(paths.compose, previousCompose, 0o600);
     writeFileAtomic(paths.environment, previousEnvironment, 0o600);
     rmSync(nextCompose, { force: true });
-    const recovery = configurationChanged
+    let databaseRecoveryError: string | null = null;
+    if (newStackStarted && backupPath) {
+      try {
+        project.runOrThrow(["stop", "server", "worker", "computer"], { inherit: true });
+        restoreDatabaseBackup(project, backupPath);
+      } catch (restoreError) {
+        databaseRecoveryError =
+          restoreError instanceof Error ? restoreError.message : String(restoreError);
+      }
+    }
+    const recovery = maintenanceStarted
       ? project.run(["up", "--detach", "--remove-orphans", "--wait", "--wait-timeout", "180"], {
           inherit: true,
         })
       : { status: 0 };
+    const recoveryDetail = !maintenanceStarted
+      ? "; the running services were never stopped"
+      : recovery.status === 0
+        ? " and restarted"
+        : ", but it could not be restarted";
     throw new CliError(
-      `Update failed and the previous Compose configuration was restored${
-        recovery.status === 0 ? " and restarted" : ", but it could not be restarted"
-      }: ${error instanceof Error ? error.message : error}`
+      `Update failed and the previous Compose configuration was restored${recoveryDetail}${databaseRecoveryError ? `; database restore also failed: ${databaseRecoveryError}` : ""}: ${error instanceof Error ? error.message : error}`
     );
   }
   writeManifest(paths, {

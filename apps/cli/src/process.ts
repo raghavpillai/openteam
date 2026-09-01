@@ -6,6 +6,7 @@ export interface RunOptions {
   env?: NodeJS.ProcessEnv;
   inherit?: boolean;
   input?: string;
+  inputFile?: string;
   outputFile?: string;
 }
 
@@ -23,6 +24,7 @@ export interface CommandRunner {
 export class SystemCommandRunner implements CommandRunner {
   run(command: string, args: readonly string[], options: RunOptions = {}): RunResult {
     const output = options.outputFile ? openSync(options.outputFile, "w", 0o600) : null;
+    const input = options.inputFile ? openSync(options.inputFile, "r") : null;
     try {
       const result = spawnSync(command, [...args], {
         cwd: options.cwd,
@@ -31,10 +33,12 @@ export class SystemCommandRunner implements CommandRunner {
         shell: false,
         input: options.input,
         stdio: options.inherit
-          ? [options.input === undefined ? "inherit" : "pipe", "inherit", "inherit"]
+          ? [input ?? (options.input === undefined ? "inherit" : "pipe"), "inherit", "inherit"]
           : options.outputFile
-            ? [options.input === undefined ? "ignore" : "pipe", output as number, "pipe"]
-            : "pipe",
+            ? [input ?? (options.input === undefined ? "ignore" : "pipe"), output as number, "pipe"]
+            : input
+              ? [input, "pipe", "pipe"]
+              : "pipe",
       });
       return {
         status: result.status ?? 1,
@@ -44,6 +48,7 @@ export class SystemCommandRunner implements CommandRunner {
       };
     } finally {
       if (output !== null) closeSync(output);
+      if (input !== null) closeSync(input);
     }
   }
 }

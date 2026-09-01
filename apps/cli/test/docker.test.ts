@@ -25,6 +25,15 @@ class RecordingRunner implements CommandRunner {
   }
 }
 
+class LegacyComposeRunner implements CommandRunner {
+  run(command: string, args: readonly string[]): RunResult {
+    if (command === "docker" && args[0] === "compose") {
+      return { status: 0, stdout: "Docker Compose version v1.29.2", stderr: "" };
+    }
+    return { status: 1, stdout: "", stderr: "not found" };
+  }
+}
+
 describe("Docker Compose command selection", () => {
   test("prefers the Docker Compose plugin", () => {
     const runner = new RecordingRunner(true);
@@ -34,6 +43,10 @@ describe("Docker Compose command selection", () => {
   test("falls back to standalone Docker Compose", () => {
     const runner = new RecordingRunner(false);
     expect(findCompose(runner)).toMatchObject({ executable: "docker-compose", prefix: [] });
+  });
+
+  test("marks legacy Compose implementations as unsupported", () => {
+    expect(findCompose(new LegacyComposeRunner())).toMatchObject({ supported: false });
   });
 
   test("always scopes lifecycle calls to the installation and project", () => {

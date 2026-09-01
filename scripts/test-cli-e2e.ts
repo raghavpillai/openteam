@@ -78,6 +78,38 @@ const dockerProbe = (args: readonly string[]) =>
 const cli = (args: readonly string[], expectedStatus = 0) =>
   run("node", [cliPath, ...args], { expectedStatus });
 
+const shellQuote = (value: string): string => `'${value.replaceAll("'", `'\\''`)}'`;
+const tclQuote = (value: string): string =>
+  `{${value.replaceAll("\\", "\\\\").replaceAll("}", "\\}")}}`;
+
+const cliInteractive = (args: readonly string[], input: string) => {
+  if (process.platform === "darwin") {
+    const answers = input.trimEnd().split("\n");
+    const interactions = [
+      ["Access mode", answers[0]],
+      ["OpenBot username", answers[1]],
+      ["OpenBot password:", answers[2]],
+      ["Confirm OpenBot password:", answers[3]],
+      ["Sign in to OpenAI Codex now?", answers[4]],
+      ["Apply this configuration?", answers[5]],
+    ] as const;
+    const program = [
+      "set timeout 300",
+      `spawn node ${tclQuote(cliPath)} ${args.map(tclQuote).join(" ")}`,
+      ...interactions.flatMap(([prompt, answer]) => [
+        `expect ${tclQuote(prompt)}`,
+        `send -- ${tclQuote(`${answer ?? ""}\r`)}`,
+      ]),
+      "expect eof",
+      "set child_status [wait]",
+      "exit [lindex $child_status 3]",
+    ].join("\n");
+    return run("expect", ["-c", program]);
+  }
+  const command = ["node", cliPath, ...args].map(shellQuote).join(" ");
+  return run("script", ["-qefc", command, "/dev/null"], { input });
+};
+
 const authorizationHeaders = (): Record<string, string> => {
   if (!authToken) throw new Error("The CLI E2E owner has not signed in");
   return { authorization: `Bearer ${authToken}` };
@@ -247,42 +279,7 @@ const assertPersistenceMarker = async (id: string): Promise<void> => {
   }
 };
 
-const provisionOwner = async (): Promise<void> => {
-  const manifestPath = join(installationDirectory, "installation.json");
-  run(
-    "bash",
-    [
-      developmentCompose,
-      "--project-name",
-      projectName,
-      "--project-directory",
-      installationDirectory,
-      "--file",
-      join(installationDirectory, "compose.yaml"),
-      "exec",
-      "--no-TTY",
-      "server",
-      "bun",
-      "main.js",
-      "owner-credentials",
-    ],
-    {
-      inherit: false,
-      input: JSON.stringify({
-        operation: "setup",
-        username: ownerUsername,
-        password: ownerPassword,
-      }),
-    }
-  );
-
-  const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as Record<string, unknown>;
-  writeFileSync(
-    manifestPath,
-    `${JSON.stringify({ ...manifest, ownerUsername }, null, 2)}\n`,
-    "utf8"
-  );
-
+const signInOwner = async (): Promise<void> => {
   const response = await fetch("http://127.0.0.1:8787/api/auth/login", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -346,21 +343,24 @@ const main = async (): Promise<void> => {
   developmentStopped = true;
 
   console.log("\n[E2E] Installing a checksum-verified release with isolated Docker volumes…");
-  cli([
-    "install",
-    "--dir",
-    installationDirectory,
-    "--project-name",
-    projectName,
-    "--image-prefix",
-    "openbot",
-    "--version",
-    firstVersion,
-    "--allow-prerelease",
-    "--allow-unsigned",
-    ...releaseUrls(firstVersion),
-  ]);
-  await provisionOwner();
+  cliInteractive(
+    [
+      "install",
+      "--dir",
+      installationDirectory,
+      "--project-name",
+      projectName,
+      "--image-prefix",
+      "openbot",
+      "--version",
+      firstVersion,
+      "--allow-prerelease",
+      "--allow-unsigned",
+      ...releaseUrls(firstVersion),
+    ],
+    ["5", ownerUsername, ownerPassword, ownerPassword, "no", "yes", ""].join("\n")
+  );
+  await signInOwner();
   cli(["doctor", "--dir", installationDirectory]);
   cli(["status", "--dir", installationDirectory]);
 

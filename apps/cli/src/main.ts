@@ -8,6 +8,8 @@ import { CliError, errorMessage } from "./errors";
 import {
   doctorCommand,
   installCommand,
+  logsCommand,
+  providerLoginCommand,
   startCommand,
   statusCommand,
   stopCommand,
@@ -31,6 +33,8 @@ Commands:
   update       Update to the latest stable OpenBot release
   stop         Stop OpenBot while preserving its containers and data
   start        Start or recreate the installed OpenBot services
+  logs         Show recent service logs (use --follow to stream)
+  provider login  Sign in to OpenAI Codex without rerunning setup
   account update  Update the owner username and/or password
   password reset  Reset the owner password and revoke all sessions
   uninstall    Remove OpenBot containers; data is preserved by default
@@ -47,6 +51,10 @@ Options:
   --allow-unsigned         Permit unsigned test bundles (unsafe; advanced only)
   --json-progress          Emit machine-readable update progress
   --advanced               Show advanced server prompts during setup
+  --no-setup               Install/start only; skip the guided setup (automation)
+  --follow, -f             Stream logs until interrupted
+  --tail <lines>           Number of recent log lines to show (default: 200)
+  --service <name>         Limit logs to one Compose service
   --username <name>        Set a new owner username with account update
   --password               Prompt for a new password with account update
   --help, -h               Show this help
@@ -94,6 +102,12 @@ const main = async (): Promise<void> => {
       break;
     case "start":
       await startCommand(paths, runner);
+      break;
+    case "logs":
+      logsCommand(paths, runner, options);
+      break;
+    case "provider-login":
+      await providerLoginCommand(paths, runner);
       break;
     case "account-update":
       await accountUpdateCommand(paths, runner, {

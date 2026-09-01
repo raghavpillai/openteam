@@ -8,6 +8,8 @@ export type CommandName =
   | "update"
   | "stop"
   | "start"
+  | "logs"
+  | "provider-login"
   | "account-update"
   | "password-reset"
   | "uninstall";
@@ -29,6 +31,10 @@ export interface CliOptions {
   allowPrerelease: boolean;
   allowUnsigned: boolean;
   advanced: boolean;
+  noSetup: boolean;
+  follow: boolean;
+  tail?: string;
+  service?: string;
   jsonProgress: boolean;
   username?: string;
   password: boolean;
@@ -42,6 +48,8 @@ const commands = new Set<CommandName>([
   "update",
   "stop",
   "start",
+  "logs",
+  "provider-login",
   "account-update",
   "password-reset",
   "uninstall",
@@ -58,6 +66,8 @@ const valueFlags = new Map<
   | "projectName"
   | "imagePrefix"
   | "username"
+  | "tail"
+  | "service"
 >([
   ["--dir", "directory"],
   ["--install-dir", "directory"],
@@ -69,6 +79,8 @@ const valueFlags = new Map<
   ["--project-name", "projectName"],
   ["--image-prefix", "imagePrefix"],
   ["--username", "username"],
+  ["--tail", "tail"],
+  ["--service", "service"],
 ] as const);
 
 export const parseArguments = (argv: readonly string[]): CliOptions => {
@@ -83,6 +95,8 @@ export const parseArguments = (argv: readonly string[]): CliOptions => {
       allowPrerelease: false,
       allowUnsigned: false,
       advanced: false,
+      noSetup: false,
+      follow: false,
       jsonProgress: false,
       password: false,
     };
@@ -97,23 +111,46 @@ export const parseArguments = (argv: readonly string[]): CliOptions => {
       allowPrerelease: false,
       allowUnsigned: false,
       advanced: false,
+      noSetup: false,
+      follow: false,
       jsonProgress: false,
       password: false,
     };
   }
   const nestedPasswordReset = rawCommand === "password" && rawRest[0] === "reset";
   const nestedAccountUpdate = rawCommand === "account" && rawRest[0] === "update";
+  const nestedProviderLogin = rawCommand === "provider" && rawRest[0] === "login";
   const command = nestedPasswordReset
     ? "password-reset"
     : nestedAccountUpdate
       ? "account-update"
-      : rawCommand;
-  const rest = nestedPasswordReset || nestedAccountUpdate ? rawRest.slice(1) : rawRest;
+      : nestedProviderLogin
+        ? "provider-login"
+        : rawCommand;
+  const rest =
+    nestedPasswordReset || nestedAccountUpdate || nestedProviderLogin ? rawRest.slice(1) : rawRest;
+  if (rest.includes("--help") || rest.includes("-h")) {
+    return {
+      command: "help",
+      yes: false,
+      purge: false,
+      force: false,
+      allowDowngrade: false,
+      allowPrerelease: false,
+      allowUnsigned: false,
+      advanced: false,
+      noSetup: false,
+      follow: false,
+      jsonProgress: false,
+      password: false,
+    };
+  }
   if (!commands.has(command as CommandName)) {
     if (rawCommand === "password") throw new CliError("Usage: openbot password reset");
     if (rawCommand === "account") {
       throw new CliError("Usage: openbot account update [--username <name>] [--password]");
     }
+    if (rawCommand === "provider") throw new CliError("Usage: openbot provider login");
     throw new CliError(`Unknown command: ${rawCommand}`);
   }
 
@@ -126,6 +163,8 @@ export const parseArguments = (argv: readonly string[]): CliOptions => {
     allowPrerelease: false,
     allowUnsigned: false,
     advanced: false,
+    noSetup: false,
+    follow: false,
     jsonProgress: false,
     password: false,
   };
@@ -160,6 +199,14 @@ export const parseArguments = (argv: readonly string[]): CliOptions => {
       options.advanced = true;
       continue;
     }
+    if (flag === "--no-setup") {
+      options.noSetup = true;
+      continue;
+    }
+    if (flag === "--follow" || flag === "-f") {
+      options.follow = true;
+      continue;
+    }
     if (flag === "--json-progress") {
       options.jsonProgress = true;
       continue;
@@ -191,6 +238,24 @@ export const parseArguments = (argv: readonly string[]): CliOptions => {
     options.command !== "account-update"
   ) {
     throw new CliError("--username and --password are only valid with openbot account update");
+  }
+  if (options.noSetup && options.command !== "install") {
+    throw new CliError("--no-setup is only valid with openbot install");
+  }
+  if (
+    (options.follow || options.tail !== undefined || options.service !== undefined) &&
+    options.command !== "logs"
+  ) {
+    throw new CliError("--follow, --tail, and --service are only valid with openbot logs");
+  }
+  if (options.tail !== undefined && !/^\d+$/.test(options.tail)) {
+    throw new CliError("--tail must be a whole number");
+  }
+  if (
+    options.service !== undefined &&
+    !/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/.test(options.service)
+  ) {
+    throw new CliError("--service must be a Compose service name");
   }
   return options;
 };

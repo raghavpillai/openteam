@@ -1,7 +1,7 @@
 # OpenBot CLI
 
-Install and manage the self-hosted OpenBot server stack. Docker with Compose is the only system
-prerequisite.
+Install and manage the self-hosted OpenBot server stack. It requires Docker with Compose 2.20 or
+newer, plus either Bun or Node 20.17+ to launch the CLI.
 
 ```sh
 bunx --bun @openbot/cli install
@@ -23,13 +23,17 @@ openbot status
 openbot update
 openbot stop
 openbot start
+openbot logs
+openbot provider login
 openbot account update
 openbot password reset
 openbot uninstall
 ```
 
-Run `openbot setup` after installation. Its staged setup chooses public HTTPS, acknowledged public
-HTTP, private-network, or loopback access; creates the single OpenBot username/password owner; and
+`openbot install` enters staged setup in the same command. The standalone `openbot setup` command
+reconfigures an existing installation without changing its owner or signing out active sessions.
+Setup chooses bundled public HTTPS, an existing HTTPS reverse proxy/load balancer, acknowledged
+public HTTP, private-network, or loopback access; creates the single OpenBot username/password owner; and
 offers to start OpenAI Codex sign-in. Public HTTPS is recommended and uses a bundled Caddy service:
 point a domain's A/AAAA record at the VM and open inbound TCP ports 80 and 443, and Caddy obtains and
 renews the certificate automatically. No certificate needs to exist on the VM beforehand.
@@ -46,10 +50,16 @@ for a username-only update, `--password` for a hidden password-only prompt, or c
 `openbot setup --advanced` to override the hostname, local API port, time zone, model, reasoning
 effort, or concurrent bot job limit.
 
+Use `openbot provider login` to repair Codex sign-in without repeating server setup. `openbot logs`
+shows the most recent 200 lines; add `--follow`, `--tail <lines>`, or `--service <name>` to narrow a
+diagnostic session. Existing-proxy mode keeps OpenBot on loopback and prints the HTTP upstream; the
+external proxy must forward HTTPS and WebSocket upgrades to it.
+
 Install and update verify the release Compose file against its GitHub Actions Sigstore identity and
 checksum. Updates are serialized by an installation lock, reject downgrades and prereleases by
 default, validate Docker and free disk, create a private PostgreSQL backup, pull immutable image
-digests, and require the requested release to report ready. The latest job state is stored in
+digests, and require the requested release to report ready. A failed post-migration startup restores
+the retained database backup before restarting the prior release. The latest job state is stored in
 `update-state.json`; backups are retained under `backups/` for operator recovery.
 
 The Electron client can run this command locally or over non-interactive SSH. Remote use requires a

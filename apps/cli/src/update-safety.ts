@@ -155,3 +155,26 @@ export const createDatabaseBackup = (
   }
   return destination;
 };
+
+export const restoreDatabaseBackup = (project: ComposeProject, backupPath: string): void => {
+  if (!existsSync(backupPath) || statSync(backupPath).size === 0) {
+    throw new CliError(`Database rollback backup is missing or empty: ${backupPath}`);
+  }
+  project.runOrThrow(["up", "--detach", "--wait", "--wait-timeout", "120", "postgres"]);
+  project.runOrThrow([
+    "exec",
+    "-T",
+    "postgres",
+    "dropdb",
+    "-U",
+    "openbot",
+    "--force",
+    "--if-exists",
+    "openbot",
+  ]);
+  project.runOrThrow(["exec", "-T", "postgres", "createdb", "-U", "openbot", "openbot"]);
+  project.runOrThrow(
+    ["exec", "-T", "postgres", "psql", "-U", "openbot", "-d", "openbot", "-v", "ON_ERROR_STOP=1"],
+    { inputFile: backupPath }
+  );
+};

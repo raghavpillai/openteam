@@ -49,8 +49,25 @@ export const renderSetupHeader = (input: {
   width?: number;
 }): string => {
   const styled = input.color ?? false;
-  const width = Math.max(68, Math.min(96, input.width ?? 78));
+  const width = Math.max(32, Math.min(96, input.width ?? 78));
   const heading = ` OPENBOT SETUP · v${input.version} `;
+  if (width < 68) {
+    const stage = input.stages[input.activeStage];
+    const markers = input.stages
+      .map((_value, index) =>
+        index < input.activeStage ? "✓" : index === input.activeStage ? "●" : "○"
+      )
+      .join(" ");
+    const progress = truncate(
+      `${markers}  ${input.activeStage + 1}/${input.stages.length} ${stage?.label || ""}`,
+      width - 4
+    );
+    return [
+      `${paint(styled, "╭─", ANSI.cyan)}${paint(styled, truncate(heading, width - 4), ANSI.bold, ANSI.white)}${paint(styled, "─".repeat(Math.max(1, width - truncate(heading, width - 4).length - 3)) + "╮", ANSI.cyan)}`,
+      `${paint(styled, "│", ANSI.cyan)} ${progress.padEnd(width - 3)}${paint(styled, "│", ANSI.cyan)}`,
+      `${paint(styled, `╰${"─".repeat(width - 2)}╯`, ANSI.cyan)}`,
+    ].join("\n");
+  }
   const rightRule = "─".repeat(Math.max(1, width - heading.length - 3));
   const rawParts = input.stages.map((stage, index) => {
     const marker = index < input.activeStage ? "✓" : index === input.activeStage ? "●" : "○";
@@ -113,7 +130,7 @@ export const createSetupPresentation = (input: {
       const stage = input.stages[index];
       if (!stage) return;
       write(`\n${paint(styled, `${index + 1}. ${stage.label}`, ANSI.bold, ANSI.white)}`);
-      write(paint(styled, truncate(stage.description, Math.max(48, width - 4)), ANSI.dim));
+      write(paint(styled, truncate(stage.description, Math.max(20, width - 4)), ANSI.dim));
     },
     choices(items) {
       for (const [index, item] of items.entries()) {

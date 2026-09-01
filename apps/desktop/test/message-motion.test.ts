@@ -6,14 +6,16 @@ const productCoreSource = (path: string) =>
   Bun.file(new URL(`../../../packages/product-core/src/${path}`, import.meta.url)).text();
 
 test("message entrance and acknowledgement motion match Grokbot", async () => {
-  const [styles, chatPane, message, threadTray, durableSends, durableDelivery] = await Promise.all([
-    rendererSource("styles.css"),
-    rendererSource("components/openbot/chat-pane.tsx"),
-    rendererSource("components/ai-elements/message.tsx"),
-    rendererSource("components/openbot/thread-tray.tsx"),
-    rendererSource("lib/durable-sends.ts"),
-    productCoreSource("durable-delivery.ts"),
-  ]);
+  const [styles, chatPane, message, threadTray, promptInput, durableSends, durableDelivery] =
+    await Promise.all([
+      rendererSource("styles.css"),
+      rendererSource("components/openbot/chat-pane.tsx"),
+      rendererSource("components/ai-elements/message.tsx"),
+      rendererSource("components/openbot/thread-tray.tsx"),
+      rendererSource("components/ai-elements/prompt-input.tsx"),
+      rendererSource("lib/durable-sends.ts"),
+      productCoreSource("durable-delivery.ts"),
+    ]);
 
   expect(styles).toMatch(
     /@keyframes message-row-enter\s*\{\s*0%\s*\{\s*opacity: 0;\s*transform: translateY\(12px\) scale\(0\.94\);\s*\}\s*55%\s*\{\s*opacity: 1;\s*\}\s*100%\s*\{\s*opacity: 1;\s*transform: translateY\(0\) scale\(1\);/
@@ -61,8 +63,16 @@ test("message entrance and acknowledgement motion match Grokbot", async () => {
   expect(durableSends).toContain("!scopeIsActive() || desktopSendTransportDown()");
   expect(durableSends).toContain("commitStagedAttachments:");
   expect(durableSends).toContain("ATTACHMENT_COMMIT_TIMEOUT_MS = 120_000");
+  expect(durableSends).toContain('code: "attachment_commit_timeout"');
+  expect(promptInput).toContain("staged = await mapWithConcurrency(selected");
+  expect(promptInput).toContain("recoveryOwned: true");
   expect(chatPane).toContain("stagedImageAttachments");
   expect(chatPane).toContain("stagedFileAttachments");
+  expect(chatPane).toContain("sendController.getRecoverySnapshot");
+  expect(chatPane).toContain("sendController.acknowledgeRecovery(nonce)");
+  expect(threadTray).toContain("onRecoveryConsumed");
+  expect(durableDelivery).toContain("durableSendPromptDigest");
+  expect(durableDelivery).toContain("getRecoverySnapshot");
   expect(durableDelivery).toContain('"Will send when reconnected"');
   expect(durableDelivery).toContain('if (phase === "failed") return "Failed to send"');
 });

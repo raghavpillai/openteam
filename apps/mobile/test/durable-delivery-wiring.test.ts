@@ -62,8 +62,32 @@ describe("mobile durable delivery wiring", () => {
     expect(composer).toContain("await onStage(attachment.source)");
     expect(composer).not.toContain("uploadsBlockSend");
     expect(context).toContain("commitStagedAttachments: async (record)");
+    expect(context).toContain('code: "attachment_commit_timeout"');
     expect(context).toContain("discardStagedAttachments: discardMobileDeliveryAttachments");
     expect(bubble).toContain("stagedImages");
     expect(bubble).toContain("stagedFiles");
+  });
+
+  test("durably restores deterministic failures into main and thread composers", async () => {
+    const [composer, context, route, thread, drafts, delivery] = await Promise.all([
+      source("src/components/composer.tsx"),
+      source("src/state/openbot-context.tsx"),
+      source("app/chat/[channelId].tsx"),
+      source("src/components/thread-sheet.tsx"),
+      source("src/drafts.ts"),
+      source("../../packages/product-core/src/durable-delivery.ts"),
+    ]);
+
+    expect(context).toContain("sendController.getRecoverySnapshot()");
+    expect(context).toContain("acknowledgeDeliveryRecovery");
+    expect(route).toContain("presentedRecoveryNonces");
+    expect(route).toContain("onRecoveryConsumed={acknowledgeDeliveryRecovery}");
+    expect(thread).toContain("deliveryRecoveries.find");
+    expect(thread).toContain("onRecoveryConsumed={onAcknowledgeRecovery}");
+    expect(composer).toContain("appliedRecoveryNonce.current = recovery.id");
+    expect(composer).toContain("recoveryOwned: true");
+    expect(drafts).toContain("recoveryNonce?: string");
+    expect(delivery).toContain("durableSendPromptDigest");
+    expect(delivery).toContain("acknowledgeRecovery");
   });
 });

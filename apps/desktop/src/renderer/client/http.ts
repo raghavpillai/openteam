@@ -6,9 +6,13 @@ import {
 } from "@openbot/client-core";
 import { recordPerformance } from "../lib/performance";
 import { clearAuthToken, getAuthToken } from "./auth";
-import { resolveApiBase } from "./runtime-url";
+import { resolveConfiguredApiBase } from "./runtime-url";
 
-export const API_BASE = resolveApiBase(window.location.href, import.meta.env.VITE_OPENBOT_API_URL);
+export const API_BASE = resolveConfiguredApiBase(
+  window.location.href,
+  localStorage,
+  import.meta.env.VITE_OPENBOT_API_URL
+);
 
 const instrumentedFetch: OpenBotFetch = async (input, init) => {
   const startedAt = performance.now();

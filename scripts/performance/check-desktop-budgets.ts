@@ -102,15 +102,17 @@ atMost("startup bytes", result.renderer.startup.bytes, 1_200_000);
 const startupCssBytes = result.renderer.startup.files
   .filter((file) => file.path.endsWith(".css"))
   .reduce((total, file) => total + file.bytes, 0);
-// Responsive settings and details layouts bring the complete startup stylesheet
-// to 165,357 bytes. Keep less than 0.4% headroom and stay below upstream's
-// 178.8 KB rather than moving established surfaces behind first-open boundaries.
-atMost("startup CSS bytes", startupCssBytes, 166_000);
-// Durable recovery, viewport-aware history, scroll restoration, and thread
-// retention bring the complete renderer to 15,569,275 bytes. Keep less than
-// 0.007% headroom while the compressed, startup, and nested
-// Shiki/Mermaid ceilings continue to guard delivery and first interaction.
-atMost("renderer bytes", result.renderer.bytes, 15_570_000);
+// Responsive settings plus the animated glass onboarding bring the complete
+// startup stylesheet to 173,763 bytes. Keep less than 0.4% headroom and stay
+// below upstream's 178.8 KB rather than moving established surfaces behind
+// first-open boundaries.
+atMost("startup CSS bytes", startupCssBytes, 174_400);
+// Durable recovery, viewport-aware history, scroll restoration, thread
+// retention, and configurable-server onboarding bring the complete renderer to
+// 15,580,624 bytes. Keep less than 0.009% headroom while the compressed,
+// startup, and nested Shiki/Mermaid ceilings continue to guard delivery and
+// first interaction.
+atMost("renderer bytes", result.renderer.bytes, 15_582_000);
 atMost("renderer gzip bytes", result.renderer.gzipBytes, 3_800_000);
 atMost("build-analysis metadata bytes", result.renderer.buildMetadata.bytes, 256_000);
 atMost("Electron runtime bytes", result.electron.bytes, 2_300_000);

@@ -71,6 +71,12 @@ const primitiveStyle = (
   };
 };
 
+const primitiveKey = (primitive: BotAvatarNativePrimitive): string => {
+  const radius = primitive.kind === "rounded-rect" ? primitive.radius : 0;
+  const rotation = "rotation" in primitive ? (primitive.rotation ?? 0) : 0;
+  return `${primitive.kind}:${primitive.x}:${primitive.y}:${primitive.width}:${primitive.height}:${radius}:${rotation}`;
+};
+
 function ShapeArtwork({
   shape,
   color,
@@ -89,10 +95,7 @@ function ShapeArtwork({
   return (
     <>
       {BOT_AVATAR_NATIVE_ARTWORK[shape].map((primitive) => (
-        <View
-          key={`${primitive.kind}:${primitive.x}:${primitive.y}:${primitive.width}:${primitive.height}`}
-          style={primitiveStyle(primitive, color, scale)}
-        />
+        <View key={primitiveKey(primitive)} style={primitiveStyle(primitive, color, scale)} />
       ))}
       {showFace ? <EyePair {...artwork.eyes} color={faceColor} scale={scale} /> : null}
     </>

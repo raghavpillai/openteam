@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: openbot-staged: http://127.0.0.1:8787 http://localhost:8787; connect-src 'self' http://127.0.0.1:8787 http://localhost:8787; frame-src http://127.0.0.1:* http://localhost:*; font-src 'self' data:; worker-src 'self' blob:"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: openbot-staged: http: https:; connect-src 'self' http: https:; frame-src http: https:; font-src 'self' data:; worker-src 'self' blob:"
     />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="light dark" />
@@ -41,7 +41,7 @@
   <body>
     <div id="root"></div>
     <div id="openbot-boot-shell" aria-hidden="true">
-      <svg width="56" height="56" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg">
+      <svg aria-hidden="true" width="56" height="56" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg">
         <path d="M15 2.8C10.4 3.5 5.1 7 2.3 12 .5 16.5.5 23.8 2.8 27.5 5 32 10.5 34.5 16.5 36.3c4.2 1.05 9.5 1.05 13.5-.2 5.8-2.4 7.6-7 8.4-11.4C39.1 19 36.5 12 32.5 7.5 30.3 3 25 1.5 15 2.8Z" fill="currentColor" />
         <g fill="var(--openbot-boot-background)">
           <rect height="6.4" rx="1.875" transform="rotate(-16 21.05 15.8)" width="3.75" x="19.075" y="12.6" />

@@ -1,9 +1,9 @@
 import {
-  assessOpenBotAuthSession,
   AuthSessionSupersededError,
+  assessOpenBotAuthSession,
   createOpenBotAuthClient,
-  authHeadersForUrl as sharedAuthHeadersForUrl,
   type OpenBotAuthUser,
+  authHeadersForUrl as sharedAuthHeadersForUrl,
 } from "@openbot/client-core/auth";
 import { normalizeOptionalBaseUrl, OpenBotClientError } from "@openbot/client-core/http";
 import * as SecureStore from "expo-secure-store";
@@ -101,6 +101,14 @@ const staleAuthOperation = (): Error =>
 
 type CachedAuthMode = "disabled" | "required";
 export type OpenBotAuthMode = CachedAuthMode;
+export type OpenBotServerConnectionResult = "authenticated" | "credentials-required";
+
+export class OpenBotCredentialsRequiredError extends Error {
+  constructor() {
+    super("This server requires a username and password.");
+    this.name = "OpenBotCredentialsRequiredError";
+  }
+}
 
 const authModeOrigin = (serverUrl: string): string => new URL(serverUrl).origin;
 
@@ -323,7 +331,7 @@ export const authenticateConnection = async (
       }
       throw cause;
     }
-    throw new Error("This server requires a username and password.");
+    throw new OpenBotCredentialsRequiredError();
   }
   try {
     await signIn(serverUrl, username, password);
@@ -335,6 +343,24 @@ export const authenticateConnection = async (
     }
     throw cause;
   }
+};
+
+export const testServerConnection = async (
+  serverUrl: string
+): Promise<OpenBotServerConnectionResult> => {
+  const configured = requireServerUrl(serverUrl);
+  try {
+    const observedMode = await authClient(configured).discoverMode();
+    await storeCachedAuthMode(configured, observedMode);
+  } catch (cause) {
+    if (cause instanceof OpenBotClientError && cause.code === "offline") {
+      throw new Error(
+        "Could not reach this OpenBot server. Check the endpoint and your connection."
+      );
+    }
+    throw cause;
+  }
+  return (await hasValidSession(configured)) ? "authenticated" : "credentials-required";
 };
 
 export const authHeadersForUrl = (url: string): Record<string, string> | undefined => {

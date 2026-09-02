@@ -2,11 +2,13 @@ import {
   assessOpenBotAuthSession,
   createAuthSnapshotStore,
   createOpenBotAuthClient,
-  parseAuthUser,
+  normalizeBaseUrl,
   type OpenBotAuthSnapshot,
   type OpenBotAuthUser,
+  OpenBotClientError,
+  parseAuthUser,
 } from "@openbot/client-core";
-import { resolveApiBase } from "./runtime-url";
+import { resolveConfiguredApiBase } from "./runtime-url";
 
 export type {
   OpenBotAuthConnection,
@@ -17,7 +19,11 @@ export type {
 } from "@openbot/client-core";
 export { parseAuthUser } from "@openbot/client-core";
 
-const API_BASE = resolveApiBase(window.location.href, import.meta.env.VITE_OPENBOT_API_URL);
+const API_BASE = resolveConfiguredApiBase(
+  window.location.href,
+  localStorage,
+  import.meta.env.VITE_OPENBOT_API_URL
+);
 const LEGACY_TOKEN_KEY = "openbot:auth-token";
 const USER_KEY = "openbot:auth-user";
 export const AUTH_REQUIRED_EVENT = "openbot:auth-required";
@@ -53,7 +59,7 @@ let credentialGeneration = 0;
 let tokenReadRequest: Promise<string | null> | null = null;
 let refreshRequest: Promise<OpenBotAuthSnapshot> | null = null;
 
-const authClient = () => createOpenBotAuthClient({ baseUrl: API_BASE });
+const authClient = (baseUrl = API_BASE) => createOpenBotAuthClient({ baseUrl });
 const authBridge = () => window.openbot?.auth;
 
 const loadAuthToken = (): Promise<string | null> => {
@@ -153,6 +159,46 @@ export const signIn = async (username: string, password: string): Promise<OpenBo
   await persistAuthToken(result.token);
   cacheUser(result.user);
   return refreshAuthSession();
+};
+
+export interface OpenBotServerConnection {
+  baseUrl: string;
+  mode: "required" | "disabled";
+}
+
+export const testServerConnection = async (serverUrl: string): Promise<OpenBotServerConnection> => {
+  const baseUrl = normalizeBaseUrl(serverUrl);
+  try {
+    return { baseUrl, mode: await authClient(baseUrl).discoverMode() };
+  } catch (cause) {
+    if (cause instanceof OpenBotClientError && cause.code === "offline") {
+      throw new Error(
+        "Could not reach this OpenBot server. Check the endpoint and your connection."
+      );
+    }
+    throw cause;
+  }
+};
+
+export const clearAuthCredentialsForServerChange = async (): Promise<void> => {
+  await removeAuthCredentials();
+  authStore.publish({
+    status: "signed-out",
+    mode: "required",
+    connection: "online",
+    error: null,
+    user: null,
+  });
+};
+
+export const signInToServer = async (
+  serverUrl: string,
+  username: string,
+  password: string
+): Promise<void> => {
+  const result = await authClient(normalizeBaseUrl(serverUrl)).signIn(username, password);
+  await persistAuthToken(result.token);
+  cacheUser(result.user);
 };
 
 export const signOut = async (): Promise<void> => {

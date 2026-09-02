@@ -10,6 +10,7 @@ export function GlassSurface({
   fallbackColor,
   interactive = false,
   style,
+  tintColor,
   variant = "regular",
   ...viewProps
 }: {
@@ -17,6 +18,7 @@ export function GlassSurface({
   fallbackColor?: string;
   interactive?: boolean;
   style?: StyleProp<ViewStyle>;
+  tintColor?: string;
   variant?: GlassStyle;
 } & Omit<ViewProps, "children" | "style">) {
   const theme = useTheme();
@@ -39,7 +41,7 @@ export function GlassSurface({
       isInteractive={interactive}
       {...viewProps}
       style={style}
-      tintColor={theme.dark ? "rgba(38,38,36,0.46)" : "rgba(255,255,255,0.24)"}
+      tintColor={tintColor ?? (theme.dark ? "rgba(38,38,36,0.46)" : "rgba(255,255,255,0.24)")}
     >
       {children}
     </GlassView>

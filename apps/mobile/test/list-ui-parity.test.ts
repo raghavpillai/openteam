@@ -117,19 +117,30 @@ describe("mobile virtual-list UI parity", () => {
     expect(authGate).toContain('accessibilityLabel="Server endpoint"');
     expect(authGate).toContain("Use HTTPS except for trusted local");
     expect(authGate).toContain("development.");
-    expect(authGate).toContain("saveServerConnection({ serverUrl })");
-    expect(authGate).toContain("authenticateConnection(connection.serverUrl, username, password)");
+    expect(authGate).toContain("saveServerConnection(normalized)");
+    expect(authGate).toContain("testServerConnection(normalized.serverUrl)");
+    expect(authGate).toContain("authenticateConnection(serverUrl, username, password)");
+    expect(authGate).toContain('result === "credentials-required"');
+    expect(authGate).toContain('setStage("endpoint")');
+    expect(authGate).toContain(">Back</Text>");
     expect(authGate).toContain("automaticallyAdjustKeyboardInsets");
     expect(authGate).toContain('keyboardDismissMode="interactive"');
-    expect(authGate).toContain('stage === "credentials" && styles.credentialsHero');
-    expect(authGate).toContain(
-      'stage === "credentials" && keyboardVisible && styles.keyboardHiddenHero'
-    );
+    expect(authGate).toContain("Animated.timing(stageProgress");
+    expect(authGate).toContain("useNativeDriver: true");
+    expect(authGate).toContain('stage === "welcome" ? 320 : stage === "endpoint" ? 420 : 340');
+    expect(authGate).toContain('stage !== "welcome" || authFlowMounted');
+    expect(authGate).toContain('pointerEvents={stage === "credentials" ? "auto" : "none"}');
+    expect(authGate).toContain("function IdleBot");
+    expect(authGate).toContain("Animated.loop(");
+    expect(authGate).toContain("isInteraction: false");
     expect(authGate).toContain(
       'accessibilityElementsHidden={stage === "credentials" && keyboardVisible}'
     );
-    expect(authGate).toContain('hasCompleteCredentials\n                        ? "Sign In"');
+    expect(authGate).toContain('submitting ? "Signing In…" : "Sign In"');
     expect(authGate).toContain(': "Connect"');
+    expect(authGate).toContain('import { GlassSurface } from "./glass-surface"');
+    expect(authGate).toContain("styles.credentialsPanel");
+    expect(authGate).toContain("tintColor={primaryGlassTint}");
     expect(authGate).toContain("onChangeText={updateServerUrl}");
     expect(authGate).toContain("onChangeText={updateUsername}");
     expect(authGate).toContain("onChangeText={updatePassword}");

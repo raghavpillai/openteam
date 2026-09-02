@@ -54,6 +54,7 @@ const {
   requireAuthenticationForServer,
   signIn,
   signOut,
+  testServerConnection,
 } = await import("../src/auth");
 const { loadServerConnection, saveServerConnection } = await import("../src/server-config");
 const originalFetch = globalThis.fetch;
@@ -181,6 +182,33 @@ describe("mobile authentication discovery", () => {
     await expect(
       authenticateConnection("https://required-connect.openbot.test", "", "")
     ).rejects.toThrow("requires a username and password");
+  });
+
+  test("tests the endpoint before reporting whether credentials are required", async () => {
+    globalThis.fetch = (async (url: string | URL | Request) =>
+      Response.json({
+        mode: String(url).includes("public") ? "disabled" : "required",
+      })) as typeof fetch;
+
+    await expect(testServerConnection("https://public-connect.openbot.test")).resolves.toBe(
+      "authenticated"
+    );
+    await expect(testServerConnection("https://private-connect.openbot.test")).resolves.toBe(
+      "credentials-required"
+    );
+  });
+
+  test("explicit connection tests do not accept an offline cached public mode", async () => {
+    const serverUrl = "https://strict-connect.openbot.test";
+    globalThis.fetch = (async () => Response.json({ mode: "disabled" })) as typeof fetch;
+    await expect(hasValidSession(serverUrl)).resolves.toBe(true);
+
+    globalThis.fetch = (async () => {
+      throw new Error("offline");
+    }) as typeof fetch;
+    await expect(testServerConnection(serverUrl)).rejects.toThrow(
+      "Could not reach this OpenBot server. Check the endpoint and your connection."
+    );
   });
 
   test("distinguishes an unreachable endpoint from a server that requires credentials", async () => {

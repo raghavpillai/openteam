@@ -3,20 +3,25 @@ import { describe, expect, test } from "bun:test";
 const read = async (path: string) => Bun.file(new URL(path, import.meta.url)).text();
 
 describe("Grok desktop authentication UI parity", () => {
-  test("keeps the source-verified desktop landing geometry", async () => {
-    const source = await read("../src/renderer/components/openbot/auth-gate.tsx");
+  test("matches the animated glass mobile onboarding treatment", async () => {
+    const [source, styles] = await Promise.all([
+      read("../src/renderer/components/openbot/auth-gate.tsx"),
+      read("../src/renderer/styles.css"),
+    ]);
 
-    expect(source).toContain("size-16");
-    expect(source).toContain("text-[68px]");
-    expect(source).toContain("leading-[48px]");
-    expect(source).toContain("tracking-[-0.68px]");
-    expect(source).toContain("mb-12");
-    expect(source).toContain("max-w-[336px]");
-    expect(source).toContain("text-[22px]");
-    expect(source).toContain("mb-10");
-    expect(source).toContain("min-h-24");
-    expect(source).toContain("translate-y-10");
-    expect(source).toContain("rounded-full");
+    expect(source).toContain("<AuthBotField />");
+    expect(source).toContain("<BotAvatarGlyph");
+    expect(source).toContain('data-exits={index >= 6 ? "true" : undefined}');
+    expect(source).toContain('className="auth-glass auth-brand-card"');
+    expect(source).toContain('className="auth-stage-frame"');
+    expect(source).toContain('setStage("endpoint")');
+    expect(source).toContain('setStage("credentials")');
+    expect(source).toContain('setStage("welcome")');
+    expect(styles).toContain("@keyframes auth-bot-idle");
+    expect(styles).toContain("backdrop-filter: blur(28px) saturate(155%)");
+    expect(styles).toContain('.auth-shell[data-stage="endpoint"]');
+    expect(styles).toContain('.auth-shell[data-stage="credentials"]');
+    expect(styles).toContain("@media (prefers-reduced-motion: reduce)");
   });
 
   test("keeps username and password authentication native", async () => {
@@ -26,7 +31,20 @@ describe("Grok desktop authentication UI parity", () => {
     expect(source).toContain('autoComplete="current-password"');
     expect(source).toContain('type="password"');
     expect(source).toContain("await signIn(username, password)");
+    expect(source).toContain("Back");
     expect(source).not.toContain("openExternal");
     expect(source).not.toContain("browser");
+  });
+
+  test("verifies and persists a configurable endpoint before credentials", async () => {
+    const source = await read("../src/renderer/components/openbot/auth-gate.tsx");
+
+    expect(source).toContain('autoComplete="url"');
+    expect(source).toContain('type="url"');
+    expect(source).toContain("await testServerConnection(serverUrl)");
+    expect(source).toContain("saveConfiguredApiBase(localStorage, connection.baseUrl)");
+    expect(source).toContain("await clearAuthCredentialsForServerChange()");
+    expect(source).toContain("await signInToServer(connectedApiBase, username, password)");
+    expect(source).toContain("window.location.reload()");
   });
 });

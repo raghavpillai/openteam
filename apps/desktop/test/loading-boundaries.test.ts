@@ -21,6 +21,16 @@ describe("desktop loading and packaging boundaries", () => {
     expect(bootTheme).toContain('matchMedia("(prefers-color-scheme: dark)")');
   });
 
+  test("allows user-selected HTTP servers without allowing remote scripts", async () => {
+    const html = await readDesktopFile("index.html");
+
+    expect(html).toContain("connect-src 'self' http: https:");
+    expect(html).toContain("img-src 'self' data: blob: openbot-staged: http: https:");
+    expect(html).toContain("frame-src http: https:");
+    expect(html).toContain("script-src 'self'");
+    expect(html).not.toContain("script-src 'self' http:");
+  });
+
   test("keeps the full emoji corpus behind the panel boundary", async () => {
     const pickerSource = await readDesktopFile("src/renderer/components/openbot/emoji-picker.tsx");
     const panelSource = await readDesktopFile("src/renderer/components/openbot/emoji-data.ts");

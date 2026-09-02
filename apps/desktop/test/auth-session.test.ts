@@ -75,6 +75,10 @@ afterAll(() => {
 
 describe("desktop authenticated session", () => {
   test("publishes the logged-in owner and clears it on sign-out", async () => {
+    const connection = await auth.testServerConnection("https://bots.example.test/");
+    expect(connection).toEqual({ baseUrl: "https://bots.example.test", mode: "required" });
+    expect(calls.at(-1)?.url).toBe("https://bots.example.test/api/auth/config");
+
     const signedIn = await auth.signIn("owner", "secret");
 
     expect(signedIn).toEqual({

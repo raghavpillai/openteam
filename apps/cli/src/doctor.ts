@@ -327,14 +327,14 @@ export const runDoctor = async (
       label: "OpenBot health",
       detail: health.ok ? `${health.detail} at ${health.url}` : `${health.url}: ${health.detail}`,
     });
-    if (health.ok && health.agent) {
+    if (health.ok && health.inference) {
       checks.push({
-        level: health.agent === "ready" ? "pass" : "warn",
-        label: "Model authentication",
+        level: health.inference === "ready" ? "pass" : "warn",
+        label: "Inference authentication",
         detail:
-          health.agent === "ready"
-            ? "OpenAI Codex authentication is ready"
-            : `runtime reports ${health.agent}; complete OpenBot onboarding before running agents`,
+          health.inference === "ready"
+            ? "Pi inference authentication is ready"
+            : `runtime reports ${health.inference}; configure the selected inference provider before running agents`,
       });
     }
   }

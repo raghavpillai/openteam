@@ -79,7 +79,7 @@ const fixture = () => {
       );
       return Response.json({
         status: "ready",
-        runtime: { agent: "missing" },
+        runtime: { inference: "missing" },
         release: { releaseVersion: version },
       });
     },
@@ -142,8 +142,8 @@ describe("installed lifecycle", () => {
     expect(result.installed).toBe(true);
     expect(result.checks).toContainEqual({
       level: "warn",
-      label: "Model authentication",
-      detail: "runtime reports missing; complete OpenBot onboarding before running agents",
+      label: "Inference authentication",
+      detail: "runtime reports missing; configure the selected inference provider before running agents",
     });
   });
 

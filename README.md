@@ -1,8 +1,8 @@
 # OpenBot v0
 
-OpenBot is a self-hosted, desktop-first home for durable Pi agents backed by OpenAI Codex. Each Bot owns one home Pi context, one Postgres inbox, Grok-compatible file state, and a persistent graphical Linux screen. Direct, peer, room, routine, bootstrap, and subagent-completion wakes all resume the member Bot's home context.
+OpenBot is a self-hosted, desktop-first home for durable Pi agents with independently configurable inference providers. Each Bot owns one home Pi context, one Postgres inbox, Grok-compatible file state, and a persistent graphical Linux screen. Direct, peer, room, routine, bootstrap, and subagent-completion wakes all resume the member Bot's home context.
 
-Every Bot works as `box` (uid/gid 1000) on the same persistent Linux computer and starts in `/workspace`, so files written by one are immediately visible to the others. Bots get independent 1280×800 XFCE displays with Google Chrome, Thunar, XFCE Terminal, screenshots, structured mouse/keyboard actions, and live noVNC takeover. Chrome profiles and sign-ins are computer-scoped and persist under `/home/box/chrome-profile[-N]`.
+Every Bot works as the unprivileged `runner` user (uid 1001, shared gid 1000) on the same persistent Linux computer and starts in `/workspace`, so files written by one are immediately visible to the others. The Pi supervisor owns inference credentials that `runner` cannot read. Bots get independent 1280×800 XFCE displays with Google Chrome, Thunar, XFCE Terminal, screenshots, structured mouse/keyboard actions, and live noVNC takeover. Chrome profiles and sign-ins are computer-scoped and persist under `/home/box/chrome-profile[-N]`.
 
 ## What is implemented
 
@@ -11,7 +11,8 @@ Every Bot works as `box` (uid/gid 1000) on the same persistent Linux computer an
 - Prisma 7.9.1, PostgreSQL, and pg-boss 12.28.0 durable mailboxes
 - Pi `@earendil-works/pi-coding-agent` 0.84.3 embedded through its TypeScript SDK
 - one append-only Pi session tree per bot context, reopened after worker, gateway, and Compose restarts
-- OpenAI Codex OAuth through Pi's `openai-codex` provider
+- provider-qualified Pi models with OAuth/subscription and API-key authentication
+- built-in OpenAI Codex, OpenAI API, and Anthropic providers, plus custom OpenAI-, Anthropic-, or Google-compatible endpoints
 - Grok-compatible automatic context self-summary with per-context durable archives, restart reconstruction, and no manual Compact surface
 - the Grok Bot model surface: `SendToUser`, `ReactToMessage`, `update_state`, `Shell`, `Read`, `Screenshot`, `GetDynamicTools`, and `CallDynamicTool`; the physical-host bridge is not model-exposed
 - OpenBot-only dynamic discovery and dispatch; `openbot` exposes `Computer`, while `cursor` exposes `SendToAgent` plus the approved todo/orchestration/administration tools: `TodoWrite`, `Task`, `CheckSubagent`, `MessageSubagent`, `StopSubagent`, `CreateAgent`, `UpdateAgent`, `CreateChannel`, and `UpdateChannel`
@@ -36,8 +37,8 @@ server ───── PostgreSQL + pg-boss
                worker ── one active turn lease per Bot
                   │ private token + NDJSON
                   ▼
-computer gateway ── embedded Pi AgentSession
-        │                 └── openai-codex OAuth provider
+computer gateway ── embedded Pi AgentSession (the only runtime engine)
+        │                 └── selected inference provider + model
         ├── /home/box/.pi/agent
         │     ├── auth.json
         │     ├── sessions/openbot/<context-session>.jsonl
@@ -95,7 +96,10 @@ bunx --bun @openbot/cli status
 bunx --bun @openbot/cli stop
 bunx --bun @openbot/cli start
 bunx --bun @openbot/cli logs
+bunx --bun @openbot/cli provider list
 bunx --bun @openbot/cli provider login
+bunx --bun @openbot/cli model list
+bunx --bun @openbot/cli model use openai-codex gpt-5.5
 bunx --bun @openbot/cli account update
 bunx --bun @openbot/cli password reset
 bunx --bun @openbot/cli update
@@ -123,7 +127,9 @@ compatibility window. Signed desktop releases download in-app and install after 
 
 The staged setup inside `openbot install` offers bundled public HTTPS, an existing HTTPS reverse
 proxy or load balancer, public HTTP, private-network, and loopback access before creating the single OpenBot username/password account and
-starting OpenAI Codex sign-in. Public HTTPS is the fresh-install default: point a domain's A/AAAA
+selecting and configuring the Pi inference provider and provider-qualified model. Guided setup supports
+ChatGPT Plus/Pro OAuth, Claude Pro/Max OAuth, OpenAI and Anthropic API keys, and compatible custom
+endpoints with a password or API key. Public HTTPS is the fresh-install default: point a domain's A/AAAA
 record at the VM and open inbound TCP ports 80 and 443, and the bundled Caddy container obtains,
 renews, and terminates TLS automatically. The VM does not need an existing certificate.
 Menu prompts support Up, Down, Left, and Right arrows; press Enter to confirm the highlighted option.
@@ -137,9 +143,9 @@ Password input is hidden, is never written to the installation `.env`, and is ha
 in Postgres. `openbot account update` interactively changes both credentials;
 `--username <name>` changes only the username, `--password` securely prompts for only a new
 password, and the flags can be combined. `openbot password reset` remains a password-only alias.
-Every credential change signs out all desktop and mobile sessions. Use `openbot setup --advanced`
-to override the hostname, local API port, time zone, model, reasoning effort, or concurrent bot job
-limit.
+Every credential change signs out all desktop and mobile sessions. Provider and model selection are
+part of normal setup. Use `openbot setup --advanced` to override the hostname, local API port, time
+zone, reasoning effort, or concurrent bot job limit.
 
 OpenBot defaults to `OPENBOT_AUTH_MODE=required`. Desktop, iPhone, and headless clients sign in
 with the owner username/password and then use the resulting session; no separate API token is
@@ -148,7 +154,7 @@ remove product API authentication. Disabled mode grants every client complete AP
 use it on an internet-facing host, an untrusted LAN, or behind a proxy that exposes the API.
 
 Re-running `openbot setup` preserves the owner credentials and active sessions. Use it to change
-access or runtime settings; use `openbot provider login` to repair only the Codex provider login.
+access or runtime settings; use `openbot provider login [provider]` to repair only provider authentication.
 `openbot logs --service server --follow` streams a targeted service log when `doctor` identifies a
 problem. Existing-proxy mode binds OpenBot to loopback and prints the local HTTP upstream to use;
 the proxy must forward WebSocket upgrades as well as ordinary HTTP requests. Configure that proxy
@@ -186,13 +192,40 @@ Create or replace the development owner login (the prompt hides the password):
 bun run auth:setup
 ```
 
-Authenticate Pi once with the OpenAI Codex provider:
+Authenticate Pi with the default OpenAI Codex provider:
 
 ```sh
-bash scripts/compose.sh exec computer openbot-pi-login
+bash scripts/compose.sh exec computer openbot-pi-auth login openai-codex oauth
 ```
 
-The login command offers browser login and a headless device-code flow. Complete the OpenAI sign-in in the browser; never put the token in `.env`. Pi stores and refreshes its OAuth credential under `/home/box/.pi/agent/auth.json` inside the private `openbot_computer_home` volume. OpenBot exposes only `ready`/`missing` runtime state to Electron.
+The OAuth command offers browser and headless device-code flows. Never put provider credentials in `.env`. Pi stores and refreshes credentials under `/home/box/.pi/agent/auth.json` inside the private `openbot_computer_home` volume. The inference supervisor owns that directory; agent shells and graphical apps run as a separate user that cannot read it. OpenBot exposes only `ready`/`missing` inference state to clients.
+
+The management CLI discovers authentication methods and models from Pi:
+
+```sh
+openbot provider list
+openbot provider login anthropic --auth oauth       # Claude Pro/Max
+openbot provider login anthropic --auth api-key     # Anthropic API
+openbot provider login openai --auth api-key        # OpenAI API
+openbot model list anthropic
+openbot model use anthropic <model-id> --thinking high
+```
+
+Pi reports Anthropic OAuth as Claude Pro/Max subscription authentication. Its current provider integration uses Anthropic paid extra usage for third-party harness traffic rather than included plan limits. API keys and generic provider passwords are prompted without echo and passed over stdin, never command arguments or `.env`.
+
+Add a compatible private gateway or another generic provider with an initial model, then select it:
+
+```sh
+openbot provider add acme \
+  --name "Acme AI" \
+  --base-url https://ai.example.com/v1 \
+  --api openai-responses \
+  --model acme-pro \
+  --reasoning
+openbot model use acme acme-pro
+```
+
+Supported custom API adapters are `openai-completions`, `openai-responses`, `anthropic-messages`, and `google-generative-ai`. `openbot provider remove <id>` removes a custom provider after another provider is selected.
 
 Verify the stack and open the native client:
 
@@ -219,7 +252,7 @@ The server publishes `127.0.0.1:8787`; bot viewers use the loopback-only range
 Better Auth protects the product API, while noVNC endpoints have no independent authentication, so
 do not publish the viewer ports to an untrusted network.
 
-Without Pi OAuth, CRUD and history still work and the desktop reports `Pi missing`, but model turns cannot execute. Authenticate before creating bots or sending work.
+Without authentication for the selected Pi provider, CRUD and history still work and the desktop reports `Pi missing`, but model turns cannot execute. Authenticate before creating bots or sending work.
 
 ## Everyday commands
 
@@ -358,5 +391,3 @@ window.openbotPerformance.clear();
 - [OpenAI Codex authentication](https://learn.chatgpt.com/docs/auth)
 - AI Elements source revision: `apps/desktop/AI_ELEMENTS_REVISION.md`
 - Open-work index: `plans/00-index.md`
-
-`packages/codex-client` is retained only as unused migration history and is excluded from the active Bun/Turbo workspace; no runtime service imports it, no image installs Codex CLI, and all live turns use the embedded Pi SDK.

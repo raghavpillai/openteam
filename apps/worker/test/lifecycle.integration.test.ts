@@ -60,7 +60,7 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
       if (url.pathname === "/health") {
         return Response.json({
           status: "ready",
-          agent: { ready: true, authenticated: true },
+          inference: { ready: true, authenticated: true },
         });
       }
       if (!request.headers.get("authorization")?.startsWith("Bearer ")) {
@@ -138,11 +138,12 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
         const events = [
           {
             type: "session.attached",
-            provider: "pi",
+            runtimeEngine: "pi",
+            inferenceProvider: "openai-codex",
             contextSessionId: input.contextSessionId,
             sessionPath,
             sessionId: input.contextSessionId,
-            model: "openai-codex/fake",
+            model: "fake",
           },
           {
             type: "context.state",
@@ -323,6 +324,23 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
     expect(firstSnapshot.bots.find((candidate) => candidate.id === bot.id)?.onboardingStatus).toBe(
       "skipped_by_user"
     );
+    expect(await app.prisma.bot.findUniqueOrThrow({ where: { id: bot.id } })).toMatchObject({
+      runtimeEngine: "pi",
+      inferenceProvider: "openai-codex",
+      inferenceModel: "fake",
+    });
+    expect(
+      await app.prisma.contextSession.findUniqueOrThrow({
+        where: { id: firstSeenTurn.contextSessionId },
+      })
+    ).toMatchObject({
+      inferenceProvider: "openai-codex",
+      inferenceModel: "fake",
+    });
+    expect(await app.prisma.run.findUniqueOrThrow({ where: { id: first.run.id } })).toMatchObject({
+      inferenceProvider: "openai-codex",
+      inferenceModel: "fake",
+    });
     expect(firstSnapshot.workspace).toMatchObject({
       root: workspace,
       botsDirectory: join(workspace, "bots"),

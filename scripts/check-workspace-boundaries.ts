@@ -169,11 +169,6 @@ for (const file of await walk(resolve(root, "apps", "mobile"))) {
   }
 }
 
-const rootPackage = await Bun.file(resolve(root, "package.json")).json();
-if ((rootPackage.workspaces as string[]).some((entry) => entry.includes("codex-client"))) {
-  failures.push("packages/codex-client must remain outside the active workspace");
-}
-
 if (failures.length > 0) {
   console.error(failures.join("\n"));
   process.exit(1);

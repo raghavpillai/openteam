@@ -2395,7 +2395,7 @@ export const ChatPane = memo(function ChatPane({
   );
   const canSend =
     channel.kind !== "agent_dm" &&
-    (channel.kind === "bot_dm" ? Boolean(botCanQueue) : runtime.agent === "ready");
+    (channel.kind === "bot_dm" ? Boolean(botCanQueue) : runtime.inference === "ready");
   const showThinkingIndicator = Boolean(
     activeRun && !hasPendingApproval && !(visibleMessages.length === 0 && onboardingInProgress)
   );
@@ -2740,7 +2740,7 @@ export const ChatPane = memo(function ChatPane({
               placeholder={
                 selectedBot?.status === "provisioning"
                   ? `Message ${channel.name} — it will be queued`
-                  : runtime.agent !== "ready"
+                  : runtime.inference !== "ready"
                     ? channel.kind === "bot_dm"
                       ? `Message ${channel.name} — it will be queued`
                       : "Pi runtime is not ready"

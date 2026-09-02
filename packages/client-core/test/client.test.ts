@@ -492,7 +492,7 @@ describe("mobile-safe OpenBot client", () => {
         database: "ready",
         queue: "ready",
         computer: "ready",
-        agent: "ready",
+        inference: "ready",
       },
     } as Parameters<typeof normalizeClientSnapshot>[0]);
 

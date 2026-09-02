@@ -1,0 +1,4 @@
+#!/bin/sh
+set -eu
+
+exec bun /app/apps/computer/dist/provider-cli.js "$@"

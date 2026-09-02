@@ -1,8 +1,9 @@
-import { spawn, type ChildProcess } from "node:child_process";
+import { type ChildProcess, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { cp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { chown, cp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { ComputerUseActionInput, ScreenActionInput } from "@openbot/contracts";
+import { agentProcessIdentity, sanitizedAgentEnvironment } from "./agent-process";
 import { BrowserBroker } from "./browser-broker";
 import { BrowserProfileAuthority } from "./browser-profile-authority";
 
@@ -87,6 +88,7 @@ const run = async (
   new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       env: options.env,
+      ...agentProcessIdentity(),
       stdio: ["ignore", "pipe", "pipe"],
     });
     const stdout: Buffer[] = [];
@@ -478,7 +480,7 @@ export class ScreenBroker {
     await this.browserBroker.detach(session.botId);
     await this.stopProcesses(session);
     try {
-      await mkdir(session.profileDirectory, { recursive: true });
+      await this.prepareAgentDirectory(session.profileDirectory, 0o770);
       if (stoppedOwnedBrowser) await this.profileAuthority.publish(session.profileDirectory);
       else await this.profileAuthority.seedIfEmpty(session.profileDirectory);
       await this.profileAuthority.prepare(session.profileDirectory);
@@ -492,7 +494,7 @@ export class ScreenBroker {
       );
       this.assertNotDestroyed(session);
       await rm(session.runtimeDirectory, { recursive: true, force: true });
-      await mkdir(session.runtimeDirectory, { recursive: true, mode: 0o700 });
+      await this.prepareAgentDirectory(session.runtimeDirectory, 0o700);
       session.viewerPassword = createViewerPassword();
       const viewerPasswordPath = join(session.runtimeDirectory, "viewer-password");
       await writeFile(viewerPasswordPath, `${session.viewerPassword}\n`, { mode: 0o600 });
@@ -637,7 +639,12 @@ export class ScreenBroker {
     env = this.environment(session),
     cwd = "/workspace"
   ): ChildProcess {
-    const child = spawn(command, args, { cwd, env, stdio: "ignore" });
+    const child = spawn(command, args, {
+      cwd,
+      env,
+      ...agentProcessIdentity(),
+      stdio: "ignore",
+    });
     session.processes.push(child);
     child.once("exit", () => {
       const index = session.processes.indexOf(child);
@@ -673,10 +680,7 @@ export class ScreenBroker {
   }
 
   private environment(session: ScreenSession): NodeJS.ProcessEnv {
-    const environment = { ...process.env };
-    delete environment.OPENBOT_CONTROL_TOKEN;
-    delete environment.OPENAI_API_KEY;
-    delete environment.DATABASE_URL;
+    const environment = sanitizedAgentEnvironment(process.env);
     return {
       ...environment,
       HOME: this.home,
@@ -696,6 +700,14 @@ export class ScreenBroker {
       OPENBOT_BROWSER_PROFILE: session.profileDirectory,
       OPENBOT_BROWSER_DEBUG_PORT: String(session.browserDebugPort),
     };
+  }
+
+  private async prepareAgentDirectory(path: string, mode: number): Promise<void> {
+    await mkdir(path, { recursive: true, mode });
+    const identity = agentProcessIdentity();
+    if (identity.uid !== undefined && identity.gid !== undefined) {
+      await chown(path, identity.uid, identity.gid);
+    }
   }
 
   private statusFor(session: ScreenSession): ScreenStatus {

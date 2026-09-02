@@ -130,6 +130,7 @@ export const createEnvironment = (options: {
     "OPENBOT_AUTH_URL=http://127.0.0.1:8787",
     "OPENBOT_API_PORT=8787",
     "COMPOSE_PROFILES=direct",
+    "OPENBOT_PI_PROVIDER=openai-codex",
     "OPENBOT_PI_MODEL=gpt-5.5",
     "OPENBOT_PI_THINKING=high",
     "OPENBOT_WORKER_CONCURRENCY=8",

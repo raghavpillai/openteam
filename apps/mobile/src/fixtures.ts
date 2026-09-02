@@ -239,6 +239,6 @@ export const mobileFixture: ClientSnapshot = {
     database: "ready",
     queue: "ready",
     computer: "ready",
-    agent: "ready",
+    inference: "ready",
   },
 };

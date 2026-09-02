@@ -58,8 +58,8 @@ export class Projection {
           if (contextSession.botId !== botId) {
             throw new Error("Runtime attempted to attach another bot's context session");
           }
-          if (bot.runtimeProvider !== event.provider) {
-            throw new Error("Runtime attempted to replace the bot's immutable provider");
+          if (bot.runtimeEngine !== event.runtimeEngine) {
+            throw new Error("Runtime attempted to replace the bot's immutable engine");
           }
           if (
             contextSession.runtimeSessionPath &&
@@ -78,6 +78,15 @@ export class Projection {
             data: {
               runtimeSessionId: event.sessionId,
               runtimeSessionPath: event.sessionPath,
+              inferenceProvider: event.inferenceProvider,
+              inferenceModel: event.model,
+            },
+          });
+          await tx.run.update({
+            where: { id: runId },
+            data: {
+              inferenceProvider: event.inferenceProvider,
+              inferenceModel: event.model,
             },
           });
           if (contextSession.scope === "home") {
@@ -92,7 +101,9 @@ export class Projection {
             await tx.bot.update({
               where: { id: botId },
               data: {
-                runtimeProvider: event.provider,
+                runtimeEngine: event.runtimeEngine,
+                inferenceProvider: event.inferenceProvider,
+                inferenceModel: event.model,
                 runtimeSessionId: event.sessionId,
                 runtimeSessionPath: event.sessionPath,
               },

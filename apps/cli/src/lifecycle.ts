@@ -195,7 +195,7 @@ export const statusCommand = async (
   if (!health.ok)
     throw new CliError(`OpenBot is not healthy at ${health.url}: ${health.detail}`, 2);
   console.log(
-    `\nHealth: ${health.detail}${health.version ? `; release ${health.version}` : ""}${health.agent ? `; model ${health.agent}` : ""} (${health.url})`
+    `\nHealth: ${health.detail}${health.version ? `; release ${health.version}` : ""}${health.inference ? `; inference ${health.inference}` : ""} (${health.url})`
   );
 };
 
@@ -234,28 +234,6 @@ export const logsCommand = (
   requireComposeProject(paths, runner, manifestProjectName(manifest)).runOrThrow(args, {
     inherit: true,
   });
-};
-
-export const providerLoginCommand = async (
-  paths: InstallationPaths,
-  runner: CommandRunner
-): Promise<void> => {
-  const manifest = requireInstallation(paths);
-  const project = requireComposeProject(paths, runner, manifestProjectName(manifest));
-  console.log("Starting OpenAI Codex sign-in…");
-  project.runOrThrow(["exec", "computer", "openbot-pi-login"], { inherit: true });
-  const deadline = Date.now() + 15_000;
-  while (Date.now() < deadline) {
-    const health = await checkHealth(paths);
-    if (health.ok && health.agent === "ready") {
-      console.log("OpenAI Codex authentication is ready.");
-      return;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 1_000));
-  }
-  throw new CliError(
-    "Provider sign-in finished, but OpenBot still reports authentication as missing. Run openbot doctor and openbot logs --service computer."
-  );
 };
 
 const updateCommandUnlocked = async (

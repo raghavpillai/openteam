@@ -47,5 +47,9 @@ describe("release Compose rendering", () => {
     expect(rendered).toContain("caddy:2.11.4-alpine@sha256:");
     expect(rendered).toContain("${OPENBOT_VIEWER_BIND_HOST:-127.0.0.1}:6200-6299");
     expect(rendered).toContain("OPENBOT_AUTH_URL: ${OPENBOT_AUTH_URL");
+    expect(
+      rendered.match(/OPENBOT_PI_PROVIDER: \$\{OPENBOT_PI_PROVIDER:-openai-codex\}/g)
+    ).toHaveLength(2);
+    expect(rendered).toContain('cap_add: ["CHOWN", "DAC_OVERRIDE", "FOWNER", "SETGID", "SETUID"]');
   });
 });

@@ -132,6 +132,7 @@ interface Claimed {
   origin: RunOrigin;
   runtimeProfile: "agent" | "subagent";
   subagentType: SubagentType | null;
+  model: string | null;
   fileAttachments: string[];
 }
 
@@ -1166,6 +1167,7 @@ export class WakeWorker {
           runtimeProfile: inbox.bot.subagentIdentity ? "subagent" : "agent",
           subagentType:
             (inbox.bot.subagentIdentity?.subagentType as SubagentType | undefined) ?? null,
+          model: inbox.bot.subagentIdentity?.model ?? null,
           fileAttachments: Array.isArray(inbox.bot.subagentIdentity?.fileAttachments)
             ? inbox.bot.subagentIdentity.fileAttachments.filter(
                 (value): value is string => typeof value === "string"
@@ -1226,6 +1228,7 @@ export class WakeWorker {
         deliveryId: claimed.deliveryId,
         runtimeProfile: claimed.runtimeProfile,
         subagentType: claimed.subagentType ?? undefined,
+        model: claimed.model ?? undefined,
         fileAttachments: claimed.fileAttachments,
         dynamicNamespaces: pluginContext.dynamicNamespaces,
       } satisfies ComputerTurnRequest;

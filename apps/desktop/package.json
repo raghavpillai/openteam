@@ -88,7 +88,7 @@
       "repo": "openbot"
     }
   },
-  "description": "A self-hosted desktop for durable Pi agents backed by OpenAI Codex.",
+  "description": "A self-hosted desktop for durable Pi agents with configurable inference providers.",
   "private": true,
   "scripts": {
     "clean": "bun run scripts/clean-build.ts",

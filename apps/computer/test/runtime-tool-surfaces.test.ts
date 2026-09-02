@@ -405,6 +405,11 @@ describe("context turn reservation", () => {
   test("reserves a context before asynchronous setup and releases it on failure", async () => {
     const runtime = new ComputerRuntime() as unknown as {
       authenticated: boolean;
+      modelRuntime: {
+        checkAuth(providerId: string): Promise<{ type: string; source: string }>;
+        isUsingSubscription(providerId: string): boolean;
+      };
+      resolveModel(): object;
       start(): Promise<void>;
       contextState(contextSessionId: string): Promise<never>;
       run(request: ReturnType<typeof turnRequest>): Promise<AsyncIterable<unknown>>;
@@ -412,6 +417,11 @@ describe("context turn reservation", () => {
     };
     runtime.start = async () => {};
     runtime.authenticated = true;
+    runtime.resolveModel = () => ({});
+    runtime.modelRuntime = {
+      checkAuth: async () => ({ type: "oauth", source: "test" }),
+      isUsingSubscription: () => true,
+    };
     let rejectSetup!: (error: Error) => void;
     let enteredSetup!: () => void;
     const entered = new Promise<void>((resolve) => {
@@ -436,12 +446,22 @@ describe("context turn reservation", () => {
   test("rejects an out-of-root persisted session before opening it", async () => {
     const runtime = new ComputerRuntime() as unknown as {
       authenticated: boolean;
+      modelRuntime: {
+        checkAuth(providerId: string): Promise<{ type: string; source: string }>;
+        isUsingSubscription(providerId: string): boolean;
+      };
+      resolveModel(): object;
       start(): Promise<void>;
       run(request: ReturnType<typeof turnRequest>): Promise<AsyncIterable<unknown>>;
       diagnostics: { activeTurns: number };
     };
     runtime.start = async () => {};
     runtime.authenticated = true;
+    runtime.resolveModel = () => ({});
+    runtime.modelRuntime = {
+      checkAuth: async () => ({ type: "oauth", source: "test" }),
+      isUsingSubscription: () => true,
+    };
     await expect(
       runtime.run(turnRequest({ sessionPath: "/tmp/not-an-openbot-session.jsonl" }))
     ).rejects.toThrow("outside the OpenBot session directory");

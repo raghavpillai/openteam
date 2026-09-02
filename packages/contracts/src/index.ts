@@ -2,11 +2,13 @@ import { Schema } from "effect";
 import cursorToolsDocument from "./cursor-tools.json";
 import nativeToolsDocument from "./native-tools.json";
 import type { ClientCapabilities } from "./capabilities";
+import type { RuntimeEngine } from "./inference";
 import type { AgentNotificationKind } from "./notification-content";
 
 export * from "./bot-avatar";
 export * from "./capabilities";
 export * from "./client-preferences";
+export * from "./inference";
 export * from "./notification-content";
 export * from "./plugin-settings";
 export * from "./routine-types";
@@ -1273,6 +1275,7 @@ export const ComputerTurnRequest = Schema.Struct({
   deliveryId: Schema.NullOr(Schema.String),
   runtimeProfile: Schema.optional(Schema.Literal("agent", "subagent")),
   subagentType: Schema.optional(SubagentType),
+  model: Schema.optional(Schema.String),
   fileAttachments: Schema.optional(Schema.Array(Schema.String)),
   images: Schema.optional(Schema.Array(RuntimeInlineImage).pipe(Schema.maxItems(6))),
   dynamicNamespaces: Schema.optional(Schema.Array(PluginDynamicNamespace)),
@@ -1296,7 +1299,8 @@ export type ComputerApprovalResolution = typeof ComputerApprovalResolution.Type;
 export type ComputerEvent =
   | {
       type: "session.attached";
-      provider: "pi";
+      runtimeEngine: RuntimeEngine;
+      inferenceProvider: string;
       contextSessionId: string;
       sessionId: string;
       sessionPath: string;
@@ -1664,7 +1668,7 @@ export interface Snapshot {
     database: "ready" | "unavailable";
     queue: "ready" | "unavailable";
     computer: "ready" | "unavailable";
-    agent: "ready" | "missing" | "invalid" | "unavailable";
+    inference: "ready" | "missing" | "invalid" | "unavailable";
   };
 }
 

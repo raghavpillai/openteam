@@ -5,6 +5,10 @@ import {
   ApiError,
   type AssetRef,
   type BotTranscriptView,
+  DEFAULT_PI_INFERENCE_MODEL,
+  DEFAULT_PI_INFERENCE_PROVIDER,
+  formatPiModelRef,
+  piModelRef,
   type ReactToMessageInput,
   type RuntimeInlineImage,
   type SendToAgentInput,
@@ -2049,7 +2053,7 @@ export class AgentMessaging {
       "Use GetDynamicTools with namespace cursor to discover SendToAgent, ListAgents/ListGroups, TodoWrite, Task/CheckSubagent/MessageSubagent/StopSubagent, CreateAgent/UpdateAgent, and CreateChannel/UpdateChannel. Invoke discovered tools with CallDynamicTool.",
       A2A_PLATFORM_INSTRUCTIONS,
       MAIN_AGENT_GRAPHICAL_DELEGATION_INSTRUCTIONS,
-      `Available Task subagent types are executor, videoReview, watchVideo, computerUse, and browserUse. The available subagent model slug is ${process.env.OPENBOT_PI_MODEL ?? "gpt-5.5"}; omit model unless the user explicitly asks for it.`,
+      `Available Task subagent types are executor, videoReview, watchVideo, computerUse, and browserUse. The available subagent model slug is ${formatPiModelRef(piModelRef(process.env.OPENBOT_PI_PROVIDER ?? DEFAULT_PI_INFERENCE_PROVIDER, process.env.OPENBOT_PI_MODEL ?? DEFAULT_PI_INFERENCE_MODEL))}; omit model unless the user explicitly asks for it.`,
       todoContext.length > 0
         ? `Durable task queue (reconcile it with TodoWrite on each wake):\n${todoContext.join("\n")}`
         : "The durable task queue is empty.",

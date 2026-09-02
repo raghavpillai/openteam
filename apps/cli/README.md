@@ -24,7 +24,13 @@ openbot update
 openbot stop
 openbot start
 openbot logs
-openbot provider login
+openbot provider list
+openbot provider login [provider]
+openbot provider logout [provider]
+openbot provider add <id> --name <name> --base-url <url> --api <protocol> --model <id>
+openbot provider remove <id>
+openbot model list [provider]
+openbot model use <provider> <model> [--thinking <level>]
 openbot account update
 openbot password reset
 openbot uninstall
@@ -34,7 +40,9 @@ openbot uninstall
 reconfigures an existing installation without changing its owner or signing out active sessions.
 Setup chooses bundled public HTTPS, an existing HTTPS reverse proxy/load balancer, acknowledged
 public HTTP, private-network, or loopback access; creates the single OpenBot username/password owner; and
-offers to start OpenAI Codex sign-in. Public HTTPS is recommended and uses a bundled Caddy service:
+selects and configures a Pi inference provider and provider-qualified model. The guided choices cover
+ChatGPT Plus/Pro OAuth, Claude Pro/Max OAuth, OpenAI and Anthropic API keys, and compatible custom
+endpoints. Public HTTPS is recommended and uses a bundled Caddy service:
 point a domain's A/AAAA record at the VM and open inbound TCP ports 80 and 443, and Caddy obtains and
 renews the certificate automatically. No certificate needs to exist on the VM beforehand.
 Use Up, Down, Left, or Right in menu prompts, then press Enter to confirm the highlighted option.
@@ -48,10 +56,12 @@ Passwords are hidden, confirmed, and sent to the server over stdin; they are nev
 Use `openbot account update` to interactively replace both credentials. Pass `--username <name>`
 for a username-only update, `--password` for a hidden password-only prompt, or combine the flags.
 `openbot password reset` remains a password-only alias. Every credential update revokes all current sessions. Use
-`openbot setup --advanced` to override the hostname, local API port, time zone, model, reasoning
-effort, or concurrent bot job limit.
+`openbot setup --advanced` to override the hostname, local API port, time zone, reasoning effort, or
+concurrent bot job limit. Provider and model selection are part of both normal and advanced setup.
 
-Use `openbot provider login` to repair Codex sign-in without repeating server setup. `openbot logs`
+Use `openbot provider login [provider]` to configure OAuth/subscription or API-key authentication without repeating server setup. `provider list` shows the methods Pi supports, and `model list`/`model use` select a provider-qualified model. Anthropic offers Claude Pro/Max OAuth or an API key; OpenAI API access uses the `openai` provider, while ChatGPT/Codex OAuth uses `openai-codex`.
+
+Custom endpoints can use Pi's `openai-completions`, `openai-responses`, `anthropic-messages`, or `google-generative-ai` adapters. `provider add` prompts for the API key or password and passes it to the computer service over stdin; credentials are not written to `.env` or command arguments. `openbot logs`
 shows the most recent 200 lines; add `--follow`, `--tail <lines>`, or `--service <name>` to narrow a
 diagnostic session. Existing-proxy mode keeps OpenBot on loopback and prints the HTTP upstream; the
 external proxy must forward HTTPS and WebSocket upgrades to it and replace inbound

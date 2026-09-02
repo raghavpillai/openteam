@@ -8,11 +8,6 @@ import {
   HOST_BRIDGE_PATHS,
   HOST_INLINE_OUTPUT_MAX_BYTES,
   HOST_READ_MAX_BYTES,
-  imageMimeTypeForPath,
-  isHostApprovalRequest,
-  parseHostMachinesResponse,
-  parseHostReadResponse,
-  parseHostShellResponse,
   type HostApprovalRequest,
   type HostApprovalTokens,
   type HostAutoReviewRequest,
@@ -20,7 +15,13 @@ import {
   type HostPermissionUpdateRequest,
   type HostReadRequest,
   type HostShellRequest,
+  imageMimeTypeForPath,
+  isHostApprovalRequest,
+  parseHostMachinesResponse,
+  parseHostReadResponse,
+  parseHostShellResponse,
 } from "@openbot/contracts/service-protocol";
+import { agentProcessIdentity, sanitizedAgentEnvironment } from "./agent-process";
 
 const DEFAULT_BLOCK_MS = 30_000;
 const PROTECTED_AGENT_DATA_TREES = new Set([
@@ -36,15 +37,7 @@ const SQLITE_FILE = /^(?:store|conversation-blobs)\.db(?:-(?:shm|wal))?$/;
 export const sanitizedShellEnvironment = (
   source: NodeJS.ProcessEnv,
   workingDirectory: string
-): NodeJS.ProcessEnv => {
-  const environment: NodeJS.ProcessEnv = { ...source, PWD: workingDirectory };
-  delete environment.OPENBOT_CONTROL_TOKEN;
-  delete environment.OPENAI_API_KEY;
-  delete environment.DATABASE_URL;
-  delete environment.BASH_ENV;
-  delete environment.ENV;
-  return environment;
-};
+): NodeJS.ProcessEnv => sanitizedAgentEnvironment(source, { PWD: workingDirectory });
 
 const bounded = (value: string): string =>
   value.length <= HOST_INLINE_OUTPUT_MAX_BYTES
@@ -121,6 +114,7 @@ export class NativeToolExecutor {
     const child = spawn("/bin/bash", ["--noprofile", "--norc", "-c", input.command], {
       cwd: workingDirectory,
       env: sanitizedShellEnvironment(environment ?? process.env, workingDirectory),
+      ...agentProcessIdentity(),
       stdio: ["ignore", "pipe", "pipe"],
     });
     const chunks: Buffer[] = [];
@@ -292,6 +286,7 @@ export class NativeToolExecutor {
     await access(path);
     const canonical = await realpath(path);
     await this.assertProtectedReadPath(canonical);
+    await this.assertAgentReadable(canonical);
     const metadata = await stat(canonical);
     if (!metadata.isFile()) throw new Error(`Not a file: ${path}`);
     if (metadata.size > HOST_READ_MAX_BYTES) {
@@ -353,9 +348,27 @@ export class NativeToolExecutor {
     }
   }
 
+  private async assertAgentReadable(path: string): Promise<void> {
+    const identity = agentProcessIdentity();
+    if (identity.uid === undefined || identity.gid === undefined) return;
+    await new Promise<void>((resolveAccess, reject) => {
+      const child = spawn("/usr/bin/test", ["-r", path], {
+        ...identity,
+        stdio: "ignore",
+      });
+      child.once("error", reject);
+      child.once("exit", (code) => {
+        if (code === 0) resolveAccess();
+        else reject(new Error(`Read is not allowed for an agent-inaccessible path: ${path}`));
+      });
+    });
+  }
+
   private async pdfText(path: string): Promise<string> {
     return new Promise<string>((resolveText, reject) => {
       const child = spawn("pdftotext", [path, "-"], {
+        env: sanitizedAgentEnvironment(process.env),
+        ...agentProcessIdentity(),
         stdio: ["ignore", "pipe", "pipe"],
       });
       const stdout: Buffer[] = [];

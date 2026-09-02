@@ -22,6 +22,71 @@ describe("CLI arguments", () => {
     expect(parseArguments(["setup", "--help"]).command).toBe("help");
   });
 
+  test("parses provider and model management commands", () => {
+    expect(parseArguments(["provider", "list"]).command).toBe("provider-list");
+    expect(parseArguments(["provider", "login", "Anthropic", "--auth", "api-key"])).toMatchObject({
+      command: "provider-login",
+      providerId: "anthropic",
+      authType: "api_key",
+    });
+    expect(
+      parseArguments([
+        "provider",
+        "add",
+        "acme",
+        "--name",
+        "Acme AI",
+        "--base-url",
+        "https://ai.example.test/v1",
+        "--api",
+        "openai-responses",
+        "--model",
+        "acme-pro",
+        "--reasoning",
+      ])
+    ).toMatchObject({
+      command: "provider-add",
+      providerId: "acme",
+      apiProtocol: "openai-responses",
+      modelId: "acme-pro",
+      reasoning: true,
+    });
+    expect(parseArguments(["model", "list", "anthropic"])).toMatchObject({
+      command: "model-list",
+      providerId: "anthropic",
+    });
+    expect(
+      parseArguments(["model", "use", "anthropic", "claude-sonnet-4-5", "--thinking", "high"])
+    ).toMatchObject({
+      command: "model-use",
+      providerId: "anthropic",
+      modelId: "claude-sonnet-4-5",
+      thinking: "high",
+    });
+  });
+
+  test("rejects malformed provider configuration", () => {
+    expect(() => parseArguments(["provider", "remove", "not valid"])).toThrow("Provider ids");
+    expect(() =>
+      parseArguments([
+        "provider",
+        "add",
+        "acme",
+        "--name",
+        "Acme",
+        "--base-url",
+        "https://example.test",
+        "--api",
+        "unknown",
+        "--model",
+        "model-1",
+      ])
+    ).toThrow("--api must be");
+    expect(() =>
+      parseArguments(["model", "use", "anthropic", "claude", "--thinking", "ultra"])
+    ).toThrow("--thinking must be");
+  });
+
   test("rejects unsafe or malformed log selectors", () => {
     expect(() => parseArguments(["logs", "--tail", "1.5"])).toThrow(
       "--tail must be a whole number"

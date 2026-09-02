@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { chown, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { extname, isAbsolute, join, relative, resolve } from "node:path";
 import {
@@ -14,6 +14,7 @@ import {
   SessionManager,
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
+import { clampThinkingLevel } from "@earendil-works/pi-ai";
 import {
   type ApprovalDecision,
   CALL_DYNAMIC_TOOL_TOOL,
@@ -21,6 +22,8 @@ import {
   CHECK_SUBAGENT_TOOL,
   CheckSubagentInput,
   COMPUTER_USE_TOOL,
+  DEFAULT_PI_INFERENCE_MODEL,
+  DEFAULT_PI_INFERENCE_PROVIDER,
   type ComputerEvent,
   type ComputerSteerRequest,
   type ComputerTurnRequest,
@@ -41,6 +44,10 @@ import {
   MESSAGE_SUBAGENT_TOOL,
   MessageSubagentInput,
   NATIVE_TOOLS,
+  formatPiModelRef,
+  parsePiModelRef,
+  piModelRef,
+  type PiModelRef,
   type PluginDynamicNamespace,
   REACT_TO_MESSAGE_TOOL,
   READ_TOOL,
@@ -70,6 +77,7 @@ import {
 import { Schema } from "effect";
 import { Type } from "typebox";
 import { BROWSER_USE_TOOLS, BrowserUseSession } from "./browser-use";
+import { agentProcessIdentity, sanitizedAgentEnvironment } from "./agent-process";
 import { ComputerEventQueue } from "./computer-event-queue";
 import {
   type DynamicNamespaceDefinition,
@@ -286,6 +294,7 @@ interface ActiveTurn {
   deliveryId: string | null;
   runtimeProfile: "agent" | "subagent";
   subagentType: SubagentType | null;
+  modelRef: PiModelRef;
   cwd: string;
   instructions: string;
   userInfoMessage: GrokMessage | null;
@@ -502,7 +511,10 @@ export class ComputerRuntime {
   private readonly agentDir = resolve(process.env.OPENBOT_PI_AGENT_DIR ?? "/home/box/.pi/agent");
   private readonly sessionsDir = join(this.agentDir, "sessions", "openbot");
   private readonly contextSessionsDir = join(this.agentDir, "context-sessions");
-  private readonly modelId = process.env.OPENBOT_PI_MODEL ?? "gpt-5.5";
+  private readonly defaultModelRef = piModelRef(
+    process.env.OPENBOT_PI_PROVIDER ?? DEFAULT_PI_INFERENCE_PROVIDER,
+    process.env.OPENBOT_PI_MODEL ?? DEFAULT_PI_INFERENCE_MODEL
+  );
   private readonly workspaceRoot = resolve(process.env.OPENBOT_WORKSPACE_ROOT ?? "/workspace");
   private readonly nativeToolExecutor = new NativeToolExecutor({
     agentDir: this.agentDir,
@@ -530,6 +542,7 @@ export class ComputerRuntime {
   private readonly compactionArchive = new GrokCompactionArchiveStore(this.contextSessionsDir);
   private readonly compaction = new GrokCompactionCoordinator(this.compactionArchive);
   private authenticated = false;
+  private authentication: { type: "api_key" | "oauth"; source?: string } | undefined;
   private started = false;
 
   constructor(
@@ -553,9 +566,7 @@ export class ComputerRuntime {
         modelsStorePath: join(this.agentDir, "models-store.json"),
         allowModelNetwork: false,
       });
-      if (!this.modelRuntime.getModel("openai-codex", this.modelId)) {
-        throw new Error(`Pi does not provide openai-codex/${this.modelId}`);
-      }
+      this.resolveModel(this.defaultModelRef);
       this.started = true;
     }
     await this.refreshAuthentication();
@@ -564,10 +575,16 @@ export class ComputerRuntime {
   get diagnostics() {
     return {
       ready: this.started && this.modelRuntime !== null,
-      provider: "openai-codex",
-      model: this.modelId,
+      runtimeEngine: "pi",
+      inferenceProvider: this.defaultModelRef.providerId,
+      model: this.defaultModelRef.modelId,
+      qualifiedModel: formatPiModelRef(this.defaultModelRef),
       authenticated: this.authenticated,
-      authType: this.authenticated ? "oauth" : null,
+      authType: this.authentication?.type ?? null,
+      authSource: this.authentication?.source ?? null,
+      subscription:
+        this.authenticated &&
+        Boolean(this.modelRuntime?.isUsingSubscription(this.defaultModelRef.providerId)),
       sessionScope: "transcript",
       activeTurns: this.activeByRun.size,
     };
@@ -575,11 +592,9 @@ export class ComputerRuntime {
 
   async run(request: ComputerTurnRequest): Promise<AsyncIterable<ComputerEvent>> {
     await this.start();
-    if (!this.authenticated) {
-      throw new Error(
-        "Pi is not authenticated with OpenAI Codex; run openbot-pi-login in the computer container"
-      );
-    }
+    const modelRef = request.model
+      ? parsePiModelRef(request.model, this.defaultModelRef.providerId)
+      : this.defaultModelRef;
     if (this.activeByRun.has(request.runId)) {
       throw new Error(`Run ${request.runId} is already active`);
     }
@@ -598,6 +613,7 @@ export class ComputerRuntime {
       deliveryId: request.deliveryId,
       runtimeProfile: request.runtimeProfile ?? "agent",
       subagentType: request.subagentType ?? null,
+      modelRef,
       cwd: request.cwd,
       instructions: request.instructions,
       userInfoMessage: request.userInfo
@@ -633,6 +649,11 @@ export class ComputerRuntime {
     this.activeByContext.set(active.contextSessionId, active);
 
     try {
+      this.resolveModel(modelRef);
+      const authentication = await this.modelRuntime?.checkAuth(modelRef.providerId);
+      if (!authentication) {
+        throw new Error(`Pi inference provider ${modelRef.providerId} is not configured`);
+      }
       await this.grokStore?.openForWake(active.botId);
       await this.grokStore?.recordRequestId(active.botId, active.runId);
       await this.grokStore?.appendConversationEnvelope(active.botId, {
@@ -795,7 +816,11 @@ export class ComputerRuntime {
         }
         const directory = await mkdtemp(join(tmpdir(), "openbot-video-frames-"));
         tempDirectories.push(directory);
-        const process = Bun.spawn(
+        const identity = agentProcessIdentity();
+        if (identity.uid !== undefined && identity.gid !== undefined) {
+          await chown(directory, identity.uid, identity.gid);
+        }
+        const child = Bun.spawn(
           [
             "ffmpeg",
             "-hide_banner",
@@ -815,10 +840,15 @@ export class ComputerRuntime {
             "3",
             join(directory, "%03d.jpg"),
           ],
-          { stdout: "ignore", stderr: "pipe" }
+          {
+            stdout: "ignore",
+            stderr: "pipe",
+            env: sanitizedAgentEnvironment(process.env),
+            ...identity,
+          }
         );
-        const stderr = await new Response(process.stderr).text();
-        if ((await process.exited) !== 0) {
+        const stderr = await new Response(child.stderr).text();
+        if ((await child.exited) !== 0) {
           throw new Error(`Could not read subagent video attachment: ${stderr.slice(0, 500)}`);
         }
         const frames = (await readdir(directory))
@@ -896,11 +926,15 @@ export class ComputerRuntime {
     timeoutMs: number;
   }): Promise<string> {
     await this.start();
-    if (!this.authenticated) throw new Error("Pi OpenAI Codex OAuth is not configured");
+    if (!this.authenticated) {
+      throw new Error(`Pi inference provider ${this.defaultModelRef.providerId} is not configured`);
+    }
     const session = await this.createStandaloneSession(
       request.cwd,
       request.instructions,
-      SessionManager.inMemory(request.cwd)
+      SessionManager.inMemory(request.cwd),
+      undefined,
+      this.defaultModelRef
     );
     let assistantText = "";
     const unsubscribe = session.subscribe((event) => {
@@ -941,7 +975,16 @@ export class ComputerRuntime {
   }
 
   private async refreshAuthentication(): Promise<void> {
-    this.authenticated = Boolean(await this.modelRuntime?.checkAuth("openai-codex"));
+    this.authentication = await this.modelRuntime?.checkAuth(this.defaultModelRef.providerId);
+    this.authenticated = Boolean(this.authentication);
+  }
+
+  private resolveModel(ref: PiModelRef) {
+    const modelRuntime = this.modelRuntime;
+    if (!modelRuntime) throw new Error("Pi model runtime is not initialized");
+    const model = modelRuntime.getModel(ref.providerId, ref.modelId);
+    if (!model) throw new Error(`Pi does not provide ${formatPiModelRef(ref)}`);
+    return model;
   }
 
   private async createSession(
@@ -957,24 +1000,31 @@ export class ComputerRuntime {
       : SessionManager.create(request.cwd, this.sessionsDir, {
           id: request.contextSessionId,
         });
-    return this.createStandaloneSession(request.cwd, request.instructions, manager, active);
+    return this.createStandaloneSession(
+      request.cwd,
+      request.instructions,
+      manager,
+      active,
+      active.modelRef
+    );
   }
 
   private async createStandaloneSession(
     cwd: string,
     instructions: string,
     sessionManager: SessionManager,
-    active?: ActiveTurn
+    active?: ActiveTurn,
+    modelRef: PiModelRef = this.defaultModelRef
   ): Promise<AgentSession> {
     const modelRuntime = this.modelRuntime;
     if (!modelRuntime) throw new Error("Pi model runtime is not initialized");
-    const model = modelRuntime.getModel("openai-codex", this.modelId);
-    if (!model) throw new Error(`Unknown Pi model openai-codex/${this.modelId}`);
+    const model = this.resolveModel(modelRef);
+    const thinkingLevel = clampThinkingLevel(model, this.thinkingLevel);
     const persistReserve = grokPiPersistReserve(model.contextWindow ?? 0);
     const settingsManager = SettingsManager.inMemory({
-      defaultProvider: "openai-codex",
-      defaultModel: this.modelId,
-      defaultThinkingLevel: this.thinkingLevel,
+      defaultProvider: modelRef.providerId,
+      defaultModel: modelRef.modelId,
+      defaultThinkingLevel: thinkingLevel === "off" ? undefined : thinkingLevel,
       compaction: {
         enabled: Boolean(active),
         reserveTokens: persistReserve,
@@ -1005,7 +1055,7 @@ export class ComputerRuntime {
       agentDir: this.agentDir,
       modelRuntime,
       model,
-      thinkingLevel: this.thinkingLevel,
+      thinkingLevel,
       noTools: "builtin",
       tools: customTools.map((tool) => tool.name),
       customTools,
@@ -1138,8 +1188,8 @@ export class ComputerRuntime {
   ): Promise<GrokSummaryResult> {
     const modelRuntime = this.modelRuntime;
     if (!modelRuntime) throw new Error("Pi model runtime is not initialized");
-    const model = modelRuntime.getModel("openai-codex", this.modelId);
-    if (!model) throw new Error(`Unknown Pi model openai-codex/${this.modelId}`);
+    const model = this.resolveModel(active.modelRef);
+    const thinkingLevel = clampThinkingLevel(model, this.thinkingLevel);
     if (signal.aborted) throw new DOMException("Compaction aborted", "AbortError");
 
     // Grok's summarization wrapper sends the normal model-visible schemas through
@@ -1162,7 +1212,7 @@ export class ComputerRuntime {
       },
       {
         signal,
-        reasoning: this.thinkingLevel === "off" ? undefined : this.thinkingLevel,
+        reasoning: thinkingLevel === "off" ? undefined : thinkingLevel,
       }
     );
     if (signal.aborted) throw new DOMException("Compaction aborted", "AbortError");
@@ -2129,11 +2179,12 @@ export class ComputerRuntime {
     active.sessionAttached = true;
     active.queue.push({
       type: "session.attached",
-      provider: "pi",
+      runtimeEngine: "pi",
+      inferenceProvider: active.modelRef.providerId,
       contextSessionId: active.contextSessionId,
       sessionId: active.session.sessionId,
       sessionPath: active.sessionPath,
-      model: `openai-codex/${this.modelId}`,
+      model: active.modelRef.modelId,
     });
   }
 

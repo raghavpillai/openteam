@@ -1,9 +1,14 @@
 import {
   ApiError,
+  DEFAULT_PI_INFERENCE_MODEL,
+  DEFAULT_PI_INFERENCE_PROVIDER,
+  formatPiModelRef,
   type CheckSubagentInput,
   type ComputerSteerRequest,
   type MessageSubagentInput,
   resolveBotAvatarMark,
+  parsePiModelRef,
+  piModelRef,
   type StopSubagentInput,
   type SubagentType,
   type TaskInput,
@@ -75,7 +80,11 @@ export const assertSubagentCapacity = async (
 };
 
 export class SubagentService {
-  private readonly model = process.env.OPENBOT_PI_MODEL ?? "gpt-5.5";
+  private readonly defaultModel = piModelRef(
+    process.env.OPENBOT_PI_PROVIDER ?? DEFAULT_PI_INFERENCE_PROVIDER,
+    process.env.OPENBOT_PI_MODEL ?? DEFAULT_PI_INFERENCE_MODEL
+  );
+  private readonly model = formatPiModelRef(this.defaultModel);
 
   constructor(
     private readonly prisma: PrismaClient,
@@ -86,7 +95,10 @@ export class SubagentService {
   ) {}
 
   async task(context: ToolContext, input: TaskInput) {
-    if (input.model && input.model !== this.model) {
+    if (
+      input.model &&
+      formatPiModelRef(parsePiModelRef(input.model, this.defaultModel.providerId)) !== this.model
+    ) {
       throw new ApiError(
         400,
         "subagent_model_unavailable",

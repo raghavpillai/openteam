@@ -6,7 +6,7 @@ export interface HealthResult {
   ok: boolean;
   url: string;
   detail: string;
-  agent?: string;
+  inference?: string;
   version?: string;
 }
 
@@ -27,7 +27,7 @@ export const checkHealth = async (
     const response = await fetch(url, { signal: AbortSignal.timeout(3_000) });
     const body = (await response.json().catch(() => null)) as {
       status?: unknown;
-      runtime?: { agent?: unknown };
+      runtime?: { inference?: unknown };
       release?: { releaseVersion?: unknown };
     } | null;
     if (!response.ok) return { ok: false, url, detail: `HTTP ${response.status}` };
@@ -51,7 +51,8 @@ export const checkHealth = async (
       ok: true,
       url,
       detail: status,
-      agent: typeof body?.runtime?.agent === "string" ? body.runtime.agent : undefined,
+      inference:
+        typeof body?.runtime?.inference === "string" ? body.runtime.inference : undefined,
       version,
     };
   } catch (error) {

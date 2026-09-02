@@ -10,7 +10,6 @@ COPY apps/mobile/package.json apps/mobile/package.json
 COPY apps/server/package.json apps/server/package.json
 COPY apps/worker/package.json apps/worker/package.json
 COPY packages/client-core/package.json packages/client-core/package.json
-COPY packages/codex-client/package.json packages/codex-client/package.json
 COPY packages/contracts/package.json packages/contracts/package.json
 COPY packages/db/package.json packages/db/package.json
 COPY packages/design-tokens/package.json packages/design-tokens/package.json
@@ -80,6 +79,7 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/* \
   && groupmod --new-name box bun \
   && usermod --login box --home /home/box --move-home --shell /bin/bash bun \
+  && useradd --uid 1001 --gid box --home-dir /home/box --no-create-home --shell /bin/bash runner \
   && mkdir -p /app/apps/computer/dist /workspace /home/box/.pi/agent \
   && mv /usr/bin/chromium /usr/local/bin/google-chrome \
   && chown -R box:box /app /workspace /home/box
@@ -89,22 +89,22 @@ COPY --from=ghcr.io/astral-sh/uv:0.8.14 /uv /uvx /usr/local/bin/
 COPY --from=build --chown=box:box /app/node_modules /app/node_modules
 COPY --from=build --chown=box:box /app/apps/computer/node_modules /app/apps/computer/node_modules
 COPY --from=build --chown=box:box /app/apps/computer/dist/main.js /app/apps/computer/dist/main.js
+COPY --from=build --chown=box:box /app/apps/computer/dist/provider-cli.js /app/apps/computer/dist/provider-cli.js
 COPY --chown=box:box docker/computer-entrypoint.sh /usr/local/bin/openbot-computer-entrypoint
-COPY --chown=box:box docker/openbot-pi-login /usr/local/bin/openbot-pi-login
+COPY --chown=box:box docker/openbot-pi-auth /usr/local/bin/openbot-pi-auth
 COPY --chown=box:box docker/desktop /usr/share/openbot-desktop
 COPY --chown=box:box docker/openbot-screen-launch /usr/local/bin/openbot-screen-launch
 COPY --chown=box:box docker/openbot-vnc.html /usr/share/novnc/openbot.html
 COPY --from=desktop-assets /openbot-wallpaper.png /usr/share/openbot-desktop/wallpaper.png
-RUN ln -s /app/apps/computer/node_modules/.bin/pi-ai /usr/local/bin/pi-ai \
-  && chmod 0755 \
+RUN chmod 0755 \
     /usr/local/bin/openbot-computer-entrypoint \
-    /usr/local/bin/openbot-pi-login \
+    /usr/local/bin/openbot-pi-auth \
     /usr/local/bin/openbot-screen-launch
 
 ENV HOME=/home/box
 ENV OPENBOT_PI_AGENT_DIR=/home/box/.pi/agent
 WORKDIR /workspace
-USER box
+USER root:box
 EXPOSE 8790 6200-6299
 ENTRYPOINT ["tini", "--", "openbot-computer-entrypoint"]
 CMD ["bun", "/app/apps/computer/dist/main.js"]

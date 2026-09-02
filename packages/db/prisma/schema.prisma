@@ -271,7 +271,9 @@ model Bot {
   onboardingVersion Int         @default(1)
   onboardingCompletedAt DateTime?
   provisioningError Json?
-  runtimeProvider   String       @default("pi")
+  runtimeEngine     String       @default("pi")
+  inferenceProvider String?
+  inferenceModel    String?
   runtimeSessionId  String?      @unique
   runtimeSessionPath String?     @unique
   conversation     Conversation?
@@ -655,8 +657,6 @@ model Conversation {
   id             String                 @id @default(uuid()) @db.Uuid
   botId          String                 @unique @db.Uuid
   bot            Bot                    @relation(fields: [botId], references: [id], onDelete: Cascade)
-  codexThreadId  String?                @unique
-  codexSessionId String?
   continuity     ConversationContinuity @default(empty)
   compactionEpoch Int                   @default(0)
   messages       Message[]
@@ -674,6 +674,8 @@ model ContextSession {
   scopeId            String              @db.Uuid
   runtimeSessionId   String?             @unique
   runtimeSessionPath String?             @unique
+  inferenceProvider  String?
+  inferenceModel     String?
   compactionEpoch    Int                 @default(0)
   lastArchiveId      String?             @db.Uuid
   compactions        ContextCompaction[]
@@ -791,6 +793,8 @@ model Run {
   userMessageId  String       @unique @db.Uuid
   status         RunStatus    @default(queued)
   runtimeTurnId  String?
+  inferenceProvider String?
+  inferenceModel String?
   origin         RunOrigin    @default(user)
   channelId      String?      @db.Uuid
   channel        Channel?     @relation(fields: [channelId], references: [id], onDelete: SetNull)

@@ -1,4 +1,5 @@
 import type { ComputerEvent } from "./index";
+import { isRuntimeEngine } from "./inference";
 
 export const COMPUTER_API_PATHS = {
   turns: "/v1/turns",
@@ -45,10 +46,18 @@ export const parseComputerEvent = (value: unknown): ComputerEvent => {
   const type = requiredString(value.type, "Computer event type");
   switch (type) {
     case "session.attached":
-      for (const field of ["contextSessionId", "sessionId", "sessionPath", "model"] as const) {
+      for (const field of [
+        "runtimeEngine",
+        "inferenceProvider",
+        "contextSessionId",
+        "sessionId",
+        "sessionPath",
+        "model",
+      ] as const) {
         requiredString(value[field], field);
       }
-      if (value.provider !== "pi") throw new Error("Computer event provider is invalid");
+      if (!isRuntimeEngine(value.runtimeEngine))
+        throw new Error("Computer runtime engine is invalid");
       break;
     case "turn.started":
       requiredString(value.turnId, "turnId");

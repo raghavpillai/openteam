@@ -53,6 +53,10 @@ describe("native computer tools", () => {
         HOME: "/home/box",
         OPENBOT_CONTROL_TOKEN: "secret",
         OPENAI_API_KEY: "secret",
+        ANTHROPIC_API_KEY: "secret",
+        GENERIC_PROVIDER_PASSWORD: "secret",
+        AWS_ACCESS_KEY_ID: "secret",
+        OPENBOT_PI_AGENT_DIR: "/home/box/.pi/agent",
         DATABASE_URL: "postgres://secret",
         BASH_ENV: "/tmp/inject",
         ENV: "/tmp/inject",
@@ -63,8 +67,7 @@ describe("native computer tools", () => {
     expect(environment).toEqual({ HOME: "/home/box", SAFE_VALUE: "kept", PWD: "/workspace" });
   });
 
-  const shellTest =
-    process.env.CODEX_CI === "1" && process.platform === "darwin" ? test.skip : test;
+  const shellTest = process.env.CI === "true" && process.platform === "darwin" ? test.skip : test;
 
   shellTest("Shell executes foreground commands and records a terminal log", async () => {
     const root = await mkdtemp(join(tmpdir(), "openbot-native-shell-"));

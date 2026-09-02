@@ -15,7 +15,7 @@ import {
   writeManifest,
 } from "./config";
 import { PROJECT_NAME } from "./constants";
-import { requireComposeProject } from "./docker";
+import { type ComposeProject, requireComposeProject } from "./docker";
 import { portAvailable, printDoctor, runDoctor } from "./doctor";
 import { CliError } from "./errors";
 import { checkHealth, waitForHealth } from "./health";
@@ -31,15 +31,41 @@ import {
 
 const THINKING_LEVELS = ["minimal", "low", "medium", "high", "xhigh", "max"] as const;
 const ACCESS_MODES = ["https", "proxy", "http", "private", "local"] as const;
+const CUSTOM_PROVIDER_APIS = [
+  "openai-responses",
+  "openai-completions",
+  "anthropic-messages",
+  "google-generative-ai",
+] as const;
+const BUILTIN_PROVIDER_CHOICES = [
+  {
+    label: "OpenAI with ChatGPT Plus/Pro",
+    value: "openai-codex",
+  },
+  {
+    label: "Anthropic with Claude Pro/Max or an API key",
+    value: "anthropic",
+  },
+  {
+    label: "OpenAI with an API key",
+    value: "openai",
+  },
+] as const;
+const DEFAULT_PROVIDER_MODELS: Readonly<Record<string, string>> = {
+  "openai-codex": "gpt-5.5",
+  anthropic: "claude-sonnet-5",
+  openai: "gpt-5.5",
+};
 const SETUP_STAGES: readonly SetupStage[] = [
   { label: "Access", description: "Choose how desktop and mobile apps reach this server." },
   { label: "Owner", description: "Create the single username and password for this OpenBot." },
-  { label: "Runtime", description: "Review model settings and connect OpenAI Codex." },
+  { label: "Runtime", description: "Choose the Pi inference provider and model." },
   { label: "Launch", description: "Apply the configuration and start Docker Compose." },
   { label: "Verify", description: "Check the deployment, credentials, and public endpoint." },
 ] as const;
 const SETUP_KEYS = [
   "OPENBOT_TIME_ZONE",
+  "OPENBOT_PI_PROVIDER",
   "OPENBOT_PI_MODEL",
   "OPENBOT_PI_THINKING",
   "OPENBOT_WORKER_CONCURRENCY",
@@ -67,6 +93,7 @@ export interface SetupPrompter {
 export interface SetupConfiguration {
   accessMode: (typeof ACCESS_MODES)[number];
   timeZone: string;
+  provider: string;
   model: string;
   thinking: (typeof THINKING_LEVELS)[number];
   workerConcurrency: string;
@@ -79,6 +106,18 @@ export interface SetupConfiguration {
   ownerUsername: string;
   ownerPassword?: string;
   authenticate: boolean;
+  authType: "oauth" | "api_key";
+  apiKey?: string;
+  customProvider?: SetupCustomProvider;
+}
+
+export interface SetupCustomProvider {
+  id: string;
+  name: string;
+  baseUrl: string;
+  api: (typeof CUSTOM_PROVIDER_APIS)[number];
+  model: string;
+  reasoning: boolean;
 }
 
 export interface SetupCommandOptions {
@@ -86,6 +125,7 @@ export interface SetupCommandOptions {
   fresh?: boolean;
   presentation?: SetupPresentation;
   ownerConfigured?: boolean;
+  authenticationTimeoutMs?: number;
 }
 
 export const supportsInteractiveSelection = (
@@ -341,6 +381,17 @@ const confirm = async (
   }
 };
 
+const collectProviderSecret = async (
+  prompter: SetupPrompter,
+  providerId: string
+): Promise<string> => {
+  while (true) {
+    const secret = (await prompter.secret(`${providerId} API key or password: `)).trim();
+    if (secret) return secret;
+    console.log("  Provider API key or password cannot be empty.");
+  }
+};
+
 const singleLine = (label: string, value: string): string => {
   if (!value || value.length > 128 || /[\r\n\0]/.test(value)) {
     throw new Error(`${label} must be a non-empty single-line value.`);
@@ -365,6 +416,59 @@ const model = (value: string): string => {
   }
   return normalized;
 };
+
+const provider = (value: string): string => {
+  const normalized = singleLine("Inference provider", value).toLowerCase();
+  if (!/^[a-z0-9][a-z0-9._-]*$/.test(normalized)) {
+    throw new Error(
+      "Provider ids may contain lowercase letters, numbers, dots, underscores, or hyphens."
+    );
+  }
+  return normalized;
+};
+
+const providerName = (value: string): string => {
+  const normalized = singleLine("Provider name", value).trim();
+  if (normalized.length > 100) throw new Error("Provider name must be 100 characters or fewer.");
+  return normalized;
+};
+
+const providerBaseUrl = (value: string): string => {
+  const normalized = singleLine("Provider base URL", value);
+  let parsed: URL;
+  try {
+    parsed = new URL(normalized);
+  } catch {
+    throw new Error("Enter a valid provider base URL.");
+  }
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+    throw new Error("Provider base URL must use HTTP or HTTPS.");
+  }
+  return parsed.toString().replace(/\/$/, "");
+};
+
+const customProviderApi = (value: string): SetupCustomProvider["api"] => {
+  const normalized = value.trim().toLowerCase();
+  if (!CUSTOM_PROVIDER_APIS.includes(normalized as SetupCustomProvider["api"])) {
+    throw new Error(`Choose one of: ${CUSTOM_PROVIDER_APIS.join(", ")}.`);
+  }
+  return normalized as SetupCustomProvider["api"];
+};
+
+const providerSelection = (value: string, currentProvider: string): string => {
+  const normalized = value.trim().toLowerCase();
+  if (
+    normalized === "custom" ||
+    normalized === currentProvider ||
+    BUILTIN_PROVIDER_CHOICES.some((choice) => choice.value === normalized)
+  ) {
+    return normalized;
+  }
+  throw new Error("Choose openai-codex, anthropic, openai, or custom.");
+};
+
+const defaultProviderAuthType = (providerId: string): "oauth" | "api_key" =>
+  providerId === "openai-codex" || providerId === "anthropic" ? "oauth" : "api_key";
 
 const thinking = (value: string): SetupConfiguration["thinking"] => {
   if (!THINKING_LEVELS.includes(value as SetupConfiguration["thinking"])) {
@@ -504,6 +608,91 @@ const publicUrlFor = (
   if (mode === "https" || mode === "proxy") return `https://${host}`;
   const port = apiPort === "80" ? "" : `:${apiPort}`;
   return `http://${host}${port}`;
+};
+
+const collectRuntimeConfiguration = async (
+  configuration: SetupConfiguration,
+  currentProvider: string,
+  prompter: SetupPrompter,
+  presentation?: SetupPresentation
+): Promise<void> => {
+  const providerChoices: Array<{ label: string; value: string }> = [...BUILTIN_PROVIDER_CHOICES];
+  if (!BUILTIN_PROVIDER_CHOICES.some((choice) => choice.value === currentProvider)) {
+    providerChoices.push({
+      label: `Keep existing provider (${currentProvider})`,
+      value: currentProvider,
+    });
+  }
+  providerChoices.push({ label: "Custom or generic provider", value: "custom" });
+  presentation?.choices([
+    {
+      title: "OpenAI with ChatGPT Plus/Pro",
+      description: "Authenticate Pi through the OpenAI Codex OAuth provider.",
+      recommended: currentProvider === "openai-codex",
+    },
+    {
+      title: "Anthropic",
+      description: "Use Claude Pro/Max OAuth or an Anthropic API key.",
+      recommended: currentProvider === "anthropic",
+    },
+    {
+      title: "OpenAI API",
+      description: "Use an OpenAI API key with a directly billed model.",
+      recommended: currentProvider === "openai",
+    },
+    {
+      title: "Custom or generic",
+      description: "Configure an OpenAI-, Anthropic-, or Google-compatible endpoint and password.",
+      recommended: !BUILTIN_PROVIDER_CHOICES.some((choice) => choice.value === currentProvider),
+    },
+  ]);
+  const selectedProvider = prompter.select
+    ? await prompter.select("Inference provider", providerChoices, currentProvider)
+    : await ask(
+        prompter,
+        "Inference provider (openai-codex/anthropic/openai/custom)",
+        currentProvider,
+        (value) => providerSelection(value, currentProvider)
+      );
+
+  if (selectedProvider === "custom") {
+    const id = await ask(prompter, "Custom provider id", "my-provider", provider);
+    const name = await ask(prompter, "Custom provider name", id, providerName);
+    const baseUrl = await askRequired(prompter, "Custom provider base URL", null, providerBaseUrl);
+    const api = prompter.select
+      ? await prompter.select(
+          "Compatible API",
+          CUSTOM_PROVIDER_APIS.map((value) => ({ label: value, value })),
+          "openai-responses"
+        )
+      : await ask(
+          prompter,
+          "Compatible API (openai-responses/openai-completions/anthropic-messages/google-generative-ai)",
+          "openai-responses",
+          customProviderApi
+        );
+    const selectedModel = await ask(prompter, "Inference model", "model", model);
+    const reasoning = await confirm(prompter, "Does this model support reasoning?", true);
+    configuration.provider = id;
+    configuration.model = selectedModel;
+    configuration.customProvider = {
+      id,
+      name,
+      baseUrl,
+      api,
+      model: selectedModel,
+      reasoning,
+    };
+    return;
+  }
+
+  configuration.provider = selectedProvider;
+  configuration.customProvider = undefined;
+  const selectedDefault =
+    selectedProvider === currentProvider
+      ? configuration.model
+      : (DEFAULT_PROVIDER_MODELS[selectedProvider] ?? configuration.model);
+  configuration.model = await ask(prompter, "Inference model", selectedDefault, model);
 };
 
 export const collectSetupConfiguration = async (
@@ -665,12 +854,14 @@ export const collectSetupConfiguration = async (
     ownerPassword,
     apiPort: current.get("OPENBOT_API_PORT") || "8787",
     timeZone: current.get("OPENBOT_TIME_ZONE") || "UTC",
+    provider: current.get("OPENBOT_PI_PROVIDER") || "openai-codex",
     model: current.get("OPENBOT_PI_MODEL") || "gpt-5.5",
     thinking: THINKING_LEVELS.includes(currentThinking as SetupConfiguration["thinking"])
       ? (currentThinking as SetupConfiguration["thinking"])
       : "high",
     workerConcurrency: current.get("OPENBOT_WORKER_CONCURRENCY") || "8",
     authenticate: false,
+    authType: defaultProviderAuthType(current.get("OPENBOT_PI_PROVIDER") || "openai-codex"),
   };
 
   presentation?.stage(2);
@@ -682,7 +873,14 @@ export const collectSetupConfiguration = async (
       integerInRange("API port", 1, 65535)
     );
     configuration.timeZone = await ask(prompter, "Time zone", configuration.timeZone, timeZone);
-    configuration.model = await ask(prompter, "OpenAI Codex model", configuration.model, model);
+  }
+  await collectRuntimeConfiguration(
+    configuration,
+    current.get("OPENBOT_PI_PROVIDER") || "openai-codex",
+    prompter,
+    presentation
+  );
+  if (options.advanced) {
     configuration.thinking = prompter.select
       ? await prompter.select(
           "Reasoning effort",
@@ -709,15 +907,51 @@ export const collectSetupConfiguration = async (
   );
   configuration.authenticate = await confirm(
     prompter,
-    authenticated ? "Sign in to OpenAI Codex again?" : "Sign in to OpenAI Codex now?",
-    !authenticated
+    authenticated &&
+      configuration.provider === (current.get("OPENBOT_PI_PROVIDER") || "openai-codex")
+      ? `Configure ${configuration.provider} authentication again?`
+      : `Configure ${configuration.provider} authentication now?`,
+    !authenticated ||
+      configuration.provider !== (current.get("OPENBOT_PI_PROVIDER") || "openai-codex")
   );
+  if (configuration.authenticate) {
+    if (configuration.provider === "anthropic") {
+      configuration.authType = prompter.select
+        ? await prompter.select(
+            "Anthropic authentication",
+            [
+              { label: "Claude Pro/Max", value: "oauth" },
+              { label: "Anthropic API key", value: "api_key" },
+            ] as const,
+            "oauth"
+          )
+        : await ask(prompter, "Anthropic authentication (oauth/api-key)", "oauth", (value) => {
+            const normalized = value.replace("-", "_");
+            if (normalized !== "oauth" && normalized !== "api_key") {
+              throw new Error("Choose oauth or api-key.");
+            }
+            return normalized;
+          });
+      if (configuration.authType === "oauth") {
+        presentation?.message(
+          "Pi identifies this as Claude Pro/Max authentication; third-party harness traffic may use paid extra usage rather than included plan limits.",
+          "warning"
+        );
+      }
+    } else {
+      configuration.authType = defaultProviderAuthType(configuration.provider);
+    }
+    if (configuration.authType === "api_key") {
+      configuration.apiKey = await collectProviderSecret(prompter, configuration.provider);
+    }
+  }
   return configuration;
 };
 
 const updateEnvironment = (contents: string, configuration: SetupConfiguration): string => {
   const values: Record<(typeof SETUP_KEYS)[number], string> = {
     OPENBOT_TIME_ZONE: configuration.timeZone,
+    OPENBOT_PI_PROVIDER: configuration.provider,
     OPENBOT_PI_MODEL: configuration.model,
     OPENBOT_PI_THINKING: configuration.thinking,
     OPENBOT_WORKER_CONCURRENCY: configuration.workerConcurrency,
@@ -735,6 +969,70 @@ const updateEnvironment = (contents: string, configuration: SetupConfiguration):
   return updated;
 };
 
+const providerUtility = (project: ComposeProject, args: readonly string[], input?: string) =>
+  project.run(
+    ["run", "--rm", "--no-deps", "--no-TTY", "computer", "openbot-pi-auth", ...args],
+    input === undefined ? {} : { input }
+  );
+
+const registerCustomProvider = (
+  project: ComposeProject,
+  customProvider: SetupCustomProvider
+): void => {
+  const result = providerUtility(
+    project,
+    ["add-custom"],
+    JSON.stringify({ ...customProvider, createOnly: true })
+  );
+  if (result.status !== 0) {
+    throw new CliError(
+      `Could not configure custom provider ${customProvider.id}: ${result.stderr.trim() || result.stdout.trim() || "provider utility failed"}`
+    );
+  }
+};
+
+const removeRegisteredCustomProvider = (
+  project: ComposeProject,
+  providerId: string | null
+): void => {
+  if (providerId) providerUtility(project, ["remove-custom", providerId]);
+};
+
+const assertProviderModelAvailable = (
+  project: ComposeProject,
+  providerId: string,
+  modelId: string
+): void => {
+  const result = providerUtility(project, ["models", providerId]);
+  if (result.status !== 0) {
+    throw new CliError(
+      `Could not inspect Pi provider ${providerId}: ${result.stderr.trim() || result.stdout.trim() || "provider utility failed"}`
+    );
+  }
+  let models: unknown;
+  try {
+    models = JSON.parse(result.stdout);
+  } catch {
+    throw new CliError(`Pi returned invalid model metadata for ${providerId}`);
+  }
+  if (
+    !Array.isArray(models) ||
+    !models.some(
+      (candidate) =>
+        candidate &&
+        typeof candidate === "object" &&
+        "providerId" in candidate &&
+        candidate.providerId === providerId &&
+        "modelId" in candidate &&
+        candidate.modelId === modelId
+    )
+  ) {
+    throw new CliError(
+      `Pi does not provide ${providerId}/${modelId}. Choose a model shown by openbot model list ${providerId}.`
+    );
+  }
+};
+
 const waitForAuthentication = async (
   paths: InstallationPaths,
   timeoutMs = 15_000
@@ -742,7 +1040,7 @@ const waitForAuthentication = async (
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const health = await checkHealth(paths);
-    if (health.ok && health.agent === "ready") return true;
+    if (health.ok && health.inference === "ready") return true;
     await new Promise((resolve) => setTimeout(resolve, 1_000));
   }
   return false;
@@ -772,7 +1070,7 @@ export const setupCommand = async (
     while (!configuration) {
       const candidate = await collectSetupConfiguration(
         current,
-        initialHealth.agent === "ready",
+        initialHealth.inference === "ready",
         prompter,
         {
           ...options,
@@ -785,10 +1083,13 @@ export const setupCommand = async (
 
       if (!options.advanced) {
         presentation.message(
-          `Using ${candidate.model}, ${candidate.thinking} reasoning, and local API port ${candidate.apiPort}.`,
+          `Using ${candidate.provider}/${candidate.model}, ${candidate.thinking} reasoning, and local API port ${candidate.apiPort}.`,
           "info"
         );
-        presentation.message("Run openbot setup --advanced to change these settings.", "muted");
+        presentation.message(
+          "Run openbot setup --advanced for port, time-zone, concurrency, and reasoning controls.",
+          "muted"
+        );
       }
 
       presentation.stage(3);
@@ -796,7 +1097,10 @@ export const setupCommand = async (
         { label: "Access", value: accessLabel(candidate.accessMode) },
         { label: "Address", value: candidate.publicUrl },
         { label: "Owner", value: candidate.ownerUsername },
-        { label: "Model", value: `${candidate.model} · ${candidate.thinking}` },
+        {
+          label: "Model",
+          value: `${candidate.provider}/${candidate.model} · ${candidate.thinking}`,
+        },
       ]);
       if (candidate.accessMode === "proxy") {
         presentation.message(
@@ -847,57 +1151,72 @@ export const setupCommand = async (
       );
     }
   }
-  const nextEnvironment = ensureAuthenticationSecret(
-    updateEnvironment(previousEnvironment, configuration)
-  );
-  const changed = nextEnvironment !== previousEnvironment;
-  if (changed) {
-    writeFileAtomic(paths.environment, nextEnvironment, 0o600);
-    const validation = project.run(["config", "--quiet"]);
-    if (validation.status !== 0) {
-      writeFileAtomic(paths.environment, previousEnvironment, 0o600);
-      throw new CliError(
-        `The new configuration is invalid: ${validation.stderr.trim() || validation.stdout.trim() || "Docker Compose rejected it"}`
-      );
-    }
-  }
-
-  if (changed || !initialHealth.ok || manifest.uninstalledAt) {
-    presentation.message(changed ? "Applying configuration…" : "Starting OpenBot…", "info");
-    try {
-      if (configuration.accessMode !== "https") {
-        // A profile-disabled service is not guaranteed to be removed by `up --remove-orphans`.
-        // Stop a previously enabled proxy explicitly when switching away from HTTPS.
-        project.run(["stop", "caddy"]);
-      }
-      project.runOrThrow(["up", "--detach", "--remove-orphans"], { inherit: true });
-      process.stdout.write("Waiting for OpenBot");
-      const health = await waitForHealth(paths);
-      if (!health.ok) throw new CliError(`OpenBot did not become healthy: ${health.detail}`);
+  let registeredCustomProvider: string | null = null;
+  try {
+    if (configuration.customProvider) {
       presentation.message(
-        `Core services are ready at ${health.url.replace(/\/api\/v0\/health$/, "")}`,
-        "success"
+        `Registering custom Pi provider ${configuration.customProvider.id}…`,
+        "info"
       );
-      if (manifest.uninstalledAt) {
-        writeManifest(paths, { ...manifest, uninstalledAt: undefined });
-      }
-    } catch (error) {
-      if (changed) {
+      registerCustomProvider(project, configuration.customProvider);
+      registeredCustomProvider = configuration.customProvider.id;
+    }
+    assertProviderModelAvailable(project, configuration.provider, configuration.model);
+
+    const nextEnvironment = ensureAuthenticationSecret(
+      updateEnvironment(previousEnvironment, configuration)
+    );
+    const changed = nextEnvironment !== previousEnvironment;
+    if (changed) {
+      writeFileAtomic(paths.environment, nextEnvironment, 0o600);
+      const validation = project.run(["config", "--quiet"]);
+      if (validation.status !== 0) {
         writeFileAtomic(paths.environment, previousEnvironment, 0o600);
-        const recovery = project.run(["up", "--detach", "--remove-orphans"], { inherit: true });
         throw new CliError(
-          `Setup failed and the previous configuration was restored${
-            recovery.status === 0 ? " and restarted" : ", but it could not be restarted"
-          }: ${error instanceof Error ? error.message : error}`
+          `The new configuration is invalid: ${validation.stderr.trim() || validation.stdout.trim() || "Docker Compose rejected it"}`
         );
       }
-      throw error;
     }
-  } else {
-    presentation.message(
-      changed ? "Configuration applied." : "Configuration is unchanged.",
-      "success"
-    );
+
+    if (changed || configuration.customProvider || !initialHealth.ok || manifest.uninstalledAt) {
+      presentation.message(changed ? "Applying configuration…" : "Starting OpenBot…", "info");
+      try {
+        if (configuration.accessMode !== "https") {
+          // A profile-disabled service is not guaranteed to be removed by `up --remove-orphans`.
+          // Stop a previously enabled proxy explicitly when switching away from HTTPS.
+          project.run(["stop", "caddy"]);
+        }
+        project.runOrThrow(["up", "--detach", "--remove-orphans"], { inherit: true });
+        process.stdout.write("Waiting for OpenBot");
+        const health = await waitForHealth(paths);
+        if (!health.ok) throw new CliError(`OpenBot did not become healthy: ${health.detail}`);
+        presentation.message(
+          `Core services are ready at ${health.url.replace(/\/api\/v0\/health$/, "")}`,
+          "success"
+        );
+        if (manifest.uninstalledAt) {
+          writeManifest(paths, { ...manifest, uninstalledAt: undefined });
+        }
+      } catch (error) {
+        if (changed) {
+          writeFileAtomic(paths.environment, previousEnvironment, 0o600);
+          const recovery = project.run(["up", "--detach", "--remove-orphans"], {
+            inherit: true,
+          });
+          throw new CliError(
+            `Setup failed and the previous configuration was restored${
+              recovery.status === 0 ? " and restarted" : ", but it could not be restarted"
+            }: ${error instanceof Error ? error.message : error}`
+          );
+        }
+        throw error;
+      }
+    } else {
+      presentation.message("Configuration is unchanged.", "success");
+    }
+  } catch (error) {
+    removeRegisteredCustomProvider(project, registeredCustomProvider);
+    throw error;
   }
 
   if (configuration.ownerPassword) {
@@ -918,18 +1237,37 @@ export const setupCommand = async (
   }
 
   if (configuration.authenticate) {
-    presentation.message("Starting OpenAI Codex sign-in…", "info");
+    presentation.message(`Configuring ${configuration.provider} authentication…`, "info");
     presentation.message(
-      "Provider credentials are handled by Codex and are not written to .env.",
+      "Provider credentials are handled by Pi and are not written to .env.",
       "muted"
     );
-    project.runOrThrow(["exec", "computer", "openbot-pi-login"], { inherit: true });
-    if (!(await waitForAuthentication(paths))) {
-      throw new CliError(
-        "OpenAI Codex sign-in completed, but OpenBot still reports authentication as missing. Run openbot provider login to retry only this step."
+    if (configuration.authType === "api_key") {
+      project.runOrThrow(
+        [
+          "exec",
+          "--no-TTY",
+          "computer",
+          "openbot-pi-auth",
+          "login",
+          configuration.provider,
+          "api_key",
+        ],
+        { input: `${configuration.apiKey}\n` }
+      );
+      configuration.apiKey = undefined;
+    } else {
+      project.runOrThrow(
+        ["exec", "computer", "openbot-pi-auth", "login", configuration.provider, "oauth"],
+        { inherit: true }
       );
     }
-    presentation.message("OpenAI Codex authentication is ready.", "success");
+    if (!(await waitForAuthentication(paths, options.authenticationTimeoutMs))) {
+      throw new CliError(
+        `${configuration.provider} authentication completed, but OpenBot still reports it as missing. Run openbot provider login ${configuration.provider} to retry.`
+      );
+    }
+    presentation.message(`${configuration.provider} authentication is ready.`, "success");
   }
 
   presentation.stage(4);

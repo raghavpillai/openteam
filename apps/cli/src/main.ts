@@ -9,15 +9,23 @@ import {
   doctorCommand,
   installCommand,
   logsCommand,
-  providerLoginCommand,
   startCommand,
   statusCommand,
   stopCommand,
   uninstallCommand,
   updateCommand,
 } from "./lifecycle";
-import { SystemCommandRunner } from "./process";
 import { accountUpdateCommand, passwordResetCommand } from "./password";
+import { SystemCommandRunner } from "./process";
+import {
+  modelListCommand,
+  modelUseCommand,
+  providerAddCommand,
+  providerListCommand,
+  providerLoginCommand,
+  providerLogoutCommand,
+  providerRemoveCommand,
+} from "./providers";
 import { setupCommand } from "./setup";
 
 const help = `OpenBot CLI ${CLI_VERSION}
@@ -34,7 +42,13 @@ Commands:
   stop         Stop OpenBot while preserving its containers and data
   start        Start or recreate the installed OpenBot services
   logs         Show recent service logs (use --follow to stream)
-  provider login  Sign in to OpenAI Codex without rerunning setup
+  provider list                 List Pi inference providers and authentication state
+  provider login [provider]     Configure OAuth or an API key/password
+  provider logout [provider]    Remove one provider credential
+  provider add <id>             Add an OpenAI/Anthropic/Google-compatible endpoint
+  provider remove <id>          Remove a custom inference provider
+  model list [provider]         List models known to Pi
+  model use <provider> <model>  Select the installation-wide inference model
   account update  Update the owner username and/or password
   password reset  Reset the owner password and revoke all sessions
   uninstall    Remove OpenBot containers; data is preserved by default
@@ -57,6 +71,15 @@ Options:
   --service <name>         Limit logs to one Compose service
   --username <name>        Set a new owner username with account update
   --password               Prompt for a new password with account update
+  --auth <oauth|api-key>   Select a provider authentication method
+  --name <name>            Custom provider display name
+  --base-url <url>         Custom provider API endpoint
+  --api <protocol>         Pi-compatible API protocol
+  --model <id>             Initial custom-provider model id
+  --thinking <level>       Reasoning level when selecting a model
+  --context-window <n>     Custom model context size
+  --max-tokens <n>         Custom model maximum output tokens
+  --reasoning              Mark a custom model as reasoning-capable
   --help, -h               Show this help
   --version, -v            Show the CLI version when used without a command
 
@@ -107,7 +130,26 @@ const main = async (): Promise<void> => {
       logsCommand(paths, runner, options);
       break;
     case "provider-login":
-      await providerLoginCommand(paths, runner);
+      await providerLoginCommand(paths, runner, options);
+      break;
+    case "provider-list":
+      providerListCommand(paths, runner);
+      break;
+    case "provider-logout":
+      providerLogoutCommand(paths, runner, options.providerId);
+      break;
+    case "provider-add":
+      await providerAddCommand(paths, runner, options);
+      break;
+    case "provider-remove":
+      if (!options.providerId) throw new CliError("Removing a provider requires its id");
+      providerRemoveCommand(paths, runner, options.providerId);
+      break;
+    case "model-list":
+      modelListCommand(paths, runner, options.providerId);
+      break;
+    case "model-use":
+      await modelUseCommand(paths, runner, options);
       break;
     case "account-update":
       await accountUpdateCommand(paths, runner, {

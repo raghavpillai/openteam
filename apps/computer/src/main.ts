@@ -155,12 +155,12 @@ const server = Bun.serve({
     if (url.pathname === "/health") {
       try {
         await runtime.start();
-        return json({ status: "ready", agent: runtime.diagnostics });
+        return json({ status: "ready", inference: runtime.diagnostics });
       } catch (error) {
         return json(
           {
             status: "degraded",
-            agent: runtime.diagnostics,
+            inference: runtime.diagnostics,
             error: error instanceof Error ? error.message : String(error),
           },
           503

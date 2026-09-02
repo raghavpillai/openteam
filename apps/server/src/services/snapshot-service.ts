@@ -1031,17 +1031,21 @@ export class SnapshotService {
 
   private async runtimeStatus(): Promise<Snapshot["runtime"]> {
     let computer: Snapshot["runtime"]["computer"] = "unavailable";
-    let agent: Snapshot["runtime"]["agent"] = "unavailable";
+    let inference: Snapshot["runtime"]["inference"] = "unavailable";
     try {
       const response = await fetch(`${this.computerUrl}/health`, {
         signal: AbortSignal.timeout(1_500),
       });
       const body = (await response.json()) as {
         status?: string;
-        agent?: { ready?: boolean; authenticated?: boolean };
+        inference?: { ready?: boolean; authenticated?: boolean };
       };
       computer = response.ok && body.status === "ready" ? "ready" : "unavailable";
-      agent = body.agent?.ready ? (body.agent.authenticated ? "ready" : "missing") : "unavailable";
+      inference = body.inference?.ready
+        ? body.inference.authenticated
+          ? "ready"
+          : "missing"
+        : "unavailable";
       await this.prisma.computer.update({
         where: { id: COMPUTER_ID },
         data: {
@@ -1057,7 +1061,7 @@ export class SnapshotService {
       database: "ready",
       queue: this.isQueueReady() ? "ready" : "unavailable",
       computer,
-      agent,
+      inference,
     };
   }
 

@@ -95,8 +95,10 @@ const cliInteractive = (args: readonly string[], input: string) => {
       ["OpenBot username", `${answers[1] ?? ""}\r`],
       ["OpenBot password:", `${answers[2] ?? ""}\r`],
       ["Confirm OpenBot password:", `${answers[3] ?? ""}\r`],
-      ["Sign in to OpenAI Codex now?", `${answers[4] ?? ""}\r`],
-      ["Apply this configuration?", `${answers[5] ?? ""}\r`],
+      ["Inference provider", `${answers[4] ?? ""}\r`],
+      ["Inference model", `${answers[5] ?? ""}\r`],
+      ["Configure openai-codex authentication now?", `${answers[6] ?? ""}\r`],
+      ["Apply this configuration?", `${answers[7] ?? ""}\r`],
     ] as const;
     const program = [
       "set timeout 300",
@@ -375,7 +377,7 @@ const main = async (): Promise<void> => {
       "--allow-unsigned",
       ...releaseUrls(firstVersion),
     ],
-    ["5", ownerUsername, ownerPassword, ownerPassword, "no", "yes", ""].join("\n")
+    ["5", ownerUsername, ownerPassword, ownerPassword, "", "", "no", "yes", ""].join("\n")
   );
   await signInOwner();
   cli(["doctor", "--dir", installationDirectory]);

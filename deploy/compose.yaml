@@ -95,6 +95,7 @@ services:
       OPENBOT_TIME_ZONE: ${OPENBOT_TIME_ZONE:-UTC}
       OPENBOT_SERVER_URL: http://server:8787
       OPENBOT_PI_AGENT_DIR: /home/box/.pi/agent
+      OPENBOT_PI_PROVIDER: ${OPENBOT_PI_PROVIDER:-openai-codex}
       OPENBOT_PI_MODEL: ${OPENBOT_PI_MODEL:-gpt-5.5}
       OPENBOT_PI_THINKING: ${OPENBOT_PI_THINKING:-high}
       OPENBOT_AGENT_DATA_ROOT: /home/box/agent-data
@@ -111,6 +112,7 @@ services:
       workspace-init:
         condition: service_completed_successfully
     cap_drop: ["ALL"]
+    cap_add: ["CHOWN", "DAC_OVERRIDE", "FOWNER", "SETGID", "SETUID"]
     security_opt:
       - no-new-privileges:true
     read_only: true
@@ -148,6 +150,7 @@ services:
       OPENBOT_PUBLIC_URL: ${OPENBOT_PUBLIC_URL:-http://127.0.0.1:8787}
       OPENBOT_WORKSPACE_ROOT: /workspace
       OPENBOT_TIME_ZONE: ${OPENBOT_TIME_ZONE:-UTC}
+      OPENBOT_PI_PROVIDER: ${OPENBOT_PI_PROVIDER:-openai-codex}
       OPENBOT_PI_MODEL: ${OPENBOT_PI_MODEL:-gpt-5.5}
       OPENBOT_SCREEN_VIEWER_HOST: ${OPENBOT_PUBLIC_HOST:-127.0.0.1}
       OPENBOT_AGENT_DATA_ROOT: /home/box/agent-data

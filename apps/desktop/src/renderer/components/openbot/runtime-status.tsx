@@ -9,7 +9,7 @@ export function RuntimeStatus({
   compact?: boolean;
 }) {
   const ready = Object.values(runtime).every((status) => status === "ready");
-  const label = runtime.agent === "ready" ? "Pi ready" : `Pi ${runtime.agent}`;
+  const label = runtime.inference === "ready" ? "Pi ready" : `Pi ${runtime.inference}`;
   return (
     <div className="flex items-center gap-2 text-xs text-muted-foreground">
       <span className={cn("size-2 rounded-full", ready ? "bg-emerald-500" : "bg-amber-500")} />

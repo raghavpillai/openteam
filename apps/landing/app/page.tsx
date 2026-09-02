@@ -7,7 +7,7 @@ const faqs = [
   {
     question: "What do I need to install it?",
     answer:
-      "Docker with Compose is the only system prerequisite for the released stack. The CLI checks the host, creates private installation secrets, pulls the versioned services, starts them, and waits for health. Setup then creates your owner account and guides Codex sign-in.",
+      "Docker with Compose is the only system prerequisite for the released stack. The CLI checks the host, creates private installation secrets, pulls the versioned services, starts them, and waits for health. Setup then creates your owner account and configures your chosen inference provider.",
   },
   {
     question: "What keeps running when I close the app?",
@@ -22,7 +22,7 @@ const faqs = [
   {
     question: "Where do my model credentials live?",
     answer:
-      "Your OpenAI Codex OAuth credential stays inside the private computer service and its persistent volume. The desktop and iPhone clients do not hold the model credential.",
+      "Your provider credential stays inside the private computer service and its persistent volume. Agent shells, the desktop app, and the iPhone app cannot read it.",
   },
   {
     question: "Can I watch or take over a Bot's computer?",
@@ -363,8 +363,8 @@ export default function Home() {
                 <span>
                   <strong>Keep model credentials out of the clients</strong>
                   <small>
-                    Your Codex OAuth credential stays inside the private computer service rather
-                    than the desktop or iPhone app.
+                    Your provider credential stays inside the private computer service rather than
+                    the desktop or iPhone app.
                   </small>
                 </span>
               </li>
@@ -425,7 +425,7 @@ export default function Home() {
                 <div>
                   <span className="service-icon">⌘</span>
                   <strong>Agent runtime</strong>
-                  <small>sessions + Codex</small>
+                  <small>Pi sessions + inference</small>
                 </div>
                 <div>
                   <span className="service-icon">◫</span>
@@ -543,7 +543,7 @@ export default function Home() {
         </h2>
         <p>
           The CLI pulls the released services, starts the private stack, checks its health, and then
-          walks you through your owner account and Codex sign-in.
+          walks you through your owner account and inference-provider sign-in.
         </p>
         <div className="install-command">
           <span>$</span>
@@ -573,7 +573,7 @@ export default function Home() {
             <a href="#self-hosted">Self-hosted</a>
             <a href="https://github.com/raghavpillai/openbot">GitHub</a>
           </div>
-          <p>Open source. Built on Pi with OpenAI Codex.</p>
+          <p>Open source. Built on Pi with your choice of inference provider.</p>
         </div>
       </footer>
     </main>

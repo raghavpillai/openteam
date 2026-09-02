@@ -30,7 +30,7 @@ services:
 
   agent-data-init:
     image: alpine:3.22@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce
-    command: ["sh", "-c", "chown -R 1000:1000 /sand-data && chmod 0700 /sand-data"]
+    command: ["sh", "-c", "chown -R 1000:1000 /sand-data && chmod -R g+rwX /sand-data && chmod 0770 /sand-data"]
     restart: "no"
     volumes:
       - openbot_agent_data:/sand-data
@@ -62,13 +62,17 @@ services:
       - sh
       - -c
       - >-
-        chown -R 1000:1000 /home/box && chmod 0700 /home/box &&
+        chown -R 1000:1000 /home/box && chmod -R g+rwX /home/box && chmod 0770 /home/box &&
         if [ -d /home/box/agent-data ] && [ ! -L /home/box/agent-data ]; then
           cp -a /home/box/agent-data/. /home/box/sand-data/ &&
           mv /home/box/agent-data /home/box/.openbot-agent-data-pre-sand-migration;
         fi &&
         if [ ! -L /home/box/agent-data ]; then ln -s /home/box/sand-data /home/box/agent-data; fi &&
-        chown -h 0:0 /home/box/agent-data
+        chown -h 0:0 /home/box/agent-data &&
+        if [ -d /home/box/.pi/agent ]; then
+          chown -R 0:0 /home/box/.pi/agent && chmod 0700 /home/box/.pi/agent &&
+          find /home/box/.pi/agent -maxdepth 1 -type f \( -name auth.json -o -name models.json \) -exec chmod 0600 {} +;
+        fi
     restart: "no"
     volumes:
       - openbot_computer_home:/home/box
@@ -83,7 +87,7 @@ services:
 
   workspace-init:
     image: alpine:3.22@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce
-    command: ["sh", "-c", "chown -R 1000:1000 /workspace && chmod 0755 /workspace"]
+    command: ["sh", "-c", "chown -R 1000:1000 /workspace && chmod -R g+rwX /workspace && chmod 0770 /workspace"]
     restart: "no"
     volumes:
       - openbot_workspace:/workspace
@@ -100,6 +104,9 @@ services:
       OPENBOT_TIME_ZONE: ${OPENBOT_TIME_ZONE:-UTC}
       OPENBOT_SERVER_URL: http://server:8787
       OPENBOT_PI_AGENT_DIR: /home/box/.pi/agent
+      OPENBOT_AGENT_UID: 1001
+      OPENBOT_AGENT_GID: 1000
+      OPENBOT_PI_PROVIDER: ${OPENBOT_PI_PROVIDER:-openai-codex}
       OPENBOT_PI_MODEL: ${OPENBOT_PI_MODEL:-gpt-5.5}
       OPENBOT_PI_THINKING: ${OPENBOT_PI_THINKING:-high}
       OPENBOT_AGENT_DATA_ROOT: /home/box/agent-data
@@ -116,6 +123,7 @@ services:
       workspace-init:
         condition: service_completed_successfully
     cap_drop: ["ALL"]
+    cap_add: ["CHOWN", "DAC_OVERRIDE", "FOWNER", "SETGID", "SETUID"]
     security_opt:
       - no-new-privileges:true
     read_only: true
@@ -152,6 +160,7 @@ services:
       OPENBOT_AUTH_MODE: ${OPENBOT_AUTH_MODE:-required}
       OPENBOT_WORKSPACE_ROOT: /workspace
       OPENBOT_TIME_ZONE: ${OPENBOT_TIME_ZONE:-UTC}
+      OPENBOT_PI_PROVIDER: ${OPENBOT_PI_PROVIDER:-openai-codex}
       OPENBOT_PI_MODEL: ${OPENBOT_PI_MODEL:-gpt-5.5}
       OPENBOT_SCREEN_VIEWER_HOST: 127.0.0.1
       OPENBOT_AGENT_DATA_ROOT: /home/box/agent-data

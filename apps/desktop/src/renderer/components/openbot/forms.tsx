@@ -1,6 +1,6 @@
 import type { BotView, CreateBotInput } from "@openbot/contracts";
-import { GROUP_MEMBER_LIMIT, toggleBoundedSelection } from "@openbot/product-core/selection";
 import { clientErrorMessage } from "@openbot/product-core/redaction";
+import { GROUP_MEMBER_LIMIT, toggleBoundedSelection } from "@openbot/product-core/selection";
 import { ChevronDown, LoaderCircle, Search } from "lucide-react";
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualWindow } from "../../hooks/use-virtual-window";
@@ -57,8 +57,8 @@ export function NewBotForm({
         <BotAvatar bot={{ color, icon: "●" }} size="lg" />
         <DialogTitle className="pt-1">Create a new Bot</DialogTitle>
         <DialogDescription className="max-w-sm text-center">
-          It gets one durable Pi session backed by OpenAI Codex, persistent chat, and its own Linux
-          screen on the shared computer.
+          It gets one durable Pi session with the selected inference provider, persistent chat, and
+          its own Linux screen on the shared computer.
         </DialogDescription>
       </DialogHeader>
       <div className="grid gap-2">

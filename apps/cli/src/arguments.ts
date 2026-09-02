@@ -9,7 +9,13 @@ export type CommandName =
   | "stop"
   | "start"
   | "logs"
+  | "provider-list"
   | "provider-login"
+  | "provider-logout"
+  | "provider-add"
+  | "provider-remove"
+  | "model-list"
+  | "model-use"
   | "account-update"
   | "password-reset"
   | "uninstall";
@@ -38,6 +44,16 @@ export interface CliOptions {
   jsonProgress: boolean;
   username?: string;
   password: boolean;
+  providerId?: string;
+  modelId?: string;
+  authType?: string;
+  providerName?: string;
+  baseUrl?: string;
+  apiProtocol?: string;
+  thinking?: string;
+  contextWindow?: string;
+  maxTokens?: string;
+  reasoning?: boolean;
 }
 
 const commands = new Set<CommandName>([
@@ -49,7 +65,13 @@ const commands = new Set<CommandName>([
   "stop",
   "start",
   "logs",
+  "provider-list",
   "provider-login",
+  "provider-logout",
+  "provider-add",
+  "provider-remove",
+  "model-list",
+  "model-use",
   "account-update",
   "password-reset",
   "uninstall",
@@ -68,6 +90,14 @@ const valueFlags = new Map<
   | "username"
   | "tail"
   | "service"
+  | "authType"
+  | "providerName"
+  | "baseUrl"
+  | "apiProtocol"
+  | "modelId"
+  | "thinking"
+  | "contextWindow"
+  | "maxTokens"
 >([
   ["--dir", "directory"],
   ["--install-dir", "directory"],
@@ -81,6 +111,14 @@ const valueFlags = new Map<
   ["--username", "username"],
   ["--tail", "tail"],
   ["--service", "service"],
+  ["--auth", "authType"],
+  ["--name", "providerName"],
+  ["--base-url", "baseUrl"],
+  ["--api", "apiProtocol"],
+  ["--model", "modelId"],
+  ["--thinking", "thinking"],
+  ["--context-window", "contextWindow"],
+  ["--max-tokens", "maxTokens"],
 ] as const);
 
 export const parseArguments = (argv: readonly string[]): CliOptions => {
@@ -119,16 +157,46 @@ export const parseArguments = (argv: readonly string[]): CliOptions => {
   }
   const nestedPasswordReset = rawCommand === "password" && rawRest[0] === "reset";
   const nestedAccountUpdate = rawCommand === "account" && rawRest[0] === "update";
-  const nestedProviderLogin = rawCommand === "provider" && rawRest[0] === "login";
+  const providerAction = rawCommand === "provider" ? rawRest[0] : undefined;
+  const modelAction = rawCommand === "model" ? rawRest[0] : undefined;
+  const nestedProviderList = rawCommand === "provider" && providerAction === "list";
+  const nestedProviderLogin = rawCommand === "provider" && providerAction === "login";
+  const nestedProviderLogout = rawCommand === "provider" && providerAction === "logout";
+  const nestedProviderAdd = rawCommand === "provider" && providerAction === "add";
+  const nestedProviderRemove = rawCommand === "provider" && providerAction === "remove";
+  const nestedModelList = rawCommand === "model" && modelAction === "list";
+  const nestedModelUse = rawCommand === "model" && modelAction === "use";
   const command = nestedPasswordReset
     ? "password-reset"
     : nestedAccountUpdate
       ? "account-update"
-      : nestedProviderLogin
-        ? "provider-login"
-        : rawCommand;
-  const rest =
-    nestedPasswordReset || nestedAccountUpdate || nestedProviderLogin ? rawRest.slice(1) : rawRest;
+      : nestedProviderList
+        ? "provider-list"
+        : nestedProviderLogin
+          ? "provider-login"
+          : nestedProviderLogout
+            ? "provider-logout"
+            : nestedProviderAdd
+              ? "provider-add"
+              : nestedProviderRemove
+                ? "provider-remove"
+                : nestedModelList
+                  ? "model-list"
+                  : nestedModelUse
+                    ? "model-use"
+                    : rawCommand;
+  let rest =
+    nestedPasswordReset ||
+    nestedAccountUpdate ||
+    nestedProviderList ||
+    nestedProviderLogin ||
+    nestedProviderLogout ||
+    nestedProviderAdd ||
+    nestedProviderRemove ||
+    nestedModelList ||
+    nestedModelUse
+      ? rawRest.slice(1)
+      : rawRest;
   if (rest.includes("--help") || rest.includes("-h")) {
     return {
       command: "help",
@@ -150,7 +218,10 @@ export const parseArguments = (argv: readonly string[]): CliOptions => {
     if (rawCommand === "account") {
       throw new CliError("Usage: openbot account update [--username <name>] [--password]");
     }
-    if (rawCommand === "provider") throw new CliError("Usage: openbot provider login");
+    if (rawCommand === "provider") {
+      throw new CliError("Usage: openbot provider <list|login|logout|add|remove>");
+    }
+    if (rawCommand === "model") throw new CliError("Usage: openbot model <list|use>");
     throw new CliError(`Unknown command: ${rawCommand}`);
   }
 
@@ -168,6 +239,29 @@ export const parseArguments = (argv: readonly string[]): CliOptions => {
     jsonProgress: false,
     password: false,
   };
+  const positional: string[] = [];
+  while (rest[0] && !rest[0].startsWith("-")) {
+    positional.push(rest[0]);
+    rest = rest.slice(1);
+  }
+  if (command === "provider-login" || command === "provider-logout") {
+    if (positional.length > 1)
+      throw new CliError(`openbot provider ${providerAction} accepts one provider`);
+    options.providerId = positional[0];
+  } else if (command === "provider-add" || command === "provider-remove") {
+    if (positional.length !== 1)
+      throw new CliError(`openbot provider ${providerAction} requires a provider id`);
+    options.providerId = positional[0];
+  } else if (command === "model-list") {
+    if (positional.length > 1) throw new CliError("openbot model list accepts one provider");
+    options.providerId = positional[0];
+  } else if (command === "model-use") {
+    if (positional.length !== 2)
+      throw new CliError("openbot model use requires a provider and model");
+    [options.providerId, options.modelId] = positional;
+  } else if (positional.length > 0) {
+    throw new CliError(`Unexpected argument for ${rawCommand}: ${positional[0]}`);
+  }
   for (let index = 0; index < rest.length; index += 1) {
     const flag = rest[index];
     if (!flag) continue;
@@ -221,6 +315,10 @@ export const parseArguments = (argv: readonly string[]): CliOptions => {
       options.password = true;
       continue;
     }
+    if (flag === "--reasoning") {
+      options.reasoning = true;
+      continue;
+    }
     const property = valueFlags.get(flag);
     if (property) {
       const value = rest[index + 1];
@@ -238,6 +336,75 @@ export const parseArguments = (argv: readonly string[]): CliOptions => {
     options.command !== "account-update"
   ) {
     throw new CliError("--username and --password are only valid with openbot account update");
+  }
+  if (options.authType !== undefined) {
+    const normalized = options.authType.replace("-", "_");
+    if (normalized !== "oauth" && normalized !== "api_key") {
+      throw new CliError("--auth must be oauth or api-key");
+    }
+    options.authType = normalized;
+    if (options.command !== "provider-login") {
+      throw new CliError("--auth is only valid with openbot provider login");
+    }
+  }
+  const providerAddOptions = [
+    options.providerName,
+    options.baseUrl,
+    options.apiProtocol,
+    options.contextWindow,
+    options.maxTokens,
+    options.reasoning,
+  ];
+  if (
+    providerAddOptions.some((value) => value !== undefined) &&
+    options.command !== "provider-add"
+  ) {
+    throw new CliError("Custom provider options are only valid with openbot provider add");
+  }
+  if (options.command === "provider-add") {
+    if (!options.providerName || !options.baseUrl || !options.apiProtocol || !options.modelId) {
+      throw new CliError("provider add requires --name, --base-url, --api, and --model");
+    }
+    if (
+      ![
+        "openai-completions",
+        "openai-responses",
+        "anthropic-messages",
+        "google-generative-ai",
+      ].includes(options.apiProtocol)
+    ) {
+      throw new CliError(
+        "--api must be openai-completions, openai-responses, anthropic-messages, or google-generative-ai"
+      );
+    }
+    for (const [flag, value] of [
+      ["--context-window", options.contextWindow],
+      ["--max-tokens", options.maxTokens],
+    ] as const) {
+      if (value !== undefined && (!/^\d+$/.test(value) || Number(value) <= 0)) {
+        throw new CliError(`${flag} must be a positive whole number`);
+      }
+    }
+  }
+  if (options.providerId !== undefined) {
+    options.providerId = options.providerId.toLowerCase();
+    if (!/^[a-z0-9][a-z0-9._-]*$/.test(options.providerId)) {
+      throw new CliError(
+        "Provider ids may contain lowercase letters, numbers, dots, underscores, or hyphens"
+      );
+    }
+  }
+  if (options.modelId !== undefined && !/^[A-Za-z0-9][A-Za-z0-9._:/-]*$/.test(options.modelId)) {
+    throw new CliError("Invalid model id");
+  }
+  if (options.thinking !== undefined && options.command !== "model-use") {
+    throw new CliError("--thinking is only valid with openbot model use");
+  }
+  if (
+    options.thinking !== undefined &&
+    !["off", "minimal", "low", "medium", "high", "xhigh", "max"].includes(options.thinking)
+  ) {
+    throw new CliError("--thinking must be off, minimal, low, medium, high, xhigh, or max");
   }
   if (options.noSetup && options.command !== "install") {
     throw new CliError("--no-setup is only valid with openbot install");

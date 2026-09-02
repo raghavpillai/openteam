@@ -1,7 +1,0 @@
-#!/bin/sh
-set -eu
-
-agent_dir=${OPENBOT_PI_AGENT_DIR:-/home/box/.pi/agent}
-mkdir -p "$agent_dir"
-cd "$agent_dir"
-exec pi-ai login openai-codex "$@"

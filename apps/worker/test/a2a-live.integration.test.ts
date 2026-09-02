@@ -62,7 +62,7 @@ test("live 1:1 A2A mirrors both home stores and wakes both agents without a pair
     async fetch(request) {
       const url = new URL(request.url);
       if (url.pathname === "/health") {
-        return Response.json({ status: "ready", agent: { ready: true, authenticated: true } });
+        return Response.json({ status: "ready", inference: { ready: true, authenticated: true } });
       }
       if (!request.headers.get("authorization")?.startsWith("Bearer ")) {
         return Response.json({ error: "unauthorized" }, { status: 401 });
@@ -153,11 +153,12 @@ test("live 1:1 A2A mirrors both home stores and wakes both agents without a pair
         const events = [
           {
             type: "session.attached",
-            provider: "pi",
+            runtimeEngine: "pi",
+            inferenceProvider: "openai-codex",
             contextSessionId: input.contextSessionId,
             sessionPath,
             sessionId: input.contextSessionId,
-            model: "openai-codex/fake",
+            model: "fake",
           },
           {
             type: "context.state",

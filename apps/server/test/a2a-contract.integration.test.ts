@@ -18,7 +18,7 @@ test("source-verified Grok A2A errors, group rows, and channel updates run end t
     async fetch(request) {
       const url = new URL(request.url);
       if (url.pathname === "/health") {
-        return Response.json({ status: "ready", agent: { ready: true, authenticated: true } });
+        return Response.json({ status: "ready", inference: { ready: true, authenticated: true } });
       }
       if (!request.headers.get("authorization")?.startsWith("Bearer ")) {
         return Response.json({ error: "unauthorized" }, { status: 401 });

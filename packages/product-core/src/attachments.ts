@@ -1,4 +1,4 @@
-import type { AssetKind, AssetRef, ClientCapabilities } from "@openbot/contracts";
+import type { AssetKind, AssetRef, ClientCapabilities } from "@openteam/contracts";
 
 export type AttachmentPreviewKind =
   | "video"

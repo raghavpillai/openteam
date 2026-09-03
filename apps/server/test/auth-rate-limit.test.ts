@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, test } from "bun:test";
 
-process.env.OPENBOT_AUTH_SECRET ??= "openbot-test-auth-secret-that-is-at-least-32-characters";
-process.env.DATABASE_URL ??= "postgresql://openbot:openbot@127.0.0.1:1/openbot";
+process.env.OPENTEAM_AUTH_SECRET ??= "openteam-test-auth-secret-that-is-at-least-32-characters";
+process.env.DATABASE_URL ??= "postgresql://openteam:openteam@127.0.0.1:1/openteam";
 
 const { auth, authPrisma } = await import("../src/auth");
 

@@ -13,14 +13,14 @@ describe("runtime URLs", () => {
   });
 
   test("keeps the loopback API for packaged Electron", () => {
-    expect(resolveApiBase("file:///Applications/OpenBot.app/index.html")).toBe(
+    expect(resolveApiBase("file:///Applications/OpenTeam.app/index.html")).toBe(
       "http://127.0.0.1:8787"
     );
   });
 
   test("honors an explicitly configured API", () => {
-    expect(resolveApiBase("http://127.0.0.1:5173", "http://openbot.example:8787/")).toBe(
-      "http://openbot.example:8787"
+    expect(resolveApiBase("http://127.0.0.1:5173", "http://openteam.example:8787/")).toBe(
+      "http://openteam.example:8787"
     );
   });
 
@@ -30,7 +30,7 @@ describe("runtime URLs", () => {
 
     expect(
       resolveConfiguredApiBase(
-        "file:///Applications/OpenBot.app/index.html",
+        "file:///Applications/OpenTeam.app/index.html",
         storage,
         "https://build.example.test"
       )
@@ -48,11 +48,11 @@ describe("runtime URLs", () => {
   });
 
   test("ignores a corrupt saved API instead of breaking desktop launch", () => {
-    const storage = { getItem: () => "file:///tmp/not-an-openbot-server" };
+    const storage = { getItem: () => "file:///tmp/not-an-openteam-server" };
 
     expect(
       resolveConfiguredApiBase(
-        "file:///Applications/OpenBot.app/index.html",
+        "file:///Applications/OpenTeam.app/index.html",
         storage,
         "https://build.example.test"
       )
@@ -62,17 +62,17 @@ describe("runtime URLs", () => {
   test("routes noVNC through the remote Vite origin", () => {
     expect(
       resolveViewerUrl(
-        "http://127.0.0.1:6207/openbot.html?autoconnect=true&path=websockify#password=A_bc-123",
+        "http://127.0.0.1:6207/openteam.html?autoconnect=true&path=websockify#password=A_bc-123",
         "http://100.94.42.50:5173/"
       )
     ).toBe(
-      "http://100.94.42.50:5173/novnc/6207/openbot.html?autoconnect=true&path=websockify#password=A_bc-123"
+      "http://100.94.42.50:5173/novnc/6207/openteam.html?autoconnect=true&path=websockify#password=A_bc-123"
     );
   });
 
   test("leaves viewer URLs unchanged in packaged Electron", () => {
     expect(
-      resolveViewerUrl("http://127.0.0.1:6207/openbot.html", "file:///Applications/OpenBot.app")
-    ).toBe("http://127.0.0.1:6207/openbot.html");
+      resolveViewerUrl("http://127.0.0.1:6207/openteam.html", "file:///Applications/OpenTeam.app")
+    ).toBe("http://127.0.0.1:6207/openteam.html");
   });
 });

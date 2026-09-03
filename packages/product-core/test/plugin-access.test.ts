@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { PluginBotAccessItemView } from "@openbot/contracts";
+import type { PluginBotAccessItemView } from "@openteam/contracts";
 import {
   executePluginAccessTransition,
   planPluginConnectionGrant,

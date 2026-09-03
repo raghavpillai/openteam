@@ -1,10 +1,10 @@
-import type { ClientSnapshot, RunView } from "@openbot/contracts";
+import type { ClientSnapshot, RunView } from "@openteam/contracts";
 import {
   notificationApprovalReason,
   notificationMessageInputReason,
   notificationMessagePreview,
-} from "@openbot/contracts/notification-content";
-import { isActiveRunStatus } from "@openbot/product-core/statuses";
+} from "@openteam/contracts/notification-content";
+import { isActiveRunStatus } from "@openteam/product-core/statuses";
 
 export interface AgentNotificationEvent {
   botId: string;

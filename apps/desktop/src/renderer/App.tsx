@@ -1,12 +1,12 @@
-import type { BotView, ChannelView, SearchResultView, UpdateBotInput } from "@openbot/contracts";
+import type { BotView, ChannelView, SearchResultView, UpdateBotInput } from "@openteam/contracts";
 import { CircleAlert, LoaderCircle, RefreshCw } from "lucide-react";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api } from "./client/openbot-api";
-import { ChatPane } from "./components/openbot/chat-pane";
-import { DesktopHeader } from "./components/openbot/desktop-header";
-import type { SearchAction } from "./components/openbot/search-dialog";
-import { HiddenAgentsDialog, Sidebar } from "./components/openbot/sidebar";
-import { VersionMismatchBanner } from "./components/openbot/version-mismatch-banner";
+import { api } from "./client/openteam-api";
+import { ChatPane } from "./components/openteam/chat-pane";
+import { DesktopHeader } from "./components/openteam/desktop-header";
+import type { SearchAction } from "./components/openteam/search-dialog";
+import { HiddenAgentsDialog, Sidebar } from "./components/openteam/sidebar";
+import { VersionMismatchBanner } from "./components/openteam/version-mismatch-banner";
 import { Button } from "./components/ui/button";
 import { TooltipProvider } from "./components/ui/tooltip";
 import { type InspectorMode, useBotRowActions } from "./hooks/use-bot-row-actions";
@@ -21,8 +21,8 @@ import {
   startA2AExchange,
 } from "./lib/a2a-exchange";
 import {
-  OPENBOT_DEEP_LINK_EVENT,
-  parseOpenBotDeepLink,
+  OPENTEAM_DEEP_LINK_EVENT,
+  parseOpenTeamDeepLink,
   type SettingsAnchor,
 } from "./lib/app-deep-links";
 import { activeAsyncTaskChannelIds, activeAsyncTasksForBot } from "./lib/async-tasks";
@@ -54,61 +54,61 @@ import { measureUntilNextPaint, recordPerformance } from "./lib/performance";
 import { enableScreenForSession } from "./lib/screen-session";
 import { useSnapshotIndex } from "./lib/snapshot-index";
 import { readThemePreference, setThemePreference, THEME_CHANGE_EVENT } from "./lib/theme";
-import { useOpenBot } from "./state/use-openbot";
+import { useOpenTeam } from "./state/use-openteam";
 
 const A2AExchangeSheet = lazy(() =>
-  import("./components/openbot/a2a-exchange-sheet").then((module) => ({
+  import("./components/openteam/a2a-exchange-sheet").then((module) => ({
     default: module.A2AExchangeSheet,
   }))
 );
 const AsyncTasksPanel = lazy(() =>
-  import("./components/openbot/async-tasks-panel").then((module) => ({
+  import("./components/openteam/async-tasks-panel").then((module) => ({
     default: module.AsyncTasksPanel,
   }))
 );
 const BotTemplateImportDialog = lazy(() =>
-  import("./components/openbot/bot-template-share").then((module) => ({
+  import("./components/openteam/bot-template-share").then((module) => ({
     default: module.BotTemplateImportDialog,
   }))
 );
 const DesktopDialogs = lazy(() =>
-  import("./components/openbot/desktop-dialogs").then((module) => ({
+  import("./components/openteam/desktop-dialogs").then((module) => ({
     default: module.DesktopDialogs,
   }))
 );
 const Inspector = lazy(() =>
-  import("./components/openbot/inspector").then((module) => ({ default: module.Inspector }))
+  import("./components/openteam/inspector").then((module) => ({ default: module.Inspector }))
 );
 const NewBotScreen = lazy(() =>
-  import("./components/openbot/new-bot-screen").then((module) => ({
+  import("./components/openteam/new-bot-screen").then((module) => ({
     default: module.NewBotScreen,
   }))
 );
 const PluginDialog = lazy(() =>
-  import("./components/openbot/plugin-settings").then((module) => ({
+  import("./components/openteam/plugin-settings").then((module) => ({
     default: module.PluginDialog,
   }))
 );
-const loadSearchDialog = () => import("./components/openbot/search-dialog");
+const loadSearchDialog = () => import("./components/openteam/search-dialog");
 const preloadSearchDialog = () => void loadSearchDialog();
 const SearchDialog = lazy(() =>
   loadSearchDialog().then((module) => ({
     default: module.SearchDialog,
   }))
 );
-const AboutPanel = lazy(() => import("./components/openbot/settings-about"));
+const AboutPanel = lazy(() => import("./components/openteam/settings-about"));
 const SettingsPanel = lazy(async () => {
   const [module] = await Promise.all([
-    import("./components/openbot/settings-panel"),
-    import("./components/openbot/settings-general"),
-    import("./components/openbot/settings-general-bot"),
+    import("./components/openteam/settings-panel"),
+    import("./components/openteam/settings-general"),
+    import("./components/openteam/settings-general-bot"),
   ]);
   return {
     default: module.SettingsPanel,
   };
 });
 
-const INSPECTOR_WIDTH_KEY = "openbot:inspector-width";
+const INSPECTOR_WIDTH_KEY = "openteam:inspector-width";
 const DEFAULT_INSPECTOR_WIDTH = 320;
 const DEFAULT_SIDEBAR_WIDTH = 280;
 const clampInspectorWidth = (width: number, windowWidth: number, sidebarWidth: number) =>
@@ -144,14 +144,14 @@ export default function App() {
     setHistoryViewport,
     threadContextMessageIdsByChannel,
     searchContextMessageIdsByChannel,
-  } = useOpenBot();
+  } = useOpenTeam();
   const index = useSnapshotIndex(snapshot);
   const { selectedId, setSelectedId } = useChannelSelection(snapshot, index.channelById);
   const [searchOpen, setSearchOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [themePreference, setThemePreferenceState] = useState(readThemePreference);
-  const [paletteUpdateStatus, setPaletteUpdateStatus] = useState<OpenBotUpdateStatus | null>(null);
+  const [paletteUpdateStatus, setPaletteUpdateStatus] = useState<OpenTeamUpdateStatus | null>(null);
   const [pluginsOpen, setPluginsOpen] = useState(false);
   const [templateImport, setTemplateImport] = useState<TemplateBot | null>(null);
   const [templateShareRequest, setTemplateShareRequest] = useState<{
@@ -291,7 +291,7 @@ export default function App() {
     const handleDeepLink = (event: Event) => {
       const url = (event as CustomEvent<{ url?: string }>).detail?.url;
       if (!url) return;
-      const target = parseOpenBotDeepLink(url);
+      const target = parseOpenTeamDeepLink(url);
       if (target?.kind === "settings") {
         setSettingsTarget({ anchor: target.anchor, nonce: Date.now() });
         setSettingsOpen(true);
@@ -304,11 +304,11 @@ export default function App() {
         setTemplateImport(target.template);
       }
     };
-    window.addEventListener(OPENBOT_DEEP_LINK_EVENT, handleDeepLink);
-    return () => window.removeEventListener(OPENBOT_DEEP_LINK_EVENT, handleDeepLink);
+    window.addEventListener(OPENTEAM_DEEP_LINK_EVENT, handleDeepLink);
+    return () => window.removeEventListener(OPENTEAM_DEEP_LINK_EVENT, handleDeepLink);
   }, []);
   useEffect(() => {
-    const unsubscribe = window.openbot?.onNotificationClick((channelId) => {
+    const unsubscribe = window.openteam?.onNotificationClick((channelId) => {
       invalidateSearchNavigation(selectedId, searchMessageTarget?.channelId);
       setA2AExchange(null);
       a2aExchangeTrigger.current = null;
@@ -332,14 +332,14 @@ export default function App() {
   }, [loadChannel, selectedId]);
   useEffect(() => {
     syncDesktopNotificationSnapshot(
-      window.openbot?.notifications,
+      window.openteam?.notifications,
       snapshot,
       sidebarPreferences.unreadIds
     );
   }, [sidebarPreferences.unreadIds, snapshot]);
   useEffect(() => {
     const publishVisibleChannel = () =>
-      window.openbot?.notifications.setVisibleChannel(document.hasFocus() ? selectedId : null);
+      window.openteam?.notifications.setVisibleChannel(document.hasFocus() ? selectedId : null);
     publishVisibleChannel();
     window.addEventListener("focus", publishVisibleChannel);
     window.addEventListener("blur", publishVisibleChannel);
@@ -404,13 +404,13 @@ export default function App() {
     return () => window.removeEventListener(THEME_CHANGE_EVENT, syncThemePreference);
   }, []);
   useEffect(() => {
-    if (!searchOpen || !window.openbot) return;
+    if (!searchOpen || !window.openteam) return;
     let active = true;
-    void window.openbot.updates
+    void window.openteam.updates
       .status()
       .then((status) => active && setPaletteUpdateStatus(status))
       .catch(() => undefined);
-    const unsubscribe = window.openbot.updates.onClientProgress((status) => {
+    const unsubscribe = window.openteam.updates.onClientProgress((status) => {
       if (active) setPaletteUpdateStatus(status);
     });
     return () => {
@@ -484,7 +484,7 @@ export default function App() {
       setDetailsOpen(false);
       setPendingBot({ name: bot.name, dmChannelId: bot.dmChannelId });
     } catch {
-      // useOpenBot exposes mutation failures in the app-level error banner.
+      // useOpenTeam exposes mutation failures in the app-level error banner.
       setPendingBot(null);
     } finally {
       creatingBot.current = false;
@@ -955,7 +955,7 @@ export default function App() {
         current: themePreference === theme.preference,
         run: () => setThemePreference(theme.preference),
       })),
-      ...(window.openbot
+      ...(window.openteam
         ? [
             {
               id: "update:app",
@@ -965,7 +965,7 @@ export default function App() {
               icon: updatePaletteAction.icon,
               run: () => {
                 if (paletteUpdateStatus?.status === "downloaded") {
-                  void window.openbot?.updates.installClient().catch(() => undefined);
+                  void window.openteam?.updates.installClient().catch(() => undefined);
                   return;
                 }
                 openSettingsTarget("update-status");
@@ -973,7 +973,7 @@ export default function App() {
                   !paletteUpdateStatus ||
                   ["idle", "up-to-date", "error"].includes(paletteUpdateStatus.status)
                 ) {
-                  void window.openbot?.updates
+                  void window.openteam?.updates
                     .check()
                     .then(setPaletteUpdateStatus)
                     .catch(() => undefined);
@@ -1041,7 +1041,7 @@ export default function App() {
       <main className="grid h-screen place-items-center bg-background text-foreground">
         <div className="text-center">
           <LoaderCircle className="mx-auto size-7 animate-spin" />
-          <p className="mt-3 text-sm">Connecting to OpenBot…</p>
+          <p className="mt-3 text-sm">Connecting to OpenTeam…</p>
           {error && <p className="mt-2 max-w-sm text-xs text-destructive">{error}</p>}
         </div>
       </main>
@@ -1378,7 +1378,7 @@ export default function App() {
                           onEnableScreen={enableScreen}
                           onFinishComputerHandoff={() => setComputerHandoff(null)}
                           onModeChange={setInspectorMode}
-                          onOpenBot={openInspectorBot}
+                          onOpenTeam={openInspectorBot}
                           onRetryBot={retryInspectorBot}
                           onShareAsTemplate={shareBotAsTemplate}
                           onSetGroupAvatar={setChannelAvatar}

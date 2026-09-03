@@ -16,12 +16,12 @@ import { dirname, join, resolve } from "node:path";
 import type {
   AgentDirectoryRecord,
   AgentDirectorySnapshot,
-} from "@openbot/contracts/service-protocol";
+} from "@openteam/contracts/service-protocol";
 
 export type {
   AgentDirectoryRecord,
   AgentDirectorySnapshot,
-} from "@openbot/contracts/service-protocol";
+} from "@openteam/contracts/service-protocol";
 
 const LIVE_ROOT_ID = "sand-live-conversation-root-v1__";
 const SQLITE_MODE = 0o644;
@@ -271,20 +271,20 @@ export class GrokAgentStore {
   };
 
   constructor(
-    root = process.env.OPENBOT_AGENT_DATA_ROOT ?? "/home/box/agent-data",
+    root = process.env.OPENTEAM_AGENT_DATA_ROOT ?? "/home/box/agent-data",
     orphanRoot?: string,
     options: GrokAgentStoreOptions = {}
   ) {
     this.root = resolve(root);
     this.orphanRoot = resolve(
-      orphanRoot ?? join(dirname(this.root), ".openbot-orphaned-agent-data")
+      orphanRoot ?? join(dirname(this.root), ".openteam-orphaned-agent-data")
     );
     const configuredMax =
       options.maxOpenAgents ??
-      Number(process.env.OPENBOT_MAX_OPEN_AGENT_STORES ?? GROK_AGENT_STORE_MAX_OPEN_AGENTS);
+      Number(process.env.OPENTEAM_MAX_OPEN_AGENT_STORES ?? GROK_AGENT_STORE_MAX_OPEN_AGENTS);
     const configuredIdleMs =
       options.idleCloseMs ??
-      Number(process.env.OPENBOT_AGENT_STORE_IDLE_CLOSE_MS ?? GROK_AGENT_STORE_IDLE_CLOSE_MS);
+      Number(process.env.OPENTEAM_AGENT_STORE_IDLE_CLOSE_MS ?? GROK_AGENT_STORE_IDLE_CLOSE_MS);
     if (!Number.isFinite(configuredMax) || configuredMax < 1) {
       throw new Error("max open agent stores must be a positive number");
     }

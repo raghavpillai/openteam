@@ -37,7 +37,7 @@ describe("notification text", () => {
     });
     expect(agentNotificationPresentation({ kind: "agent-done", botName: "Probe" })).toEqual({
       title: "Probe",
-      body: "Open OpenBot to see what it did.",
+      body: "Open OpenTeam to see what it did.",
       sound: null,
       urgency: "normal",
     });
@@ -101,7 +101,7 @@ describe("notification text", () => {
         content: "Deploy to production?",
         metadata: { type: "widget", widgetDismissed: true },
       })
-    ).toBe("Open OpenBot to see what it did.");
+    ).toBe("Open OpenTeam to see what it did.");
     expect(
       notificationMessageInputReason({ content: "Finished", metadata: { type: "text" } })
     ).toBeNull();

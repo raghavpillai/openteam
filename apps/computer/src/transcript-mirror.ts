@@ -1,6 +1,6 @@
 import { chmod, mkdir, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { BotTranscriptView } from "@openbot/contracts";
+import type { BotTranscriptView } from "@openteam/contracts";
 
 const BOT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 

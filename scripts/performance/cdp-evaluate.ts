@@ -1,4 +1,4 @@
-const endpoint = process.env.OPENBOT_AUDIT_CDP_URL ?? "http://127.0.0.1:9333";
+const endpoint = process.env.OPENTEAM_AUDIT_CDP_URL ?? "http://127.0.0.1:9333";
 const expression = process.argv.slice(2).join(" ").trim();
 
 if (!expression) {
@@ -72,7 +72,7 @@ if (evaluated.exceptionDetails) {
 }
 
 const serialized = JSON.stringify(evaluated.result.value ?? null, null, 2);
-if (process.env.OPENBOT_AUDIT_OUTPUT) {
-  await Bun.write(process.env.OPENBOT_AUDIT_OUTPUT, `${serialized}\n`);
+if (process.env.OPENTEAM_AUDIT_OUTPUT) {
+  await Bun.write(process.env.OPENTEAM_AUDIT_OUTPUT, `${serialized}\n`);
 }
 console.log(serialized);

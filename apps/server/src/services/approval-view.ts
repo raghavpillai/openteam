@@ -1,4 +1,4 @@
-import type { ApprovalView } from "@openbot/contracts";
+import type { ApprovalView } from "@openteam/contracts";
 
 type StoredApproval = {
   id: string;

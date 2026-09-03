@@ -3,7 +3,7 @@ import {
   type AgentNotificationPresentation,
   agentNotificationPresentation,
   truncateNotificationText,
-} from "@openbot/contracts/notification-content";
+} from "@openteam/contracts/notification-content";
 
 export type DesktopNotificationKind = AgentNotificationKind;
 

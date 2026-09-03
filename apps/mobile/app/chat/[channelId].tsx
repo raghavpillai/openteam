@@ -1,6 +1,6 @@
-import type { ChannelMessageView } from "@openbot/contracts";
-import { addSidebarUnread } from "@openbot/contracts/client-preferences";
-import { mentionHandleFor } from "@openbot/product-core/mentions";
+import type { ChannelMessageView } from "@openteam/contracts";
+import { addSidebarUnread } from "@openteam/contracts/client-preferences";
+import { mentionHandleFor } from "@openteam/product-core/mentions";
 import {
   type A2AActivityEntry,
   a2aProjectionFor,
@@ -11,9 +11,9 @@ import {
   messageMetadata,
   messageRenderKey,
   selectA2AExchangeMessages,
-} from "@openbot/product-core/messages";
-import { clientErrorMessage } from "@openbot/product-core/redaction";
-import { isActiveRunStatus } from "@openbot/product-core/statuses";
+} from "@openteam/product-core/messages";
+import { clientErrorMessage } from "@openteam/product-core/redaction";
+import { isActiveRunStatus } from "@openteam/product-core/statuses";
 import { router, useFocusEffect, useIsFocused, useLocalSearchParams } from "expo-router";
 import { SymbolView } from "expo-symbols";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -54,7 +54,7 @@ import {
 import { MOBILE_VIRTUAL_LIST_TUNING } from "../../src/list-scale";
 import { setActiveNotificationChannel } from "../../src/notifications";
 import { routineRoute } from "../../src/routine-route";
-import { useOpenBot } from "../../src/state/openbot-context";
+import { useOpenTeam } from "../../src/state/openteam-context";
 import { useTheme } from "../../src/theme";
 
 const metadataFor = messageMetadata;
@@ -139,7 +139,7 @@ export default function ConversationScreen() {
     loadEarlierMessages,
     historyState,
     cancelRun,
-  } = useOpenBot();
+  } = useOpenTeam();
   const isFocused = useIsFocused();
   const [replyTarget, setReplyTarget] = useState<ReplyTarget | null>(null);
   const [replyEditVersion, setReplyEditVersion] = useState(0);
@@ -278,7 +278,7 @@ export default function ConversationScreen() {
         (approval) => approval.runId === activeRun.id && approval.status === "pending"
       )
     : [];
-  const name = bot?.name ?? channel?.name ?? "OpenBot";
+  const name = bot?.name ?? channel?.name ?? "OpenTeam";
   const draftAccountIdentity =
     getAuthAccountIdForServer(connection.serverUrl) ??
     getAuthTokenForServer(connection.serverUrl) ??
@@ -318,7 +318,7 @@ export default function ConversationScreen() {
     } catch (cause) {
       Alert.alert(
         "Could not mark as unread",
-        clientErrorMessage(cause, "OpenBot could not update this conversation.")
+        clientErrorMessage(cause, "OpenTeam could not update this conversation.")
       );
     }
   }, [channelId, sidebarPreferences, updateSidebarPreferences]);
@@ -344,7 +344,7 @@ export default function ConversationScreen() {
       } catch (cause) {
         Alert.alert(
           "Message not cancelled",
-          clientErrorMessage(cause, "OpenBot could not cancel this message.")
+          clientErrorMessage(cause, "OpenTeam could not cancel this message.")
         );
       }
     },
@@ -358,7 +358,7 @@ export default function ConversationScreen() {
       } catch (cause) {
         Alert.alert(
           "Message not resent",
-          clientErrorMessage(cause, "OpenBot could not resend this message.")
+          clientErrorMessage(cause, "OpenTeam could not resend this message.")
         );
       }
     },
@@ -372,7 +372,7 @@ export default function ConversationScreen() {
       } catch (cause) {
         Alert.alert(
           "Message not deleted",
-          clientErrorMessage(cause, "OpenBot could not delete this message.")
+          clientErrorMessage(cause, "OpenTeam could not delete this message.")
         );
       }
     },
@@ -390,7 +390,7 @@ export default function ConversationScreen() {
       } catch (cause) {
         Alert.alert(
           "Reaction not sent",
-          clientErrorMessage(cause, "OpenBot could not update this reaction.")
+          clientErrorMessage(cause, "OpenTeam could not update this reaction.")
         );
       }
     },

@@ -11,7 +11,7 @@ export const searchFailureMessage = (cause: unknown): string => {
   const normalized = detail.toLocaleLowerCase("en-US");
 
   if (NETWORK_FAILURE_MARKERS.some((marker) => normalized.includes(marker))) {
-    return "OpenBot couldn't reach your server. Check the connection and try again.";
+    return "OpenTeam couldn't reach your server. Check the connection and try again.";
   }
 
   return "Search couldn't be completed. Try again.";

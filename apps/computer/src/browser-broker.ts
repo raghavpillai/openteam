@@ -508,8 +508,8 @@ export class BrowserBroker {
   private timer: ReturnType<typeof setInterval> | null = null;
   private syncTail: Promise<void> = Promise.resolve();
 
-  constructor(home = process.env.HOME ?? "/home/openbot") {
-    this.stateDirectory = join(home, ".openbot");
+  constructor(home = process.env.HOME ?? "/home/openteam") {
+    this.stateDirectory = join(home, ".openteam");
     this.keyPath = join(this.stateDirectory, "browser-authority.key");
     this.storePath = join(this.stateDirectory, "browser-authority.json.enc");
   }

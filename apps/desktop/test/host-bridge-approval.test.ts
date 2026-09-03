@@ -25,7 +25,7 @@ afterEach(async () => {
 });
 
 const bridge = async (review: "allow" | "block" = "allow") => {
-  const root = await mkdtemp(join(tmpdir(), "openbot-host-bridge-"));
+  const root = await mkdtemp(join(tmpdir(), "openteam-host-bridge-"));
   roots.push(root);
   const permissionSettings = createPermissionSettingsStore(join(root, "permissions.json"));
   const server = await startHostBridge({
@@ -74,7 +74,7 @@ describe("host bridge durable approval protocol", () => {
       error: "approval_required",
       approval: {
         gate: "local",
-        requestMethod: "openbot/localTool",
+        requestMethod: "openteam/localTool",
         details: {
           machineId: "machine-1",
           machineLabel: "Test Mac",
@@ -137,7 +137,7 @@ describe("host bridge durable approval protocol", () => {
       error: "approval_required",
       approval: {
         gate: "auto-review",
-        requestMethod: "openbot/autoReview",
+        requestMethod: "openteam/autoReview",
         details: {
           proposedRule: "Allow this test command",
           summary: `Print reviewed output on your local computer from ${root}`,
@@ -156,7 +156,7 @@ describe("host bridge durable approval protocol", () => {
 
   test("renders Task and browser launches through Auto Review without a local gate", async () => {
     const { post } = await bridge("block");
-    const task = "Run a task on OpenBot's computer: “Open https://example.com and stop.”";
+    const task = "Run a task on OpenTeam's computer: “Open https://example.com and stop.”";
     const request = {
       surface: "subagentLaunch",
       summary: task,
@@ -174,7 +174,7 @@ describe("host bridge durable approval protocol", () => {
       error: "approval_required",
       approval: {
         gate: "auto-review",
-        requestMethod: "openbot/autoReview",
+        requestMethod: "openteam/autoReview",
         details: {
           type: "autoReview",
           action: "runTask",

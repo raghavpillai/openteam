@@ -3,8 +3,8 @@ import type {
   SearchResponse,
   SearchResultKind,
   SearchResultView,
-} from "@openbot/contracts";
-import { Prisma, type PrismaClient } from "@openbot/db";
+} from "@openteam/contracts";
+import { Prisma, type PrismaClient } from "@openteam/db";
 import { Effect } from "effect";
 
 const RESULT_LIMIT = 24;

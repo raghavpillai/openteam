@@ -1,11 +1,11 @@
 #!/bin/sh
 set -eu
 
-agent_dir=${OPENBOT_PI_AGENT_DIR:-/home/box/.pi/agent}
-data_root=${OPENBOT_AGENT_DATA_CANONICAL_ROOT:-/home/box/sand-data}
-data_alias=${OPENBOT_AGENT_DATA_ROOT:-/home/box/agent-data}
-agent_uid=${OPENBOT_AGENT_UID:-1001}
-agent_gid=${OPENBOT_AGENT_GID:-1000}
+agent_dir=${OPENTEAM_PI_AGENT_DIR:-/home/box/.pi/agent}
+data_root=${OPENTEAM_AGENT_DATA_CANONICAL_ROOT:-/home/box/sand-data}
+data_alias=${OPENTEAM_AGENT_DATA_ROOT:-/home/box/agent-data}
+agent_uid=${OPENTEAM_AGENT_UID:-1001}
+agent_gid=${OPENTEAM_AGENT_GID:-1000}
 
 umask 0007
 

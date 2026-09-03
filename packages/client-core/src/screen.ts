@@ -1,4 +1,4 @@
-import type { ScreenStatusView } from "@openbot/contracts";
+import type { ScreenStatusView } from "@openteam/contracts";
 import {
   createSerialPoller,
   createSerializedTakeoverController,

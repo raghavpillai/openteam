@@ -1,10 +1,10 @@
-import type { RoutineExecutionView, RoutineView } from "@openbot/contracts";
-import { clientErrorMessage } from "@openbot/product-core/redaction";
+import type { RoutineExecutionView, RoutineView } from "@openteam/contracts";
+import { clientErrorMessage } from "@openteam/product-core/redaction";
 import {
   describeRoutineCronSchedule as describeRoutineSchedule,
   formatRoutineExecutionCalendarTime as formatRoutineExecutionTime,
   routineExecutionStatusPresentation as routineExecutionStatus,
-} from "@openbot/product-core/routines";
+} from "@openteam/product-core/routines";
 import { router, useLocalSearchParams } from "expo-router";
 import { SymbolView } from "expo-symbols";
 import { useCallback, useEffect, useState } from "react";
@@ -21,7 +21,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { IconButton } from "../../../src/components/icon-button";
 import { RoutineEditorSheet } from "../../../src/components/routine-editor-sheet";
 import { TextEditorSheet } from "../../../src/components/text-editor-sheet";
-import { useOpenBot } from "../../../src/state/openbot-context";
+import { useOpenTeam } from "../../../src/state/openteam-context";
 import { useTheme } from "../../../src/theme";
 
 function HistoryRow({ execution }: { execution: RoutineExecutionView }) {
@@ -62,7 +62,7 @@ export default function RoutineDetailScreen() {
     routineExecutions,
     setRoutineEnabled,
     updateRoutine,
-  } = useOpenBot();
+  } = useOpenTeam();
   const [routine, setRoutine] = useState<RoutineView | null>(null);
   const [executions, setExecutions] = useState<RoutineExecutionView[]>([]);
   const [loading, setLoading] = useState(true);
@@ -83,7 +83,7 @@ export default function RoutineDetailScreen() {
       setRoutine(nextRoutine);
       setExecutions(nextExecutions);
     } catch (cause) {
-      setError(clientErrorMessage(cause, "OpenBot could not load this routine."));
+      setError(clientErrorMessage(cause, "OpenTeam could not load this routine."));
     } finally {
       setLoading(false);
     }
@@ -103,7 +103,7 @@ export default function RoutineDetailScreen() {
       setRoutine(await setRoutineEnabled(previous, enabled));
     } catch (cause) {
       setRoutine(previous);
-      setError(clientErrorMessage(cause, "OpenBot could not update this routine."));
+      setError(clientErrorMessage(cause, "OpenTeam could not update this routine."));
     } finally {
       setMutating(false);
     }

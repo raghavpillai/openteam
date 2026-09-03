@@ -3,9 +3,9 @@ import {
   type ComputerEvent,
   notificationMessageInputReason,
   notificationMessagePreview,
-} from "@openbot/contracts";
-import type { Prisma, PrismaClient, RunItemKind, RunItemStatus } from "@openbot/db";
-import type { AgentDataStore } from "@openbot/messaging";
+} from "@openteam/contracts";
+import type { Prisma, PrismaClient, RunItemKind, RunItemStatus } from "@openteam/db";
+import type { AgentDataStore } from "@openteam/messaging";
 import { approvalReason, enqueuePushNotification } from "./push-notifications";
 
 const json = (value: unknown): Prisma.InputJsonValue =>
@@ -386,7 +386,7 @@ export class Projection {
                 approvalId: event.approvalId,
                 title: presentation.title,
                 body: presentation.body,
-                deepLink: `openbot:///chat/${target.channel.id}`,
+                deepLink: `openteam:///chat/${target.channel.id}`,
               });
             }
           }
@@ -544,7 +544,7 @@ export class Projection {
                   runId,
                   title: presentation.title,
                   body: presentation.body,
-                  deepLink: `openbot:///chat/${target.channel.id}`,
+                  deepLink: `openteam:///chat/${target.channel.id}`,
                 }
               );
             }

@@ -15,8 +15,8 @@ export interface AgentProcessIdentity {
 export const agentProcessIdentity = (): AgentProcessIdentity => {
   if (process.getuid?.() !== 0) return {};
   return {
-    uid: numericIdentity(process.env.OPENBOT_AGENT_UID, DEFAULT_AGENT_UID),
-    gid: numericIdentity(process.env.OPENBOT_AGENT_GID, DEFAULT_AGENT_GID),
+    uid: numericIdentity(process.env.OPENTEAM_AGENT_UID, DEFAULT_AGENT_UID),
+    gid: numericIdentity(process.env.OPENTEAM_AGENT_GID, DEFAULT_AGENT_GID),
   };
 };
 
@@ -26,7 +26,7 @@ const ALWAYS_PRIVATE_ENVIRONMENT_KEYS = new Set([
   "DATABASE_URL",
   "ENV",
   "NODE_OPTIONS",
-  "OPENBOT_PI_AGENT_DIR",
+  "OPENTEAM_PI_AGENT_DIR",
   "PYTHONSTARTUP",
   "RUBYOPT",
 ]);

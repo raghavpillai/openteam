@@ -1,5 +1,5 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
-import { createOpenBotClient } from "@openbot/client-core";
+import { createOpenTeamClient } from "@openteam/client-core";
 
 const secureValues = new Map<string, string>();
 let delayedInstallationRead: { release: Promise<void>; started: () => void } | null = null;
@@ -7,7 +7,7 @@ let delayedPushToken: { release: Promise<void>; started: () => void } | null = n
 
 mock.module("expo-secure-store", () => ({
   getItemAsync: async (key: string) => {
-    if (key === "openbot.push-installation-id" && delayedInstallationRead) {
+    if (key === "openteam.push-installation-id" && delayedInstallationRead) {
       const delayed = delayedInstallationRead;
       delayedInstallationRead = null;
       delayed.started();
@@ -74,7 +74,7 @@ const delay = () => {
 
 beforeEach(() => {
   secureValues.clear();
-  secureValues.set("openbot.push-installation-id", "installation-device");
+  secureValues.set("openteam.push-installation-id", "installation-device");
   delayedInstallationRead = null;
   delayedPushToken = null;
 });
@@ -85,7 +85,7 @@ afterAll(() => {
 
 describe("push authentication origin isolation", () => {
   test("uses one installation identity across concurrent first registration and retirement", async () => {
-    secureValues.delete("openbot.push-installation-id");
+    secureValues.delete("openteam.push-installation-id");
     const requests: Array<{
       installationId: string;
       method: string;
@@ -108,9 +108,9 @@ describe("push authentication origin isolation", () => {
       return Response.json({});
     }) as typeof fetch;
 
-    const serverUrl = "https://installation-race.openbot.test";
+    const serverUrl = "https://installation-race.openteam.test";
     await signIn(serverUrl, "owner", "password");
-    const client = createOpenBotClient({
+    const client = createOpenTeamClient({
       baseUrl: serverUrl,
       getAuthToken: () => getAuthTokenForServer(serverUrl),
       onUnauthorized: (usedToken) => requireAuthenticationForServer(serverUrl, usedToken),
@@ -128,7 +128,7 @@ describe("push authentication origin isolation", () => {
 
     expect(requests.map(({ method }) => method)).toEqual(["POST", "POST", "DELETE"]);
     expect(new Set(requests.map(({ installationId }) => installationId))).toHaveLength(1);
-    expect(requests[0]?.installationId).toBe(secureValues.get("openbot.push-installation-id"));
+    expect(requests[0]?.installationId).toBe(secureValues.get("openteam.push-installation-id"));
   });
 
   test("drops delayed registration and cleanup after a switch or sign-out", async () => {
@@ -140,7 +140,7 @@ describe("push authentication origin isolation", () => {
           {},
           {
             headers: {
-              "set-auth-token": requestUrl.includes("first.openbot.test")
+              "set-auth-token": requestUrl.includes("first.openteam.test")
                 ? "first-server-session"
                 : "second-server-session",
             },
@@ -156,12 +156,12 @@ describe("push authentication origin isolation", () => {
       return Response.json({});
     }) as typeof fetch;
 
-    await signIn("https://first.openbot.test", "owner", "password");
-    const firstClient = createOpenBotClient({
-      baseUrl: "https://first.openbot.test",
-      getAuthToken: () => getAuthTokenForServer("https://first.openbot.test"),
+    await signIn("https://first.openteam.test", "owner", "password");
+    const firstClient = createOpenTeamClient({
+      baseUrl: "https://first.openteam.test",
+      getAuthToken: () => getAuthTokenForServer("https://first.openteam.test"),
       onUnauthorized: (usedToken) =>
-        requireAuthenticationForServer("https://first.openbot.test", usedToken),
+        requireAuthenticationForServer("https://first.openteam.test", usedToken),
     });
     let activeClient: unknown = firstClient;
 
@@ -185,7 +185,7 @@ describe("push authentication origin isolation", () => {
     );
     await installationDelay.started;
 
-    await signIn("https://second.openbot.test", "owner", "password");
+    await signIn("https://second.openteam.test", "owner", "password");
     activeClient = null;
     tokenDelay.release();
     installationDelay.release();
@@ -193,11 +193,11 @@ describe("push authentication origin isolation", () => {
 
     expect(pushRequests).toEqual([]);
 
-    const secondClient = createOpenBotClient({
-      baseUrl: "https://second.openbot.test",
-      getAuthToken: () => getAuthTokenForServer("https://second.openbot.test"),
+    const secondClient = createOpenTeamClient({
+      baseUrl: "https://second.openteam.test",
+      getAuthToken: () => getAuthTokenForServer("https://second.openteam.test"),
       onUnauthorized: (usedToken) =>
-        requireAuthenticationForServer("https://second.openbot.test", usedToken),
+        requireAuthenticationForServer("https://second.openteam.test", usedToken),
     });
     activeClient = secondClient;
     const signOutDelay = delay();

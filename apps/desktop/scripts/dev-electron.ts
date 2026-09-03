@@ -21,8 +21,8 @@ const require = createRequire(import.meta.url);
 const electronPath = require("electron") as string;
 const waitOn = require("wait-on") as WaitOn;
 const environment = resolveDevElectronEnvironment({
-  OPENBOT_DEV_HOST: process.env.OPENBOT_DEV_HOST,
-  OPENBOT_RENDERER_URL: process.env.OPENBOT_RENDERER_URL,
+  OPENTEAM_DEV_HOST: process.env.OPENTEAM_DEV_HOST,
+  OPENTEAM_RENDERER_URL: process.env.OPENTEAM_RENDERER_URL,
 });
 
 const bundleCommands = [
@@ -136,7 +136,7 @@ const spawnElectron = () => {
     cwd: desktopRoot,
     env: {
       ...process.env,
-      OPENBOT_RENDERER_URL: environment.rendererUrl,
+      OPENTEAM_RENDERER_URL: environment.rendererUrl,
     },
     stdin: "inherit",
     stdout: "inherit",

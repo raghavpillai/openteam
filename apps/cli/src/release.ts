@@ -13,13 +13,13 @@ export interface ReleaseArtifact {
 }
 
 export const releaseComposeUrl = (repository: string, version: string): string =>
-  `https://github.com/${normalizeRepository(repository)}/releases/download/v${normalizeVersion(version)}/openbot-compose.yaml`;
+  `https://github.com/${normalizeRepository(repository)}/releases/download/v${normalizeVersion(version)}/openteam-compose.yaml`;
 
 const fetchText = async (url: string, accept = "text/plain"): Promise<string> => {
   let response: Response;
   try {
     response = await fetch(url, {
-      headers: { accept, "user-agent": "openbot-cli" },
+      headers: { accept, "user-agent": "openteam-cli" },
       redirect: "follow",
       signal: AbortSignal.timeout(30_000),
     });
@@ -56,7 +56,7 @@ export const verifyReleaseSignature = async (options: {
     });
   } catch (error) {
     throw new CliError(
-      `Sigstore verification failed for OpenBot ${options.version}: ${error instanceof Error ? error.message : error}`
+      `Sigstore verification failed for OpenTeam ${options.version}: ${error instanceof Error ? error.message : error}`
     );
   }
 };
@@ -73,11 +73,11 @@ export const validateCompose = (contents: string): void => {
   if (contents.length < 100 || contents.length > 1_000_000) {
     throw new CliError("The downloaded Compose file has an unexpected size");
   }
-  if (!/^name:\s*openbot\s*$/m.test(contents)) {
-    throw new CliError("The downloaded Compose file is not an OpenBot release bundle");
+  if (!/^name:\s*openteam\s*$/m.test(contents)) {
+    throw new CliError("The downloaded Compose file is not an OpenTeam release bundle");
   }
-  if (!contents.includes("OPENBOT_VERSION") || !contents.includes("openbot_workspace")) {
-    throw new CliError("The downloaded Compose file is missing required OpenBot configuration");
+  if (!contents.includes("OPENTEAM_VERSION") || !contents.includes("openteam_workspace")) {
+    throw new CliError("The downloaded Compose file is missing required OpenTeam configuration");
   }
 };
 

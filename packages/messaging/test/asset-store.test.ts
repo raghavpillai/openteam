@@ -18,7 +18,7 @@ import { AssetStore } from "../src";
 const roots: string[] = [];
 
 const temporaryRoot = async () => {
-  const root = await mkdtemp(join(tmpdir(), "openbot-assets-"));
+  const root = await mkdtemp(join(tmpdir(), "openteam-assets-"));
   roots.push(root);
   return root;
 };

@@ -11,8 +11,8 @@ import {
   formatPiModelRef,
   type ServerInferenceSettings,
   type Snapshot,
-} from "@openbot/contracts";
-import { Prisma, type PrismaClient } from "@openbot/db";
+} from "@openteam/contracts";
+import { Prisma, type PrismaClient } from "@openteam/db";
 import { Effect } from "effect";
 import { approvalViews } from "./approval-view";
 import { subagentActivityView } from "./subagent-view";

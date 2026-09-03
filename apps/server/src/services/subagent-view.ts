@@ -1,4 +1,4 @@
-import type { Snapshot } from "@openbot/contracts";
+import type { Snapshot } from "@openteam/contracts";
 
 type StoredAttempt = {
   id: string;

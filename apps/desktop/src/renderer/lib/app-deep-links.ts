@@ -13,7 +13,7 @@ export const SETTINGS_ANCHORS = [
 
 export type SettingsAnchor = (typeof SETTINGS_ANCHORS)[number];
 export type SettingsView = "general" | "computer" | "server" | "updates";
-export const OPENBOT_DEEP_LINK_EVENT = "openbot:deep-link";
+export const OPENTEAM_DEEP_LINK_EVENT = "openteam:deep-link";
 
 const settingsAnchorSet = new Set<string>(SETTINGS_ANCHORS);
 
@@ -30,14 +30,14 @@ const viewByAnchor: Record<SettingsAnchor, SettingsView> = {
   "automatic-updates": "updates",
 };
 
-export type OpenBotDeepLink =
+export type OpenTeamDeepLink =
   | { kind: "settings"; anchor: SettingsAnchor }
   | { kind: "plugin"; pluginId: string }
   | { kind: "template"; template: TemplateBot };
 
 export const settingsViewForAnchor = (anchor: SettingsAnchor): SettingsView => viewByAnchor[anchor];
 
-export const parseOpenBotDeepLink = (value: string): OpenBotDeepLink | null => {
+export const parseOpenTeamDeepLink = (value: string): OpenTeamDeepLink | null => {
   let url: URL;
   try {
     url = new URL(value);

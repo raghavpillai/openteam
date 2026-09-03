@@ -12,9 +12,9 @@ export interface HealthResult {
 
 export const healthUrl = (paths: InstallationPaths): string => {
   const environment = parseEnvironment(readFileSync(paths.environment, "utf8"));
-  const configuredHost = environment.get("OPENBOT_BIND_HOST") || "127.0.0.1";
+  const configuredHost = environment.get("OPENTEAM_BIND_HOST") || "127.0.0.1";
   const host = configuredHost === "0.0.0.0" ? "127.0.0.1" : configuredHost;
-  const port = environment.get("OPENBOT_API_PORT") || "8787";
+  const port = environment.get("OPENTEAM_API_PORT") || "8787";
   return `http://${host}:${port}/api/v0/health`;
 };
 
@@ -51,8 +51,7 @@ export const checkHealth = async (
       ok: true,
       url,
       detail: status,
-      inference:
-        typeof body?.runtime?.inference === "string" ? body.runtime.inference : undefined,
+      inference: typeof body?.runtime?.inference === "string" ? body.runtime.inference : undefined,
       version,
     };
   } catch (error) {

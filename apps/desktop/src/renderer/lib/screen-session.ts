@@ -3,4 +3,4 @@ export {
   shouldLoadScreenStatus,
   shouldPollScreenStatus,
   shouldRefreshScreenFrame,
-} from "@openbot/client-core";
+} from "@openteam/client-core";

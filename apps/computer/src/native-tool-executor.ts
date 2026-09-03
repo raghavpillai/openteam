@@ -3,7 +3,7 @@ import { createWriteStream } from "node:fs";
 import { access, mkdir, readFile, realpath, stat } from "node:fs/promises";
 import { basename, extname, isAbsolute, relative, resolve, sep } from "node:path";
 import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
-import type { ReadToolInput, ShellToolInput, TaskInput } from "@openbot/contracts";
+import type { ReadToolInput, ShellToolInput, TaskInput } from "@openteam/contracts";
 import {
   HOST_BRIDGE_PATHS,
   HOST_INLINE_OUTPUT_MAX_BYTES,
@@ -20,7 +20,7 @@ import {
   parseHostMachinesResponse,
   parseHostReadResponse,
   parseHostShellResponse,
-} from "@openbot/contracts/service-protocol";
+} from "@openteam/contracts/service-protocol";
 import { agentProcessIdentity, sanitizedAgentEnvironment } from "./agent-process";
 
 const DEFAULT_BLOCK_MS = 30_000;
@@ -80,11 +80,11 @@ export class NativeToolExecutor {
     this.controlToken = options.controlToken;
     this.hostBridgeUrl =
       options.hostBridgeUrl ??
-      process.env.OPENBOT_HOST_BRIDGE_URL ??
+      process.env.OPENTEAM_HOST_BRIDGE_URL ??
       "http://host.docker.internal:8791";
     this.agentDataCanonicalRoot = resolve(
       options.agentDataCanonicalRoot ??
-        process.env.OPENBOT_AGENT_DATA_CANONICAL_ROOT ??
+        process.env.OPENTEAM_AGENT_DATA_CANONICAL_ROOT ??
         "/home/box/sand-data"
     );
   }
@@ -247,7 +247,7 @@ export class NativeToolExecutor {
     signal?: AbortSignal,
     approvals: HostApprovalTokens = {}
   ): Promise<void> {
-    const task = `Run a task on OpenBot's computer: “${input.prompt}”`;
+    const task = `Run a task on OpenTeam's computer: “${input.prompt}”`;
     const request = {
       surface: "subagentLaunch",
       summary: task,
@@ -400,7 +400,7 @@ export class NativeToolExecutor {
       signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
     }).catch((error) => {
       throw new Error(
-        `The physical-host bridge is offline. Open the OpenBot desktop and verify its bridge token. ${error instanceof Error ? error.message : String(error)}`
+        `The physical-host bridge is offline. Open the OpenTeam desktop and verify its bridge token. ${error instanceof Error ? error.message : String(error)}`
       );
     });
     const value: unknown = await response.json().catch(() => ({}));

@@ -1,13 +1,13 @@
 import { createHash } from "node:crypto";
 import { relative, resolve, sep } from "node:path";
-import { ApiError, type UpdateStateInput } from "@openbot/contracts";
-import type { Prisma, PrismaClient } from "@openbot/db";
+import { ApiError, type UpdateStateInput } from "@openteam/contracts";
+import type { Prisma, PrismaClient } from "@openteam/db";
 import {
   appendAgentTimelineEvent,
   type AgentDataStore,
   type RoutineService,
   type TimelineEventWakeHost,
-} from "@openbot/messaging";
+} from "@openteam/messaging";
 
 const PROJECT_SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const requiredText = (

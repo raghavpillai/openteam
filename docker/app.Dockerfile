@@ -19,17 +19,17 @@ COPY packages/product-core/package.json packages/product-core/package.json
 COPY patches ./patches
 COPY vendor/sheetjs/xlsx-0.20.3.tgz vendor/sheetjs/xlsx-0.20.3.tgz
 
-RUN bun install --frozen-lockfile --production --filter @openbot/server --filter @openbot/worker --filter @openbot/db
+RUN bun install --frozen-lockfile --production --filter @openteam/server --filter @openteam/worker --filter @openteam/db
 COPY apps/server ./apps/server
 COPY apps/worker ./apps/worker
 COPY packages/contracts ./packages/contracts
 COPY packages/db ./packages/db
 COPY packages/messaging ./packages/messaging
-RUN bun --filter @openbot/db db:generate
-RUN bun --filter @openbot/server build && bun --filter @openbot/worker build
+RUN bun --filter @openteam/db db:generate
+RUN bun --filter @openteam/server build && bun --filter @openteam/worker build
 
 FROM build AS migrate
-CMD ["bun", "--filter", "@openbot/db", "db:deploy"]
+CMD ["bun", "--filter", "@openteam/db", "db:deploy"]
 
 FROM oven/bun:1.3.8-slim@sha256:68fc2eac7f5dcfc2f69a81d1db02786ab08772eda2e4404eae785c038f8d2e41 AS server
 WORKDIR /app

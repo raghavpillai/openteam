@@ -16,7 +16,7 @@ import {
 import { InstallCommand } from "@/components/install-command";
 import { ScreenViewer } from "@/components/screen-viewer";
 
-const GITHUB = "https://github.com/raghavpillai/openbot";
+const GITHUB = "https://github.com/raghavpillai/openteam";
 const INSTALL_GUIDE = `${GITHUB}#install-the-released-server-stack`;
 
 const exampleJobs = [
@@ -134,11 +134,11 @@ const faqs = [
   },
   {
     q: "Is it ready for real work?",
-    a: "OpenBot is a v0. It's for people comfortable with Docker and a terminal. One script backs up everything, and the CLI updates the stack with a rollback if anything fails.",
+    a: "OpenTeam is a v0. It's for people comfortable with Docker and a terminal. One script backs up everything, and the CLI updates the stack with a rollback if anything fails.",
   },
   {
     q: "What does it cost?",
-    a: "OpenBot is open source and free to run. You pay only for the model you connect and the machine you run it on.",
+    a: "OpenTeam is open source and free to run. You pay only for the model you connect and the machine you run it on.",
   },
 ];
 
@@ -185,10 +185,13 @@ export default function Home() {
 
       <header className="sticky top-0 z-40 border-b border-line/80 bg-paper/85 backdrop-blur-md">
         <div className="container-page flex h-16 items-center gap-6">
-          <a href="#top" aria-label="OpenBot home" className="shrink-0">
+          <a href="#top" aria-label="OpenTeam home" className="shrink-0">
             <Wordmark size={22} />
           </a>
-          <nav aria-label="Main" className="hidden items-center gap-6 text-[14px] text-ink-2 md:flex">
+          <nav
+            aria-label="Main"
+            className="hidden items-center gap-6 text-[14px] text-ink-2 md:flex"
+          >
             <a className="hover:text-ink" href="#how-it-works">
               How it works
             </a>
@@ -241,7 +244,7 @@ export default function Home() {
               Give your AI agents a computer, a&nbsp;memory, and a&nbsp;schedule.
             </h1>
             <p className="mx-auto mt-6 max-w-[640px] text-[18px] leading-[1.55] text-ink-2 text-balance sm:text-[19px]">
-              OpenBot runs on a server you control. Each bot gets a real Linux desktop, remembers
+              OpenTeam runs on a server you control. Each bot gets a real Linux desktop, remembers
               every conversation, and can work on a schedule. Message it from your desktop or
               iPhone. Close the app. Come back to the result.
             </p>
@@ -266,8 +269,8 @@ export default function Home() {
               <AppWindow />
             </div>
             <p className="mt-5 text-center text-[12.5px] text-ink-3">
-              The desktop app. Three bots, one owner, and Research asking for a sign-in it can&apos;t
-              do on its own.
+              The desktop app. Three bots, one owner, and Research asking for a sign-in it
+              can&apos;t do on its own.
             </p>
           </div>
         </section>
@@ -318,13 +321,13 @@ export default function Home() {
                   n: "1",
                   title: "Install on a machine you control",
                   body: "One command sets up the server, the worker, the database, and a shared Linux desktop with Docker. It runs on a VPS, a home server, or a spare Mac.",
-                  code: "bunx --bun @openbot/cli install",
+                  code: "bunx --bun @openteam/cli install",
                 },
                 {
                   n: "2",
                   title: "Sign in with a model you already have",
                   body: "Use your ChatGPT or Claude subscription, an OpenAI or Anthropic API key, or your own endpoint. Credentials stay on the server.",
-                  code: "openbot provider login",
+                  code: "openteam provider login",
                 },
                 {
                   n: "3",
@@ -364,7 +367,7 @@ export default function Home() {
             <SectionHeading
               label="What every bot gets"
               title="More than a chat window."
-              body="A chat window forgets, can't click, and stops when you close the tab. Each OpenBot bot has what a coworker has."
+              body="A chat window forgets, can't click, and stops when you close the tab. Each OpenTeam bot has what a coworker has."
             />
             <ul className="mt-14 grid gap-x-8 gap-y-10 sm:grid-cols-2 lg:grid-cols-3">
               {features.map((f) => (
@@ -414,8 +417,8 @@ export default function Home() {
               {/* Plain <img>: these are two static PNGs; the image optimizer route is not part of this deployment. */}
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src="/screenshots/openbot-mobile-home.png"
-                alt="The OpenBot iPhone app home screen listing three bots: Research is working, Ops is paused until Monday, and Build finished a task."
+                src="/screenshots/openteam-mobile-home.png"
+                alt="The OpenTeam iPhone app home screen listing three bots: Research is working, Ops is paused until Monday, and Build finished a task."
                 width={1206}
                 height={2622}
                 loading="lazy"
@@ -423,8 +426,8 @@ export default function Home() {
               />
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src="/screenshots/openbot-mobile-chat.png"
-                alt="The OpenBot iPhone app in a conversation with the Research bot, showing a request to approve opening an app."
+                src="/screenshots/openteam-mobile-chat.png"
+                alt="The OpenTeam iPhone app in a conversation with the Research bot, showing a request to approve opening an app."
                 width={1206}
                 height={2622}
                 loading="lazy"
@@ -558,14 +561,16 @@ export default function Home() {
                 ],
                 [
                   "Update and repair from the CLI.",
-                  "openbot update checks the release, backs up the database, and rolls back on its own if startup fails.",
+                  "openteam update checks the release, backs up the database, and rolls back on its own if startup fails.",
                 ],
               ].map(([title, body]) => (
                 <li key={title} className="flex gap-3">
                   <span className="mt-[7px] inline-block h-2 w-2 shrink-0 rounded-full bg-ink" />
                   <div>
                     <div className="text-[15.5px] font-medium text-ink">{title}</div>
-                    <p className="mt-1 text-[14.5px] leading-[1.5] text-ink-2 text-pretty">{body}</p>
+                    <p className="mt-1 text-[14.5px] leading-[1.5] text-ink-2 text-pretty">
+                      {body}
+                    </p>
                   </div>
                 </li>
               ))}
@@ -640,7 +645,10 @@ export default function Home() {
             <Wordmark size={18} />
             <p className="mt-2 text-[13px] text-ink-3">Open source, self-hosted AI agents.</p>
           </div>
-          <nav aria-label="Footer" className="flex flex-wrap gap-x-6 gap-y-2 text-[13.5px] text-ink-2">
+          <nav
+            aria-label="Footer"
+            className="flex flex-wrap gap-x-6 gap-y-2 text-[13.5px] text-ink-2"
+          >
             <a className="hover:text-ink" href={GITHUB}>
               GitHub
             </a>

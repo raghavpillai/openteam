@@ -5,16 +5,16 @@ import {
   type CreateBotInput,
   resolveBotAvatarMark,
   type UpdateBotInput,
-} from "@openbot/contracts";
-import { COMPUTER_API_PATHS } from "@openbot/contracts/service-protocol";
-import { Prisma, type PrismaClient } from "@openbot/db";
+} from "@openteam/contracts";
+import { COMPUTER_API_PATHS } from "@openteam/contracts/service-protocol";
+import { Prisma, type PrismaClient } from "@openteam/db";
 import {
   appendAgentTimelineEvent,
   type BotFileTarget,
   type AgentDataStore,
   type AgentMessaging,
   buildSafeTranscript,
-} from "@openbot/messaging";
+} from "@openteam/messaging";
 import { Effect } from "effect";
 import { fromPrisma, type PgBoss } from "pg-boss";
 import { appendEvent, type ComputerFetch, hashRequest, toError, toJson } from "./service-utils";

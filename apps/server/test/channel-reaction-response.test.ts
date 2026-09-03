@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { ReactToChannelMessageView } from "@openbot/contracts";
+import type { ReactToChannelMessageView } from "@openteam/contracts";
 import { Effect } from "effect";
 import { ChannelService } from "../src/services/channel-service";
 

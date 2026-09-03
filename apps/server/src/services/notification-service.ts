@@ -3,9 +3,9 @@ import {
   PUSH_DELIVERY_ADVISORY_LOCK,
   type PushDeviceView,
   type RegisterPushDeviceInput,
-} from "@openbot/contracts";
-import type { Prisma, PrismaClient } from "@openbot/db";
-import { unreadBadgeCount, unreadChannelCount } from "@openbot/messaging";
+} from "@openteam/contracts";
+import type { Prisma, PrismaClient } from "@openteam/db";
+import { unreadBadgeCount, unreadChannelCount } from "@openteam/messaging";
 import { Effect } from "effect";
 import { appendEvent, toError } from "./service-utils";
 

@@ -92,7 +92,7 @@ export const acquireUpdateLock = (paths: InstallationPaths): (() => void) => {
       owner = null;
     }
     if (typeof owner?.pid === "number" && processIsAlive(owner.pid)) {
-      throw new CliError(`Another OpenBot update is already running (process ${owner.pid}).`);
+      throw new CliError(`Another OpenTeam update is already running (process ${owner.pid}).`);
     }
     rmSync(paths.updateLock, { recursive: true, force: true });
     claim();
@@ -110,7 +110,7 @@ export const assertUpdatePreflight = (
   const available = Number(filesystem.bavail) * Number(filesystem.bsize);
   if (available < MINIMUM_UPDATE_DISK_BYTES) {
     throw new CliError(
-      `OpenBot needs at least 4 GiB free to update safely; only ${(available / 1024 ** 3).toFixed(1)} GiB is available.`
+      `OpenTeam needs at least 4 GiB free to update safely; only ${(available / 1024 ** 3).toFixed(1)} GiB is available.`
     );
   }
   const daemon = dockerDaemon(runner);
@@ -138,9 +138,9 @@ export const createDatabaseBackup = (
       "postgres",
       "pg_dump",
       "-U",
-      "openbot",
+      "openteam",
       "-d",
-      "openbot",
+      "openteam",
       "--format=plain",
       "--no-owner",
       "--no-privileges",
@@ -167,14 +167,14 @@ export const restoreDatabaseBackup = (project: ComposeProject, backupPath: strin
     "postgres",
     "dropdb",
     "-U",
-    "openbot",
+    "openteam",
     "--force",
     "--if-exists",
-    "openbot",
+    "openteam",
   ]);
-  project.runOrThrow(["exec", "-T", "postgres", "createdb", "-U", "openbot", "openbot"]);
+  project.runOrThrow(["exec", "-T", "postgres", "createdb", "-U", "openteam", "openteam"]);
   project.runOrThrow(
-    ["exec", "-T", "postgres", "psql", "-U", "openbot", "-d", "openbot", "-v", "ON_ERROR_STOP=1"],
+    ["exec", "-T", "postgres", "psql", "-U", "openteam", "-d", "openteam", "-v", "ON_ERROR_STOP=1"],
     { inputFile: backupPath }
   );
 };

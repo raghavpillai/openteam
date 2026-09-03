@@ -26,7 +26,7 @@ describe("mobile plugin manager scale and access wiring", () => {
 
   test("uses the shared server page boundary with searchable, abortable paging", async () => {
     const manager = await source("src/components/plugin-manager-sheet.tsx");
-    const context = await source("src/state/openbot-context.tsx");
+    const context = await source("src/state/openteam-context.tsx");
 
     expect(manager).toContain("PLUGIN_BOT_ACCESS_PAGE_SIZE");
     expect(manager).toContain("PLUGIN_BOT_ACCESS_QUERY_MAX_LENGTH");
@@ -42,7 +42,7 @@ describe("mobile plugin manager scale and access wiring", () => {
 
   test("keeps skill access separate from explicit connection grants", async () => {
     const manager = await source("src/components/plugin-manager-sheet.tsx");
-    const context = await source("src/state/openbot-context.tsx");
+    const context = await source("src/state/openteam-context.tsx");
 
     expect(manager).toContain("planPluginSkillAccess(accessPluginKey, bot, enabled)");
     expect(manager).toContain(

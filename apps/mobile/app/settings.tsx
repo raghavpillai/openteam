@@ -1,6 +1,6 @@
-import type { OpenBotAuthUser } from "@openbot/client-core/auth";
-import type { BotView } from "@openbot/contracts";
-import { clientErrorMessage } from "@openbot/product-core/redaction";
+import type { OpenTeamAuthUser } from "@openteam/client-core/auth";
+import type { BotView } from "@openteam/contracts";
+import { clientErrorMessage } from "@openteam/product-core/redaction";
 import * as Clipboard from "expo-clipboard";
 import Constants from "expo-constants";
 import { router } from "expo-router";
@@ -22,7 +22,7 @@ import { useAppearance } from "../src/appearance";
 import {
   authenticatedUserForServer,
   cachedAuthModeForServer,
-  type OpenBotAuthMode,
+  type OpenTeamAuthMode,
   signOut,
 } from "../src/auth";
 import { AppearanceSheet } from "../src/components/appearance-sheet";
@@ -34,7 +34,7 @@ import {
   filterBotRoster,
   MOBILE_VIRTUAL_LIST_TUNING,
 } from "../src/list-scale";
-import { useOpenBot } from "../src/state/openbot-context";
+import { useOpenTeam } from "../src/state/openteam-context";
 import { metrics, useTheme } from "../src/theme";
 
 const permissionCopy = {
@@ -152,7 +152,7 @@ export default function SettingsScreen() {
     connectionLoaded,
     saveConnection,
     isFixture,
-  } = useOpenBot();
+  } = useOpenTeam();
   const [serverUrl, setServerUrl] = useState(connection.serverUrl);
   const [connectionSaving, setConnectionSaving] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
@@ -161,8 +161,8 @@ export default function SettingsScreen() {
   const [pluginsOpen, setPluginsOpen] = useState(false);
   const [appearanceOpen, setAppearanceOpen] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
-  const [authMode, setAuthMode] = useState<OpenBotAuthMode | null>(null);
-  const [authUser, setAuthUser] = useState<OpenBotAuthUser | null>(null);
+  const [authMode, setAuthMode] = useState<OpenTeamAuthMode | null>(null);
+  const [authUser, setAuthUser] = useState<OpenTeamAuthUser | null>(null);
   const appVersion = Constants.expoConfig?.version ?? "0.1.0";
 
   useEffect(() => {
@@ -271,7 +271,7 @@ export default function SettingsScreen() {
     (botId: string) => {
       setHiddenError(null);
       void setBotHidden(botId, false).catch((cause) => {
-        setHiddenError(clientErrorMessage(cause, "OpenBot could not show this conversation."));
+        setHiddenError(clientErrorMessage(cause, "OpenTeam could not show this conversation."));
       });
     },
     [setBotHidden]
@@ -310,7 +310,7 @@ export default function SettingsScreen() {
         </View>
         <View style={[styles.usageTrack, { backgroundColor: theme.surfacePressed }]} />
         <Text style={[styles.infoDetail, { color: theme.textMuted }]}>
-          Not metered by self-hosted OpenBot
+          Not metered by self-hosted OpenTeam
         </Text>
         <View style={[styles.infoDivider, { backgroundColor: theme.separator }]} />
         <View style={styles.infoRow}>
@@ -337,7 +337,7 @@ export default function SettingsScreen() {
             <Text style={[styles.accountInitials, { color: theme.background }]}>OB</Text>
           </View>
           <View style={styles.accountCopy}>
-            <Text style={[styles.infoTitle, { color: theme.text }]}>OpenBot owner</Text>
+            <Text style={[styles.infoTitle, { color: theme.text }]}>OpenTeam owner</Text>
             <Text style={[styles.infoDetail, { color: theme.textMuted }]}>
               {authMode === "disabled"
                 ? "Authentication disabled"
@@ -358,7 +358,7 @@ export default function SettingsScreen() {
             accessibilityRole="button"
             onPress={() =>
               Alert.alert(
-                "Sign out of OpenBot?",
+                "Sign out of OpenTeam?",
                 "Your server endpoint stays saved on this device.",
                 [
                   { text: "Cancel", style: "cancel" },
@@ -384,15 +384,15 @@ export default function SettingsScreen() {
           { backgroundColor: theme.surfaceElevated, borderColor: theme.border },
         ]}
       >
-        <Image source={require("../assets/openbot-icon-v2.png")} style={styles.appIcon} />
-        <Text style={[styles.aboutTitle, { color: theme.text }]}>OpenBot</Text>
+        <Image source={require("../assets/openteam-icon-v2.png")} style={styles.appIcon} />
+        <Text style={[styles.aboutTitle, { color: theme.text }]}>OpenTeam</Text>
         <Text style={[styles.aboutVersion, { color: theme.textMuted }]}>Version {appVersion}</Text>
         <Text style={[styles.aboutCopyright, { color: theme.textMuted }]}>
-          Copyright © 2026 OpenBot contributors
+          Copyright © 2026 OpenTeam contributors
         </Text>
         <Pressable
           accessibilityRole="button"
-          onPress={() => void Clipboard.setStringAsync(`OpenBot ${appVersion}\niOS`)}
+          onPress={() => void Clipboard.setStringAsync(`OpenTeam ${appVersion}\niOS`)}
           style={({ pressed }) => [
             styles.copyVersion,
             { backgroundColor: theme.surface, borderColor: theme.border },
@@ -432,13 +432,13 @@ export default function SettingsScreen() {
           onAutoReviewInfo={() =>
             Alert.alert(
               "Managed by the desktop host",
-              "Auto-review protects actions on the computer that runs OpenBot. Open Advanced to manage the connected server and per-Bot alerts; permission rules stay on that computer."
+              "Auto-review protects actions on the computer that runs OpenTeam. Open Advanced to manage the connected server and per-Bot alerts; permission rules stay on that computer."
             )
           }
           onClose={() => (router.canGoBack() ? router.back() : router.replace("/"))}
           onFeedback={() =>
             void Clipboard.setStringAsync(
-              `OpenBot feedback\nVersion ${appVersion}\nServer ${connection.serverUrl}`
+              `OpenTeam feedback\nVersion ${appVersion}\nServer ${connection.serverUrl}`
             ).then(() =>
               Alert.alert(
                 "Feedback details copied",
@@ -450,7 +450,7 @@ export default function SettingsScreen() {
           onPlugins={() => setPluginsOpen(true)}
           onSignOut={() =>
             Alert.alert(
-              "Sign out of OpenBot?",
+              "Sign out of OpenTeam?",
               "Your server endpoint stays saved on this device.",
               [
                 { text: "Cancel", style: "cancel" },
@@ -460,9 +460,10 @@ export default function SettingsScreen() {
           }
           onSystemPreferenceInfo={(setting) => {
             const copy = {
-              haptics: "OpenBot follows the native iOS haptic behavior for interactive controls.",
-              language: "OpenBot currently follows this device’s system language.",
-              timezone: "OpenBot uses the time zone reported by this device for routine schedules.",
+              haptics: "OpenTeam follows the native iOS haptic behavior for interactive controls.",
+              language: "OpenTeam currently follows this device’s system language.",
+              timezone:
+                "OpenTeam uses the time zone reported by this device for routine schedules.",
             }[setting];
             Alert.alert(
               setting === "timezone"
@@ -505,7 +506,7 @@ export default function SettingsScreen() {
             contentContainerStyle={styles.content}
             ListHeaderComponent={
               <>
-                <Text style={[styles.eyebrow, { color: theme.textMuted }]}>OPENBOT SERVER</Text>
+                <Text style={[styles.eyebrow, { color: theme.textMuted }]}>OPENTEAM SERVER</Text>
                 <View
                   style={[
                     styles.connectionCard,
@@ -524,7 +525,7 @@ export default function SettingsScreen() {
                     </Text>
                   </View>
                   <Text style={[styles.description, { color: theme.textMuted }]}>
-                    Use the reachable HTTPS address for your OpenBot server. Your signed-in session
+                    Use the reachable HTTPS address for your OpenTeam server. Your signed-in session
                     stays in this device’s secure storage.
                   </Text>
                   <View style={styles.fields}>
@@ -533,7 +534,7 @@ export default function SettingsScreen() {
                         SERVER ENDPOINT
                       </Text>
                       <TextInput
-                        accessibilityHint="Enter the HTTP or HTTPS address this device can use to reach your self-hosted OpenBot server"
+                        accessibilityHint="Enter the HTTP or HTTPS address this device can use to reach your self-hosted OpenTeam server"
                         accessibilityLabel="Server endpoint"
                         autoCapitalize="none"
                         autoCorrect={false}
@@ -543,7 +544,7 @@ export default function SettingsScreen() {
                           setServerUrl(value);
                           setConnectionError(null);
                         }}
-                        placeholder="https://openbot.example.com"
+                        placeholder="https://openteam.example.com"
                         placeholderTextColor={theme.textFaint}
                         style={[
                           styles.field,
@@ -631,7 +632,7 @@ export default function SettingsScreen() {
                   <Text style={[styles.error, { color: theme.danger }]}>{notificationError}</Text>
                 ) : null}
                 <Text style={[styles.note, { color: theme.textFaint }]}>
-                  OpenBot asks only when you enable alerts here. Delivery uses Apple Push
+                  OpenTeam asks only when you enable alerts here. Delivery uses Apple Push
                   Notification service through Expo’s push gateway.
                 </Text>
 

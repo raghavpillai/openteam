@@ -15,7 +15,7 @@ afterEach(async () => {
 });
 
 const fixture = async () => {
-  const directory = await mkdtemp(join(tmpdir(), "openbot-delivery-journal-"));
+  const directory = await mkdtemp(join(tmpdir(), "openteam-delivery-journal-"));
   temporaryDirectories.push(directory);
   return { directory, store: new DurableSendJournalStore(directory) };
 };

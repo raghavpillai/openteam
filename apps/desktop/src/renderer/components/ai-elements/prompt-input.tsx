@@ -1,14 +1,14 @@
 // Source-owned adaptation of AI Elements prompt-input.tsx.
 // https://elements.ai-sdk.dev/components/prompt-input
-import { MAX_PARALLEL_UPLOADS, mapWithConcurrency } from "@openbot/client-core";
-import type { AssetRef, ClientCapabilities } from "@openbot/contracts";
-import { CLIENT_CAPABILITIES } from "@openbot/contracts/capabilities";
+import { MAX_PARALLEL_UPLOADS, mapWithConcurrency } from "@openteam/client-core";
+import type { AssetRef, ClientCapabilities } from "@openteam/contracts";
+import { CLIENT_CAPABILITIES } from "@openteam/contracts/capabilities";
 import {
   attachmentOverflowMessage,
   firstOversizedAttachment,
   remainingAttachmentCapacity,
-} from "@openbot/product-core/attachments";
-import type { DurableStagedAttachment } from "@openbot/product-core/durable-delivery";
+} from "@openteam/product-core/attachments";
+import type { DurableStagedAttachment } from "@openteam/product-core/durable-delivery";
 import { File, Paperclip, X } from "lucide-react";
 import type { ClipboardEvent, FormEvent, DragEvent as ReactDragEvent, RefObject } from "react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -16,8 +16,8 @@ import { createPortal } from "react-dom";
 import { cn } from "../../lib/cn";
 import { fileDragContainsFiles } from "../../lib/file-drop";
 import type { MentionOption } from "../../lib/mentions";
-import { ImageAttachment } from "../openbot/image-attachment";
-import { MentionEditor } from "../openbot/mention-editor";
+import { ImageAttachment } from "../openteam/image-attachment";
+import { MentionEditor } from "../openteam/mention-editor";
 import { Button } from "../ui/button";
 import {
   DropdownMenu,

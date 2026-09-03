@@ -1,22 +1,22 @@
 {
-  "name": "@openbot/cli",
+  "name": "@openteam/cli",
   "version": "0.1.0",
-  "description": "Install and manage the self-hosted OpenBot server stack",
+  "description": "Install and manage the self-hosted OpenTeam server stack",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/raghavpillai/openbot.git",
+    "url": "git+https://github.com/raghavpillai/openteam.git",
     "directory": "apps/cli"
   },
   "type": "module",
   "bin": {
-    "openbot": "dist/openbot.js"
+    "openteam": "dist/openteam.js"
   },
   "files": [
     "dist",
     "README.md"
   ],
   "scripts": {
-    "build": "bun build src/main.ts --outfile dist/openbot.js --target=node --format=esm --minify",
+    "build": "bun build src/main.ts --outfile dist/openteam.js --target=node --format=esm --minify",
     "typecheck": "tsc -p tsconfig.json",
     "test": "bun test"
   },
@@ -32,7 +32,7 @@
     "sigstore": "4.1.1"
   },
   "devDependencies": {
-    "@openbot/product-core": "workspace:*",
+    "@openteam/product-core": "workspace:*",
     "@types/semver": "7.7.1"
   }
 }

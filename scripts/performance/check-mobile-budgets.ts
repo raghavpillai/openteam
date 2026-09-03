@@ -12,7 +12,7 @@ import {
 
 const repositoryRoot = resolve(import.meta.dirname, "..", "..");
 const mobileRoot = resolve(repositoryRoot, "apps", "mobile");
-const temporaryRoot = await mkdtemp(join(tmpdir(), "openbot-ios-performance-"));
+const temporaryRoot = await mkdtemp(join(tmpdir(), "openteam-ios-performance-"));
 
 const walk = async (directory: string): Promise<string[]> => {
   const entries = await readdir(directory, { withFileTypes: true });
@@ -47,7 +47,7 @@ const runExport = async (output: string, sourceMaps: boolean) => {
       // otherwise reference a shared web chunk that its iOS export omits.
       EXPO_NO_BUNDLE_SPLITTING: "1",
       EXPO_PUBLIC_EXPO_PROJECT_ID: "",
-      EXPO_PUBLIC_OPENBOT_API_URL: "",
+      EXPO_PUBLIC_OPENTEAM_API_URL: "",
     },
     stdout: "pipe",
     stderr: "pipe",

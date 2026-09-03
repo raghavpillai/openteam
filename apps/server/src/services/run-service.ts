@@ -2,9 +2,9 @@ import {
   ApiError,
   type ApprovalDecision,
   type ComputerApprovalResolution,
-} from "@openbot/contracts";
-import { COMPUTER_API_PATHS } from "@openbot/contracts/service-protocol";
-import type { ApprovalStatus, PrismaClient } from "@openbot/db";
+} from "@openteam/contracts";
+import { COMPUTER_API_PATHS } from "@openteam/contracts/service-protocol";
+import type { ApprovalStatus, PrismaClient } from "@openteam/db";
 import { Effect } from "effect";
 import { appendEvent, type ComputerFetch, toError } from "./service-utils";
 
@@ -264,7 +264,7 @@ export class RunService {
           });
           return { ok: true, status, result };
         }
-        const localComputerApproval = ["openbot/localTool", "openbot/autoReview"].includes(
+        const localComputerApproval = ["openteam/localTool", "openteam/autoReview"].includes(
           approval.requestMethod
         );
         if ((decision === "always_allow" || decision === "never") && !localComputerApproval) {

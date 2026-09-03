@@ -7,7 +7,7 @@ const rendererSource = (path: string) =>
 test("A2A exchange motion matches the observed Grok sheet and footer timing", async () => {
   const [styles, chatPane] = await Promise.all([
     rendererSource("styles.css"),
-    rendererSource("components/openbot/chat-pane.tsx"),
+    rendererSource("components/openteam/chat-pane.tsx"),
   ]);
 
   expect(styles).toMatch(
@@ -28,7 +28,7 @@ test("A2A exchange motion matches the observed Grok sheet and footer timing", as
 });
 
 test("A2A activity only makes the peer chip interactive", async () => {
-  const chatPane = await rendererSource("components/openbot/chat-pane.tsx");
+  const chatPane = await rendererSource("components/openteam/chat-pane.tsx");
   const activityStart = chatPane.indexOf("const A2AActivityRow");
   const activityEnd = chatPane.indexOf("export const ChatPane", activityStart);
   const activity = chatPane.slice(activityStart, activityEnd);

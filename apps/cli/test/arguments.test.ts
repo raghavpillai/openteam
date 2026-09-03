@@ -7,10 +7,10 @@ describe("CLI arguments", () => {
   });
 
   test("recognizes the interactive setup command", () => {
-    expect(parseArguments(["setup", "--advanced", "--dir", "/tmp/openbot"])).toMatchObject({
+    expect(parseArguments(["setup", "--advanced", "--dir", "/tmp/openteam"])).toMatchObject({
       command: "setup",
       advanced: true,
-      directory: "/tmp/openbot",
+      directory: "/tmp/openteam",
     });
   });
 
@@ -100,11 +100,11 @@ describe("CLI arguments", () => {
   });
 
   test("recognizes the nested password reset command", () => {
-    expect(parseArguments(["password", "reset", "--dir", "/tmp/openbot"])).toMatchObject({
+    expect(parseArguments(["password", "reset", "--dir", "/tmp/openteam"])).toMatchObject({
       command: "password-reset",
-      directory: "/tmp/openbot",
+      directory: "/tmp/openteam",
     });
-    expect(() => parseArguments(["password", "change"])).toThrow("Usage: openbot password reset");
+    expect(() => parseArguments(["password", "change"])).toThrow("Usage: openteam password reset");
   });
 
   test("recognizes account updates for either or both credentials", () => {
@@ -120,9 +120,9 @@ describe("CLI arguments", () => {
     expect(
       parseArguments(["account", "update", "--username", "new.owner", "--password"])
     ).toMatchObject({ command: "account-update", username: "new.owner", password: true });
-    expect(() => parseArguments(["account", "reset"])).toThrow("Usage: openbot account update");
+    expect(() => parseArguments(["account", "reset"])).toThrow("Usage: openteam account update");
     expect(() => parseArguments(["status", "--password"])).toThrow(
-      "only valid with openbot account update"
+      "only valid with openteam account update"
     );
     expect(() => parseArguments(["account", "update", "--password", "secret-value"])).toThrow(
       "does not accept a value"
@@ -136,14 +136,14 @@ describe("CLI arguments", () => {
         "--version",
         "1.2.3",
         "--dir",
-        "/tmp/openbot",
+        "/tmp/openteam",
         "--repository",
         "owner/repo",
       ])
     ).toMatchObject({
       command: "install",
       version: "1.2.3",
-      directory: "/tmp/openbot",
+      directory: "/tmp/openteam",
       repository: "owner/repo",
     });
   });

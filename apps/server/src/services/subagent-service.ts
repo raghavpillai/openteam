@@ -9,10 +9,10 @@ import {
   type StopSubagentInput,
   type SubagentType,
   type TaskInput,
-} from "@openbot/contracts";
-import { COMPUTER_API_PATHS } from "@openbot/contracts/service-protocol";
-import { Prisma, type PrismaClient } from "@openbot/db";
-import type { AgentDataStore, AgentMessaging, ToolContext } from "@openbot/messaging";
+} from "@openteam/contracts";
+import { COMPUTER_API_PATHS } from "@openteam/contracts/service-protocol";
+import { Prisma, type PrismaClient } from "@openteam/db";
+import type { AgentDataStore, AgentMessaging, ToolContext } from "@openteam/messaging";
 import { Effect } from "effect";
 import { fromPrisma } from "pg-boss";
 import type { RunService } from "./run-service";
@@ -42,7 +42,7 @@ export const subagentSteerPrompt = (message: string): string =>
 export const grokSubagentId = (id: string): string =>
   id.startsWith("sand-subagent-") ? id : `sand-subagent-${id}`;
 
-export const openbotSubagentId = (id: string): string => id.replace(/^sand-subagent-/, "");
+export const openteamSubagentId = (id: string): string => id.replace(/^sand-subagent-/, "");
 
 export const subagentBackgroundResult = (id: string, transcriptPath: string): string =>
   [
@@ -96,7 +96,7 @@ export class SubagentService {
       throw new ApiError(
         400,
         "subagent_model_unavailable",
-        `This OpenBot runtime currently offers ${model} to subagents`
+        `This OpenTeam runtime currently offers ${model} to subagents`
       );
     }
     const nested = await this.prisma.subagent.findUnique({ where: { childBotId: context.botId } });
@@ -356,7 +356,7 @@ export class SubagentService {
     const outputPath = `/home/box/agent-data/agent-transcripts/${childBotId}/${childBotId}.jsonl`;
     const avatar = resolveBotAvatarMark({ agentId: childBotId });
     return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('openbot-subagent-capacity'))`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('openteam-subagent-capacity'))`;
       await assertSubagentCapacity(context.botId, type, tx);
       await tx.bot.create({
         data: {
@@ -456,7 +456,7 @@ export class SubagentService {
       throw new ApiError(400, "resume_model_forbidden", "Do not provide model when resuming");
     }
     if (!input.resume) throw new ApiError(400, "resume_id_required", "resume is required");
-    const restoredId = openbotSubagentId(input.resume);
+    const restoredId = openteamSubagentId(input.resume);
     const subagent = await this.prisma.subagent.findFirst({
       where: { id: restoredId, parentBotId: context.botId },
     });
@@ -471,7 +471,7 @@ export class SubagentService {
       );
     }
     return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('openbot-subagent-capacity'))`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('openteam-subagent-capacity'))`;
       await assertSubagentCapacity(context.botId, subagent.subagentType as SubagentType, tx);
       const child = await tx.bot.findUnique({
         where: { id: subagent.childBotId },
@@ -550,7 +550,7 @@ export class SubagentService {
 
   private async owned(parentBotId: string, id: string) {
     const subagent = await this.prisma.subagent.findFirst({
-      where: { id: openbotSubagentId(id), parentBotId },
+      where: { id: openteamSubagentId(id), parentBotId },
     });
     if (!subagent) throw new ApiError(404, "subagent_not_found", "Subagent not found");
     return subagent;
@@ -559,7 +559,7 @@ export class SubagentService {
   private async activeOwned(parentBotId: string, id: string) {
     const subagent = await this.prisma.subagent.findFirst({
       where: {
-        id: openbotSubagentId(id),
+        id: openteamSubagentId(id),
         parentBotId,
         status: { in: [...ACTIVE_STATUSES] },
       },
@@ -583,7 +583,7 @@ export class SubagentService {
     const suffix = running.length
       ? ` Currently running: ${running.map(({ id: candidate }) => grokSubagentId(candidate)).join(", ")}.`
       : " No subagents are running right now.";
-    return `No subagent "${grokSubagentId(openbotSubagentId(id))}" is currently running. It may have already finished (you're revived automatically with a finished subagent's result), or the id is wrong.${suffix}`;
+    return `No subagent "${grokSubagentId(openteamSubagentId(id))}" is currently running. It may have already finished (you're revived automatically with a finished subagent's result), or the id is wrong.${suffix}`;
   }
 
   private attemptForCall(parentBotId: string, parentToolCallId: string) {

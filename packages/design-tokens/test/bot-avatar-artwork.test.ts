@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { BOT_AVATAR_SHAPES } from "@openbot/contracts/bot-avatar";
+import { BOT_AVATAR_SHAPES } from "@openteam/contracts/bot-avatar";
 import {
   BOT_AVATAR_ARTWORK,
   BOT_AVATAR_NATIVE_ARTWORK,

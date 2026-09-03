@@ -5,16 +5,16 @@ describe("desktop update diagnostics", () => {
   test("validates release manifests and refuses unsafe download URLs", () => {
     expect(
       parseDesktopReleaseManifest(
-        { tag_name: "v1.2.3", html_url: "https://github.com/openbot/release" },
-        "https://github.com/openbot/latest"
+        { tag_name: "v1.2.3", html_url: "https://github.com/openteam/release" },
+        "https://github.com/openteam/latest"
       )
-    ).toEqual({ version: "1.2.3", downloadUrl: "https://github.com/openbot/release" });
+    ).toEqual({ version: "1.2.3", downloadUrl: "https://github.com/openteam/release" });
     expect(
       parseDesktopReleaseManifest(
         { version: "1.2.3", html_url: "http://insecure.test/release" },
-        "https://github.com/openbot/latest"
+        "https://github.com/openteam/latest"
       ).downloadUrl
-    ).toBe("https://github.com/openbot/latest");
+    ).toBe("https://github.com/openteam/latest");
     expect(() => parseDesktopReleaseManifest({ tag_name: "latest" }, "https://safe.test")).toThrow(
       "invalid release version"
     );

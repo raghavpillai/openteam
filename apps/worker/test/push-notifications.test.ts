@@ -115,7 +115,7 @@ describe("push notification content", () => {
         runId: "run",
         title: "Done",
         body: "Finished",
-        deepLink: "openbot:///chat/channel",
+        deepLink: "openteam:///chat/channel",
       },
       "disabled"
     );
@@ -383,7 +383,7 @@ describe("push notification content", () => {
       runId: "run",
       title: "Probe",
       body: "Done",
-      deepLink: "openbot:///chat/channel",
+      deepLink: "openteam:///chat/channel",
       badgeCount: 4,
     });
     expect(message).toMatchObject({ badge: 4, sound: undefined, data: { badgeCount: 4 } });
@@ -397,7 +397,7 @@ describe("push notification content", () => {
         approvalId: "approval",
         title: "Probe needs you",
         body: "Approve the command",
-        deepLink: "openbot:///chat/channel",
+        deepLink: "openteam:///chat/channel",
         badgeCount: 4,
       })
     ).toMatchObject({

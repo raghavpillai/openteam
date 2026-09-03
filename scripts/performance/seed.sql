@@ -22,7 +22,7 @@
 
 DO $guard$
 BEGIN
-  IF current_database() <> 'openbot_perf_audit' THEN
+  IF current_database() <> 'openteam_perf_audit' THEN
     RAISE EXCEPTION 'Refusing to seed unexpected database: %', current_database();
   END IF;
 END
@@ -102,7 +102,7 @@ SELECT
     WHEN message_number % 20 = 0 THEN
       E'Synthetic rich response for renderer profiling.\n\n```ts\nconst sample = ' || message_number || E';\n```\n\n- alpha\n- beta\n- gamma'
     WHEN message_number % 17 = 0 THEN
-      'Synthetic performance link https://openbot.dev/audit/' || bot_number || '/' || message_number
+      'Synthetic performance link https://openteam.dev/audit/' || bot_number || '/' || message_number
     ELSE
       'Synthetic performance message ' || message_number || ' for Audit Bot ' ||
       lpad(bot_number::text, 4, '0') || '. ' || repeat('Representative plain text payload. ', 4)
@@ -257,7 +257,7 @@ VALUES
     md5('perf-channel-2')::uuid,
     'agent'::"ChannelMessageSender",
     md5('perf-bot-2')::uuid,
-    E'## Markdown gallery\n\n| Capability | Status |\n|---|---|\n| links | [OpenBot](https://openbot.dev) |\n| CJK | 日本語、简体中文、한국어 |\n\n> Quoted text with **strong emphasis** and `inline code`.',
+    E'## Markdown gallery\n\n| Capability | Status |\n|---|---|\n| links | [OpenTeam](https://openteam.dev) |\n| CJK | 日本語、简体中文、한국어 |\n\n> Quoted text with **strong emphasis** and `inline code`.',
     '{}'::jsonb,
     timestamp '2027-01-01 00:00:02'
   ),
@@ -485,7 +485,7 @@ WITH markdown_parts AS (
   SELECT
     E'# iOS 200 KB Markdown Stress\n\nA deterministic oversized Markdown fixture.\n\n' AS header,
     E'\n\n_End of deterministic 200,000-byte fixture._\n' AS footer,
-    E'- [ ] bounded list item with **strong text**, `inline code`, and [OpenBot](https://openbot.dev/audit)\n' AS filler
+    E'- [ ] bounded list item with **strong text**, `inline code`, and [OpenTeam](https://openteam.dev/audit)\n' AS filler
 ), markdown_payload AS (
   SELECT
     header || rpad('', 200000 - length(header) - length(footer), filler) || footer AS content

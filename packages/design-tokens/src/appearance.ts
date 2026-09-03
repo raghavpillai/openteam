@@ -10,6 +10,5 @@ export const resolveTheme = (
   systemPrefersDark: boolean
 ): ResolvedTheme => (preference === "system" ? (systemPrefersDark ? "dark" : "light") : preference);
 
-export const nativeThemePreference = (
-  preference: ThemePreference
-): NativeThemePreference => (preference === "system" ? "unspecified" : preference);
+export const nativeThemePreference = (preference: ThemePreference): NativeThemePreference =>
+  preference === "system" ? "unspecified" : preference;

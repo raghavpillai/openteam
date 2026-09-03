@@ -10,7 +10,7 @@ describe("graphical Shell capability boundary", () => {
       "DISPLAY=:105 xdotool click 40 40",
       "export XAUTHORITY=/tmp/auth && xte 'mousemove 1 1'",
       "ls /tmp/.X11-unix",
-      "openbot-screen-launch chromium https://example.com",
+      "openteam-screen-launch chromium https://example.com",
       "wmctrl -a Chromium",
       "xvkbd -text secret",
       "xinput set-prop 12 enabled 0",
@@ -40,7 +40,7 @@ describe("graphical Shell capability boundary", () => {
     expect(graphicalShellBoundaryViolation("bun test && git status --short", null)).toBeNull();
     expect(
       graphicalShellBoundaryViolation(
-        "openbot-screen-launch chromium 'https://example.com'",
+        "openteam-screen-launch chromium 'https://example.com'",
         "computerUse"
       )
     ).toBeNull();

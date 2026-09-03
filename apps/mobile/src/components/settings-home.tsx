@@ -1,4 +1,4 @@
-import type { OpenBotAuthUser } from "@openbot/client-core/auth";
+import type { OpenTeamAuthUser } from "@openteam/client-core/auth";
 import { SymbolView } from "expo-symbols";
 import type React from "react";
 import {
@@ -105,8 +105,8 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   return <Text style={[styles.sectionLabel, { color: theme.textFaint }]}>{children}</Text>;
 }
 
-const initialsFor = (user: OpenBotAuthUser | null): string => {
-  const source = user?.name || user?.email || "OpenBot";
+const initialsFor = (user: OpenTeamAuthUser | null): string => {
+  const source = user?.name || user?.email || "OpenTeam";
   return source
     .split(/\s+/)
     .filter(Boolean)
@@ -151,15 +151,15 @@ export function SettingsHome({
   onPlugins: () => void;
   onSignOut: () => void;
   onSystemPreferenceInfo: (setting: "language" | "haptics" | "timezone") => void;
-  user: OpenBotAuthUser | null;
+  user: OpenTeamAuthUser | null;
 }) {
   const theme = useTheme();
   const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "System";
-  const profileName = user?.name || user?.username || "OpenBot owner";
+  const profileName = user?.name || user?.username || "OpenTeam owner";
   const profileDetail =
     user?.email || (authRequired ? "Signed in securely" : "Authentication disabled");
   const notificationsOn = notificationPermission === "granted";
-  const openHelp = () => void Linking.openURL("https://github.com/raghavpillai/openbot#readme");
+  const openHelp = () => void Linking.openURL("https://github.com/raghavpillai/openteam#readme");
   return (
     <ScrollView
       automaticallyAdjustKeyboardInsets
@@ -212,7 +212,7 @@ export function SettingsHome({
       <View style={styles.groupGap} />
       <Card>
         <Row
-          description="Tools and skills for OpenBot"
+          description="Tools and skills for OpenTeam"
           first
           last
           onPress={onPlugins}
@@ -349,8 +349,8 @@ export function SettingsHome({
       ) : null}
 
       <View style={styles.about}>
-        <Image source={require("../../assets/openbot-icon-v2.png")} style={styles.appIcon} />
-        <Text style={[styles.appName, { color: theme.text }]}>OpenBot</Text>
+        <Image source={require("../../assets/openteam-icon-v2.png")} style={styles.appIcon} />
+        <Text style={[styles.appName, { color: theme.text }]}>OpenTeam</Text>
         <Text style={[styles.appVersion, { color: theme.textMuted }]}>{appVersion}</Text>
       </View>
     </ScrollView>

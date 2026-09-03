@@ -32,12 +32,12 @@ type ModelRow = {
 const requireInstallation = (paths: InstallationPaths): InstallationManifest => {
   if (!installationExists(paths)) {
     throw new CliError(
-      `OpenBot is not installed at ${paths.directory}. Run openbot install first.`
+      `OpenTeam is not installed at ${paths.directory}. Run openteam install first.`
     );
   }
   const manifest = readManifest(paths);
   if (!manifest)
-    throw new CliError(`OpenBot installation manifest is missing at ${paths.manifest}`);
+    throw new CliError(`OpenTeam installation manifest is missing at ${paths.manifest}`);
   return manifest;
 };
 
@@ -50,7 +50,7 @@ const authCommand = (args: readonly string[]): string[] => [
   "exec",
   "--no-TTY",
   "computer",
-  "openbot-pi-auth",
+  "openteam-pi-auth",
   ...args,
 ];
 
@@ -167,7 +167,7 @@ export const providerLoginCommand = async (
       if (!key) throw new CliError("Provider API key or password cannot be empty");
       project.runOrThrow(authCommand(["login", providerId, "api_key"]), { input: `${key}\n` });
     } else {
-      project.runOrThrow(["exec", "computer", "openbot-pi-auth", "login", providerId, "oauth"], {
+      project.runOrThrow(["exec", "computer", "openteam-pi-auth", "login", providerId, "oauth"], {
         inherit: true,
       });
     }
@@ -211,7 +211,7 @@ export const providerAddCommand = async (
     { providerId: options.providerId, authType: "api_key" },
     suppliedPrompter
   );
-  console.log(`Use it with: openbot model use ${options.providerId} ${options.modelId}`);
+  console.log(`Use it with: openteam model use ${options.providerId} ${options.modelId}`);
 };
 
 export const providerRemoveCommand = (

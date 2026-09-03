@@ -1,4 +1,4 @@
-import type { PluginBotAccessItemView } from "@openbot/contracts";
+import type { PluginBotAccessItemView } from "@openteam/contracts";
 
 export type PluginAccessOperation =
   | {

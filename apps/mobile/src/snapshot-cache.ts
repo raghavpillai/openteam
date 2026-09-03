@@ -1,15 +1,15 @@
-import { normalizeClientSnapshot } from "@openbot/client-core/snapshot";
-import type { ClientSnapshot } from "@openbot/contracts";
-import { boundedSnapshotForCache } from "@openbot/product-core/history";
+import { normalizeClientSnapshot } from "@openteam/client-core/snapshot";
+import type { ClientSnapshot } from "@openteam/contracts";
+import { boundedSnapshotForCache } from "@openteam/product-core/history";
 import * as FileSystem from "expo-file-system/legacy";
 
 const legacyCachePath = FileSystem.documentDirectory
-  ? `${FileSystem.documentDirectory}openbot-client-snapshot.json`
+  ? `${FileSystem.documentDirectory}openteam-client-snapshot.json`
   : null;
 const cachePaths = FileSystem.documentDirectory
   ? [
-      `${FileSystem.documentDirectory}openbot-client-snapshot.a.json`,
-      `${FileSystem.documentDirectory}openbot-client-snapshot.b.json`,
+      `${FileSystem.documentDirectory}openteam-client-snapshot.a.json`,
+      `${FileSystem.documentDirectory}openteam-client-snapshot.b.json`,
     ]
   : [];
 const CACHE_SCHEMA_VERSION = 2;

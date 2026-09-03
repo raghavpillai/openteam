@@ -7,18 +7,18 @@ import {
   toggleSidebarUnread,
   type SidebarPreferences,
   type SidebarSectionPreference,
-} from "@openbot/contracts/client-preferences";
+} from "@openteam/contracts/client-preferences";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api } from "../client/openbot-api";
+import { api } from "../client/openteam-api";
 
-const STORAGE_KEY = "openbot:sidebar-preferences";
+const STORAGE_KEY = "openteam:sidebar-preferences";
 const REMOTE_SAVE_DELAY_MS = 250;
 
 export const PINNED_GROUP_ID = "__pinned";
 export const UNASSIGNED_GROUP_ID = "__unassigned";
 
 export type SidebarSection = SidebarSectionPreference;
-export type { SidebarPreferences } from "@openbot/contracts/client-preferences";
+export type { SidebarPreferences } from "@openteam/contracts/client-preferences";
 
 const EMPTY_PREFERENCES = emptySidebarPreferences();
 

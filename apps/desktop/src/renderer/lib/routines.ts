@@ -1,11 +1,11 @@
-import type { RoutineExecutionView, RoutineView } from "@openbot/contracts";
+import type { RoutineExecutionView, RoutineView } from "@openteam/contracts";
 import {
   formatRoutineExecutionCalendarTime,
   routineOrdinalLabel,
-} from "@openbot/product-core/routines";
-import { isTransientRoutineExecutionStatus } from "@openbot/product-core/statuses";
+} from "@openteam/product-core/routines";
+import { isTransientRoutineExecutionStatus } from "@openteam/product-core/statuses";
 
-export type { RoutineExecutionView, RoutineView } from "@openbot/contracts";
+export type { RoutineExecutionView, RoutineView } from "@openteam/contracts";
 
 /**
  * The routine summary refreshes while it is visible. Preserve the current

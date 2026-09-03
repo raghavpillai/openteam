@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { PLUGIN_CONNECTION_STATUS_MAX_IDS } from "@openbot/contracts";
+import { PLUGIN_CONNECTION_STATUS_MAX_IDS } from "@openteam/contracts";
 import { Effect } from "effect";
 import { PluginService } from "../src/services/plugin-service";
 

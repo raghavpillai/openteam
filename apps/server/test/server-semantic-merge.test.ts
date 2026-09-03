@@ -69,7 +69,7 @@ describe("server semantic merge guard", () => {
     const eventStream = await source("event-stream.ts");
 
     expect(main).toContain('authMode === "required" && !publicCallback');
-    expect(main).not.toContain("OPENBOT_API_TOKEN");
+    expect(main).not.toContain("OPENTEAM_API_TOKEN");
     expect(main).not.toContain("authorizedApi");
     expect(main).toContain('throw new ApiError(400, "invalid_cursor"');
     expect(main).toContain("eventStream(app, cursor, request.signal)");

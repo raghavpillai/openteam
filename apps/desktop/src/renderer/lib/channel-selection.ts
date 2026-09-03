@@ -1,4 +1,4 @@
-import type { ChannelView } from "@openbot/contracts";
+import type { ChannelView } from "@openteam/contracts";
 
 export const activeAgentIdForChannel = (channel: ChannelView | undefined): string | null => {
   if (!channel) return null;

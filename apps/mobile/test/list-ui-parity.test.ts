@@ -210,7 +210,7 @@ describe("mobile virtual-list UI parity", () => {
     expect(home.match(/size=\{48\}/g)?.length).toBeGreaterThanOrEqual(2);
     expect(home).toContain("loading || refreshing ? (");
     expect(home).toContain(">Loading</Text>");
-    expect(home).not.toContain('loading || refreshing ? "Loading" : "OpenBot"');
+    expect(home).not.toContain('loading || refreshing ? "Loading" : "OpenTeam"');
     expect(search).toContain("width: 228");
     expect(search).toContain("resultTitle: { flex: 1, fontSize: 16");
     expect(contextMenu).toContain("width: 228");
@@ -228,8 +228,8 @@ describe("mobile virtual-list UI parity", () => {
     expect(richCard).toContain("dismissedOptions: { opacity: 0.48 }");
     expect(richCard).toContain("dismissedFullCard: {}");
     expect(richCard).toContain('projection?.kind === "cloud-agent"');
-    expect(richCard).toContain(">Publish</Text>");
-    expect(richCard).toContain(">View details</Text>");
+    expect(richCard).toMatch(/>\s*Publish\s*<\/Text>/);
+    expect(richCard).toMatch(/>\s*View details\s*<\/Text>/);
     expect(richCard).toContain("height: 148");
   });
 

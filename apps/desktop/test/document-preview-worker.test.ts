@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   type DocumentPreviewWorker,
   parseDocumentPreview,
-} from "../src/renderer/components/openbot/document-preview-worker-client";
+} from "../src/renderer/components/openteam/document-preview-worker-client";
 
 class MockWorker implements DocumentPreviewWorker {
   onerror: ((event: ErrorEvent) => void) | null = null;

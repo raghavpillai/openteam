@@ -9,4 +9,4 @@ export const normalizeServerConnection = (
   if (!rawUrl) return { serverUrl: "" };
   return { serverUrl: normalizeBaseUrl(rawUrl) };
 };
-import { normalizeBaseUrl } from "@openbot/client-core/http";
+import { normalizeBaseUrl } from "@openteam/client-core/http";

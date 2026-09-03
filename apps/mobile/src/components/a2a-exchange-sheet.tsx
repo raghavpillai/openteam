@@ -1,5 +1,5 @@
-import type { AssetRef, BotView, ChannelMessageView } from "@openbot/contracts";
-import { a2aProjectionFor, messageMetadata } from "@openbot/product-core/messages";
+import type { AssetRef, BotView, ChannelMessageView } from "@openteam/contracts";
+import { a2aProjectionFor, messageMetadata } from "@openteam/product-core/messages";
 import { SymbolView } from "expo-symbols";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import {

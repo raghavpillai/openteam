@@ -11,11 +11,11 @@ import {
   ScreenTakeoverInput,
   serverInferenceSettings,
   type TranscriptEventView,
-} from "@openbot/contracts";
+} from "@openteam/contracts";
 import {
   COMPUTER_API_PATHS,
   parseComputerInferenceRequest,
-} from "@openbot/contracts/service-protocol";
+} from "@openteam/contracts/service-protocol";
 import { Schema } from "effect";
 import { BoxStoreSync } from "./box-store-sync";
 import { computerEventStream } from "./computer-event-stream";
@@ -26,9 +26,9 @@ import { ComputerRuntime } from "./runtime";
 import { ScreenBroker } from "./screen-broker";
 import { TranscriptMirror } from "./transcript-mirror";
 
-const port = Number(process.env.OPENBOT_COMPUTER_PORT ?? 8790);
-const controlToken = process.env.OPENBOT_CONTROL_TOKEN ?? "local-compose-only-change-me";
-const workspaceRoot = resolve(process.env.OPENBOT_WORKSPACE_ROOT ?? "/workspace");
+const port = Number(process.env.OPENTEAM_COMPUTER_PORT ?? 8790);
+const controlToken = process.env.OPENTEAM_CONTROL_TOKEN ?? "local-compose-only-change-me";
+const workspaceRoot = resolve(process.env.OPENTEAM_WORKSPACE_ROOT ?? "/workspace");
 const screens = new ScreenBroker();
 const agentStores = new GrokAgentStore();
 const boxStore = new BoxStoreSync({
@@ -285,7 +285,7 @@ const server = Bun.serve({
         try {
           await writeFile(
             resolve(actual, "project.md"),
-            `# ${body.name}\n\n${body.description || "Shared OpenBot project."}\n`,
+            `# ${body.name}\n\n${body.description || "Shared OpenTeam project."}\n`,
             { encoding: "utf8", flag: "wx" }
           );
         } catch (error) {
@@ -592,10 +592,10 @@ const shutdown = (): Promise<void> => {
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.once(signal, () => {
     void shutdown().catch((error) => {
-      console.error(`OpenBot computer gateway shutdown failed: ${String(error)}`);
+      console.error(`OpenTeam computer gateway shutdown failed: ${String(error)}`);
       process.exitCode = 1;
     });
   });
 }
 
-console.log(`OpenBot computer gateway listening on ${server.url}`);
+console.log(`OpenTeam computer gateway listening on ${server.url}`);

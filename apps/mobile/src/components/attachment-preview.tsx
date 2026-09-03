@@ -1,6 +1,6 @@
-import type { AssetKind, AssetRef } from "@openbot/contracts";
-import { openBotNativeAvailable, openPreview } from "@openbot/mobile-native";
-import { clientErrorMessage } from "@openbot/product-core/redaction";
+import type { AssetKind, AssetRef } from "@openteam/contracts";
+import { openTeamNativeAvailable, openPreview } from "@openteam/mobile-native";
+import { clientErrorMessage } from "@openteam/product-core/redaction";
 import { Directory, File, Paths } from "expo-file-system";
 import { SymbolView } from "expo-symbols";
 import { useEffect, useRef, useState } from "react";
@@ -51,14 +51,14 @@ export function AttachmentPreview({ asset, url }: { asset: AssetRef; url: string
   const open = async () => {
     if (!url || state === "downloading" || state === "opening") return;
     setError(null);
-    if (!openBotNativeAvailable) {
+    if (!openTeamNativeAvailable) {
       await Linking.openURL(url);
       return;
     }
     const nextController = new AbortController();
     controller.current = nextController;
     try {
-      const cache = new Directory(Paths.cache, "openbot-previews");
+      const cache = new Directory(Paths.cache, "openteam-previews");
       cache.create({ idempotent: true, intermediates: true });
       const destination = new File(cache, cacheName(asset));
       let localFile = destination;

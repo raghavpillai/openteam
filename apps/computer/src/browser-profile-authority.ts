@@ -51,7 +51,7 @@ export class BrowserProfileAuthority {
   private tail: Promise<void> = Promise.resolve();
 
   constructor(private readonly home: string) {
-    this.root = join(home, ".openbot", "browser-profile-authority");
+    this.root = join(home, ".openteam", "browser-profile-authority");
     this.current = join(this.root, "current");
   }
 

@@ -1,9 +1,9 @@
-import type { SearchCategory, SearchResultKind } from "@openbot/contracts";
+import type { SearchCategory, SearchResultKind } from "@openteam/contracts";
 import {
   normalizeSearchQuery,
   SEARCH_CATEGORIES,
   searchTextMatches,
-} from "@openbot/product-core/search";
+} from "@openteam/product-core/search";
 
 export type SearchSection = SearchCategory | "actions";
 

@@ -34,7 +34,7 @@ describe("permission settings", () => {
   });
 
   test("persists settings atomically and serializes concurrent mutations", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "openbot-permissions-"));
+    const directory = await mkdtemp(join(tmpdir(), "openteam-permissions-"));
     temporaryDirectories.push(directory);
     const path = join(directory, "settings.json");
     const store = createPermissionSettingsStore(path);
@@ -54,7 +54,7 @@ describe("permission settings", () => {
   });
 
   test("persists and bounds the user-visible Computer label", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "openbot-permissions-"));
+    const directory = await mkdtemp(join(tmpdir(), "openteam-permissions-"));
     temporaryDirectories.push(directory);
     const store = createPermissionSettingsStore(join(directory, "settings.json"));
     const updated = await store.update({ machineLabel: `  ${"x".repeat(100)}  ` });
@@ -62,7 +62,7 @@ describe("permission settings", () => {
   });
 
   test("recovers safely from malformed JSON", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "openbot-permissions-"));
+    const directory = await mkdtemp(join(tmpdir(), "openteam-permissions-"));
     temporaryDirectories.push(directory);
     const path = join(directory, "settings.json");
     await writeFile(path, "not json");

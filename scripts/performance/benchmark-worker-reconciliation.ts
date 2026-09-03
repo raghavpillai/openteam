@@ -51,7 +51,7 @@ const measure = async (work: () => Promise<void>): Promise<number[]> => {
   return samples;
 };
 
-const temporary = await mkdtemp(join(tmpdir(), "openbot-periodic-reconcile-ab-"));
+const temporary = await mkdtemp(join(tmpdir(), "openteam-periodic-reconcile-ab-"));
 try {
   const agentsRoot = join(temporary, "agents");
   await mkdir(agentsRoot, { recursive: true });

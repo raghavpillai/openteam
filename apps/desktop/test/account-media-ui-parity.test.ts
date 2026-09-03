@@ -4,12 +4,12 @@ const read = async (path: string) => Bun.file(new URL(path, import.meta.url)).te
 
 describe("Grok account and media UI parity guards", () => {
   test("keeps the applicable account actions in Grok's menu order", async () => {
-    const source = await read("../src/renderer/components/openbot/sidebar.tsx");
+    const source = await read("../src/renderer/components/openteam/sidebar.tsx");
     const menuStart = source.indexOf("<DropdownMenuContent");
     const menuEnd = source.indexOf("</DropdownMenuContent>", menuStart);
     const menu = source.slice(menuStart, menuEnd);
     const labels = [
-      "Get OpenBot for iOS",
+      "Get OpenTeam for iOS",
       "Settings",
       "About",
       "Help Center",
@@ -21,15 +21,15 @@ describe("Grok account and media UI parity guards", () => {
     expect(offsets).toEqual([...offsets].sort((left, right) => left - right));
     expect(menu).not.toContain("Weekly usage");
     expect(source).toContain("New update available");
-    expect(source).toContain("openbot?.updates.openDownload()");
+    expect(source).toContain("openteam?.updates.openDownload()");
   });
 
   test("keeps source-verified Grok dialog and file-viewer geometry", async () => {
     const [settings, plugins, attachment, sidebar] = await Promise.all([
-      read("../src/renderer/components/openbot/settings-panel.tsx"),
-      read("../src/renderer/components/openbot/plugin-settings.tsx"),
-      read("../src/renderer/components/openbot/file-attachment.tsx"),
-      read("../src/renderer/components/openbot/sidebar.tsx"),
+      read("../src/renderer/components/openteam/settings-panel.tsx"),
+      read("../src/renderer/components/openteam/plugin-settings.tsx"),
+      read("../src/renderer/components/openteam/file-attachment.tsx"),
+      read("../src/renderer/components/openteam/sidebar.tsx"),
     ]);
 
     expect(settings).toContain("h-[min(700px,calc(100vh-96px))]");
@@ -61,11 +61,11 @@ describe("Grok account and media UI parity guards", () => {
 
   test("keeps document previews, download-all, and media navigation wired", async () => {
     const [attachment, docxParser, tableParser, chat, image, response] = await Promise.all([
-      read("../src/renderer/components/openbot/file-attachment.tsx"),
-      read("../src/renderer/components/openbot/document-preview-docx-parser.ts"),
-      read("../src/renderer/components/openbot/document-preview-spreadsheet-parser.ts"),
-      read("../src/renderer/components/openbot/chat-pane.tsx"),
-      read("../src/renderer/components/openbot/image-attachment.tsx"),
+      read("../src/renderer/components/openteam/file-attachment.tsx"),
+      read("../src/renderer/components/openteam/document-preview-docx-parser.ts"),
+      read("../src/renderer/components/openteam/document-preview-spreadsheet-parser.ts"),
+      read("../src/renderer/components/openteam/chat-pane.tsx"),
+      read("../src/renderer/components/openteam/image-attachment.tsx"),
       read("../src/renderer/components/ai-elements/message-response-config.tsx"),
     ]);
 
@@ -90,21 +90,21 @@ describe("Grok account and media UI parity guards", () => {
     const [main, preload, image] = await Promise.all([
       read("../src/main/index.ts"),
       read("../src/preload/index.ts"),
-      read("../src/renderer/components/openbot/image-attachment.tsx"),
+      read("../src/renderer/components/openteam/image-attachment.tsx"),
     ]);
     expect(main).toContain('webContents.on("context-menu"');
     expect(main).toContain('params.mediaType !== "image"');
-    expect(preload).not.toContain("openbot:image-context-menu");
+    expect(preload).not.toContain("openteam:image-context-menu");
     expect(image).not.toContain("showImageContextMenu");
     expect(image.match(/onContextMenu=\{\(event\) => event\.stopPropagation\(\)\}/g)).toHaveLength(
       3
     );
-    expect(main).toContain('ipcMain.handle("openbot:files:download-all"');
-    expect(main).toContain('ipcMain.handle("openbot:updates:check"');
-    expect(main).toContain('ipcMain.handle("openbot:updates:open-download"');
-    expect(main).toContain('ipcMain.handle("openbot:updates:update-server"');
-    expect(preload).toContain('ipcRenderer.invoke("openbot:files:download-all"');
-    expect(preload).toContain('ipcRenderer.invoke("openbot:updates:check"');
-    expect(preload).toContain('ipcRenderer.invoke("openbot:updates:update-server"');
+    expect(main).toContain('ipcMain.handle("openteam:files:download-all"');
+    expect(main).toContain('ipcMain.handle("openteam:updates:check"');
+    expect(main).toContain('ipcMain.handle("openteam:updates:open-download"');
+    expect(main).toContain('ipcMain.handle("openteam:updates:update-server"');
+    expect(preload).toContain('ipcRenderer.invoke("openteam:files:download-all"');
+    expect(preload).toContain('ipcRenderer.invoke("openteam:updates:check"');
+    expect(preload).toContain('ipcRenderer.invoke("openteam:updates:update-server"');
   });
 });

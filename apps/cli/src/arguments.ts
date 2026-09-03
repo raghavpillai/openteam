@@ -214,14 +214,14 @@ export const parseArguments = (argv: readonly string[]): CliOptions => {
     };
   }
   if (!commands.has(command as CommandName)) {
-    if (rawCommand === "password") throw new CliError("Usage: openbot password reset");
+    if (rawCommand === "password") throw new CliError("Usage: openteam password reset");
     if (rawCommand === "account") {
-      throw new CliError("Usage: openbot account update [--username <name>] [--password]");
+      throw new CliError("Usage: openteam account update [--username <name>] [--password]");
     }
     if (rawCommand === "provider") {
-      throw new CliError("Usage: openbot provider <list|login|logout|add|remove>");
+      throw new CliError("Usage: openteam provider <list|login|logout|add|remove>");
     }
-    if (rawCommand === "model") throw new CliError("Usage: openbot model <list|use>");
+    if (rawCommand === "model") throw new CliError("Usage: openteam model <list|use>");
     throw new CliError(`Unknown command: ${rawCommand}`);
   }
 
@@ -246,18 +246,18 @@ export const parseArguments = (argv: readonly string[]): CliOptions => {
   }
   if (command === "provider-login" || command === "provider-logout") {
     if (positional.length > 1)
-      throw new CliError(`openbot provider ${providerAction} accepts one provider`);
+      throw new CliError(`openteam provider ${providerAction} accepts one provider`);
     options.providerId = positional[0];
   } else if (command === "provider-add" || command === "provider-remove") {
     if (positional.length !== 1)
-      throw new CliError(`openbot provider ${providerAction} requires a provider id`);
+      throw new CliError(`openteam provider ${providerAction} requires a provider id`);
     options.providerId = positional[0];
   } else if (command === "model-list") {
-    if (positional.length > 1) throw new CliError("openbot model list accepts one provider");
+    if (positional.length > 1) throw new CliError("openteam model list accepts one provider");
     options.providerId = positional[0];
   } else if (command === "model-use") {
     if (positional.length !== 2)
-      throw new CliError("openbot model use requires a provider and model");
+      throw new CliError("openteam model use requires a provider and model");
     [options.providerId, options.modelId] = positional;
   } else if (positional.length > 0) {
     throw new CliError(`Unexpected argument for ${rawCommand}: ${positional[0]}`);
@@ -309,7 +309,7 @@ export const parseArguments = (argv: readonly string[]): CliOptions => {
       const next = rest[index + 1];
       if (next && !next.startsWith("--")) {
         throw new CliError(
-          "--password does not accept a value; OpenBot prompts securely so the password is not saved in shell history"
+          "--password does not accept a value; OpenTeam prompts securely so the password is not saved in shell history"
         );
       }
       options.password = true;
@@ -335,7 +335,7 @@ export const parseArguments = (argv: readonly string[]): CliOptions => {
     (options.username !== undefined || options.password) &&
     options.command !== "account-update"
   ) {
-    throw new CliError("--username and --password are only valid with openbot account update");
+    throw new CliError("--username and --password are only valid with openteam account update");
   }
   if (options.authType !== undefined) {
     const normalized = options.authType.replace("-", "_");
@@ -344,7 +344,7 @@ export const parseArguments = (argv: readonly string[]): CliOptions => {
     }
     options.authType = normalized;
     if (options.command !== "provider-login") {
-      throw new CliError("--auth is only valid with openbot provider login");
+      throw new CliError("--auth is only valid with openteam provider login");
     }
   }
   const providerAddOptions = [
@@ -359,7 +359,7 @@ export const parseArguments = (argv: readonly string[]): CliOptions => {
     providerAddOptions.some((value) => value !== undefined) &&
     options.command !== "provider-add"
   ) {
-    throw new CliError("Custom provider options are only valid with openbot provider add");
+    throw new CliError("Custom provider options are only valid with openteam provider add");
   }
   if (options.command === "provider-add") {
     if (!options.providerName || !options.baseUrl || !options.apiProtocol || !options.modelId) {
@@ -398,7 +398,7 @@ export const parseArguments = (argv: readonly string[]): CliOptions => {
     throw new CliError("Invalid model id");
   }
   if (options.thinking !== undefined && options.command !== "model-use") {
-    throw new CliError("--thinking is only valid with openbot model use");
+    throw new CliError("--thinking is only valid with openteam model use");
   }
   if (
     options.thinking !== undefined &&
@@ -407,13 +407,13 @@ export const parseArguments = (argv: readonly string[]): CliOptions => {
     throw new CliError("--thinking must be off, minimal, low, medium, high, xhigh, or max");
   }
   if (options.noSetup && options.command !== "install") {
-    throw new CliError("--no-setup is only valid with openbot install");
+    throw new CliError("--no-setup is only valid with openteam install");
   }
   if (
     (options.follow || options.tail !== undefined || options.service !== undefined) &&
     options.command !== "logs"
   ) {
-    throw new CliError("--follow, --tail, and --service are only valid with openbot logs");
+    throw new CliError("--follow, --tail, and --service are only valid with openteam logs");
   }
   if (options.tail !== undefined && !/^\d+$/.test(options.tail)) {
     throw new CliError("--tail must be a whole number");

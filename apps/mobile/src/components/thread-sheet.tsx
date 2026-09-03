@@ -1,11 +1,16 @@
-import type { AssetRef, BotView, ChannelMessageView, ClientCapabilities } from "@openbot/contracts";
+import type {
+  AssetRef,
+  BotView,
+  ChannelMessageView,
+  ClientCapabilities,
+} from "@openteam/contracts";
 import type {
   DurableSendPayload,
   DurableSendRecord,
   DurableStagedAttachment,
-} from "@openbot/product-core/durable-delivery";
-import { clientErrorMessage } from "@openbot/product-core/redaction";
-import { messageMetadata, type ThreadView } from "@openbot/product-core/messages";
+} from "@openteam/product-core/durable-delivery";
+import { clientErrorMessage } from "@openteam/product-core/redaction";
+import { messageMetadata, type ThreadView } from "@openteam/product-core/messages";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -206,7 +211,7 @@ export function ThreadSheet({
     } catch (cause) {
       Alert.alert(
         "Message not cancelled",
-        clientErrorMessage(cause, "OpenBot could not cancel this message.")
+        clientErrorMessage(cause, "OpenTeam could not cancel this message.")
       );
     }
   };

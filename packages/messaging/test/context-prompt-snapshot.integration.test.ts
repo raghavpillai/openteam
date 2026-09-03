@@ -2,16 +2,16 @@ import { expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createPrismaClient } from "@openbot/db";
+import { createPrismaClient } from "@openteam/db";
 import { AgentDataStore } from "../src/agent-data";
 
-const databaseUrl = process.env.OPENBOT_TEST_DATABASE_URL;
+const databaseUrl = process.env.OPENTEAM_TEST_DATABASE_URL;
 
 test("profile, first-fact memory, and skills freeze independently per context epoch", async () => {
   if (!databaseUrl) return;
 
   const prisma = createPrismaClient(databaseUrl);
-  const temporary = await mkdtemp(join(tmpdir(), "openbot-context-snapshots-"));
+  const temporary = await mkdtemp(join(tmpdir(), "openteam-context-snapshots-"));
   const root = join(temporary, "agent-data");
   const workspace = join(temporary, "workspace");
   const botId = crypto.randomUUID();

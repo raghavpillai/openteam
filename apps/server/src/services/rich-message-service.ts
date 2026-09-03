@@ -6,9 +6,9 @@ import {
   type SecretSubmissionInput,
   type WidgetDismissInput,
   type WidgetResponseInput,
-} from "@openbot/contracts";
-import { Prisma, type PrismaClient } from "@openbot/db";
-import { type AgentMessaging, PRIORITY } from "@openbot/messaging";
+} from "@openteam/contracts";
+import { Prisma, type PrismaClient } from "@openteam/db";
+import { type AgentMessaging, PRIORITY } from "@openteam/messaging";
 import { Effect } from "effect";
 import type { PluginService } from "./plugin-service";
 import type { ScreenService } from "./screen-service";

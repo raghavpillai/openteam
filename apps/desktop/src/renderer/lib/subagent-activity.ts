@@ -1,1 +1,1 @@
-export { conversationApprovals } from "@openbot/product-core/activity";
+export { conversationApprovals } from "@openteam/product-core/activity";

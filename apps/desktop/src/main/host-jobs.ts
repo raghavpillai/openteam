@@ -7,7 +7,7 @@ import {
   HOST_INLINE_OUTPUT_MAX_BYTES,
   HOST_READ_MAX_BYTES,
   imageMimeTypeForPath,
-} from "@openbot/contracts/service-protocol";
+} from "@openteam/contracts/service-protocol";
 import type { HostJobPayload, HostReadInput, HostShellInput } from "./host-job-protocol";
 
 export const MAX_READ_BYTES = HOST_READ_MAX_BYTES;

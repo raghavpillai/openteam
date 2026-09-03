@@ -23,7 +23,7 @@ Object.defineProperty(globalThis, "window", {
   value: {
     dispatchEvent: () => true,
     location: { href: "http://127.0.0.1:8787" },
-    openbot: {
+    openteam: {
       auth: {
         readToken: async () => ({ token: secureToken, persistence: "encrypted", backend: "test" }),
         writeToken: async (token: string) => {
@@ -41,14 +41,14 @@ Object.defineProperty(globalThis, "window", {
 
 const calls: Array<{ method: string; url: string }> = [];
 const user = {
-  email: "owner@openbot.invalid",
+  email: "owner@openteam.invalid",
   id: "owner-1",
   image: null,
   name: "owner",
   username: "owner",
 };
 
-const openBotFetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+const openTeamFetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   const url = String(input);
   const method = init?.method ?? "GET";
   calls.push({ method, url });
@@ -62,7 +62,7 @@ const openBotFetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   if (url.endsWith("/api/auth/sign-out")) return new Response(null, { status: 204 });
   return new Response(null, { status: 404 });
 }) as typeof fetch;
-globalThis.fetch = openBotFetch;
+globalThis.fetch = openTeamFetch;
 
 const auth = await import("../src/renderer/client/auth");
 
@@ -91,7 +91,7 @@ describe("desktop authenticated session", () => {
     });
     expect(auth.getAuthToken()).toBe("test-session-token");
     expect(secureToken).toBe("test-session-token");
-    expect(localStorage.getItem("openbot:auth-token")).toBeNull();
+    expect(localStorage.getItem("openteam:auth-token")).toBeNull();
 
     await auth.signOut();
 
@@ -113,14 +113,14 @@ describe("desktop authenticated session", () => {
     });
   });
 
-  test("rejects a reachable website that is not an OpenBot server", async () => {
+  test("rejects a reachable website that is not an OpenTeam server", async () => {
     globalThis.fetch = (async () => new Response("Not found", { status: 404 })) as typeof fetch;
     try {
       await expect(auth.testServerConnection("https://google.example.test")).rejects.toThrow(
-        "not a compatible OpenBot server"
+        "not a compatible OpenTeam server"
       );
     } finally {
-      globalThis.fetch = openBotFetch;
+      globalThis.fetch = openTeamFetch;
     }
   });
 });

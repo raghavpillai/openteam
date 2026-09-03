@@ -9,9 +9,9 @@ test("message entrance and acknowledgement motion match Grokbot", async () => {
   const [styles, chatPane, message, threadTray, promptInput, durableSends, durableDelivery] =
     await Promise.all([
       rendererSource("styles.css"),
-      rendererSource("components/openbot/chat-pane.tsx"),
+      rendererSource("components/openteam/chat-pane.tsx"),
       rendererSource("components/ai-elements/message.tsx"),
-      rendererSource("components/openbot/thread-tray.tsx"),
+      rendererSource("components/openteam/thread-tray.tsx"),
       rendererSource("components/ai-elements/prompt-input.tsx"),
       rendererSource("lib/durable-sends.ts"),
       productCoreSource("durable-delivery.ts"),
@@ -81,7 +81,7 @@ test("message entrance and acknowledgement motion match Grokbot", async () => {
 test("message bubble geometry and grouping match Grokbot", async () => {
   const [styles, chatPane, message] = await Promise.all([
     rendererSource("styles.css"),
-    rendererSource("components/openbot/chat-pane.tsx"),
+    rendererSource("components/openteam/chat-pane.tsx"),
     rendererSource("components/ai-elements/message.tsx"),
   ]);
 

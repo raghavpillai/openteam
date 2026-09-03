@@ -1,9 +1,9 @@
 import { extname, resolve, sep } from "node:path";
 
-const port = Number(process.env.OPENBOT_AUDIT_RENDERER_PORT ?? 5174);
-const apiBase = process.env.OPENBOT_AUDIT_API_URL ?? "http://127.0.0.1:8877";
+const port = Number(process.env.OPENTEAM_AUDIT_RENDERER_PORT ?? 5174);
+const apiBase = process.env.OPENTEAM_AUDIT_API_URL ?? "http://127.0.0.1:8877";
 const distRoot = resolve(
-  process.env.OPENBOT_AUDIT_DIST_ROOT ?? resolve(import.meta.dir, "../../apps/desktop/dist")
+  process.env.OPENTEAM_AUDIT_DIST_ROOT ?? resolve(import.meta.dir, "../../apps/desktop/dist")
 );
 
 const contentType: Record<string, string> = {
@@ -70,6 +70,6 @@ Bun.serve({
   },
 });
 
-console.log(`OpenBot performance-audit renderer listening on http://127.0.0.1:${port}`);
+console.log(`OpenTeam performance-audit renderer listening on http://127.0.0.1:${port}`);
 console.log(`Proxying API requests to ${apiBase}`);
 console.log(`Serving renderer files from ${distRoot}`);

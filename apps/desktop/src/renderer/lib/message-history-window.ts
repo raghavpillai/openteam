@@ -2,15 +2,15 @@ import type {
   ChannelHistoryPage,
   ChannelMessageContextView,
   ChannelMessageView,
-} from "@openbot/contracts";
-import type { LoadedChannelHistory } from "@openbot/product-core/history";
+} from "@openteam/contracts";
+import type { LoadedChannelHistory } from "@openteam/product-core/history";
 import {
   clearLoadedChannelSearchContext,
   compareEntitySequence,
   emptyLoadedChannelHistory,
   mergeLoadedChannelHistoryPage,
   sortedUniqueMessages,
-} from "@openbot/product-core/history";
+} from "@openteam/product-core/history";
 import {
   type BoundMessageWindowOptions,
   boundMessageWindow,
@@ -18,7 +18,7 @@ import {
   latestRefreshOverlap,
   type MessageViewportFillDirection,
   messageRetainedByteSize,
-} from "@openbot/product-core/message-window";
+} from "@openteam/product-core/message-window";
 
 export const MESSAGE_HISTORY_PAGE_SIZE = 100;
 export const MESSAGE_HISTORY_MAX_MESSAGES = 500;

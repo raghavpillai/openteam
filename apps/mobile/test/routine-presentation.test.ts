@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import type { RoutineExecutionView, RoutineView } from "@openbot/contracts";
+import type { RoutineExecutionView, RoutineView } from "@openteam/contracts";
 import {
   describeRoutineCronSchedule as describeRoutineSchedule,
   formatRoutineExecutionCalendarTime as formatRoutineExecutionTime,
   routineExecutionStatusPresentation as routineExecutionStatus,
   routineScheduleSummary as routineSummary,
-} from "@openbot/product-core/routines";
+} from "@openteam/product-core/routines";
 
 const routine = (schedule: string, enabled = true): RoutineView =>
   ({ schedule, enabled }) as RoutineView;

@@ -8,7 +8,7 @@ describe("authenticated account presentation", () => {
         {
           id: "owner-1",
           name: "raghav",
-          email: "raghav@openbot.invalid",
+          email: "raghav@openteam.invalid",
           username: "raghav",
           image: null,
         },
@@ -24,7 +24,7 @@ describe("authenticated account presentation", () => {
 
   test("describes deployments where authentication is disabled", () => {
     expect(accountPresentation(null, "disabled")).toEqual({
-      name: "OpenBot owner",
+      name: "OpenTeam owner",
       detail: "Authentication disabled",
       initials: "OB",
       copyValue: null,

@@ -50,14 +50,14 @@ export const defaultInstallDirectory = (
   platform = process.platform,
   home = homedir()
 ): string => {
-  if (environment.OPENBOT_HOME?.trim()) return resolve(environment.OPENBOT_HOME.trim());
+  if (environment.OPENTEAM_HOME?.trim()) return resolve(environment.OPENTEAM_HOME.trim());
   if (platform === "win32") {
-    return resolve(environment.LOCALAPPDATA?.trim() || join(home, "AppData", "Local"), "OpenBot");
+    return resolve(environment.LOCALAPPDATA?.trim() || join(home, "AppData", "Local"), "OpenTeam");
   }
   if (environment.XDG_CONFIG_HOME?.trim()) {
-    return resolve(environment.XDG_CONFIG_HOME.trim(), "openbot");
+    return resolve(environment.XDG_CONFIG_HOME.trim(), "openteam");
   }
-  return resolve(home, ".openbot");
+  return resolve(home, ".openteam");
 };
 
 export const installationPaths = (directory: string): InstallationPaths => ({
@@ -78,7 +78,7 @@ const assertSingleLine = (name: string, value: string): string => {
 export const normalizeVersion = (value: string): string => {
   const version = value.trim().replace(/^v/, "");
   if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version)) {
-    throw new CliError(`Invalid OpenBot version: ${value}`);
+    throw new CliError(`Invalid OpenTeam version: ${value}`);
   }
   return version;
 };
@@ -114,23 +114,23 @@ export const createEnvironment = (options: {
   );
   const timeZone = assertSingleLine("time zone", options.timeZone?.trim() || detectTimeZone());
   return [
-    `OPENBOT_VERSION=${version}`,
-    `OPENBOT_IMAGE_PREFIX=${imagePrefix}`,
-    `OPENBOT_POSTGRES_PASSWORD=${randomBytes(32).toString("hex")}`,
-    `OPENBOT_CONTROL_TOKEN=${randomBytes(32).toString("hex")}`,
-    `OPENBOT_AUTH_SECRET=${randomBytes(32).toString("hex")}`,
-    `OPENBOT_PROXY_SECRET=${randomBytes(32).toString("hex")}`,
-    "OPENBOT_AUTH_MODE=required",
-    `OPENBOT_TIME_ZONE=${timeZone}`,
-    "OPENBOT_ACCESS_MODE=local",
-    "OPENBOT_BIND_HOST=127.0.0.1",
-    "OPENBOT_VIEWER_BIND_HOST=127.0.0.1",
-    "OPENBOT_PUBLIC_HOST=127.0.0.1",
-    "OPENBOT_PUBLIC_URL=http://127.0.0.1:8787",
-    "OPENBOT_AUTH_URL=http://127.0.0.1:8787",
-    "OPENBOT_API_PORT=8787",
+    `OPENTEAM_VERSION=${version}`,
+    `OPENTEAM_IMAGE_PREFIX=${imagePrefix}`,
+    `OPENTEAM_POSTGRES_PASSWORD=${randomBytes(32).toString("hex")}`,
+    `OPENTEAM_CONTROL_TOKEN=${randomBytes(32).toString("hex")}`,
+    `OPENTEAM_AUTH_SECRET=${randomBytes(32).toString("hex")}`,
+    `OPENTEAM_PROXY_SECRET=${randomBytes(32).toString("hex")}`,
+    "OPENTEAM_AUTH_MODE=required",
+    `OPENTEAM_TIME_ZONE=${timeZone}`,
+    "OPENTEAM_ACCESS_MODE=local",
+    "OPENTEAM_BIND_HOST=127.0.0.1",
+    "OPENTEAM_VIEWER_BIND_HOST=127.0.0.1",
+    "OPENTEAM_PUBLIC_HOST=127.0.0.1",
+    "OPENTEAM_PUBLIC_URL=http://127.0.0.1:8787",
+    "OPENTEAM_AUTH_URL=http://127.0.0.1:8787",
+    "OPENTEAM_API_PORT=8787",
     "COMPOSE_PROFILES=direct",
-    "OPENBOT_WORKER_CONCURRENCY=8",
+    "OPENTEAM_WORKER_CONCURRENCY=8",
     "",
   ].join("\n");
 };
@@ -161,17 +161,17 @@ export const replaceEnvironmentValue = (contents: string, key: string, value: st
 export const ensureAuthenticationSecret = (contents: string): string => {
   let updated = contents;
   const current = parseEnvironment(updated);
-  if ((current.get("OPENBOT_AUTH_SECRET")?.length ?? 0) < 32) {
+  if ((current.get("OPENTEAM_AUTH_SECRET")?.length ?? 0) < 32) {
     updated = replaceEnvironmentValue(
       updated,
-      "OPENBOT_AUTH_SECRET",
+      "OPENTEAM_AUTH_SECRET",
       randomBytes(32).toString("hex")
     );
   }
-  if ((current.get("OPENBOT_PROXY_SECRET")?.length ?? 0) < 32) {
+  if ((current.get("OPENTEAM_PROXY_SECRET")?.length ?? 0) < 32) {
     updated = replaceEnvironmentValue(
       updated,
-      "OPENBOT_PROXY_SECRET",
+      "OPENTEAM_PROXY_SECRET",
       randomBytes(32).toString("hex")
     );
   }

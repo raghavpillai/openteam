@@ -1,4 +1,4 @@
-name: Release OpenBot
+name: Release OpenTeam
 
 on:
   push:
@@ -28,19 +28,19 @@ jobs:
           done
           echo "version=$version" >> "$GITHUB_OUTPUT"
       - run: bun install --frozen-lockfile
-      - run: bun --filter @openbot/cli typecheck
-      - run: bun --filter @openbot/cli test
-      - run: bun --filter @openbot/cli build
-      - run: bun --filter @openbot/desktop typecheck
-      - run: bun --filter @openbot/desktop test
-      - run: bun --filter @openbot/desktop build
+      - run: bun --filter @openteam/cli typecheck
+      - run: bun --filter @openteam/cli test
+      - run: bun --filter @openteam/cli build
+      - run: bun --filter @openteam/desktop typecheck
+      - run: bun --filter @openteam/desktop test
+      - run: bun --filter @openteam/desktop build
       - run: bun scripts/performance/check-desktop-budgets.ts
-      - run: bun --filter @openbot/server typecheck
-      - run: bun --filter @openbot/server test
-      - run: bun --filter @openbot/worker typecheck
-      - run: bun --filter @openbot/worker test
-      - run: bun --filter @openbot/computer typecheck
-      - run: bun --filter @openbot/computer test
+      - run: bun --filter @openteam/server typecheck
+      - run: bun --filter @openteam/server test
+      - run: bun --filter @openteam/worker typecheck
+      - run: bun --filter @openteam/worker test
+      - run: bun --filter @openteam/computer typecheck
+      - run: bun --filter @openteam/computer test
       - run: bun run check:architecture
 
   images:
@@ -53,16 +53,16 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - image: openbot-server
+          - image: openteam-server
             file: docker/app.Dockerfile
             target: server
-          - image: openbot-worker
+          - image: openteam-worker
             file: docker/app.Dockerfile
             target: worker
-          - image: openbot-migrate
+          - image: openteam-migrate
             file: docker/app.Dockerfile
             target: migrate
-          - image: openbot-computer
+          - image: openteam-computer
             file: docker/computer.Dockerfile
             target: runtime
     steps:
@@ -110,7 +110,7 @@ jobs:
         with:
           bun-version: 1.3.8
       - run: bun install --frozen-lockfile
-      - run: bun --filter @openbot/desktop package
+      - run: bun --filter @openteam/desktop package
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: desktop-linux
@@ -140,7 +140,7 @@ jobs:
             throw "WINDOWS_CSC_LINK and WINDOWS_CSC_KEY_PASSWORD are required"
           }
       - run: bun install --frozen-lockfile
-      - run: bun --filter @openbot/desktop package
+      - run: bun --filter @openteam/desktop package
       - name: Verify Windows installer signature
         shell: pwsh
         run: |
@@ -179,7 +179,7 @@ jobs:
         with:
           bun-version: 1.3.8
       - run: bun install --frozen-lockfile
-      - run: bun --filter @openbot/desktop package:mac-release
+      - run: bun --filter @openteam/desktop package:mac-release
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: desktop-macos
@@ -215,24 +215,24 @@ jobs:
           merge-multiple: true
       - name: Create release bundle
         run: |
-          bun scripts/render-release-compose.ts deploy/compose.yaml openbot-compose.yaml image-digests
-          bun apps/cli/scripts/sign-release.ts openbot-compose.yaml desktop-release/*.AppImage
-          sha256sum openbot-compose.yaml openbot-compose.yaml.sigstore.json desktop-release/* > SHA256SUMS
+          bun scripts/render-release-compose.ts deploy/compose.yaml openteam-compose.yaml image-digests
+          bun apps/cli/scripts/sign-release.ts openteam-compose.yaml desktop-release/*.AppImage
+          sha256sum openteam-compose.yaml openteam-compose.yaml.sigstore.json desktop-release/* > SHA256SUMS
       - name: Attest release artifacts
         uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
         with:
           subject-path: |
-            openbot-compose.yaml
-            openbot-compose.yaml.sigstore.json
+            openteam-compose.yaml
+            openteam-compose.yaml.sigstore.json
             desktop-release/*
       - name: Publish GitHub release assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" openbot-compose.yaml openbot-compose.yaml.sigstore.json SHA256SUMS desktop-release/* --clobber
+            gh release upload "$GITHUB_REF_NAME" openteam-compose.yaml openteam-compose.yaml.sigstore.json SHA256SUMS desktop-release/* --clobber
           else
-            gh release create "$GITHUB_REF_NAME" openbot-compose.yaml openbot-compose.yaml.sigstore.json SHA256SUMS desktop-release/* --verify-tag --generate-notes --title "OpenBot ${{ needs.validate.outputs.version }}"
+            gh release create "$GITHUB_REF_NAME" openteam-compose.yaml openteam-compose.yaml.sigstore.json SHA256SUMS desktop-release/* --verify-tag --generate-notes --title "OpenTeam ${{ needs.validate.outputs.version }}"
           fi
 
   npm:
@@ -251,7 +251,7 @@ jobs:
           node-version: 22
           registry-url: https://registry.npmjs.org
       - run: bun install --frozen-lockfile
-      - run: bun --filter @openbot/cli build
+      - run: bun --filter @openteam/cli build
       - name: Publish CLI
         working-directory: apps/cli
         env:

@@ -15,7 +15,7 @@ afterEach(() => {
 
 describe("update transaction safety", () => {
   test("rejects concurrent updates and releases the installation lock", () => {
-    const directory = mkdtempSync(join(tmpdir(), "openbot-update-lock-"));
+    const directory = mkdtempSync(join(tmpdir(), "openteam-update-lock-"));
     temporaryDirectories.push(directory);
     const paths = installationPaths(directory);
     const release = acquireUpdateLock(paths);
@@ -27,7 +27,7 @@ describe("update transaction safety", () => {
   });
 
   test("persists update jobs atomically for reconnecting clients", () => {
-    const directory = mkdtempSync(join(tmpdir(), "openbot-update-state-"));
+    const directory = mkdtempSync(join(tmpdir(), "openteam-update-state-"));
     temporaryDirectories.push(directory);
     const paths = installationPaths(directory);
     writeUpdateState(paths, {

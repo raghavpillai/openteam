@@ -3,7 +3,7 @@ import type {
   AssetRef,
   ChannelMessageView,
   MessageDeliveryStatusView,
-} from "@openbot/contracts";
+} from "@openteam/contracts";
 import { clientErrorMessage } from "./redaction";
 
 export const DURABLE_SEND_SCHEMA_VERSION = 2;

@@ -1,5 +1,5 @@
 {
-  "name": "@openbot/client-core",
+  "name": "@openteam/client-core",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -21,6 +21,6 @@
     "test": "bun test"
   },
   "dependencies": {
-    "@openbot/contracts": "workspace:*"
+    "@openteam/contracts": "workspace:*"
   }
 }

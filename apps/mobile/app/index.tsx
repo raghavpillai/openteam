@@ -1,8 +1,8 @@
-import type { BotView, SidebarPreferences } from "@openbot/contracts";
-import { toggleSidebarUnread } from "@openbot/contracts/client-preferences";
-import { channelMessageSummary } from "@openbot/product-core/channel-events";
-import { clientErrorMessage } from "@openbot/product-core/redaction";
-import type { ChannelRowProjection } from "@openbot/product-core/snapshot";
+import type { BotView, SidebarPreferences } from "@openteam/contracts";
+import { toggleSidebarUnread } from "@openteam/contracts/client-preferences";
+import { channelMessageSummary } from "@openteam/product-core/channel-events";
+import { clientErrorMessage } from "@openteam/product-core/redaction";
+import type { ChannelRowProjection } from "@openteam/product-core/snapshot";
 import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
@@ -31,7 +31,7 @@ import {
 import { GlassSurface } from "../src/components/glass-surface";
 import { IconButton } from "../src/components/icon-button";
 import { MOBILE_VIRTUAL_LIST_TUNING, selectPinnedRows } from "../src/list-scale";
-import { useOpenBot } from "../src/state/openbot-context";
+import { useOpenTeam } from "../src/state/openteam-context";
 import { metrics, useTheme } from "../src/theme";
 
 const rosterTimeFormatter = new Intl.DateTimeFormat(undefined, {
@@ -327,7 +327,7 @@ export default function HomeScreen() {
     snapshot,
     togglePinned,
     updateSidebarPreferences,
-  } = useOpenBot();
+  } = useOpenTeam();
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionRow, setActionRow] = useState<ChannelRowProjection | null>(null);
   const [creationMenuOpen, setCreationMenuOpen] = useState(false);
@@ -352,7 +352,7 @@ export default function HomeScreen() {
     try {
       await action();
     } catch (cause) {
-      setActionError(clientErrorMessage(cause, "OpenBot could not update this conversation."));
+      setActionError(clientErrorMessage(cause, "OpenTeam could not update this conversation."));
     }
   }, []);
 
@@ -656,7 +656,7 @@ export default function HomeScreen() {
           onAskSiri={() =>
             Alert.alert(
               "Ask Siri",
-              "Add OpenBot actions from the Shortcuts app to use them with Siri."
+              "Add OpenTeam actions from the Shortcuts app to use them with Siri."
             )
           }
           onClose={() => setActionRow(null)}

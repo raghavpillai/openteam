@@ -1,5 +1,5 @@
 {
-  "name": "@openbot/server",
+  "name": "@openteam/server",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -12,9 +12,9 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.30.0",
-    "@openbot/contracts": "workspace:*",
-    "@openbot/db": "workspace:*",
-    "@openbot/messaging": "workspace:*",
+    "@openteam/contracts": "workspace:*",
+    "@openteam/db": "workspace:*",
+    "@openteam/messaging": "workspace:*",
     "better-auth": "1.7.2",
     "effect": "3.22.1",
     "pg": "8.23.0",

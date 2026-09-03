@@ -38,8 +38,8 @@ import {
   UploadAssetInput,
   WidgetDismissInput,
   WidgetResponseInput,
-} from "@openbot/contracts";
-import type { RoutineMutationInput } from "@openbot/messaging";
+} from "@openteam/contracts";
+import type { RoutineMutationInput } from "@openteam/messaging";
 import { Effect, Either } from "effect";
 import { AppService } from "./app-service";
 import { assetResponse } from "./asset-http";
@@ -59,11 +59,11 @@ import {
 import { parseAutoReviewInput } from "./services/auto-review-service";
 import { systemVersion } from "./system-version";
 
-const port = Number(process.env.OPENBOT_PORT ?? 8787);
-const controlToken = process.env.OPENBOT_CONTROL_TOKEN ?? "local-compose-only-change-me";
-const proxySecret = process.env.OPENBOT_PROXY_SECRET ?? "";
-const trustPrivateForwarder = process.env.OPENBOT_ACCESS_MODE === "proxy";
-const authMode = parseAuthMode(process.env.OPENBOT_AUTH_MODE);
+const port = Number(process.env.OPENTEAM_PORT ?? 8787);
+const controlToken = process.env.OPENTEAM_CONTROL_TOKEN ?? "local-compose-only-change-me";
+const proxySecret = process.env.OPENTEAM_PROXY_SECRET ?? "";
+const trustPrivateForwarder = process.env.OPENTEAM_ACCESS_MODE === "proxy";
+const authMode = parseAuthMode(process.env.OPENTEAM_AUTH_MODE);
 const release = systemVersion();
 
 if (process.argv[2] === "owner-credentials") {
@@ -306,7 +306,7 @@ const server = Bun.serve({
         const session = await auth.api.getSession({ headers: request.headers });
         if (!session) {
           return json(
-            { error: { code: "unauthorized", message: "Sign in to OpenBot to continue" } },
+            { error: { code: "unauthorized", message: "Sign in to OpenTeam to continue" } },
             401
           );
         }
@@ -318,7 +318,7 @@ const server = Bun.serve({
       if (request.method === "POST" && path === "/api/notification-devices") {
         if (authMode === "required" && !authenticatedSessionId) {
           return json(
-            { error: { code: "unauthorized", message: "Sign in to OpenBot to continue" } },
+            { error: { code: "unauthorized", message: "Sign in to OpenTeam to continue" } },
             401
           );
         }
@@ -585,7 +585,7 @@ const server = Bun.serve({
         }
         await run(app.finishPluginAuthentication(connectionId, code, state));
         return new Response(
-          "<!doctype html><meta charset=utf-8><title>Connected</title><style>body{font:16px system-ui;display:grid;place-items:center;min-height:100vh;margin:0;background:#171717;color:#f5f5f5}main{text-align:center}p{color:#a3a3a3}</style><main><h1>Plugin connected</h1><p>You can close this tab and return to OpenBot.</p><script>setTimeout(()=>window.close(),900)</script></main>",
+          "<!doctype html><meta charset=utf-8><title>Connected</title><style>body{font:16px system-ui;display:grid;place-items:center;min-height:100vh;margin:0;background:#171717;color:#f5f5f5}main{text-align:center}p{color:#a3a3a3}</style><main><h1>Plugin connected</h1><p>You can close this tab and return to OpenTeam.</p><script>setTimeout(()=>window.close(),900)</script></main>",
           { headers: { "content-type": "text/html; charset=utf-8" } }
         );
       }
@@ -1110,4 +1110,4 @@ const shutdown = async () => {
 process.once("SIGINT", shutdown);
 process.once("SIGTERM", shutdown);
 
-console.log(`OpenBot server listening on ${server.url}`);
+console.log(`OpenTeam server listening on ${server.url}`);

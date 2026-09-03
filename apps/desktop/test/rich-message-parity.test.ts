@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 
 const componentPath = new URL(
-  "../src/renderer/components/openbot/rich-message.tsx",
+  "../src/renderer/components/openteam/rich-message.tsx",
   import.meta.url
 );
 const stylesPath = new URL("../src/renderer/styles.css", import.meta.url);

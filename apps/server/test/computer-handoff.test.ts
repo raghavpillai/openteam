@@ -40,7 +40,9 @@ const fixture = () => {
     },
   };
   const service = new RichMessageService(
-    { $transaction: async (callback: (client: typeof tx) => Promise<unknown>) => callback(tx) } as never,
+    {
+      $transaction: async (callback: (client: typeof tx) => Promise<unknown>) => callback(tx),
+    } as never,
     {
       enqueueWake: async (_tx: unknown, input: Record<string, unknown>) => {
         wakes.push(input);

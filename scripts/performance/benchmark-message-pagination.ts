@@ -131,13 +131,15 @@ const workloads: WorkloadDefinition[] = [
 
 const iterations = Math.max(
   1,
-  Number.parseInt(process.env.OPENBOT_PAGINATION_ITERATIONS ?? `${DEFAULT_ITERATIONS}`, 10) ||
+  Number.parseInt(process.env.OPENTEAM_PAGINATION_ITERATIONS ?? `${DEFAULT_ITERATIONS}`, 10) ||
     DEFAULT_ITERATIONS
 );
 const pointSamples = Math.max(
   5,
-  Number.parseInt(process.env.OPENBOT_PAGINATION_POINT_SAMPLES ?? `${DEFAULT_POINT_SAMPLES}`, 10) ||
-    DEFAULT_POINT_SAMPLES
+  Number.parseInt(
+    process.env.OPENTEAM_PAGINATION_POINT_SAMPLES ?? `${DEFAULT_POINT_SAMPLES}`,
+    10
+  ) || DEFAULT_POINT_SAMPLES
 );
 
 let observableChecksum = 0;
@@ -1059,7 +1061,7 @@ const output = {
     fixedFixtureEpoch: new Date(FIXED_EPOCH_MS).toISOString(),
   },
   methodology: {
-    actualOpenBotHelpers: [
+    actualOpenTeamHelpers: [
       "mergeLoadedChannelHistoryPage",
       "mergeLoadedChannelMessageContext",
       "loadedChannelHistoryMessages",

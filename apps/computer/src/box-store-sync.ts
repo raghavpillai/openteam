@@ -175,17 +175,17 @@ export class BoxStoreSync {
     } = {}
   ) {
     this.storeRoot = resolve(
-      options.storeRoot ?? process.env.OPENBOT_BOX_STORE_ROOT ?? "/box-store"
+      options.storeRoot ?? process.env.OPENTEAM_BOX_STORE_ROOT ?? "/box-store"
     );
     this.manifestPath = join(this.storeRoot, "manifest.json");
     this.signatureCachePath = join(this.storeRoot, ".snapshot-signatures.json");
     this.blobsRoot = join(this.storeRoot, "blobs");
     this.home = resolve(options.home ?? process.env.HOME ?? "/home/box");
     this.sandRoot = resolve(
-      options.sandRoot ?? process.env.OPENBOT_AGENT_DATA_CANONICAL_ROOT ?? "/home/box/sand-data"
+      options.sandRoot ?? process.env.OPENTEAM_AGENT_DATA_CANONICAL_ROOT ?? "/home/box/sand-data"
     );
     this.workspaceRoot = resolve(
-      options.workspaceRoot ?? process.env.OPENBOT_WORKSPACE_ROOT ?? "/workspace"
+      options.workspaceRoot ?? process.env.OPENTEAM_WORKSPACE_ROOT ?? "/workspace"
     );
     this.hasLiveAgentHandle = options.hasLiveAgentHandle ?? (() => false);
   }
@@ -193,7 +193,7 @@ export class BoxStoreSync {
   async start(): Promise<void> {
     await mkdir(this.blobsRoot, { recursive: true, mode: 0o700 });
     await this.repairTemporaryFiles();
-    if (process.env.OPENBOT_BOX_COPY_IN === "1") await this.copyIn();
+    if (process.env.OPENTEAM_BOX_COPY_IN === "1") await this.copyIn();
     this.periodic = setInterval(() => this.scheduleSnapshot(0, { all: true }), 120_000);
     this.periodic.unref?.();
   }
@@ -484,16 +484,16 @@ export class BoxStoreSync {
       { path: this.workspaceRoot, logical: "workspace" },
       { path: join(this.home, ".pi", "agent"), logical: "home/box/.pi/agent" },
       {
-        path: join(this.home, ".openbot", "browser-authority.key"),
-        logical: "home/box/.openbot/browser-authority.key",
+        path: join(this.home, ".openteam", "browser-authority.key"),
+        logical: "home/box/.openteam/browser-authority.key",
       },
       {
-        path: join(this.home, ".openbot", "browser-authority.json.enc"),
-        logical: "home/box/.openbot/browser-authority.json.enc",
+        path: join(this.home, ".openteam", "browser-authority.json.enc"),
+        logical: "home/box/.openteam/browser-authority.json.enc",
       },
       {
-        path: join(this.home, ".openbot", "browser-profile-authority"),
-        logical: "home/box/.openbot/browser-profile-authority",
+        path: join(this.home, ".openteam", "browser-profile-authority"),
+        logical: "home/box/.openteam/browser-profile-authority",
       },
       { path: join(this.home, ".pki", "nssdb"), logical: "home/box/.pki/nssdb" },
     ];
@@ -535,7 +535,7 @@ export class BoxStoreSync {
       for (const source of sources) {
         if (
           /^home\/box\/chrome-profile(?:-\d+)?$/.test(source.logical) ||
-          /^home\/box\/\.openbot\/browser-(?:authority(?:\.key|\.json\.enc)?|profile-authority)$/.test(
+          /^home\/box\/\.openteam\/browser-(?:authority(?:\.key|\.json\.enc)?|profile-authority)$/.test(
             source.logical
           ) ||
           source.logical === "home/box/.pki/nssdb"
@@ -545,7 +545,7 @@ export class BoxStoreSync {
       }
       for (const file of manifest.files) {
         const match = file.path.match(
-          /^(home\/box\/(?:chrome-profile(?:-\d+)?|\.openbot\/browser-(?:authority(?:\.key|\.json\.enc)?|profile-authority)|\.pki\/nssdb))(?:\/|$)/
+          /^(home\/box\/(?:chrome-profile(?:-\d+)?|\.openteam\/browser-(?:authority(?:\.key|\.json\.enc)?|profile-authority)|\.pki\/nssdb))(?:\/|$)/
         );
         if (match?.[1]) prefixes.add(match[1]);
       }

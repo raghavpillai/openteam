@@ -1,7 +1,7 @@
-import type { BotView, RoutineView } from "@openbot/contracts";
-import type { BotAvatarShape } from "@openbot/contracts/bot-avatar";
-import { clientErrorMessage } from "@openbot/product-core/redaction";
-import { GROUP_MEMBER_LIMIT, toggleBoundedSelection } from "@openbot/product-core/selection";
+import type { BotView, RoutineView } from "@openteam/contracts";
+import type { BotAvatarShape } from "@openteam/contracts/bot-avatar";
+import { clientErrorMessage } from "@openteam/product-core/redaction";
+import { GROUP_MEMBER_LIMIT, toggleBoundedSelection } from "@openteam/product-core/selection";
 import { router, useLocalSearchParams, usePathname } from "expo-router";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -33,7 +33,7 @@ import {
   pendingRoutineId,
   routineIdFromPathname,
 } from "../../src/routine-route";
-import { useOpenBot } from "../../src/state/openbot-context";
+import { useOpenTeam } from "../../src/state/openteam-context";
 import { metrics, useTheme } from "../../src/theme";
 
 const routineDateFormatter = new Intl.DateTimeFormat(undefined, {
@@ -172,7 +172,7 @@ export default function ConversationDetailsScreen() {
     archiveBot,
     routines: loadRoutines,
     setRoutineEnabled,
-  } = useOpenBot();
+  } = useOpenTeam();
   const channel = snapshot.channels.find((candidate) => candidate.id === channelId);
   const isBot = channel?.kind === "bot_dm";
   const botId = isBot ? channel.members[0]?.botId : undefined;
@@ -290,7 +290,7 @@ export default function ConversationDetailsScreen() {
       })
       .catch((cause) => {
         if (active) {
-          setError(clientErrorMessage(cause, "OpenBot could not load routines."));
+          setError(clientErrorMessage(cause, "OpenTeam could not load routines."));
         }
       })
       .finally(() => {
@@ -333,7 +333,7 @@ export default function ConversationDetailsScreen() {
           current.map((candidate) => (candidate.id === updated.id ? updated : candidate))
         );
       } catch (cause) {
-        setError(clientErrorMessage(cause, "OpenBot could not update this routine."));
+        setError(clientErrorMessage(cause, "OpenTeam could not update this routine."));
       } finally {
         setRoutineMutationId(null);
       }
@@ -378,7 +378,7 @@ export default function ConversationDetailsScreen() {
       formDirtyRef.current = false;
       setSaved(true);
     } catch (cause) {
-      setError(clientErrorMessage(cause, "OpenBot could not save these changes."));
+      setError(clientErrorMessage(cause, "OpenTeam could not save these changes."));
     } finally {
       setSaving(false);
     }
@@ -537,7 +537,7 @@ export default function ConversationDetailsScreen() {
               void archiveBot(bot.id)
                 .then(() => router.replace("/"))
                 .catch((cause) =>
-                  setError(clientErrorMessage(cause, "OpenBot could not delete this Bot."))
+                  setError(clientErrorMessage(cause, "OpenTeam could not delete this Bot."))
                 ),
           },
         ]
@@ -548,7 +548,7 @@ export default function ConversationDetailsScreen() {
     };
     const toggleNotifications = () =>
       void setBotNotifications(bot.id, !bot.notificationsEnabled).catch((cause) =>
-        setError(clientErrorMessage(cause, "OpenBot could not update notifications."))
+        setError(clientErrorMessage(cause, "OpenTeam could not update notifications."))
       );
     const openMore = () => {
       if (Platform.OS === "ios") {
@@ -600,7 +600,7 @@ export default function ConversationDetailsScreen() {
               await updateBot(bot.id, { name: nextName, title: nextTitle });
               formDirtyRef.current = false;
             } catch (cause) {
-              setError(clientErrorMessage(cause, "OpenBot could not save these changes."));
+              setError(clientErrorMessage(cause, "OpenTeam could not save these changes."));
               throw cause;
             }
           }}
@@ -609,7 +609,7 @@ export default function ConversationDetailsScreen() {
             try {
               await updateBot(bot.id, { icon, color });
             } catch (cause) {
-              setError(clientErrorMessage(cause, "OpenBot could not update this character."));
+              setError(clientErrorMessage(cause, "OpenTeam could not update this character."));
               throw cause;
             }
           }}
@@ -627,7 +627,7 @@ export default function ConversationDetailsScreen() {
               setInstructions(normalized);
               formDirtyRef.current = false;
             } catch (cause) {
-              setError(clientErrorMessage(cause, "OpenBot could not save these instructions."));
+              setError(clientErrorMessage(cause, "OpenTeam could not save these instructions."));
               throw cause;
             }
           }}

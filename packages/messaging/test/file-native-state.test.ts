@@ -52,7 +52,7 @@ test("memory parser preserves raw Markdown while indexing only exact fact lines"
 });
 
 test("dreaming synthesis rejects stale and explicit edits while honoring tombstones", async () => {
-  const root = await mkdtemp(join(tmpdir(), "openbot-synthesis-"));
+  const root = await mkdtemp(join(tmpdir(), "openteam-synthesis-"));
   try {
     const explicit = await appendMemoryFact(root, "Prefers exact totals.", "profile");
     const synthesized = await appendMemoryFact(root, "The launch is planned for Friday.", "log");
@@ -114,7 +114,7 @@ test("dreaming synthesis rejects stale and explicit edits while honoring tombsto
 });
 
 test("official memory writes dedupe and forget only the first raw occurrence", async () => {
-  const root = await mkdtemp(join(tmpdir(), "openbot-memory-"));
+  const root = await mkdtemp(join(tmpdir(), "openteam-memory-"));
   try {
     const first = await appendMemoryFact(
       root,
@@ -191,7 +191,7 @@ test("skill frontmatter keeps unknown compatible fields", () => {
 });
 
 test("automation parser supports paused cron, event groups, and operational runs", async () => {
-  const root = await mkdtemp(join(tmpdir(), "openbot-automation-"));
+  const root = await mkdtemp(join(tmpdir(), "openteam-automation-"));
   try {
     const automation = join(root, "automation.json");
     await atomicWrite(
@@ -202,7 +202,7 @@ test("automation parser supports paused cron, event groups, and operational runs
         trigger: {
           type: "group",
           listeners: [
-            { type: "github", repo: "openbot/openbot", events: ["pr-opened"] },
+            { type: "github", repo: "openteam/openteam", events: ["pr-opened"] },
             { type: "slack", channel: "#ops", match: { kind: "message" } },
           ],
         },
@@ -288,7 +288,7 @@ test("automation parser supports paused cron, event groups, and operational runs
 });
 
 test("dreaming evidence uses head-tail bounds and drops malformed spool rows", async () => {
-  const root = await mkdtemp(join(tmpdir(), "openbot-evidence-"));
+  const root = await mkdtemp(join(tmpdir(), "openteam-evidence-"));
   try {
     const evidence = join(root, ".dreaming", "evidence");
     await mkdir(evidence, { recursive: true });
@@ -322,7 +322,7 @@ test("automation serialization preserves grouped cron scheduling and disk ledger
       trigger: {
         type: "group",
         listeners: [
-          { type: "github", repository: "openbot" },
+          { type: "github", repository: "openteam" },
           { type: "cron", schedule: "0 11 * * 1-5" },
         ],
       },

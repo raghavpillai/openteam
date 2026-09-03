@@ -1,4 +1,4 @@
-import type { DurableSendTelemetryEvent } from "@openbot/product-core/durable-delivery";
+import type { DurableSendTelemetryEvent } from "@openteam/product-core/durable-delivery";
 
 const MAX_DELIVERY_EVENTS = 200;
 const events: DurableSendTelemetryEvent[] = [];

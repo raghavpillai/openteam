@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { CallDynamicToolInput, GetDynamicToolsInput } from "@openbot/contracts";
+import type { CallDynamicToolInput, GetDynamicToolsInput } from "@openteam/contracts";
 import {
   type DynamicNamespaceDefinition,
   discoverDynamicTools,
@@ -12,8 +12,8 @@ const catalog = (
   status: DynamicNamespaceDefinition["namespaceStatus"] = "ready"
 ): DynamicNamespaceDefinition[] => [
   {
-    name: "openbot",
-    description: "First-party OpenBot tools",
+    name: "openteam",
+    description: "First-party OpenTeam tools",
     kind: "first-party",
     namespaceStatus: status,
     tools: [
@@ -46,7 +46,7 @@ const catalog = (
 const discover = (receipts: Set<string>, input: GetDynamicToolsInput = {}) =>
   discoverDynamicTools(catalog(), receipts, input);
 
-describe("OpenBot dynamic tool gateway", () => {
+describe("OpenTeam dynamic tool gateway", () => {
   test("catalog discovery returns schemas, truncates descriptions, and records receipts", () => {
     const receipts = new Set<string>();
     const result = discover(receipts);
@@ -56,21 +56,21 @@ describe("OpenBot dynamic tool gateway", () => {
     expect(result.namespaces[0]?.tools[0]?.inputSchema).toEqual(
       catalog()[0]?.tools[0]?.inputSchema
     );
-    expect(receipts).toEqual(new Set(["openbot/Computer", "openbot/SendToAgent"]));
+    expect(receipts).toEqual(new Set(["openteam/Computer", "openteam/SendToAgent"]));
   });
 
   test("exact lookup returns the complete descriptor", () => {
     const receipts = new Set<string>();
-    const result = discover(receipts, { namespace: "openbot", toolName: "Computer" });
+    const result = discover(receipts, { namespace: "openteam", toolName: "Computer" });
 
     expect(result.namespaces[0]?.tools).toHaveLength(1);
     expect(result.namespaces[0]?.tools[0]?.description).toBe(longDescription);
-    expect(receipts).toEqual(new Set(["openbot/Computer"]));
+    expect(receipts).toEqual(new Set(["openteam/Computer"]));
   });
 
   test("search can match a namespace or a tool name", () => {
-    const namespaceMatch = discover(new Set(), { pattern: "openbot" });
-    const toolMatch = discover(new Set(), { namespace: "openbot", pattern: "send" });
+    const namespaceMatch = discover(new Set(), { pattern: "openteam" });
+    const toolMatch = discover(new Set(), { namespace: "openteam", pattern: "send" });
 
     expect(namespaceMatch.namespaces[0]?.tools).toHaveLength(2);
     expect(toolMatch.namespaces[0]?.tools.map((tool) => tool.name)).toEqual(["SendToAgent"]);
@@ -89,14 +89,14 @@ describe("OpenBot dynamic tool gateway", () => {
   test("requires discovery and validates nested arguments before dispatch", () => {
     const receipts = new Set<string>();
     const input: CallDynamicToolInput = {
-      namespace: "openbot",
+      namespace: "openteam",
       toolName: "Computer",
       arguments: {},
     };
 
     expect(() => resolveDynamicTool(catalog(), receipts, input)).toThrow("Call GetDynamicTools");
 
-    discover(receipts, { namespace: "openbot", toolName: "Computer" });
+    discover(receipts, { namespace: "openteam", toolName: "Computer" });
     expect(() => resolveDynamicTool(catalog(), receipts, input)).toThrow("action is required");
     expect(
       resolveDynamicTool(catalog(), receipts, {
@@ -107,9 +107,9 @@ describe("OpenBot dynamic tool gateway", () => {
   });
 
   test("rechecks namespace status and rejects MCP metadata for first-party tools", () => {
-    const receipts = new Set(["openbot/Computer"]);
+    const receipts = new Set(["openteam/Computer"]);
     const input: CallDynamicToolInput = {
-      namespace: "openbot",
+      namespace: "openteam",
       toolName: "Computer",
       arguments: { action: "click" },
     };

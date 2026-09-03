@@ -1,12 +1,12 @@
-# Releasing OpenBot
+# Releasing OpenTeam
 
-The `Release OpenBot` workflow runs for tags shaped like `v1.2.3`. The tag version must exactly
+The `Release OpenTeam` workflow runs for tags shaped like `v1.2.3`. The tag version must exactly
 match the CLI, server, worker, computer, and desktop package versions.
 
 Before the first release:
 
-1. Create or claim the `@openbot` organization on npm and grant this repository's publisher access
-   to `@openbot/cli`.
+1. Create or claim the `@openteam` organization on npm and grant this repository's publisher access
+   to `@openteam/cli`.
 2. Add a package-scoped npm granular token as the repository secret `NPM_TOKEN` for the first
    publish. The workflow includes npm provenance from that first release.
 3. Ensure the repository is public, or change each new GHCR package to public after its first push.
@@ -21,12 +21,12 @@ The workflow then:
 - runs the architecture checks plus CLI, server, worker, computer, and desktop typechecks/tests;
 - publishes version-pinned `linux/amd64` and `linux/arm64` server, worker, migration, and computer
   images to GHCR from digest-pinned build stages, with provenance and SBOM attestations;
-- renders `openbot-compose.yaml` with the exact multi-architecture digest of every OpenBot image;
+- renders `openteam-compose.yaml` with the exact multi-architecture digest of every OpenTeam image;
 - signs the Compose bundle and Linux AppImage with the workflow's Sigstore identity, publishes
   GitHub build-provenance attestations, and attaches the signatures plus `SHA256SUMS`;
 - attaches signed Windows, signed and notarized macOS, and Linux desktop installers plus their
   electron-updater metadata;
-- publishes the matching `@openbot/cli` version to npm.
+- publishes the matching `@openteam/cli` version to npm.
 
 The CLI accepts only a Compose signature issued to this repository's `release.yml` workflow and the
 matching version tag. The checksum remains a fast corruption check; the Sigstore bundle establishes

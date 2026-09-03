@@ -6,4 +6,4 @@ export {
   type ChannelNameChangedEvent,
   type RoutineChangedAction,
   type RoutineChangedEvent,
-} from "@openbot/product-core/channel-events";
+} from "@openteam/product-core/channel-events";

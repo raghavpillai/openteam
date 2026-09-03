@@ -1,7 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
-const title = "OpenBot — self-hosted AI agents that keep working";
+const title = "OpenTeam — self-hosted AI agents that keep working";
 const description =
   "Give AI agents their own computer, memory, and schedule on a server you run. Hand off a job from your desktop or phone and come back to the finished result.";
 
@@ -18,8 +18,8 @@ export const metadata: Metadata = {
     description,
     type: "website",
     url: "/",
-    siteName: "OpenBot",
-    images: [{ url: "/og.png", width: 1200, height: 630, alt: "OpenBot" }],
+    siteName: "OpenTeam",
+    images: [{ url: "/og.png", width: 1200, height: 630, alt: "OpenTeam" }],
   },
   twitter: {
     card: "summary_large_image",

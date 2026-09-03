@@ -3,7 +3,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 
 const server = new Server(
-  { name: "openbot-stdio-fixture", version: "1.0.0" },
+  { name: "openteam-stdio-fixture", version: "1.0.0" },
   { capabilities: { tools: {} } }
 );
 

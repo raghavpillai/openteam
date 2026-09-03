@@ -3,7 +3,7 @@ import {
   normalizeThemePreference,
   resolveTheme,
   type ThemePreference,
-} from "@openbot/design-tokens/appearance";
+} from "@openteam/design-tokens/appearance";
 import * as SecureStore from "expo-secure-store";
 import type React from "react";
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
@@ -20,8 +20,8 @@ interface AppearanceState {
   setPreference: (preference: AppearancePreference) => Promise<void>;
 }
 
-const STORAGE_KEY = "openbot.appearance";
-const ACCENT_STORAGE_KEY = "openbot.accent";
+const STORAGE_KEY = "openteam.appearance";
+const ACCENT_STORAGE_KEY = "openteam.accent";
 const AppearanceContext = createContext<AppearanceState | null>(null);
 
 export function AppearanceProvider({ children }: { children: React.ReactNode }) {

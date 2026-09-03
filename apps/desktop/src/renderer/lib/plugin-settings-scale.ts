@@ -2,12 +2,12 @@ import type {
   PluginConnectionStatusesView,
   PluginConnectionView,
   PluginSettingsView,
-} from "@openbot/contracts";
+} from "@openteam/contracts";
 
 export {
   PLUGIN_BOT_ACCESS_PAGE_SIZE,
   PLUGIN_BOT_ACCESS_QUERY_MAX_LENGTH,
-} from "@openbot/contracts/plugin-settings";
+} from "@openteam/contracts/plugin-settings";
 
 export const pluginBotAccessWindow = <T extends { name: string }>(
   bots: readonly T[],

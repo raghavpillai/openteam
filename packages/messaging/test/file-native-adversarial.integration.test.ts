@@ -13,14 +13,14 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createPrismaClient } from "@openbot/db";
+import { createPrismaClient } from "@openteam/db";
 import { AgentDataStore } from "../src/agent-data";
 import { atomicWrite, jsonFile } from "../src/file-state";
 import { RoutineService } from "../src/routines";
 import { parseSkillFile, renderSkillFile } from "../src/skill-files";
 import { appendAgentTimelineEvent } from "../src/timeline-events";
 
-const databaseUrl = process.env.OPENBOT_TEST_DATABASE_URL;
+const databaseUrl = process.env.OPENTEAM_TEST_DATABASE_URL;
 
 const wait = (milliseconds: number) =>
   new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
@@ -55,7 +55,7 @@ test("provisioning watches preserve Grok's exact three-file creation state", asy
   if (!databaseUrl) return;
 
   const prisma = createPrismaClient(databaseUrl);
-  const temporary = await mkdtemp(join(tmpdir(), "openbot-provisioning-files-"));
+  const temporary = await mkdtemp(join(tmpdir(), "openteam-provisioning-files-"));
   const root = join(temporary, "agent-data");
   const workspace = join(temporary, "workspace");
   const botId = randomUUID();
@@ -94,7 +94,7 @@ test("live filesystem watchers, snapshots, namespaces, and deletion authority ag
   if (!databaseUrl) return;
 
   const prisma = createPrismaClient(databaseUrl);
-  const temporary = await mkdtemp(join(tmpdir(), "openbot-live-files-"));
+  const temporary = await mkdtemp(join(tmpdir(), "openteam-live-files-"));
   const root = join(temporary, "agent-data");
   const workspace = join(temporary, "workspace");
   const outsideAvatar = join(temporary, "outside.png");

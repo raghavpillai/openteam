@@ -1,10 +1,10 @@
 import { expect, test } from "bun:test";
 import type { OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
-import { OpenBotOAuthProvider, type StoredOAuthState } from "../src/plugins/oauth-provider";
+import { OpenTeamOAuthProvider, type StoredOAuthState } from "../src/plugins/oauth-provider";
 
 test("OAuth provider persists state, dynamic registration, verifier, redirect, and tokens", async () => {
   let stored: StoredOAuthState = { state: "expected-state" };
-  const provider = new OpenBotOAuthProvider({
+  const provider = new OpenTeamOAuthProvider({
     redirectUrl: "http://127.0.0.1:8787/api/v0/plugin-oauth/callback?connectionId=test",
     scope: "mail.read",
     initial: stored,

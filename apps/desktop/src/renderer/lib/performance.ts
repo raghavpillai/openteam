@@ -1,31 +1,31 @@
-export interface OpenBotPerformanceEntry {
+export interface OpenTeamPerformanceEntry {
   name: string;
   duration: number;
   at: number;
   detail?: Record<string, number | string | boolean>;
 }
 
-export type OpenBotPerformanceScenario = Record<string, number | string | boolean>;
+export type OpenTeamPerformanceScenario = Record<string, number | string | boolean>;
 
-export interface OpenBotPerformanceExport {
+export interface OpenTeamPerformanceExport {
   exportedAt: number;
-  scenario: OpenBotPerformanceScenario;
-  entries: OpenBotPerformanceEntry[];
+  scenario: OpenTeamPerformanceScenario;
+  entries: OpenTeamPerformanceEntry[];
   summary: Record<string, { count: number; average: number; p95: number; max: number }>;
-  processes: Awaited<ReturnType<NonNullable<Window["openbot"]>["getProcessMetrics"]>> | null;
+  processes: Awaited<ReturnType<NonNullable<Window["openteam"]>["getProcessMetrics"]>> | null;
 }
 
 const MAX_ENTRIES = 200;
-const fallbackEntries: OpenBotPerformanceEntry[] = [];
+const fallbackEntries: OpenTeamPerformanceEntry[] = [];
 
 interface PerformanceStore {
-  entries: OpenBotPerformanceEntry[];
+  entries: OpenTeamPerformanceEntry[];
   installed: boolean;
   revision: number;
-  scenario: OpenBotPerformanceScenario;
+  scenario: OpenTeamPerformanceScenario;
 }
 
-const currentScenario = (): OpenBotPerformanceScenario => {
+const currentScenario = (): OpenTeamPerformanceScenario => {
   const parameters = new URLSearchParams(window.location.search);
   return {
     name: parameters.get("scenario") ?? "interactive",
@@ -37,29 +37,29 @@ const currentScenario = (): OpenBotPerformanceScenario => {
     viewportWidth: window.innerWidth,
     viewportHeight: window.innerHeight,
     devicePixelRatio: window.devicePixelRatio,
-    platform: window.openbot?.platform ?? navigator.platform,
-    electron: window.openbot?.versions.electron ?? "browser",
-    chrome: window.openbot?.versions.chrome ?? "browser",
+    platform: window.openteam?.platform ?? navigator.platform,
+    electron: window.openteam?.versions.electron ?? "browser",
+    chrome: window.openteam?.versions.chrome ?? "browser",
   };
 };
 
 const getStore = (): PerformanceStore | null => {
   if (typeof window === "undefined") return null;
-  if (!window.__openbotPerformanceStore) {
-    window.__openbotPerformanceStore = {
+  if (!window.__openteamPerformanceStore) {
+    window.__openteamPerformanceStore = {
       entries: [],
       installed: false,
       revision: 0,
       scenario: currentScenario(),
     };
   }
-  return window.__openbotPerformanceStore;
+  return window.__openteamPerformanceStore;
 };
 
 export function recordPerformance(
   name: string,
   duration: number,
-  detail?: OpenBotPerformanceEntry["detail"]
+  detail?: OpenTeamPerformanceEntry["detail"]
 ) {
   const store = getStore();
   const entries = store?.entries ?? fallbackEntries;
@@ -68,7 +68,7 @@ export function recordPerformance(
   if (store) store.revision += 1;
 }
 
-export function measureUntilNextPaint(name: string, detail?: OpenBotPerformanceEntry["detail"]) {
+export function measureUntilNextPaint(name: string, detail?: OpenTeamPerformanceEntry["detail"]) {
   const startedAt = performance.now();
   requestAnimationFrame(() => {
     window.setTimeout(() => recordPerformance(name, performance.now() - startedAt, detail), 0);
@@ -86,7 +86,7 @@ export function installPerformanceMonitoring() {
       store.revision += 1;
     },
     metadata: () => ({ ...store.scenario }),
-    setScenario: (metadata: OpenBotPerformanceScenario) => {
+    setScenario: (metadata: OpenTeamPerformanceScenario) => {
       store.scenario = { ...store.scenario, ...metadata };
       store.revision += 1;
     },
@@ -112,17 +112,17 @@ export function installPerformanceMonitoring() {
         })
       );
     },
-    export: async (): Promise<OpenBotPerformanceExport> => ({
+    export: async (): Promise<OpenTeamPerformanceExport> => ({
       exportedAt: Date.now(),
       scenario: { ...store.scenario },
       entries: store.entries.slice(),
       summary: debug.summary(),
-      processes: window.openbot?.getProcessMetrics
-        ? await window.openbot.getProcessMetrics().catch(() => null)
+      processes: window.openteam?.getProcessMetrics
+        ? await window.openteam.getProcessMetrics().catch(() => null)
         : null,
     }),
   };
-  Object.defineProperty(window, "openbotPerformance", {
+  Object.defineProperty(window, "openteamPerformance", {
     configurable: true,
     value: debug,
   });
@@ -132,11 +132,11 @@ export function installPerformanceMonitoring() {
     const publish = () => {
       if (publishedRevision === store.revision) return;
       publishedRevision = store.revision;
-      document.documentElement.dataset.openbotPerformance = JSON.stringify(debug.summary());
-      document.documentElement.dataset.openbotPerformanceRecent = JSON.stringify(
+      document.documentElement.dataset.openteamPerformance = JSON.stringify(debug.summary());
+      document.documentElement.dataset.openteamPerformanceRecent = JSON.stringify(
         store.entries.slice(-50)
       );
-      document.documentElement.dataset.openbotPerformanceScenario = JSON.stringify(
+      document.documentElement.dataset.openteamPerformanceScenario = JSON.stringify(
         debug.metadata()
       );
     };
@@ -187,14 +187,14 @@ export function installPerformanceMonitoring() {
 
 declare global {
   interface Window {
-    __openbotPerformanceStore?: PerformanceStore;
-    openbotPerformance?: {
-      snapshot: () => OpenBotPerformanceEntry[];
+    __openteamPerformanceStore?: PerformanceStore;
+    openteamPerformance?: {
+      snapshot: () => OpenTeamPerformanceEntry[];
       clear: () => void;
-      metadata: () => OpenBotPerformanceScenario;
-      setScenario: (metadata: OpenBotPerformanceScenario) => void;
+      metadata: () => OpenTeamPerformanceScenario;
+      setScenario: (metadata: OpenTeamPerformanceScenario) => void;
       summary: () => Record<string, { count: number; average: number; p95: number; max: number }>;
-      export: () => Promise<OpenBotPerformanceExport>;
+      export: () => Promise<OpenTeamPerformanceExport>;
     };
   }
 }

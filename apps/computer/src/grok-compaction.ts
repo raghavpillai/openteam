@@ -1117,7 +1117,7 @@ export interface GrokPreparedCompaction {
   tokensBefore: number;
   usage?: GrokSummaryUsage;
   details: {
-    openbotGrokCompaction: true;
+    openteamGrokCompaction: true;
     id: string;
     contextSessionId: string;
     reason: GrokCompactionReason;
@@ -1550,7 +1550,7 @@ export class GrokCompactionCoordinator {
       tokensBefore: input.tokensBefore,
       usage: result.usage,
       details: {
-        openbotGrokCompaction: true,
+        openteamGrokCompaction: true,
         id: pending.id,
         contextSessionId: input.contextSessionId,
         reason: pending.reason,

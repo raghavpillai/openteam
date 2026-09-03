@@ -17,28 +17,28 @@ COPY packages/messaging/package.json packages/messaging/package.json
 COPY packages/product-core/package.json packages/product-core/package.json
 COPY patches ./patches
 COPY vendor/sheetjs/xlsx-0.20.3.tgz vendor/sheetjs/xlsx-0.20.3.tgz
-RUN bun install --frozen-lockfile --production --filter @openbot/computer
+RUN bun install --frozen-lockfile --production --filter @openteam/computer
 COPY apps/computer ./apps/computer
 COPY packages/contracts ./packages/contracts
-RUN bun --filter @openbot/computer build
+RUN bun --filter @openteam/computer build
 
 FROM debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171 AS desktop-assets
 
 RUN apt-get update \
   && apt-get install -y --no-install-recommends imagemagick \
   && rm -rf /var/lib/apt/lists/* \
-  && convert -size 1280x800 'gradient:#35383c-#151719' /tmp/openbot-wallpaper-base.png \
+  && convert -size 1280x800 'gradient:#35383c-#151719' /tmp/openteam-wallpaper-base.png \
   && convert -size 1280x800 xc:none \
     -fill none \
     -stroke 'rgba(220,222,224,0.20)' \
     -strokewidth 150 \
     -draw "path 'M -180,930 C 260,610 600,770 760,470 C 900,205 1040,130 1430,-80'" \
     -blur 0x22 \
-    /tmp/openbot-wallpaper-ribbon.png \
+    /tmp/openteam-wallpaper-ribbon.png \
   && composite \
-    /tmp/openbot-wallpaper-ribbon.png \
-    /tmp/openbot-wallpaper-base.png \
-    /openbot-wallpaper.png
+    /tmp/openteam-wallpaper-ribbon.png \
+    /tmp/openteam-wallpaper-base.png \
+    /openteam-wallpaper.png
 
 FROM oven/bun:1.3.8-slim@sha256:68fc2eac7f5dcfc2f69a81d1db02786ab08772eda2e4404eae785c038f8d2e41 AS runtime
 
@@ -90,21 +90,21 @@ COPY --from=build --chown=box:box /app/node_modules /app/node_modules
 COPY --from=build --chown=box:box /app/apps/computer/node_modules /app/apps/computer/node_modules
 COPY --from=build --chown=box:box /app/apps/computer/dist/main.js /app/apps/computer/dist/main.js
 COPY --from=build --chown=box:box /app/apps/computer/dist/provider-cli.js /app/apps/computer/dist/provider-cli.js
-COPY --chown=box:box docker/computer-entrypoint.sh /usr/local/bin/openbot-computer-entrypoint
-COPY --chown=box:box docker/openbot-pi-auth /usr/local/bin/openbot-pi-auth
-COPY --chown=box:box docker/desktop /usr/share/openbot-desktop
-COPY --chown=box:box docker/openbot-screen-launch /usr/local/bin/openbot-screen-launch
-COPY --chown=box:box docker/openbot-vnc.html /usr/share/novnc/openbot.html
-COPY --from=desktop-assets /openbot-wallpaper.png /usr/share/openbot-desktop/wallpaper.png
+COPY --chown=box:box docker/computer-entrypoint.sh /usr/local/bin/openteam-computer-entrypoint
+COPY --chown=box:box docker/openteam-pi-auth /usr/local/bin/openteam-pi-auth
+COPY --chown=box:box docker/desktop /usr/share/openteam-desktop
+COPY --chown=box:box docker/openteam-screen-launch /usr/local/bin/openteam-screen-launch
+COPY --chown=box:box docker/openteam-vnc.html /usr/share/novnc/openteam.html
+COPY --from=desktop-assets /openteam-wallpaper.png /usr/share/openteam-desktop/wallpaper.png
 RUN chmod 0755 \
-    /usr/local/bin/openbot-computer-entrypoint \
-    /usr/local/bin/openbot-pi-auth \
-    /usr/local/bin/openbot-screen-launch
+    /usr/local/bin/openteam-computer-entrypoint \
+    /usr/local/bin/openteam-pi-auth \
+    /usr/local/bin/openteam-screen-launch
 
 ENV HOME=/home/box
-ENV OPENBOT_PI_AGENT_DIR=/home/box/.pi/agent
+ENV OPENTEAM_PI_AGENT_DIR=/home/box/.pi/agent
 WORKDIR /workspace
 USER root:box
 EXPOSE 8790 6200-6299
-ENTRYPOINT ["tini", "--", "openbot-computer-entrypoint"]
+ENTRYPOINT ["tini", "--", "openteam-computer-entrypoint"]
 CMD ["bun", "/app/apps/computer/dist/main.js"]

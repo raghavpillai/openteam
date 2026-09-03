@@ -8,14 +8,14 @@ import type {
   RunItemView,
   RunView,
   SubagentActivityView,
-} from "@openbot/contracts";
+} from "@openteam/contracts";
 import {
   createSnapshotIndex,
   indexA2AAgentNames,
   type SnapshotIndex,
   selectActiveRun,
-} from "@openbot/product-core/snapshot";
-import { ACTIVE_RUN_STATUSES } from "@openbot/product-core/statuses";
+} from "@openteam/product-core/snapshot";
+import { ACTIVE_RUN_STATUSES } from "@openteam/product-core/statuses";
 import { useMemo, useRef } from "react";
 
 export { ACTIVE_RUN_STATUSES, createSnapshotIndex, type SnapshotIndex };

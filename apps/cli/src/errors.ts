@@ -1,4 +1,4 @@
-import { safeErrorMessage } from "@openbot/product-core/redaction";
+import { safeErrorMessage } from "@openteam/product-core/redaction";
 
 export class CliError extends Error {
   constructor(

@@ -18,7 +18,7 @@ const action: HostAction = {
 };
 
 const store = async () => {
-  const directory = await mkdtemp(join(tmpdir(), "openbot-host-policy-"));
+  const directory = await mkdtemp(join(tmpdir(), "openteam-host-policy-"));
   temporaryDirectories.push(directory);
   return createPermissionSettingsStore(join(directory, "settings.json"));
 };

@@ -7,21 +7,21 @@ import type {
   RuntimeRequestSource,
   RuntimeInlineImage,
   SubagentType,
-} from "@openbot/contracts";
-import { SEND_TO_USER_REPLY_NUDGE_PROMPT } from "@openbot/contracts";
-import { formatPiModelRef } from "@openbot/contracts";
+} from "@openteam/contracts";
+import { SEND_TO_USER_REPLY_NUDGE_PROMPT } from "@openteam/contracts";
+import { formatPiModelRef } from "@openteam/contracts";
 import {
   COMPUTER_API_PATHS,
   parseAgentDirectorySnapshot,
   parseComputerEvent,
   type AgentDirectoryRecord,
-} from "@openbot/contracts/service-protocol";
+} from "@openteam/contracts/service-protocol";
 import {
   agentNotificationPresentation,
   notificationMessageInputReason,
   notificationMessagePreview,
-} from "@openbot/contracts";
-import { createPrismaClient, Prisma, type PrismaClient } from "@openbot/db";
+} from "@openteam/contracts";
+import { createPrismaClient, Prisma, type PrismaClient } from "@openteam/db";
 import {
   appendAgentTimelineEvent,
   AgentDataStore,
@@ -31,7 +31,7 @@ import {
   PRIORITY,
   RoutineService,
   renderSubagentRevivalPrompt,
-} from "@openbot/messaging";
+} from "@openteam/messaging";
 import { fromPrisma, type Job, type JobWithMetadata, PgBoss } from "pg-boss";
 import { pluginRuntimeContext } from "./plugins";
 import { Projection } from "./projection";
@@ -315,9 +315,9 @@ export class WakeWorker {
     const databaseUrl = process.env.DATABASE_URL ?? "";
     this.prisma = createPrismaClient(databaseUrl);
     this.boss = new PgBoss(databaseUrl);
-    this.computerUrl = process.env.OPENBOT_COMPUTER_URL ?? "http://127.0.0.1:8790";
-    this.controlToken = process.env.OPENBOT_CONTROL_TOKEN ?? "local-compose-only-change-me";
-    this.workspaceRoot = process.env.OPENBOT_WORKSPACE_ROOT ?? "/workspace";
+    this.computerUrl = process.env.OPENTEAM_COMPUTER_URL ?? "http://127.0.0.1:8790";
+    this.controlToken = process.env.OPENTEAM_CONTROL_TOKEN ?? "local-compose-only-change-me";
+    this.workspaceRoot = process.env.OPENTEAM_WORKSPACE_ROOT ?? "/workspace";
     this.agentData = new AgentDataStore(this.prisma, {
       memoryInference: async (request) => {
         const inference = await this.agentData.loadInferenceSettings();
@@ -373,7 +373,7 @@ export class WakeWorker {
       "bot-wake",
       {
         batchSize: 1,
-        localConcurrency: Number(process.env.OPENBOT_WORKER_CONCURRENCY ?? 8),
+        localConcurrency: Number(process.env.OPENTEAM_WORKER_CONCURRENCY ?? 8),
       },
       async (jobs) => {
         const job = jobs[0];
@@ -1530,7 +1530,7 @@ export class WakeWorker {
               runId: claimed.runId,
               title: presentation.title,
               body: presentation.body,
-              deepLink: `openbot:///chat/${channel.id}`,
+              deepLink: `openteam:///chat/${channel.id}`,
             }
           );
         }

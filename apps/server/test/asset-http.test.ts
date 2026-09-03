@@ -3,14 +3,14 @@ import { createHash } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { AssetStore } from "@openbot/messaging";
+import { AssetStore } from "@openteam/messaging";
 import { assetResponse } from "../src/asset-http";
 
 const roots: string[] = [];
 const noAgentAttachment = { agentAttachmentPath: async () => null };
 
 const fixture = async () => {
-  const root = await mkdtemp(join(tmpdir(), "openbot-asset-http-"));
+  const root = await mkdtemp(join(tmpdir(), "openteam-asset-http-"));
   roots.push(root);
   const assets = new AssetStore({ root: join(root, "assets"), allowedFileRoots: [root] });
   const ref = await assets.ingestBytes({
@@ -29,7 +29,7 @@ describe("bounded asset HTTP responses", () => {
   test("serves immutable content with a sanitized inline filename", async () => {
     const { assets, ref } = await fixture();
     let fallbackLookups = 0;
-    const url = new URL(`http://openbot.test/api/v0/assets/${ref.assetId}?name=../report.txt`);
+    const url = new URL(`http://openteam.test/api/v0/assets/${ref.assetId}?name=../report.txt`);
     const response = await assetResponse(
       assets,
       {
@@ -56,16 +56,16 @@ describe("bounded asset HTTP responses", () => {
   });
 
   test("declares UTF-8 for textual attachments so native browser previews preserve Unicode", async () => {
-    const root = await mkdtemp(join(tmpdir(), "openbot-asset-http-unicode-"));
+    const root = await mkdtemp(join(tmpdir(), "openteam-asset-http-unicode-"));
     roots.push(root);
     const assets = new AssetStore({ root: join(root, "assets"), allowedFileRoots: [root] });
-    const content = "OpenBot — 日本語 — box ├─ child";
+    const content = "OpenTeam — 日本語 — box ├─ child";
     const ref = await assets.ingestBytes({
       fileName: "readme.md",
       mimeType: "text/markdown",
       bytes: Buffer.from(content),
     });
-    const url = new URL(`http://openbot.test/api/v0/assets/${ref.assetId}?name=readme.md`);
+    const url = new URL(`http://openteam.test/api/v0/assets/${ref.assetId}?name=readme.md`);
     const response = await assetResponse(
       assets,
       noAgentAttachment,
@@ -80,7 +80,7 @@ describe("bounded asset HTTP responses", () => {
 
   test("supports exact, suffix, and HEAD ranges", async () => {
     const { assets, ref } = await fixture();
-    const url = new URL(`http://openbot.test/api/v0/assets/${ref.assetId}`);
+    const url = new URL(`http://openteam.test/api/v0/assets/${ref.assetId}`);
     const exact = await assetResponse(
       assets,
       noAgentAttachment,
@@ -114,7 +114,7 @@ describe("bounded asset HTTP responses", () => {
 
   test("rejects malformed and out-of-bounds ranges", async () => {
     const { assets, ref } = await fixture();
-    const url = new URL(`http://openbot.test/api/v0/assets/${ref.assetId}?download=1`);
+    const url = new URL(`http://openteam.test/api/v0/assets/${ref.assetId}?download=1`);
     for (const range of ["bytes=", "bytes=10-12", "bytes=7-2", "bytes=0-1,4-5"]) {
       const response = await assetResponse(
         assets,
@@ -129,14 +129,14 @@ describe("bounded asset HTTP responses", () => {
   });
 
   test("serves the agent-local attachment after staging metadata is gone", async () => {
-    const root = await mkdtemp(join(tmpdir(), "openbot-agent-attachment-http-"));
+    const root = await mkdtemp(join(tmpdir(), "openteam-agent-attachment-http-"));
     roots.push(root);
     const bytes = Buffer.from("agent-local-authority");
     const assetId = createHash("sha256").update(bytes).digest("hex");
     const path = join(root, `${assetId}.txt`);
     await writeFile(path, bytes);
     const assets = new AssetStore({ root: join(root, "empty-staging"), allowedFileRoots: [root] });
-    const url = new URL(`http://openbot.test/api/v0/assets/${assetId}?name=local.txt`);
+    const url = new URL(`http://openteam.test/api/v0/assets/${assetId}?name=local.txt`);
     const response = await assetResponse(
       assets,
       { agentAttachmentPath: async () => path },

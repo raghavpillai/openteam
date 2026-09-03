@@ -5,13 +5,13 @@ describe("mobile server configuration", () => {
   test("normalizes an HTTPS endpoint", () => {
     expect(
       normalizeServerConnection({
-        serverUrl: " https://openbot.example.test/// ",
+        serverUrl: " https://openteam.example.test/// ",
       })
-    ).toEqual({ serverUrl: "https://openbot.example.test" });
+    ).toEqual({ serverUrl: "https://openteam.example.test" });
   });
 
   test("rejects non-network URLs", () => {
-    expect(() => normalizeServerConnection({ serverUrl: "file:///tmp/openbot" })).toThrow(
+    expect(() => normalizeServerConnection({ serverUrl: "file:///tmp/openteam" })).toThrow(
       "HTTP or HTTPS"
     );
   });
@@ -27,9 +27,9 @@ describe("mobile server configuration", () => {
   test("preserves a reverse-proxy path", () => {
     expect(
       normalizeServerConnection({
-        serverUrl: "https://example.test/openbot/",
+        serverUrl: "https://example.test/openteam/",
       })
-    ).toEqual({ serverUrl: "https://example.test/openbot" });
+    ).toEqual({ serverUrl: "https://example.test/openteam" });
   });
 
   test("rejects credentials, queries, and fragments in an endpoint", () => {
@@ -37,9 +37,9 @@ describe("mobile server configuration", () => {
       normalizeServerConnection({ serverUrl: "https://owner:secret@example.test" })
     ).toThrow("without a username or password");
     expect(() =>
-      normalizeServerConnection({ serverUrl: "https://example.test?tenant=openbot" })
+      normalizeServerConnection({ serverUrl: "https://example.test?tenant=openteam" })
     ).toThrow("without a query or fragment");
-    expect(() => normalizeServerConnection({ serverUrl: "https://example.test#openbot" })).toThrow(
+    expect(() => normalizeServerConnection({ serverUrl: "https://example.test#openteam" })).toThrow(
       "without a query or fragment"
     );
   });

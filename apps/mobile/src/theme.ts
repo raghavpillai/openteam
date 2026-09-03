@@ -3,7 +3,7 @@ import {
   mobileDarkTheme,
   mobileLightTheme,
   mobileMetrics,
-} from "@openbot/design-tokens/mobile-theme";
+} from "@openteam/design-tokens/mobile-theme";
 import { useAppearance } from "./appearance";
 
 export const lightTheme = mobileLightTheme;

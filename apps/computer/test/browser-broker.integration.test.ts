@@ -88,7 +88,7 @@ describe("live browser origin-state reconciliation", () => {
   });
 
   test("routes an origin change from one bot browser into another", async () => {
-    home = await mkdtemp(join(tmpdir(), "openbot-browser-broker-"));
+    home = await mkdtemp(join(tmpdir(), "openteam-browser-broker-"));
     const alpha = fakeBrowser({
       origin: "https://example.com",
       capturedAt: new Date().toISOString(),

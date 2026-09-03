@@ -1,14 +1,14 @@
-name: openbot-performance-audit
+name: openteam-performance-audit
 
 services:
   postgres:
     image: postgres:17-alpine
     environment:
-      POSTGRES_DB: openbot_perf_audit
-      POSTGRES_USER: openbot
-      POSTGRES_PASSWORD: openbot-perf-local-only
+      POSTGRES_DB: openteam_perf_audit
+      POSTGRES_USER: openteam
+      POSTGRES_PASSWORD: openteam-perf-local-only
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U openbot -d openbot_perf_audit"]
+      test: ["CMD-SHELL", "pg_isready -U openteam -d openteam_perf_audit"]
       interval: 1s
       timeout: 3s
       retries: 60
@@ -21,7 +21,7 @@ services:
       dockerfile: docker/app.Dockerfile
       target: migrate
     environment:
-      DATABASE_URL: postgresql://openbot:openbot-perf-local-only@postgres:5432/openbot_perf_audit
+      DATABASE_URL: postgresql://openteam:openteam-perf-local-only@postgres:5432/openteam_perf_audit
     depends_on:
       postgres:
         condition: service_healthy
@@ -45,7 +45,7 @@ services:
     image: oven/bun:1.3.8-slim
     command: ["bun", "/audit/stub-computer.ts"]
     environment:
-      OPENBOT_COMPUTER_PORT: 8790
+      OPENTEAM_COMPUTER_PORT: 8790
     volumes:
       - ./stub-computer.ts:/audit/stub-computer.ts:ro
 
@@ -55,16 +55,16 @@ services:
       dockerfile: docker/app.Dockerfile
       target: server
     environment:
-      DATABASE_URL: postgresql://openbot:openbot-perf-local-only@postgres:5432/openbot_perf_audit
-      OPENBOT_PORT: 8787
-      OPENBOT_COMPUTER_URL: http://computer:8790
-      OPENBOT_CONTROL_TOKEN: performance-audit-local-only
-      OPENBOT_AUTH_SECRET: performance-audit-auth-secret-local-only
-      OPENBOT_AUTH_MODE: disabled
-      OPENBOT_WORKSPACE_ROOT: /workspace
-      OPENBOT_AGENT_DATA_ROOT: /home/openbot/agent-data
-      OPENBOT_ASSET_ROOT: /asset-store
-      OPENBOT_SCREEN_VIEWER_HOST: 127.0.0.1
+      DATABASE_URL: postgresql://openteam:openteam-perf-local-only@postgres:5432/openteam_perf_audit
+      OPENTEAM_PORT: 8787
+      OPENTEAM_COMPUTER_URL: http://computer:8790
+      OPENTEAM_CONTROL_TOKEN: performance-audit-local-only
+      OPENTEAM_AUTH_SECRET: performance-audit-auth-secret-local-only
+      OPENTEAM_AUTH_MODE: disabled
+      OPENTEAM_WORKSPACE_ROOT: /workspace
+      OPENTEAM_AGENT_DATA_ROOT: /home/openteam/agent-data
+      OPENTEAM_ASSET_ROOT: /asset-store
+      OPENTEAM_SCREEN_VIEWER_HOST: 127.0.0.1
     depends_on:
       agent-data-init:
         condition: service_completed_successfully
@@ -77,7 +77,7 @@ services:
     ports:
       - "127.0.0.1:8877:8787"
     volumes:
-      - agent-data:/home/openbot/agent-data
+      - agent-data:/home/openteam/agent-data
       - asset-store:/asset-store
 
 volumes:

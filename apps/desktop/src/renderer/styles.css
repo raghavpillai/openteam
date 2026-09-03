@@ -1024,7 +1024,7 @@ textarea,
   animation: settings-anchor-pulse 1.8s ease-out;
 }
 
-.openbot-document-preview {
+.openteam-document-preview {
   font:
     14px / 1.55 -apple-system,
     BlinkMacSystemFont,
@@ -1033,58 +1033,58 @@ textarea,
     sans-serif;
 }
 
-.openbot-document-preview h1,
-.openbot-document-preview h2,
-.openbot-document-preview h3 {
+.openteam-document-preview h1,
+.openteam-document-preview h2,
+.openteam-document-preview h3 {
   margin: 1.3em 0 0.55em;
   font-weight: 650;
   line-height: 1.25;
 }
 
-.openbot-document-preview h1 {
+.openteam-document-preview h1 {
   font-size: 24px;
 }
 
-.openbot-document-preview h2 {
+.openteam-document-preview h2 {
   font-size: 19px;
 }
 
-.openbot-document-preview h3 {
+.openteam-document-preview h3 {
   font-size: 16px;
 }
 
-.openbot-document-preview p,
-.openbot-document-preview ul,
-.openbot-document-preview ol,
-.openbot-document-preview table {
+.openteam-document-preview p,
+.openteam-document-preview ul,
+.openteam-document-preview ol,
+.openteam-document-preview table {
   margin: 0 0 0.85em;
 }
 
-.openbot-document-preview ul,
-.openbot-document-preview ol {
+.openteam-document-preview ul,
+.openteam-document-preview ol {
   padding-left: 1.5em;
 }
 
-.openbot-document-preview table {
+.openteam-document-preview table {
   width: 100%;
   border-collapse: collapse;
   font-size: 12px;
 }
 
-.openbot-document-preview th,
-.openbot-document-preview td {
+.openteam-document-preview th,
+.openteam-document-preview td {
   border: 1px solid #d9d9d9;
   padding: 6px 8px;
   text-align: left;
   vertical-align: top;
 }
 
-.openbot-document-preview th {
+.openteam-document-preview th {
   background: #f3f3f3;
   font-weight: 600;
 }
 
-.openbot-document-preview img {
+.openteam-document-preview img {
   max-width: 100%;
   height: auto;
 }

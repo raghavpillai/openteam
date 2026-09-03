@@ -39,7 +39,7 @@ afterEach(async () => {
 });
 
 const workspace = async (): Promise<string> => {
-  const path = await mkdtemp(join(tmpdir(), "openbot-grok-compaction-"));
+  const path = await mkdtemp(join(tmpdir(), "openteam-grok-compaction-"));
   directories.push(path);
   return path;
 };

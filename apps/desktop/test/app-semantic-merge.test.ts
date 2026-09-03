@@ -10,7 +10,7 @@ describe("desktop App semantic merge", () => {
       rendererSource("hooks/use-bot-row-actions.ts"),
     ]);
 
-    expect(app).toContain("window.addEventListener(OPENBOT_DEEP_LINK_EVENT, handleDeepLink)");
+    expect(app).toContain("window.addEventListener(OPENTEAM_DEEP_LINK_EVENT, handleDeepLink)");
     expect(app).toContain("setSettingsTarget({ anchor: target.anchor, nonce: Date.now() })");
     expect(app).toContain("setPluginTarget({ pluginId: target.pluginId, nonce: Date.now() })");
     expect(app).toContain(".markChannelRead(channelId, throughSequence)");
@@ -44,7 +44,7 @@ describe("desktop App semantic merge", () => {
       "search-dialog",
       "settings-panel",
     ]) {
-      expect(app).toContain(`import("./components/openbot/${module}")`);
+      expect(app).toContain(`import("./components/openteam/${module}")`);
     }
     expect(app).toContain(".slice(0, 3)");
     expect(app).toContain("void ensureMessageLoaded(channelId, messageId)");

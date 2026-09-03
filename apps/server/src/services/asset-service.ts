@@ -1,5 +1,5 @@
-import { ApiError } from "@openbot/contracts";
-import { REGULAR_ASSET_LIMIT, VIDEO_ASSET_LIMIT } from "@openbot/messaging";
+import { ApiError } from "@openteam/contracts";
+import { REGULAR_ASSET_LIMIT, VIDEO_ASSET_LIMIT } from "@openteam/messaging";
 
 const VIDEO_EXTENSIONS = new Set(["avi", "m4v", "mkv", "mov", "mp4", "mpeg", "mpg", "webm"]);
 

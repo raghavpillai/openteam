@@ -1,5 +1,5 @@
-import type { ScreenActionInput, ScreenStatusView } from "@openbot/contracts";
-import { clientErrorMessage } from "@openbot/product-core/redaction";
+import type { ScreenActionInput, ScreenStatusView } from "@openteam/contracts";
+import { clientErrorMessage } from "@openteam/product-core/redaction";
 import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
@@ -33,7 +33,7 @@ import {
   screenPointFromComputer,
   updateComputerViewport,
 } from "../../src/computer-viewport";
-import { useOpenBot } from "../../src/state/openbot-context";
+import { useOpenTeam } from "../../src/state/openteam-context";
 
 type ScreenApp = ScreenStatusView["apps"][number];
 
@@ -52,11 +52,11 @@ function FixtureDesktop() {
           <View style={[styles.fixtureDot, { backgroundColor: "#FEBC2E" }]} />
           <View style={[styles.fixtureDot, { backgroundColor: "#28C840" }]} />
           <View style={styles.fixtureAddress}>
-            <Text style={styles.fixtureAddressText}>openbot.local</Text>
+            <Text style={styles.fixtureAddressText}>openteam.local</Text>
           </View>
         </View>
         <View style={styles.fixtureContent}>
-          <Text style={styles.fixtureHeading}>Sign in to OpenBot</Text>
+          <Text style={styles.fixtureHeading}>Sign in to OpenTeam</Text>
           <View style={styles.fixtureField}>
             <Text style={styles.fixtureFieldText}>you@example.com</Text>
           </View>
@@ -160,7 +160,7 @@ export default function ComputerScreen() {
     screenStatus,
     setScreenTakeover,
     snapshot,
-  } = useOpenBot();
+  } = useOpenTeam();
   const bot = snapshot.bots.find((candidate) => candidate.id === botId);
   const [status, setStatus] = useState<ScreenStatusView | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -679,7 +679,7 @@ export default function ComputerScreen() {
         <View style={styles.titlePill}>
           <BotMark color={bot?.color ?? "#8057F5"} icon={bot?.icon} size={26} />
           <Text numberOfLines={1} style={styles.title}>
-            {bot?.name ?? "OpenBot"}
+            {bot?.name ?? "OpenTeam"}
           </Text>
         </View>
         <View style={styles.headerActions}>

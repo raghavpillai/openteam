@@ -24,9 +24,9 @@ const integerSetting = (name: string, fallback: number) => {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
 };
 
-const baseUrl = (process.env.OPENBOT_PERF_BASE_URL ?? "http://127.0.0.1:8877").replace(/\/$/, "");
-const warmupCount = integerSetting("OPENBOT_PAGINATION_WARMUPS", 3);
-const sampleCount = Math.max(1, integerSetting("OPENBOT_PAGINATION_SAMPLES", 20));
+const baseUrl = (process.env.OPENTEAM_PERF_BASE_URL ?? "http://127.0.0.1:8877").replace(/\/$/, "");
+const warmupCount = integerSetting("OPENTEAM_PAGINATION_WARMUPS", 3);
+const sampleCount = Math.max(1, integerSetting("OPENTEAM_PAGINATION_SAMPLES", 20));
 const depthTargets = [0, 100, 1_000, 5_000, 9_900, 10_000] as const;
 const utf8 = new TextEncoder();
 
@@ -299,7 +299,7 @@ const output = JSON.stringify(
   null,
   2
 );
-if (process.env.OPENBOT_AUDIT_OUTPUT) {
-  await Bun.write(process.env.OPENBOT_AUDIT_OUTPUT, `${output}\n`);
+if (process.env.OPENTEAM_AUDIT_OUTPUT) {
+  await Bun.write(process.env.OPENTEAM_AUDIT_OUTPUT, `${output}\n`);
 }
 console.log(output);

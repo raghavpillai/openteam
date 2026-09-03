@@ -12,8 +12,8 @@ import {
   type SubagentType,
   TODO_MAX_ITEMS,
   type TranscriptEventView,
-} from "@openbot/contracts";
-import { Prisma, type PrismaClient } from "@openbot/db";
+} from "@openteam/contracts";
+import { Prisma, type PrismaClient } from "@openteam/db";
 import { fromPrisma, type PgBoss } from "pg-boss";
 import { AgentDataStore, type AgentPromptContext } from "./agent-data";
 import { AssetStore, MAX_MESSAGE_ASSETS } from "./asset-store";
@@ -477,8 +477,8 @@ export const subagentSpecializationInstructions = (type: SubagentType): string =
       "- Work in a tight see-act-verify loop. Inspect the screen, act, then read the one fresh screenshot returned after the entire Computer call. A then sequence returns only its final screen, so batch only steps that need no intermediate visual decision.",
       "- Let moving or loading UI settle. Recover from a missed click before continuing, and never type after a click that did not focus the intended field.",
       "- Clear a field that may already contain text with Control+a and BackSpace before replacing it. Verify keyboard shortcuts opened and focused their intended UI before typing or pressing Enter.",
-      "- For browser work, launch this screen's Chromium at a known URL with `openbot-screen-launch chromium 'https://example.com'`; never launch another browser or download browser binaries. Navigate directly to exact or constructible URLs.",
-      "- Shell receives the exact DISPLAY and OPENBOT_BROWSER_DEBUG_PORT for this desktop. Packaged playwright-core may connect to that CDP endpoint for browser bring-up, recovery, or inspecting a stuck page, but Computer remains the source of truth for what the user sees. Never probe another display or port.",
+      "- For browser work, launch this screen's Chromium at a known URL with `openteam-screen-launch chromium 'https://example.com'`; never launch another browser or download browser binaries. Navigate directly to exact or constructible URLs.",
+      "- Shell receives the exact DISPLAY and OPENTEAM_BROWSER_DEBUG_PORT for this desktop. Packaged playwright-core may connect to that CDP endpoint for browser bring-up, recovery, or inspecting a stuck page, but Computer remains the source of truth for what the user sees. Never probe another display or port.",
       "- Keep tabs tidy without closing unsaved work, active uploads, login challenges, or tabs whose purpose is uncertain. Never use `pkill -f`; terminate an exact PID instead.",
       "- Do not inspect cookies, browser storage, auth headers, password fields, hidden inputs, tokens, or unrelated account data. Redact sensitive values from the report.",
       "- If the task reaches a password, 2FA, CAPTCHA, payment, legal acceptance, or another human-only step, stop and identify the exact screen and blocker so the parent can request takeover.",
@@ -507,7 +507,7 @@ export const subagentSpecializationInstructions = (type: SubagentType): string =
   if (type === "videoReview" || type === "watchVideo") {
     return "Review the supplied media frames directly. The original video path is also available to Shell and Read when file-based inspection helps.";
   }
-  return "Use Shell, Read, and the other native tools for general execution on the shared OpenBot computer.";
+  return "Use Shell, Read, and the other native tools for general execution on the shared OpenTeam computer.";
 };
 
 const json = (value: unknown): Prisma.InputJsonValue =>
@@ -1191,7 +1191,7 @@ export class AgentMessaging {
       .filter(Boolean)
       .join("\n");
     const content = [
-      "[OpenBot first start]",
+      "[OpenTeam first start]",
       "",
       "This is your first turn after creation. The user did not send a message.",
       "Open your direct conversation using SendToUser. Do not represent this wake as a user message.",
@@ -1893,7 +1893,7 @@ export class AgentMessaging {
         bot.subagentIdentity.subagentType as SubagentType
       );
       const instructions = [
-        `You are OpenBot running as the ${bot.subagentIdentity.subagentType} subagent.`,
+        `You are OpenTeam running as the ${bot.subagentIdentity.subagentType} subagent.`,
         "Complete the delegated task autonomously, then end your turn with a concise final assistant message in plain text. Only that final assistant message is relayed back to the parent agent as your result; text from earlier assistant messages is not included.",
         "You have no way to talk to the user directly. Do not call SendToUser or SendToAgent.",
         specialization,
@@ -2049,7 +2049,7 @@ export class AgentMessaging {
     const instructions = [
       agentPrompt.profileSection,
       bot.instructions ? `Additional durable instructions:\n${bot.instructions}` : "",
-      "SendToUser is your only user-visible voice. Plain assistant text is internal and never appears in OpenBot chat.",
+      "SendToUser is your only user-visible voice. Plain assistant text is internal and never appears in OpenTeam chat.",
       "Use GetDynamicTools with namespace cursor to discover SendToAgent, ListAgents/ListGroups, TodoWrite, Task/CheckSubagent/MessageSubagent/StopSubagent, CreateAgent/UpdateAgent, and CreateChannel/UpdateChannel. Invoke discovered tools with CallDynamicTool.",
       A2A_PLATFORM_INSTRUCTIONS,
       MAIN_AGENT_GRAPHICAL_DELEGATION_INSTRUCTIONS,

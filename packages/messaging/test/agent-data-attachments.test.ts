@@ -3,13 +3,13 @@ import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AssetRef } from "@openbot/contracts";
+import type { AssetRef } from "@openteam/contracts";
 import { AgentDataStore } from "../src";
 
 const roots: string[] = [];
 
 const fixture = async (activeAtCommit: boolean) => {
-  const root = await mkdtemp(join(tmpdir(), "openbot-materialized-attachments-"));
+  const root = await mkdtemp(join(tmpdir(), "openteam-materialized-attachments-"));
   roots.push(root);
   const dataRoot = join(root, "agent-data");
   const assetRoot = join(root, "assets");
@@ -118,7 +118,7 @@ describe("agent attachment materialization", () => {
   });
 
   test("revalidates cached legacy paths and rescans after external changes", async () => {
-    const root = await mkdtemp(join(tmpdir(), "openbot-agent-attachment-cache-"));
+    const root = await mkdtemp(join(tmpdir(), "openteam-agent-attachment-cache-"));
     roots.push(root);
     const agentsRoot = join(root, "agents");
     const assetId = "a".repeat(64);

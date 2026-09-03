@@ -20,7 +20,7 @@ describe("main-agent graphical delegation instructions", () => {
   test("gives computerUse the documented recovery and safety loop", () => {
     const instructions = subagentSpecializationInstructions("computerUse");
     expect(instructions).toContain("tight see-act-verify loop");
-    expect(instructions).toContain("OPENBOT_BROWSER_DEBUG_PORT");
+    expect(instructions).toContain("OPENTEAM_BROWSER_DEBUG_PORT");
     expect(instructions).toContain("playwright-core");
     expect(instructions).toContain("Never use `pkill -f`");
     expect(instructions).toContain("You cannot talk to the user directly");

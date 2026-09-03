@@ -24,7 +24,7 @@ afterEach(() => {
   clearCodeHighlighterCaches();
 });
 
-describe("OpenBot code highlighter", () => {
+describe("OpenTeam code highlighter", () => {
   test("retains bundled language aliases and the configured light/dark colors", async () => {
     expect(code.supportsLanguage("ts")).toBe(true);
     expect(code.supportsLanguage("PYTHON")).toBe(true);

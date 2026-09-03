@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 const source = () =>
-  Bun.file(new URL("../src/renderer/components/openbot/chat-pane.tsx", import.meta.url)).text();
+  Bun.file(new URL("../src/renderer/components/openteam/chat-pane.tsx", import.meta.url)).text();
 const productSource = () =>
   Bun.file(new URL("../../../packages/product-core/src/activity.ts", import.meta.url)).text();
 const styles = () => Bun.file(new URL("../src/renderer/styles.css", import.meta.url)).text();
@@ -12,7 +12,7 @@ describe("Grok permission UI parity", () => {
     expect(value).toContain('aria-label="Local tool permission"');
     expect(value).toContain('aria-label="Deny once"');
     expect(value).toContain(
-      "This applies to OpenBot and every Bot. It can always be changed in Settings."
+      "This applies to OpenTeam and every Bot. It can always be changed in Settings."
     );
     expect(value).toContain("Always allow");
     expect(value).toContain("Allow once");

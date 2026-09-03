@@ -1,17 +1,17 @@
 import { describe, expect, test } from "bun:test";
 import { authRequestWithClientIp } from "../src/auth-request";
 
-const proxySecret = "openbot-test-proxy-secret-that-is-at-least-32-characters";
+const proxySecret = "openteam-test-proxy-secret-that-is-at-least-32-characters";
 
 describe("authentication client attribution", () => {
   test("ignores spoofed forwarding headers on a direct request", async () => {
-    const request = new Request("http://openbot.test/api/auth/login", {
+    const request = new Request("http://openteam.test/api/auth/login", {
       method: "POST",
       headers: {
         "content-type": "application/json",
         "x-forwarded-for": "198.51.100.8",
-        "x-openbot-client-ip": "198.51.100.9",
-        "x-openbot-proxy": "wrong-secret",
+        "x-openteam-client-ip": "198.51.100.9",
+        "x-openteam-proxy": "wrong-secret",
       },
       body: JSON.stringify({ username: "owner" }),
     });
@@ -23,9 +23,9 @@ describe("authentication client attribution", () => {
       await request.text()
     );
 
-    expect(attributed.headers.get("x-openbot-client-ip")).toBe("203.0.113.7");
+    expect(attributed.headers.get("x-openteam-client-ip")).toBe("203.0.113.7");
     expect(attributed.headers.has("x-forwarded-for")).toBe(false);
-    expect(attributed.headers.has("x-openbot-proxy")).toBe(false);
+    expect(attributed.headers.has("x-openteam-proxy")).toBe(false);
   });
 
   test("accepts Caddy's client address only with the shared proxy proof", () => {
@@ -33,7 +33,7 @@ describe("authentication client attribution", () => {
       headers: {
         "x-forwarded-for": "198.51.100.8",
         "x-forwarded-proto": "https",
-        "x-openbot-proxy": proxySecret,
+        "x-openteam-proxy": proxySecret,
       },
     });
     const attributed = authRequestWithClientIp(
@@ -42,7 +42,7 @@ describe("authentication client attribution", () => {
       proxySecret
     );
 
-    expect(attributed.headers.get("x-openbot-client-ip")).toBe("198.51.100.8");
+    expect(attributed.headers.get("x-openteam-client-ip")).toBe("198.51.100.8");
     expect(attributed.headers.has("x-forwarded-proto")).toBe(false);
   });
 
@@ -59,7 +59,7 @@ describe("authentication client attribution", () => {
       { trustPrivateForwarder: true }
     );
 
-    expect(attributed.headers.get("x-openbot-client-ip")).toBe("198.51.100.42");
+    expect(attributed.headers.get("x-openteam-client-ip")).toBe("198.51.100.42");
   });
 
   test("does not trust a client-prepended forwarded address", () => {
@@ -75,7 +75,7 @@ describe("authentication client attribution", () => {
       { trustPrivateForwarder: true }
     );
 
-    expect(attributed.headers.get("x-openbot-client-ip")).toBe("198.51.100.42");
+    expect(attributed.headers.get("x-openteam-client-ip")).toBe("198.51.100.42");
   });
 
   test("recognizes IPv4-mapped and private IPv6 proxy addresses", () => {
@@ -91,7 +91,7 @@ describe("authentication client attribution", () => {
         { trustPrivateForwarder: true }
       );
 
-      expect(attributed.headers.get("x-openbot-client-ip")).toBe("2001:db8::42");
+      expect(attributed.headers.get("x-openteam-client-ip")).toBe("2001:db8::42");
     }
   });
 });

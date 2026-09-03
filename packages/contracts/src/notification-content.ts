@@ -55,7 +55,7 @@ const agentNotificationTypeCatalog = {
   },
   "agent-done": {
     title: (botName: string) => botName,
-    fallbackBody: "Open OpenBot to see what it did.",
+    fallbackBody: "Open OpenTeam to see what it did.",
     sound: null,
     urgency: "normal",
   },
@@ -85,7 +85,7 @@ export const agentNotificationPresentation = (input: {
   body?: string | null;
 }): AgentNotificationPresentation => {
   const definition = agentNotificationTypeCatalog[input.kind];
-  const botName = normalizeNotificationText(input.botName) || "OpenBot";
+  const botName = normalizeNotificationText(input.botName) || "OpenTeam";
   return {
     title: definition.title(botName),
     body: truncateNotificationText(input.body?.trim() ? input.body : definition.fallbackBody),
@@ -144,7 +144,7 @@ export const notificationMessagePreview = (message: {
       (typeof metadata.respondedValue === "string" || metadata.widgetDismissed === true)) ||
     (["secret-request", "secret_request"].includes(type) && metadata.secretProvided === true)
   ) {
-    return "Open OpenBot to see what it did.";
+    return "Open OpenTeam to see what it did.";
   }
   if (message.content?.trim()) return truncateNotificationText(message.content);
   const attachments = Array.isArray(metadata.attachments) ? metadata.attachments : [];
@@ -166,5 +166,5 @@ export const notificationMessagePreview = (message: {
   }
   if (["email_draft", "slack_draft"].includes(type)) return "Prepared a draft for you.";
   if (type === "widget" || type === "user_form") return "Asked you to answer a question.";
-  return "Open OpenBot to see what it did.";
+  return "Open OpenTeam to see what it did.";
 };

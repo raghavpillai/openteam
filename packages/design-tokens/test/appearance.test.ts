@@ -1,9 +1,5 @@
 import { expect, test } from "bun:test";
-import {
-  nativeThemePreference,
-  normalizeThemePreference,
-  resolveTheme,
-} from "../src/appearance";
+import { nativeThemePreference, normalizeThemePreference, resolveTheme } from "../src/appearance";
 
 test("appearance preferences normalize and resolve predictably", () => {
   expect(normalizeThemePreference("dark")).toBe("dark");

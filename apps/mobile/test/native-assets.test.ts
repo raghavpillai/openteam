@@ -17,27 +17,27 @@ const pngHeader = (bytes: Uint8Array) => {
 describe("checked-in iOS brand assets", () => {
   test("ships an opaque 1024px App Store icon", async () => {
     const catalogRoot = new URL(
-      "../ios/OpenBot/Images.xcassets/AppIcon.appiconset/",
+      "../ios/OpenTeam/Images.xcassets/AppIcon.appiconset/",
       import.meta.url
     );
     const icon = pngHeader(
-      await bytesAt("../ios/OpenBot/Images.xcassets/AppIcon.appiconset/OpenBot-App-Icon-v2.png")
+      await bytesAt("../ios/OpenTeam/Images.xcassets/AppIcon.appiconset/OpenTeam-App-Icon-v2.png")
     );
     expect(icon).toEqual({ width: 1024, height: 1024, colorType: 2 });
 
     const catalog = JSON.parse(
       await Bun.file(
-        new URL("../ios/OpenBot/Images.xcassets/AppIcon.appiconset/Contents.json", import.meta.url)
+        new URL("../ios/OpenTeam/Images.xcassets/AppIcon.appiconset/Contents.json", import.meta.url)
       ).text()
     ) as { images?: Array<{ filename?: string }> };
-    expect(catalog.images?.[0]?.filename).toBe("OpenBot-App-Icon-v2.png");
+    expect(catalog.images?.[0]?.filename).toBe("OpenTeam-App-Icon-v2.png");
     expect((await readdir(catalogRoot)).filter((fileName) => fileName.endsWith(".png"))).toEqual([
-      "OpenBot-App-Icon-v2.png",
+      "OpenTeam-App-Icon-v2.png",
     ]);
   });
 
   test("provides every scale referenced by the launch storyboard", async () => {
-    const root = "../ios/OpenBot/Images.xcassets/SplashScreenLogo.imageset/";
+    const root = "../ios/OpenTeam/Images.xcassets/SplashScreenLogo.imageset/";
     for (const [fileName, size] of [
       ["SplashScreenLogo.png", 120],
       ["SplashScreenLogo@2x.png", 240],
@@ -49,7 +49,7 @@ describe("checked-in iOS brand assets", () => {
       expect([4, 6]).toContain(image.colorType);
     }
     const storyboard = await Bun.file(
-      new URL("../ios/OpenBot/SplashScreen.storyboard", import.meta.url)
+      new URL("../ios/OpenTeam/SplashScreen.storyboard", import.meta.url)
     ).text();
     expect(storyboard).toContain('image="SplashScreenLogo"');
     expect(storyboard).not.toContain('image="SplashScreen"');

@@ -1,4 +1,4 @@
-const port = Number(process.env.OPENBOT_COMPUTER_PORT ?? 8790);
+const port = Number(process.env.OPENTEAM_COMPUTER_PORT ?? 8790);
 
 const screenStatus = (botId: string) => ({
   botId,
@@ -53,4 +53,4 @@ Bun.serve({
   },
 });
 
-console.log(`OpenBot performance-audit computer stub listening on ${port}`);
+console.log(`OpenTeam performance-audit computer stub listening on ${port}`);

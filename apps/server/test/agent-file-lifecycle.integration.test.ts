@@ -3,20 +3,20 @@ import { access, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:f
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { createPrismaClient } from "@openbot/db";
-import { AgentDataStore, AssetStore, RoutineService } from "@openbot/messaging";
+import { createPrismaClient } from "@openteam/db";
+import { AgentDataStore, AssetStore, RoutineService } from "@openteam/messaging";
 import { Effect } from "effect";
 import type { PgBoss } from "pg-boss";
 import { BotService } from "../src/services/bot-service";
 import { ScreenService } from "../src/services/screen-service";
 
-const databaseUrl = process.env.OPENBOT_TEST_DATABASE_URL;
+const databaseUrl = process.env.OPENTEAM_TEST_DATABASE_URL;
 
 test("canonical avatars serve safely and sidebar deletion preserves global memory shards", async () => {
   if (!databaseUrl) return;
 
   const prisma = createPrismaClient(databaseUrl);
-  const temporary = await mkdtemp(join(tmpdir(), "openbot-agent-lifecycle-"));
+  const temporary = await mkdtemp(join(tmpdir(), "openteam-agent-lifecycle-"));
   const root = join(temporary, "agent-data");
   const workspace = join(temporary, "workspace");
   const botId = crypto.randomUUID();

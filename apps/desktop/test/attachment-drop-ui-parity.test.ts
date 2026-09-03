@@ -8,7 +8,7 @@ const promptInputSource = readFileSync(
   "utf8"
 );
 const chatPaneSource = readFileSync(
-  new URL("../src/renderer/components/openbot/chat-pane.tsx", import.meta.url),
+  new URL("../src/renderer/components/openteam/chat-pane.tsx", import.meta.url),
   "utf8"
 );
 

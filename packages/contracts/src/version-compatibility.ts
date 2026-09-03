@@ -1,13 +1,13 @@
-export const OPENBOT_API_PROTOCOL_VERSION = 1;
+export const OPENTEAM_API_PROTOCOL_VERSION = 1;
 
-export interface OpenBotClientCompatibilityPolicy {
+export interface OpenTeamClientCompatibilityPolicy {
   minimumClientVersion?: string | null;
   maximumClientVersionExclusive?: string | null;
   recommendedClientVersion?: string | null;
   minimumServerVersion?: string | null;
 }
 
-interface ParsedOpenBotVersion {
+interface ParsedOpenTeamVersion {
   major: number;
   minor: number;
   patch: number;
@@ -18,7 +18,7 @@ interface ParsedOpenBotVersion {
 const VERSION_PATTERN =
   /^v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
 
-const parseOpenBotVersion = (value: string | null | undefined): ParsedOpenBotVersion | null => {
+const parseOpenTeamVersion = (value: string | null | undefined): ParsedOpenTeamVersion | null => {
   if (!value) return null;
   const match = value.trim().match(VERSION_PATTERN);
   if (!match) return null;
@@ -42,7 +42,10 @@ const parseOpenBotVersion = (value: string | null | undefined): ParsedOpenBotVer
 const compareNumericIdentifiers = (left: string, right: string) =>
   left.length === right.length ? (left < right ? -1 : 1) : left.length - right.length;
 
-const compareParsedVersions = (left: ParsedOpenBotVersion, right: ParsedOpenBotVersion): number => {
+const compareParsedVersions = (
+  left: ParsedOpenTeamVersion,
+  right: ParsedOpenTeamVersion
+): number => {
   for (const key of ["major", "minor", "patch"] as const) {
     if (left[key] !== right[key]) return left[key] - right[key];
   }
@@ -68,22 +71,23 @@ const compareParsedVersions = (left: ParsedOpenBotVersion, right: ParsedOpenBotV
   return 0;
 };
 
-export const normalizeOpenBotVersion = (value: string): string | null =>
-  parseOpenBotVersion(value)?.normalized ?? null;
+export const normalizeOpenTeamVersion = (value: string): string | null =>
+  parseOpenTeamVersion(value)?.normalized ?? null;
 
-export const isOpenBotVersion = (value: string): boolean => normalizeOpenBotVersion(value) !== null;
+export const isOpenTeamVersion = (value: string): boolean =>
+  normalizeOpenTeamVersion(value) !== null;
 
-export const compareOpenBotVersions = (left: string, right: string): number | null => {
-  const a = parseOpenBotVersion(left);
-  const b = parseOpenBotVersion(right);
+export const compareOpenTeamVersions = (left: string, right: string): number | null => {
+  const a = parseOpenTeamVersion(left);
+  const b = parseOpenTeamVersion(right);
   return a && b ? compareParsedVersions(a, b) : null;
 };
 
 /** Patch releases in the same minor line are compatible unless a release widens the window. */
-export const defaultOpenBotCompatibilityWindow = (
+export const defaultOpenTeamCompatibilityWindow = (
   releaseVersion: string
 ): { minimum: string; maximumExclusive: string } | null => {
-  const parsed = parseOpenBotVersion(releaseVersion);
+  const parsed = parseOpenTeamVersion(releaseVersion);
   if (!parsed) return null;
   return {
     minimum: `${parsed.major}.${parsed.minor}.0`,
@@ -91,39 +95,39 @@ export const defaultOpenBotCompatibilityWindow = (
   };
 };
 
-export type OpenBotCompatibilityState =
+export type OpenTeamCompatibilityState =
   | "compatible"
   | "update-recommended"
   | "client-update-required"
   | "server-update-required"
   | "unknown";
 
-export const openBotCompatibility = (
+export const openTeamCompatibility = (
   clientVersion: string,
   serverVersion: string | null,
-  serverProtocolVersion: number | null = OPENBOT_API_PROTOCOL_VERSION,
-  policy: OpenBotClientCompatibilityPolicy = {}
-): OpenBotCompatibilityState => {
-  const client = parseOpenBotVersion(clientVersion);
-  const server = parseOpenBotVersion(serverVersion);
+  serverProtocolVersion: number | null = OPENTEAM_API_PROTOCOL_VERSION,
+  policy: OpenTeamClientCompatibilityPolicy = {}
+): OpenTeamCompatibilityState => {
+  const client = parseOpenTeamVersion(clientVersion);
+  const server = parseOpenTeamVersion(serverVersion);
   if (!client || !server || !Number.isInteger(serverProtocolVersion)) return "unknown";
 
-  if ((serverProtocolVersion as number) > OPENBOT_API_PROTOCOL_VERSION) {
+  if ((serverProtocolVersion as number) > OPENTEAM_API_PROTOCOL_VERSION) {
     return "client-update-required";
   }
-  if ((serverProtocolVersion as number) < OPENBOT_API_PROTOCOL_VERSION) {
+  if ((serverProtocolVersion as number) < OPENTEAM_API_PROTOCOL_VERSION) {
     return "server-update-required";
   }
 
-  const serverWindow = defaultOpenBotCompatibilityWindow(server.normalized);
-  const clientWindow = defaultOpenBotCompatibilityWindow(client.normalized);
-  const minimumClient = parseOpenBotVersion(
+  const serverWindow = defaultOpenTeamCompatibilityWindow(server.normalized);
+  const clientWindow = defaultOpenTeamCompatibilityWindow(client.normalized);
+  const minimumClient = parseOpenTeamVersion(
     policy.minimumClientVersion ?? serverWindow?.minimum ?? ""
   );
-  const maximumClient = parseOpenBotVersion(
+  const maximumClient = parseOpenTeamVersion(
     policy.maximumClientVersionExclusive ?? serverWindow?.maximumExclusive ?? ""
   );
-  const minimumServer = parseOpenBotVersion(
+  const minimumServer = parseOpenTeamVersion(
     policy.minimumServerVersion ?? clientWindow?.minimum ?? ""
   );
   if (!minimumClient || !maximumClient || !minimumServer) return "unknown";

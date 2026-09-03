@@ -3,10 +3,10 @@ import { normalizeServerConnection, type ServerConnectionConfig } from "./server
 
 export { normalizeServerConnection, type ServerConnectionConfig } from "./server-config-core";
 
-const SERVER_URL_KEY = "openbot.server-url.v1";
-const LEGACY_ACCESS_TOKEN_KEY = "openbot.api-access-token.v1";
+const SERVER_URL_KEY = "openteam.server-url.v1";
+const LEGACY_ACCESS_TOKEN_KEY = "openteam.api-access-token.v1";
 
-const bundledServerUrl = process.env.EXPO_PUBLIC_OPENBOT_API_URL?.trim() ?? "";
+const bundledServerUrl = process.env.EXPO_PUBLIC_OPENTEAM_API_URL?.trim() ?? "";
 
 const discardLegacyAccessToken = async (): Promise<void> => {
   await SecureStore.deleteItemAsync(LEGACY_ACCESS_TOKEN_KEY).catch(() => undefined);

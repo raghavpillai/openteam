@@ -7,7 +7,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { AppearanceProvider, useAppearance } from "../src/appearance";
 import { AuthGate } from "../src/components/auth-gate";
 import { channelIdFromNotificationResponse, Notifications } from "../src/notifications";
-import { OpenBotProvider } from "../src/state/openbot-context";
+import { OpenTeamProvider } from "../src/state/openteam-context";
 import { darkTheme, lightTheme } from "../src/theme";
 
 function NotificationNavigation() {
@@ -47,7 +47,7 @@ function RootNavigation() {
         <ThemeProvider value={navigationTheme}>
           <StatusBar style={dark ? "light" : "dark"} />
           <AuthGate>
-            <OpenBotProvider>
+            <OpenTeamProvider>
               <NotificationNavigation />
               <Stack
                 screenOptions={{
@@ -80,7 +80,7 @@ function RootNavigation() {
                   }}
                 />
               </Stack>
-            </OpenBotProvider>
+            </OpenTeamProvider>
           </AuthGate>
         </ThemeProvider>
       </SafeAreaProvider>

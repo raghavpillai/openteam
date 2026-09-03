@@ -6,12 +6,12 @@ import { Effect } from "effect";
 import { AppService } from "../../server/src/app-service";
 import { WakeWorker } from "../src/worker";
 
-const databaseUrl = process.env.OPENBOT_TEST_DATABASE_URL;
+const databaseUrl = process.env.OPENTEAM_TEST_DATABASE_URL;
 
 test("live 1:1 A2A mirrors both home stores and wakes both agents without a pair store", async () => {
   if (!databaseUrl) return;
 
-  const workspace = join(tmpdir(), `openbot-a2a-live-${crypto.randomUUID()}`);
+  const workspace = join(tmpdir(), `openteam-a2a-live-${crypto.randomUUID()}`);
   await mkdir(workspace, { recursive: true });
   const parityImagePath = join(workspace, "parity-pixel.png");
   await writeFile(
@@ -148,7 +148,7 @@ test("live 1:1 A2A mirrors both home stores and wakes both agents without a pair
         const turnId = `turn-${turnNumber}`;
         const itemId = `agent-${turnNumber}`;
         const sessionPath =
-          input.sessionPath ?? `/var/lib/openbot/pi/${input.contextSessionId}.jsonl`;
+          input.sessionPath ?? `/var/lib/openteam/pi/${input.contextSessionId}.jsonl`;
         const text = `turn ${turnNumber} complete`;
         const events = [
           {
@@ -201,10 +201,10 @@ test("live 1:1 A2A mirrors both home stores and wakes both agents without a pair
   });
 
   process.env.DATABASE_URL = databaseUrl;
-  process.env.OPENBOT_COMPUTER_URL = `http://127.0.0.1:${fakeComputer.port}`;
-  process.env.OPENBOT_CONTROL_TOKEN = "a2a-live-control-token";
-  process.env.OPENBOT_WORKSPACE_ROOT = workspace;
-  process.env.OPENBOT_AGENT_DATA_ROOT = join(workspace, "agent-data");
+  process.env.OPENTEAM_COMPUTER_URL = `http://127.0.0.1:${fakeComputer.port}`;
+  process.env.OPENTEAM_CONTROL_TOKEN = "a2a-live-control-token";
+  process.env.OPENTEAM_WORKSPACE_ROOT = workspace;
+  process.env.OPENTEAM_AGENT_DATA_ROOT = join(workspace, "agent-data");
 
   try {
     app = new AppService();
@@ -379,7 +379,7 @@ Current routine runtime status. This snapshot is authoritative for this turn and
       sourceProjection.map((message) => message.content)
     );
     const capture = {
-      run: "openbot-live-a2a-capture",
+      run: "openteam-live-a2a-capture",
       agents: {
         source: { id: sourceId, name: "Source", homeChannelId: source.dmChannelId },
         probe: { id: probeId, name: "Parity Probe", homeChannelId: probe.dmChannelId },
@@ -413,10 +413,10 @@ Current routine runtime status. This snapshot is authoritative for this turn and
       clientSourceHomeStore: clientSourceRows,
     };
     const captureJson = `${JSON.stringify(capture, null, 2)}\n`;
-    if (process.env.OPENBOT_A2A_CAPTURE_PATH) {
-      await writeFile(process.env.OPENBOT_A2A_CAPTURE_PATH, captureJson, "utf8");
+    if (process.env.OPENTEAM_A2A_CAPTURE_PATH) {
+      await writeFile(process.env.OPENTEAM_A2A_CAPTURE_PATH, captureJson, "utf8");
     }
-    if (process.env.OPENBOT_A2A_PRINT_CAPTURE === "1") console.log(captureJson.trimEnd());
+    if (process.env.OPENTEAM_A2A_PRINT_CAPTURE === "1") console.log(captureJson.trimEnd());
   } finally {
     if (worker) await worker.stop();
     if (app) await Effect.runPromise(app.close());

@@ -1,4 +1,4 @@
-import type { BotAvatarShape } from "@openbot/contracts/bot-avatar";
+import type { BotAvatarShape } from "@openteam/contracts/bot-avatar";
 
 export const BOT_AVATAR_VIEW_BOX = "0 0 40 40";
 

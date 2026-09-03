@@ -1,4 +1,4 @@
-export const COMPUTER_HANDOFF_OPEN_EVENT = "openbot:computer-handoff-open";
+export const COMPUTER_HANDOFF_OPEN_EVENT = "openteam:computer-handoff-open";
 
 export interface ComputerHandoffOpenDetail {
   botId: string;

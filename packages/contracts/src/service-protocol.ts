@@ -234,7 +234,7 @@ export interface HostApprovalTokens {
 
 export interface HostApprovalRequest {
   gate: "local" | "auto-review";
-  requestMethod: "openbot/localTool" | "openbot/autoReview";
+  requestMethod: "openteam/localTool" | "openteam/autoReview";
   details: Record<string, unknown>;
 }
 
@@ -398,7 +398,7 @@ export const parseHostAutoReviewRequest = (value: unknown): HostAutoReviewReques
 export const isHostApprovalRequest = (value: unknown): value is HostApprovalRequest =>
   isRecord(value) &&
   (value.gate === "local" || value.gate === "auto-review") &&
-  (value.requestMethod === "openbot/localTool" || value.requestMethod === "openbot/autoReview") &&
+  (value.requestMethod === "openteam/localTool" || value.requestMethod === "openteam/autoReview") &&
   isRecord(value.details);
 
 export const parseHostReadResponse = (value: unknown): HostReadResponse => {

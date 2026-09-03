@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { Prisma } from "@openbot/db";
+import type { Prisma } from "@openteam/db";
 
 export const toJson = (value: unknown): Prisma.InputJsonValue =>
   JSON.parse(

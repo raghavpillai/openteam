@@ -4,17 +4,17 @@ import type {
   PluginCatalogItemView,
   PluginConnectionView,
   PluginSettingsView,
-} from "@openbot/contracts";
+} from "@openteam/contracts";
 import {
   PLUGIN_BOT_ACCESS_PAGE_SIZE,
   PLUGIN_BOT_ACCESS_QUERY_MAX_LENGTH,
-} from "@openbot/contracts/plugin-settings";
+} from "@openteam/contracts/plugin-settings";
 import {
   executePluginAccessTransition,
   planPluginConnectionGrant,
   planPluginSkillAccess,
-} from "@openbot/product-core/plugin-access";
-import { clientErrorMessage } from "@openbot/product-core/redaction";
+} from "@openteam/product-core/plugin-access";
+import { clientErrorMessage } from "@openteam/product-core/redaction";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -30,7 +30,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useOpenBot } from "../state/openbot-context";
+import { useOpenTeam } from "../state/openteam-context";
 import { useTheme } from "../theme";
 
 const emptySettings = (): PluginSettingsView => ({
@@ -65,7 +65,7 @@ export function PluginManagerSheet({
     setPluginEnablement,
     setPluginGrant,
     uninstallPlugin,
-  } = useOpenBot();
+  } = useOpenTeam();
   const [data, setData] = useState<PluginSettingsView>(emptySettings);
   const [loading, setLoading] = useState(false);
   const [mutationKey, setMutationKey] = useState<string | null>(null);
@@ -91,7 +91,7 @@ export function PluginManagerSheet({
       if (settingsRequestId.current === requestId) setData(next);
     } catch (cause) {
       if (settingsRequestId.current === requestId) {
-        setError(clientErrorMessage(cause, "OpenBot could not load plugins."));
+        setError(clientErrorMessage(cause, "OpenTeam could not load plugins."));
       }
     } finally {
       if (settingsRequestId.current === requestId) setLoading(false);
@@ -115,7 +115,7 @@ export function PluginManagerSheet({
         if (options.refreshSettings !== false) await refresh();
       } catch (cause) {
         options.rollback?.();
-        setError(clientErrorMessage(cause, "OpenBot could not update this plugin."));
+        setError(clientErrorMessage(cause, "OpenTeam could not update this plugin."));
       } finally {
         mutationInFlight.current = false;
         setMutationKey(null);
@@ -165,7 +165,7 @@ export function PluginManagerSheet({
           })
           .catch((cause) => {
             if (!controller.signal.aborted) {
-              setError(clientErrorMessage(cause, "OpenBot could not load Bot access."));
+              setError(clientErrorMessage(cause, "OpenTeam could not load Bot access."));
             }
           })
           .finally(() => {
@@ -412,7 +412,7 @@ export function PluginManagerSheet({
                       onPress={() =>
                         Alert.alert(
                           `Remove ${install.name}?`,
-                          "This disconnects its accounts and removes it from OpenBot.",
+                          "This disconnects its accounts and removes it from OpenTeam.",
                           [
                             { text: "Cancel", style: "cancel" },
                             {

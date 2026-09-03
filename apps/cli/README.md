@@ -1,45 +1,45 @@
-# OpenBot CLI
+# OpenTeam CLI
 
-Install and manage the self-hosted OpenBot server stack. It requires Docker with Compose 2.20 or
+Install and manage the self-hosted OpenTeam server stack. It requires Docker with Compose 2.20 or
 newer, plus either Bun or Node 20.17+ to launch the CLI.
 
 ```sh
-bunx --bun @openbot/cli install
+bunx --bun @openteam/cli install
 ```
 
 The same package can be run with Node:
 
 ```sh
-npx @openbot/cli install
+npx @openteam/cli install
 ```
 
 ## Commands
 
 ```text
-openbot install
-openbot setup
-openbot doctor
-openbot status
-openbot update
-openbot stop
-openbot start
-openbot logs
-openbot provider list
-openbot provider login [provider]
-openbot provider logout [provider]
-openbot provider add <id> --name <name> --base-url <url> --api <protocol> --model <id>
-openbot provider remove <id>
-openbot model list [provider]
-openbot model use <provider> <model> [--thinking <level>]
-openbot account update
-openbot password reset
-openbot uninstall
+openteam install
+openteam setup
+openteam doctor
+openteam status
+openteam update
+openteam stop
+openteam start
+openteam logs
+openteam provider list
+openteam provider login [provider]
+openteam provider logout [provider]
+openteam provider add <id> --name <name> --base-url <url> --api <protocol> --model <id>
+openteam provider remove <id>
+openteam model list [provider]
+openteam model use <provider> <model> [--thinking <level>]
+openteam account update
+openteam password reset
+openteam uninstall
 ```
 
-`openbot install` enters staged setup in the same command. The standalone `openbot setup` command
+`openteam install` enters staged setup in the same command. The standalone `openteam setup` command
 reconfigures an existing installation without changing its owner or signing out active sessions.
 Setup chooses bundled public HTTPS, an existing HTTPS reverse proxy/load balancer, acknowledged
-public HTTP, private-network, or loopback access; creates the single OpenBot username/password owner; and
+public HTTP, private-network, or loopback access; creates the single OpenTeam username/password owner; and
 selects and configures a Pi inference provider and provider-qualified model. The guided choices cover
 ChatGPT Plus/Pro OAuth, Claude Pro/Max OAuth, OpenAI and Anthropic API keys, and compatible custom
 endpoints. Public HTTPS is recommended and uses a bundled Caddy service:
@@ -53,17 +53,17 @@ acknowledgement. Internet-facing modes keep the raw screen-viewer range on loopb
 may expose it only within the trusted LAN or VPN.
 
 Passwords are hidden, confirmed, and sent to the server over stdin; they are never stored in `.env`.
-Use `openbot account update` to interactively replace both credentials. Pass `--username <name>`
+Use `openteam account update` to interactively replace both credentials. Pass `--username <name>`
 for a username-only update, `--password` for a hidden password-only prompt, or combine the flags.
-`openbot password reset` remains a password-only alias. Every credential update revokes all current sessions. Use
-`openbot setup --advanced` to override the hostname, local API port, time zone, reasoning effort, or
+`openteam password reset` remains a password-only alias. Every credential update revokes all current sessions. Use
+`openteam setup --advanced` to override the hostname, local API port, time zone, reasoning effort, or
 concurrent bot job limit. Provider and model selection are part of both normal and advanced setup.
 
-Use `openbot provider login [provider]` to configure OAuth/subscription or API-key authentication without repeating server setup. `provider list` shows the methods Pi supports, and `model list`/`model use` select a provider-qualified model. Anthropic offers Claude Pro/Max OAuth or an API key; OpenAI API access uses the `openai` provider, while ChatGPT/Codex OAuth uses `openai-codex`.
+Use `openteam provider login [provider]` to configure OAuth/subscription or API-key authentication without repeating server setup. `provider list` shows the methods Pi supports, and `model list`/`model use` select a provider-qualified model. Anthropic offers Claude Pro/Max OAuth or an API key; OpenAI API access uses the `openai` provider, while ChatGPT/Codex OAuth uses `openai-codex`.
 
-Custom endpoints can use Pi's `openai-completions`, `openai-responses`, `anthropic-messages`, or `google-generative-ai` adapters. `provider add` prompts for the API key or password and passes it to the computer service over stdin; credentials are not written to `.env` or command arguments. `openbot logs`
+Custom endpoints can use Pi's `openai-completions`, `openai-responses`, `anthropic-messages`, or `google-generative-ai` adapters. `provider add` prompts for the API key or password and passes it to the computer service over stdin; credentials are not written to `.env` or command arguments. `openteam logs`
 shows the most recent 200 lines; add `--follow`, `--tail <lines>`, or `--service <name>` to narrow a
-diagnostic session. Existing-proxy mode keeps OpenBot on loopback and prints the HTTP upstream; the
+diagnostic session. Existing-proxy mode keeps OpenTeam on loopback and prints the HTTP upstream; the
 external proxy must forward HTTPS and WebSocket upgrades to it and replace inbound
 `X-Forwarded-*` headers with values derived from its own connection.
 
@@ -75,8 +75,8 @@ the retained database backup before restarting the prior release. The latest job
 `update-state.json`; backups are retained under `backups/` for operator recovery.
 
 The Electron client can run this command locally or over non-interactive SSH. Remote use requires a
-working SSH agent, an existing host-key entry, and `openbot` on the remote command path. Password and
+working SSH agent, an existing host-key entry, and `openteam` on the remote command path. Password and
 host-key prompts are intentionally rejected.
 
 `uninstall` removes the containers but preserves the installation configuration and Docker volumes.
-Use `openbot uninstall --purge` to permanently delete the installation data.
+Use `openteam uninstall --purge` to permanently delete the installation data.

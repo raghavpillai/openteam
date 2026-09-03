@@ -1,15 +1,15 @@
 import {
   createJsonTransport,
   normalizeBaseUrl,
-  OpenBotClientError,
-  type OpenBotFetch,
+  OpenTeamClientError,
+  type OpenTeamFetch,
 } from "./http";
 
-export type OpenBotAuthMode = "required" | "disabled";
-export type OpenBotAuthStatus = "checking" | "authenticated" | "signed-out";
-export type OpenBotAuthConnection = "unknown" | "online" | "offline";
+export type OpenTeamAuthMode = "required" | "disabled";
+export type OpenTeamAuthStatus = "checking" | "authenticated" | "signed-out";
+export type OpenTeamAuthConnection = "unknown" | "online" | "offline";
 
-export interface OpenBotAuthUser {
+export interface OpenTeamAuthUser {
   id: string;
   name: string;
   email: string;
@@ -17,28 +17,28 @@ export interface OpenBotAuthUser {
   image: string | null;
 }
 
-export interface OpenBotAuthSnapshot {
-  status: OpenBotAuthStatus;
-  mode: OpenBotAuthMode;
-  connection: OpenBotAuthConnection;
+export interface OpenTeamAuthSnapshot {
+  status: OpenTeamAuthStatus;
+  mode: OpenTeamAuthMode;
+  connection: OpenTeamAuthConnection;
   error: string | null;
-  user: OpenBotAuthUser | null;
+  user: OpenTeamAuthUser | null;
 }
 
-export interface OpenBotAuthSession {
+export interface OpenTeamAuthSession {
   session: unknown;
-  user: OpenBotAuthUser;
+  user: OpenTeamAuthUser;
 }
 
-export interface OpenBotSignInResult {
+export interface OpenTeamSignInResult {
   token: string;
-  user: OpenBotAuthUser | null;
+  user: OpenTeamAuthUser | null;
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   Boolean(value) && typeof value === "object" && !Array.isArray(value);
 
-export const parseAuthUser = (value: unknown): OpenBotAuthUser | null => {
+export const parseAuthUser = (value: unknown): OpenTeamAuthUser | null => {
   if (!isRecord(value)) return null;
   const id = typeof value.id === "string" ? value.id : "";
   const name = typeof value.name === "string" ? value.name.trim() : "";
@@ -69,14 +69,14 @@ export const authResponseError = async (response: Response): Promise<string> => 
   );
 };
 
-export interface OpenBotAuthClientOptions {
+export interface OpenTeamAuthClientOptions {
   baseUrl: string;
-  fetch?: OpenBotFetch;
+  fetch?: OpenTeamFetch;
 }
 
-const invalidOpenBotServer = (status: number): OpenBotClientError =>
-  new OpenBotClientError(
-    "This endpoint is reachable, but it is not a compatible OpenBot server.",
+const invalidOpenTeamServer = (status: number): OpenTeamClientError =>
+  new OpenTeamClientError(
+    "This endpoint is reachable, but it is not a compatible OpenTeam server.",
     "invalid_server",
     status
   );
@@ -85,37 +85,37 @@ const invalidOpenBotServer = (status: number): OpenBotClientError =>
  * Platform-neutral authentication protocol. Persistence and lifecycle policy stay
  * in the desktop/mobile adapters so secrets never cross into an unsafe storage API.
  */
-export const createOpenBotAuthClient = (options: OpenBotAuthClientOptions) => {
+export const createOpenTeamAuthClient = (options: OpenTeamAuthClientOptions) => {
   const transport = createJsonTransport(options);
 
-  const requestMode = async (strict: boolean): Promise<OpenBotAuthMode> => {
+  const requestMode = async (strict: boolean): Promise<OpenTeamAuthMode> => {
     const response = await transport.open("/api/auth/config");
     if (!response.ok) {
-      if (strict) throw invalidOpenBotServer(response.status);
+      if (strict) throw invalidOpenTeamServer(response.status);
       return "required";
     }
     const body = await responseBody(response);
     if (body?.mode === "required" || body?.mode === "disabled") return body.mode;
-    if (strict) throw invalidOpenBotServer(response.status);
+    if (strict) throw invalidOpenTeamServer(response.status);
     return "required";
   };
 
-  const discoverMode = (): Promise<OpenBotAuthMode> => requestMode(false);
-  const validateServer = (): Promise<OpenBotAuthMode> => requestMode(true);
+  const discoverMode = (): Promise<OpenTeamAuthMode> => requestMode(false);
+  const validateServer = (): Promise<OpenTeamAuthMode> => requestMode(true);
 
-  const signIn = async (username: string, password: string): Promise<OpenBotSignInResult> => {
+  const signIn = async (username: string, password: string): Promise<OpenTeamSignInResult> => {
     const response = await transport.open("/api/auth/login", {
       method: "POST",
       body: JSON.stringify({ username: username.trim(), password, rememberMe: true }),
     });
     if (!response.ok) throw new Error(await authResponseError(response));
     const token = response.headers.get("set-auth-token")?.trim() ?? "";
-    if (!token) throw new Error("The server did not return an OpenBot session token");
+    if (!token) throw new Error("The server did not return an OpenTeam session token");
     const body = await responseBody(response);
     return { token, user: parseAuthUser(body?.user) };
   };
 
-  const getSession = async (token: string): Promise<OpenBotAuthSession | null> => {
+  const getSession = async (token: string): Promise<OpenTeamAuthSession | null> => {
     const response = await transport.open("/api/auth/get-session", {
       headers: { authorization: `Bearer ${token}` },
     });
@@ -135,47 +135,47 @@ export const createOpenBotAuthClient = (options: OpenBotAuthClientOptions) => {
   return { baseUrl: transport.baseUrl, discoverMode, getSession, signIn, signOut, validateServer };
 };
 
-export type OpenBotAuthClient = ReturnType<typeof createOpenBotAuthClient>;
+export type OpenTeamAuthClient = ReturnType<typeof createOpenTeamAuthClient>;
 
-export interface OpenBotAuthAssessment {
-  status: Exclude<OpenBotAuthStatus, "checking">;
-  mode: OpenBotAuthMode;
-  connection: Exclude<OpenBotAuthConnection, "unknown">;
-  user: OpenBotAuthUser | null;
+export interface OpenTeamAuthAssessment {
+  status: Exclude<OpenTeamAuthStatus, "checking">;
+  mode: OpenTeamAuthMode;
+  connection: Exclude<OpenTeamAuthConnection, "unknown">;
+  user: OpenTeamAuthUser | null;
   /** The server explicitly reported this mode, so a platform may cache it for offline starts. */
-  observedMode: OpenBotAuthMode | null;
+  observedMode: OpenTeamAuthMode | null;
   /** Invalid and auth-disabled sessions must be removed from platform-secure storage. */
   clearCredentials: boolean;
 }
 
-export interface AssessOpenBotAuthSessionOptions {
-  client: OpenBotAuthClient;
+export interface AssessOpenTeamAuthSessionOptions {
+  client: OpenTeamAuthClient;
   loadToken: () => Promise<string | null>;
-  loadCachedMode?: () => Promise<OpenBotAuthMode | null>;
+  loadCachedMode?: () => Promise<OpenTeamAuthMode | null>;
   isCurrent?: () => boolean;
 }
 
 export class AuthSessionSupersededError extends Error {
   constructor() {
-    super("The OpenBot server changed while authentication was in progress.");
+    super("The OpenTeam server changed while authentication was in progress.");
     this.name = "AuthSessionSupersededError";
   }
 }
 
 /** Shared fail-closed session policy; platforms retain ownership of secure persistence. */
-export const assessOpenBotAuthSession = async ({
+export const assessOpenTeamAuthSession = async ({
   client,
   loadToken,
   loadCachedMode = async () => null,
   isCurrent = () => true,
-}: AssessOpenBotAuthSessionOptions): Promise<OpenBotAuthAssessment> => {
+}: AssessOpenTeamAuthSessionOptions): Promise<OpenTeamAuthAssessment> => {
   const ensureCurrent = () => {
     if (!isCurrent()) throw new AuthSessionSupersededError();
   };
 
-  let mode: OpenBotAuthMode = "required";
-  let connection: Exclude<OpenBotAuthConnection, "unknown"> = "online";
-  let observedMode: OpenBotAuthMode | null = null;
+  let mode: OpenTeamAuthMode = "required";
+  let connection: Exclude<OpenTeamAuthConnection, "unknown"> = "online";
+  let observedMode: OpenTeamAuthMode | null = null;
   try {
     mode = await client.discoverMode();
     ensureCurrent();
@@ -248,12 +248,12 @@ export const assessOpenBotAuthSession = async ({
   }
 };
 
-export const createAuthSnapshotStore = (initial: OpenBotAuthSnapshot) => {
+export const createAuthSnapshotStore = (initial: OpenTeamAuthSnapshot) => {
   let snapshot = initial;
   const listeners = new Set<() => void>();
   return {
-    getSnapshot: (): OpenBotAuthSnapshot => snapshot,
-    publish: (next: OpenBotAuthSnapshot): OpenBotAuthSnapshot => {
+    getSnapshot: (): OpenTeamAuthSnapshot => snapshot,
+    publish: (next: OpenTeamAuthSnapshot): OpenTeamAuthSnapshot => {
       snapshot = next;
       for (const listener of listeners) listener();
       return snapshot;

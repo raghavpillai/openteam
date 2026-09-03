@@ -242,7 +242,7 @@ enum PluginInvocationStatus {
 
 model Computer {
   id           String         @id @default(uuid()) @db.Uuid
-  name         String         @default("OpenBot computer")
+  name         String         @default("OpenTeam computer")
   status       ComputerStatus @default(starting)
   capabilities Json           @default("{}")
   lastSeenAt   DateTime?
@@ -1085,7 +1085,7 @@ model PluginInvocation {
   @@index([runId, startedAt])
 }
 
-// Better Auth owns these four tables. OpenBot deliberately provisions only
+// Better Auth owns these four tables. OpenTeam deliberately provisions only
 // one credential account through the server CLI command.
 model User {
   id            String    @id

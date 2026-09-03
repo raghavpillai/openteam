@@ -2,7 +2,7 @@ import {
   commonMarkdownFeatures,
   messageContainsMarkdownSyntax,
   messageNeedsAdvancedMarkdown,
-} from "@openbot/product-core/markdown";
+} from "@openteam/product-core/markdown";
 
 export const MOBILE_MARKDOWN_RICH_CHARACTER_LIMIT = 32_000;
 export const MOBILE_MARKDOWN_RICH_LINE_LIMIT = 240;

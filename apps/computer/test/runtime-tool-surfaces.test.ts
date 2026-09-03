@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
-import { NATIVE_TOOL_NAMES } from "@openbot/contracts";
+import { NATIVE_TOOL_NAMES } from "@openteam/contracts";
 import { BROWSER_USE_TOOLS } from "../src/browser-use";
 import { GrokCompactionArchiveStore, GrokCompactionCoordinator } from "../src/grok-compaction";
 import { HostApprovalRequiredError } from "../src/native-tool-executor";
@@ -168,7 +168,7 @@ describe("specialized subagent tool surfaces", () => {
   });
 
   test("normal agents discover A2A under cursor without legacy graphical Computer control", () => {
-    expect(dynamicToolNames("openbot")).toEqual([]);
+    expect(dynamicToolNames("openteam")).toEqual([]);
     expect(dynamicToolNames("cursor")).toContain("Task");
     expect(dynamicToolNames("cursor")).toContain("SendToAgent");
     expect(dynamicToolNames("cursor")).toContain("ListAgents");
@@ -272,7 +272,7 @@ describe("local computer approval broker", () => {
         if (attempts.length === 1) {
           throw new HostApprovalRequiredError({
             gate: "local",
-            requestMethod: "openbot/localTool",
+            requestMethod: "openteam/localTool",
             details: { type: "localTool", machineId: "machine-1" },
           });
         }
@@ -283,7 +283,7 @@ describe("local computer approval broker", () => {
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({
       type: "approval.requested",
-      requestMethod: "openbot/localTool",
+      requestMethod: "openteam/localTool",
       itemId: "call-1",
     });
     runtime.resolveApproval(String(events[0]?.approvalId), "accept");
@@ -298,7 +298,7 @@ describe("local computer approval broker", () => {
       attempts += 1;
       throw new HostApprovalRequiredError({
         gate: "local",
-        requestMethod: "openbot/localTool",
+        requestMethod: "openteam/localTool",
         details: { type: "localTool", machineId: "machine-1" },
       });
     });
@@ -315,7 +315,7 @@ describe("local computer approval broker", () => {
         shell: (...args: unknown[]) => Promise<unknown>;
         externalShell: (...args: unknown[]) => Promise<unknown>;
       };
-      executeOpenBotTool(
+      executeOpenTeamTool(
         active: Record<string, unknown>,
         callId: string,
         tool: string,
@@ -339,8 +339,8 @@ describe("local computer approval broker", () => {
       queue: { push: () => undefined },
     };
 
-    await runtime.executeOpenBotTool(active, "box-call", "Shell", { command: "pwd" });
-    await runtime.executeOpenBotTool(active, "host-call", "Shell", {
+    await runtime.executeOpenTeamTool(active, "box-call", "Shell", { command: "pwd" });
+    await runtime.executeOpenTeamTool(active, "host-call", "Shell", {
       command: "pwd",
       machineId: "machine-1",
     });
@@ -466,15 +466,15 @@ describe("context turn reservation", () => {
       isUsingSubscription: () => true,
     };
     await expect(
-      runtime.run(turnRequest({ sessionPath: "/tmp/not-an-openbot-session.jsonl" }))
-    ).rejects.toThrow("outside the OpenBot session directory");
+      runtime.run(turnRequest({ sessionPath: "/tmp/not-an-openteam-session.jsonl" }))
+    ).rejects.toThrow("outside the OpenTeam session directory");
     expect(runtime.diagnostics.activeTurns).toBe(0);
   });
 
   test("replays a staged archive from the matching persisted Pi compaction", async () => {
-    const root = await mkdtemp(join(tmpdir(), "openbot-compaction-recovery-"));
+    const root = await mkdtemp(join(tmpdir(), "openteam-compaction-recovery-"));
     temporaryRoots.push(root);
-    const sessionsDir = join(root, "sessions", "openbot");
+    const sessionsDir = join(root, "sessions", "openteam");
     const contextSessionsDir = join(root, "context-sessions");
     await Promise.all([
       mkdir(sessionsDir, { recursive: true }),
@@ -532,7 +532,7 @@ describe("context turn reservation", () => {
       "recoverable summary",
       firstKeptEntryId,
       95_000,
-      { openbotGrokCompaction: true, id: compactionId },
+      { openteamGrokCompaction: true, id: compactionId },
       true
     );
 

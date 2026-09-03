@@ -1,5 +1,5 @@
 {
-  "name": "@openbot/product-core",
+  "name": "@openteam/product-core",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -31,6 +31,6 @@
     "test": "bun test --pass-with-no-tests"
   },
   "dependencies": {
-    "@openbot/contracts": "workspace:*"
+    "@openteam/contracts": "workspace:*"
   }
 }

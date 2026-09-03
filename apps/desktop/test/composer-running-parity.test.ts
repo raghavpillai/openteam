@@ -6,8 +6,8 @@ describe("Grok-compatible composer while a Bot is working", () => {
   test("keeps send available and does not expose a composer stop button", async () => {
     const [promptInput, chatPane, mentionEditor] = await Promise.all([
       source("../src/renderer/components/ai-elements/prompt-input.tsx"),
-      source("../src/renderer/components/openbot/chat-pane.tsx"),
-      source("../src/renderer/components/openbot/mention-editor.tsx"),
+      source("../src/renderer/components/openteam/chat-pane.tsx"),
+      source("../src/renderer/components/openteam/mention-editor.tsx"),
     ]);
 
     expect(promptInput).toContain("const blocked = Boolean(disabled || submitting || staging)");

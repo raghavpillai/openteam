@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { mayHaveEarlierThreadReplies, threadReplyCountLabel } from "@openbot/product-core/messages";
+import {
+  mayHaveEarlierThreadReplies,
+  threadReplyCountLabel,
+} from "@openteam/product-core/messages";
 
 describe("mobile thread pagination semantics", () => {
   test("marks a reply count partial only while contiguous history is newer than its root", () => {

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { ProductEvent } from "@openbot/contracts";
+import type { ProductEvent } from "@openteam/contracts";
 import {
   createLiveSyncController,
   createReconnectingProductEventStream,

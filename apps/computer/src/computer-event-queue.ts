@@ -1,4 +1,4 @@
-import type { ComputerEvent } from "@openbot/contracts";
+import type { ComputerEvent } from "@openteam/contracts";
 import { AsyncQueue } from "./async-queue";
 
 export const AGENT_DELTA_FLUSH_INTERVAL_MS = 32;

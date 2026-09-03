@@ -8,8 +8,8 @@ export type {
   RoutineExecutionView,
   RoutineView,
   SidebarPreferences,
-} from "@openbot/contracts";
-export { sidebarPreferencesFromRootSettings } from "@openbot/contracts/client-preferences";
+} from "@openteam/contracts";
+export { sidebarPreferencesFromRootSettings } from "@openteam/contracts/client-preferences";
 export * from "./auth";
 export * from "./async";
 export * from "./client";

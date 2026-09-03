@@ -33,7 +33,7 @@ export const setOwnerCredentials = async (
 ): Promise<{ username: string }> => {
   const existing = await authPrisma.user.findFirst({ orderBy: { createdAt: "asc" } });
   if ((input.operation === "reset" || input.operation === "update") && !existing) {
-    throw new Error("OpenBot owner credentials have not been set up yet");
+    throw new Error("OpenTeam owner credentials have not been set up yet");
   }
   if (
     input.operation === "update" &&
@@ -64,7 +64,7 @@ export const setOwnerCredentials = async (
         data: {
           name: username,
           username,
-          email: `${username}@openbot.invalid`,
+          email: `${username}@openteam.invalid`,
           emailVerified: true,
         },
       });
@@ -75,7 +75,7 @@ export const setOwnerCredentials = async (
           id: userId,
           name: username,
           username,
-          email: `${username}@openbot.invalid`,
+          email: `${username}@openteam.invalid`,
           emailVerified: true,
         },
       });

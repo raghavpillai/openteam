@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { ChannelMessageView } from "@openbot/contracts";
+import type { ChannelMessageView } from "@openteam/contracts";
 import { a2aProjectionFor, collapseA2ATimeline } from "../src/renderer/lib/a2a-events";
 
 const stamp = "2026-08-27T18:16:22.238Z";

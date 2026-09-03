@@ -1,4 +1,4 @@
-import { ApiError, type ChannelMessageContextDirection } from "@openbot/contracts";
+import { ApiError, type ChannelMessageContextDirection } from "@openteam/contracts";
 
 export interface MessageContextExtents {
   before: number;

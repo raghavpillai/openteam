@@ -1,9 +1,9 @@
-import type { BotView } from "@openbot/contracts";
+import type { BotView } from "@openteam/contracts";
 
 export const BOT_TEMPLATE_SHARING_ENABLED = true;
 export const BOT_TEMPLATE_REQUEST =
   "Create a template of yourself that I can share with somebody else.";
-export const BOT_TEMPLATE_CHANGED_EVENT = "openbot:bot-template-changed";
+export const BOT_TEMPLATE_CHANGED_EVENT = "openteam:bot-template-changed";
 
 export type BotTemplateAudience = "team" | "public";
 export type BotTemplateStatus = "draft" | "published";
@@ -24,15 +24,15 @@ export interface BotTemplateRecord {
 }
 
 interface SerializedBotTemplate {
-  format: "openbot.bot-template";
+  format: "openteam.bot-template";
   version: 1;
   bot: TemplateBot;
 }
 
-const STORAGE_KEY = "openbot:bot-templates:v1";
+const STORAGE_KEY = "openteam:bot-templates:v1";
 
 const templatePayload = (bot: TemplateBot): SerializedBotTemplate => ({
-  format: "openbot.bot-template",
+  format: "openteam.bot-template",
   version: 1,
   bot: {
     name: bot.name,
@@ -73,7 +73,7 @@ const isTemplateBot = (value: unknown): value is TemplateBot => {
 export function parseBotTemplate(value: string): TemplateBot | null {
   try {
     const parsed = JSON.parse(value) as Record<string, unknown>;
-    return parsed.format === "openbot.bot-template" &&
+    return parsed.format === "openteam.bot-template" &&
       parsed.version === 1 &&
       isTemplateBot(parsed.bot)
       ? parsed.bot

@@ -2,4 +2,4 @@ export {
   attachmentPreviewKind,
   formatAttachmentBytes,
   type AttachmentPreviewKind,
-} from "@openbot/product-core/attachments";
+} from "@openteam/product-core/attachments";

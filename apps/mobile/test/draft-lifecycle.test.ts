@@ -15,15 +15,15 @@ const { conversationDraftKey } = await import("../src/drafts");
 
 describe("mobile draft lifecycle", () => {
   test("isolates identical channel IDs by normalized server origin", () => {
-    const first = conversationDraftKey("https://first.openbot.test/path/", "shared-channel");
-    const sameOrigin = conversationDraftKey("https://first.openbot.test/other", "shared-channel");
-    const second = conversationDraftKey("https://second.openbot.test", "shared-channel");
+    const first = conversationDraftKey("https://first.openteam.test/path/", "shared-channel");
+    const sameOrigin = conversationDraftKey("https://first.openteam.test/other", "shared-channel");
+    const second = conversationDraftKey("https://second.openteam.test", "shared-channel");
 
     expect(first).toBe(sameOrigin);
     expect(first).not.toBe(second);
     expect(
-      conversationDraftKey("https://first.openbot.test", "shared-channel", "account-a")
-    ).not.toBe(conversationDraftKey("https://first.openbot.test", "shared-channel", "account-b"));
+      conversationDraftKey("https://first.openteam.test", "shared-channel", "account-a")
+    ).not.toBe(conversationDraftKey("https://first.openteam.test", "shared-channel", "account-b"));
     expect(conversationDraftKey("", "fixture-channel")).toBe("fixture-channel");
   });
 

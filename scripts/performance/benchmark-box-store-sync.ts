@@ -48,7 +48,7 @@ const legacyRepairWalk = async (roots: readonly string[]) => {
   return { directoriesVisited, entriesInspected };
 };
 
-const temporary = await mkdtemp(join(tmpdir(), "openbot-box-store-ab-"));
+const temporary = await mkdtemp(join(tmpdir(), "openteam-box-store-ab-"));
 const databases: Database[] = [];
 try {
   const home = join(temporary, "home");

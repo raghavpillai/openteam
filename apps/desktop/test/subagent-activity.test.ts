@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import type { ApprovalView, RunView, SubagentActivityView } from "@openbot/contracts";
+import type { ApprovalView, RunView, SubagentActivityView } from "@openteam/contracts";
 import { conversationApprovals } from "../src/renderer/lib/subagent-activity";
 
 describe("subagent activity projection", () => {
   test("has no inline Task-card renderer in the conversation", async () => {
     const source = await Bun.file(
-      new URL("../src/renderer/components/openbot/chat-pane.tsx", import.meta.url)
+      new URL("../src/renderer/components/openteam/chat-pane.tsx", import.meta.url)
     ).text();
     expect(source).not.toContain("TaskCard");
     expect(source).not.toContain("data-subagent-attempt-id");

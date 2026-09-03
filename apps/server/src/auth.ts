@@ -1,24 +1,24 @@
-import { createPrismaClient } from "@openbot/db/client";
+import { createPrismaClient } from "@openteam/db/client";
 import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import { bearer, username } from "better-auth/plugins";
 
-const secret = process.env.OPENBOT_AUTH_SECRET ?? process.env.BETTER_AUTH_SECRET;
-const baseURL = process.env.OPENBOT_AUTH_URL || "http://127.0.0.1:8787";
+const secret = process.env.OPENTEAM_AUTH_SECRET ?? process.env.BETTER_AUTH_SECRET;
+const baseURL = process.env.OPENTEAM_AUTH_URL || "http://127.0.0.1:8787";
 
 if (!secret || secret.length < 32) {
-  throw new Error("OPENBOT_AUTH_SECRET must contain at least 32 characters");
+  throw new Error("OPENTEAM_AUTH_SECRET must contain at least 32 characters");
 }
 
 export const authPrisma = createPrismaClient();
 
 export const auth = betterAuth({
-  appName: "OpenBot",
+  appName: "OpenTeam",
   secret,
   baseURL,
   basePath: "/api/auth",
   advanced: {
-    ipAddress: { ipAddressHeaders: ["x-openbot-client-ip"] },
+    ipAddress: { ipAddressHeaders: ["x-openteam-client-ip"] },
     useSecureCookies: baseURL.startsWith("https://"),
   },
   rateLimit: {
@@ -62,4 +62,4 @@ export const auth = betterAuth({
   ],
 });
 
-export type OpenBotSession = typeof auth.$Infer.Session;
+export type OpenTeamSession = typeof auth.$Infer.Session;

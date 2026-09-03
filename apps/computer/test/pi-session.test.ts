@@ -13,7 +13,7 @@ afterEach(async () => {
 });
 
 test("one bot keeps one append-only Pi session across addressed working directories", async () => {
-  const root = await mkdtemp(join(tmpdir(), "openbot-pi-session-"));
+  const root = await mkdtemp(join(tmpdir(), "openteam-pi-session-"));
   temporaryRoots.push(root);
   const sessions = join(root, "sessions");
   const dmDirectory = join(root, "workspace", "bots", "one");
@@ -26,7 +26,7 @@ test("one bot keeps one append-only Pi session across addressed working director
 
   const botId = crypto.randomUUID();
   const created = SessionManager.create(dmDirectory, sessions, { id: botId });
-  created.appendCustomMessageEntry("openbot-wake", "DM wake", false, { channel: "dm" });
+  created.appendCustomMessageEntry("openteam-wake", "DM wake", false, { channel: "dm" });
   created.appendMessage({
     role: "assistant",
     content: [{ type: "text", text: "DM reply" }],
@@ -54,7 +54,7 @@ test("one bot keeps one append-only Pi session across addressed working director
   expect(groupWake.getSessionId()).toBe(botId);
   expect(groupWake.getCwd()).toBe(groupDirectory);
   expect(groupWake.getEntries()).toHaveLength(2);
-  groupWake.appendCustomMessageEntry("openbot-wake", "Group wake", false, {
+  groupWake.appendCustomMessageEntry("openteam-wake", "Group wake", false, {
     channel: "room",
   });
 
@@ -65,7 +65,7 @@ test("one bot keeps one append-only Pi session across addressed working director
   expect(reopened.buildSessionContext().messages).toHaveLength(3);
 
   const otherBot = SessionManager.create(dmDirectory, sessions, { id: crypto.randomUUID() });
-  otherBot.appendCustomMessageEntry("openbot-wake", "Other bot", false);
+  otherBot.appendCustomMessageEntry("openteam-wake", "Other bot", false);
   otherBot.appendMessage({
     role: "assistant",
     content: [{ type: "text", text: "Other reply" }],

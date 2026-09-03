@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createOpenBotClient } from "../src";
+import { createOpenTeamClient } from "../src";
 
 describe("plugin enablement client", () => {
   test("keeps overall and skill access independent without changing legacy calls", async () => {
@@ -11,18 +11,18 @@ describe("plugin enablement client", () => {
       });
       return Response.json({});
     }) as unknown as typeof globalThis.fetch;
-    const client = createOpenBotClient({ baseUrl: "http://openbot.test", fetch });
+    const client = createOpenTeamClient({ baseUrl: "http://openteam.test", fetch });
 
     await client.setPluginEnablement("plugin/key", "bot-1", true, false);
     await client.setPluginEnablement("plugin/key", "bot-1", false);
 
     expect(calls).toEqual([
       {
-        url: "http://openbot.test/api/v0/plugins/plugin%2Fkey/enablement",
+        url: "http://openteam.test/api/v0/plugins/plugin%2Fkey/enablement",
         body: { botId: "bot-1", enabled: true, skillsEnabled: false },
       },
       {
-        url: "http://openbot.test/api/v0/plugins/plugin%2Fkey/enablement",
+        url: "http://openteam.test/api/v0/plugins/plugin%2Fkey/enablement",
         body: { botId: "bot-1", enabled: false, skillsEnabled: false },
       },
     ]);

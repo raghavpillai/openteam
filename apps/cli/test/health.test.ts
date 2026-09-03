@@ -17,15 +17,15 @@ afterEach(() => {
 
 describe("installation health URL", () => {
   test("uses loopback to inspect a service bound to every interface", () => {
-    const directory = mkdtempSync(join(tmpdir(), "openbot-cli-health-"));
+    const directory = mkdtempSync(join(tmpdir(), "openteam-cli-health-"));
     temporaryDirectories.push(directory);
     const paths = installationPaths(directory);
-    writeFileAtomic(paths.environment, "OPENBOT_BIND_HOST=0.0.0.0\nOPENBOT_API_PORT=9444\n");
+    writeFileAtomic(paths.environment, "OPENTEAM_BIND_HOST=0.0.0.0\nOPENTEAM_API_PORT=9444\n");
     expect(healthUrl(paths)).toBe("http://127.0.0.1:9444/api/v0/health");
   });
 
   test("requires ready status and the exact target release", async () => {
-    const directory = mkdtempSync(join(tmpdir(), "openbot-cli-health-"));
+    const directory = mkdtempSync(join(tmpdir(), "openteam-cli-health-"));
     temporaryDirectories.push(directory);
     const paths = installationPaths(directory);
     let status = "degraded";
@@ -35,7 +35,7 @@ describe("installation health URL", () => {
       fetch: () => Response.json({ status, release: { releaseVersion: version } }),
     });
     servers.push(server);
-    writeFileAtomic(paths.environment, `OPENBOT_API_PORT=${server.port}\n`);
+    writeFileAtomic(paths.environment, `OPENTEAM_API_PORT=${server.port}\n`);
 
     expect((await checkHealth(paths)).detail).toBe("runtime is degraded");
     status = "ready";

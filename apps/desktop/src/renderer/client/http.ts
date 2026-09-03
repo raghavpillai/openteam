@@ -1,9 +1,9 @@
 import {
   createJsonTransport,
-  OpenBotClientError,
-  type OpenBotFetch,
-  type OpenBotTransportOptions,
-} from "@openbot/client-core";
+  OpenTeamClientError,
+  type OpenTeamFetch,
+  type OpenTeamTransportOptions,
+} from "@openteam/client-core";
 import { recordPerformance } from "../lib/performance";
 import { clearAuthToken, getAuthToken } from "./auth";
 import { resolveConfiguredApiBase } from "./runtime-url";
@@ -11,10 +11,10 @@ import { resolveConfiguredApiBase } from "./runtime-url";
 export const API_BASE = resolveConfiguredApiBase(
   window.location.href,
   localStorage,
-  import.meta.env.VITE_OPENBOT_API_URL
+  import.meta.env.VITE_OPENTEAM_API_URL
 );
 
-const instrumentedFetch: OpenBotFetch = async (input, init) => {
+const instrumentedFetch: OpenTeamFetch = async (input, init) => {
   const startedAt = performance.now();
   try {
     const response = await fetch(input, init);
@@ -42,7 +42,7 @@ const instrumentedFetch: OpenBotFetch = async (input, init) => {
   }
 };
 
-export const desktopTransportOptions: OpenBotTransportOptions = {
+export const desktopTransportOptions: OpenTeamTransportOptions = {
   baseUrl: API_BASE,
   fetch: instrumentedFetch,
   getAuthToken,
@@ -52,4 +52,4 @@ export const desktopTransportOptions: OpenBotTransportOptions = {
 const transport = createJsonTransport(desktopTransportOptions);
 
 export const request = transport.request;
-export { OpenBotClientError as ClientError };
+export { OpenTeamClientError as ClientError };

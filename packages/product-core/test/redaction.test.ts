@@ -5,9 +5,9 @@ describe("diagnostic credential redaction", () => {
   test("removes bearer, environment, JSON, CLI, URL, and provider secrets", () => {
     const input = [
       "Authorization: Bearer abc.def.ghi",
-      "OPENBOT_AUTH_SECRET=super-secret-value",
+      "OPENTEAM_AUTH_SECRET=super-secret-value",
       '\"password\":\"hunter2\"',
-      "openbot command --token ghp_abcdefghijklmnopqrstuvwxyz123456",
+      "openteam command --token ghp_abcdefghijklmnopqrstuvwxyz123456",
       "https://owner:password@example.com/path",
       "sk-proj-abcdefghijklmnopqrstuvwxyz",
     ].join("\n");
@@ -27,8 +27,8 @@ describe("diagnostic credential redaction", () => {
   });
 
   test("redacts errors while preserving useful context", () => {
-    expect(safeErrorMessage(new Error("Docker failed: OPENBOT_CONTROL_TOKEN=topsecret"))).toBe(
-      "Docker failed: OPENBOT_CONTROL_TOKEN=[REDACTED]"
+    expect(safeErrorMessage(new Error("Docker failed: OPENTEAM_CONTROL_TOKEN=topsecret"))).toBe(
+      "Docker failed: OPENTEAM_CONTROL_TOKEN=[REDACTED]"
     );
   });
 
@@ -43,11 +43,11 @@ describe("diagnostic credential redaction", () => {
 
   test("fully removes quoted secrets that contain spaces", () => {
     const output = redactSensitiveText(
-      `OPENBOT_AUTH_PASSWORD="correct horse battery staple" openbot auth-reset --password 'another secret phrase'`
+      `OPENTEAM_AUTH_PASSWORD="correct horse battery staple" openteam auth-reset --password 'another secret phrase'`
     );
 
     expect(output).toBe(
-      "OPENBOT_AUTH_PASSWORD=[REDACTED] openbot auth-reset --password [REDACTED]"
+      "OPENTEAM_AUTH_PASSWORD=[REDACTED] openteam auth-reset --password [REDACTED]"
     );
     expect(output).not.toContain("battery staple");
     expect(output).not.toContain("secret phrase");

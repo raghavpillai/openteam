@@ -49,7 +49,7 @@ class HealthyDockerRunner implements CommandRunner {
       return { status: 1, stdout: "", stderr: "fixture startup failed" };
     }
     if (args.includes("pg_dump") && options?.outputFile) {
-      writeFileSync(options.outputFile, "-- OpenBot test database backup\nSELECT 1;\n", {
+      writeFileSync(options.outputFile, "-- OpenTeam test database backup\nSELECT 1;\n", {
         mode: 0o600,
       });
     }
@@ -68,14 +68,14 @@ afterEach(() => {
 });
 
 const fixture = () => {
-  const directory = mkdtempSync(join(tmpdir(), "openbot-cli-lifecycle-"));
+  const directory = mkdtempSync(join(tmpdir(), "openteam-cli-lifecycle-"));
   temporaryDirectories.push(directory);
   const paths = installationPaths(directory);
   const server = Bun.serve({
     port: 0,
     fetch() {
       const version = parseEnvironment(readFileSync(paths.environment, "utf8")).get(
-        "OPENBOT_VERSION"
+        "OPENTEAM_VERSION"
       );
       return Response.json({
         status: "ready",
@@ -87,12 +87,12 @@ const fixture = () => {
   servers.push(server);
   const environment = replaceEnvironmentValue(
     createEnvironment({ version: "1.2.3" }),
-    "OPENBOT_API_PORT",
+    "OPENTEAM_API_PORT",
     String(server.port)
   );
   writeFileAtomic(
     paths.compose,
-    `name: openbot\nservices:\n  server:\n    image: example/openbot-server:\${OPENBOT_VERSION}\nvolumes:\n  openbot_workspace:\n`
+    `name: openteam\nservices:\n  server:\n    image: example/openteam-server:\${OPENTEAM_VERSION}\nvolumes:\n  openteam_workspace:\n`
   );
   writeFileAtomic(paths.environment, environment);
   const now = new Date().toISOString();
@@ -100,25 +100,25 @@ const fixture = () => {
     schemaVersion: 1,
     repository: "owner/repo",
     version: "1.2.3",
-    composeUrl: "https://example.com/openbot-compose.yaml",
+    composeUrl: "https://example.com/openteam-compose.yaml",
     installedAt: now,
     updatedAt: now,
-    ownerUsername: "openbot",
+    ownerUsername: "openteam",
   });
   return { directory, paths };
 };
 
 const releaseFixture = () => {
   const compose =
-    "name: openbot\nservices:\n  server:\n    image: example/openbot-server:${OPENBOT_VERSION}\nvolumes:\n  openbot_workspace:\n";
+    "name: openteam\nservices:\n  server:\n    image: example/openteam-server:${OPENTEAM_VERSION}\nvolumes:\n  openteam_workspace:\n";
   const checksum = createHash("sha256").update(compose).digest("hex");
   const server = Bun.serve({
     port: 0,
     fetch(request) {
       const path = new URL(request.url).pathname;
-      if (path.endsWith("/openbot-compose.yaml")) return new Response(compose);
+      if (path.endsWith("/openteam-compose.yaml")) return new Response(compose);
       if (path.endsWith("/SHA256SUMS")) {
-        return new Response(`${checksum}  openbot-compose.yaml\n`);
+        return new Response(`${checksum}  openteam-compose.yaml\n`);
       }
       return new Response("not found", { status: 404 });
     },
@@ -127,7 +127,7 @@ const releaseFixture = () => {
   const base = `http://127.0.0.1:${server.port}`;
   return [
     `--compose-url`,
-    `${base}/openbot-compose.yaml`,
+    `${base}/openteam-compose.yaml`,
     "--checksum-url",
     `${base}/SHA256SUMS`,
     "--allow-unsigned",
@@ -143,7 +143,8 @@ describe("installed lifecycle", () => {
     expect(result.checks).toContainEqual({
       level: "warn",
       label: "Inference authentication",
-      detail: "runtime reports missing; configure the selected inference provider before running agents",
+      detail:
+        "runtime reports missing; configure the selected inference provider before running agents",
     });
   });
 
@@ -151,7 +152,7 @@ describe("installed lifecycle", () => {
     const { directory, paths } = fixture();
     const runner = new HealthyDockerRunner();
     await uninstallCommand(paths, parseArguments(["uninstall", "--yes"]), runner);
-    expect(readFileSync(paths.environment, "utf8")).toContain("OPENBOT_CONTROL_TOKEN=");
+    expect(readFileSync(paths.environment, "utf8")).toContain("OPENTEAM_CONTROL_TOKEN=");
     expect(readManifest(paths)?.uninstalledAt).toBeString();
     expect(directory).toBe(paths.directory);
     expect(runner.calls.at(-1)?.args).toContain("down");
@@ -185,7 +186,7 @@ describe("installed lifecycle", () => {
     }
 
     expect(readManifest(paths)?.version).toBe("1.3.0");
-    expect(readFileSync(paths.environment, "utf8")).toContain("OPENBOT_VERSION=1.3.0");
+    expect(readFileSync(paths.environment, "utf8")).toContain("OPENTEAM_VERSION=1.3.0");
     expect(readUpdateState(paths)).toMatchObject({
       status: "complete",
       phase: "complete",

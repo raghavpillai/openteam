@@ -10,7 +10,7 @@ import {
 
 describe("native computer tools", () => {
   test("Read returns numbered lines with positive and negative paging", async () => {
-    const root = await mkdtemp(join(tmpdir(), "openbot-native-read-"));
+    const root = await mkdtemp(join(tmpdir(), "openteam-native-read-"));
     const path = join(root, "notes.txt");
     await writeFile(path, "alpha\nbeta\ngamma\n", "utf8");
     const executor = new NativeToolExecutor({ agentDir: root, controlToken: "test-token" });
@@ -22,14 +22,14 @@ describe("native computer tools", () => {
   });
 
   test("Read exposes supported agent files while fencing stores and host metadata", async () => {
-    const root = await mkdtemp(join(tmpdir(), "openbot-native-protected-read-"));
+    const root = await mkdtemp(join(tmpdir(), "openteam-native-protected-read-"));
     const sandRoot = join(root, "sand-data");
     const agentRoot = join(sandRoot, "agents", "probe");
-    await mkdir(join(sandRoot, ".openbot"), { recursive: true });
+    await mkdir(join(sandRoot, ".openteam"), { recursive: true });
     await mkdir(agentRoot, { recursive: true });
     await writeFile(join(agentRoot, "profile.json"), '{"name":"Probe"}\n');
     await writeFile(join(agentRoot, "store.db"), "not a readable projection");
-    await writeFile(join(sandRoot, ".openbot", "marker.json"), "{}\n");
+    await writeFile(join(sandRoot, ".openteam", "marker.json"), "{}\n");
     const executor = new NativeToolExecutor({
       agentDir: root,
       controlToken: "test-token",
@@ -43,7 +43,7 @@ describe("native computer tools", () => {
       "Read does not expose live agent SQLite files"
     );
     await expect(
-      executor.read({ path: join(sandRoot, ".openbot", "marker.json") }, root)
+      executor.read({ path: join(sandRoot, ".openteam", "marker.json") }, root)
     ).rejects.toThrow("Read is not allowed for protected agent-data path");
   });
 
@@ -51,12 +51,12 @@ describe("native computer tools", () => {
     const environment = sanitizedShellEnvironment(
       {
         HOME: "/home/box",
-        OPENBOT_CONTROL_TOKEN: "secret",
+        OPENTEAM_CONTROL_TOKEN: "secret",
         OPENAI_API_KEY: "secret",
         ANTHROPIC_API_KEY: "secret",
         GENERIC_PROVIDER_PASSWORD: "secret",
         AWS_ACCESS_KEY_ID: "secret",
-        OPENBOT_PI_AGENT_DIR: "/home/box/.pi/agent",
+        OPENTEAM_PI_AGENT_DIR: "/home/box/.pi/agent",
         DATABASE_URL: "postgres://secret",
         BASH_ENV: "/tmp/inject",
         ENV: "/tmp/inject",
@@ -70,7 +70,7 @@ describe("native computer tools", () => {
   const shellTest = process.env.CI === "true" && process.platform === "darwin" ? test.skip : test;
 
   shellTest("Shell executes foreground commands and records a terminal log", async () => {
-    const root = await mkdtemp(join(tmpdir(), "openbot-native-shell-"));
+    const root = await mkdtemp(join(tmpdir(), "openteam-native-shell-"));
     const executor = new NativeToolExecutor({ agentDir: root, controlToken: "test-token" });
     const result = await executor.shell(
       { command: "printf 'native-shell-ok'", working_directory: root, block_until_ms: 5_000 },
@@ -82,7 +82,7 @@ describe("native computer tools", () => {
   });
 
   test("Shell backgrounds long commands and exposes their log path", async () => {
-    const root = await mkdtemp(join(tmpdir(), "openbot-native-background-"));
+    const root = await mkdtemp(join(tmpdir(), "openteam-native-background-"));
     const executor = new NativeToolExecutor({ agentDir: root, controlToken: "test-token" });
     const result = await executor.shell(
       { command: "sleep 0.1; printf done", working_directory: root, block_until_ms: 0 },
@@ -122,7 +122,7 @@ describe("native computer tools", () => {
       },
     });
     try {
-      const root = await mkdtemp(join(tmpdir(), "openbot-native-external-"));
+      const root = await mkdtemp(join(tmpdir(), "openteam-native-external-"));
       const executor = new NativeToolExecutor({
         agentDir: root,
         controlToken: "bridge-token",
@@ -163,7 +163,7 @@ describe("native computer tools", () => {
               error: "approval_required",
               approval: {
                 gate: "local",
-                requestMethod: "openbot/localTool",
+                requestMethod: "openteam/localTool",
                 details: { type: "localTool", machineId: "machine-1" },
               },
             },
@@ -181,7 +181,7 @@ describe("native computer tools", () => {
       },
     });
     try {
-      const root = await mkdtemp(join(tmpdir(), "openbot-host-approval-"));
+      const root = await mkdtemp(join(tmpdir(), "openteam-host-approval-"));
       const executor = new NativeToolExecutor({
         agentDir: root,
         controlToken: "bridge-token",
@@ -195,7 +195,7 @@ describe("native computer tools", () => {
         expect(error).toBeInstanceOf(HostApprovalRequiredError);
         expect((error as HostApprovalRequiredError).approval).toMatchObject({
           gate: "local",
-          requestMethod: "openbot/localTool",
+          requestMethod: "openteam/localTool",
           details: { machineId: "machine-1" },
         });
       }
@@ -222,7 +222,7 @@ describe("native computer tools", () => {
               error: "approval_required",
               approval: {
                 gate: "auto-review",
-                requestMethod: "openbot/autoReview",
+                requestMethod: "openteam/autoReview",
                 details: { type: "autoReview", action: "runTask" },
               },
             },
@@ -233,7 +233,7 @@ describe("native computer tools", () => {
       },
     });
     try {
-      const root = await mkdtemp(join(tmpdir(), "openbot-task-review-"));
+      const root = await mkdtemp(join(tmpdir(), "openteam-task-review-"));
       const executor = new NativeToolExecutor({
         agentDir: root,
         controlToken: "bridge-token",
@@ -251,10 +251,10 @@ describe("native computer tools", () => {
       expect(requests).toEqual([
         {
           surface: "subagentLaunch",
-          summary: "Run a task on OpenBot's computer: “Open https://example.com and stop.”",
+          summary: "Run a task on OpenTeam's computer: “Open https://example.com and stop.”",
           target: "browserUse",
           arguments: {
-            task: "Run a task on OpenBot's computer: “Open https://example.com and stop.”",
+            task: "Run a task on OpenTeam's computer: “Open https://example.com and stop.”",
             prompt: "Open https://example.com and stop.",
             description: "Open example.com",
             subagent_type: "browserUse",
@@ -262,10 +262,10 @@ describe("native computer tools", () => {
         },
         {
           surface: "subagentLaunch",
-          summary: "Run a task on OpenBot's computer: “Open https://example.com and stop.”",
+          summary: "Run a task on OpenTeam's computer: “Open https://example.com and stop.”",
           target: "browserUse",
           arguments: {
-            task: "Run a task on OpenBot's computer: “Open https://example.com and stop.”",
+            task: "Run a task on OpenTeam's computer: “Open https://example.com and stop.”",
             prompt: "Open https://example.com and stop.",
             description: "Open example.com",
             subagent_type: "browserUse",

@@ -21,12 +21,12 @@ export interface AccountUpdateOptions {
 const requireInstallation = (paths: InstallationPaths): InstallationManifest => {
   if (!installationExists(paths)) {
     throw new CliError(
-      `OpenBot is not installed at ${paths.directory}. Run openbot install first.`
+      `OpenTeam is not installed at ${paths.directory}. Run openteam install first.`
     );
   }
   const manifest = readManifest(paths);
   if (!manifest)
-    throw new CliError(`OpenBot installation manifest is missing at ${paths.manifest}`);
+    throw new CliError(`OpenTeam installation manifest is missing at ${paths.manifest}`);
   return manifest;
 };
 
@@ -46,12 +46,12 @@ export const accountUpdateCommand = async (
   let password: string | undefined;
   try {
     console.log(
-      `${options.passwordResetAlias ? "Reset the OpenBot password" : "Update the OpenBot owner account"}${
+      `${options.passwordResetAlias ? "Reset the OpenTeam password" : "Update the OpenTeam owner account"}${
         manifest.ownerUsername ? ` for ${manifest.ownerUsername}` : ""
       }.`
     );
     if (updateBoth) {
-      username = await collectOwnerUsername(prompter!, manifest.ownerUsername || "openbot");
+      username = await collectOwnerUsername(prompter!, manifest.ownerUsername || "openteam");
     }
     if (updateBoth || options.password) password = await collectConfirmedPassword(prompter!);
   } finally {
@@ -65,8 +65,8 @@ export const accountUpdateCommand = async (
   writeManifest(paths, { ...manifest, ownerUsername });
   console.log(
     options.passwordResetAlias
-      ? "OpenBot password reset. All desktop and mobile sessions have been signed out."
-      : `OpenBot owner account updated${ownerUsername ? ` for ${ownerUsername}` : ""}. All desktop and mobile sessions have been signed out.`
+      ? "OpenTeam password reset. All desktop and mobile sessions have been signed out."
+      : `OpenTeam owner account updated${ownerUsername ? ` for ${ownerUsername}` : ""}. All desktop and mobile sessions have been signed out.`
   );
 };
 

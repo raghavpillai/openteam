@@ -131,7 +131,7 @@ export const renderSetupHeader = (input: {
 }): string => {
   const styled = input.color ?? false;
   const width = Math.max(32, Math.min(96, measuredWidth(input.width)));
-  const heading = ` OPENBOT SETUP · v${input.version} `;
+  const heading = ` OPENTEAM SETUP · v${input.version} `;
   if (width < 68) {
     const stage = input.stages[input.activeStage];
     const markers = input.stages
@@ -196,7 +196,7 @@ export const createSetupPresentation = (input: {
     start() {
       write(header());
       for (const line of wrapText(
-        "A few guided steps, then OpenBot will verify the whole deployment.",
+        "A few guided steps, then OpenTeam will verify the whole deployment.",
         width
       )) {
         write(paint(styled, line, ANSI.dim));

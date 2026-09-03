@@ -2,14 +2,14 @@ import {
   PLUGIN_MARKETPLACE_CATEGORIES,
   type PluginMarketplaceCategory,
   pluginMatchesMarketplaceCategory,
-} from "@openbot/client-core/plugin-marketplace";
+} from "@openteam/client-core/plugin-marketplace";
 import type {
   PluginCatalogItemView,
   PluginConnectionView,
   PluginInstallView,
   PluginSettingsView,
-} from "@openbot/contracts";
-import { clientErrorMessage } from "@openbot/product-core/redaction";
+} from "@openteam/contracts";
+import { clientErrorMessage } from "@openteam/product-core/redaction";
 import { SymbolView } from "expo-symbols";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -23,7 +23,7 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { useOpenBot } from "../state/openbot-context";
+import { useOpenTeam } from "../state/openteam-context";
 import { type Theme, useTheme } from "../theme";
 import { GlassSurface } from "./glass-surface";
 import { IconButton } from "./icon-button";
@@ -218,7 +218,7 @@ export function PluginMarketplaceSheet({
   onClose: () => void;
 }) {
   const theme = useTheme();
-  const { authenticatePlugin, connectPlugin, installPlugin, pluginSettings } = useOpenBot();
+  const { authenticatePlugin, connectPlugin, installPlugin, pluginSettings } = useOpenTeam();
   const [data, setData] = useState<PluginSettingsView>(emptySettings);
   const [loading, setLoading] = useState(false);
   const [busyKey, setBusyKey] = useState<string | null>(null);
@@ -240,7 +240,7 @@ export function PluginMarketplaceSheet({
       if (requestId.current === id) setData(next);
     } catch (cause) {
       if (requestId.current === id) {
-        setError(clientErrorMessage(cause, "OpenBot could not load plugins."));
+        setError(clientErrorMessage(cause, "OpenTeam could not load plugins."));
       }
     } finally {
       if (requestId.current === id) setLoading(false);
@@ -279,7 +279,7 @@ export function PluginMarketplaceSheet({
       await action();
       await refresh();
     } catch (cause) {
-      setError(clientErrorMessage(cause, "OpenBot could not update this plugin."));
+      setError(clientErrorMessage(cause, "OpenTeam could not update this plugin."));
     } finally {
       setBusyKey(null);
     }

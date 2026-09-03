@@ -1,4 +1,4 @@
-import type { PluginCatalogItemView } from "@openbot/contracts";
+import type { PluginCatalogItemView } from "@openteam/contracts";
 
 export const PLUGIN_MARKETPLACE_CATEGORIES = [
   "All",

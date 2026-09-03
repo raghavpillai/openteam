@@ -9,7 +9,7 @@ describe("mobile search error copy", () => {
           "fetch failed: UnexpectedException: Could not connect to the server. (at ExpoModulesCore/Promise.swift:56)"
         )
       )
-    ).toBe("OpenBot couldn't reach your server. Check the connection and try again.");
+    ).toBe("OpenTeam couldn't reach your server. Check the connection and try again.");
   });
 
   test("does not expose unknown server or implementation details", () => {

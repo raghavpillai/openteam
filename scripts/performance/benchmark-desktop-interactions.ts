@@ -180,7 +180,7 @@ const output = JSON.stringify(
   null,
   2
 );
-if (process.env.OPENBOT_AUDIT_OUTPUT) {
-  await Bun.write(process.env.OPENBOT_AUDIT_OUTPUT, `${output}\n`);
+if (process.env.OPENTEAM_AUDIT_OUTPUT) {
+  await Bun.write(process.env.OPENTEAM_AUDIT_OUTPUT, `${output}\n`);
 }
 console.log(output);

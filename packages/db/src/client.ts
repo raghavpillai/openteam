@@ -6,7 +6,7 @@ export interface DatabaseService {
   readonly client: PrismaClient;
 }
 
-export class Database extends Context.Tag("@openbot/Database")<Database, DatabaseService>() {}
+export class Database extends Context.Tag("@openteam/Database")<Database, DatabaseService>() {}
 
 export const createPrismaClient = (databaseUrl = process.env.DATABASE_URL): PrismaClient => {
   if (!databaseUrl) {

@@ -4,11 +4,11 @@ import {
   addSpeechResultListener,
   addSpeechStateListener,
   cancelSpeech,
-  openBotNativeAvailable,
+  openTeamNativeAvailable,
   type SpeechState,
   startSpeech,
   stopSpeech,
-} from "@openbot/mobile-native";
+} from "@openteam/mobile-native";
 import { useEffect, useRef, useState } from "react";
 
 const MAX_RECORDING_MS = 300_000;
@@ -80,7 +80,7 @@ export const useVoiceInput = (onTranscript: (transcript: string) => void): Voice
   }, [state]);
 
   const start = () => {
-    if (!openBotNativeAvailable) return;
+    if (!openTeamNativeAvailable) return;
     setError(null);
     setElapsedMs(0);
     setLevels(Array.from({ length: LEVEL_COUNT }, () => 0.08));
@@ -111,7 +111,7 @@ export const useVoiceInput = (onTranscript: (transcript: string) => void): Voice
   };
 
   return {
-    available: openBotNativeAvailable,
+    available: openTeamNativeAvailable,
     state,
     elapsedMs,
     levels,

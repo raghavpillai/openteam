@@ -12,19 +12,19 @@ afterEach(() => {
 });
 
 describe("release Compose rendering", () => {
-  test("replaces every OpenBot tag with its immutable multi-architecture digest", async () => {
-    const directory = mkdtempSync(join(tmpdir(), "openbot-release-compose-"));
+  test("replaces every OpenTeam tag with its immutable multi-architecture digest", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "openteam-release-compose-"));
     temporaryDirectories.push(directory);
     const digestDirectory = join(directory, "digests");
     mkdirSync(digestDirectory);
     const services = ["server", "worker", "migrate", "computer"];
     for (const [index, service] of services.entries()) {
       await Bun.write(
-        join(digestDirectory, `openbot-${service}.digest`),
+        join(digestDirectory, `openteam-${service}.digest`),
         `sha256:${String(index + 1).repeat(64)}\n`
       );
     }
-    const output = join(directory, "openbot-compose.yaml");
+    const output = join(directory, "openteam-compose.yaml");
     const child = Bun.spawn(
       [
         process.execPath,
@@ -41,15 +41,15 @@ describe("release Compose rendering", () => {
       expect(rendered).toContain(`-${service}@sha256:${String(index + 1).repeat(64)}`);
     }
     expect(rendered).not.toMatch(
-      /^\s*image:.*-(?:server|worker|migrate|computer):\$\{OPENBOT_VERSION/m
+      /^\s*image:.*-(?:server|worker|migrate|computer):\$\{OPENTEAM_VERSION/m
     );
     expect(rendered).toContain('profiles: ["https"]');
     expect(rendered).toContain("caddy:2.11.4-alpine@sha256:");
-    expect(rendered).toContain("${OPENBOT_VIEWER_BIND_HOST:-127.0.0.1}:6200-6299");
-    expect(rendered).toContain("OPENBOT_AUTH_URL: ${OPENBOT_AUTH_URL");
-    expect(rendered).not.toContain("OPENBOT_PI_PROVIDER");
-    expect(rendered).not.toContain("OPENBOT_PI_MODEL");
-    expect(rendered).not.toContain("OPENBOT_PI_THINKING");
+    expect(rendered).toContain("${OPENTEAM_VIEWER_BIND_HOST:-127.0.0.1}:6200-6299");
+    expect(rendered).toContain("OPENTEAM_AUTH_URL: ${OPENTEAM_AUTH_URL");
+    expect(rendered).not.toContain("OPENTEAM_PI_PROVIDER");
+    expect(rendered).not.toContain("OPENTEAM_PI_MODEL");
+    expect(rendered).not.toContain("OPENTEAM_PI_THINKING");
     expect(rendered).toContain('cap_add: ["CHOWN", "DAC_OVERRIDE", "FOWNER", "SETGID", "SETUID"]');
   });
 });

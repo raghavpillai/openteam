@@ -130,7 +130,7 @@ const legacyWholeBufferCopy = async (
 };
 
 const runScenario = async (scenario: Scenario) => {
-  const root = await mkdtemp(join(tmpdir(), `openbot-asset-benchmark-${scenario}-`));
+  const root = await mkdtemp(join(tmpdir(), `openteam-asset-benchmark-${scenario}-`));
   try {
     const { source, assetId } = await prepareSource(root);
     if (scenario === "raw-before") {

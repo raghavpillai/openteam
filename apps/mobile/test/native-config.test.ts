@@ -31,8 +31,8 @@ describe("checked-in iOS native configuration", () => {
   test("matches configured usage descriptions and marketing version", async () => {
     const [configText, infoPlist, project, packageText] = await Promise.all([
       readMobileFile("app.json"),
-      readMobileFile("ios/OpenBot/Info.plist"),
-      readMobileFile("ios/OpenBot.xcodeproj/project.pbxproj"),
+      readMobileFile("ios/OpenTeam/Info.plist"),
+      readMobileFile("ios/OpenTeam.xcodeproj/project.pbxproj"),
       readMobileFile("package.json"),
     ]);
     const config = JSON.parse(configText) as ExpoConfig;
@@ -40,7 +40,7 @@ describe("checked-in iOS native configuration", () => {
     const imagePicker = pluginOptions(config, "expo-image-picker");
     const secureStore = pluginOptions(config, "expo-secure-store");
 
-    expect(config.expo.android?.package).toBe("dev.openbot.mobile");
+    expect(config.expo.android?.package).toBe("dev.openteam.mobile");
     expect(secureStore?.faceIDPermission).toBe(false);
     expect(plistString(infoPlist, "NSFaceIDUsageDescription")).toBeNull();
 
@@ -77,8 +77,8 @@ describe("checked-in iOS native configuration", () => {
   test("keeps required entitlements and the store-only update policy", async () => {
     const [configText, entitlements, expoPlist, packageText] = await Promise.all([
       readMobileFile("app.json"),
-      readMobileFile("ios/OpenBot/OpenBot.entitlements"),
-      readMobileFile("ios/OpenBot/Supporting/Expo.plist"),
+      readMobileFile("ios/OpenTeam/OpenTeam.entitlements"),
+      readMobileFile("ios/OpenTeam/Supporting/Expo.plist"),
       readMobileFile("package.json"),
     ]);
     const config = JSON.parse(configText) as ExpoConfig;
@@ -97,7 +97,7 @@ describe("checked-in iOS native configuration", () => {
   });
 
   test("guards unavailable audio input before installing the native recording tap", async () => {
-    const module = await readMobileFile("modules/openbot-native/ios/OpenBotNativeModule.swift");
+    const module = await readMobileFile("modules/openteam-native/ios/OpenTeamNativeModule.swift");
 
     expect(module).toContain("format.sampleRate.isFinite");
     expect(module).toContain("format.sampleRate > 0");
@@ -109,8 +109,8 @@ describe("checked-in iOS native configuration", () => {
 
   test("reports native camera availability before image-picker presentation", async () => {
     const [module, bridge, composer] = await Promise.all([
-      readMobileFile("modules/openbot-native/ios/OpenBotNativeModule.swift"),
-      readMobileFile("modules/openbot-native/src/index.ts"),
+      readMobileFile("modules/openteam-native/ios/OpenTeamNativeModule.swift"),
+      readMobileFile("modules/openteam-native/src/index.ts"),
       readMobileFile("src/components/composer.tsx"),
     ]);
 

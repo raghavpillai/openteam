@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { PrismaClient } from "@openbot/db";
+import type { PrismaClient } from "@openteam/db";
 import { AgentDataStore } from "../src/agent-data";
 
 const temporaryDirectories: string[] = [];
@@ -17,7 +17,7 @@ afterEach(async () => {
 
 describe("root inference settings", () => {
   test("creates fixed inference defaults only for a brand-new settings file", async () => {
-    const root = await mkdtemp(join(tmpdir(), "openbot-root-settings-"));
+    const root = await mkdtemp(join(tmpdir(), "openteam-root-settings-"));
     temporaryDirectories.push(root);
     const store = new AgentDataStore({} as PrismaClient, { root, workspaceRoot: root });
 
@@ -33,7 +33,7 @@ describe("root inference settings", () => {
   });
 
   test("does not migrate a settings file that lacks required inference settings", async () => {
-    const root = await mkdtemp(join(tmpdir(), "openbot-root-settings-"));
+    const root = await mkdtemp(join(tmpdir(), "openteam-root-settings-"));
     temporaryDirectories.push(root);
     await writeFile(
       join(root, "settings.json"),

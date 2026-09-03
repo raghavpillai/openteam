@@ -9,10 +9,10 @@ import {
   type ListGroupsInput,
   type UpdateAgentInput,
   type UpdateChannelInput,
-} from "@openbot/contracts";
-import { COMPUTER_API_PATHS } from "@openbot/contracts/service-protocol";
-import type { Prisma, PrismaClient } from "@openbot/db";
-import { type AgentDataStore, type AgentMessaging, GROUP_MAX_MEMBERS } from "@openbot/messaging";
+} from "@openteam/contracts";
+import { COMPUTER_API_PATHS } from "@openteam/contracts/service-protocol";
+import type { Prisma, PrismaClient } from "@openteam/db";
+import { type AgentDataStore, type AgentMessaging, GROUP_MAX_MEMBERS } from "@openteam/messaging";
 import { Effect } from "effect";
 import type { BotService } from "./bot-service";
 import { appendEvent, type ComputerFetch, hashRequest, toJson } from "./service-utils";

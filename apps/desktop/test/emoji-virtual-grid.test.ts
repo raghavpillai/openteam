@@ -3,7 +3,7 @@ import { computeVirtualRange } from "../src/renderer/lib/virtual-window";
 import {
   buildEmojiVirtualRows,
   emojiVirtualRowHeight,
-} from "../src/renderer/components/openbot/emoji-virtual-grid";
+} from "../src/renderer/components/openteam/emoji-virtual-grid";
 
 describe("emoji grid virtualization", () => {
   test("keeps the complete corpus searchable while bounding mounted rows", () => {

@@ -1,12 +1,12 @@
 import { contextBridge, ipcRenderer } from "electron";
 
 const appVersionArgument = process.argv.find((argument) =>
-  argument.startsWith("--openbot-app-version=")
+  argument.startsWith("--openteam-app-version=")
 );
 const appVersion = (() => {
   if (!appVersionArgument) return "0.0.0";
   try {
-    return decodeURIComponent(appVersionArgument.slice("--openbot-app-version=".length));
+    return decodeURIComponent(appVersionArgument.slice("--openteam-app-version=".length));
   } catch {
     return "0.0.0";
   }
@@ -153,80 +153,83 @@ const notificationSnapshot = (value: unknown) => {
   return value;
 };
 
-contextBridge.exposeInMainWorld("openbot", {
+contextBridge.exposeInMainWorld("openteam", {
   platform: process.platform,
   auth: {
     readToken: async () =>
-      authTokenStorageResult(await ipcRenderer.invoke("openbot:auth-token:read")),
+      authTokenStorageResult(await ipcRenderer.invoke("openteam:auth-token:read")),
     writeToken: async (token: string) => {
       if (typeof token !== "string" || !token.trim() || token.length > 16 * 1024) {
         throw new Error("Authentication token is invalid");
       }
-      return authTokenStorageResult(await ipcRenderer.invoke("openbot:auth-token:write", token));
+      return authTokenStorageResult(await ipcRenderer.invoke("openteam:auth-token:write", token));
     },
     clearToken: async () =>
-      authTokenStorageResult(await ipcRenderer.invoke("openbot:auth-token:clear")),
+      authTokenStorageResult(await ipcRenderer.invoke("openteam:auth-token:clear")),
   },
   permissions: {
-    get: () => ipcRenderer.invoke("openbot:permissions:get"),
+    get: () => ipcRenderer.invoke("openteam:permissions:get"),
     update: (request: {
       machineLabel?: string;
       localToolPermission?: "always" | "ask" | "never";
       autoReviewEnabled?: boolean;
-    }) => ipcRenderer.invoke("openbot:permissions:update", permissionUpdate(request)),
+    }) => ipcRenderer.invoke("openteam:permissions:update", permissionUpdate(request)),
     addRule: (request: { kind: "allow" | "block"; instruction: string }) =>
-      ipcRenderer.invoke("openbot:permissions:add-rule", permissionRule(request)),
+      ipcRenderer.invoke("openteam:permissions:add-rule", permissionRule(request)),
     removeRule: (request: { kind: "allow" | "block"; instruction: string }) =>
-      ipcRenderer.invoke("openbot:permissions:remove-rule", permissionRule(request)),
+      ipcRenderer.invoke("openteam:permissions:remove-rule", permissionRule(request)),
   },
   files: {
     downloadAll: (files: Array<{ fileName: string; url: string }>) =>
-      ipcRenderer.invoke("openbot:files:download-all", downloadRequests(files)),
+      ipcRenderer.invoke("openteam:files:download-all", downloadRequests(files)),
     stageDelivery: (request: { stagingId: string; bytes: ArrayBuffer }) =>
-      ipcRenderer.invoke("openbot:files:stage-delivery", deliveryStageRequest(request)),
+      ipcRenderer.invoke("openteam:files:stage-delivery", deliveryStageRequest(request)),
     readDeliveryStage: (id: string) =>
-      ipcRenderer.invoke("openbot:files:read-delivery-stage", stagingId(id)) as Promise<Uint8Array>,
+      ipcRenderer.invoke(
+        "openteam:files:read-delivery-stage",
+        stagingId(id)
+      ) as Promise<Uint8Array>,
     discardDeliveryStages: (ids: string[]) =>
-      ipcRenderer.invoke("openbot:files:discard-delivery-stages", deliveryStageIds(ids)),
+      ipcRenderer.invoke("openteam:files:discard-delivery-stages", deliveryStageIds(ids)),
   },
   deliveryJournal: {
     read: (scope: string) =>
-      ipcRenderer.invoke("openbot:delivery-journal:read", deliveryJournalScope(scope)),
+      ipcRenderer.invoke("openteam:delivery-journal:read", deliveryJournalScope(scope)),
     write: (scope: string, journal: unknown) =>
-      ipcRenderer.invoke("openbot:delivery-journal:write", {
+      ipcRenderer.invoke("openteam:delivery-journal:write", {
         scope: deliveryJournalScope(scope),
         journal: deliveryJournal(journal),
       }),
   },
   updates: {
-    status: () => ipcRenderer.invoke("openbot:updates:status"),
-    check: () => ipcRenderer.invoke("openbot:updates:check"),
-    openDownload: () => ipcRenderer.invoke("openbot:updates:open-download"),
-    installClient: () => ipcRenderer.invoke("openbot:updates:install-client"),
+    status: () => ipcRenderer.invoke("openteam:updates:status"),
+    check: () => ipcRenderer.invoke("openteam:updates:check"),
+    openDownload: () => ipcRenderer.invoke("openteam:updates:open-download"),
+    installClient: () => ipcRenderer.invoke("openteam:updates:install-client"),
     onClientProgress: (listener: (status: unknown) => void) => {
       const handler = (_event: Electron.IpcRendererEvent, status: unknown) => listener(status);
-      ipcRenderer.on("openbot:desktop-update-progress", handler);
-      return () => ipcRenderer.removeListener("openbot:desktop-update-progress", handler);
+      ipcRenderer.on("openteam:desktop-update-progress", handler);
+      return () => ipcRenderer.removeListener("openteam:desktop-update-progress", handler);
     },
     serverStatus: (request: {
       serverUrl: string;
       targetVersion?: string | null;
       sshTarget?: string | null;
-    }) => ipcRenderer.invoke("openbot:updates:server-status", serverUpdateRequest(request)),
+    }) => ipcRenderer.invoke("openteam:updates:server-status", serverUpdateRequest(request)),
     updateServer: (request: {
       serverUrl: string;
       targetVersion?: string | null;
       sshTarget?: string | null;
-    }) => ipcRenderer.invoke("openbot:updates:update-server", serverUpdateRequest(request)),
+    }) => ipcRenderer.invoke("openteam:updates:update-server", serverUpdateRequest(request)),
     onServerProgress: (listener: (status: unknown) => void) => {
       const handler = (_event: Electron.IpcRendererEvent, status: unknown) => listener(status);
-      ipcRenderer.on("openbot:server-update-progress", handler);
-      return () => ipcRenderer.removeListener("openbot:server-update-progress", handler);
+      ipcRenderer.on("openteam:server-update-progress", handler);
+      return () => ipcRenderer.removeListener("openteam:server-update-progress", handler);
     },
   },
   notifications: {
     sync: (snapshot: unknown) =>
-      ipcRenderer.send("openbot:notifications:sync", notificationSnapshot(snapshot)),
+      ipcRenderer.send("openteam:notifications:sync", notificationSnapshot(snapshot)),
     setVisibleChannel: (channelId: string | null) => {
       if (
         channelId !== null &&
@@ -234,18 +237,18 @@ contextBridge.exposeInMainWorld("openbot", {
       ) {
         throw new Error("Visible notification channel is invalid");
       }
-      ipcRenderer.send("openbot:notifications:visible-channel", channelId);
+      ipcRenderer.send("openteam:notifications:visible-channel", channelId);
     },
-    status: () => ipcRenderer.invoke("openbot:notifications:status"),
-    openSettings: () => ipcRenderer.invoke("openbot:notifications:open-settings"),
+    status: () => ipcRenderer.invoke("openteam:notifications:status"),
+    openSettings: () => ipcRenderer.invoke("openteam:notifications:open-settings"),
   },
-  getProcessMetrics: () => ipcRenderer.invoke("openbot:performance-snapshot"),
+  getProcessMetrics: () => ipcRenderer.invoke("openteam:performance-snapshot"),
   onNotificationClick: (listener: (channelId: string) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, channelId: unknown) => {
       if (typeof channelId === "string") listener(channelId);
     };
-    ipcRenderer.on("openbot:notification-click", handler);
-    return () => ipcRenderer.removeListener("openbot:notification-click", handler);
+    ipcRenderer.on("openteam:notification-click", handler);
+    return () => ipcRenderer.removeListener("openteam:notification-click", handler);
   },
   versions: Object.freeze({
     app: appVersion,

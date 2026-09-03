@@ -105,7 +105,7 @@ PODS:
   - hermes-engine (250829098.0.17):
     - hermes-engine/Pre-built (= 250829098.0.17)
   - hermes-engine/Pre-built (250829098.0.17)
-  - OpenBotNative (0.1.0):
+  - OpenTeamNative (0.1.0):
     - ExpoModulesCore
   - RCTDeprecation (0.86.3)
   - RCTRequired (0.86.3)
@@ -2286,7 +2286,7 @@ DEPENDENCIES:
   - "ExpoUI (from `../../../node_modules/.bun/@expo+ui@57.0.14+1d7ff3cc7859c29e/node_modules/@expo/ui/ios`)"
   - "FBLazyVector (from `../../../node_modules/.bun/react-native@0.86.3+51dd493e756a3a11/node_modules/react-native/Libraries/FBLazyVector`)"
   - "hermes-engine (from `../../../node_modules/.bun/react-native@0.86.3+51dd493e756a3a11/node_modules/react-native/sdks/hermes-engine/hermes-engine.podspec`)"
-  - OpenBotNative (from `../modules/openbot-native/ios`)
+  - OpenTeamNative (from `../modules/openteam-native/ios`)
   - "RCTDeprecation (from `../../../node_modules/.bun/react-native@0.86.3+51dd493e756a3a11/node_modules/react-native/ReactApple/Libraries/RCTFoundation/RCTDeprecation`)"
   - "RCTRequired (from `../../../node_modules/.bun/react-native@0.86.3+51dd493e756a3a11/node_modules/react-native/Libraries/Required`)"
   - "RCTSwiftUI (from `../../../node_modules/.bun/react-native@0.86.3+51dd493e756a3a11/node_modules/react-native/ReactApple/RCTSwiftUI`)"
@@ -2422,8 +2422,8 @@ EXTERNAL SOURCES:
   hermes-engine:
     :podspec: "../../../node_modules/.bun/react-native@0.86.3+51dd493e756a3a11/node_modules/react-native/sdks/hermes-engine/hermes-engine.podspec"
     :tag: hermes-v250829098.0.17
-  OpenBotNative:
-    :path: "../modules/openbot-native/ios"
+  OpenTeamNative:
+    :path: "../modules/openteam-native/ios"
   RCTDeprecation:
     :path: "../../../node_modules/.bun/react-native@0.86.3+51dd493e756a3a11/node_modules/react-native/ReactApple/Libraries/RCTFoundation/RCTDeprecation"
   RCTRequired:
@@ -2599,7 +2599,7 @@ SPEC CHECKSUMS:
   ExpoKeepAwake: c26f14275017370cc8a4b7b43a0e23361f2053a5
   ExpoLinking: b616f5d0c2e11db3a5cccd8ae6bff45294929fd2
   ExpoLogBox: 80957303325cd4439137765c90a87d7f22aaf2ff
-  ExpoModulesCore: cb9d235964a1d58656c4f4d67b4e1ae9a4f2e8d6
+  ExpoModulesCore: a91cd3ce4292a739990bae629c4544dfe125294f
   ExpoModulesJSI: 1529d4289b9a3647d8901a27b41f1af173598b45
   ExpoModulesWorklets: 57a11e6ae984c2680e7967b785ded96199caed8c
   ExpoModulesWorkletsAdapter: cfaa7f82b06da0a379e8655e4b434e49383d1277
@@ -2610,7 +2610,7 @@ SPEC CHECKSUMS:
   ExpoUI: 6867422a567a251dcc25444c706b53f479e457ae
   FBLazyVector: 2138c6c2ab66c31bf5754dc18097fbc498a49c7f
   hermes-engine: 1d1364aef43f16448ba890d64226be0ef32516fe
-  OpenBotNative: a09ac6f1423b654f5b7a9872f400e614c61f5ea7
+  OpenTeamNative: 5be4ce88bf3e64dbe170661af874c826db7d516f
   RCTDeprecation: 96f68ebf33f8762466b01d57d6e873c4f30efb07
   RCTRequired: 166eed8ad6d8440e73e56d09a9090366609823d2
   RCTSwiftUI: e818198d11928a78c2b2afe281d072171dab617f
@@ -2691,6 +2691,6 @@ SPEC CHECKSUMS:
   RNWorklets: d683919902733d922a5a5e6113d49fc2e3abd0f0
   Yoga: 18b74b3ade30bebc1904004dfaceae1dd02a330a
 
-PODFILE CHECKSUM: 111dcf104155566c306bc231bcb9b589c59416ef
+PODFILE CHECKSUM: 2c3a0e73446cf81da248ff1a82ca14c137709789
 
 COCOAPODS: 1.17.0

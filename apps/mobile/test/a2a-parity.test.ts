@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import type { ChannelMessageView } from "@openbot/contracts";
-import { collapseA2ATimeline } from "@openbot/product-core/messages";
+import type { ChannelMessageView } from "@openteam/contracts";
+import { collapseA2ATimeline } from "@openteam/product-core/messages";
 
 const exchangeMessage = (
   id: string,

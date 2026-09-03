@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { ClientSnapshot } from "@openbot/contracts";
+import type { ClientSnapshot } from "@openteam/contracts";
 import {
   deriveAgentNotifications,
   deriveUnreadChannelIds,

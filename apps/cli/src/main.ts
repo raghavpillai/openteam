@@ -28,19 +28,19 @@ import {
 } from "./providers";
 import { setupCommand } from "./setup";
 
-const help = `OpenBot CLI ${CLI_VERSION}
+const help = `OpenTeam CLI ${CLI_VERSION}
 
 Usage:
-  openbot <command> [options]
+  openteam <command> [options]
 
 Commands:
-  install      Install and start the OpenBot server stack
+  install      Install and start the OpenTeam server stack
   setup        Guided access, owner, runtime, launch, and verification stages
   doctor       Check Docker, system resources, configuration, and health
   status       Show the installed version, services, and health
-  update       Update to the latest stable OpenBot release
-  stop         Stop OpenBot while preserving its containers and data
-  start        Start or recreate the installed OpenBot services
+  update       Update to the latest stable OpenTeam release
+  stop         Stop OpenTeam while preserving its containers and data
+  start        Start or recreate the installed OpenTeam services
   logs         Show recent service logs (use --follow to stream)
   provider list                 List Pi inference providers and authentication state
   provider login [provider]     Configure OAuth or an API key/password
@@ -51,7 +51,7 @@ Commands:
   model use <provider> <model>  Select the installation-wide inference model
   account update  Update the owner username and/or password
   password reset  Reset the owner password and revoke all sessions
-  uninstall    Remove OpenBot containers; data is preserved by default
+  uninstall    Remove OpenTeam containers; data is preserved by default
 
 Options:
   --dir <path>             Override the installation directory
@@ -167,6 +167,6 @@ const main = async (): Promise<void> => {
 };
 
 main().catch((error) => {
-  console.error(`openbot: ${errorMessage(error)}`);
+  console.error(`openteam: ${errorMessage(error)}`);
   process.exitCode = error instanceof CliError ? error.exitCode : 1;
 });

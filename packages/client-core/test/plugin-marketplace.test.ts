@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { PluginCatalogItemView } from "@openbot/contracts";
+import type { PluginCatalogItemView } from "@openteam/contracts";
 import {
   PLUGIN_MARKETPLACE_CATEGORIES,
   pluginMatchesMarketplaceCategory,

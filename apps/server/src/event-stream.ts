@@ -1,4 +1,4 @@
-import type { ProductEvent } from "@openbot/contracts";
+import type { ProductEvent } from "@openteam/contracts";
 
 export const SSE_EVENT_BATCH_SIZE = 64;
 const KEEPALIVE_INTERVAL_MS = 15_000;

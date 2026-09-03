@@ -3,4 +3,4 @@ export {
   activeAsyncTaskChannelIds,
   activeAsyncTasksForBot,
   asyncTaskElapsed,
-} from "@openbot/product-core/activity";
+} from "@openteam/product-core/activity";

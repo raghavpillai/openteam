@@ -5,7 +5,7 @@ const source = (path: string) =>
 
 describe("desktop shared client controllers", () => {
   test("polls a normal screen without acquiring exclusive graphical control", async () => {
-    const screen = await source("components/openbot/bot-screen.tsx");
+    const screen = await source("components/openteam/bot-screen.tsx");
 
     expect(screen).toContain("SCREEN_STATUS_POLL_MS");
     expect(screen).toContain("shouldPollScreenStatus");
@@ -17,7 +17,7 @@ describe("desktop shared client controllers", () => {
   });
 
   test("uses live local noVNC with authenticated frame and input fallback", async () => {
-    const screen = await source("components/openbot/bot-screen.tsx");
+    const screen = await source("components/openteam/bot-screen.tsx");
 
     expect(screen).toContain("api.screenFrameUrl");
     expect(screen).toContain("api.screenAction");
@@ -28,7 +28,7 @@ describe("desktop shared client controllers", () => {
   });
 
   test("keeps human input active alongside agent input", async () => {
-    const screen = await source("components/openbot/bot-screen.tsx");
+    const screen = await source("components/openteam/bot-screen.tsx");
 
     expect(screen).toContain('role="application"');
     expect(screen).toContain('className="absolute inset-0 size-full cursor-crosshair');
@@ -38,8 +38,8 @@ describe("desktop shared client controllers", () => {
   });
 
   test("uses exclusive input only for an explicit agent-requested handoff", async () => {
-    const screen = await source("components/openbot/bot-screen.tsx");
-    const richMessage = await source("components/openbot/rich-message.tsx");
+    const screen = await source("components/openteam/bot-screen.tsx");
+    const richMessage = await source("components/openteam/rich-message.tsx");
 
     expect(richMessage).toContain('api.mutateComputerHandoff(message.id, "start")');
     expect(richMessage).toContain("Take over the computer");

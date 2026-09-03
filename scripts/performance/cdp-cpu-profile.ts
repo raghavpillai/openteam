@@ -1,16 +1,16 @@
-const endpoint = process.env.OPENBOT_AUDIT_CDP_URL ?? "http://127.0.0.1:9333";
-const durationMs = Number(process.env.OPENBOT_AUDIT_PROFILE_MS ?? 10_000);
-const samplingIntervalUs = Number(process.env.OPENBOT_AUDIT_PROFILE_INTERVAL_US ?? 250);
+const endpoint = process.env.OPENTEAM_AUDIT_CDP_URL ?? "http://127.0.0.1:9333";
+const durationMs = Number(process.env.OPENTEAM_AUDIT_PROFILE_MS ?? 10_000);
+const samplingIntervalUs = Number(process.env.OPENTEAM_AUDIT_PROFILE_INTERVAL_US ?? 250);
 
 if (!Number.isFinite(durationMs) || durationMs <= 0 || durationMs > 60_000) {
-  throw new Error("OPENBOT_AUDIT_PROFILE_MS must be between 1 and 60000");
+  throw new Error("OPENTEAM_AUDIT_PROFILE_MS must be between 1 and 60000");
 }
 if (
   !Number.isFinite(samplingIntervalUs) ||
   samplingIntervalUs < 100 ||
   samplingIntervalUs > 10_000
 ) {
-  throw new Error("OPENBOT_AUDIT_PROFILE_INTERVAL_US must be between 100 and 10000");
+  throw new Error("OPENTEAM_AUDIT_PROFILE_INTERVAL_US must be between 100 and 10000");
 }
 
 interface Target {
@@ -123,7 +123,7 @@ const serialized = JSON.stringify(
   null,
   2
 );
-if (process.env.OPENBOT_AUDIT_OUTPUT) {
-  await Bun.write(process.env.OPENBOT_AUDIT_OUTPUT, `${serialized}\n`);
+if (process.env.OPENTEAM_AUDIT_OUTPUT) {
+  await Bun.write(process.env.OPENTEAM_AUDIT_OUTPUT, `${serialized}\n`);
 }
 console.log(serialized);

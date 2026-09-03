@@ -3,11 +3,11 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 import type { Readable } from "node:stream";
-import type { SystemVersionView } from "@openbot/contracts";
-import { isOpenBotVersion } from "@openbot/contracts/version-compatibility";
-import { redactSensitiveText, safeErrorMessage } from "@openbot/product-core/redaction";
+import type { SystemVersionView } from "@openteam/contracts";
+import { isOpenTeamVersion } from "@openteam/contracts/version-compatibility";
+import { redactSensitiveText, safeErrorMessage } from "@openteam/product-core/redaction";
 
-const UPDATE_EVENT_PREFIX = "@@OPENBOT_UPDATE@@";
+const UPDATE_EVENT_PREFIX = "@@OPENTEAM_UPDATE@@";
 const MAX_ERROR_OUTPUT = 12_000;
 export const MAX_UPDATE_PROGRESS_LINE = 128 * 1024;
 
@@ -107,14 +107,14 @@ const defaultInstallDirectory = (
   platform = process.platform,
   home = homedir()
 ) => {
-  if (environment.OPENBOT_HOME?.trim()) return resolve(environment.OPENBOT_HOME.trim());
+  if (environment.OPENTEAM_HOME?.trim()) return resolve(environment.OPENTEAM_HOME.trim());
   if (platform === "win32") {
-    return resolve(environment.LOCALAPPDATA?.trim() || join(home, "AppData", "Local"), "OpenBot");
+    return resolve(environment.LOCALAPPDATA?.trim() || join(home, "AppData", "Local"), "OpenTeam");
   }
   if (environment.XDG_CONFIG_HOME?.trim()) {
-    return resolve(environment.XDG_CONFIG_HOME.trim(), "openbot");
+    return resolve(environment.XDG_CONFIG_HOME.trim(), "openteam");
   }
-  return resolve(home, ".openbot");
+  return resolve(home, ".openteam");
 };
 
 const environmentValues = (contents: string) => {
@@ -146,12 +146,12 @@ export const readManagedInstallation = (
   }
   try {
     const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as { version?: unknown };
-    if (typeof manifest.version !== "string" || !isOpenBotVersion(manifest.version)) return null;
+    if (typeof manifest.version !== "string" || !isOpenTeamVersion(manifest.version)) return null;
     const values = environmentValues(readFileSync(environmentPath, "utf8"));
     return {
       directory,
       version: manifest.version,
-      apiPort: values.get("OPENBOT_API_PORT") || "8787",
+      apiPort: values.get("OPENTEAM_API_PORT") || "8787",
     };
   } catch {
     return null;
@@ -198,7 +198,9 @@ export const parseUpdateEvent = (line: string): UpdateEvent | null => {
 };
 
 const manualCommand = (version: string | null) =>
-  version && isOpenBotVersion(version) ? `openbot update --version ${version}` : "openbot update";
+  version && isOpenTeamVersion(version)
+    ? `openteam update --version ${version}`
+    : "openteam update";
 
 export const normalizeSshTarget = (value: string | null | undefined): string | null => {
   const target = value?.trim() ?? "";
@@ -222,14 +224,14 @@ const fetchVersion = async (
 ): Promise<SystemVersionView | null> => {
   try {
     const response = await fetcher(versionEndpoint(serverUrl), {
-      headers: { accept: "application/json", "user-agent": "OpenBot-Desktop" },
+      headers: { accept: "application/json", "user-agent": "OpenTeam-Desktop" },
       signal: AbortSignal.timeout(5_000),
     });
     if (!response.ok) return null;
     const value = (await response.json()) as Partial<SystemVersionView>;
     if (
       typeof value.releaseVersion !== "string" ||
-      !isOpenBotVersion(value.releaseVersion) ||
+      !isOpenTeamVersion(value.releaseVersion) ||
       !Number.isInteger(value.apiProtocolVersion)
     ) {
       return null;
@@ -321,16 +323,16 @@ export class ServerUpdater {
     targetVersion: string | null,
     sshTarget?: string | null
   ): Promise<ServerUpdateStatus> {
-    if (targetVersion !== null && !isOpenBotVersion(targetVersion))
-      throw new Error("The requested OpenBot version is invalid");
-    if (this.child) throw new Error("An OpenBot server update is already running");
+    if (targetVersion !== null && !isOpenTeamVersion(targetVersion))
+      throw new Error("The requested OpenTeam version is invalid");
+    if (this.child) throw new Error("An OpenTeam server update is already running");
     const before = await this.status(serverUrl, targetVersion, sshTarget);
     if (!before.updaterAvailable) {
       throw new Error(`Run ${before.manualCommand} on the server computer`);
     }
     const installation = readManagedInstallation(this.options.environment ?? process.env);
     if (before.updateMethod === "local" && !installation) {
-      throw new Error("The local OpenBot installation could not be read");
+      throw new Error("The local OpenTeam installation could not be read");
     }
 
     const publish = (next: Partial<ServerUpdateStatus>) => {
@@ -376,7 +378,7 @@ export class ServerUpdater {
       "-o",
       "ServerAliveCountMax=4",
       remoteTarget ?? "",
-      "openbot",
+      "openteam",
       "update",
       ...(targetVersion ? ["--version", targetVersion] : []),
       "--json-progress",
@@ -405,7 +407,7 @@ export class ServerUpdater {
       for (const line of progressLines.push(chunk)) {
         const event = parseUpdateEvent(line);
         if (!event) continue;
-        if (event.phase === "complete" && event.version && isOpenBotVersion(event.version)) {
+        if (event.phase === "complete" && event.version && isOpenTeamVersion(event.version)) {
           completedVersion = event.version;
         }
         publish({

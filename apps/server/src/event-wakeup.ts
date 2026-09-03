@@ -1,6 +1,6 @@
 import { Client } from "pg";
 
-const EVENT_CHANNEL = "openbot_events";
+const EVENT_CHANNEL = "openteam_events";
 const RECONNECT_DELAY_MS = 1_000;
 const UNHEALTHY_POLL_MS = 1_500;
 

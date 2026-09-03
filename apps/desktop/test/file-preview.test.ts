@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { AssetRef } from "@openbot/contracts";
+import type { AssetRef } from "@openteam/contracts";
 import {
   attachmentPreviewKind,
   formatAttachmentBytes,

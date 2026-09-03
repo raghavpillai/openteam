@@ -1,5 +1,5 @@
-import { ApiError, type RoutineExecutionView, type RoutineView } from "@openbot/contracts";
-import { Prisma, type PrismaClient } from "@openbot/db";
+import { ApiError, type RoutineExecutionView, type RoutineView } from "@openteam/contracts";
+import { Prisma, type PrismaClient } from "@openteam/db";
 import { CronExpressionParser } from "cron-parser";
 import {
   cronSchedules,
@@ -52,7 +52,7 @@ export interface RoutineMutationInput {
   source?: "agent" | "ui";
 }
 
-export type { RoutineExecutionView, RoutineView } from "@openbot/contracts";
+export type { RoutineExecutionView, RoutineView } from "@openteam/contracts";
 
 export interface NormalizedSchedule {
   scheduleText: string;
@@ -243,7 +243,7 @@ export const scheduledRoutineTriggerContext = (input: {
 }): string =>
   [
     "<automation_trigger_info>",
-    `[OpenBot routine: ${input.name}]`,
+    `[OpenTeam routine: ${input.name}]`,
     `Scheduled occurrence: ${input.scheduledFor.toISOString()}`,
     "</automation_trigger_info>",
   ].join("\n");
@@ -400,7 +400,7 @@ export const normalizeRoutineMutationTrigger = (
   assertTimeOnlyTrigger(trigger);
   const cronSchedule = firstCronSchedule(trigger);
   if (cronSchedule !== null) {
-    const enforceMinimum = process.env.OPENBOT_ENFORCE_AUTOMATION_MINIMUM === "true";
+    const enforceMinimum = process.env.OPENTEAM_ENFORCE_AUTOMATION_MINIMUM === "true";
     const normalizedSchedules = cronSchedules(trigger).map((candidate) =>
       normalizeRoutineSchedule(required(candidate, "trigger.schedule"), installationZone, {
         enforceMinimum,
@@ -709,7 +709,7 @@ export class RoutineService {
     private readonly prisma: PrismaClient,
     private readonly host: RoutineWakeHost,
     private readonly files?: RoutineFileStore,
-    installationZone = process.env.OPENBOT_TIME_ZONE ?? "UTC"
+    installationZone = process.env.OPENTEAM_TIME_ZONE ?? "UTC"
   ) {
     this.installationZone = validZone(installationZone);
   }

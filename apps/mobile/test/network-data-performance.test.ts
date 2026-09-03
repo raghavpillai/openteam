@@ -5,8 +5,8 @@ import {
   MAX_PARALLEL_UPLOADS,
   mapWithConcurrency,
   TrailingAsyncCoalescer,
-} from "@openbot/client-core";
-import type { ChannelClientState, ClientSnapshot } from "@openbot/contracts";
+} from "@openteam/client-core";
+import type { ChannelClientState, ClientSnapshot } from "@openteam/contracts";
 import {
   boundedSnapshotForCache,
   MAX_CACHED_MESSAGES_PER_CHANNEL,
@@ -16,7 +16,7 @@ import {
   mergeChannelState,
   reconcileActiveHistoryRefresh,
   trimInactiveHistories,
-} from "@openbot/product-core/history";
+} from "@openteam/product-core/history";
 import { mobileFixture } from "../src/fixtures";
 import { uploadNativeAsset } from "../src/native-asset-upload";
 
@@ -276,7 +276,7 @@ describe("mobile networking/data performance", () => {
 
     await expect(
       uploadNativeAsset({
-        serverUrl: "https://openbot.test",
+        serverUrl: "https://openteam.test",
         file,
         fileName: "camera.png",
         mimeType: "image/png",
@@ -286,7 +286,7 @@ describe("mobile networking/data performance", () => {
     ).resolves.toEqual({ ...asset, alt: "Camera photo" });
     expect(calls).toEqual([
       {
-        url: "https://openbot.test/api/v0/assets",
+        url: "https://openteam.test/api/v0/assets",
         options: {
           httpMethod: "POST",
           headers: {

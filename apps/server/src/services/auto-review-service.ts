@@ -1,8 +1,8 @@
-import { ApiError, formatPiModelRef, type ServerInferenceSettings } from "@openbot/contracts";
+import { ApiError, formatPiModelRef, type ServerInferenceSettings } from "@openteam/contracts";
 import {
   COMPUTER_API_PATHS,
   type ComputerInferenceRequest,
-} from "@openbot/contracts/service-protocol";
+} from "@openteam/contracts/service-protocol";
 import type { ComputerFetch } from "./service-utils";
 
 const SURFACES = new Set([
@@ -104,7 +104,7 @@ export const parseAutoReviewResponse = (text: string): AutoReviewOutput | null =
   }
 };
 
-const instructions = `You are OpenBot Auto Review, a fail-closed permission classifier.
+const instructions = `You are OpenTeam Auto Review, a fail-closed permission classifier.
 Evaluate exactly one proposed side effect. User block rules ("ask first") always override user allow
 rules when both could match. Built-in safety checks still apply even when an allow rule matches.
 ALLOW only when this exact action is safe to run without another user decision. BLOCK when the user

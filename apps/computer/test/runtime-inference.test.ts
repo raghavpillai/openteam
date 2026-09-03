@@ -3,7 +3,7 @@ import { ComputerRuntime } from "../src/runtime";
 
 const inferenceRequest = {
   instructions: "Return the requested canary.",
-  prompt: "Return OPENBOT_INFERENCE_OK.",
+  prompt: "Return OPENTEAM_INFERENCE_OK.",
   cwd: "/workspace",
   timeoutMs: 5_000,
   model: "openai-codex/gpt-5.5",
@@ -35,10 +35,10 @@ describe("memory inference", () => {
   test("returns assistant text from a successful direct Pi completion", async () => {
     const runtime = runtimeWithResult({
       stopReason: "stop",
-      content: [{ type: "text", text: "OPENBOT_INFERENCE_OK" }],
+      content: [{ type: "text", text: "OPENTEAM_INFERENCE_OK" }],
     });
 
-    await expect(runtime.infer(inferenceRequest)).resolves.toBe("OPENBOT_INFERENCE_OK");
+    await expect(runtime.infer(inferenceRequest)).resolves.toBe("OPENTEAM_INFERENCE_OK");
   });
 
   test("preserves the provider error when Pi returns an error completion", async () => {

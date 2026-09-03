@@ -1,8 +1,8 @@
-import { normalizeThemePreference, resolveTheme } from "@openbot/design-tokens/appearance";
+import { normalizeThemePreference, resolveTheme } from "@openteam/design-tokens/appearance";
 
 const preference = (() => {
   try {
-    return normalizeThemePreference(localStorage.getItem("openbot:theme"));
+    return normalizeThemePreference(localStorage.getItem("openteam:theme"));
   } catch {
     return "system";
   }

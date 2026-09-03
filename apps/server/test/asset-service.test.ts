@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { ApiError } from "@openbot/contracts";
+import { ApiError } from "@openteam/contracts";
 import {
   assetUploadByteLimit,
   decodeFileNameHeader,

@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 
 const componentSource = (name: string) =>
-  readFile(new URL(`../src/renderer/components/openbot/${name}.tsx`, import.meta.url), "utf8");
+  readFile(new URL(`../src/renderer/components/openteam/${name}.tsx`, import.meta.url), "utf8");
 
 describe("Grok bot-profile UI parity", () => {
   test("opens Bot settings from Grok's compact header identity control", async () => {
@@ -14,7 +14,7 @@ describe("Grok bot-profile UI parity", () => {
     );
     expect(header).toMatch(/changeDetails\(true\);\s*onShowSettings\(\);/);
     expect(header).toContain("aria-label={selected.name}");
-    expect(header).toContain("OpenBot's Computer");
+    expect(header).toContain("OpenTeam's Computer");
     expect(header).toContain('aria-label="Back to details"');
     expect(header).toContain('aria-label="Close details"');
     expect(header).not.toContain("Back to bot details");

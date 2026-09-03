@@ -8,7 +8,7 @@ import { resolveControlToken } from "../src/main/control-token";
 const temporaryDirectories: string[] = [];
 
 const temporaryDirectory = async () => {
-  const directory = await mkdtemp(join(tmpdir(), "openbot-control-token-"));
+  const directory = await mkdtemp(join(tmpdir(), "openteam-control-token-"));
   temporaryDirectories.push(directory);
   return directory;
 };
@@ -25,20 +25,20 @@ describe("desktop control token", () => {
       "apps",
       "desktop",
       "release",
-      "OpenBot.app",
+      "OpenTeam.app",
       "Contents",
       "Resources",
       "app.asar"
     );
     const userDataPath = join(root, "user-data");
     mkdirSync(join(root, "apps", "desktop", "release"), { recursive: true });
-    writeFileSync(join(root, ".env"), "OPENBOT_CONTROL_TOKEN=project-secret\n");
+    writeFileSync(join(root, ".env"), "OPENTEAM_CONTROL_TOKEN=project-secret\n");
 
     expect(
       resolveControlToken({
         cwd: "/",
         appPath,
-        executablePath: join(root, "OpenBot"),
+        executablePath: join(root, "OpenTeam"),
         userDataPath,
       })
     ).toBe("project-secret");
@@ -56,8 +56,8 @@ describe("desktop control token", () => {
     expect(
       resolveControlToken({
         cwd: "/",
-        appPath: "/Applications/OpenBot.app/Contents/Resources/app.asar",
-        executablePath: "/Applications/OpenBot.app/Contents/MacOS/OpenBot",
+        appPath: "/Applications/OpenTeam.app/Contents/Resources/app.asar",
+        executablePath: "/Applications/OpenTeam.app/Contents/MacOS/OpenTeam",
         userDataPath,
       })
     ).toBe("persisted-secret");

@@ -17,9 +17,9 @@ import {
   UpdateAgentInput,
   UpdateChannelInput,
   UpdateStateInput,
-} from "@openbot/contracts";
-import type { PrismaClient } from "@openbot/db";
-import { type AgentMessaging, validateSendToUserInput } from "@openbot/messaging";
+} from "@openteam/contracts";
+import type { PrismaClient } from "@openteam/db";
+import { type AgentMessaging, validateSendToUserInput } from "@openteam/messaging";
 import { Effect, Schema } from "effect";
 import type { DurableStateService } from "../update-state";
 import type { AdministrationService } from "./administration-service";

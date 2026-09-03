@@ -1,15 +1,15 @@
 {
-  "name": "@openbot/desktop",
+  "name": "@openteam/desktop",
   "version": "0.1.0",
-  "author": "OpenBot contributors",
+  "author": "OpenTeam contributors",
   "main": "dist-electron/main.js",
   "devDependencies": {
     "@dnd-kit/dom": "^0.5.0",
     "@dnd-kit/react": "^0.5.0",
-    "@openbot/client-core": "workspace:*",
-    "@openbot/contracts": "workspace:*",
-    "@openbot/design-tokens": "workspace:*",
-    "@openbot/product-core": "workspace:*",
+    "@openteam/client-core": "workspace:*",
+    "@openteam/contracts": "workspace:*",
+    "@openteam/design-tokens": "workspace:*",
+    "@openteam/product-core": "workspace:*",
     "@shikijs/themes": "3.23.0",
     "@streamdown/cjk": "1.0.3",
     "@streamdown/math": "1.0.2",
@@ -43,11 +43,11 @@
     "xlsx": "file:../../vendor/sheetjs/xlsx-0.20.3.tgz"
   },
   "build": {
-    "appId": "dev.openbot.desktop",
-    "productName": "OpenBot",
+    "appId": "dev.openteam.desktop",
+    "productName": "OpenTeam",
     "asar": true,
     "asarUnpack": [
-      "dist-electron/openbot-cli.js"
+      "dist-electron/openteam-cli.js"
     ],
     "npmRebuild": false,
     "directories": {
@@ -60,7 +60,7 @@
       "package.json"
     ],
     "mac": {
-      "icon": "../mobile/assets/openbot-icon-v2.png",
+      "icon": "../mobile/assets/openteam-icon-v2.png",
       "identity": "-",
       "hardenedRuntime": false,
       "category": "public.app-category.productivity",
@@ -70,22 +70,22 @@
       ]
     },
     "linux": {
-      "icon": "../mobile/assets/openbot-icon-v2.png",
+      "icon": "../mobile/assets/openteam-icon-v2.png",
       "target": [
         "AppImage"
       ]
     },
     "win": {
-      "icon": "../mobile/assets/openbot-icon-v2.png",
+      "icon": "../mobile/assets/openteam-icon-v2.png",
       "target": [
         "nsis"
       ]
     },
-    "artifactName": "OpenBot-${version}-${os}-${arch}.${ext}",
+    "artifactName": "OpenTeam-${version}-${os}-${arch}.${ext}",
     "publish": {
       "provider": "github",
       "owner": "raghavpillai",
-      "repo": "openbot"
+      "repo": "openteam"
     }
   },
   "description": "A self-hosted desktop for durable Pi agents with configurable inference providers.",
@@ -95,7 +95,7 @@
     "clean:release": "bun run scripts/clean-release.ts",
     "build:main": "bun build src/main/index.ts --outdir dist-electron --entry-naming main.js --chunk-naming 'chunks/[name].[ext]' --splitting --target node --format esm --external electron",
     "build:utility": "bun build src/main/host-utility.ts --outfile dist-electron/host-utility.js --target node --format esm --external electron",
-    "build:server-updater": "bun build ../cli/src/main.ts --outfile dist-electron/openbot-cli.js --target node --format esm",
+    "build:server-updater": "bun build ../cli/src/main.ts --outfile dist-electron/openteam-cli.js --target node --format esm",
     "build:preload": "bun build src/preload/index.ts --outfile dist-electron/preload.cjs --target node --format cjs --external electron",
     "build:electron": "bun run build:main && bun run build:utility && bun run build:server-updater && bun run build:preload",
     "build": "bun run clean && vite build && bun run build:electron",

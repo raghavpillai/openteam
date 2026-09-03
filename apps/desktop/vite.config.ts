@@ -5,7 +5,7 @@ import { defineConfig, type Plugin, type ProxyOptions } from "vite";
 /** Electron's Chromium runtime supports WOFF2; shipping KaTeX's WOFF and TTF
  * fallbacks only adds duplicate font payload to every installer. */
 const katexWoff2Only = (): Plugin => ({
-  name: "openbot-katex-woff2-only",
+  name: "openteam-katex-woff2-only",
   enforce: "pre",
   transform(source, id) {
     if (!/[\\/]katex[\\/]dist[\\/]katex\.min\.css(?:\?|$)/.test(id)) return;
@@ -29,7 +29,7 @@ type EmojiRuntimeSource = {
  * corpus also contains hex codes, skin-tone metadata, and other fields that
  * otherwise survive JSON bundling even though the desktop never reads them. */
 const emojiPickerRuntimeData = (): Plugin => ({
-  name: "openbot-emoji-picker-runtime-data",
+  name: "openteam-emoji-picker-runtime-data",
   enforce: "pre",
   transform(source, id) {
     if (!/[\\/]emojibase-data[\\/]en[\\/]compact\.json(?:\?|$)/.test(id)) return;
@@ -52,9 +52,9 @@ const emojiPickerRuntimeData = (): Plugin => ({
 /** Opt-in build evidence for finding what actually contributes to each chunk.
  * It is intentionally absent from ordinary and release builds. */
 const bundleModuleAudit = (): Plugin => ({
-  name: "openbot-bundle-module-audit",
+  name: "openteam-bundle-module-audit",
   generateBundle(_options, bundle) {
-    if (process.env.OPENBOT_BUILD_ANALYZE !== "1") return;
+    if (process.env.OPENTEAM_BUILD_ANALYZE !== "1") return;
     const chunks = Object.values(bundle)
       .filter((output) => output.type === "chunk")
       .map((chunk) => ({
@@ -98,11 +98,11 @@ export default defineConfig({
     tailwindcss(),
   ],
   server: {
-    host: process.env.OPENBOT_DEV_HOST ?? "127.0.0.1",
+    host: process.env.OPENTEAM_DEV_HOST ?? "127.0.0.1",
     port: 5173,
     strictPort: true,
     proxy: {
-      "/api": process.env.OPENBOT_SERVER_URL ?? "http://127.0.0.1:8787",
+      "/api": process.env.OPENTEAM_SERVER_URL ?? "http://127.0.0.1:8787",
       ...noVncProxies,
     },
   },

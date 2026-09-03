@@ -18,7 +18,7 @@ afterEach(async () => {
 
 describe("Grok-compatible agent SQLite stores", () => {
   test("bounds idle handles with LRU eviction and deterministic idle close", async () => {
-    root = await mkdtemp(join(tmpdir(), "openbot-grok-handle-lru-"));
+    root = await mkdtemp(join(tmpdir(), "openteam-grok-handle-lru-"));
     let now = 1_000;
     store = new GrokAgentStore(root, undefined, {
       maxOpenAgents: 2,
@@ -50,7 +50,7 @@ describe("Grok-compatible agent SQLite stores", () => {
   });
 
   test("queues over-capacity opens and never closes a leased store", async () => {
-    root = await mkdtemp(join(tmpdir(), "openbot-grok-handle-lease-"));
+    root = await mkdtemp(join(tmpdir(), "openteam-grok-handle-lease-"));
     store = new GrokAgentStore(root, undefined, {
       maxOpenAgents: 1,
       idleCloseMs: 60_000,
@@ -95,7 +95,7 @@ describe("Grok-compatible agent SQLite stores", () => {
   });
 
   test("closeAll waits for leases, permits their nested work, and rejects new work", async () => {
-    root = await mkdtemp(join(tmpdir(), "openbot-grok-handle-shutdown-"));
+    root = await mkdtemp(join(tmpdir(), "openteam-grok-handle-shutdown-"));
     store = new GrokAgentStore(root, undefined, {
       maxOpenAgents: 2,
       idleCloseMs: 60_000,
@@ -145,7 +145,7 @@ describe("Grok-compatible agent SQLite stores", () => {
   });
 
   test("bulk envelope publication is atomic and byte-identical to ordered appends", async () => {
-    root = await mkdtemp(join(tmpdir(), "openbot-grok-envelope-bulk-"));
+    root = await mkdtemp(join(tmpdir(), "openteam-grok-envelope-bulk-"));
     const fixedNow = 1_788_000_000_000;
     const sequential = new GrokAgentStore(join(root, "sequential"), undefined, {
       now: () => fixedNow,
@@ -243,7 +243,7 @@ describe("Grok-compatible agent SQLite stores", () => {
   });
 
   test("partial-directory retries remain bounded and rotate through the recovery set", async () => {
-    root = await mkdtemp(join(tmpdir(), "openbot-grok-pending-inventory-"));
+    root = await mkdtemp(join(tmpdir(), "openteam-grok-pending-inventory-"));
     store = new GrokAgentStore(root);
     const ids = Array.from(
       { length: 40 },
@@ -272,7 +272,7 @@ describe("Grok-compatible agent SQLite stores", () => {
   });
 
   test("directory discovery caches steady rosters and incrementally retries partial stores", async () => {
-    root = await mkdtemp(join(tmpdir(), "openbot-grok-inventory-"));
+    root = await mkdtemp(join(tmpdir(), "openteam-grok-inventory-"));
     store = new GrokAgentStore(root);
     const agentsRoot = join(root, "agents");
     const firstDirectory = store.agentDirectory(agentId);
@@ -314,7 +314,7 @@ describe("Grok-compatible agent SQLite stores", () => {
   });
 
   test("creation exposes exactly profile-external store.db state", async () => {
-    root = await mkdtemp(join(tmpdir(), "openbot-grok-store-"));
+    root = await mkdtemp(join(tmpdir(), "openteam-grok-store-"));
     store = new GrokAgentStore(root);
     await store.initializeAgent(agentId, 1_788_000_000_000);
     const directory = store.agentDirectory(agentId);
@@ -360,7 +360,7 @@ describe("Grok-compatible agent SQLite stores", () => {
   });
 
   test("first wake creates WAL stores, repair keys, snapshots, and plaintext envelopes", async () => {
-    root = await mkdtemp(join(tmpdir(), "openbot-grok-store-"));
+    root = await mkdtemp(join(tmpdir(), "openteam-grok-store-"));
     store = new GrokAgentStore(root);
     await store.initializeAgent(agentId);
     await Promise.all([
@@ -437,7 +437,7 @@ describe("Grok-compatible agent SQLite stores", () => {
   });
 
   test("unknown durable agent directories are adopted into the local roster", async () => {
-    root = await mkdtemp(join(tmpdir(), "openbot-grok-store-"));
+    root = await mkdtemp(join(tmpdir(), "openteam-grok-store-"));
     const orphanRoot = join(root, "quarantine");
     store = new GrokAgentStore(join(root, "sand-data"), orphanRoot);
     await store.initializeAgent(agentId);
@@ -459,7 +459,7 @@ describe("Grok-compatible agent SQLite stores", () => {
   });
 
   test("corrupt stores are quarantined and rebuilt while blob recovery finishes pending markers", async () => {
-    root = await mkdtemp(join(tmpdir(), "openbot-grok-store-recovery-"));
+    root = await mkdtemp(join(tmpdir(), "openteam-grok-store-recovery-"));
     store = new GrokAgentStore(root);
     await store.initializeAgent(agentId);
     await store.openForWake(agentId);
@@ -488,7 +488,7 @@ describe("Grok-compatible agent SQLite stores", () => {
   });
 
   test("turn metadata, transcript projections, and search indexes rebuild from store.db", async () => {
-    root = await mkdtemp(join(tmpdir(), "openbot-grok-projections-"));
+    root = await mkdtemp(join(tmpdir(), "openteam-grok-projections-"));
     store = new GrokAgentStore(root);
     await store.initializeAgent(agentId);
     await writeFile(

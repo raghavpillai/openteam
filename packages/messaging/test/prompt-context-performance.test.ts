@@ -42,8 +42,8 @@ const promptStore = (snapshotValue: ReturnType<typeof snapshot>) => {
     },
   };
   const store = new AgentDataStore(prisma as never, {
-    root: "/tmp/openbot-prompt-context-test",
-    workspaceRoot: "/tmp/openbot-prompt-context-workspace",
+    root: "/tmp/openteam-prompt-context-test",
+    workspaceRoot: "/tmp/openteam-prompt-context-workspace",
   });
   Object.assign(store, {
     reconcileBot: async () => ({ warnings: [] }),

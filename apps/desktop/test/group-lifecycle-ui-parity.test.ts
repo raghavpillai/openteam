@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 
 const componentSource = (name: string) =>
-  readFile(new URL(`../src/renderer/components/openbot/${name}.tsx`, import.meta.url), "utf8");
+  readFile(new URL(`../src/renderer/components/openteam/${name}.tsx`, import.meta.url), "utf8");
 
 describe("Grok group lifecycle UI parity", () => {
   test("matches the shipped group sidebar lifecycle menu", async () => {

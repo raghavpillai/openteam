@@ -78,7 +78,7 @@ import {
   UPDATE_STATE_TOOL,
   UpdateAgentInput,
   UpdateChannelInput,
-} from "@openbot/contracts";
+} from "@openteam/contracts";
 import { Schema } from "effect";
 import { Type } from "typebox";
 import { agentProcessIdentity, sanitizedAgentEnvironment } from "./agent-process";
@@ -114,11 +114,11 @@ import {
 } from "./native-tool-executor";
 import { ScreenBroker } from "./screen-broker";
 
-const OPENBOT_DYNAMIC_DISCOVERY_DESCRIPTION =
-  "Discover and inspect tools available through OpenBot dynamic namespaces. Search by namespace, exact tool name, or bounded regular-expression pattern. Catalog searches abbreviate long descriptions; exact lookups return complete public schemas. Always discover a tool before calling it with CallDynamicTool. The cursor namespace contains OpenBot's supported TodoWrite, bounded agent and group directory lookup, plugin lifecycle management, subagent orchestration, agent administration, and channel administration subset.";
+const OPENTEAM_DYNAMIC_DISCOVERY_DESCRIPTION =
+  "Discover and inspect tools available through OpenTeam dynamic namespaces. Search by namespace, exact tool name, or bounded regular-expression pattern. Catalog searches abbreviate long descriptions; exact lookups return complete public schemas. Always discover a tool before calling it with CallDynamicTool. The cursor namespace contains OpenTeam's supported TodoWrite, bounded agent and group directory lookup, plugin lifecycle management, subagent orchestration, agent administration, and channel administration subset.";
 
-const OPENBOT_DYNAMIC_CALL_DESCRIPTION =
-  "Invoke one previously discovered tool from an authorized OpenBot dynamic namespace. The gateway rechecks availability, validates nested arguments against the current schema, and reauthorizes the call at execution time.";
+const OPENTEAM_DYNAMIC_CALL_DESCRIPTION =
+  "Invoke one previously discovered tool from an authorized OpenTeam dynamic namespace. The gateway rechecks availability, validates nested arguments against the current schema, and reauthorizes the call at execution time.";
 
 const GRAPHICAL_WORKER_SHELL_DESCRIPTION =
   "Executes a command in this worker's box with an optional foreground timeout. Use Shell for terminal operations and bulk file processing; use Read for reading, searching, or inspecting files. Run independent commands in parallel and chain dependent commands with &&. If shell text search is necessary, use rg rather than grep or find.";
@@ -433,7 +433,7 @@ const thinkingFromContent = (content: unknown): string => {
 };
 
 const boundedText = (value: string, limit = 100_000): string =>
-  value.length <= limit ? value : `${value.slice(0, limit)}\n… output truncated by OpenBot`;
+  value.length <= limit ? value : `${value.slice(0, limit)}\n… output truncated by OpenTeam`;
 
 const safeToolResult = (result: unknown): unknown => {
   if (!result || typeof result !== "object") return result;
@@ -512,17 +512,17 @@ const toolItem = (
 export class ComputerRuntime {
   private readonly activeByRun = new Map<string, ActiveTurn>();
   private readonly activeByContext = new Map<string, ActiveTurn>();
-  private readonly serverUrl = process.env.OPENBOT_SERVER_URL ?? "http://127.0.0.1:8787";
+  private readonly serverUrl = process.env.OPENTEAM_SERVER_URL ?? "http://127.0.0.1:8787";
   private readonly controlToken =
-    process.env.OPENBOT_CONTROL_TOKEN ?? "local-compose-only-change-me";
-  private readonly agentDir = resolve(process.env.OPENBOT_PI_AGENT_DIR ?? "/home/box/.pi/agent");
-  private readonly sessionsDir = join(this.agentDir, "sessions", "openbot");
+    process.env.OPENTEAM_CONTROL_TOKEN ?? "local-compose-only-change-me";
+  private readonly agentDir = resolve(process.env.OPENTEAM_PI_AGENT_DIR ?? "/home/box/.pi/agent");
+  private readonly sessionsDir = join(this.agentDir, "sessions", "openteam");
   private readonly contextSessionsDir = join(this.agentDir, "context-sessions");
   private readonly defaultModelRef = piModelRef(
     DEFAULT_PI_INFERENCE_PROVIDER,
     DEFAULT_PI_INFERENCE_MODEL
   );
-  private readonly workspaceRoot = resolve(process.env.OPENBOT_WORKSPACE_ROOT ?? "/workspace");
+  private readonly workspaceRoot = resolve(process.env.OPENTEAM_WORKSPACE_ROOT ?? "/workspace");
   private readonly nativeToolExecutor = new NativeToolExecutor({
     agentDir: this.agentDir,
     controlToken: this.controlToken,
@@ -833,7 +833,7 @@ export class ComputerRuntime {
         return [];
       }
       const details = entry.details as Record<string, unknown>;
-      return details.openbotGrokCompaction === true && typeof details.id === "string"
+      return details.openteamGrokCompaction === true && typeof details.id === "string"
         ? [details.id]
         : [];
     });
@@ -874,7 +874,7 @@ export class ComputerRuntime {
         if (details.size > 500 * 1024 * 1024) {
           throw new Error(`Subagent video attachment exceeds 500 MB: ${value}`);
         }
-        const directory = await mkdtemp(join(tmpdir(), "openbot-video-frames-"));
+        const directory = await mkdtemp(join(tmpdir(), "openteam-video-frames-"));
         tempDirectories.push(directory);
         const identity = agentProcessIdentity();
         if (identity.uid !== undefined && identity.gid !== undefined) {
@@ -1146,7 +1146,7 @@ export class ComputerRuntime {
     const infer = (request: GrokSummaryRequest, signal: AbortSignal) =>
       this.inferCompaction(active, request, signal);
     return {
-      name: "openbot-grok-compaction",
+      name: "openteam-grok-compaction",
       hidden: true,
       factory: (pi) => {
         pi.on("context", async (event) => {
@@ -1310,14 +1310,14 @@ export class ComputerRuntime {
         label: tool.name,
         description:
           tool.name === GET_DYNAMIC_TOOLS_TOOL.name
-            ? OPENBOT_DYNAMIC_DISCOVERY_DESCRIPTION
+            ? OPENTEAM_DYNAMIC_DISCOVERY_DESCRIPTION
             : tool.name === CALL_DYNAMIC_TOOL_TOOL.name
-              ? OPENBOT_DYNAMIC_CALL_DESCRIPTION
+              ? OPENTEAM_DYNAMIC_CALL_DESCRIPTION
               : visibleDescription,
         parameters: Type.Unsafe<Record<string, unknown>>(tool.inputSchema),
         executionMode: "sequential" as const,
         execute: (callId: string, args: unknown, signal?: AbortSignal) =>
-          this.executeOpenBotTool(active, callId, tool.name, args, signal),
+          this.executeOpenTeamTool(active, callId, tool.name, args, signal),
       });
     };
     const workerNativeTools = NATIVE_TOOLS.filter(
@@ -1366,7 +1366,7 @@ export class ComputerRuntime {
     return availableNativeTools.map((tool) => native(tool));
   }
 
-  private async executeOpenBotTool(
+  private async executeOpenTeamTool(
     active: ActiveTurn,
     callId: string,
     tool: string,
@@ -1435,7 +1435,7 @@ export class ComputerRuntime {
         content: [
           {
             type: "text" as const,
-            text: `Current OpenBot screen (1280x800). Saved to ${path}`,
+            text: `Current OpenTeam screen (1280x800). Saved to ${path}`,
           },
           {
             type: "image" as const,
@@ -1623,7 +1623,7 @@ export class ComputerRuntime {
       const message =
         body && typeof body === "object" && "error" in body
           ? JSON.stringify((body as { error: unknown }).error)
-          : `OpenBot tool host rejected the call (${response.status})`;
+          : `OpenTeam tool host rejected the call (${response.status})`;
       throw new Error(message);
     }
     if (
@@ -1752,7 +1752,7 @@ export class ComputerRuntime {
             {
               name: "SearchPlugins",
               description:
-                "Search the bounded OpenBot plugin catalog. This is read-only; installation always requires the user to act in the Plugins UI.",
+                "Search the bounded OpenTeam plugin catalog. This is read-only; installation always requires the user to act in the Plugins UI.",
               inputSchema: {
                 type: "object",
                 properties: { query: { type: "string", maxLength: 200 } },
@@ -1943,7 +1943,7 @@ export class ComputerRuntime {
       {
         name: "cursor",
         description:
-          "OpenBot's supported A2A messaging, TodoWrite, bounded agent and group directory lookup, read-only plugin management, subagent orchestration, agent administration, and channel administration tools.",
+          "OpenTeam's supported A2A messaging, TodoWrite, bounded agent and group directory lookup, read-only plugin management, subagent orchestration, agent administration, and channel administration tools.",
         kind: "first-party",
         namespaceStatus: "ready",
         tools: cursorTools,
@@ -2285,7 +2285,7 @@ export class ComputerRuntime {
     const candidate = resolve(input);
     const traversal = relative(this.sessionsDir, candidate);
     if (traversal === "" || traversal.startsWith("..") || isAbsolute(traversal)) {
-      throw new Error("Pi session path is outside the OpenBot session directory");
+      throw new Error("Pi session path is outside the OpenTeam session directory");
     }
     if (!candidate.endsWith(".jsonl")) throw new Error("Pi session path must be a JSONL file");
     return candidate;

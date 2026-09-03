@@ -68,21 +68,21 @@ const DEFAULT_PROVIDER_MODELS: Readonly<Record<string, string>> = {
 };
 const SETUP_STAGES: readonly SetupStage[] = [
   { label: "Access", description: "Choose how desktop and mobile apps reach this server." },
-  { label: "Owner", description: "Create the single username and password for this OpenBot." },
+  { label: "Owner", description: "Create the single username and password for this OpenTeam." },
   { label: "Runtime", description: "Choose the Pi inference provider and model." },
   { label: "Launch", description: "Apply the configuration and start Docker Compose." },
   { label: "Verify", description: "Check the deployment, credentials, and public endpoint." },
 ] as const;
 const SETUP_KEYS = [
-  "OPENBOT_TIME_ZONE",
-  "OPENBOT_WORKER_CONCURRENCY",
-  "OPENBOT_API_PORT",
-  "OPENBOT_ACCESS_MODE",
-  "OPENBOT_BIND_HOST",
-  "OPENBOT_VIEWER_BIND_HOST",
-  "OPENBOT_PUBLIC_HOST",
-  "OPENBOT_PUBLIC_URL",
-  "OPENBOT_AUTH_URL",
+  "OPENTEAM_TIME_ZONE",
+  "OPENTEAM_WORKER_CONCURRENCY",
+  "OPENTEAM_API_PORT",
+  "OPENTEAM_ACCESS_MODE",
+  "OPENTEAM_BIND_HOST",
+  "OPENTEAM_VIEWER_BIND_HOST",
+  "OPENTEAM_PUBLIC_HOST",
+  "OPENTEAM_PUBLIC_URL",
+  "OPENTEAM_AUTH_URL",
   "COMPOSE_PROFILES",
 ] as const;
 export interface SetupPrompter {
@@ -140,18 +140,18 @@ export const supportsInteractiveSelection = (
 const requireInstallation = (paths: InstallationPaths): InstallationManifest => {
   if (!installationExists(paths)) {
     throw new CliError(
-      `OpenBot is not installed at ${paths.directory}. Run openbot install first.`
+      `OpenTeam is not installed at ${paths.directory}. Run openteam install first.`
     );
   }
   const manifest = readManifest(paths);
   if (!manifest)
-    throw new CliError(`OpenBot installation manifest is missing at ${paths.manifest}`);
+    throw new CliError(`OpenTeam installation manifest is missing at ${paths.manifest}`);
   return manifest;
 };
 
 export const createTerminalPrompter = (): SetupPrompter => {
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
-    throw new CliError("This OpenBot command is interactive and requires a terminal.");
+    throw new CliError("This OpenTeam command is interactive and requires a terminal.");
   }
   const question = async (message: string, secret = false): Promise<string> => {
     const output = secret
@@ -312,16 +312,16 @@ export const validateOwnerUsername = (value: string): string => {
 };
 
 export const collectOwnerUsername = (prompter: SetupPrompter, current: string): Promise<string> =>
-  ask(prompter, "OpenBot username", current, validateOwnerUsername);
+  ask(prompter, "OpenTeam username", current, validateOwnerUsername);
 
 export const collectConfirmedPassword = async (prompter: SetupPrompter): Promise<string> => {
   while (true) {
-    const password = await prompter.secret("OpenBot password: ");
+    const password = await prompter.secret("OpenTeam password: ");
     if (password.length < 8 || password.length > 128) {
       console.log("  Password must be between 8 and 128 characters.");
       continue;
     }
-    const confirmation = await prompter.secret("Confirm OpenBot password: ");
+    const confirmation = await prompter.secret("Confirm OpenTeam password: ");
     if (password === confirmation) return password;
     console.log("  Passwords do not match. Try again.");
   }
@@ -585,14 +585,14 @@ const configuredAccessMode = (
   current: ReadonlyMap<string, string>,
   fresh: boolean
 ): SetupConfiguration["accessMode"] => {
-  const stored = current.get("OPENBOT_ACCESS_MODE");
+  const stored = current.get("OPENTEAM_ACCESS_MODE");
   if (stored && ACCESS_MODES.includes(stored as SetupConfiguration["accessMode"])) {
     if (!fresh) return stored as SetupConfiguration["accessMode"];
   }
   if (fresh) return "https";
-  const publicUrl = current.get("OPENBOT_PUBLIC_URL") || "";
+  const publicUrl = current.get("OPENTEAM_PUBLIC_URL") || "";
   if (publicUrl.startsWith("https://")) return "https";
-  if (current.get("OPENBOT_BIND_HOST") === "127.0.0.1") return "local";
+  if (current.get("OPENTEAM_BIND_HOST") === "127.0.0.1") return "local";
   return "private";
 };
 
@@ -705,7 +705,7 @@ export const collectSetupConfiguration = async (
   authenticated: boolean,
   prompter: SetupPrompter,
   options: SetupCommandOptions = {},
-  currentOwnerUsername = "openbot",
+  currentOwnerUsername = "openteam",
   currentInference: RuntimeInferenceSettings = DEFAULT_RUNTIME_INFERENCE
 ): Promise<SetupConfiguration> => {
   const presentation = options.presentation;
@@ -767,8 +767,8 @@ export const collectSetupConfiguration = async (
     presentation?.message("Choose a different access mode.", "muted");
   }
 
-  const existingPublicHost = current.get("OPENBOT_PUBLIC_HOST");
-  const existingUrlHost = hostFromPublicUrl(current.get("OPENBOT_PUBLIC_URL"));
+  const existingPublicHost = current.get("OPENTEAM_PUBLIC_HOST");
+  const existingUrlHost = hostFromPublicUrl(current.get("OPENTEAM_PUBLIC_URL"));
   const detectedPublicHost = detectPrivateNetworkHost();
   const existingReachableHost =
     existingUrlHost && existingUrlHost !== "127.0.0.1"
@@ -786,12 +786,12 @@ export const collectSetupConfiguration = async (
     );
     if (selectedAccess === "https") {
       presentation?.message(
-        "OpenBot will publish ports 80/443; Caddy will obtain and renew the certificate.",
+        "OpenTeam will publish ports 80/443; Caddy will obtain and renew the certificate.",
         "info"
       );
     } else {
       presentation?.message(
-        "OpenBot will listen on loopback only. Point your HTTPS proxy at the local API port shown in the summary.",
+        "OpenTeam will listen on loopback only. Point your HTTPS proxy at the local API port shown in the summary.",
         "info"
       );
     }
@@ -841,7 +841,7 @@ export const collectSetupConfiguration = async (
       "success"
     );
     presentation?.message(
-      "Use openbot account update when you intentionally want to change credentials.",
+      "Use openteam account update when you intentionally want to change credentials.",
       "muted"
     );
   } else {
@@ -858,14 +858,14 @@ export const collectSetupConfiguration = async (
     composeProfiles: selectedAccess === "https" ? "https" : "direct",
     ownerUsername,
     ownerPassword,
-    apiPort: current.get("OPENBOT_API_PORT") || "8787",
-    timeZone: current.get("OPENBOT_TIME_ZONE") || "UTC",
+    apiPort: current.get("OPENTEAM_API_PORT") || "8787",
+    timeZone: current.get("OPENTEAM_TIME_ZONE") || "UTC",
     provider: currentInference.providerId,
     model: currentInference.modelId,
     thinking: THINKING_LEVELS.includes(currentThinking as SetupConfiguration["thinking"])
       ? (currentThinking as SetupConfiguration["thinking"])
       : "high",
-    workerConcurrency: current.get("OPENBOT_WORKER_CONCURRENCY") || "8",
+    workerConcurrency: current.get("OPENTEAM_WORKER_CONCURRENCY") || "8",
     authenticate: false,
     authType: defaultProviderAuthType(currentInference.providerId),
   };
@@ -954,15 +954,15 @@ export const collectSetupConfiguration = async (
 
 const updateEnvironment = (contents: string, configuration: SetupConfiguration): string => {
   const values: Record<(typeof SETUP_KEYS)[number], string> = {
-    OPENBOT_TIME_ZONE: configuration.timeZone,
-    OPENBOT_WORKER_CONCURRENCY: configuration.workerConcurrency,
-    OPENBOT_API_PORT: configuration.apiPort,
-    OPENBOT_ACCESS_MODE: configuration.accessMode,
-    OPENBOT_BIND_HOST: configuration.bindHost,
-    OPENBOT_VIEWER_BIND_HOST: configuration.viewerBindHost,
-    OPENBOT_PUBLIC_HOST: configuration.publicHost,
-    OPENBOT_PUBLIC_URL: configuration.publicUrl,
-    OPENBOT_AUTH_URL: configuration.publicUrl,
+    OPENTEAM_TIME_ZONE: configuration.timeZone,
+    OPENTEAM_WORKER_CONCURRENCY: configuration.workerConcurrency,
+    OPENTEAM_API_PORT: configuration.apiPort,
+    OPENTEAM_ACCESS_MODE: configuration.accessMode,
+    OPENTEAM_BIND_HOST: configuration.bindHost,
+    OPENTEAM_VIEWER_BIND_HOST: configuration.viewerBindHost,
+    OPENTEAM_PUBLIC_HOST: configuration.publicHost,
+    OPENTEAM_PUBLIC_URL: configuration.publicUrl,
+    OPENTEAM_AUTH_URL: configuration.publicUrl,
     COMPOSE_PROFILES: configuration.composeProfiles,
   };
   let updated = contents;
@@ -972,7 +972,7 @@ const updateEnvironment = (contents: string, configuration: SetupConfiguration):
 
 const providerUtility = (project: ComposeProject, args: readonly string[], input?: string) =>
   project.run(
-    ["run", "--rm", "--no-deps", "--no-TTY", "computer", "openbot-pi-auth", ...args],
+    ["run", "--rm", "--no-deps", "--no-TTY", "computer", "openteam-pi-auth", ...args],
     input === undefined ? {} : { input }
   );
 
@@ -1056,7 +1056,7 @@ const assertProviderModelAvailable = (
     )
   ) {
     throw new CliError(
-      `Pi does not provide ${providerId}/${modelId}. Choose a model shown by openbot model list ${providerId}.`
+      `Pi does not provide ${providerId}/${modelId}. Choose a model shown by openteam model list ${providerId}.`
     );
   }
 };
@@ -1098,7 +1098,7 @@ export const setupCommand = async (
           ownerConfigured: Boolean(manifest.ownerUsername),
           presentation,
         },
-        manifest.ownerUsername || "openbot",
+        manifest.ownerUsername || "openteam",
         currentInference
       );
 
@@ -1108,7 +1108,7 @@ export const setupCommand = async (
           "info"
         );
         presentation.message(
-          "Run openbot setup --advanced for port, time-zone, concurrency, and reasoning controls.",
+          "Run openteam setup --advanced for port, time-zone, concurrency, and reasoning controls.",
           "muted"
         );
       }
@@ -1134,7 +1134,7 @@ export const setupCommand = async (
           ? await prompter.select(
               "Apply this configuration?",
               [
-                { label: "Apply and start OpenBot", value: "yes", shortcut: "y" },
+                { label: "Apply and start OpenTeam", value: "yes", shortcut: "y" },
                 { label: "Go back", value: "back", shortcut: "b" },
                 { label: "Cancel without changes", value: "no", shortcut: "n" },
               ] as const,
@@ -1159,7 +1159,7 @@ export const setupCommand = async (
   } finally {
     if (!suppliedPrompter) prompter.close();
   }
-  const previousAccessMode = current.get("OPENBOT_ACCESS_MODE") || "local";
+  const previousAccessMode = current.get("OPENTEAM_ACCESS_MODE") || "local";
   if (configuration.accessMode === "https" && previousAccessMode !== "https") {
     const occupied = (
       await Promise.all(
@@ -1200,7 +1200,7 @@ export const setupCommand = async (
     }
 
     if (changed || configuration.customProvider || !initialHealth.ok || manifest.uninstalledAt) {
-      presentation.message(changed ? "Applying configuration…" : "Starting OpenBot…", "info");
+      presentation.message(changed ? "Applying configuration…" : "Starting OpenTeam…", "info");
       try {
         if (configuration.accessMode !== "https") {
           // A profile-disabled service is not guaranteed to be removed by `up --remove-orphans`.
@@ -1208,9 +1208,9 @@ export const setupCommand = async (
           project.run(["stop", "caddy"]);
         }
         project.runOrThrow(["up", "--detach", "--remove-orphans"], { inherit: true });
-        process.stdout.write("Waiting for OpenBot");
+        process.stdout.write("Waiting for OpenTeam");
         const health = await waitForHealth(paths);
-        if (!health.ok) throw new CliError(`OpenBot did not become healthy: ${health.detail}`);
+        if (!health.ok) throw new CliError(`OpenTeam did not become healthy: ${health.detail}`);
         presentation.message(
           `Core services are ready at ${health.url.replace(/\/api\/v0\/health$/, "")}`,
           "success"
@@ -1241,7 +1241,7 @@ export const setupCommand = async (
   }
 
   if (configuration.ownerPassword) {
-    presentation.message("Setting the OpenBot owner credentials…", "info");
+    presentation.message("Setting the OpenTeam owner credentials…", "info");
     project.runOrThrow(["exec", "--no-TTY", "server", "bun", "main.js", "owner-credentials"], {
       input: JSON.stringify({
         operation: "setup",
@@ -1254,7 +1254,10 @@ export const setupCommand = async (
       ownerUsername: configuration.ownerUsername,
       uninstalledAt: undefined,
     });
-    presentation.message(`OpenBot sign-in is ready for ${configuration.ownerUsername}.`, "success");
+    presentation.message(
+      `OpenTeam sign-in is ready for ${configuration.ownerUsername}.`,
+      "success"
+    );
   }
 
   if (configuration.authenticate) {
@@ -1269,7 +1272,7 @@ export const setupCommand = async (
           "exec",
           "--no-TTY",
           "computer",
-          "openbot-pi-auth",
+          "openteam-pi-auth",
           "login",
           configuration.provider,
           "api_key",
@@ -1279,7 +1282,7 @@ export const setupCommand = async (
       configuration.apiKey = undefined;
     } else {
       project.runOrThrow(
-        ["exec", "computer", "openbot-pi-auth", "login", configuration.provider, "oauth"],
+        ["exec", "computer", "openteam-pi-auth", "login", configuration.provider, "oauth"],
         { inherit: true }
       );
     }
@@ -1300,7 +1303,7 @@ export const setupCommand = async (
       await writeRuntimeInferenceSettings(paths, nextInference);
     } catch (error) {
       throw new CliError(
-        `Could not activate ${configuration.provider}/${configuration.model}. Run openbot provider login ${configuration.provider} and retry: ${error instanceof Error ? error.message : String(error)}`
+        `Could not activate ${configuration.provider}/${configuration.model}. Run openteam provider login ${configuration.provider} and retry: ${error instanceof Error ? error.message : String(error)}`
       );
     }
     presentation.message(
@@ -1310,7 +1313,7 @@ export const setupCommand = async (
   }
 
   presentation.stage(4);
-  presentation.message("Running OpenBot doctor…", "info");
+  presentation.message("Running OpenTeam doctor…", "info");
   const diagnosis = await runDoctor(paths, runner, manifest.projectName || PROJECT_NAME);
   printDoctor(diagnosis);
   if (!diagnosis.ok) throw new CliError("Setup completed with blocking doctor failures.", 2);
@@ -1327,10 +1330,10 @@ export const setupCommand = async (
       throw new CliError(
         `The local stack is healthy, but the configured public endpoint ${configuration.publicUrl} could not be verified: ${publicFailure}. ${
           configuration.accessMode === "https"
-            ? "Confirm DNS points here and inbound TCP ports 80 and 443 are open, then run openbot doctor."
+            ? "Confirm DNS points here and inbound TCP ports 80 and 443 are open, then run openteam doctor."
             : configuration.accessMode === "proxy"
-              ? `Confirm your proxy forwards HTTPS and WebSockets to http://127.0.0.1:${configuration.apiPort}, then run openbot doctor.`
-              : "Confirm the host, port, and cloud firewall rules, then run openbot doctor."
+              ? `Confirm your proxy forwards HTTPS and WebSockets to http://127.0.0.1:${configuration.apiPort}, then run openteam doctor.`
+              : "Confirm the host, port, and cloud firewall rules, then run openteam doctor."
         }`,
         2
       );
@@ -1338,10 +1341,10 @@ export const setupCommand = async (
       presentation.message(`Public endpoint verified at ${configuration.publicUrl}.`, "success");
     }
   }
-  presentation.summary("OpenBot is ready", [
+  presentation.summary("OpenTeam is ready", [
     { label: "Server", value: configuration.publicUrl },
     { label: "Username", value: configuration.ownerUsername },
     { label: "Security", value: accessLabel(configuration.accessMode) },
-    { label: "Manage", value: "openbot status · openbot doctor · openbot update" },
+    { label: "Manage", value: "openteam status · openteam doctor · openteam update" },
   ]);
 };

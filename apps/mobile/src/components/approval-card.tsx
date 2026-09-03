@@ -1,6 +1,6 @@
-import type { ApprovalView } from "@openbot/contracts";
-import { approvalPresentation } from "@openbot/product-core/activity";
-import { clientErrorMessage } from "@openbot/product-core/redaction";
+import type { ApprovalView } from "@openteam/contracts";
+import { approvalPresentation } from "@openteam/product-core/activity";
+import { clientErrorMessage } from "@openteam/product-core/redaction";
 import * as Haptics from "expo-haptics";
 import { SymbolView } from "expo-symbols";
 import { useState } from "react";

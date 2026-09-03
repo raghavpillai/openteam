@@ -14,21 +14,21 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 const repositoryRoot = resolve(import.meta.dirname, "..");
-const cliPath = join(repositoryRoot, "apps/cli/dist/openbot.js");
+const cliPath = join(repositoryRoot, "apps/cli/dist/openteam.js");
 const developmentCompose = join(repositoryRoot, "scripts/compose.sh");
 const releaseCompose = join(repositoryRoot, "deploy/compose.yaml");
 const testRunId = `${process.pid}-${randomBytes(3).toString("hex")}`;
-const projectName = `openbot-e2e-${testRunId}`;
-const temporaryRoot = mkdtempSync(join(tmpdir(), "openbot-cli-e2e-"));
+const projectName = `openteam-e2e-${testRunId}`;
+const temporaryRoot = mkdtempSync(join(tmpdir(), "openteam-cli-e2e-"));
 const installationDirectory = join(temporaryRoot, "installation");
 const releaseDirectory = join(temporaryRoot, "release");
 const firstVersion = `0.0.0-e2e.${testRunId}.1`;
 const secondVersion = `0.0.0-e2e.${testRunId}.2`;
 const sourceImages = [
-  "openbot-server:latest",
-  "openbot-worker:latest",
-  "openbot-migrate:latest",
-  "openbot-computer:latest",
+  "openteam-server:latest",
+  "openteam-worker:latest",
+  "openteam-migrate:latest",
+  "openteam-computer:latest",
 ] as const;
 const createdImageTags: string[] = [];
 let developmentStopped = false;
@@ -36,11 +36,11 @@ let authToken: string | null = null;
 
 const ownerUsername = "cli.e2e.owner";
 const ownerPassword = "CLI E2E owner password";
-const canaryProviderId = "openbot-e2e";
-const canaryProviderName = "OpenBot E2E provider";
-const canaryModelId = "openbot-e2e-model";
-const canaryResponseText = "OPENBOT_PROVIDER_CANARY_OK";
-const canarySecret = `openbot-e2e-${randomBytes(24).toString("hex")}`;
+const canaryProviderId = "openteam-e2e";
+const canaryProviderName = "OpenTeam E2E provider";
+const canaryModelId = "openteam-e2e-model";
+const canaryResponseText = "OPENTEAM_PROVIDER_CANARY_OK";
+const canarySecret = `openteam-e2e-${randomBytes(24).toString("hex")}`;
 
 const resultText = (value: ReturnType<typeof spawnSync>): string =>
   [value.stdout, value.stderr]
@@ -109,9 +109,9 @@ const cliInteractive = (args: readonly string[], input: string) => {
         : `${answers[0] ?? ""}\r`;
     const interactions = [
       ["Access mode", accessInput],
-      ["OpenBot username", `${answers[1] ?? ""}\r`],
-      ["OpenBot password:", `${answers[2] ?? ""}\r`],
-      ["Confirm OpenBot password:", `${answers[3] ?? ""}\r`],
+      ["OpenTeam username", `${answers[1] ?? ""}\r`],
+      ["OpenTeam password:", `${answers[2] ?? ""}\r`],
+      ["Confirm OpenTeam password:", `${answers[3] ?? ""}\r`],
       ["Inference provider", `${answers[4] ?? ""}\r`],
       ["Custom provider id", `${answers[5] ?? ""}\r`],
       ["Custom provider name", `${answers[6] ?? ""}\r`],
@@ -170,7 +170,7 @@ const waitForHealth = async (timeoutMs = 180_000): Promise<void> => {
     }
     await Bun.sleep(1_000);
   }
-  throw new Error("Timed out waiting for the development OpenBot stack to recover");
+  throw new Error("Timed out waiting for the development OpenTeam stack to recover");
 };
 
 const developmentDatabaseCount = (sql: string): number => {
@@ -183,9 +183,9 @@ const developmentDatabaseCount = (sql: string): number => {
       "postgres",
       "psql",
       "--username",
-      "openbot",
+      "openteam",
       "--dbname",
-      "openbot",
+      "openteam",
       "--tuples-only",
       "--no-align",
       "--command",
@@ -227,8 +227,11 @@ const releaseChecksum = createHash("sha256").update(releaseAsset).digest("hex");
 for (const version of [firstVersion, secondVersion]) {
   const versionDirectory = join(releaseDirectory, `v${version}`);
   mkdirSync(versionDirectory, { recursive: true });
-  writeFileSync(join(versionDirectory, "openbot-compose.yaml"), releaseAsset);
-  writeFileSync(join(versionDirectory, "SHA256SUMS"), `${releaseChecksum}  openbot-compose.yaml\n`);
+  writeFileSync(join(versionDirectory, "openteam-compose.yaml"), releaseAsset);
+  writeFileSync(
+    join(versionDirectory, "SHA256SUMS"),
+    `${releaseChecksum}  openteam-compose.yaml\n`
+  );
 }
 
 const availablePort = (): Promise<number> =>
@@ -323,7 +326,7 @@ const canaryServer = Bun.serve({
       return Response.json({ error: { message: "invalid request" } }, { status: 400 });
     }
     canaryRequestCount += 1;
-    const id = `chatcmpl-openbot-e2e-${canaryRequestCount}`;
+    const id = `chatcmpl-openteam-e2e-${canaryRequestCount}`;
     const created = Math.floor(Date.now() / 1_000);
     const messages = body.messages as Array<Record<string, unknown>>;
     const tools = Array.isArray(body.tools) ? body.tools : [];
@@ -340,7 +343,7 @@ const canaryServer = Bun.serve({
             tool_calls: [
               {
                 index: 0,
-                id: `call-openbot-e2e-${canaryVisibleDeliveryCount}`,
+                id: `call-openteam-e2e-${canaryVisibleDeliveryCount}`,
                 type: "function",
                 function: {
                   name: "SendToUser",
@@ -390,7 +393,7 @@ const canaryBaseUrl = `http://host.docker.internal:${canaryPort}/v1`;
 
 const releaseUrls = (version: string) => {
   const base = `http://127.0.0.1:${releasePort}/v${version}`;
-  return ["--compose-url", `${base}/openbot-compose.yaml`, "--checksum-url", `${base}/SHA256SUMS`];
+  return ["--compose-url", `${base}/openteam-compose.yaml`, "--checksum-url", `${base}/SHA256SUMS`];
 };
 
 const tagImages = (): void => {
@@ -578,7 +581,7 @@ const runningServiceContainer = (service: string): string => {
 const assertProviderConfiguration = (thinking: string): void => {
   const environmentPath = join(installationDirectory, ".env");
   const environment = readFileSync(environmentPath, "utf8");
-  const runtimeKeys = ["OPENBOT_PI_PROVIDER", "OPENBOT_PI_MODEL", "OPENBOT_PI_THINKING"];
+  const runtimeKeys = ["OPENTEAM_PI_PROVIDER", "OPENTEAM_PI_MODEL", "OPENTEAM_PI_THINKING"];
   for (const key of runtimeKeys) {
     if (environmentValue(environment, key) !== undefined) {
       throw new Error(`${key} must not be persisted in the installation environment`);
@@ -609,7 +612,7 @@ const assertProviderConfiguration = (thinking: string): void => {
 
   const computer = runningServiceContainer("computer");
   const selection = JSON.parse(
-    resultText(docker(["exec", computer, "openbot-pi-auth", "selection"]))
+    resultText(docker(["exec", computer, "openteam-pi-auth", "selection"]))
   ) as Record<string, unknown>;
   if (
     selection.providerId !== canaryProviderId ||
@@ -696,7 +699,7 @@ const cleanupProject = (): void => {
 const main = async (): Promise<void> => {
   writeFileSync(join(temporaryRoot, "test-started"), new Date().toISOString());
   await assertNoActiveWork();
-  run("bun", ["--filter", "@openbot/cli", "build"]);
+  run("bun", ["--filter", "@openteam/cli", "build"]);
   tagImages();
 
   console.log("\n[E2E] Stopping the idle development stack to release loopback ports…");
@@ -713,7 +716,7 @@ const main = async (): Promise<void> => {
       "--project-name",
       projectName,
       "--image-prefix",
-      "openbot",
+      "openteam",
       "--version",
       firstVersion,
       "--allow-prerelease",
@@ -756,7 +759,7 @@ const main = async (): Promise<void> => {
   ]);
   assertProviderConfiguration("low");
   const selectedInference = resultText(
-    docker(["exec", runningServiceContainer("computer"), "openbot-pi-auth", "selection"])
+    docker(["exec", runningServiceContainer("computer"), "openteam-pi-auth", "selection"])
   );
   const invalidSelection = resultText(
     cliCapture(
@@ -768,7 +771,7 @@ const main = async (): Promise<void> => {
     throw new Error(`Invalid model selection failed unclearly:\n${invalidSelection}`);
   }
   const inferenceAfterRejection = resultText(
-    docker(["exec", runningServiceContainer("computer"), "openbot-pi-auth", "selection"])
+    docker(["exec", runningServiceContainer("computer"), "openteam-pi-auth", "selection"])
   );
   if (inferenceAfterRejection !== selectedInference) {
     throw new Error("A rejected model selection changed the durable inference settings");
@@ -817,7 +820,7 @@ const main = async (): Promise<void> => {
 
   console.log("\n[E2E] Verifying safe uninstall, recovery, and persisted data…");
   cli(["uninstall", "--dir", installationDirectory, "--yes"]);
-  docker(["volume", "inspect", `${projectName}_openbot_postgres`]);
+  docker(["volume", "inspect", `${projectName}_openteam_postgres`]);
   cli(["start", "--dir", installationDirectory]);
   assertProviderConfiguration("low");
   await assertPersistenceMarker(markerId);
@@ -840,7 +843,7 @@ const main = async (): Promise<void> => {
   console.log("\n[E2E] Verifying explicit purge…");
   cli(["uninstall", "--dir", installationDirectory, "--purge", "--yes"]);
   if (existsSync(installationDirectory)) throw new Error("Purge left the installation directory");
-  docker(["volume", "inspect", `${projectName}_openbot_postgres`], 1);
+  docker(["volume", "inspect", `${projectName}_openteam_postgres`], 1);
 
   console.log("\nCLI end-to-end release lifecycle passed.");
 };
@@ -866,7 +869,7 @@ try {
   for (const tag of createdImageTags) docker(["image", "rm", tag]);
   rmSync(temporaryRoot, { recursive: true, force: true });
   if (developmentStopped) {
-    console.log("\n[E2E] Restoring the development OpenBot stack…");
+    console.log("\n[E2E] Restoring the development OpenTeam stack…");
     run("bash", [developmentCompose, "up", "--detach"]);
     await waitForHealth();
     console.log("[E2E] Development stack restored and healthy.");

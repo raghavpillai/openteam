@@ -25,15 +25,15 @@ const requiredSetting = (name: string): string => {
 
 const normalizeBaseUrl = (value: string): string => value.replace(/\/$/, "");
 const disabledBaseUrl = normalizeBaseUrl(
-  process.env.OPENBOT_AUTH_DISABLED_BASE_URL ?? "http://127.0.0.1:8877"
+  process.env.OPENTEAM_AUTH_DISABLED_BASE_URL ?? "http://127.0.0.1:8877"
 );
 const requiredBaseUrl = normalizeBaseUrl(
-  process.env.OPENBOT_AUTH_REQUIRED_BASE_URL ?? "http://127.0.0.1:8878"
+  process.env.OPENTEAM_AUTH_REQUIRED_BASE_URL ?? "http://127.0.0.1:8878"
 );
-const username = requiredSetting("OPENBOT_AUTH_USERNAME");
-const password = requiredSetting("OPENBOT_AUTH_PASSWORD");
-const warmupCount = integerSetting("OPENBOT_AUTH_WARMUPS", 10);
-const sampleCount = Math.max(1, integerSetting("OPENBOT_AUTH_SAMPLES", 100));
+const username = requiredSetting("OPENTEAM_AUTH_USERNAME");
+const password = requiredSetting("OPENTEAM_AUTH_PASSWORD");
+const warmupCount = integerSetting("OPENTEAM_AUTH_WARMUPS", 10);
+const sampleCount = Math.max(1, integerSetting("OPENTEAM_AUTH_SAMPLES", 100));
 const targetPath = "/api/v0/client-runtime";
 
 const percentile = (values: number[], fraction: number) => {
@@ -168,7 +168,7 @@ const output = JSON.stringify(
   null,
   2
 );
-if (process.env.OPENBOT_AUDIT_OUTPUT) {
-  await Bun.write(process.env.OPENBOT_AUDIT_OUTPUT, `${output}\n`);
+if (process.env.OPENTEAM_AUDIT_OUTPUT) {
+  await Bun.write(process.env.OPENTEAM_AUDIT_OUTPUT, `${output}\n`);
 }
 console.log(output);

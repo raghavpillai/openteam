@@ -1,4 +1,4 @@
-import type { ChannelMessageView, ChannelView, RunView } from "@openbot/contracts";
+import type { ChannelMessageView, ChannelView, RunView } from "@openteam/contracts";
 
 export type SidebarChannelRow = {
   channel: ChannelView;

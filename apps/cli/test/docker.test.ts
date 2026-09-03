@@ -50,10 +50,10 @@ describe("Docker Compose command selection", () => {
   });
 
   test("always scopes lifecycle calls to the installation and project", () => {
-    const directory = mkdtempSync(join(tmpdir(), "openbot-cli-docker-"));
+    const directory = mkdtempSync(join(tmpdir(), "openteam-cli-docker-"));
     try {
       const paths = installationPaths(directory);
-      writeFileSync(paths.compose, "name: openbot\n");
+      writeFileSync(paths.compose, "name: openteam\n");
       const runner = new RecordingRunner(true);
       const command = findCompose(runner);
       expect(command).not.toBeNull();
@@ -64,7 +64,7 @@ describe("Docker Compose command selection", () => {
       expect(call?.args).toEqual([
         "compose",
         "--project-name",
-        "openbot",
+        "openteam",
         "--project-directory",
         directory,
         "--file",

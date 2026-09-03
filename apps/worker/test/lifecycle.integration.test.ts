@@ -6,12 +6,12 @@ import { Effect } from "effect";
 import { AppService } from "../../server/src/app-service";
 import { WakeWorker } from "../src/worker";
 
-const databaseUrl = process.env.OPENBOT_TEST_DATABASE_URL;
+const databaseUrl = process.env.OPENTEAM_TEST_DATABASE_URL;
 
 test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group rounds", async () => {
   if (!databaseUrl) return;
 
-  const workspace = join(tmpdir(), `openbot-integration-${crypto.randomUUID()}`);
+  const workspace = join(tmpdir(), `openteam-integration-${crypto.randomUUID()}`);
   await mkdir(workspace, { recursive: true });
   interface TurnInput {
     runId: string;
@@ -131,7 +131,7 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
         await onTurn(input);
         turnNumber += 1;
         const sessionPath =
-          input.sessionPath ?? `/var/lib/openbot/pi/${input.contextSessionId}.jsonl`;
+          input.sessionPath ?? `/var/lib/openteam/pi/${input.contextSessionId}.jsonl`;
         const turnId = `turn-${turnNumber}`;
         const itemId = `agent-${turnNumber}`;
         const text = `durable answer ${turnNumber}`;
@@ -198,10 +198,10 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
   });
 
   process.env.DATABASE_URL = databaseUrl;
-  process.env.OPENBOT_COMPUTER_URL = `http://127.0.0.1:${fakeComputer.port}`;
-  process.env.OPENBOT_CONTROL_TOKEN = "integration-control-token";
-  process.env.OPENBOT_WORKSPACE_ROOT = workspace;
-  process.env.OPENBOT_AGENT_DATA_ROOT = join(workspace, "agent-data");
+  process.env.OPENTEAM_COMPUTER_URL = `http://127.0.0.1:${fakeComputer.port}`;
+  process.env.OPENTEAM_CONTROL_TOKEN = "integration-control-token";
+  process.env.OPENTEAM_WORKSPACE_ROOT = workspace;
+  process.env.OPENTEAM_AGENT_DATA_ROOT = join(workspace, "agent-data");
 
   let app: AppService | null = null;
   let worker: WakeWorker | null = null;
@@ -362,7 +362,7 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
     const secondSnapshot = await waitFor(second.run.id);
     expect(seenTurns.map((turn) => turn.sessionPath)).toEqual([
       null,
-      `/var/lib/openbot/pi/${firstSeenTurn.contextSessionId}.jsonl`,
+      `/var/lib/openteam/pi/${firstSeenTurn.contextSessionId}.jsonl`,
     ]);
     expect(preflightContexts).toEqual(seenTurns.map((turn) => turn.contextSessionId));
     expect(seenTurns[1]?.cwd).toBe(bot.defaultDirectory);
@@ -478,7 +478,7 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
 
     let peerId = "";
     onTurn = async (input) => {
-      if (input.content.includes("[OpenBot first start]")) {
+      if (input.content.includes("[OpenTeam first start]")) {
         await Effect.runPromise(
           app!.handleDynamicTool({
             runId: input.runId,
@@ -811,7 +811,7 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
     ).toBe(true);
     expect(
       groupTurns.every(
-        (turn) => turn.sessionPath === `/var/lib/openbot/pi/${turn.contextSessionId}.jsonl`
+        (turn) => turn.sessionPath === `/var/lib/openteam/pi/${turn.contextSessionId}.jsonl`
       )
     ).toBe(true);
     expect(new Set(groupTurns.map((turn) => turn.contextSessionId)).size).toBe(3);

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { AssetRef, ChannelMessageView } from "@openbot/contracts";
+import type { AssetRef, ChannelMessageView } from "@openteam/contracts";
 import {
   createDurableSendController,
   DURABLE_SEND_SCHEMA_VERSION,

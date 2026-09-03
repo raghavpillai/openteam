@@ -110,7 +110,7 @@ export const requireComposeProject = (
   }
   if (!compose.supported) {
     throw new CliError(
-      `OpenBot requires Docker Compose ${MINIMUM_COMPOSE_VERSION} or newer; found ${compose.version || "an unknown version"}. Update Docker Desktop or the Compose plugin first.`
+      `OpenTeam requires Docker Compose ${MINIMUM_COMPOSE_VERSION} or newer; found ${compose.version || "an unknown version"}. Update Docker Desktop or the Compose plugin first.`
     );
   }
   return new ComposeProject(paths, compose, runner, projectName);

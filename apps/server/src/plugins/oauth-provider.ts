@@ -22,7 +22,7 @@ export interface OAuthProviderOptions {
 }
 
 /** Persists the SDK's OAuth session in the owning PluginConnection record. */
-export class OpenBotOAuthProvider implements OAuthClientProvider {
+export class OpenTeamOAuthProvider implements OAuthClientProvider {
   private value: StoredOAuthState;
 
   constructor(private readonly options: OAuthProviderOptions) {
@@ -39,9 +39,9 @@ export class OpenBotOAuthProvider implements OAuthClientProvider {
       token_endpoint_auth_method: "none",
       grant_types: ["authorization_code", "refresh_token"],
       response_types: ["code"],
-      client_name: "OpenBot",
+      client_name: "OpenTeam",
       scope: this.options.scope,
-      software_id: "openbot",
+      software_id: "openteam",
       software_version: "0.1.0",
     };
   }

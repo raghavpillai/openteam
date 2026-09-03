@@ -7,6 +7,6 @@ export default defineConfig({
     path: "prisma/migrations",
   },
   datasource: {
-    url: process.env.DATABASE_URL ?? "postgresql://openbot:openbot@127.0.0.1:5432/openbot",
+    url: process.env.DATABASE_URL ?? "postgresql://openteam:openteam@127.0.0.1:5432/openteam",
   },
 });

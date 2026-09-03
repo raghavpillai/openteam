@@ -13,7 +13,7 @@ export const routineRoute = (channelId: string, routineId: string) => ({
   params: { channelId, routineId },
 });
 
-const pendingKey = "__openbotPendingRoutineNavigation";
+const pendingKey = "__openteamPendingRoutineNavigation";
 
 type RoutineNavigationGlobal = typeof globalThis & {
   [pendingKey]?: { channelId: string; routineId: string };

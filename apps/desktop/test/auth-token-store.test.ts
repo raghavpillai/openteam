@@ -12,7 +12,7 @@ afterEach(() => {
 });
 
 const fixture = (available = true) => {
-  const directory = mkdtempSync(join(tmpdir(), "openbot-auth-token-"));
+  const directory = mkdtempSync(join(tmpdir(), "openteam-auth-token-"));
   temporaryDirectories.push(directory);
   const path = join(directory, "auth-session.bin");
   const encryption: AuthTokenEncryption = {
@@ -30,7 +30,7 @@ const fixture = (available = true) => {
 
 describe("desktop OS-backed authentication storage", () => {
   test("does not probe the OS keychain when a profile has no saved session", async () => {
-    const directory = mkdtempSync(join(tmpdir(), "openbot-auth-token-empty-"));
+    const directory = mkdtempSync(join(tmpdir(), "openteam-auth-token-empty-"));
     temporaryDirectories.push(directory);
     let availabilityChecks = 0;
     const store = new DesktopAuthTokenStore(join(directory, "auth-session.bin"), {

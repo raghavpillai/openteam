@@ -36,7 +36,7 @@ import {
   type PersistedUpdateState,
 } from "./update-safety";
 
-export const UPDATE_PROGRESS_PREFIX = "@@OPENBOT_UPDATE@@";
+export const UPDATE_PROGRESS_PREFIX = "@@OPENTEAM_UPDATE@@";
 export type UpdateProgressPhase =
   | "checking"
   | "downloading"
@@ -60,12 +60,12 @@ const reportUpdateProgress = (
 const requireInstallation = (paths: InstallationPaths): InstallationManifest => {
   if (!installationExists(paths)) {
     throw new CliError(
-      `OpenBot is not installed at ${paths.directory}. Run openbot install first.`
+      `OpenTeam is not installed at ${paths.directory}. Run openteam install first.`
     );
   }
   const manifest = readManifest(paths);
   if (!manifest)
-    throw new CliError(`OpenBot installation manifest is missing at ${paths.manifest}`);
+    throw new CliError(`OpenTeam installation manifest is missing at ${paths.manifest}`);
   return manifest;
 };
 
@@ -80,10 +80,10 @@ const startProject = async (
   project.runOrThrow(["up", "--detach", "--remove-orphans", "--wait", "--wait-timeout", "180"], {
     inherit: true,
   });
-  process.stdout.write("Waiting for OpenBot");
+  process.stdout.write("Waiting for OpenTeam");
   const health = await waitForHealth(paths, 180_000, expectedVersion);
-  if (!health.ok) throw new CliError(`OpenBot did not become healthy: ${health.detail}`);
-  console.log(`OpenBot is ready at ${health.url.replace(/\/api\/v0\/health$/, "")}`);
+  if (!health.ok) throw new CliError(`OpenTeam did not become healthy: ${health.detail}`);
+  console.log(`OpenTeam is ready at ${health.url.replace(/\/api\/v0\/health$/, "")}`);
 };
 
 export const installCommand = async (
@@ -96,12 +96,12 @@ export const installCommand = async (
     const existing = requireInstallation(paths);
     if (options.version && normalizeVersion(options.version) !== existing.version) {
       throw new CliError(
-        `OpenBot ${existing.version} is already installed. Use openbot update --version ${normalizeVersion(options.version)}.`
+        `OpenTeam ${existing.version} is already installed. Use openteam update --version ${normalizeVersion(options.version)}.`
       );
     }
     if (!existing.ownerUsername && !options.noSetup) {
       console.log(
-        `OpenBot ${existing.version} is installed but setup is incomplete; resuming setup.`
+        `OpenTeam ${existing.version} is installed but setup is incomplete; resuming setup.`
       );
       await setupCommand(
         paths,
@@ -110,7 +110,7 @@ export const installCommand = async (
         suppliedPrompter
       );
     } else {
-      console.log(`OpenBot ${existing.version} is already installed; starting it.`);
+      console.log(`OpenTeam ${existing.version} is already installed; starting it.`);
       await startCommand(paths, runner);
     }
     return;
@@ -123,7 +123,7 @@ export const installCommand = async (
 
   const version = normalizeVersion(options.version || CLI_VERSION);
   const repository = normalizeRepository(options.repository || DEFAULT_REPOSITORY);
-  console.log(`\nDownloading OpenBot ${version} release configuration…`);
+  console.log(`\nDownloading OpenTeam ${version} release configuration…`);
   const release = await downloadRelease({
     repository,
     version,
@@ -151,7 +151,7 @@ export const installCommand = async (
   });
 
   const project = requireComposeProject(paths, runner, projectName);
-  console.log("Pulling OpenBot container images…");
+  console.log("Pulling OpenTeam container images…");
   project.runOrThrow(["pull"], { inherit: true });
   if (options.noSetup) {
     await startProject(project, paths, version);
@@ -181,11 +181,11 @@ export const statusCommand = async (
   runner: CommandRunner
 ): Promise<void> => {
   const manifest = requireInstallation(paths);
-  console.log(`OpenBot ${manifest.version}`);
+  console.log(`OpenTeam ${manifest.version}`);
   console.log(`Installation: ${paths.directory}\n`);
   const environment = parseEnvironment(readFileSync(paths.environment, "utf8"));
-  const accessMode = environment.get("OPENBOT_ACCESS_MODE") || "local";
-  const publicUrl = environment.get("OPENBOT_PUBLIC_URL") || "not configured";
+  const accessMode = environment.get("OPENTEAM_ACCESS_MODE") || "local";
+  const publicUrl = environment.get("OPENTEAM_PUBLIC_URL") || "not configured";
   console.log(`Access: ${accessMode}`);
   console.log(`Server: ${publicUrl}\n`);
   const project = requireComposeProject(paths, runner, manifestProjectName(manifest));
@@ -193,7 +193,7 @@ export const statusCommand = async (
   if (status.status !== 0) throw new CliError("Could not read Docker Compose service status.");
   const health = await checkHealth(paths);
   if (!health.ok)
-    throw new CliError(`OpenBot is not healthy at ${health.url}: ${health.detail}`, 2);
+    throw new CliError(`OpenTeam is not healthy at ${health.url}: ${health.detail}`, 2);
   console.log(
     `\nHealth: ${health.detail}${health.version ? `; release ${health.version}` : ""}${health.inference ? `; inference ${health.inference}` : ""} (${health.url})`
   );
@@ -204,7 +204,7 @@ export const stopCommand = (paths: InstallationPaths, runner: CommandRunner): vo
   requireComposeProject(paths, runner, manifestProjectName(manifest)).runOrThrow(["stop"], {
     inherit: true,
   });
-  console.log("OpenBot is stopped. Its data and containers are preserved.");
+  console.log("OpenTeam is stopped. Its data and containers are preserved.");
 };
 
 export const startCommand = async (
@@ -250,7 +250,7 @@ const updateCommandUnlocked = async (
     phase: "checking",
     fromVersion: manifest.version,
     targetVersion: options.version ? normalizeVersion(options.version) : null,
-    message: "Checking the latest OpenBot release",
+    message: "Checking the latest OpenTeam release",
     startedAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   });
@@ -270,14 +270,14 @@ const updateCommandUnlocked = async (
       targetVersion: version ?? persisted.targetVersion,
     });
   };
-  report("checking", "Checking the latest OpenBot release");
+  report("checking", "Checking the latest OpenTeam release");
   const target = options.version
     ? normalizeVersion(options.version)
     : await latestReleaseVersion(repository);
   persisted = writeUpdateState(paths, { ...persisted, targetVersion: target });
   if (semver.lt(target, manifest.version) && !options.allowDowngrade) {
     throw new CliError(
-      `Refusing to downgrade OpenBot ${manifest.version} to ${target}. Use --allow-downgrade only for an intentional recovery.`
+      `Refusing to downgrade OpenTeam ${manifest.version} to ${target}. Use --allow-downgrade only for an intentional recovery.`
     );
   }
   if (semver.prerelease(target) && !options.allowPrerelease) {
@@ -286,12 +286,12 @@ const updateCommandUnlocked = async (
     );
   }
   if (target === manifest.version && !options.force) {
-    report("complete", `OpenBot ${target} is already installed`, target);
-    console.log(`OpenBot ${target} is already installed.`);
+    report("complete", `OpenTeam ${target} is already installed`, target);
+    console.log(`OpenTeam ${target} is already installed.`);
     return;
   }
-  console.log(`Updating OpenBot ${manifest.version} → ${target}…`);
-  report("downloading", `Downloading and verifying OpenBot ${target}`, target);
+  console.log(`Updating OpenTeam ${manifest.version} → ${target}…`);
+  report("downloading", `Downloading and verifying OpenTeam ${target}`, target);
   const release = await downloadRelease({
     repository,
     version: target,
@@ -303,7 +303,7 @@ const updateCommandUnlocked = async (
   const previousCompose = readFileSync(paths.compose, "utf8");
   const previousEnvironment = readFileSync(paths.environment, "utf8");
   const nextEnvironment = ensureAuthenticationSecret(
-    replaceEnvironmentValue(previousEnvironment, "OPENBOT_VERSION", target)
+    replaceEnvironmentValue(previousEnvironment, "OPENTEAM_VERSION", target)
   );
   const nextCompose = `${paths.compose}.next`;
   const project = requireComposeProject(paths, runner, manifestProjectName(manifest));
@@ -313,11 +313,11 @@ const updateCommandUnlocked = async (
   try {
     writeFileAtomic(nextCompose, release.compose, 0o600);
     assertUpdatePreflight(paths, runner, project, nextCompose);
-    report("pulling", `Pulling OpenBot ${target} container images`, target);
+    report("pulling", `Pulling OpenTeam ${target} container images`, target);
     project.runOrThrow(["pull"], { inherit: true, composeFile: nextCompose });
     maintenanceStarted = true;
     project.runOrThrow(["stop", "server", "worker", "computer"], { inherit: true });
-    report("backing-up", `Backing up the OpenBot database before ${target}`, target);
+    report("backing-up", `Backing up the OpenTeam database before ${target}`, target);
     backupPath = createDatabaseBackup(paths, project, manifest.version, target);
     persisted = writeUpdateState(paths, { ...persisted, backupPath });
     writeFileAtomic(paths.environment, nextEnvironment, 0o600);
@@ -326,11 +326,11 @@ const updateCommandUnlocked = async (
     report("restarting", "Restarting the server, worker, and computer", target);
     newStackStarted = true;
     await startProject(project, paths, target);
-    report("verifying", `OpenBot ${target} passed its readiness checks`, target);
+    report("verifying", `OpenTeam ${target} passed its readiness checks`, target);
   } catch (error) {
     report(
       "rolling-back",
-      "The update failed; restoring the previous OpenBot configuration",
+      "The update failed; restoring the previous OpenTeam configuration",
       manifest.version
     );
     writeFileAtomic(paths.compose, previousCompose, 0o600);
@@ -368,8 +368,8 @@ const updateCommandUnlocked = async (
     updatedAt: new Date().toISOString(),
     uninstalledAt: undefined,
   });
-  report("complete", `OpenBot is now running ${target}`, target);
-  console.log(`OpenBot is now running ${target}.`);
+  report("complete", `OpenTeam is now running ${target}`, target);
+  console.log(`OpenTeam is now running ${target}.`);
 };
 
 export const updateCommand = async (
@@ -416,8 +416,8 @@ export const uninstallCommand = async (
 ): Promise<void> => {
   const manifest = requireInstallation(paths);
   const question = options.purge
-    ? "Permanently delete all OpenBot containers, volumes, configuration, sessions, and workspace data?"
-    : "Remove the OpenBot containers while preserving configuration and data?";
+    ? "Permanently delete all OpenTeam containers, volumes, configuration, sessions, and workspace data?"
+    : "Remove the OpenTeam containers while preserving configuration and data?";
   if (!options.yes && !(await confirmation(question))) {
     console.log("Uninstall cancelled.");
     return;
@@ -429,12 +429,12 @@ export const uninstallCommand = async (
   );
   if (options.purge) {
     rmSync(paths.directory, { recursive: true, force: true });
-    console.log("OpenBot and its local Docker data were permanently removed.");
+    console.log("OpenTeam and its local Docker data were permanently removed.");
     return;
   }
   writeManifest(paths, { ...manifest, uninstalledAt: new Date().toISOString() });
   console.log(
-    `OpenBot containers were removed. Configuration and data remain at ${paths.directory}.`
+    `OpenTeam containers were removed. Configuration and data remain at ${paths.directory}.`
   );
-  console.log("Run openbot start to recreate the containers with the preserved data.");
+  console.log("Run openteam start to recreate the containers with the preserved data.");
 };

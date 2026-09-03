@@ -13,7 +13,7 @@ export interface DevElectronEnvironment {
 }
 
 type DevEnvironmentInput = Partial<
-  Record<"OPENBOT_DEV_HOST" | "OPENBOT_RENDERER_URL", string | undefined>
+  Record<"OPENTEAM_DEV_HOST" | "OPENTEAM_RENDERER_URL", string | undefined>
 >;
 
 const nonEmpty = (value: string | undefined) => value?.trim() || undefined;
@@ -24,9 +24,9 @@ const rendererHost = (host: string) =>
 export const resolveDevElectronEnvironment = (
   environment: DevEnvironmentInput
 ): DevElectronEnvironment => {
-  const host = nonEmpty(environment.OPENBOT_DEV_HOST) ?? "127.0.0.1";
+  const host = nonEmpty(environment.OPENTEAM_DEV_HOST) ?? "127.0.0.1";
   const rendererUrl =
-    nonEmpty(environment.OPENBOT_RENDERER_URL) ?? `http://${rendererHost(host)}:5173`;
+    nonEmpty(environment.OPENTEAM_RENDERER_URL) ?? `http://${rendererHost(host)}:5173`;
 
   return {
     host,

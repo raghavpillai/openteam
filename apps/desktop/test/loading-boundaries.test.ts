@@ -13,11 +13,11 @@ describe("desktop loading and packaging boundaries", () => {
       readDesktopFile("src/renderer/boot-theme.ts"),
     ]);
 
-    expect(html).toContain('id="openbot-boot-shell"');
-    expect(html).toContain("#root:not(:empty) + #openbot-boot-shell");
+    expect(html).toContain('id="openteam-boot-shell"');
+    expect(html).toContain("#root:not(:empty) + #openteam-boot-shell");
     expect(html).toContain("prefers-color-scheme: dark");
     expect(html).toContain("prefers-reduced-motion: reduce");
-    expect(bootTheme).toContain('localStorage.getItem("openbot:theme")');
+    expect(bootTheme).toContain('localStorage.getItem("openteam:theme")');
     expect(bootTheme).toContain('matchMedia("(prefers-color-scheme: dark)")');
   });
 
@@ -25,15 +25,15 @@ describe("desktop loading and packaging boundaries", () => {
     const html = await readDesktopFile("index.html");
 
     expect(html).toContain("connect-src 'self' http: https:");
-    expect(html).toContain("img-src 'self' data: blob: openbot-staged: http: https:");
+    expect(html).toContain("img-src 'self' data: blob: openteam-staged: http: https:");
     expect(html).toContain("frame-src http: https:");
     expect(html).toContain("script-src 'self'");
     expect(html).not.toContain("script-src 'self' http:");
   });
 
   test("keeps the full emoji corpus behind the panel boundary", async () => {
-    const pickerSource = await readDesktopFile("src/renderer/components/openbot/emoji-picker.tsx");
-    const panelSource = await readDesktopFile("src/renderer/components/openbot/emoji-data.ts");
+    const pickerSource = await readDesktopFile("src/renderer/components/openteam/emoji-picker.tsx");
+    const panelSource = await readDesktopFile("src/renderer/components/openteam/emoji-data.ts");
 
     expect(pickerSource).not.toContain("emojibase-data");
     expect(pickerSource).toContain('import("./emoji-panel")');
@@ -65,21 +65,23 @@ describe("desktop loading and packaging boundaries", () => {
   });
 
   test("imports avatar runtime helpers without initializing the contracts schema barrel", async () => {
-    const pickerSource = await readDesktopFile("src/renderer/components/openbot/avatar-picker.tsx");
+    const pickerSource = await readDesktopFile(
+      "src/renderer/components/openteam/avatar-picker.tsx"
+    );
     const iconsSource = await readDesktopFile(
-      "src/renderer/components/openbot/avatar-picker-icons.tsx"
+      "src/renderer/components/openteam/avatar-picker-icons.tsx"
     );
 
-    expect(pickerSource).toContain('from "@openbot/contracts/bot-avatar"');
-    expect(iconsSource).toContain('from "@openbot/contracts/bot-avatar"');
-    expect(pickerSource).not.toContain('from "@openbot/contracts"');
+    expect(pickerSource).toContain('from "@openteam/contracts/bot-avatar"');
+    expect(iconsSource).toContain('from "@openteam/contracts/bot-avatar"');
+    expect(pickerSource).not.toContain('from "@openteam/contracts"');
   });
 
   test("keeps the routine editor behind its own inspector interaction boundary", async () => {
     const [inspectorSource, editorSource, summarySource] = await Promise.all([
-      readDesktopFile("src/renderer/components/openbot/inspector.tsx"),
-      readDesktopFile("src/renderer/components/openbot/routine-panel.tsx"),
-      readDesktopFile("src/renderer/components/openbot/routine-summary.tsx"),
+      readDesktopFile("src/renderer/components/openteam/inspector.tsx"),
+      readDesktopFile("src/renderer/components/openteam/routine-panel.tsx"),
+      readDesktopFile("src/renderer/components/openteam/routine-summary.tsx"),
     ]);
 
     expect(inspectorSource).toContain('import("./routine-summary")');
@@ -142,7 +144,7 @@ describe("desktop loading and packaging boundaries", () => {
     expect(mainSource).toContain('import("electron-updater")');
     expect(mainSource).not.toMatch(/import\s+\w+\s+from\s+["']electron-updater["']/);
     expect(mainSource).toContain("additionalArguments:");
-    expect(mainSource).toContain("--openbot-app-version=");
+    expect(mainSource).toContain("--openteam-app-version=");
     expect(await readDesktopFile("src/preload/index.ts")).not.toContain("sendSync");
     expect(packageJson.scripts?.dev).not.toContain("clean");
   });
@@ -158,12 +160,12 @@ describe("desktop loading and packaging boundaries", () => {
       packageSource,
       viteSource,
     ] = await Promise.all([
-      readDesktopFile("src/renderer/components/openbot/file-attachment.tsx"),
-      readDesktopFile("src/renderer/components/openbot/document-preview-worker-client.ts"),
-      readDesktopFile("src/renderer/components/openbot/document-preview.worker.ts"),
-      readDesktopFile("src/renderer/components/openbot/document-preview-progressive-dom.ts"),
-      readDesktopFile("src/renderer/components/openbot/document-preview-docx-parser.ts"),
-      readDesktopFile("src/renderer/components/openbot/document-preview-spreadsheet-parser.ts"),
+      readDesktopFile("src/renderer/components/openteam/file-attachment.tsx"),
+      readDesktopFile("src/renderer/components/openteam/document-preview-worker-client.ts"),
+      readDesktopFile("src/renderer/components/openteam/document-preview.worker.ts"),
+      readDesktopFile("src/renderer/components/openteam/document-preview-progressive-dom.ts"),
+      readDesktopFile("src/renderer/components/openteam/document-preview-docx-parser.ts"),
+      readDesktopFile("src/renderer/components/openteam/document-preview-spreadsheet-parser.ts"),
       readDesktopFile("package.json"),
       readDesktopFile("vite.config.ts"),
     ]);
@@ -209,12 +211,12 @@ describe("desktop loading and packaging boundaries", () => {
 
   test("keeps raw AssetRef transport alongside bounded renderer data endpoints", async () => {
     const [adapterSource, source, pluginScaleSource] = await Promise.all([
-      readDesktopFile("src/renderer/client/openbot-api.ts"),
+      readDesktopFile("src/renderer/client/openteam-api.ts"),
       readWorkspaceFile("packages/client-core/src/client.ts"),
       readDesktopFile("src/renderer/lib/plugin-settings-scale.ts"),
     ]);
 
-    expect(adapterSource).toContain("...openBotClient");
+    expect(adapterSource).toContain("...openTeamClient");
     expect(source).toContain('transport.request<AssetRef>("/api/v0/assets"');
     expect(source).toContain(
       '"content-type": mimeType || input.type || "application/octet-stream"'
@@ -230,14 +232,14 @@ describe("desktop loading and packaging boundaries", () => {
     expect(source).toContain("configurePluginConnection:");
     expect(source).toContain("pluginConnectionStatuses:");
     expect(source).toContain("pluginBotAccess:");
-    expect(source).toContain('from "@openbot/contracts/plugin-settings"');
-    expect(pluginScaleSource).toContain('from "@openbot/contracts/plugin-settings"');
+    expect(source).toContain('from "@openteam/contracts/plugin-settings"');
+    expect(pluginScaleSource).toContain('from "@openteam/contracts/plugin-settings"');
   });
 
   test("loads plugin policy controls only after entering plugin details", async () => {
     const [settingsSource, detailSource] = await Promise.all([
-      readDesktopFile("src/renderer/components/openbot/plugin-settings.tsx"),
-      readDesktopFile("src/renderer/components/openbot/plugin-settings-detail.tsx"),
+      readDesktopFile("src/renderer/components/openteam/plugin-settings.tsx"),
+      readDesktopFile("src/renderer/components/openteam/plugin-settings-detail.tsx"),
     ]);
 
     expect(settingsSource).toContain('import("./plugin-settings-detail")');
@@ -252,25 +254,25 @@ describe("desktop loading and packaging boundaries", () => {
   test("keeps About and each Settings section in independently audited lazy modules", async () => {
     const [app, shell, general, about, measure, budgets] = await Promise.all([
       readDesktopFile("src/renderer/App.tsx"),
-      readDesktopFile("src/renderer/components/openbot/settings-panel.tsx"),
-      readDesktopFile("src/renderer/components/openbot/settings-general.tsx"),
-      readDesktopFile("src/renderer/components/openbot/settings-about.tsx"),
+      readDesktopFile("src/renderer/components/openteam/settings-panel.tsx"),
+      readDesktopFile("src/renderer/components/openteam/settings-general.tsx"),
+      readDesktopFile("src/renderer/components/openteam/settings-about.tsx"),
       Bun.file(resolve(desktopRoot, "../../scripts/performance/measure-desktop-build.ts")).text(),
       Bun.file(resolve(desktopRoot, "../../scripts/performance/check-desktop-budgets.ts")).text(),
     ]);
 
-    expect(app).toContain('import("./components/openbot/settings-about")');
-    expect(app).toContain('import("./components/openbot/settings-panel")');
-    expect(app).toContain('import("./components/openbot/settings-general")');
-    expect(app).toContain('import("./components/openbot/settings-general-bot")');
+    expect(app).toContain('import("./components/openteam/settings-about")');
+    expect(app).toContain('import("./components/openteam/settings-panel")');
+    expect(app).toContain('import("./components/openteam/settings-general")');
+    expect(app).toContain('import("./components/openteam/settings-general-bot")');
     expect(shell).toContain('import("./settings-general")');
     expect(shell).toContain('import("./settings-computer")');
     expect(shell).toContain('import("./settings-server")');
     expect(shell).toContain('import("./settings-updates")');
     expect(shell).toContain("attempts < 120");
-    expect(shell).not.toContain("Copyright © 2026 OpenBot contributors");
+    expect(shell).not.toContain("Copyright © 2026 OpenTeam contributors");
     expect(general).toContain('import("./settings-general-bot")');
-    expect(about).toContain("Copyright © 2026 OpenBot contributors");
+    expect(about).toContain("Copyright © 2026 OpenTeam contributors");
 
     for (const boundary of [
       "settingsInitial",
@@ -290,11 +292,11 @@ describe("desktop loading and packaging boundaries", () => {
   test("warms the lazy search surface only after the app is ready or the control has intent", async () => {
     const [app, sidebar] = await Promise.all([
       readDesktopFile("src/renderer/App.tsx"),
-      readDesktopFile("src/renderer/components/openbot/sidebar.tsx"),
+      readDesktopFile("src/renderer/components/openteam/sidebar.tsx"),
     ]);
 
     expect(app).toContain(
-      'const loadSearchDialog = () => import("./components/openbot/search-dialog")'
+      'const loadSearchDialog = () => import("./components/openteam/search-dialog")'
     );
     expect(app).toContain("requestIdleCallback(preloadSearchDialog");
     expect(app).toContain("if (!appReady) return");
@@ -310,11 +312,11 @@ describe("desktop loading and packaging boundaries", () => {
       readDesktopFile("src/renderer/components/ai-elements/message-response-config.tsx"),
     ]);
 
-    expect(app).toContain("OPENBOT_DEEP_LINK_EVENT,");
+    expect(app).toContain("OPENTEAM_DEEP_LINK_EVENT,");
     expect(app).not.toContain('from "./components/ai-elements/message-response-config"');
-    expect(deepLinks).toContain('OPENBOT_DEEP_LINK_EVENT = "openbot:deep-link"');
+    expect(deepLinks).toContain('OPENTEAM_DEEP_LINK_EVENT = "openteam:deep-link"');
     expect(responseConfig).toContain(
-      'export { OPENBOT_DEEP_LINK_EVENT } from "../../lib/app-deep-links"'
+      'export { OPENTEAM_DEEP_LINK_EVENT } from "../../lib/app-deep-links"'
     );
   });
 });

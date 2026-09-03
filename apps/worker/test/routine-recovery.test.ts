@@ -126,14 +126,14 @@ describe("routine execution restart reconciliation", () => {
   });
 
   test("repairs a nonterminal execution whose linked run died during restart", async () => {
-    const databaseUrl = process.env.OPENBOT_TEST_DATABASE_URL;
+    const databaseUrl = process.env.OPENTEAM_TEST_DATABASE_URL;
     if (!databaseUrl) return;
 
-    const temporary = await mkdtemp(join(tmpdir(), "openbot-routine-recovery-"));
+    const temporary = await mkdtemp(join(tmpdir(), "openteam-routine-recovery-"));
     const workspace = join(temporary, "workspace");
     process.env.DATABASE_URL = databaseUrl;
-    process.env.OPENBOT_WORKSPACE_ROOT = workspace;
-    process.env.OPENBOT_AGENT_DATA_ROOT = join(temporary, "agent-data");
+    process.env.OPENTEAM_WORKSPACE_ROOT = workspace;
+    process.env.OPENTEAM_AGENT_DATA_ROOT = join(temporary, "agent-data");
     await mkdir(workspace, { recursive: true });
     const worker = new WakeWorker();
     const botId = crypto.randomUUID();

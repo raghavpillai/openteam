@@ -7,7 +7,7 @@ import {
 
 const prompter = createTerminalPrompter();
 try {
-  const answer = (await prompter.question("OpenBot username [openbot]: ")).trim() || "openbot";
+  const answer = (await prompter.question("OpenTeam username [openteam]: ")).trim() || "openteam";
   const username = validateOwnerUsername(answer);
   const password = await collectConfirmedPassword(prompter);
   const result = spawnSync(

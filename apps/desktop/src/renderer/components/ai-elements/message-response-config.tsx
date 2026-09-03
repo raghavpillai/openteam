@@ -7,9 +7,9 @@ import {
   type ThemeInput,
   type UrlTransform,
 } from "streamdown";
-import { OPENBOT_DEEP_LINK_EVENT } from "../../lib/app-deep-links";
+import { OPENTEAM_DEEP_LINK_EVENT } from "../../lib/app-deep-links";
 
-export { OPENBOT_DEEP_LINK_EVENT } from "../../lib/app-deep-links";
+export { OPENTEAM_DEEP_LINK_EVENT } from "../../lib/app-deep-links";
 
 const SANITIZED_MESSAGE_LINK_PREFIX = "streamdown:sand-msg:";
 const SANITIZED_GROK_BOT_LINK_PREFIX = "streamdown:grokbot:";
@@ -170,7 +170,7 @@ function MessageLink({ children, className, href, node: _node, ...props }: Markd
         aria-label={`Open ${String(children)}`}
         className="message-jump-chip"
         onClick={() =>
-          window.dispatchEvent(new CustomEvent(OPENBOT_DEEP_LINK_EVENT, { detail: { url } }))
+          window.dispatchEvent(new CustomEvent(OPENTEAM_DEEP_LINK_EVENT, { detail: { url } }))
         }
         type="button"
       >

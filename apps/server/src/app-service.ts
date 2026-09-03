@@ -22,8 +22,8 @@ import {
   type UploadAssetInput,
   type WidgetDismissInput,
   type WidgetResponseInput,
-} from "@openbot/contracts";
-import { createPrismaClient, Prisma, type PrismaClient } from "@openbot/db";
+} from "@openteam/contracts";
+import { createPrismaClient, Prisma, type PrismaClient } from "@openteam/db";
 import {
   AgentDataStore,
   AgentMessaging,
@@ -32,7 +32,7 @@ import {
   type RoutineMutationInput,
   RoutineService,
   renderSubagentRevivalPrompt,
-} from "@openbot/messaging";
+} from "@openteam/messaging";
 import { Effect } from "effect";
 import { PgBoss } from "pg-boss";
 import { EventWakeup } from "./event-wakeup";
@@ -100,10 +100,10 @@ export class AppService {
     this.prisma = createPrismaClient(databaseUrl);
     this.boss = new PgBoss(databaseUrl ?? "");
     this.eventWakeup = new EventWakeup(databaseUrl ?? "");
-    this.computerUrl = process.env.OPENBOT_COMPUTER_URL ?? "http://127.0.0.1:8790";
-    this.controlToken = process.env.OPENBOT_CONTROL_TOKEN ?? "local-compose-only-change-me";
-    this.workspaceRoot = resolve(process.env.OPENBOT_WORKSPACE_ROOT ?? "/workspace");
-    this.screenViewerHost = process.env.OPENBOT_SCREEN_VIEWER_HOST ?? "127.0.0.1";
+    this.computerUrl = process.env.OPENTEAM_COMPUTER_URL ?? "http://127.0.0.1:8790";
+    this.controlToken = process.env.OPENTEAM_CONTROL_TOKEN ?? "local-compose-only-change-me";
+    this.workspaceRoot = resolve(process.env.OPENTEAM_WORKSPACE_ROOT ?? "/workspace");
+    this.screenViewerHost = process.env.OPENTEAM_SCREEN_VIEWER_HOST ?? "127.0.0.1";
     this.agentData = new AgentDataStore(this.prisma, {
       workspaceRoot: this.workspaceRoot,
     });
@@ -340,7 +340,7 @@ export class AppService {
 
   createBot = (input: CreateBotInput) => this.bots.create(input);
 
-  broadcast = (input: import("@openbot/contracts").AdminBroadcastInput) =>
+  broadcast = (input: import("@openteam/contracts").AdminBroadcastInput) =>
     Effect.tryPromise({
       try: () => this.messaging.broadcast(input),
       catch: (error) => (error instanceof Error ? error : new Error(String(error))),
@@ -644,7 +644,7 @@ export class AppService {
   installPlugin = (pluginKey: string, values?: Record<string, string>) =>
     this.plugins.install(pluginKey, values);
 
-  addCustomMcp = (input: import("@openbot/contracts").AddCustomMcpInput) =>
+  addCustomMcp = (input: import("@openteam/contracts").AddCustomMcpInput) =>
     this.plugins.addCustomMcp(input);
 
   uninstallPlugin = (pluginKey: string) => this.plugins.uninstall(pluginKey);
@@ -658,7 +658,7 @@ export class AppService {
 
   configurePluginConnection = (
     connectionId: string,
-    input: import("@openbot/contracts").ConfigurePluginConnectionInput
+    input: import("@openteam/contracts").ConfigurePluginConnectionInput
   ) => this.plugins.configure(connectionId, input);
 
   authenticatePlugin = (connectionId: string, force = false) =>
@@ -689,13 +689,15 @@ export class AppService {
 
   setPluginPolicy = (
     connectionId: string,
-    input: import("@openbot/contracts").SetPluginToolPolicyInput
+    input: import("@openteam/contracts").SetPluginToolPolicyInput
   ) => this.plugins.setPolicy(connectionId, input);
 
   cancelRun = (runId: string) => this.runs.cancel(runId);
 
-  resolveApproval = (approvalId: string, decision: import("@openbot/contracts").ApprovalDecision) =>
-    this.runs.resolveApproval(approvalId, decision);
+  resolveApproval = (
+    approvalId: string,
+    decision: import("@openteam/contracts").ApprovalDecision
+  ) => this.runs.resolveApproval(approvalId, decision);
 
   snapshot = () => this.snapshots.full();
 
@@ -737,7 +739,7 @@ export class AppService {
     });
 
   registerPushDevice = (
-    input: import("@openbot/contracts").RegisterPushDeviceInput,
+    input: import("@openteam/contracts").RegisterPushDeviceInput,
     authentication: import("./services/notification-service").PushRegistrationAuthentication
   ) => this.notifications.register(input, authentication);
 
@@ -755,7 +757,7 @@ export class AppService {
       catch: (error) => error as Error,
     });
 
-  search = (query: string, category: import("@openbot/contracts").SearchCategory) =>
+  search = (query: string, category: import("@openteam/contracts").SearchCategory) =>
     this.searchIndex.search(query, category);
 
   health = () => this.snapshots.health();

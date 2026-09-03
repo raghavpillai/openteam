@@ -2,7 +2,7 @@ import type {
   ChannelMessageView,
   RichMessageComputerHandoff,
   RichMessageWidget,
-} from "@openbot/contracts";
+} from "@openteam/contracts";
 import {
   widgetOptionValue as optionValue,
   projectRichMessage,
@@ -12,7 +12,7 @@ import {
   toggleWidgetSelection,
   widgetOptionLetter,
   widgetResponseValue,
-} from "@openbot/product-core/rich-messages";
+} from "@openteam/product-core/rich-messages";
 import { SymbolView } from "expo-symbols";
 import { router } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
@@ -314,11 +314,7 @@ function CloudAgentCard({
   return (
     <View
       accessibilityLabel={`${agent.name}, ${published ? "Published" : "Unpublished"}`}
-      style={[
-        styles.card,
-        styles.cloudAgentCard,
-        { backgroundColor: theme.assistantBubble },
-      ]}
+      style={[styles.card, styles.cloudAgentCard, { backgroundColor: theme.assistantBubble }]}
     >
       <View style={styles.cloudAgentHeading}>
         <Text numberOfLines={1} style={[styles.cloudAgentName, { color: theme.text }]}>
@@ -351,7 +347,9 @@ function CloudAgentCard({
               pressed && styles.cloudAgentPressed,
             ]}
           >
-            <Text style={[styles.cloudAgentPrimaryLabel, { color: theme.background }]}>Publish</Text>
+            <Text style={[styles.cloudAgentPrimaryLabel, { color: theme.background }]}>
+              Publish
+            </Text>
           </Pressable>
         ) : null}
         <Pressable

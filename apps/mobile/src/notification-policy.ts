@@ -1,7 +1,7 @@
 import {
   agentNotificationDeliveryPolicy,
   isAgentNotificationKind,
-} from "@openbot/contracts/notification-content";
+} from "@openteam/contracts/notification-content";
 
 export interface ForegroundNotificationBehavior {
   shouldShowBanner: boolean;

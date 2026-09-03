@@ -1,5 +1,5 @@
-import type { DurableStagedAttachment } from "@openbot/product-core/durable-delivery";
-import { attachmentAssetKind } from "@openbot/product-core/attachments";
+import type { DurableStagedAttachment } from "@openteam/product-core/durable-delivery";
+import { attachmentAssetKind } from "@openteam/product-core/attachments";
 import * as FileSystem from "expo-file-system/legacy";
 
 const directory = FileSystem.documentDirectory

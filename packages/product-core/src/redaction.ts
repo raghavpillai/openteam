@@ -6,7 +6,7 @@ const replacements: ReadonlyArray<readonly [RegExp, string]> = [
   [/\b(gh(?:p|o|u|s|r)_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})\b/g, REDACTED],
   [/\b(xox(?:p|b|a|r|s)-[A-Za-z0-9-]{10,})\b/g, REDACTED],
   [
-    /\b((?:OPENBOT_[A-Z0-9_]*(?:PASSWORD|SECRET|TOKEN|KEY)|PASSWORD|PASSWD|API_KEY|AUTH_TOKEN)\s*[=:]\s*)("[^"\r\n]*"|'[^'\r\n]*'|[^\s,;]+)/gi,
+    /\b((?:OPENTEAM_[A-Z0-9_]*(?:PASSWORD|SECRET|TOKEN|KEY)|PASSWORD|PASSWD|API_KEY|AUTH_TOKEN)\s*[=:]\s*)("[^"\r\n]*"|'[^'\r\n]*'|[^\s,;]+)/gi,
     `$1${REDACTED}`,
   ],
   [

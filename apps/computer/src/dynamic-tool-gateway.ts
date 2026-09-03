@@ -1,4 +1,4 @@
-import type { CallDynamicToolInput, GetDynamicToolsInput } from "@openbot/contracts";
+import type { CallDynamicToolInput, GetDynamicToolsInput } from "@openteam/contracts";
 
 export type DynamicNamespaceStatus = "ready" | "needsAuth" | "error" | "loading";
 

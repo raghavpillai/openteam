@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { ChannelMessageView, ClientSnapshot } from "@openbot/contracts";
+import type { ChannelMessageView, ClientSnapshot } from "@openteam/contracts";
 import {
   a2aProjectionFor,
   collapseA2ATimeline,

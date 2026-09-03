@@ -9,7 +9,7 @@ const settingsSource = (
       "settings-computer.tsx",
       "settings-updates.tsx",
     ].map((file) =>
-      Bun.file(new URL(`../src/renderer/components/openbot/${file}`, import.meta.url)).text()
+      Bun.file(new URL(`../src/renderer/components/openteam/${file}`, import.meta.url)).text()
     )
   )
 ).join("\n");
@@ -23,8 +23,8 @@ describe("desktop settings controls", () => {
       "Timezone",
       "Use hardware security keys",
       "Update Track",
-      "Update OpenBot's Computer",
-      "Reset OpenBot's Computer",
+      "Update OpenTeam's Computer",
+      "Reset OpenTeam's Computer",
     ]) {
       expect(settingsSource).not.toContain(label);
     }

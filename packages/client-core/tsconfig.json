@@ -3,7 +3,7 @@
   "compilerOptions": {
     "baseUrl": ".",
     "paths": {
-      "@openbot/contracts": ["../contracts/src/index.ts"]
+      "@openteam/contracts": ["../contracts/src/index.ts"]
     },
     "types": ["bun"]
   },

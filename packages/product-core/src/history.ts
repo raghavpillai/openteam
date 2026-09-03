@@ -5,7 +5,7 @@ import type {
   ChannelMessageView,
   ClientBootstrapView,
   ClientSnapshot,
-} from "@openbot/contracts";
+} from "@openteam/contracts";
 
 export interface LoadedChannelHistory {
   messages: ChannelMessageView[];

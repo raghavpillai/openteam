@@ -2,8 +2,8 @@ import {
   createLiveSyncController,
   type LiveSyncControllerOptions,
   shouldRefreshForEvent,
-} from "@openbot/client-core";
-import { openBotClient } from "./openbot-api";
+} from "@openteam/client-core";
+import { openTeamClient } from "./openteam-api";
 
 export { shouldRefreshForEvent };
 
@@ -13,5 +13,5 @@ export const createDesktopLiveSyncController = (
   createLiveSyncController({
     ...options,
     listen: (cursor, eventHandlers, signal) =>
-      openBotClient.listenForEvents(cursor, eventHandlers, signal),
+      openTeamClient.listenForEvents(cursor, eventHandlers, signal),
   });

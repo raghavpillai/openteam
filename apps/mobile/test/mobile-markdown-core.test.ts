@@ -36,12 +36,12 @@ describe("bounded mobile Markdown", () => {
 
   test("tokenizes repeated links once and refuses unsafe destinations", () => {
     const tokens = parseInlineMarkdown(
-      "[OpenBot](https://openbot.dev) and [OpenBot](https://openbot.dev) [unsafe](javascript:alert(1))"
+      "[OpenTeam](https://openteam.dev) and [OpenTeam](https://openteam.dev) [unsafe](javascript:alert(1))"
     );
     const links = tokens.filter((token) => token.type === "link");
 
     expect(links).toHaveLength(2);
-    expect(links.map(({ text }) => text)).toEqual(["OpenBot", "OpenBot"]);
+    expect(links.map(({ text }) => text)).toEqual(["OpenTeam", "OpenTeam"]);
     expect(new Set(tokens.map(({ key }) => key)).size).toBe(tokens.length);
     expect(tokens.map(({ text }) => text).join("")).toContain("[unsafe](javascript:alert(1))");
   });
@@ -62,7 +62,7 @@ describe("bounded mobile Markdown", () => {
   test("preserves rich rendering for normal chat-sized content", () => {
     expect(
       shouldRenderRichMobileMarkdown(
-        "A short paragraph with **strong text**, `code`, and [a link](https://openbot.dev)."
+        "A short paragraph with **strong text**, `code`, and [a link](https://openteam.dev)."
       )
     ).toBe(true);
   });

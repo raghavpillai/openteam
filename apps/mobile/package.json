@@ -1,5 +1,5 @@
 {
-  "name": "@openbot/mobile",
+  "name": "@openteam/mobile",
   "version": "0.1.0",
   "private": true,
   "main": "expo-router/entry",
@@ -14,11 +14,11 @@
     "test": "bun test --pass-with-no-tests && bun run native:check"
   },
   "dependencies": {
-    "@openbot/client-core": "workspace:*",
-    "@openbot/contracts": "workspace:*",
-    "@openbot/design-tokens": "workspace:*",
-    "@openbot/mobile-native": "file:./modules/openbot-native",
-    "@openbot/product-core": "workspace:*",
+    "@openteam/client-core": "workspace:*",
+    "@openteam/contracts": "workspace:*",
+    "@openteam/design-tokens": "workspace:*",
+    "@openteam/mobile-native": "file:./modules/openteam-native",
+    "@openteam/product-core": "workspace:*",
     "expo": "57.0.18",
     "expo-clipboard": "57.0.1",
     "expo-constants": "~57.0.16",

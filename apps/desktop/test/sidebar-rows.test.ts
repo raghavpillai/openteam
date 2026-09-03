@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { ChannelMessageView, ChannelView, RunView } from "@openbot/contracts";
+import type { ChannelMessageView, ChannelView, RunView } from "@openteam/contracts";
 import {
   groupSidebarRows,
   reconcileSidebarRows,

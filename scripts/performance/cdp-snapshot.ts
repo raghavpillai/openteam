@@ -1,4 +1,4 @@
-const endpoint = process.env.OPENBOT_AUDIT_CDP_URL ?? "http://127.0.0.1:9333";
+const endpoint = process.env.OPENTEAM_AUDIT_CDP_URL ?? "http://127.0.0.1:9333";
 const label = process.argv[2] ?? "snapshot";
 
 interface Target {
@@ -55,7 +55,7 @@ await Promise.all([
   command("Runtime.enable"),
   command("DOM.enable"),
 ]);
-if (process.env.OPENBOT_AUDIT_COLLECT_GARBAGE === "1") {
+if (process.env.OPENTEAM_AUDIT_COLLECT_GARBAGE === "1") {
   await command("HeapProfiler.collectGarbage");
 }
 
@@ -162,8 +162,8 @@ const expression = String.raw`(async () => {
       over20ms: frameGaps.filter((value) => value > 20).length,
       over50ms: frameGaps.filter((value) => value > 50).length,
     },
-    openbot: window.openbotPerformance?.snapshot?.() ?? null,
-    processes: await window.openbot?.getProcessMetrics?.() ?? null,
+    openteam: window.openteamPerformance?.snapshot?.() ?? null,
+    processes: await window.openteam?.getProcessMetrics?.() ?? null,
   };
 })()`;
 
@@ -199,8 +199,8 @@ const report = {
   page: evaluated.result.value,
 };
 const serialized = JSON.stringify(report, null, 2);
-if (process.env.OPENBOT_AUDIT_OUTPUT) {
-  await Bun.write(process.env.OPENBOT_AUDIT_OUTPUT, `${serialized}\n`);
+if (process.env.OPENTEAM_AUDIT_OUTPUT) {
+  await Bun.write(process.env.OPENTEAM_AUDIT_OUTPUT, `${serialized}\n`);
 }
 console.log(serialized);
 socket.close();

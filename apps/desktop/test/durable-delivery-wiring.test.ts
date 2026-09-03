@@ -11,13 +11,13 @@ describe("desktop durable delivery wiring", () => {
       source("renderer/env.d.ts"),
     ]);
 
-    expect(main).toContain('ipcMain.handle("openbot:delivery-journal:read"');
-    expect(main).toContain('ipcMain.handle("openbot:delivery-journal:write"');
+    expect(main).toContain('ipcMain.handle("openteam:delivery-journal:read"');
+    expect(main).toContain('ipcMain.handle("openteam:delivery-journal:write"');
     expect(main).toContain("requireDeliveryStageSender(event)");
-    expect(preload).toContain('ipcRenderer.invoke("openbot:delivery-journal:read"');
-    expect(preload).toContain('ipcRenderer.invoke("openbot:delivery-journal:write"');
+    expect(preload).toContain('ipcRenderer.invoke("openteam:delivery-journal:read"');
+    expect(preload).toContain('ipcRenderer.invoke("openteam:delivery-journal:write"');
     expect(environment).toContain("deliveryJournal:");
-    expect(renderer).toContain("window.openbot?.deliveryJournal");
+    expect(renderer).toContain("window.openteam?.deliveryJournal");
     expect(renderer).toContain("localStorage.removeItem(storageKey(scope))");
   });
 

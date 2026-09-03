@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto";
 import { chown, cp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { createConnection } from "node:net";
 import { join } from "node:path";
-import type { ComputerUseActionInput, ScreenActionInput } from "@openbot/contracts";
+import type { ComputerUseActionInput, ScreenActionInput } from "@openteam/contracts";
 import { agentProcessIdentity, sanitizedAgentEnvironment } from "./agent-process";
 import { BrowserBroker } from "./browser-broker";
 import { BrowserProfileAuthority } from "./browser-profile-authority";
@@ -19,7 +19,7 @@ const TAKEOVER_TTL_MS = 45_000;
 const SCREEN_HEALTH_CHECK_INTERVAL_MS = 2_000;
 const ENDPOINT_PROBE_TIMEOUT_MS = 1_000;
 const ENDPOINT_STARTUP_TIMEOUT_MS = 10_000;
-const DESKTOP_CONFIG_ROOT = "/usr/share/openbot-desktop/config";
+const DESKTOP_CONFIG_ROOT = "/usr/share/openteam-desktop/config";
 
 type ScreenState = "starting" | "ready" | "failed";
 
@@ -133,7 +133,7 @@ export class ScreenBroker {
   private allocation: Promise<void> = Promise.resolve();
 
   constructor(private readonly home = process.env.HOME ?? "/home/box") {
-    this.stateRoot = join(home, ".openbot");
+    this.stateRoot = join(home, ".openteam");
     this.mappingPath = join(home, ".sand-window-assignments.json");
     this.browserBroker = new BrowserBroker(home);
     this.profileAuthority = new BrowserProfileAuthority(home);
@@ -163,7 +163,7 @@ export class ScreenBroker {
           slot === 0
             ? join(this.home, "chrome-profile")
             : join(this.home, `chrome-profile-${slot + 1}`),
-        runtimeDirectory: join("/tmp", `openbot-screen-${slot}`),
+        runtimeDirectory: join("/tmp", `openteam-screen-${slot}`),
         state: "starting",
         error: null,
         humanTakeoverUntil: 0,
@@ -782,9 +782,9 @@ export class ScreenBroker {
       XDG_SESSION_TYPE: "x11",
       GDK_BACKEND: "x11",
       GTK_THEME: "Adwaita",
-      OPENBOT_SCREEN_CWD: session.cwd,
-      OPENBOT_BROWSER_PROFILE: session.profileDirectory,
-      OPENBOT_BROWSER_DEBUG_PORT: String(session.browserDebugPort),
+      OPENTEAM_SCREEN_CWD: session.cwd,
+      OPENTEAM_BROWSER_PROFILE: session.profileDirectory,
+      OPENTEAM_BROWSER_DEBUG_PORT: String(session.browserDebugPort),
     };
   }
 
@@ -838,7 +838,7 @@ export class ScreenBroker {
 
   private async viewerHttpResponds(port: number): Promise<boolean> {
     try {
-      const response = await fetch(`http://127.0.0.1:${port}/openbot.html`, {
+      const response = await fetch(`http://127.0.0.1:${port}/openteam.html`, {
         method: "HEAD",
         signal: AbortSignal.timeout(ENDPOINT_PROBE_TIMEOUT_MS),
       });
@@ -929,7 +929,7 @@ export class ScreenBroker {
           break;
         }
       }
-      if (allocated < 0) throw new Error(`OpenBot supports at most ${MAX_SCREENS} live screens`);
+      if (allocated < 0) throw new Error(`OpenTeam supports at most ${MAX_SCREENS} live screens`);
       await this.persistMappings();
     });
     await this.allocation;

@@ -10,7 +10,7 @@ import {
   type InferenceProviderView,
   normalizeInferenceProviderId,
   type ServerInferenceSettings,
-} from "@openbot/contracts";
+} from "@openteam/contracts";
 
 interface AuthSessionState extends InferenceProviderAuthSessionView {
   controller: AbortController;

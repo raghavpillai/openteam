@@ -17,13 +17,13 @@ const requestedIsDirectory = Boolean(
 const searchRoot = requestedIsDirectory && requested ? requested : releaseRoot;
 const discovered = existsSync(searchRoot)
   ? readdirSync(searchRoot, { recursive: true })
-      .filter((entry) => String(entry).endsWith("OpenBot.app"))
+      .filter((entry) => String(entry).endsWith("OpenTeam.app"))
       .map((entry) => resolve(searchRoot, String(entry)))
       .sort()
   : [];
 const appPath = requested && !requestedIsDirectory ? requested : discovered[0];
 if (!appPath || !existsSync(appPath)) {
-  throw new Error("OpenBot.app was not found. Build the macOS package first.");
+  throw new Error("OpenTeam.app was not found. Build the macOS package first.");
 }
 
 const verify = Bun.spawnSync([
@@ -35,45 +35,45 @@ const verify = Bun.spawnSync([
   appPath,
 ]);
 if (verify.exitCode !== 0) {
-  throw new Error(`OpenBot.app is not validly signed:\n${verify.stderr.toString().trim()}`);
+  throw new Error(`OpenTeam.app is not validly signed:\n${verify.stderr.toString().trim()}`);
 }
 
 const details = Bun.spawnSync(["codesign", "-dv", "--verbose=4", appPath]);
 if (details.exitCode !== 0) {
   throw new Error(
-    `OpenBot.app signing details could not be read:\n${details.stderr.toString().trim()}`
+    `OpenTeam.app signing details could not be read:\n${details.stderr.toString().trim()}`
   );
 }
 const output = `${details.stdout.toString()}\n${details.stderr.toString()}`;
-if (!output.includes("Identifier=dev.openbot.desktop")) {
+if (!output.includes("Identifier=dev.openteam.desktop")) {
   throw new Error(`Unexpected signing identifier:\n${output.trim()}`);
 }
 const isAdHoc = output.includes("Signature=adhoc");
 if (!allowAdHoc && isAdHoc) {
-  throw new Error("OpenBot.app is only ad-hoc signed; release builds require a Developer ID.");
+  throw new Error("OpenTeam.app is only ad-hoc signed; release builds require a Developer ID.");
 }
 if (!allowAdHoc && !/TeamIdentifier=(?!not set)\S+/.test(output)) {
   throw new Error(
-    "OpenBot.app has no Apple Team identifier; notification events are not reliable."
+    "OpenTeam.app has no Apple Team identifier; notification events are not reliable."
   );
 }
 if (!allowAdHoc && !/^Authority=Developer ID Application:/m.test(output)) {
   throw new Error(
-    `OpenBot.app is not signed by a Developer ID Application identity:\n${output.trim()}`
+    `OpenTeam.app is not signed by a Developer ID Application identity:\n${output.trim()}`
   );
 }
 if (!allowAdHoc && !/flags=.*\bruntime\b/.test(output)) {
-  throw new Error("OpenBot.app was not signed with the hardened runtime enabled.");
+  throw new Error("OpenTeam.app was not signed with the hardened runtime enabled.");
 }
 if (allowAdHoc && !isAdHoc && !/TeamIdentifier=(?!not set)\S+/.test(output)) {
-  throw new Error("OpenBot.app has neither a Developer ID nor an ad-hoc signature.");
+  throw new Error("OpenTeam.app has neither a Developer ID nor an ad-hoc signature.");
 }
 
 if (!allowAdHoc) {
   const entitlements = Bun.spawnSync(["codesign", "-d", "--entitlements", "-", "--xml", appPath]);
   if (entitlements.exitCode !== 0) {
     throw new Error(
-      `OpenBot.app entitlements could not be read:\n${entitlements.stderr.toString().trim()}`
+      `OpenTeam.app entitlements could not be read:\n${entitlements.stderr.toString().trim()}`
     );
   }
   const entitlementOutput = `${entitlements.stdout.toString()}\n${entitlements.stderr.toString()}`;
@@ -86,7 +86,7 @@ if (!allowAdHoc) {
     const nextKey = entitlementOutput.indexOf("<key>", keyIndex + 1);
     const value = entitlementOutput.slice(keyIndex, nextKey === -1 ? undefined : nextKey);
     if (keyIndex === -1 || !/<true\s*\/>/.test(value)) {
-      throw new Error(`OpenBot.app is missing required entitlement: ${entitlement}`);
+      throw new Error(`OpenTeam.app is missing required entitlement: ${entitlement}`);
     }
   }
 
@@ -100,14 +100,14 @@ if (!allowAdHoc) {
   ]);
   if (assessment.exitCode !== 0) {
     throw new Error(
-      `OpenBot.app is not accepted by Gatekeeper:\n${assessment.stderr.toString().trim()}`
+      `OpenTeam.app is not accepted by Gatekeeper:\n${assessment.stderr.toString().trim()}`
     );
   }
 
   const notarization = Bun.spawnSync(["xcrun", "stapler", "validate", appPath]);
   if (notarization.exitCode !== 0) {
     throw new Error(
-      `OpenBot.app has no valid stapled notarization ticket:\n${notarization.stderr.toString().trim()}`
+      `OpenTeam.app has no valid stapled notarization ticket:\n${notarization.stderr.toString().trim()}`
     );
   }
 }
@@ -122,9 +122,9 @@ const bundleId = Bun.spawnSync([
   "-",
   plist,
 ]);
-if (bundleId.exitCode !== 0 || bundleId.stdout.toString().trim() !== "dev.openbot.desktop") {
+if (bundleId.exitCode !== 0 || bundleId.stdout.toString().trim() !== "dev.openteam.desktop") {
   throw new Error(
-    "The packaged app does not have the stable dev.openbot.desktop bundle identifier."
+    "The packaged app does not have the stable dev.openteam.desktop bundle identifier."
   );
 }
 

@@ -3,13 +3,13 @@ import { readFile } from "node:fs/promises";
 
 const componentSource = () =>
   readFile(
-    new URL("../src/renderer/components/openbot/routine-panel.tsx", import.meta.url),
+    new URL("../src/renderer/components/openteam/routine-panel.tsx", import.meta.url),
     "utf8"
   );
 
 const summarySource = () =>
   readFile(
-    new URL("../src/renderer/components/openbot/routine-summary.tsx", import.meta.url),
+    new URL("../src/renderer/components/openteam/routine-summary.tsx", import.meta.url),
     "utf8"
   );
 
@@ -116,7 +116,7 @@ describe("Grok routine UI parity", () => {
   test("keeps the minimum-width routine toolbar inside the Grok panel geometry", async () => {
     const [routine, header] = await Promise.all([
       componentSource(),
-      rendererSource("components/openbot/desktop-header.tsx"),
+      rendererSource("components/openteam/desktop-header.tsx"),
     ]);
 
     expect(routine).toContain('className="size-full overflow-y-auto px-3 pb-8 pt-[42px]');
@@ -129,9 +129,9 @@ describe("Grok routine UI parity", () => {
 
   test("renders clickable lifecycle notices that open the exact routine editor", async () => {
     const [chatPane, app, inspector] = await Promise.all([
-      rendererSource("components/openbot/chat-pane.tsx"),
+      rendererSource("components/openteam/chat-pane.tsx"),
       rendererSource("App.tsx"),
-      rendererSource("components/openbot/inspector.tsx"),
+      rendererSource("components/openteam/inspector.tsx"),
     ]);
 
     expect(chatPane).toContain('data-channel-event="automation-changed"');

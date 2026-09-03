@@ -1,0 +1,36 @@
+#!/bin/sh
+set -eu
+
+screen_cwd=${OPENTEAM_SCREEN_CWD:-/workspace}
+browser_profile=${OPENTEAM_BROWSER_PROFILE:-/home/box/chrome-profile}
+browser_debug_port=${OPENTEAM_BROWSER_DEBUG_PORT:-9222}
+browser_target=${2:-about:blank}
+
+case "${1:-}" in
+  chromium)
+    exec google-chrome \
+      --no-sandbox \
+      --test-type \
+      --disable-dev-shm-usage \
+      --no-first-run \
+      --disable-default-apps \
+      --hide-crash-restore-bubble \
+      --disable-features=Translate \
+      --user-data-dir="$browser_profile" \
+      --remote-debugging-address=127.0.0.1 \
+      --remote-allow-origins='*' \
+      --remote-debugging-port="$browser_debug_port" \
+      --new-window "$browser_target"
+    ;;
+  thunar)
+    exec thunar "$screen_cwd"
+    ;;
+  terminal)
+    cd "$screen_cwd"
+    exec xfce4-terminal --disable-server
+    ;;
+  *)
+    echo "usage: openteam-screen-launch chromium|thunar|terminal" >&2
+    exit 2
+    ;;
+esac

@@ -2,7 +2,7 @@ import type {
   PluginCatalogConnectionView,
   PluginCatalogItemView,
   PluginCatalogToolView,
-} from "@openbot/contracts";
+} from "@openteam/contracts";
 
 export interface PluginSkillDefinition {
   name: string;
@@ -66,17 +66,17 @@ const oauthClientFields: NonNullable<PluginCatalogItemView["setup"]>["fields"] =
     placeholder: "Paste the client secret",
     required: true,
     secret: true,
-    helpText: "Stored by your self-hosted OpenBot server and never returned to the desktop app.",
+    helpText: "Stored by your self-hosted OpenTeam server and never returned to the desktop app.",
   },
 ];
 
 export const pluginCatalog: readonly PluginDefinition[] = [
   {
-    key: "openbot-utility-lab",
+    key: "openteam-utility-lab",
     version: "1.0.0",
     name: "Utility Lab",
     description: "A local MCP fixture for safely testing discovery, grants, policies, and calls.",
-    publisher: "OpenBot",
+    publisher: "OpenTeam",
     category: "Developer Tools",
     featured: true,
     components: ["mcp"],
@@ -87,7 +87,7 @@ export const pluginCatalog: readonly PluginDefinition[] = [
         name: "Utility Lab",
         transport: "builtin",
         auth: "none",
-        endpoint: "openbot://utility-lab",
+        endpoint: "openteam://utility-lab",
         tools: [
           tool("echo", "Echo text through the complete plugin tool pipeline.", {
             type: "object",
@@ -137,7 +137,7 @@ export const pluginCatalog: readonly PluginDefinition[] = [
       steps: [
         "Create or select a Google Cloud project with Workspace Developer Preview access.",
         "Enable the Gmail API and Gmail MCP API, then configure the OAuth consent screen.",
-        "Create a Web application OAuth client and add OpenBot's callback URL exactly.",
+        "Create a Web application OAuth client and add OpenTeam's callback URL exactly.",
       ],
       fields: oauthClientFields,
       requiredScopes: [
@@ -176,7 +176,7 @@ export const pluginCatalog: readonly PluginDefinition[] = [
       steps: [
         "Create or select a Google Cloud project with Workspace Developer Preview access.",
         "Enable the Calendar API and Calendar MCP API, then configure the OAuth consent screen.",
-        "Create a Web application OAuth client and add OpenBot's callback URL exactly.",
+        "Create a Web application OAuth client and add OpenTeam's callback URL exactly.",
       ],
       fields: oauthClientFields,
       requiredScopes: [
@@ -217,7 +217,7 @@ export const pluginCatalog: readonly PluginDefinition[] = [
       steps: [
         "Create or select a Google Cloud project with Workspace Developer Preview access.",
         "Enable the Drive API and Drive MCP API, then configure the OAuth consent screen.",
-        "Create a Web application OAuth client and add OpenBot's callback URL exactly.",
+        "Create a Web application OAuth client and add OpenTeam's callback URL exactly.",
       ],
       fields: oauthClientFields,
       requiredScopes: [
@@ -256,8 +256,8 @@ export const pluginCatalog: readonly PluginDefinition[] = [
         "https://github.com/github/github-mcp-server/blob/main/docs/host-integration.md",
       steps: [
         "Create a fine-grained personal access token in GitHub settings.",
-        "Choose only the repositories and permissions you want OpenBot to use.",
-        "Paste the token below. OpenBot stores it on your self-hosted server.",
+        "Choose only the repositories and permissions you want OpenTeam to use.",
+        "Paste the token below. OpenTeam stores it on your self-hosted server.",
       ],
       fields: [
         {
@@ -302,7 +302,7 @@ export const pluginCatalog: readonly PluginDefinition[] = [
       steps: [
         "Create or reuse a Slack app. Slack MCP supports internal and Marketplace apps.",
         "Add the user-token scopes needed by the Slack tools you want to use.",
-        "Add OpenBot's callback URL, then paste the app client ID and secret below.",
+        "Add OpenTeam's callback URL, then paste the app client ID and secret below.",
       ],
       fields: oauthClientFields,
       requiredScopes: [
@@ -340,12 +340,12 @@ export const pluginCatalog: readonly PluginDefinition[] = [
       kind: "oauth",
       connectionKey: "notion",
       title: "Connect Notion",
-      description: "Notion registers OpenBot during OAuth, so there are no secrets to create.",
+      description: "Notion registers OpenTeam during OAuth, so there are no secrets to create.",
       documentationUrl: "https://developers.notion.com/guides/mcp/build-mcp-client",
       steps: [
         "Continue to Notion's authorization page.",
-        "Choose the workspace and pages OpenBot may access.",
-        "Return to OpenBot after authorization completes.",
+        "Choose the workspace and pages OpenTeam may access.",
+        "Return to OpenTeam after authorization completes.",
       ],
       fields: [],
       requiredScopes: [],
@@ -376,12 +376,12 @@ export const pluginCatalog: readonly PluginDefinition[] = [
       kind: "oauth",
       connectionKey: "linear",
       title: "Connect Linear",
-      description: "Linear registers OpenBot during OAuth, so there are no secrets to create.",
+      description: "Linear registers OpenTeam during OAuth, so there are no secrets to create.",
       documentationUrl: "https://linear.app/docs/mcp",
       steps: [
         "Continue to Linear's authorization page.",
-        "Choose the workspace OpenBot may access.",
-        "Return to OpenBot after authorization completes.",
+        "Choose the workspace OpenTeam may access.",
+        "Return to OpenTeam after authorization completes.",
       ],
       fields: [],
       requiredScopes: [],
@@ -412,13 +412,13 @@ export const pluginCatalog: readonly PluginDefinition[] = [
       kind: "oauth",
       connectionKey: "atlassian",
       title: "Connect Jira & Confluence",
-      description: "Authorize OpenBot with your Atlassian Cloud account.",
+      description: "Authorize OpenTeam with your Atlassian Cloud account.",
       documentationUrl:
         "https://support.atlassian.com/atlassian-rovo-mcp-server/docs/setting-up-clients/",
       steps: [
         "Make sure your organization allows Atlassian Rovo MCP connections.",
-        "Continue to Atlassian and choose the Cloud site OpenBot may access.",
-        "Return to OpenBot after authorization completes.",
+        "Continue to Atlassian and choose the Cloud site OpenTeam may access.",
+        "Return to OpenTeam after authorization completes.",
       ],
       fields: [],
       requiredScopes: [],
@@ -453,7 +453,7 @@ export const pluginCatalog: readonly PluginDefinition[] = [
       documentationUrl: "https://developers.asana.com/docs/integrating-with-asanas-mcp-server",
       steps: [
         "Create an app in Asana's developer console and select MCP app as its type.",
-        "Add OpenBot's callback URL and allow the workspace you want to use.",
+        "Add OpenTeam's callback URL and allow the workspace you want to use.",
         "Paste the app client ID and secret below, then authorize Asana.",
       ],
       fields: oauthClientFields,
@@ -476,7 +476,7 @@ export const pluginCatalog: readonly PluginDefinition[] = [
     version: "1.0.0",
     name: "Research Playbook",
     description: "A reusable skill for source-led research and evidence synthesis.",
-    publisher: "OpenBot",
+    publisher: "OpenTeam",
     category: "Research",
     featured: false,
     components: ["skills"],
@@ -516,8 +516,8 @@ export const validatePluginCatalog = (catalog: readonly PluginDefinition[]): voi
         throw new Error(`Duplicate connector key: ${plugin.key}/${connector.key}`);
       }
       connectorKeys.add(connector.key);
-      if (connector.transport === "builtin" && !connector.endpoint.startsWith("openbot://")) {
-        throw new Error(`Builtin connector must use openbot://: ${plugin.key}/${connector.key}`);
+      if (connector.transport === "builtin" && !connector.endpoint.startsWith("openteam://")) {
+        throw new Error(`Builtin connector must use openteam://: ${plugin.key}/${connector.key}`);
       }
       if (connector.transport === "http" && !connector.endpoint.startsWith("https://")) {
         throw new Error(`Remote connector must use HTTPS: ${plugin.key}/${connector.key}`);

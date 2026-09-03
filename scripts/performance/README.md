@@ -1,6 +1,6 @@
 # Desktop performance-audit harness
 
-This directory starts a disposable OpenBot stack for renderer and Electron stress testing. It does not use the normal OpenBot database or agent-data volume.
+This directory starts a disposable OpenTeam stack for renderer and Electron stress testing. It does not use the normal OpenTeam database or agent-data volume.
 
 ## Build and release gates
 
@@ -10,16 +10,16 @@ This directory starts a disposable OpenBot stack for renderer and Electron stres
 
 Safety properties:
 
-- Compose project name: `openbot-performance-audit`
-- Database name: `openbot_perf_audit`
+- Compose project name: `openteam-performance-audit`
+- Database name: `openteam_perf_audit`
 - Server bind: `127.0.0.1:8877`
 - Renderer bind: `127.0.0.1:5174`
-- `seed.sql` refuses to run unless the connected database is exactly `openbot_perf_audit`
+- `seed.sql` refuses to run unless the connected database is exactly `openteam_perf_audit`
 - The computer service is a local stub, so no real graphical-computer sessions are created
 
 ## iOS export gate
 
-`bun --filter @openbot/mobile performance` creates both release-shaped and source-mapped iOS
+`bun --filter @openteam/mobile performance` creates both release-shaped and source-mapped iOS
 exports under a disposable system temporary directory. It checks Hermes bytecode and Metro
 module budgets, exported asset count and bytes, application route parity, and the production
 bundle's retained packages. The gate rejects runtime retention of `effect`, `fast-check`, or
@@ -40,7 +40,7 @@ bun scripts/performance/check-mobile-budgets.ts --json
 Build the production renderer and start the isolated backend:
 
 ```sh
-bun --filter @openbot/desktop build
+bun --filter @openteam/desktop build
 docker-compose -f scripts/performance/docker-compose.yml up --build -d server
 ```
 
@@ -48,7 +48,7 @@ Seed a scale point. The script is incremental and deterministic, so increasing t
 
 ```sh
 docker-compose -f scripts/performance/docker-compose.yml exec -T postgres \
-  psql -U openbot -d openbot_perf_audit \
+  psql -U openteam -d openteam_perf_audit \
   -v bot_count=1000 \
   -v messages_per_bot=20 \
   -v group_count=100 \
@@ -74,7 +74,7 @@ baseline:
 
 ```sh
 docker-compose -f scripts/performance/docker-compose.yml exec -T postgres \
-  psql -U openbot -d openbot_perf_audit \
+  psql -U openteam -d openteam_perf_audit \
   -v bot_count=1000 \
   -v messages_per_bot=20 \
   -v group_count=100 \
@@ -129,16 +129,16 @@ bun scripts/performance/serve-renderer.ts
 Launch Electron with a disposable Chromium profile in a third terminal:
 
 ```sh
-audit_user_data="$(mktemp -d /tmp/openbot-perf-electron.XXXXXX)"
-OPENBOT_RENDERER_URL='http://127.0.0.1:5174/?profile=1' \
-OPENBOT_HOST_BRIDGE_PORT=8891 \
+audit_user_data="$(mktemp -d /tmp/openteam-perf-electron.XXXXXX)"
+OPENTEAM_RENDERER_URL='http://127.0.0.1:5174/?profile=1' \
+OPENTEAM_HOST_BRIDGE_PORT=8891 \
 apps/desktop/node_modules/.bin/electron \
   --remote-debugging-port=9333 \
   --user-data-dir="$audit_user_data" \
   apps/desktop
 ```
 
-`?profile=1` exposes the existing `window.openbotPerformance` diagnostics. Read `window.openbotPerformance.snapshot()` directly during long sessions; the DOM-published summary becomes stale after the 200-entry ring is full.
+`?profile=1` exposes the existing `window.openteamPerformance` diagnostics. Read `window.openteamPerformance.snapshot()` directly during long sessions; the DOM-published summary becomes stale after the 200-entry ring is full.
 
 ## Direct snapshot timing
 
@@ -157,12 +157,12 @@ zero-result query. The benchmark validates category correctness and reports
 end-to-end and `Server-Timing` min/p50/p95/max/mean values:
 
 ```sh
-OPENBOT_AUDIT_OUTPUT=plans/evidence/openbot-post-pull-audit-2026-08-31/search-current.json \
+OPENTEAM_AUDIT_OUTPUT=audit/search-current.json \
   bun scripts/performance/benchmark-search.ts
 ```
 
-Override `OPENBOT_PERF_BASE_URL`, `OPENBOT_SEARCH_WARMUPS`, or
-`OPENBOT_SEARCH_SAMPLES` when measuring a different isolated arm.
+Override `OPENTEAM_PERF_BASE_URL`, `OPENTEAM_SEARCH_WARMUPS`, or
+`OPENTEAM_SEARCH_SAMPLES` when measuring a different isolated arm.
 
 ## API scale timing
 
@@ -170,11 +170,11 @@ Measure the bounded bootstrap/runtime/history paths and the compatibility
 snapshot against the same heavy fixture:
 
 ```sh
-OPENBOT_AUDIT_OUTPUT=plans/evidence/openbot-post-pull-audit-2026-08-31/api-current.json \
+OPENTEAM_AUDIT_OUTPUT=audit/api-current.json \
   bun scripts/performance/benchmark-api.ts
 ```
 
-Override `OPENBOT_API_WARMUPS` or `OPENBOT_API_SAMPLES` to change the sample
+Override `OPENTEAM_API_WARMUPS` or `OPENTEAM_API_SAMPLES` to change the sample
 count. The harness records response sizes and both end-to-end and Server-Timing
 durations where the endpoint exposes them.
 
@@ -186,16 +186,16 @@ runtime response. The benchmark alternates arms and requires byte-for-byte
 response parity:
 
 ```sh
-OPENBOT_AUTH_USERNAME=audit_owner \
-OPENBOT_AUTH_PASSWORD='local-audit-password' \
-OPENBOT_AUDIT_OUTPUT=plans/evidence/openbot-post-pull-audit-2026-08-31/auth-overhead.json \
+OPENTEAM_AUTH_USERNAME=audit_owner \
+OPENTEAM_AUTH_PASSWORD='local-audit-password' \
+OPENTEAM_AUDIT_OUTPUT=audit/auth-overhead.json \
   bun scripts/performance/benchmark-auth.ts
 ```
 
 The disabled arm defaults to `127.0.0.1:8877` and the required arm to
-`127.0.0.1:8878`. Override `OPENBOT_AUTH_DISABLED_BASE_URL`,
-`OPENBOT_AUTH_REQUIRED_BASE_URL`, `OPENBOT_AUTH_WARMUPS`, or
-`OPENBOT_AUTH_SAMPLES` as needed.
+`127.0.0.1:8878`. Override `OPENTEAM_AUTH_DISABLED_BASE_URL`,
+`OPENTEAM_AUTH_REQUIRED_BASE_URL`, `OPENTEAM_AUTH_WARMUPS`, or
+`OPENTEAM_AUTH_SAMPLES` as needed.
 
 ## Cleanup
 

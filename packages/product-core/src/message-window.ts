@@ -1,4 +1,4 @@
-import type { ChannelMessageView } from "@openbot/contracts";
+import type { ChannelMessageView } from "@openteam/contracts";
 import { compareEntitySequence, sortedUniqueMessages } from "./history";
 import { replyTargetId } from "./messages";
 

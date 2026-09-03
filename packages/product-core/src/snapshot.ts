@@ -8,7 +8,7 @@ import type {
   RunItemView,
   RunView,
   SubagentActivityView,
-} from "@openbot/contracts";
+} from "@openteam/contracts";
 import { a2aProjectionFor } from "./messages";
 import { ACTIVE_RUN_STATUSES, isActiveRunStatus } from "./statuses";
 

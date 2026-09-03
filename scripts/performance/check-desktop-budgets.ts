@@ -89,7 +89,7 @@ const result = JSON.parse(output) as {
 
 const failures: string[] = [];
 const requirePackage =
-  process.argv.includes("--release") || process.env.OPENBOT_REQUIRE_PACKAGE === "1";
+  process.argv.includes("--release") || process.env.OPENTEAM_REQUIRE_PACKAGE === "1";
 const atMost = (label: string, actual: number, maximum: number) => {
   if (actual > maximum) failures.push(`${label}: ${actual} > ${maximum}`);
 };
@@ -125,7 +125,7 @@ electronFileBudget("main.js", 175_000);
 electronFileBudget("chunks/main.js", 600_000);
 electronFileBudget("preload.cjs", 10_000);
 electronFileBudget("host-utility.js", 40_000);
-electronFileBudget("openbot-cli.js", 1_600_000);
+electronFileBudget("openteam-cli.js", 1_600_000);
 if (result.renderer.violations.sourceMaps.length > 0) {
   failures.push(
     `renderer source maps: ${result.renderer.violations.sourceMaps.slice(0, 5).join(", ")}`

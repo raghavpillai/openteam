@@ -1,5 +1,5 @@
 import { describe, expect, mock, test } from "bun:test";
-import type { ClientSnapshot } from "@openbot/contracts";
+import type { ClientSnapshot } from "@openteam/contracts";
 import { mobileFixture } from "../src/fixtures";
 
 const files = new Map<string, string>();

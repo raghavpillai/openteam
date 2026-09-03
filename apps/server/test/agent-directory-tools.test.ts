@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { AGENT_DIRECTORY_DEFAULT_LIMIT } from "@openbot/contracts";
+import { AGENT_DIRECTORY_DEFAULT_LIMIT } from "@openteam/contracts";
 import { AdministrationService } from "../src/services/administration-service";
 
 const serviceWith = (prisma: unknown) =>

@@ -1,15 +1,15 @@
 import packageJson from "../package.json";
 
 export const CLI_VERSION = packageJson.version;
-export const DEFAULT_REPOSITORY = "raghavpillai/openbot";
-export const DEFAULT_IMAGE_PREFIX = "ghcr.io/raghavpillai/openbot";
+export const DEFAULT_REPOSITORY = "raghavpillai/openteam";
+export const DEFAULT_IMAGE_PREFIX = "ghcr.io/raghavpillai/openteam";
 export const COMPOSE_FILENAME = "compose.yaml";
 export const ENV_FILENAME = ".env";
 export const INSTALLATION_FILENAME = "installation.json";
 export const UPDATE_STATE_FILENAME = "update-state.json";
 export const UPDATE_LOCK_DIRECTORY = "update.lock";
 export const BACKUP_DIRECTORY = "backups";
-export const PROJECT_NAME = "openbot";
+export const PROJECT_NAME = "openteam";
 export const API_PORT = 8787;
 export const VIEWER_PORT_START = 6200;
 export const VIEWER_PORT_END = 6299;

@@ -3,17 +3,17 @@ import { randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createPrismaClient } from "@openbot/db";
+import { createPrismaClient } from "@openteam/db";
 import { AgentDataStore } from "../src/agent-data";
 import { AgentMessaging } from "../src/index";
 
-const databaseUrl = process.env.OPENBOT_TEST_DATABASE_URL;
+const databaseUrl = process.env.OPENTEAM_TEST_DATABASE_URL;
 
 test("administrator broadcasts tap every requested active top-level Bot exactly once", async () => {
   if (!databaseUrl) return;
 
   const prisma = createPrismaClient(databaseUrl);
-  const temporary = await mkdtemp(join(tmpdir(), "openbot-background-wakes-"));
+  const temporary = await mkdtemp(join(tmpdir(), "openteam-background-wakes-"));
   const workspace = join(temporary, "workspace");
   const root = join(temporary, "agent-data");
   const firstId = randomUUID();

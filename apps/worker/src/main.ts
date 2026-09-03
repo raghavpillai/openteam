@@ -16,4 +16,4 @@ const shutdown = async () => {
 process.once("SIGINT", shutdown);
 process.once("SIGTERM", shutdown);
 
-console.log("OpenBot wake worker is ready");
+console.log("OpenTeam wake worker is ready");

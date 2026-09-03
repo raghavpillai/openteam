@@ -5,7 +5,7 @@ const source = (path: string) => Bun.file(new URL(`../${path}`, import.meta.url)
 describe("mobile durable delivery wiring", () => {
   test("isolates and crash-recovers persisted send journals", async () => {
     const [context, storage] = await Promise.all([
-      source("src/state/openbot-context.tsx"),
+      source("src/state/openteam-context.tsx"),
       source("src/durable-send-storage.ts"),
     ]);
 
@@ -43,7 +43,7 @@ describe("mobile durable delivery wiring", () => {
   test("ties a queued send to the exact composer draft it consumed", async () => {
     const [composer, context, drafts] = await Promise.all([
       source("src/components/composer.tsx"),
-      source("src/state/openbot-context.tsx"),
+      source("src/state/openteam-context.tsx"),
       source("src/drafts.ts"),
     ]);
 
@@ -60,7 +60,7 @@ describe("mobile durable delivery wiring", () => {
   test("stages offline attachments locally and commits them during durable flush", async () => {
     const [composer, context, stage, bubble] = await Promise.all([
       source("src/components/composer.tsx"),
-      source("src/state/openbot-context.tsx"),
+      source("src/state/openteam-context.tsx"),
       source("src/durable-attachment-stage.ts"),
       source("src/components/message-bubble.tsx"),
     ]);
@@ -79,7 +79,7 @@ describe("mobile durable delivery wiring", () => {
   test("durably restores deterministic failures into main and thread composers", async () => {
     const [composer, context, route, thread, drafts, delivery] = await Promise.all([
       source("src/components/composer.tsx"),
-      source("src/state/openbot-context.tsx"),
+      source("src/state/openteam-context.tsx"),
       source("app/chat/[channelId].tsx"),
       source("src/components/thread-sheet.tsx"),
       source("src/drafts.ts"),

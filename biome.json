@@ -17,7 +17,6 @@
       "!!**/release-local",
       "!!**/ios/Pods",
       "!!**/ios/build",
-      "!!plans/evidence",
       "!!packages/db/src/generated"
     ]
   },

@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api } from "../client/openbot-api";
+import { api } from "../client/openteam-api";
 import { API_BASE } from "../client/http";
-import { isOpenBotVersion } from "@openbot/contracts/version-compatibility";
+import { isOpenTeamVersion } from "@openteam/contracts/version-compatibility";
 
 const manualCommand = (targetVersion: string | null) =>
-  targetVersion && isOpenBotVersion(targetVersion)
-    ? `openbot update --version ${targetVersion}`
-    : "openbot update";
+  targetVersion && isOpenTeamVersion(targetVersion)
+    ? `openteam update --version ${targetVersion}`
+    : "openteam update";
 
-const unavailableStatus = (targetVersion: string | null): OpenBotServerUpdateStatus => ({
+const unavailableStatus = (targetVersion: string | null): OpenTeamServerUpdateStatus => ({
   serverUrl: API_BASE,
   currentVersion: null,
   targetVersion,
@@ -28,25 +28,25 @@ export function useServerUpdateStatus(
   targetVersion: string | null,
   configuredSshTarget?: string | null
 ) {
-  const [status, setStatus] = useState<OpenBotServerUpdateStatus | null>(null);
+  const [status, setStatus] = useState<OpenTeamServerUpdateStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const loaded = useRef(false);
 
   const refresh = useCallback(async () => {
     if (!loaded.current) setLoading(true);
-    const host = await (window.openbot?.updates
+    const host = await (window.openteam?.updates
       .serverStatus({
         serverUrl: API_BASE,
         targetVersion,
         sshTarget:
           configuredSshTarget === undefined
-            ? localStorage.getItem(`openbot.update.ssh.${API_BASE}`)
+            ? localStorage.getItem(`openteam.update.ssh.${API_BASE}`)
             : configuredSshTarget,
       })
       .catch(() => null) ?? Promise.resolve(null));
     // The native status call owns version discovery on Electron. Retain the
     // renderer request only for the browser-development fallback.
-    const release = window.openbot ? null : await api.systemVersion().catch(() => null);
+    const release = window.openteam ? null : await api.systemVersion().catch(() => null);
     const next = host ?? unavailableStatus(targetVersion);
     setStatus({
       ...next,
@@ -80,7 +80,7 @@ export function useServerUpdateStatus(
 
   useEffect(
     () =>
-      window.openbot?.updates.onServerProgress((next) => {
+      window.openteam?.updates.onServerProgress((next) => {
         setStatus(next);
         if (next.status === "updated") window.setTimeout(() => void refresh(), 750);
       }),

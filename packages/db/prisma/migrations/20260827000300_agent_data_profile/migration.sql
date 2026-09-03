@@ -1,2 +1,0 @@
-ALTER TABLE "Bot"
-ADD COLUMN "namedBy" TEXT NOT NULL DEFAULT 'user';

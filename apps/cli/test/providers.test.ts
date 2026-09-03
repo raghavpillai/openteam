@@ -102,12 +102,12 @@ afterEach(() => {
 });
 
 const fixture = () => {
-  const directory = mkdtempSync(join(tmpdir(), "openbot-provider-test-"));
+  const directory = mkdtempSync(join(tmpdir(), "openteam-provider-test-"));
   directories.push(directory);
   const paths = installationPaths(directory);
   writeFileAtomic(
     paths.compose,
-    "name: openbot\nservices:\n  computer:\n    image: example/computer\n"
+    "name: openteam\nservices:\n  computer:\n    image: example/computer\n"
   );
   writeFileAtomic(paths.environment, createEnvironment({ version: "1.2.3" }));
   const now = new Date().toISOString();
@@ -115,7 +115,7 @@ const fixture = () => {
     schemaVersion: 1,
     repository: "owner/repo",
     version: "1.2.3",
-    composeUrl: "https://example.test/openbot-compose.yaml",
+    composeUrl: "https://example.test/openteam-compose.yaml",
     installedAt: now,
     updatedAt: now,
   });
@@ -146,7 +146,7 @@ describe("provider management", () => {
       new SecretPrompter("anthropic-test-secret")
     );
     const login = runner.calls.find(
-      (call) => call.args.includes("openbot-pi-auth") && call.args.includes("login")
+      (call) => call.args.includes("openteam-pi-auth") && call.args.includes("login")
     );
     expect(login?.args.join(" ")).not.toContain("anthropic-test-secret");
     expect(login?.options?.input).toBe("anthropic-test-secret\n");

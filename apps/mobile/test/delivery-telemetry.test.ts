@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import type { DurableSendTelemetryEvent } from "@openbot/product-core/durable-delivery";
+import type { DurableSendTelemetryEvent } from "@openteam/product-core/durable-delivery";
 import {
   mobileDeliveryTelemetrySnapshot,
   recordMobileDeliveryTelemetry,

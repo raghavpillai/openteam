@@ -1,6 +1,6 @@
-import type { BotView } from "@openbot/contracts";
-import { GROUP_MEMBER_LIMIT, toggleBoundedSelection } from "@openbot/product-core/selection";
-import { clientErrorMessage } from "@openbot/product-core/redaction";
+import type { BotView } from "@openteam/contracts";
+import { GROUP_MEMBER_LIMIT, toggleBoundedSelection } from "@openteam/product-core/selection";
+import { clientErrorMessage } from "@openteam/product-core/redaction";
 import { router, useLocalSearchParams } from "expo-router";
 import { memo, useCallback, useMemo, useState } from "react";
 import {
@@ -22,7 +22,7 @@ import {
   filterBotRoster,
   MOBILE_VIRTUAL_LIST_TUNING,
 } from "../src/list-scale";
-import { useOpenBot } from "../src/state/openbot-context";
+import { useOpenTeam } from "../src/state/openteam-context";
 import { metrics, useTheme } from "../src/theme";
 
 type CreationMode = "bot" | "group";
@@ -81,7 +81,7 @@ const MemberRow = memo(function MemberRow({
 
 export default function NewConversationScreen() {
   const theme = useTheme();
-  const { snapshot, createBot, createGroup, isFixture } = useOpenBot();
+  const { snapshot, createBot, createGroup, isFixture } = useOpenTeam();
   const { mode: requestedMode } = useLocalSearchParams<{ mode?: string }>();
   const [mode, setMode] = useState<CreationMode>(requestedMode === "group" ? "group" : "bot");
   const [name, setName] = useState("");
@@ -118,7 +118,7 @@ export default function NewConversationScreen() {
         mode === "bot" ? await createBot(name) : await createGroup(name, selectedBotIds);
       router.replace({ pathname: "/chat/[channelId]", params: { channelId } });
     } catch (cause) {
-      setError(clientErrorMessage(cause, "OpenBot could not create this conversation."));
+      setError(clientErrorMessage(cause, "OpenTeam could not create this conversation."));
     } finally {
       setCreating(false);
     }

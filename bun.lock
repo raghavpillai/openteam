@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "openbot",
+      "name": "openteam",
       "devDependencies": {
         "@biomejs/biome": "2.4.7",
         "@types/bun": "1.3.8",
@@ -12,28 +12,28 @@
       },
     },
     "apps/cli": {
-      "name": "@openbot/cli",
+      "name": "@openteam/cli",
       "version": "0.1.0",
       "bin": {
-        "openbot": "dist/openbot.js",
+        "openteam": "dist/openteam.js",
       },
       "dependencies": {
         "semver": "7.8.5",
         "sigstore": "4.1.1",
       },
       "devDependencies": {
-        "@openbot/product-core": "workspace:*",
+        "@openteam/product-core": "workspace:*",
         "@types/semver": "7.7.1",
       },
     },
     "apps/computer": {
-      "name": "@openbot/computer",
+      "name": "@openteam/computer",
       "version": "0.1.0",
       "dependencies": {
         "@earendil-works/pi-ai": "0.84.3",
         "@earendil-works/pi-coding-agent": "0.84.3",
         "@modelcontextprotocol/sdk": "1.30.0",
-        "@openbot/contracts": "workspace:*",
+        "@openteam/contracts": "workspace:*",
         "effect": "3.22.1",
         "playwright-core": "1.55.0",
         "typebox": "1.3.7",
@@ -43,15 +43,15 @@
       },
     },
     "apps/desktop": {
-      "name": "@openbot/desktop",
+      "name": "@openteam/desktop",
       "version": "0.1.0",
       "devDependencies": {
         "@dnd-kit/dom": "^0.5.0",
         "@dnd-kit/react": "^0.5.0",
-        "@openbot/client-core": "workspace:*",
-        "@openbot/contracts": "workspace:*",
-        "@openbot/design-tokens": "workspace:*",
-        "@openbot/product-core": "workspace:*",
+        "@openteam/client-core": "workspace:*",
+        "@openteam/contracts": "workspace:*",
+        "@openteam/design-tokens": "workspace:*",
+        "@openteam/product-core": "workspace:*",
         "@shikijs/themes": "3.23.0",
         "@streamdown/cjk": "1.0.3",
         "@streamdown/math": "1.0.2",
@@ -86,7 +86,7 @@
       },
     },
     "apps/landing": {
-      "name": "@openbot/landing",
+      "name": "@openteam/landing",
       "version": "0.1.0",
       "dependencies": {
         "next": "16.3.4",
@@ -114,14 +114,14 @@
       },
     },
     "apps/mobile": {
-      "name": "@openbot/mobile",
+      "name": "@openteam/mobile",
       "version": "0.1.0",
       "dependencies": {
-        "@openbot/client-core": "workspace:*",
-        "@openbot/contracts": "workspace:*",
-        "@openbot/design-tokens": "workspace:*",
-        "@openbot/mobile-native": "file:./modules/openbot-native",
-        "@openbot/product-core": "workspace:*",
+        "@openteam/client-core": "workspace:*",
+        "@openteam/contracts": "workspace:*",
+        "@openteam/design-tokens": "workspace:*",
+        "@openteam/mobile-native": "file:./modules/openteam-native",
+        "@openteam/product-core": "workspace:*",
         "dompurify": "3.4.14",
         "expo": "57.0.18",
         "expo-clipboard": "57.0.1",
@@ -157,13 +157,13 @@
       },
     },
     "apps/server": {
-      "name": "@openbot/server",
+      "name": "@openteam/server",
       "version": "0.1.0",
       "dependencies": {
         "@modelcontextprotocol/sdk": "1.30.0",
-        "@openbot/contracts": "workspace:*",
-        "@openbot/db": "workspace:*",
-        "@openbot/messaging": "workspace:*",
+        "@openteam/contracts": "workspace:*",
+        "@openteam/db": "workspace:*",
+        "@openteam/messaging": "workspace:*",
         "better-auth": "1.7.2",
         "effect": "3.22.1",
         "pg": "8.23.0",
@@ -174,25 +174,25 @@
       },
     },
     "apps/worker": {
-      "name": "@openbot/worker",
+      "name": "@openteam/worker",
       "version": "0.1.0",
       "dependencies": {
-        "@openbot/contracts": "workspace:*",
-        "@openbot/db": "workspace:*",
-        "@openbot/messaging": "workspace:*",
+        "@openteam/contracts": "workspace:*",
+        "@openteam/db": "workspace:*",
+        "@openteam/messaging": "workspace:*",
         "effect": "3.22.1",
         "pg-boss": "12.28.0",
       },
     },
     "packages/client-core": {
-      "name": "@openbot/client-core",
+      "name": "@openteam/client-core",
       "version": "0.1.0",
       "dependencies": {
-        "@openbot/contracts": "workspace:*",
+        "@openteam/contracts": "workspace:*",
       },
     },
     "packages/contracts": {
-      "name": "@openbot/contracts",
+      "name": "@openteam/contracts",
       "version": "0.1.0",
       "dependencies": {
         "effect": "3.22.1",
@@ -203,7 +203,7 @@
       },
     },
     "packages/db": {
-      "name": "@openbot/db",
+      "name": "@openteam/db",
       "version": "0.1.0",
       "dependencies": {
         "@prisma/adapter-pg": "7.10.0",
@@ -218,18 +218,18 @@
       },
     },
     "packages/design-tokens": {
-      "name": "@openbot/design-tokens",
+      "name": "@openteam/design-tokens",
       "version": "0.1.0",
       "dependencies": {
-        "@openbot/contracts": "workspace:*",
+        "@openteam/contracts": "workspace:*",
       },
     },
     "packages/messaging": {
-      "name": "@openbot/messaging",
+      "name": "@openteam/messaging",
       "version": "0.1.0",
       "dependencies": {
-        "@openbot/contracts": "workspace:*",
-        "@openbot/db": "workspace:*",
+        "@openteam/contracts": "workspace:*",
+        "@openteam/db": "workspace:*",
         "chokidar": "5.0.0",
         "cron-parser": "5.10.0",
         "pg-boss": "12.28.0",
@@ -237,10 +237,10 @@
       },
     },
     "packages/product-core": {
-      "name": "@openbot/product-core",
+      "name": "@openteam/product-core",
       "version": "0.1.0",
       "dependencies": {
-        "@openbot/contracts": "workspace:*",
+        "@openteam/contracts": "workspace:*",
       },
     },
   },
@@ -922,31 +922,31 @@
 
     "@openai/sites-vite-plugin": ["@openai/sites-vite-plugin@0.2.0", "", { "peerDependencies": { "vite": "^8.0.0" } }, "sha512-4ThLMW9eaf2gd+SqBwHmqBONKBAbQ2BuOFev7mHq7Y2W5mm/rfVJOSjcgQIsY2PqdXxXNZ4Yd0+s0DlSUYehag=="],
 
-    "@openbot/cli": ["@openbot/cli@workspace:apps/cli"],
+    "@openteam/cli": ["@openteam/cli@workspace:apps/cli"],
 
-    "@openbot/client-core": ["@openbot/client-core@workspace:packages/client-core"],
+    "@openteam/client-core": ["@openteam/client-core@workspace:packages/client-core"],
 
-    "@openbot/computer": ["@openbot/computer@workspace:apps/computer"],
+    "@openteam/computer": ["@openteam/computer@workspace:apps/computer"],
 
-    "@openbot/contracts": ["@openbot/contracts@workspace:packages/contracts"],
+    "@openteam/contracts": ["@openteam/contracts@workspace:packages/contracts"],
 
-    "@openbot/db": ["@openbot/db@workspace:packages/db"],
+    "@openteam/db": ["@openteam/db@workspace:packages/db"],
 
-    "@openbot/design-tokens": ["@openbot/design-tokens@workspace:packages/design-tokens"],
+    "@openteam/design-tokens": ["@openteam/design-tokens@workspace:packages/design-tokens"],
 
-    "@openbot/desktop": ["@openbot/desktop@workspace:apps/desktop"],
+    "@openteam/desktop": ["@openteam/desktop@workspace:apps/desktop"],
 
-    "@openbot/landing": ["@openbot/landing@workspace:apps/landing"],
+    "@openteam/landing": ["@openteam/landing@workspace:apps/landing"],
 
-    "@openbot/messaging": ["@openbot/messaging@workspace:packages/messaging"],
+    "@openteam/messaging": ["@openteam/messaging@workspace:packages/messaging"],
 
-    "@openbot/mobile": ["@openbot/mobile@workspace:apps/mobile"],
+    "@openteam/mobile": ["@openteam/mobile@workspace:apps/mobile"],
 
-    "@openbot/product-core": ["@openbot/product-core@workspace:packages/product-core"],
+    "@openteam/product-core": ["@openteam/product-core@workspace:packages/product-core"],
 
-    "@openbot/server": ["@openbot/server@workspace:apps/server"],
+    "@openteam/server": ["@openteam/server@workspace:apps/server"],
 
-    "@openbot/worker": ["@openbot/worker@workspace:apps/worker"],
+    "@openteam/worker": ["@openteam/worker@workspace:apps/worker"],
 
     "@opentelemetry/semantic-conventions": ["@opentelemetry/semantic-conventions@1.43.0", "", {}, "sha512-eSYWTm620tTk45EKSedaUL8MFYI8hW164hIXsgIHyxu3VobUB3fFCu5t0hQby6OoWRPsG1KkKUG2M5UadiLiVg=="],
 
@@ -3840,19 +3840,19 @@
 
     "@next/eslint-plugin-next/@eslint-community/eslint-utils": ["@eslint-community/eslint-utils@4.9.1", "", { "dependencies": { "eslint-visitor-keys": "^3.4.3" }, "peerDependencies": { "eslint": "^6.0.0 || ^7.0.0 || >=8.0.0" } }, "sha512-phrYmNiYppR7znFEdqgfWHXR6NCkZEK7hwWDHZUjit/2/U0r6XvkDl0SYnoM51Hq7FhCGdLDT6zxCCOY1hexsQ=="],
 
-    "@openbot/landing/@types/react": ["@types/react@19.2.14", "", { "dependencies": { "csstype": "^3.2.2" } }, "sha512-ilcTH/UniCkMdtexkoCN0bI7pMcJDvmQFPvuPvmEaYA/NSfFTAgdUSLAoVjaRJm7+6PvcM+q1zYOwS4wTYMF9w=="],
+    "@openteam/landing/@types/react": ["@types/react@19.2.14", "", { "dependencies": { "csstype": "^3.2.2" } }, "sha512-ilcTH/UniCkMdtexkoCN0bI7pMcJDvmQFPvuPvmEaYA/NSfFTAgdUSLAoVjaRJm7+6PvcM+q1zYOwS4wTYMF9w=="],
 
-    "@openbot/landing/@vitejs/plugin-react": ["@vitejs/plugin-react@6.0.2", "", { "dependencies": { "@rolldown/pluginutils": "^1.0.0" }, "peerDependencies": { "@rolldown/plugin-babel": "^0.1.7 || ^0.2.0", "babel-plugin-react-compiler": "^1.0.0", "vite": "^8.0.0" }, "optionalPeers": ["@rolldown/plugin-babel", "babel-plugin-react-compiler"] }, "sha512-DlSMqo4WhThw4vB8Mpn0Woe9J+Jfq1geJ61AKW0QEgLzGMNwtIMdxbDUzLxcun8W7NbJO0e2Jg/Nxm3cCSVzzg=="],
+    "@openteam/landing/@vitejs/plugin-react": ["@vitejs/plugin-react@6.0.2", "", { "dependencies": { "@rolldown/pluginutils": "^1.0.0" }, "peerDependencies": { "@rolldown/plugin-babel": "^0.1.7 || ^0.2.0", "babel-plugin-react-compiler": "^1.0.0", "vite": "^8.0.0" }, "optionalPeers": ["@rolldown/plugin-babel", "babel-plugin-react-compiler"] }, "sha512-DlSMqo4WhThw4vB8Mpn0Woe9J+Jfq1geJ61AKW0QEgLzGMNwtIMdxbDUzLxcun8W7NbJO0e2Jg/Nxm3cCSVzzg=="],
 
-    "@openbot/mobile/@openbot/mobile-native": ["@openbot/mobile-native@file:apps/mobile/modules/openbot-native", { "peerDependencies": { "expo": "*" } }],
+    "@openteam/mobile/@openteam/mobile-native": ["@openteam/mobile-native@file:apps/mobile/modules/openteam-native", { "peerDependencies": { "expo": "*" } }],
 
-    "@openbot/mobile/@types/react": ["@types/react@19.2.18", "", { "dependencies": { "csstype": "^3.2.2" } }, "sha512-AnzbBERsrLKtk2XSfTbYRLjQPdy116Sty4q+T+Bp3IC4l6jNBvreVPAHmpq9qhXQM7CXZPjLVmGMw9sy+hxQ3w=="],
+    "@openteam/mobile/@types/react": ["@types/react@19.2.18", "", { "dependencies": { "csstype": "^3.2.2" } }, "sha512-AnzbBERsrLKtk2XSfTbYRLjQPdy116Sty4q+T+Bp3IC4l6jNBvreVPAHmpq9qhXQM7CXZPjLVmGMw9sy+hxQ3w=="],
 
-    "@openbot/mobile/react": ["react@19.2.3", "", {}, "sha512-Ku/hhYbVjOQnXDZFv2+RibmLFGwFdeeKHFcOTlrt7xplBnya5OGn/hIRDsqDiSUcfORsDC7MPxwork8jBwsIWA=="],
+    "@openteam/mobile/react": ["react@19.2.3", "", {}, "sha512-Ku/hhYbVjOQnXDZFv2+RibmLFGwFdeeKHFcOTlrt7xplBnya5OGn/hIRDsqDiSUcfORsDC7MPxwork8jBwsIWA=="],
 
-    "@openbot/mobile/react-dom": ["react-dom@19.2.3", "", { "dependencies": { "scheduler": "^0.27.0" }, "peerDependencies": { "react": "^19.2.3" } }, "sha512-yELu4WmLPw5Mr/lmeEpox5rw3RETacE++JgHqQzd2dg+YbJuat3jH4ingc+WPZhxaoFzdv9y33G+F7Nl5O0GBg=="],
+    "@openteam/mobile/react-dom": ["react-dom@19.2.3", "", { "dependencies": { "scheduler": "^0.27.0" }, "peerDependencies": { "react": "^19.2.3" } }, "sha512-yELu4WmLPw5Mr/lmeEpox5rw3RETacE++JgHqQzd2dg+YbJuat3jH4ingc+WPZhxaoFzdv9y33G+F7Nl5O0GBg=="],
 
-    "@openbot/mobile/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
+    "@openteam/mobile/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
 
     "@poppinss/colors/kleur": ["kleur@4.1.5", "", {}, "sha512-o+NO+8WrRiQEE4/7nwRJhN1HWpVmJm511pBHUxPLtp0BUISzlBplORYSmTclCnJvQq2tKu/sgl3xVpkc7ZWuQQ=="],
 

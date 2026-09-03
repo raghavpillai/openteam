@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { TaskInput } from "@openbot/contracts";
+import type { TaskInput } from "@openteam/contracts";
 import {
   assertSubagentCapacity,
   graphicalSubagentType,

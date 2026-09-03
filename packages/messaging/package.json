@@ -1,5 +1,5 @@
 {
-  "name": "@openbot/messaging",
+  "name": "@openteam/messaging",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -12,8 +12,8 @@
     "test": "bun test --pass-with-no-tests"
   },
   "dependencies": {
-    "@openbot/contracts": "workspace:*",
-    "@openbot/db": "workspace:*",
+    "@openteam/contracts": "workspace:*",
+    "@openteam/db": "workspace:*",
     "chokidar": "5.0.0",
     "cron-parser": "5.10.0",
     "pg-boss": "12.28.0",

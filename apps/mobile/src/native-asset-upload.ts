@@ -1,4 +1,4 @@
-import type { AssetRef } from "@openbot/contracts";
+import type { AssetRef } from "@openteam/contracts";
 import type { UploadOptions, UploadProgress, UploadResult } from "expo-file-system";
 
 export interface NativeUploadTask {
@@ -23,7 +23,7 @@ export interface NativeAssetUploadInput {
 
 const assetRefFrom = (value: unknown): AssetRef => {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error("OpenBot returned an invalid attachment response");
+    throw new Error("OpenTeam returned an invalid attachment response");
   }
   const candidate = value as Partial<AssetRef>;
   if (
@@ -34,7 +34,7 @@ const assetRefFrom = (value: unknown): AssetRef => {
     typeof candidate.byteSize !== "number" ||
     typeof candidate.kind !== "string"
   ) {
-    throw new Error("OpenBot returned an invalid attachment response");
+    throw new Error("OpenTeam returned an invalid attachment response");
   }
   return candidate as AssetRef;
 };

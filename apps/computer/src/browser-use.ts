@@ -24,7 +24,7 @@ let playwrightDriver: Promise<OutOfProcessPlaywright> | null = null;
 
 const nodeBinary = (): string => {
   const candidates = [
-    process.env.OPENBOT_NODE_BINARY,
+    process.env.OPENTEAM_NODE_BINARY,
     "/usr/bin/node",
     "/opt/homebrew/bin/node",
     "/usr/local/bin/node",

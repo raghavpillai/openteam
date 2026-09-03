@@ -3,16 +3,16 @@ import { createHash } from "node:crypto";
 import { access, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createPrismaClient } from "@openbot/db";
+import { createPrismaClient } from "@openteam/db";
 import { AgentDataStore, type MemoryInferenceRequest } from "../src/agent-data";
 import { readMemoryTree } from "../src/memory-files";
 import { parseSkillFile } from "../src/skill-files";
 
-const databaseUrl = process.env.OPENBOT_TEST_DATABASE_URL;
+const databaseUrl = process.env.OPENTEAM_TEST_DATABASE_URL;
 const hash = (value: string) => createHash("sha256").update(value).digest("hex");
 
 test("plugin and managed skill caches use the Grok filesystem contract", async () => {
-  const temporary = await mkdtemp(join(tmpdir(), "openbot-skill-caches-"));
+  const temporary = await mkdtemp(join(tmpdir(), "openteam-skill-caches-"));
   const root = join(temporary, "agent-data");
   const store = new AgentDataStore({} as never, {
     root,
@@ -24,7 +24,7 @@ test("plugin and managed skill caches use the Grok filesystem contract", async (
         id: "research-playbook",
         name: "Research Playbook",
         version: "1.0.0",
-        publisher: "OpenBot",
+        publisher: "OpenTeam",
         skills: [
           {
             name: "Source-led research",
@@ -47,7 +47,7 @@ test("plugin and managed skill caches use the Grok filesystem contract", async (
       authBlocked: unknown[];
       skills: Array<{ id: string; filePath: string; installPath: string }>;
     };
-    expect(plugin.currentUserId).toBe("openbot");
+    expect(plugin.currentUserId).toBe("openteam");
     expect(plugin.authBlocked).toEqual([]);
     expect(plugin.skills).toHaveLength(1);
     expect(plugin.skills[0]?.id).toBe("research-playbook-source-led-research");
@@ -68,7 +68,7 @@ test("turn memory extracts, summarizes episodes, and synthesizes dreaming eviden
   if (!databaseUrl) return;
 
   const prisma = createPrismaClient(databaseUrl);
-  const temporary = await mkdtemp(join(tmpdir(), "openbot-memory-lifecycle-"));
+  const temporary = await mkdtemp(join(tmpdir(), "openteam-memory-lifecycle-"));
   const root = join(temporary, "agent-data");
   const workspace = join(temporary, "workspace");
   const botId = crypto.randomUUID();
@@ -183,7 +183,7 @@ test("agent-data files are authoritative and preserve malformed settings", async
   if (!databaseUrl) return;
 
   const prisma = createPrismaClient(databaseUrl);
-  const temporary = await mkdtemp(join(tmpdir(), "openbot-agent-data-"));
+  const temporary = await mkdtemp(join(tmpdir(), "openteam-agent-data-"));
   const root = join(temporary, "agent-data");
   const workspace = join(temporary, "workspace");
   await mkdir(workspace, { recursive: true });
@@ -522,7 +522,7 @@ test("subagent actors stay hidden and outside agent-data projection", async () =
   if (!databaseUrl) return;
 
   const prisma = createPrismaClient(databaseUrl);
-  const temporary = await mkdtemp(join(tmpdir(), "openbot-subagent-state-"));
+  const temporary = await mkdtemp(join(tmpdir(), "openteam-subagent-state-"));
   const root = join(temporary, "agent-data");
   const workspace = join(temporary, "workspace");
   const store = new AgentDataStore(prisma, { root, workspaceRoot: workspace });

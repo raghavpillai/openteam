@@ -1,7 +1,7 @@
 // Source-owned adaptation of the AI Elements tool presentation.
 // Upstream: vercel/ai-elements@6a9d5b1822ffb10bba4bd97175f01edd7d8651cd
 import { Check, ChevronDown, Circle, LoaderCircle, X } from "lucide-react";
-import { activityContentSummary } from "@openbot/product-core/activity";
+import { activityContentSummary } from "@openteam/product-core/activity";
 import { Collapsible } from "radix-ui";
 import { cn } from "../../lib/cn";
 

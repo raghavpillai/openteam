@@ -1,5 +1,5 @@
-import { isOpenBotVersion } from "@openbot/contracts/version-compatibility";
-import { safeErrorMessage } from "@openbot/product-core/redaction";
+import { isOpenTeamVersion } from "@openteam/contracts/version-compatibility";
+import { safeErrorMessage } from "@openteam/product-core/redaction";
 
 export type DesktopUpdateFailureKind =
   | "service-unavailable"
@@ -65,7 +65,7 @@ export const parseDesktopReleaseManifest = (
   }
   const record = value as Record<string, unknown>;
   const version = String(record.tag_name ?? record.version ?? "").replace(/^v/i, "");
-  if (!isOpenBotVersion(version)) {
+  if (!isOpenTeamVersion(version)) {
     throw new Error("Update service returned an invalid release version");
   }
   const candidateUrl = String(record.html_url ?? record.url ?? fallbackUrl);

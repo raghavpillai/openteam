@@ -24,8 +24,8 @@ describe("bounded updater output", () => {
     const oversized = "x".repeat(MAX_UPDATE_PROGRESS_LINE + 1);
     expect(buffer.push(oversized)).toEqual([]);
     expect(buffer.bufferedLength).toBe(0);
-    expect(buffer.push('\n@@OPENBOT_UPDATE@@{"phase":"complete","message":"Done"}\n')).toEqual([
-      '@@OPENBOT_UPDATE@@{"phase":"complete","message":"Done"}',
+    expect(buffer.push('\n@@OPENTEAM_UPDATE@@{"phase":"complete","message":"Done"}\n')).toEqual([
+      '@@OPENTEAM_UPDATE@@{"phase":"complete","message":"Done"}',
     ]);
   });
 
@@ -49,12 +49,12 @@ afterEach(() => {
 });
 
 test("only permits the client to manage its matching loopback installation", () => {
-  const home = mkdtempSync(join(tmpdir(), "openbot-desktop-updater-"));
+  const home = mkdtempSync(join(tmpdir(), "openteam-desktop-updater-"));
   temporaryDirectories.push(home);
-  const directory = join(home, ".openbot");
+  const directory = join(home, ".openteam");
   mkdirSync(directory, { recursive: true });
   writeFileSync(join(directory, "installation.json"), JSON.stringify({ version: "1.2.3" }));
-  writeFileSync(join(directory, ".env"), "OPENBOT_API_PORT=9444\n");
+  writeFileSync(join(directory, ".env"), "OPENTEAM_API_PORT=9444\n");
   writeFileSync(join(directory, "compose.yaml"), "services: {}\n");
   const installation = readManagedInstallation({}, "darwin", home);
   expect(installation?.version).toBe("1.2.3");
@@ -74,14 +74,14 @@ test("accepts only bounded SSH config destinations", () => {
 });
 
 const updaterFixture = () => {
-  const directory = mkdtempSync(join(tmpdir(), "openbot-desktop-updater-run-"));
+  const directory = mkdtempSync(join(tmpdir(), "openteam-desktop-updater-run-"));
   temporaryDirectories.push(directory);
-  const cliPath = join(directory, "openbot-cli.js");
+  const cliPath = join(directory, "openteam-cli.js");
   writeFileSync(join(directory, "installation.json"), JSON.stringify({ version: "1.2.3" }));
-  writeFileSync(join(directory, ".env"), "OPENBOT_API_PORT=9444\n");
+  writeFileSync(join(directory, ".env"), "OPENTEAM_API_PORT=9444\n");
   writeFileSync(join(directory, "compose.yaml"), "services: {}\n");
   writeFileSync(cliPath, "// bundled updater fixture\n");
-  return { cliPath, directory, environment: { OPENBOT_HOME: directory, PATH: "/usr/bin" } };
+  return { cliPath, directory, environment: { OPENTEAM_HOME: directory, PATH: "/usr/bin" } };
 };
 
 const versionResponse = (version: string) =>
@@ -108,7 +108,7 @@ describe("managed server updater", () => {
     let fetchCount = 0;
     const updater = new ServerUpdater({
       cliPath: fixture.cliPath,
-      executablePath: "/Applications/OpenBot.app/Contents/MacOS/OpenBot",
+      executablePath: "/Applications/OpenTeam.app/Contents/MacOS/OpenTeam",
       environment: fixture.environment,
       fetcher: async () => {
         fetchCount += 1;
@@ -135,17 +135,17 @@ describe("managed server updater", () => {
     let spawnedArguments: readonly string[] = [];
     const updater = new ServerUpdater({
       cliPath: fixture.cliPath,
-      executablePath: "/Applications/OpenBot.app/Contents/MacOS/OpenBot",
+      executablePath: "/Applications/OpenTeam.app/Contents/MacOS/OpenTeam",
       environment: fixture.environment,
       fetcher: async () => versionResponse(fetchCount++ === 0 ? "1.2.3" : "1.3.0"),
       spawnUpdater: (_executable, args) => {
         spawnedArguments = args;
         setTimeout(() => {
           child.stdout.write(
-            '@@OPENBOT_UPDATE@@{"phase":"pulling","message":"Pulling images","version":"1.3.0"}\n'
+            '@@OPENTEAM_UPDATE@@{"phase":"pulling","message":"Pulling images","version":"1.3.0"}\n'
           );
           child.stdout.write(
-            '@@OPENBOT_UPDATE@@{"phase":"complete","message":"Updated","version":"1.3.0"}\n'
+            '@@OPENTEAM_UPDATE@@{"phase":"complete","message":"Updated","version":"1.3.0"}\n'
           );
           child.emit("close", 0);
         }, 0);
@@ -173,14 +173,14 @@ describe("managed server updater", () => {
     let spawnedArguments: readonly string[] = [];
     const updater = new ServerUpdater({
       cliPath: fixture.cliPath,
-      executablePath: "/Applications/OpenBot.app/Contents/MacOS/OpenBot",
+      executablePath: "/Applications/OpenTeam.app/Contents/MacOS/OpenTeam",
       environment: fixture.environment,
       fetcher: async () => versionResponse("1.2.3"),
       spawnUpdater: (_executable, args) => {
         spawnedArguments = args;
         setTimeout(() => {
           child.stdout.write(
-            '@@OPENBOT_UPDATE@@{"phase":"complete","message":"Updated","version":"1.4.0"}\n'
+            '@@OPENTEAM_UPDATE@@{"phase":"complete","message":"Updated","version":"1.4.0"}\n'
           );
           child.emit("close", 0);
         }, 0);
@@ -200,13 +200,13 @@ describe("managed server updater", () => {
     const child = fakeUpdaterProcess();
     const updater = new ServerUpdater({
       cliPath: fixture.cliPath,
-      executablePath: "/Applications/OpenBot.app/Contents/MacOS/OpenBot",
+      executablePath: "/Applications/OpenTeam.app/Contents/MacOS/OpenTeam",
       environment: fixture.environment,
       fetcher: async () => versionResponse("1.2.3"),
       spawnUpdater: () => {
         setTimeout(() => {
           child.stdout.write(
-            '@@OPENBOT_UPDATE@@{"phase":"rolling-back","message":"Restoring 1.2.3","version":"1.2.3"}\n'
+            '@@OPENTEAM_UPDATE@@{"phase":"rolling-back","message":"Restoring 1.2.3","version":"1.2.3"}\n'
           );
           child.stderr.write("Docker pull failed\n");
           child.emit("close", 1);
@@ -228,7 +228,7 @@ describe("managed server updater", () => {
     let fetched = false;
     const updater = new ServerUpdater({
       cliPath: fixture.cliPath,
-      executablePath: "/Applications/OpenBot.app/Contents/MacOS/OpenBot",
+      executablePath: "/Applications/OpenTeam.app/Contents/MacOS/OpenTeam",
       environment: fixture.environment,
       fetcher: async () => {
         fetched = true;
@@ -245,7 +245,7 @@ describe("managed server updater", () => {
       updaterAvailable: false,
       updateMethod: "manual",
       status: "unavailable",
-      manualCommand: "openbot update --version 1.3.0",
+      manualCommand: "openteam update --version 1.3.0",
     });
   });
 
@@ -257,7 +257,7 @@ describe("managed server updater", () => {
     let spawnedEnvironment: NodeJS.ProcessEnv = {};
     const updater = new ServerUpdater({
       cliPath: fixture.cliPath,
-      executablePath: "/Applications/OpenBot.app/Contents/MacOS/OpenBot",
+      executablePath: "/Applications/OpenTeam.app/Contents/MacOS/OpenTeam",
       sshExecutable: "/usr/bin/ssh",
       environment: fixture.environment,
       fetcher: async () => versionResponse("1.3.0"),
@@ -267,7 +267,7 @@ describe("managed server updater", () => {
         spawnedEnvironment = options.env;
         setTimeout(() => {
           child.stdout.write(
-            '@@OPENBOT_UPDATE@@{"phase":"complete","message":"Updated","version":"1.3.0"}\n'
+            '@@OPENTEAM_UPDATE@@{"phase":"complete","message":"Updated","version":"1.3.0"}\n'
           );
           child.emit("close", 0);
         }, 0);
@@ -281,7 +281,7 @@ describe("managed server updater", () => {
     expect(spawnedArguments).toContain("BatchMode=yes");
     expect(spawnedArguments).toContain("StrictHostKeyChecking=yes");
     expect(spawnedArguments).toContain("owner@server.example");
-    expect(spawnedArguments).toContain("openbot");
+    expect(spawnedArguments).toContain("openteam");
     expect(spawnedEnvironment.ELECTRON_RUN_AS_NODE).toBeUndefined();
     expect(result).toMatchObject({ status: "updated", updateMethod: "ssh" });
   });
@@ -291,10 +291,10 @@ describe("CLI update progress", () => {
   test("accepts only the updater's prefixed structured events", () => {
     expect(
       parseUpdateEvent(
-        '@@OPENBOT_UPDATE@@{"phase":"pulling","message":"Pulling images","version":"1.3.0"}'
+        '@@OPENTEAM_UPDATE@@{"phase":"pulling","message":"Pulling images","version":"1.3.0"}'
       )
     ).toEqual({ phase: "pulling", message: "Pulling images", version: "1.3.0" });
     expect(parseUpdateEvent("docker pull output")).toBeNull();
-    expect(parseUpdateEvent('@@OPENBOT_UPDATE@@{"phase":"shell","message":"bad"}')).toBeNull();
+    expect(parseUpdateEvent('@@OPENTEAM_UPDATE@@{"phase":"shell","message":"bad"}')).toBeNull();
   });
 });

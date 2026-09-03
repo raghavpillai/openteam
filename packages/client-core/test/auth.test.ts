@@ -1,17 +1,17 @@
 import { describe, expect, test } from "bun:test";
 import {
-  assessOpenBotAuthSession,
+  assessOpenTeamAuthSession,
   authHeadersForUrl,
   createAuthSnapshotStore,
-  createOpenBotAuthClient,
+  createOpenTeamAuthClient,
   parseAuthUser,
 } from "../src/auth";
 
 describe("shared authentication protocol", () => {
   test("signs in with the canonical request and parses the owner", async () => {
     const requests: Array<{ url: string; init?: RequestInit }> = [];
-    const client = createOpenBotAuthClient({
-      baseUrl: "https://openbot.test/",
+    const client = createOpenTeamAuthClient({
+      baseUrl: "https://openteam.test/",
       fetch: async (input, init) => {
         requests.push({ url: String(input), init });
         return Response.json(
@@ -19,7 +19,7 @@ describe("shared authentication protocol", () => {
             user: {
               id: "owner-1",
               name: " Owner ",
-              email: "owner@openbot.invalid",
+              email: "owner@openteam.invalid",
               username: " owner ",
               image: null,
             },
@@ -32,7 +32,7 @@ describe("shared authentication protocol", () => {
     const result = await client.signIn("  owner  ", "secret");
 
     const request = requests[0];
-    expect(request?.url).toBe("https://openbot.test/api/auth/login");
+    expect(request?.url).toBe("https://openteam.test/api/auth/login");
     expect(request?.init?.method).toBe("POST");
     expect(new Headers(request?.init?.headers).get("content-type")).toBe("application/json");
     expect(JSON.parse(String(request?.init?.body))).toEqual({
@@ -45,7 +45,7 @@ describe("shared authentication protocol", () => {
       user: {
         id: "owner-1",
         name: "Owner",
-        email: "owner@openbot.invalid",
+        email: "owner@openteam.invalid",
         username: "owner",
         image: null,
       },
@@ -57,8 +57,8 @@ describe("shared authentication protocol", () => {
       Response.json({ mode: "off" }),
       Response.json({ session: { id: "session" }, user: { id: "missing-name" } }),
     ];
-    const client = createOpenBotAuthClient({
-      baseUrl: "https://openbot.test",
+    const client = createOpenTeamAuthClient({
+      baseUrl: "https://openteam.test",
       fetch: async () => responses.shift() as Response,
     });
 
@@ -66,8 +66,8 @@ describe("shared authentication protocol", () => {
     expect(await client.getSession("session-token")).toBeNull();
   });
 
-  test("rejects a reachable website that does not expose the OpenBot auth protocol", async () => {
-    const client = createOpenBotAuthClient({
+  test("rejects a reachable website that does not expose the OpenTeam auth protocol", async () => {
+    const client = createOpenTeamAuthClient({
       baseUrl: "https://example.test",
       fetch: async () => new Response("Not found", { status: 404 }),
     });
@@ -79,8 +79,8 @@ describe("shared authentication protocol", () => {
   });
 
   test("surfaces the server's nested authentication error", async () => {
-    const client = createOpenBotAuthClient({
-      baseUrl: "https://openbot.test",
+    const client = createOpenTeamAuthClient({
+      baseUrl: "https://openteam.test",
       fetch: async () =>
         Response.json({ error: { message: "Wrong username or password" } }, { status: 401 }),
     });
@@ -89,13 +89,13 @@ describe("shared authentication protocol", () => {
   });
 
   test("only attaches a bearer to same-origin API resources", () => {
-    expect(authHeadersForUrl("https://openbot.test", "token", "/api/v0/assets/1")).toEqual({
+    expect(authHeadersForUrl("https://openteam.test", "token", "/api/v0/assets/1")).toEqual({
       authorization: "Bearer token",
     });
     expect(
-      authHeadersForUrl("https://openbot.test", "token", "https://evil.test/api/v0/assets/1")
+      authHeadersForUrl("https://openteam.test", "token", "https://evil.test/api/v0/assets/1")
     ).toBeUndefined();
-    expect(authHeadersForUrl("https://openbot.test", "token", "/public/file")).toBeUndefined();
+    expect(authHeadersForUrl("https://openteam.test", "token", "/public/file")).toBeUndefined();
   });
 
   test("shares one observable auth snapshot vocabulary across platforms", () => {
@@ -124,8 +124,8 @@ describe("shared authentication protocol", () => {
   });
 
   test("shares required-session validation and secure-storage outcomes", async () => {
-    const client = createOpenBotAuthClient({
-      baseUrl: "https://openbot.test",
+    const client = createOpenTeamAuthClient({
+      baseUrl: "https://openteam.test",
       fetch: async (input) =>
         String(input).endsWith("/api/auth/config")
           ? Response.json({ mode: "required" })
@@ -134,12 +134,12 @@ describe("shared authentication protocol", () => {
               user: {
                 id: "owner-1",
                 name: "Owner",
-                email: "owner@openbot.invalid",
+                email: "owner@openteam.invalid",
               },
             }),
     });
 
-    const assessment = await assessOpenBotAuthSession({
+    const assessment = await assessOpenTeamAuthSession({
       client,
       loadToken: async () => "session-token",
     });
@@ -155,14 +155,14 @@ describe("shared authentication protocol", () => {
   });
 
   test("only trusts an explicitly cached disabled mode during offline discovery", async () => {
-    const client = createOpenBotAuthClient({
-      baseUrl: "https://openbot.test",
+    const client = createOpenTeamAuthClient({
+      baseUrl: "https://openteam.test",
       fetch: async () => {
         throw new Error("offline");
       },
     });
     let tokenReads = 0;
-    const assessment = await assessOpenBotAuthSession({
+    const assessment = await assessOpenTeamAuthSession({
       client,
       loadCachedMode: async () => "disabled",
       loadToken: async () => {

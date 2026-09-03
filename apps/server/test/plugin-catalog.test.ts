@@ -9,7 +9,7 @@ describe("plugin catalog", () => {
   });
 
   test("fixture tools declare schemas and conservative write defaults", () => {
-    const fixture = pluginCatalog.find((plugin) => plugin.key === "openbot-utility-lab");
+    const fixture = pluginCatalog.find((plugin) => plugin.key === "openteam-utility-lab");
     const connector = fixture?.connections[0];
     expect(connector?.transport).toBe("builtin");
     expect(connector?.tools.map((tool) => tool.name)).toEqual(["echo", "add", "remember_note"]);
@@ -36,11 +36,12 @@ describe("plugin catalog", () => {
       expect(plugin?.featured).toBe(true);
       expect(plugin?.connections[0]?.endpoint).toBe(endpoint);
     }
-    expect(pluginCatalog.find((plugin) => plugin.key === "github")?.setup).toMatchObject({
-      kind: "token",
-      connectionKey: "github",
-      fields: [expect.objectContaining({ key: "token", secret: true })],
-    });
+    const githubSetup = pluginCatalog.find((plugin) => plugin.key === "github")?.setup;
+    expect(githubSetup?.kind).toBe("token");
+    expect(githubSetup?.connectionKey).toBe("github");
+    expect(githubSetup?.fields).toHaveLength(1);
+    expect(githubSetup?.fields[0]?.key).toBe("token");
+    expect(githubSetup?.fields[0]?.secret).toBe(true);
   });
 
   test("provides a complete guided setup for every authenticated connector", () => {

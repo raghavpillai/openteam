@@ -1,14 +1,14 @@
-import type { BotTranscriptView, BotView } from "@openbot/contracts";
+import type { BotTranscriptView, BotView } from "@openteam/contracts";
 import { useCallback, useState } from "react";
-import { api } from "../client/openbot-api";
-import type { BotRowAction } from "../components/openbot/sidebar";
-import type { OpenBotMutation } from "../state/use-openbot";
+import { api } from "../client/openteam-api";
+import type { BotRowAction } from "../components/openteam/sidebar";
+import type { OpenTeamMutation } from "../state/use-openteam";
 
 export type InspectorMode = "summary" | "settings" | "routine";
 type SupportedBotRowAction = BotRowAction | "shareAsTemplate";
 
 export function useBotRowActions(options: {
-  mutate: OpenBotMutation;
+  mutate: OpenTeamMutation;
   setSelectedId: (id: string | null) => void;
   setDetailsOpen: (open: boolean) => void;
   setInspectorMode: (mode: InspectorMode) => void;

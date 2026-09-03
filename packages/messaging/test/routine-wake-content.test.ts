@@ -24,7 +24,7 @@ describe("scheduled routine wake content", () => {
         scheduledFor: new Date("2026-08-28T11:00:00.000Z"),
       })
     ).toBe(
-      "<automation_trigger_info>\n[OpenBot routine: Daily audit]\nScheduled occurrence: 2026-08-28T11:00:00.000Z\n</automation_trigger_info>"
+      "<automation_trigger_info>\n[OpenTeam routine: Daily audit]\nScheduled occurrence: 2026-08-28T11:00:00.000Z\n</automation_trigger_info>"
     );
   });
 

@@ -1,2 +1,0 @@
-ALTER TABLE "Bot"
-ADD COLUMN "episodeTurns" JSONB NOT NULL DEFAULT '[]';

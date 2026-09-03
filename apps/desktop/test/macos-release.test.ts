@@ -21,9 +21,9 @@ const entitlementsSource = Bun.file(
 ).text();
 
 describe("macOS distribution release", () => {
-  test("uses the OpenBot app icon on every desktop platform", async () => {
+  test("uses the OpenTeam app icon on every desktop platform", async () => {
     const desktop = await packageJson;
-    const expected = "../mobile/assets/openbot-icon-v2.png";
+    const expected = "../mobile/assets/openteam-icon-v2.png";
 
     expect(desktop.build.mac.icon).toBe(expected);
     expect(desktop.build.linux.icon).toBe(expected);
@@ -58,14 +58,14 @@ describe("macOS distribution release", () => {
     expect(() => resolveMacosReleaseEnvironment({}, "darwin")).toThrow("CSC_NAME");
     expect(() =>
       resolveMacosReleaseEnvironment(
-        { CSC_NAME: "Developer ID Application: OpenBot", APPLE_ID: "release@example.com" },
+        { CSC_NAME: "Developer ID Application: OpenTeam", APPLE_ID: "release@example.com" },
         "darwin"
       )
     ).toThrow("Incomplete macOS notarization credentials");
     expect(
       resolveMacosReleaseEnvironment(
         {
-          CSC_NAME: "Developer ID Application: OpenBot",
+          CSC_NAME: "Developer ID Application: OpenTeam",
           APPLE_API_KEY: "/private/key.p8",
           APPLE_API_KEY_ID: "KEY123",
           APPLE_API_ISSUER: "issuer",
@@ -73,13 +73,13 @@ describe("macOS distribution release", () => {
         "darwin"
       )
     ).toEqual({
-      identity: "Developer ID Application: OpenBot",
+      identity: "Developer ID Application: OpenTeam",
       notarizationMode: "api-key",
     });
     expect(
       resolveMacosReleaseEnvironment(
         {
-          CSC_NAME: "Developer ID Application: OpenBot",
+          CSC_NAME: "Developer ID Application: OpenTeam",
           APPLE_TEAM_ID: "TEAM123",
           APPLE_API_KEY: "/private/key.p8",
           APPLE_API_KEY_ID: "KEY123",
@@ -91,8 +91,8 @@ describe("macOS distribution release", () => {
     expect(() =>
       resolveMacosReleaseEnvironment(
         {
-          CSC_NAME: "Developer ID Application: OpenBot",
-          APPLE_KEYCHAIN_PROFILE: "openbot-notary",
+          CSC_NAME: "Developer ID Application: OpenTeam",
+          APPLE_KEYCHAIN_PROFILE: "openteam-notary",
         },
         "linux"
       )
@@ -101,11 +101,11 @@ describe("macOS distribution release", () => {
 
   test("overrides every ad-hoc base setting in the signed release invocation", async () => {
     const desktop = await packageJson;
-    const args = macosReleaseBuilderArgs("Developer ID Application: OpenBot");
+    const args = macosReleaseBuilderArgs("Developer ID Application: OpenTeam");
     const release = desktop.scripts["package:mac-release"];
 
     expect(args).toContain("-c.forceCodeSigning=true");
-    expect(args).toContain("-c.mac.identity=Developer ID Application: OpenBot");
+    expect(args).toContain("-c.mac.identity=Developer ID Application: OpenTeam");
     expect(args).toContain("-c.mac.hardenedRuntime=true");
     expect(args).toContain("-c.mac.notarize=true");
     expect(args).toContain(`-c.mac.entitlements=${MACOS_RELEASE_ENTITLEMENTS}`);
@@ -127,7 +127,7 @@ describe("macOS distribution release", () => {
     expect(source).toContain('"spctl"');
     expect(source).toContain('"stapler"');
     expect(source).toContain('"validate"');
-    expect(source).toContain("dev.openbot.desktop");
+    expect(source).toContain("dev.openteam.desktop");
     for (const entitlement of [
       "com.apple.security.cs.allow-jit",
       "com.apple.security.cs.allow-unsigned-executable-memory",

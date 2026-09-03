@@ -78,10 +78,10 @@ const [
   autolinkGraph,
 ] = await Promise.all([
   readFile(resolve(mobileRoot, "app.json"), "utf8"),
-  readFile(resolve(mobileRoot, "ios", "OpenBot", "Info.plist"), "utf8"),
-  readFile(resolve(mobileRoot, "ios", "OpenBot", "OpenBot.entitlements"), "utf8"),
-  readFile(resolve(mobileRoot, "ios", "OpenBot", "Supporting", "Expo.plist"), "utf8"),
-  readFile(resolve(mobileRoot, "ios", "OpenBot.xcodeproj", "project.pbxproj"), "utf8"),
+  readFile(resolve(mobileRoot, "ios", "OpenTeam", "Info.plist"), "utf8"),
+  readFile(resolve(mobileRoot, "ios", "OpenTeam", "OpenTeam.entitlements"), "utf8"),
+  readFile(resolve(mobileRoot, "ios", "OpenTeam", "Supporting", "Expo.plist"), "utf8"),
+  readFile(resolve(mobileRoot, "ios", "OpenTeam.xcodeproj", "project.pbxproj"), "utf8"),
   readFile(resolve(mobileRoot, "package.json"), "utf8"),
   runJsonCommand<IntrospectedConfig>(["expo", "config", "--type", "introspect", "--json"]),
   runJsonCommand<AutolinkGraph>([
@@ -193,7 +193,7 @@ invariant(
   "Expo Apple autolinker resolved a pod more than once"
 );
 for (const requiredPackage of [
-  "@openbot/mobile-native",
+  "@openteam/mobile-native",
   "expo",
   "expo-notifications",
   "expo-router",

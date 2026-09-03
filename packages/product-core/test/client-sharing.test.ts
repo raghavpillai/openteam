@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import type { ChannelMessageView } from "@openbot/contracts";
-import { CLIENT_CAPABILITIES } from "@openbot/contracts/capabilities";
+import type { ChannelMessageView } from "@openteam/contracts";
+import { CLIENT_CAPABILITIES } from "@openteam/contracts/capabilities";
 import {
   activityContentSummary,
   attachmentByteLimit,
@@ -150,8 +150,9 @@ describe("shared desktop and iOS product policy", () => {
         color: "#925df2",
       },
     });
-    expect(messageDisplayProjection(message({ type: "cloud-agent", agent: { name: "Bot" } })))
-      .toMatchObject({ displayContent: "", richMessage: true });
+    expect(
+      messageDisplayProjection(message({ type: "cloud-agent", agent: { name: "Bot" } }))
+    ).toMatchObject({ displayContent: "", richMessage: true });
     expect(projectRichMessage(message({ type: "cloud-agent", cloudAgent: {} }))).toBeNull();
   });
 

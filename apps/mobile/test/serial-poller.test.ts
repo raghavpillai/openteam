@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createSerialPoller } from "@openbot/client-core";
+import { createSerialPoller } from "@openteam/client-core";
 
 const deferred = () => {
   let resolve!: () => void;

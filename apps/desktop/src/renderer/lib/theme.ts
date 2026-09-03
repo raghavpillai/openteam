@@ -3,17 +3,17 @@ import {
   resolveTheme,
   type ThemePreference,
   type ResolvedTheme,
-} from "@openbot/design-tokens/appearance";
+} from "@openteam/design-tokens/appearance";
 
 export {
   normalizeThemePreference,
   resolveTheme,
   type ThemePreference,
   type ResolvedTheme,
-} from "@openbot/design-tokens/appearance";
+} from "@openteam/design-tokens/appearance";
 
-export const THEME_STORAGE_KEY = "openbot:theme";
-export const THEME_CHANGE_EVENT = "openbot:theme-change";
+export const THEME_STORAGE_KEY = "openteam:theme";
+export const THEME_CHANGE_EVENT = "openteam:theme-change";
 
 export const readThemePreference = (): ThemePreference =>
   normalizeThemePreference(localStorage.getItem(THEME_STORAGE_KEY));

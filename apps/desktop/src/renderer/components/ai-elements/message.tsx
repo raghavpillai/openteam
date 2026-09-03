@@ -1,6 +1,6 @@
 // Source-owned adaptation of AI Elements message.tsx.
 // https://elements.ai-sdk.dev/components/message
-import { messageContainsMarkdownSyntax } from "@openbot/product-core/markdown";
+import { messageContainsMarkdownSyntax } from "@openteam/product-core/markdown";
 import { type ComponentProps, type HTMLAttributes, lazy, memo, Suspense } from "react";
 import { cn } from "../../lib/cn";
 import { Button } from "../ui/button";

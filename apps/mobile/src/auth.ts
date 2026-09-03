@@ -1,17 +1,17 @@
 import {
   AuthSessionSupersededError,
-  assessOpenBotAuthSession,
-  createOpenBotAuthClient,
-  type OpenBotAuthUser,
+  assessOpenTeamAuthSession,
+  createOpenTeamAuthClient,
+  type OpenTeamAuthUser,
   authHeadersForUrl as sharedAuthHeadersForUrl,
-} from "@openbot/client-core/auth";
-import { normalizeOptionalBaseUrl, OpenBotClientError } from "@openbot/client-core/http";
+} from "@openteam/client-core/auth";
+import { normalizeOptionalBaseUrl, OpenTeamClientError } from "@openteam/client-core/http";
 import * as SecureStore from "expo-secure-store";
 
-const TOKEN_KEY = "openbot.auth-token";
-const TOKEN_SERVER_KEY = "openbot.auth-token-server";
-const TOKEN_ACCOUNT_KEY = "openbot.auth-token-account";
-const AUTH_MODE_KEY_PREFIX = "openbot.auth-mode.v1";
+const TOKEN_KEY = "openteam.auth-token";
+const TOKEN_SERVER_KEY = "openteam.auth-token-server";
+const TOKEN_ACCOUNT_KEY = "openteam.auth-token-account";
+const AUTH_MODE_KEY_PREFIX = "openteam.auth-mode.v1";
 
 let token: string | null = null;
 let accountId: string | null = null;
@@ -76,7 +76,7 @@ export const getConfiguredAuthServer = (): string | null => authServerUrl;
 
 const requireServerUrl = (value: string): string => {
   const configured = configureAuthServer(value);
-  if (!configured) throw new Error("Enter your OpenBot server URL");
+  if (!configured) throw new Error("Enter your OpenTeam server URL");
   return configured;
 };
 
@@ -97,16 +97,16 @@ const authRequestIsCurrent = (lease: AuthServerLease, generation: number): boole
   generation === authRequestGeneration && authServerLeaseIsCurrent(lease);
 
 const staleAuthOperation = (): Error =>
-  new Error("The OpenBot server changed while authentication was in progress.");
+  new Error("The OpenTeam server changed while authentication was in progress.");
 
 type CachedAuthMode = "disabled" | "required";
-export type OpenBotAuthMode = CachedAuthMode;
-export type OpenBotServerConnectionResult = "authenticated" | "credentials-required";
+export type OpenTeamAuthMode = CachedAuthMode;
+export type OpenTeamServerConnectionResult = "authenticated" | "credentials-required";
 
-export class OpenBotCredentialsRequiredError extends Error {
+export class OpenTeamCredentialsRequiredError extends Error {
   constructor() {
     super("This server requires a username and password.");
-    this.name = "OpenBotCredentialsRequiredError";
+    this.name = "OpenTeamCredentialsRequiredError";
   }
 }
 
@@ -162,7 +162,7 @@ const loadCachedAuthMode = async (serverUrl: string): Promise<CachedAuthMode | n
   return parsed.mode === "disabled" || parsed.mode === "required" ? parsed.mode : null;
 };
 
-export const cachedAuthModeForServer = (serverUrl: string): Promise<OpenBotAuthMode | null> =>
+export const cachedAuthModeForServer = (serverUrl: string): Promise<OpenTeamAuthMode | null> =>
   loadCachedAuthMode(serverUrl);
 
 export const loadAuthToken = async (): Promise<string | null> => {
@@ -198,7 +198,7 @@ export const getAuthAccountIdForServer = (serverUrl: string): string | null =>
 
 export const authenticatedUserForServer = async (
   serverUrl: string
-): Promise<OpenBotAuthUser | null> => {
+): Promise<OpenTeamAuthUser | null> => {
   const normalized = normalizeAuthServer(serverUrl);
   if (!normalized || normalized !== authServerUrl) return null;
   const currentToken = (await loadAuthToken()) ?? getAuthTokenForServer(normalized);
@@ -231,7 +231,7 @@ export const onBeforeSignOut = (listener: () => void | Promise<void>): (() => vo
   return () => beforeSignOutListeners.delete(listener);
 };
 
-const authClient = (serverUrl: string) => createOpenBotAuthClient({ baseUrl: serverUrl });
+const authClient = (serverUrl: string) => createOpenTeamAuthClient({ baseUrl: serverUrl });
 
 export const signIn = async (
   serverUrl: string,
@@ -288,7 +288,7 @@ export const hasValidSession = async (serverUrl: string): Promise<boolean> => {
   const requestGeneration = authRequestGeneration + 1;
   authRequestGeneration = requestGeneration;
   try {
-    const assessment = await assessOpenBotAuthSession({
+    const assessment = await assessOpenTeamAuthSession({
       client: authClient(configured),
       loadToken: loadAuthToken,
       loadCachedMode: () => loadCachedAuthMode(configured).catch(() => null),
@@ -324,21 +324,21 @@ export const authenticateConnection = async (
     try {
       await authClient(requireServerUrl(serverUrl)).discoverMode();
     } catch (cause) {
-      if (cause instanceof OpenBotClientError && cause.code === "offline") {
+      if (cause instanceof OpenTeamClientError && cause.code === "offline") {
         throw new Error(
-          "Could not reach this OpenBot server. Check the endpoint and your connection."
+          "Could not reach this OpenTeam server. Check the endpoint and your connection."
         );
       }
       throw cause;
     }
-    throw new OpenBotCredentialsRequiredError();
+    throw new OpenTeamCredentialsRequiredError();
   }
   try {
     await signIn(serverUrl, username, password);
   } catch (cause) {
-    if (cause instanceof OpenBotClientError && cause.code === "offline") {
+    if (cause instanceof OpenTeamClientError && cause.code === "offline") {
       throw new Error(
-        "Could not reach this OpenBot server. Check the endpoint and your connection."
+        "Could not reach this OpenTeam server. Check the endpoint and your connection."
       );
     }
     throw cause;
@@ -347,15 +347,15 @@ export const authenticateConnection = async (
 
 export const testServerConnection = async (
   serverUrl: string
-): Promise<OpenBotServerConnectionResult> => {
+): Promise<OpenTeamServerConnectionResult> => {
   const configured = requireServerUrl(serverUrl);
   try {
     const observedMode = await authClient(configured).validateServer();
     await storeCachedAuthMode(configured, observedMode);
   } catch (cause) {
-    if (cause instanceof OpenBotClientError && cause.code === "offline") {
+    if (cause instanceof OpenTeamClientError && cause.code === "offline") {
       throw new Error(
-        "Could not reach this OpenBot server. Check the endpoint and your connection."
+        "Could not reach this OpenTeam server. Check the endpoint and your connection."
       );
     }
     throw cause;

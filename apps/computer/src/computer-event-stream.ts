@@ -1,4 +1,4 @@
-import type { ComputerEvent } from "@openbot/contracts";
+import type { ComputerEvent } from "@openteam/contracts";
 
 /**
  * Converts runtime events to NDJSON one pull at a time. The previous async

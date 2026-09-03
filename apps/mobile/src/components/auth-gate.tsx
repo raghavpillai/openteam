@@ -1,5 +1,5 @@
-import type { OpenBotAuthStatus } from "@openbot/client-core/auth";
-import { clientErrorMessage } from "@openbot/product-core/redaction";
+import type { OpenTeamAuthStatus } from "@openteam/client-core/auth";
+import { clientErrorMessage } from "@openteam/product-core/redaction";
 import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -183,7 +183,7 @@ function BotField({
 export function AuthGate({ children }: { children: ReactNode }) {
   const theme = useTheme();
   const { height } = useWindowDimensions();
-  const [state, setState] = useState<OpenBotAuthStatus>("checking");
+  const [state, setState] = useState<OpenTeamAuthStatus>("checking");
   const [stage, setStage] = useState<SignInStage>("welcome");
   const [authFlowMounted, setAuthFlowMounted] = useState(false);
   const [reduceMotion, setReduceMotion] = useState(false);
@@ -349,7 +349,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
       })
       .catch((cause) => {
         if (cancelled || initialGeneration !== authRequestGeneration.current) return;
-        setError(clientErrorMessage(cause, "Could not load the OpenBot server"));
+        setError(clientErrorMessage(cause, "Could not load the OpenTeam server"));
         setState("signed-out");
       });
     return () => {
@@ -390,7 +390,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
       setState("authenticated");
     } catch (cause) {
       if (generation !== authRequestGeneration.current) return;
-      setError(clientErrorMessage(cause, "Could not connect to this OpenBot server"));
+      setError(clientErrorMessage(cause, "Could not connect to this OpenTeam server"));
     } finally {
       if (generation === authRequestGeneration.current) setSubmitting(false);
     }
@@ -411,7 +411,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
       setState("authenticated");
     } catch (cause) {
       if (generation !== authRequestGeneration.current) return;
-      setError(clientErrorMessage(cause, "Could not sign in to OpenBot"));
+      setError(clientErrorMessage(cause, "Could not sign in to OpenTeam"));
     } finally {
       if (generation === authRequestGeneration.current) setSubmitting(false);
     }
@@ -447,7 +447,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
               },
             ]}
           >
-            <Text style={[styles.title, { color: theme.text }]}>OpenBot</Text>
+            <Text style={[styles.title, { color: theme.text }]}>OpenTeam</Text>
             <Text style={[styles.tagline, { color: theme.textMuted }]}>
               Your team of always-on Bots{"\n"}that finish the work
             </Text>
@@ -529,7 +529,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
                         SERVER ENDPOINT
                       </Text>
                       <TextInput
-                        accessibilityHint="Enter the HTTP or HTTPS address this device can use to reach your self-hosted OpenBot server"
+                        accessibilityHint="Enter the HTTP or HTTPS address this device can use to reach your self-hosted OpenTeam server"
                         accessibilityLabel="Server endpoint"
                         autoCapitalize="none"
                         autoCorrect={false}
@@ -537,7 +537,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
                         keyboardType="url"
                         onChangeText={updateServerUrl}
                         onSubmitEditing={() => void connectToServer()}
-                        placeholder="https://openbot.example.com"
+                        placeholder="https://openteam.example.com"
                         placeholderTextColor={theme.textFaint}
                         returnKeyType="go"
                         style={[

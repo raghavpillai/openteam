@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
-import { createPrismaClient } from "@openbot/db";
+import { createPrismaClient } from "@openteam/db";
 import { RoutineService } from "../src/routines";
 
-const databaseUrl = process.env.OPENBOT_TEST_DATABASE_URL;
+const databaseUrl = process.env.OPENTEAM_TEST_DATABASE_URL;
 
 test("interval and weekday routines can be created, test-run, and dispatched when due", async () => {
   if (!databaseUrl) return;

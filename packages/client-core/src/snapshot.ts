@@ -1,8 +1,8 @@
-import type { ClientSnapshot } from "@openbot/contracts";
+import type { ClientSnapshot } from "@openteam/contracts";
 
 /**
  * Defensive response normalization for older/interrupted servers. Product
- * projections belong in @openbot/product-core, not in this transport client.
+ * projections belong in @openteam/product-core, not in this transport client.
  */
 export const normalizeClientSnapshot = (snapshot: ClientSnapshot): ClientSnapshot => ({
   ...snapshot,

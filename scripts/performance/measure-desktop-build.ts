@@ -388,39 +388,39 @@ const readLazyClosures = async () => {
         "src/renderer/components/ai-elements/message-response-rich.tsx",
         "src/renderer/components/ai-elements/message-response-mermaid.ts",
       ],
-      emojiPanel: ["src/renderer/components/openbot/emoji-panel.tsx"],
-      a2aExchange: ["src/renderer/components/openbot/a2a-exchange-sheet.tsx"],
-      asyncTasks: ["src/renderer/components/openbot/async-tasks-panel.tsx"],
-      desktopDialogs: ["src/renderer/components/openbot/desktop-dialogs.tsx"],
-      groupForm: ["src/renderer/components/openbot/forms.tsx"],
-      inspector: ["src/renderer/components/openbot/inspector.tsx"],
-      avatarPicker: ["src/renderer/components/openbot/avatar-picker.tsx"],
-      botScreen: ["src/renderer/components/openbot/bot-screen.tsx"],
-      botTemplateShare: ["src/renderer/components/openbot/bot-template-share.tsx"],
-      fileAttachment: ["src/renderer/components/openbot/file-attachment.tsx"],
+      emojiPanel: ["src/renderer/components/openteam/emoji-panel.tsx"],
+      a2aExchange: ["src/renderer/components/openteam/a2a-exchange-sheet.tsx"],
+      asyncTasks: ["src/renderer/components/openteam/async-tasks-panel.tsx"],
+      desktopDialogs: ["src/renderer/components/openteam/desktop-dialogs.tsx"],
+      groupForm: ["src/renderer/components/openteam/forms.tsx"],
+      inspector: ["src/renderer/components/openteam/inspector.tsx"],
+      avatarPicker: ["src/renderer/components/openteam/avatar-picker.tsx"],
+      botScreen: ["src/renderer/components/openteam/bot-screen.tsx"],
+      botTemplateShare: ["src/renderer/components/openteam/bot-template-share.tsx"],
+      fileAttachment: ["src/renderer/components/openteam/file-attachment.tsx"],
       pdfPreview: [
         "node_modules/pdfjs-dist/build/pdf.mjs",
         "node_modules/pdfjs-dist/build/pdf.worker.min.mjs?url",
       ],
-      routineSummary: ["src/renderer/components/openbot/routine-summary.tsx"],
-      routineEditor: ["src/renderer/components/openbot/routine-panel.tsx"],
-      newBot: ["src/renderer/components/openbot/new-bot-screen.tsx"],
-      pluginSettings: ["src/renderer/components/openbot/plugin-settings.tsx"],
-      pluginSettingsDetail: ["src/renderer/components/openbot/plugin-settings-detail.tsx"],
-      search: ["src/renderer/components/openbot/search-dialog.tsx"],
-      groupAvatarEditor: ["src/renderer/components/openbot/group-avatar-editor.tsx"],
+      routineSummary: ["src/renderer/components/openteam/routine-summary.tsx"],
+      routineEditor: ["src/renderer/components/openteam/routine-panel.tsx"],
+      newBot: ["src/renderer/components/openteam/new-bot-screen.tsx"],
+      pluginSettings: ["src/renderer/components/openteam/plugin-settings.tsx"],
+      pluginSettingsDetail: ["src/renderer/components/openteam/plugin-settings-detail.tsx"],
+      search: ["src/renderer/components/openteam/search-dialog.tsx"],
+      groupAvatarEditor: ["src/renderer/components/openteam/group-avatar-editor.tsx"],
       settingsInitial: [
-        "src/renderer/components/openbot/settings-panel.tsx",
-        "src/renderer/components/openbot/settings-general.tsx",
-        "src/renderer/components/openbot/settings-general-bot.tsx",
+        "src/renderer/components/openteam/settings-panel.tsx",
+        "src/renderer/components/openteam/settings-general.tsx",
+        "src/renderer/components/openteam/settings-general-bot.tsx",
       ],
-      settingsShell: ["src/renderer/components/openbot/settings-panel.tsx"],
-      settingsAbout: ["src/renderer/components/openbot/settings-about.tsx"],
-      settingsGeneral: ["src/renderer/components/openbot/settings-general.tsx"],
-      settingsGeneralBot: ["src/renderer/components/openbot/settings-general-bot.tsx"],
-      settingsComputer: ["src/renderer/components/openbot/settings-computer.tsx"],
-      settingsServer: ["src/renderer/components/openbot/settings-server.tsx"],
-      settingsUpdates: ["src/renderer/components/openbot/settings-updates.tsx"],
+      settingsShell: ["src/renderer/components/openteam/settings-panel.tsx"],
+      settingsAbout: ["src/renderer/components/openteam/settings-about.tsx"],
+      settingsGeneral: ["src/renderer/components/openteam/settings-general.tsx"],
+      settingsGeneralBot: ["src/renderer/components/openteam/settings-general-bot.tsx"],
+      settingsComputer: ["src/renderer/components/openteam/settings-computer.tsx"],
+      settingsServer: ["src/renderer/components/openteam/settings-server.tsx"],
+      settingsUpdates: ["src/renderer/components/openteam/settings-updates.tsx"],
     };
     const closures = Object.fromEntries(
       Object.entries(boundarySources).map(([name, suffixes]) => [name, closureFor(suffixes)])
@@ -604,7 +604,7 @@ const report = {
   },
 };
 const serialized = JSON.stringify(report, null, 2);
-if (process.env.OPENBOT_AUDIT_OUTPUT) {
-  await Bun.write(process.env.OPENBOT_AUDIT_OUTPUT, `${serialized}\n`);
+if (process.env.OPENTEAM_AUDIT_OUTPUT) {
+  await Bun.write(process.env.OPENTEAM_AUDIT_OUTPUT, `${serialized}\n`);
 }
 console.log(serialized);

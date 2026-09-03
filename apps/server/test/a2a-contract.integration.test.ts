@@ -5,12 +5,12 @@ import { join } from "node:path";
 import { Effect } from "effect";
 import { AppService } from "../src/app-service";
 
-const databaseUrl = process.env.OPENBOT_TEST_DATABASE_URL;
+const databaseUrl = process.env.OPENTEAM_TEST_DATABASE_URL;
 
 test("source-verified Grok A2A errors, group rows, and channel updates run end to end", async () => {
   if (!databaseUrl) return;
 
-  const workspace = join(tmpdir(), `openbot-a2a-contract-${crypto.randomUUID()}`);
+  const workspace = join(tmpdir(), `openteam-a2a-contract-${crypto.randomUUID()}`);
   await mkdir(workspace, { recursive: true });
   const fakeComputer = Bun.serve({
     hostname: "127.0.0.1",
@@ -43,10 +43,10 @@ test("source-verified Grok A2A errors, group rows, and channel updates run end t
   });
 
   process.env.DATABASE_URL = databaseUrl;
-  process.env.OPENBOT_COMPUTER_URL = `http://127.0.0.1:${fakeComputer.port}`;
-  process.env.OPENBOT_CONTROL_TOKEN = "a2a-contract-control-token";
-  process.env.OPENBOT_WORKSPACE_ROOT = workspace;
-  process.env.OPENBOT_AGENT_DATA_ROOT = join(workspace, "agent-data");
+  process.env.OPENTEAM_COMPUTER_URL = `http://127.0.0.1:${fakeComputer.port}`;
+  process.env.OPENTEAM_CONTROL_TOKEN = "a2a-contract-control-token";
+  process.env.OPENTEAM_WORKSPACE_ROOT = workspace;
+  process.env.OPENTEAM_AGENT_DATA_ROOT = join(workspace, "agent-data");
 
   const app = new AppService();
   try {

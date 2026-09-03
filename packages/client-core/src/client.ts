@@ -46,13 +46,13 @@ import type {
   UpdateChannelProfileInput,
   UpdateRoutineInput,
   UploadAssetInput,
-} from "@openbot/contracts";
-import { PLUGIN_CONNECTION_STATUS_MAX_IDS } from "@openbot/contracts/plugin-settings";
+} from "@openteam/contracts";
+import { PLUGIN_CONNECTION_STATUS_MAX_IDS } from "@openteam/contracts/plugin-settings";
 import { consumeProductEventStream, type ProductEventHandlers } from "./events";
-import { createJsonTransport, type OpenBotTransportOptions } from "./http";
+import { createJsonTransport, type OpenTeamTransportOptions } from "./http";
 import { normalizeClientSnapshot } from "./snapshot";
 
-export interface OpenBotClientOptions extends OpenBotTransportOptions {
+export interface OpenTeamClientOptions extends OpenTeamTransportOptions {
   createId?: () => string;
   timeZone?: () => string;
 }
@@ -70,7 +70,7 @@ const fallbackId = (): string =>
 
 const fallbackTimeZone = (): string => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 
-export const createOpenBotClient = (options: OpenBotClientOptions) => {
+export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
   const transport = createJsonTransport(options);
   const createId = options.createId ?? fallbackId;
   const timeZone = options.timeZone ?? fallbackTimeZone;
@@ -590,4 +590,4 @@ export const createOpenBotClient = (options: OpenBotClientOptions) => {
   };
 };
 
-export type OpenBotClient = ReturnType<typeof createOpenBotClient>;
+export type OpenTeamClient = ReturnType<typeof createOpenTeamClient>;

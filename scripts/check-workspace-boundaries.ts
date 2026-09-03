@@ -55,11 +55,11 @@ const importsFor = async (file: string): Promise<SourceImport[]> => {
 
 const failures: string[] = [];
 const serverOnlyPackages = new Set([
-  "@openbot/computer",
-  "@openbot/db",
-  "@openbot/messaging",
-  "@openbot/server",
-  "@openbot/worker",
+  "@openteam/computer",
+  "@openteam/db",
+  "@openteam/messaging",
+  "@openteam/server",
+  "@openteam/worker",
 ]);
 const clientSourceDirectories = new Map<string, string[]>([
   ["desktop", [resolve(root, "apps", "desktop", "src")]],
@@ -80,16 +80,16 @@ for (const directories of clientSourceDirectories.values()) {
 
 const neutralPackageImports = new Map<string, ReadonlySet<string>>([
   ["contracts", new Set()],
-  ["client-core", new Set(["@openbot/contracts"])],
-  ["product-core", new Set(["@openbot/contracts"])],
-  ["design-tokens", new Set(["@openbot/contracts"])],
+  ["client-core", new Set(["@openteam/contracts"])],
+  ["product-core", new Set(["@openteam/contracts"])],
+  ["design-tokens", new Set(["@openteam/contracts"])],
 ]);
 const platformImportPrefixes = ["electron", "expo", "react", "react-native"];
 for (const [packageName, allowedWorkspaceImports] of neutralPackageImports) {
   for (const file of await walk(resolve(root, "packages", packageName, "src"))) {
     for (const imported of await importsFor(file)) {
       if (
-        imported.specifier.startsWith("@openbot/") &&
+        imported.specifier.startsWith("@openteam/") &&
         ![...allowedWorkspaceImports].some(
           (allowed) =>
             imported.specifier === allowed || imported.specifier.startsWith(`${allowed}/`)
@@ -120,9 +120,9 @@ for (const [packageName, allowedWorkspaceImports] of neutralPackageImports) {
 }
 
 const clientLayerPackages = new Set([
-  "@openbot/client-core",
-  "@openbot/design-tokens",
-  "@openbot/product-core",
+  "@openteam/client-core",
+  "@openteam/design-tokens",
+  "@openteam/product-core",
 ]);
 for (const owner of ["computer", "server", "worker"] as const) {
   for (const file of await walk(resolve(root, "apps", owner, "src"))) {
@@ -161,7 +161,7 @@ for (const file of (await walk(resolve(root, "apps"))).filter(
 
 for (const file of await walk(resolve(root, "apps", "mobile"))) {
   for (const imported of await importsFor(file)) {
-    if (imported.specifier === "@openbot/contracts" && imported.runtimeNames.length > 0) {
+    if (imported.specifier === "@openteam/contracts" && imported.runtimeNames.length > 0) {
       failures.push(
         `${relative(root, file)} imports root runtime values: ${imported.runtimeNames.join(", ")}`
       );

@@ -75,7 +75,7 @@ describe("approval restart parity", () => {
             id: `approval-${decision}`,
             runId: "run-1",
             upstreamRequestId: `runtime-${decision}`,
-            requestMethod: "openbot/localTool",
+            requestMethod: "openteam/localTool",
             status: "pending",
             details: { type: "localTool", machineId: "machine-1" },
           }),

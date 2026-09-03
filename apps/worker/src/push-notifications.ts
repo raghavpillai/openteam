@@ -5,9 +5,9 @@ import {
   PUSH_DELIVERY_ADVISORY_LOCK,
   type PushNotificationPayload,
   truncateNotificationText,
-} from "@openbot/contracts";
-import { Prisma, type PrismaClient } from "@openbot/db";
-import { unreadBadgeCount as countUnreadMessages } from "@openbot/messaging";
+} from "@openteam/contracts";
+import { Prisma, type PrismaClient } from "@openteam/db";
+import { unreadBadgeCount as countUnreadMessages } from "@openteam/messaging";
 
 const EXPO_SEND_URL = "https://exp.host/--/api/v2/push/send";
 const EXPO_RECEIPTS_URL = "https://exp.host/--/api/v2/push/getReceipts";
@@ -58,7 +58,7 @@ export const unreadBadgeCount = countUnreadMessages;
 export type PushAuthenticationMode = "disabled" | "required";
 
 export const pushAuthenticationModeFromEnvironment = (
-  value = process.env.OPENBOT_AUTH_MODE
+  value = process.env.OPENTEAM_AUTH_MODE
 ): PushAuthenticationMode => (value?.trim().toLowerCase() === "disabled" ? "disabled" : "required");
 
 export const deliverablePushDeviceWhere = (

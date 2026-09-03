@@ -7,12 +7,12 @@ import {
   verifyReleaseSignature,
 } from "../src/release";
 
-const compose = `name: openbot
+const compose = `name: openteam
 services:
   server:
-    image: example/openbot-server:\${OPENBOT_VERSION}
+    image: example/openteam-server:\${OPENTEAM_VERSION}
 volumes:
-  openbot_workspace:
+  openteam_workspace:
 `;
 
 const servers: Array<{ stop(force?: boolean): void }> = [];
@@ -24,7 +24,7 @@ afterEach(() => {
 describe("release downloads", () => {
   test("builds a version-pinned GitHub release URL", () => {
     expect(releaseComposeUrl("owner/repo", "1.2.3")).toBe(
-      "https://github.com/owner/repo/releases/download/v1.2.3/openbot-compose.yaml"
+      "https://github.com/owner/repo/releases/download/v1.2.3/openteam-compose.yaml"
     );
   });
 
@@ -34,9 +34,9 @@ describe("release downloads", () => {
       port: 0,
       fetch(request) {
         const pathname = new URL(request.url).pathname;
-        if (pathname === "/openbot-compose.yaml") return new Response(compose);
+        if (pathname === "/openteam-compose.yaml") return new Response(compose);
         if (pathname === "/SHA256SUMS") {
-          return new Response(`${digest}  openbot-compose.yaml\n`);
+          return new Response(`${digest}  openteam-compose.yaml\n`);
         }
         return new Response("not found", { status: 404 });
       },
@@ -46,7 +46,7 @@ describe("release downloads", () => {
     const release = await downloadRelease({
       repository: "owner/repo",
       version: "1.2.3",
-      composeUrl: `${origin}/openbot-compose.yaml`,
+      composeUrl: `${origin}/openteam-compose.yaml`,
       checksumUrl: `${origin}/SHA256SUMS`,
       allowUnsigned: true,
     });
@@ -58,9 +58,9 @@ describe("release downloads", () => {
     const server = Bun.serve({
       port: 0,
       fetch(request) {
-        return new URL(request.url).pathname === "/openbot-compose.yaml"
+        return new URL(request.url).pathname === "/openteam-compose.yaml"
           ? new Response(compose)
-          : new Response(`${"0".repeat(64)}  openbot-compose.yaml\n`);
+          : new Response(`${"0".repeat(64)}  openteam-compose.yaml\n`);
       },
     });
     servers.push(server);
@@ -69,7 +69,7 @@ describe("release downloads", () => {
       downloadRelease({
         repository: "owner/repo",
         version: "1.2.3",
-        composeUrl: `${origin}/openbot-compose.yaml`,
+        composeUrl: `${origin}/openteam-compose.yaml`,
         checksumUrl: `${origin}/SHA256SUMS`,
         allowUnsigned: true,
       })

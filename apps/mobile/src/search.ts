@@ -4,8 +4,8 @@ import type {
   SearchCategory,
   SearchResponse,
   SearchResultView,
-} from "@openbot/contracts";
-import { normalizeSearchQuery, searchCategoryKind } from "@openbot/product-core/search";
+} from "@openteam/contracts";
+import { normalizeSearchQuery, searchCategoryKind } from "@openteam/product-core/search";
 
 const RESULT_LIMIT = 24;
 

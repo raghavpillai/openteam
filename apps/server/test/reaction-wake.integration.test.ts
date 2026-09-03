@@ -3,18 +3,18 @@ import { randomUUID } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createPrismaClient } from "@openbot/db";
-import { AgentDataStore, AgentMessaging } from "@openbot/messaging";
+import { createPrismaClient } from "@openteam/db";
+import { AgentDataStore, AgentMessaging } from "@openteam/messaging";
 import { Effect } from "effect";
 import { ChannelService } from "../src/services/channel-service";
 
-const databaseUrl = process.env.OPENBOT_TEST_DATABASE_URL;
+const databaseUrl = process.env.OPENTEAM_TEST_DATABASE_URL;
 
 test("a user reaction resumes the authoring Bot through the handoff source", async () => {
   if (!databaseUrl) return;
 
   const prisma = createPrismaClient(databaseUrl);
-  const temporary = await mkdtemp(join(tmpdir(), "openbot-reaction-wake-"));
+  const temporary = await mkdtemp(join(tmpdir(), "openteam-reaction-wake-"));
   const botId = randomUUID();
   const conversationId = randomUUID();
   const channelId = randomUUID();

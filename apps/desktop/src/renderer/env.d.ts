@@ -1,26 +1,26 @@
 interface Window {
-  openbot?: {
+  openteam?: {
     platform: string;
     auth: {
-      readToken: () => Promise<OpenBotAuthTokenStorageResult>;
-      writeToken: (token: string) => Promise<OpenBotAuthTokenStorageResult>;
-      clearToken: () => Promise<OpenBotAuthTokenStorageResult>;
+      readToken: () => Promise<OpenTeamAuthTokenStorageResult>;
+      writeToken: (token: string) => Promise<OpenTeamAuthTokenStorageResult>;
+      clearToken: () => Promise<OpenTeamAuthTokenStorageResult>;
     };
     permissions: {
-      get: () => Promise<OpenBotPermissionSettings>;
+      get: () => Promise<OpenTeamPermissionSettings>;
       update: (request: {
         machineLabel?: string;
-        localToolPermission?: OpenBotPermissionSettings["localToolPermission"];
+        localToolPermission?: OpenTeamPermissionSettings["localToolPermission"];
         autoReviewEnabled?: boolean;
-      }) => Promise<OpenBotPermissionSettings>;
+      }) => Promise<OpenTeamPermissionSettings>;
       addRule: (request: {
         kind: "allow" | "block";
         instruction: string;
-      }) => Promise<OpenBotPermissionSettings>;
+      }) => Promise<OpenTeamPermissionSettings>;
       removeRule: (request: {
         kind: "allow" | "block";
         instruction: string;
-      }) => Promise<OpenBotPermissionSettings>;
+      }) => Promise<OpenTeamPermissionSettings>;
     };
     files: {
       downloadAll: (
@@ -35,22 +35,22 @@ interface Window {
       write: (scope: string, journal: unknown) => Promise<void>;
     };
     updates: {
-      status: () => Promise<OpenBotUpdateStatus>;
-      check: () => Promise<OpenBotUpdateStatus>;
+      status: () => Promise<OpenTeamUpdateStatus>;
+      check: () => Promise<OpenTeamUpdateStatus>;
       openDownload: () => Promise<void>;
       installClient: () => Promise<void>;
-      onClientProgress: (listener: (status: OpenBotUpdateStatus) => void) => () => void;
+      onClientProgress: (listener: (status: OpenTeamUpdateStatus) => void) => () => void;
       serverStatus: (request: {
         serverUrl: string;
         targetVersion?: string | null;
         sshTarget?: string | null;
-      }) => Promise<OpenBotServerUpdateStatus>;
+      }) => Promise<OpenTeamServerUpdateStatus>;
       updateServer: (request: {
         serverUrl: string;
         targetVersion?: string | null;
         sshTarget?: string | null;
-      }) => Promise<OpenBotServerUpdateStatus>;
-      onServerProgress: (listener: (status: OpenBotServerUpdateStatus) => void) => () => void;
+      }) => Promise<OpenTeamServerUpdateStatus>;
+      onServerProgress: (listener: (status: OpenTeamServerUpdateStatus) => void) => () => void;
     };
     notifications: {
       sync: (snapshot: {
@@ -87,13 +87,13 @@ interface Window {
   };
 }
 
-interface OpenBotAuthTokenStorageResult {
+interface OpenTeamAuthTokenStorageResult {
   token: string | null;
   persistence: "encrypted" | "memory";
   backend: string;
 }
 
-interface OpenBotPermissionSettings {
+interface OpenTeamPermissionSettings {
   version: 1;
   localToolPermission: "always" | "ask" | "never";
   machine: {
@@ -107,7 +107,7 @@ interface OpenBotPermissionSettings {
   };
 }
 
-interface OpenBotUpdateStatus {
+interface OpenTeamUpdateStatus {
   currentVersion: string;
   latestVersion: string | null;
   downloadUrl: string;
@@ -135,7 +135,7 @@ interface OpenBotUpdateStatus {
   track: "stable";
 }
 
-interface OpenBotServerUpdateStatus {
+interface OpenTeamServerUpdateStatus {
   serverUrl: string;
   currentVersion: string | null;
   targetVersion: string | null;

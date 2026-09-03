@@ -58,9 +58,9 @@ export const packageForMobileSource = (source: string): string => {
   if (bunPackage) return bunPackage;
   const regularPackage = normalized.match(regularPackagePattern)?.[1];
   if (regularPackage) return regularPackage;
-  if (normalized.includes("/apps/mobile/")) return "@openbot/mobile";
+  if (normalized.includes("/apps/mobile/")) return "@openteam/mobile";
   const workspace = normalized.match(/\/packages\/([^/]+)\//)?.[1];
-  return workspace ? `@openbot/${workspace}` : "(runtime/generated)";
+  return workspace ? `@openteam/${workspace}` : "(runtime/generated)";
 };
 
 export const routeForMobileSource = (source: string): string | null => {

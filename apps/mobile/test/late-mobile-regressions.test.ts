@@ -95,7 +95,7 @@ describe("late native iOS regression guards", () => {
     expect(editor).toContain("setExecutions([])");
     expect(editor).toContain("setHistoryLoading(true)");
     expect(editor).toContain("hasTransientRoutineExecution(next)");
-    expect(editor).toContain("@openbot/product-core/statuses");
+    expect(editor).toContain("@openteam/product-core/statuses");
     expect(editor).toContain("setTimeout(() => void poll(), 1_500)");
     expect(editor).toContain("accessibilityLabel={label}");
   });
@@ -104,7 +104,7 @@ describe("late native iOS regression guards", () => {
     const [route, settings, context, working] = await Promise.all([
       source("app/chat/[channelId].tsx"),
       source("app/settings.tsx"),
-      source("src/state/openbot-context.tsx"),
+      source("src/state/openteam-context.tsx"),
       source("src/components/working-indicator.tsx"),
     ]);
 
@@ -175,7 +175,7 @@ describe("late native iOS regression guards", () => {
     expect(bubble).toContain("accessible={attachmentCount === 0}");
     expect(bubble).toContain("(files.length > 0 || stagedFiles.length > 0) && renderedContent");
     expect(settings).toContain('authMode === "disabled"');
-    expect(settings).toContain("Not metered by self-hosted OpenBot");
+    expect(settings).toContain("Not metered by self-hosted OpenTeam");
     expect(settings).toContain("Copy version info");
     expect(settings.indexOf("{accountParitySections}")).toBeLessThan(
       settings.indexOf('accessibilityLabel="Search Bot settings"')

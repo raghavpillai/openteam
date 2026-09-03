@@ -1,6 +1,6 @@
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
-import type { Prisma } from "@openbot/db";
+import type { Prisma } from "@openteam/db";
 import { firstCronSchedule, parseStoredTrigger, triggerIdentity } from "./automation-trigger";
 import {
   atomicWrite,
@@ -126,7 +126,7 @@ export const parseAutomationFile = async (
   const schedule =
     cronSchedule !== null
       ? normalizeRoutineSchedule(cronSchedule, installationZone, {
-          enforceMinimum: process.env.OPENBOT_ENFORCE_AUTOMATION_MINIMUM === "true",
+          enforceMinimum: process.env.OPENTEAM_ENFORCE_AUTOMATION_MINIMUM === "true",
         })
       : null;
   let triggerPresentation: Record<string, unknown> | null = null;

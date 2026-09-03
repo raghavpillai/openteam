@@ -1,11 +1,11 @@
-import type { BotView, RoutineView } from "@openbot/contracts";
+import type { BotView, RoutineView } from "@openteam/contracts";
 import {
   BOT_AVATAR_SHAPES,
   type BotAvatarShape,
   DEFAULT_BOT_AVATAR,
   normalizeBotAvatarShape,
-} from "@openbot/contracts/bot-avatar";
-import { routineScheduleSummary as routineSummary } from "@openbot/product-core/routines";
+} from "@openteam/contracts/bot-avatar";
+import { routineScheduleSummary as routineSummary } from "@openteam/product-core/routines";
 import { SymbolView } from "expo-symbols";
 import { useEffect, useState } from "react";
 import {

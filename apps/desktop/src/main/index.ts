@@ -1,8 +1,11 @@
 import { open, rename, unlink } from "node:fs/promises";
 import { hostname } from "node:os";
 import { extname, join } from "node:path";
-import { compareOpenBotVersions, isOpenBotVersion } from "@openbot/contracts/version-compatibility";
-import { safeErrorMessage } from "@openbot/product-core/redaction";
+import {
+  compareOpenTeamVersions,
+  isOpenTeamVersion,
+} from "@openteam/contracts/version-compatibility";
+import { safeErrorMessage } from "@openteam/product-core/redaction";
 import {
   app,
   BrowserWindow,
@@ -58,11 +61,11 @@ let durableSendJournals: DurableSendJournalStore | null = null;
 const activeNotifications = new Set<Notification>();
 const localMachine = { machineId: "this-computer", label: hostname() } as const;
 const windowBackground = () => (nativeTheme.shouldUseDarkColors ? "#080808" : "#fbfbfb");
-const releasePage = "https://github.com/raghavpillai/openbot/releases/latest";
+const releasePage = "https://github.com/raghavpillai/openteam/releases/latest";
 
 protocol.registerSchemesAsPrivileged([
   {
-    scheme: "openbot-staged",
+    scheme: "openteam-staged",
     privileges: { standard: true, secure: true, supportFetchAPI: true },
   },
 ]);
@@ -83,7 +86,7 @@ let desktopUpdaterPromise: Promise<AppUpdater> | null = null;
 let desktopUpdateTimer: ReturnType<typeof setInterval> | null = null;
 const publishDesktopUpdate = (next: Partial<DesktopUpdateSnapshot>) => {
   desktopUpdateSnapshot = { ...desktopUpdateSnapshot, ...next };
-  mainWindow?.webContents.send("openbot:desktop-update-progress", desktopUpdateSnapshot);
+  mainWindow?.webContents.send("openteam:desktop-update-progress", desktopUpdateSnapshot);
 };
 
 const loadDesktopUpdater = () => {
@@ -133,7 +136,7 @@ const configureDesktopUpdater = async (): Promise<AppUpdater | null> => {
       status: "downloaded",
       latestVersion: info.version,
       progress: 100,
-      message: "Restart OpenBot to finish installing the update",
+      message: "Restart OpenTeam to finish installing the update",
       failureKind: null,
     })
   );
@@ -164,11 +167,11 @@ const scheduleDesktopUpdateChecks = () => {
 
 const serverUpdater = new ServerUpdater({
   cliPath: app.isPackaged
-    ? join(process.resourcesPath, "app.asar.unpacked", "dist-electron", "openbot-cli.js")
-    : join(import.meta.dirname, "openbot-cli.js"),
+    ? join(process.resourcesPath, "app.asar.unpacked", "dist-electron", "openteam-cli.js")
+    : join(import.meta.dirname, "openteam-cli.js"),
   executablePath: process.execPath,
   fetcher: (input, init) => net.fetch(input instanceof URL ? input.toString() : input, init),
-  onStatus: (status) => mainWindow?.webContents.send("openbot:server-update-progress", status),
+  onStatus: (status) => mainWindow?.webContents.send("openteam:server-update-progress", status),
 });
 
 const checkForDesktopUpdate = async (): Promise<DesktopUpdateSnapshot> => {
@@ -195,10 +198,10 @@ const checkForDesktopUpdate = async (): Promise<DesktopUpdateSnapshot> => {
       return desktopUpdateSnapshot;
     }
     const manifestUrl =
-      process.env.OPENBOT_UPDATE_MANIFEST_URL ??
-      "https://api.github.com/repos/raghavpillai/openbot/releases/latest";
+      process.env.OPENTEAM_UPDATE_MANIFEST_URL ??
+      "https://api.github.com/repos/raghavpillai/openteam/releases/latest";
     const response = await net.fetch(manifestUrl, {
-      headers: { accept: "application/vnd.github+json", "user-agent": "OpenBot-Desktop" },
+      headers: { accept: "application/vnd.github+json", "user-agent": "OpenTeam-Desktop" },
     });
     if (response.status === 404) {
       desktopUpdateSnapshot = {
@@ -213,7 +216,7 @@ const checkForDesktopUpdate = async (): Promise<DesktopUpdateSnapshot> => {
     }
     if (!response.ok) throw new Error(`Update service returned ${response.status}`);
     const release = parseDesktopReleaseManifest(await response.json(), releasePage);
-    const updateAvailable = (compareOpenBotVersions(release.version, app.getVersion()) ?? 0) > 0;
+    const updateAvailable = (compareOpenTeamVersions(release.version, app.getVersion()) ?? 0) > 0;
     desktopUpdateSnapshot = {
       currentVersion: app.getVersion(),
       latestVersion: release.version,
@@ -319,7 +322,7 @@ const saveImageTo = async (window: BrowserWindow, sourceUrl: string, destination
     });
     return;
   }
-  const temporary = `${destination}.openbot-${crypto.randomUUID()}.tmp`;
+  const temporary = `${destination}.openteam-${crypto.randomUUID()}.tmp`;
   const url = new URL(sourceUrl);
   const loopbackHttp =
     url.protocol === "http:" && ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname);
@@ -397,7 +400,7 @@ const safeDownloadName = (value: string) => {
 const trustedDownloadOrigins = () => {
   const origins = new Set<string>();
   for (const candidate of [
-    process.env.OPENBOT_SERVER_URL ?? "http://127.0.0.1:8787",
+    process.env.OPENTEAM_SERVER_URL ?? "http://127.0.0.1:8787",
     mainWindow?.webContents.getURL(),
   ]) {
     if (!candidate) continue;
@@ -462,7 +465,7 @@ const writeUniqueDownload = async (directory: string, name: string, url: string)
   throw new Error(`Could not choose an unused filename for ${name}`);
 };
 
-ipcMain.handle("openbot:files:download-all", async (event, value: unknown) => {
+ipcMain.handle("openteam:files:download-all", async (event, value: unknown) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) {
     throw new Error("Downloads are unavailable");
   }
@@ -506,7 +509,7 @@ const requireDeliveryStageSender = (event: Electron.IpcMainInvokeEvent) => {
   }
 };
 
-ipcMain.handle("openbot:files:stage-delivery", async (event, value: unknown) => {
+ipcMain.handle("openteam:files:stage-delivery", async (event, value: unknown) => {
   requireDeliveryStageSender(event);
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("Delivery staging request is invalid");
@@ -528,13 +531,13 @@ ipcMain.handle("openbot:files:stage-delivery", async (event, value: unknown) => 
   });
 });
 
-ipcMain.handle("openbot:files:read-delivery-stage", async (event, stagingId: unknown) => {
+ipcMain.handle("openteam:files:read-delivery-stage", async (event, stagingId: unknown) => {
   requireDeliveryStageSender(event);
   if (typeof stagingId !== "string") throw new Error("Delivery staging ID is invalid");
   return readDeliveryFile(deliveryStageDirectory(), stagingId);
 });
 
-ipcMain.handle("openbot:files:discard-delivery-stages", async (event, stagingIds: unknown) => {
+ipcMain.handle("openteam:files:discard-delivery-stages", async (event, stagingIds: unknown) => {
   requireDeliveryStageSender(event);
   if (
     !Array.isArray(stagingIds) ||
@@ -554,12 +557,12 @@ const requireDurableSendJournals = (event: Electron.IpcMainInvokeEvent) => {
   return durableSendJournals;
 };
 
-ipcMain.handle("openbot:delivery-journal:read", (event, scope: unknown) => {
+ipcMain.handle("openteam:delivery-journal:read", (event, scope: unknown) => {
   if (typeof scope !== "string") throw new Error("Delivery journal scope is invalid");
   return requireDurableSendJournals(event).read(scope);
 });
 
-ipcMain.handle("openbot:delivery-journal:write", (event, value: unknown) => {
+ipcMain.handle("openteam:delivery-journal:write", (event, value: unknown) => {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("Delivery journal write is invalid");
   }
@@ -568,7 +571,7 @@ ipcMain.handle("openbot:delivery-journal:write", (event, value: unknown) => {
   return requireDurableSendJournals(event).write(request.scope, request.journal);
 });
 
-ipcMain.handle("openbot:updates:status", (event) => {
+ipcMain.handle("openteam:updates:status", (event) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) {
     throw new Error("Update status is unavailable");
   }
@@ -582,23 +585,23 @@ const requireAuthTokenStore = (event: Electron.IpcMainInvokeEvent) => {
   return authTokenStore;
 };
 
-ipcMain.handle("openbot:auth-token:read", (event) => requireAuthTokenStore(event).read());
-ipcMain.handle("openbot:auth-token:write", (event, value: unknown) => {
+ipcMain.handle("openteam:auth-token:read", (event) => requireAuthTokenStore(event).read());
+ipcMain.handle("openteam:auth-token:write", (event, value: unknown) => {
   if (typeof value !== "string" || !value.trim() || value.length > 16 * 1024) {
     throw new Error("Authentication token is invalid");
   }
   return requireAuthTokenStore(event).write(value);
 });
-ipcMain.handle("openbot:auth-token:clear", (event) => requireAuthTokenStore(event).clear());
+ipcMain.handle("openteam:auth-token:clear", (event) => requireAuthTokenStore(event).clear());
 
-ipcMain.handle("openbot:updates:check", async (event) => {
+ipcMain.handle("openteam:updates:check", async (event) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) {
     throw new Error("Update status is unavailable");
   }
   return checkForDesktopUpdate();
 });
 
-ipcMain.handle("openbot:updates:open-download", async (event) => {
+ipcMain.handle("openteam:updates:open-download", async (event) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) {
     throw new Error("Update status is unavailable");
   }
@@ -620,7 +623,7 @@ ipcMain.handle("openbot:updates:open-download", async (event) => {
   await shell.openExternal(desktopUpdateSnapshot.downloadUrl || releasePage);
 });
 
-ipcMain.handle("openbot:updates:install-client", async (event) => {
+ipcMain.handle("openteam:updates:install-client", async (event) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) {
     throw new Error("Desktop update installation is unavailable");
   }
@@ -648,7 +651,7 @@ const serverUpdateRequest = (value: unknown) => {
   if (
     candidate.targetVersion !== undefined &&
     candidate.targetVersion !== null &&
-    (typeof candidate.targetVersion !== "string" || !isOpenBotVersion(candidate.targetVersion))
+    (typeof candidate.targetVersion !== "string" || !isOpenTeamVersion(candidate.targetVersion))
   ) {
     throw new Error("Target version is invalid");
   }
@@ -666,7 +669,7 @@ const serverUpdateRequest = (value: unknown) => {
   return { serverUrl: candidate.serverUrl, targetVersion, sshTarget };
 };
 
-ipcMain.handle("openbot:updates:server-status", async (event, value) => {
+ipcMain.handle("openteam:updates:server-status", async (event, value) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) {
     throw new Error("Server update status is unavailable");
   }
@@ -674,7 +677,7 @@ ipcMain.handle("openbot:updates:server-status", async (event, value) => {
   return serverUpdater.status(request.serverUrl, request.targetVersion, request.sshTarget);
 });
 
-ipcMain.handle("openbot:updates:update-server", async (event, value) => {
+ipcMain.handle("openteam:updates:update-server", async (event, value) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) {
     throw new Error("Server update is unavailable");
   }
@@ -720,13 +723,13 @@ const desktopNotificationSnapshot = (value: unknown): DesktopNotificationSnapsho
     : null;
 };
 
-ipcMain.on("openbot:notifications:sync", (event, request: unknown) => {
+ipcMain.on("openteam:notifications:sync", (event, request: unknown) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) return;
   const snapshot = desktopNotificationSnapshot(request);
   if (snapshot) desktopNotifications?.sync(snapshot);
 });
 
-ipcMain.on("openbot:notifications:visible-channel", (event, channelId: unknown) => {
+ipcMain.on("openteam:notifications:visible-channel", (event, channelId: unknown) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) return;
   if (
     channelId !== null &&
@@ -737,7 +740,7 @@ ipcMain.on("openbot:notifications:visible-channel", (event, channelId: unknown) 
   desktopNotifications?.setVisibleChannel(channelId as string | null);
 });
 
-ipcMain.handle("openbot:notifications:status", async (event) => {
+ipcMain.handle("openteam:notifications:status", async (event) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) {
     throw new Error("Notification status is unavailable");
   }
@@ -757,7 +760,7 @@ ipcMain.handle("openbot:notifications:status", async (event) => {
   return { supported, platform: process.platform, delivered };
 });
 
-ipcMain.handle("openbot:notifications:open-settings", async (event) => {
+ipcMain.handle("openteam:notifications:open-settings", async (event) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) {
     throw new Error("Notification settings are unavailable");
   }
@@ -785,10 +788,10 @@ const permissionSettingsView = (settings: PermissionSettings) => ({
   },
 });
 
-ipcMain.handle("openbot:permissions:get", async (event) =>
+ipcMain.handle("openteam:permissions:get", async (event) =>
   permissionSettingsView(await requirePermissionSettings(event).read())
 );
-ipcMain.handle("openbot:permissions:update", async (event, value: unknown) => {
+ipcMain.handle("openteam:permissions:update", async (event, value: unknown) => {
   const input =
     value && typeof value === "object" && !Array.isArray(value)
       ? (value as Record<string, unknown>)
@@ -837,20 +840,20 @@ const permissionRuleInput = (value: unknown): { kind: AutoReviewRuleKind; instru
   };
 };
 
-ipcMain.handle("openbot:permissions:add-rule", async (event, value: unknown) => {
+ipcMain.handle("openteam:permissions:add-rule", async (event, value: unknown) => {
   const input = permissionRuleInput(value);
   return permissionSettingsView(
     await requirePermissionSettings(event).addRule(input.kind, input.instruction)
   );
 });
-ipcMain.handle("openbot:permissions:remove-rule", async (event, value: unknown) => {
+ipcMain.handle("openteam:permissions:remove-rule", async (event, value: unknown) => {
   const input = permissionRuleInput(value);
   return permissionSettingsView(
     await requirePermissionSettings(event).removeRule(input.kind, input.instruction)
   );
 });
 
-ipcMain.handle("openbot:performance-snapshot", async (event) => {
+ipcMain.handle("openteam:performance-snapshot", async (event) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) {
     throw new Error("Performance metrics are only available to the main window");
   }
@@ -873,7 +876,7 @@ const createWindow = async () => {
     titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "default",
     trafficLightPosition: { x: 16, y: 15 },
     webPreferences: {
-      additionalArguments: [`--openbot-app-version=${encodeURIComponent(app.getVersion())}`],
+      additionalArguments: [`--openteam-app-version=${encodeURIComponent(app.getVersion())}`],
       preload: join(import.meta.dirname, "preload.cjs"),
       // Native completion and needs-input notifications depend on the renderer's
       // product-event stream even while the window is minimized.
@@ -909,14 +912,14 @@ const createWindow = async () => {
     });
   });
   mainWindow.webContents.on("unresponsive", () =>
-    console.warn("OpenBot renderer became unresponsive")
+    console.warn("OpenTeam renderer became unresponsive")
   );
   mainWindow.webContents.on("render-process-gone", (_event, details) =>
-    console.error("OpenBot renderer process exited", details)
+    console.error("OpenTeam renderer process exited", details)
   );
   // Never expose the packaged preload bridge to an environment-selected page.
   // Development retains explicit remote/Tailscale renderer support by design.
-  const rendererUrl = app.isPackaged ? undefined : process.env.OPENBOT_RENDERER_URL;
+  const rendererUrl = app.isPackaged ? undefined : process.env.OPENTEAM_RENDERER_URL;
   if (rendererUrl) await mainWindow.loadURL(rendererUrl);
   else await mainWindow.loadFile(join(import.meta.dirname, "..", "dist", "index.html"));
 };
@@ -937,7 +940,7 @@ const hasSingleInstanceLock = !app.isPackaged || app.requestSingleInstanceLock()
 
 app.on("second-instance", focusMainWindow);
 app.on("child-process-gone", (_event, details) =>
-  console.error("OpenBot child process exited", details)
+  console.error("OpenTeam child process exited", details)
 );
 
 if (!hasSingleInstanceLock) {
@@ -972,7 +975,7 @@ if (!hasSingleInstanceLock) {
         }
       );
       const authStorageWarmup = authTokenStore.read();
-      await protocol.handle("openbot-staged", async (request) => {
+      await protocol.handle("openteam-staged", async (request) => {
         try {
           const url = new URL(request.url);
           if (url.hostname !== "file") return new Response("Not found", { status: 404 });
@@ -995,7 +998,7 @@ if (!hasSingleInstanceLock) {
         isSupported: () => Notification.isSupported(),
         setBadge: (label) => app.dock?.setBadge(label),
         deliver: (notificationEvent) => {
-          const debugNotifications = process.env.OPENBOT_NOTIFICATION_DEBUG === "1";
+          const debugNotifications = process.env.OPENTEAM_NOTIFICATION_DEBUG === "1";
           const notification = new Notification({
             title: notificationEvent.title,
             body: notificationEvent.body,
@@ -1008,19 +1011,22 @@ if (!hasSingleInstanceLock) {
           notification.once("show", () => {
             if (debugNotifications) {
               console.info(
-                "OpenBot native notification shown",
+                "OpenTeam native notification shown",
                 notificationEvent.kind,
                 notificationEvent.title
               );
             }
           });
           notification.once("failed", (_event, error) => {
-            console.error("OpenBot native notification failed", error);
+            console.error("OpenTeam native notification failed", error);
             release();
           });
           notification.on("click", () => {
             focusMainWindow();
-            mainWindow?.webContents.send("openbot:notification-click", notificationEvent.channelId);
+            mainWindow?.webContents.send(
+              "openteam:notification-click",
+              notificationEvent.channelId
+            );
           });
           notification.show();
         },
@@ -1028,19 +1034,19 @@ if (!hasSingleInstanceLock) {
       const [, authStorage] = await Promise.all([createWindow(), authStorageWarmup]);
       if (authStorage.persistence === "memory") {
         console.warn(
-          "OpenBot OS secure storage is unavailable; the desktop session will remain in memory and will not persist after restart."
+          "OpenTeam OS secure storage is unavailable; the desktop session will remain in memory and will not persist after restart."
         );
       }
       scheduleDesktopUpdateChecks();
-      const port = Number(process.env.OPENBOT_HOST_BRIDGE_PORT ?? 8791);
+      const port = Number(process.env.OPENTEAM_HOST_BRIDGE_PORT ?? 8791);
       const token = resolveControlToken({
-        environmentToken: process.env.OPENBOT_CONTROL_TOKEN,
+        environmentToken: process.env.OPENTEAM_CONTROL_TOKEN,
         cwd: process.cwd(),
         appPath: app.getAppPath(),
         executablePath: process.execPath,
         userDataPath: app.getPath("userData"),
       });
-      const configuredMode = process.env.OPENBOT_AUTO_REVIEW_MODE;
+      const configuredMode = process.env.OPENTEAM_AUTO_REVIEW_MODE;
       const autoReviewMode: AutoReviewMode = ["off", "shadow", "enforce"].includes(
         configuredMode ?? ""
       )
@@ -1050,7 +1056,7 @@ if (!hasSingleInstanceLock) {
         action: HostAction,
         rules: { allowInstructions: string[]; blockInstructions: string[] }
       ): Promise<AutoReviewResult> => {
-        const serverUrl = process.env.OPENBOT_SERVER_URL ?? "http://127.0.0.1:8787";
+        const serverUrl = process.env.OPENTEAM_SERVER_URL ?? "http://127.0.0.1:8787";
         const response = await fetch(`${serverUrl}/api/v0/internal/permissions/auto-review`, {
           method: "POST",
           headers: {
@@ -1102,7 +1108,7 @@ if (!hasSingleInstanceLock) {
         });
       } catch (error) {
         if (!isAddressInUseError(error)) throw error;
-        console.warn(`OpenBot host bridge port ${port} is already in use; continuing without it.`);
+        console.warn(`OpenTeam host bridge port ${port} is already in use; continuing without it.`);
       }
 
       app.on("activate", () => {
@@ -1110,7 +1116,7 @@ if (!hasSingleInstanceLock) {
       });
     })
     .catch((error) => {
-      console.error("Failed to start OpenBot desktop", safeErrorMessage(error));
+      console.error("Failed to start OpenTeam desktop", safeErrorMessage(error));
       app.quit();
     });
 }

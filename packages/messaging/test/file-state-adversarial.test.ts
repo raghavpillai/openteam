@@ -6,7 +6,7 @@ import { parseAutomationFile, parseAutomationRuns } from "../src/automation-file
 import { atomicWrite, listDirectories, readBytes, readText, safeFolderId } from "../src/file-state";
 
 test("atomic writes never expose mixed payloads or leave temporary files", async () => {
-  const root = await mkdtemp(join(tmpdir(), "openbot-atomic-"));
+  const root = await mkdtemp(join(tmpdir(), "openteam-atomic-"));
   const path = join(root, "profile.json");
   const payloads = Array.from(
     { length: 24 },
@@ -27,8 +27,8 @@ test("atomic writes never expose mixed payloads or leave temporary files", async
 });
 
 test("state readers reject symlinks and directory discovery does not follow them", async () => {
-  const root = await mkdtemp(join(tmpdir(), "openbot-symlink-"));
-  const outside = await mkdtemp(join(tmpdir(), "openbot-outside-"));
+  const root = await mkdtemp(join(tmpdir(), "openteam-symlink-"));
+  const outside = await mkdtemp(join(tmpdir(), "openteam-outside-"));
   try {
     const outsideFile = join(outside, "secret.txt");
     await writeFile(outsideFile, "must not be read through a state pointer");
@@ -53,7 +53,7 @@ test("folder identifiers reject traversal, separators, and null bytes", () => {
 });
 
 test("automation parsing applies schedule fallback and validates incompatible groups", async () => {
-  const root = await mkdtemp(join(tmpdir(), "openbot-auto-adversarial-"));
+  const root = await mkdtemp(join(tmpdir(), "openteam-auto-adversarial-"));
   const automationPath = join(root, "automation.json");
   try {
     await atomicWrite(
@@ -83,7 +83,7 @@ test("automation parsing applies schedule fallback and validates incompatible gr
         trigger: {
           type: "group",
           listeners: [
-            { type: "origin", repo: "openbot/openbot", events: ["pr-opened"] },
+            { type: "origin", repo: "openteam/openteam", events: ["pr-opened"] },
             { type: "webhook" },
           ],
         },

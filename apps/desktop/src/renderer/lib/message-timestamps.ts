@@ -4,4 +4,4 @@ export {
   formatIdleGapTimestamp,
   IDLE_GAP_MS,
   shouldShowIdleGapTimestamp,
-} from "@openbot/product-core/timestamps";
+} from "@openteam/product-core/timestamps";

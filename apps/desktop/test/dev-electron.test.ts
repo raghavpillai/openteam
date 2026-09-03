@@ -18,7 +18,7 @@ describe("desktop development Electron supervisor", () => {
       rendererUrl: "http://127.0.0.1:5173",
       waitResource: "tcp:127.0.0.1:5173",
     });
-    expect(resolveDevElectronEnvironment({ OPENBOT_DEV_HOST: "100.94.42.50" })).toEqual({
+    expect(resolveDevElectronEnvironment({ OPENTEAM_DEV_HOST: "100.94.42.50" })).toEqual({
       host: "100.94.42.50",
       rendererUrl: "http://100.94.42.50:5173",
       waitResource: "tcp:100.94.42.50:5173",
@@ -28,8 +28,8 @@ describe("desktop development Electron supervisor", () => {
   test("preserves an explicit renderer URL without changing Vite readiness", () => {
     expect(
       resolveDevElectronEnvironment({
-        OPENBOT_DEV_HOST: "0.0.0.0",
-        OPENBOT_RENDERER_URL: "http://localhost:4173/preview",
+        OPENTEAM_DEV_HOST: "0.0.0.0",
+        OPENTEAM_RENDERER_URL: "http://localhost:4173/preview",
       })
     ).toEqual({
       host: "0.0.0.0",
@@ -67,7 +67,7 @@ describe("desktop development Electron supervisor", () => {
 
   test("ignores environment-selected renderer pages in packaged builds", async () => {
     expect(await mainSource).toContain(
-      "app.isPackaged ? undefined : process.env.OPENBOT_RENDERER_URL"
+      "app.isPackaged ? undefined : process.env.OPENTEAM_RENDERER_URL"
     );
   });
 });

@@ -1,12 +1,12 @@
 import type {
   DurableSendJournal,
   DurableSendStorage,
-} from "@openbot/product-core/durable-delivery";
+} from "@openteam/product-core/durable-delivery";
 import {
   DURABLE_SEND_JOURNAL_MAX_BYTES,
   durableSendScope,
   durableSendScopeHash,
-} from "@openbot/product-core/durable-delivery";
+} from "@openteam/product-core/durable-delivery";
 import * as FileSystem from "expo-file-system/legacy";
 
 interface StoredJournal {

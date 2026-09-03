@@ -3,9 +3,9 @@ import type {
   ChannelHistoryPage,
   ChannelMessageContextView,
   ChannelMessageView,
-} from "@openbot/contracts";
-import { emptyLoadedChannelHistory } from "@openbot/product-core/history";
-import { messageRetainedByteSize } from "@openbot/product-core/message-window";
+} from "@openteam/contracts";
+import { emptyLoadedChannelHistory } from "@openteam/product-core/history";
+import { messageRetainedByteSize } from "@openteam/product-core/message-window";
 import {
   applyPrimaryHistoryPage,
   clearMessageContext,

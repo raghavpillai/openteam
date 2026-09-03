@@ -50,7 +50,7 @@ describe("search query parsing", () => {
   test("keeps the exact-title lane compact and collision-safe", async () => {
     const migration = await Bun.file(
       new URL(
-        "../../../packages/db/prisma/migrations/20260831000500_search_exact_title_lane/migration.sql",
+        "../../../packages/db/prisma/migrations/20260903000100_init/migration.sql",
         import.meta.url
       )
     ).text();
@@ -98,7 +98,7 @@ describe("search query parsing", () => {
   test("projects canonical attachments with a legacy-image fallback", async () => {
     const migration = await Bun.file(
       new URL(
-        "../../../packages/db/prisma/migrations/20260831000300_search_attachment_group_routines/migration.sql",
+        "../../../packages/db/prisma/migrations/20260903000100_init/migration.sql",
         import.meta.url
       )
     ).text();
@@ -110,6 +110,6 @@ describe("search query parsing", () => {
     expect(migration).toContain(
       "ELSIF jsonb_typeof(NEW.\"metadata\"::jsonb -> 'images') = 'array'"
     );
-    expect(migration).toContain("openbot.search_reindex");
+    expect(migration).toContain("openteam.search_reindex");
   });
 });

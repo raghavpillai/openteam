@@ -4,7 +4,7 @@ import {
   DURABLE_SEND_JOURNAL_MAX_BYTES,
   durableSendScope,
   durableSendScopeHash,
-} from "@openbot/product-core/durable-delivery";
+} from "@openteam/product-core/durable-delivery";
 
 interface StoredJournal {
   generation: number;

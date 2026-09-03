@@ -6,7 +6,7 @@ import type {
   RichMessageSecretRequest,
   RichMessageWidget,
   RichMessageWidgetOption,
-} from "@openbot/contracts";
+} from "@openteam/contracts";
 
 export type RichMessageMetadata = Record<string, unknown>;
 

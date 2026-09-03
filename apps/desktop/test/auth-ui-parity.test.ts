@@ -5,7 +5,7 @@ const read = async (path: string) => Bun.file(new URL(path, import.meta.url)).te
 describe("Grok desktop authentication UI parity", () => {
   test("matches the animated glass mobile onboarding treatment", async () => {
     const [source, styles] = await Promise.all([
-      read("../src/renderer/components/openbot/auth-gate.tsx"),
+      read("../src/renderer/components/openteam/auth-gate.tsx"),
       read("../src/renderer/styles.css"),
     ]);
 
@@ -25,7 +25,7 @@ describe("Grok desktop authentication UI parity", () => {
   });
 
   test("keeps username and password authentication native", async () => {
-    const source = await read("../src/renderer/components/openbot/auth-gate.tsx");
+    const source = await read("../src/renderer/components/openteam/auth-gate.tsx");
 
     expect(source).toContain('autoComplete="username"');
     expect(source).toContain('autoComplete="current-password"');
@@ -37,7 +37,7 @@ describe("Grok desktop authentication UI parity", () => {
   });
 
   test("verifies and persists a configurable endpoint before credentials", async () => {
-    const source = await read("../src/renderer/components/openbot/auth-gate.tsx");
+    const source = await read("../src/renderer/components/openteam/auth-gate.tsx");
 
     expect(source).toContain('autoComplete="url"');
     expect(source).toContain('type="url"');

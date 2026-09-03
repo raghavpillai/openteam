@@ -16,8 +16,8 @@ describe("Grok window chrome parity", () => {
 
   test("matches the top-right and compact-sidebar bottom edge spacing", async () => {
     const [header, sidebar] = await Promise.all([
-      source("renderer/components/openbot/desktop-header.tsx"),
-      source("renderer/components/openbot/sidebar.tsx"),
+      source("renderer/components/openteam/desktop-header.tsx"),
+      source("renderer/components/openteam/sidebar.tsx"),
     ]);
 
     expect(header).toContain(
@@ -27,7 +27,7 @@ describe("Grok window chrome parity", () => {
   });
 
   test("uses Grok's exact compact-sidebar footer controls and geometry", async () => {
-    const sidebar = await source("renderer/components/openbot/sidebar.tsx");
+    const sidebar = await source("renderer/components/openteam/sidebar.tsx");
     const compactFooter = sidebar.slice(
       sidebar.indexOf("function CompactSidebarContent"),
       sidebar.indexOf("const SIDEBAR_WIDTH_KEY")

@@ -21,7 +21,7 @@ describe("screen viewer authentication", () => {
   });
 
   test("reads the credential from the URL fragment and removes it before connecting", async () => {
-    const source = await read("../../../docker/openbot-vnc.html");
+    const source = await read("../../../docker/openteam-vnc.html");
 
     expect(source).toContain("window.location.hash.slice(1)");
     expect(source).toContain("credentials: { password }");
@@ -30,7 +30,7 @@ describe("screen viewer authentication", () => {
   });
 
   test("reconnects dropped viewers with bounded backoff but stops on an authentication failure", async () => {
-    const source = await read("../../../docker/openbot-vnc.html");
+    const source = await read("../../../docker/openteam-vnc.html");
 
     expect(source).toContain('connection.addEventListener("disconnect"');
     expect(source).toContain("scheduleReconnect()");

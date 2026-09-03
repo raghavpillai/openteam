@@ -1,9 +1,9 @@
-import type { AssetRef, BotView, ChannelMessageView } from "@openbot/contracts";
+import type { AssetRef, BotView, ChannelMessageView } from "@openteam/contracts";
 import {
   routineChangedActionLabel,
   routineChangedEventFor,
-} from "@openbot/product-core/channel-events";
-import { durableSendStatusLabel } from "@openbot/product-core/durable-delivery";
+} from "@openteam/product-core/channel-events";
+import { durableSendStatusLabel } from "@openteam/product-core/durable-delivery";
 import {
   a2aProjectionFor,
   messageDisplayProjection,
@@ -11,8 +11,8 @@ import {
   QUICK_REACTIONS,
   threadReplyCountLabel,
   withStableOccurrenceKeys,
-} from "@openbot/product-core/messages";
-import { formatOfflineDeliveryLabel } from "@openbot/product-core/timestamps";
+} from "@openteam/product-core/messages";
+import { formatOfflineDeliveryLabel } from "@openteam/product-core/timestamps";
 import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
 import { SymbolView } from "expo-symbols";
@@ -792,9 +792,7 @@ export function MessageBubble({
                 </View>
               ) : null}
               {!readOnly ? (
-                <View
-                  style={[styles.actionPanel, { backgroundColor: theme.surfaceElevated }]}
-                >
+                <View style={[styles.actionPanel, { backgroundColor: theme.surfaceElevated }]}>
                   <Pressable
                     accessibilityRole="button"
                     onPress={() => {

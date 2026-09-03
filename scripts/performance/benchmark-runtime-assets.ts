@@ -5,9 +5,9 @@ import type { AssetRef } from "../../packages/contracts/src";
 import { AgentDataStore, AssetStore } from "../../packages/messaging/src";
 
 const IMAGE_COUNT = 6;
-const IMAGE_BYTES = Number(process.env.OPENBOT_BENCH_IMAGE_BYTES ?? 8 * 1024 * 1024);
+const IMAGE_BYTES = Number(process.env.OPENTEAM_BENCH_IMAGE_BYTES ?? 8 * 1024 * 1024);
 const AGENT_COUNT = 1_000;
-const ITERATIONS = Number(process.env.OPENBOT_BENCH_ITERATIONS ?? 5);
+const ITERATIONS = Number(process.env.OPENTEAM_BENCH_ITERATIONS ?? 5);
 const LOOKUP_ITERATIONS = 20;
 const LOOKUP_FANOUT = 16;
 
@@ -41,7 +41,7 @@ const distribution = (values: number[]) => ({
 });
 
 const measuredRuntime = async (scenario: RuntimeScenario) => {
-  const root = await mkdtemp(join(tmpdir(), `openbot-${scenario}-`));
+  const root = await mkdtemp(join(tmpdir(), `openteam-${scenario}-`));
   try {
     const store = new AssetStore({ root: join(root, "assets"), allowedFileRoots: [root] });
     const refs: AssetRef[] = [];
@@ -139,7 +139,7 @@ const measureLookups = async (lookup: () => Promise<string | null>, expected: st
 };
 
 const lookupBenchmark = async () => {
-  const root = await mkdtemp(join(tmpdir(), "openbot-legacy-attachment-"));
+  const root = await mkdtemp(join(tmpdir(), "openteam-legacy-attachment-"));
   try {
     const agentsRoot = join(root, "agents");
     for (let offset = 0; offset < AGENT_COUNT; offset += 50) {

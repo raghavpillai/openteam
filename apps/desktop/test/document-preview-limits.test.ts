@@ -5,7 +5,7 @@ import {
   MAX_DOCUMENT_ARCHIVE_ENTRIES,
   MAX_DOCUMENT_ARCHIVE_EXPANDED_BYTES,
   MAX_DOCUMENT_PREVIEW_HTML_CHARS,
-} from "../src/renderer/components/openbot/document-preview-limits";
+} from "../src/renderer/components/openteam/document-preview-limits";
 
 const syntheticZip = (expandedSizes: readonly number[]): ArrayBuffer => {
   const directorySize = expandedSizes.length * 46;

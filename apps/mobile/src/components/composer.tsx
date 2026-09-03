@@ -1,21 +1,21 @@
-import { MAX_PARALLEL_UPLOADS, mapWithConcurrency } from "@openbot/client-core/async";
-import type { AssetRef, ClientCapabilities } from "@openbot/contracts";
-import { CLIENT_CAPABILITIES } from "@openbot/contracts/capabilities";
-import { isCameraAvailable } from "@openbot/mobile-native";
+import { MAX_PARALLEL_UPLOADS, mapWithConcurrency } from "@openteam/client-core/async";
+import type { AssetRef, ClientCapabilities } from "@openteam/contracts";
+import { CLIENT_CAPABILITIES } from "@openteam/contracts/capabilities";
+import { isCameraAvailable } from "@openteam/mobile-native";
 import {
   attachmentByteLimit,
   attachmentOverflowMessage,
   firstOversizedAttachment,
   formatAttachmentBytes,
   remainingAttachmentCapacity,
-} from "@openbot/product-core/attachments";
-import type { DurableStagedAttachment } from "@openbot/product-core/durable-delivery";
+} from "@openteam/product-core/attachments";
+import type { DurableStagedAttachment } from "@openteam/product-core/durable-delivery";
 import {
   filterMentionOptions,
   insertPlainTextMention,
   type MentionOption,
-} from "@openbot/product-core/mentions";
-import { clientErrorMessage } from "@openbot/product-core/redaction";
+} from "@openteam/product-core/mentions";
+import { clientErrorMessage } from "@openteam/product-core/redaction";
 import * as DocumentPicker from "expo-document-picker";
 import * as Haptics from "expo-haptics";
 import * as ImagePicker from "expo-image-picker";

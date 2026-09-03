@@ -1,34 +1,34 @@
 import {
-  assessOpenBotAuthSession,
+  assessOpenTeamAuthSession,
   createAuthSnapshotStore,
-  createOpenBotAuthClient,
+  createOpenTeamAuthClient,
   normalizeBaseUrl,
-  type OpenBotAuthSnapshot,
-  type OpenBotAuthUser,
-  OpenBotClientError,
+  type OpenTeamAuthSnapshot,
+  type OpenTeamAuthUser,
+  OpenTeamClientError,
   parseAuthUser,
-} from "@openbot/client-core";
+} from "@openteam/client-core";
 import { resolveConfiguredApiBase } from "./runtime-url";
 
 export type {
-  OpenBotAuthConnection,
-  OpenBotAuthMode,
-  OpenBotAuthSnapshot,
-  OpenBotAuthStatus,
-  OpenBotAuthUser,
-} from "@openbot/client-core";
-export { parseAuthUser } from "@openbot/client-core";
+  OpenTeamAuthConnection,
+  OpenTeamAuthMode,
+  OpenTeamAuthSnapshot,
+  OpenTeamAuthStatus,
+  OpenTeamAuthUser,
+} from "@openteam/client-core";
+export { parseAuthUser } from "@openteam/client-core";
 
 const API_BASE = resolveConfiguredApiBase(
   window.location.href,
   localStorage,
-  import.meta.env.VITE_OPENBOT_API_URL
+  import.meta.env.VITE_OPENTEAM_API_URL
 );
-const LEGACY_TOKEN_KEY = "openbot:auth-token";
-const USER_KEY = "openbot:auth-user";
-export const AUTH_REQUIRED_EVENT = "openbot:auth-required";
+const LEGACY_TOKEN_KEY = "openteam:auth-token";
+const USER_KEY = "openteam:auth-user";
+export const AUTH_REQUIRED_EVENT = "openteam:auth-required";
 
-const readCachedUser = (): OpenBotAuthUser | null => {
+const readCachedUser = (): OpenTeamAuthUser | null => {
   try {
     return parseAuthUser(JSON.parse(localStorage.getItem(USER_KEY) ?? "null"));
   } catch {
@@ -36,7 +36,7 @@ const readCachedUser = (): OpenBotAuthUser | null => {
   }
 };
 
-const cacheUser = (user: OpenBotAuthUser | null): void => {
+const cacheUser = (user: OpenTeamAuthUser | null): void => {
   if (user) localStorage.setItem(USER_KEY, JSON.stringify(user));
   else localStorage.removeItem(USER_KEY);
 };
@@ -57,10 +57,10 @@ let legacyToken: string | null = localStorage.getItem(LEGACY_TOKEN_KEY);
 localStorage.removeItem(LEGACY_TOKEN_KEY);
 let credentialGeneration = 0;
 let tokenReadRequest: Promise<string | null> | null = null;
-let refreshRequest: Promise<OpenBotAuthSnapshot> | null = null;
+let refreshRequest: Promise<OpenTeamAuthSnapshot> | null = null;
 
-const authClient = (baseUrl = API_BASE) => createOpenBotAuthClient({ baseUrl });
-const authBridge = () => window.openbot?.auth;
+const authClient = (baseUrl = API_BASE) => createOpenTeamAuthClient({ baseUrl });
+const authBridge = () => window.openteam?.auth;
 
 const loadAuthToken = (): Promise<string | null> => {
   if (token) return Promise.resolve(token);
@@ -127,11 +127,11 @@ export const authHeaders = (): HeadersInit => {
   return currentToken ? { authorization: `Bearer ${currentToken}` } : {};
 };
 
-export const refreshAuthSession = (): Promise<OpenBotAuthSnapshot> => {
+export const refreshAuthSession = (): Promise<OpenTeamAuthSnapshot> => {
   if (refreshRequest) return refreshRequest;
   authStore.publish({ ...authStore.getSnapshot(), status: "checking", error: null });
   refreshRequest = (async () => {
-    const assessment = await assessOpenBotAuthSession({
+    const assessment = await assessOpenTeamAuthSession({
       client: authClient(),
       loadToken: loadAuthToken,
     });
@@ -154,26 +154,28 @@ export const refreshAuthSession = (): Promise<OpenBotAuthSnapshot> => {
   return refreshRequest;
 };
 
-export const signIn = async (username: string, password: string): Promise<OpenBotAuthSnapshot> => {
+export const signIn = async (username: string, password: string): Promise<OpenTeamAuthSnapshot> => {
   const result = await authClient().signIn(username, password);
   await persistAuthToken(result.token);
   cacheUser(result.user);
   return refreshAuthSession();
 };
 
-export interface OpenBotServerConnection {
+export interface OpenTeamServerConnection {
   baseUrl: string;
   mode: "required" | "disabled";
 }
 
-export const testServerConnection = async (serverUrl: string): Promise<OpenBotServerConnection> => {
+export const testServerConnection = async (
+  serverUrl: string
+): Promise<OpenTeamServerConnection> => {
   const baseUrl = normalizeBaseUrl(serverUrl);
   try {
     return { baseUrl, mode: await authClient(baseUrl).validateServer() };
   } catch (cause) {
-    if (cause instanceof OpenBotClientError && cause.code === "offline") {
+    if (cause instanceof OpenTeamClientError && cause.code === "offline") {
       throw new Error(
-        "Could not reach this OpenBot server. Check the endpoint and your connection."
+        "Could not reach this OpenTeam server. Check the endpoint and your connection."
       );
     }
     throw cause;

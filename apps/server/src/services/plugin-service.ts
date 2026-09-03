@@ -9,21 +9,21 @@ import type {
   PluginInstallView,
   PluginSettingsView,
   SetPluginToolPolicyInput,
-} from "@openbot/contracts";
+} from "@openteam/contracts";
 import {
   ApiError,
   PLUGIN_BOT_ACCESS_PAGE_SIZE,
   PLUGIN_BOT_ACCESS_QUERY_MAX_LENGTH,
   PLUGIN_CONNECTION_ID_MAX_LENGTH,
   PLUGIN_CONNECTION_STATUS_MAX_IDS,
-} from "@openbot/contracts";
-import type { Prisma, PrismaClient } from "@openbot/db";
-import type { AgentDataStore } from "@openbot/messaging";
+} from "@openteam/contracts";
+import type { Prisma, PrismaClient } from "@openteam/db";
+import type { AgentDataStore } from "@openteam/messaging";
 import { Effect } from "effect";
 import type { PluginDefinition, PluginToolDefinition } from "../plugins/catalog";
 import { McpHttpClientManager } from "../plugins/mcp-client-manager";
-import { OpenBotOAuthProvider, type StoredOAuthState } from "../plugins/oauth-provider";
-import { OpenBotMarketplaceSource } from "../plugins/openbot-marketplace";
+import { OpenTeamOAuthProvider, type StoredOAuthState } from "../plugins/oauth-provider";
+import { OpenTeamMarketplaceSource } from "../plugins/openteam-marketplace";
 import { appendEvent, toError, toJson } from "./service-utils";
 
 type JsonObject = Record<string, unknown>;
@@ -171,7 +171,7 @@ export const boundPluginResult = (value: unknown, depth = 0): unknown => {
     entries.map(([key, nested]) => [key, boundPluginResult(nested, depth + 1)])
   );
   if (Object.keys(value as JsonObject).length > entries.length) {
-    object._openbotOmitted = "Additional object fields were omitted";
+    object._openteamOmitted = "Additional object fields were omitted";
   }
   return object;
 };
@@ -283,9 +283,9 @@ const definitionFromManifest = (value: unknown): PluginDefinition | undefined =>
 
 export class PluginService {
   private readonly http = new McpHttpClientManager();
-  private readonly marketplace = new OpenBotMarketplaceSource();
+  private readonly marketplace = new OpenTeamMarketplaceSource();
   private readonly publicUrl =
-    process.env.OPENBOT_PUBLIC_URL ?? `http://127.0.0.1:${process.env.OPENBOT_PORT ?? "8787"}`;
+    process.env.OPENTEAM_PUBLIC_URL ?? `http://127.0.0.1:${process.env.OPENTEAM_PORT ?? "8787"}`;
 
   constructor(
     private readonly prisma: PrismaClient,
@@ -810,7 +810,7 @@ export class PluginService {
             arguments: redact(request.arguments),
             rawArguments: request.arguments,
             botId: request.botId,
-            effect: `Confirm ${request.action} in OpenBot. Changes are available on the next bot turn.`,
+            effect: `Confirm ${request.action} in OpenTeam. Changes are available on the next bot turn.`,
           }),
         },
       });
@@ -1882,19 +1882,19 @@ export class PluginService {
       typeof configuration.clientId === "string"
         ? configuration.clientId
         : (process.env[
-            `OPENBOT_${connection.connectorKey.toUpperCase().replaceAll("-", "_")}_OAUTH_CLIENT_ID`
-          ] ?? process.env.OPENBOT_MCP_OAUTH_CLIENT_ID);
+            `OPENTEAM_${connection.connectorKey.toUpperCase().replaceAll("-", "_")}_OAUTH_CLIENT_ID`
+          ] ?? process.env.OPENTEAM_MCP_OAUTH_CLIENT_ID);
     const clientSecret =
       typeof configuration.clientSecret === "string"
         ? configuration.clientSecret
         : (process.env[
-            `OPENBOT_${connection.connectorKey.toUpperCase().replaceAll("-", "_")}_OAUTH_CLIENT_SECRET`
-          ] ?? process.env.OPENBOT_MCP_OAUTH_CLIENT_SECRET);
+            `OPENTEAM_${connection.connectorKey.toUpperCase().replaceAll("-", "_")}_OAUTH_CLIENT_SECRET`
+          ] ?? process.env.OPENTEAM_MCP_OAUTH_CLIENT_SECRET);
     const clientInformation: OAuthClientInformationMixed | undefined = clientId
       ? { client_id: clientId, ...(clientSecret ? { client_secret: clientSecret } : {}) }
       : undefined;
     const callbackUrl = this.oauthRedirectUrl(connection.id);
-    const provider = new OpenBotOAuthProvider({
+    const provider = new OpenTeamOAuthProvider({
       redirectUrl: callbackUrl,
       scope: typeof configuration.scope === "string" ? configuration.scope : undefined,
       initial: oauth,

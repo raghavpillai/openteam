@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { Check, Copy } from "./icons";
 
-export const INSTALL_COMMAND = "bunx --bun @openbot/cli install";
+export const INSTALL_COMMAND = "bunx --bun @openteam/cli install";
 
 export function InstallCommand({ size = "lg" }: { size?: "lg" | "md" }) {
   const [copied, setCopied] = useState(false);

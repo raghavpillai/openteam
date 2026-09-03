@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createOpenBotClient } from "@openbot/client-core";
+import { createOpenTeamClient } from "@openteam/client-core";
 import { coordinatePushRetirement } from "../src/push-retirement";
 
 const deferred = () => {
@@ -22,8 +22,8 @@ describe("push retirement ordering", () => {
     const registerStarted = deferred();
     const calls: Array<{ authorization: string | null; method: string }> = [];
     let enabled = false;
-    const client = createOpenBotClient({
-      baseUrl: "https://first.openbot.test",
+    const client = createOpenTeamClient({
+      baseUrl: "https://first.openteam.test",
       getAuthToken: () => "captured-first-token",
       fetch: (async (_url: string | URL | Request, init?: RequestInit) => {
         const method = init?.method ?? "GET";
@@ -66,8 +66,8 @@ describe("push retirement ordering", () => {
     const registerStarted = deferred();
     const calls: string[] = [];
     let enabled = false;
-    const client = createOpenBotClient({
-      baseUrl: "https://slow.openbot.test",
+    const client = createOpenTeamClient({
+      baseUrl: "https://slow.openteam.test",
       getAuthToken: () => "captured-slow-token",
       fetch: (async (_url: string | URL | Request, init?: RequestInit) => {
         const method = init?.method ?? "GET";

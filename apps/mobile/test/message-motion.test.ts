@@ -6,7 +6,7 @@ test("iOS message motion preserves Grokbot entrance and acknowledgement semantic
   const [bubble, route, context, theme, themeTokens, deliveryPolicy] = await Promise.all([
     source("src/components/message-bubble.tsx"),
     source("app/chat/[channelId].tsx"),
-    source("src/state/openbot-context.tsx"),
+    source("src/state/openteam-context.tsx"),
     source("src/theme.ts"),
     Bun.file(
       new URL("../../../packages/design-tokens/src/mobile-theme.ts", import.meta.url)
@@ -50,7 +50,7 @@ test("iOS message motion preserves Grokbot entrance and acknowledgement semantic
   );
   expect(bubble).toContain("content: { fontSize: 16, lineHeight: 22, letterSpacing: -0.15 }");
   expect(route).toContain("paddingHorizontal: 14");
-  expect(theme).toContain('from "@openbot/design-tokens/mobile-theme"');
+  expect(theme).toContain('from "@openteam/design-tokens/mobile-theme"');
   expect(themeTokens).toContain('userBubble: "#0A0A0A"');
   expect(themeTokens).toContain('assistantBubble: "#F1F1EF"');
 });

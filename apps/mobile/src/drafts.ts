@@ -1,5 +1,5 @@
-import type { AssetRef } from "@openbot/contracts";
-import type { DurableStagedAttachment } from "@openbot/product-core/durable-delivery";
+import type { AssetRef } from "@openteam/contracts";
+import type { DurableStagedAttachment } from "@openteam/product-core/durable-delivery";
 import * as FileSystem from "expo-file-system/legacy";
 
 export interface ConversationDraft {

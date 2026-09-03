@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { AgentDataStore } from "@openbot/messaging";
+import { AgentDataStore } from "@openteam/messaging";
 import { AUTOMATION_RECONCILE_BATCH_SIZE, WakeWorker } from "../src/worker";
 
 const uuidAt = (index: number): string =>
@@ -25,7 +25,7 @@ describe("bounded periodic reconciliation", () => {
         await work({ $executeRaw: async () => 0 });
       },
     };
-    const store = new AgentDataStore(prisma as never, { root: "/tmp/openbot-bounded-sweep" });
+    const store = new AgentDataStore(prisma as never, { root: "/tmp/openteam-bounded-sweep" });
     Object.defineProperty(store, "reconcileAutomations", {
       value: async (_tx: unknown, botId: string) => {
         reconciled.push(botId);

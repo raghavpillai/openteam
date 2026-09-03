@@ -1,4 +1,4 @@
-import { ApiError } from "@openbot/contracts";
+import { ApiError } from "@openteam/contracts";
 import { Schema } from "effect";
 
 export const corsHeaders = {

@@ -1,20 +1,20 @@
-name: openbot
+name: openteam
 
 services:
   postgres:
     image: postgres:17-alpine@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73
     environment:
-      POSTGRES_DB: openbot
-      POSTGRES_USER: openbot
-      POSTGRES_PASSWORD: openbot-local-only
+      POSTGRES_DB: openteam
+      POSTGRES_USER: openteam
+      POSTGRES_PASSWORD: openteam-local-only
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U openbot -d openbot"]
+      test: ["CMD-SHELL", "pg_isready -U openteam -d openteam"]
       interval: 2s
       timeout: 3s
       retries: 30
     restart: unless-stopped
     volumes:
-      - openbot_postgres:/var/lib/postgresql/data
+      - openteam_postgres:/var/lib/postgresql/data
 
   migrate:
     build:
@@ -22,7 +22,7 @@ services:
       dockerfile: docker/app.Dockerfile
       target: migrate
     environment:
-      DATABASE_URL: postgresql://openbot:openbot-local-only@postgres:5432/openbot
+      DATABASE_URL: postgresql://openteam:openteam-local-only@postgres:5432/openteam
     depends_on:
       postgres:
         condition: service_healthy
@@ -33,7 +33,7 @@ services:
     command: ["sh", "-c", "chown -R 1000:1000 /sand-data && chmod -R g+rwX /sand-data && chmod 0770 /sand-data"]
     restart: "no"
     volumes:
-      - openbot_agent_data:/sand-data
+      - openteam_agent_data:/sand-data
 
   asset-store-init:
     image: alpine:3.22@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce
@@ -42,10 +42,10 @@ services:
       - -c
       - >-
         mkdir -p /asset-store &&
-        if [ -d /sand-data/.openbot ]; then
-          migrated=/asset-store/legacy-agent-data-openbot-$(date +%s) &&
-          cp -a /sand-data/.openbot "$$migrated" &&
-          rm -rf /sand-data/.openbot;
+        if [ -d /sand-data/.openteam ]; then
+          migrated=/asset-store/legacy-agent-data-openteam-$(date +%s) &&
+          cp -a /sand-data/.openteam "$$migrated" &&
+          rm -rf /sand-data/.openteam;
         fi &&
         chown -R 1000:1000 /asset-store && chmod 0700 /asset-store
     depends_on:
@@ -53,8 +53,8 @@ services:
         condition: service_completed_successfully
     restart: "no"
     volumes:
-      - openbot_agent_data:/sand-data
-      - openbot_assets:/asset-store
+      - openteam_agent_data:/sand-data
+      - openteam_assets:/asset-store
 
   computer-home-init:
     image: alpine:3.22@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce
@@ -65,7 +65,7 @@ services:
         chown -R 1000:1000 /home/box && chmod -R g+rwX /home/box && chmod 0770 /home/box &&
         if [ -d /home/box/agent-data ] && [ ! -L /home/box/agent-data ]; then
           cp -a /home/box/agent-data/. /home/box/sand-data/ &&
-          mv /home/box/agent-data /home/box/.openbot-agent-data-pre-sand-migration;
+          mv /home/box/agent-data /home/box/.openteam-agent-data-pre-sand-migration;
         fi &&
         if [ ! -L /home/box/agent-data ]; then ln -s /home/box/sand-data /home/box/agent-data; fi &&
         chown -h 0:0 /home/box/agent-data &&
@@ -75,41 +75,41 @@ services:
         fi
     restart: "no"
     volumes:
-      - openbot_computer_home:/home/box
-      - openbot_agent_data:/home/box/sand-data
+      - openteam_computer_home:/home/box
+      - openteam_agent_data:/home/box/sand-data
 
   box-store-init:
     image: alpine:3.22@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce
     command: ["sh", "-c", "chown -R 1000:1000 /box-store && chmod 0700 /box-store"]
     restart: "no"
     volumes:
-      - openbot_box_store:/box-store
+      - openteam_box_store:/box-store
 
   workspace-init:
     image: alpine:3.22@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce
     command: ["sh", "-c", "chown -R 1000:1000 /workspace && chmod -R g+rwX /workspace && chmod 0770 /workspace"]
     restart: "no"
     volumes:
-      - openbot_workspace:/workspace
+      - openteam_workspace:/workspace
 
   computer:
     build:
       context: .
       dockerfile: docker/computer.Dockerfile
-    hostname: openbot
+    hostname: openteam
     environment:
-      OPENBOT_COMPUTER_PORT: 8790
-      OPENBOT_CONTROL_TOKEN: ${OPENBOT_CONTROL_TOKEN:-local-compose-only-change-me}
-      OPENBOT_WORKSPACE_ROOT: /workspace
-      OPENBOT_TIME_ZONE: ${OPENBOT_TIME_ZONE:-UTC}
-      OPENBOT_SERVER_URL: http://server:8787
-      OPENBOT_PI_AGENT_DIR: /home/box/.pi/agent
-      OPENBOT_AGENT_UID: 1001
-      OPENBOT_AGENT_GID: 1000
-      OPENBOT_AGENT_DATA_ROOT: /home/box/agent-data
-      OPENBOT_AGENT_DATA_CANONICAL_ROOT: /home/box/sand-data
-      OPENBOT_BOX_STORE_ROOT: /box-store
-      OPENBOT_BOX_COPY_IN: ${OPENBOT_BOX_COPY_IN:-0}
+      OPENTEAM_COMPUTER_PORT: 8790
+      OPENTEAM_CONTROL_TOKEN: ${OPENTEAM_CONTROL_TOKEN:-local-compose-only-change-me}
+      OPENTEAM_WORKSPACE_ROOT: /workspace
+      OPENTEAM_TIME_ZONE: ${OPENTEAM_TIME_ZONE:-UTC}
+      OPENTEAM_SERVER_URL: http://server:8787
+      OPENTEAM_PI_AGENT_DIR: /home/box/.pi/agent
+      OPENTEAM_AGENT_UID: 1001
+      OPENTEAM_AGENT_GID: 1000
+      OPENTEAM_AGENT_DATA_ROOT: /home/box/agent-data
+      OPENTEAM_AGENT_DATA_CANONICAL_ROOT: /home/box/sand-data
+      OPENTEAM_BOX_STORE_ROOT: /box-store
+      OPENTEAM_BOX_COPY_IN: ${OPENTEAM_BOX_COPY_IN:-0}
     depends_on:
       agent-data-init:
         condition: service_completed_successfully
@@ -137,10 +137,10 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
-      - openbot_computer_home:/home/box
-      - openbot_agent_data:/home/box/sand-data
-      - openbot_workspace:/workspace
-      - openbot_box_store:/box-store
+      - openteam_computer_home:/home/box
+      - openteam_agent_data:/home/box/sand-data
+      - openteam_workspace:/workspace
+      - openteam_box_store:/box-store
 
   server:
     build:
@@ -148,20 +148,20 @@ services:
       dockerfile: docker/app.Dockerfile
       target: server
     environment:
-      OPENBOT_VERSION: ${OPENBOT_VERSION:-0.1.0}
-      DATABASE_URL: postgresql://openbot:openbot-local-only@postgres:5432/openbot
-      OPENBOT_PORT: 8787
-      OPENBOT_COMPUTER_URL: http://computer:8790
-      OPENBOT_CONTROL_TOKEN: ${OPENBOT_CONTROL_TOKEN:-local-compose-only-change-me}
-      OPENBOT_AUTH_SECRET: ${OPENBOT_AUTH_SECRET:-local-compose-auth-secret-change-me-now}
-      OPENBOT_AUTH_MODE: ${OPENBOT_AUTH_MODE:-required}
-      OPENBOT_WORKSPACE_ROOT: /workspace
-      OPENBOT_TIME_ZONE: ${OPENBOT_TIME_ZONE:-UTC}
-      OPENBOT_SCREEN_VIEWER_HOST: 127.0.0.1
-      OPENBOT_AGENT_DATA_ROOT: /home/box/agent-data
-      OPENBOT_ASSET_ROOT: /asset-store
-      OPENBOT_MEMORY_DREAMING: ${OPENBOT_MEMORY_DREAMING:-false}
-      OPENBOT_MARKETPLACE_FILE: ${OPENBOT_MARKETPLACE_FILE:-}
+      OPENTEAM_VERSION: ${OPENTEAM_VERSION:-0.1.0}
+      DATABASE_URL: postgresql://openteam:openteam-local-only@postgres:5432/openteam
+      OPENTEAM_PORT: 8787
+      OPENTEAM_COMPUTER_URL: http://computer:8790
+      OPENTEAM_CONTROL_TOKEN: ${OPENTEAM_CONTROL_TOKEN:-local-compose-only-change-me}
+      OPENTEAM_AUTH_SECRET: ${OPENTEAM_AUTH_SECRET:-local-compose-auth-secret-change-me-now}
+      OPENTEAM_AUTH_MODE: ${OPENTEAM_AUTH_MODE:-required}
+      OPENTEAM_WORKSPACE_ROOT: /workspace
+      OPENTEAM_TIME_ZONE: ${OPENTEAM_TIME_ZONE:-UTC}
+      OPENTEAM_SCREEN_VIEWER_HOST: 127.0.0.1
+      OPENTEAM_AGENT_DATA_ROOT: /home/box/agent-data
+      OPENTEAM_ASSET_ROOT: /asset-store
+      OPENTEAM_MEMORY_DREAMING: ${OPENTEAM_MEMORY_DREAMING:-false}
+      OPENTEAM_MARKETPLACE_FILE: ${OPENTEAM_MARKETPLACE_FILE:-}
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -178,9 +178,9 @@ services:
       retries: 30
     restart: unless-stopped
     volumes:
-      - openbot_agent_data:/home/box/agent-data
-      - openbot_assets:/asset-store
-      - openbot_workspace:/workspace:ro
+      - openteam_agent_data:/home/box/agent-data
+      - openteam_assets:/asset-store
+      - openteam_workspace:/workspace:ro
 
   worker:
     build:
@@ -188,17 +188,17 @@ services:
       dockerfile: docker/app.Dockerfile
       target: worker
     environment:
-      DATABASE_URL: postgresql://openbot:openbot-local-only@postgres:5432/openbot
-      OPENBOT_COMPUTER_URL: http://computer:8790
-      OPENBOT_CONTROL_TOKEN: ${OPENBOT_CONTROL_TOKEN:-local-compose-only-change-me}
-      OPENBOT_AUTH_MODE: ${OPENBOT_AUTH_MODE:-required}
+      DATABASE_URL: postgresql://openteam:openteam-local-only@postgres:5432/openteam
+      OPENTEAM_COMPUTER_URL: http://computer:8790
+      OPENTEAM_CONTROL_TOKEN: ${OPENTEAM_CONTROL_TOKEN:-local-compose-only-change-me}
+      OPENTEAM_AUTH_MODE: ${OPENTEAM_AUTH_MODE:-required}
       EXPO_ACCESS_TOKEN: ${EXPO_ACCESS_TOKEN:-}
-      OPENBOT_TIME_ZONE: ${OPENBOT_TIME_ZONE:-UTC}
-      OPENBOT_WORKER_CONCURRENCY: ${OPENBOT_WORKER_CONCURRENCY:-8}
-      OPENBOT_WORKSPACE_ROOT: /workspace
-      OPENBOT_AGENT_DATA_ROOT: /home/box/agent-data
-      OPENBOT_ASSET_ROOT: /asset-store
-      OPENBOT_MEMORY_DREAMING: ${OPENBOT_MEMORY_DREAMING:-false}
+      OPENTEAM_TIME_ZONE: ${OPENTEAM_TIME_ZONE:-UTC}
+      OPENTEAM_WORKER_CONCURRENCY: ${OPENTEAM_WORKER_CONCURRENCY:-8}
+      OPENTEAM_WORKSPACE_ROOT: /workspace
+      OPENTEAM_AGENT_DATA_ROOT: /home/box/agent-data
+      OPENTEAM_ASSET_ROOT: /asset-store
+      OPENTEAM_MEMORY_DREAMING: ${OPENTEAM_MEMORY_DREAMING:-false}
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -208,14 +208,14 @@ services:
         condition: service_healthy
     restart: unless-stopped
     volumes:
-      - openbot_agent_data:/home/box/agent-data
-      - openbot_assets:/asset-store
-      - openbot_workspace:/workspace:ro
+      - openteam_agent_data:/home/box/agent-data
+      - openteam_assets:/asset-store
+      - openteam_workspace:/workspace:ro
 
 volumes:
-  openbot_postgres:
-  openbot_computer_home:
-  openbot_agent_data:
-  openbot_assets:
-  openbot_workspace:
-  openbot_box_store:
+  openteam_postgres:
+  openteam_computer_home:
+  openteam_agent_data:
+  openteam_assets:
+  openteam_workspace:
+  openteam_box_store:

@@ -1,4 +1,4 @@
-import type { OpenBotClient } from "@openbot/client-core/client";
+import type { OpenTeamClient } from "@openteam/client-core/client";
 import Constants from "expo-constants";
 import * as Notifications from "expo-notifications";
 import * as SecureStore from "expo-secure-store";
@@ -8,7 +8,7 @@ import {
   foregroundNotificationBehavior,
 } from "./notification-policy";
 
-const INSTALLATION_KEY = "openbot.push-installation-id";
+const INSTALLATION_KEY = "openteam.push-installation-id";
 let activeChannelId: string | null = null;
 let installationIdInFlight: Promise<string> | null = null;
 type PushOperationGuard = () => boolean;
@@ -69,7 +69,7 @@ const installationId = async (): Promise<string> => {
     if (current) return current;
     const generated =
       globalThis.crypto?.randomUUID?.() ??
-      `openbot-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+      `openteam-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
     await SecureStore.setItemAsync(INSTALLATION_KEY, generated);
     return generated;
   })();
@@ -86,7 +86,7 @@ const installationId = async (): Promise<string> => {
 };
 
 const registerToken = async (
-  client: OpenBotClient,
+  client: OpenTeamClient,
   operationCurrent?: PushOperationGuard
 ): Promise<void> => {
   const configuredProjectId = projectId();
@@ -107,7 +107,7 @@ const registerToken = async (
 };
 
 export const unregisterPushInstallation = async (
-  client: OpenBotClient,
+  client: OpenTeamClient,
   operationCurrent?: PushOperationGuard
 ): Promise<void> => {
   const currentInstallationId = await SecureStore.getItemAsync(INSTALLATION_KEY);
@@ -116,7 +116,7 @@ export const unregisterPushInstallation = async (
 };
 
 export const synchronizePushRegistration = async (
-  client: OpenBotClient,
+  client: OpenTeamClient,
   requestPermission: boolean,
   operationCurrent?: PushOperationGuard
 ): Promise<NotificationPermissionState> => {
@@ -136,7 +136,7 @@ export const synchronizePushRegistration = async (
 };
 
 export const listenForPushTokenChanges = (
-  client: OpenBotClient,
+  client: OpenTeamClient,
   onError: (error: unknown) => void,
   operationCurrent?: PushOperationGuard,
   onOperation?: PushOperationObserver

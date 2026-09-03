@@ -14,7 +14,7 @@ afterEach(async () => {
 
 describe("safe transcript mirror", () => {
   test("atomically writes one private JSONL projection per bot", async () => {
-    home = await mkdtemp(join(tmpdir(), "openbot-transcript-"));
+    home = await mkdtemp(join(tmpdir(), "openteam-transcript-"));
     const mirror = new TranscriptMirror(home);
     const result = await mirror.replace({
       botId,
@@ -39,7 +39,7 @@ describe("safe transcript mirror", () => {
   });
 
   test("rejects path-shaped bot ids", async () => {
-    home = await mkdtemp(join(tmpdir(), "openbot-transcript-"));
+    home = await mkdtemp(join(tmpdir(), "openteam-transcript-"));
     const mirror = new TranscriptMirror(home);
     await expect(
       mirror.replace({ botId: "../../escape", generatedAt: new Date().toISOString(), events: [] })

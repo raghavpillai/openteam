@@ -1,7 +1,7 @@
 import { lstat, readFile, realpath } from "node:fs/promises";
 import { extname, join, relative, sep } from "node:path";
-import { ApiError, type ScreenActionInput, type ScreenStatusView } from "@openbot/contracts";
-import type { PrismaClient } from "@openbot/db";
+import { ApiError, type ScreenActionInput, type ScreenStatusView } from "@openteam/contracts";
+import type { PrismaClient } from "@openteam/db";
 import { Effect } from "effect";
 
 interface ComputerScreenStatus {
@@ -37,7 +37,7 @@ export const screenViewerUrl = (
     path: "websockify",
   });
   const credential = new URLSearchParams({ password: viewerPassword });
-  return `http://${host}:${viewerPort}/openbot.html?${query}#${credential}`;
+  return `http://${host}:${viewerPort}/openteam.html?${query}#${credential}`;
 };
 
 export class ScreenService {

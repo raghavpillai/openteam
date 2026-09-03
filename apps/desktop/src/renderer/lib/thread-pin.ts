@@ -1,6 +1,6 @@
-import type { ChannelMessageView } from "@openbot/contracts";
-import { compareEntitySequence } from "@openbot/product-core/history";
-import { messageRetainedByteSize } from "@openbot/product-core/message-window";
+import type { ChannelMessageView } from "@openteam/contracts";
+import { compareEntitySequence } from "@openteam/product-core/history";
+import { messageRetainedByteSize } from "@openteam/product-core/message-window";
 
 export const THREAD_TRAY_PIN_MAX_MESSAGES = 100;
 export const THREAD_TRAY_PIN_MAX_RETAINED_BYTES = 512 * 1024;

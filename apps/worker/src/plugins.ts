@@ -1,5 +1,5 @@
-import type { PluginDynamicNamespace } from "@openbot/contracts";
-import type { PrismaClient } from "@openbot/db";
+import type { PluginDynamicNamespace } from "@openteam/contracts";
+import type { PrismaClient } from "@openteam/db";
 
 type JsonObject = Record<string, unknown>;
 

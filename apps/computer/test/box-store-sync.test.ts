@@ -15,7 +15,7 @@ afterEach(async () => {
 
 describe("Grok-compatible box-store synchronization", () => {
   test("stat reuse detects same-size content changes even when mtime is restored", async () => {
-    root = await mkdtemp(join(tmpdir(), "openbot-box-store-signature-safety-"));
+    root = await mkdtemp(join(tmpdir(), "openteam-box-store-signature-safety-"));
     const home = join(root, "home");
     const sandRoot = join(home, "sand-data");
     const workspaceRoot = join(root, "workspace");
@@ -42,7 +42,7 @@ describe("Grok-compatible box-store synchronization", () => {
   });
 
   test("coalesces a burst during an active snapshot into one merged rerun", async () => {
-    root = await mkdtemp(join(tmpdir(), "openbot-box-store-coalescing-"));
+    root = await mkdtemp(join(tmpdir(), "openteam-box-store-coalescing-"));
     let signalStarted: (() => void) | undefined;
     const started = new Promise<void>((resolve) => {
       signalStarted = resolve;
@@ -100,7 +100,7 @@ describe("Grok-compatible box-store synchronization", () => {
   });
 
   test("partial snapshots preserve clean roots and retain exact deletion tombstones", async () => {
-    root = await mkdtemp(join(tmpdir(), "openbot-box-store-dirty-paths-"));
+    root = await mkdtemp(join(tmpdir(), "openteam-box-store-dirty-paths-"));
     const sourceHome = join(root, "source-home");
     const sourceSand = join(sourceHome, "sand-data");
     const sourceWorkspace = join(root, "source-workspace");
@@ -169,7 +169,7 @@ describe("Grok-compatible box-store synchronization", () => {
   });
 
   test("snapshotting an unstarted agent store does not create WAL sidecars", async () => {
-    root = await mkdtemp(join(tmpdir(), "openbot-box-store-unstarted-"));
+    root = await mkdtemp(join(tmpdir(), "openteam-box-store-unstarted-"));
     const sourceHome = join(root, "source-home");
     const sourceSand = join(sourceHome, "sand-data");
     const sourceWorkspace = join(root, "source-workspace");
@@ -193,7 +193,7 @@ describe("Grok-compatible box-store synchronization", () => {
   });
 
   test("snapshots WAL databases with VACUUM and hydrates by hash without pruning extras", async () => {
-    root = await mkdtemp(join(tmpdir(), "openbot-box-store-"));
+    root = await mkdtemp(join(tmpdir(), "openteam-box-store-"));
     const sourceHome = join(root, "source-home");
     const sourceSand = join(sourceHome, "sand-data");
     const sourceWorkspace = join(root, "source-workspace");
@@ -289,7 +289,7 @@ describe("Grok-compatible box-store synchronization", () => {
   });
 
   test("propagates tombstones, recursively repairs transfer temps, and refuses live DB clobbers", async () => {
-    root = await mkdtemp(join(tmpdir(), "openbot-box-store-recovery-"));
+    root = await mkdtemp(join(tmpdir(), "openteam-box-store-recovery-"));
     const sourceHome = join(root, "source-home");
     const sourceSand = join(sourceHome, "sand-data");
     const sourceWorkspace = join(root, "source-workspace");

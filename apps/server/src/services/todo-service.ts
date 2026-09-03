@@ -1,5 +1,5 @@
-import { ApiError, TODO_MAX_ITEMS, type TodoWriteInput } from "@openbot/contracts";
-import type { PrismaClient } from "@openbot/db";
+import { ApiError, TODO_MAX_ITEMS, type TodoWriteInput } from "@openteam/contracts";
+import type { PrismaClient } from "@openteam/db";
 import { appendEvent } from "./service-utils";
 
 export const uniqueTodoInputs = (todos: TodoWriteInput["todos"]) => {

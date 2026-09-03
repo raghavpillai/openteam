@@ -1,4 +1,4 @@
-import type { ProductEvent } from "@openbot/contracts";
+import type { ProductEvent } from "@openteam/contracts";
 import type { ProductEventHandlers } from "./events";
 
 export const LIVE_SYNC_DEBOUNCE_MS = 50;

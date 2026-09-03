@@ -16,7 +16,7 @@ describe("computer-scoped native browser profile authority", () => {
   });
 
   test("publishes stopped-profile state and hydrates a new bot profile", async () => {
-    home = await mkdtemp(join(tmpdir(), "openbot-browser-profile-"));
+    home = await mkdtemp(join(tmpdir(), "openteam-browser-profile-"));
     const alpha = join(home, "chrome-profile");
     const beta = join(home, "chrome-profile-2");
     await mkdir(join(alpha, "Default", "Extensions", "probe"), { recursive: true });
@@ -49,7 +49,7 @@ describe("computer-scoped native browser profile authority", () => {
   });
 
   test("does not let an older dormant profile replace an existing authority", async () => {
-    home = await mkdtemp(join(tmpdir(), "openbot-browser-profile-seed-"));
+    home = await mkdtemp(join(tmpdir(), "openteam-browser-profile-seed-"));
     const alpha = join(home, "chrome-profile");
     const staleBeta = join(home, "chrome-profile-2");
     const gamma = join(home, "chrome-profile-3");

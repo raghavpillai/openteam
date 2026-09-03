@@ -1,7 +1,7 @@
-import type { RoutineExecutionView, RoutineView } from "@openbot/contracts";
-import { routineScheduleEditMode, routineSchedulePatch } from "@openbot/product-core/routines";
-import { clientErrorMessage } from "@openbot/product-core/redaction";
-import { hasTransientRoutineExecution } from "@openbot/product-core/statuses";
+import type { RoutineExecutionView, RoutineView } from "@openteam/contracts";
+import { routineScheduleEditMode, routineSchedulePatch } from "@openteam/product-core/routines";
+import { clientErrorMessage } from "@openteam/product-core/redaction";
+import { hasTransientRoutineExecution } from "@openteam/product-core/statuses";
 import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -18,7 +18,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useOpenBot } from "../state/openbot-context";
+import { useOpenTeam } from "../state/openteam-context";
 import { useTheme } from "../theme";
 
 const executionDate = new Intl.DateTimeFormat(undefined, {
@@ -45,7 +45,7 @@ export function RoutineEditorSheet({
 }) {
   const theme = useTheme();
   const { createRoutine, deleteRoutine, routineExecutions, runRoutineNow, updateRoutine } =
-    useOpenBot();
+    useOpenTeam();
   const [name, setName] = useState("");
   const [prompt, setPrompt] = useState("");
   const [schedule, setSchedule] = useState("0 9 * * 1-5");
@@ -139,7 +139,7 @@ export function RoutineEditorSheet({
       onSaved(saved);
       onClose();
     } catch (cause) {
-      setError(clientErrorMessage(cause, "OpenBot could not save this routine."));
+      setError(clientErrorMessage(cause, "OpenTeam could not save this routine."));
     } finally {
       setSaving(false);
     }
@@ -156,7 +156,7 @@ export function RoutineEditorSheet({
         ...current.filter((item) => item.id !== execution.id),
       ]);
     } catch (cause) {
-      setError(clientErrorMessage(cause, "OpenBot could not run this routine."));
+      setError(clientErrorMessage(cause, "OpenTeam could not run this routine."));
     } finally {
       setRunning(false);
     }
@@ -240,7 +240,7 @@ export function RoutineEditorSheet({
               <View style={styles.switchCopy}>
                 <Text style={[styles.switchTitle, { color: theme.text }]}>Active</Text>
                 <Text style={[styles.switchDetail, { color: theme.textMuted }]}>
-                  OpenBot runs this automation at its next scheduled time.
+                  OpenTeam runs this automation at its next scheduled time.
                 </Text>
               </View>
               <Switch
@@ -321,7 +321,7 @@ export function RoutineEditorSheet({
                                 setError(
                                   clientErrorMessage(
                                     cause,
-                                    "OpenBot could not delete this routine."
+                                    "OpenTeam could not delete this routine."
                                   )
                                 )
                               ),

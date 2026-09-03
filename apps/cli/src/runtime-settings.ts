@@ -15,7 +15,7 @@ const internalSettingsUrl = (paths: InstallationPaths, suffix = ""): URL =>
 
 const controlToken = (paths: InstallationPaths): string => {
   const environment = parseEnvironment(readFileSync(paths.environment, "utf8"));
-  const token = environment.get("OPENBOT_CONTROL_TOKEN");
+  const token = environment.get("OPENTEAM_CONTROL_TOKEN");
   if (!token) throw new CliError("The installation control token is missing");
   return token;
 };

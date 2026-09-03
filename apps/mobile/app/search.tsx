@@ -3,7 +3,7 @@ import type {
   SearchCategory,
   SearchResultKind,
   SearchResultView,
-} from "@openbot/contracts";
+} from "@openteam/contracts";
 import {
   createSearchRequestGate,
   readSearchCache,
@@ -12,7 +12,7 @@ import {
   searchCacheKey,
   searchResultKindLabel,
   writeSearchCache,
-} from "@openbot/product-core/search";
+} from "@openteam/product-core/search";
 import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
@@ -36,7 +36,7 @@ import { IconButton } from "../src/components/icon-button";
 import { stageRoutineNavigation } from "../src/routine-route";
 import { normalizeMobileSearchQuery } from "../src/search";
 import { searchFailureMessage } from "../src/search-error";
-import { useOpenBot } from "../src/state/openbot-context";
+import { useOpenTeam } from "../src/state/openteam-context";
 import { type Theme, useTheme } from "../src/theme";
 
 type SearchSection = {
@@ -272,7 +272,7 @@ function SearchPage({
 export default function SearchScreen() {
   const theme = useTheme();
   const { width } = useWindowDimensions();
-  const { search, snapshot } = useOpenBot();
+  const { search, snapshot } = useOpenTeam();
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
   const [filterOpen, setFilterOpen] = useState(false);
@@ -450,7 +450,7 @@ export default function SearchScreen() {
         >
           <SymbolView name="magnifyingglass" size={17} tintColor={theme.textMuted} />
           <TextInput
-            accessibilityLabel="Search OpenBot"
+            accessibilityLabel="Search OpenTeam"
             autoCapitalize="none"
             autoCorrect={false}
             autoFocus

@@ -1,6 +1,6 @@
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
-import type { Prisma } from "@openbot/db";
+import type { Prisma } from "@openteam/db";
 import { parseDocument, stringify as stringifyYaml } from "yaml";
 import { atomicWrite, listDirectories, readText, uniqueSlug } from "./file-state";
 

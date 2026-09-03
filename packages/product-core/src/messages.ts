@@ -4,7 +4,7 @@ import type {
   BotView,
   ChannelMessageView,
   ChannelView,
-} from "@openbot/contracts";
+} from "@openteam/contracts";
 import type { DurableStagedAttachment } from "./durable-delivery";
 import { shouldShowIdleGapTimestamp } from "./timestamps";
 

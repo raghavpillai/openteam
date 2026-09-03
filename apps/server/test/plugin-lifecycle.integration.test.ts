@@ -1,10 +1,10 @@
 import { expect, test } from "bun:test";
-import { createPrismaClient } from "@openbot/db";
+import { createPrismaClient } from "@openteam/db";
 import { Effect } from "effect";
 import { PluginService } from "../src/services/plugin-service";
 import { RunService } from "../src/services/run-service";
 
-const databaseUrl = process.env.OPENBOT_TEST_DATABASE_URL;
+const databaseUrl = process.env.OPENTEAM_TEST_DATABASE_URL;
 
 test("plugin install, connection, grant, policy, discovery, call, and removal lifecycle", async () => {
   if (!databaseUrl) return;
@@ -46,7 +46,7 @@ test("plugin install, connection, grant, policy, discovery, call, and removal li
       },
     });
 
-    await Effect.runPromise(service.install("openbot-utility-lab"));
+    await Effect.runPromise(service.install("openteam-utility-lab"));
     const initial = await Effect.runPromise(service.settings());
     const connection = initial.installs[0]?.connections[0];
     if (!connection) throw new Error("Expected the installed plugin to expose a connection");
@@ -177,7 +177,7 @@ test("plugin install, connection, grant, policy, discovery, call, and removal li
     expect(await service.skillInstructions(botId)).toContain("source-led-research");
     expect(await service.skillInstructions(secondBotId)).toBe("");
 
-    await Effect.runPromise(service.uninstall("openbot-utility-lab"));
+    await Effect.runPromise(service.uninstall("openteam-utility-lab"));
     await Effect.runPromise(service.uninstall("research-playbook"));
     expect((await Effect.runPromise(service.settings())).installs).toHaveLength(0);
 

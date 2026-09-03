@@ -9,7 +9,7 @@ import {
   parseHostShellRequest,
   type HostApprovalRequest,
   type HostApprovalTokens,
-} from "@openbot/contracts/service-protocol";
+} from "@openteam/contracts/service-protocol";
 import { listenForHostBridge } from "./host-bridge-listener";
 import type { HostJobPayload } from "./host-job-protocol";
 import {
@@ -77,7 +77,7 @@ const localApprovalDecision = (
   const shell = action.surface === "hostShell";
   throw new HostApprovalRequired({
     gate: "local",
-    requestMethod: "openbot/localTool",
+    requestMethod: "openteam/localTool",
     details: {
       type: "localTool",
       gate: "local",
@@ -86,8 +86,8 @@ const localApprovalDecision = (
       machineId,
       machineLabel,
       effect: shell
-        ? "Allow OpenBot and all Bots to run commands on your local computer?"
-        : "Allow OpenBot and all Bots to read files on your local computer?",
+        ? "Allow OpenTeam and all Bots to run commands on your local computer?"
+        : "Allow OpenTeam and all Bots to read files on your local computer?",
       summary: action.summary,
       arguments: {
         ...(shell
@@ -143,7 +143,7 @@ const autoReviewApprovalDecision = (
   const read = action.surface === "hostRead";
   throw new HostApprovalRequired({
     gate: "auto-review",
-    requestMethod: "openbot/autoReview",
+    requestMethod: "openteam/autoReview",
     details: {
       type: "autoReview",
       gate: "auto-review",

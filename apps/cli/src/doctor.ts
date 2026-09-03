@@ -7,7 +7,7 @@ import {
 } from "node:fs";
 import { createServer } from "node:net";
 import type { EventEmitter } from "node:events";
-import { redactSensitiveText } from "@openbot/product-core/redaction";
+import { redactSensitiveText } from "@openteam/product-core/redaction";
 import { arch, freemem, totalmem } from "node:os";
 import { dirname } from "node:path";
 import type { InstallationPaths } from "./config";
@@ -95,7 +95,7 @@ export const runDoctor = async (
       : {
           level: "fail",
           label: "Platform",
-          detail: `${process.platform}/${machineArchitecture} is not supported by OpenBot images`,
+          detail: `${process.platform}/${machineArchitecture} is not supported by OpenTeam images`,
         }
   );
 
@@ -147,7 +147,7 @@ export const runDoctor = async (
     level: compose?.supported ? "pass" : "fail",
     label: "Docker Compose",
     detail: compose
-      ? `${compose.version}${compose.supported ? "" : `; OpenBot requires ${MINIMUM_COMPOSE_VERSION}+`}`
+      ? `${compose.version}${compose.supported ? "" : `; OpenTeam requires ${MINIMUM_COMPOSE_VERSION}+`}`
       : "not found",
   });
 
@@ -155,7 +155,7 @@ export const runDoctor = async (
     checks.push({
       level: "warn",
       label: "Installation",
-      detail: `OpenBot is not installed at ${paths.directory}`,
+      detail: `OpenTeam is not installed at ${paths.directory}`,
     });
     const unavailablePort = await portRangeAvailable("127.0.0.1");
     checks.push({
@@ -171,7 +171,7 @@ export const runDoctor = async (
     checks.push({
       level: manifest ? "pass" : "fail",
       label: "Installation",
-      detail: manifest ? `OpenBot ${manifest.version} at ${paths.directory}` : "manifest missing",
+      detail: manifest ? `OpenTeam ${manifest.version} at ${paths.directory}` : "manifest missing",
     });
     checks.push({
       level: environmentModeIsPrivate(paths) ? "pass" : "fail",
@@ -197,10 +197,10 @@ export const runDoctor = async (
     try {
       const values = parseEnvironment(readFileSync(paths.environment, "utf8"));
       const requiredSecrets = [
-        "OPENBOT_POSTGRES_PASSWORD",
-        "OPENBOT_CONTROL_TOKEN",
-        "OPENBOT_AUTH_SECRET",
-        "OPENBOT_PROXY_SECRET",
+        "OPENTEAM_POSTGRES_PASSWORD",
+        "OPENTEAM_CONTROL_TOKEN",
+        "OPENTEAM_AUTH_SECRET",
+        "OPENTEAM_PROXY_SECRET",
       ];
       const missingSecrets = requiredSecrets.filter((key) => (values.get(key)?.length ?? 0) < 32);
       checks.push({
@@ -216,13 +216,14 @@ export const runDoctor = async (
         label: "Owner account",
         detail: manifest?.ownerUsername
           ? `configured for ${manifest.ownerUsername}`
-          : "not configured; run openbot setup",
+          : "not configured; run openteam setup",
       });
-      const accessMode = values.get("OPENBOT_ACCESS_MODE") || "local";
-      const publicUrl = values.get("OPENBOT_PUBLIC_URL") || "";
-      const apiIsLoopback = values.get("OPENBOT_BIND_HOST") === "127.0.0.1";
+      const accessMode = values.get("OPENTEAM_ACCESS_MODE") || "local";
+      const publicUrl = values.get("OPENTEAM_PUBLIC_URL") || "";
+      const apiIsLoopback = values.get("OPENTEAM_BIND_HOST") === "127.0.0.1";
       const viewersAreLoopback =
-        (values.get("OPENBOT_VIEWER_BIND_HOST") || values.get("OPENBOT_BIND_HOST")) === "127.0.0.1";
+        (values.get("OPENTEAM_VIEWER_BIND_HOST") || values.get("OPENTEAM_BIND_HOST")) ===
+        "127.0.0.1";
       let exposure: DoctorCheck;
       if (accessMode === "https" || accessMode === "proxy") {
         exposure =
@@ -233,7 +234,7 @@ export const runDoctor = async (
                 detail:
                   accessMode === "https"
                     ? `public HTTPS through bundled Caddy at ${publicUrl}; internal ports are loopback-only`
-                    : `public HTTPS through an external proxy at ${publicUrl}; OpenBot ports are loopback-only`,
+                    : `public HTTPS through an external proxy at ${publicUrl}; OpenTeam ports are loopback-only`,
               }
             : {
                 level: "fail",
@@ -324,7 +325,7 @@ export const runDoctor = async (
     const health = await checkHealth(paths);
     checks.push({
       level: health.ok ? "pass" : "fail",
-      label: "OpenBot health",
+      label: "OpenTeam health",
       detail: health.ok ? `${health.detail} at ${health.url}` : `${health.url}: ${health.detail}`,
     });
     if (health.ok && health.inference) {
@@ -348,7 +349,7 @@ export const printDoctor = (result: DoctorResult): void => {
   }
   console.log(
     result.ok
-      ? "\nOpenBot doctor found no blocking problems."
-      : "\nOpenBot doctor found blocking problems."
+      ? "\nOpenTeam doctor found no blocking problems."
+      : "\nOpenTeam doctor found blocking problems."
   );
 };

@@ -111,7 +111,7 @@ class SetupRunner implements CommandRunner {
     if (this.failStartup && args.includes("up")) {
       return { status: 1, stdout: "", stderr: "startup failed" };
     }
-    const utility = args.indexOf("openbot-pi-auth");
+    const utility = args.indexOf("openteam-pi-auth");
     if (utility >= 0) {
       const action = args[utility + 1];
       if (action === "add-custom") {
@@ -161,12 +161,12 @@ class SetupRunner implements CommandRunner {
 }
 
 const providerAction = (call: SetupRunner["calls"][number]): string | undefined => {
-  const index = call.args.indexOf("openbot-pi-auth");
+  const index = call.args.indexOf("openteam-pi-auth");
   return index < 0 ? undefined : call.args[index + 1];
 };
 
 const createSetupFixture = (options: { authenticated?: boolean; owner?: boolean } = {}) => {
-  const directory = mkdtempSync(join(tmpdir(), "openbot-cli-provider-setup-"));
+  const directory = mkdtempSync(join(tmpdir(), "openteam-cli-provider-setup-"));
   temporaryDirectories.push(directory);
   const paths = installationPaths(directory);
   const state = {
@@ -199,12 +199,12 @@ const createSetupFixture = (options: { authenticated?: boolean; owner?: boolean 
   servers.push(server);
   const environment = replaceEnvironmentValue(
     createEnvironment({ version: "1.2.3", timeZone: "UTC" }),
-    "OPENBOT_API_PORT",
+    "OPENTEAM_API_PORT",
     String(server.port)
   );
   writeFileAtomic(
     paths.compose,
-    "name: openbot\nservices:\n  server:\n    image: example/server\n  computer:\n    image: example/computer\n"
+    "name: openteam\nservices:\n  server:\n    image: example/server\n  computer:\n    image: example/computer\n"
   );
   writeFileAtomic(paths.environment, environment);
   const now = new Date().toISOString();
@@ -212,7 +212,7 @@ const createSetupFixture = (options: { authenticated?: boolean; owner?: boolean 
     schemaVersion: 1,
     repository: "owner/repo",
     version: "1.2.3",
-    composeUrl: "https://example.com/openbot-compose.yaml",
+    composeUrl: "https://example.com/openteam-compose.yaml",
     installedAt: now,
     updatedAt: now,
     ownerUsername: options.owner === false ? undefined : "existing.owner",
@@ -255,8 +255,8 @@ describe("interactive setup", () => {
     const current = parseEnvironment(
       replaceEnvironmentValue(
         createEnvironment({ version: "1.2.3", timeZone: "UTC" }),
-        "OPENBOT_PUBLIC_HOST",
-        "openbot.lan"
+        "OPENTEAM_PUBLIC_HOST",
+        "openteam.lan"
       )
     );
     const prompter = new AnswerPrompter([
@@ -275,10 +275,10 @@ describe("interactive setup", () => {
       accessMode: "private",
       bindHost: "0.0.0.0",
       viewerBindHost: "0.0.0.0",
-      publicHost: "openbot.lan",
-      publicUrl: "http://openbot.lan:8787",
+      publicHost: "openteam.lan",
+      publicUrl: "http://openteam.lan:8787",
       composeProfiles: "direct",
-      ownerUsername: "openbot",
+      ownerUsername: "openteam",
       ownerPassword: "correct horse battery staple",
       apiPort: "8787",
       timeZone: "UTC",
@@ -296,8 +296,8 @@ describe("interactive setup", () => {
     const current = parseEnvironment(createEnvironment({ version: "1.2.3", timeZone: "UTC" }));
     const prompter = new AnswerPrompter([
       "private",
-      "https://openbot",
-      "openbot.lan",
+      "https://openteam",
+      "openteam.lan",
       "",
       "correct horse battery staple",
       "correct horse battery staple",
@@ -326,10 +326,10 @@ describe("interactive setup", () => {
       accessMode: "private",
       bindHost: "0.0.0.0",
       viewerBindHost: "0.0.0.0",
-      publicHost: "openbot.lan",
-      publicUrl: "http://openbot.lan:9444",
+      publicHost: "openteam.lan",
+      publicUrl: "http://openteam.lan:9444",
       composeProfiles: "direct",
-      ownerUsername: "openbot",
+      ownerUsername: "openteam",
       ownerPassword: "correct horse battery staple",
       apiPort: "9444",
       timeZone: "Europe/London",
@@ -558,7 +558,7 @@ describe("interactive setup", () => {
   });
 
   test("persists settings privately, restarts Compose, and delegates credentials to login", async () => {
-    const directory = mkdtempSync(join(tmpdir(), "openbot-cli-setup-"));
+    const directory = mkdtempSync(join(tmpdir(), "openteam-cli-setup-"));
     temporaryDirectories.push(directory);
     const paths = installationPaths(directory);
     let authenticated = false;
@@ -590,12 +590,12 @@ describe("interactive setup", () => {
 
     let original = replaceEnvironmentValue(
       createEnvironment({ version: "1.2.3", timeZone: "UTC" }),
-      "OPENBOT_API_PORT",
+      "OPENTEAM_API_PORT",
       String(server.port)
     );
     writeFileAtomic(
       paths.compose,
-      `name: openbot\nservices:\n  server:\n    image: example/openbot-server:\${OPENBOT_VERSION}\nvolumes:\n  openbot_workspace:\n`
+      `name: openteam\nservices:\n  server:\n    image: example/openteam-server:\${OPENTEAM_VERSION}\nvolumes:\n  openteam_workspace:\n`
     );
     writeFileAtomic(paths.environment, original);
     const now = new Date().toISOString();
@@ -603,7 +603,7 @@ describe("interactive setup", () => {
       schemaVersion: 1,
       repository: "owner/repo",
       version: "1.2.3",
-      composeUrl: "https://example.com/openbot-compose.yaml",
+      composeUrl: "https://example.com/openteam-compose.yaml",
       installedAt: now,
       updatedAt: now,
     });
@@ -630,18 +630,20 @@ describe("interactive setup", () => {
     const updatedContents = readFileSync(paths.environment, "utf8");
     const updated = parseEnvironment(updatedContents);
     const before = parseEnvironment(original);
-    expect(updated.get("OPENBOT_TIME_ZONE")).toBe("Europe/London");
-    expect(updated.has("OPENBOT_PI_PROVIDER")).toBe(false);
-    expect(updated.has("OPENBOT_PI_MODEL")).toBe(false);
-    expect(updated.has("OPENBOT_PI_THINKING")).toBe(false);
+    expect(updated.get("OPENTEAM_TIME_ZONE")).toBe("Europe/London");
+    expect(updated.has("OPENTEAM_PI_PROVIDER")).toBe(false);
+    expect(updated.has("OPENTEAM_PI_MODEL")).toBe(false);
+    expect(updated.has("OPENTEAM_PI_THINKING")).toBe(false);
     expect(inference).toEqual({
       providerId: "openai-codex",
       modelId: "gpt-5.5",
       reasoning: "xhigh",
     });
-    expect(updated.get("OPENBOT_WORKER_CONCURRENCY")).toBe("4");
-    expect(updated.get("OPENBOT_CONTROL_TOKEN")).toBe(before.get("OPENBOT_CONTROL_TOKEN"));
-    expect(updated.get("OPENBOT_POSTGRES_PASSWORD")).toBe(before.get("OPENBOT_POSTGRES_PASSWORD"));
+    expect(updated.get("OPENTEAM_WORKER_CONCURRENCY")).toBe("4");
+    expect(updated.get("OPENTEAM_CONTROL_TOKEN")).toBe(before.get("OPENTEAM_CONTROL_TOKEN"));
+    expect(updated.get("OPENTEAM_POSTGRES_PASSWORD")).toBe(
+      before.get("OPENTEAM_POSTGRES_PASSWORD")
+    );
     expect(updatedContents).not.toContain("OPENAI_API_KEY");
     if (process.platform !== "win32") expect(statSync(paths.environment).mode & 0o077).toBe(0);
 
@@ -655,7 +657,7 @@ describe("interactive setup", () => {
     expect(composeCalls.some((call) => call.args.includes("up"))).toBe(true);
     expect(
       composeCalls.some(
-        (call) => call.args.includes("openbot-pi-auth") && call.args.includes("login")
+        (call) => call.args.includes("openteam-pi-auth") && call.args.includes("login")
       )
     ).toBe(true);
     const ownerCall = composeCalls.find((call) => call.args.includes("owner-credentials"));
@@ -691,8 +693,8 @@ describe("interactive setup", () => {
     expect(login?.options?.input).toBe(`${apiKey}\n`);
     expect(runner.calls.flatMap((call) => call.args).join(" ")).not.toContain(apiKey);
     const environment = readFileSync(fixture.paths.environment, "utf8");
-    expect(environment).not.toContain("OPENBOT_PI_PROVIDER");
-    expect(environment).not.toContain("OPENBOT_PI_MODEL");
+    expect(environment).not.toContain("OPENTEAM_PI_PROVIDER");
+    expect(environment).not.toContain("OPENTEAM_PI_MODEL");
     expect(fixture.state.inference).toEqual({
       providerId: "openai",
       modelId: "gpt-5.5",
@@ -719,8 +721,8 @@ describe("interactive setup", () => {
     expect(login?.args).not.toContain("--no-TTY");
     expect(login?.options?.inherit).toBe(true);
     const environment = readFileSync(fixture.paths.environment, "utf8");
-    expect(environment).not.toContain("OPENBOT_PI_PROVIDER");
-    expect(environment).not.toContain("OPENBOT_PI_MODEL");
+    expect(environment).not.toContain("OPENTEAM_PI_PROVIDER");
+    expect(environment).not.toContain("OPENTEAM_PI_MODEL");
     expect(fixture.state.inference).toEqual({
       providerId: "anthropic",
       modelId: "claude-sonnet-5",
@@ -802,8 +804,8 @@ describe("interactive setup", () => {
     expect(runner.calls[loginIndex]?.options?.input).toBe(`${password}\n`);
     expect(runner.calls.flatMap((call) => call.args).join(" ")).not.toContain(password);
     const environment = readFileSync(fixture.paths.environment, "utf8");
-    expect(environment).not.toContain("OPENBOT_PI_PROVIDER");
-    expect(environment).not.toContain("OPENBOT_PI_MODEL");
+    expect(environment).not.toContain("OPENTEAM_PI_PROVIDER");
+    expect(environment).not.toContain("OPENTEAM_PI_MODEL");
     expect(fixture.state.inference).toEqual({
       providerId: "acme",
       modelId: "acme-chat",
@@ -823,7 +825,7 @@ describe("interactive setup", () => {
         { presentation: silentPresentation },
         new AnswerPrompter(["local", "openai", "not-a-real-model", "no", "yes"])
       )
-    ).rejects.toThrow("openbot model list openai");
+    ).rejects.toThrow("openteam model list openai");
 
     expect(readFileSync(fixture.paths.environment, "utf8")).toBe(fixture.environment);
     expect(runner.calls.some((call) => call.args.includes("up"))).toBe(false);
@@ -935,7 +937,7 @@ describe("interactive setup", () => {
         { presentation: silentPresentation },
         new AnswerPrompter(["local", "openai", "", "yes", apiKey, "yes"])
       )
-    ).rejects.toThrow("openbot provider login openai");
+    ).rejects.toThrow("openteam provider login openai");
 
     const login = runner.calls.find((call) => providerAction(call) === "login");
     expect(login?.options?.input).toBe(`${apiKey}\n`);
@@ -960,12 +962,12 @@ describe("interactive setup", () => {
   });
 
   test("password reset passes the confirmed secret over stdin and never command arguments", async () => {
-    const directory = mkdtempSync(join(tmpdir(), "openbot-cli-password-"));
+    const directory = mkdtempSync(join(tmpdir(), "openteam-cli-password-"));
     temporaryDirectories.push(directory);
     const paths = installationPaths(directory);
     writeFileAtomic(
       paths.compose,
-      "name: openbot\nservices:\n  server:\n    image: example/server\n"
+      "name: openteam\nservices:\n  server:\n    image: example/server\n"
     );
     writeFileAtomic(paths.environment, createEnvironment({ version: "1.2.3" }));
     const now = new Date().toISOString();
@@ -973,10 +975,10 @@ describe("interactive setup", () => {
       schemaVersion: 1,
       repository: "owner/repo",
       version: "1.2.3",
-      composeUrl: "https://example.com/openbot-compose.yaml",
+      composeUrl: "https://example.com/openteam-compose.yaml",
       installedAt: now,
       updatedAt: now,
-      ownerUsername: "openbot",
+      ownerUsername: "openteam",
     });
     const runner = new SetupRunner(() => undefined);
     await passwordResetCommand(
@@ -992,12 +994,12 @@ describe("interactive setup", () => {
   });
 
   test("account update can change the username alone or both credentials", async () => {
-    const directory = mkdtempSync(join(tmpdir(), "openbot-cli-account-"));
+    const directory = mkdtempSync(join(tmpdir(), "openteam-cli-account-"));
     temporaryDirectories.push(directory);
     const paths = installationPaths(directory);
     writeFileAtomic(
       paths.compose,
-      "name: openbot\nservices:\n  server:\n    image: example/server\n"
+      "name: openteam\nservices:\n  server:\n    image: example/server\n"
     );
     writeFileAtomic(paths.environment, createEnvironment({ version: "1.2.3" }));
     const now = new Date().toISOString();
@@ -1005,10 +1007,10 @@ describe("interactive setup", () => {
       schemaVersion: 1,
       repository: "owner/repo",
       version: "1.2.3",
-      composeUrl: "https://example.com/openbot-compose.yaml",
+      composeUrl: "https://example.com/openteam-compose.yaml",
       installedAt: now,
       updatedAt: now,
-      ownerUsername: "openbot",
+      ownerUsername: "openteam",
     });
 
     const usernameRunner = new SetupRunner(() => undefined);

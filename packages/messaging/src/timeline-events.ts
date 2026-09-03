@@ -1,4 +1,4 @@
-import type { Prisma } from "@openbot/db";
+import type { Prisma } from "@openteam/db";
 
 export type AutomationChangedAction = "created" | "updated" | "enabled" | "disabled" | "deleted";
 

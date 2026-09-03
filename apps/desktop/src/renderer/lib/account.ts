@@ -1,4 +1,4 @@
-import type { OpenBotAuthMode, OpenBotAuthUser } from "../client/auth";
+import type { OpenTeamAuthMode, OpenTeamAuthUser } from "../client/auth";
 
 export interface AccountPresentation {
   name: string;
@@ -15,18 +15,18 @@ const initialsFor = (name: string): string => {
 };
 
 export const accountPresentation = (
-  user: OpenBotAuthUser | null,
-  mode: OpenBotAuthMode
+  user: OpenTeamAuthUser | null,
+  mode: OpenTeamAuthMode
 ): AccountPresentation => {
   if (!user) {
     return {
-      name: "OpenBot owner",
+      name: "OpenTeam owner",
       detail: mode === "disabled" ? "Authentication disabled" : "Signed in",
       initials: "OB",
       copyValue: null,
     };
   }
-  const name = user.name || user.username || user.email || "OpenBot owner";
+  const name = user.name || user.username || user.email || "OpenTeam owner";
   const detail = user.username ? `@${user.username}` : user.email;
   return {
     name,

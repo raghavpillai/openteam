@@ -6,8 +6,8 @@ import { link, mkdir, open, readdir, readFile, realpath, rm, stat } from "node:f
 import { isIP } from "node:net";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { ApiError, type AssetKind, type AssetRef } from "@openbot/contracts";
-import { CLIENT_CAPABILITIES } from "@openbot/contracts/capabilities";
+import { ApiError, type AssetKind, type AssetRef } from "@openteam/contracts";
+import { CLIENT_CAPABILITIES } from "@openteam/contracts/capabilities";
 
 export const REGULAR_ASSET_LIMIT = CLIENT_CAPABILITIES.uploads.maxRegularBytes;
 export const VIDEO_ASSET_LIMIT = CLIENT_CAPABILITIES.uploads.maxVideoBytes;
@@ -342,11 +342,11 @@ export class AssetStore {
   constructor(options: AssetStoreOptions = {}) {
     this.root = resolve(
       options.root ??
-        process.env.OPENBOT_ASSET_ROOT ??
-        join(process.env.OPENBOT_WORKSPACE_ROOT ?? "/workspace", ".openbot", "assets")
+        process.env.OPENTEAM_ASSET_ROOT ??
+        join(process.env.OPENTEAM_WORKSPACE_ROOT ?? "/workspace", ".openteam", "assets")
     );
     this.allowedFileRoots = (
-      options.allowedFileRoots ?? [process.env.OPENBOT_WORKSPACE_ROOT ?? "/workspace"]
+      options.allowedFileRoots ?? [process.env.OPENTEAM_WORKSPACE_ROOT ?? "/workspace"]
     ).map((root) => resolve(root));
     this.fetchImpl = options.fetch ?? globalThis.fetch;
   }
@@ -517,7 +517,7 @@ export class AssetStore {
         throw new ApiError(
           400,
           "asset_path_outside_store",
-          "Attachment path is outside an allowed OpenBot directory"
+          "Attachment path is outside an allowed OpenTeam directory"
         );
       }
       const info = await stat(source);

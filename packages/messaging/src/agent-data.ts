@@ -18,14 +18,14 @@ import {
   serverInferenceSettings,
   type AssetRef,
   type ServerInferenceSettings,
-} from "@openbot/contracts";
+} from "@openteam/contracts";
 import {
   emptySidebarPreferences,
   parseSidebarPreferences,
   type SidebarPreferences,
-} from "@openbot/contracts/client-preferences";
-import type { ComputerInferenceRequest } from "@openbot/contracts/service-protocol";
-import { Prisma, type PrismaClient } from "@openbot/db";
+} from "@openteam/contracts/client-preferences";
+import type { ComputerInferenceRequest } from "@openteam/contracts/service-protocol";
+import { Prisma, type PrismaClient } from "@openteam/db";
 import { type FSWatcher, watch } from "chokidar";
 import { parseDocument } from "yaml";
 import {
@@ -81,7 +81,7 @@ const MEMORY_SYNTHESIS_DEBOUNCE_MS = 15_000;
 const MEMORY_SYNTHESIS_POLL_INTERVAL_MS = 60 * 60 * 1_000;
 const MAX_TEMPORAL_TARGETS_PER_SWEEP = 4;
 const MEMORY_INFERENCE_DEADLINE_MS = 90_000;
-const AGENT_LOCK = "openbot-agent-data";
+const AGENT_LOCK = "openteam-agent-data";
 const ROOT_SETTINGS_VERSION = 1;
 const MAX_FILE_WARNINGS = 20;
 const MAX_FACT_ROWS = 20_000;
@@ -939,20 +939,20 @@ export class AgentDataStore {
     options: AgentDataStoreOptions = {}
   ) {
     this.root = resolve(
-      options.root ?? process.env.OPENBOT_AGENT_DATA_ROOT ?? "/home/box/agent-data"
+      options.root ?? process.env.OPENTEAM_AGENT_DATA_ROOT ?? "/home/box/agent-data"
     );
     this.workspaceRoot = resolve(
-      options.workspaceRoot ?? process.env.OPENBOT_WORKSPACE_ROOT ?? "/workspace"
+      options.workspaceRoot ?? process.env.OPENTEAM_WORKSPACE_ROOT ?? "/workspace"
     );
     this.assetRoot = resolve(
       options.assetRoot ??
-        process.env.OPENBOT_ASSET_ROOT ??
-        join(resolve(this.root, ".."), ".openbot-assets")
+        process.env.OPENTEAM_ASSET_ROOT ??
+        join(resolve(this.root, ".."), ".openteam-assets")
     );
     this.memoryInference = options.memoryInference ?? null;
     this.memoryDreamingEnabled =
       options.memoryDreamingEnabled ??
-      ["1", "true"].includes((process.env.OPENBOT_MEMORY_DREAMING ?? "").trim().toLowerCase());
+      ["1", "true"].includes((process.env.OPENTEAM_MEMORY_DREAMING ?? "").trim().toLowerCase());
     this.memorySynthesisDebounceMs =
       options.memorySynthesisDebounceMs ?? MEMORY_SYNTHESIS_DEBOUNCE_MS;
     this.memorySynthesisPollIntervalMs =
@@ -1061,7 +1061,7 @@ export class AgentDataStore {
       publisher?: string | null;
       skills: readonly { name: string; description: string; body: string }[];
     }[],
-    currentUserId = "openbot"
+    currentUserId = "openteam"
   ): Promise<void> {
     await this.ensureRuntimeDirectories();
     const fetchedAt = Date.now();
@@ -1079,7 +1079,7 @@ export class AgentDataStore {
       const installPath = join(
         this.pluginsDirectory(),
         "cache",
-        slugify(plugin.publisher || "openbot", "publisher"),
+        slugify(plugin.publisher || "openteam", "publisher"),
         pluginId,
         revision
       );
@@ -1516,12 +1516,12 @@ export class AgentDataStore {
         migrated.automations += 1;
       }
 
-      const legacyManifest = join(this.botDirectory(botId), ".openbot-projection.json");
+      const legacyManifest = join(this.botDirectory(botId), ".openteam-projection.json");
       await Promise.all([
         rm(legacyNotes, { force: true }),
         rm(join(this.botDirectory(botId), "instructions.md"), { force: true }),
         rm(legacyManifest, { force: true }),
-        rm(join(this.botDirectory(botId), ".openbot-projection.legacy.json"), { force: true }),
+        rm(join(this.botDirectory(botId), ".openteam-projection.legacy.json"), { force: true }),
       ]);
       await tx.agentFileState.upsert({
         where: { path: migrationKey },
@@ -1696,7 +1696,7 @@ export class AgentDataStore {
         rm(join(legacyRoot, "profile.md"), { force: true }),
         rm(notesPath, { force: true }),
         rm(join(legacyRoot, "log"), { recursive: true, force: true }),
-        rm(join(legacyRoot, ".openbot-projection.json"), { force: true }),
+        rm(join(legacyRoot, ".openteam-projection.json"), { force: true }),
       ]);
       await tx.agentFileState.upsert({
         where: { path: migrationKey },
@@ -1781,7 +1781,7 @@ export class AgentDataStore {
           normalized.match(/^agents\/([^/]+)\//)?.[1] ??
           normalized.match(/^user-memory\/by-agent\/([^/]+)\//)?.[1] ??
           normalized.match(/^projects\/[^/]+\/memory\/by-agent\/([^/]+)\//)?.[1];
-        if (!botId || normalized.includes("/.openbot") || normalized.endsWith(".part")) return;
+        if (!botId || normalized.includes("/.openteam") || normalized.endsWith(".part")) return;
         const previous = this.watcherTimers.get(botId);
         if (previous) clearTimeout(previous);
         this.watcherTimers.set(
@@ -2392,7 +2392,7 @@ export class AgentDataStore {
         const parsed = await parseAutomationFile(
           path,
           text,
-          process.env.OPENBOT_TIME_ZONE ?? "UTC"
+          process.env.OPENTEAM_TIME_ZONE ?? "UTC"
         );
         seen.add(slug);
         const existing = await tx.routine.findUnique({
@@ -2413,7 +2413,7 @@ export class AgentDataStore {
           cronExpression: null,
           intervalSeconds: null,
           timezoneMode: "installation" as const,
-          timezone: process.env.OPENBOT_TIME_ZONE ?? "UTC",
+          timezone: process.env.OPENTEAM_TIME_ZONE ?? "UTC",
         };
         const common = {
           name: parsed.name,
@@ -2799,7 +2799,7 @@ export class AgentDataStore {
     const epoch = contextSession?.compactionEpoch ?? bot.conversation?.compactionEpoch ?? 0;
     const announcementKey = `${botId}:${contextSessionId ?? "legacy"}`;
     const liveProfile = [
-      `You are ${bot.name}, a durable OpenBot agent.`,
+      `You are ${bot.name}, a durable OpenTeam agent.`,
       bot.title ? `Your title is: ${bot.title}` : "",
       bot.description ? `Your description is:\n${bot.description}` : "",
       bot.instructions ? `Bot-specific instructions:\n${bot.instructions}` : "",
@@ -3395,7 +3395,7 @@ export class AgentDataStore {
         "Exclude secrets, transient chatter, assistant claims, and existing facts. Return at most 16 facts of at most 500 characters.",
       ].join("\n"),
       prompt: JSON.stringify({
-        marker: "<<OPENBOT_MEMORY_EXTRACTION_V1>>",
+        marker: "<<OPENTEAM_MEMORY_EXTRACTION_V1>>",
         exchange: { user: input.user, assistant: input.assistant },
         relevantArchive: archive,
       }),

@@ -1,4 +1,4 @@
-import type { ClientSnapshot } from "@openbot/contracts";
+import type { ClientSnapshot } from "@openteam/contracts";
 
 const now = new Date("2026-08-28T12:00:00.000Z").toISOString();
 const earlier = new Date("2026-08-28T11:42:00.000Z").toISOString();

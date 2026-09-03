@@ -1,4 +1,4 @@
-import { type Prisma, type PrismaClient } from "@openbot/db";
+import { type Prisma, type PrismaClient } from "@openteam/db";
 
 export const APPROVAL_ASK_TTL_MS = 10 * 60_000;
 

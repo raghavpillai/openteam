@@ -26,7 +26,7 @@ const passingMeasurement = (): MobileExportMeasurement => ({
     durationMs: 1,
     metroModules: 1_776,
     packages: {
-      "@openbot/mobile": { modules: 29, sourceCharacters: 250_000 },
+      "@openteam/mobile": { modules: 29, sourceCharacters: 250_000 },
       "expo-router": { modules: 377, sourceCharacters: 1_220_000 },
     },
     routes: ["_layout.tsx", "index.tsx"],
@@ -45,9 +45,9 @@ describe("mobile export measurement", () => {
     ).toBe("@react-navigation/native");
     expect(packageForMobileSource("/node_modules/effect/dist/esm/Effect.js")).toBe("effect");
     expect(packageForMobileSource("/packages/client-core/src/client.ts")).toBe(
-      "@openbot/client-core"
+      "@openteam/client-core"
     );
-    expect(packageForMobileSource("/apps/mobile/src/auth.ts")).toBe("@openbot/mobile");
+    expect(packageForMobileSource("/apps/mobile/src/auth.ts")).toBe("@openteam/mobile");
   });
 
   test("extracts only application route modules", () => {

@@ -11,7 +11,7 @@ const cleanToken = (value: string | undefined): string | null => {
 
 const tokenFromEnvFile = (path: string): string | null => {
   try {
-    return cleanToken(readFileSync(path, "utf8").match(/^OPENBOT_CONTROL_TOKEN=(.+)$/m)?.[1]);
+    return cleanToken(readFileSync(path, "utf8").match(/^OPENTEAM_CONTROL_TOKEN=(.+)$/m)?.[1]);
   } catch {
     return null;
   }

@@ -5,7 +5,7 @@ import {
   SEARCH_QUERY_MAX_LENGTH,
   searchCacheKey,
   writeSearchCache,
-} from "@openbot/product-core/search";
+} from "@openteam/product-core/search";
 import { normalizeMobileSearchQuery } from "../src/search";
 
 const deferred = <Value>() => {
@@ -18,9 +18,9 @@ const deferred = <Value>() => {
 
 describe("mobile search cache", () => {
   test("normalizes and caps pasted queries before cache and transport work", () => {
-    const normalized = normalizeMobileSearchQuery(`  ＯpenBot   ${"x".repeat(500)}  `);
+    const normalized = normalizeMobileSearchQuery(`  ＯpenTeam   ${"x".repeat(500)}  `);
 
-    expect(normalized.startsWith("OpenBot x")).toBe(true);
+    expect(normalized.startsWith("OpenTeam x")).toBe(true);
     expect(normalized).toHaveLength(SEARCH_QUERY_MAX_LENGTH);
     expect(normalizeMobileSearchQuery("Audit Bot 0001")).toBe("Audit Bot 0001");
   });

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { SubagentActivityView } from "@openbot/contracts";
+import type { SubagentActivityView } from "@openteam/contracts";
 import { activeAsyncTasksForBot, asyncTaskElapsed } from "../src/renderer/lib/async-tasks";
 
 const attempt = (overrides: Partial<SubagentActivityView> = {}): SubagentActivityView => ({
@@ -65,16 +65,16 @@ describe("Grok-compatible async-task overlay", () => {
   test("keeps the panel passive and out of the transcript", async () => {
     const [panelSource, sidebarSource] = await Promise.all([
       Bun.file(
-        new URL("../src/renderer/components/openbot/async-tasks-panel.tsx", import.meta.url)
+        new URL("../src/renderer/components/openteam/async-tasks-panel.tsx", import.meta.url)
       ).text(),
-      Bun.file(new URL("../src/renderer/components/openbot/sidebar.tsx", import.meta.url)).text(),
+      Bun.file(new URL("../src/renderer/components/openteam/sidebar.tsx", import.meta.url)).text(),
     ]);
     expect(panelSource).toContain('data-async-tasks-panel=""');
     expect(panelSource).toContain("No async tasks in progress.");
     expect(panelSource).toContain("Subagent · {task.subagentType}");
     expect(panelSource).not.toContain("StopSubagent");
     expect(panelSource).not.toContain("TaskCard");
-    expect(sidebarSource).toContain("VITE_OPENBOT_INTERNAL_ASYNC_TASKS");
+    expect(sidebarSource).toContain("VITE_OPENTEAM_INTERNAL_ASYNC_TASKS");
     expect(sidebarSource).toContain("Show async tasks");
   });
 });

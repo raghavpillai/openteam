@@ -1,4 +1,4 @@
-import type { ApprovalView, RunItemView, RunView, SubagentActivityView } from "@openbot/contracts";
+import type { ApprovalView, RunItemView, RunView, SubagentActivityView } from "@openteam/contracts";
 
 export const ACTIVE_ASYNC_TASK_STATUSES = new Set<SubagentActivityView["status"]>([
   "provisioning",
@@ -285,16 +285,16 @@ export const approvalPresentation = (
             : "Approval required";
   const localStatus =
     resolution === "accept"
-      ? `OpenBot can ${localCapability} your computer this time.`
+      ? `OpenTeam can ${localCapability} your computer this time.`
       : resolution === "always_allow"
-        ? `OpenBot can always ${localCapability} your computer.`
+        ? `OpenTeam can always ${localCapability} your computer.`
         : approval.status === "declined"
-          ? `OpenBot was not allowed to ${localCapability} your computer.`
+          ? `OpenTeam was not allowed to ${localCapability} your computer.`
           : approval.status === "cancelled"
             ? "Local computer approval was cancelled."
             : approval.status === "expired"
               ? "Local computer approval expired."
-              : "OpenBot was not allowed to use your computer.";
+              : "OpenTeam was not allowed to use your computer.";
   const autoReviewStatus = pending
     ? "Approval needed"
     : approval.status === "accepted"
@@ -320,10 +320,10 @@ export const approvalPresentation = (
     typeof details.description === "string"
       ? details.description
       : kind === "local-tool"
-        ? `${machineLabel}. This applies to OpenBot and every Bot and can be changed in Settings.`
+        ? `${machineLabel}. This applies to OpenTeam and every Bot and can be changed in Settings.`
         : kind === "auto-review"
           ? (reason ?? suppliedSummary)
-          : (effect ?? "Review this action before OpenBot continues.");
+          : (effect ?? "Review this action before OpenTeam continues.");
 
   return {
     kind,

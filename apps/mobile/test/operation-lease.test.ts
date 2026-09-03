@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { type OperationLease, operationLeaseIsCurrent } from "@openbot/client-core";
+import { type OperationLease, operationLeaseIsCurrent } from "@openteam/client-core";
 
 const deferred = <Value>() => {
   let resolve!: (value: Value) => void;
@@ -53,7 +53,7 @@ describe("mobile async operation origin leases", () => {
 
   test("wires captured leases through provider reconciliation and mutation paths", async () => {
     const source = await Bun.file(
-      new URL("../src/state/openbot-context.tsx", import.meta.url)
+      new URL("../src/state/openteam-context.tsx", import.meta.url)
     ).text();
 
     expect(source).toContain("operationLeaseIsCurrent(activeClientRef.current");

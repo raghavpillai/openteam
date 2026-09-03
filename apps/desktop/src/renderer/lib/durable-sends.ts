@@ -1,5 +1,5 @@
-import { MAX_PARALLEL_UPLOADS, mapWithConcurrency } from "@openbot/client-core";
-import { attachmentAssetKind } from "@openbot/product-core/attachments";
+import { MAX_PARALLEL_UPLOADS, mapWithConcurrency } from "@openteam/client-core";
+import { attachmentAssetKind } from "@openteam/product-core/attachments";
 import {
   classifyDurableSendError,
   createDurableSendController,
@@ -9,13 +9,13 @@ import {
   type DurableStagedAttachment,
   messageDeliveryAcceptance,
   type MessageDeliveryAcceptance,
-} from "@openbot/product-core/durable-delivery";
+} from "@openteam/product-core/durable-delivery";
 import { getAuthSnapshot, subscribeAuthSnapshot } from "../client/auth";
 import { API_BASE } from "../client/http";
-import { api } from "../client/openbot-api";
+import { api } from "../client/openteam-api";
 import { recordPerformance } from "./performance";
 
-export const DURABLE_SEND_ACCEPTED_EVENT = "openbot:durable-send-accepted";
+export const DURABLE_SEND_ACCEPTED_EVENT = "openteam:durable-send-accepted";
 
 const controllers = new Map<string, DurableSendController>();
 const controllerCleanups = new Map<DurableSendController, () => void>();
@@ -50,11 +50,11 @@ const accountScope = (): string => {
   return `desktop:${API_BASE}:${auth.user?.id ?? (auth.mode === "disabled" ? "local" : "signed-out")}`;
 };
 
-const storageKey = (scope: string): string => `openbot:send-journal:v1:${scope}`;
+const storageKey = (scope: string): string => `openteam:send-journal:v1:${scope}`;
 
 const storageFor = (scope: string) => ({
   read: async (): Promise<unknown> => {
-    const host = window.openbot?.deliveryJournal;
+    const host = window.openteam?.deliveryJournal;
     if (host) {
       try {
         const journal = await host.read(scope);
@@ -83,8 +83,8 @@ const storageFor = (scope: string) => ({
     return journal;
   },
   write: async (journal: DurableSendJournal): Promise<void> => {
-    if (window.openbot?.deliveryJournal) {
-      await window.openbot.deliveryJournal.write(scope, journal);
+    if (window.openteam?.deliveryJournal) {
+      await window.openteam.deliveryJournal.write(scope, journal);
       localStorage.removeItem(storageKey(scope));
       return;
     }
@@ -111,8 +111,8 @@ export const stageDesktopDeliveryFile = async (
   }
   const stagingId = crypto.randomUUID();
   const mimeType = file.type || "application/octet-stream";
-  if (window.openbot?.files) {
-    await window.openbot.files.stageDelivery({ stagingId, bytes: await file.arrayBuffer() });
+  if (window.openteam?.files) {
+    await window.openteam.files.stageDelivery({ stagingId, bytes: await file.arrayBuffer() });
   } else {
     ephemeralStages.set(stagingId, file);
   }
@@ -125,7 +125,7 @@ export const stageDesktopDeliveryFile = async (
     kind,
     ...(kind === "image"
       ? {
-          previewUri: `openbot-staged://file/${stagingId}?mime=${encodeURIComponent(mimeType)}`,
+          previewUri: `openteam-staged://file/${stagingId}?mime=${encodeURIComponent(mimeType)}`,
         }
       : {}),
   };
@@ -136,7 +136,7 @@ export const discardDesktopDeliveryStages = async (
 ): Promise<void> => {
   const ids = attachments.map(({ stagingId }) => stagingId);
   for (const id of ids) ephemeralStages.delete(id);
-  if (ids.length > 0) await window.openbot?.files.discardDeliveryStages(ids);
+  if (ids.length > 0) await window.openteam?.files.discardDeliveryStages(ids);
 };
 
 const readDesktopDeliveryStage = async (attachment: DurableStagedAttachment): Promise<Blob> => {
@@ -144,7 +144,7 @@ const readDesktopDeliveryStage = async (attachment: DurableStagedAttachment): Pr
   if (ephemeral) return ephemeral;
   let bytes: Uint8Array | undefined;
   try {
-    bytes = await window.openbot?.files.readDeliveryStage(attachment.stagingId);
+    bytes = await window.openteam?.files.readDeliveryStage(attachment.stagingId);
   } catch (cause) {
     const message = cause instanceof Error ? cause.message : String(cause);
     if (/ENOENT|no such file|not found/i.test(message)) {

@@ -13,13 +13,13 @@ describe("browser authority recovery set", () => {
   });
 
   test("backs up encrypted live state, native profile state, and client certificates", async () => {
-    root = await mkdtemp(join(tmpdir(), "openbot-browser-recovery-"));
+    root = await mkdtemp(join(tmpdir(), "openteam-browser-recovery-"));
     const home = join(root, "home");
     const workspace = join(root, "workspace");
     const storeRoot = join(root, "box-store");
     const sandRoot = join(home, "sand-data");
     await Promise.all([
-      mkdir(join(home, ".openbot", "browser-profile-authority", "current"), {
+      mkdir(join(home, ".openteam", "browser-profile-authority", "current"), {
         recursive: true,
       }),
       mkdir(join(home, ".pki", "nssdb"), { recursive: true }),
@@ -28,10 +28,10 @@ describe("browser authority recovery set", () => {
       mkdir(workspace, { recursive: true }),
     ]);
     await Promise.all([
-      writeFile(join(home, ".openbot", "browser-authority.key"), "encrypted-key"),
-      writeFile(join(home, ".openbot", "browser-authority.json.enc"), "encrypted-state"),
+      writeFile(join(home, ".openteam", "browser-authority.key"), "encrypted-key"),
+      writeFile(join(home, ".openteam", "browser-authority.json.enc"), "encrypted-state"),
       writeFile(
-        join(home, ".openbot", "browser-profile-authority", "current", "manifest.json"),
+        join(home, ".openteam", "browser-profile-authority", "current", "manifest.json"),
         "{}"
       ),
       writeFile(join(home, ".pki", "nssdb", "cert9.db"), "certificate-db"),
@@ -41,10 +41,10 @@ describe("browser authority recovery set", () => {
     const manifest = await sync.snapshotOut();
     const paths = new Set(manifest.files.map((file) => file.path));
 
-    expect(paths.has("home/box/.openbot/browser-authority.key")).toBeTrue();
-    expect(paths.has("home/box/.openbot/browser-authority.json.enc")).toBeTrue();
+    expect(paths.has("home/box/.openteam/browser-authority.key")).toBeTrue();
+    expect(paths.has("home/box/.openteam/browser-authority.json.enc")).toBeTrue();
     expect(
-      paths.has("home/box/.openbot/browser-profile-authority/current/manifest.json")
+      paths.has("home/box/.openteam/browser-profile-authority/current/manifest.json")
     ).toBeTrue();
     expect(paths.has("home/box/.pki/nssdb/cert9.db")).toBeTrue();
   });

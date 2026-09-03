@@ -1,4 +1,4 @@
-import type { ClientSnapshot } from "@openbot/contracts";
+import type { ClientSnapshot } from "@openteam/contracts";
 
 type Entity = { id: string };
 type EntityCache = Map<string, { fingerprint: string; value: Entity }>;

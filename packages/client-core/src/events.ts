@@ -1,6 +1,6 @@
-import type { ProductEvent } from "@openbot/contracts";
-import { parseProductEvent } from "@openbot/contracts/event-protocol";
-import { OpenBotClientError } from "./http";
+import type { ProductEvent } from "@openteam/contracts";
+import { parseProductEvent } from "@openteam/contracts/event-protocol";
+import { OpenTeamClientError } from "./http";
 
 export interface ProductEventHandlers {
   onEvent: (event: ProductEvent) => void;
@@ -34,7 +34,7 @@ const eventBlock = (block: string, handlers: ProductEventHandlers): void => {
   try {
     parsed = parseProductEvent(JSON.parse(payload));
   } catch {
-    throw new OpenBotClientError("OpenBot returned an invalid live event", "invalid_event");
+    throw new OpenTeamClientError("OpenTeam returned an invalid live event", "invalid_event");
   }
   handlers.onEvent(parsed);
 };
@@ -46,7 +46,7 @@ export const consumeProductEventStream = async (
   signal?: AbortSignal
 ): Promise<void> => {
   if (!response.ok || !response.body) {
-    throw new OpenBotClientError(
+    throw new OpenTeamClientError(
       `Event stream failed (${response.status})`,
       "event_stream_failed",
       response.status

@@ -12,9 +12,9 @@ import {
   normalizeInferenceProviderId,
   piModelRef,
   serverInferenceSettings,
-} from "@openbot/contracts";
+} from "@openteam/contracts";
 
-const agentDir = resolve(process.env.OPENBOT_PI_AGENT_DIR ?? "/home/box/.pi/agent");
+const agentDir = resolve(process.env.OPENTEAM_PI_AGENT_DIR ?? "/home/box/.pi/agent");
 const authPath = join(agentDir, "auth.json");
 const modelsPath = join(agentDir, "models.json");
 const modelsStorePath = join(agentDir, "models-store.json");
@@ -24,14 +24,14 @@ const createRuntime = () =>
 
 const usage = () => {
   console.error(`Usage:
-  openbot-pi-auth providers
-  openbot-pi-auth selection
-  openbot-pi-auth models [provider]
-  openbot-pi-auth login <provider> <oauth|api_key>
-  openbot-pi-auth logout <provider>
-  openbot-pi-auth verify <provider> <model>
-  openbot-pi-auth add-custom       # reads JSON from stdin
-  openbot-pi-auth remove-custom <provider>`);
+  openteam-pi-auth providers
+  openteam-pi-auth selection
+  openteam-pi-auth models [provider]
+  openteam-pi-auth login <provider> <oauth|api_key>
+  openteam-pi-auth logout <provider>
+  openteam-pi-auth verify <provider> <model>
+  openteam-pi-auth add-custom       # reads JSON from stdin
+  openteam-pi-auth remove-custom <provider>`);
 };
 
 const stdinText = async (): Promise<string> => {
@@ -233,7 +233,7 @@ const main = async (): Promise<void> => {
   if (command === "add-custom") return addCustomProvider();
   if (command === "selection") {
     const settingsPath = join(
-      resolve(process.env.OPENBOT_AGENT_DATA_ROOT ?? "/home/box/agent-data"),
+      resolve(process.env.OPENTEAM_AGENT_DATA_ROOT ?? "/home/box/agent-data"),
       "settings.json"
     );
     const document = JSON.parse(await readFile(settingsPath, "utf8")) as {

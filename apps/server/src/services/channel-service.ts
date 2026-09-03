@@ -13,9 +13,9 @@ import {
   type SetChannelHiddenInput,
   type SetChannelMembersInput,
   type UpdateChannelProfileInput,
-} from "@openbot/contracts";
-import { COMPUTER_API_PATHS } from "@openbot/contracts/service-protocol";
-import type { PrismaClient } from "@openbot/db";
+} from "@openteam/contracts";
+import { COMPUTER_API_PATHS } from "@openteam/contracts/service-protocol";
+import type { PrismaClient } from "@openteam/db";
 import {
   type AgentDataStore,
   type AgentMessaging,
@@ -24,7 +24,7 @@ import {
   PRIORITY,
   parseGroupMentions,
   type SteerDispatch,
-} from "@openbot/messaging";
+} from "@openteam/messaging";
 import { Effect } from "effect";
 import { dismissMoveOnWidgets } from "./rich-message-service";
 import {

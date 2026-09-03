@@ -1,4 +1,4 @@
-import type { ComputerEvent } from "@openbot/contracts";
+import type { ComputerEvent } from "@openteam/contracts";
 import { AsyncQueue } from "../../apps/computer/src/async-queue";
 import { ComputerEventQueue } from "../../apps/computer/src/computer-event-queue";
 import { computerEventStream } from "../../apps/computer/src/computer-event-stream";
@@ -159,7 +159,7 @@ const output = JSON.stringify(
   null,
   2
 );
-if (process.env.OPENBOT_AUDIT_OUTPUT) {
-  await Bun.write(process.env.OPENBOT_AUDIT_OUTPUT, `${output}\n`);
+if (process.env.OPENTEAM_AUDIT_OUTPUT) {
+  await Bun.write(process.env.OPENTEAM_AUDIT_OUTPUT, `${output}\n`);
 }
 console.log(output);

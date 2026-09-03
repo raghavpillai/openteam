@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createSerializedTakeoverController } from "@openbot/client-core";
+import { createSerializedTakeoverController } from "@openteam/client-core";
 
 const deferred = <Value>() => {
   let resolve!: (value: Value) => void;

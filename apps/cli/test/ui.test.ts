@@ -107,7 +107,7 @@ describe("setup presentation", () => {
       color: false,
       width: 72,
     });
-    expect(header).toContain("OPENBOT SETUP · v1.2.3");
+    expect(header).toContain("OPENTEAM SETUP · v1.2.3");
     expect(header).toContain("✓ Access");
     expect(header).toContain("● Owner");
     expect(header).toContain("○ Launch");
@@ -124,11 +124,11 @@ describe("setup presentation", () => {
     });
     presentation.start();
     presentation.stage(2);
-    presentation.summary("OpenBot is ready", [
+    presentation.summary("OpenTeam is ready", [
       { label: "Server", value: "https://bot.example.com" },
-      { label: "Manage", value: "openbot status" },
+      { label: "Manage", value: "openteam status" },
     ]);
-    expect(output.join("\n")).toContain("✓ OpenBot is ready");
+    expect(output.join("\n")).toContain("✓ OpenTeam is ready");
     expect(output.join("\n")).toContain("https://bot.example.com");
   });
 
@@ -166,7 +166,7 @@ describe("setup presentation", () => {
       "warning"
     );
     presentation.summary("Configuration ready", [
-      { label: "Address", value: "https://an-intentionally-long-openbot-host.example.com" },
+      { label: "Address", value: "https://an-intentionally-long-openteam-host.example.com" },
     ]);
 
     expect(output.join("\n")).toContain("     cloud load balancer you already");

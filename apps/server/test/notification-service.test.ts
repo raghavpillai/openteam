@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { PrismaClient } from "@openbot/db";
+import type { PrismaClient } from "@openteam/db";
 import { Effect } from "effect";
 import {
   deliverablePushDeviceWhere,
@@ -10,7 +10,7 @@ describe("NotificationService", () => {
   test("migrates legacy registrations fail-closed and retires before Better Auth sign-out", async () => {
     const migration = await Bun.file(
       new URL(
-        "../../../packages/db/prisma/migrations/20260831000700_push_device_session_binding/migration.sql",
+        "../../../packages/db/prisma/migrations/20260903000100_init/migration.sql",
         import.meta.url
       )
     ).text();

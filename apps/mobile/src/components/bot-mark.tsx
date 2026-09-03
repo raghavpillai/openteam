@@ -1,4 +1,4 @@
-import { type BotAvatarShape, normalizeBotAvatarShape } from "@openbot/contracts/bot-avatar";
+import { type BotAvatarShape, normalizeBotAvatarShape } from "@openteam/contracts/bot-avatar";
 import {
   BOT_AVATAR_ARTWORK,
   BOT_AVATAR_NATIVE_ARTWORK,
@@ -6,7 +6,7 @@ import {
   type BotAvatarEyes,
   type BotAvatarNativePrimitive,
   botAvatarEyeRects,
-} from "@openbot/design-tokens/bot-avatar-artwork";
+} from "@openteam/design-tokens/bot-avatar-artwork";
 import { memo } from "react";
 import { View, type ViewStyle } from "react-native";
 

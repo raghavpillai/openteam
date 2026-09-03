@@ -16,8 +16,7 @@ function StatusDot({
   pulse?: boolean;
   size?: number;
 }) {
-  const color =
-    tone === "live" ? "bg-live" : tone === "attention" ? "bg-attention" : "bg-ink-3/50";
+  const color = tone === "live" ? "bg-live" : tone === "attention" ? "bg-attention" : "bg-ink-3/50";
   return (
     <span
       aria-hidden="true"
@@ -47,9 +46,7 @@ function SidebarRow({
   active?: boolean;
 }) {
   return (
-    <div
-      className={`flex items-center gap-2.5 rounded-lg px-2 py-2 ${active ? "bg-sunken" : ""}`}
-    >
+    <div className={`flex items-center gap-2.5 rounded-lg px-2 py-2 ${active ? "bg-sunken" : ""}`}>
       <BotAvatar shape={shape} color={color} size={30} />
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline justify-between gap-2">
@@ -126,7 +123,7 @@ export function AppWindow() {
   return (
     <div
       className="w-full overflow-hidden rounded-[14px] bg-surface text-left shadow-window"
-      aria-label="The OpenBot desktop app showing a bot at work"
+      aria-label="The OpenTeam desktop app showing a bot at work"
       role="img"
     >
       {/* title bar */}
@@ -136,7 +133,7 @@ export function AppWindow() {
           <span className="h-2.5 w-2.5 rounded-full bg-[#febc2e]" />
           <span className="h-2.5 w-2.5 rounded-full bg-[#28c840]" />
         </div>
-        <div className="flex-1 text-center text-[12px] font-medium text-ink-2">OpenBot</div>
+        <div className="flex-1 text-center text-[12px] font-medium text-ink-2">OpenTeam</div>
         <div className="w-[38px]" />
       </div>
 
@@ -193,7 +190,9 @@ export function AppWindow() {
                   <span className="truncate text-[12.5px] font-medium text-ink">Launch review</span>
                   <span className="font-mono text-[10px] text-ink-3">Mon</span>
                 </div>
-                <div className="truncate text-[11.5px] text-ink-2">Ops: Rollback plan is ready.</div>
+                <div className="truncate text-[11.5px] text-ink-2">
+                  Ops: Rollback plan is ready.
+                </div>
               </div>
             </div>
           </div>
@@ -267,7 +266,9 @@ export function AppWindow() {
                   Acme is cheapest over three years once support is included. Northwind looks
                   cheaper up front but charges extra for priority support. I&apos;m saving the
                   comparison to{" "}
-                  <span className="font-mono text-[11.5px]">/workspace/quotes/recommendation.md</span>
+                  <span className="font-mono text-[11.5px]">
+                    /workspace/quotes/recommendation.md
+                  </span>
                   .
                 </p>
                 <div className="rounded-[12px] border border-attention/30 bg-attention-soft/60 p-3">

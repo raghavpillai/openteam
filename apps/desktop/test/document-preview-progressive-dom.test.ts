@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { renderSanitizedDocumentProgressively } from "../src/renderer/components/openbot/document-preview-progressive-dom";
+import { renderSanitizedDocumentProgressively } from "../src/renderer/components/openteam/document-preview-progressive-dom";
 
 class TestNode {
   children: TestNode[] = [];

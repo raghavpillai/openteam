@@ -8,7 +8,7 @@ export function Wordmark({ size = 22 }: { size?: number }) {
         className="font-display tracking-[-0.01em]"
         style={{ fontSize: Math.round(size * 1.18), lineHeight: 1 }}
       >
-        OpenBot
+        OpenTeam
       </span>
     </span>
   );

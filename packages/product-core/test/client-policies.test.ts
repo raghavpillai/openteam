@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { ChannelMessageView, RoutineView } from "@openbot/contracts";
+import type { ChannelMessageView, RoutineView } from "@openteam/contracts";
 import {
   approvalPresentation,
   attachmentOverflowMessage,

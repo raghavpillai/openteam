@@ -8,7 +8,7 @@ import {
   serializeBotTemplate,
 } from "../src/renderer/lib/bot-template";
 
-describe("OpenBot template sharing", () => {
+describe("OpenTeam template sharing", () => {
   test("ships the Grok-parity template-sharing flow", () => {
     expect(BOT_TEMPLATE_SHARING_ENABLED).toBe(true);
   });
@@ -27,7 +27,7 @@ describe("OpenBot template sharing", () => {
     );
 
     expect(exported).toEqual({
-      format: "openbot.bot-template",
+      format: "openteam.bot-template",
       version: 1,
       bot: {
         name: "Research Bot",
@@ -47,7 +47,7 @@ describe("OpenBot template sharing", () => {
     );
   });
 
-  test("round-trips a shareable OpenBot deep link", () => {
+  test("round-trips a shareable OpenTeam deep link", () => {
     const bot = {
       name: "מחקר 🌱",
       title: "research",

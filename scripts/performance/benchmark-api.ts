@@ -13,9 +13,9 @@ const integerSetting = (name: string, fallback: number) => {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
 };
 
-const baseUrl = (process.env.OPENBOT_PERF_BASE_URL ?? "http://127.0.0.1:8877").replace(/\/$/, "");
-const warmupCount = integerSetting("OPENBOT_API_WARMUPS", 2);
-const sampleCount = Math.max(1, integerSetting("OPENBOT_API_SAMPLES", 10));
+const baseUrl = (process.env.OPENTEAM_PERF_BASE_URL ?? "http://127.0.0.1:8877").replace(/\/$/, "");
+const warmupCount = integerSetting("OPENTEAM_API_WARMUPS", 2);
+const sampleCount = Math.max(1, integerSetting("OPENTEAM_API_SAMPLES", 10));
 
 const percentile = (values: number[], fraction: number) => {
   const sorted = [...values].sort((left, right) => left - right);
@@ -116,7 +116,7 @@ const output = JSON.stringify(
   null,
   2
 );
-if (process.env.OPENBOT_AUDIT_OUTPUT) {
-  await Bun.write(process.env.OPENBOT_AUDIT_OUTPUT, `${output}\n`);
+if (process.env.OPENTEAM_AUDIT_OUTPUT) {
+  await Bun.write(process.env.OPENTEAM_AUDIT_OUTPUT, `${output}\n`);
 }
 console.log(output);

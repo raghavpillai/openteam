@@ -1709,6 +1709,13 @@ export class AgentDataStore {
     try {
       this.watcher = watch(this.root, {
         ignoreInitial: true,
+        // The root-owned computer runtime maintains these private projections.
+        // AgentDataStore never imports them, so recursive watches only create
+        // permission errors for the unprivileged server process.
+        ignored: [
+          { path: join(this.root, "agent-transcripts"), recursive: true },
+          { path: join(this.root, "transcript-publish"), recursive: true },
+        ],
         awaitWriteFinish: { stabilityThreshold: 50, pollInterval: 10 },
       });
       this.watcher.on("all", (_event, path) => {

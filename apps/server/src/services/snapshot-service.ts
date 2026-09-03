@@ -89,7 +89,8 @@ export class SnapshotService {
     private readonly prisma: PrismaClient,
     private readonly workspaceRoot: string,
     private readonly computerUrl: string,
-    private readonly isQueueReady: () => boolean
+    private readonly isQueueReady: () => boolean,
+    private readonly runtimeProbeTimeoutMs = 2_500
   ) {}
 
   full = () =>
@@ -1032,29 +1033,26 @@ export class SnapshotService {
   private async runtimeStatus(): Promise<Snapshot["runtime"]> {
     let computer: Snapshot["runtime"]["computer"] = "unavailable";
     let inference: Snapshot["runtime"]["inference"] = "unavailable";
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | null = null;
     try {
-      const response = await fetch(`${this.computerUrl}/health`, {
-        signal: AbortSignal.timeout(1_500),
-      });
-      const body = (await response.json()) as {
-        status?: string;
-        inference?: { ready?: boolean; authenticated?: boolean };
-      };
-      computer = response.ok && body.status === "ready" ? "ready" : "unavailable";
-      inference = body.inference?.ready
-        ? body.inference.authenticated
-          ? "ready"
-          : "missing"
-        : "unavailable";
-      await this.prisma.computer.update({
-        where: { id: COMPUTER_ID },
-        data: {
-          status: computer === "ready" ? "ready" : "unavailable",
-          lastSeenAt: new Date(),
-        },
-      });
+      const result = await Promise.race([
+        this.probeRuntimeStatus(controller.signal),
+        new Promise<never>((_resolve, reject) => {
+          timer = setTimeout(() => {
+            controller.abort();
+            reject(new Error("Computer runtime health probe timed out"));
+          }, this.runtimeProbeTimeoutMs);
+          timer.unref?.();
+        }),
+      ]);
+      computer = result.computer;
+      inference = result.inference;
     } catch {
       // Snapshots remain usable while the runtime is down.
+    } finally {
+      if (timer) clearTimeout(timer);
+      controller.abort();
     }
     return {
       server: computer === "ready" ? "ready" : "degraded",
@@ -1063,6 +1061,31 @@ export class SnapshotService {
       computer,
       inference,
     };
+  }
+
+  private async probeRuntimeStatus(signal: AbortSignal): Promise<{
+    computer: Snapshot["runtime"]["computer"];
+    inference: Snapshot["runtime"]["inference"];
+  }> {
+    const response = await fetch(`${this.computerUrl}/health`, { signal });
+    const body = (await response.json()) as {
+      status?: string;
+      inference?: { ready?: boolean; authenticated?: boolean };
+    };
+    const computer = response.ok && body.status === "ready" ? "ready" : "unavailable";
+    const inference = body.inference?.ready
+      ? body.inference.authenticated
+        ? "ready"
+        : "missing"
+      : "unavailable";
+    await this.prisma.computer.update({
+      where: { id: COMPUTER_ID },
+      data: {
+        status: computer === "ready" ? "ready" : "unavailable",
+        lastSeenAt: new Date(),
+      },
+    });
+    return { computer, inference };
   }
 
   private async runtimeStatusCached(): Promise<Snapshot["runtime"]> {

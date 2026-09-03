@@ -2,8 +2,13 @@ import { strict as assert } from "node:assert";
 import { auth, authPrisma } from "../apps/server/src/auth";
 import { setOwnerCredentials } from "../apps/server/src/owner-credentials";
 
-const authRequest = (path: string, init?: RequestInit) =>
-  auth.handler(new Request(`http://127.0.0.1:8787/api/auth${path}`, init));
+let requestSequence = 0;
+const authRequest = (path: string, init: RequestInit = {}) => {
+  const headers = new Headers(init.headers);
+  requestSequence += 1;
+  headers.set("x-openbot-client-ip", `198.51.100.${requestSequence}`);
+  return auth.handler(new Request(`http://127.0.0.1:8787/api/auth${path}`, { ...init, headers }));
+};
 
 const signIn = (username: string, password: string) =>
   authRequest("/sign-in/username", {

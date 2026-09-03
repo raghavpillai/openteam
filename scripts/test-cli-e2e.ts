@@ -1,6 +1,14 @@
 import { spawnSync } from "node:child_process";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -9,12 +17,13 @@ const repositoryRoot = resolve(import.meta.dirname, "..");
 const cliPath = join(repositoryRoot, "apps/cli/dist/openbot.js");
 const developmentCompose = join(repositoryRoot, "scripts/compose.sh");
 const releaseCompose = join(repositoryRoot, "deploy/compose.yaml");
-const projectName = `openbot-e2e-${process.pid}-${randomBytes(3).toString("hex")}`;
+const testRunId = `${process.pid}-${randomBytes(3).toString("hex")}`;
+const projectName = `openbot-e2e-${testRunId}`;
 const temporaryRoot = mkdtempSync(join(tmpdir(), "openbot-cli-e2e-"));
 const installationDirectory = join(temporaryRoot, "installation");
 const releaseDirectory = join(temporaryRoot, "release");
-const firstVersion = "0.0.0-e2e.1";
-const secondVersion = "0.0.0-e2e.2";
+const firstVersion = `0.0.0-e2e.${testRunId}.1`;
+const secondVersion = `0.0.0-e2e.${testRunId}.2`;
 const sourceImages = [
   "openbot-server:latest",
   "openbot-worker:latest",
@@ -27,6 +36,11 @@ let authToken: string | null = null;
 
 const ownerUsername = "cli.e2e.owner";
 const ownerPassword = "CLI E2E owner password";
+const canaryProviderId = "openbot-e2e";
+const canaryProviderName = "OpenBot E2E provider";
+const canaryModelId = "openbot-e2e-model";
+const canaryResponseText = "OPENBOT_PROVIDER_CANARY_OK";
+const canarySecret = `openbot-e2e-${randomBytes(24).toString("hex")}`;
 
 const resultText = (value: ReturnType<typeof spawnSync>): string =>
   [value.stdout, value.stderr]
@@ -78,6 +92,9 @@ const dockerProbe = (args: readonly string[]) =>
 const cli = (args: readonly string[], expectedStatus = 0) =>
   run("node", [cliPath, ...args], { expectedStatus });
 
+const cliCapture = (args: readonly string[], expectedStatus = 0) =>
+  run("node", [cliPath, ...args], { expectedStatus, inherit: false });
+
 const shellQuote = (value: string): string => `'${value.replaceAll("'", `'\\''`)}'`;
 const tclQuote = (value: string): string =>
   `{${value.replaceAll("\\", "\\\\").replaceAll("}", "\\}")}}`;
@@ -96,9 +113,15 @@ const cliInteractive = (args: readonly string[], input: string) => {
       ["OpenBot password:", `${answers[2] ?? ""}\r`],
       ["Confirm OpenBot password:", `${answers[3] ?? ""}\r`],
       ["Inference provider", `${answers[4] ?? ""}\r`],
-      ["Inference model", `${answers[5] ?? ""}\r`],
-      ["Configure openai-codex authentication now?", `${answers[6] ?? ""}\r`],
-      ["Apply this configuration?", `${answers[7] ?? ""}\r`],
+      ["Custom provider id", `${answers[5] ?? ""}\r`],
+      ["Custom provider name", `${answers[6] ?? ""}\r`],
+      ["Custom provider base URL", `${answers[7] ?? ""}\r`],
+      ["Compatible API", `${answers[8] ?? ""}\r`],
+      ["Inference model", `${answers[9] ?? ""}\r`],
+      ["Does this model support reasoning?", `${answers[10] ?? ""}\r`],
+      [`Configure ${canaryProviderId} authentication now?`, `${answers[11] ?? ""}\r`],
+      [`${canaryProviderId} API key or password:`, `${answers[12] ?? ""}\r`],
+      ["Apply this configuration?", `${answers[13] ?? ""}\r`],
     ] as const;
     const program = [
       "set timeout 300",
@@ -223,6 +246,24 @@ const availablePort = (): Promise<number> =>
     });
   });
 
+const canBindPort = (port: number): Promise<boolean> =>
+  new Promise((resolveResult) => {
+    const server = createServer();
+    server.once("error", () => resolveResult(false));
+    server.listen({ host: "127.0.0.1", port }, () => {
+      server.close(() => resolveResult(true));
+    });
+  });
+
+const waitForDevelopmentPortsToRelease = async (): Promise<void> => {
+  const deadline = Date.now() + 60_000;
+  while (Date.now() < deadline) {
+    if ((await canBindPort(8787)) && (await canBindPort(6200))) return;
+    await Bun.sleep(500);
+  }
+  throw new Error("Timed out waiting for development ports 8787 and 6200 to be released");
+};
+
 const releasePort = await availablePort();
 const fixtureServerSource = `
   import { join, normalize } from "node:path";
@@ -253,6 +294,100 @@ if (!releaseReady.value || !new TextDecoder().decode(releaseReady.value).include
   throw new Error("Release fixture server did not start");
 }
 
+const canaryPort = await availablePort();
+let canaryRequestCount = 0;
+let canaryVisibleDeliveryCount = 0;
+let canaryMemoryInferenceCount = 0;
+const canaryFailures: string[] = [];
+const canaryServer = Bun.serve({
+  hostname: "0.0.0.0",
+  port: canaryPort,
+  async fetch(request) {
+    const pathname = new URL(request.url).pathname;
+    if (request.method !== "POST" || pathname !== "/v1/chat/completions") {
+      return new Response("not found", { status: 404 });
+    }
+    if (request.headers.get("authorization") !== `Bearer ${canarySecret}`) {
+      canaryFailures.push("The inference request did not contain the configured provider secret");
+      return Response.json({ error: { message: "unauthorized" } }, { status: 401 });
+    }
+    const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+    if (
+      !body ||
+      body.model !== canaryModelId ||
+      body.stream !== true ||
+      !Array.isArray(body.messages) ||
+      body.messages.length === 0
+    ) {
+      canaryFailures.push("The inference request was not a valid streamed chat completion");
+      return Response.json({ error: { message: "invalid request" } }, { status: 400 });
+    }
+    canaryRequestCount += 1;
+    const id = `chatcmpl-openbot-e2e-${canaryRequestCount}`;
+    const created = Math.floor(Date.now() / 1_000);
+    const messages = body.messages as Array<Record<string, unknown>>;
+    const tools = Array.isArray(body.tools) ? body.tools : [];
+    const hasSendToUser = JSON.stringify(tools).includes('"SendToUser"');
+    const followsToolResult = messages.at(-1)?.role === "tool";
+    let choices: Array<Record<string, unknown>>;
+    if (hasSendToUser && !followsToolResult) {
+      canaryVisibleDeliveryCount += 1;
+      choices = [
+        {
+          index: 0,
+          delta: {
+            role: "assistant",
+            tool_calls: [
+              {
+                index: 0,
+                id: `call-openbot-e2e-${canaryVisibleDeliveryCount}`,
+                type: "function",
+                function: {
+                  name: "SendToUser",
+                  arguments: JSON.stringify({ type: "text", content: canaryResponseText }),
+                },
+              },
+            ],
+          },
+          finish_reason: "tool_calls",
+        },
+      ];
+    } else if (hasSendToUser) {
+      choices = [{ index: 0, delta: { role: "assistant" }, finish_reason: "stop" }];
+    } else {
+      canaryMemoryInferenceCount += 1;
+      const input = JSON.stringify(messages);
+      const content = input.includes("SAND_MEMORY_EPISODE")
+        ? '{"narrative":null}'
+        : input.includes("SAND_MEMORY_SYNTHESIS_VERIFICATION")
+          ? '{"approved":false}'
+          : input.includes("SAND_MEMORY_SYNTHESIS")
+            ? '{"changes":[]}'
+            : '{"facts":[]}';
+      choices = [{ index: 0, delta: { role: "assistant", content }, finish_reason: "stop" }];
+    }
+    const chunks = [
+      {
+        id,
+        object: "chat.completion.chunk",
+        created,
+        model: canaryModelId,
+        choices,
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+      },
+    ];
+    const stream = `${chunks.map((chunk) => `data: ${JSON.stringify(chunk)}`).join("\n\n")}\n\ndata: [DONE]\n\n`;
+    return new Response(stream, {
+      headers: {
+        "cache-control": "no-cache",
+        "content-type": "text/event-stream",
+      },
+    });
+  },
+});
+
+const canaryBaseUrl = `http://host.docker.internal:${canaryPort}/v1`;
+
 const releaseUrls = (version: string) => {
   const base = `http://127.0.0.1:${releasePort}/v${version}`;
   return ["--compose-url", `${base}/openbot-compose.yaml`, "--checksum-url", `${base}/SHA256SUMS`];
@@ -273,19 +408,123 @@ const tagImages = (): void => {
   }
 };
 
-const createPersistenceMarker = async (): Promise<string> => {
+type CanaryBot = { id: string; conversationId: string };
+
+type ConversationSnapshot = {
+  messages?: Array<{ content?: unknown; sourceRunId?: unknown }>;
+  runs?: Array<{ id?: unknown; status?: unknown; error?: unknown }>;
+};
+
+const conversationSnapshot = async (conversationId: string): Promise<ConversationSnapshot> => {
+  const response = await fetch(
+    `http://127.0.0.1:8787/api/v0/conversations/${encodeURIComponent(conversationId)}`,
+    { headers: authorizationHeaders() }
+  );
+  const body = (await response.json()) as ConversationSnapshot & { error?: unknown };
+  if (!response.ok) {
+    throw new Error(
+      `Could not read the E2E conversation (${response.status}): ${JSON.stringify(body)}`
+    );
+  }
+  return body;
+};
+
+const createCanaryBot = async (): Promise<CanaryBot> => {
   const response = await fetch("http://127.0.0.1:8787/api/v0/bots", {
     method: "POST",
     headers: { "content-type": "application/json", ...authorizationHeaders() },
-    body: JSON.stringify({ clientRequestId: randomUUID(), name: "CLI E2E persistence marker" }),
+    body: JSON.stringify({
+      clientRequestId: randomUUID(),
+      name: "CLI E2E provider canary",
+      instructions: "Reply directly and do not call tools.",
+    }),
   });
-  const body = (await response.json()) as { id?: unknown; error?: unknown };
-  if (!response.ok || typeof body.id !== "string") {
+  const body = (await response.json()) as {
+    id?: unknown;
+    conversationId?: unknown;
+    error?: unknown;
+  };
+  if (!response.ok || typeof body.id !== "string" || typeof body.conversationId !== "string") {
     throw new Error(
-      `Could not create persistence marker (${response.status}): ${JSON.stringify(body)}`
+      `Could not create the E2E canary bot (${response.status}): ${JSON.stringify(body)}`
     );
   }
-  return body.id;
+  return { id: body.id, conversationId: body.conversationId };
+};
+
+const completeCanaryTurn = async (conversationId: string): Promise<void> => {
+  const before = await conversationSnapshot(conversationId);
+  const previousRunIds = new Set(
+    (before.runs ?? []).map((run) => run.id).filter((id): id is string => typeof id === "string")
+  );
+  const requestCountBefore = canaryRequestCount;
+  const response = await fetch(
+    `http://127.0.0.1:8787/api/v0/conversations/${encodeURIComponent(conversationId)}/messages`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json", ...authorizationHeaders() },
+      body: JSON.stringify({
+        content: "Reply with the provider canary response.",
+        attachments: [],
+        clientId: randomUUID(),
+        timeZone: "UTC",
+      }),
+    }
+  );
+  const accepted = await response.text();
+  if (!response.ok) {
+    throw new Error(`The E2E canary message was rejected (${response.status}): ${accepted}`);
+  }
+
+  const deadline = Date.now() + 150_000;
+  let latest: ConversationSnapshot = {};
+  while (Date.now() < deadline) {
+    latest = await conversationSnapshot(conversationId);
+    const newRuns = (latest.runs ?? []).filter(
+      (run) => typeof run.id === "string" && !previousRunIds.has(run.id)
+    );
+    const failed = newRuns.find(
+      (run) =>
+        typeof run.status === "string" &&
+        ["failed", "cancelled", "interrupted"].includes(run.status)
+    );
+    if (failed) {
+      throw new Error(`The E2E provider turn failed: ${JSON.stringify(failed)}`);
+    }
+    const completedRunIds = new Set(
+      newRuns
+        .filter((run) => run.status === "completed")
+        .map((run) => run.id)
+        .filter((id): id is string => typeof id === "string")
+    );
+    const completedMessage = (latest.messages ?? []).find(
+      (message) =>
+        typeof message.sourceRunId === "string" &&
+        completedRunIds.has(message.sourceRunId) &&
+        typeof message.content === "string" &&
+        message.content.includes(canaryResponseText)
+    );
+    if (completedMessage) {
+      if (canaryFailures.length) throw new Error(canaryFailures.join("; "));
+      if (canaryRequestCount <= requestCountBefore) {
+        throw new Error("The completed E2E turn did not reach the configured provider");
+      }
+      return;
+    }
+    await Bun.sleep(500);
+  }
+  throw new Error(`Timed out waiting for the E2E provider turn: ${JSON.stringify(latest.runs)}`);
+};
+
+const waitForMemoryInference = async (minimumCount: number): Promise<void> => {
+  const deadline = Date.now() + 30_000;
+  while (Date.now() < deadline) {
+    if (canaryMemoryInferenceCount >= minimumCount) return;
+    await Bun.sleep(250);
+  }
+  throw new Error(
+    `Expected at least ${minimumCount} memory inference calls; received ${canaryMemoryInferenceCount}`
+  );
 };
 
 const assertPersistenceMarker = async (id: string): Promise<void> => {
@@ -310,6 +549,103 @@ const signInOwner = async (): Promise<void> => {
     throw new Error(`Could not sign in the CLI E2E owner (${response.status}): ${responseBody}`);
   }
   authToken = token;
+};
+
+const environmentValue = (contents: string, key: string): string | undefined => {
+  const line = contents.split(/\r?\n/).find((candidate) => candidate.startsWith(`${key}=`));
+  return line?.slice(key.length + 1);
+};
+
+const runningServiceContainer = (service: string): string => {
+  const containers = resultText(
+    docker([
+      "ps",
+      "--quiet",
+      "--filter",
+      `label=com.docker.compose.project=${projectName}`,
+      "--filter",
+      `label=com.docker.compose.service=${service}`,
+    ])
+  )
+    .split(/\s+/)
+    .filter(Boolean);
+  if (containers.length !== 1 || !containers[0]) {
+    throw new Error(`Expected one running ${service} container; found ${containers.length}`);
+  }
+  return containers[0];
+};
+
+const assertProviderConfiguration = (thinking: string): void => {
+  const environmentPath = join(installationDirectory, ".env");
+  const environment = readFileSync(environmentPath, "utf8");
+  const expected = new Map([
+    ["OPENBOT_PI_PROVIDER", canaryProviderId],
+    ["OPENBOT_PI_MODEL", canaryModelId],
+    ["OPENBOT_PI_THINKING", thinking],
+  ]);
+  for (const [key, value] of expected) {
+    if (environmentValue(environment, key) !== value) {
+      throw new Error(`${key} was not persisted as ${value}`);
+    }
+  }
+  if (environment.includes(canarySecret)) {
+    throw new Error("The provider secret leaked into the installation environment");
+  }
+  if ((statSync(environmentPath).mode & 0o777) !== 0o600) {
+    throw new Error("The installation environment is not mode 0600");
+  }
+  for (const file of ["installation.json", "compose.yaml"]) {
+    if (readFileSync(join(installationDirectory, file), "utf8").includes(canarySecret)) {
+      throw new Error(`The provider secret leaked into ${file}`);
+    }
+  }
+
+  const providers = resultText(cliCapture(["provider", "list", "--dir", installationDirectory]));
+  if (!providers.includes(canaryProviderId) || !providers.includes(canaryProviderName)) {
+    throw new Error(`The custom provider is missing from provider list:\n${providers}`);
+  }
+  const models = resultText(
+    cliCapture(["model", "list", canaryProviderId, "--dir", installationDirectory])
+  );
+  if (!models.includes(`${canaryProviderId}/${canaryModelId}`)) {
+    throw new Error(`The custom model is missing from model list:\n${models}`);
+  }
+
+  const computer = runningServiceContainer("computer");
+  const config = resultText(docker(["inspect", "--format", "{{json .Config}}", computer]));
+  if (config.includes(canarySecret)) {
+    throw new Error("The provider secret leaked into the computer container configuration");
+  }
+  const parsed = JSON.parse(config) as { Env?: unknown };
+  const containerEnvironment = Array.isArray(parsed.Env) ? parsed.Env : [];
+  for (const [key, value] of expected) {
+    if (!containerEnvironment.includes(`${key}=${value}`)) {
+      throw new Error(`The live computer container is missing ${key}=${value}`);
+    }
+  }
+
+  docker([
+    "exec",
+    computer,
+    "sh",
+    "-lc",
+    [
+      'test "$(stat -c %a /home/box/.pi/agent)" = 700',
+      'test "$(stat -c %a /home/box/.pi/agent/auth.json)" = 600',
+      'test "$(stat -c %a /home/box/.pi/agent/models.json)" = 600',
+      "test -s /home/box/.pi/agent/auth.json",
+      "test -s /home/box/.pi/agent/models.json",
+    ].join(" && "),
+  ]);
+  docker([
+    "exec",
+    "--user",
+    "1001:1001",
+    computer,
+    "sh",
+    "-lc",
+    "test ! -r /home/box/.pi/agent/auth.json",
+  ]);
 };
 
 const cleanupProject = (): void => {
@@ -360,6 +696,7 @@ const main = async (): Promise<void> => {
   console.log("\n[E2E] Stopping the idle development stack to release loopback ports…");
   run("bash", [developmentCompose, "stop"]);
   developmentStopped = true;
+  await waitForDevelopmentPortsToRelease();
 
   console.log("\n[E2E] Installing a checksum-verified release with isolated Docker volumes…");
   cliInteractive(
@@ -377,19 +714,73 @@ const main = async (): Promise<void> => {
       "--allow-unsigned",
       ...releaseUrls(firstVersion),
     ],
-    ["5", ownerUsername, ownerPassword, ownerPassword, "", "", "no", "yes", ""].join("\n")
+    [
+      "5",
+      ownerUsername,
+      ownerPassword,
+      ownerPassword,
+      "4",
+      canaryProviderId,
+      canaryProviderName,
+      canaryBaseUrl,
+      "2",
+      canaryModelId,
+      "no",
+      "yes",
+      canarySecret,
+      "yes",
+      "",
+    ].join("\n")
   );
   await signInOwner();
   cli(["doctor", "--dir", installationDirectory]);
   cli(["status", "--dir", installationDirectory]);
+  assertProviderConfiguration("high");
 
-  const markerId = await createPersistenceMarker();
+  console.log("\n[E2E] Applying and verifying a live model setting change…");
+  cli([
+    "model",
+    "use",
+    canaryProviderId,
+    canaryModelId,
+    "--thinking",
+    "low",
+    "--dir",
+    installationDirectory,
+  ]);
+  assertProviderConfiguration("low");
+  const selectedEnvironment = readFileSync(join(installationDirectory, ".env"), "utf8");
+  const invalidSelection = resultText(
+    cliCapture(
+      ["model", "use", canaryProviderId, "missing-model", "--dir", installationDirectory],
+      1
+    )
+  );
+  if (!invalidSelection.includes("does not provide")) {
+    throw new Error(`Invalid model selection failed unclearly:\n${invalidSelection}`);
+  }
+  if (readFileSync(join(installationDirectory, ".env"), "utf8") !== selectedEnvironment) {
+    throw new Error("A rejected model selection changed the live installation environment");
+  }
+  const activeRemoval = resultText(
+    cliCapture(["provider", "remove", canaryProviderId, "--dir", installationDirectory], 1)
+  );
+  if (!activeRemoval.includes("Select a model from another provider")) {
+    throw new Error(`Active provider removal failed unclearly:\n${activeRemoval}`);
+  }
+
+  const canaryBot = await createCanaryBot();
+  await completeCanaryTurn(canaryBot.conversationId);
+
+  const markerId = canaryBot.id;
 
   console.log("\n[E2E] Verifying stop and start…");
   cli(["stop", "--dir", installationDirectory]);
   cli(["status", "--dir", installationDirectory], 2);
   cli(["start", "--dir", installationDirectory]);
+  assertProviderConfiguration("low");
   await assertPersistenceMarker(markerId);
+  await completeCanaryTurn(canaryBot.conversationId);
 
   console.log("\n[E2E] Updating to a second checksum-verified version…");
   cli([
@@ -403,6 +794,9 @@ const main = async (): Promise<void> => {
     ...releaseUrls(secondVersion),
   ]);
   cli(["status", "--dir", installationDirectory]);
+  assertProviderConfiguration("low");
+  await assertPersistenceMarker(markerId);
+  await completeCanaryTurn(canaryBot.conversationId);
   const manifest = JSON.parse(
     readFileSync(join(installationDirectory, "installation.json"), "utf8")
   ) as { version?: unknown; projectName?: unknown };
@@ -414,7 +808,23 @@ const main = async (): Promise<void> => {
   cli(["uninstall", "--dir", installationDirectory, "--yes"]);
   docker(["volume", "inspect", `${projectName}_openbot_postgres`]);
   cli(["start", "--dir", installationDirectory]);
+  assertProviderConfiguration("low");
   await assertPersistenceMarker(markerId);
+  await completeCanaryTurn(canaryBot.conversationId);
+  await waitForMemoryInference(4);
+
+  for (const service of ["server", "worker"]) {
+    const logs = resultText(docker(["logs", runningServiceContainer(service)]));
+    if (/EACCES|permission denied/i.test(logs)) {
+      throw new Error(`The isolated ${service} logged a permission failure:\n${logs}`);
+    }
+  }
+  if (canaryFailures.length) throw new Error(canaryFailures.join("; "));
+  if (canaryVisibleDeliveryCount < 4 || canaryMemoryInferenceCount < 4 || canaryRequestCount < 12) {
+    throw new Error(
+      `Expected four visible deliveries, four memory inferences, and at least twelve provider calls; received ${canaryVisibleDeliveryCount}, ${canaryMemoryInferenceCount}, and ${canaryRequestCount}`
+    );
+  }
 
   console.log("\n[E2E] Verifying explicit purge…");
   cli(["uninstall", "--dir", installationDirectory, "--purge", "--yes"]);
@@ -427,6 +837,7 @@ const main = async (): Promise<void> => {
 try {
   await main();
 } finally {
+  canaryServer.stop(true);
   releaseServer.kill();
   await releaseServer.exited;
   try {

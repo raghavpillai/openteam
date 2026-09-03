@@ -929,42 +929,47 @@ export class ComputerRuntime {
     if (!this.authenticated) {
       throw new Error(`Pi inference provider ${this.defaultModelRef.providerId} is not configured`);
     }
-    const session = await this.createStandaloneSession(
-      request.cwd,
-      request.instructions,
-      SessionManager.inMemory(request.cwd),
-      undefined,
-      this.defaultModelRef
-    );
-    let assistantText = "";
-    const unsubscribe = session.subscribe((event) => {
-      if (event.type !== "message_end") return;
-      const message = event.message as { role?: string; content?: unknown };
-      if (message.role === "assistant") assistantText = textFromContent(message.content);
-    });
-    let timer: ReturnType<typeof setTimeout> | null = null;
+    const modelRuntime = this.modelRuntime;
+    if (!modelRuntime) throw new Error("Pi model runtime is not initialized");
+    const model = this.resolveModel(this.defaultModelRef);
+    const thinkingLevel = clampThinkingLevel(model, this.thinkingLevel);
+    const controller = new AbortController();
     let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, request.timeoutMs);
+    timer.unref();
     try {
-      await Promise.race([
-        session.prompt(request.prompt, {
-          source: "rpc",
-          expandPromptTemplates: false,
-        }),
-        new Promise<never>((_resolve, reject) => {
-          timer = setTimeout(() => {
-            timedOut = true;
-            reject(new Error("Memory inference timed out"));
-          }, request.timeoutMs);
-          timer.unref();
-        }),
-      ]);
+      const result = await modelRuntime.completeSimple(
+        model,
+        {
+          systemPrompt: request.instructions,
+          messages: [
+            {
+              role: "user",
+              content: [{ type: "text", text: request.prompt }],
+              timestamp: Date.now(),
+            },
+          ] as never,
+          tools: [],
+        },
+        {
+          signal: controller.signal,
+          reasoning: thinkingLevel === "off" ? undefined : thinkingLevel,
+        }
+      );
+      if (result.stopReason === "error" || result.stopReason === "aborted") {
+        throw new Error(result.errorMessage || `Memory inference ${result.stopReason}`);
+      }
+      const assistantText = textFromContent(result.content);
       if (!assistantText.trim()) throw new Error("Memory inference returned no assistant text");
       return assistantText;
+    } catch (error) {
+      if (timedOut) throw new Error("Memory inference timed out", { cause: error });
+      throw error;
     } finally {
-      if (timer) clearTimeout(timer);
-      if (timedOut) await session.abort().catch(() => undefined);
-      unsubscribe();
-      session.dispose();
+      clearTimeout(timer);
     }
   }
 

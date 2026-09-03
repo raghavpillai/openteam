@@ -1,55 +1,44 @@
-import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
+const title = "OpenBot — self-hosted AI agents that keep working";
+const description =
+  "Give AI agents their own computer, memory, and schedule on a server you run. Hand off a job from your desktop or phone and come back to the finished result.";
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://openteam.so"),
-  title: "OpenBot | Self-hosted agents that keep working",
-  description:
-    "Give AI agents a persistent computer, shared files, durable context, and scheduled work on infrastructure you control.",
-  alternates: {
-    canonical: "/",
+  title,
+  description,
+  alternates: { canonical: "/" },
+  icons: {
+    icon: [{ url: "/favicon.svg", type: "image/svg+xml" }],
   },
   openGraph: {
-    title: "OpenBot | Self-hosted agents that keep working",
-    description: "Hand off a job, close the app, and come back to the files.",
+    title,
+    description,
     type: "website",
     url: "/",
-    images: [
-      {
-        url: "/og.png",
-        width: 1200,
-        height: 630,
-        alt: "OpenBot, self-hosted agents that keep working",
-      },
-    ],
+    siteName: "OpenBot",
+    images: [{ url: "/og.png", width: 1200, height: 630, alt: "OpenBot" }],
   },
   twitter: {
     card: "summary_large_image",
-    title: "OpenBot | Self-hosted agents that keep working",
-    description: "Hand off a job, close the app, and come back to the files.",
+    title,
+    description,
     images: ["/og.png"],
   },
 };
 
-export default function RootLayout({
-  children,
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
+export const viewport: Viewport = {
+  themeColor: "#fbfbfa",
+  width: "device-width",
+  initialScale: 1,
+};
+
+export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en">
-      <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>{children}</body>
+      <body>{children}</body>
     </html>
   );
 }

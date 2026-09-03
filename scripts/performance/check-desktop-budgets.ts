@@ -168,6 +168,7 @@ const lazyBudgets: Record<string, number> = {
   settingsGeneral: 30_000,
   settingsGeneralBot: 30_000,
   settingsComputer: 30_000,
+  settingsServer: 35_000,
   settingsUpdates: 10_000,
 };
 if (!result.renderer.lazyClosures) {

@@ -277,6 +277,18 @@ const server = Bun.serve({
         }
         return json(await run(app.broadcast(await parseBody(request, AdminBroadcastInput))));
       }
+      if (request.method === "PATCH" && path === "/api/internal/server-settings/inference") {
+        if (!authorizedInternal(request)) {
+          return json({ error: { code: "unauthorized", message: "Unauthorized" } }, 401);
+        }
+        return json(await run(app.updateInferenceSettings(await request.json().catch(() => null))));
+      }
+      if (request.method === "GET" && path === "/api/internal/server-settings") {
+        if (!authorizedInternal(request)) {
+          return json({ error: { code: "unauthorized", message: "Unauthorized" } }, 401);
+        }
+        return json(await run(app.serverSettings(url.searchParams.get("provider") ?? undefined)));
+      }
       if (request.method === "GET" && (url.pathname === "/health" || path === "/api/health")) {
         const runtime = await run(app.health());
         return json(
@@ -443,6 +455,87 @@ const server = Bun.serve({
       }
       if (request.method === "GET" && path === "/api/settings") {
         return json(await run(app.rootSettings()));
+      }
+      if (request.method === "GET" && path === "/api/server-settings") {
+        return json(await run(app.serverSettings(url.searchParams.get("provider") ?? undefined)));
+      }
+      if (request.method === "PATCH" && path === "/api/server-settings/inference") {
+        return json(await run(app.updateInferenceSettings(await request.json().catch(() => null))));
+      }
+      const inferenceProviderAuthStartMatch = path.match(
+        /^\/api\/inference-providers\/([^/]+)\/auth-sessions$/
+      );
+      if (request.method === "POST" && inferenceProviderAuthStartMatch?.[1]) {
+        const input = (await request.json().catch(() => null)) as { authType?: unknown } | null;
+        if (input?.authType !== "api_key" && input?.authType !== "oauth") {
+          throw new ApiError(
+            400,
+            "invalid_provider_auth_type",
+            "authType must be api_key or oauth"
+          );
+        }
+        return json(
+          await run(
+            app.startInferenceProviderAuth(
+              decodeURIComponent(inferenceProviderAuthStartMatch[1]),
+              input.authType
+            )
+          ),
+          201
+        );
+      }
+      const inferenceProviderMatch = path.match(/^\/api\/inference-providers\/([^/]+)$/);
+      if (request.method === "DELETE" && inferenceProviderMatch?.[1]) {
+        return json(
+          await run(app.disconnectInferenceProvider(decodeURIComponent(inferenceProviderMatch[1])))
+        );
+      }
+      const inferenceAuthResponseMatch = path.match(
+        /^\/api\/inference-provider-auth-sessions\/([^/]+)\/respond$/
+      );
+      if (request.method === "POST" && inferenceAuthResponseMatch?.[1]) {
+        const input = (await request.json().catch(() => null)) as {
+          promptId?: unknown;
+          value?: unknown;
+        } | null;
+        if (
+          typeof input?.promptId !== "string" ||
+          typeof input.value !== "string" ||
+          input.value.length === 0 ||
+          input.value.length > 20_000
+        ) {
+          throw new ApiError(
+            400,
+            "invalid_provider_auth_response",
+            "promptId and a bounded value are required"
+          );
+        }
+        return json(
+          await run(
+            app.respondToInferenceProviderAuth(
+              decodeURIComponent(inferenceAuthResponseMatch[1]),
+              input.promptId,
+              input.value
+            )
+          )
+        );
+      }
+      const inferenceAuthSessionMatch = path.match(
+        /^\/api\/inference-provider-auth-sessions\/([^/]+)$/
+      );
+      if (request.method === "GET" && inferenceAuthSessionMatch?.[1]) {
+        return json(
+          await run(
+            app.inferenceProviderAuthSession(decodeURIComponent(inferenceAuthSessionMatch[1]))
+          )
+        );
+      }
+      if (request.method === "DELETE" && inferenceAuthSessionMatch?.[1]) {
+        return json(
+          await run(
+            app.cancelInferenceProviderAuth(decodeURIComponent(inferenceAuthSessionMatch[1]))
+          )
+        );
       }
       if (request.method === "PATCH" && path === "/api/settings/sidebar") {
         const input = await request.json().catch(() => null);

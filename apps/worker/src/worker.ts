@@ -9,6 +9,7 @@ import type {
   SubagentType,
 } from "@openbot/contracts";
 import { SEND_TO_USER_REPLY_NUDGE_PROMPT } from "@openbot/contracts";
+import { formatPiModelRef } from "@openbot/contracts";
 import {
   COMPUTER_API_PATHS,
   parseAgentDirectorySnapshot,
@@ -319,13 +320,18 @@ export class WakeWorker {
     this.workspaceRoot = process.env.OPENBOT_WORKSPACE_ROOT ?? "/workspace";
     this.agentData = new AgentDataStore(this.prisma, {
       memoryInference: async (request) => {
+        const { inference } = (await this.agentData.loadRootSettings()).settings;
         const response = await fetch(`${this.computerUrl}${COMPUTER_API_PATHS.inference}`, {
           method: "POST",
           headers: {
             authorization: `Bearer ${this.controlToken}`,
             "content-type": "application/json",
           },
-          body: JSON.stringify(request),
+          body: JSON.stringify({
+            ...request,
+            model: formatPiModelRef(inference),
+            reasoning: inference.reasoning,
+          }),
           signal: AbortSignal.timeout(request.timeoutMs),
         });
         const body = (await response.json()) as { text?: unknown; error?: unknown };
@@ -1188,12 +1194,14 @@ export class WakeWorker {
     let completion: Extract<ComputerEvent, { type: "turn.completed" }> | null = null;
     try {
       await this.reconcileContextState(claimed);
-      const [platformPrompt, pluginContext] = await Promise.all([
+      const [platformPrompt, pluginContext, rootSettings] = await Promise.all([
         this.messaging.platformPrompt(claimed.botId, claimed.contextSessionId),
         subagentLoadsPluginContext(claimed.subagentType)
           ? pluginRuntimeContext(this.prisma, claimed.pluginBotId)
           : Promise.resolve({ dynamicNamespaces: [], skillInstructions: "" }),
+        this.agentData.loadRootSettings(),
       ]);
+      const inference = rootSettings.settings.inference;
       // Plugin skills are global/read-only inputs. User workflows are rendered
       // later by platformInstructions and therefore win on conflict.
       const instructions = `${pluginSkillPromptForRuntime(
@@ -1228,7 +1236,8 @@ export class WakeWorker {
         deliveryId: claimed.deliveryId,
         runtimeProfile: claimed.runtimeProfile,
         subagentType: claimed.subagentType ?? undefined,
-        model: claimed.model ?? undefined,
+        model: claimed.model ?? formatPiModelRef(inference),
+        reasoning: inference.reasoning,
         fileAttachments: claimed.fileAttachments,
         dynamicNamespaces: pluginContext.dynamicNamespaces,
       } satisfies ComputerTurnRequest;

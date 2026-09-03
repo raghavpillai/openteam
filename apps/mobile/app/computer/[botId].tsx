@@ -24,15 +24,18 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { authHeadersForUrl } from "../../src/auth";
 import { BotMark } from "../../src/components/bot-mark";
 import { ComputerHelpSheet } from "../../src/components/computer-help-sheet";
+import {
+  clampComputerViewport,
+  computerPointFromScreen,
+  computerTouchCentroid,
+  computerTouchDistance,
+  moveComputerTrackpadPointer,
+  screenPointFromComputer,
+  updateComputerViewport,
+} from "../../src/computer-viewport";
 import { useOpenBot } from "../../src/state/openbot-context";
 
 type ScreenApp = ScreenStatusView["apps"][number];
-
-const touchDistance = (touches: ReadonlyArray<{ pageX: number; pageY: number }>) => {
-  const [first, second] = touches;
-  if (!first || !second) return 0;
-  return Math.hypot(second.pageX - first.pageX, second.pageY - first.pageY);
-};
 
 const appDetails: Record<ScreenApp, { label: string; icon: SymbolViewProps["name"] }> = {
   chromium: { label: "Browser", icon: "safari" },
@@ -171,6 +174,8 @@ export default function ComputerScreen() {
   const [helpOpen, setHelpOpen] = useState(false);
   const [trackpadMode, setTrackpadMode] = useState(false);
   const [screenZoom, setScreenZoom] = useState(1);
+  const [screenOffset, setScreenOffset] = useState({ x: 0, y: 0 });
+  const [trackpadPointer, setTrackpadPointer] = useState({ x: 640, y: 400 });
   const [modeToast, setModeToast] = useState<string | null>(null);
   const refreshEpoch = useRef(0);
   const statusRevision = useRef(0);
@@ -183,6 +188,7 @@ export default function ComputerScreen() {
   const keyboardTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pointer = useRef({ x: 640, y: 400 });
   const zoomRef = useRef(1);
+  const offsetRef = useRef({ x: 0, y: 0 });
   const lastTapAt = useRef(0);
   const handoffFinished = useRef(false);
   const handoffDismissTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -191,13 +197,36 @@ export default function ComputerScreen() {
     touches: 1,
     startDistance: 0,
     startZoom: 1,
+    startCentroid: { x: 0, y: 0 },
+    multiTouchDelta: { x: 0, y: 0 },
+    startOffset: { x: 0, y: 0 },
     startPoint: { x: 640, y: 400 },
     pointerStart: { x: 640, y: 400 },
     path: [] as Array<{ x: number; y: number }>,
+    multiTouch: false,
     pinching: false,
+    viewportGesture: false,
     trackpadDrag: false,
   });
   const busy = actionBusy;
+
+  const applyViewport = useCallback(
+    (viewport: { zoom: number; offset: { x: number; y: number } }) => {
+      const bounded = clampComputerViewport(viewport, frameSize);
+      zoomRef.current = bounded.zoom;
+      offsetRef.current = bounded.offset;
+      setScreenZoom(bounded.zoom);
+      setScreenOffset(bounded.offset);
+    },
+    [frameSize]
+  );
+
+  const resetViewport = useCallback(() => {
+    zoomRef.current = 1;
+    offsetRef.current = { x: 0, y: 0 };
+    setScreenZoom(1);
+    setScreenOffset({ x: 0, y: 0 });
+  }, []);
 
   const refresh = useCallback(async () => {
     if (!botId || refreshInFlight.current || AppState.currentState !== "active") return;
@@ -286,8 +315,18 @@ export default function ComputerScreen() {
   }, [keyboardOpen, status?.state]);
 
   useEffect(() => {
-    zoomRef.current = screenZoom;
-  }, [screenZoom]);
+    const bounded = clampComputerViewport(
+      { zoom: zoomRef.current, offset: offsetRef.current },
+      frameSize
+    );
+    if (
+      bounded.zoom !== zoomRef.current ||
+      bounded.offset.x !== offsetRef.current.x ||
+      bounded.offset.y !== offsetRef.current.y
+    ) {
+      applyViewport(bounded);
+    }
+  }, [applyViewport, frameSize]);
 
   const performAction = useCallback(
     async (input: ScreenActionInput) => {
@@ -327,11 +366,6 @@ export default function ComputerScreen() {
   const openKeyboard = () => {
     setControlsOpen(false);
     setKeyboardOpen(true);
-  };
-
-  const closeKeyboard = () => {
-    setKeyboardOpen(false);
-    Keyboard.dismiss();
   };
 
   const frameUrl = botId ? screenFrameUrl(botId, frameRevision) : null;
@@ -387,137 +421,167 @@ export default function ComputerScreen() {
     setTyping("");
   }, [act, flushKeyboardBuffer]);
 
+  const closeKeyboard = useCallback(() => {
+    flushKeyboardBuffer();
+    keyboardValue.current = "";
+    setTyping("");
+    setKeyboardOpen(false);
+    Keyboard.dismiss();
+  }, [flushKeyboardBuffer]);
+
   const remotePoint = useCallback(
     (localX: number, localY: number) => {
-      const width = Math.max(1, frameSize.width);
-      const height = Math.max(1, frameSize.height);
-      const zoom = zoomRef.current;
-      const normalizedX = ((localX - width / 2) / zoom + width / 2) / width;
-      const normalizedY = ((localY - height / 2) / zoom + height / 2) / height;
-      return {
-        x: Math.max(
-          0,
-          Math.min((status?.width ?? 1280) - 1, Math.round(normalizedX * (status?.width ?? 1280)))
-        ),
-        y: Math.max(
-          0,
-          Math.min((status?.height ?? 800) - 1, Math.round(normalizedY * (status?.height ?? 800)))
-        ),
-      };
+      return computerPointFromScreen(
+        { x: localX, y: localY },
+        frameSize,
+        { width: status?.width ?? 1280, height: status?.height ?? 800 },
+        { zoom: zoomRef.current, offset: offsetRef.current }
+      );
     },
-    [frameSize.height, frameSize.width, status?.height, status?.width]
+    [frameSize, status?.height, status?.width]
   );
 
-  const panResponder = useMemo(
-    () =>
-      PanResponder.create({
-        onStartShouldSetPanResponder: () => ready,
-        onMoveShouldSetPanResponder: () => ready,
-        onPanResponderGrant: (event) => {
-          const touches = event.nativeEvent.touches;
-          const startPoint = remotePoint(event.nativeEvent.locationX, event.nativeEvent.locationY);
-          const startedAt = Date.now();
-          gesture.current = {
-            startedAt,
-            touches: Math.max(1, touches.length),
-            startDistance: touchDistance(touches),
-            startZoom: zoomRef.current,
-            startPoint,
-            pointerStart: { ...pointer.current },
-            path: [startPoint],
-            pinching: false,
-            trackpadDrag: trackpadMode && startedAt - lastTapAt.current < 320,
+  const trackpadPointerOnScreen = screenPointFromComputer(
+    trackpadPointer,
+    frameSize,
+    { width: status?.width ?? 1280, height: status?.height ?? 800 },
+    { zoom: screenZoom, offset: screenOffset }
+  );
+
+  const panResponder = useMemo(() => {
+    const beginMultiTouch = (touches: Parameters<typeof computerTouchDistance>[0]) => {
+      const centroid = computerTouchCentroid(touches);
+      gesture.current.touches = Math.max(2, gesture.current.touches);
+      gesture.current.multiTouch = true;
+      gesture.current.startDistance = computerTouchDistance(touches);
+      gesture.current.startZoom = zoomRef.current;
+      gesture.current.startCentroid = centroid;
+      gesture.current.multiTouchDelta = { x: 0, y: 0 };
+      gesture.current.startOffset = { ...offsetRef.current };
+      gesture.current.startPoint = remotePoint(centroid.x, centroid.y);
+      gesture.current.viewportGesture = false;
+    };
+
+    return PanResponder.create({
+      onStartShouldSetPanResponder: () => ready,
+      onMoveShouldSetPanResponder: () => ready,
+      onPanResponderGrant: (event) => {
+        const touches = event.nativeEvent.touches;
+        const multiTouch = touches.length >= 2;
+        const centroid = multiTouch
+          ? computerTouchCentroid(touches)
+          : { x: event.nativeEvent.locationX, y: event.nativeEvent.locationY };
+        const startPoint = remotePoint(centroid.x, centroid.y);
+        const startedAt = Date.now();
+        gesture.current = {
+          startedAt,
+          touches: Math.max(1, touches.length),
+          startDistance: multiTouch ? computerTouchDistance(touches) : 0,
+          startZoom: zoomRef.current,
+          startCentroid: centroid,
+          multiTouchDelta: { x: 0, y: 0 },
+          startOffset: { ...offsetRef.current },
+          startPoint,
+          pointerStart: { ...pointer.current },
+          path: [startPoint],
+          multiTouch,
+          pinching: false,
+          viewportGesture: false,
+          trackpadDrag: trackpadMode && startedAt - lastTapAt.current < 320,
+        };
+      },
+      onPanResponderStart: (event) => {
+        const touches = event.nativeEvent.touches;
+        if (touches.length >= 2 && !gesture.current.multiTouch) beginMultiTouch(touches);
+      },
+      onPanResponderMove: (event, state) => {
+        const touches = event.nativeEvent.touches;
+        gesture.current.touches = Math.max(gesture.current.touches, touches.length);
+        if (touches.length >= 2) {
+          if (!gesture.current.multiTouch) beginMultiTouch(touches);
+          const centroid = computerTouchCentroid(touches);
+          gesture.current.multiTouchDelta = {
+            x: centroid.x - gesture.current.startCentroid.x,
+            y: centroid.y - gesture.current.startCentroid.y,
           };
-        },
-        onPanResponderMove: (event, state) => {
-          const touches = event.nativeEvent.touches;
-          gesture.current.touches = Math.max(gesture.current.touches, touches.length);
-          if (touches.length >= 2) {
-            const distance = touchDistance(touches);
-            if (gesture.current.startDistance <= 0) {
-              gesture.current.startDistance = distance;
-              gesture.current.startZoom = zoomRef.current;
-              return;
-            }
-            const ratio = distance / gesture.current.startDistance;
-            if (Math.abs(ratio - 1) > 0.04 || gesture.current.pinching) {
-              gesture.current.pinching = true;
-              const nextZoom = Math.max(1, Math.min(3, gesture.current.startZoom * ratio));
-              zoomRef.current = nextZoom;
-              setScreenZoom(nextZoom);
-            }
-            return;
+          const distance = computerTouchDistance(touches);
+          const ratio =
+            gesture.current.startDistance > 0 ? distance / gesture.current.startDistance : 1;
+          if (Math.abs(ratio - 1) > 0.035 || gesture.current.pinching) {
+            gesture.current.pinching = true;
           }
-          if (trackpadMode) {
-            const width = Math.max(1, frameSize.width);
-            const height = Math.max(1, frameSize.height);
-            pointer.current = {
-              x: Math.max(
-                0,
-                Math.min(
-                  (status?.width ?? 1280) - 1,
-                  Math.round(
-                    gesture.current.pointerStart.x +
-                      (state.dx / width) * (status?.width ?? 1280) * 1.65
-                  )
-                )
-              ),
-              y: Math.max(
-                0,
-                Math.min(
-                  (status?.height ?? 800) - 1,
-                  Math.round(
-                    gesture.current.pointerStart.y +
-                      (state.dy / height) * (status?.height ?? 800) * 1.65
-                  )
-                )
-              ),
-            };
-            return;
+          const movedViewport =
+            Math.hypot(gesture.current.multiTouchDelta.x, gesture.current.multiTouchDelta.y) > 3;
+          if ((gesture.current.startZoom > 1.01 && movedViewport) || gesture.current.pinching) {
+            gesture.current.viewportGesture = true;
+            applyViewport(
+              updateComputerViewport(
+                {
+                  zoom: gesture.current.startZoom,
+                  offset: gesture.current.startOffset,
+                  centroid: gesture.current.startCentroid,
+                  distance: gesture.current.startDistance,
+                },
+                touches,
+                frameSize,
+                gesture.current.pinching
+              )
+            );
           }
-          if (gesture.current.path.length < 100) {
-            const nextPoint = remotePoint(event.nativeEvent.locationX, event.nativeEvent.locationY);
-            const previous = gesture.current.path.at(-1);
-            if (!previous || Math.hypot(nextPoint.x - previous.x, nextPoint.y - previous.y) > 5) {
-              gesture.current.path.push(nextPoint);
-            }
+          return;
+        }
+        if (gesture.current.multiTouch) return;
+        if (trackpadMode) {
+          const nextPointer = moveComputerTrackpadPointer(
+            gesture.current.pointerStart,
+            { x: state.dx, y: state.dy },
+            frameSize,
+            { width: status?.width ?? 1280, height: status?.height ?? 800 },
+            zoomRef.current
+          );
+          pointer.current = nextPointer;
+          setTrackpadPointer(nextPointer);
+          return;
+        }
+        if (gesture.current.path.length < 100) {
+          const nextPoint = remotePoint(event.nativeEvent.locationX, event.nativeEvent.locationY);
+          const previous = gesture.current.path.at(-1);
+          if (!previous || Math.hypot(nextPoint.x - previous.x, nextPoint.y - previous.y) > 5) {
+            gesture.current.path.push(nextPoint);
           }
-        },
-        onPanResponderRelease: (_event, state) => {
-          if (gesture.current.pinching) return;
-          const distance = Math.hypot(state.dx, state.dy);
-          const held = Date.now() - gesture.current.startedAt;
-          if (gesture.current.touches >= 2) {
-            if (distance < 10) {
-              void act({ action: "click", ...gesture.current.startPoint, button: "right" });
-            } else if (zoomRef.current <= 1.01) {
-              const deltaY = Math.max(-20, Math.min(20, Math.round(state.dy / 18)));
-              if (deltaY) void act({ action: "scroll", deltaY });
-            }
-            return;
+        }
+      },
+      onPanResponderRelease: (event, state) => {
+        if (gesture.current.viewportGesture) return;
+        const distance = Math.hypot(state.dx, state.dy);
+        const held = Date.now() - gesture.current.startedAt;
+        if (gesture.current.touches >= 2) {
+          const multiDistance = Math.hypot(
+            gesture.current.multiTouchDelta.x,
+            gesture.current.multiTouchDelta.y
+          );
+          if (multiDistance < 10) {
+            const point = trackpadMode ? pointer.current : gesture.current.startPoint;
+            void act({ action: "click", ...point, button: "right" });
+          } else {
+            const deltaY = Math.max(
+              -20,
+              Math.min(20, Math.round(gesture.current.multiTouchDelta.y / 18))
+            );
+            if (deltaY) void act({ action: "scroll", deltaY });
           }
-          if (trackpadMode) {
-            if (distance >= 4) {
-              void act(
-                gesture.current.trackpadDrag
-                  ? {
-                      action: "drag",
-                      path: [gesture.current.pointerStart, { ...pointer.current }],
-                    }
-                  : { action: "move", ...pointer.current }
-              );
-            }
-            if (distance < 10) {
-              const now = Date.now();
-              const double = now - lastTapAt.current < 320;
-              lastTapAt.current = now;
-              void act({
-                action: "click",
-                ...pointer.current,
-                ...(double ? { double: true } : {}),
-              });
-            }
-            return;
+          return;
+        }
+        if (trackpadMode) {
+          if (distance >= 4) {
+            void act(
+              gesture.current.trackpadDrag
+                ? {
+                    action: "drag",
+                    path: [gesture.current.pointerStart, { ...pointer.current }],
+                  }
+                : { action: "move", ...pointer.current }
+            );
           }
           if (distance < 10) {
             const now = Date.now();
@@ -525,58 +589,46 @@ export default function ComputerScreen() {
             lastTapAt.current = now;
             void act({
               action: "click",
-              ...gesture.current.startPoint,
-              ...(held >= 550 ? { button: "right" as const } : double ? { double: true } : {}),
+              ...pointer.current,
+              ...(double ? { double: true } : {}),
             });
-            return;
           }
-          const lastPoint = gesture.current.path.at(-1);
-          const end =
-            lastPoint && gesture.current.path.length > 1
-              ? lastPoint
-              : {
-                  x: Math.max(
-                    0,
-                    Math.min(
-                      (status?.width ?? 1280) - 1,
-                      Math.round(
-                        gesture.current.startPoint.x +
-                          ((state.dx / Math.max(1, frameSize.width)) * (status?.width ?? 1280)) /
-                            zoomRef.current
-                      )
-                    )
-                  ),
-                  y: Math.max(
-                    0,
-                    Math.min(
-                      (status?.height ?? 800) - 1,
-                      Math.round(
-                        gesture.current.startPoint.y +
-                          ((state.dy / Math.max(1, frameSize.height)) * (status?.height ?? 800)) /
-                            zoomRef.current
-                      )
-                    )
-                  ),
-                };
-          const path = [...gesture.current.path, end].filter((point, index, points) => {
-            const previous = points[index - 1];
-            return !previous || point.x !== previous.x || point.y !== previous.y;
+          return;
+        }
+        if (distance < 10) {
+          const now = Date.now();
+          const double = now - lastTapAt.current < 320;
+          lastTapAt.current = now;
+          void act({
+            action: "click",
+            ...gesture.current.startPoint,
+            ...(held >= 550 ? { button: "right" as const } : double ? { double: true } : {}),
           });
-          if (path.length >= 2) void act({ action: "drag", path });
-        },
-        onPanResponderTerminationRequest: () => false,
-      }),
-    [
-      act,
-      frameSize.height,
-      frameSize.width,
-      ready,
-      remotePoint,
-      status?.height,
-      status?.width,
-      trackpadMode,
-    ]
-  );
+          return;
+        }
+        const lastPoint = gesture.current.path.at(-1);
+        const end =
+          lastPoint && gesture.current.path.length > 1
+            ? lastPoint
+            : remotePoint(event.nativeEvent.locationX, event.nativeEvent.locationY);
+        const path = [...gesture.current.path, end].filter((point, index, points) => {
+          const previous = points[index - 1];
+          return !previous || point.x !== previous.x || point.y !== previous.y;
+        });
+        if (path.length >= 2) void act({ action: "drag", path });
+      },
+      onPanResponderTerminationRequest: () => false,
+    });
+  }, [
+    act,
+    applyViewport,
+    frameSize,
+    ready,
+    remotePoint,
+    status?.height,
+    status?.width,
+    trackpadMode,
+  ]);
 
   const showModeToast = useCallback((message: string) => {
     setModeToast(message);
@@ -699,9 +751,33 @@ export default function ComputerScreen() {
                 accessibilityRole="button"
                 style={styles.frame}
               >
-                <View style={[styles.frame, { transform: [{ scale: screenZoom }] }]}>
-                  <FixtureDesktop />
+                <View
+                  pointerEvents="none"
+                  style={[
+                    styles.frame,
+                    { transform: [{ translateX: screenOffset.x }, { translateY: screenOffset.y }] },
+                  ]}
+                >
+                  <View style={[styles.frame, { transform: [{ scale: screenZoom }] }]}>
+                    <FixtureDesktop />
+                  </View>
                 </View>
+                {trackpadMode ? (
+                  <View
+                    pointerEvents="none"
+                    style={[
+                      styles.trackpadPointer,
+                      { left: trackpadPointerOnScreen.x, top: trackpadPointerOnScreen.y },
+                    ]}
+                  >
+                    <SymbolView
+                      name="cursorarrow"
+                      size={22}
+                      tintColor="#FFFFFF"
+                      weight="semibold"
+                    />
+                  </View>
+                ) : null}
               </View>
             ) : frameUrl && ready ? (
               <View style={styles.frame}>
@@ -712,13 +788,39 @@ export default function ComputerScreen() {
                   accessibilityRole="button"
                   style={styles.frame}
                 >
-                  <Image
-                    onError={() => setFrameError("The latest computer frame could not be loaded")}
-                    onLoad={() => setFrameError(null)}
-                    resizeMode="contain"
-                    source={{ uri: frameUrl, headers: authHeadersForUrl(frameUrl) }}
-                    style={[styles.frame, { transform: [{ scale: screenZoom }] }]}
-                  />
+                  <View
+                    pointerEvents="none"
+                    style={[
+                      styles.frame,
+                      {
+                        transform: [{ translateX: screenOffset.x }, { translateY: screenOffset.y }],
+                      },
+                    ]}
+                  >
+                    <Image
+                      onError={() => setFrameError("The latest computer frame could not be loaded")}
+                      onLoad={() => setFrameError(null)}
+                      resizeMode="contain"
+                      source={{ uri: frameUrl, headers: authHeadersForUrl(frameUrl) }}
+                      style={[styles.frame, { transform: [{ scale: screenZoom }] }]}
+                    />
+                  </View>
+                  {trackpadMode ? (
+                    <View
+                      pointerEvents="none"
+                      style={[
+                        styles.trackpadPointer,
+                        { left: trackpadPointerOnScreen.x, top: trackpadPointerOnScreen.y },
+                      ]}
+                    >
+                      <SymbolView
+                        name="cursorarrow"
+                        size={22}
+                        tintColor="#FFFFFF"
+                        weight="semibold"
+                      />
+                    </View>
+                  ) : null}
                 </View>
                 {frameError ? (
                   <View pointerEvents="none" style={[styles.centerState, styles.frameErrorOverlay]}>
@@ -740,6 +842,20 @@ export default function ComputerScreen() {
             ) : null}
           </View>
         )}
+        {ready && screenZoom > 1.01 ? (
+          <Pressable
+            accessibilityLabel="Reset zoom"
+            accessibilityRole="button"
+            onPress={() => {
+              resetViewport();
+              showModeToast("Zoom reset");
+            }}
+            style={({ pressed }) => [styles.viewportReset, pressed && styles.stageButtonPressed]}
+          >
+            <SymbolView name="arrow.down.right.and.arrow.up.left" size={14} tintColor="#F7F7F4" />
+            <Text style={styles.viewportResetLabel}>Reset zoom</Text>
+          </Pressable>
+        ) : null}
       </View>
 
       {controlsOpen ? (
@@ -750,6 +866,7 @@ export default function ComputerScreen() {
             accessibilityState={{ checked: trackpadMode }}
             onPress={() => {
               const next = !trackpadMode;
+              lastTapAt.current = 0;
               setTrackpadMode(next);
               setControlsOpen(false);
               showModeToast(next ? "Trackpad mode" : "Direct touch");
@@ -811,8 +928,7 @@ export default function ComputerScreen() {
             <Pressable
               accessibilityRole="button"
               onPress={() => {
-                zoomRef.current = 1;
-                setScreenZoom(1);
+                resetViewport();
                 setControlsOpen(false);
                 showModeToast("Zoom reset");
               }}
@@ -847,6 +963,7 @@ export default function ComputerScreen() {
               autoFocus
               editable={ready}
               keyboardAppearance="dark"
+              onBlur={closeKeyboard}
               onChangeText={handleKeyboardChange}
               onSubmitEditing={submitKeyboard}
               ref={inputRef}
@@ -854,6 +971,7 @@ export default function ComputerScreen() {
               showSoftInputOnFocus
               spellCheck={false}
               style={styles.hiddenInput}
+              submitBehavior="submit"
               value={typing}
             />
           ) : null}
@@ -976,6 +1094,34 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   frame: { width: "100%", height: "100%" },
+  trackpadPointer: {
+    position: "absolute",
+    zIndex: 3,
+    width: 24,
+    height: 24,
+    marginLeft: -2,
+    marginTop: -2,
+    shadowColor: "#000000",
+    shadowOpacity: 0.9,
+    shadowRadius: 2,
+    shadowOffset: { width: 0, height: 1 },
+  },
+  viewportReset: {
+    position: "absolute",
+    zIndex: 5,
+    top: 72,
+    right: 10,
+    minHeight: 36,
+    borderRadius: 18,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(255,255,255,0.18)",
+    backgroundColor: "rgba(34,34,34,0.92)",
+    paddingHorizontal: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+  },
+  viewportResetLabel: { color: "#F7F7F4", fontSize: 12, lineHeight: 16, fontWeight: "600" },
   busyOverlay: {
     position: "absolute",
     inset: 0,

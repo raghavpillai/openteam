@@ -5,10 +5,7 @@ import {
   ApiError,
   type AssetRef,
   type BotTranscriptView,
-  DEFAULT_PI_INFERENCE_MODEL,
-  DEFAULT_PI_INFERENCE_PROVIDER,
   formatPiModelRef,
-  piModelRef,
   type ReactToMessageInput,
   type RuntimeInlineImage,
   type SendToAgentInput,
@@ -1926,7 +1923,10 @@ export class AgentMessaging {
         agentProfileUpdate: null,
       };
     }
-    const agentPrompt = await this.agentData.promptContext(botId, contextSessionId);
+    const [agentPrompt, rootSettings] = await Promise.all([
+      this.agentData.promptContext(botId, contextSessionId),
+      this.agentData.loadRootSettings(),
+    ]);
     const projectMemberships = await this.prisma.projectMember.findMany({
       where: { botId },
       include: { project: true },
@@ -2053,7 +2053,7 @@ export class AgentMessaging {
       "Use GetDynamicTools with namespace cursor to discover SendToAgent, ListAgents/ListGroups, TodoWrite, Task/CheckSubagent/MessageSubagent/StopSubagent, CreateAgent/UpdateAgent, and CreateChannel/UpdateChannel. Invoke discovered tools with CallDynamicTool.",
       A2A_PLATFORM_INSTRUCTIONS,
       MAIN_AGENT_GRAPHICAL_DELEGATION_INSTRUCTIONS,
-      `Available Task subagent types are executor, videoReview, watchVideo, computerUse, and browserUse. The available subagent model slug is ${formatPiModelRef(piModelRef(process.env.OPENBOT_PI_PROVIDER ?? DEFAULT_PI_INFERENCE_PROVIDER, process.env.OPENBOT_PI_MODEL ?? DEFAULT_PI_INFERENCE_MODEL))}; omit model unless the user explicitly asks for it.`,
+      `Available Task subagent types are executor, videoReview, watchVideo, computerUse, and browserUse. The available subagent model slug is ${formatPiModelRef(rootSettings.settings.inference)}; omit model unless the user explicitly asks for it.`,
       todoContext.length > 0
         ? `Durable task queue (reconcile it with TodoWrite on each wake):\n${todoContext.join("\n")}`
         : "The durable task queue is empty.",

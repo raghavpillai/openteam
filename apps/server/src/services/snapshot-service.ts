@@ -8,6 +8,8 @@ import {
   type ClientBootstrapView,
   type ClientRuntimeView,
   type ClientSnapshot,
+  formatPiModelRef,
+  type ServerInferenceSettings,
   type Snapshot,
 } from "@openbot/contracts";
 import { Prisma, type PrismaClient } from "@openbot/db";
@@ -90,7 +92,8 @@ export class SnapshotService {
     private readonly workspaceRoot: string,
     private readonly computerUrl: string,
     private readonly isQueueReady: () => boolean,
-    private readonly runtimeProbeTimeoutMs = 2_500
+    private readonly runtimeProbeTimeoutMs = 2_500,
+    private readonly inferenceSettings?: () => Promise<ServerInferenceSettings>
   ) {}
 
   full = () =>
@@ -1067,7 +1070,12 @@ export class SnapshotService {
     computer: Snapshot["runtime"]["computer"];
     inference: Snapshot["runtime"]["inference"];
   }> {
-    const response = await fetch(`${this.computerUrl}/health`, { signal });
+    const configuredInference = await this.inferenceSettings?.();
+    const healthUrl = new URL("/health", this.computerUrl);
+    if (configuredInference) {
+      healthUrl.searchParams.set("model", formatPiModelRef(configuredInference));
+    }
+    const response = await fetch(healthUrl, { signal });
     const body = (await response.json()) as {
       status?: string;
       inference?: { ready?: boolean; authenticated?: boolean };

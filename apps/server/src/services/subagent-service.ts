@@ -1,21 +1,18 @@
 import {
   ApiError,
-  DEFAULT_PI_INFERENCE_MODEL,
-  DEFAULT_PI_INFERENCE_PROVIDER,
   formatPiModelRef,
   type CheckSubagentInput,
   type ComputerSteerRequest,
   type MessageSubagentInput,
   resolveBotAvatarMark,
   parsePiModelRef,
-  piModelRef,
   type StopSubagentInput,
   type SubagentType,
   type TaskInput,
 } from "@openbot/contracts";
 import { COMPUTER_API_PATHS } from "@openbot/contracts/service-protocol";
 import { Prisma, type PrismaClient } from "@openbot/db";
-import type { AgentMessaging, ToolContext } from "@openbot/messaging";
+import type { AgentDataStore, AgentMessaging, ToolContext } from "@openbot/messaging";
 import { Effect } from "effect";
 import { fromPrisma } from "pg-boss";
 import type { RunService } from "./run-service";
@@ -80,29 +77,26 @@ export const assertSubagentCapacity = async (
 };
 
 export class SubagentService {
-  private readonly defaultModel = piModelRef(
-    process.env.OPENBOT_PI_PROVIDER ?? DEFAULT_PI_INFERENCE_PROVIDER,
-    process.env.OPENBOT_PI_MODEL ?? DEFAULT_PI_INFERENCE_MODEL
-  );
-  private readonly model = formatPiModelRef(this.defaultModel);
-
   constructor(
     private readonly prisma: PrismaClient,
     private readonly messaging: AgentMessaging,
     private readonly runs: RunService,
     private readonly workspaceRoot: string,
-    private readonly computerFetch: ComputerFetch
+    private readonly computerFetch: ComputerFetch,
+    private readonly agentData: AgentDataStore
   ) {}
 
   async task(context: ToolContext, input: TaskInput) {
+    const configuredModel = (await this.agentData.loadRootSettings()).settings.inference;
+    const model = formatPiModelRef(configuredModel);
     if (
       input.model &&
-      formatPiModelRef(parsePiModelRef(input.model, this.defaultModel.providerId)) !== this.model
+      formatPiModelRef(parsePiModelRef(input.model, configuredModel.providerId)) !== model
     ) {
       throw new ApiError(
         400,
         "subagent_model_unavailable",
-        `This OpenBot runtime currently offers ${this.model} to subagents`
+        `This OpenBot runtime currently offers ${model} to subagents`
       );
     }
     const nested = await this.prisma.subagent.findUnique({ where: { childBotId: context.botId } });
@@ -341,6 +335,12 @@ export class SubagentService {
   }
 
   private async launch(context: ToolContext, input: TaskInput, restoredId?: string) {
+    const configuredInference = (await this.agentData.loadRootSettings()).settings.inference;
+    const selectedModel = formatPiModelRef(
+      input.model
+        ? parsePiModelRef(input.model, configuredInference.providerId)
+        : configuredInference
+    );
     const type = input.subagent_type ?? "executor";
     const parent = await this.prisma.bot.findUnique({ where: { id: context.botId } });
     if (!parent || parent.status !== "active") {
@@ -396,7 +396,7 @@ export class SubagentService {
           description: name,
           prompt: input.prompt,
           subagentType: type,
-          model: input.model ?? this.model,
+          model: selectedModel,
           fileAttachments: (input.file_attachments ?? []) as Prisma.InputJsonValue,
           runInBackground: true,
           outputPath,

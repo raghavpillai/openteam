@@ -1,10 +1,20 @@
 import type { ComputerEvent } from "./index";
-import { isRuntimeEngine } from "./inference";
+import { isRuntimeEngine, normalizePiReasoningLevel, type PiReasoningLevel } from "./inference";
 
 export const COMPUTER_API_PATHS = {
   turns: "/v1/turns",
   approvalResolution: "/v1/approvals/resolve",
   inference: "/v1/infer",
+  inferenceProviders: "/v1/inference/providers",
+  inferenceSettingsVerify: "/v1/inference/settings/verify",
+  inferenceProvider: (providerId: string) =>
+    `/v1/inference/providers/${encodeURIComponent(providerId)}`,
+  inferenceProviderAuthSessions: (providerId: string) =>
+    `/v1/inference/providers/${encodeURIComponent(providerId)}/auth-sessions`,
+  inferenceAuthSession: (sessionId: string) =>
+    `/v1/inference/auth-sessions/${encodeURIComponent(sessionId)}`,
+  inferenceAuthSessionResponse: (sessionId: string) =>
+    `/v1/inference/auth-sessions/${encodeURIComponent(sessionId)}/respond`,
   agentStores: "/v1/agent-stores",
   reconcileAgentStores: "/v1/agent-stores/reconcile",
   turnCancel: (runId: string) => `/v1/turns/${encodeURIComponent(runId)}/cancel`,
@@ -142,6 +152,8 @@ export interface ComputerInferenceRequest {
   prompt: string;
   timeoutMs: number;
   cwd?: string;
+  model?: string;
+  reasoning?: PiReasoningLevel;
 }
 
 export interface ComputerInferenceResponse {
@@ -167,12 +179,19 @@ export const parseComputerInferenceRequest = (value: unknown): ComputerInference
   if (input.cwd !== undefined && typeof input.cwd !== "string") {
     throw new Error("Inference cwd is invalid");
   }
+  if (input.model !== undefined && typeof input.model !== "string") {
+    throw new Error("Inference model is invalid");
+  }
   return {
     kind: input.kind as ComputerInferenceRequest["kind"],
     instructions,
     prompt,
     timeoutMs: input.timeoutMs,
     ...(typeof input.cwd === "string" ? { cwd: input.cwd } : {}),
+    ...(typeof input.model === "string" ? { model: input.model } : {}),
+    ...(input.reasoning !== undefined
+      ? { reasoning: normalizePiReasoningLevel(input.reasoning) }
+      : {}),
   };
 };
 

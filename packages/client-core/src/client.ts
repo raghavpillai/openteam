@@ -27,6 +27,9 @@ import type {
   RegisterPushDeviceInput,
   RichMessageMutationView,
   RootSettingsView,
+  ServerInferenceSettings,
+  ServerSettingsView,
+  InferenceProviderAuthSessionView,
   RoutineExecutionView,
   RoutineView,
   ScreenActionInput,
@@ -118,6 +121,40 @@ export const createOpenBotClient = (options: OpenBotClientOptions) => {
         .request<ClientSnapshot>("/api/v0/client-snapshot")
         .then((snapshot) => normalizeClientSnapshot(snapshot)),
     rootSettings: () => transport.request<RootSettingsView>("/api/v0/settings"),
+    serverSettings: (providerId?: string) => {
+      const query = providerId
+        ? `?${new URLSearchParams({ provider: providerId }).toString()}`
+        : "";
+      return transport.request<ServerSettingsView>(`/api/v0/server-settings${query}`);
+    },
+    updateInferenceSettings: (input: ServerInferenceSettings) =>
+      transport.request<ServerInferenceSettings>("/api/v0/server-settings/inference", {
+        method: "PATCH",
+        body: JSON.stringify(input),
+      }),
+    startInferenceProviderAuth: (providerId: string, authType: "api_key" | "oauth") =>
+      transport.request<InferenceProviderAuthSessionView>(
+        `/api/v0/inference-providers/${encodeURIComponent(providerId)}/auth-sessions`,
+        { method: "POST", body: JSON.stringify({ authType }) }
+      ),
+    inferenceProviderAuthSession: (sessionId: string) =>
+      transport.request<InferenceProviderAuthSessionView>(
+        `/api/v0/inference-provider-auth-sessions/${encodeURIComponent(sessionId)}`
+      ),
+    respondToInferenceProviderAuth: (sessionId: string, promptId: string, value: string) =>
+      transport.request<InferenceProviderAuthSessionView>(
+        `/api/v0/inference-provider-auth-sessions/${encodeURIComponent(sessionId)}/respond`,
+        { method: "POST", body: JSON.stringify({ promptId, value }) }
+      ),
+    cancelInferenceProviderAuth: (sessionId: string) =>
+      transport.request(
+        `/api/v0/inference-provider-auth-sessions/${encodeURIComponent(sessionId)}`,
+        { method: "DELETE" }
+      ),
+    disconnectInferenceProvider: (providerId: string) =>
+      transport.request(`/api/v0/inference-providers/${encodeURIComponent(providerId)}`, {
+        method: "DELETE",
+      }),
     bots: (includeHidden = false) =>
       transport.request<BotView[]>(`/api/v0/bots${includeHidden ? "?includeHidden=1" : ""}`),
     groups: (includeHidden = false) =>

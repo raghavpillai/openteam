@@ -49,7 +49,7 @@ describe("release Compose rendering", () => {
     expect(rendered).toContain("OPENBOT_AUTH_URL: ${OPENBOT_AUTH_URL");
     expect(
       rendered.match(/OPENBOT_PI_PROVIDER: \$\{OPENBOT_PI_PROVIDER:-openai-codex\}/g)
-    ).toHaveLength(2);
+    ).toHaveLength(3);
     expect(rendered).toContain('cap_add: ["CHOWN", "DAC_OVERRIDE", "FOWNER", "SETGID", "SETUID"]');
   });
 });

@@ -20,6 +20,7 @@ import { portAvailable, printDoctor, runDoctor } from "./doctor";
 import { CliError } from "./errors";
 import { checkHealth, waitForHealth } from "./health";
 import type { CommandRunner } from "./process";
+import { readRuntimeInferenceSettings, writeRuntimeInferenceSettings } from "./runtime-settings";
 import { inspectPublicReadiness } from "./public-readiness";
 import {
   createSetupPresentation,
@@ -1055,8 +1056,16 @@ export const setupCommand = async (
   const manifest = requireInstallation(paths);
   const project = requireComposeProject(paths, runner, manifest.projectName || PROJECT_NAME);
   const previousEnvironment = readFileSync(paths.environment, "utf8");
-  const current = parseEnvironment(previousEnvironment);
+  const current = new Map(parseEnvironment(previousEnvironment));
   const initialHealth = await checkHealth(paths);
+  if (initialHealth.ok) {
+    const runtimeInference = await readRuntimeInferenceSettings(paths).catch(() => null);
+    if (runtimeInference) {
+      current.set("OPENBOT_PI_PROVIDER", runtimeInference.providerId);
+      current.set("OPENBOT_PI_MODEL", runtimeInference.modelId);
+      current.set("OPENBOT_PI_THINKING", runtimeInference.reasoning);
+    }
+  }
   const prompter = suppliedPrompter || createTerminalPrompter();
   const presentation =
     options.presentation ??
@@ -1269,6 +1278,16 @@ export const setupCommand = async (
     }
     presentation.message(`${configuration.provider} authentication is ready.`, "success");
   }
+
+  await writeRuntimeInferenceSettings(paths, {
+    providerId: configuration.provider,
+    modelId: configuration.model,
+    reasoning: configuration.thinking,
+  });
+  presentation.message(
+    `${configuration.provider}/${configuration.model} is active for new inference turns.`,
+    "success"
+  );
 
   presentation.stage(4);
   presentation.message("Running OpenBot doctor…", "info");

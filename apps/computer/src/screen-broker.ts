@@ -1,6 +1,7 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { chown, cp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { createConnection } from "node:net";
 import { join } from "node:path";
 import type { ComputerUseActionInput, ScreenActionInput } from "@openbot/contracts";
 import { agentProcessIdentity, sanitizedAgentEnvironment } from "./agent-process";
@@ -15,6 +16,9 @@ const RFB_PORT_BASE = 5900;
 const VIEWER_PORT_BASE = 6200;
 const BROWSER_DEBUG_PORT_BASE = 9300;
 const TAKEOVER_TTL_MS = 45_000;
+const SCREEN_HEALTH_CHECK_INTERVAL_MS = 2_000;
+const ENDPOINT_PROBE_TIMEOUT_MS = 1_000;
+const ENDPOINT_STARTUP_TIMEOUT_MS = 10_000;
 const DESKTOP_CONFIG_ROOT = "/usr/share/openbot-desktop/config";
 
 type ScreenState = "starting" | "ready" | "failed";
@@ -35,9 +39,12 @@ interface ScreenSession {
   humanTakeoverUntil: number;
   agentInputPaused: boolean;
   destroyed: boolean;
+  stopping: boolean;
   processes: ChildProcess[];
   browserProcess: ChildProcess | null;
   startPromise: Promise<void> | null;
+  lastHealthCheckAt: number;
+  healthCheckPromise: Promise<boolean> | null;
 }
 
 export interface ScreenStatus {
@@ -162,14 +169,18 @@ export class ScreenBroker {
         humanTakeoverUntil: 0,
         agentInputPaused: false,
         destroyed: false,
+        stopping: false,
         processes: [],
         browserProcess: null,
         startPromise: null,
+        lastHealthCheckAt: 0,
+        healthCheckPromise: null,
       };
       this.sessions.set(botId, session);
     } else {
       session.cwd = cwd;
     }
+    if (session.state === "ready") await this.refreshSessionHealth(session);
     if (!session.startPromise && session.state !== "ready") {
       session.startPromise = this.startSession(session).finally(() => {
         session!.startPromise = null;
@@ -508,18 +519,20 @@ export class ScreenBroker {
       const xvfb = this.spawnLongLived(
         "Xvfb",
         [display, "-screen", "0", `${WIDTH}x${HEIGHT}x24`, "-nolisten", "tcp", "-ac"],
-        session
+        session,
+        this.environment(session),
+        "/workspace",
+        true
       );
-      xvfb.once("exit", () => {
-        if (session.state === "ready") {
-          session.state = "failed";
-          session.error = "The virtual display exited";
-        }
-      });
-      await this.waitForDisplay(session.display);
+      await this.waitForEndpoint(
+        () => exists(`/tmp/.X11-unix/X${session.display}`),
+        `Virtual display :${session.display}`,
+        session,
+        xvfb
+      );
       this.assertNotDestroyed(session);
       const env = this.environment(session);
-      this.spawnLongLived(
+      const dbus = this.spawnLongLived(
         "dbus-daemon",
         [
           "--session",
@@ -528,19 +541,33 @@ export class ScreenBroker {
           "--nopidfile",
         ],
         session,
-        env
+        env,
+        "/workspace",
+        true
       );
-      await this.waitForPath(join(session.runtimeDirectory, "bus"), "D-Bus session bus");
+      await this.waitForEndpoint(
+        () => exists(join(session.runtimeDirectory, "bus")),
+        "D-Bus session bus",
+        session,
+        dbus
+      );
       this.assertNotDestroyed(session);
       await run("xsetroot", ["-solid", "#242629"], { env });
       // xfconf is D-Bus activated on Debian; xfconfd intentionally lives outside PATH.
-      this.spawnLongLived("xfsettingsd", ["--replace"], session, env);
-      this.spawnLongLived("xfwm4", ["--replace", "--compositor=on"], session, env);
+      this.spawnLongLived("xfsettingsd", ["--replace"], session, env, "/workspace", true);
+      this.spawnLongLived(
+        "xfwm4",
+        ["--replace", "--compositor=on"],
+        session,
+        env,
+        "/workspace",
+        true
+      );
       await new Promise((resolve) => setTimeout(resolve, 350));
       this.assertNotDestroyed(session);
-      this.spawnLongLived("xfdesktop", ["--disable-wm-check"], session, env);
-      this.spawnLongLived("xfce4-panel", ["--disable-wm-check"], session, env);
-      this.spawnLongLived(
+      this.spawnLongLived("xfdesktop", ["--disable-wm-check"], session, env, "/workspace", true);
+      this.spawnLongLived("xfce4-panel", ["--disable-wm-check"], session, env, "/workspace", true);
+      const vnc = this.spawnLongLived(
         "x11vnc",
         [
           "-display",
@@ -557,23 +584,40 @@ export class ScreenBroker {
           "-quiet",
         ],
         session,
-        env
+        env,
+        "/workspace",
+        true
       );
-      this.spawnLongLived(
+      const viewer = this.spawnLongLived(
         "/usr/share/novnc/utils/novnc_proxy",
         ["--listen", `0.0.0.0:${session.viewerPort}`, "--vnc", `127.0.0.1:${session.rfbPort}`],
         session,
-        env
+        env,
+        "/workspace",
+        true
       );
-      await new Promise((resolve) => setTimeout(resolve, 450));
-      this.assertNotDestroyed(session);
+      await Promise.all([
+        this.waitForEndpoint(
+          () => this.tcpPortAccepts(session.rfbPort),
+          "VNC server",
+          session,
+          vnc
+        ),
+        this.waitForEndpoint(
+          () => this.viewerHttpResponds(session.viewerPort),
+          "noVNC viewer",
+          session,
+          viewer
+        ),
+      ]);
+      this.assertSessionStarting(session);
       this.openApp(session, "terminal");
+      session.lastHealthCheckAt = Date.now();
       session.state = "ready";
     } catch (error) {
       session.state = "failed";
       session.error = error instanceof Error ? error.message : String(error);
-      for (const process of session.processes) process.kill("SIGTERM");
-      session.processes = [];
+      await this.stopProcesses(session);
       throw error;
     }
   }
@@ -581,6 +625,13 @@ export class ScreenBroker {
   private assertNotDestroyed(session: ScreenSession): void {
     if (session.destroyed || this.destroyedBotIds.has(session.botId)) {
       throw new Error("Graphical screen was destroyed");
+    }
+  }
+
+  private assertSessionStarting(session: ScreenSession): void {
+    this.assertNotDestroyed(session);
+    if (session.state === "failed") {
+      throw new Error(session.error ?? "Graphical screen failed while starting");
     }
   }
 
@@ -637,7 +688,8 @@ export class ScreenBroker {
     args: string[],
     session: ScreenSession,
     env = this.environment(session),
-    cwd = "/workspace"
+    cwd = "/workspace",
+    critical = false
   ): ChildProcess {
     const child = spawn(command, args, {
       cwd,
@@ -646,11 +698,30 @@ export class ScreenBroker {
       stdio: "ignore",
     });
     session.processes.push(child);
+    child.once("error", (error) => {
+      const tracked = this.removeProcess(session, child);
+      if (critical && tracked) {
+        this.failSession(session, `${command} failed to start: ${error.message}`);
+      }
+    });
     child.once("exit", () => {
-      const index = session.processes.indexOf(child);
-      if (index >= 0) session.processes.splice(index, 1);
+      const tracked = this.removeProcess(session, child);
+      if (critical && tracked) this.failSession(session, `${command} exited unexpectedly`);
     });
     return child;
+  }
+
+  private removeProcess(session: ScreenSession, child: ChildProcess): boolean {
+    const index = session.processes.indexOf(child);
+    if (index < 0) return false;
+    session.processes.splice(index, 1);
+    return true;
+  }
+
+  private failSession(session: ScreenSession, error: string): void {
+    if (session.destroyed || session.stopping) return;
+    session.state = "failed";
+    session.error = error;
   }
 
   private async stopProcesses(session: ScreenSession): Promise<void> {
@@ -659,24 +730,39 @@ export class ScreenBroker {
       session.browserProcess = null;
       return;
     }
-    for (const process of processes) process.kill("SIGTERM");
+    const wasStopping = session.stopping;
+    session.stopping = true;
+    try {
+      for (const process of processes) process.kill("SIGTERM");
+      await this.waitForProcessExit(processes, 2_000);
+      const survivors = processes.filter((process) => !this.processHasExited(process));
+      for (const process of survivors) process.kill("SIGKILL");
+      await this.waitForProcessExit(survivors, 2_000);
+    } finally {
+      session.stopping = wasStopping;
+      session.processes = [];
+      session.browserProcess = null;
+    }
+  }
+
+  private async waitForProcessExit(processes: ChildProcess[], timeoutMs: number): Promise<void> {
+    if (processes.every((process) => this.processHasExited(process))) return;
     await Promise.race([
       Promise.all(
         processes.map(
           (process) =>
             new Promise<void>((resolve) => {
-              if (process.exitCode !== null) resolve();
+              if (this.processHasExited(process)) resolve();
               else process.once("exit", () => resolve());
             })
         )
       ),
-      new Promise((resolve) => setTimeout(resolve, 2_000)),
+      new Promise((resolve) => setTimeout(resolve, timeoutMs)),
     ]);
-    for (const process of processes) {
-      if (process.exitCode === null) process.kill("SIGKILL");
-    }
-    session.processes = [];
-    session.browserProcess = null;
+  }
+
+  private processHasExited(process: ChildProcess): boolean {
+    return process.exitCode !== null || process.signalCode !== null;
   }
 
   private environment(session: ScreenSession): NodeJS.ProcessEnv {
@@ -708,6 +794,75 @@ export class ScreenBroker {
     if (identity.uid !== undefined && identity.gid !== undefined) {
       await chown(path, identity.uid, identity.gid);
     }
+  }
+
+  private async refreshSessionHealth(session: ScreenSession): Promise<void> {
+    if (Date.now() - session.lastHealthCheckAt < SCREEN_HEALTH_CHECK_INTERVAL_MS) return;
+    if (!session.healthCheckPromise) {
+      session.lastHealthCheckAt = Date.now();
+      const probe = this.sessionEndpointsReady(session);
+      session.healthCheckPromise = probe;
+      void probe.finally(() => {
+        if (session.healthCheckPromise === probe) session.healthCheckPromise = null;
+      });
+    }
+    if (!(await session.healthCheckPromise)) {
+      this.failSession(session, "The VNC or noVNC endpoint stopped responding");
+    }
+  }
+
+  private async sessionEndpointsReady(session: ScreenSession): Promise<boolean> {
+    const [vncReady, viewerReady] = await Promise.all([
+      this.tcpPortAccepts(session.rfbPort),
+      this.viewerHttpResponds(session.viewerPort),
+    ]);
+    return vncReady && viewerReady;
+  }
+
+  private async tcpPortAccepts(port: number): Promise<boolean> {
+    return new Promise((resolve) => {
+      const socket = createConnection({ host: "127.0.0.1", port });
+      let settled = false;
+      const finish = (ready: boolean) => {
+        if (settled) return;
+        settled = true;
+        socket.destroy();
+        resolve(ready);
+      };
+      socket.setTimeout(ENDPOINT_PROBE_TIMEOUT_MS);
+      socket.once("connect", () => finish(true));
+      socket.once("error", () => finish(false));
+      socket.once("timeout", () => finish(false));
+    });
+  }
+
+  private async viewerHttpResponds(port: number): Promise<boolean> {
+    try {
+      const response = await fetch(`http://127.0.0.1:${port}/openbot.html`, {
+        method: "HEAD",
+        signal: AbortSignal.timeout(ENDPOINT_PROBE_TIMEOUT_MS),
+      });
+      return response.ok;
+    } catch {
+      return false;
+    }
+  }
+
+  private async waitForEndpoint(
+    probe: () => Promise<boolean>,
+    label: string,
+    session: ScreenSession,
+    process: ChildProcess
+  ): Promise<void> {
+    const deadline = Date.now() + ENDPOINT_STARTUP_TIMEOUT_MS;
+    while (Date.now() < deadline) {
+      this.assertNotDestroyed(session);
+      if (session.state === "failed") throw new Error(session.error ?? `${label} failed to start`);
+      if (this.processHasExited(process)) throw new Error(`${label} exited before becoming ready`);
+      if (await probe()) return;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    throw new Error(`${label} did not become ready`);
   }
 
   private statusFor(session: ScreenSession): ScreenStatus {
@@ -743,18 +898,6 @@ export class ScreenBroker {
       browserTargetRouting: "bot-owned-tabs",
       error: session.error,
     };
-  }
-
-  private async waitForDisplay(display: number): Promise<void> {
-    await this.waitForPath(`/tmp/.X11-unix/X${display}`, `Virtual display :${display}`);
-  }
-
-  private async waitForPath(path: string, label: string): Promise<void> {
-    for (let attempt = 0; attempt < 100; attempt += 1) {
-      if (await exists(path)) return;
-      await new Promise((resolve) => setTimeout(resolve, 40));
-    }
-    throw new Error(`${label} did not become ready`);
   }
 
   private async loadMappings(): Promise<void> {

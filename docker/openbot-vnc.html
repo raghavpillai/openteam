@@ -41,14 +41,80 @@
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
       const socketUrl = new URL(`./${path}`, window.location.href);
       socketUrl.protocol = protocol;
+      const screen = document.getElementById("screen");
+      const viewOnly = query.get("view_only") === "true";
+      let rfb = null;
+      let reconnectTimer = null;
+      let reconnectDelayMs = 500;
+      let shouldReconnect = true;
 
-      const rfb = new RFB(document.getElementById("screen"), socketUrl.toString(), {
-        credentials: { password },
+      const setConnectionState = (state) => {
+        screen.dataset.connectionState = state;
+      };
+
+      const scheduleReconnect = () => {
+        if (!shouldReconnect || reconnectTimer !== null) return;
+        setConnectionState("reconnecting");
+        reconnectTimer = window.setTimeout(() => {
+          reconnectTimer = null;
+          connect();
+        }, reconnectDelayMs);
+        reconnectDelayMs = Math.min(reconnectDelayMs * 2, 5_000);
+      };
+
+      const connect = () => {
+        if (!shouldReconnect) return;
+        setConnectionState("connecting");
+        screen.replaceChildren();
+        try {
+          const connection = new RFB(screen, socketUrl.toString(), {
+            credentials: { password },
+          });
+          rfb = connection;
+          connection.viewOnly = viewOnly;
+          connection.scaleViewport = true;
+          connection.resizeSession = false;
+          connection.focusOnClick = true;
+          connection.addEventListener("connect", () => {
+            if (rfb !== connection) return;
+            reconnectDelayMs = 500;
+            setConnectionState("connected");
+          });
+          connection.addEventListener("disconnect", () => {
+            if (rfb !== connection) return;
+            rfb = null;
+            scheduleReconnect();
+          });
+          connection.addEventListener("securityfailure", (event) => {
+            if (rfb !== connection) return;
+            shouldReconnect = false;
+            setConnectionState("authentication-failed");
+            console.error("VNC authentication failed", event.detail);
+          });
+        } catch (error) {
+          rfb = null;
+          console.error("VNC connection failed", error);
+          scheduleReconnect();
+        }
+      };
+
+      window.addEventListener("online", () => {
+        if (rfb || !shouldReconnect) return;
+        if (reconnectTimer !== null) window.clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+        reconnectDelayMs = 500;
+        connect();
       });
-      rfb.viewOnly = query.get("view_only") === "true";
-      rfb.scaleViewport = true;
-      rfb.resizeSession = false;
-      rfb.focusOnClick = true;
+      window.addEventListener(
+        "pagehide",
+        () => {
+          shouldReconnect = false;
+          if (reconnectTimer !== null) window.clearTimeout(reconnectTimer);
+          rfb?.disconnect();
+        },
+        { once: true }
+      );
+      connect();
     </script>
   </head>
   <body>

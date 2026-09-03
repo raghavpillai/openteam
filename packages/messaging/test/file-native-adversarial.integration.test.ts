@@ -872,6 +872,11 @@ test("live filesystem watchers, snapshots, namespaces, and deletion authority ag
     expect(malformedRootSettings.valid).toBe(false);
     expect(malformedRootSettings.settings).toMatchObject({
       version: 1,
+      inference: {
+        providerId: "openai-codex",
+        modelId: "gpt-5.5",
+        reasoning: "high",
+      },
       mcpBoxServers: [],
       autoUpdateWhenIdleOptIn: false,
       egressTunnelEnabled: false,
@@ -898,6 +903,16 @@ test("live filesystem watchers, snapshots, namespaces, and deletion authority ag
       themePreference: "dark",
     });
     expect((await store.loadRootSettings()).valid).toBe(true);
+    await store.writeInferenceSettings({
+      providerId: "anthropic",
+      modelId: "claude-sonnet-4-5",
+      reasoning: "medium",
+    });
+    expect((await store.loadRootSettings()).settings.inference).toEqual({
+      providerId: "anthropic",
+      modelId: "claude-sonnet-4-5",
+      reasoning: "medium",
+    });
     await store.writeSidebarPreferences({
       version: 2,
       pinnedIds: [firstChannelId],

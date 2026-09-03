@@ -5,9 +5,13 @@ import {
   type CreateBotInput,
   type CreateGroupInput,
   type DynamicToolCallRequest,
+  type InferenceProviderAuthSessionView,
   type ReactToChannelMessageInput,
   type RenameChannelInput,
   type ScreenActionInput,
+  serverInferenceSettings,
+  type ServerInferenceSettings,
+  type ServerSettingsView,
   type SecretSubmissionInput,
   type SendMessageInput,
   type SetChannelAvatarInput,
@@ -131,7 +135,9 @@ export class AppService {
       this.prisma,
       this.workspaceRoot,
       this.computerUrl,
-      () => this.queueReady
+      () => this.queueReady,
+      2_500,
+      async () => (await this.agentData.loadRootSettings()).settings.inference
     );
     this.channels = new ChannelService(
       this.prisma,
@@ -152,7 +158,10 @@ export class AppService {
       this.plugins,
       this.screens
     );
-    this.autoReview = new AutoReviewService((path, init) => this.computerFetch(path, init));
+    this.autoReview = new AutoReviewService(
+      (path, init) => this.computerFetch(path, init),
+      async () => (await this.agentData.loadRootSettings()).settings.inference
+    );
     this.runs = new RunService(
       this.prisma,
       (path, init) => this.computerFetch(path, init),
@@ -177,7 +186,8 @@ export class AppService {
       this.messaging,
       this.runs,
       this.workspaceRoot,
-      (path, init) => this.computerFetch(path, init)
+      (path, init) => this.computerFetch(path, init),
+      this.agentData
     );
     this.routines = new RoutineService(this.prisma, this.messaging, this.agentData);
     this.durableState = new DurableStateService(
@@ -512,6 +522,102 @@ export class AppService {
   rootSettings = () =>
     Effect.tryPromise({
       try: () => this.agentData.loadRootSettingsForClient(),
+      catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+    });
+
+  serverSettings = (providerId?: string) =>
+    Effect.tryPromise({
+      try: async (): Promise<ServerSettingsView> => {
+        const root = await this.agentData.loadRootSettings();
+        if (!root.valid) throw new Error(root.error ?? "Server settings are invalid");
+        const selectedProvider = providerId ?? root.settings.inference.providerId;
+        const query = new URLSearchParams({ provider: selectedProvider });
+        const catalog = await this.computerJson<
+          Pick<ServerSettingsView, "providers" | "models" | "modelProviderId">
+        >(`/v1/inference/providers?${query}`, { method: "GET" });
+        return { inference: root.settings.inference, ...catalog };
+      },
+      catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+    });
+
+  updateInferenceSettings = (input: unknown) =>
+    Effect.tryPromise({
+      try: async (): Promise<ServerInferenceSettings> => {
+        if (!input || typeof input !== "object" || Array.isArray(input)) {
+          throw new ApiError(400, "invalid_inference_settings", "Inference settings are required");
+        }
+        const value = input as Record<string, unknown>;
+        if (typeof value.providerId !== "string" || typeof value.modelId !== "string") {
+          throw new ApiError(
+            400,
+            "invalid_inference_settings",
+            "providerId, modelId, and reasoning are required"
+          );
+        }
+        let settings: ServerInferenceSettings;
+        try {
+          settings = serverInferenceSettings(value.providerId, value.modelId, value.reasoning);
+        } catch (error) {
+          throw new ApiError(
+            400,
+            "invalid_inference_settings",
+            error instanceof Error ? error.message : String(error)
+          );
+        }
+        await this.computerJson("/v1/inference/settings/verify", {
+          method: "POST",
+          body: JSON.stringify(settings),
+        });
+        return this.agentData.writeInferenceSettings(settings);
+      },
+      catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+    });
+
+  startInferenceProviderAuth = (providerId: string, authType: "api_key" | "oauth") =>
+    Effect.tryPromise({
+      try: () =>
+        this.computerJson<InferenceProviderAuthSessionView>(
+          `/v1/inference/providers/${encodeURIComponent(providerId)}/auth-sessions`,
+          { method: "POST", body: JSON.stringify({ authType }) }
+        ),
+      catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+    });
+
+  inferenceProviderAuthSession = (sessionId: string) =>
+    Effect.tryPromise({
+      try: () =>
+        this.computerJson<InferenceProviderAuthSessionView>(
+          `/v1/inference/auth-sessions/${encodeURIComponent(sessionId)}`,
+          { method: "GET" }
+        ),
+      catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+    });
+
+  respondToInferenceProviderAuth = (sessionId: string, promptId: string, value: string) =>
+    Effect.tryPromise({
+      try: () =>
+        this.computerJson<InferenceProviderAuthSessionView>(
+          `/v1/inference/auth-sessions/${encodeURIComponent(sessionId)}/respond`,
+          { method: "POST", body: JSON.stringify({ promptId, value }) }
+        ),
+      catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+    });
+
+  cancelInferenceProviderAuth = (sessionId: string) =>
+    Effect.tryPromise({
+      try: () =>
+        this.computerJson(`/v1/inference/auth-sessions/${encodeURIComponent(sessionId)}`, {
+          method: "DELETE",
+        }),
+      catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+    });
+
+  disconnectInferenceProvider = (providerId: string) =>
+    Effect.tryPromise({
+      try: () =>
+        this.computerJson(`/v1/inference/providers/${encodeURIComponent(providerId)}`, {
+          method: "DELETE",
+        }),
       catch: (error) => (error instanceof Error ? error : new Error(String(error))),
     });
 
@@ -944,6 +1050,26 @@ export class AppService {
       },
       signal: init.signal ?? AbortSignal.timeout(10_000),
     });
+  }
+
+  private async computerJson<T = { ok: true }>(path: string, init: RequestInit): Promise<T> {
+    const response = await this.computerFetch(path, init);
+    if (!response.ok) {
+      const text = await response.text();
+      let message = text;
+      try {
+        const body = JSON.parse(text) as { error?: unknown };
+        if (typeof body.error === "string") message = body.error;
+      } catch {
+        // Preserve a non-JSON computer error as-is.
+      }
+      throw new ApiError(
+        response.status >= 500 ? 503 : 400,
+        "inference_provider_error",
+        message || "The inference provider operation failed"
+      );
+    }
+    return (await response.json()) as T;
   }
 
   private async provisionDirectories(paths: string[]): Promise<void> {

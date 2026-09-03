@@ -13,7 +13,12 @@ import {
   stat,
 } from "node:fs/promises";
 import { dirname, extname, join, relative, resolve, sep } from "node:path";
-import type { AssetRef } from "@openbot/contracts";
+import {
+  defaultServerInferenceSettings,
+  serverInferenceSettings,
+  type AssetRef,
+  type ServerInferenceSettings,
+} from "@openbot/contracts";
 import {
   emptySidebarPreferences,
   parseSidebarPreferences,
@@ -301,6 +306,7 @@ interface AccountScopedRootSettings {
 
 export interface RootSettings extends AccountScopedRootSettings {
   version: 1;
+  inference: ServerInferenceSettings;
   mcpBoxServers: string[];
   hasSeenOnboarding?: boolean;
   hasSeenOnboardingAccountScope?: string;
@@ -477,6 +483,11 @@ const AGENTS_SECTION_ID = "__agents__";
 
 const defaultRootSettings = (): RootSettings => ({
   version: 1,
+  inference: defaultServerInferenceSettings({
+    providerId: process.env.OPENBOT_PI_PROVIDER,
+    modelId: process.env.OPENBOT_PI_MODEL,
+    reasoning: process.env.OPENBOT_PI_THINKING as ServerInferenceSettings["reasoning"] | undefined,
+  }),
   mcpBoxServers: [],
   mcpCustomInstructions: "",
   mcpCustomInstructionsByServerId: {},
@@ -661,6 +672,23 @@ const parseRootSettings = (value: Record<string, unknown>): RootSettings => {
   );
   const parsed: RootSettings = {
     version: 1,
+    inference:
+      value.inference === undefined
+        ? defaultRootSettings().inference
+        : (() => {
+            const inference = parseJsonObject(
+              JSON.stringify(value.inference),
+              "settings.json inference"
+            );
+            if (typeof inference.providerId !== "string" || typeof inference.modelId !== "string") {
+              throw new Error("settings.json inference providerId and modelId must be strings");
+            }
+            return serverInferenceSettings(
+              inference.providerId,
+              inference.modelId,
+              inference.reasoning
+            );
+          })(),
     mcpBoxServers: uniqueStrings(value.mcpBoxServers, "settings.json mcpBoxServers", true),
     autoUpdateWhenIdleOptIn: value.autoUpdateWhenIdleOptIn as boolean,
     egressTunnelEnabled: value.egressTunnelEnabled as boolean,
@@ -1021,8 +1049,18 @@ export class AgentDataStore {
   async ensureRuntimeDirectories(): Promise<void> {
     await mkdir(this.root, { recursive: true, mode: 0o700 });
     const rootSettingsPath = join(this.root, "settings.json");
-    if ((await readText(rootSettingsPath)) === null) {
+    const rootSettingsText = await readText(rootSettingsPath);
+    if (rootSettingsText === null) {
       await atomicWrite(rootSettingsPath, jsonFile(defaultRootSettings()), 0o600);
+    } else {
+      try {
+        const document = parseJsonObject(rootSettingsText, "settings.json");
+        if (document.inference === undefined) {
+          await atomicWrite(rootSettingsPath, jsonFile(parseRootSettings(document)), 0o600);
+        }
+      } catch {
+        // Preserve an invalid settings file so loadRootSettings can report it to the client.
+      }
     }
     await Promise.all(
       [
@@ -3199,6 +3237,11 @@ export class AgentDataStore {
       await atomicWrite(join(this.root, "settings.json"), jsonFile(next));
       return next;
     });
+  }
+
+  async writeInferenceSettings(input: ServerInferenceSettings): Promise<ServerInferenceSettings> {
+    const settings = await this.writeRootSettings({ inference: input });
+    return settings.inference;
   }
 
   async writeSidebarPreferences(input: unknown): Promise<SidebarPreferences> {

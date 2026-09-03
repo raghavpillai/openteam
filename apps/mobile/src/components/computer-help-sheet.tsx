@@ -28,7 +28,8 @@ const moving: HelpItem[] = [
   {
     icon: "plus.magnifyingglass",
     title: "Zoom In",
-    detail: "Pinch to zoom. Zoomed in, two fingers pan instead of scrolling.",
+    detail:
+      "Pinch to zoom around your fingers. Zoomed in, drag with two fingers to pan, or tap Reset zoom to return.",
   },
 ];
 
@@ -119,7 +120,7 @@ export function ComputerHelpSheet({ onClose, visible }: { onClose: () => void; v
                   icon: "rectangle.and.hand.point.up.left",
                   title: "Trackpad Mode",
                   detail:
-                    "Turn on from the ··· menu. Your finger moves the pointer; tap to click there, double-tap and hold to drag. Recenter the pointer if it drifts.",
+                    "Turn on from the ··· menu. Drag one finger to move the visible pointer, tap to click there, or double-tap and hold to drag.",
                 },
               ]}
             />

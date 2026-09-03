@@ -13,12 +13,18 @@ const runtimeWithResult = (result: unknown) => {
   const internals = runtime as unknown as {
     start: () => Promise<void>;
     authenticated: boolean;
-    modelRuntime: { completeSimple: () => Promise<unknown> };
+    modelRuntime: {
+      checkAuth: () => Promise<{ type: "api_key" }>;
+      completeSimple: () => Promise<unknown>;
+    };
     resolveModel: () => { reasoning: boolean };
   };
   internals.start = async () => undefined;
   internals.authenticated = true;
-  internals.modelRuntime = { completeSimple: async () => result };
+  internals.modelRuntime = {
+    checkAuth: async () => ({ type: "api_key" }),
+    completeSimple: async () => result,
+  };
   internals.resolveModel = () => ({ reasoning: true });
   return runtime;
 };
@@ -43,5 +49,38 @@ describe("memory inference", () => {
     await expect(runtime.infer(inferenceRequest)).rejects.toThrow(
       "Provider endpoint could not be reached"
     );
+  });
+
+  test("uses the provider-qualified model and reasoning supplied at runtime", async () => {
+    const runtime = runtimeWithResult({
+      stopReason: "stop",
+      content: [{ type: "text", text: "dynamic" }],
+    });
+    let resolved: unknown;
+    let completionOptions: unknown;
+    const internals = runtime as unknown as {
+      resolveModel: (reference: unknown) => { reasoning: boolean };
+      modelRuntime: {
+        checkAuth: () => Promise<{ type: "api_key" }>;
+        completeSimple: (...arguments_: unknown[]) => Promise<unknown>;
+      };
+    };
+    internals.resolveModel = (reference) => {
+      resolved = reference;
+      return { reasoning: true };
+    };
+    internals.modelRuntime.completeSimple = async (...arguments_) => {
+      completionOptions = arguments_[2];
+      return { stopReason: "stop", content: [{ type: "text", text: "dynamic" }] };
+    };
+
+    await runtime.infer({
+      ...inferenceRequest,
+      model: "anthropic/claude-test",
+      reasoning: "low",
+    });
+
+    expect(resolved).toEqual({ providerId: "anthropic", modelId: "claude-test" });
+    expect(completionOptions).toMatchObject({ reasoning: "low" });
   });
 });

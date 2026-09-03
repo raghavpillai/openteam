@@ -9,6 +9,7 @@ import {
   ScreenActionInput,
   ScreenPauseInput,
   ScreenTakeoverInput,
+  serverInferenceSettings,
   type TranscriptEventView,
 } from "@openbot/contracts";
 import {
@@ -154,8 +155,10 @@ const server = Bun.serve({
     const url = new URL(request.url);
     if (url.pathname === "/health") {
       try {
-        await runtime.start();
-        return json({ status: "ready", inference: runtime.diagnostics });
+        const inference = await runtime.inferenceDiagnostics(
+          url.searchParams.get("model") ?? undefined
+        );
+        return json({ status: "ready", inference });
       } catch (error) {
         return json(
           {
@@ -184,6 +187,82 @@ const server = Bun.serve({
           directories.push(actual);
         }
         return json({ directories });
+      }
+
+      if (request.method === "GET" && url.pathname === COMPUTER_API_PATHS.inferenceProviders) {
+        return json(await runtime.providerCatalog(url.searchParams.get("provider") ?? undefined));
+      }
+
+      if (
+        request.method === "POST" &&
+        url.pathname === COMPUTER_API_PATHS.inferenceSettingsVerify
+      ) {
+        const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+        if (!body || typeof body.providerId !== "string" || typeof body.modelId !== "string") {
+          return json({ error: "providerId, modelId, and reasoning are required" }, 400);
+        }
+        const settings = serverInferenceSettings(body.providerId, body.modelId, body.reasoning);
+        await runtime.verifyInferenceSettings(settings);
+        return json({ settings });
+      }
+
+      const providerAuthStartMatch = url.pathname.match(
+        /^\/v1\/inference\/providers\/([^/]+)\/auth-sessions$/
+      );
+      if (request.method === "POST" && providerAuthStartMatch?.[1]) {
+        const body = (await request.json().catch(() => null)) as { authType?: unknown } | null;
+        if (body?.authType !== "api_key" && body?.authType !== "oauth") {
+          return json({ error: "authType must be api_key or oauth" }, 400);
+        }
+        return json(
+          await runtime.startInferenceProviderAuth(
+            decodeURIComponent(providerAuthStartMatch[1]),
+            body.authType
+          ),
+          201
+        );
+      }
+
+      const providerMatch = url.pathname.match(/^\/v1\/inference\/providers\/([^/]+)$/);
+      if (request.method === "DELETE" && providerMatch?.[1]) {
+        await runtime.disconnectInferenceProvider(decodeURIComponent(providerMatch[1]));
+        return json({ ok: true });
+      }
+
+      const authResponseMatch = url.pathname.match(
+        /^\/v1\/inference\/auth-sessions\/([^/]+)\/respond$/
+      );
+      if (request.method === "POST" && authResponseMatch?.[1]) {
+        const body = (await request.json().catch(() => null)) as {
+          promptId?: unknown;
+          value?: unknown;
+        } | null;
+        if (
+          typeof body?.promptId !== "string" ||
+          typeof body.value !== "string" ||
+          body.value.length === 0 ||
+          body.value.length > 20_000
+        ) {
+          return json({ error: "promptId and value are required" }, 400);
+        }
+        return json(
+          await runtime.respondToInferenceProviderAuth(
+            decodeURIComponent(authResponseMatch[1]),
+            body.promptId,
+            body.value
+          )
+        );
+      }
+
+      const authSessionMatch = url.pathname.match(/^\/v1\/inference\/auth-sessions\/([^/]+)$/);
+      if (request.method === "GET" && authSessionMatch?.[1]) {
+        return json(
+          await runtime.inferenceProviderAuthSession(decodeURIComponent(authSessionMatch[1]))
+        );
+      }
+      if (request.method === "DELETE" && authSessionMatch?.[1]) {
+        await runtime.cancelInferenceProviderAuth(decodeURIComponent(authSessionMatch[1]));
+        return json({ ok: true });
       }
 
       if (request.method === "PUT" && url.pathname === "/v1/projects") {
@@ -482,6 +561,8 @@ const server = Bun.serve({
           prompt: body.prompt,
           cwd,
           timeoutMs: Math.max(1_000, Math.min(body.timeoutMs, 90_000)),
+          model: body.model,
+          reasoning: body.reasoning,
         });
         return json({ text });
       }

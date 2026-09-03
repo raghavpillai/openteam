@@ -3,9 +3,11 @@ import {
   formatPiModelRef,
   isRuntimeEngine,
   normalizeInferenceProviderId,
+  normalizePiReasoningLevel,
   parsePiModelRef,
   piModelRef,
   RUNTIME_ENGINES,
+  serverInferenceSettings,
 } from "../src/inference";
 
 describe("Pi inference model references", () => {
@@ -38,5 +40,15 @@ describe("Pi inference model references", () => {
   test("rejects unsafe provider ids", () => {
     expect(() => normalizeInferenceProviderId("not valid")).toThrow("Invalid inference provider");
     expect(() => normalizeInferenceProviderId("../provider")).toThrow("Invalid inference provider");
+  });
+
+  test("normalizes persisted runtime inference settings", () => {
+    expect(serverInferenceSettings(" Anthropic ", "claude-sonnet", "medium")).toEqual({
+      providerId: "anthropic",
+      modelId: "claude-sonnet",
+      reasoning: "medium",
+    });
+    expect(normalizePiReasoningLevel("xhigh")).toBe("xhigh");
+    expect(() => normalizePiReasoningLevel("turbo")).toThrow("Invalid inference reasoning level");
   });
 });

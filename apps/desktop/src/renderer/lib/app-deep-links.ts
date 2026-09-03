@@ -2,6 +2,9 @@ export const SETTINGS_ANCHORS = [
   "theme",
   "local-execution",
   "computers",
+  "inference-provider",
+  "inference-model",
+  "inference-reasoning",
   "auto-review",
   "update-status",
   "server-update",
@@ -9,7 +12,7 @@ export const SETTINGS_ANCHORS = [
 ] as const;
 
 export type SettingsAnchor = (typeof SETTINGS_ANCHORS)[number];
-export type SettingsView = "general" | "computer" | "updates";
+export type SettingsView = "general" | "computer" | "server" | "updates";
 export const OPENBOT_DEEP_LINK_EVENT = "openbot:deep-link";
 
 const settingsAnchorSet = new Set<string>(SETTINGS_ANCHORS);
@@ -18,6 +21,9 @@ const viewByAnchor: Record<SettingsAnchor, SettingsView> = {
   theme: "general",
   "local-execution": "computer",
   computers: "computer",
+  "inference-provider": "server",
+  "inference-model": "server",
+  "inference-reasoning": "server",
   "auto-review": "general",
   "update-status": "updates",
   "server-update": "updates",

@@ -1,4 +1,4 @@
-import { CloudDownload, Monitor, Settings, X } from "lucide-react";
+import { CloudDownload, Monitor, Server, Settings, X } from "lucide-react";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import {
   type SettingsAnchor,
@@ -10,21 +10,25 @@ import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } fr
 
 const loadGeneralSettings = () => import("./settings-general");
 const loadComputerSettings = () => import("./settings-computer");
+const loadServerSettings = () => import("./settings-server");
 const loadUpdatesSettings = () => import("./settings-updates");
 
 const GeneralSettings = lazy(loadGeneralSettings);
 const ComputerSettings = lazy(loadComputerSettings);
+const ServerSettings = lazy(loadServerSettings);
 const UpdatesSettings = lazy(loadUpdatesSettings);
 
 const sectionLoaders: Record<SettingsView, () => Promise<unknown>> = {
   general: loadGeneralSettings,
   computer: loadComputerSettings,
+  server: loadServerSettings,
   updates: loadUpdatesSettings,
 };
 
 const sectionComponents = {
   general: GeneralSettings,
   computer: ComputerSettings,
+  server: ServerSettings,
   updates: UpdatesSettings,
 };
 
@@ -36,6 +40,7 @@ const navigation: Array<{
 }> = [
   { id: "general", label: "General", icon: Settings, available: true },
   { id: "computer", label: "Computer", icon: Monitor, available: true },
+  { id: "server", label: "Server", icon: Server, available: true },
   { id: "updates", label: "Updates", icon: CloudDownload, available: true },
 ];
 
@@ -150,7 +155,13 @@ export function SettingsPanel({
             ref={scrollRef}
           >
             <h2 className="mb-7 px-2 text-[17px] font-medium leading-6 tracking-[-0.018em]">
-              {view === "updates" ? "Updates" : view === "computer" ? "Computer" : "General"}
+              {view === "updates"
+                ? "Updates"
+                : view === "computer"
+                  ? "Computer"
+                  : view === "server"
+                    ? "Server"
+                    : "General"}
             </h2>
             <Suspense fallback={null}>
               <ActiveSection />

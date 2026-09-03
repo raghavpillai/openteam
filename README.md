@@ -38,12 +38,13 @@ server ───── PostgreSQL + pg-boss
                   │ private token + NDJSON
                   ▼
 computer gateway ── embedded Pi AgentSession (the only runtime engine)
-        │                 └── selected inference provider + model
+        │                 └── provider credentials + model execution
         ├── /home/box/.pi/agent
         │     ├── auth.json
         │     ├── sessions/openbot/<context-session>.jsonl
         │     └── context-sessions/<context-session>/manifest.json + blobs/
         ├── /home/box/sand-data
+        │     ├── settings.json (active provider, model, and reasoning)
         │     ├── agents/<bot-or-room>/{profile.json,settings.json,store.db,...}
         │     ├── workflows/<slug>/SKILL.md
         │     └── user-memory + projects
@@ -198,7 +199,9 @@ Authenticate Pi with the default OpenAI Codex provider:
 bash scripts/compose.sh exec computer openbot-pi-auth login openai-codex oauth
 ```
 
-The OAuth command offers browser and headless device-code flows. Never put provider credentials in `.env`. Pi stores and refreshes credentials under `/home/box/.pi/agent/auth.json` inside the private `openbot_computer_home` volume. The inference supervisor owns that directory; agent shells and graphical apps run as a separate user that cannot read it. OpenBot exposes only `ready`/`missing` inference state to clients.
+The OAuth command offers browser and headless device-code flows. Never put provider credentials in `.env`. Pi stores and refreshes credentials under `/home/box/.pi/agent/auth.json` inside the private `openbot_computer_home` volume. The inference supervisor owns that directory; agent shells and graphical apps run as a separate user that cannot read it. The desktop Server settings page drives the same server-owned connection API without returning credential values to the client.
+
+The active provider, provider-qualified model, and reasoning effort are runtime settings in `/home/box/agent-data/settings.json` (the root `settings.json` in the durable agent-data tree). That file is the source of truth and is updated atomically. Changes from the desktop Server page or `openbot model use` apply to new turns and background inference without restarting services; already-running turns keep the selection they started with. `OPENBOT_PI_PROVIDER`, `OPENBOT_PI_MODEL`, and `OPENBOT_PI_THINKING` are used only to seed a missing or older settings file during installation or migration.
 
 The management CLI discovers authentication methods and models from Pi:
 
@@ -309,7 +312,8 @@ their bodies stay on disk and are read only when needed.
 
 User memory intentionally remains one global namespace, saved skills are computer-global,
 and avatar installation copies validated bytes into the Bot directory; no
-external path pointer remains. Root `settings.json`, `agents/active-agent.json`,
+external path pointer remains. Root `settings.json` (including active inference provider, model, and
+reasoning), `agents/active-agent.json`,
 per-bot `projects.json`, project `project.md`, group files, attachment files,
 automation run ledgers, and action audit JSONL use the same tree.
 

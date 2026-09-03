@@ -265,6 +265,7 @@ describe("desktop loading and packaging boundaries", () => {
     expect(app).toContain('import("./components/openbot/settings-general-bot")');
     expect(shell).toContain('import("./settings-general")');
     expect(shell).toContain('import("./settings-computer")');
+    expect(shell).toContain('import("./settings-server")');
     expect(shell).toContain('import("./settings-updates")');
     expect(shell).toContain("attempts < 120");
     expect(shell).not.toContain("Copyright © 2026 OpenBot contributors");
@@ -278,6 +279,7 @@ describe("desktop loading and packaging boundaries", () => {
       "settingsGeneral",
       "settingsGeneralBot",
       "settingsComputer",
+      "settingsServer",
       "settingsUpdates",
     ]) {
       expect(measure).toContain(`${boundary}:`);

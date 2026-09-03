@@ -32,6 +32,7 @@ import {
   CreateChannelInput,
   DEFAULT_PI_INFERENCE_MODEL,
   DEFAULT_PI_INFERENCE_PROVIDER,
+  DEFAULT_PI_REASONING_LEVEL,
   EXTERNAL_READ_TOOL,
   EXTERNAL_SHELL_TOOL,
   formatPiModelRef,
@@ -46,6 +47,7 @@ import {
   MessageSubagentInput,
   NATIVE_TOOLS,
   type PiModelRef,
+  type PiReasoningLevel,
   type PluginDynamicNamespace,
   parsePiModelRef,
   piModelRef,
@@ -55,6 +57,7 @@ import {
   ReadToolInput,
   RequestBoxHelpInput,
   type RuntimeInlineImage,
+  type ServerInferenceSettings,
   SCREENSHOT_TOOL,
   SEND_TO_AGENT_TOOL,
   SEND_TO_USER_CLOSING_NUDGE_PROMPT,
@@ -81,6 +84,7 @@ import { Type } from "typebox";
 import { agentProcessIdentity, sanitizedAgentEnvironment } from "./agent-process";
 import { BROWSER_USE_TOOLS, BrowserUseSession } from "./browser-use";
 import { ComputerEventQueue } from "./computer-event-queue";
+import { InferenceProviderService } from "./inference-providers";
 import {
   type DynamicNamespaceDefinition,
   type DynamicToolDefinition,
@@ -297,6 +301,7 @@ interface ActiveTurn {
   runtimeProfile: "agent" | "subagent";
   subagentType: SubagentType | null;
   modelRef: PiModelRef;
+  reasoning: PiReasoningLevel;
   cwd: string;
   instructions: string;
   userInfoMessage: GrokMessage | null;
@@ -530,17 +535,13 @@ export class ComputerRuntime {
       settle: (decision?: ApprovalDecision, error?: Error) => void;
     }
   >();
-  private readonly thinkingLevel =
-    (process.env.OPENBOT_PI_THINKING as
-      | "off"
-      | "minimal"
-      | "low"
-      | "medium"
-      | "high"
-      | "xhigh"
-      | "max"
-      | undefined) ?? "high";
+  private readonly defaultReasoning =
+    (process.env.OPENBOT_PI_THINKING as PiReasoningLevel | undefined) ?? DEFAULT_PI_REASONING_LEVEL;
   private modelRuntime: ModelRuntime | null = null;
+  private readonly inferenceProviders = new InferenceProviderService(
+    () => this.requireModelRuntime(),
+    join(this.agentDir, "models.json")
+  );
   private readonly compactionArchive = new GrokCompactionArchiveStore(this.contextSessionsDir);
   private readonly compaction = new GrokCompactionCoordinator(this.compactionArchive);
   private authenticated = false;
@@ -568,7 +569,6 @@ export class ComputerRuntime {
         modelsStorePath: join(this.agentDir, "models-store.json"),
         allowModelNetwork: false,
       });
-      this.resolveModel(this.defaultModelRef);
       this.started = true;
     }
     await this.refreshAuthentication();
@@ -590,6 +590,66 @@ export class ComputerRuntime {
       sessionScope: "transcript",
       activeTurns: this.activeByRun.size,
     };
+  }
+
+  async inferenceDiagnostics(model?: string) {
+    await this.start();
+    const modelRef = model
+      ? parsePiModelRef(model, this.defaultModelRef.providerId)
+      : this.defaultModelRef;
+    const selectedModel = this.resolveModel(modelRef);
+    const authentication = await this.requireModelRuntime().checkAuth(modelRef.providerId);
+    return {
+      ready: true,
+      runtimeEngine: "pi",
+      inferenceProvider: modelRef.providerId,
+      model: modelRef.modelId,
+      qualifiedModel: formatPiModelRef(modelRef),
+      authenticated: Boolean(authentication),
+      authType: authentication?.type ?? null,
+      authSource: authentication?.source ?? null,
+      subscription:
+        Boolean(authentication) &&
+        this.requireModelRuntime().isUsingSubscription(modelRef.providerId),
+      reasoning: clampThinkingLevel(selectedModel, this.defaultReasoning),
+      sessionScope: "transcript",
+      activeTurns: this.activeByRun.size,
+    };
+  }
+
+  async providerCatalog(providerId?: string) {
+    await this.start();
+    return this.inferenceProviders.catalog(providerId);
+  }
+
+  async verifyInferenceSettings(settings: ServerInferenceSettings): Promise<void> {
+    await this.start();
+    await this.inferenceProviders.verify(settings);
+  }
+
+  async disconnectInferenceProvider(providerId: string): Promise<void> {
+    await this.start();
+    await this.inferenceProviders.disconnect(providerId);
+  }
+
+  async startInferenceProviderAuth(providerId: string, authType: "api_key" | "oauth") {
+    await this.start();
+    return this.inferenceProviders.startAuthSession(providerId, authType);
+  }
+
+  async inferenceProviderAuthSession(sessionId: string) {
+    await this.start();
+    return this.inferenceProviders.authSession(sessionId);
+  }
+
+  async respondToInferenceProviderAuth(sessionId: string, promptId: string, value: string) {
+    await this.start();
+    return this.inferenceProviders.respond(sessionId, promptId, value);
+  }
+
+  async cancelInferenceProviderAuth(sessionId: string): Promise<void> {
+    await this.start();
+    this.inferenceProviders.cancel(sessionId);
   }
 
   async run(request: ComputerTurnRequest): Promise<AsyncIterable<ComputerEvent>> {
@@ -616,6 +676,7 @@ export class ComputerRuntime {
       runtimeProfile: request.runtimeProfile ?? "agent",
       subagentType: request.subagentType ?? null,
       modelRef,
+      reasoning: request.reasoning ?? this.defaultReasoning,
       cwd: request.cwd,
       instructions: request.instructions,
       userInfoMessage: request.userInfo
@@ -926,15 +987,19 @@ export class ComputerRuntime {
     prompt: string;
     cwd: string;
     timeoutMs: number;
+    model?: string;
+    reasoning?: PiReasoningLevel;
   }): Promise<string> {
     await this.start();
-    if (!this.authenticated) {
-      throw new Error(`Pi inference provider ${this.defaultModelRef.providerId} is not configured`);
+    const modelRef = request.model
+      ? parsePiModelRef(request.model, this.defaultModelRef.providerId)
+      : this.defaultModelRef;
+    const modelRuntime = this.requireModelRuntime();
+    if (!(await modelRuntime.checkAuth(modelRef.providerId))) {
+      throw new Error(`Pi inference provider ${modelRef.providerId} is not configured`);
     }
-    const modelRuntime = this.modelRuntime;
-    if (!modelRuntime) throw new Error("Pi model runtime is not initialized");
-    const model = this.resolveModel(this.defaultModelRef);
-    const thinkingLevel = clampThinkingLevel(model, this.thinkingLevel);
+    const model = this.resolveModel(modelRef);
+    const thinkingLevel = clampThinkingLevel(model, request.reasoning ?? this.defaultReasoning);
     const controller = new AbortController();
     let timedOut = false;
     const timer = setTimeout(() => {
@@ -994,6 +1059,11 @@ export class ComputerRuntime {
     return model;
   }
 
+  private requireModelRuntime(): ModelRuntime {
+    if (!this.modelRuntime) throw new Error("Pi model runtime is not initialized");
+    return this.modelRuntime;
+  }
+
   private async createSession(
     request: ComputerTurnRequest,
     active: ActiveTurn
@@ -1026,7 +1096,7 @@ export class ComputerRuntime {
     const modelRuntime = this.modelRuntime;
     if (!modelRuntime) throw new Error("Pi model runtime is not initialized");
     const model = this.resolveModel(modelRef);
-    const thinkingLevel = clampThinkingLevel(model, this.thinkingLevel);
+    const thinkingLevel = clampThinkingLevel(model, active?.reasoning ?? this.defaultReasoning);
     const persistReserve = grokPiPersistReserve(model.contextWindow ?? 0);
     const settingsManager = SettingsManager.inMemory({
       defaultProvider: modelRef.providerId,
@@ -1196,7 +1266,7 @@ export class ComputerRuntime {
     const modelRuntime = this.modelRuntime;
     if (!modelRuntime) throw new Error("Pi model runtime is not initialized");
     const model = this.resolveModel(active.modelRef);
-    const thinkingLevel = clampThinkingLevel(model, this.thinkingLevel);
+    const thinkingLevel = clampThinkingLevel(model, active.reasoning);
     if (signal.aborted) throw new DOMException("Compaction aborted", "AbortError");
 
     // Grok's summarization wrapper sends the normal model-visible schemas through

@@ -15,6 +15,7 @@ describe("Grok Bot deep-link routing parity", () => {
     }
     expect(settingsViewForAnchor("update-status")).toBe("updates");
     expect(settingsViewForAnchor("local-execution")).toBe("computer");
+    expect(settingsViewForAnchor("inference-provider")).toBe("server");
   });
 
   test("preserves the stable plugin id and rejects malformed or unsupported links", () => {

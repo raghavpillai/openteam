@@ -1,18 +1,12 @@
 import { readFileSync } from "node:fs";
 import type { CliOptions } from "./arguments";
 import type { InstallationManifest, InstallationPaths } from "./config";
-import {
-  installationExists,
-  parseEnvironment,
-  readManifest,
-  replaceEnvironmentValue,
-  writeFileAtomic,
-} from "./config";
+import { installationExists, parseEnvironment, readManifest } from "./config";
 import { PROJECT_NAME } from "./constants";
 import { type ComposeProject, requireComposeProject } from "./docker";
 import { CliError } from "./errors";
-import { waitForHealth } from "./health";
 import type { CommandRunner } from "./process";
+import { readRuntimeInferenceSettings, writeRuntimeInferenceSettings } from "./runtime-settings";
 import { createTerminalPrompter, type SetupPrompter } from "./setup";
 
 type ProviderRow = {
@@ -75,7 +69,19 @@ const jsonCommand = <T>(project: ComposeProject, args: readonly string[]): T => 
   }
 };
 
-const currentSelection = (paths: InstallationPaths) => {
+const currentSelection = (paths: InstallationPaths, project?: ComposeProject) => {
+  if (project) {
+    try {
+      const selected = jsonCommand<{
+        providerId: string;
+        modelId: string;
+        reasoning: string;
+      }>(project, ["selection"]);
+      return { ...selected, thinking: selected.reasoning };
+    } catch {
+      // Fall back to bootstrap values when an older computer image lacks this command.
+    }
+  }
   const environment = parseEnvironment(readFileSync(paths.environment, "utf8"));
   return {
     providerId: environment.get("OPENBOT_PI_PROVIDER") || "openai-codex",
@@ -88,8 +94,9 @@ const authLabel = (type: string | null): string =>
   type === "api_key" ? "API key" : type === "oauth" ? "OAuth" : "not configured";
 
 export const providerListCommand = (paths: InstallationPaths, runner: CommandRunner): void => {
-  const selected = currentSelection(paths).providerId;
-  const providers = jsonCommand<ProviderRow[]>(projectFor(paths, runner), ["providers"]);
+  const project = projectFor(paths, runner);
+  const selected = currentSelection(paths, project).providerId;
+  const providers = jsonCommand<ProviderRow[]>(project, ["providers"]);
   for (const provider of providers) {
     const marker = provider.id === selected ? "*" : " ";
     const methods = provider.authMethods.map((method) => method.type.replace("_", " ")).join(", ");
@@ -104,11 +111,9 @@ export const modelListCommand = (
   runner: CommandRunner,
   providerId?: string
 ): void => {
-  const selected = currentSelection(paths);
-  const models = jsonCommand<ModelRow[]>(projectFor(paths, runner), [
-    "models",
-    ...(providerId ? [providerId] : []),
-  ]);
+  const project = projectFor(paths, runner);
+  const selected = currentSelection(paths, project);
+  const models = jsonCommand<ModelRow[]>(project, ["models", ...(providerId ? [providerId] : [])]);
   for (const model of models) {
     const active = model.providerId === selected.providerId && model.modelId === selected.modelId;
     console.log(
@@ -163,7 +168,7 @@ export const providerLoginCommand = async (
   suppliedPrompter?: SetupPrompter
 ): Promise<void> => {
   const project = projectFor(paths, runner);
-  const providerId = options.providerId || currentSelection(paths).providerId;
+  const providerId = options.providerId || currentSelection(paths, project).providerId;
   const providers = jsonCommand<ProviderRow[]>(project, ["providers"]);
   const provider = providers.find((candidate) => candidate.id === providerId);
   if (!provider) throw new CliError(`Unknown Pi inference provider: ${providerId}`);
@@ -189,9 +194,10 @@ export const providerLogoutCommand = (
   runner: CommandRunner,
   providerId?: string
 ): void => {
-  const selected = currentSelection(paths).providerId;
+  const project = projectFor(paths, runner);
+  const selected = currentSelection(paths, project).providerId;
   const provider = providerId || selected;
-  projectFor(paths, runner).runOrThrow(authCommand(["logout", provider]));
+  project.runOrThrow(authCommand(["logout", provider]));
 };
 
 export const providerAddCommand = async (
@@ -226,10 +232,11 @@ export const providerRemoveCommand = (
   runner: CommandRunner,
   providerId: string
 ): void => {
-  if (currentSelection(paths).providerId === providerId) {
+  const project = projectFor(paths, runner);
+  if (currentSelection(paths, project).providerId === providerId) {
     throw new CliError("Select a model from another provider before removing the active provider");
   }
-  projectFor(paths, runner).runOrThrow(authCommand(["remove-custom", providerId]));
+  project.runOrThrow(authCommand(["remove-custom", providerId]));
 };
 
 export const modelUseCommand = async (
@@ -243,30 +250,22 @@ export const modelUseCommand = async (
     throw new CliError("Selecting a model requires a provider and model id");
   const project = projectFor(paths, runner);
   project.runOrThrow(authCommand(["verify", providerId, modelId]));
-  const previous = readFileSync(paths.environment, "utf8");
-  let next = replaceEnvironmentValue(previous, "OPENBOT_PI_PROVIDER", providerId);
-  next = replaceEnvironmentValue(next, "OPENBOT_PI_MODEL", modelId);
-  if (options.thinking)
-    next = replaceEnvironmentValue(next, "OPENBOT_PI_THINKING", options.thinking);
-  if (next === previous) {
+  const current = await readRuntimeInferenceSettings(paths, providerId);
+  if (
+    options.thinking &&
+    !["off", "minimal", "low", "medium", "high", "xhigh", "max"].includes(options.thinking)
+  ) {
+    throw new CliError(`Invalid reasoning level: ${options.thinking}`);
+  }
+  const reasoning = (options.thinking || current.reasoning) as typeof current.reasoning;
+  if (
+    current.providerId === providerId &&
+    current.modelId === modelId &&
+    current.reasoning === reasoning
+  ) {
     console.log(`${providerId}/${modelId} is already selected.`);
     return;
   }
-  writeFileAtomic(paths.environment, next, 0o600);
-  try {
-    const validation = project.run(["config", "--quiet"]);
-    if (validation.status !== 0) {
-      throw new CliError(
-        validation.stderr.trim() || validation.stdout.trim() || "Invalid configuration"
-      );
-    }
-    project.runOrThrow(["up", "--detach", "--remove-orphans"], { inherit: true });
-    const health = await waitForHealth(paths, 180_000);
-    if (!health.ok) throw new CliError(`OpenBot did not become healthy: ${health.detail}`);
-  } catch (error) {
-    writeFileAtomic(paths.environment, previous, 0o600);
-    project.run(["up", "--detach", "--remove-orphans"], { inherit: true });
-    throw error;
-  }
-  console.log(`Selected ${providerId}/${modelId} for Pi inference.`);
+  await writeRuntimeInferenceSettings(paths, { providerId, modelId, reasoning });
+  console.log(`Selected ${providerId}/${modelId} for new Pi inference turns.`);
 };

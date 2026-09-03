@@ -28,4 +28,15 @@ describe("screen viewer authentication", () => {
     expect(source).toContain("history.replaceState");
     expect(source).not.toContain('query.get("password")');
   });
+
+  test("reconnects dropped viewers with bounded backoff but stops on an authentication failure", async () => {
+    const source = await read("../../../docker/openbot-vnc.html");
+
+    expect(source).toContain('connection.addEventListener("disconnect"');
+    expect(source).toContain("scheduleReconnect()");
+    expect(source).toContain("Math.min(reconnectDelayMs * 2, 5_000)");
+    expect(source).toContain('connection.addEventListener("securityfailure"');
+    expect(source).toContain("shouldReconnect = false");
+    expect(source).toContain("screen.dataset.connectionState = state");
+  });
 });

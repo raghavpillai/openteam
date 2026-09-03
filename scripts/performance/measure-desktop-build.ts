@@ -419,6 +419,7 @@ const readLazyClosures = async () => {
       settingsGeneral: ["src/renderer/components/openbot/settings-general.tsx"],
       settingsGeneralBot: ["src/renderer/components/openbot/settings-general-bot.tsx"],
       settingsComputer: ["src/renderer/components/openbot/settings-computer.tsx"],
+      settingsServer: ["src/renderer/components/openbot/settings-server.tsx"],
       settingsUpdates: ["src/renderer/components/openbot/settings-updates.tsx"],
     };
     const closures = Object.fromEntries(

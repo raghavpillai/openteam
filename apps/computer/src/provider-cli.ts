@@ -11,6 +11,7 @@ import {
   normalizeInferenceModelId,
   normalizeInferenceProviderId,
   piModelRef,
+  serverInferenceSettings,
 } from "@openbot/contracts";
 
 const agentDir = resolve(process.env.OPENBOT_PI_AGENT_DIR ?? "/home/box/.pi/agent");
@@ -24,6 +25,7 @@ const createRuntime = () =>
 const usage = () => {
   console.error(`Usage:
   openbot-pi-auth providers
+  openbot-pi-auth selection
   openbot-pi-auth models [provider]
   openbot-pi-auth login <provider> <oauth|api_key>
   openbot-pi-auth logout <provider>
@@ -229,6 +231,39 @@ const main = async (): Promise<void> => {
     return;
   }
   if (command === "add-custom") return addCustomProvider();
+  if (command === "selection") {
+    const settingsPath = join(
+      resolve(process.env.OPENBOT_AGENT_DATA_ROOT ?? "/home/box/agent-data"),
+      "settings.json"
+    );
+    try {
+      const document = JSON.parse(await readFile(settingsPath, "utf8")) as {
+        inference?: Record<string, unknown>;
+      };
+      const inference = document.inference;
+      if (!inference) throw new Error("Inference settings are missing");
+      console.log(
+        JSON.stringify(
+          serverInferenceSettings(
+            String(inference.providerId ?? ""),
+            String(inference.modelId ?? ""),
+            inference.reasoning
+          )
+        )
+      );
+    } catch {
+      console.log(
+        JSON.stringify(
+          serverInferenceSettings(
+            process.env.OPENBOT_PI_PROVIDER ?? "openai-codex",
+            process.env.OPENBOT_PI_MODEL ?? "gpt-5.5",
+            process.env.OPENBOT_PI_THINKING ?? "high"
+          )
+        )
+      );
+    }
+    return;
+  }
   const runtime = await createRuntime();
   if (command === "providers") {
     const document = await readModelsDocument();

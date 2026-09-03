@@ -1,4 +1,4 @@
-import { ApiError } from "@openbot/contracts";
+import { ApiError, formatPiModelRef, type ServerInferenceSettings } from "@openbot/contracts";
 import {
   COMPUTER_API_PATHS,
   type ComputerInferenceRequest,
@@ -114,7 +114,10 @@ Return ONLY one JSON object with: decision ("allow" or "block"), reason (max 500
 optional proposedRule (max 500 chars) that narrowly describes this action for a future allow rule.`;
 
 export class AutoReviewService {
-  constructor(private readonly computerFetch: ComputerFetch) {}
+  constructor(
+    private readonly computerFetch: ComputerFetch,
+    private readonly inferenceSettings?: () => Promise<ServerInferenceSettings>
+  ) {}
 
   async review(input: AutoReviewInput): Promise<AutoReviewOutput> {
     const prompt = JSON.stringify({
@@ -130,11 +133,15 @@ export class AutoReviewService {
       },
     });
     try {
+      const inference = await this.inferenceSettings?.();
       const request = {
         kind: "verification",
         instructions,
         prompt,
         timeoutMs: 15_000,
+        ...(inference
+          ? { model: formatPiModelRef(inference), reasoning: inference.reasoning }
+          : {}),
       } satisfies ComputerInferenceRequest;
       const response = await this.computerFetch(COMPUTER_API_PATHS.inference, {
         method: "POST",

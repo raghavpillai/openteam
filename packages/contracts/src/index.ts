@@ -2,7 +2,7 @@ import { Schema } from "effect";
 import cursorToolsDocument from "./cursor-tools.json";
 import nativeToolsDocument from "./native-tools.json";
 import type { ClientCapabilities } from "./capabilities";
-import type { RuntimeEngine } from "./inference";
+import { PI_REASONING_LEVELS, type RuntimeEngine } from "./inference";
 import type { AgentNotificationKind } from "./notification-content";
 
 export * from "./bot-avatar";
@@ -1317,6 +1317,7 @@ export const ComputerTurnRequest = Schema.Struct({
   runtimeProfile: Schema.optional(Schema.Literal("agent", "subagent")),
   subagentType: Schema.optional(SubagentType),
   model: Schema.optional(Schema.String),
+  reasoning: Schema.optional(Schema.Literal(...PI_REASONING_LEVELS)),
   fileAttachments: Schema.optional(Schema.Array(Schema.String)),
   images: Schema.optional(Schema.Array(RuntimeInlineImage).pipe(Schema.maxItems(6))),
   dynamicNamespaces: Schema.optional(Schema.Array(PluginDynamicNamespace)),

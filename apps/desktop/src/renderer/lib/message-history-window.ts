@@ -397,6 +397,16 @@ const viewportRetentionForLanes = (
   return messageIds.size > 0 ? { fill: viewport.fill, messageIds } : undefined;
 };
 
+const retainsRequestedPageProgress = (
+  retained: readonly ChannelMessageView[],
+  requested: readonly ChannelMessageView[],
+  previous: readonly ChannelMessageView[]
+): boolean => {
+  const requestedIds = new Set(requested.map((message) => message.id));
+  for (const message of previous) requestedIds.delete(message.id);
+  return requestedIds.size === 0 || retained.some((message) => requestedIds.has(message.id));
+};
+
 const rebalanceRetainedState = (
   history: LoadedChannelHistory,
   window: ChannelMessageWindowState,
@@ -838,7 +848,8 @@ export const applyPrimaryHistoryPage = ({
 
   if (mode === "older") {
     const merged = mergeLoadedChannelHistoryPage(base, page, "older", loadedAt);
-    const firstPass = boundedHistory(
+    let retentionViewport = pagingViewport;
+    let firstPass = boundedHistory(
       merged,
       "oldest",
       MESSAGE_HISTORY_MAX_RETAINED_BYTES,
@@ -847,11 +858,23 @@ export const applyPrimaryHistoryPage = ({
         newer: state.primaryHasNewerGap,
       },
       undefined,
-      pagingViewport
+      retentionViewport
     );
+    // A viewport report can be stale when an explicit/automatic edge load wins
+    // the race with the next virtual-list report. Never let that pivot discard
+    // the requested page entirely: doing so leaves beforeSequence unchanged and
+    // repeats the same request forever. Prefer the live anchor when it fits;
+    // otherwise the user's explicit older-page intent determines the edge.
+    if (!retainsRequestedPageProgress(firstPass.messages, page.messages, base.messages)) {
+      retentionViewport = undefined;
+      firstPass = boundedHistory(merged, "oldest", MESSAGE_HISTORY_MAX_RETAINED_BYTES, {
+        older: page.hasMore,
+        newer: state.primaryHasNewerGap,
+      });
+    }
     const needsTail = state.primaryHasNewerGap || firstPass.eviction.newer !== null;
     const latestTail = needsTail ? (state.latestTail ?? latestTailFromHistory(base)) : null;
-    const bounded = boundedHistoryAgainst(
+    let bounded = boundedHistoryAgainst(
       merged,
       "oldest",
       {
@@ -860,8 +883,20 @@ export const applyPrimaryHistoryPage = ({
       },
       [merged.searchContext, merged.searchThreadContext, ...latestTailLanes(latestTail)],
       undefined,
-      pagingViewport
+      retentionViewport
     );
+    if (!retainsRequestedPageProgress(bounded.bounded.messages, page.messages, base.messages)) {
+      retentionViewport = undefined;
+      bounded = boundedHistoryAgainst(
+        merged,
+        "oldest",
+        {
+          older: page.hasMore,
+          newer: state.primaryHasNewerGap,
+        },
+        [merged.searchContext, merged.searchThreadContext, ...latestTailLanes(latestTail)]
+      );
+    }
     const history = withBoundedPrimary(merged, bounded.bounded);
     const rebalanced = rebalanceRetainedState(
       history,
@@ -872,7 +907,7 @@ export const applyPrimaryHistoryPage = ({
         retainedBytes: retainedStateBytes(history, latestTail),
       },
       undefined,
-      pagingViewport
+      retentionViewport
     );
     return {
       history: rebalanced.history,
@@ -1043,22 +1078,40 @@ export const expandMessageContext = ({
         fill: direction === "older" ? ("older-first" as const) : ("newer-first" as const),
       }
     : undefined;
-  const contextViewport = viewportRetentionForLanes(pagingViewport, messages, threadContext);
-  const bounded = boundRetainedLane(
+  const retain = direction === "older" ? ("oldest" as const) : ("newest" as const);
+  const gaps = {
+    older: direction === "older" ? page.hasMoreBefore : window.context.hasMoreBefore,
+    newer: direction === "newer" ? page.hasMoreAfter : window.context.hasMoreAfter,
+  };
+  let retentionViewport = pagingViewport;
+  const contextViewport = viewportRetentionForLanes(retentionViewport, messages, threadContext);
+  let bounded = boundRetainedLane(
     messages,
     {
       maxMessages: MESSAGE_HISTORY_MAX_MESSAGES,
-      retain: direction === "older" ? "oldest" : "newest",
+      retain,
       threadContext,
-      existingGaps: {
-        older: direction === "older" ? page.hasMoreBefore : window.context.hasMoreBefore,
-        newer: direction === "newer" ? page.hasMoreAfter : window.context.hasMoreAfter,
-      },
+      existingGaps: gaps,
       viewportFill: contextViewport?.fill,
       viewportMessageIds: contextViewport?.messageIds,
     },
     latestTailLanes(window.latestTail)
   );
+  if (
+    !retainsRequestedPageProgress(bounded.bounded.messages, page.messages, current.searchContext)
+  ) {
+    retentionViewport = undefined;
+    bounded = boundRetainedLane(
+      messages,
+      {
+        maxMessages: MESSAGE_HISTORY_MAX_MESSAGES,
+        retain,
+        threadContext,
+        existingGaps: gaps,
+      },
+      latestTailLanes(window.latestTail)
+    );
+  }
   const history = contextHistory(
     current,
     bounded.bounded.messages,
@@ -1084,7 +1137,7 @@ export const expandMessageContext = ({
       retainedBytes: retainedStateBytes(history, window.latestTail),
     },
     undefined,
-    pagingViewport
+    retentionViewport
   );
   return {
     history: rebalanced.history,

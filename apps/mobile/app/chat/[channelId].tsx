@@ -129,6 +129,7 @@ export default function ConversationScreen() {
     respondToWidget,
     dismissWidget,
     submitSecret,
+    mutateComputerHandoff,
     resolveApproval,
     markChannelRead,
     sidebarPreferences,
@@ -538,6 +539,7 @@ export default function ConversationScreen() {
             }}
             size={38}
             symbolSize={18}
+            style={styles.headerTrailingAction}
             tone="surface"
           />
         </View>
@@ -682,6 +684,7 @@ export default function ConversationScreen() {
                   onWidgetResponse={(value) => respondToWidget(item.id, value)}
                   onWidgetDismiss={() => dismissWidget(item.id)}
                   onSecretSubmit={(value) => submitSecret(item.id, value)}
+                  onComputerHandoff={(action) => mutateComputerHandoff(item.id, action)}
                   onOpenThread={thread ? () => setThreadRootId(item.id) : undefined}
                   threadReplyCount={thread?.replies.length ?? 0}
                   threadReplyCountIsPartial={threadReplyCountIsPartial}
@@ -759,10 +762,12 @@ export default function ConversationScreen() {
                 interactive
                 style={[styles.jumpSurface, { borderColor: theme.border }]}
               >
-                <SymbolView name="arrow.down" size={12} tintColor={theme.text} weight="semibold" />
-                <Text style={[styles.jumpLabel, { color: theme.text }]}>
-                  {(channel?.unreadCount ?? 0) > 0 ? `${channel?.unreadCount} unread` : "Latest"}
-                </Text>
+                <SymbolView
+                  name="chevron.down"
+                  size={15}
+                  tintColor={theme.text}
+                  weight="semibold"
+                />
               </GlassSurface>
             </Pressable>
           ) : null}
@@ -814,6 +819,7 @@ export default function ConversationScreen() {
             )}
             onAcknowledgeRecovery={acknowledgeDeliveryRecovery}
             onSecretSubmit={submitSecret}
+            onComputerHandoff={mutateComputerHandoff}
             onSend={(content, attachments, stagedAttachments, replyToMessageId, consumedDraft) =>
               sendMessage(channelId, content, attachments, replyToMessageId, {
                 isFork: true,
@@ -865,8 +871,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
+    gap: 6,
   },
+  headerTrailingAction: { marginLeft: "auto" },
   identity: {
     maxWidth: 220,
     minHeight: 40,
@@ -931,7 +938,7 @@ const styles = StyleSheet.create({
   jumpButton: {
     position: "absolute",
     bottom: 10,
-    alignSelf: "center",
+    right: 18,
     borderRadius: 18,
     shadowColor: "#000",
     shadowOpacity: 0.12,
@@ -940,14 +947,11 @@ const styles = StyleSheet.create({
   },
   jumpButtonPressed: { opacity: 0.78, transform: [{ scale: 0.98 }] },
   jumpSurface: {
-    minHeight: 36,
+    width: 36,
+    height: 36,
     borderRadius: 18,
     borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 13,
-    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 6,
   },
-  jumpLabel: { fontSize: 13, lineHeight: 17, fontWeight: "600" },
 });

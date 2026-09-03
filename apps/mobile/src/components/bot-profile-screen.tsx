@@ -161,7 +161,7 @@ export function BotProfileScreen({
   const header = (
     <>
       <View style={styles.avatarWrap}>
-        <BotMark color={color} icon={shape} showFace={false} size={86} />
+        <BotMark color={color} icon={shape} showFace={false} size={98} />
       </View>
 
       <View style={[styles.identityCard, { backgroundColor: panel }]}>
@@ -325,9 +325,9 @@ const styles = StyleSheet.create({
   },
   list: { flex: 1 },
   content: { paddingHorizontal: 21, paddingTop: 12 },
-  avatarWrap: { alignItems: "center" },
+  avatarWrap: { height: 86, alignItems: "center", justifyContent: "center" },
   identityCard: {
-    height: 90,
+    height: 92,
     marginTop: 14,
     borderRadius: 16,
     overflow: "hidden",
@@ -351,8 +351,8 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   sectionLabel: { marginLeft: 16, fontSize: 13, lineHeight: 18 },
-  characterLabel: { marginTop: 28, marginBottom: 8 },
-  characterCard: { height: 212, borderRadius: 16, overflow: "hidden" },
+  characterLabel: { marginTop: 30, marginBottom: 8 },
+  characterCard: { height: 218, borderRadius: 16, overflow: "hidden" },
   colorGrid: {
     height: 103,
     paddingHorizontal: 16,
@@ -397,7 +397,7 @@ const styles = StyleSheet.create({
   disclosureText: { flex: 1, fontSize: 16, lineHeight: 21 },
   routinesHeading: {
     height: 55,
-    paddingTop: 20,
+    paddingTop: 0,
     paddingRight: 14,
     flexDirection: "row",
     alignItems: "center",

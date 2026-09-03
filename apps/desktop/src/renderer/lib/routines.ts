@@ -242,10 +242,17 @@ const listField = (values: readonly number[]): string =>
   values.length > 0 ? [...new Set(values)].sort((left, right) => left - right).join(",") : "*";
 
 export const routineTriggerValue = (
-  drafts: readonly RoutineScheduleDraft[]
+  drafts: readonly RoutineScheduleDraft[],
+  timeZone?: string
 ): Record<string, unknown> => {
   const listeners = drafts.flatMap((draft) =>
-    routineScheduleValues(draft).map((schedule) => ({ type: "cron", schedule }))
+    routineScheduleValues(draft).map((schedule) => ({
+      type: "cron",
+      schedule:
+        timeZone && !schedule.startsWith("@every ") && !/^(?:CRON_TZ|TZ)=/.test(schedule)
+          ? `CRON_TZ=${timeZone} ${schedule}`
+          : schedule,
+    }))
   );
   return listeners.length === 1
     ? (listeners[0] ?? { type: "cron", schedule: "" })
@@ -362,6 +369,40 @@ const formatTime = (time: string) => {
 
 const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
+const advancedDayDescription = (draft: RoutineScheduleDraft): string => {
+  if (draft.advancedDayMode === "weekdays") {
+    return ` on ${draft.advancedWeekDays.map((day) => WEEKDAYS[day] ?? "Monday").join(", ")}`;
+  }
+  if (draft.advancedDayMode === "month-days") {
+    return ` on the ${draft.advancedMonthDays.map(routineOrdinalLabel).join(", ")}`;
+  }
+  return "";
+};
+
+const describeAdvancedTimes = (draft: RoutineScheduleDraft): string => {
+  const times = draft.advancedTimes.length > 0 ? draft.advancedTimes : ["08:00"];
+  const minutes = times.map((time) => {
+    const [hour, minute] = timeFields(time);
+    return hour * 60 + minute;
+  });
+  const spacing = (minutes[1] ?? 0) - (minutes[0] ?? 0);
+  const evenlySpaced =
+    times.length > 1 &&
+    spacing > 0 &&
+    minutes.slice(2).every((value, index) => value - (minutes[index + 1] ?? value) === spacing);
+  const day = advancedDayDescription(draft);
+  if (evenlySpaced) {
+    const cadence =
+      spacing === 60
+        ? "Every hour"
+        : spacing % 60 === 0
+          ? `Every ${spacing / 60} hours`
+          : `Every ${spacing} minutes`;
+    return `${cadence}${day}, ${formatTime(times[0] ?? "08:00")} – ${formatTime(times.at(-1) ?? "08:00")}`;
+  }
+  return `At ${times.map(formatTime).join(", ")}${day}`;
+};
+
 export const describeRoutineSchedule = (draft: RoutineScheduleDraft): string => {
   switch (draft.preset) {
     case "hourly":
@@ -389,13 +430,11 @@ export const describeRoutineSchedule = (draft: RoutineScheduleDraft): string => 
         }
         if (draft.advancedDayMode === "every-day") return `Every day at ${time}`;
       }
-      const cadence =
-        draft.advancedTimeMode === "at-times"
-          ? `At ${draft.advancedTimes.length} times`
-          : `Every ${draft.advancedEveryAmount} ${unitLabel(
-              draft.advancedEveryUnit,
-              draft.advancedEveryAmount
-            )}`;
+      if (draft.advancedTimeMode === "at-times") return describeAdvancedTimes(draft);
+      const cadence = `Every ${draft.advancedEveryAmount} ${unitLabel(
+        draft.advancedEveryUnit,
+        draft.advancedEveryAmount
+      )}`;
       if (draft.advancedDayMode === "weekdays") {
         const days = draft.advancedWeekDays.map((day) => WEEKDAYS[day] ?? "Monday");
         return `${cadence} on ${days.join(", ")}`;
@@ -418,6 +457,16 @@ export const describeRoutineSchedule = (draft: RoutineScheduleDraft): string => 
     }
   }
 };
+
+export const describeRoutineSchedules = (drafts: readonly RoutineScheduleDraft[]): string =>
+  drafts
+    .map(describeRoutineSchedule)
+    .map((description, index) => {
+      if (index === 0) return description;
+      const continuation = description.replace(/^On /, "");
+      return `${continuation.charAt(0).toLowerCase()}${continuation.slice(1)}`;
+    })
+    .join(" or ");
 
 const unitLabel = (unit: RoutineScheduleDraft["intervalUnit"], amount: number) => {
   const label = unit === "m" ? "minute" : unit === "h" ? "hour" : "day";

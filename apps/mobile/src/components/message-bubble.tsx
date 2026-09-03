@@ -88,6 +88,7 @@ export function MessageBubble({
   onWidgetResponse,
   onWidgetDismiss,
   onSecretSubmit,
+  onComputerHandoff,
   onOpenThread,
   onStartThread,
   onMarkUnread,
@@ -119,6 +120,7 @@ export function MessageBubble({
   onWidgetResponse: (value: string) => Promise<boolean>;
   onWidgetDismiss: () => Promise<boolean>;
   onSecretSubmit: (value: string) => Promise<boolean>;
+  onComputerHandoff: (action: "start" | "skip") => Promise<boolean>;
   onOpenThread?: () => void;
   onStartThread?: () => void;
   onMarkUnread?: () => void;
@@ -429,6 +431,7 @@ export function MessageBubble({
           >
             <MobileRichMessageCard
               message={message}
+              onComputerHandoff={onComputerHandoff}
               onSecretSubmit={onSecretSubmit}
               onWidgetDismiss={onWidgetDismiss}
               onWidgetResponse={onWidgetResponse}
@@ -724,9 +727,8 @@ export function MessageBubble({
                 </View>
               ) : null}
               {!readOnly ? (
-                <GlassSurface
-                  fallbackColor={theme.surfaceElevated}
-                  style={[styles.actionPanel, { borderColor: theme.border }]}
+                <View
+                  style={[styles.actionPanel, { backgroundColor: theme.surfaceElevated }]}
                 >
                   <Pressable
                     accessibilityRole="button"
@@ -788,12 +790,9 @@ export function MessageBubble({
                       </Pressable>
                     </>
                   ) : null}
-                </GlassSurface>
+                </View>
               ) : null}
-              <GlassSurface
-                fallbackColor={theme.surfaceElevated}
-                style={[styles.actionPanel, { borderColor: theme.border }]}
-              >
+              <View style={[styles.actionPanel, { backgroundColor: theme.surfaceElevated }]}>
                 <Pressable
                   accessibilityRole="button"
                   onPress={() => {
@@ -808,12 +807,9 @@ export function MessageBubble({
                   <SymbolView name="doc.on.doc" size={18} tintColor={theme.text} />
                   <Text style={[styles.menuLabel, { color: theme.text }]}>Copy</Text>
                 </Pressable>
-              </GlassSurface>
+              </View>
               {!readOnly && onReport ? (
-                <GlassSurface
-                  fallbackColor={theme.surfaceElevated}
-                  style={[styles.actionPanel, { borderColor: theme.border }]}
-                >
+                <View style={[styles.actionPanel, { backgroundColor: theme.surfaceElevated }]}>
                   <Pressable
                     accessibilityRole="button"
                     onPress={() => {
@@ -828,7 +824,7 @@ export function MessageBubble({
                     <SymbolView name="flag" size={19} tintColor={theme.text} />
                     <Text style={[styles.menuLabel, { color: theme.text }]}>Report</Text>
                   </Pressable>
-                </GlassSurface>
+                </View>
               ) : null}
             </View>
           </Pressable>
@@ -974,22 +970,16 @@ const styles = StyleSheet.create({
     paddingTop: 14,
     paddingBottom: 10,
     borderRadius: 26,
-    borderWidth: StyleSheet.hairlineWidth,
     overflow: "hidden",
   },
   actionPanel: {
     width: "100%",
     borderRadius: 18,
-    borderWidth: StyleSheet.hairlineWidth,
     overflow: "hidden",
-    shadowColor: "#000",
-    shadowOpacity: 0.22,
-    shadowRadius: 24,
-    shadowOffset: { width: 0, height: 12 },
   },
   reactionPanel: {
     width: "100%",
-    height: 56,
+    height: 60,
     justifyContent: "center",
   },
   emojiRow: { flexDirection: "row", justifyContent: "space-between" },
@@ -1013,7 +1003,7 @@ const styles = StyleSheet.create({
   },
   divider: { height: StyleSheet.hairlineWidth, marginLeft: 46 },
   menuRow: {
-    height: 43,
+    height: 44,
     paddingHorizontal: 18,
     flexDirection: "row",
     alignItems: "center",

@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { chown, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { extname, isAbsolute, join, relative, resolve } from "node:path";
+import { clampThinkingLevel } from "@earendil-works/pi-ai";
 import {
   type AgentSession,
   type AgentSessionEvent,
@@ -14,7 +15,6 @@ import {
   SessionManager,
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
-import { clampThinkingLevel } from "@earendil-works/pi-ai";
 import {
   type ApprovalDecision,
   CALL_DYNAMIC_TOOL_TOOL,
@@ -22,8 +22,6 @@ import {
   CHECK_SUBAGENT_TOOL,
   CheckSubagentInput,
   COMPUTER_USE_TOOL,
-  DEFAULT_PI_INFERENCE_MODEL,
-  DEFAULT_PI_INFERENCE_PROVIDER,
   type ComputerEvent,
   type ComputerSteerRequest,
   type ComputerTurnRequest,
@@ -32,8 +30,11 @@ import {
   CREATE_CHANNEL_TOOL,
   CreateAgentInput,
   CreateChannelInput,
+  DEFAULT_PI_INFERENCE_MODEL,
+  DEFAULT_PI_INFERENCE_PROVIDER,
   EXTERNAL_READ_TOOL,
   EXTERNAL_SHELL_TOOL,
+  formatPiModelRef,
   GET_DYNAMIC_TOOLS_TOOL,
   GetDynamicToolsInput,
   LIST_AGENTS_TOOL,
@@ -44,19 +45,20 @@ import {
   MESSAGE_SUBAGENT_TOOL,
   MessageSubagentInput,
   NATIVE_TOOLS,
-  formatPiModelRef,
-  parsePiModelRef,
-  piModelRef,
   type PiModelRef,
   type PluginDynamicNamespace,
+  parsePiModelRef,
+  piModelRef,
   REACT_TO_MESSAGE_TOOL,
   READ_TOOL,
+  REQUEST_BOX_HELP_TOOL,
   ReadToolInput,
+  RequestBoxHelpInput,
   type RuntimeInlineImage,
   SCREENSHOT_TOOL,
+  SEND_TO_AGENT_TOOL,
   SEND_TO_USER_CLOSING_NUDGE_PROMPT,
   SEND_TO_USER_REPLY_NUDGE_PROMPT,
-  SEND_TO_AGENT_TOOL,
   SEND_TO_USER_TOOL,
   SendToAgentInput,
   SHELL_TOOL,
@@ -76,8 +78,8 @@ import {
 } from "@openbot/contracts";
 import { Schema } from "effect";
 import { Type } from "typebox";
-import { BROWSER_USE_TOOLS, BrowserUseSession } from "./browser-use";
 import { agentProcessIdentity, sanitizedAgentEnvironment } from "./agent-process";
+import { BROWSER_USE_TOOLS, BrowserUseSession } from "./browser-use";
 import { ComputerEventQueue } from "./computer-event-queue";
 import {
   type DynamicNamespaceDefinition,
@@ -1559,7 +1561,7 @@ export class ComputerRuntime {
       throw new Error(message);
     }
     if (
-      tool === SEND_TO_USER_TOOL.name &&
+      (tool === SEND_TO_USER_TOOL.name || tool === REQUEST_BOX_HELP_TOOL.name) &&
       body &&
       typeof body === "object" &&
       !Array.isArray(body) &&
@@ -1670,6 +1672,16 @@ export class ComputerRuntime {
               decodeArguments: (args: unknown) => Schema.decodeUnknownSync(SendToAgentInput)(args),
               execute: (turn: ActiveTurn, callId: string, args: unknown, signal?: AbortSignal) =>
                 this.callControlPlaneTool(turn, callId, SEND_TO_AGENT_TOOL.name, args, signal),
+            },
+            {
+              name: REQUEST_BOX_HELP_TOOL.name,
+              description: REQUEST_BOX_HELP_TOOL.description,
+              inputSchema: REQUEST_BOX_HELP_TOOL.inputSchema,
+              source: "first-party" as const,
+              decodeArguments: (args: unknown) =>
+                Schema.decodeUnknownSync(RequestBoxHelpInput)(args),
+              execute: (turn: ActiveTurn, callId: string, args: unknown, signal?: AbortSignal) =>
+                this.callControlPlaneTool(turn, callId, REQUEST_BOX_HELP_TOOL.name, args, signal),
             },
             {
               name: "SearchPlugins",

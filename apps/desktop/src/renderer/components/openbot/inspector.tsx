@@ -369,11 +369,13 @@ function GroupSettings({
 
 export const Inspector = memo(function Inspector({
   channel,
+  computerHandoff,
   botById,
   active,
   screenEnabled,
   mode,
   onEnableScreen,
+  onFinishComputerHandoff,
   onModeChange,
   onUpdateBot,
   onRetryBot,
@@ -385,11 +387,13 @@ export const Inspector = memo(function Inspector({
   routineOpenRequest,
 }: {
   channel: ChannelView;
+  computerHandoff?: { botId: string; messageId: string } | null;
   botById: ReadonlyMap<string, BotView>;
   active: boolean;
   screenEnabled: boolean;
   mode: InspectorMode;
   onEnableScreen: (botId: string) => void;
+  onFinishComputerHandoff?: () => void;
   onModeChange: (mode: InspectorMode) => void;
   onUpdateBot: (botId: string, input: UpdateBotInput) => Promise<BotView>;
   onRetryBot: (botId: string) => Promise<void>;
@@ -510,7 +514,9 @@ export const Inspector = memo(function Inspector({
               active={active}
               bot={bot}
               enabled={screenEnabled}
+              handoff={computerHandoff}
               onEnable={() => onEnableScreen(bot.id)}
+              onHandoffFinished={onFinishComputerHandoff}
               onRetry={() => onRetryBot(bot.id)}
             />
             <div className="mt-2 text-center text-[12px] leading-4 text-muted-foreground">

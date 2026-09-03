@@ -2507,7 +2507,6 @@ export class AgentMessaging {
           channelId: channel.id,
           sender: "agent",
           senderBotId: context.botId,
-          sourceRunId: context.runId,
         },
         orderBy: { sequence: "desc" },
       });
@@ -2519,10 +2518,13 @@ export class AgentMessaging {
           : null;
       if (
         awaitingMetadata &&
-        ["widget", "secret-request"].includes(String(awaitingMetadata.type)) &&
+        ["widget", "secret-request", "computer-handoff"].includes(String(awaitingMetadata.type)) &&
         typeof awaitingMetadata.respondedValue !== "string" &&
         awaitingMetadata.widgetDismissed !== true &&
-        awaitingMetadata.secretProvided !== true
+        awaitingMetadata.secretProvided !== true &&
+        !["completed", "skipped", "dismissed"].includes(
+          String(awaitingMetadata.computerHandoffState)
+        )
       ) {
         throw new ApiError(
           409,
@@ -2619,6 +2621,12 @@ export class AgentMessaging {
     if (input.type === "widget") {
       if (!input.widget) throw new Error("widget is required when type is widget");
       return input.widget.prompt;
+    }
+    if (input.type === "computer-handoff") {
+      if (!input.computerHandoff) {
+        throw new Error("computerHandoff is required when type is computer-handoff");
+      }
+      return input.computerHandoff.reason;
     }
     if (!input.secret) throw new Error("secret is required when type is secret-request");
     return `Secret requested: ${input.secret.label}`;

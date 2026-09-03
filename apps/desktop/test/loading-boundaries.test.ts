@@ -84,7 +84,8 @@ describe("desktop loading and packaging boundaries", () => {
 
     expect(inspectorSource).toContain('import("./routine-summary")');
     expect(inspectorSource).toContain('import("./routine-panel")');
-    expect(editorSource).toContain('import("./routine-event-fields")');
+    expect(editorSource).not.toContain("routine-event-fields");
+    expect(editorSource).toContain('from "../ui/select"');
     expect(summarySource).not.toContain("routine-panel");
     expect(summarySource).not.toContain("RoutineEditor");
   });

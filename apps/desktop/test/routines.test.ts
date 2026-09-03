@@ -2,7 +2,9 @@ import { describe, expect, test } from "bun:test";
 import {
   DEFAULT_ROUTINE_SCHEDULE,
   describeRoutineSchedule,
+  describeRoutineSchedules,
   parseRoutineSchedule,
+  type RoutineView,
   routineDraftValid,
   routinePresentationDrafts,
   routinePresentationValue,
@@ -10,7 +12,6 @@ import {
   routineScheduleValues,
   routineSummaryProjectionEqual,
   routineTriggerValue,
-  type RoutineView,
 } from "../src/renderer/lib/routines";
 
 describe("Grok-compatible routine schedule editor", () => {
@@ -32,6 +33,18 @@ describe("Grok-compatible routine schedule editor", () => {
       listeners: [
         { type: "cron", schedule: "0 9 * * 1-5" },
         { type: "cron", schedule: "0 17 * * *" },
+      ],
+    });
+    expect(describeRoutineSchedules([weekdays, daily])).toBe(
+      "On weekdays at 9:00 AM or every day at 5:00 PM"
+    );
+    expect(
+      routineTriggerValue([weekdays, parseRoutineSchedule("@every 5m")], "America/New_York")
+    ).toEqual({
+      type: "group",
+      listeners: [
+        { type: "cron", schedule: "CRON_TZ=America/New_York 0 9 * * 1-5" },
+        { type: "cron", schedule: "@every 5m" },
       ],
     });
   });
@@ -93,6 +106,19 @@ describe("Grok-compatible routine schedule editor", () => {
         { type: "cron", schedule: "15 9 * * *" },
       ],
     });
+  });
+
+  test("matches Grok's advanced evenly-spaced time summary", () => {
+    expect(
+      describeRoutineSchedule({
+        ...DEFAULT_ROUTINE_SCHEDULE,
+        preset: "advanced",
+        advancedDayMode: "weekdays",
+        advancedWeekDays: [1],
+        advancedTimeMode: "at-times",
+        advancedTimes: ["08:00", "09:00"],
+      })
+    ).toBe("Every hour on Monday, 8:00 AM – 9:00 AM");
   });
 
   test("round-trips the structured UI presentation independently of cron listeners", () => {

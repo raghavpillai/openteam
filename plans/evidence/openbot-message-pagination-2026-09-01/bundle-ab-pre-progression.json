@@ -1,0 +1,2262 @@
+{
+  "createdAt": "2026-09-01T21:48:09.474Z",
+  "methodology": {
+    "build": "env -u VITE_OPENBOT_API_URL -u OPENBOT_API_URL bun --filter @openbot/desktop build",
+    "measurementScriptSha256": "eb20850609711e12f022c637f512d7311c93cfc5c7c145daca8867ce299f6e98",
+    "gzip": "node:zlib gzipSync level 9",
+    "notes": [
+      "Both builds used separate detached worktrees and fresh bun installs.",
+      "Renderer totals exclude manifest.json; staticAsset totals additionally exclude index.html.",
+      "Current snapshot is the complete dirty desktop renderer/transitive source state recaptured after concurrent durable-send edits; aggregate deltas are not pagination-only attribution."
+    ]
+  },
+  "snapshots": {
+    "baseline": {
+      "commit": "1e66ee8586a0bdf8d1f10f8188e3ed8b8a3c9b67",
+      "root": "/tmp/openbot-bundle-baseline-1e66ee8",
+      "sourceFingerprintSha256": "a6c5f5039dd52ac9ce5b6d39ae77a01418d46dc9800b562e6c8e9fcd72adff26",
+      "buildOutputSha256": "e10526ea79bcaed4bfa2024e8f75b2d37ad13f4d38667b1ffdf4b7792f7e0ac2"
+    },
+    "current": {
+      "baseCommit": "f772d6c87a7529b2736132efb793f0d6d00be785",
+      "root": "/tmp/openbot-bundle-current-f772d6c-dirty",
+      "sourceFingerprintSha256": "1d35894b129186cdb910188af56de11c9ea9b6fbe44054c27e84659261ec7202",
+      "dirtyPatchSha256": "c2ec7d4477cc2031ccecb3fd210cc590eb21ba50ddfa1b52ab84a073e526bac9",
+      "untrackedTarSha256": "70b5eefca32b9df7f2c6d8171ec3819f41a4a39f1ec0f5951c0c241f7aeb07d4",
+      "buildOutputSha256": "a3d8fea18253cfc62adf1df48f0d25306e809233defc5c4929f4f4eda3882204"
+    }
+  },
+  "dependencies": {
+    "package.json": {
+      "baselineSha256": "421bca845cf31d299294858f284f0c3c67c9126792e9867d7eb2cf255068f044",
+      "currentSha256": "421bca845cf31d299294858f284f0c3c67c9126792e9867d7eb2cf255068f044",
+      "identical": true
+    },
+    "bun.lock": {
+      "baselineSha256": "07a784d43e1feed9662a2d3992a5868499018e93beb8c944ce17e299da161604",
+      "currentSha256": "07a784d43e1feed9662a2d3992a5868499018e93beb8c944ce17e299da161604",
+      "identical": true
+    },
+    "apps/desktop/package.json": {
+      "baselineSha256": "ec6ab622e3c62b6230122406aa4ab83ebcf0015bb5de6af0a86a65f4f5ce6700",
+      "currentSha256": "ec6ab622e3c62b6230122406aa4ab83ebcf0015bb5de6af0a86a65f4f5ce6700",
+      "identical": true
+    }
+  },
+  "summary": {
+    "baseline": {
+      "rendererFiles": 430,
+      "rendererBytes": 15526913,
+      "rendererGzipBytes": 3768753,
+      "staticAssetBytes": 15521975,
+      "staticAssetGzipBytes": 3767184,
+      "manifestBytes": 185621,
+      "manifestGzipBytes": 16472,
+      "entry": {
+        "path": "assets/index-CTSbzJhw.js",
+        "bytes": 641436,
+        "gzipBytes": 193370
+      },
+      "startupBytes": 950578,
+      "startupGzipBytes": 273090,
+      "startupCssBytes": 164674,
+      "css": {
+        "files": 2,
+        "bytes": 190862,
+        "gzipBytes": 32755
+      },
+      "javascript": {
+        "files": 407,
+        "bytes": 14028731,
+        "gzipBytes": 3188711
+      },
+      "fonts": {
+        "files": 19,
+        "bytes": 256168,
+        "gzipBytes": 256635
+      },
+      "html": {
+        "files": 1,
+        "bytes": 4938,
+        "gzipBytes": 1569
+      },
+      "electron": {
+        "files": [
+          {
+            "path": "chunks/index.js",
+            "bytes": 1804,
+            "gzipBytes": 742
+          },
+          {
+            "path": "chunks/main.js",
+            "bytes": 541972,
+            "gzipBytes": 105134
+          },
+          {
+            "path": "host-utility.js",
+            "bytes": 22799,
+            "gzipBytes": 5981
+          },
+          {
+            "path": "main.js",
+            "bytes": 100836,
+            "gzipBytes": 24558
+          },
+          {
+            "path": "openbot-cli.js",
+            "bytes": 1491495,
+            "gzipBytes": 397824
+          },
+          {
+            "path": "preload.cjs",
+            "bytes": 7918,
+            "gzipBytes": 1931
+          }
+        ],
+        "bytes": 2166824,
+        "gzipBytes": 536170
+      }
+    },
+    "current": {
+      "rendererFiles": 430,
+      "rendererBytes": 15569260,
+      "rendererGzipBytes": 3780861,
+      "staticAssetBytes": 15564322,
+      "staticAssetGzipBytes": 3779292,
+      "manifestBytes": 185621,
+      "manifestGzipBytes": 16476,
+      "entry": {
+        "path": "assets/index-CEzybKLD.js",
+        "bytes": 680157,
+        "gzipBytes": 204102
+      },
+      "startupBytes": 990023,
+      "startupGzipBytes": 283996,
+      "startupCssBytes": 165212,
+      "css": {
+        "files": 2,
+        "bytes": 191400,
+        "gzipBytes": 32860
+      },
+      "javascript": {
+        "files": 407,
+        "bytes": 14070540,
+        "gzipBytes": 3200714
+      },
+      "fonts": {
+        "files": 19,
+        "bytes": 256168,
+        "gzipBytes": 256635
+      },
+      "html": {
+        "files": 1,
+        "bytes": 4938,
+        "gzipBytes": 1569
+      },
+      "electron": {
+        "files": [
+          {
+            "path": "chunks/index.js",
+            "bytes": 1804,
+            "gzipBytes": 742
+          },
+          {
+            "path": "chunks/main.js",
+            "bytes": 541972,
+            "gzipBytes": 105134
+          },
+          {
+            "path": "host-utility.js",
+            "bytes": 22799,
+            "gzipBytes": 5981
+          },
+          {
+            "path": "main.js",
+            "bytes": 109037,
+            "gzipBytes": 27052
+          },
+          {
+            "path": "openbot-cli.js",
+            "bytes": 1498046,
+            "gzipBytes": 399449
+          },
+          {
+            "path": "preload.cjs",
+            "bytes": 8622,
+            "gzipBytes": 2034
+          }
+        ],
+        "bytes": 2182280,
+        "gzipBytes": 540392
+      }
+    },
+    "delta": {
+      "rendererFiles": 0,
+      "rendererBytes": 42347,
+      "rendererGzipBytes": 12108,
+      "staticAssetBytes": 42347,
+      "staticAssetGzipBytes": 12108,
+      "manifestBytes": 0,
+      "manifestGzipBytes": 4,
+      "startupBytes": 39445,
+      "startupGzipBytes": 10906,
+      "startupCssBytes": 538,
+      "entryBytes": 38721,
+      "entryGzipBytes": 10732,
+      "cssBytes": 538,
+      "cssGzipBytes": 105,
+      "electronBytes": 15456,
+      "electronGzipBytes": 4222
+    }
+  },
+  "electronFileComparison": [
+    {
+      "path": "chunks/index.js",
+      "baseline": {
+        "path": "chunks/index.js",
+        "bytes": 1804,
+        "gzipBytes": 742
+      },
+      "current": {
+        "path": "chunks/index.js",
+        "bytes": 1804,
+        "gzipBytes": 742
+      },
+      "deltaBytes": 0,
+      "deltaGzipBytes": 0
+    },
+    {
+      "path": "chunks/main.js",
+      "baseline": {
+        "path": "chunks/main.js",
+        "bytes": 541972,
+        "gzipBytes": 105134
+      },
+      "current": {
+        "path": "chunks/main.js",
+        "bytes": 541972,
+        "gzipBytes": 105134
+      },
+      "deltaBytes": 0,
+      "deltaGzipBytes": 0
+    },
+    {
+      "path": "host-utility.js",
+      "baseline": {
+        "path": "host-utility.js",
+        "bytes": 22799,
+        "gzipBytes": 5981
+      },
+      "current": {
+        "path": "host-utility.js",
+        "bytes": 22799,
+        "gzipBytes": 5981
+      },
+      "deltaBytes": 0,
+      "deltaGzipBytes": 0
+    },
+    {
+      "path": "main.js",
+      "baseline": {
+        "path": "main.js",
+        "bytes": 100836,
+        "gzipBytes": 24558
+      },
+      "current": {
+        "path": "main.js",
+        "bytes": 109037,
+        "gzipBytes": 27052
+      },
+      "deltaBytes": 8201,
+      "deltaGzipBytes": 2494
+    },
+    {
+      "path": "openbot-cli.js",
+      "baseline": {
+        "path": "openbot-cli.js",
+        "bytes": 1491495,
+        "gzipBytes": 397824
+      },
+      "current": {
+        "path": "openbot-cli.js",
+        "bytes": 1498046,
+        "gzipBytes": 399449
+      },
+      "deltaBytes": 6551,
+      "deltaGzipBytes": 1625
+    },
+    {
+      "path": "preload.cjs",
+      "baseline": {
+        "path": "preload.cjs",
+        "bytes": 7918,
+        "gzipBytes": 1931
+      },
+      "current": {
+        "path": "preload.cjs",
+        "bytes": 8622,
+        "gzipBytes": 2034
+      },
+      "deltaBytes": 704,
+      "deltaGzipBytes": 103
+    }
+  ],
+  "lazyClosureComparison": [
+    {
+      "name": "a2aExchange",
+      "baseline": {
+        "bytes": 439,
+        "gzipBytes": 271,
+        "files": 1,
+        "isDynamicEntry": true
+      },
+      "current": {
+        "bytes": 439,
+        "gzipBytes": 271,
+        "files": 1,
+        "isDynamicEntry": true
+      },
+      "deltaBytes": 0,
+      "deltaGzipBytes": 0
+    },
+    {
+      "name": "advancedRich",
+      "baseline": {
+        "bytes": 462038,
+        "gzipBytes": 141035,
+        "files": 5,
+        "isDynamicEntry": true
+      },
+      "current": {
+        "bytes": 462038,
+        "gzipBytes": 141033,
+        "files": 5,
+        "isDynamicEntry": true
+      },
+      "deltaBytes": 0,
+      "deltaGzipBytes": -2
+    },
+    {
+      "name": "asyncTasks",
+      "baseline": {
+        "bytes": 4317,
+        "gzipBytes": 1868,
+        "files": 2,
+        "isDynamicEntry": true
+      },
+      "current": {
+        "bytes": 4317,
+        "gzipBytes": 1869,
+        "files": 2,
+        "isDynamicEntry": true
+      },
+      "deltaBytes": 0,
+      "deltaGzipBytes": 1
+    },
+    {
+      "name": "avatarPicker",
+      "baseline": {
+        "bytes": 4660,
+        "gzipBytes": 1744,
+        "files": 1,
+        "isDynamicEntry": true
+      },
+      "current": {
+        "bytes": 4660,
+        "gzipBytes": 1745,
+        "files": 1,
+        "isDynamicEntry": true
+      },
+      "deltaBytes": 0,
+      "deltaGzipBytes": 1
+    },
+    {
+      "name": "basicMarkdown",
+      "baseline": {
+        "bytes": 461812,
+        "gzipBytes": 140912,
+        "files": 5,
+        "isDynamicEntry": true
+      },
+      "current": {
+        "bytes": 461812,
+        "gzipBytes": 140910,
+        "files": 5,
+        "isDynamicEntry": true
+      },
+      "deltaBytes": 0,
+      "deltaGzipBytes": -2
+    },
+    {
+      "name": "botScreen",
+      "baseline": {
+        "bytes": 9706,
+        "gzipBytes": 3633,
+        "files": 1,
+        "isDynamicEntry": true
+      },
+      "current": {
+        "bytes": 9706,
+        "gzipBytes": 3631,
+        "files": 1,
+        "isDynamicEntry": true
+      },
+      "deltaBytes": 0,
+      "deltaGzipBytes": -2
+    },
+    {
+      "name": "botTemplateShare",
+      "baseline": {
+        "bytes": 12818,
+        "gzipBytes": 4015,
+        "files": 2,
+        "isDynamicEntry": true
+      },
+      "current": {
+        "bytes": 12818,
+        "gzipBytes": 4014,
+        "files": 2,
+        "isDynamicEntry": true
+      },
+      "deltaBytes": 0,
+      "deltaGzipBytes": -1
+    },
+    {
+      "name": "cjk",
+      "baseline": {
+        "bytes": 486991,
+        "gzipBytes": 149669,
+        "files": 6,
+        "isDynamicEntry": true
+      },
+      "current": {
+        "bytes": 486991,
+        "gzipBytes": 149667,
+        "files": 6,
+        "isDynamicEntry": true
+      },
+      "deltaBytes": 0,
+      "deltaGzipBytes": -2
+    },
+    {
+      "name": "code",
+      "baseline": {
+        "bytes": 649717,
+        "gzipBytes": 199369,
+        "files": 6,
+        "isDynamicEntry": true
+      },
+      "current": {
+        "bytes": 649717,
+        "gzipBytes": 199368,
+        "files": 6,
+        "isDynamicEntry": true
+      },
+      "deltaBytes": 0,
+      "deltaGzipBytes": -1
+    },
+    {
+      "name": "desktopDialogs",
+      "baseline": {
+        "bytes": 4793,
+        "gzipBytes": 2114,
+        "files": 1,
+        "isDynamicEntry": true
+      },
+      "current": {
+        "bytes": 4793,
+        "gzipBytes": 2114,
+        "files": 1,
+        "isDynamicEntry": true
+      },
+      "deltaBytes": 0,
+      "deltaGzipBytes": 0
+    },
+    {
+      "name": "docxPreview",
+      "baseline": {
+        "bytes": 502432,
+        "gzipBytes": 126072,
+        "files": 3,
+        "isDynamicEntry": true
+      },
+      "current": {
+        "bytes": 502432,
+        "gzipBytes": 126072,
+        "files": 3,
+        "isDynamicEntry": true
+      },
+      "deltaBytes": 0,
+      "deltaGzipBytes": 0
+    },
+    {
+      "name": "emojiPanel",
+      "baseline": {
+        "bytes": 240789,
+        "gzipBytes": 51149,
+        "files": 1,
+        "isDynamicEntry": true
+      },
+      "current": {
+        "bytes": 240789,
+        "gzipBytes": 51148,
+        "files": 1,
+        "isDynamicEntry": true
+      },
+      "deltaBytes": 0,
+      "deltaGzipBytes": -1
+    },
+    {
+      "name": "fileAttachment",
+      "baseline": {
+        "bytes": 14900,
+        "gzipBytes": 5808,
+        "files": 2,
+        "isDynamicEntry": true
+      },
+      "current": {
+        "bytes": 14900,
+        "gzipBytes": 5808,
+        "files": 2,
+        "isDynamicEntry": true
+      },
+      "deltaBytes": 0,
+      "deltaGzipBytes": 0
+    },
+    {
+      "name": "groupAvatarEditor",
+      "baseline": {
+        "bytes": 5569,
+        "gzipBytes": 2359,
+        "files": 1,
+        "isDynamicEntry": true
+      },
+      "current": {
+        "bytes": 5569,
+        "gzipBytes": 2360,
+        "files": 1,
+        "isDynamicEntry": true
+      },
+      "deltaBytes": 0,
+      "deltaGzipBytes": 1
+    },
+    {
+      "name": "groupForm",
+      "baseline": {
+        "bytes": 9212,
+        "gzipBytes": 4008,
+        "files": 3,
+        "isDynamicEntry": true
+      },
+      "current": {
+        "bytes": 9212,
+        "gzipBytes": 4008,
+        "files": 3,
+        "isDynamicEntry": true
+      },
+      "deltaBytes": 0,
+      "deltaGzipBytes": 0
+    },
+    {
+      "name": "inspector",
+      "baseline": {
+        "bytes": 18463,
+        "gzipBytes": 6044,
+        "files": 3,
+        "isDynamicEntry": true
+      },
+      "current": {
+        "bytes": 18463,
+        "gzipBytes": 6042,
+        "files": 3,
+        "isDynamicEntry": true
+      },
+      "deltaBytes": 0,
+      "deltaGzipBytes": -2
+    },
+    {
+      "name": "math",
+      "baseline": {
+        "bytes": 1015360,
+        "gzipBytes": 485972,
+        "files": 27,
+        "isDynamicEntry": true
+      },
+      "current": {
+        "bytes": 1015360,
+        "gzipBytes": 485970,
+        "files": 27,
+        "isDynamicEntry": true
+      },
+      "deltaBytes": 0,
+      "deltaGzipBytes": -2
+    },
+    {
+      "name": "mermaid",
+      "baseline": {
+        "bytes": 1137903,
+        "gzipBytes": 309891,
+        "files": 23,
+        "isDynamicEntry": true
+      },
+      "current": {
+        "bytes": 1137903,
+        "gzipBytes": 309889,
+        "files": 23,
+        "isDynamicEntry": true
+      },
+      "deltaBytes": 0,
+      "deltaGzipBytes": -2
+    },
+    {
+      "name": "newBot",
+      "baseline": {
+        "bytes": 4421,
+        "gzipBytes": 1895,
+        "files": 1,
+        "isDynamicEntry": true
+      },
+      "current": {
+        "bytes": 4421,
+        "gzipBytes": 1895,
+        "files": 1,
+        "isDynamicEntry": true
+      },
+      "deltaBytes": 0,
+      "deltaGzipBytes": 0
+    },
+    {
+      "name": "pdfPreview",
+      "baseline": {
+        "bytes": 1440500,
+        "gzipBytes": 403021,
+        "files": 3,
+        "isDynamicEntry": true
+      },
+      "current": {
+        "bytes": 1440500,
+        "gzipBytes": 403021,
+        "files": 3,
+        "isDynamicEntry": true
+      },
+      "deltaBytes": 0,
+      "deltaGzipBytes": 0
+    },
+    {
+      "name": "pluginSettings",
+      "baseline": {
+        "bytes": 46167,
+        "gzipBytes": 11859,
+        "files": 1,
+        "isDynamicEntry": true
+      },
+      "current": {
+        "bytes": 46167,
+        "gzipBytes": 11856,
+        "files": 1,
+        "isDynamicEntry": true
+      },
+      "deltaBytes": 0,
+      "deltaGzipBytes": -3
+    },
+    {
+      "name": "pluginSettingsDetail",
+      "baseline": {
+        "bytes": 22225,
+        "gzipBytes": 7831,
+        "files": 3,
+        "isDynamicEntry": true
+      },
+      "current": {
+        "bytes": 22225,
+        "gzipBytes": 7830,
+        "files": 3,
+        "isDynamicEntry": true
+      },
+      "deltaBytes": 0,
+      "deltaGzipBytes": -1
+    },
+    {
+      "name": "routineEditor",
+      "baseline": {
+        "bytes": 88401,
+        "gzipBytes": 28544,
+        "files": 7,
+        "isDynamicEntry": true
+      },
+      "current": {
+        "bytes": 88401,
+        "gzipBytes": 28543,
+        "files": 7,
+        "isDynamicEntry": true
+      },
+      "deltaBytes": 0,
+      "deltaGzipBytes": -1
+    },
+    {
+      "name": "routineEventFields",
+      "baseline": {
+        "bytes": 9352,
+        "gzipBytes": 1977,
+        "files": 1,
+        "isDynamicEntry": true
+      },
+      "current": {
+        "bytes": 9352,
+        "gzipBytes": 1977,
+        "files": 1,
+        "isDynamicEntry": true
+      },
+      "deltaBytes": 0,
+      "deltaGzipBytes": 0
+    },
+    {
+      "name": "routineSummary",
+      "baseline": {
+        "bytes": 20049,
+        "gzipBytes": 6762,
+        "files": 2,
+        "isDynamicEntry": true
+      },
+      "current": {
+        "bytes": 20049,
+        "gzipBytes": 6762,
+        "files": 2,
+        "isDynamicEntry": true
+      },
+      "deltaBytes": 0,
+      "deltaGzipBytes": 0
+    },
+    {
+      "name": "search",
+      "baseline": {
+        "bytes": 13611,
+        "gzipBytes": 5545,
+        "files": 4,
+        "isDynamicEntry": true
+      },
+      "current": {
+        "bytes": 16377,
+        "gzipBytes": 6712,
+        "files": 4,
+        "isDynamicEntry": true
+      },
+      "deltaBytes": 2766,
+      "deltaGzipBytes": 1167
+    },
+    {
+      "name": "settingsAbout",
+      "baseline": {
+        "bytes": 2730,
+        "gzipBytes": 1215,
+        "files": 1,
+        "isDynamicEntry": true
+      },
+      "current": {
+        "bytes": 2730,
+        "gzipBytes": 1215,
+        "files": 1,
+        "isDynamicEntry": true
+      },
+      "deltaBytes": 0,
+      "deltaGzipBytes": 0
+    },
+    {
+      "name": "settingsComputer",
+      "baseline": {
+        "bytes": 25874,
+        "gzipBytes": 9443,
+        "files": 4,
+        "isDynamicEntry": true
+      },
+      "current": {
+        "bytes": 25874,
+        "gzipBytes": 9443,
+        "files": 4,
+        "isDynamicEntry": true
+      },
+      "deltaBytes": 0,
+      "deltaGzipBytes": 0
+    },
+    {
+      "name": "settingsGeneral",
+      "baseline": {
+        "bytes": 26866,
+        "gzipBytes": 9881,
+        "files": 4,
+        "isDynamicEntry": true
+      },
+      "current": {
+        "bytes": 26866,
+        "gzipBytes": 9880,
+        "files": 4,
+        "isDynamicEntry": true
+      },
+      "deltaBytes": 0,
+      "deltaGzipBytes": -1
+    },
+    {
+      "name": "settingsGeneralBot",
+      "baseline": {
+        "bytes": 28570,
+        "gzipBytes": 10172,
+        "files": 4,
+        "isDynamicEntry": true
+      },
+      "current": {
+        "bytes": 28570,
+        "gzipBytes": 10172,
+        "files": 4,
+        "isDynamicEntry": true
+      },
+      "deltaBytes": 0,
+      "deltaGzipBytes": 0
+    },
+    {
+      "name": "settingsInitial",
+      "baseline": {
+        "bytes": 38071,
+        "gzipBytes": 14391,
+        "files": 7,
+        "isDynamicEntry": true
+      },
+      "current": {
+        "bytes": 38207,
+        "gzipBytes": 14431,
+        "files": 7,
+        "isDynamicEntry": true
+      },
+      "deltaBytes": 136,
+      "deltaGzipBytes": 40
+    },
+    {
+      "name": "settingsShell",
+      "baseline": {
+        "bytes": 5516,
+        "gzipBytes": 2499,
+        "files": 2,
+        "isDynamicEntry": true
+      },
+      "current": {
+        "bytes": 5652,
+        "gzipBytes": 2540,
+        "files": 2,
+        "isDynamicEntry": true
+      },
+      "deltaBytes": 136,
+      "deltaGzipBytes": 41
+    },
+    {
+      "name": "settingsUpdates",
+      "baseline": {
+        "bytes": 9294,
+        "gzipBytes": 3616,
+        "files": 2,
+        "isDynamicEntry": true
+      },
+      "current": {
+        "bytes": 9294,
+        "gzipBytes": 3617,
+        "files": 2,
+        "isDynamicEntry": true
+      },
+      "deltaBytes": 0,
+      "deltaGzipBytes": 1
+    },
+    {
+      "name": "spreadsheetPreview",
+      "baseline": {
+        "bytes": 363689,
+        "gzipBytes": 122172,
+        "files": 3,
+        "isDynamicEntry": true
+      },
+      "current": {
+        "bytes": 363689,
+        "gzipBytes": 122172,
+        "files": 3,
+        "isDynamicEntry": true
+      },
+      "deltaBytes": 0,
+      "deltaGzipBytes": 0
+    }
+  ],
+  "boundaryEntryComparison": [
+    {
+      "source": "src/renderer/components/openbot/search-dialog.tsx",
+      "baseline": {
+        "source": "src/renderer/components/openbot/search-dialog.tsx",
+        "file": "assets/search-dialog-CWy8JH0z.js",
+        "bytes": 12679,
+        "gzipBytes": 4882
+      },
+      "current": {
+        "source": "src/renderer/components/openbot/search-dialog.tsx",
+        "file": "assets/search-dialog-Bhx-hyi5.js",
+        "bytes": 15445,
+        "gzipBytes": 6049
+      },
+      "deltaBytes": 2766,
+      "deltaGzipBytes": 1167
+    },
+    {
+      "source": "src/renderer/components/openbot/settings-panel.tsx",
+      "baseline": {
+        "source": "src/renderer/components/openbot/settings-panel.tsx",
+        "file": "assets/settings-panel-DwSbioyl.js",
+        "bytes": 5269,
+        "gzipBytes": 2295
+      },
+      "current": {
+        "source": "src/renderer/components/openbot/settings-panel.tsx",
+        "file": "assets/settings-panel-u3HXtkkR.js",
+        "bytes": 5405,
+        "gzipBytes": 2336
+      },
+      "deltaBytes": 136,
+      "deltaGzipBytes": 41
+    },
+    {
+      "source": "../../node_modules/.bun/pdfjs-dist@5.4.296/node_modules/pdfjs-dist/build/pdf.mjs",
+      "baseline": {
+        "source": "../../node_modules/.bun/pdfjs-dist@5.4.296/node_modules/pdfjs-dist/build/pdf.mjs",
+        "file": "assets/pdf-CX2qqssP.js",
+        "bytes": 394196,
+        "gzipBytes": 113830
+      },
+      "current": {
+        "source": "../../node_modules/.bun/pdfjs-dist@5.4.296/node_modules/pdfjs-dist/build/pdf.mjs",
+        "file": "assets/pdf-CX2qqssP.js",
+        "bytes": 394196,
+        "gzipBytes": 113830
+      },
+      "deltaBytes": 0,
+      "deltaGzipBytes": 0
+    },
+    {
+      "source": "../../node_modules/.bun/pdfjs-dist@5.4.296/node_modules/pdfjs-dist/build/pdf.worker.min.mjs?url",
+      "baseline": {
+        "source": "../../node_modules/.bun/pdfjs-dist@5.4.296/node_modules/pdfjs-dist/build/pdf.worker.min.mjs?url",
+        "file": "assets/pdf.worker.min-BtkHz95G.js",
+        "bytes": 90,
+        "gzipBytes": 108
+      },
+      "current": {
+        "source": "../../node_modules/.bun/pdfjs-dist@5.4.296/node_modules/pdfjs-dist/build/pdf.worker.min.mjs?url",
+        "file": "assets/pdf.worker.min-BtkHz95G.js",
+        "bytes": 90,
+        "gzipBytes": 108
+      },
+      "deltaBytes": 0,
+      "deltaGzipBytes": 0
+    },
+    {
+      "source": "src/renderer/components/ai-elements/message-response-cjk.ts",
+      "baseline": {
+        "source": "src/renderer/components/ai-elements/message-response-cjk.ts",
+        "file": "assets/message-response-cjk-CVDLBHP-.js",
+        "bytes": 24953,
+        "gzipBytes": 8634
+      },
+      "current": {
+        "source": "src/renderer/components/ai-elements/message-response-cjk.ts",
+        "file": "assets/message-response-cjk-CVDLBHP-.js",
+        "bytes": 24953,
+        "gzipBytes": 8634
+      },
+      "deltaBytes": 0,
+      "deltaGzipBytes": 0
+    },
+    {
+      "source": "src/renderer/components/ai-elements/message-response-code.ts",
+      "baseline": {
+        "source": "src/renderer/components/ai-elements/message-response-code.ts",
+        "file": "assets/message-response-code-BY6Gm1-o.js",
+        "bytes": 187679,
+        "gzipBytes": 58334
+      },
+      "current": {
+        "source": "src/renderer/components/ai-elements/message-response-code.ts",
+        "file": "assets/message-response-code-Dt8CDsEI.js",
+        "bytes": 187679,
+        "gzipBytes": 58335
+      },
+      "deltaBytes": 0,
+      "deltaGzipBytes": 1
+    },
+    {
+      "source": "src/renderer/components/ai-elements/message-response-math.ts",
+      "baseline": {
+        "source": "src/renderer/components/ai-elements/message-response-math.ts",
+        "file": "assets/message-response-math-Di6S0xrV.js",
+        "bytes": 11914,
+        "gzipBytes": 4569
+      },
+      "current": {
+        "source": "src/renderer/components/ai-elements/message-response-math.ts",
+        "file": "assets/message-response-math-Di6S0xrV.js",
+        "bytes": 11914,
+        "gzipBytes": 4569
+      },
+      "deltaBytes": 0,
+      "deltaGzipBytes": 0
+    },
+    {
+      "source": "src/renderer/components/ai-elements/message-response-mermaid.ts",
+      "baseline": {
+        "source": "src/renderer/components/ai-elements/message-response-mermaid.ts",
+        "file": "assets/message-response-mermaid-DBTzw2T5.js",
+        "bytes": 95023,
+        "gzipBytes": 32393
+      },
+      "current": {
+        "source": "src/renderer/components/ai-elements/message-response-mermaid.ts",
+        "file": "assets/message-response-mermaid-DBTzw2T5.js",
+        "bytes": 95023,
+        "gzipBytes": 32393
+      },
+      "deltaBytes": 0,
+      "deltaGzipBytes": 0
+    },
+    {
+      "source": "src/renderer/components/ai-elements/message-response-rich.tsx",
+      "baseline": {
+        "source": "src/renderer/components/ai-elements/message-response-rich.tsx",
+        "file": "assets/message-response-rich-CfaeTi2F.js",
+        "bytes": 529,
+        "gzipBytes": 364
+      },
+      "current": {
+        "source": "src/renderer/components/ai-elements/message-response-rich.tsx",
+        "file": "assets/message-response-rich-7hWEu4VQ.js",
+        "bytes": 529,
+        "gzipBytes": 365
+      },
+      "deltaBytes": 0,
+      "deltaGzipBytes": 1
+    },
+    {
+      "source": "src/renderer/components/ai-elements/message-response.tsx",
+      "baseline": {
+        "source": "src/renderer/components/ai-elements/message-response.tsx",
+        "file": "assets/message-response-XXHmUBEG.js",
+        "bytes": 303,
+        "gzipBytes": 241
+      },
+      "current": {
+        "source": "src/renderer/components/ai-elements/message-response.tsx",
+        "file": "assets/message-response-DDUR43lK.js",
+        "bytes": 303,
+        "gzipBytes": 242
+      },
+      "deltaBytes": 0,
+      "deltaGzipBytes": 1
+    },
+    {
+      "source": "src/renderer/components/openbot/a2a-exchange-sheet.tsx",
+      "baseline": {
+        "source": "src/renderer/components/openbot/a2a-exchange-sheet.tsx",
+        "file": "assets/a2a-exchange-sheet-D5b3ucFJ.js",
+        "bytes": 439,
+        "gzipBytes": 271
+      },
+      "current": {
+        "source": "src/renderer/components/openbot/a2a-exchange-sheet.tsx",
+        "file": "assets/a2a-exchange-sheet-D5b3ucFJ.js",
+        "bytes": 439,
+        "gzipBytes": 271
+      },
+      "deltaBytes": 0,
+      "deltaGzipBytes": 0
+    },
+    {
+      "source": "src/renderer/components/openbot/async-tasks-panel.tsx",
+      "baseline": {
+        "source": "src/renderer/components/openbot/async-tasks-panel.tsx",
+        "file": "assets/async-tasks-panel-BkUNmEeC.js",
+        "bytes": 4003,
+        "gzipBytes": 1649
+      },
+      "current": {
+        "source": "src/renderer/components/openbot/async-tasks-panel.tsx",
+        "file": "assets/async-tasks-panel-BBqdQHGR.js",
+        "bytes": 4003,
+        "gzipBytes": 1650
+      },
+      "deltaBytes": 0,
+      "deltaGzipBytes": 1
+    },
+    {
+      "source": "src/renderer/components/openbot/avatar-picker.tsx",
+      "baseline": {
+        "source": "src/renderer/components/openbot/avatar-picker.tsx",
+        "file": "assets/avatar-picker-DZFHoJ4a.js",
+        "bytes": 4660,
+        "gzipBytes": 1744
+      },
+      "current": {
+        "source": "src/renderer/components/openbot/avatar-picker.tsx",
+        "file": "assets/avatar-picker-DCCrbXxK.js",
+        "bytes": 4660,
+        "gzipBytes": 1745
+      },
+      "deltaBytes": 0,
+      "deltaGzipBytes": 1
+    },
+    {
+      "source": "src/renderer/components/openbot/bot-screen.tsx",
+      "baseline": {
+        "source": "src/renderer/components/openbot/bot-screen.tsx",
+        "file": "assets/bot-screen-B-rrmqdG.js",
+        "bytes": 9706,
+        "gzipBytes": 3633
+      },
+      "current": {
+        "source": "src/renderer/components/openbot/bot-screen.tsx",
+        "file": "assets/bot-screen-CaHIEgc2.js",
+        "bytes": 9706,
+        "gzipBytes": 3631
+      },
+      "deltaBytes": 0,
+      "deltaGzipBytes": -2
+    },
+    {
+      "source": "src/renderer/components/openbot/bot-template-share.tsx",
+      "baseline": {
+        "source": "src/renderer/components/openbot/bot-template-share.tsx",
+        "file": "assets/bot-template-share-BPJ2JHY-.js",
+        "bytes": 12439,
+        "gzipBytes": 3757
+      },
+      "current": {
+        "source": "src/renderer/components/openbot/bot-template-share.tsx",
+        "file": "assets/bot-template-share-DWmlnyTV.js",
+        "bytes": 12439,
+        "gzipBytes": 3756
+      },
+      "deltaBytes": 0,
+      "deltaGzipBytes": -1
+    },
+    {
+      "source": "src/renderer/components/openbot/desktop-dialogs.tsx",
+      "baseline": {
+        "source": "src/renderer/components/openbot/desktop-dialogs.tsx",
+        "file": "assets/desktop-dialogs-DdBeeDO2.js",
+        "bytes": 4793,
+        "gzipBytes": 2114
+      },
+      "current": {
+        "source": "src/renderer/components/openbot/desktop-dialogs.tsx",
+        "file": "assets/desktop-dialogs-CRFfPbev.js",
+        "bytes": 4793,
+        "gzipBytes": 2114
+      },
+      "deltaBytes": 0,
+      "deltaGzipBytes": 0
+    },
+    {
+      "source": "src/renderer/components/openbot/emoji-panel.tsx",
+      "baseline": {
+        "source": "src/renderer/components/openbot/emoji-panel.tsx",
+        "file": "assets/emoji-panel-BveXVvW9.js",
+        "bytes": 240789,
+        "gzipBytes": 51149
+      },
+      "current": {
+        "source": "src/renderer/components/openbot/emoji-panel.tsx",
+        "file": "assets/emoji-panel-7hn_1Q8Q.js",
+        "bytes": 240789,
+        "gzipBytes": 51148
+      },
+      "deltaBytes": 0,
+      "deltaGzipBytes": -1
+    },
+    {
+      "source": "src/renderer/components/openbot/file-attachment.tsx",
+      "baseline": {
+        "source": "src/renderer/components/openbot/file-attachment.tsx",
+        "file": "assets/file-attachment-vB6QLa3t.js",
+        "bytes": 14529,
+        "gzipBytes": 5568
+      },
+      "current": {
+        "source": "src/renderer/components/openbot/file-attachment.tsx",
+        "file": "assets/file-attachment-D2_Gw1kl.js",
+        "bytes": 14529,
+        "gzipBytes": 5568
+      },
+      "deltaBytes": 0,
+      "deltaGzipBytes": 0
+    },
+    {
+      "source": "src/renderer/components/openbot/forms.tsx",
+      "baseline": {
+        "source": "src/renderer/components/openbot/forms.tsx",
+        "file": "assets/forms-B0vzpPDc.js",
+        "bytes": 7837,
+        "gzipBytes": 3207
+      },
+      "current": {
+        "source": "src/renderer/components/openbot/forms.tsx",
+        "file": "assets/forms-OYEUHM27.js",
+        "bytes": 7837,
+        "gzipBytes": 3207
+      },
+      "deltaBytes": 0,
+      "deltaGzipBytes": 0
+    },
+    {
+      "source": "src/renderer/components/openbot/group-avatar-editor.tsx",
+      "baseline": {
+        "source": "src/renderer/components/openbot/group-avatar-editor.tsx",
+        "file": "assets/group-avatar-editor-DbRcCgGT.js",
+        "bytes": 5569,
+        "gzipBytes": 2359
+      },
+      "current": {
+        "source": "src/renderer/components/openbot/group-avatar-editor.tsx",
+        "file": "assets/group-avatar-editor-BnzH9xHj.js",
+        "bytes": 5569,
+        "gzipBytes": 2360
+      },
+      "deltaBytes": 0,
+      "deltaGzipBytes": 1
+    },
+    {
+      "source": "src/renderer/components/openbot/inspector.tsx",
+      "baseline": {
+        "source": "src/renderer/components/openbot/inspector.tsx",
+        "file": "assets/inspector-BHaXPleQ.js",
+        "bytes": 17088,
+        "gzipBytes": 5243
+      },
+      "current": {
+        "source": "src/renderer/components/openbot/inspector.tsx",
+        "file": "assets/inspector-C_sK2Pum.js",
+        "bytes": 17088,
+        "gzipBytes": 5241
+      },
+      "deltaBytes": 0,
+      "deltaGzipBytes": -2
+    },
+    {
+      "source": "src/renderer/components/openbot/new-bot-screen.tsx",
+      "baseline": {
+        "source": "src/renderer/components/openbot/new-bot-screen.tsx",
+        "file": "assets/new-bot-screen-Ckff0jI9.js",
+        "bytes": 4421,
+        "gzipBytes": 1895
+      },
+      "current": {
+        "source": "src/renderer/components/openbot/new-bot-screen.tsx",
+        "file": "assets/new-bot-screen-BMsbBzWX.js",
+        "bytes": 4421,
+        "gzipBytes": 1895
+      },
+      "deltaBytes": 0,
+      "deltaGzipBytes": 0
+    },
+    {
+      "source": "src/renderer/components/openbot/plugin-settings-detail.tsx",
+      "baseline": {
+        "source": "src/renderer/components/openbot/plugin-settings-detail.tsx",
+        "file": "assets/plugin-settings-detail-DzSrSWD_.js",
+        "bytes": 1002,
+        "gzipBytes": 467
+      },
+      "current": {
+        "source": "src/renderer/components/openbot/plugin-settings-detail.tsx",
+        "file": "assets/plugin-settings-detail-DffmoqrR.js",
+        "bytes": 1002,
+        "gzipBytes": 466
+      },
+      "deltaBytes": 0,
+      "deltaGzipBytes": -1
+    },
+    {
+      "source": "src/renderer/components/openbot/plugin-settings.tsx",
+      "baseline": {
+        "source": "src/renderer/components/openbot/plugin-settings.tsx",
+        "file": "assets/plugin-settings-C8UAPZfS.js",
+        "bytes": 46167,
+        "gzipBytes": 11859
+      },
+      "current": {
+        "source": "src/renderer/components/openbot/plugin-settings.tsx",
+        "file": "assets/plugin-settings-BqeM99ey.js",
+        "bytes": 46167,
+        "gzipBytes": 11856
+      },
+      "deltaBytes": 0,
+      "deltaGzipBytes": -3
+    },
+    {
+      "source": "src/renderer/components/openbot/routine-event-fields.tsx",
+      "baseline": {
+        "source": "src/renderer/components/openbot/routine-event-fields.tsx",
+        "file": "assets/routine-event-fields-C9_jOQJT.js",
+        "bytes": 9352,
+        "gzipBytes": 1977
+      },
+      "current": {
+        "source": "src/renderer/components/openbot/routine-event-fields.tsx",
+        "file": "assets/routine-event-fields-C9_jOQJT.js",
+        "bytes": 9352,
+        "gzipBytes": 1977
+      },
+      "deltaBytes": 0,
+      "deltaGzipBytes": 0
+    },
+    {
+      "source": "src/renderer/components/openbot/routine-panel.tsx",
+      "baseline": {
+        "source": "src/renderer/components/openbot/routine-panel.tsx",
+        "file": "assets/routine-panel-oR5c5gV1.js",
+        "bytes": 32471,
+        "gzipBytes": 10003
+      },
+      "current": {
+        "source": "src/renderer/components/openbot/routine-panel.tsx",
+        "file": "assets/routine-panel-BLl9xbct.js",
+        "bytes": 32471,
+        "gzipBytes": 10004
+      },
+      "deltaBytes": 0,
+      "deltaGzipBytes": 1
+    },
+    {
+      "source": "src/renderer/components/openbot/routine-summary.tsx",
+      "baseline": {
+        "source": "src/renderer/components/openbot/routine-summary.tsx",
+        "file": "assets/routine-summary-CdzwS2O9.js",
+        "bytes": 3884,
+        "gzipBytes": 1679
+      },
+      "current": {
+        "source": "src/renderer/components/openbot/routine-summary.tsx",
+        "file": "assets/routine-summary-CXxI2HLk.js",
+        "bytes": 3884,
+        "gzipBytes": 1679
+      },
+      "deltaBytes": 0,
+      "deltaGzipBytes": 0
+    },
+    {
+      "source": "src/renderer/components/openbot/settings-about.tsx",
+      "baseline": {
+        "source": "src/renderer/components/openbot/settings-about.tsx",
+        "file": "assets/settings-about-DMmJ7gom.js",
+        "bytes": 2730,
+        "gzipBytes": 1215
+      },
+      "current": {
+        "source": "src/renderer/components/openbot/settings-about.tsx",
+        "file": "assets/settings-about-CZOEzyoK.js",
+        "bytes": 2730,
+        "gzipBytes": 1215
+      },
+      "deltaBytes": 0,
+      "deltaGzipBytes": 0
+    },
+    {
+      "source": "src/renderer/components/openbot/settings-computer.tsx",
+      "baseline": {
+        "source": "src/renderer/components/openbot/settings-computer.tsx",
+        "file": "assets/settings-computer-CUd8FPqA.js",
+        "bytes": 2993,
+        "gzipBytes": 1282
+      },
+      "current": {
+        "source": "src/renderer/components/openbot/settings-computer.tsx",
+        "file": "assets/settings-computer-C3eQoJqu.js",
+        "bytes": 2993,
+        "gzipBytes": 1282
+      },
+      "deltaBytes": 0,
+      "deltaGzipBytes": 0
+    },
+    {
+      "source": "src/renderer/components/openbot/settings-general-bot.tsx",
+      "baseline": {
+        "source": "src/renderer/components/openbot/settings-general-bot.tsx",
+        "file": "assets/settings-general-bot-B-_0iadx.js",
+        "bytes": 5689,
+        "gzipBytes": 2011
+      },
+      "current": {
+        "source": "src/renderer/components/openbot/settings-general-bot.tsx",
+        "file": "assets/settings-general-bot-CwKN9OyC.js",
+        "bytes": 5689,
+        "gzipBytes": 2011
+      },
+      "deltaBytes": 0,
+      "deltaGzipBytes": 0
+    },
+    {
+      "source": "src/renderer/components/openbot/settings-general.tsx",
+      "baseline": {
+        "source": "src/renderer/components/openbot/settings-general.tsx",
+        "file": "assets/settings-general-DMs0e4b2.js",
+        "bytes": 3985,
+        "gzipBytes": 1720
+      },
+      "current": {
+        "source": "src/renderer/components/openbot/settings-general.tsx",
+        "file": "assets/settings-general-Cw5lTODG.js",
+        "bytes": 3985,
+        "gzipBytes": 1719
+      },
+      "deltaBytes": 0,
+      "deltaGzipBytes": -1
+    },
+    {
+      "source": "src/renderer/components/openbot/settings-updates.tsx",
+      "baseline": {
+        "source": "src/renderer/components/openbot/settings-updates.tsx",
+        "file": "assets/settings-updates-7-y5KTuD.js",
+        "bytes": 7636,
+        "gzipBytes": 2819
+      },
+      "current": {
+        "source": "src/renderer/components/openbot/settings-updates.tsx",
+        "file": "assets/settings-updates-Cd04aj54.js",
+        "bytes": 7636,
+        "gzipBytes": 2820
+      },
+      "deltaBytes": 0,
+      "deltaGzipBytes": 1
+    }
+  ],
+  "lazyAudit": {
+    "baseline": {
+      "coveredSources": [
+        "../../node_modules/.bun/pdfjs-dist@5.4.296/node_modules/pdfjs-dist/build/pdf.mjs",
+        "../../node_modules/.bun/pdfjs-dist@5.4.296/node_modules/pdfjs-dist/build/pdf.worker.min.mjs?url",
+        "src/renderer/components/ai-elements/message-response-cjk.ts",
+        "src/renderer/components/ai-elements/message-response-code.ts",
+        "src/renderer/components/ai-elements/message-response-math.ts",
+        "src/renderer/components/ai-elements/message-response-mermaid.ts",
+        "src/renderer/components/ai-elements/message-response-rich.tsx",
+        "src/renderer/components/ai-elements/message-response.tsx",
+        "src/renderer/components/openbot/a2a-exchange-sheet.tsx",
+        "src/renderer/components/openbot/async-tasks-panel.tsx",
+        "src/renderer/components/openbot/avatar-picker.tsx",
+        "src/renderer/components/openbot/bot-screen.tsx",
+        "src/renderer/components/openbot/bot-template-share.tsx",
+        "src/renderer/components/openbot/desktop-dialogs.tsx",
+        "src/renderer/components/openbot/emoji-panel.tsx",
+        "src/renderer/components/openbot/file-attachment.tsx",
+        "src/renderer/components/openbot/forms.tsx",
+        "src/renderer/components/openbot/group-avatar-editor.tsx",
+        "src/renderer/components/openbot/inspector.tsx",
+        "src/renderer/components/openbot/new-bot-screen.tsx",
+        "src/renderer/components/openbot/plugin-settings-detail.tsx",
+        "src/renderer/components/openbot/plugin-settings.tsx",
+        "src/renderer/components/openbot/routine-event-fields.tsx",
+        "src/renderer/components/openbot/routine-panel.tsx",
+        "src/renderer/components/openbot/routine-summary.tsx",
+        "src/renderer/components/openbot/search-dialog.tsx",
+        "src/renderer/components/openbot/settings-about.tsx",
+        "src/renderer/components/openbot/settings-computer.tsx",
+        "src/renderer/components/openbot/settings-general-bot.tsx",
+        "src/renderer/components/openbot/settings-general.tsx",
+        "src/renderer/components/openbot/settings-panel.tsx",
+        "src/renderer/components/openbot/settings-updates.tsx"
+      ],
+      "dynamicSources": [
+        "src/renderer/components/ai-elements/message-response-cjk.ts",
+        "src/renderer/components/ai-elements/message-response-code.ts",
+        "src/renderer/components/ai-elements/message-response-math.ts",
+        "src/renderer/components/ai-elements/message-response-mermaid.ts",
+        "src/renderer/components/ai-elements/message-response-rich.tsx",
+        "src/renderer/components/ai-elements/message-response.tsx",
+        "src/renderer/components/openbot/a2a-exchange-sheet.tsx",
+        "src/renderer/components/openbot/async-tasks-panel.tsx",
+        "src/renderer/components/openbot/avatar-picker.tsx",
+        "src/renderer/components/openbot/bot-screen.tsx",
+        "src/renderer/components/openbot/bot-template-share.tsx",
+        "src/renderer/components/openbot/desktop-dialogs.tsx",
+        "src/renderer/components/openbot/emoji-panel.tsx",
+        "src/renderer/components/openbot/file-attachment.tsx",
+        "src/renderer/components/openbot/forms.tsx",
+        "src/renderer/components/openbot/group-avatar-editor.tsx",
+        "src/renderer/components/openbot/inspector.tsx",
+        "src/renderer/components/openbot/new-bot-screen.tsx",
+        "src/renderer/components/openbot/plugin-settings-detail.tsx",
+        "src/renderer/components/openbot/plugin-settings.tsx",
+        "src/renderer/components/openbot/routine-event-fields.tsx",
+        "src/renderer/components/openbot/routine-panel.tsx",
+        "src/renderer/components/openbot/routine-summary.tsx",
+        "src/renderer/components/openbot/search-dialog.tsx",
+        "src/renderer/components/openbot/settings-about.tsx",
+        "src/renderer/components/openbot/settings-computer.tsx",
+        "src/renderer/components/openbot/settings-general-bot.tsx",
+        "src/renderer/components/openbot/settings-general.tsx",
+        "src/renderer/components/openbot/settings-panel.tsx",
+        "src/renderer/components/openbot/settings-updates.tsx"
+      ],
+      "shikiLanguageEntries": 213,
+      "shikiThemeEntries": 0,
+      "nestedDynamicGroups": {
+        "shikiLanguages": {
+          "source": "src/renderer/components/ai-elements/message-response-code.ts",
+          "entries": 235,
+          "missingEntries": [],
+          "startupEntries": [],
+          "files": 235,
+          "bytes": 7425414,
+          "gzipBytes": 1282251,
+          "largest": {
+            "source": "../../node_modules/.bun/@shikijs+langs@3.23.0/node_modules/@shikijs/langs/dist/twig.mjs",
+            "files": 24,
+            "bytes": 1954225,
+            "gzipBytes": 225744
+          }
+        },
+        "mermaidDiagrams": {
+          "source": "src/renderer/components/ai-elements/message-response-mermaid.ts",
+          "entries": 40,
+          "missingEntries": [],
+          "startupEntries": [],
+          "files": 78,
+          "bytes": 3109011,
+          "gzipBytes": 866485,
+          "largest": {
+            "source": "../../node_modules/.bun/mermaid@11.17.1/node_modules/mermaid/dist/chunks/mermaid.core/architectureDiagram-5GKGNRK7.mjs",
+            "files": 23,
+            "bytes": 1938823,
+            "gzipBytes": 491797
+          }
+        }
+      },
+      "uncoveredDynamicSources": []
+    },
+    "current": {
+      "coveredSources": [
+        "../../node_modules/.bun/pdfjs-dist@5.4.296/node_modules/pdfjs-dist/build/pdf.mjs",
+        "../../node_modules/.bun/pdfjs-dist@5.4.296/node_modules/pdfjs-dist/build/pdf.worker.min.mjs?url",
+        "src/renderer/components/ai-elements/message-response-cjk.ts",
+        "src/renderer/components/ai-elements/message-response-code.ts",
+        "src/renderer/components/ai-elements/message-response-math.ts",
+        "src/renderer/components/ai-elements/message-response-mermaid.ts",
+        "src/renderer/components/ai-elements/message-response-rich.tsx",
+        "src/renderer/components/ai-elements/message-response.tsx",
+        "src/renderer/components/openbot/a2a-exchange-sheet.tsx",
+        "src/renderer/components/openbot/async-tasks-panel.tsx",
+        "src/renderer/components/openbot/avatar-picker.tsx",
+        "src/renderer/components/openbot/bot-screen.tsx",
+        "src/renderer/components/openbot/bot-template-share.tsx",
+        "src/renderer/components/openbot/desktop-dialogs.tsx",
+        "src/renderer/components/openbot/emoji-panel.tsx",
+        "src/renderer/components/openbot/file-attachment.tsx",
+        "src/renderer/components/openbot/forms.tsx",
+        "src/renderer/components/openbot/group-avatar-editor.tsx",
+        "src/renderer/components/openbot/inspector.tsx",
+        "src/renderer/components/openbot/new-bot-screen.tsx",
+        "src/renderer/components/openbot/plugin-settings-detail.tsx",
+        "src/renderer/components/openbot/plugin-settings.tsx",
+        "src/renderer/components/openbot/routine-event-fields.tsx",
+        "src/renderer/components/openbot/routine-panel.tsx",
+        "src/renderer/components/openbot/routine-summary.tsx",
+        "src/renderer/components/openbot/search-dialog.tsx",
+        "src/renderer/components/openbot/settings-about.tsx",
+        "src/renderer/components/openbot/settings-computer.tsx",
+        "src/renderer/components/openbot/settings-general-bot.tsx",
+        "src/renderer/components/openbot/settings-general.tsx",
+        "src/renderer/components/openbot/settings-panel.tsx",
+        "src/renderer/components/openbot/settings-updates.tsx"
+      ],
+      "dynamicSources": [
+        "src/renderer/components/ai-elements/message-response-cjk.ts",
+        "src/renderer/components/ai-elements/message-response-code.ts",
+        "src/renderer/components/ai-elements/message-response-math.ts",
+        "src/renderer/components/ai-elements/message-response-mermaid.ts",
+        "src/renderer/components/ai-elements/message-response-rich.tsx",
+        "src/renderer/components/ai-elements/message-response.tsx",
+        "src/renderer/components/openbot/a2a-exchange-sheet.tsx",
+        "src/renderer/components/openbot/async-tasks-panel.tsx",
+        "src/renderer/components/openbot/avatar-picker.tsx",
+        "src/renderer/components/openbot/bot-screen.tsx",
+        "src/renderer/components/openbot/bot-template-share.tsx",
+        "src/renderer/components/openbot/desktop-dialogs.tsx",
+        "src/renderer/components/openbot/emoji-panel.tsx",
+        "src/renderer/components/openbot/file-attachment.tsx",
+        "src/renderer/components/openbot/forms.tsx",
+        "src/renderer/components/openbot/group-avatar-editor.tsx",
+        "src/renderer/components/openbot/inspector.tsx",
+        "src/renderer/components/openbot/new-bot-screen.tsx",
+        "src/renderer/components/openbot/plugin-settings-detail.tsx",
+        "src/renderer/components/openbot/plugin-settings.tsx",
+        "src/renderer/components/openbot/routine-event-fields.tsx",
+        "src/renderer/components/openbot/routine-panel.tsx",
+        "src/renderer/components/openbot/routine-summary.tsx",
+        "src/renderer/components/openbot/search-dialog.tsx",
+        "src/renderer/components/openbot/settings-about.tsx",
+        "src/renderer/components/openbot/settings-computer.tsx",
+        "src/renderer/components/openbot/settings-general-bot.tsx",
+        "src/renderer/components/openbot/settings-general.tsx",
+        "src/renderer/components/openbot/settings-panel.tsx",
+        "src/renderer/components/openbot/settings-updates.tsx"
+      ],
+      "shikiLanguageEntries": 213,
+      "shikiThemeEntries": 0,
+      "nestedDynamicGroups": {
+        "shikiLanguages": {
+          "source": "src/renderer/components/ai-elements/message-response-code.ts",
+          "entries": 235,
+          "missingEntries": [],
+          "startupEntries": [],
+          "files": 235,
+          "bytes": 7425414,
+          "gzipBytes": 1282251,
+          "largest": {
+            "source": "../../node_modules/.bun/@shikijs+langs@3.23.0/node_modules/@shikijs/langs/dist/twig.mjs",
+            "files": 24,
+            "bytes": 1954225,
+            "gzipBytes": 225744
+          }
+        },
+        "mermaidDiagrams": {
+          "source": "src/renderer/components/ai-elements/message-response-mermaid.ts",
+          "entries": 40,
+          "missingEntries": [],
+          "startupEntries": [],
+          "files": 78,
+          "bytes": 3109011,
+          "gzipBytes": 866485,
+          "largest": {
+            "source": "../../node_modules/.bun/mermaid@11.17.1/node_modules/mermaid/dist/chunks/mermaid.core/architectureDiagram-5GKGNRK7.mjs",
+            "files": 23,
+            "bytes": 1938823,
+            "gzipBytes": 491797
+          }
+        }
+      },
+      "uncoveredDynamicSources": []
+    }
+  },
+  "budget": {
+    "commandPass": true,
+    "summary": "Desktop performance budgets pass (entry 680157 B, startup 990023 B, renderer 15569260 B, ASAR not checked; use the release gate).",
+    "core": [
+      {
+        "name": "entryBytes",
+        "actual": 680157,
+        "maximum": 800000,
+        "headroom": 119843,
+        "pass": true
+      },
+      {
+        "name": "startupBytes",
+        "actual": 990023,
+        "maximum": 1200000,
+        "headroom": 209977,
+        "pass": true
+      },
+      {
+        "name": "startupCssBytes",
+        "actual": 165212,
+        "maximum": 166000,
+        "headroom": 788,
+        "pass": true
+      },
+      {
+        "name": "rendererBytes",
+        "actual": 15569260,
+        "maximum": 15570000,
+        "headroom": 740,
+        "pass": true
+      },
+      {
+        "name": "rendererGzipBytes",
+        "actual": 3780861,
+        "maximum": 3800000,
+        "headroom": 19139,
+        "pass": true
+      },
+      {
+        "name": "manifestBytes",
+        "actual": 185621,
+        "maximum": 256000,
+        "headroom": 70379,
+        "pass": true
+      },
+      {
+        "name": "electronBytes",
+        "actual": 2182280,
+        "maximum": 2300000,
+        "headroom": 117720,
+        "pass": true
+      },
+      {
+        "name": "electron:main.js",
+        "actual": 109037,
+        "maximum": 175000,
+        "headroom": 65963,
+        "pass": true
+      },
+      {
+        "name": "electron:chunks/main.js",
+        "actual": 541972,
+        "maximum": 600000,
+        "headroom": 58028,
+        "pass": true
+      },
+      {
+        "name": "electron:preload.cjs",
+        "actual": 8622,
+        "maximum": 10000,
+        "headroom": 1378,
+        "pass": true
+      },
+      {
+        "name": "electron:host-utility.js",
+        "actual": 22799,
+        "maximum": 40000,
+        "headroom": 17201,
+        "pass": true
+      },
+      {
+        "name": "electron:openbot-cli.js",
+        "actual": 1498046,
+        "maximum": 1600000,
+        "headroom": 101954,
+        "pass": true
+      }
+    ],
+    "lazy": [
+      {
+        "name": "basicMarkdown",
+        "actual": 461812,
+        "maximum": 600000,
+        "headroom": 138188,
+        "pass": true
+      },
+      {
+        "name": "advancedRich",
+        "actual": 462038,
+        "maximum": 600000,
+        "headroom": 137962,
+        "pass": true
+      },
+      {
+        "name": "cjk",
+        "actual": 486991,
+        "maximum": 600000,
+        "headroom": 113009,
+        "pass": true
+      },
+      {
+        "name": "code",
+        "actual": 649717,
+        "maximum": 800000,
+        "headroom": 150283,
+        "pass": true
+      },
+      {
+        "name": "math",
+        "actual": 1015360,
+        "maximum": 1050000,
+        "headroom": 34640,
+        "pass": true
+      },
+      {
+        "name": "mermaid",
+        "actual": 1137903,
+        "maximum": 1300000,
+        "headroom": 162097,
+        "pass": true
+      },
+      {
+        "name": "emojiPanel",
+        "actual": 240789,
+        "maximum": 350000,
+        "headroom": 109211,
+        "pass": true
+      },
+      {
+        "name": "a2aExchange",
+        "actual": 439,
+        "maximum": 5000,
+        "headroom": 4561,
+        "pass": true
+      },
+      {
+        "name": "asyncTasks",
+        "actual": 4317,
+        "maximum": 20000,
+        "headroom": 15683,
+        "pass": true
+      },
+      {
+        "name": "desktopDialogs",
+        "actual": 4793,
+        "maximum": 25000,
+        "headroom": 20207,
+        "pass": true
+      },
+      {
+        "name": "groupForm",
+        "actual": 9212,
+        "maximum": 25000,
+        "headroom": 15788,
+        "pass": true
+      },
+      {
+        "name": "inspector",
+        "actual": 18463,
+        "maximum": 150000,
+        "headroom": 131537,
+        "pass": true
+      },
+      {
+        "name": "avatarPicker",
+        "actual": 4660,
+        "maximum": 20000,
+        "headroom": 15340,
+        "pass": true
+      },
+      {
+        "name": "botScreen",
+        "actual": 9706,
+        "maximum": 20000,
+        "headroom": 10294,
+        "pass": true
+      },
+      {
+        "name": "botTemplateShare",
+        "actual": 12818,
+        "maximum": 20000,
+        "headroom": 7182,
+        "pass": true
+      },
+      {
+        "name": "fileAttachment",
+        "actual": 14900,
+        "maximum": 20000,
+        "headroom": 5100,
+        "pass": true
+      },
+      {
+        "name": "pdfPreview",
+        "actual": 1440500,
+        "maximum": 1500000,
+        "headroom": 59500,
+        "pass": true
+      },
+      {
+        "name": "docxPreview",
+        "actual": 502432,
+        "maximum": 550000,
+        "headroom": 47568,
+        "pass": true
+      },
+      {
+        "name": "spreadsheetPreview",
+        "actual": 363689,
+        "maximum": 550000,
+        "headroom": 186311,
+        "pass": true
+      },
+      {
+        "name": "routineSummary",
+        "actual": 20049,
+        "maximum": 40000,
+        "headroom": 19951,
+        "pass": true
+      },
+      {
+        "name": "routineEditor",
+        "actual": 88401,
+        "maximum": 100000,
+        "headroom": 11599,
+        "pass": true
+      },
+      {
+        "name": "routineEventFields",
+        "actual": 9352,
+        "maximum": 40000,
+        "headroom": 30648,
+        "pass": true
+      },
+      {
+        "name": "newBot",
+        "actual": 4421,
+        "maximum": 20000,
+        "headroom": 15579,
+        "pass": true
+      },
+      {
+        "name": "pluginSettings",
+        "actual": 46167,
+        "maximum": 50000,
+        "headroom": 3833,
+        "pass": true
+      },
+      {
+        "name": "pluginSettingsDetail",
+        "actual": 22225,
+        "maximum": 30000,
+        "headroom": 7775,
+        "pass": true
+      },
+      {
+        "name": "search",
+        "actual": 16377,
+        "maximum": 100000,
+        "headroom": 83623,
+        "pass": true
+      },
+      {
+        "name": "groupAvatarEditor",
+        "actual": 5569,
+        "maximum": 10000,
+        "headroom": 4431,
+        "pass": true
+      },
+      {
+        "name": "settingsInitial",
+        "actual": 38207,
+        "maximum": 40000,
+        "headroom": 1793,
+        "pass": true
+      },
+      {
+        "name": "settingsShell",
+        "actual": 5652,
+        "maximum": 10000,
+        "headroom": 4348,
+        "pass": true
+      },
+      {
+        "name": "settingsAbout",
+        "actual": 2730,
+        "maximum": 10000,
+        "headroom": 7270,
+        "pass": true
+      },
+      {
+        "name": "settingsGeneral",
+        "actual": 26866,
+        "maximum": 30000,
+        "headroom": 3134,
+        "pass": true
+      },
+      {
+        "name": "settingsGeneralBot",
+        "actual": 28570,
+        "maximum": 30000,
+        "headroom": 1430,
+        "pass": true
+      },
+      {
+        "name": "settingsComputer",
+        "actual": 25874,
+        "maximum": 30000,
+        "headroom": 4126,
+        "pass": true
+      },
+      {
+        "name": "settingsUpdates",
+        "actual": 9294,
+        "maximum": 10000,
+        "headroom": 706,
+        "pass": true
+      }
+    ],
+    "sourceMaps": [],
+    "wasm": []
+  },
+  "rendererStartupFiles": {
+    "baseline": [
+      {
+        "path": "assets/async-DnDLp6h3.js",
+        "bytes": 1654,
+        "gzipBytes": 862
+      },
+      {
+        "path": "assets/attachments-DIQ8bFSd.js",
+        "bytes": 1779,
+        "gzipBytes": 903
+      },
+      {
+        "path": "assets/auth-BB0gYmmF.js",
+        "bytes": 6221,
+        "gzipBytes": 2463
+      },
+      {
+        "path": "assets/bot-template-01yzAPRy.js",
+        "bytes": 2644,
+        "gzipBytes": 1176
+      },
+      {
+        "path": "assets/bundle-mjs-Biv_LCeL.js",
+        "bytes": 34769,
+        "gzipBytes": 11333
+      },
+      {
+        "path": "assets/button-BUNimY-6.js",
+        "bytes": 2029,
+        "gzipBytes": 972
+      },
+      {
+        "path": "assets/chevron-left-DHbP_w3C.js",
+        "bytes": 116,
+        "gzipBytes": 133
+      },
+      {
+        "path": "assets/chevron-right-BXC-SOvD.js",
+        "bytes": 116,
+        "gzipBytes": 129
+      },
+      {
+        "path": "assets/cn-B6JTjo3F.js",
+        "bytes": 1467,
+        "gzipBytes": 818
+      },
+      {
+        "path": "assets/dist-B9QQA4Su.js",
+        "bytes": 5195,
+        "gzipBytes": 2004
+      },
+      {
+        "path": "assets/dist-CH12UCqz.js",
+        "bytes": 591,
+        "gzipBytes": 374
+      },
+      {
+        "path": "assets/dist-D7DOSGJl.js",
+        "bytes": 21289,
+        "gzipBytes": 6291
+      },
+      {
+        "path": "assets/dist-DjAhA74g.js",
+        "bytes": 1402,
+        "gzipBytes": 696
+      },
+      {
+        "path": "assets/dist-DwXADVLI.js",
+        "bytes": 510,
+        "gzipBytes": 362
+      },
+      {
+        "path": "assets/dist-LfMmUj8G.js",
+        "bytes": 5351,
+        "gzipBytes": 2031
+      },
+      {
+        "path": "assets/dist-wJeqDMOi.js",
+        "bytes": 26075,
+        "gzipBytes": 10050
+      },
+      {
+        "path": "assets/dist-wVRuafIg.js",
+        "bytes": 3913,
+        "gzipBytes": 1664
+      },
+      {
+        "path": "assets/dist-zpLwhwdl.js",
+        "bytes": 2099,
+        "gzipBytes": 930
+      },
+      {
+        "path": "assets/es2015-Cc3qauaS.js",
+        "bytes": 16220,
+        "gzipBytes": 6136
+      },
+      {
+        "path": "assets/http-DKp_Z7KJ.js",
+        "bytes": 3619,
+        "gzipBytes": 1515
+      },
+      {
+        "path": "assets/index-CTSbzJhw.js",
+        "bytes": 641436,
+        "gzipBytes": 193370
+      },
+      {
+        "path": "assets/index-eUhNjuY4.css",
+        "bytes": 164674,
+        "gzipBytes": 25385
+      },
+      {
+        "path": "assets/jsx-runtime-NZYk81nU.js",
+        "bytes": 435,
+        "gzipBytes": 306
+      },
+      {
+        "path": "assets/preload-helper-HclGiUj8.js",
+        "bytes": 1211,
+        "gzipBytes": 672
+      },
+      {
+        "path": "assets/react-dom-BeHA8YhG.js",
+        "bytes": 3593,
+        "gzipBytes": 1363
+      },
+      {
+        "path": "assets/rolldown-runtime-hePW80VL.js",
+        "bytes": 716,
+        "gzipBytes": 428
+      },
+      {
+        "path": "assets/virtual-window-CGRUBY6P.js",
+        "bytes": 1314,
+        "gzipBytes": 585
+      },
+      {
+        "path": "assets/x-D9GFuaY7.js",
+        "bytes": 140,
+        "gzipBytes": 139
+      }
+    ],
+    "current": [
+      {
+        "path": "assets/async-DnDLp6h3.js",
+        "bytes": 1654,
+        "gzipBytes": 862
+      },
+      {
+        "path": "assets/attachments-DIQ8bFSd.js",
+        "bytes": 1779,
+        "gzipBytes": 903
+      },
+      {
+        "path": "assets/auth-BB0gYmmF.js",
+        "bytes": 6221,
+        "gzipBytes": 2463
+      },
+      {
+        "path": "assets/bot-template-01yzAPRy.js",
+        "bytes": 2644,
+        "gzipBytes": 1176
+      },
+      {
+        "path": "assets/bundle-mjs-Biv_LCeL.js",
+        "bytes": 34769,
+        "gzipBytes": 11333
+      },
+      {
+        "path": "assets/button-BUNimY-6.js",
+        "bytes": 2029,
+        "gzipBytes": 972
+      },
+      {
+        "path": "assets/chevron-left-DHbP_w3C.js",
+        "bytes": 116,
+        "gzipBytes": 133
+      },
+      {
+        "path": "assets/chevron-right-BXC-SOvD.js",
+        "bytes": 116,
+        "gzipBytes": 129
+      },
+      {
+        "path": "assets/cn-B6JTjo3F.js",
+        "bytes": 1467,
+        "gzipBytes": 818
+      },
+      {
+        "path": "assets/dist-B9QQA4Su.js",
+        "bytes": 5195,
+        "gzipBytes": 2004
+      },
+      {
+        "path": "assets/dist-CH12UCqz.js",
+        "bytes": 591,
+        "gzipBytes": 374
+      },
+      {
+        "path": "assets/dist-D7DOSGJl.js",
+        "bytes": 21289,
+        "gzipBytes": 6291
+      },
+      {
+        "path": "assets/dist-DjAhA74g.js",
+        "bytes": 1402,
+        "gzipBytes": 696
+      },
+      {
+        "path": "assets/dist-DwXADVLI.js",
+        "bytes": 510,
+        "gzipBytes": 362
+      },
+      {
+        "path": "assets/dist-LfMmUj8G.js",
+        "bytes": 5351,
+        "gzipBytes": 2031
+      },
+      {
+        "path": "assets/dist-wJeqDMOi.js",
+        "bytes": 26075,
+        "gzipBytes": 10050
+      },
+      {
+        "path": "assets/dist-wVRuafIg.js",
+        "bytes": 3913,
+        "gzipBytes": 1664
+      },
+      {
+        "path": "assets/dist-zpLwhwdl.js",
+        "bytes": 2099,
+        "gzipBytes": 930
+      },
+      {
+        "path": "assets/es2015-Cc3qauaS.js",
+        "bytes": 16220,
+        "gzipBytes": 6136
+      },
+      {
+        "path": "assets/http-DKp_Z7KJ.js",
+        "bytes": 3619,
+        "gzipBytes": 1515
+      },
+      {
+        "path": "assets/index-BdlSRqaU.css",
+        "bytes": 165212,
+        "gzipBytes": 25490
+      },
+      {
+        "path": "assets/index-CEzybKLD.js",
+        "bytes": 680157,
+        "gzipBytes": 204102
+      },
+      {
+        "path": "assets/jsx-runtime-NZYk81nU.js",
+        "bytes": 435,
+        "gzipBytes": 306
+      },
+      {
+        "path": "assets/preload-helper-HclGiUj8.js",
+        "bytes": 1211,
+        "gzipBytes": 672
+      },
+      {
+        "path": "assets/react-dom-BeHA8YhG.js",
+        "bytes": 3593,
+        "gzipBytes": 1363
+      },
+      {
+        "path": "assets/rolldown-runtime-hePW80VL.js",
+        "bytes": 716,
+        "gzipBytes": 428
+      },
+      {
+        "path": "assets/virtual-window-D_u4CMUh.js",
+        "bytes": 1500,
+        "gzipBytes": 654
+      },
+      {
+        "path": "assets/x-D9GFuaY7.js",
+        "bytes": 140,
+        "gzipBytes": 139
+      }
+    ]
+  },
+  "determinism": {
+    "currentRepeatMeasurement": "/tmp/openbot-bundle-current-f772d6c-dirty-measure-v2-repeat.json",
+    "firstNormalizedSha256": "61af97484378c0c6602b1b807f417e7e3a74ef083b16744f52778004f35ae883",
+    "repeatNormalizedSha256": "61af97484378c0c6602b1b807f417e7e3a74ef083b16744f52778004f35ae883",
+    "identical": true
+  }
+}

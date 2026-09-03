@@ -74,9 +74,17 @@ function InlineMarkdown({
   );
 }
 
-export function MobileMarkdown({ content, color }: { content: string; color: string }) {
+export function MobileMarkdown({
+  content,
+  color,
+  forceRich = false,
+}: {
+  content: string;
+  color: string;
+  forceRich?: boolean;
+}) {
   const theme = useTheme();
-  const rich = shouldRenderRichMobileMarkdown(content);
+  const rich = forceRich || shouldRenderRichMobileMarkdown(content);
   const advanced = rich && messageNeedsAdvancedMobileMarkdown(content);
   const domAdvanced = advanced && messageNeedsDomMobileMarkdown(content);
   const plainPreview = useMemo(

@@ -1,0 +1,108 @@
+{
+  "urls": [
+    "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=54307&limit=100",
+    "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=54207&limit=100",
+    "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=54107&limit=100",
+    "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=54007&limit=100",
+    "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=53907&limit=100",
+    "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=53807&limit=100"
+  ],
+  "merges": [
+    {
+      "name": "history.page.merge",
+      "duration": 3.299999952316284,
+      "at": 1788301255571,
+      "detail": {
+        "direction": "older",
+        "mode": "latest",
+        "messages": 200,
+        "retainedBytes": 81401,
+        "retainedMessages": 200,
+        "viewportFill": "older-first",
+        "viewportProtected": 12,
+        "evictedOlder": 0,
+        "evictedNewer": 0
+      }
+    },
+    {
+      "name": "history.page.merge",
+      "duration": 3.9000000953674316,
+      "at": 1788301257139,
+      "detail": {
+        "direction": "older",
+        "mode": "latest",
+        "messages": 300,
+        "retainedBytes": 122047,
+        "retainedMessages": 300,
+        "viewportFill": "older-first",
+        "viewportProtected": 11,
+        "evictedOlder": 0,
+        "evictedNewer": 0
+      }
+    },
+    {
+      "name": "history.page.merge",
+      "duration": 8,
+      "at": 1788301260367,
+      "detail": {
+        "direction": "older",
+        "mode": "latest",
+        "messages": 400,
+        "retainedBytes": 162693,
+        "retainedMessages": 400,
+        "viewportFill": "older-first",
+        "viewportProtected": 11,
+        "evictedOlder": 0,
+        "evictedNewer": 0
+      }
+    },
+    {
+      "name": "history.page.merge",
+      "duration": 8.399999856948853,
+      "at": 1788301262622,
+      "detail": {
+        "direction": "older",
+        "mode": "latest",
+        "messages": 500,
+        "retainedBytes": 203339,
+        "retainedMessages": 500,
+        "viewportFill": "older-first",
+        "viewportProtected": 11,
+        "evictedOlder": 0,
+        "evictedNewer": 0
+      }
+    },
+    {
+      "name": "history.page.merge",
+      "duration": 10.900000095367432,
+      "at": 1788301264633,
+      "detail": {
+        "direction": "older",
+        "mode": "history",
+        "messages": 400,
+        "retainedBytes": 203339,
+        "retainedMessages": 500,
+        "viewportFill": "older-first",
+        "viewportProtected": 11,
+        "evictedOlder": 0,
+        "evictedNewer": 200
+      }
+    },
+    {
+      "name": "history.page.merge",
+      "duration": 8.199999809265137,
+      "at": 1788301266658,
+      "detail": {
+        "direction": "older",
+        "mode": "history",
+        "messages": 400,
+        "retainedBytes": 203339,
+        "retainedMessages": 500,
+        "viewportFill": "older-first",
+        "viewportProtected": 11,
+        "evictedOlder": 0,
+        "evictedNewer": 100
+      }
+    }
+  ]
+}

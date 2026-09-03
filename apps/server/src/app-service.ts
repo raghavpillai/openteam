@@ -1,6 +1,7 @@
 import { resolve } from "node:path";
 import {
   ApiError,
+  type ComputerHandoffMutationInput,
   type CreateBotInput,
   type CreateGroupInput,
   type DynamicToolCallRequest,
@@ -145,7 +146,12 @@ export class AppService {
       (path, init) => this.computerFetch(path, init ?? {}),
       this.agentData
     );
-    this.richMessages = new RichMessageService(this.prisma, this.messaging, this.plugins);
+    this.richMessages = new RichMessageService(
+      this.prisma,
+      this.messaging,
+      this.plugins,
+      this.screens
+    );
     this.autoReview = new AutoReviewService((path, init) => this.computerFetch(path, init));
     this.runs = new RunService(
       this.prisma,
@@ -489,6 +495,9 @@ export class AppService {
 
   submitSecret = (messageId: string, input: SecretSubmissionInput) =>
     this.richMessages.submitSecret(messageId, input);
+
+  mutateComputerHandoff = (messageId: string, input: ComputerHandoffMutationInput) =>
+    this.richMessages.mutateComputerHandoff(messageId, input);
 
   handleDynamicTool = (request: DynamicToolCallRequest) => this.internalTools.execute(request);
 

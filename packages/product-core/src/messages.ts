@@ -228,7 +228,14 @@ export const messageDisplayProjection = (message: ChannelMessageView): MessageDi
   const metadata = messageMetadata(message);
   const attachments = messageAssets(message);
   const stagedAttachments = messageStagedAttachments(message);
-  const richMessage = metadata.type === "widget" || metadata.type === "secret-request";
+  const richMessage =
+    metadata.type === "widget" ||
+    metadata.type === "secret-request" ||
+    metadata.type === "computer-handoff" ||
+    metadata.type === "cloud-agent" ||
+    metadata.type === "cloud_agent" ||
+    metadata.type === "cloud-agent-card" ||
+    metadata.type === "bot-template";
   const attachmentOnly =
     (metadata.type === "attachment" || Boolean(metadata.attachment)) &&
     attachments.length > 0 &&

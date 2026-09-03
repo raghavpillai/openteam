@@ -97,6 +97,64 @@ describe("shared desktop and iOS product policy", () => {
     ).toMatchObject({ kind: "secret-request", provided: false });
   });
 
+  test("projects the shared computer handoff lifecycle", () => {
+    expect(
+      projectRichMessage(
+        message({
+          type: "computer-handoff",
+          computerHandoff: { reason: "Finish sign-in" },
+        })
+      )
+    ).toMatchObject({
+      kind: "computer-handoff",
+      handoff: { reason: "Finish sign-in" },
+      state: "requested",
+    });
+    expect(
+      projectRichMessage(
+        message({
+          type: "computer-handoff",
+          computerHandoff: { reason: "Finish sign-in" },
+          computerHandoffState: "active",
+        })
+      )
+    ).toMatchObject({ kind: "computer-handoff", state: "active" });
+    expect(
+      messageDisplayProjection(
+        message({ type: "computer-handoff", computerHandoff: { reason: "Finish sign-in" } })
+      )
+    ).toMatchObject({ displayContent: "", richMessage: true });
+  });
+
+  test("projects cloud-agent cards with a renderer-safe Bot snapshot", () => {
+    const projection = projectRichMessage(
+      message({
+        type: "cloud-agent",
+        cloudAgent: {
+          status: "draft",
+          bot: {
+            name: "New Bot",
+            description: "A team Bot for file-backed agent parity work.",
+            color: "#925df2",
+            icon: "circle",
+          },
+        },
+      })
+    );
+
+    expect(projection).toMatchObject({
+      kind: "cloud-agent",
+      agent: {
+        name: "New Bot",
+        status: "draft",
+        color: "#925df2",
+      },
+    });
+    expect(messageDisplayProjection(message({ type: "cloud-agent", agent: { name: "Bot" } })))
+      .toMatchObject({ displayContent: "", richMessage: true });
+    expect(projectRichMessage(message({ type: "cloud-agent", cloudAgent: {} }))).toBeNull();
+  });
+
   test("uses the same optimistic reaction reducer on both clients", () => {
     const reacted = toggleOwnReaction(message({ reactions: [{ emoji: "👍", by: "peer" }] }), "👍");
     expect(reacted.metadata).toEqual({

@@ -132,7 +132,7 @@ function ResultGlyph({
   const theme = useTheme();
   const bot = result.botId ? botById.get(result.botId) : undefined;
   if (bot && (result.kind === "bot" || result.kind === "message")) {
-    return <BotMark color={bot.color} icon={bot.icon} size={42} />;
+    return <BotMark color={bot.color} icon={bot.icon} size={48} />;
   }
   return (
     <View style={[styles.resultGlyph, { backgroundColor: theme.surface }]}>
@@ -596,24 +596,24 @@ const styles = StyleSheet.create({
   resultRow: {
     minHeight: 70,
     borderRadius: 18,
-    paddingHorizontal: 7,
+    paddingHorizontal: 2,
     paddingVertical: 8,
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: 9,
   },
   resultGlyph: {
-    width: 42,
-    height: 42,
+    width: 48,
+    height: 48,
     borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",
   },
   resultCopy: { flex: 1, gap: 3 },
   resultTitleLine: { flexDirection: "row", alignItems: "center", gap: 10 },
-  resultTitle: { flex: 1, fontSize: 15, lineHeight: 19, fontWeight: "600" },
+  resultTitle: { flex: 1, fontSize: 16, lineHeight: 20, fontWeight: "600" },
   resultKind: { fontSize: 10, lineHeight: 14, fontWeight: "600" },
-  resultSubtitle: { fontSize: 13, lineHeight: 18 },
+  resultSubtitle: { fontSize: 14, lineHeight: 18 },
   centerState: {
     flex: 1,
     minHeight: 250,
@@ -651,7 +651,7 @@ const styles = StyleSheet.create({
     position: "absolute",
     right: 8,
     top: 0,
-    width: 222,
+    width: 228,
     zIndex: 21,
     borderRadius: 25,
     borderWidth: StyleSheet.hairlineWidth,

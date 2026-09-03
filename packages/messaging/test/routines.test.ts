@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   nextRoutineRun,
   nextRoutineTriggerRun,
+  normalizeRoutineMutationTrigger,
   normalizeRoutineSchedule,
   RoutineService,
 } from "../src/routines";
@@ -66,6 +67,54 @@ describe("routine schedules", () => {
       new Date("2026-08-28T08:00:00Z")
     );
     expect(next).toEqual(new Date("2026-08-28T08:30:00Z"));
+  });
+
+  test("accepts interval and weekday routines but rejects event integrations", () => {
+    expect(normalizeRoutineMutationTrigger({ schedule: "@every 1m" }, "UTC")).toMatchObject({
+      trigger: { type: "cron", schedule: "@every 1m" },
+      schedule: { scheduleKind: "interval", intervalSeconds: 60 },
+    });
+    const weekday = normalizeRoutineMutationTrigger(
+      {
+        trigger: {
+          type: "cron",
+          schedule: "CRON_TZ=America/New_York 0 11 * * 1-5",
+        },
+      },
+      "UTC"
+    );
+    expect(weekday).toMatchObject({
+      trigger: {
+        type: "cron",
+        schedule: "CRON_TZ=America/New_York 0 11 * * 1-5",
+      },
+      schedule: {
+        scheduleKind: "cron",
+        cronExpression: "0 11 * * 1-5",
+        timezoneMode: "pinned",
+        timezone: "America/New_York",
+      },
+    });
+    expect(
+      nextRoutineTriggerRun(weekday.trigger, weekday.schedule, new Date("2026-09-02T14:59:00Z"))
+    ).toEqual(new Date("2026-09-02T15:00:00Z"));
+    expect(() => normalizeRoutineMutationTrigger({ trigger: { type: "webhook" } }, "UTC")).toThrow(
+      "only support time-based schedules"
+    );
+    expect(() =>
+      normalizeRoutineMutationTrigger(
+        {
+          trigger: {
+            type: "group",
+            listeners: [
+              { type: "cron", schedule: "0 11 * * 1-5" },
+              { type: "pagerduty", event: { case: "incidentAny" } },
+            ],
+          },
+        },
+        "UTC"
+      )
+    ).toThrow("only support time-based schedules");
   });
 
   test("matches Grok wall-clock behavior through DST gaps and folds", () => {

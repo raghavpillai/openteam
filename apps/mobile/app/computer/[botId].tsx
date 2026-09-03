@@ -1,7 +1,3 @@
-import {
-  createScreenSessionController,
-  type ScreenSessionController,
-} from "@openbot/client-core/screen";
 import type { ScreenActionInput, ScreenStatusView } from "@openbot/contracts";
 import { clientErrorMessage } from "@openbot/product-core/redaction";
 import * as Clipboard from "expo-clipboard";
@@ -152,9 +148,16 @@ function AppControl({
 }
 
 export default function ComputerScreen() {
-  const { botId } = useLocalSearchParams<{ botId: string }>();
-  const { isFixture, screenAction, screenFrameUrl, screenStatus, setScreenTakeover, snapshot } =
-    useOpenBot();
+  const { botId, handoffId } = useLocalSearchParams<{ botId: string; handoffId?: string }>();
+  const {
+    isFixture,
+    mutateComputerHandoff,
+    screenAction,
+    screenFrameUrl,
+    screenStatus,
+    setScreenTakeover,
+    snapshot,
+  } = useOpenBot();
   const bot = snapshot.bots.find((candidate) => candidate.id === botId);
   const [status, setStatus] = useState<ScreenStatusView | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -163,18 +166,15 @@ export default function ComputerScreen() {
   const [frameSize, setFrameSize] = useState({ width: 1, height: 1 });
   const [typing, setTyping] = useState("");
   const [actionBusy, setActionBusy] = useState(false);
-  const [takeoverBusy, setTakeoverBusy] = useState(false);
   const [controlsOpen, setControlsOpen] = useState(false);
   const [keyboardOpen, setKeyboardOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [trackpadMode, setTrackpadMode] = useState(false);
   const [screenZoom, setScreenZoom] = useState(1);
   const [modeToast, setModeToast] = useState<string | null>(null);
-  const takeoverActive = useRef(false);
   const refreshEpoch = useRef(0);
   const statusRevision = useRef(0);
   const refreshInFlight = useRef(false);
-  const screenSession = useRef<ScreenSessionController | null>(null);
   const inputRef = useRef<TextInput>(null);
   const actionTail = useRef<Promise<void>>(Promise.resolve());
   const pendingActions = useRef(0);
@@ -184,6 +184,8 @@ export default function ComputerScreen() {
   const pointer = useRef({ x: 640, y: 400 });
   const zoomRef = useRef(1);
   const lastTapAt = useRef(0);
+  const handoffFinished = useRef(false);
+  const handoffDismissTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const gesture = useRef({
     startedAt: 0,
     touches: 1,
@@ -195,7 +197,7 @@ export default function ComputerScreen() {
     pinching: false,
     trackpadDrag: false,
   });
-  const busy = actionBusy || takeoverBusy;
+  const busy = actionBusy;
 
   const refresh = useCallback(async () => {
     if (!botId || refreshInFlight.current || AppState.currentState !== "active") return;
@@ -205,8 +207,6 @@ export default function ComputerScreen() {
     try {
       const next = await screenStatus(botId);
       if (epoch !== refreshEpoch.current || revision !== statusRevision.current) return;
-      takeoverActive.current = next.humanTakeover;
-      screenSession.current?.confirmTakeover(next.humanTakeover);
       setStatus(next);
       setFrameRevision(Date.now());
       setError(null);
@@ -221,46 +221,56 @@ export default function ComputerScreen() {
   useFocusEffect(
     useCallback(() => {
       setActionBusy(false);
-      setTakeoverBusy(false);
-      const controller = createScreenSessionController({
-        pollIntervalMs: 2_500,
-        pollStatus: refresh,
-        requestTakeover: (active) => setScreenTakeover(botId, active),
-        onTakeoverBusyChange: setTakeoverBusy,
-        onError: (cause) =>
-          setError(clientErrorMessage(cause, "Could not change computer control")),
-        onTakeoverResult: (next) => {
-          statusRevision.current += 1;
-          takeoverActive.current = next.humanTakeover;
-          setStatus(next);
-          setFrameRevision(Date.now());
-          setError(null);
-        },
-      });
-      screenSession.current = controller;
+      void refresh();
+      const timer = setInterval(() => void refresh(), 2_500);
       const appStateSubscription = AppState.addEventListener("change", (state) => {
         if (state === "active") {
-          controller.activate();
-          controller.wake();
+          void refresh();
           return;
         }
         refreshEpoch.current += 1;
         statusRevision.current += 1;
-        controller.deactivate();
-        takeoverActive.current = false;
       });
-      if (AppState.currentState === "active") controller.activate();
-      else controller.deactivate();
       return () => {
         appStateSubscription.remove();
+        clearInterval(timer);
         refreshEpoch.current += 1;
         statusRevision.current += 1;
-        controller.stop();
-        if (screenSession.current === controller) screenSession.current = null;
-        takeoverActive.current = false;
       };
-    }, [botId, refresh, setScreenTakeover])
+    }, [refresh])
   );
+
+  useFocusEffect(
+    useCallback(() => {
+      if (handoffDismissTimer.current) {
+        clearTimeout(handoffDismissTimer.current);
+        handoffDismissTimer.current = null;
+      }
+      handoffFinished.current = false;
+      return () => {
+        if (!handoffId || handoffFinished.current) return;
+        handoffDismissTimer.current = setTimeout(() => {
+          handoffDismissTimer.current = null;
+          if (handoffFinished.current) return;
+          handoffFinished.current = true;
+          void mutateComputerHandoff(handoffId, "dismiss").catch(() => undefined);
+        }, 0);
+      };
+    }, [handoffId, mutateComputerHandoff])
+  );
+
+  useEffect(() => {
+    if (!botId || !handoffId) return;
+    const heartbeat = () => {
+      if (AppState.currentState !== "active") return;
+      void setScreenTakeover(botId, true)
+        .then(setStatus)
+        .catch(() => undefined);
+    };
+    heartbeat();
+    const timer = setInterval(heartbeat, 20_000);
+    return () => clearInterval(timer);
+  }, [botId, handoffId, setScreenTakeover]);
 
   useEffect(() => {
     return () => {
@@ -281,7 +291,7 @@ export default function ComputerScreen() {
 
   const performAction = useCallback(
     async (input: ScreenActionInput) => {
-      if (!botId || !takeoverActive.current) return;
+      if (!botId) return;
       const epoch = refreshEpoch.current;
       const revision = statusRevision.current + 1;
       statusRevision.current = revision;
@@ -314,18 +324,9 @@ export default function ComputerScreen() {
     [performAction]
   );
 
-  const changeTakeover = (active: boolean) => {
-    if (!botId) return;
-    statusRevision.current += 1;
-    screenSession.current?.setTakeover(active);
-  };
-
-  const toggleTakeover = () => changeTakeover(!takeoverActive.current);
-
   const openKeyboard = () => {
     setControlsOpen(false);
     setKeyboardOpen(true);
-    if (ready && !controlling) void changeTakeover(true);
   };
 
   const closeKeyboard = () => {
@@ -335,7 +336,6 @@ export default function ComputerScreen() {
 
   const frameUrl = botId ? screenFrameUrl(botId, frameRevision) : null;
   const ready = status?.state === "ready";
-  const controlling = Boolean(status?.humanTakeover);
   const aspectRatio =
     status && status.width > 0 && status.height > 0 ? status.width / status.height : 1.6;
 
@@ -345,10 +345,6 @@ export default function ComputerScreen() {
       keyboardTimer.current = null;
     }
     const text = keyboardBuffer.current;
-    if (text && !takeoverActive.current) {
-      keyboardTimer.current = setTimeout(flushKeyboardBuffer, 150);
-      return;
-    }
     keyboardBuffer.current = "";
     if (text) void act({ action: "type", text });
   }, [act]);
@@ -415,8 +411,8 @@ export default function ComputerScreen() {
   const panResponder = useMemo(
     () =>
       PanResponder.create({
-        onStartShouldSetPanResponder: () => controlling,
-        onMoveShouldSetPanResponder: () => controlling,
+        onStartShouldSetPanResponder: () => ready,
+        onMoveShouldSetPanResponder: () => ready,
         onPanResponderGrant: (event) => {
           const touches = event.nativeEvent.touches;
           const startPoint = remotePoint(event.nativeEvent.locationX, event.nativeEvent.locationY);
@@ -572,9 +568,9 @@ export default function ComputerScreen() {
       }),
     [
       act,
-      controlling,
       frameSize.height,
       frameSize.width,
+      ready,
       remotePoint,
       status?.height,
       status?.width,
@@ -589,11 +585,6 @@ export default function ComputerScreen() {
 
   const pasteClipboard = async () => {
     if (!ready) return;
-    if (!controlling) {
-      changeTakeover(true);
-      showModeToast("Taking control");
-      return;
-    }
     const text = await Clipboard.getStringAsync();
     if (!text) {
       showModeToast("Clipboard is empty");
@@ -603,6 +594,19 @@ export default function ComputerScreen() {
     showModeToast("Pasted from iPhone");
   };
 
+  const finishHandoff = async (action: "complete" | "skip" | "dismiss") => {
+    if (!handoffId || handoffFinished.current) return;
+    handoffFinished.current = true;
+    try {
+      await mutateComputerHandoff(handoffId, action);
+      if (router.canGoBack()) router.back();
+      else router.replace("/");
+    } catch (cause) {
+      handoffFinished.current = false;
+      setError(clientErrorMessage(cause, "Could not return computer control"));
+    }
+  };
+
   return (
     <SafeAreaView edges={["top", "bottom"]} style={styles.safe}>
       <StatusBar style="light" />
@@ -610,7 +614,14 @@ export default function ComputerScreen() {
         <StageButton
           label="Back to conversation"
           name="chevron.left"
-          onPress={() => (router.canGoBack() ? router.back() : router.replace("/"))}
+          onPress={() => {
+            if (handoffId) {
+              void finishHandoff("dismiss");
+              return;
+            }
+            if (router.canGoBack()) router.back();
+            else router.replace("/");
+          }}
           symbolSize={20}
         />
         <View style={styles.titlePill}>
@@ -635,6 +646,28 @@ export default function ComputerScreen() {
           />
         </View>
       </View>
+
+      {handoffId ? (
+        <View style={styles.handoffBar}>
+          <Text numberOfLines={1} style={styles.handoffLabel}>
+            Complete the requested step
+          </Text>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => void finishHandoff("skip")}
+            style={({ pressed }) => [styles.handoffSecondary, pressed && styles.stageButtonPressed]}
+          >
+            <Text style={styles.handoffSecondaryLabel}>Skip this step</Text>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => void finishHandoff("complete")}
+            style={({ pressed }) => [styles.handoffPrimary, pressed && styles.stageButtonPressed]}
+          >
+            <Text style={styles.handoffPrimaryLabel}>I'm done, continue</Text>
+          </Pressable>
+        </View>
+      ) : null}
 
       {modeToast ? (
         <View pointerEvents="none" style={styles.modeToast}>
@@ -662,7 +695,7 @@ export default function ComputerScreen() {
               <View
                 {...panResponder.panHandlers}
                 accessible
-                accessibilityLabel={controlling ? "Tap the preview computer" : "Computer preview"}
+                accessibilityLabel="Interactive preview computer"
                 accessibilityRole="button"
                 style={styles.frame}
               >
@@ -675,7 +708,7 @@ export default function ComputerScreen() {
                 <View
                   {...panResponder.panHandlers}
                   accessible
-                  accessibilityLabel={controlling ? "Tap the shared computer" : "Shared computer"}
+                  accessibilityLabel="Interactive shared computer"
                   accessibilityRole="button"
                   style={styles.frame}
                 >
@@ -733,9 +766,7 @@ export default function ComputerScreen() {
             <View>
               <Text style={styles.trayTitle}>Computer controls</Text>
               <Text style={[styles.trayStatus, error && styles.trayError]}>
-                {error ??
-                  frameError ??
-                  (controlling ? "You have control" : ready ? "Watching live" : "Connecting…")}
+                {error ?? frameError ?? (ready ? "Connected" : "Connecting…")}
               </Text>
             </View>
             <StageButton
@@ -750,36 +781,16 @@ export default function ComputerScreen() {
             {(status?.apps ?? ["chromium", "thunar", "terminal"]).map((app) => (
               <AppControl
                 app={app}
-                disabled={!controlling || busy}
+                disabled={!ready || busy}
                 key={app}
                 onPress={() => void act({ action: "open_app", app })}
               />
             ))}
           </View>
           <View style={styles.controlRow}>
-            <Pressable
-              accessibilityRole="button"
-              disabled={busy || !ready}
-              onPress={toggleTakeover}
-              style={({ pressed }) => [
-                styles.takeover,
-                controlling && styles.takeoverControlling,
-                pressed && styles.takeoverPressed,
-                (busy || !ready) && styles.disabled,
-              ]}
-            >
-              <SymbolView
-                name={controlling ? "hand.raised.fill" : "hand.tap.fill"}
-                size={16}
-                tintColor={controlling ? "#F7F7F4" : "#111111"}
-              />
-              <Text style={[styles.takeoverLabel, controlling && styles.takeoverLabelControlling]}>
-                {controlling ? "Return control" : "Take control"}
-              </Text>
-            </Pressable>
             <View style={styles.scrollControls}>
               <StageButton
-                disabled={!controlling || busy}
+                disabled={!ready || busy}
                 label="Scroll up"
                 name="chevron.up"
                 onPress={() => void act({ action: "scroll", deltaY: -6 })}
@@ -787,7 +798,7 @@ export default function ComputerScreen() {
                 symbolSize={14}
               />
               <StageButton
-                disabled={!controlling || busy}
+                disabled={!ready || busy}
                 label="Scroll down"
                 name="chevron.down"
                 onPress={() => void act({ action: "scroll", deltaY: 6 })}
@@ -821,7 +832,7 @@ export default function ComputerScreen() {
       >
         <View style={styles.bottomToolbar}>
           <StageButton
-            disabled={!ready || takeoverBusy}
+            disabled={!ready || busy}
             label="Paste from iPhone clipboard"
             name="clipboard"
             onPress={() => void pasteClipboard()}
@@ -839,7 +850,7 @@ export default function ComputerScreen() {
               onChangeText={handleKeyboardChange}
               onSubmitEditing={submitKeyboard}
               ref={inputRef}
-              returnKeyType="send"
+              returnKeyType="default"
               showSoftInputOnFocus
               spellCheck={false}
               style={styles.hiddenInput}
@@ -866,9 +877,8 @@ export default function ComputerScreen() {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: "#000000" },
   header: {
-    minHeight: 66,
+    height: 42,
     paddingHorizontal: 14,
-    paddingTop: 4,
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
@@ -888,7 +898,12 @@ const styles = StyleSheet.create({
     minWidth: 0,
     maxWidth: 176,
     height: 40,
-    paddingHorizontal: 0,
+    borderRadius: 20,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(255,255,255,0.09)",
+    backgroundColor: "#292929",
+    paddingLeft: 6,
+    paddingRight: 12,
     flexDirection: "row",
     alignItems: "center",
     gap: 9,
@@ -902,6 +917,26 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   headerActions: { marginLeft: "auto", flexDirection: "row", gap: 8 },
+  handoffBar: {
+    minHeight: 46,
+    paddingHorizontal: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(255,255,255,0.09)",
+  },
+  handoffLabel: { flex: 1, color: "#B9B9B5", fontSize: 13, lineHeight: 18 },
+  handoffSecondary: { paddingHorizontal: 8, paddingVertical: 7 },
+  handoffSecondaryLabel: { color: "#B9B9B5", fontSize: 13, fontWeight: "600" },
+  handoffPrimary: {
+    borderRadius: 8,
+    backgroundColor: "#F7F7F4",
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+  },
+  handoffPrimaryLabel: { color: "#111111", fontSize: 13, fontWeight: "600" },
   modeToast: {
     position: "absolute",
     zIndex: 12,
@@ -923,7 +958,7 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 8 },
   },
   modeToastText: { color: "#F7F7F4", fontSize: 17, lineHeight: 22, fontWeight: "500" },
-  stage: { flex: 1, alignItems: "center", justifyContent: "flex-start", paddingTop: 28 },
+  stage: { flex: 1, alignItems: "center", justifyContent: "flex-start", paddingTop: 64 },
   connectingState: {
     flex: 1,
     alignItems: "center",
@@ -1025,25 +1060,8 @@ const styles = StyleSheet.create({
     minHeight: 44,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
+    justifyContent: "flex-end",
   },
-  takeover: {
-    height: 40,
-    borderRadius: 20,
-    paddingHorizontal: 15,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 7,
-    backgroundColor: "#F7F7F4",
-  },
-  takeoverControlling: {
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(255,255,255,0.12)",
-    backgroundColor: "#292929",
-  },
-  takeoverPressed: { opacity: 0.7, transform: [{ scale: 0.98 }] },
-  takeoverLabel: { color: "#111111", fontSize: 13, lineHeight: 17, fontWeight: "700" },
-  takeoverLabelControlling: { color: "#F7F7F4" },
   scrollControls: { flexDirection: "row", gap: 4 },
   resetZoom: {
     minHeight: 40,

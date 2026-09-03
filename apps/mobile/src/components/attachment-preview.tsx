@@ -4,9 +4,11 @@ import { clientErrorMessage } from "@openbot/product-core/redaction";
 import { Directory, File, Paths } from "expo-file-system";
 import { SymbolView } from "expo-symbols";
 import { useEffect, useRef, useState } from "react";
-import { Linking, Pressable, StyleSheet, Text, View } from "react-native";
+import { Linking, Modal, Pressable, ScrollView, Share, StyleSheet, Text, View } from "react-native";
 import { authHeadersForUrl } from "../auth";
 import { useTheme } from "../theme";
+import { IconButton } from "./icon-button";
+import { MobileMarkdown } from "./mobile-markdown";
 
 const readableSize = (bytes: number) => {
   if (bytes >= 1024 * 1024) {
@@ -33,6 +35,10 @@ export function AttachmentPreview({ asset, url }: { asset: AssetRef; url: string
   const [state, setState] = useState<"idle" | "downloading" | "opening" | "error">("idle");
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [documentPreview, setDocumentPreview] = useState<{
+    content: string;
+    uri: string;
+  } | null>(null);
   const controller = useRef<AbortController | null>(null);
 
   useEffect(
@@ -73,8 +79,12 @@ export function AttachmentPreview({ asset, url }: { asset: AssetRef; url: string
       }
       if (nextController.signal.aborted) return;
       setState("opening");
-      const opened = await openPreview(localFile.uri);
-      if (!opened) await Linking.openURL(url);
+      if (asset.kind === "text" || /\.(?:md|markdown|txt)$/i.test(asset.fileName)) {
+        setDocumentPreview({ content: await localFile.text(), uri: localFile.uri });
+      } else {
+        const opened = await openPreview(localFile.uri);
+        if (!opened) await Linking.openURL(url);
+      }
       setState("idle");
       setProgress(0);
     } catch (cause) {
@@ -98,70 +108,124 @@ export function AttachmentPreview({ asset, url }: { asset: AssetRef; url: string
   };
 
   return (
-    <Pressable
-      accessibilityHint="Downloads a temporary copy and opens the native document preview"
-      accessibilityLabel={`${state === "error" ? "Retry" : "Preview"} ${asset.fileName}`}
-      accessibilityRole="button"
-      onPress={() => void open()}
-      style={({ pressed }) => [
-        styles.card,
-        {
-          backgroundColor: theme.surface,
-          borderColor: state === "error" ? theme.danger : theme.border,
-          opacity: pressed ? 0.74 : 1,
-        },
-      ]}
-    >
-      <View style={[styles.icon, { backgroundColor: theme.surfacePressed }]}>
-        <SymbolView name={fileSymbol(asset.kind)} size={15} tintColor={theme.textMuted} />
-      </View>
-      <View style={styles.copy}>
-        <Text numberOfLines={1} style={[styles.title, { color: theme.text }]}>
-          {asset.fileName}
-        </Text>
-        <Text
-          numberOfLines={1}
-          style={[styles.meta, { color: error ? theme.danger : theme.textMuted }]}
-        >
-          {error
-            ? "Preview failed — tap to retry"
-            : state === "downloading"
-              ? `Downloading ${Math.max(1, Math.round(progress * 100))}%`
-              : state === "opening"
-                ? "Opening preview…"
-                : readableSize(asset.byteSize)}
-        </Text>
+    <>
+      <Pressable
+        accessibilityHint="Downloads a temporary copy and opens the document preview"
+        accessibilityLabel={`${state === "error" ? "Retry" : "Preview"} ${asset.fileName}`}
+        accessibilityRole="button"
+        onPress={() => void open()}
+        style={({ pressed }) => [
+          styles.card,
+          {
+            backgroundColor: theme.surface,
+            borderColor: state === "error" ? theme.danger : theme.border,
+            opacity: pressed ? 0.74 : 1,
+          },
+        ]}
+      >
+        <View style={[styles.icon, { backgroundColor: theme.surfacePressed }]}>
+          <SymbolView name={fileSymbol(asset.kind)} size={15} tintColor={theme.textMuted} />
+        </View>
+        <View style={styles.copy}>
+          <Text numberOfLines={1} style={[styles.title, { color: theme.text }]}>
+            {asset.fileName}
+          </Text>
+          <Text
+            numberOfLines={1}
+            style={[styles.meta, { color: error ? theme.danger : theme.textMuted }]}
+          >
+            {error
+              ? "Preview failed — tap to retry"
+              : state === "downloading"
+                ? `Downloading ${Math.max(1, Math.round(progress * 100))}%`
+                : state === "opening"
+                  ? "Opening preview…"
+                  : readableSize(asset.byteSize)}
+          </Text>
+          {state === "downloading" ? (
+            <View style={[styles.progressTrack, { backgroundColor: theme.surfacePressed }]}>
+              <View
+                style={[
+                  styles.progressFill,
+                  {
+                    backgroundColor: theme.text,
+                    width: `${Math.max(3, progress * 100)}%`,
+                  },
+                ]}
+              />
+            </View>
+          ) : null}
+        </View>
         {state === "downloading" ? (
-          <View style={[styles.progressTrack, { backgroundColor: theme.surfacePressed }]}>
-            <View
-              style={[
-                styles.progressFill,
-                {
-                  backgroundColor: theme.text,
-                  width: `${Math.max(3, progress * 100)}%`,
-                },
-              ]}
-            />
-          </View>
+          <Pressable
+            accessibilityLabel={`Cancel download ${asset.fileName}`}
+            accessibilityRole="button"
+            hitSlop={8}
+            onPress={(event) => {
+              event.stopPropagation();
+              cancel();
+            }}
+            style={styles.action}
+          >
+            <SymbolView name="xmark.circle.fill" size={19} tintColor={theme.textMuted} />
+          </Pressable>
+        ) : state === "error" ? (
+          <SymbolView name="arrow.clockwise.circle" size={19} tintColor={theme.danger} />
         ) : null}
-      </View>
-      {state === "downloading" ? (
-        <Pressable
-          accessibilityLabel={`Cancel download ${asset.fileName}`}
-          accessibilityRole="button"
-          hitSlop={8}
-          onPress={(event) => {
-            event.stopPropagation();
-            cancel();
-          }}
-          style={styles.action}
-        >
-          <SymbolView name="xmark.circle.fill" size={19} tintColor={theme.textMuted} />
-        </Pressable>
-      ) : state === "error" ? (
-        <SymbolView name="arrow.clockwise.circle" size={19} tintColor={theme.danger} />
-      ) : null}
-    </Pressable>
+      </Pressable>
+
+      <Modal
+        animationType="slide"
+        onRequestClose={() => setDocumentPreview(null)}
+        presentationStyle="overFullScreen"
+        statusBarTranslucent
+        transparent
+        visible={documentPreview !== null}
+      >
+        <View style={styles.documentBackdrop}>
+          <View style={[styles.documentSheet, { backgroundColor: theme.background }]}>
+            <View style={[styles.documentHandle, { backgroundColor: theme.textFaint }]} />
+            <View style={styles.documentHeader}>
+              <IconButton
+                label="Close document"
+                name="xmark"
+                onPress={() => setDocumentPreview(null)}
+                size={38}
+                symbolSize={18}
+                tone="surface"
+              />
+              <Text numberOfLines={1} style={[styles.documentTitle, { color: theme.text }]}>
+                {asset.fileName}
+              </Text>
+              <IconButton
+                label="Share document"
+                name="square.and.arrow.up"
+                onPress={() => {
+                  if (!documentPreview) return;
+                  void Share.share({ title: asset.fileName, url: documentPreview.uri });
+                }}
+                size={38}
+                symbolSize={18}
+                tone="surface"
+              />
+            </View>
+            <ScrollView
+              contentContainerStyle={styles.documentContent}
+              keyboardDismissMode="interactive"
+              showsVerticalScrollIndicator
+            >
+              {documentPreview ? (
+                <MobileMarkdown
+                  color={theme.text}
+                  content={documentPreview.content}
+                  forceRich={documentPreview.content.length <= 128_000}
+                />
+              ) : null}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+    </>
   );
 }
 
@@ -200,4 +264,33 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  documentBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.48)" },
+  documentSheet: {
+    position: "absolute",
+    top: 110,
+    right: 7,
+    bottom: 7,
+    left: 7,
+    borderRadius: 30,
+    overflow: "hidden",
+  },
+  documentHandle: {
+    position: "absolute",
+    top: 6,
+    alignSelf: "center",
+    width: 50,
+    height: 4,
+    borderRadius: 2,
+    opacity: 0.62,
+  },
+  documentHeader: {
+    height: 78,
+    paddingTop: 14,
+    paddingHorizontal: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  documentTitle: { flex: 1, fontSize: 16, lineHeight: 21, fontWeight: "600" },
+  documentContent: { paddingHorizontal: 14, paddingTop: 7, paddingBottom: 44 },
 });

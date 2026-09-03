@@ -9,6 +9,7 @@ import {
   ListGroupsInput,
   MessageSubagentInput,
   ReactToMessageInput,
+  RequestBoxHelpInput,
   SendToAgentInput,
   StopSubagentInput,
   TaskInput,
@@ -105,6 +106,7 @@ export class InternalToolService {
           "RestartMcpServers",
           "RenameMcpAccount",
           "RemoveMcpAccount",
+          "request_box_help",
           "SetMcpInstructions",
         ]);
         if (childIdentity && parentOnlyTools.has(request.tool)) {
@@ -263,6 +265,21 @@ export class InternalToolService {
             request.callId,
             Schema.decodeUnknownSync(UpdateChannelInput)(request.arguments)
           );
+        }
+        if (request.tool === "request_box_help") {
+          const input = Schema.decodeUnknownSync(RequestBoxHelpInput)(request.arguments);
+          const reason = input.reason ?? "Please complete the manual step on the computer.";
+          const result = await this.messaging.sendVisible(context, {
+            type: "computer-handoff",
+            content: reason,
+            computerHandoff: { reason },
+          });
+          return {
+            sent: true,
+            acknowledgement: result.acknowledgement,
+            waiting_for_user: true,
+            instruction: "Stop this turn. You will be resumed when the user finishes or skips.",
+          };
         }
         let result;
         if (request.tool === "SendToAgent") {

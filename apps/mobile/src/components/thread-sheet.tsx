@@ -74,6 +74,7 @@ export function ThreadSheet({
   deliveryRecoveries,
   onAcknowledgeRecovery,
   onSecretSubmit,
+  onComputerHandoff,
   onSend,
   onUpload,
   onVisibleSequence,
@@ -99,6 +100,7 @@ export function ThreadSheet({
   deliveryRecoveries: readonly DurableSendRecord[];
   onAcknowledgeRecovery: (nonce: string) => Promise<void>;
   onSecretSubmit: (messageId: string, value: string) => Promise<boolean>;
+  onComputerHandoff: (messageId: string, action: "start" | "skip") => Promise<boolean>;
   onSend: (
     content: string,
     attachments: readonly AssetRef[],
@@ -362,6 +364,7 @@ export function ThreadSheet({
                     setReplyEditVersion((current) => current + 1);
                   }}
                   onSecretSubmit={(value) => onSecretSubmit(item.id, value)}
+                  onComputerHandoff={(action) => onComputerHandoff(item.id, action)}
                   onWidgetDismiss={() => onWidgetDismiss(item.id)}
                   onWidgetResponse={(value) => onWidgetResponse(item.id, value)}
                   peerBot={typeof peerId === "string" ? botById.get(peerId) : undefined}
@@ -408,7 +411,7 @@ export function ThreadSheet({
 const styles = StyleSheet.create({
   safe: { flex: 1 },
   header: {
-    minHeight: 58,
+    height: 42,
     paddingHorizontal: 16,
     flexDirection: "row",
     alignItems: "center",

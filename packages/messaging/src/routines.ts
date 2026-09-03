@@ -374,17 +374,30 @@ export const normalizeRoutineSchedule = (
   };
 };
 
-const normalizeMutationTrigger = (
+const assertTimeOnlyTrigger = (trigger: Record<string, unknown>): void => {
+  const schedules = cronSchedules(trigger);
+  const listenerCount =
+    trigger.type === "group" && Array.isArray(trigger.listeners) ? trigger.listeners.length : 1;
+  if ((trigger.type !== "cron" && trigger.type !== "group") || schedules.length !== listenerCount) {
+    throw new ApiError(
+      400,
+      "routine_time_schedule_required",
+      "Routines only support time-based schedules"
+    );
+  }
+};
+
+export const normalizeRoutineMutationTrigger = (
   input: { schedule?: string; trigger?: unknown },
   installationZone: string
 ): { trigger: Record<string, unknown>; schedule: StoredSchedule } => {
-  const trigger = input.trigger
-    ? parseStoredTrigger(input.trigger)
-    : { type: "cron", schedule: required(input.schedule, "schedule") };
-  if (input.schedule !== undefined) {
-    trigger.type = "cron";
-    trigger.schedule = required(input.schedule, "schedule");
-  }
+  const trigger =
+    input.schedule !== undefined
+      ? { type: "cron", schedule: required(input.schedule, "schedule") }
+      : input.trigger
+        ? parseStoredTrigger(input.trigger)
+        : { type: "cron", schedule: required(input.schedule, "schedule") };
+  assertTimeOnlyTrigger(trigger);
   const cronSchedule = firstCronSchedule(trigger);
   if (cronSchedule !== null) {
     const enforceMinimum = process.env.OPENBOT_ENFORCE_AUTOMATION_MINIMUM === "true";
@@ -420,17 +433,11 @@ const normalizeMutationTrigger = (
       schedule,
     };
   }
-  return {
-    trigger,
-    schedule: {
-      scheduleText: JSON.stringify(trigger),
-      scheduleKind: "event",
-      cronExpression: null,
-      intervalSeconds: null,
-      timezoneMode: "installation",
-      timezone: validZone(installationZone),
-    },
-  };
+  throw new ApiError(
+    400,
+    "routine_time_schedule_required",
+    "Routines only support time-based schedules"
+  );
 };
 
 export const nextRoutineRun = (
@@ -1001,7 +1008,7 @@ export class RoutineService {
   ) {
     const name = required(input.name, "name").replace(/\s+/g, " ").slice(0, 80);
     const prompt = required(input.prompt, "prompt");
-    const { schedule, trigger } = normalizeMutationTrigger(input, this.installationZone);
+    const { schedule, trigger } = normalizeRoutineMutationTrigger(input, this.installationZone);
     const enabled = input.enabled ?? true;
     return this.prisma.$transaction(async (tx) => {
       if (owner.kind === "bot") {
@@ -1117,7 +1124,7 @@ export class RoutineService {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`routine:${current.id}`}))`;
       const normalized =
         input.schedule !== undefined || input.trigger !== undefined
-          ? normalizeMutationTrigger(input, this.installationZone)
+          ? normalizeRoutineMutationTrigger(input, this.installationZone)
           : {
               trigger: current.trigger as Record<string, unknown>,
               schedule: {

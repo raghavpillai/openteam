@@ -1,0 +1,28 @@
+{
+  "scroll": {
+    "top": 6445,
+    "height": 7305,
+    "viewport": 860,
+    "bottomDistance": 0
+  },
+  "events": [
+    {
+      "name": "history.latest.jump",
+      "duration": 0,
+      "at": 1788301046745,
+      "detail": {
+        "source": "cache"
+      }
+    },
+    {
+      "name": "history.latest.jump-to-paint",
+      "duration": 1137,
+      "at": 1788301047876
+    }
+  ],
+  "focus": {
+    "tag": "DIV",
+    "role": null,
+    "label": null
+  }
+}

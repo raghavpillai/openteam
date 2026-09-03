@@ -19,7 +19,11 @@ const serviceFixture = (
     administration?: Record<string, unknown>;
   } = {}
 ) => {
-  const deliveries: Array<{ type?: string; content?: string }> = [];
+  const deliveries: Array<{
+    type?: string;
+    content?: string;
+    computerHandoff?: { reason: string };
+  }> = [];
   const service = new InternalToolService(
     {
       run: {
@@ -67,6 +71,20 @@ describe("InternalToolService user-delivery tool name", () => {
     expect(deliveries).toEqual([]);
   });
 
+  test("creates an explicit computer handoff and tells the agent to wait", async () => {
+    const { deliveries, service } = serviceFixture();
+    await expect(
+      Effect.runPromise(service.execute(request("request_box_help", { reason: "Finish 2FA" })))
+    ).resolves.toMatchObject({ sent: true, waiting_for_user: true });
+    expect(deliveries).toEqual([
+      {
+        type: "computer-handoff",
+        content: "Finish 2FA",
+        computerHandoff: { reason: "Finish 2FA" },
+      },
+    ]);
+  });
+
   test("routes bounded directory reads for parent agents", async () => {
     const calls: Array<{ kind: string; botId: string; input: unknown }> = [];
     const { service } = serviceFixture({
@@ -108,7 +126,7 @@ describe("InternalToolService user-delivery tool name", () => {
       },
     });
 
-    for (const tool of ["ListAgents", "ListGroups"]) {
+    for (const tool of ["ListAgents", "ListGroups", "request_box_help"]) {
       await expect(Effect.runPromise(service.execute(request(tool, {})))).rejects.toThrow(
         "parent-agent only"
       );

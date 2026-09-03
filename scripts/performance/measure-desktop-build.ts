@@ -404,7 +404,6 @@ const readLazyClosures = async () => {
       ],
       routineSummary: ["src/renderer/components/openbot/routine-summary.tsx"],
       routineEditor: ["src/renderer/components/openbot/routine-panel.tsx"],
-      routineEventFields: ["src/renderer/components/openbot/routine-event-fields.tsx"],
       newBot: ["src/renderer/components/openbot/new-bot-screen.tsx"],
       pluginSettings: ["src/renderer/components/openbot/plugin-settings.tsx"],
       pluginSettingsDetail: ["src/renderer/components/openbot/plugin-settings-detail.tsx"],

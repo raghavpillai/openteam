@@ -44,6 +44,12 @@
     ],
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "fcd3a136-337d-4e25-8572-78861b370cf5"
+      }
+    },
+    "owner": "zzenn"
   }
 }

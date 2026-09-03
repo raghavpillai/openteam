@@ -211,6 +211,22 @@
       }
     },
     {
+      "tool": "request_box_help",
+      "description": "Ask the user to take over this Bot's graphical computer for a manual step only they can complete, such as login, SSO, 2FA, a CAPTCHA, or payment. This creates a secure handoff card and pauses your work at that point. Use it only when the task is blocked on human desktop input, not merely because shared input is possible. After calling it, stop the turn and wait. The user can take over, skip, or close the handoff; when they finish, you are resumed automatically and should inspect the screen before continuing.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000,
+            "description": "A concise explanation of the human-only step that is blocking progress."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
       "tool": "TodoWrite",
       "description": "Your task queue: the durable list of everything the user has asked for, across all your parallel streams of work.\n\nWhen to use:\n- The moment a request arrives, record it as a todo before dispatching or starting it.\n- Update statuses in real time: in_progress when its work starts, completed the moment its result is delivered to the user, cancelled when the user drops it or changes their mind.\n- On every wake (a user message or a finished background task), reconcile the list first: what's running, what landed, what to dispatch next.\n\nStates and parallelism:\n- pending: not yet started. in_progress: actively being worked, by you or a background worker. completed: result delivered to the user. cancelled: no longer needed.\n- SEVERAL todos are normally in_progress at once — one per independent stream running in parallel (each dispatched worker, plus at most one thing you are doing inline). Never serialize independent streams just to keep a single one in_progress.\n- Keep the list current rather than perfect: cancel stale items instead of leaving them pending, and prune long-finished ones when the list gets noisy.\n\nSkip it for purely conversational replies and trivial one-step lookups you answer inline immediately.",
       "inputSchema": {

@@ -1,231 +1,192 @@
 # Desktop message-history performance and UX report
 
-Status: deterministic reducer, live API, and focused correctness evidence are complete. Packaged
-candidate Electron values and final multi-resolution parity are marked `PENDING_CANDIDATE`.
+Status: **PASS — packaged rollout gate complete**
+Last audited: 2026-09-01
 
-## Executive conclusion
+## Conclusion
 
-The correct design is a bounded data window behind the existing virtualized transcript—not
-smaller network pages and not universal pagination in both directions.
+The bounded implementation is ready to ship. Normal chats stay newest-first and load older history
+upward; search/deep-link contexts can page in both directions. The aggregate channel window is
+capped at 500 unique messages and 2 MiB without changing the established virtualized UI, density,
+or supported layouts.
 
-The prior renderer already keeps mounted DOM rows flat, so it can look smooth while retaining an
-ever-growing JavaScript history. In the matched packaged baseline, forced-GC heap grew from
-16.71 MB at the newest 100 rows to 25.30 MB after traversing roughly 5,000 rows (+8.58 MB / 51.4%),
-while DOM nodes stayed essentially flat (1,246 to 1,229). The deterministic 10,000-row fixture
-shows the downstream cost: the prior projection proxy reaches 9.19–10.75 ms for one pass and grows
-with history depth.
+The prior packaged renderer's forced-GC heap grew from 16,714,564 B at 100 messages to 25,299,160 B
+around 5,000 (+8,584,596 B / 51.4%). After a retained-closure leak found during this audit was fixed,
+the candidate moved only from 21,645,344 B around 5,000 traversed messages to 22,246,488 B after all
+10,020 (+601,144 B / 2.78%), while retaining exactly 500 messages.
 
-The candidate caps the channel-window union at 500 unique messages and 2 MiB, preserves the actual
-visible rows when either edge is trimmed, and keeps a cached newest tail for an immediate return to
-the present. Search/deep-link/gap contexts alone can page in both directions. This gives the common
-chat path less state while preserving the one workflow that genuinely needs downward pagination.
+Matched p95 frame intervals remained near one 60 Hz frame. Candidate reversal p95 changed from 17.3
+to 17.4 ms and its maximum improved from 66.3 to 50.9 ms. Controlled anchors stayed within
+0.28125 px, search painted its target in 168.1 ms, and cached jump-latest was 5.77× faster than
+baseline.
 
-The reducer and API evidence support rollout. Final approval still depends on the packaged
-candidate proving all three together:
+## Provenance
 
-- retained heap plateaus;
-- rAF/anchor behavior is no worse than the already-smooth baseline;
-- styling, focus, replies, threads, search, and accessibility remain equivalent.
-
-## What the code audit found
-
-| Finding | User-visible risk | Resolution |
+| Artifact | Identity | Evidence scope |
 |---|---|---|
-| Virtualization bounded DOM, but every fetched message remained in renderer state | Heap, merge, indexes, and projection grow during long sessions | Bound the retained unique-ID union, not just mounted rows |
-| A 500-row count limit still retained 4+ MB in the original rich model | Markdown/metadata-heavy histories defeat count-only policies | Add an exact 2 MiB production byte ceiling |
-| Independently capped primary, context, ancestry, and latest lanes could exceed the total | Hidden duplicate caches silently recreate unbounded retention | Reconcile one deduplicated union across all lanes |
-| Naive edge retention could keep an entire rich edge-to-anchor range or evict the visible row | Jumping or blanking while a page arrives | Pivot around the reported visible span; fill scroll direction first |
-| A live arrival at the 500-row boundary could evict an off-bottom reader | Reading position moves when somebody sends | Apply the same viewport pivot to refresh and patch paths |
-| Raw `scrollTop` is not meaningful after eviction or channel-window regeneration | A → B → A restores the wrong content | Persist message identity + within-row offset + generation, with explicit latest fallback |
-| Search returned newer cursors but the old client discarded them | A deep result could not continue beyond its first 50 newer rows | Retain before/after cursors only in context mode |
-| Jumping to latest by refetching would add latency and network failure to a basic action | “Back to now” feels slow or fails offline | Cache the newest 100-row tail and swap it into view |
-| Eviction could remove an active reply target or open thread data | Reply silently targets the root, or thread tray collapses | Pin the active reply; give the open tray a 100-message / 512 KiB bounded snapshot and latest-reply ID |
-| Prepending history could look like new incoming messages | Incorrect unread/new-message notice | Count authoritative tail growth by latest message identity, independent of the thinking row |
-| A disappearing jump button could retain focus nowhere | Keyboard regression | Move focus to the stable transcript viewport before the control unmounts |
-| Transcript rows lacked explicit list semantics; thread centering ignored reduced motion | Screen-reader order and motion-setting regression | Add list/listitem semantics and reduced-motion-aware thread navigation |
+| Prior renderer | source `1e66ee8`; `app.asar` SHA-256 `aef611981917128201e728f1084dc816b8ced5bf86bae025189f4f6e2eca010e` | Baseline heap, frames, screenshots, context, jump-latest |
+| Full-depth fixed candidate | behavior immediately before a semantics-preserving local-constant size refactor; `app.asar` `8762645b0b52bbfa1f275e9f09721a2eb5afe67223bbb5a5fbafd4c4d65ce444` | 10,020 traversal, heap ownership, frames, search, anchors, parity |
+| Exact final optimized candidate | `f9787a2` plus two-file progression patch; product-diff SHA-256 `1a09c6634bb75607f959e7712453a9f6aa94e06dae63e749ffeb72c323c0ad5a`; `app.asar` `c33f47b384078fc7b3964ee1560230e08daee2d54470c2c5a14f8a1186ca58f2`; ID `dev.openbot.pagination.candidate.final` | Exact-final cap/progression smoke, budgets, signing, final gates |
 
-## Resulting architecture
+The exact final package repeated declared timelines `301 → 401 → 501 → 401 → 401` and first
+fixtures `9722 → 9622 → 9522 → 9422 → 9408`. It stayed at 500 messages / 203,339 B after the cap,
+evicting 200 then 100 newer rows and zero older rows. Full-depth heap numbers are therefore labeled
+as behavior-equivalent trace evidence; final behavior is separately proven by this optimized smoke
+and all final gates.
 
-| Layer | Policy |
-|---|---|
-| Server | 100-row keyset pages using `beforeSequence`; centered context returns 50/target/50 plus both cursors |
-| Normal chat | Newest-first, automatic older loading only |
-| Search/deep link/gap | Separate centered lane with automatic older and newer continuation |
-| Aggregate channel window | ≤500 unique messages and ≤2,097,152 production retained bytes across primary, ancestry, context, and latest tail |
-| Latest return | Cached newest 100-row tail; no request after deep traversal |
-| Mounted transcript | Existing virtual list, maximum 80 mounted timeline entries |
-| Warm channels | Three history windows in the renderer LRU |
-| Open thread | Separate ≤100-message / ≤512 KiB tray pin, authoritative updates by ID |
-| Scroll retention | Visible message IDs + recent direction; identity/offset restoration across channel changes |
-| Observability | Retained rows/bytes, viewport protection, page intent-to-paint, anchor error/survival, and search target-to-paint |
+See [structured final metrics](./final-metrics.json) and
+[Electron methodology](./electron-ab-methodology.md). Large heap snapshots were not checked in.
 
-One indivisible oversized row or a mandatory visible protected span may create a reported soft byte
-excess. Other lanes are evicted first; an ordinary disjoint union is a hard cap.
+## What the audit found and fixed
 
-## Industry pattern check
+| Finding | Risk | Resolution |
+|---|---|---|
+| DOM virtualization did not bound retained history | Heap, indexes, projection grew with depth | Bound the deduplicated data union |
+| Count-only retention allowed 4+ MB rich windows | Rich rows defeated the limit | Add an exact 2 MiB production ceiling |
+| Separately capped lanes could exceed the total | Hidden caches recreated growth | Reconcile primary, context, ancestry, and latest tail together |
+| Early candidate chose the wrong cap edge | Repeated `before=53907`, evicted 100 older rows, progress 0 | Preserve requested page, advance cursor, evict newer rows |
+| Page handlers captured old `historyByChannel` snapshots | Intermediate candidate reached 29,292,320 B at 10k | Read through a ref and keep a stable handler |
+| Eviction could move a visible row | Scroll jump/blanking | Pivot around visible IDs and direction |
+| Raw `scrollTop` crossed regenerated windows | Wrong A → B → A restoration | Persist identity, row offset, generation |
+| Search discarded newer cursors | Deep result could not continue forward | Keep both cursors in context mode |
+| Jump-latest refetched | Latency/failure on a basic action | Cache the newest 100-row tail |
+| Reply/thread data could be evicted | Wrong target or collapsed tray | Pin reply; bound thread state to 100 messages / 512 KiB |
+| Transient button retained focus | Keyboard focus loss | Focus stable transcript viewport |
+| List/motion semantics were incomplete | Accessibility regression | Add list/listitem and reduced-motion navigation |
 
-The design matches the pattern used by mature chat clients: cursor-paginated transport, a bounded
-client cache, and DOM virtualization are separate controls. Slack's published lazy-loading work
-describes why ever-growing local caches become counterproductive; Discord exposes `before`,
-`after`, and `around` navigation for message windows; TanStack's current infinite-query and chat
-virtualization guidance explicitly supports bounded pages and stable prepend/end anchoring.
+The selected policy is 100-row keyset transport, older-only normal loading, bidirectional centered
+context, an aggregate 500-message / 2 MiB channel union, three warm channel windows, and the
+existing virtual list (policy maximum 80 mounted entries). One indivisible oversized row or a
+mandatory visible protected span can create an explicitly reported soft byte excess.
 
-- [Slack: making Slack faster by being lazy](https://slack.engineering/making-slack-faster-by-being-lazy/)
-- [Discord message API](https://docs.discord.com/developers/resources/message)
-- [TanStack infinite-query guide](https://tanstack.com/query/latest/docs/framework/react/guides/infinite-queries)
-- [TanStack Virtual chat guide](https://tanstack.com/virtual/latest/docs/chat)
-- [Electron performance guidance](https://www.electronjs.org/docs/latest/tutorial/performance)
+## Deterministic and API evidence
 
-OpenBot keeps its custom store and virtual list rather than adding a data-fetching dependency, but
-uses the same boundaries. Message transformation remains in the renderer, the Electron main process
-does not receive full history snapshots, and no synchronous IPC was introduced.
+The production-reducer [results](./summary.json) and
+[methodology](./methodology.md) cover 10,000-row mixed and rich workloads. Two runs reproduced
+checksum `7077200170`. Every candidate stayed within both caps; maximum peak was 2,097,141 B, 11 B
+below 2 MiB.
 
-## Deterministic A/B
-
-The full JSON is [`summary.json`](./summary.json); exact method and limitations are in
-[`methodology.md`](./methodology.md). The most important p50 results are:
-
-| 10,000-row workload | Prior unbounded | Bounded candidate | Change |
+| 10,000-row workload, p50 | Prior | Candidate | Change |
 |---|---:|---:|---:|
 | Mixed retained JSON | 6.07 MB | 302.6 KB | −95.0% |
-| Mixed full-walk merge + projection | 643.590 ms | 174.327 ms | 3.69× lower |
+| Mixed full walk | 643.590 ms | 174.327 ms | 3.69× lower |
 | Mixed final projection | 9.188 ms | 0.350 ms | 26.3× lower |
-| Mixed latest refresh merge | 3.456 ms | 0.934 ms | 3.7× lower |
 | Rich retained JSON | 85.58 MB | 2.09 MB | −97.6% |
-| Rich full-walk merge + projection | 696.460 ms | 78.825 ms | 8.84× lower |
+| Rich full walk | 696.460 ms | 78.825 ms | 8.84× lower |
 | Rich final projection | 10.747 ms | 0.161 ms | 66.8× lower |
-| Rich latest refresh merge | 3.868 ms | 0.323 ms | 12.0× lower |
 
-This is not a free optimization. At 1,000 mixed rows, cumulative reducer merge time rises from
-1.925 to 10.297 ms because exact union reconciliation has a cost; final projection falls from
-0.885 to 0.336 ms and retained payload halves. At 100 rows the extra merge work remains about
-0.2 ms. The benefit is bounded steady state and avoidance of long-session growth, not a claim that
-every individual merge becomes faster.
+At 1,000 mixed rows, cumulative reducer merge time rises from 1.925 to 10.297 ms because exact union
+reconciliation has a cost, while final projection falls from 0.885 to 0.336 ms. This is a
+steady-state optimization, not a claim that every merge is cheaper.
 
-All deterministic bounded workloads stayed within both limits. The maximum traversal peak was
-2,097,141 bytes, 11 bytes below 2 MiB. A second full run reproduced the same observable checksum.
-
-## Live API and page-size decision
-
-The isolated API evidence is [`live-api.json`](./live-api.json), with method in
-[`live-api-methodology.md`](./live-api-methodology.md).
-
-- A complete 10,040-message walk took 101 requests, 4,107,789 response bytes, and 180.425 ms on the
-  warm local stack.
-- A 100-row page was 40,937 bytes and 1.650 ms p50. Fifty rows saved about 20 KB but only 0.330 ms;
-  200 rows doubled bytes and reached 2.746 ms p50.
-- A 9,900-deep 100-row page was 1.591 ms p50 versus 1.508 ms at the newest edge. Keyset depth is not
-  the bottleneck in this fixture.
-- The heaviest centered probe—101 primary rows, 76 ancestors, and a 200 KB target—was 273,194 bytes,
-  5.188 ms p50, and 6.116 ms p95.
-
-Therefore the network page remains 100. Smaller pages would increase loading frequency and make
-upward scrolling more dependent on network timing, while failing to solve retained renderer state.
-
-## Search performance
-
-Opening a known result uses the centered context endpoint instead of walking history. In the
-10,000-row deterministic fixture, a 20%-depth result takes one context request (two cold requests
-including latest-tail initialization) instead of 80 sequential older pages.
-
-The local centered endpoint ranges from 1.495 ms p50 for one plain target to 5.188 ms for the
-pathological 273 KB 50/50 context. Expanding 300 messages on both sides takes six opt-in pages;
-merge plus projection is 9.437 ms p50 for mixed content and remains under the aggregate cap.
-
-These results cover navigation from a search hit, not the full-text query itself. Packaged
-candidate target-to-paint and highlight confirmation remain
-`PENDING_CANDIDATE_SEARCH_TARGET_TO_PAINT`.
-
-## Dependencies, bundles, and lazy loading
-
-The pagination implementation adds no package or runtime dependency; package manifests and lockfile
-are unchanged from the feature parent.
-
-The existing split points remain appropriate:
-
-- the Search dialog is lazy and preloaded during idle time;
-- Markdown and rich rendering are lazy with an immediate plain-text fallback;
-- advanced CJK, code, math, and Mermaid plug-ins load only when message capabilities require them;
-- attachments, document parsers, settings, inspector, routines, plug-ins, and secondary dialogs
-  remain lazy.
-
-The window reducer, visible-range reporting, and anchor code stay eager on purpose. Moving the first
-older-page path behind a dynamic import would exchange a small bundle saving for a one-time hitch at
-the exact moment the user reaches the top. Final production renderer size and ratcheted budget are
-`PENDING_CANDIDATE_BUNDLE_BYTES`.
-
-## Focused correctness evidence
-
-The current focused suite passes **53 tests, 0 failures, 271 assertions** across:
-
-- aggregate count/byte limits, exact boundaries, soft excesses, deduplication, and ancestry;
-- rich viewport pivots, direction-first runway, off-bottom live refresh, and oversized patches;
-- cached-tail reset, reconnect gaps, centered older/newer continuation, and context close;
-- identity-based scroll restoration and latest fallback;
-- open-thread pin bounds and latest-reply semantics;
-- new-message notices, stable transcript focus, motion, and message geometry.
-
-Command:
-
-```sh
-bun test \
-  packages/product-core/test/message-window.test.ts \
-  apps/desktop/test/message-history-window.test.ts \
-  apps/desktop/test/conversation-scroll.test.ts \
-  apps/desktop/test/conversation-scroll-state.test.ts \
-  apps/desktop/test/thread-pin.test.ts \
-  apps/desktop/test/message-motion.test.ts
-```
-
-Full repository typecheck/test/build status is `PENDING_CANDIDATE_FULL_GATES`.
+The isolated API [results](./live-api.json) and
+[methodology](./live-api-methodology.md) show the 10,040-message walk used 101 requests,
+4,107,789 B, and 180.425 ms locally. A 100-row page was 40,937 B and 1.650 ms p50. Fifty rows saved
+about 20 KB but only 0.330 ms; 200 rows doubled bytes and reached 2.746 ms. A page 9,900 messages
+deep remained 1.591 ms. Keeping 100-row pages reduces loading interruptions without conflating
+transport size with renderer retention.
 
 ## Packaged Electron A/B
 
-The exact replay protocol is [`electron-ab-methodology.md`](./electron-ab-methodology.md).
+| Workload | Baseline p50 / p95 / p99 / max | Candidate p50 / p95 / p99 / max | Baseline >20 / >50 | Candidate >20 / >50 |
+|---|---:|---:|---:|---:|
+| Realistic, 12 s | 16.7 / 17.1 / 17.6 / 17.7 ms | 16.7 / 17.4 / 17.6 / 33.9 ms | 0 / 0 | 1 / 0 |
+| Exact traversal, 60 s | 16.7 / 17.5 / 17.7 / 17.8 ms | 16.7 / 17.6 / 17.7 / 33.8 ms | 0 / 0 | 1 / 0 |
+| Reversal, 15 s | 16.7 / 17.3 / 17.6 / 66.3 ms | 16.7 / 17.4 / 17.7 / 50.9 ms | 1 / 1 | 2 / 1 |
 
-| Measure | Prior packaged renderer | Bounded packaged candidate |
+Candidate reversal CPU sampled 14,896.420 ms idle of 15,065.482 ms and 5.809 ms GC. These one-run
+rAF callback intervals are not compositor-present timestamps, but p95 and long-gap counts show no
+material smoothness regression.
+
+| Heap capture | Forced-GC JS heap | Declared / mounted |
 |---|---:|---:|
-| Forced-GC heap: initial | 16.71 MB | `PENDING_CANDIDATE_INITIAL_HEAP` |
-| Forced-GC heap: deep | 25.30 MB | `PENDING_CANDIDATE_DEEP_HEAP` |
-| Deep heap change | +8.58 MB / +51.4% | `PENDING_CANDIDATE_HEAP_CHANGE` |
-| 60 s stress rAF p95 / max | 17.5 / 17.8 ms | `PENDING_CANDIDATE_STRESS_FRAMES` |
-| 15 s reversal rAF p95 / max | 17.3 / 66.3 ms | `PENDING_CANDIDATE_REVERSAL_FRAMES` |
-| Reversal gaps >20 / >50 ms | 1 / 1 | `PENDING_CANDIDATE_REVERSAL_GAPS` |
-| Retained unique rows / bytes | unbounded / unavailable | `PENDING_CANDIDATE_RETAINED` |
-| Anchor error / 1 s survival | unavailable | `PENDING_CANDIDATE_ANCHOR` |
-| Search target painted | yes by CUA | `PENDING_CANDIDATE_SEARCH_PAINT` |
-| Visual, focus, motion, and AX parity | baseline reference captured | `PENDING_CANDIDATE_PARITY` |
+| Baseline newest 100 | 16,714,564 B | 101 / 25 |
+| Baseline around 5,000 | 25,299,160 B | 5,001 / 24 |
+| Fixed candidate around 5,000 | 21,645,344 B | 401 / 38 |
+| Fixed candidate after 10,020 | 22,246,488 B | 401 / 38 |
+| Exact-final cap smoke | 22,191,772 B | 401 / 38 |
 
-The baseline's frame results are already good. The candidate does not need to manufacture a frame
-rate win; it needs to preserve that smoothness while stopping retained-state growth and keeping the
-same scroll identity through page and refresh boundaries.
+Full-depth telemetry retained 500 / 203,630 B; exact-final smoke retained 500 / 203,339 B. The
+leaking candidate had 106/105 snapshot owners/arrays, 105 index maps, and 9,715 content strings via
+95 handler hops. Fixed 5k and 10,020 snapshots both had 7/6 owners/arrays, 6 indexes, six handler
+maps, and zero hops; backing/index tables stayed 22,040 / 114,844 B. Unique fixture IDs across
+React current/alternate plus tail slack decreased 600→565.
 
-## UX contract and deliberate trade-offs
+The remaining +601 KB was not paging retention: `BackingStorage` rose 200,685 B, external strings
+405,621 B, and 404,995 B belonged to three newly loaded rich/file sources and JIT state. Temporary
+diagnostics remain at `/private/tmp/openbot-pagination-candidate-depth10020.heapsnapshot`,
+`/private/tmp/openbot-pagination-candidate-exact-current-depth5000.heapsnapshot`, and
+`/private/tmp/openbot-pagination-candidate-exact-current-depth10020.heapsnapshot`.
 
-- Ordinary scrolling down within the retained window remains continuous. Once a newer edge has
-  been deliberately evicted, the UI shows an explicit gap/latest affordance rather than pretending
-  two disjoint ranges are continuous.
-- Search, deep-link, and reconnect-gap views can page both upward and downward because those flows
-  have a real pivot and two truthful server cursors.
-- Jump latest is immediate from the cached tail. It is not an animated traversal through thousands
-  of omitted rows.
-- Visible rows outrank edge recency during eviction. The user should keep the same content under
-  their eyes even when rich row heights settle.
-- Styling and density are not redesigned by pagination. The feature changes state, semantics,
-  focus handling, and loading affordances; final screenshot/geometry confirmation is
-  `PENDING_CANDIDATE_MULTI_RESOLUTION_PARITY`.
+## UX and parity
 
-## Residual risks and recommendation
+The disposable workload had 1,102 chats, 1,001 bots, 10,040 long-transcript API messages, and
+32,405 database messages.
 
-The remaining risks are UI-runtime risks, not unresolved data-policy questions:
+- Traversal advanced `54307 → 54207 → 54107 → 54007 → 53907 → 53807` and continued to the
+  oldest row; no Load older remained. The last page evicted 65 newer rows.
+- Manual prepend had 0 px first/max error, surviving row `1`, and 11.7 ms intent-to-paint. Terminal
+  error stayed within 0.5 px; newer-context maximum was 0.28125 px with the row preserved.
+- Search for `Long transcript fixture 2000` painted in 168.1 ms. Initial context declared
+  102/mounted 38 with both directions present. After bidirectional pages it declared 401, kept the
+  target visible, and retained exactly 500.
+- Baseline jump-latest took 6,557.2 ms and focus stayed on its transient button. Candidate used
+  cache, painted in 1,137 ms, reached bottom distance 0, showed latest, and focused stable content.
+- Default, compact-sidebar, and supported small-window captures preserve styling, density,
+  sidebar/header/composer geometry, and controls.
+- Reply, thread, notice, attachment/composer, focus, list-semantic, and motion contracts passed
+  final automated gates and targeted CUA.
 
-- late Markdown/image layout can move measured row heights after an anchor settles;
-- cold search still pays channel initialization plus its one context request;
-- switching beyond the three-channel warm LRU intentionally reloads an evicted window;
-- one indivisible row larger than 2 MiB must remain displayable and is explicitly reported;
-- remote latency can make each opt-in context expansion slower than this local fixture.
+Representative screenshots:
+[baseline initial](./baseline-initial.png),
+[baseline depth](./baseline-depth-5000.png),
+[baseline search](./baseline-context-2000.png),
+[candidate initial](./candidate-exact-initial.png),
+[candidate depth](./candidate-exact-depth-10020.png),
+[candidate search](./candidate-final-search-context.png),
+[candidate compact](./candidate-exact-compact.png),
+[candidate small window](./candidate-exact-small-window.png), and
+[exact-final cap](./candidate-optimized-cap.png).
 
-Recommendation: ship the bounded policy only if the packaged candidate fills every pending
-Electron/parity field without a frame, anchor, focus, reply/thread, or visual regression. If it
-does, the data favors this design over both the unbounded renderer and universal downward
-pagination.
+## Dependencies, lazy loading, and bundle
+
+No package manifest or lockfile changed; pagination adds no dependency. All 30 dynamic sources are
+covered, zero uncovered. Shiki and Mermaid remain lazy with no startup entry. Search, rich
+rendering, CJK, code/math, attachments/documents, settings, inspector, routines, plugins, and
+secondary dialogs retain split points. Reducer and anchor paths stay eager to avoid a cold hitch at
+the first boundary.
+
+The checked-in [bundle comparison](./bundle-ab-pre-progression.json) is explicitly pre-progression.
+Final optimized totals are:
+
+| Output | Baseline | Final | Delta / budget |
+|---|---:|---:|---:|
+| Renderer | 15,526,913 / 3,768,753 gzip | 15,569,943 / 3,781,003 gzip | +43,030 (+0.277%); 57 / 18,997 headroom |
+| Entry | 641,436 | 680,762 / 204,228 gzip | +39,326 (+6.13%); 238 headroom |
+| Startup | 950,578 | 990,662 / 284,144 gzip | +40,084 (+4.22%); 338 headroom |
+| CSS | — | 191,400 / 32,860 gzip | pass |
+| Electron | — | 2,182,280 / 540,392 gzip | pass |
+
+Deltas are aggregate final-worktree versus feature-parent, not pagination-only attribution.
+
+## Final gates and limits
+
+Passed: desktop 355 tests, product-core 69, contracts 36, client 34, server 127, all five
+typechecks, final focused 48, scoped Biome, changed-file diff check, build, budgets, and direct
+`codesign --deep --strict`. That is 621 full-suite tests plus the focused replay.
+
+The notification verifier only failed because it hard-codes `OpenBot.app` while the isolated
+product intentionally used another temporary name. Direct strict/deep verification passed; this
+was not a signature failure.
+
+The design follows cursor transport + bounded cache + DOM virtualization guidance from
+[Slack](https://slack.engineering/making-slack-faster-by-being-lazy/),
+[Discord](https://docs.discord.com/developers/resources/message),
+[TanStack Query](https://tanstack.com/query/latest/docs/framework/react/guides/infinite-queries),
+[TanStack Virtual](https://tanstack.com/virtual/latest/docs/chat), and
+[Electron](https://www.electronjs.org/docs/latest/tutorial/performance).
+
+Residual risks are explicit: remote RTT and image decode are absent from the local fixture; late
+rich-content height changes can still need virtual-list correction; a fourth inactive channel
+reloads after the three-window LRU evicts it; and an indivisible >2 MiB row remains displayable.
+None changes the rollout decision.

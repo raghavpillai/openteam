@@ -1,5 +1,8 @@
 import type {
   ChannelMessageView,
+  RichMessageCloudAgent,
+  RichMessageComputerHandoff,
+  RichMessageComputerHandoffState,
   RichMessageSecretRequest,
   RichMessageWidget,
   RichMessageWidgetOption,
@@ -56,6 +59,38 @@ export const parseRichMessageSecretRequest = (value: unknown): RichMessageSecret
           : {}),
       }
     : null;
+};
+
+export const parseRichMessageCloudAgent = (value: unknown): RichMessageCloudAgent | null => {
+  const candidate = richMessageMetadata(value);
+  const nested = richMessageMetadata(
+    candidate.bot ?? candidate.agent ?? candidate.cloudAgent ?? candidate.template ?? candidate
+  );
+  const name = typeof nested.name === "string" ? nested.name.trim() : "";
+  if (!name) return null;
+  const statusSource = candidate.status ?? nested.status;
+  const published = statusSource === "published" || candidate.published === true;
+  const stringField = (key: string) =>
+    typeof nested[key] === "string" && nested[key] ? (nested[key] as string) : undefined;
+  return {
+    ...(typeof candidate.id === "string" ? { id: candidate.id } : {}),
+    ...(typeof candidate.sourceBotId === "string" ? { sourceBotId: candidate.sourceBotId } : {}),
+    name,
+    ...(stringField("title") ? { title: stringField("title") } : {}),
+    ...(stringField("description") ? { description: stringField("description") } : {}),
+    ...(stringField("instructions") ? { instructions: stringField("instructions") } : {}),
+    ...(stringField("icon") ? { icon: stringField("icon") } : {}),
+    color: stringField("color") ?? "#925df2",
+    status: published ? "published" : "draft",
+  };
+};
+
+export const parseRichMessageComputerHandoff = (
+  value: unknown
+): RichMessageComputerHandoff | null => {
+  const candidate = richMessageMetadata(value);
+  const reason = typeof candidate.reason === "string" ? candidate.reason.trim() : "";
+  return reason ? { reason } : null;
 };
 
 export const widgetOptionValue = (option: RichMessageWidgetOption): string =>
@@ -125,6 +160,17 @@ export type RichMessageProjection =
       metadata: RichMessageMetadata;
       request: RichMessageSecretRequest;
       provided: boolean;
+    }
+  | {
+      kind: "cloud-agent";
+      metadata: RichMessageMetadata;
+      agent: RichMessageCloudAgent;
+    }
+  | {
+      kind: "computer-handoff";
+      metadata: RichMessageMetadata;
+      handoff: RichMessageComputerHandoff;
+      state: RichMessageComputerHandoffState;
     };
 
 export const projectRichMessage = (
@@ -159,6 +205,30 @@ export const projectRichMessage = (
           provided: metadata.secretProvided === true,
         }
       : null;
+  }
+  if (metadata.type === "computer-handoff") {
+    const handoff = parseRichMessageComputerHandoff(metadata.computerHandoff);
+    if (!handoff) return null;
+    const rawState = metadata.computerHandoffState;
+    const state: RichMessageComputerHandoffState =
+      rawState === "active" ||
+      rawState === "completed" ||
+      rawState === "skipped" ||
+      rawState === "dismissed"
+        ? rawState
+        : "requested";
+    return { kind: "computer-handoff", metadata, handoff, state };
+  }
+  if (
+    metadata.type === "cloud-agent" ||
+    metadata.type === "cloud_agent" ||
+    metadata.type === "cloud-agent-card" ||
+    metadata.type === "bot-template"
+  ) {
+    const agent = parseRichMessageCloudAgent(
+      metadata.cloudAgent ?? metadata.agent ?? metadata.botTemplate ?? metadata.template ?? metadata
+    );
+    return agent ? { kind: "cloud-agent", metadata, agent } : null;
   }
   return null;
 };

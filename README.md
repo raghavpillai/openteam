@@ -2,7 +2,7 @@
 
 OpenBot is a self-hosted, desktop-first home for durable Pi agents with independently configurable inference providers. Each Bot owns one home Pi context, one Postgres inbox, Grok-compatible file state, and a persistent graphical Linux screen. Direct, peer, room, routine, bootstrap, and subagent-completion wakes all resume the member Bot's home context.
 
-Every Bot works as the unprivileged `runner` user (uid 1001, shared gid 1000) on the same persistent Linux computer and starts in `/workspace`, so files written by one are immediately visible to the others. The Pi supervisor owns inference credentials that `runner` cannot read. Bots get independent 1280×800 XFCE displays with Google Chrome, Thunar, XFCE Terminal, screenshots, structured mouse/keyboard actions, and live noVNC takeover. Chrome profiles and sign-ins are computer-scoped and persist under `/home/box/chrome-profile[-N]`.
+Every Bot works as the unprivileged `runner` user (uid 1001, shared gid 1000) on the same persistent Linux computer and starts in `/workspace`, so files written by one are immediately visible to the others. The Pi supervisor owns inference credentials that `runner` cannot read. Bots get independent 1280×800 XFCE displays with Google Chrome, Thunar, XFCE Terminal, screenshots, structured mouse/keyboard actions, and live noVNC shared control. Chrome profiles and sign-ins are computer-scoped and persist under `/home/box/chrome-profile[-N]`.
 
 ## What is implemented
 

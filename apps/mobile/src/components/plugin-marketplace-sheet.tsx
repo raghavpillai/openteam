@@ -37,6 +37,58 @@ const emptySettings = (): PluginSettingsView => ({
   activity: [],
 });
 
+function BundledGoogleMark({ name, size }: { name: string; size: number }) {
+  if (name === "Gmail") {
+    return (
+      <View accessibilityElementsHidden style={{ width: size, height: size }}>
+        <View
+          style={[
+            styles.gmailStroke,
+            styles.gmailLeft,
+            { backgroundColor: "#4285F4", height: size * 0.56 },
+          ]}
+        />
+        <View
+          style={[
+            styles.gmailStroke,
+            styles.gmailRight,
+            { backgroundColor: "#34A853", height: size * 0.56 },
+          ]}
+        />
+        <View
+          style={[
+            styles.gmailDiagonal,
+            styles.gmailDiagonalLeft,
+            { backgroundColor: "#EA4335", width: size * 0.47 },
+          ]}
+        />
+        <View
+          style={[
+            styles.gmailDiagonal,
+            styles.gmailDiagonalRight,
+            { backgroundColor: "#FBBC04", width: size * 0.47 },
+          ]}
+        />
+      </View>
+    );
+  }
+  if (name === "Google Calendar") {
+    return (
+      <View accessibilityElementsHidden style={styles.calendarPage}>
+        <View style={styles.calendarBinding} />
+        <Text style={styles.calendarDay}>31</Text>
+      </View>
+    );
+  }
+  return (
+    <View accessibilityElementsHidden style={{ width: size, height: size }}>
+      <View style={[styles.driveRail, styles.driveRailLeft]} />
+      <View style={[styles.driveRail, styles.driveRailRight]} />
+      <View style={styles.driveRailBottom} />
+    </View>
+  );
+}
+
 function PluginMark({
   logoUrl,
   name,
@@ -49,7 +101,7 @@ function PluginMark({
   theme: Theme;
 }) {
   const [failed, setFailed] = useState(false);
-  const google = name === "Gmail" || name.startsWith("Google");
+  const google = name === "Gmail" || name === "Google Calendar" || name === "Google Drive";
   return (
     <View
       style={[
@@ -70,7 +122,7 @@ function PluginMark({
           style={{ width: size * 0.8, height: size * 0.8 }}
         />
       ) : google ? (
-        <Text style={[styles.googleMark, { fontSize: size * 0.47 }]}>{name[0]}</Text>
+        <BundledGoogleMark name={name} size={size} />
       ) : (
         <SymbolView
           name="puzzlepiece.extension.fill"
@@ -535,6 +587,65 @@ export function PluginMarketplaceSheet({
 
 const styles = StyleSheet.create({
   screen: { flex: 1, paddingHorizontal: 14 },
+  gmailStroke: {
+    position: "absolute",
+    top: "25%",
+    width: 4,
+    borderRadius: 2,
+  },
+  gmailLeft: { left: "16%" },
+  gmailRight: { right: "16%" },
+  gmailDiagonal: {
+    position: "absolute",
+    top: "25%",
+    height: 4,
+    borderRadius: 2,
+  },
+  gmailDiagonalLeft: { left: "16%", transform: [{ rotate: "34deg" }] },
+  gmailDiagonalRight: { right: "16%", transform: [{ rotate: "-34deg" }] },
+  calendarPage: {
+    width: 25,
+    height: 25,
+    borderRadius: 4,
+    borderWidth: 3,
+    borderColor: "#4285F4",
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  calendarBinding: {
+    position: "absolute",
+    left: -3,
+    right: -3,
+    top: -3,
+    height: 7,
+    borderTopLeftRadius: 4,
+    borderTopRightRadius: 4,
+    backgroundColor: "#4285F4",
+  },
+  calendarDay: { marginTop: 3, color: "#4285F4", fontSize: 11, fontWeight: "800" },
+  driveRail: {
+    position: "absolute",
+    top: 5,
+    width: 6,
+    height: 23,
+    borderRadius: 2,
+  },
+  driveRailLeft: { left: 8, backgroundColor: "#34A853", transform: [{ rotate: "30deg" }] },
+  driveRailRight: {
+    right: 8,
+    backgroundColor: "#FBBC04",
+    transform: [{ rotate: "-30deg" }],
+  },
+  driveRailBottom: {
+    position: "absolute",
+    left: 7,
+    bottom: 6,
+    width: 20,
+    height: 6,
+    borderRadius: 2,
+    backgroundColor: "#4285F4",
+  },
   header: { height: 69, flexDirection: "row", alignItems: "center", gap: 10 },
   headerTitle: { flex: 1, fontSize: 16, lineHeight: 21, fontWeight: "600" },
   installedPill: {
@@ -587,7 +698,6 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   mark: { alignItems: "center", justifyContent: "center", overflow: "hidden" },
-  googleMark: { color: "#4285F4", fontWeight: "800" },
   pluginCopy: { flex: 1, minWidth: 0 },
   pluginName: { fontSize: 15, lineHeight: 20, fontWeight: "500" },
   pluginDescription: { marginTop: 1, fontSize: 12, lineHeight: 16 },
@@ -606,7 +716,7 @@ const styles = StyleSheet.create({
     position: "absolute",
     right: 1,
     top: 42,
-    width: 222,
+    width: 228,
     maxHeight: 470,
     borderRadius: 26,
     borderWidth: StyleSheet.hairlineWidth,

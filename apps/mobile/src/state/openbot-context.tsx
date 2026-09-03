@@ -228,6 +228,10 @@ interface OpenBotState {
   respondToWidget: (messageId: string, value: string) => Promise<boolean>;
   dismissWidget: (messageId: string) => Promise<boolean>;
   submitSecret: (messageId: string, value: string) => Promise<boolean>;
+  mutateComputerHandoff: (
+    messageId: string,
+    action: "start" | "complete" | "skip" | "dismiss"
+  ) => Promise<boolean>;
   resolveApproval: (approvalId: string, decision: "accept" | "decline") => Promise<void>;
   cancelRun: (runId: string) => Promise<void>;
   screenStatus: (botId: string) => Promise<ScreenStatusView>;
@@ -2073,6 +2077,17 @@ export function OpenBotProvider({ children }: { children: React.ReactNode }) {
     [acceptRichMessageMutation, client]
   );
 
+  const mutateComputerHandoff = useCallback(
+    async (messageId: string, action: "start" | "complete" | "skip" | "dismiss") => {
+      if (!client) return false;
+      const operationClient = client;
+      const epoch = connectionEpochRef.current;
+      const result = await operationClient.mutateComputerHandoff(messageId, action);
+      return acceptRichMessageMutation(result.message, operationClient, epoch) && result.accepted;
+    },
+    [acceptRichMessageMutation, client]
+  );
+
   const uploadAsset = useCallback(
     async (input: {
       uri: string;
@@ -2278,6 +2293,7 @@ export function OpenBotProvider({ children }: { children: React.ReactNode }) {
       respondToWidget,
       dismissWidget,
       submitSecret,
+      mutateComputerHandoff,
       resolveApproval,
       cancelRun,
       screenStatus,
@@ -2312,6 +2328,7 @@ export function OpenBotProvider({ children }: { children: React.ReactNode }) {
       respondToWidget,
       dismissWidget,
       submitSecret,
+      mutateComputerHandoff,
       renameChannel,
       refresh,
       refreshing,

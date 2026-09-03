@@ -171,6 +171,7 @@ describe("specialized subagent tool surfaces", () => {
     expect(dynamicToolNames("cursor")).toContain("SendToAgent");
     expect(dynamicToolNames("cursor")).toContain("ListAgents");
     expect(dynamicToolNames("cursor")).toContain("ListGroups");
+    expect(dynamicToolNames("cursor")).toContain("request_box_help");
   });
 
   test("directory tools validate bounded inputs and route through the control plane", async () => {

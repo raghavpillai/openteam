@@ -26,4 +26,16 @@ export const api = {
       keepalive: true,
     }).catch(() => undefined);
   },
+  /** Best-effort navigation/app-close path for an active secure handoff. */
+  releaseComputerHandoff: (messageId: string) => {
+    void fetch(
+      `${API_BASE}/api/v0/channel-messages/${encodeURIComponent(messageId)}/computer-handoff`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json", ...authHeaders() },
+        body: JSON.stringify({ action: "dismiss", clientId: crypto.randomUUID() }),
+        keepalive: true,
+      }
+    ).catch(() => undefined);
+  },
 };

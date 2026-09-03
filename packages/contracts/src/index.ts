@@ -434,7 +434,7 @@ export const SendToAgentInput = Schema.Struct({
 export type SendToAgentInput = typeof SendToAgentInput.Type;
 
 export const AgentSendToUserInput = Schema.Struct({
-  type: Schema.Literal("text", "attachment", "widget", "secret-request"),
+  type: Schema.Literal("text", "attachment", "widget", "secret-request", "computer-handoff"),
   content: Schema.optional(Schema.String),
   url: Schema.optional(Schema.String),
   alt: Schema.optional(Schema.String),
@@ -474,6 +474,11 @@ export const AgentSendToUserInput = Schema.Struct({
       description: Schema.optional(Schema.String),
     })
   ),
+  computerHandoff: Schema.optional(
+    Schema.Struct({
+      reason: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(1_000)),
+    })
+  ),
 });
 export type AgentSendToUserInput = typeof AgentSendToUserInput.Type;
 
@@ -501,6 +506,30 @@ export interface RichMessageSecretRequest {
   field: string;
 }
 
+export interface RichMessageComputerHandoff {
+  reason: string;
+}
+
+export type RichMessageComputerHandoffState =
+  | "requested"
+  | "active"
+  | "completed"
+  | "skipped"
+  | "dismissed";
+
+/** Renderer-safe snapshot for a shareable Bot/template card. */
+export interface RichMessageCloudAgent {
+  id?: string;
+  sourceBotId?: string;
+  name: string;
+  title?: string;
+  description?: string;
+  instructions?: string;
+  icon?: string;
+  color: string;
+  status: "draft" | "published";
+}
+
 export const WidgetResponseInput = Schema.Struct({
   value: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(20_000)),
   clientId: Schema.String.pipe(Schema.minLength(8), Schema.maxLength(120)),
@@ -517,6 +546,12 @@ export const SecretSubmissionInput = Schema.Struct({
   clientId: Schema.String.pipe(Schema.minLength(8), Schema.maxLength(120)),
 });
 export type SecretSubmissionInput = typeof SecretSubmissionInput.Type;
+
+export const ComputerHandoffMutationInput = Schema.Struct({
+  action: Schema.Literal("start", "complete", "skip", "dismiss"),
+  clientId: Schema.String.pipe(Schema.minLength(8), Schema.maxLength(120)),
+});
+export type ComputerHandoffMutationInput = typeof ComputerHandoffMutationInput.Type;
 
 export interface RichMessageMutationView {
   accepted: boolean;
@@ -1030,11 +1065,17 @@ export const CREATE_CHANNEL_TOOL = cursorTool("CreateChannel");
 export const LIST_AGENTS_TOOL = cursorTool("ListAgents");
 export const LIST_GROUPS_TOOL = cursorTool("ListGroups");
 export const MESSAGE_SUBAGENT_TOOL = cursorTool("MessageSubagent");
+export const REQUEST_BOX_HELP_TOOL = cursorTool("request_box_help");
 export const STOP_SUBAGENT_TOOL = cursorTool("StopSubagent");
 export const TASK_TOOL = cursorTool("Task");
 export const TODO_WRITE_TOOL = cursorTool("TodoWrite");
 export const UPDATE_AGENT_TOOL = cursorTool("UpdateAgent");
 export const UPDATE_CHANNEL_TOOL = cursorTool("UpdateChannel");
+
+export const RequestBoxHelpInput = Schema.Struct({
+  reason: Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(1_000))),
+});
+export type RequestBoxHelpInput = typeof RequestBoxHelpInput.Type;
 
 export const UpdateStateInput = Schema.Struct({
   target: Schema.Literal(

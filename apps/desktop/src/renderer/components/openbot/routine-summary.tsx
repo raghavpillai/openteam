@@ -1,13 +1,14 @@
 import { CalendarClock, CirclePause, LoaderCircle, Plus } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../../client/openbot-api";
-import { describeRoutineTrigger, routineTriggerDrafts } from "../../lib/routine-triggers";
 import {
   DEFAULT_ROUTINE_SCHEDULE,
   describeRoutineSchedule,
+  describeRoutineSchedules,
   type RoutineScheduleDraft,
   type RoutineView,
   routineIsRunning,
+  routineScheduleDrafts,
   routineSummaryProjectionEqual,
 } from "../../lib/routines";
 import { Button } from "../ui/button";
@@ -75,8 +76,9 @@ export function RoutinesSummary({
 
   const sorted = useMemo(
     () => [
-      ...(routines?.filter((routine) => routine.enabled) ?? []),
-      ...(routines?.filter((routine) => !routine.enabled) ?? []),
+      ...(routines?.filter((routine) => routine.scheduleKind !== "event" && routine.enabled) ?? []),
+      ...(routines?.filter((routine) => routine.scheduleKind !== "event" && !routine.enabled) ??
+        []),
     ],
     [routines]
   );
@@ -122,40 +124,41 @@ export function RoutinesSummary({
           <Plus className="size-4" />
         </Button>
       </div>
-      <div aria-label="Routines" className="mt-1 grid gap-1" role="list">
+      <ul aria-label="Routines" className="mt-1 grid gap-1">
         {sorted.map((routine) => {
           const running = routineIsRunning(routine);
-          const trigger = routineTriggerDrafts(routine)[0];
+          const schedules = routineScheduleDrafts(routine);
           const detail = routine.enabled
-            ? trigger
-              ? describeRoutineTrigger(trigger)
+            ? schedules.length > 0
+              ? describeRoutineSchedules(schedules)
               : describeRoutineSchedule(cloneDefaultSchedule())
             : "Paused";
           return (
-            <button
-              className="group flex min-h-[42px] items-center gap-2 rounded-[9px] px-2 text-left outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-ring/25"
-              key={routine.id}
-              onClick={() => onOpen(routine.id)}
-              style={{ containIntrinsicSize: "42px", contentVisibility: "auto" }}
-              type="button"
-            >
-              <span className="grid size-3.5 shrink-0 place-items-center">
-                {running ? (
-                  <LoaderCircle className="size-3.5 animate-spin text-[#0c64c1] dark:text-[#4aa8ff]" />
-                ) : routine.enabled ? (
-                  <CalendarClock className="size-3.5 text-[#00673a] dark:text-[#53b782]" />
-                ) : (
-                  <CirclePause className="size-3.5 text-muted-foreground" />
-                )}
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-[13px] font-medium">{routine.name}</span>
-                <span className="block truncate text-[11px] text-muted-foreground">{detail}</span>
-              </span>
-            </button>
+            <li key={routine.id}>
+              <button
+                className="group flex min-h-[42px] w-full items-center gap-2 rounded-[9px] px-2 text-left outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-ring/25"
+                onClick={() => onOpen(routine.id)}
+                style={{ containIntrinsicSize: "42px", contentVisibility: "auto" }}
+                type="button"
+              >
+                <span className="grid size-3.5 shrink-0 place-items-center">
+                  {running ? (
+                    <LoaderCircle className="size-3.5 animate-spin text-[#0c64c1] dark:text-[#4aa8ff]" />
+                  ) : routine.enabled ? (
+                    <CalendarClock className="size-3.5 text-[#00673a] dark:text-[#53b782]" />
+                  ) : (
+                    <CirclePause className="size-3.5 text-muted-foreground" />
+                  )}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[13px] font-medium">{routine.name}</span>
+                  <span className="block truncate text-[11px] text-muted-foreground">{detail}</span>
+                </span>
+              </button>
+            </li>
           );
         })}
-      </div>
+      </ul>
     </div>
   );
 }

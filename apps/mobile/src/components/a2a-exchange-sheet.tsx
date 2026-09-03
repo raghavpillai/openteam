@@ -33,7 +33,6 @@ export function A2AExchangeSheet({
   assetUrl,
   exchange,
   onClose,
-  onOpenComputer,
 }: {
   assetUrl: (asset: Pick<AssetRef, "assetId" | "fileName">, download?: boolean) => string | null;
   exchange: MobileA2AExchange;
@@ -116,6 +115,7 @@ export function A2AExchangeSheet({
                     message={item}
                     onReact={ignoreReadOnlyAction}
                     onReply={ignoreReadOnlyAction}
+                    onComputerHandoff={rejectReadOnlyMutation}
                     onSecretSubmit={rejectReadOnlyMutation}
                     onWidgetDismiss={rejectReadOnlyMutation}
                     onWidgetResponse={rejectReadOnlyMutation}
@@ -136,24 +136,6 @@ export function A2AExchangeSheet({
               label="Back to source conversation"
               name="chevron.left"
               onPress={close}
-              size={38}
-              symbolSize={18}
-              tone="surface"
-            />
-            <GlassSurface
-              fallbackColor={theme.surfaceElevated}
-              style={[styles.identity, { borderColor: theme.border }]}
-            >
-              <BotMark color={exchange.source.color} icon={exchange.source.icon} size={27} />
-              <Text numberOfLines={1} style={[styles.title, { color: theme.text }]}>
-                {exchange.source.name}
-              </Text>
-            </GlassSurface>
-            <IconButton
-              disabled={!onOpenComputer}
-              label={`Open ${exchange.source.name} computer`}
-              name="desktopcomputer"
-              onPress={onOpenComputer}
               size={38}
               symbolSize={18}
               tone="surface"
@@ -185,20 +167,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
   },
-  identity: {
-    minWidth: 0,
-    maxWidth: 244,
-    height: 42,
-    borderRadius: 21,
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 10,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 7,
-  },
-  title: { flexShrink: 1, fontSize: 15, lineHeight: 19, fontWeight: "700" },
   messages: {
     flexGrow: 1,
     justifyContent: "flex-end",
@@ -217,15 +186,15 @@ const styles = StyleSheet.create({
   speakerName: { fontSize: 12, lineHeight: 16, fontWeight: "500" },
   readOnly: {
     position: "absolute",
-    bottom: 16,
+    bottom: 28,
     alignSelf: "center",
     minHeight: 38,
     borderRadius: 19,
     borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 16,
+    paddingHorizontal: 10,
     flexDirection: "row",
     alignItems: "center",
-    gap: 7,
+    gap: 6,
   },
   readOnlyLabel: { fontSize: 13, lineHeight: 17, fontWeight: "600" },
 });

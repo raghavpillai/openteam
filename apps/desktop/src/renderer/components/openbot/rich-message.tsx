@@ -1,10 +1,12 @@
 import type {
   ChannelMessageView,
+  RichMessageComputerHandoff as ComputerHandoff,
   RichMessageSecretRequest as SecretRequest,
   RichMessageWidget as Widget,
   RichMessageWidgetOption as WidgetOption,
 } from "@openbot/contracts";
 import {
+  parseRichMessageComputerHandoff as computerHandoffFrom,
   parseRichMessageSecretRequest as secretFrom,
   parseRichMessageWidget as widgetFrom,
   resolvedWidgetAnswers,
@@ -16,10 +18,11 @@ import {
   widgetOptionValue as optionValue,
   widgetResponseValue,
 } from "@openbot/product-core/rich-messages";
-import { Check, ShieldCheck, X } from "lucide-react";
+import { Check, MonitorUp, ShieldCheck, X } from "lucide-react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { api } from "../../client/openbot-api";
 import { cn } from "../../lib/cn";
+import { openComputerHandoff } from "../../lib/computer-handoff";
 
 const editableTarget = (target: EventTarget | null) =>
   (typeof HTMLInputElement !== "undefined" && target instanceof HTMLInputElement) ||
@@ -432,6 +435,85 @@ function SecretCard({
   );
 }
 
+function ComputerHandoffCard({
+  message,
+  metadata,
+  handoff,
+}: {
+  message: ChannelMessageView;
+  metadata: RichMetadata;
+  handoff: ComputerHandoff;
+}) {
+  const [state, setState] = useState(
+    typeof metadata.computerHandoffState === "string" ? metadata.computerHandoffState : "requested"
+  );
+  const [pending, setPending] = useState(false);
+  useEffect(() => {
+    setState(
+      typeof metadata.computerHandoffState === "string"
+        ? metadata.computerHandoffState
+        : "requested"
+    );
+  }, [metadata.computerHandoffState]);
+  const terminal = ["completed", "skipped", "dismissed"].includes(state);
+  const start = async () => {
+    if (!message.senderBotId || pending || terminal) return;
+    setPending(true);
+    try {
+      const result = await api.mutateComputerHandoff(message.id, "start");
+      const next = record(result.message.metadata).computerHandoffState;
+      setState(typeof next === "string" ? next : "active");
+      openComputerHandoff({ botId: message.senderBotId, messageId: message.id });
+    } finally {
+      setPending(false);
+    }
+  };
+  const skip = async () => {
+    if (pending || terminal) return;
+    setPending(true);
+    try {
+      const result = await api.mutateComputerHandoff(message.id, "skip");
+      const next = record(result.message.metadata).computerHandoffState;
+      setState(typeof next === "string" ? next : "skipped");
+    } finally {
+      setPending(false);
+    }
+  };
+  return (
+    <section className={cardClass} role="group">
+      <div className="flex min-w-0 items-start gap-2.5">
+        <MonitorUp className="mt-0.5 size-4 shrink-0" />
+        <div className="min-w-0 flex-1">
+          <div className="text-[14px] font-medium">Take over the computer</div>
+          <p className={cn("m-0 mt-0.5 leading-5", secondaryText)}>{handoff.reason}</p>
+        </div>
+      </div>
+      {terminal ? (
+        <div className={cn("text-xs font-medium capitalize", secondaryText)}>{state}</div>
+      ) : (
+        <div className="flex justify-end gap-2">
+          <button
+            className="h-8 rounded-lg px-2.5 font-medium text-foreground-secondary hover:bg-black/5 disabled:opacity-40 dark:hover:bg-white/5"
+            disabled={pending}
+            onClick={() => void skip()}
+            type="button"
+          >
+            Skip
+          </button>
+          <button
+            className="h-8 rounded-lg bg-[#141414] px-2.5 font-medium text-white disabled:opacity-40 dark:bg-[#f0f0f0] dark:text-[#181818]"
+            disabled={pending || !message.senderBotId}
+            onClick={() => void start()}
+            type="button"
+          >
+            {state === "active" ? "Return to computer" : "Take over"}
+          </button>
+        </div>
+      )}
+    </section>
+  );
+}
+
 export function RichMessage({ message }: { message: ChannelMessageView }) {
   const metadata = record(message.metadata);
   if (metadata.type === "widget") {
@@ -441,6 +523,12 @@ export function RichMessage({ message }: { message: ChannelMessageView }) {
   if (metadata.type === "secret-request") {
     const request = secretFrom(metadata.secretRequest ?? metadata.secret);
     return request ? <SecretCard message={message} metadata={metadata} request={request} /> : null;
+  }
+  if (metadata.type === "computer-handoff") {
+    const handoff = computerHandoffFrom(metadata.computerHandoff);
+    return handoff ? (
+      <ComputerHandoffCard handoff={handoff} message={message} metadata={metadata} />
+    ) : null;
   }
   return null;
 }

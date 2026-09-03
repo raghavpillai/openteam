@@ -1,16 +1,16 @@
 import {
   createKeyedRequestCoordinator,
-  createScreenSessionController,
   SCREEN_FRAME_REFRESH_MS,
-  type ScreenSessionController,
+  SCREEN_STATUS_POLL_MS,
 } from "@openbot/client-core";
 import type { BotView, ScreenActionInput, ScreenStatusView } from "@openbot/contracts";
 import { clientErrorMessage } from "@openbot/product-core/redaction";
 import { LoaderCircle, Minimize2, Monitor, RefreshCw } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../client/openbot-api";
-import { measureUntilNextPaint, recordPerformance } from "../../lib/performance";
+import { resolveViewerUrl } from "../../client/runtime-url";
 import { useAuthenticatedResource } from "../../hooks/use-authenticated-resource";
+import { measureUntilNextPaint, recordPerformance } from "../../lib/performance";
 import {
   shouldLoadScreenStatus,
   shouldPollScreenStatus,
@@ -30,23 +30,28 @@ export function BotScreen({
   bot,
   active,
   enabled,
+  handoff,
   onEnable,
+  onHandoffFinished,
   onRetry,
 }: {
   bot: BotView;
   active: boolean;
   enabled: boolean;
+  handoff?: { botId: string; messageId: string } | null;
   onEnable: () => void;
+  onHandoffFinished?: () => void;
   onRetry?: () => Promise<void>;
 }) {
   const [screen, setScreen] = useState<ScreenStatusView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [frameRevision, setFrameRevision] = useState(Date.now());
   const [open, setOpen] = useState(false);
-  const takeoverRef = useRef(false);
-  const screenSession = useRef<ScreenSessionController | null>(null);
+  const [handoffPending, setHandoffPending] = useState(false);
   const viewerOpenedAt = useRef(0);
   const actionTail = useRef(Promise.resolve());
+  const handoffFinishing = useRef(false);
+  const handoffReleaseTimer = useRef<number | null>(null);
   const pointerGesture = useRef<{
     moved: boolean;
     path: Array<{ x: number; y: number }>;
@@ -54,17 +59,10 @@ export function BotScreen({
     start: { x: number; y: number };
   } | null>(null);
   const suppressNextClick = useRef(false);
-  const screenRef = useRef(screen);
-  const enabledRef = useRef(enabled);
-  const activeRef = useRef(active);
-  screenRef.current = screen;
-  enabledRef.current = enabled;
-  activeRef.current = active;
 
   const refreshStatus = useCallback(async () => {
     try {
       const next = await loadScreenStatus(bot.id);
-      screenSession.current?.confirmTakeover(next.humanTakeover);
       setScreen(next);
       setError(null);
       return next;
@@ -77,6 +75,18 @@ export function BotScreen({
   useEffect(() => {
     if (shouldLoadScreenStatus(enabled, active) && !screen) void refreshStatus();
   }, [active, enabled, refreshStatus, screen]);
+  useEffect(() => {
+    if (!shouldPollScreenStatus(enabled, active, screen?.state)) return;
+    const pollStatus = () => {
+      if (document.visibilityState === "visible") void refreshStatus();
+    };
+    const timer = window.setInterval(pollStatus, SCREEN_STATUS_POLL_MS);
+    document.addEventListener("visibilitychange", pollStatus);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", pollStatus);
+    };
+  }, [active, enabled, refreshStatus, screen?.state]);
   useEffect(() => {
     const refreshFrame = () => {
       if (
@@ -100,88 +110,57 @@ export function BotScreen({
       document.removeEventListener("visibilitychange", refreshFrame);
     };
   }, [active, enabled, open, screen?.state]);
-  useEffect(() => {
-    const controller = createScreenSessionController({
-      pollStatus: async () => {
-        if (
-          document.visibilityState !== "visible" ||
-          !shouldPollScreenStatus(enabledRef.current, activeRef.current, screenRef.current?.state)
-        ) {
-          return;
-        }
-        await refreshStatus();
-      },
-      requestTakeover: (active) => api.screenTakeover(bot.id, active),
-      onError: (cause) => setError(clientErrorMessage(cause, "Could not change computer control")),
-      onTakeoverResult: (next) => {
-        takeoverRef.current = next.humanTakeover;
-        setScreen(next);
-        setError(null);
-      },
-    });
-    screenSession.current = controller;
-    return () => {
-      controller.stop();
-      if (screenSession.current === controller) screenSession.current = null;
-      takeoverRef.current = false;
-      api.releaseScreenTakeover(bot.id);
-    };
-  }, [bot.id, refreshStatus]);
-  useEffect(() => {
-    const controller = screenSession.current;
-    if (!controller) return;
-    const syncActivity = () => {
-      if (shouldLoadScreenStatus(enabled, active)) controller.activate();
-      else controller.deactivate();
-    };
-    const wakeWhenVisible = () => {
-      if (document.visibilityState === "visible") controller.wake();
-    };
-    syncActivity();
-    document.addEventListener("visibilitychange", wakeWhenVisible);
-    return () => document.removeEventListener("visibilitychange", wakeWhenVisible);
-  }, [active, bot.id, enabled]);
-  useEffect(() => {
-    if (!open || screen?.state !== "ready" || screen.humanTakeover) return;
-    screenSession.current?.setTakeover(true);
-  }, [open, screen?.humanTakeover, screen?.state]);
-  useEffect(() => {
-    takeoverRef.current = Boolean(screen?.humanTakeover);
-    screenSession.current?.confirmTakeover(Boolean(screen?.humanTakeover));
-  }, [screen?.humanTakeover]);
-  useEffect(() => {
-    const release = () => {
-      screenSession.current?.deactivate();
-      takeoverRef.current = false;
-      api.releaseScreenTakeover(bot.id);
-    };
-    window.addEventListener("pagehide", release);
-    return () => {
-      window.removeEventListener("pagehide", release);
-      release();
-    };
-  }, [bot.id]);
+  const finishHandoff = useCallback(
+    async (action: "complete" | "skip" | "dismiss") => {
+      if (!handoff || handoffPending) return;
+      handoffFinishing.current = true;
+      setHandoffPending(true);
+      try {
+        await api.mutateComputerHandoff(handoff.messageId, action);
+        setOpen(false);
+        onHandoffFinished?.();
+      } catch (cause) {
+        handoffFinishing.current = false;
+        setError(clientErrorMessage(cause, "Could not return computer control"));
+      } finally {
+        setHandoffPending(false);
+      }
+    },
+    [handoff, handoffPending, onHandoffFinished]
+  );
+  const closeViewer = useCallback(() => {
+    if (handoff) {
+      void finishHandoff("dismiss");
+      return;
+    }
+    setOpen(false);
+  }, [finishHandoff, handoff]);
   useEffect(() => {
     if (active || !open) return;
-    setOpen(false);
-    setScreen((current) =>
-      current?.humanTakeover ? { ...current, humanTakeover: false } : current
-    );
-    screenSession.current?.setTakeover(false);
-    if (!takeoverRef.current) return;
-    takeoverRef.current = false;
-    api.releaseScreenTakeover(bot.id);
-  }, [active, bot.id, open]);
-  const closeViewer = useCallback(() => {
-    setOpen(false);
-    setScreen((current) =>
-      current?.humanTakeover ? { ...current, humanTakeover: false } : current
-    );
-    screenSession.current?.setTakeover(false);
-    if (!takeoverRef.current) return;
-    takeoverRef.current = false;
-    api.releaseScreenTakeover(bot.id);
-  }, [bot.id]);
+    closeViewer();
+  }, [active, closeViewer, open]);
+  useEffect(() => {
+    if (!handoff) return;
+    if (handoffReleaseTimer.current !== null) {
+      window.clearTimeout(handoffReleaseTimer.current);
+      handoffReleaseTimer.current = null;
+    }
+    handoffFinishing.current = false;
+    const releaseHandoff = () => {
+      if (handoffFinishing.current) return;
+      handoffFinishing.current = true;
+      api.releaseComputerHandoff(handoff.messageId);
+    };
+    window.addEventListener("pagehide", releaseHandoff);
+    return () => {
+      window.removeEventListener("pagehide", releaseHandoff);
+      if (handoffFinishing.current) return;
+      handoffReleaseTimer.current = window.setTimeout(() => {
+        handoffReleaseTimer.current = null;
+        releaseHandoff();
+      }, 0);
+    };
+  }, [handoff]);
   useEffect(() => {
     if (!open) return;
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -199,7 +178,44 @@ export function BotScreen({
     setOpen(true);
     if (!screen) void refreshStatus();
   };
-  const viewerReady = Boolean(screen?.state === "ready" && screen.humanTakeover);
+  useEffect(() => {
+    if (!handoff || handoff.botId !== bot.id) return;
+    onEnable();
+    setOpen(true);
+    if (!screen) void refreshStatus();
+  }, [bot.id, handoff, onEnable, refreshStatus, screen]);
+  useEffect(() => {
+    if (!handoff || !open) return;
+    const heartbeat = () => {
+      void api
+        .screenTakeover(bot.id, true)
+        .then(setScreen)
+        .catch((cause) => setError(clientErrorMessage(cause, "Could not keep computer control")));
+    };
+    heartbeat();
+    const timer = window.setInterval(heartbeat, 20_000);
+    document.addEventListener("visibilitychange", heartbeat);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", heartbeat);
+    };
+  }, [bot.id, handoff, open]);
+  const viewerReady = screen?.state === "ready";
+  const liveViewerUrl = useMemo(() => {
+    if (!open || !screen?.viewerUrl) return "";
+    try {
+      const source = new URL(screen.viewerUrl);
+      const resolved = new URL(resolveViewerUrl(screen.viewerUrl, window.location.href));
+      const loopback = source.hostname === "127.0.0.1" || source.hostname === "localhost";
+      const sameOrigin =
+        window.location.protocol !== "file:" && resolved.origin === window.location.origin;
+      if (!loopback && !sameOrigin) return "";
+      resolved.searchParams.set("view_only", "false");
+      return resolved.toString();
+    } catch {
+      return "";
+    }
+  }, [open, screen?.viewerUrl]);
   const frameSource = useAuthenticatedResource(
     enabled && screen?.state === "ready" ? api.screenFrameUrl(bot.id, frameRevision) : null
   );
@@ -208,7 +224,6 @@ export function BotScreen({
       const request = actionTail.current
         .catch(() => undefined)
         .then(async () => {
-          if (!takeoverRef.current) return;
           try {
             const next = await api.screenAction(bot.id, input);
             setScreen(next);
@@ -327,7 +342,31 @@ export function BotScreen({
       )}
       {open && (
         <div className="fixed inset-0 z-[70] flex flex-col bg-black/[0.94] text-white">
-          <header className="electron-drag flex h-11 shrink-0 items-center justify-end border-b border-white/[0.035] px-1">
+          <header className="electron-drag flex h-11 shrink-0 items-center justify-end gap-1 border-b border-white/[0.035] px-1">
+            {handoff ? (
+              <>
+                <span className="mr-auto truncate px-3 text-sm text-white/70">
+                  Complete the requested step
+                </span>
+                <Button
+                  className="electron-no-drag text-white/70 hover:bg-white/[0.055] hover:text-white"
+                  disabled={handoffPending}
+                  onClick={() => void finishHandoff("skip")}
+                  size="sm"
+                  variant="ghost"
+                >
+                  Skip this step
+                </Button>
+                <Button
+                  className="electron-no-drag bg-white text-black hover:bg-white/90"
+                  disabled={handoffPending}
+                  onClick={() => void finishHandoff("complete")}
+                  size="sm"
+                >
+                  I'm done, continue
+                </Button>
+              </>
+            ) : null}
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
@@ -352,7 +391,24 @@ export function BotScreen({
               className="relative aspect-[16/10] w-full overflow-hidden rounded-[6px] bg-[#1b1d1f]"
               style={{ maxWidth: "calc((100vh - 60px) * 1.6)" }}
             >
-              {viewerReady && frameSource ? (
+              {viewerReady && liveViewerUrl ? (
+                <iframe
+                  className="absolute inset-0 size-full border-0 bg-[#1b1d1f]"
+                  key={liveViewerUrl}
+                  onLoad={() => {
+                    if (!viewerOpenedAt.current) return;
+                    recordPerformance(
+                      "view.desktop-ready",
+                      performance.now() - viewerOpenedAt.current,
+                      { botId: bot.id }
+                    );
+                    viewerOpenedAt.current = 0;
+                  }}
+                  sandbox="allow-scripts allow-same-origin allow-forms allow-pointer-lock"
+                  src={liveViewerUrl}
+                  title={`${bot.name}'s interactive Linux computer`}
+                />
+              ) : viewerReady && frameSource ? (
                 <div
                   aria-label={`${bot.name}'s interactive Linux computer`}
                   className="absolute inset-0 size-full cursor-crosshair bg-[#1b1d1f] outline-none"

@@ -85,6 +85,8 @@ describe("mobile-safe OpenBot client", () => {
     await client.respondToWidget("message/1", "Deploy");
     await client.dismissWidget("message/2");
     await client.submitSecret("message/3", "  preserve-whitespace  ");
+    await client.mutateComputerHandoff("message/4", "start");
+    await client.mutateComputerHandoff("message/4", "complete");
 
     expect(
       calls.map((call) => [call.url, call.init?.method, JSON.parse(String(call.init?.body))])
@@ -103,6 +105,16 @@ describe("mobile-safe OpenBot client", () => {
         "http://openbot.test/api/v0/channel-messages/message%2F3/secret",
         "POST",
         { value: "  preserve-whitespace  ", clientId: "rich-client-3" },
+      ],
+      [
+        "http://openbot.test/api/v0/channel-messages/message%2F4/computer-handoff",
+        "POST",
+        { action: "start", clientId: "rich-client-4" },
+      ],
+      [
+        "http://openbot.test/api/v0/channel-messages/message%2F4/computer-handoff",
+        "POST",
+        { action: "complete", clientId: "rich-client-5" },
       ],
     ]);
   });

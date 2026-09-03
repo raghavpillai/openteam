@@ -1,0 +1,3347 @@
+{
+  "label": "--force-gc",
+  "capturedAt": "2026-09-01T22:17:02.305Z",
+  "target": {
+    "type": "page",
+    "url": "file:///private/tmp/openbot-pagination-candidate-final-source-f9787a2/apps/desktop/release-local/mac-arm64/OpenBotPaginationCandidateFinal.app/Contents/Resources/app.asar/dist/index.html"
+  },
+  "dom": {
+    "documents": 1,
+    "nodes": 1559,
+    "jsEventListeners": 444
+  },
+  "runtime": {
+    "usedSize": 22246488,
+    "totalSize": 23330816,
+    "embedderHeapUsedSize": 5099168,
+    "backingStorageSize": 1722351
+  },
+  "performance": {
+    "Timestamp": 1762722.402796,
+    "AudioHandlers": 0,
+    "AudioWorkletProcessors": 0,
+    "Documents": 1,
+    "Frames": 1,
+    "JSEventListeners": 444,
+    "LayoutObjects": 1428,
+    "MediaKeySessions": 0,
+    "MediaKeys": 0,
+    "Nodes": 1559,
+    "Resources": 41,
+    "ContextLifecycleStateObservers": 5,
+    "V8PerContextDatas": 2,
+    "WorkerGlobalScopes": 0,
+    "UACSSResources": 0,
+    "RTCPeerConnections": 0,
+    "ResourceFetchers": 1,
+    "AdSubframes": 0,
+    "DetachedScriptStates": 0,
+    "ArrayBufferContents": 3,
+    "LayoutCount": 0,
+    "RecalcStyleCount": 0,
+    "LayoutDuration": 0,
+    "RecalcStyleDuration": 0,
+    "DevToolsCommandDuration": 0.000068,
+    "ScriptDuration": 0,
+    "V8CompileDuration": 0,
+    "TaskDuration": 0.000076,
+    "TaskOtherDuration": 0.000008,
+    "ThreadTime": 0.000102,
+    "ProcessTime": 19.181685,
+    "JSHeapUsedSize": 22246488,
+    "JSHeapTotalSize": 23330816,
+    "FirstMeaningfulPaint": 1762492.041838,
+    "DomContentLoaded": 1762490.899506,
+    "NavigationStart": 1762490.822549
+  },
+  "page": {
+    "url": "file:///private/tmp/openbot-pagination-candidate-final-source-f9787a2/apps/desktop/release-local/mac-arm64/OpenBotPaginationCandidateFinal.app/Contents/Resources/app.asar/dist/index.html",
+    "title": "OpenBot",
+    "readyState": "complete",
+    "elements": 1374,
+    "buttons": 145,
+    "images": 0,
+    "dialogs": 0,
+    "virtualization": {
+      "sidebarEnabled": true,
+      "mountedChannelRows": 17,
+      "mountedPinnedRows": 0,
+      "declaredSidebarRows": [
+        1102
+      ],
+      "declaredPinnedRows": [],
+      "declaredSections": [],
+      "mountedCompactRows": 0,
+      "declaredCompactRows": [],
+      "mountedTimelineRows": 38,
+      "declaredTimelines": [
+        401
+      ],
+      "memberEditorOpen": false,
+      "mountedMemberRows": 0,
+      "declaredMemberRows": []
+    },
+    "scroll": {
+      "top": 0,
+      "height": 860,
+      "viewport": 860,
+      "bottomDistance": 0
+    },
+    "timelineScroll": {
+      "top": 5251,
+      "height": 29478,
+      "viewport": 860,
+      "bottomDistance": 23367
+    },
+    "newestButton": {
+      "ariaHidden": "false",
+      "tabIndex": 0,
+      "opacity": "1",
+      "pointerEvents": "auto"
+    },
+    "scrollCandidates": [
+      {
+        "role": null,
+        "className": "grok-scrollbar flex min-h-0 w-full flex-1 flex-col overflow-y-auto px-[12px]",
+        "top": 0,
+        "height": 63916,
+        "viewport": 730,
+        "bottomDistance": 63186
+      },
+      {
+        "role": null,
+        "className": "min-h-0 overflow-hidden",
+        "top": 0,
+        "height": 102,
+        "viewport": 0,
+        "bottomDistance": 102
+      },
+      {
+        "role": null,
+        "className": "pointer-events-none col-start-1 row-start-1 overflow-hidden h-0",
+        "top": 0,
+        "height": 110,
+        "viewport": 0,
+        "bottomDistance": 110
+      },
+      {
+        "role": null,
+        "className": "rounded-[12px] transition-colors duration-150 ease-out flex min-h-[36px] flex-1 flex-col",
+        "top": 0,
+        "height": 63916,
+        "viewport": 730,
+        "bottomDistance": 63186
+      },
+      {
+        "role": null,
+        "className": "",
+        "top": 5251,
+        "height": 29478,
+        "viewport": 860,
+        "bottomDistance": 23367
+      },
+      {
+        "role": null,
+        "className": "sr-only",
+        "top": 0,
+        "height": 24,
+        "viewport": 1,
+        "bottomDistance": 23
+      },
+      {
+        "role": null,
+        "className": "relative",
+        "top": 0,
+        "height": 60,
+        "viewport": 44,
+        "bottomDistance": 16
+      }
+    ],
+    "heap": {
+      "usedJSHeapSize": 24500000,
+      "totalJSHeapSize": 24500000,
+      "jsHeapSizeLimit": 3760000000
+    },
+    "navigation": {
+      "name": "file:///private/tmp/openbot-pagination-candidate-final-source-f9787a2/apps/desktop/release-local/mac-arm64/OpenBotPaginationCandidateFinal.app/Contents/Resources/app.asar/dist/index.html",
+      "entryType": "navigation",
+      "startTime": 0,
+      "duration": 77.29999995231628,
+      "initiatorType": "navigation",
+      "deliveryType": "",
+      "nextHopProtocol": "",
+      "renderBlockingStatus": "non-blocking",
+      "contentType": "text/html",
+      "contentEncoding": "",
+      "workerStart": 0,
+      "workerRouterEvaluationStart": 0,
+      "workerCacheLookupStart": 0,
+      "workerMatchedSourceType": "",
+      "workerFinalSourceType": "",
+      "redirectStart": 0,
+      "redirectEnd": 0,
+      "fetchStart": 2.299999952316284,
+      "domainLookupStart": 2.299999952316284,
+      "domainLookupEnd": 2.299999952316284,
+      "connectStart": 2.299999952316284,
+      "secureConnectionStart": 0,
+      "connectEnd": 2.299999952316284,
+      "requestStart": 2.299999952316284,
+      "responseStart": 2.299999952316284,
+      "firstInterimResponseStart": 0,
+      "finalResponseHeadersStart": 0,
+      "responseEnd": 15.400000095367432,
+      "transferSize": 5282,
+      "encodedBodySize": 4982,
+      "decodedBodySize": 4982,
+      "responseStatus": 200,
+      "serverTiming": [],
+      "unloadEventStart": 0,
+      "unloadEventEnd": 0,
+      "domInteractive": 57.5,
+      "domContentLoadedEventStart": 77,
+      "domContentLoadedEventEnd": 77,
+      "domComplete": 77.29999995231628,
+      "loadEventStart": 77.29999995231628,
+      "loadEventEnd": 77.29999995231628,
+      "type": "navigate",
+      "redirectCount": 0,
+      "activationStart": 0,
+      "criticalCHRestart": 0,
+      "notRestoredReasons": null,
+      "confidence": {}
+    },
+    "resourceCount": 125,
+    "resourceBytes": 0,
+    "resources": [
+      {
+        "name": "http://127.0.0.1:8882/api/auth/config",
+        "startTime": 90.40000009536743,
+        "duration": 44.299999952316284,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/settings",
+        "startTime": 139.20000004768372,
+        "duration": 8.299999952316284,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/client-bootstrap",
+        "startTime": 139.20000004768372,
+        "duration": 65,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/active-agent",
+        "startTime": 278.7000000476837,
+        "duration": 6.299999952316284,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/649d7f94-5e07-7e68-c39c-29a0517588f7/history?limit=100",
+        "startTime": 278.90000009536743,
+        "duration": 8,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/649d7f94-5e07-7e68-c39c-29a0517588f7/client-state",
+        "startTime": 278.90000009536743,
+        "duration": 24.699999809265137,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?limit=100",
+        "startTime": 295,
+        "duration": 10.700000047683716,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/client-state",
+        "startTime": 295.09999990463257,
+        "duration": 12.200000047683716,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/settings/sidebar",
+        "startTime": 490.09999990463257,
+        "duration": 19.90000009536743,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=54307&limit=100",
+        "startTime": 15925.299999952316,
+        "duration": 4.299999952316284,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=54207&limit=100",
+        "startTime": 26575.299999952316,
+        "duration": 16.5,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=54107&limit=100",
+        "startTime": 28684.200000047684,
+        "duration": 14.5,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/client-runtime",
+        "startTime": 30225.200000047684,
+        "duration": 11.5,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=54007&limit=100",
+        "startTime": 30804.599999904633,
+        "duration": 15.900000095367432,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=53907&limit=100",
+        "startTime": 32923.5,
+        "duration": 17.299999952316284,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=53807&limit=100",
+        "startTime": 35034.299999952316,
+        "duration": 7.900000095367432,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/client-runtime",
+        "startTime": 60237.200000047684,
+        "duration": 12.700000047683716,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/client-bootstrap",
+        "startTime": 60335,
+        "duration": 97.29999995231628,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?limit=100",
+        "startTime": 60441.799999952316,
+        "duration": 6.299999952316284,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/client-state",
+        "startTime": 60441.799999952316,
+        "duration": 14.900000095367432,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=53707&limit=100",
+        "startTime": 61979.59999990463,
+        "duration": 15.400000095367432,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=53607&limit=100",
+        "startTime": 63982.90000009537,
+        "duration": 23.399999856948853,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=53507&limit=100",
+        "startTime": 65354.799999952316,
+        "duration": 5.799999952316284,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=53407&limit=100",
+        "startTime": 66488.70000004768,
+        "duration": 16.799999952316284,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=53307&limit=100",
+        "startTime": 67600.79999995232,
+        "duration": 15.900000095367432,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=53207&limit=100",
+        "startTime": 68714.40000009537,
+        "duration": 10.099999904632568,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=53107&limit=100",
+        "startTime": 69821,
+        "duration": 10.400000095367432,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=53007&limit=100",
+        "startTime": 70952.40000009537,
+        "duration": 12.599999904632568,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=52907&limit=100",
+        "startTime": 72069.70000004768,
+        "duration": 5.200000047683716,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=52807&limit=100",
+        "startTime": 73195.40000009537,
+        "duration": 11.699999809265137,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=52707&limit=100",
+        "startTime": 74310.29999995232,
+        "duration": 24.600000143051147,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=52607&limit=100",
+        "startTime": 75413,
+        "duration": 6.099999904632568,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=52507&limit=100",
+        "startTime": 76526.09999990463,
+        "duration": 6.6000001430511475,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=52407&limit=100",
+        "startTime": 77636.59999990463,
+        "duration": 4.700000047683716,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=52307&limit=100",
+        "startTime": 78786.40000009537,
+        "duration": 14.899999856948853,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=52207&limit=100",
+        "startTime": 79901,
+        "duration": 14.299999952316284,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=52107&limit=100",
+        "startTime": 80997.59999990463,
+        "duration": 12.200000047683716,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=52007&limit=100",
+        "startTime": 82119.29999995232,
+        "duration": 31.299999952316284,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=51907&limit=100",
+        "startTime": 83202.59999990463,
+        "duration": 8.200000047683716,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=51807&limit=100",
+        "startTime": 84302.59999990463,
+        "duration": 9.100000143051147,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=51707&limit=100",
+        "startTime": 85435.90000009537,
+        "duration": 12.599999904632568,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=51607&limit=100",
+        "startTime": 86551.5,
+        "duration": 13.700000047683716,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=51507&limit=100",
+        "startTime": 87652,
+        "duration": 12.299999952316284,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=51407&limit=100",
+        "startTime": 88783.90000009537,
+        "duration": 7.299999952316284,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=51307&limit=100",
+        "startTime": 89893.5,
+        "duration": 14.599999904632568,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/client-runtime",
+        "startTime": 90251.29999995232,
+        "duration": 17,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=51207&limit=100",
+        "startTime": 97429.70000004768,
+        "duration": 10.299999952316284,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=51107&limit=100",
+        "startTime": 99190.70000004768,
+        "duration": 15.099999904632568,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=51007&limit=100",
+        "startTime": 100553.5,
+        "duration": 15,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=50907&limit=100",
+        "startTime": 101663.90000009537,
+        "duration": 11.199999809265137,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=50807&limit=100",
+        "startTime": 102800.40000009537,
+        "duration": 7.3999998569488525,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=50707&limit=100",
+        "startTime": 103911.40000009537,
+        "duration": 15.399999856948853,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=50607&limit=100",
+        "startTime": 105039.5,
+        "duration": 15.200000047683716,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=50507&limit=100",
+        "startTime": 106169.90000009537,
+        "duration": 12.099999904632568,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=50407&limit=100",
+        "startTime": 107288.29999995232,
+        "duration": 11.200000047683716,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=50307&limit=100",
+        "startTime": 108396.40000009537,
+        "duration": 20.199999809265137,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=50207&limit=100",
+        "startTime": 109518.20000004768,
+        "duration": 9.799999952316284,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=50107&limit=100",
+        "startTime": 110648,
+        "duration": 6.900000095367432,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=50007&limit=100",
+        "startTime": 111749.70000004768,
+        "duration": 11.599999904632568,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=49907&limit=100",
+        "startTime": 112840.09999990463,
+        "duration": 15.300000190734863,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=49807&limit=100",
+        "startTime": 113950.09999990463,
+        "duration": 31.5,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=49707&limit=100",
+        "startTime": 115062,
+        "duration": 6.099999904632568,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=49607&limit=100",
+        "startTime": 116188.09999990463,
+        "duration": 10.5,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=49507&limit=100",
+        "startTime": 117317.5,
+        "duration": 8.900000095367432,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=49407&limit=100",
+        "startTime": 118418.90000009537,
+        "duration": 15.5,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=49307&limit=100",
+        "startTime": 119525,
+        "duration": 7.200000047683716,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/client-runtime",
+        "startTime": 120269.70000004768,
+        "duration": 3.3999998569488525,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/client-bootstrap",
+        "startTime": 120336.29999995232,
+        "duration": 63.799999952316284,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?limit=100",
+        "startTime": 120405.5,
+        "duration": 4.900000095367432,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/client-state",
+        "startTime": 120405.5,
+        "duration": 13.299999952316284,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=49207&limit=100",
+        "startTime": 120625.70000004768,
+        "duration": 12.399999856948853,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=49107&limit=100",
+        "startTime": 121773,
+        "duration": 13.400000095367432,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=49007&limit=100",
+        "startTime": 122906.70000004768,
+        "duration": 17.200000047683716,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=48919&limit=100",
+        "startTime": 124001.70000004768,
+        "duration": 10.200000047683716,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=48819&limit=100",
+        "startTime": 125135.09999990463,
+        "duration": 20.800000190734863,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/client-runtime",
+        "startTime": 150276,
+        "duration": 10.799999952316284,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=48719&limit=100",
+        "startTime": 160052.40000009537,
+        "duration": 4.199999809265137,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=48619&limit=100",
+        "startTime": 161835.20000004768,
+        "duration": 15.200000047683716,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=48519&limit=100",
+        "startTime": 163237.79999995232,
+        "duration": 6.400000095367432,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=48419&limit=100",
+        "startTime": 164372.70000004768,
+        "duration": 22.59999990463257,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=48319&limit=100",
+        "startTime": 165485.20000004768,
+        "duration": 13.799999952316284,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=48219&limit=100",
+        "startTime": 166617.90000009537,
+        "duration": 8.199999809265137,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=48119&limit=100",
+        "startTime": 167745,
+        "duration": 15.599999904632568,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=48019&limit=100",
+        "startTime": 168871.40000009537,
+        "duration": 15.099999904632568,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=47919&limit=100",
+        "startTime": 170001.09999990463,
+        "duration": 11.100000143051147,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=47819&limit=100",
+        "startTime": 171136.70000004768,
+        "duration": 13.700000047683716,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=47719&limit=100",
+        "startTime": 172275.09999990463,
+        "duration": 10.400000095367432,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=47619&limit=100",
+        "startTime": 173385.09999990463,
+        "duration": 12.300000190734863,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=47519&limit=100",
+        "startTime": 174501.79999995232,
+        "duration": 15.900000095367432,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=47419&limit=100",
+        "startTime": 175637.40000009537,
+        "duration": 23,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=47319&limit=100",
+        "startTime": 176767.70000004768,
+        "duration": 8.299999952316284,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=47219&limit=100",
+        "startTime": 177875.90000009537,
+        "duration": 10.299999952316284,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=47119&limit=100",
+        "startTime": 178964,
+        "duration": 12.099999904632568,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=47019&limit=100",
+        "startTime": 180090.20000004768,
+        "duration": 15.899999856948853,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/client-runtime",
+        "startTime": 180287.40000009537,
+        "duration": 4.599999904632568,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/client-bootstrap",
+        "startTime": 180337.29999995232,
+        "duration": 80.90000009536743,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?limit=100",
+        "startTime": 180423.90000009537,
+        "duration": 14.899999856948853,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/client-state",
+        "startTime": 180424.09999990463,
+        "duration": 20.700000047683716,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=46919&limit=100",
+        "startTime": 181013.09999990463,
+        "duration": 9.400000095367432,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=46819&limit=100",
+        "startTime": 182801.70000004768,
+        "duration": 13,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=46719&limit=100",
+        "startTime": 184185,
+        "duration": 14.400000095367432,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=46631&limit=100",
+        "startTime": 185275.79999995232,
+        "duration": 6.299999952316284,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=46531&limit=100",
+        "startTime": 186121.29999995232,
+        "duration": 12.600000143051147,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=46431&limit=100",
+        "startTime": 187235.70000004768,
+        "duration": 7.599999904632568,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=46331&limit=100",
+        "startTime": 188352.20000004768,
+        "duration": 9,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=46231&limit=100",
+        "startTime": 197682.20000004768,
+        "duration": 7.200000047683716,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=46131&limit=100",
+        "startTime": 199469.20000004768,
+        "duration": 8.200000047683716,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=46031&limit=100",
+        "startTime": 200871.79999995232,
+        "duration": 24.90000009536743,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=45931&limit=100",
+        "startTime": 202005.79999995232,
+        "duration": 14.299999952316284,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=45831&limit=100",
+        "startTime": 203136.5,
+        "duration": 13,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=45731&limit=100",
+        "startTime": 204264.20000004768,
+        "duration": 11.799999952316284,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=45631&limit=100",
+        "startTime": 205386.70000004768,
+        "duration": 12.599999904632568,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=45531&limit=100",
+        "startTime": 206518.20000004768,
+        "duration": 12.700000047683716,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=45431&limit=100",
+        "startTime": 207657.5,
+        "duration": 12.200000047683716,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=45331&limit=100",
+        "startTime": 208787.09999990463,
+        "duration": 13.100000143051147,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=45231&limit=100",
+        "startTime": 209903,
+        "duration": 14,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/client-runtime",
+        "startTime": 210293.20000004768,
+        "duration": 12.399999856948853,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=45131&limit=100",
+        "startTime": 211030.20000004768,
+        "duration": 12.899999856948853,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=45031&limit=100",
+        "startTime": 212140.70000004768,
+        "duration": 9.700000047683716,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=44931&limit=100",
+        "startTime": 213250,
+        "duration": 10.099999904632568,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=44831&limit=100",
+        "startTime": 214358.79999995232,
+        "duration": 6.1000001430511475,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=44731&limit=100",
+        "startTime": 215468.70000004768,
+        "duration": 6.700000047683716,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=44631&limit=100",
+        "startTime": 216593.09999990463,
+        "duration": 13.400000095367432,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=44531&limit=100",
+        "startTime": 217711,
+        "duration": 12.5,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=44431&limit=100",
+        "startTime": 218828.70000004768,
+        "duration": 7.8999998569488525,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      }
+    ],
+    "frameGaps": {
+      "samples": 120,
+      "max": 20.700000047683716,
+      "over20ms": 2,
+      "over50ms": 0
+    },
+    "openbot": [
+      {
+        "name": "history.page.intent-to-paint",
+        "duration": 7.299999952316284,
+        "at": 1788300967693,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "api.ttfb",
+        "duration": 12.099999904632568,
+        "at": 1788300967704,
+        "detail": {
+          "path": "/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history",
+          "status": 200,
+          "bytes": 40919,
+          "serverTiming": "",
+          "failed": false
+        }
+      },
+      {
+        "name": "snapshot.reconcile",
+        "duration": 2.5,
+        "at": 1788300967715,
+        "detail": {
+          "changed": true,
+          "mode": "bounded",
+          "messages": 1600
+        }
+      },
+      {
+        "name": "history.page.merge",
+        "duration": 11.100000143051147,
+        "at": 1788300967715,
+        "detail": {
+          "direction": "older",
+          "mode": "history",
+          "messages": 400,
+          "retainedBytes": 203339,
+          "retainedMessages": 500,
+          "viewportFill": "older-first",
+          "viewportProtected": 11,
+          "evictedOlder": 0,
+          "evictedNewer": 100
+        }
+      },
+      {
+        "name": "history.anchor.max-error-px",
+        "duration": 0.0625,
+        "at": 1788300968717,
+        "detail": {
+          "automatic": false,
+          "direction": "older",
+          "settleMs": 1031
+        }
+      },
+      {
+        "name": "history.anchor.row-survived",
+        "duration": 0,
+        "at": 1788300968717,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "history.anchor.error-px",
+        "duration": 0,
+        "at": 1788300968823,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "history.page.intent-to-paint",
+        "duration": 8.799999952316284,
+        "at": 1788300968823,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "api.ttfb",
+        "duration": 15.299999952316284,
+        "at": 1788300968833,
+        "detail": {
+          "path": "/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history",
+          "status": 200,
+          "bytes": 40919,
+          "serverTiming": "",
+          "failed": false
+        }
+      },
+      {
+        "name": "snapshot.reconcile",
+        "duration": 2.200000047683716,
+        "at": 1788300968843,
+        "detail": {
+          "changed": true,
+          "mode": "bounded",
+          "messages": 1600
+        }
+      },
+      {
+        "name": "history.page.merge",
+        "duration": 9.5,
+        "at": 1788300968843,
+        "detail": {
+          "direction": "older",
+          "mode": "history",
+          "messages": 400,
+          "retainedBytes": 203339,
+          "retainedMessages": 500,
+          "viewportFill": "older-first",
+          "viewportProtected": 11,
+          "evictedOlder": 0,
+          "evictedNewer": 100
+        }
+      },
+      {
+        "name": "api.ttfb",
+        "duration": 4.799999952316284,
+        "at": 1788300969020,
+        "detail": {
+          "path": "/api/v0/client-runtime",
+          "status": 200,
+          "bytes": 100,
+          "serverTiming": "",
+          "failed": false
+        }
+      },
+      {
+        "name": "api.ttfb",
+        "duration": 79.60000014305115,
+        "at": 1788300969144,
+        "detail": {
+          "path": "/api/v0/client-bootstrap",
+          "status": 200,
+          "bytes": 1578088,
+          "serverTiming": "bootstrap;dur=69.67",
+          "failed": false
+        }
+      },
+      {
+        "name": "snapshot.reconcile",
+        "duration": 1.3999998569488525,
+        "at": 1788300969151,
+        "detail": {
+          "changed": false,
+          "mode": "bounded",
+          "messages": 1600
+        }
+      },
+      {
+        "name": "api.ttfb",
+        "duration": 15,
+        "at": 1788300969166,
+        "detail": {
+          "path": "/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history",
+          "status": 200,
+          "bytes": 41028,
+          "serverTiming": "",
+          "failed": false
+        }
+      },
+      {
+        "name": "api.ttfb",
+        "duration": 20.90000009536743,
+        "at": 1788300969172,
+        "detail": {
+          "path": "/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/client-state",
+          "status": 200,
+          "bytes": 700,
+          "serverTiming": "",
+          "failed": false
+        }
+      },
+      {
+        "name": "history.page.merge",
+        "duration": 2.5,
+        "at": 1788300969175,
+        "detail": {
+          "direction": "latest",
+          "mode": "refresh",
+          "outcome": "preserved-gap",
+          "messages": 400,
+          "retainedBytes": 203339,
+          "retainedMessages": 500,
+          "viewportFill": "older-first",
+          "viewportProtected": 13,
+          "evictedOlder": 0,
+          "evictedNewer": 0
+        }
+      },
+      {
+        "name": "snapshot.reconcile",
+        "duration": 1.2999999523162842,
+        "at": 1788300969177,
+        "detail": {
+          "changed": false,
+          "mode": "bounded",
+          "messages": 1600
+        }
+      },
+      {
+        "name": "api.ttfb",
+        "duration": 10.099999904632568,
+        "at": 1788300969750,
+        "detail": {
+          "path": "/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history",
+          "status": 200,
+          "bytes": 40919,
+          "serverTiming": "",
+          "failed": false
+        }
+      },
+      {
+        "name": "snapshot.reconcile",
+        "duration": 1.2000000476837158,
+        "at": 1788300969754,
+        "detail": {
+          "changed": true,
+          "mode": "bounded",
+          "messages": 1600
+        }
+      },
+      {
+        "name": "history.page.merge",
+        "duration": 3.5,
+        "at": 1788300969754,
+        "detail": {
+          "direction": "older",
+          "mode": "history",
+          "messages": 400,
+          "retainedBytes": 203339,
+          "retainedMessages": 500,
+          "viewportFill": "older-first",
+          "viewportProtected": 0,
+          "evictedOlder": 0,
+          "evictedNewer": 100
+        }
+      },
+      {
+        "name": "history.anchor.error-px",
+        "duration": 0.28125,
+        "at": 1788300970657,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "history.page.intent-to-paint",
+        "duration": 470,
+        "at": 1788300970657,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "history.anchor.max-error-px",
+        "duration": 0.28125,
+        "at": 1788300971191,
+        "detail": {
+          "automatic": false,
+          "direction": "older",
+          "settleMs": 1004
+        }
+      },
+      {
+        "name": "history.anchor.row-survived",
+        "duration": 0,
+        "at": 1788300971191,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "history.anchor.error-px",
+        "duration": 0,
+        "at": 1788300971539,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "history.page.intent-to-paint",
+        "duration": 17.09999990463257,
+        "at": 1788300971539,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "api.ttfb",
+        "duration": 12.900000095367432,
+        "at": 1788300971542,
+        "detail": {
+          "path": "/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history",
+          "status": 200,
+          "bytes": 40919,
+          "serverTiming": "",
+          "failed": false
+        }
+      },
+      {
+        "name": "snapshot.reconcile",
+        "duration": 1.9000000953674316,
+        "at": 1788300971552,
+        "detail": {
+          "changed": true,
+          "mode": "bounded",
+          "messages": 1600
+        }
+      },
+      {
+        "name": "history.page.merge",
+        "duration": 10.299999952316284,
+        "at": 1788300971553,
+        "detail": {
+          "direction": "older",
+          "mode": "history",
+          "messages": 400,
+          "retainedBytes": 203339,
+          "retainedMessages": 500,
+          "viewportFill": "older-first",
+          "viewportProtected": 13,
+          "evictedOlder": 0,
+          "evictedNewer": 100
+        }
+      },
+      {
+        "name": "browser.interaction",
+        "duration": 40,
+        "at": 1788300971595,
+        "detail": {
+          "event": "click"
+        }
+      },
+      {
+        "name": "history.anchor.max-error-px",
+        "duration": 0.28125,
+        "at": 1788300972555,
+        "detail": {
+          "automatic": false,
+          "direction": "older",
+          "settleMs": 1032
+        }
+      },
+      {
+        "name": "history.anchor.row-survived",
+        "duration": 0,
+        "at": 1788300972555,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "history.anchor.error-px",
+        "duration": 0,
+        "at": 1788300972922,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "history.page.intent-to-paint",
+        "duration": 17.799999952316284,
+        "at": 1788300972923,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "api.ttfb",
+        "duration": 13.700000047683716,
+        "at": 1788300972926,
+        "detail": {
+          "path": "/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history",
+          "status": 200,
+          "bytes": 40919,
+          "serverTiming": "",
+          "failed": false
+        }
+      },
+      {
+        "name": "snapshot.reconcile",
+        "duration": 2.200000047683716,
+        "at": 1788300972938,
+        "detail": {
+          "changed": true,
+          "mode": "bounded",
+          "messages": 1600
+        }
+      },
+      {
+        "name": "history.page.merge",
+        "duration": 11.599999904632568,
+        "at": 1788300972938,
+        "detail": {
+          "direction": "older",
+          "mode": "history",
+          "messages": 400,
+          "retainedBytes": 203339,
+          "retainedMessages": 500,
+          "viewportFill": "older-first",
+          "viewportProtected": 13,
+          "evictedOlder": 12,
+          "evictedNewer": 88
+        }
+      },
+      {
+        "name": "history.anchor.max-error-px",
+        "duration": 0.28125,
+        "at": 1788300973940,
+        "detail": {
+          "automatic": false,
+          "direction": "older",
+          "settleMs": 1035
+        }
+      },
+      {
+        "name": "history.anchor.row-survived",
+        "duration": 0,
+        "at": 1788300973940,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "api.ttfb",
+        "duration": 6.299999952316284,
+        "at": 1788300974009,
+        "detail": {
+          "path": "/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history",
+          "status": 200,
+          "bytes": 40919,
+          "serverTiming": "",
+          "failed": false
+        }
+      },
+      {
+        "name": "snapshot.reconcile",
+        "duration": 1.3999998569488525,
+        "at": 1788300974018,
+        "detail": {
+          "changed": true,
+          "mode": "bounded",
+          "messages": 1600
+        }
+      },
+      {
+        "name": "history.page.merge",
+        "duration": 7.8999998569488525,
+        "at": 1788300974018,
+        "detail": {
+          "direction": "older",
+          "mode": "history",
+          "messages": 400,
+          "retainedBytes": 203339,
+          "retainedMessages": 500,
+          "viewportFill": "older-first",
+          "viewportProtected": 13,
+          "evictedOlder": 0,
+          "evictedNewer": 100
+        }
+      },
+      {
+        "name": "history.anchor.max-error-px",
+        "duration": 0,
+        "at": 1788300974034,
+        "detail": {
+          "automatic": false,
+          "direction": "older",
+          "settleMs": 32
+        }
+      },
+      {
+        "name": "history.anchor.row-survived",
+        "duration": 0,
+        "at": 1788300974034,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "history.anchor.error-px",
+        "duration": 0,
+        "at": 1788300974857,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "history.page.intent-to-paint",
+        "duration": 13.599999904632568,
+        "at": 1788300974857,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "api.ttfb",
+        "duration": 12.799999952316284,
+        "at": 1788300974861,
+        "detail": {
+          "path": "/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history",
+          "status": 200,
+          "bytes": 40919,
+          "serverTiming": "",
+          "failed": false
+        }
+      },
+      {
+        "name": "snapshot.reconcile",
+        "duration": 2.299999952316284,
+        "at": 1788300974873,
+        "detail": {
+          "changed": true,
+          "mode": "bounded",
+          "messages": 1600
+        }
+      },
+      {
+        "name": "history.page.merge",
+        "duration": 11.299999952316284,
+        "at": 1788300974873,
+        "detail": {
+          "direction": "older",
+          "mode": "history",
+          "messages": 400,
+          "retainedBytes": 203339,
+          "retainedMessages": 500,
+          "viewportFill": "older-first",
+          "viewportProtected": 11,
+          "evictedOlder": 0,
+          "evictedNewer": 100
+        }
+      },
+      {
+        "name": "history.anchor.max-error-px",
+        "duration": 0.28125,
+        "at": 1788300975874,
+        "detail": {
+          "automatic": false,
+          "direction": "older",
+          "settleMs": 1031
+        }
+      },
+      {
+        "name": "history.anchor.row-survived",
+        "duration": 0,
+        "at": 1788300975874,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "api.ttfb",
+        "duration": 7.700000047683716,
+        "at": 1788300975971,
+        "detail": {
+          "path": "/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history",
+          "status": 200,
+          "bytes": 40919,
+          "serverTiming": "",
+          "failed": false
+        }
+      },
+      {
+        "name": "snapshot.reconcile",
+        "duration": 1.7000000476837158,
+        "at": 1788300975979,
+        "detail": {
+          "changed": true,
+          "mode": "bounded",
+          "messages": 1600
+        }
+      },
+      {
+        "name": "history.page.merge",
+        "duration": 8.300000190734863,
+        "at": 1788300975979,
+        "detail": {
+          "direction": "older",
+          "mode": "history",
+          "messages": 400,
+          "retainedBytes": 203339,
+          "retainedMessages": 500,
+          "viewportFill": "older-first",
+          "viewportProtected": 11,
+          "evictedOlder": 0,
+          "evictedNewer": 100
+        }
+      },
+      {
+        "name": "history.anchor.error-px",
+        "duration": 0,
+        "at": 1788300975980,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "history.page.intent-to-paint",
+        "duration": 21.600000143051147,
+        "at": 1788300975980,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "history.anchor.max-error-px",
+        "duration": 0.28125,
+        "at": 1788300976981,
+        "detail": {
+          "automatic": false,
+          "direction": "older",
+          "settleMs": 1023
+        }
+      },
+      {
+        "name": "history.anchor.row-survived",
+        "duration": 0,
+        "at": 1788300976981,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "history.anchor.error-px",
+        "duration": 0,
+        "at": 1788300977081,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "history.page.intent-to-paint",
+        "duration": 6.900000095367432,
+        "at": 1788300977081,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "api.ttfb",
+        "duration": 9.100000143051147,
+        "at": 1788300977089,
+        "detail": {
+          "path": "/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history",
+          "status": 200,
+          "bytes": 40919,
+          "serverTiming": "",
+          "failed": false
+        }
+      },
+      {
+        "name": "snapshot.reconcile",
+        "duration": 1.7999999523162842,
+        "at": 1788300977097,
+        "detail": {
+          "changed": true,
+          "mode": "bounded",
+          "messages": 1600
+        }
+      },
+      {
+        "name": "history.page.merge",
+        "duration": 8.399999856948853,
+        "at": 1788300977097,
+        "detail": {
+          "direction": "older",
+          "mode": "history",
+          "messages": 400,
+          "retainedBytes": 203339,
+          "retainedMessages": 500,
+          "viewportFill": "older-first",
+          "viewportProtected": 11,
+          "evictedOlder": 0,
+          "evictedNewer": 100
+        }
+      },
+      {
+        "name": "history.anchor.max-error-px",
+        "duration": 0.28125,
+        "at": 1788300978099,
+        "detail": {
+          "automatic": false,
+          "direction": "older",
+          "settleMs": 1025
+        }
+      },
+      {
+        "name": "history.anchor.row-survived",
+        "duration": 0,
+        "at": 1788300978099,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "api.ttfb",
+        "duration": 10.700000047683716,
+        "at": 1788300986420,
+        "detail": {
+          "path": "/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history",
+          "status": 200,
+          "bytes": 40919,
+          "serverTiming": "",
+          "failed": false
+        }
+      },
+      {
+        "name": "snapshot.reconcile",
+        "duration": 1.2000000476837158,
+        "at": 1788300986424,
+        "detail": {
+          "changed": true,
+          "mode": "bounded",
+          "messages": 1600
+        }
+      },
+      {
+        "name": "history.page.merge",
+        "duration": 3.4000000953674316,
+        "at": 1788300986424,
+        "detail": {
+          "direction": "older",
+          "mode": "history",
+          "messages": 400,
+          "retainedBytes": 203339,
+          "retainedMessages": 500,
+          "viewportFill": "older-first",
+          "viewportProtected": 0,
+          "evictedOlder": 0,
+          "evictedNewer": 100
+        }
+      },
+      {
+        "name": "browser.interaction",
+        "duration": 40,
+        "at": 1788300986876,
+        "detail": {
+          "event": "click"
+        }
+      },
+      {
+        "name": "history.anchor.max-error-px",
+        "duration": 0,
+        "at": 1788300987862,
+        "detail": {
+          "automatic": false,
+          "direction": "older",
+          "settleMs": 1001
+        }
+      },
+      {
+        "name": "history.anchor.row-survived",
+        "duration": 1,
+        "at": 1788300987862,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "history.anchor.error-px",
+        "duration": 0,
+        "at": 1788300988198,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "history.page.intent-to-paint",
+        "duration": 8.700000047683716,
+        "at": 1788300988198,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "api.ttfb",
+        "duration": 8.300000190734863,
+        "at": 1788300988205,
+        "detail": {
+          "path": "/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history",
+          "status": 200,
+          "bytes": 40919,
+          "serverTiming": "",
+          "failed": false
+        }
+      },
+      {
+        "name": "snapshot.reconcile",
+        "duration": 2.299999952316284,
+        "at": 1788300988216,
+        "detail": {
+          "changed": true,
+          "mode": "bounded",
+          "messages": 1600
+        }
+      },
+      {
+        "name": "history.page.merge",
+        "duration": 10.900000095367432,
+        "at": 1788300988216,
+        "detail": {
+          "direction": "older",
+          "mode": "history",
+          "messages": 400,
+          "retainedBytes": 203339,
+          "retainedMessages": 500,
+          "viewportFill": "older-first",
+          "viewportProtected": 11,
+          "evictedOlder": 0,
+          "evictedNewer": 100
+        }
+      },
+      {
+        "name": "browser.interaction",
+        "duration": 40,
+        "at": 1788300988224,
+        "detail": {
+          "event": "click"
+        }
+      },
+      {
+        "name": "history.anchor.max-error-px",
+        "duration": 0.28125,
+        "at": 1788300989217,
+        "detail": {
+          "automatic": false,
+          "direction": "older",
+          "settleMs": 1027
+        }
+      },
+      {
+        "name": "history.anchor.row-survived",
+        "duration": 0,
+        "at": 1788300989217,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "history.anchor.error-px",
+        "duration": 0,
+        "at": 1788300989607,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "history.page.intent-to-paint",
+        "duration": 13,
+        "at": 1788300989607,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "api.ttfb",
+        "duration": 24.600000143051147,
+        "at": 1788300989624,
+        "detail": {
+          "path": "/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history",
+          "status": 200,
+          "bytes": 40919,
+          "serverTiming": "",
+          "failed": false
+        }
+      },
+      {
+        "name": "snapshot.reconcile",
+        "duration": 2.4000000953674316,
+        "at": 1788300989637,
+        "detail": {
+          "changed": true,
+          "mode": "bounded",
+          "messages": 1600
+        }
+      },
+      {
+        "name": "history.page.merge",
+        "duration": 12.099999904632568,
+        "at": 1788300989637,
+        "detail": {
+          "direction": "older",
+          "mode": "history",
+          "messages": 400,
+          "retainedBytes": 203339,
+          "retainedMessages": 500,
+          "viewportFill": "older-first",
+          "viewportProtected": 11,
+          "evictedOlder": 0,
+          "evictedNewer": 100
+        }
+      },
+      {
+        "name": "history.anchor.max-error-px",
+        "duration": 0.28125,
+        "at": 1788300990638,
+        "detail": {
+          "automatic": false,
+          "direction": "older",
+          "settleMs": 1044
+        }
+      },
+      {
+        "name": "history.anchor.row-survived",
+        "duration": 0,
+        "at": 1788300990638,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "history.anchor.error-px",
+        "duration": 0,
+        "at": 1788300990740,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "history.page.intent-to-paint",
+        "duration": 9.5,
+        "at": 1788300990740,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "api.ttfb",
+        "duration": 14.399999856948853,
+        "at": 1788300990748,
+        "detail": {
+          "path": "/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history",
+          "status": 200,
+          "bytes": 40919,
+          "serverTiming": "",
+          "failed": false
+        }
+      },
+      {
+        "name": "snapshot.reconcile",
+        "duration": 2.299999952316284,
+        "at": 1788300990757,
+        "detail": {
+          "changed": true,
+          "mode": "bounded",
+          "messages": 1600
+        }
+      },
+      {
+        "name": "history.page.merge",
+        "duration": 9.200000047683716,
+        "at": 1788300990757,
+        "detail": {
+          "direction": "older",
+          "mode": "history",
+          "messages": 400,
+          "retainedBytes": 203339,
+          "retainedMessages": 500,
+          "viewportFill": "older-first",
+          "viewportProtected": 11,
+          "evictedOlder": 0,
+          "evictedNewer": 100
+        }
+      },
+      {
+        "name": "history.anchor.max-error-px",
+        "duration": 0.28125,
+        "at": 1788300991759,
+        "detail": {
+          "automatic": false,
+          "direction": "older",
+          "settleMs": 1028
+        }
+      },
+      {
+        "name": "history.anchor.row-survived",
+        "duration": 0,
+        "at": 1788300991759,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "history.anchor.error-px",
+        "duration": 0,
+        "at": 1788300991865,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "history.page.intent-to-paint",
+        "duration": 8.200000047683716,
+        "at": 1788300991865,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "api.ttfb",
+        "duration": 12.699999809265137,
+        "at": 1788300991877,
+        "detail": {
+          "path": "/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history",
+          "status": 200,
+          "bytes": 40919,
+          "serverTiming": "",
+          "failed": false
+        }
+      },
+      {
+        "name": "snapshot.reconcile",
+        "duration": 2.0999999046325684,
+        "at": 1788300991886,
+        "detail": {
+          "changed": true,
+          "mode": "bounded",
+          "messages": 1600
+        }
+      },
+      {
+        "name": "history.page.merge",
+        "duration": 9.100000143051147,
+        "at": 1788300991886,
+        "detail": {
+          "direction": "older",
+          "mode": "history",
+          "messages": 400,
+          "retainedBytes": 203339,
+          "retainedMessages": 500,
+          "viewportFill": "older-first",
+          "viewportProtected": 11,
+          "evictedOlder": 0,
+          "evictedNewer": 100
+        }
+      },
+      {
+        "name": "history.anchor.max-error-px",
+        "duration": 0.28125,
+        "at": 1788300992888,
+        "detail": {
+          "automatic": false,
+          "direction": "older",
+          "settleMs": 1031
+        }
+      },
+      {
+        "name": "history.anchor.row-survived",
+        "duration": 0,
+        "at": 1788300992888,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "api.ttfb",
+        "duration": 11.900000095367432,
+        "at": 1788300993004,
+        "detail": {
+          "path": "/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history",
+          "status": 200,
+          "bytes": 40919,
+          "serverTiming": "",
+          "failed": false
+        }
+      },
+      {
+        "name": "snapshot.reconcile",
+        "duration": 2.5,
+        "at": 1788300993015,
+        "detail": {
+          "changed": true,
+          "mode": "bounded",
+          "messages": 1600
+        }
+      },
+      {
+        "name": "history.page.merge",
+        "duration": 11.400000095367432,
+        "at": 1788300993015,
+        "detail": {
+          "direction": "older",
+          "mode": "history",
+          "messages": 400,
+          "retainedBytes": 203339,
+          "retainedMessages": 500,
+          "viewportFill": "older-first",
+          "viewportProtected": 11,
+          "evictedOlder": 0,
+          "evictedNewer": 100
+        }
+      },
+      {
+        "name": "history.anchor.error-px",
+        "duration": 0,
+        "at": 1788300993016,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "history.page.intent-to-paint",
+        "duration": 30.299999952316284,
+        "at": 1788300993016,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "history.anchor.max-error-px",
+        "duration": 0.28125,
+        "at": 1788300994017,
+        "detail": {
+          "automatic": false,
+          "direction": "older",
+          "settleMs": 1032
+        }
+      },
+      {
+        "name": "history.anchor.row-survived",
+        "duration": 0,
+        "at": 1788300994017,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "history.anchor.error-px",
+        "duration": 0,
+        "at": 1788300994124,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "history.page.intent-to-paint",
+        "duration": 14.700000047683716,
+        "at": 1788300994124,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "api.ttfb",
+        "duration": 12.599999904632568,
+        "at": 1788300994127,
+        "detail": {
+          "path": "/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history",
+          "status": 200,
+          "bytes": 40919,
+          "serverTiming": "",
+          "failed": false
+        }
+      },
+      {
+        "name": "snapshot.reconcile",
+        "duration": 2.0999999046325684,
+        "at": 1788300994137,
+        "detail": {
+          "changed": true,
+          "mode": "bounded",
+          "messages": 1600
+        }
+      },
+      {
+        "name": "history.page.merge",
+        "duration": 9.5,
+        "at": 1788300994137,
+        "detail": {
+          "direction": "older",
+          "mode": "history",
+          "messages": 400,
+          "retainedBytes": 203339,
+          "retainedMessages": 500,
+          "viewportFill": "older-first",
+          "viewportProtected": 11,
+          "evictedOlder": 0,
+          "evictedNewer": 100
+        }
+      },
+      {
+        "name": "history.anchor.max-error-px",
+        "duration": 0.28125,
+        "at": 1788300995138,
+        "detail": {
+          "automatic": false,
+          "direction": "older",
+          "settleMs": 1030
+        }
+      },
+      {
+        "name": "history.anchor.row-survived",
+        "duration": 0,
+        "at": 1788300995138,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "history.anchor.error-px",
+        "duration": 0,
+        "at": 1788300995247,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "history.page.intent-to-paint",
+        "duration": 5.8999998569488525,
+        "at": 1788300995247,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "api.ttfb",
+        "duration": 10.700000047683716,
+        "at": 1788300995256,
+        "detail": {
+          "path": "/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history",
+          "status": 200,
+          "bytes": 40919,
+          "serverTiming": "",
+          "failed": false
+        }
+      },
+      {
+        "name": "snapshot.reconcile",
+        "duration": 2.1999998092651367,
+        "at": 1788300995269,
+        "detail": {
+          "changed": true,
+          "mode": "bounded",
+          "messages": 1600
+        }
+      },
+      {
+        "name": "history.page.merge",
+        "duration": 10.5,
+        "at": 1788300995269,
+        "detail": {
+          "direction": "older",
+          "mode": "history",
+          "messages": 400,
+          "retainedBytes": 203339,
+          "retainedMessages": 500,
+          "viewportFill": "older-first",
+          "viewportProtected": 11,
+          "evictedOlder": 0,
+          "evictedNewer": 100
+        }
+      },
+      {
+        "name": "history.anchor.max-error-px",
+        "duration": 0.28125,
+        "at": 1788300996271,
+        "detail": {
+          "automatic": false,
+          "direction": "older",
+          "settleMs": 1030
+        }
+      },
+      {
+        "name": "history.anchor.row-survived",
+        "duration": 0,
+        "at": 1788300996271,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "history.anchor.error-px",
+        "duration": 0,
+        "at": 1788300996390,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "history.page.intent-to-paint",
+        "duration": 9.700000047683716,
+        "at": 1788300996390,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "api.ttfb",
+        "duration": 12.200000047683716,
+        "at": 1788300996397,
+        "detail": {
+          "path": "/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history",
+          "status": 200,
+          "bytes": 40865,
+          "serverTiming": "",
+          "failed": false
+        }
+      },
+      {
+        "name": "snapshot.reconcile",
+        "duration": 2.1999998092651367,
+        "at": 1788300996408,
+        "detail": {
+          "changed": true,
+          "mode": "bounded",
+          "messages": 1600
+        }
+      },
+      {
+        "name": "history.page.merge",
+        "duration": 10.699999809265137,
+        "at": 1788300996408,
+        "detail": {
+          "direction": "older",
+          "mode": "history",
+          "messages": 400,
+          "retainedBytes": 203285,
+          "retainedMessages": 500,
+          "viewportFill": "older-first",
+          "viewportProtected": 11,
+          "evictedOlder": 0,
+          "evictedNewer": 100
+        }
+      },
+      {
+        "name": "history.anchor.max-error-px",
+        "duration": 0.28125,
+        "at": 1788300997410,
+        "detail": {
+          "automatic": false,
+          "direction": "older",
+          "settleMs": 1030
+        }
+      },
+      {
+        "name": "history.anchor.row-survived",
+        "duration": 0,
+        "at": 1788300997410,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "history.anchor.error-px",
+        "duration": 0,
+        "at": 1788300997523,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "history.page.intent-to-paint",
+        "duration": 14.100000143051147,
+        "at": 1788300997523,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "api.ttfb",
+        "duration": 13.400000095367432,
+        "at": 1788300997528,
+        "detail": {
+          "path": "/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history",
+          "status": 200,
+          "bytes": 40819,
+          "serverTiming": "",
+          "failed": false
+        }
+      },
+      {
+        "name": "snapshot.reconcile",
+        "duration": 1.8999998569488525,
+        "at": 1788300997537,
+        "detail": {
+          "changed": true,
+          "mode": "bounded",
+          "messages": 1600
+        }
+      },
+      {
+        "name": "history.page.merge",
+        "duration": 9.099999904632568,
+        "at": 1788300997537,
+        "detail": {
+          "direction": "older",
+          "mode": "history",
+          "messages": 400,
+          "retainedBytes": 203185,
+          "retainedMessages": 500,
+          "viewportFill": "older-first",
+          "viewportProtected": 11,
+          "evictedOlder": 0,
+          "evictedNewer": 100
+        }
+      },
+      {
+        "name": "history.anchor.max-error-px",
+        "duration": 0.28125,
+        "at": 1788300998539,
+        "detail": {
+          "automatic": false,
+          "direction": "older",
+          "settleMs": 1030
+        }
+      },
+      {
+        "name": "history.anchor.row-survived",
+        "duration": 0,
+        "at": 1788300998539,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "history.anchor.error-px",
+        "duration": 0,
+        "at": 1788300998639,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "history.page.intent-to-paint",
+        "duration": 14.700000047683716,
+        "at": 1788300998639,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "api.ttfb",
+        "duration": 14.099999904632568,
+        "at": 1788300998645,
+        "detail": {
+          "path": "/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history",
+          "status": 200,
+          "bytes": 40819,
+          "serverTiming": "",
+          "failed": false
+        }
+      },
+      {
+        "name": "snapshot.reconcile",
+        "duration": 2.3999998569488525,
+        "at": 1788300998654,
+        "detail": {
+          "changed": true,
+          "mode": "bounded",
+          "messages": 1600
+        }
+      },
+      {
+        "name": "history.page.merge",
+        "duration": 9.299999952316284,
+        "at": 1788300998654,
+        "detail": {
+          "direction": "older",
+          "mode": "history",
+          "messages": 400,
+          "retainedBytes": 203085,
+          "retainedMessages": 500,
+          "viewportFill": "older-first",
+          "viewportProtected": 11,
+          "evictedOlder": 0,
+          "evictedNewer": 100
+        }
+      },
+      {
+        "name": "api.ttfb",
+        "duration": 12.900000095367432,
+        "at": 1788300999034,
+        "detail": {
+          "path": "/api/v0/client-runtime",
+          "status": 200,
+          "bytes": 100,
+          "serverTiming": "",
+          "failed": false
+        }
+      },
+      {
+        "name": "history.anchor.max-error-px",
+        "duration": 0.28125,
+        "at": 1788300999656,
+        "detail": {
+          "automatic": false,
+          "direction": "older",
+          "settleMs": 1031
+        }
+      },
+      {
+        "name": "history.anchor.row-survived",
+        "duration": 0,
+        "at": 1788300999656,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "history.anchor.error-px",
+        "duration": 0,
+        "at": 1788300999759,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "history.page.intent-to-paint",
+        "duration": 7.300000190734863,
+        "at": 1788300999759,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "api.ttfb",
+        "duration": 13,
+        "at": 1788300999771,
+        "detail": {
+          "path": "/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history",
+          "status": 200,
+          "bytes": 40819,
+          "serverTiming": "",
+          "failed": false
+        }
+      },
+      {
+        "name": "snapshot.reconcile",
+        "duration": 2.4000000953674316,
+        "at": 1788300999782,
+        "detail": {
+          "changed": true,
+          "mode": "bounded",
+          "messages": 1600
+        }
+      },
+      {
+        "name": "history.page.merge",
+        "duration": 11.200000047683716,
+        "at": 1788300999782,
+        "detail": {
+          "direction": "older",
+          "mode": "history",
+          "messages": 400,
+          "retainedBytes": 202985,
+          "retainedMessages": 500,
+          "viewportFill": "older-first",
+          "viewportProtected": 11,
+          "evictedOlder": 0,
+          "evictedNewer": 100
+        }
+      },
+      {
+        "name": "history.anchor.max-error-px",
+        "duration": 0.28125,
+        "at": 1788301000784,
+        "detail": {
+          "automatic": false,
+          "direction": "older",
+          "settleMs": 1032
+        }
+      },
+      {
+        "name": "history.anchor.row-survived",
+        "duration": 0,
+        "at": 1788301000784,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "history.anchor.error-px",
+        "duration": 0,
+        "at": 1788301000873,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "history.page.intent-to-paint",
+        "duration": 7.3999998569488525,
+        "at": 1788301000873,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "api.ttfb",
+        "duration": 9.800000190734863,
+        "at": 1788301000878,
+        "detail": {
+          "path": "/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history",
+          "status": 200,
+          "bytes": 40819,
+          "serverTiming": "",
+          "failed": false
+        }
+      },
+      {
+        "name": "snapshot.reconcile",
+        "duration": 2.700000047683716,
+        "at": 1788301000891,
+        "detail": {
+          "changed": true,
+          "mode": "bounded",
+          "messages": 1600
+        }
+      },
+      {
+        "name": "history.page.merge",
+        "duration": 12.200000047683716,
+        "at": 1788301000891,
+        "detail": {
+          "direction": "older",
+          "mode": "history",
+          "messages": 400,
+          "retainedBytes": 202939,
+          "retainedMessages": 500,
+          "viewportFill": "older-first",
+          "viewportProtected": 11,
+          "evictedOlder": 0,
+          "evictedNewer": 100
+        }
+      },
+      {
+        "name": "history.anchor.max-error-px",
+        "duration": 0.28125,
+        "at": 1788301001892,
+        "detail": {
+          "automatic": false,
+          "direction": "older",
+          "settleMs": 1026
+        }
+      },
+      {
+        "name": "history.anchor.row-survived",
+        "duration": 0,
+        "at": 1788301001892,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "history.anchor.error-px",
+        "duration": 0,
+        "at": 1788301001979,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "history.page.intent-to-paint",
+        "duration": 8.099999904632568,
+        "at": 1788301001979,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "api.ttfb",
+        "duration": 10.199999809265137,
+        "at": 1788301001988,
+        "detail": {
+          "path": "/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history",
+          "status": 200,
+          "bytes": 40819,
+          "serverTiming": "",
+          "failed": false
+        }
+      },
+      {
+        "name": "snapshot.reconcile",
+        "duration": 2.1000001430511475,
+        "at": 1788301001997,
+        "detail": {
+          "changed": true,
+          "mode": "bounded",
+          "messages": 1600
+        }
+      },
+      {
+        "name": "history.page.merge",
+        "duration": 9.100000143051147,
+        "at": 1788301001997,
+        "detail": {
+          "direction": "older",
+          "mode": "history",
+          "messages": 400,
+          "retainedBytes": 202939,
+          "retainedMessages": 500,
+          "viewportFill": "older-first",
+          "viewportProtected": 11,
+          "evictedOlder": 0,
+          "evictedNewer": 100
+        }
+      },
+      {
+        "name": "history.anchor.max-error-px",
+        "duration": 0.28125,
+        "at": 1788301002998,
+        "detail": {
+          "automatic": false,
+          "direction": "older",
+          "settleMs": 1027
+        }
+      },
+      {
+        "name": "history.anchor.row-survived",
+        "duration": 0,
+        "at": 1788301002998,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "history.anchor.error-px",
+        "duration": 0,
+        "at": 1788301003090,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "history.page.intent-to-paint",
+        "duration": 8.400000095367432,
+        "at": 1788301003090,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "api.ttfb",
+        "duration": 6.099999904632568,
+        "at": 1788301003093,
+        "detail": {
+          "path": "/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history",
+          "status": 200,
+          "bytes": 40819,
+          "serverTiming": "",
+          "failed": false
+        }
+      },
+      {
+        "name": "snapshot.reconcile",
+        "duration": 2.0999999046325684,
+        "at": 1788301003103,
+        "detail": {
+          "changed": true,
+          "mode": "bounded",
+          "messages": 1600
+        }
+      },
+      {
+        "name": "history.page.merge",
+        "duration": 9.700000047683716,
+        "at": 1788301003103,
+        "detail": {
+          "direction": "older",
+          "mode": "history",
+          "messages": 400,
+          "retainedBytes": 202939,
+          "retainedMessages": 500,
+          "viewportFill": "older-first",
+          "viewportProtected": 11,
+          "evictedOlder": 0,
+          "evictedNewer": 100
+        }
+      },
+      {
+        "name": "history.anchor.max-error-px",
+        "duration": 0.28125,
+        "at": 1788301004103,
+        "detail": {
+          "automatic": false,
+          "direction": "older",
+          "settleMs": 1021
+        }
+      },
+      {
+        "name": "history.anchor.row-survived",
+        "duration": 0,
+        "at": 1788301004103,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "history.anchor.error-px",
+        "duration": 0,
+        "at": 1788301004198,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "history.page.intent-to-paint",
+        "duration": 8.5,
+        "at": 1788301004198,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "api.ttfb",
+        "duration": 6.8999998569488525,
+        "at": 1788301004203,
+        "detail": {
+          "path": "/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history",
+          "status": 200,
+          "bytes": 40819,
+          "serverTiming": "",
+          "failed": false
+        }
+      },
+      {
+        "name": "snapshot.reconcile",
+        "duration": 1.8000001907348633,
+        "at": 1788301004212,
+        "detail": {
+          "changed": true,
+          "mode": "bounded",
+          "messages": 1600
+        }
+      },
+      {
+        "name": "history.page.merge",
+        "duration": 8.800000190734863,
+        "at": 1788301004212,
+        "detail": {
+          "direction": "older",
+          "mode": "history",
+          "messages": 400,
+          "retainedBytes": 202939,
+          "retainedMessages": 500,
+          "viewportFill": "older-first",
+          "viewportProtected": 11,
+          "evictedOlder": 0,
+          "evictedNewer": 100
+        }
+      },
+      {
+        "name": "history.anchor.max-error-px",
+        "duration": 0.28125,
+        "at": 1788301005213,
+        "detail": {
+          "automatic": false,
+          "direction": "older",
+          "settleMs": 1024
+        }
+      },
+      {
+        "name": "history.anchor.row-survived",
+        "duration": 0,
+        "at": 1788301005213,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "api.ttfb",
+        "duration": 13.5,
+        "at": 1788301005334,
+        "detail": {
+          "path": "/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history",
+          "status": 200,
+          "bytes": 40819,
+          "serverTiming": "",
+          "failed": false
+        }
+      },
+      {
+        "name": "snapshot.reconcile",
+        "duration": 2.299999952316284,
+        "at": 1788301005345,
+        "detail": {
+          "changed": true,
+          "mode": "bounded",
+          "messages": 1600
+        }
+      },
+      {
+        "name": "history.page.merge",
+        "duration": 10.799999952316284,
+        "at": 1788301005345,
+        "detail": {
+          "direction": "older",
+          "mode": "history",
+          "messages": 400,
+          "retainedBytes": 202939,
+          "retainedMessages": 500,
+          "viewportFill": "older-first",
+          "viewportProtected": 11,
+          "evictedOlder": 0,
+          "evictedNewer": 100
+        }
+      },
+      {
+        "name": "history.anchor.error-px",
+        "duration": 0,
+        "at": 1788301005346,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "history.page.intent-to-paint",
+        "duration": 29.59999990463257,
+        "at": 1788301005346,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "history.anchor.max-error-px",
+        "duration": 0.28125,
+        "at": 1788301006347,
+        "detail": {
+          "automatic": false,
+          "direction": "older",
+          "settleMs": 1032
+        }
+      },
+      {
+        "name": "history.anchor.row-survived",
+        "duration": 0,
+        "at": 1788301006347,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "history.anchor.error-px",
+        "duration": 0,
+        "at": 1788301006440,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "history.page.intent-to-paint",
+        "duration": 6.8999998569488525,
+        "at": 1788301006440,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "api.ttfb",
+        "duration": 12.5,
+        "at": 1788301006451,
+        "detail": {
+          "path": "/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history",
+          "status": 200,
+          "bytes": 40765,
+          "serverTiming": "",
+          "failed": false
+        }
+      },
+      {
+        "name": "snapshot.reconcile",
+        "duration": 2.4000000953674316,
+        "at": 1788301006462,
+        "detail": {
+          "changed": true,
+          "mode": "bounded",
+          "messages": 1600
+        }
+      },
+      {
+        "name": "history.page.merge",
+        "duration": 10.799999952316284,
+        "at": 1788301006462,
+        "detail": {
+          "direction": "older",
+          "mode": "history",
+          "messages": 400,
+          "retainedBytes": 202885,
+          "retainedMessages": 500,
+          "viewportFill": "older-first",
+          "viewportProtected": 11,
+          "evictedOlder": 0,
+          "evictedNewer": 100
+        }
+      },
+      {
+        "name": "history.anchor.max-error-px",
+        "duration": 0.28125,
+        "at": 1788301007464,
+        "detail": {
+          "automatic": false,
+          "direction": "older",
+          "settleMs": 1030
+        }
+      },
+      {
+        "name": "history.anchor.row-survived",
+        "duration": 0,
+        "at": 1788301007464,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "history.anchor.error-px",
+        "duration": 0,
+        "at": 1788301007558,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "history.page.intent-to-paint",
+        "duration": 8,
+        "at": 1788301007558,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "api.ttfb",
+        "duration": 8.199999809265137,
+        "at": 1788301007564,
+        "detail": {
+          "path": "/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history",
+          "status": 200,
+          "bytes": 27348,
+          "serverTiming": "",
+          "failed": false
+        }
+      },
+      {
+        "name": "snapshot.reconcile",
+        "duration": 2.299999952316284,
+        "at": 1788301007575,
+        "detail": {
+          "changed": true,
+          "mode": "bounded",
+          "messages": 1600
+        }
+      },
+      {
+        "name": "history.page.merge",
+        "duration": 10.100000143051147,
+        "at": 1788301007575,
+        "detail": {
+          "direction": "older",
+          "mode": "history",
+          "messages": 400,
+          "retainedBytes": 203630,
+          "retainedMessages": 500,
+          "viewportFill": "older-first",
+          "viewportProtected": 11,
+          "evictedOlder": 0,
+          "evictedNewer": 65
+        }
+      },
+      {
+        "name": "history.anchor.max-error-px",
+        "duration": 0.5,
+        "at": 1788301008577,
+        "detail": {
+          "automatic": false,
+          "direction": "older",
+          "settleMs": 1027
+        }
+      },
+      {
+        "name": "history.anchor.row-survived",
+        "duration": 0,
+        "at": 1788301008577,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      }
+    ],
+    "processes": {
+      "at": 1788301022297,
+      "app": [
+        {
+          "cpu": {
+            "cumulativeCPUUsage": 11.410338,
+            "percentCPUUsage": 0.4976569479340216,
+            "idleWakeupsPerSecond": 4
+          },
+          "pid": 60760,
+          "type": "Browser",
+          "creationTime": 1788300786948.932,
+          "memory": {
+            "workingSetSize": 180080,
+            "peakWorkingSetSize": 216592
+          },
+          "sandboxed": false
+        },
+        {
+          "cpu": {
+            "cumulativeCPUUsage": 3.638452,
+            "percentCPUUsage": 0.11200911208182297,
+            "idleWakeupsPerSecond": 62
+          },
+          "pid": 60780,
+          "type": "GPU",
+          "creationTime": 1788300788511.729,
+          "serviceName": "GPU",
+          "memory": {
+            "workingSetSize": 77088,
+            "peakWorkingSetSize": 98400
+          },
+          "sandboxed": true
+        },
+        {
+          "cpu": {
+            "cumulativeCPUUsage": 0.28088,
+            "percentCPUUsage": 0.009171615865090287,
+            "idleWakeupsPerSecond": 0
+          },
+          "pid": 60781,
+          "type": "Utility",
+          "creationTime": 1788300788515.266,
+          "serviceName": "network.mojom.NetworkService",
+          "name": "Network Service",
+          "memory": {
+            "workingSetSize": 43232,
+            "peakWorkingSetSize": 50064
+          },
+          "sandboxed": true
+        },
+        {
+          "cpu": {
+            "cumulativeCPUUsage": 19.261822,
+            "percentCPUUsage": 0.7668265256455004,
+            "idleWakeupsPerSecond": 32
+          },
+          "pid": 60785,
+          "type": "Tab",
+          "creationTime": 1788300788709.052,
+          "memory": {
+            "workingSetSize": 563072,
+            "peakWorkingSetSize": 631536
+          },
+          "sandboxed": true
+        }
+      ],
+      "main": {
+        "private": 56689,
+        "shared": 352
+      },
+      "gpu": {
+        "2d_canvas": "enabled",
+        "direct_rendering_display_compositor": "disabled_off_ok",
+        "gpu_compositing": "enabled",
+        "multiple_raster_threads": "enabled_on",
+        "opengl": "enabled_on",
+        "rasterization": "enabled",
+        "raw_draw": "disabled_off_ok",
+        "skia_graphite": "enabled_on",
+        "trees_in_viz": "disabled_off",
+        "video_decode": "enabled",
+        "video_encode": "enabled",
+        "webgl": "enabled",
+        "webgpu": "enabled",
+        "webnn": "disabled_off"
+      }
+    }
+  }
+}

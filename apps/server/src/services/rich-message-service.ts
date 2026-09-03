@@ -1,6 +1,7 @@
 import {
   ApiError,
   type ChannelMessageView,
+  type ComputerHandoffMutationInput,
   type RichMessageMutationView,
   type SecretSubmissionInput,
   type WidgetDismissInput,
@@ -10,6 +11,7 @@ import { Prisma, type PrismaClient } from "@openbot/db";
 import { type AgentMessaging, PRIORITY } from "@openbot/messaging";
 import { Effect } from "effect";
 import type { PluginService } from "./plugin-service";
+import type { ScreenService } from "./screen-service";
 import { appendEvent, toError, toJson } from "./service-utils";
 
 type Metadata = Record<string, unknown>;
@@ -98,6 +100,11 @@ const assertWidgetAnswer = (widget: Record<string, unknown>, rawValue: string): 
 export const buildSecretProvidedAck = (label: string, targetKind = "channel-credential"): string =>
   `[The user securely provided the requested secret: ${JSON.stringify(label)}. It was written straight to its destination (${targetKind}); you never see the value and it is not in this conversation.]\nConfirm to the user that it is set, then continue. For a connector credential, the connection links within a few seconds, so you can check and report its status.`;
 
+export const buildComputerHandoffResume = (outcome: "complete" | "skip" | "dismiss"): string =>
+  outcome === "complete"
+    ? "[The user finished the requested computer handoff. Inspect the screen, confirm the result, and continue from where you paused.]"
+    : "[The user skipped or closed the requested computer handoff. Continue without repeating the request unless the manual step is essential.]";
+
 export const dismissMoveOnWidgets = async (
   tx: Prisma.TransactionClient,
   channelId: string
@@ -117,7 +124,8 @@ export class RichMessageService {
   constructor(
     private readonly prisma: PrismaClient,
     private readonly messaging: AgentMessaging,
-    private readonly plugins: PluginService
+    private readonly plugins: PluginService,
+    private readonly screens: ScreenService
   ) {}
 
   respondToWidget = (messageId: string, input: WidgetResponseInput) =>
@@ -287,6 +295,103 @@ export class RichMessageService {
           return { accepted: true, message: messageView(updated), runId: wake.run.id };
         });
       },
+      catch: toError,
+    });
+
+  mutateComputerHandoff = (messageId: string, input: ComputerHandoffMutationInput) =>
+    Effect.tryPromise({
+      try: async (): Promise<RichMessageMutationView> =>
+        this.prisma.$transaction(async (tx) => {
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`rich-message:${messageId}`}))`;
+          const message = await tx.channelMessage.findUnique({
+            where: { id: messageId },
+            include: { channel: true },
+          });
+          const metadata = metadataRecord(message?.metadata);
+          const handoff = stringRecord(metadata.computerHandoff);
+          if (
+            !message ||
+            message.sender !== "agent" ||
+            !message.senderBotId ||
+            message.channel.archivedAt ||
+            metadata.type !== "computer-handoff" ||
+            !handoff ||
+            typeof handoff.reason !== "string"
+          ) {
+            throw new ApiError(
+              404,
+              "computer_handoff_not_found",
+              "Live computer handoff not found"
+            );
+          }
+
+          const state =
+            typeof metadata.computerHandoffState === "string"
+              ? metadata.computerHandoffState
+              : "requested";
+          if (["completed", "skipped", "dismissed"].includes(state)) {
+            return { accepted: false, message: messageView(message), runId: null };
+          }
+
+          if (input.action === "start") {
+            await Effect.runPromise(this.screens.takeover(message.senderBotId, true));
+            if (state === "active") {
+              return { accepted: false, message: messageView(message), runId: null };
+            }
+            const updated = await tx.channelMessage.update({
+              where: { id: message.id },
+              data: {
+                metadata: toJson({
+                  ...metadata,
+                  computerHandoffState: "active",
+                  computerHandoffClientId: input.clientId,
+                }),
+              },
+            });
+            await appendEvent(tx, "channel.message.updated", message.id, {
+              channelId: message.channelId,
+              messageId: message.id,
+              reason: "computer-handoff-started",
+            });
+            await this.messaging.scheduleTranscriptProjection(tx, [message.senderBotId]);
+            return { accepted: true, message: messageView(updated), runId: null };
+          }
+
+          await Effect.runPromise(this.screens.takeover(message.senderBotId, false));
+          const finalState =
+            input.action === "complete"
+              ? "completed"
+              : input.action === "skip"
+                ? "skipped"
+                : "dismissed";
+          const wake = await this.messaging.enqueueWake(tx, {
+            botId: message.senderBotId,
+            channelId: message.channelId,
+            origin: "handoff_resume",
+            type: `computer-handoff.${finalState}`,
+            content: buildComputerHandoffResume(input.action),
+            clientId: `computer-handoff:${message.id}:resume`,
+            priority: PRIORITY.user,
+            wrapUserContent: false,
+          });
+          const updated = await tx.channelMessage.update({
+            where: { id: message.id },
+            data: {
+              metadata: toJson({
+                ...metadata,
+                computerHandoffState: finalState,
+                computerHandoffClientId: input.clientId,
+              }),
+            },
+          });
+          await appendEvent(tx, "channel.message.updated", message.id, {
+            channelId: message.channelId,
+            messageId: message.id,
+            reason: `computer-handoff-${finalState}`,
+          });
+          await this.messaging.scheduleTranscriptProjection(tx, [message.senderBotId]);
+          return { accepted: true, message: messageView(updated), runId: wake.run.id };
+        }),
       catch: toError,
     });
 }

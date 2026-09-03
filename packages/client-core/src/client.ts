@@ -14,6 +14,7 @@ import type {
   ClientRuntimeView,
   ClientSnapshot,
   ConfigurePluginConnectionInput,
+  ComputerHandoffMutationInput,
   CreateBotInput,
   CreateGroupInput,
   CreateRoutineInput,
@@ -442,6 +443,14 @@ export const createOpenBotClient = (options: OpenBotClientOptions) => {
         {
           method: "POST",
           body: JSON.stringify({ value, clientId: createId() }),
+        }
+      ),
+    mutateComputerHandoff: (messageId: string, action: ComputerHandoffMutationInput["action"]) =>
+      transport.request<RichMessageMutationView>(
+        `/api/v0/channel-messages/${encodeURIComponent(messageId)}/computer-handoff`,
+        {
+          method: "POST",
+          body: JSON.stringify({ action, clientId: createId() }),
         }
       ),
     cancelRun: (runId: string) =>

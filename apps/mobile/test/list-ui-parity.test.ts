@@ -164,6 +164,45 @@ describe("mobile virtual-list UI parity", () => {
     expect(route).toContain('router.push({ pathname: "/chat/[channelId]"');
   });
 
+  test("reference geometry stays aligned across the home, search, menus, and Bot profile", async () => {
+    const [home, search, contextMenu, composer, profile, marketplace, richCard] = await Promise.all(
+      [
+        source("app/index.tsx"),
+        source("app/search.tsx"),
+        source("src/components/conversation-context-menu.tsx"),
+        source("src/components/composer.tsx"),
+        source("src/components/bot-profile-screen.tsx"),
+        source("src/components/plugin-marketplace-sheet.tsx"),
+        source("src/components/rich-message-card.tsx"),
+      ]
+    );
+
+    expect(home.match(/size=\{48\}/g)?.length).toBeGreaterThanOrEqual(2);
+    expect(home).toContain("loading || refreshing ? (");
+    expect(home).toContain(">Loading</Text>");
+    expect(home).not.toContain('loading || refreshing ? "Loading" : "OpenBot"');
+    expect(search).toContain("width: 228");
+    expect(search).toContain("resultTitle: { flex: 1, fontSize: 16");
+    expect(contextMenu).toContain("width: 228");
+    expect(contextMenu).toContain("height: 41");
+    expect(composer).toContain("left: 8");
+    expect(composer).toContain("bottom: 22");
+    expect(composer).toContain("width: 228");
+    expect(composer).toContain("paddingRight: 29");
+    expect(composer).toContain("gap: 9");
+    expect(profile).toContain("size={98}");
+    expect(profile).toContain("characterCard: { height: 218");
+    expect(profile).toContain("paddingTop: 0");
+    expect(marketplace).toContain("width: 228");
+    expect(richCard).toContain("styles.dismissedOptions");
+    expect(richCard).toContain("dismissedOptions: { opacity: 0.48 }");
+    expect(richCard).toContain("dismissedFullCard: {}");
+    expect(richCard).toContain('projection?.kind === "cloud-agent"');
+    expect(richCard).toContain(">Publish</Text>");
+    expect(richCard).toContain(">View details</Text>");
+    expect(richCard).toContain("height: 148");
+  });
+
   test("modal search dismisses into chat so child sheets do not dismiss the conversation", async () => {
     const route = await source("app/search.tsx");
 
@@ -190,6 +229,10 @@ describe("mobile virtual-list UI parity", () => {
     expect(route).toContain("A2AActivityRow");
     expect(route).toContain("A2AExchangeSheet");
     expect(route).toContain("setA2APeerId(peer.id)");
+    expect(route).toContain("style={styles.headerTrailingAction}");
+    expect(route).toContain('headerTrailingAction: { marginLeft: "auto" }');
+    expect(route).toContain('name="chevron.down"');
+    expect(route).not.toContain("styles.jumpLabel");
   });
 
   test("A2A exchanges push a dedicated read-only native transcript over its source", async () => {
@@ -200,6 +243,9 @@ describe("mobile virtual-list UI parity", () => {
     expect(sheet).toContain("new Animated.Value(width)");
     expect(sheet).toContain("toValue: width");
     expect(sheet).toContain('label="Back to source conversation"');
+    expect(sheet).not.toContain("Open ${exchange.source.name} computer");
+    expect(sheet).toContain("bottom: 28");
+    expect(sheet).toContain("paddingHorizontal: 10");
     expect(sheet).toContain("a2aProjectionFor(item)");
     expect(sheet).toContain("alignRight={false}");
     expect(sheet).toContain("hideA2ALabel");
@@ -219,6 +265,9 @@ describe("mobile virtual-list UI parity", () => {
     expect(bubble).toContain("Start a thread");
     expect(bubble).toContain("Mark as unread");
     expect(bubble).toContain(">Report<");
+    expect(bubble).toContain("backgroundColor: theme.surfaceElevated");
+    expect(bubble).toContain("height: 60");
+    expect(bubble).toContain("height: 44");
     const richCard = await source("src/components/rich-message-card.tsx");
     expect(richCard).toContain("if (!value || pending || readOnly) return");
     expect(richCard).toContain("editable={!pending && !readOnly}");
@@ -264,7 +313,7 @@ describe("mobile virtual-list UI parity", () => {
     expect(manager).toContain("executePluginAccessTransition(transition");
   });
 
-  test("shared computer keeps frame failures visible without removing takeover controls", async () => {
+  test("shared computer keeps frame failures visible with simultaneous input", async () => {
     const route = await source("app/computer/[botId].tsx");
 
     expect(route).toContain("const [frameError, setFrameError]");
@@ -273,13 +322,26 @@ describe("mobile virtual-list UI parity", () => {
     );
     expect(route).toContain("onLoad={() => setFrameError(null)}");
     expect(route).toContain("styles.frameErrorOverlay");
-    expect(route).toContain('controlling ? "You have control"');
-    expect(route).toContain('controlling ? "Return control" : "Take control"');
+    expect(route).toContain('accessibilityLabel="Interactive shared computer"');
+    expect(route).toContain("if (!botId || !handoffId) return;");
+    expect(route).toContain("setScreenTakeover(botId, true)");
+    expect(route).not.toContain("Take control");
+    expect(route).not.toContain("Return control");
+    expect(route).toContain("Skip this step");
+    expect(route).toContain("I'm done, continue");
+    expect(route).toContain('mutateComputerHandoff(handoffId, "dismiss")');
+    expect(route).toContain("clearTimeout(handoffDismissTimer.current)");
+    expect(route).toContain("handoffDismissTimer.current = setTimeout(() => {");
     expect(route).toContain("PanResponder.create");
     expect(route).toContain('action: "drag"');
     expect(route).toContain("Clipboard.getStringAsync()");
     expect(route).toContain("<ComputerHelpSheet");
     expect(route).toContain('accessibilityLabel="Connecting to computer"');
     expect(route).toContain("Connecting...</Text>");
+    expect(route).toContain('returnKeyType="default"');
+    expect(route).not.toContain('returnKeyType="send"');
+    expect(route).toContain("height: 42");
+    expect(route).toContain("paddingTop: 64");
+    expect(route).toContain('backgroundColor: "#292929"');
   });
 });

@@ -13,68 +13,67 @@ const summarySource = () =>
     "utf8"
   );
 
-const eventFieldsSource = () =>
-  readFile(
-    new URL("../src/renderer/components/openbot/routine-event-fields.tsx", import.meta.url),
-    "utf8"
-  );
-
 const rendererSource = (path: string) =>
   readFile(new URL(`../src/renderer/${path}`, import.meta.url), "utf8");
 
 describe("Grok routine UI parity", () => {
-  test("uses the shadcn Select and Popover primitives for routine controls", async () => {
+  test("uses shadcn controls for every routine schedule picker", async () => {
     const source = await componentSource();
 
     expect(source).toContain('from "../ui/select"');
     expect(source).toContain('from "../ui/popover"');
+    expect(source).toContain('from "../ui/dropdown-menu"');
     expect(source).toContain('data-routine-select=""');
     expect(source).toContain('data-routine-popover="multi-picker"');
-    expect(source).toContain('data-routine-popover="event-picker"');
     expect(source).toContain('data-routine-popover="add-trigger"');
+    expect(source).toContain('data-routine-popover="add-schedule"');
+    expect(source).toContain("DropdownMenuSub");
   });
 
-  test("renders Grok's connector ordering with matching brand glyphs", async () => {
+  test("offers only time-based routine schedules", async () => {
     const source = await componentSource();
 
-    expect(source).toContain("routineTriggerKinds.slice(1).map");
-    for (const icon of [
-      "SlackIcon",
-      "GitHubIcon",
-      "TeamsIcon",
-      "LinearIcon",
-      "SentryIcon",
-      "PagerDutyIcon",
+    for (const schedule of [
+      'value: "hourly"',
+      'value: "daily"',
+      'value: "weekdays"',
+      'value: "weekly"',
+      'value: "monthly"',
+      'value: "interval"',
+      'value: "advanced"',
     ]) {
-      expect(source).toContain(`function ${icon}`);
+      expect(source).toContain(schedule);
     }
-    expect(source).toContain('fill="#5E6AD2"');
-    expect(source).toContain('fill="#6E47AE"');
-    expect(source).toContain('fill="#06AC38"');
-  });
-
-  test("keeps Grok's complete saved-webhook credential layout", async () => {
-    const source = await eventFieldsSource();
-
-    expect(source).toContain("<span className={labelClass}>POST to</span>");
-    expect(source).toContain("<span className={labelClass}>key</span>");
-    expect(source).toContain("<span className={labelClass}>header</span>");
-    expect(source).toContain('aria-label="Webhook URL"');
-    expect(source).toContain('aria-label="Webhook key"');
-    expect(source).toContain('aria-label="Webhook header"');
+    for (const eventTrigger of ["Slack", "PagerDuty", "Webhook", "Sentry", "Microsoft Teams"]) {
+      expect(source).not.toContain(eventTrigger);
+    }
+    expect(source).toContain('hasSchedules ? "Add another" : "Add trigger"');
+    expect(source).toContain("On a schedule");
+    expect(source).toContain('aria-label="Triggers"');
+    expect(source).toContain('aria-label="Trigger fields"');
+    expect(source).toContain("Remove trigger:");
+    expect(source).toContain("m: [5, 10, 15, 20, 30, 45]");
+    expect(source).not.toContain("m: [1, 2, 5");
   });
 
   test("preserves Grok's list ordering, empty state, and one-shot conflict rebase", async () => {
     const [source, summary] = await Promise.all([componentSource(), summarySource()]);
 
-    expect(summary).toContain("routines?.filter((routine) => routine.enabled)");
-    expect(summary).toContain("routines?.filter((routine) => !routine.enabled)");
+    expect(summary).toContain(
+      'routines?.filter((routine) => routine.scheduleKind !== "event" && routine.enabled)'
+    );
+    expect(summary).toContain(
+      'routines?.filter((routine) => routine.scheduleKind !== "event" && !routine.enabled)'
+    );
     expect(summary).toContain("Routines are recurring tasks this Bot runs on a schedule.");
     expect(summary).toContain('data-routines-list=""');
+    expect(summary).toContain("describeRoutineSchedules(schedules)");
     expect(source).toContain("error instanceof ClientError");
     expect(source).toContain("error.status !== 409");
     expect(source).toContain("const latest = await api.routine(current.id)");
     expect(source).toContain("await api.deleteRoutine(latest)");
+    expect(source).not.toContain("AlertDialog");
+    expect(source).not.toContain("deleteOpen");
   });
 
   test("keeps owner-scoped saves lossless and refresh work active-only", async () => {
@@ -82,7 +81,8 @@ describe("Grok routine UI parity", () => {
 
     expect(source).toContain('ownerKind: "bot" | "group"');
     expect(source).toContain("api.createRoutine(context.ownerId, context.ownerKind");
-    expect(source).toContain('const contextKey = `${ownerKind}:${ownerId}:${routineId ?? "new"}`');
+    expect(source).toContain("const contextKey = `");
+    expect(source).toContain('routineId ?? "new"');
     expect(source).toContain("saveContext.dirty && draftValid(saveContext.draft)");
     expect(source).toContain("void persist(saveContext, saveContext.draft)");
     expect(source).toContain("if (!active || !current) return");
@@ -105,6 +105,11 @@ describe("Grok routine UI parity", () => {
     expect(source).toContain(
       'disabled={!routine || !valid || dirty || running || saveState === "saving"}'
     );
+    expect(source).toContain("routineScheduleValue(current)");
+    expect(source).toContain("nextAdvancedTime(value.advancedTimes)");
+    expect(source).toContain("aria-label={`Remove $" + "{timeLabel(time)}`}");
+    expect(source).toContain("hideTransient={draft.schedules.length > 1}");
+    expect(source).not.toContain("Available after the routine is saved");
     expect(source.slice(updateStart, updateEnd)).not.toContain("enabled:");
   });
 

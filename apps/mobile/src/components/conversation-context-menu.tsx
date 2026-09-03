@@ -215,7 +215,7 @@ const styles = StyleSheet.create({
   card: {
     position: "absolute",
     left: 18,
-    width: 222,
+    width: 228,
     borderRadius: 24,
     borderWidth: StyleSheet.hairlineWidth,
     overflow: "hidden",
@@ -226,7 +226,7 @@ const styles = StyleSheet.create({
     elevation: 24,
   },
   menuRow: {
-    height: 37,
+    height: 41,
     paddingHorizontal: 25,
     flexDirection: "row",
     alignItems: "center",

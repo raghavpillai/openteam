@@ -4,6 +4,7 @@ import {
   AdminBroadcastInput,
   ApiError,
   ConfigurePluginConnectionInput,
+  ComputerHandoffMutationInput,
   ConnectPluginInput,
   CreateBotInput,
   CreateGroupInput,
@@ -907,6 +908,20 @@ const server = Bun.serve({
             app.submitSecret(
               decodeURIComponent(secretSubmissionMatch[1]),
               await parseBody(request, SecretSubmissionInput)
+            )
+          ),
+          202
+        );
+      }
+      const computerHandoffMatch = path.match(
+        /^\/api\/channel-messages\/([^/]+)\/computer-handoff$/
+      );
+      if (request.method === "POST" && computerHandoffMatch?.[1]) {
+        return json(
+          await run(
+            app.mutateComputerHandoff(
+              decodeURIComponent(computerHandoffMatch[1]),
+              await parseBody(request, ComputerHandoffMutationInput)
             )
           ),
           202

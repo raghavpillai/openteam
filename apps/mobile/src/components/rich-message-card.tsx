@@ -1,4 +1,8 @@
-import type { ChannelMessageView, RichMessageWidget } from "@openbot/contracts";
+import type {
+  ChannelMessageView,
+  RichMessageComputerHandoff,
+  RichMessageWidget,
+} from "@openbot/contracts";
 import {
   widgetOptionValue as optionValue,
   projectRichMessage,
@@ -10,21 +14,29 @@ import {
   widgetResponseValue,
 } from "@openbot/product-core/rich-messages";
 import { SymbolView } from "expo-symbols";
+import { router } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { useTheme } from "../theme";
+import { BotMark } from "./bot-mark";
 
 export function MobileRichMessageCard({
   message,
   onWidgetResponse,
   onWidgetDismiss,
   onSecretSubmit,
+  onComputerHandoff,
+  onCloudAgentOpen,
+  onCloudAgentPublish,
   readOnly = false,
 }: {
   message: ChannelMessageView;
   onWidgetResponse: (value: string) => Promise<boolean>;
   onWidgetDismiss: () => Promise<boolean>;
   onSecretSubmit: (value: string) => Promise<boolean>;
+  onComputerHandoff: (action: "start" | "skip") => Promise<boolean>;
+  onCloudAgentOpen?: () => void;
+  onCloudAgentPublish?: () => void;
   readOnly?: boolean;
 }) {
   const theme = useTheme();
@@ -33,6 +45,17 @@ export function MobileRichMessageCard({
   const [local, setLocal] = useState(metadata);
   useEffect(() => setLocal(record(message.metadata)), [message.metadata]);
   const cardStyle = [styles.card, { backgroundColor: theme.assistantBubble }];
+
+  if (projection?.kind === "cloud-agent") {
+    return (
+      <CloudAgentCard
+        agent={projection.agent}
+        onOpen={onCloudAgentOpen}
+        onPublish={onCloudAgentPublish}
+        readOnly={readOnly}
+      />
+    );
+  }
 
   if (projection?.kind === "secret-request") {
     const request = projection.request;
@@ -47,6 +70,23 @@ export function MobileRichMessageCard({
         }}
         provided={local.secretProvided === true}
         readOnly={readOnly}
+      />
+    );
+  }
+
+  if (projection?.kind === "computer-handoff") {
+    return (
+      <ComputerHandoffCard
+        botId={message.senderBotId}
+        handoff={projection.handoff}
+        messageId={message.id}
+        onMutate={onComputerHandoff}
+        readOnly={readOnly}
+        state={
+          typeof local.computerHandoffState === "string"
+            ? local.computerHandoffState
+            : projection.state
+        }
       />
     );
   }
@@ -67,6 +107,7 @@ export function MobileRichMessageCard({
         <View
           style={[
             styles.optionGroup,
+            styles.dismissedOptions,
             { backgroundColor: theme.surfacePressed, borderColor: theme.separator },
           ]}
         >
@@ -168,6 +209,165 @@ export function MobileRichMessageCard({
       }}
       widget={widget}
     />
+  );
+}
+
+function ComputerHandoffCard({
+  botId,
+  handoff,
+  messageId,
+  onMutate,
+  readOnly,
+  state,
+}: {
+  botId: string | null;
+  handoff: RichMessageComputerHandoff;
+  messageId: string;
+  onMutate: (action: "start" | "skip") => Promise<boolean>;
+  readOnly: boolean;
+  state: string;
+}) {
+  const theme = useTheme();
+  const [pending, setPending] = useState(false);
+  const [localState, setLocalState] = useState(state);
+  useEffect(() => setLocalState(state), [state]);
+  const terminal = ["completed", "skipped", "dismissed"].includes(localState);
+  const mutate = async (action: "start" | "skip") => {
+    if (pending || readOnly || terminal || (action === "start" && !botId)) return;
+    setPending(true);
+    try {
+      await onMutate(action);
+      setLocalState(action === "start" ? "active" : "skipped");
+      if (action === "start" && botId) {
+        router.push({
+          pathname: "/computer/[botId]",
+          params: { botId, handoffId: messageId },
+        });
+      }
+    } finally {
+      setPending(false);
+    }
+  };
+  return (
+    <View
+      accessibilityLabel="Take over the computer"
+      style={[styles.card, { backgroundColor: theme.assistantBubble }]}
+    >
+      <View style={styles.headingRow}>
+        <SymbolView
+          name="rectangle.inset.filled.and.person.filled"
+          size={18}
+          tintColor={theme.text}
+        />
+        <View style={styles.headingCopy}>
+          <Text style={[styles.title, { color: theme.text }]}>Take over the computer</Text>
+          <Text style={[styles.help, { color: theme.textMuted }]}>{handoff.reason}</Text>
+        </View>
+      </View>
+      {terminal ? (
+        <Text style={[styles.dismissedStatus, { color: theme.textMuted }]}>{localState}</Text>
+      ) : (
+        <View style={styles.handoffActions}>
+          <Pressable
+            accessibilityRole="button"
+            disabled={pending || readOnly}
+            onPress={() => void mutate("skip")}
+            style={({ pressed }) => [styles.handoffSecondary, pressed && { opacity: 0.65 }]}
+          >
+            <Text style={[styles.submitText, { color: theme.textMuted }]}>Skip</Text>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            disabled={pending || readOnly || !botId}
+            onPress={() => void mutate("start")}
+            style={[styles.submit, { backgroundColor: theme.text }]}
+          >
+            <Text style={[styles.submitText, { color: theme.background }]}>
+              {localState === "active" ? "Return to computer" : "Take over"}
+            </Text>
+          </Pressable>
+        </View>
+      )}
+    </View>
+  );
+}
+
+function CloudAgentCard({
+  agent,
+  onOpen,
+  onPublish,
+  readOnly,
+}: {
+  agent: {
+    color: string;
+    description?: string;
+    icon?: string;
+    name: string;
+    status: "draft" | "published";
+  };
+  onOpen?: () => void;
+  onPublish?: () => void;
+  readOnly: boolean;
+}) {
+  const theme = useTheme();
+  const published = agent.status === "published";
+  return (
+    <View
+      accessibilityLabel={`${agent.name}, ${published ? "Published" : "Unpublished"}`}
+      style={[
+        styles.card,
+        styles.cloudAgentCard,
+        { backgroundColor: theme.assistantBubble },
+      ]}
+    >
+      <View style={styles.cloudAgentHeading}>
+        <Text numberOfLines={1} style={[styles.cloudAgentName, { color: theme.text }]}>
+          {agent.name}
+        </Text>
+        <View style={[styles.cloudAgentStatus, { backgroundColor: theme.surfacePressed }]}>
+          <View style={[styles.cloudAgentStatusDot, { backgroundColor: theme.textMuted }]} />
+          <Text style={[styles.cloudAgentStatusText, { color: theme.textMuted }]}>
+            {published ? "Published" : "Unpublished"}
+          </Text>
+        </View>
+      </View>
+      <View style={styles.cloudAgentPreview}>
+        <View style={styles.cloudAgentGlowLarge} />
+        <View style={styles.cloudAgentGlowSmall} />
+        <BotMark color={agent.color} icon={agent.icon} size={58} />
+      </View>
+      <Text numberOfLines={3} style={[styles.cloudAgentDescription, { color: theme.textMuted }]}>
+        {agent.description || "A reusable Bot template."}
+      </Text>
+      <View style={styles.cloudAgentActions}>
+        {!published ? (
+          <Pressable
+            accessibilityRole="button"
+            disabled={readOnly || !onPublish}
+            onPress={onPublish}
+            style={({ pressed }) => [
+              styles.cloudAgentPrimaryAction,
+              { backgroundColor: theme.text },
+              pressed && styles.cloudAgentPressed,
+            ]}
+          >
+            <Text style={[styles.cloudAgentPrimaryLabel, { color: theme.background }]}>Publish</Text>
+          </Pressable>
+        ) : null}
+        <Pressable
+          accessibilityRole="button"
+          disabled={readOnly || !onOpen}
+          onPress={onOpen}
+          style={({ pressed }) => [
+            styles.cloudAgentSecondaryAction,
+            { backgroundColor: theme.surfacePressed },
+            pressed && styles.cloudAgentPressed,
+          ]}
+        >
+          <Text style={[styles.cloudAgentSecondaryLabel, { color: theme.text }]}>View details</Text>
+        </Pressable>
+      </View>
+    </View>
   );
 }
 
@@ -451,7 +651,8 @@ const styles = StyleSheet.create({
   headingCopy: { flex: 1 },
   title: { flex: 1, fontSize: 14, lineHeight: 20, fontWeight: "600" },
   help: { fontSize: 13, lineHeight: 18 },
-  dismissedFullCard: { opacity: 0.48 },
+  dismissedFullCard: {},
+  dismissedOptions: { opacity: 0.48 },
   dismissedPill: {
     flexDirection: "row",
     alignItems: "center",
@@ -462,7 +663,7 @@ const styles = StyleSheet.create({
   },
   dismissedDot: { width: 6, height: 6, borderRadius: 999 },
   dismissed: { fontSize: 12, fontWeight: "600" },
-  dismissedStatus: { fontSize: 13, lineHeight: 18 },
+  dismissedStatus: { opacity: 0.48, fontSize: 13, lineHeight: 18 },
   dismissButton: {
     width: 20,
     height: 20,
@@ -511,6 +712,13 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   submitText: { fontSize: 14, fontWeight: "600" },
+  handoffActions: { flexDirection: "row", justifyContent: "flex-end", gap: 8 },
+  handoffSecondary: {
+    minHeight: 32,
+    paddingHorizontal: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   secretCard: {},
   secretRow: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
   secretInput: { flex: 1 },
@@ -525,5 +733,65 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 4,
   },
+  cloudAgentCard: { borderRadius: 20, padding: 10, gap: 10 },
+  cloudAgentHeading: {
+    minHeight: 30,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+  cloudAgentName: { flex: 1, fontSize: 16, lineHeight: 21, fontWeight: "600" },
+  cloudAgentStatus: {
+    height: 24,
+    borderRadius: 12,
+    paddingHorizontal: 9,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+  },
+  cloudAgentStatusDot: { width: 6, height: 6, borderRadius: 3 },
+  cloudAgentStatusText: { fontSize: 12, lineHeight: 16, fontWeight: "600" },
+  cloudAgentPreview: {
+    height: 148,
+    borderRadius: 12,
+    overflow: "hidden",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#25163f",
+  },
+  cloudAgentGlowLarge: {
+    position: "absolute",
+    width: 260,
+    height: 260,
+    borderRadius: 130,
+    backgroundColor: "rgba(118,68,191,0.16)",
+  },
+  cloudAgentGlowSmall: {
+    position: "absolute",
+    width: 150,
+    height: 150,
+    borderRadius: 75,
+    backgroundColor: "rgba(139,83,224,0.18)",
+  },
+  cloudAgentDescription: { fontSize: 13, lineHeight: 17 },
+  cloudAgentActions: { flexDirection: "row", alignItems: "center", gap: 7 },
+  cloudAgentPrimaryAction: {
+    minHeight: 34,
+    borderRadius: 10,
+    paddingHorizontal: 13,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  cloudAgentSecondaryAction: {
+    minHeight: 34,
+    borderRadius: 10,
+    paddingHorizontal: 13,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  cloudAgentPrimaryLabel: { fontSize: 14, lineHeight: 18, fontWeight: "600" },
+  cloudAgentSecondaryLabel: { fontSize: 14, lineHeight: 18, fontWeight: "600" },
+  cloudAgentPressed: { opacity: 0.72 },
   disabled: { opacity: 0.36 },
 });

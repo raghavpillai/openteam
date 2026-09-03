@@ -1,0 +1,1376 @@
+{
+  "label": "--force-gc",
+  "capturedAt": "2026-09-01T22:23:35.275Z",
+  "target": {
+    "type": "page",
+    "url": "file:///private/tmp/openbot-pagination-candidate-final-source-f9787a2/apps/desktop/release-final/mac-arm64/OpenBotPaginationCandidateFinal.app/Contents/Resources/app.asar/dist/index.html"
+  },
+  "dom": {
+    "documents": 1,
+    "nodes": 1558,
+    "jsEventListeners": 455
+  },
+  "runtime": {
+    "usedSize": 22191772,
+    "totalSize": 27525120,
+    "embedderHeapUsedSize": 5492136,
+    "backingStorageSize": 1589139
+  },
+  "performance": {
+    "Timestamp": 1763115.359188,
+    "AudioHandlers": 0,
+    "AudioWorkletProcessors": 0,
+    "Documents": 1,
+    "Frames": 1,
+    "JSEventListeners": 455,
+    "LayoutObjects": 1432,
+    "MediaKeySessions": 0,
+    "MediaKeys": 0,
+    "Nodes": 1558,
+    "Resources": 41,
+    "ContextLifecycleStateObservers": 5,
+    "V8PerContextDatas": 2,
+    "WorkerGlobalScopes": 0,
+    "UACSSResources": 0,
+    "RTCPeerConnections": 0,
+    "ResourceFetchers": 1,
+    "AdSubframes": 0,
+    "DetachedScriptStates": 0,
+    "ArrayBufferContents": 107,
+    "LayoutCount": 0,
+    "RecalcStyleCount": 0,
+    "LayoutDuration": 0,
+    "RecalcStyleDuration": 0,
+    "DevToolsCommandDuration": 0.000227,
+    "ScriptDuration": 0,
+    "V8CompileDuration": 0,
+    "TaskDuration": 0.000239,
+    "TaskOtherDuration": 0.000012,
+    "ThreadTime": 0.000294,
+    "ProcessTime": 2.179098,
+    "JSHeapUsedSize": 22191772,
+    "JSHeapTotalSize": 27525120,
+    "FirstMeaningfulPaint": 1762943.592161,
+    "DomContentLoaded": 1762943.265582,
+    "NavigationStart": 1762943.186657
+  },
+  "page": {
+    "url": "file:///private/tmp/openbot-pagination-candidate-final-source-f9787a2/apps/desktop/release-final/mac-arm64/OpenBotPaginationCandidateFinal.app/Contents/Resources/app.asar/dist/index.html",
+    "title": "OpenBot",
+    "readyState": "complete",
+    "elements": 1372,
+    "buttons": 146,
+    "images": 0,
+    "dialogs": 0,
+    "virtualization": {
+      "sidebarEnabled": true,
+      "mountedChannelRows": 17,
+      "mountedPinnedRows": 0,
+      "declaredSidebarRows": [
+        1102
+      ],
+      "declaredPinnedRows": [],
+      "declaredSections": [],
+      "mountedCompactRows": 0,
+      "declaredCompactRows": [],
+      "mountedTimelineRows": 38,
+      "declaredTimelines": [
+        401
+      ],
+      "memberEditorOpen": false,
+      "mountedMemberRows": 0,
+      "declaredMemberRows": []
+    },
+    "scroll": {
+      "top": 0,
+      "height": 860,
+      "viewport": 860,
+      "bottomDistance": 0
+    },
+    "timelineScroll": {
+      "top": 7247,
+      "height": 29042,
+      "viewport": 860,
+      "bottomDistance": 20935
+    },
+    "newestButton": {
+      "ariaHidden": "false",
+      "tabIndex": 0,
+      "opacity": "1",
+      "pointerEvents": "auto"
+    },
+    "scrollCandidates": [
+      {
+        "role": null,
+        "className": "grok-scrollbar flex min-h-0 w-full flex-1 flex-col overflow-y-auto px-[12px]",
+        "top": 0,
+        "height": 63916,
+        "viewport": 730,
+        "bottomDistance": 63186
+      },
+      {
+        "role": null,
+        "className": "min-h-0 overflow-hidden",
+        "top": 0,
+        "height": 102,
+        "viewport": 0,
+        "bottomDistance": 102
+      },
+      {
+        "role": null,
+        "className": "pointer-events-none col-start-1 row-start-1 overflow-hidden h-0",
+        "top": 0,
+        "height": 110,
+        "viewport": 0,
+        "bottomDistance": 110
+      },
+      {
+        "role": null,
+        "className": "rounded-[12px] transition-colors duration-150 ease-out flex min-h-[36px] flex-1 flex-col",
+        "top": 0,
+        "height": 63916,
+        "viewport": 730,
+        "bottomDistance": 63186
+      },
+      {
+        "role": null,
+        "className": "",
+        "top": 7247,
+        "height": 29042,
+        "viewport": 860,
+        "bottomDistance": 20935
+      },
+      {
+        "role": null,
+        "className": "sr-only focus:not-sr-only focus:absolute focus:left-1/2 focus:top-2 focus:z-20 focus:-translate-x-1/2 focus:rounded-full focus:bg-background focus:px-3 focus:py-1.5 focus:text-xs focus:shadow",
+        "top": 0,
+        "height": 24,
+        "viewport": 1,
+        "bottomDistance": 23
+      },
+      {
+        "role": null,
+        "className": "sr-only",
+        "top": 0,
+        "height": 24,
+        "viewport": 1,
+        "bottomDistance": 23
+      },
+      {
+        "role": null,
+        "className": "relative",
+        "top": 0,
+        "height": 60,
+        "viewport": 44,
+        "bottomDistance": 16
+      }
+    ],
+    "heap": {
+      "usedJSHeapSize": 24500000,
+      "totalJSHeapSize": 29400000,
+      "jsHeapSizeLimit": 3760000000
+    },
+    "navigation": {
+      "name": "file:///private/tmp/openbot-pagination-candidate-final-source-f9787a2/apps/desktop/release-final/mac-arm64/OpenBotPaginationCandidateFinal.app/Contents/Resources/app.asar/dist/index.html",
+      "entryType": "navigation",
+      "startTime": 0,
+      "duration": 79.30000019073486,
+      "initiatorType": "navigation",
+      "deliveryType": "",
+      "nextHopProtocol": "",
+      "renderBlockingStatus": "non-blocking",
+      "contentType": "text/html",
+      "contentEncoding": "",
+      "workerStart": 0,
+      "workerRouterEvaluationStart": 0,
+      "workerCacheLookupStart": 0,
+      "workerMatchedSourceType": "",
+      "workerFinalSourceType": "",
+      "redirectStart": 0,
+      "redirectEnd": 0,
+      "fetchStart": 2.5,
+      "domainLookupStart": 2.5,
+      "domainLookupEnd": 2.5,
+      "connectStart": 2.5,
+      "secureConnectionStart": 0,
+      "connectEnd": 2.5,
+      "requestStart": 2.5,
+      "responseStart": 2.5,
+      "firstInterimResponseStart": 0,
+      "finalResponseHeadersStart": 0,
+      "responseEnd": 18.600000143051147,
+      "transferSize": 5282,
+      "encodedBodySize": 4982,
+      "decodedBodySize": 4982,
+      "responseStatus": 200,
+      "serverTiming": [],
+      "unloadEventStart": 0,
+      "unloadEventEnd": 0,
+      "domInteractive": 58.700000047683716,
+      "domContentLoadedEventStart": 79,
+      "domContentLoadedEventEnd": 79,
+      "domComplete": 79.20000004768372,
+      "loadEventStart": 79.20000004768372,
+      "loadEventEnd": 79.30000019073486,
+      "type": "navigate",
+      "redirectCount": 0,
+      "activationStart": 0,
+      "criticalCHRestart": 0,
+      "notRestoredReasons": null,
+      "confidence": {}
+    },
+    "resourceCount": 26,
+    "resourceBytes": 0,
+    "resources": [
+      {
+        "name": "http://127.0.0.1:8882/api/auth/config",
+        "startTime": 90,
+        "duration": 42,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/settings",
+        "startTime": 135.40000009536743,
+        "duration": 10.599999904632568,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/client-bootstrap",
+        "startTime": 135.40000009536743,
+        "duration": 90.59999990463257,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/active-agent",
+        "startTime": 304.2000000476837,
+        "duration": 3.700000047683716,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/649d7f94-5e07-7e68-c39c-29a0517588f7/history?limit=100",
+        "startTime": 304.30000019073486,
+        "duration": 7.3999998569488525,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/649d7f94-5e07-7e68-c39c-29a0517588f7/client-state",
+        "startTime": 304.30000019073486,
+        "duration": 17.299999952316284,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?limit=100",
+        "startTime": 322.7000000476837,
+        "duration": 5.299999952316284,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/client-state",
+        "startTime": 322.7000000476837,
+        "duration": 12.700000047683716,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/settings/sidebar",
+        "startTime": 514.7000000476837,
+        "duration": 7.700000047683716,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=54307&limit=100",
+        "startTime": 14465.5,
+        "duration": 8.100000143051147,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=54207&limit=100",
+        "startTime": 16017.200000047684,
+        "duration": 23.600000143051147,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=54107&limit=100",
+        "startTime": 19258.900000095367,
+        "duration": 5.599999904632568,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=54007&limit=100",
+        "startTime": 21512.400000095367,
+        "duration": 6.400000095367432,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=53907&limit=100",
+        "startTime": 23522.900000095367,
+        "duration": 5.400000095367432,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?before=53807&limit=100",
+        "startTime": 25543.10000014305,
+        "duration": 11.899999856948853,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/client-runtime",
+        "startTime": 30248.5,
+        "duration": 8.5,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/client-runtime",
+        "startTime": 60258.60000014305,
+        "duration": 14.200000047683716,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/client-bootstrap",
+        "startTime": 60364.5,
+        "duration": 67.90000009536743,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?limit=100",
+        "startTime": 60438.300000190735,
+        "duration": 6,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/client-state",
+        "startTime": 60438.300000190735,
+        "duration": 8.099999904632568,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/client-runtime",
+        "startTime": 90274.5,
+        "duration": 2.5,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/client-runtime",
+        "startTime": 120279,
+        "duration": 24.800000190734863,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/client-bootstrap",
+        "startTime": 120365.20000004768,
+        "duration": 50.90000009536743,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?limit=100",
+        "startTime": 120421.80000019073,
+        "duration": 14.799999952316284,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/client-state",
+        "startTime": 120421.90000009537,
+        "duration": 10.900000095367432,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      },
+      {
+        "name": "http://127.0.0.1:8882/api/v0/client-runtime",
+        "startTime": 150306.40000009537,
+        "duration": 4.299999952316284,
+        "transferSize": 0,
+        "decodedBodySize": 0
+      }
+    ],
+    "frameGaps": {
+      "samples": 120,
+      "max": 25.399999856948853,
+      "over20ms": 1,
+      "over50ms": 0
+    },
+    "openbot": [
+      {
+        "name": "browser.first-paint",
+        "duration": 92,
+        "at": 1788301241187
+      },
+      {
+        "name": "startup.first-ui-paint",
+        "duration": 100.30000019073486,
+        "at": 1788301241194
+      },
+      {
+        "name": "browser.first-contentful-paint",
+        "duration": 140,
+        "at": 1788301241235
+      },
+      {
+        "name": "api.ttfb",
+        "duration": 10.700000047683716,
+        "at": 1788301241240,
+        "detail": {
+          "path": "/api/v0/settings",
+          "status": 200,
+          "bytes": 373,
+          "serverTiming": "",
+          "failed": false
+        }
+      },
+      {
+        "name": "api.ttfb",
+        "duration": 87.19999980926514,
+        "at": 1788301241316,
+        "detail": {
+          "path": "/api/v0/client-bootstrap",
+          "status": 200,
+          "bytes": 1578088,
+          "serverTiming": "bootstrap;dur=76.62",
+          "failed": false
+        }
+      },
+      {
+        "name": "snapshot.reconcile",
+        "duration": 1.9000000953674316,
+        "at": 1788301241326,
+        "detail": {
+          "changed": true,
+          "mode": "bounded",
+          "messages": 1101
+        }
+      },
+      {
+        "name": "browser.long-task",
+        "duration": 72,
+        "at": 1788301241404
+      },
+      {
+        "name": "api.ttfb",
+        "duration": 6.799999952316284,
+        "at": 1788301241405,
+        "detail": {
+          "path": "/api/v0/events",
+          "status": 200,
+          "bytes": 0,
+          "serverTiming": "",
+          "failed": false
+        }
+      },
+      {
+        "name": "api.ttfb",
+        "duration": 7.299999952316284,
+        "at": 1788301241405,
+        "detail": {
+          "path": "/api/v0/active-agent",
+          "status": 200,
+          "bytes": 56,
+          "serverTiming": "",
+          "failed": false
+        }
+      },
+      {
+        "name": "api.ttfb",
+        "duration": 8.700000047683716,
+        "at": 1788301241407,
+        "detail": {
+          "path": "/api/v0/channels/649d7f94-5e07-7e68-c39c-29a0517588f7/history",
+          "status": 200,
+          "bytes": 45419,
+          "serverTiming": "",
+          "failed": false
+        }
+      },
+      {
+        "name": "api.ttfb",
+        "duration": 19.399999856948853,
+        "at": 1788301241418,
+        "detail": {
+          "path": "/api/v0/channels/649d7f94-5e07-7e68-c39c-29a0517588f7/client-state",
+          "status": 200,
+          "bytes": 529425,
+          "serverTiming": "",
+          "failed": false
+        }
+      },
+      {
+        "name": "view.channel-switch",
+        "duration": 10.700000047683716,
+        "at": 1788301241418,
+        "detail": {
+          "from": "649d7f94-5e07-7e68-c39c-29a0517588f7",
+          "to": "00afa798-6702-a4d8-ad9b-08737550b907"
+        }
+      },
+      {
+        "name": "history.page.merge",
+        "duration": 1.1999998092651367,
+        "at": 1788301241419,
+        "detail": {
+          "direction": "latest",
+          "mode": "replace",
+          "outcome": "applied",
+          "messages": 100,
+          "retainedBytes": 45146,
+          "retainedMessages": 101,
+          "viewportFill": "newer-first",
+          "viewportProtected": 1,
+          "evictedOlder": 0,
+          "evictedNewer": 0
+        }
+      },
+      {
+        "name": "snapshot.reconcile",
+        "duration": 1,
+        "at": 1788301241421,
+        "detail": {
+          "changed": true,
+          "mode": "bounded",
+          "messages": 1201
+        }
+      },
+      {
+        "name": "api.ttfb",
+        "duration": 5.8999998569488525,
+        "at": 1788301241422,
+        "detail": {
+          "path": "/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history",
+          "status": 200,
+          "bytes": 41028,
+          "serverTiming": "",
+          "failed": false
+        }
+      },
+      {
+        "name": "api.ttfb",
+        "duration": 27.5,
+        "at": 1788301241444,
+        "detail": {
+          "path": "/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/client-state",
+          "status": 200,
+          "bytes": 700,
+          "serverTiming": "",
+          "failed": false
+        }
+      },
+      {
+        "name": "history.page.merge",
+        "duration": 0.6000001430511475,
+        "at": 1788301241445,
+        "detail": {
+          "direction": "latest",
+          "mode": "replace",
+          "outcome": "applied",
+          "messages": 100,
+          "retainedBytes": 40755,
+          "retainedMessages": 100,
+          "viewportFill": "newer-first",
+          "viewportProtected": 1,
+          "evictedOlder": 0,
+          "evictedNewer": 0
+        }
+      },
+      {
+        "name": "snapshot.reconcile",
+        "duration": 0.5,
+        "at": 1788301241446,
+        "detail": {
+          "changed": true,
+          "mode": "bounded",
+          "messages": 1300
+        }
+      },
+      {
+        "name": "api.ttfb",
+        "duration": 8,
+        "at": 1788301241616,
+        "detail": {
+          "path": "/api/v0/settings/sidebar",
+          "status": 200,
+          "bytes": 42992,
+          "serverTiming": "",
+          "failed": false
+        }
+      },
+      {
+        "name": "browser.interaction",
+        "duration": 48,
+        "at": 1788301255427,
+        "detail": {
+          "event": "click"
+        }
+      },
+      {
+        "name": "browser.interaction",
+        "duration": 48,
+        "at": 1788301255446,
+        "detail": {
+          "event": "keydown"
+        }
+      },
+      {
+        "name": "api.ttfb",
+        "duration": 8.099999904632568,
+        "at": 1788301255567,
+        "detail": {
+          "path": "/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history",
+          "status": 200,
+          "bytes": 40919,
+          "serverTiming": "",
+          "failed": false
+        }
+      },
+      {
+        "name": "snapshot.reconcile",
+        "duration": 0.5,
+        "at": 1788301255571,
+        "detail": {
+          "changed": true,
+          "mode": "bounded",
+          "messages": 1400
+        }
+      },
+      {
+        "name": "history.page.merge",
+        "duration": 3.299999952316284,
+        "at": 1788301255571,
+        "detail": {
+          "direction": "older",
+          "mode": "latest",
+          "messages": 200,
+          "retainedBytes": 81401,
+          "retainedMessages": 200,
+          "viewportFill": "older-first",
+          "viewportProtected": 12,
+          "evictedOlder": 0,
+          "evictedNewer": 0
+        }
+      },
+      {
+        "name": "history.anchor.error-px",
+        "duration": 0,
+        "at": 1788301255623,
+        "detail": {
+          "automatic": true,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "history.page.intent-to-paint",
+        "duration": 63.5,
+        "at": 1788301255623,
+        "detail": {
+          "automatic": true,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "history.anchor.max-error-px",
+        "duration": 0.21875,
+        "at": 1788301256573,
+        "detail": {
+          "automatic": true,
+          "direction": "older",
+          "settleMs": 1014
+        }
+      },
+      {
+        "name": "history.anchor.row-survived",
+        "duration": 0,
+        "at": 1788301256573,
+        "detail": {
+          "automatic": true,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "api.ttfb",
+        "duration": 23.600000143051147,
+        "at": 1788301257135,
+        "detail": {
+          "path": "/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history",
+          "status": 200,
+          "bytes": 40919,
+          "serverTiming": "",
+          "failed": false
+        }
+      },
+      {
+        "name": "snapshot.reconcile",
+        "duration": 0.5,
+        "at": 1788301257139,
+        "detail": {
+          "changed": true,
+          "mode": "bounded",
+          "messages": 1500
+        }
+      },
+      {
+        "name": "history.page.merge",
+        "duration": 3.9000000953674316,
+        "at": 1788301257139,
+        "detail": {
+          "direction": "older",
+          "mode": "latest",
+          "messages": 300,
+          "retainedBytes": 122047,
+          "retainedMessages": 300,
+          "viewportFill": "older-first",
+          "viewportProtected": 11,
+          "evictedOlder": 0,
+          "evictedNewer": 0
+        }
+      },
+      {
+        "name": "browser.interaction",
+        "duration": 32,
+        "at": 1788301257859,
+        "detail": {
+          "event": "click"
+        }
+      },
+      {
+        "name": "history.anchor.max-error-px",
+        "duration": 0,
+        "at": 1788301258852,
+        "detail": {
+          "automatic": false,
+          "direction": "older",
+          "settleMs": 1002
+        }
+      },
+      {
+        "name": "history.anchor.row-survived",
+        "duration": 1,
+        "at": 1788301258852,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "api.ttfb",
+        "duration": 5.699999809265137,
+        "at": 1788301260359,
+        "detail": {
+          "path": "/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history",
+          "status": 200,
+          "bytes": 40919,
+          "serverTiming": "",
+          "failed": false
+        }
+      },
+      {
+        "name": "snapshot.reconcile",
+        "duration": 0.5999999046325684,
+        "at": 1788301260367,
+        "detail": {
+          "changed": true,
+          "mode": "bounded",
+          "messages": 1600
+        }
+      },
+      {
+        "name": "history.page.merge",
+        "duration": 8,
+        "at": 1788301260367,
+        "detail": {
+          "direction": "older",
+          "mode": "latest",
+          "messages": 400,
+          "retainedBytes": 162693,
+          "retainedMessages": 400,
+          "viewportFill": "older-first",
+          "viewportProtected": 11,
+          "evictedOlder": 0,
+          "evictedNewer": 0
+        }
+      },
+      {
+        "name": "history.anchor.error-px",
+        "duration": 0,
+        "at": 1788301260367,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "history.page.intent-to-paint",
+        "duration": 17.100000143051147,
+        "at": 1788301260367,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "browser.interaction",
+        "duration": 32,
+        "at": 1788301260408,
+        "detail": {
+          "event": "click"
+        }
+      },
+      {
+        "name": "history.anchor.max-error-px",
+        "duration": 0,
+        "at": 1788301261368,
+        "detail": {
+          "automatic": false,
+          "direction": "older",
+          "settleMs": 1018
+        }
+      },
+      {
+        "name": "history.anchor.row-survived",
+        "duration": 1,
+        "at": 1788301261368,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "history.anchor.error-px",
+        "duration": 0,
+        "at": 1788301262609,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "history.page.intent-to-paint",
+        "duration": 6.900000095367432,
+        "at": 1788301262609,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "api.ttfb",
+        "duration": 6.5,
+        "at": 1788301262613,
+        "detail": {
+          "path": "/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history",
+          "status": 200,
+          "bytes": 40919,
+          "serverTiming": "",
+          "failed": false
+        }
+      },
+      {
+        "name": "snapshot.reconcile",
+        "duration": 0.6999998092651367,
+        "at": 1788301262622,
+        "detail": {
+          "changed": true,
+          "mode": "bounded",
+          "messages": 1700
+        }
+      },
+      {
+        "name": "history.page.merge",
+        "duration": 8.399999856948853,
+        "at": 1788301262622,
+        "detail": {
+          "direction": "older",
+          "mode": "latest",
+          "messages": 500,
+          "retainedBytes": 203339,
+          "retainedMessages": 500,
+          "viewportFill": "older-first",
+          "viewportProtected": 11,
+          "evictedOlder": 0,
+          "evictedNewer": 0
+        }
+      },
+      {
+        "name": "history.anchor.max-error-px",
+        "duration": 0,
+        "at": 1788301263623,
+        "detail": {
+          "automatic": false,
+          "direction": "older",
+          "settleMs": 1021
+        }
+      },
+      {
+        "name": "history.anchor.row-survived",
+        "duration": 1,
+        "at": 1788301263623,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "api.ttfb",
+        "duration": 5.299999952316284,
+        "at": 1788301264622,
+        "detail": {
+          "path": "/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history",
+          "status": 200,
+          "bytes": 40919,
+          "serverTiming": "",
+          "failed": false
+        }
+      },
+      {
+        "name": "snapshot.reconcile",
+        "duration": 1.1000001430511475,
+        "at": 1788301264633,
+        "detail": {
+          "changed": true,
+          "mode": "bounded",
+          "messages": 1600
+        }
+      },
+      {
+        "name": "history.page.merge",
+        "duration": 10.900000095367432,
+        "at": 1788301264633,
+        "detail": {
+          "direction": "older",
+          "mode": "history",
+          "messages": 400,
+          "retainedBytes": 203339,
+          "retainedMessages": 500,
+          "viewportFill": "older-first",
+          "viewportProtected": 11,
+          "evictedOlder": 0,
+          "evictedNewer": 200
+        }
+      },
+      {
+        "name": "history.anchor.error-px",
+        "duration": 0,
+        "at": 1788301264634,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "history.page.intent-to-paint",
+        "duration": 21.5,
+        "at": 1788301264634,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "history.anchor.max-error-px",
+        "duration": 0,
+        "at": 1788301264662,
+        "detail": {
+          "automatic": false,
+          "direction": "older",
+          "settleMs": 50
+        }
+      },
+      {
+        "name": "history.anchor.row-survived",
+        "duration": 0,
+        "at": 1788301264662,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "history.anchor.error-px",
+        "duration": 0,
+        "at": 1788301266643,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "history.page.intent-to-paint",
+        "duration": 9.799999952316284,
+        "at": 1788301266643,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "api.ttfb",
+        "duration": 12,
+        "at": 1788301266649,
+        "detail": {
+          "path": "/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history",
+          "status": 200,
+          "bytes": 40919,
+          "serverTiming": "",
+          "failed": false
+        }
+      },
+      {
+        "name": "snapshot.reconcile",
+        "duration": 0.7999999523162842,
+        "at": 1788301266658,
+        "detail": {
+          "changed": true,
+          "mode": "bounded",
+          "messages": 1600
+        }
+      },
+      {
+        "name": "history.page.merge",
+        "duration": 8.199999809265137,
+        "at": 1788301266658,
+        "detail": {
+          "direction": "older",
+          "mode": "history",
+          "messages": 400,
+          "retainedBytes": 203339,
+          "retainedMessages": 500,
+          "viewportFill": "older-first",
+          "viewportProtected": 11,
+          "evictedOlder": 0,
+          "evictedNewer": 100
+        }
+      },
+      {
+        "name": "history.anchor.max-error-px",
+        "duration": 0.28125,
+        "at": 1788301267659,
+        "detail": {
+          "automatic": false,
+          "direction": "older",
+          "settleMs": 1026
+        }
+      },
+      {
+        "name": "history.anchor.row-survived",
+        "duration": 0,
+        "at": 1788301267659,
+        "detail": {
+          "automatic": false,
+          "direction": "older"
+        }
+      },
+      {
+        "name": "api.ttfb",
+        "duration": 8.899999856948853,
+        "at": 1788301271351,
+        "detail": {
+          "path": "/api/v0/client-runtime",
+          "status": 200,
+          "bytes": 100,
+          "serverTiming": "",
+          "failed": false
+        }
+      },
+      {
+        "name": "api.ttfb",
+        "duration": 14.400000095367432,
+        "at": 1788301301367,
+        "detail": {
+          "path": "/api/v0/client-runtime",
+          "status": 200,
+          "bytes": 100,
+          "serverTiming": "",
+          "failed": false
+        }
+      },
+      {
+        "name": "api.ttfb",
+        "duration": 65,
+        "at": 1788301301524,
+        "detail": {
+          "path": "/api/v0/client-bootstrap",
+          "status": 200,
+          "bytes": 1578088,
+          "serverTiming": "bootstrap;dur=55.80",
+          "failed": false
+        }
+      },
+      {
+        "name": "snapshot.reconcile",
+        "duration": 2,
+        "at": 1788301301533,
+        "detail": {
+          "changed": false,
+          "mode": "bounded",
+          "messages": 1600
+        }
+      },
+      {
+        "name": "api.ttfb",
+        "duration": 6.299999952316284,
+        "at": 1788301301539,
+        "detail": {
+          "path": "/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history",
+          "status": 200,
+          "bytes": 41028,
+          "serverTiming": "",
+          "failed": false
+        }
+      },
+      {
+        "name": "api.ttfb",
+        "duration": 8.199999809265137,
+        "at": 1788301301541,
+        "detail": {
+          "path": "/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/client-state",
+          "status": 200,
+          "bytes": 700,
+          "serverTiming": "",
+          "failed": false
+        }
+      },
+      {
+        "name": "history.page.merge",
+        "duration": 3,
+        "at": 1788301301544,
+        "detail": {
+          "direction": "latest",
+          "mode": "refresh",
+          "outcome": "preserved-gap",
+          "messages": 400,
+          "retainedBytes": 203339,
+          "retainedMessages": 500,
+          "viewportFill": "older-first",
+          "viewportProtected": 13,
+          "evictedOlder": 0,
+          "evictedNewer": 0
+        }
+      },
+      {
+        "name": "snapshot.reconcile",
+        "duration": 1.6000001430511475,
+        "at": 1788301301546,
+        "detail": {
+          "changed": false,
+          "mode": "bounded",
+          "messages": 1600
+        }
+      },
+      {
+        "name": "api.ttfb",
+        "duration": 2.5999999046325684,
+        "at": 1788301331372,
+        "detail": {
+          "path": "/api/v0/client-runtime",
+          "status": 200,
+          "bytes": 100,
+          "serverTiming": "",
+          "failed": false
+        }
+      },
+      {
+        "name": "api.ttfb",
+        "duration": 25.200000047683716,
+        "at": 1788301361399,
+        "detail": {
+          "path": "/api/v0/client-runtime",
+          "status": 200,
+          "bytes": 100,
+          "serverTiming": "",
+          "failed": false
+        }
+      },
+      {
+        "name": "api.ttfb",
+        "duration": 47.5,
+        "at": 1788301361507,
+        "detail": {
+          "path": "/api/v0/client-bootstrap",
+          "status": 200,
+          "bytes": 1578088,
+          "serverTiming": "bootstrap;dur=40.81",
+          "failed": false
+        }
+      },
+      {
+        "name": "snapshot.reconcile",
+        "duration": 1.6000001430511475,
+        "at": 1788301361517,
+        "detail": {
+          "changed": false,
+          "mode": "bounded",
+          "messages": 1600
+        }
+      },
+      {
+        "name": "api.ttfb",
+        "duration": 11.099999904632568,
+        "at": 1788301361528,
+        "detail": {
+          "path": "/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/client-state",
+          "status": 200,
+          "bytes": 700,
+          "serverTiming": "",
+          "failed": false
+        }
+      },
+      {
+        "name": "api.ttfb",
+        "duration": 14.900000095367432,
+        "at": 1788301361532,
+        "detail": {
+          "path": "/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history",
+          "status": 200,
+          "bytes": 41028,
+          "serverTiming": "",
+          "failed": false
+        }
+      },
+      {
+        "name": "history.page.merge",
+        "duration": 2.799999952316284,
+        "at": 1788301361535,
+        "detail": {
+          "direction": "latest",
+          "mode": "refresh",
+          "outcome": "preserved-gap",
+          "messages": 400,
+          "retainedBytes": 203339,
+          "retainedMessages": 500,
+          "viewportFill": "older-first",
+          "viewportProtected": 13,
+          "evictedOlder": 0,
+          "evictedNewer": 0
+        }
+      },
+      {
+        "name": "snapshot.reconcile",
+        "duration": 1.8000001907348633,
+        "at": 1788301361537,
+        "detail": {
+          "changed": false,
+          "mode": "bounded",
+          "messages": 1600
+        }
+      },
+      {
+        "name": "api.ttfb",
+        "duration": 4.5,
+        "at": 1788301391406,
+        "detail": {
+          "path": "/api/v0/client-runtime",
+          "status": 200,
+          "bytes": 100,
+          "serverTiming": "",
+          "failed": false
+        }
+      }
+    ],
+    "processes": {
+      "at": 1788301415267,
+      "app": [
+        {
+          "cpu": {
+            "cumulativeCPUUsage": 1.210657,
+            "percentCPUUsage": 0,
+            "idleWakeupsPerSecond": 0
+          },
+          "pid": 75887,
+          "type": "Browser",
+          "creationTime": 1788301239365.214,
+          "memory": {
+            "workingSetSize": 160880,
+            "peakWorkingSetSize": 177552
+          },
+          "sandboxed": false
+        },
+        {
+          "cpu": {
+            "cumulativeCPUUsage": 1.099751,
+            "percentCPUUsage": 0,
+            "idleWakeupsPerSecond": 0
+          },
+          "pid": 75894,
+          "type": "GPU",
+          "creationTime": 1788301240977.847,
+          "serviceName": "GPU",
+          "memory": {
+            "workingSetSize": 77936,
+            "peakWorkingSetSize": 96880
+          },
+          "sandboxed": true
+        },
+        {
+          "cpu": {
+            "cumulativeCPUUsage": 0.102313,
+            "percentCPUUsage": 0,
+            "idleWakeupsPerSecond": 0
+          },
+          "pid": 75895,
+          "type": "Utility",
+          "creationTime": 1788301240979.969,
+          "serviceName": "network.mojom.NetworkService",
+          "name": "Network Service",
+          "memory": {
+            "workingSetSize": 44320,
+            "peakWorkingSetSize": 50528
+          },
+          "sandboxed": true
+        },
+        {
+          "cpu": {
+            "cumulativeCPUUsage": 2.246361,
+            "percentCPUUsage": 0,
+            "idleWakeupsPerSecond": 0
+          },
+          "pid": 75896,
+          "type": "Tab",
+          "creationTime": 1788301241100.51,
+          "memory": {
+            "workingSetSize": 188944,
+            "peakWorkingSetSize": 290992
+          },
+          "sandboxed": true
+        }
+      ],
+      "main": {
+        "private": 46161,
+        "shared": 208
+      },
+      "gpu": {
+        "2d_canvas": "enabled",
+        "direct_rendering_display_compositor": "disabled_off_ok",
+        "gpu_compositing": "enabled",
+        "multiple_raster_threads": "enabled_on",
+        "opengl": "enabled_on",
+        "rasterization": "enabled",
+        "raw_draw": "disabled_off_ok",
+        "skia_graphite": "enabled_on",
+        "trees_in_viz": "disabled_off",
+        "video_decode": "enabled",
+        "video_encode": "enabled",
+        "webgl": "enabled",
+        "webgpu": "enabled",
+        "webnn": "disabled_off"
+      }
+    }
+  }
+}

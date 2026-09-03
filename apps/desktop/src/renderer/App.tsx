@@ -29,6 +29,10 @@ import { activeAsyncTaskChannelIds, activeAsyncTasksForBot } from "./lib/async-t
 import { BOT_TEMPLATE_SHARING_ENABLED, type TemplateBot } from "./lib/bot-template";
 import { cn } from "./lib/cn";
 import {
+  COMPUTER_HANDOFF_OPEN_EVENT,
+  type ComputerHandoffOpenDetail,
+} from "./lib/computer-handoff";
+import {
   CHAT_SETTINGS_KEYWORDS,
   HIDDEN_BOTS_PALETTE_KEYWORDS,
   PLUGINS_PALETTE_KEYWORDS,
@@ -197,6 +201,7 @@ export default function App() {
   const inspectorContentRef = useRef<HTMLDivElement | null>(null);
   const [inspectorMode, setInspectorMode] = useState<InspectorMode>("summary");
   const [enabledScreenIds, setEnabledScreenIds] = useState<ReadonlySet<string>>(() => new Set());
+  const [computerHandoff, setComputerHandoff] = useState<ComputerHandoffOpenDetail | null>(null);
   const [a2aExchange, setA2AExchange] = useState<A2AExchangeState | null>(null);
   const a2aExchangeTrigger = useRef<HTMLElement | null>(null);
   const restoreA2AFocusAfterClose = useRef(false);
@@ -626,6 +631,23 @@ export default function App() {
       setSelectedId,
     ]
   );
+  useEffect(() => {
+    const openHandoff = (event: Event) => {
+      const { botId, messageId } = (event as CustomEvent<ComputerHandoffOpenDetail>).detail;
+      const channel = snapshot?.channels.find(
+        (candidate) =>
+          candidate.kind === "bot_dm" && candidate.members.some((member) => member.botId === botId)
+      );
+      if (!channel) return;
+      selectSidebarChannel(channel.id);
+      setInspectorMode("summary");
+      setDetailsOpen(true);
+      enableScreen(botId);
+      setComputerHandoff({ botId, messageId });
+    };
+    window.addEventListener(COMPUTER_HANDOFF_OPEN_EVENT, openHandoff);
+    return () => window.removeEventListener(COMPUTER_HANDOFF_OPEN_EVENT, openHandoff);
+  }, [enableScreen, selectSidebarChannel, snapshot?.channels]);
   const editSidebarChannel = useCallback(
     (id: string) => {
       selectSidebarChannel(id);
@@ -1342,6 +1364,11 @@ export default function App() {
                           active
                           botById={index.botById}
                           channel={selected}
+                          computerHandoff={
+                            computerHandoff?.botId === selected.members[0]?.botId
+                              ? computerHandoff
+                              : null
+                          }
                           key={selected.id}
                           screenEnabled={Boolean(
                             selected.kind === "bot_dm" &&
@@ -1349,6 +1376,7 @@ export default function App() {
                           )}
                           mode={inspectorMode}
                           onEnableScreen={enableScreen}
+                          onFinishComputerHandoff={() => setComputerHandoff(null)}
                           onModeChange={setInspectorMode}
                           onOpenBot={openInspectorBot}
                           onRetryBot={retryInspectorBot}

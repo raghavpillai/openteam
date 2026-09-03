@@ -1,0 +1,20 @@
+{
+  "started": 386403.90000009537,
+  "done": 392961.10000014305,
+  "bottom": 1,
+  "active": {
+    "tag": "BUTTON",
+    "role": null,
+    "label": "Scroll to newest message"
+  },
+  "durationMs": 6557.200000047684,
+  "currentBottom": 0,
+  "activeNow": {
+    "tag": "BUTTON",
+    "role": null,
+    "label": "Scroll to newest message",
+    "text": ""
+  },
+  "latestVisible": true,
+  "timeline": 5001
+}

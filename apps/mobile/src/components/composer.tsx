@@ -1156,9 +1156,9 @@ const styles = StyleSheet.create({
   attachmentMenuLayer: { flex: 1 },
   attachmentMenu: {
     position: "absolute",
-    left: 12,
-    bottom: 18,
-    width: 222,
+    left: 8,
+    bottom: 22,
+    width: 228,
     borderRadius: 24,
     borderWidth: StyleSheet.hairlineWidth,
     paddingVertical: 2,
@@ -1179,12 +1179,13 @@ const styles = StyleSheet.create({
   menuPressed: { backgroundColor: "rgba(255,255,255,0.08)" },
   disabledMenuItem: { opacity: 0.35 },
   outer: {
-    paddingHorizontal: 24,
+    paddingLeft: 24,
+    paddingRight: 29,
     paddingTop: 4,
     paddingBottom: 2,
     flexDirection: "row",
     alignItems: "flex-end",
-    gap: 6,
+    gap: 9,
   },
   composer: {
     flex: 1,

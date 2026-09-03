@@ -516,7 +516,7 @@ describe("API contracts", () => {
     expect(sendToAgentSchema.required).toEqual(["target_id", "message"]);
   });
 
-  test("declares only the approved twelve-tool Cursor-compatible subset", () => {
+  test("declares only the approved thirteen-tool Cursor-compatible subset", () => {
     expect(CURSOR_TOOL_NAMES).toEqual([
       "CheckSubagent",
       "CreateAgent",
@@ -527,6 +527,7 @@ describe("API contracts", () => {
       "MessageSubagent",
       "StopSubagent",
       "Task",
+      "request_box_help",
       "TodoWrite",
       "UpdateAgent",
       "UpdateChannel",

@@ -259,6 +259,75 @@ describe("desktop bounded message-history windows", () => {
     expect(transition.window.context?.targetMessageId).toBe("message-900");
   });
 
+  test("advances context pagination in both directions when a stale viewport favors the old lane", () => {
+    const initial = applyPrimaryHistoryPage({
+      current: undefined,
+      window: undefined,
+      page: historyPage(2_001, 100),
+      mode: "replace",
+      atBottom: true,
+    });
+    let transition = enterMessageContext(
+      initial.history,
+      initial.window,
+      contextPage(1_001, 100, 1_050)
+    );
+    for (const start of [901, 801, 701]) {
+      transition = expandMessageContext({
+        current: transition.history,
+        window: transition.window,
+        page: contextPage(start, 101, start + 100),
+        direction: "older",
+      });
+    }
+    expect(transition.history.searchContext[0]?.id).toBe("message-701");
+    expect(transition.history.searchContext.at(-1)?.id).toBe("message-1100");
+
+    const older = expandMessageContext({
+      current: transition.history,
+      window: transition.window,
+      // Context pages include the requested current edge (701) as well as the
+      // 100 new rows. Retaining that overlap alone must not count as progress.
+      page: contextPage(601, 101, 701),
+      direction: "older",
+      viewport: {
+        fill: "older-first",
+        messageIds: new Set(transition.history.searchContext.slice(-10).map(({ id }) => id)),
+      },
+    });
+    expect(older.history.searchContext[0]?.id).toBe("message-601");
+    expect(older.evictedOlder).toBe(0);
+    expect(older.evictedNewer).toBe(100);
+    expect(older.window.context).toMatchObject({
+      hasMoreBefore: true,
+      hasMoreAfter: true,
+      retentionEdge: "oldest",
+    });
+
+    const newer = expandMessageContext({
+      current: older.history,
+      window: older.window,
+      page: contextPage(1_000, 101, 1_000),
+      direction: "newer",
+      viewport: {
+        fill: "newer-first",
+        messageIds: new Set(older.history.searchContext.slice(0, 10).map(({ id }) => id)),
+      },
+    });
+    const stats = retainedMessageWindowStats(newer.history, newer.window);
+    expect(newer.history.searchContext[0]?.id).toBe("message-701");
+    expect(newer.history.searchContext.at(-1)?.id).toBe("message-1100");
+    expect(newer.evictedOlder).toBe(100);
+    expect(newer.evictedNewer).toBe(0);
+    expect(newer.window.context).toMatchObject({
+      hasMoreBefore: true,
+      hasMoreAfter: true,
+      retentionEdge: "newest",
+    });
+    expect(stats.messages).toBe(MESSAGE_HISTORY_MAX_MESSAGES);
+    expect(stats.bytes).toBeLessThanOrEqual(MESSAGE_HISTORY_MAX_RETAINED_BYTES);
+  });
+
   test("closing context restores the preserved primary window without mixing lanes", () => {
     const initial = applyPrimaryHistoryPage({
       current: undefined,
@@ -614,6 +683,55 @@ describe("desktop bounded message-history windows", () => {
     expect(older.history.messages.some(({ id }) => id === "message-102")).toBe(true);
     expect(older.history.messages[0]?.id).not.toBe("message-1");
     expect(stats.messages).toBeLessThanOrEqual(MESSAGE_HISTORY_MAX_MESSAGES);
+    expect(stats.bytes).toBeLessThanOrEqual(MESSAGE_HISTORY_MAX_RETAINED_BYTES);
+  });
+
+  test("advances older pagination when a stale viewport would discard the requested page", () => {
+    let transition = applyPrimaryHistoryPage({
+      current: undefined,
+      window: undefined,
+      page: historyPage(1_001, 100),
+      mode: "replace",
+      atBottom: true,
+    });
+    for (const start of [901, 801, 701, 601, 501]) {
+      transition = applyPrimaryHistoryPage({
+        current: transition.history,
+        window: transition.window,
+        page: historyPage(start, 100),
+        mode: "older",
+        atBottom: false,
+        viewport: {
+          fill: "older-first",
+          messageIds: new Set(transition.history.messages.slice(0, 10).map(({ id }) => id)),
+        },
+      });
+    }
+    expect(transition.history.beforeSequence).toBe("501");
+    expect(transition.history.messages).toHaveLength(
+      MESSAGE_HISTORY_MAX_MESSAGES - MESSAGE_HISTORY_PAGE_SIZE
+    );
+    expect(transition.window.latestTail?.messages).toHaveLength(MESSAGE_HISTORY_PAGE_SIZE);
+
+    const staleViewportIds = new Set(transition.history.messages.slice(-10).map(({ id }) => id));
+    const older = applyPrimaryHistoryPage({
+      current: transition.history,
+      window: transition.window,
+      page: historyPage(401, 100),
+      mode: "older",
+      atBottom: false,
+      viewport: { fill: "older-first", messageIds: staleViewportIds },
+    });
+    const stats = retainedMessageWindowStats(older.history, older.window);
+
+    expect(older.history.beforeSequence).toBe("401");
+    expect(older.history.messages[0]?.id).toBe("message-401");
+    expect(older.history.messages.at(-1)?.id).toBe("message-800");
+    expect(older.evictedOlder).toBe(0);
+    expect(older.evictedNewer).toBe(100);
+    expect(older.window.primaryHasNewerGap).toBe(true);
+    expect(older.window.latestTail?.messages[0]?.id).toBe("message-1001");
+    expect(stats.messages).toBe(MESSAGE_HISTORY_MAX_MESSAGES);
     expect(stats.bytes).toBeLessThanOrEqual(MESSAGE_HISTORY_MAX_RETAINED_BYTES);
   });
 

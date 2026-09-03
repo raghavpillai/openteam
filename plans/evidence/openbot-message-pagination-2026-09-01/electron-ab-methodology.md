@@ -1,109 +1,170 @@
 # Packaged Electron pagination A/B methodology
 
-Status: baseline complete; candidate values marked `PENDING_CANDIDATE` until the matched replay
-finishes.
+Status: **complete — rollout criteria passed**
+Captured: 2026-09-01
 
-## Matched builds
+## Build arms and variant boundary
 
-| Arm | Source | Bundle identifier | Debug port | Profile |
-|---|---|---|---:|---|
-| A — prior renderer | `1e66ee8586a0…`, the pagination feature parent | `dev.openbot.pagination.baseline` | 9344 | fresh temporary directory |
-| B — bounded candidate | `PENDING_CANDIDATE_COMMIT` | `dev.openbot.pagination.candidate` | 9345 | fresh temporary directory |
+| Arm | Source/package | Bundle/profile |
+|---|---|---|
+| A — prior renderer | feature parent `1e66ee8`; `app.asar` SHA-256 `aef611981917128201e728f1084dc816b8ced5bf86bae025189f4f6e2eca010e` | `dev.openbot.pagination.baseline`; fresh temporary profile |
+| B1 — full-depth fixed candidate | behavior-equivalent source immediately before a semantics-preserving local-constant size refactor; `app.asar` `8762645b0b52bbfa1f275e9f09721a2eb5afe67223bbb5a5fbafd4c4d65ce444` | uniquely named temporary package/profile |
+| B2 — exact final optimized candidate | `f9787a2` plus two-file progression patch; product-diff SHA-256 `1a09c6634bb75607f959e7712453a9f6aa94e06dae63e749ffeb72c323c0ad5a`; `app.asar` `c33f47b384078fc7b3964ee1560230e08daee2d54470c2c5a14f8a1186ca58f2` | `dev.openbot.pagination.candidate.final`; fresh temporary profile |
 
-Both arms are arm64 production-packaged Electron 43.4.1 apps on an Apple M4 Pro running macOS
-26.5.2 (build 25F84). Each opens its packaged `file://` renderer, points at the same disposable
-`http://127.0.0.1:8882` fixture, uses its own application ID and empty profile, and runs at
-1,228 × 768 for the primary comparison. The build's Content Security Policy was changed only in
-the temporary packaged output to admit that isolated HTTP origin.
+A and B1 supply the matched long-duration A/B. B2 is the exact final package and repeats the cap
+crossing/progression behavior, bundle gates, and signing/test gates. The B1→B2 source change only
+stores a computed byte total in a local constant; it does not alter cursor, eviction, retained
+message, or rendering semantics. This split is intentional: full-depth heap evidence is labeled
+behavior-equivalent rather than represented as an exact-final trace.
 
-Each measurement workload targets only one uniquely identified app at a time. The installed OpenBot
-app, its profile, and the user's existing development Electron process were not opened or
-controlled.
+All packages are arm64 production Electron 43.4.1 apps on an Apple M4 Pro running macOS 26.5.2
+(build 25F84). They load packaged `file://` renderers, point at the same disposable
+`http://127.0.0.1:8882` fixture, and use isolated application IDs/profiles. The primary viewport is
+1,228 × 768. Only temporary packaged output was adjusted to admit the fixture's HTTP origin.
 
-## Control and observation boundary
+The installed OpenBot app, its profile, and unrelated development Electron processes were not
+opened or controlled.
 
-All user-visible actions—selecting a channel, focusing the transcript, scrolling, reversing
-direction, searching, opening a result, and jumping to latest—were performed through Computer Use
-against the uniquely identified packaged app. Chrome DevTools Protocol was observation-only:
+## Action and observation boundary
 
-- forced-GC heap and V8/runtime counters;
-- mounted DOM nodes and JavaScript listener counts;
-- virtual-list declared and mounted row counts;
-- application performance entries, including retained-window and anchor telemetry;
+Computer Use performed visible actions against one uniquely identified app at a time: selecting the
+channel, focusing and scrolling the transcript, reversing direction, searching, opening a result,
+loading either context direction, and jumping to latest. Chrome DevTools Protocol was
+observation-only:
+
+- forced-GC heap/runtime counters;
+- mounted DOM/listener and virtual-list counts;
+- retention, eviction, cursor, page-paint, and anchor performance entries;
 - renderer `requestAnimationFrame` callback intervals;
-- one 15-second renderer CPU profile during repeated direction reversal.
+- one 15-second renderer CPU sampling profile during reversal.
 
-The frame sampler measures main-thread animation-callback spacing, not display-present timestamps.
-It is useful for same-machine A/B comparison but cannot prove GPU compositor smoothness alone.
+The frame sampler measures main-thread callback spacing, not compositor presentation.
 
 ## Fixture and workloads
 
-Both arms use the same 10,040-message `Audit Bot 0001` channel in the 1,102-channel fixture.
-Network history pages are 100 rows.
+The disposable corpus contained 1,102 chats, 1,001 bots, 32,405 database messages, and 10,040 API
+messages in the `Audit Bot 0001` long transcript. History pages are 100 rows.
 
-1. **Initial/realistic:** open the newest 100 messages, take a forced-GC snapshot, and run a
-   12-second ordinary-scroll frame sample.
-2. **Deep history/stress:** repeatedly move to the top, allow the 750 ms history-load guard to
-   settle, then move through the loaded region until at least 5,000 messages have been traversed.
-   Run a 60-second frame sample during this workload and take another forced-GC snapshot.
-3. **Direction reversal:** alternate upward and downward scrolling for 15 seconds while collecting
-   frame intervals and a sampling CPU profile.
-4. **Search context:** search for `Long transcript fixture 2000`, open that result, confirm that
-   the target is visible, and inspect context/retention telemetry.
-5. **Jump latest:** activate the visible newest-message control from the old context and confirm
-   that the newest tail is visible and transcript focus remains usable.
-6. **Parity:** compare the initial, depth, context, and latest states for message styling, density,
-   composer/header/sidebar geometry, controls, scroll continuity, focus, and accessibility roles.
+1. **Initial/realistic:** open newest history, force GC, capture state, then sample ordinary
+   scrolling for 12 seconds.
+2. **Deep/stress:** repeatedly reach the older boundary, allow the 750 ms load guard to settle, and
+   continue through loaded content. Baseline stops around 5,000 for its deep capture; candidate
+   continues through all 10,020. Sample 60 seconds during traversal.
+3. **Reversal:** alternate directions for 15 seconds while recording rAF and CPU samples.
+4. **Anchor:** load one older page under a controlled stationary viewport; separately inspect
+   terminal traversal and newer context expansion.
+5. **Search:** query `Long transcript fixture 2000`, open the hit, verify paint/highlight and both
+   cursors, then expand both directions.
+6. **Latest:** activate the newest control from deep context and verify source, paint, bottom
+   distance, visible row, and focus destination.
+7. **Parity:** compare default, deep, search, compact-sidebar, and supported small-window states for
+   styling, geometry, controls, continuity, keyboard focus, motion, and list semantics.
 
-The candidate additionally exposes direct telemetry for unique retained rows/bytes, viewport
-protection, first-settled and maximum anchor error, anchor-row survival after one second, and
-search-target paint. Those counters do not exist in the baseline and are reported only for B.
+Candidate retention telemetry does not exist in the baseline and is reported only for B.
 
-## Baseline measurements already captured
+## Artifact mapping
 
-| Measure | A — prior renderer | B — bounded candidate |
+| Prefix/file | Variant |
+|---|---|
+| `baseline-*` | A |
+| `candidate-exact-*` | B1 full-depth candidate |
+| `candidate-final-*` | B1 post-fix targeted anchor/search/frame captures |
+| `candidate-optimized-*` | B2 exact final package |
+| `bundle-ab-pre-progression.json` | pre-progression aggregate build comparison; not the final totals |
+| `final-metrics.json` | curated final values and variant provenance |
+
+The large ownership snapshots remain outside the repository:
+`/private/tmp/openbot-pagination-baseline-depth5000.heapsnapshot`,
+`/private/tmp/openbot-pagination-candidate-depth10020.heapsnapshot`,
+`/private/tmp/openbot-pagination-candidate-exact-current-depth5000.heapsnapshot`, and
+`/private/tmp/openbot-pagination-candidate-exact-current-depth10020.heapsnapshot`.
+
+## Results
+
+| Workload | A p50 / p95 / p99 / max | B1 p50 / p95 / p99 / max | A >20 / >50 | B1 >20 / >50 |
+|---|---:|---:|---:|---:|
+| Realistic, 12 s | 16.7 / 17.1 / 17.6 / 17.7 ms | 16.7 / 17.4 / 17.6 / 33.9 ms | 0 / 0 | 1 / 0 |
+| Exact traversal, 60 s | 16.7 / 17.5 / 17.7 / 17.8 ms | 16.7 / 17.6 / 17.7 / 33.8 ms | 0 / 0 | 1 / 0 |
+| Reversal, 15 s | 16.7 / 17.3 / 17.6 / 66.3 ms | 16.7 / 17.4 / 17.7 / 50.9 ms | 1 / 1 | 2 / 1 |
+
+B1 reversal CPU attributed 14,896.420 ms of 15,065.482 ms to idle and 5.809 ms to GC.
+
+| Heap capture | Forced-GC JS heap | Declared / mounted timeline |
 |---|---:|---:|
-| Initial forced-GC JS heap | 16,714,564 B | `PENDING_CANDIDATE_INITIAL_HEAP` |
-| Deep forced-GC JS heap | 25,299,160 B | `PENDING_CANDIDATE_DEEP_HEAP` |
-| Heap change | +8,584,596 B (+51.4%) | `PENDING_CANDIDATE_HEAP_CHANGE` |
-| Initial DOM nodes / listeners | 1,246 / 367 | `PENDING_CANDIDATE_INITIAL_DOM` |
-| Deep DOM nodes / listeners | 1,229 / 408 | `PENDING_CANDIDATE_DEEP_DOM` |
-| 12 s realistic frame p95 / max | 17.1 / 17.7 ms | `PENDING_CANDIDATE_REALISTIC_FRAMES` |
-| 60 s stress frame p95 / max | 17.5 / 17.8 ms | `PENDING_CANDIDATE_STRESS_FRAMES` |
-| 15 s reversal frame p95 / max | 17.3 / 66.3 ms | `PENDING_CANDIDATE_REVERSAL_FRAMES` |
-| Reversal gaps >20 / >50 ms | 1 / 1 | `PENDING_CANDIDATE_REVERSAL_GAPS` |
-| Retained unique messages / bytes | unbounded / unavailable | `PENDING_CANDIDATE_RETAINED` |
-| First-settled / maximum anchor error | unavailable | `PENDING_CANDIDATE_ANCHOR_ERROR` |
-| Anchor row alive after 1 s | unavailable | `PENDING_CANDIDATE_ANCHOR_SURVIVAL` |
-| Search target painted | visible by CUA | `PENDING_CANDIDATE_SEARCH_PAINT` |
+| A newest 100 | 16,714,564 B | 101 / 25 |
+| A around 5,000 | 25,299,160 B | 5,001 / 24 |
+| B1 around 5,000 | 21,645,344 B | 401 / 38 |
+| B1 after all 10,020 | 22,246,488 B | 401 / 38 |
+| B2 exact-final cap smoke | 22,191,772 B | 401 / 38 |
 
-The prior renderer already virtualizes mounted DOM rows, which explains why its deep DOM count is
-flat even while retained JavaScript state grows by 8.58 MB. The candidate is successful only if it
-keeps that visual/DOM smoothness while bounding retained data; a lower heap with worse scroll
-frames or lost anchors is a failed trade.
+A grew +8,584,596 B / 51.4% from newest to 5k. B1 grew +601,144 B / 2.78% from 5k to
+10,020 while production retention remained exactly 500 messages / 203,630 B. B2 retained exactly
+500 / 203,339 B at its cap smoke.
 
-## Acceptance rules
+### Leak diagnosis
 
-- At no point may the candidate retain more than 500 unique channel-window messages or 2 MiB by the
-  production retained-byte counter, except one indivisible oversized row or a mandatory visible
-  protected span explicitly reported as soft excess.
-- Deep heap must plateau rather than scale with pages traversed; mounted rows remain virtualized.
-- No duplicate/missing IDs within a continuous window; gaps must be explicit.
-- An older-page load, context expansion, live refresh, or direction reversal must retain the
-  reported visible rows. First-settled anchor error should be at most 1 px, with the row still
-  present after one second. The one-second maximum-error value is judged only when no later user
-  scroll occurs inside that sampling window; intentional direction changes move the row and are
-  not anchor drift.
-- Search opens the requested target, can expand in both directions, and can return immediately to
-  the cached latest tail.
-- No unintended visual, motion, keyboard-focus, screen-reader-order, reply, thread, composer,
-  attachment, or new-message-notice regression.
-- Candidate rAF p95 and >20/>50 ms gap counts must not materially regress the matched baseline.
+The first capped candidate still reached 29,292,320 B at 10k. Ownership inspection found 106/105
+history snapshot owners/arrays, 105 index maps, and 9,715 content strings reachable through 95
+handler hops. `historyByChannel` was captured by changing page handlers. Reading current state
+through a ref and keeping handlers stable reduced fixed 5k and 10,020 snapshots to constant 7/6
+owners/arrays, 6 indexes, six handler maps, and zero handler-map hops. Snapshot backing and index
+tables stayed 22,040 B and 114,844 B. Unique fixture transcript IDs decreased 600→565.
+
+The B1 5k→10,020 heap delta came from lazy rich/file source loading and JIT state, not paging
+ownership: `BackingStorage` +200,685 B, external strings +405,621 B, with 404,995 B attributable to
+three new source entries.
+
+### Cursor progress and final equivalence
+
+An intermediate candidate exposed a genuine cap stall: at 500 retained messages it repeated
+`before=53907`, reported `evictedOlder=100`, and made zero progress. The corrected candidate
+requested `54307 → 54207 → 54107 → 54007 → 53907 → 53807` and continued to the oldest row, where
+no Load older affordance remained. The last full-depth page evicted 65 newer messages.
+
+B2 repeated the cap transition with declared timelines
+`301 → 401 → 501 → 401 → 401` and first fixtures
+`9722 → 9622 → 9522 → 9422 → 9408`. Its cap crossings evicted 200 then 100 newer rows, zero older
+rows. This is the exact-final semantic check corresponding to B1's full-depth trace.
+
+### Anchor, search, latest, and parity
+
+- Controlled one-page prepend: first error 0 px, one-second maximum 0 px, anchor survived, and
+  intent-to-paint 11.7 ms.
+- Terminal traversal: maximum anchor error 0.5 px.
+- Newer context expansion: maximum 0.28125 px, anchor survived.
+- Search target: painted true in 168.1 ms; initial declared/mounted 102/38, both direction controls
+  present; after bidirectional loads declared 401, target stayed visible, retention exactly 500.
+- Jump latest: A 6,557.2 ms and focus stayed on its transient button; B1 1,137 ms from cache, latest
+  visible, bottom distance 0, focus on stable content. Candidate was 5.77× faster.
+- Default, compact, and supported small-window styling and geometry remained consistent.
+
+The one-second maximum anchor error is judged only when no intentional user scroll intervenes in
+that sampling window.
+
+## Acceptance outcome
+
+| Rule | Outcome |
+|---|---|
+| ≤500 messages and ≤2 MiB except reported protected/indivisible soft excess | Pass |
+| Deep heap plateaus; mounted rows remain virtualized | Pass |
+| Cursors progress; no hidden duplicate/missing continuous-window IDs | Pass |
+| First anchor ≤1 px and row survives; context remains stable | Pass |
+| Search opens target and continues both directions | Pass |
+| Cached latest return remains usable and restores stable focus | Pass |
+| rAF p95 and long-gap counts do not materially regress | Pass |
+| Default/compact/small-window visual and functional contract | Pass |
+| Tests, typechecks, style/diff check, build, budget, signing | Pass |
+
+Final gates were desktop 355, product-core 69, contracts 36, client 34, server 127, all five
+typechecks, focused 48, scoped Biome, changed-file diff check, build, budgets, and direct
+`codesign --deep --strict`. The notification helper alone rejected the temporary product name
+because it hard-codes `OpenBot.app`; direct signing verification of the measured package passed.
 
 ## Limitations
 
-- The rAF samples are one deterministic local run per workload, not a population estimate.
-- Forced GC makes heap comparisons repeatable but differs from normal garbage-collection cadence.
-- The fixture is synthetic and local; remote RTT and image decode will add costs.
-- A 1,228 × 768 replay does not substitute for the separately recorded compact/minimum-window
-  parity check.
+- Frame distributions are one deterministic local run per workload, not population estimates.
+- Forced GC differs from ordinary GC cadence.
+- The fixture is synthetic/local; remote RTT, image decode, and thermal variance add costs.
+- rAF spacing cannot independently prove GPU compositor smoothness.
+- Full-depth heap is from B1; B2 has exact-final cap progression, tests, budget, and signing rather
+  than a duplicate 10,020 heap snapshot.

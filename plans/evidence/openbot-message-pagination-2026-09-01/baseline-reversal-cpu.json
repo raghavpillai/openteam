@@ -1,0 +1,112 @@
+{
+  "capturedAt": "2026-09-01T21:39:08.452Z",
+  "durationMs": 15071.817,
+  "samplingIntervalUs": 250,
+  "samples": 25709,
+  "hottest": [
+    {
+      "functionName": "(idle)",
+      "url": "",
+      "line": 0,
+      "column": 0,
+      "selfMs": 14836.644,
+      "samples": 59347
+    },
+    {
+      "functionName": "(program)",
+      "url": "",
+      "line": 0,
+      "column": 0,
+      "selfMs": 213.737,
+      "samples": 855
+    },
+    {
+      "functionName": "addEventListener",
+      "url": "",
+      "line": 0,
+      "column": 0,
+      "selfMs": 11.546,
+      "samples": 46
+    },
+    {
+      "functionName": "requestAnimationFrame",
+      "url": "",
+      "line": 0,
+      "column": 0,
+      "selfMs": 3.839,
+      "samples": 15
+    },
+    {
+      "functionName": "e",
+      "url": "file:///private/tmp/openbot-pagination-baseline-package/mac-arm64/OpenBotPaginationBaseline.app/Contents/Resources/app.asar/dist/assets/dist-D7DOSGJl.js",
+      "line": 1,
+      "column": 4264,
+      "selfMs": 0.939,
+      "samples": 4
+    },
+    {
+      "functionName": "PerformanceObserver.observe.type",
+      "url": "file:///private/tmp/openbot-pagination-baseline-package/mac-arm64/OpenBotPaginationBaseline.app/Contents/Resources/app.asar/dist/assets/http-CFI6VxCt.js",
+      "line": 1,
+      "column": 2783,
+      "selfMs": 0.864,
+      "samples": 3
+    },
+    {
+      "functionName": "Xn",
+      "url": "file:///private/tmp/openbot-pagination-baseline-package/mac-arm64/OpenBotPaginationBaseline.app/Contents/Resources/app.asar/dist/assets/index-DuuoxH5d.js",
+      "line": 9,
+      "column": 20616,
+      "selfMs": 0.733,
+      "samples": 3
+    },
+    {
+      "functionName": "rn",
+      "url": "file:///private/tmp/openbot-pagination-baseline-package/mac-arm64/OpenBotPaginationBaseline.app/Contents/Resources/app.asar/dist/assets/index-DuuoxH5d.js",
+      "line": 9,
+      "column": 15034,
+      "selfMs": 0.707,
+      "samples": 3
+    },
+    {
+      "functionName": "(anonymous)",
+      "url": "file:///private/tmp/openbot-pagination-baseline-package/mac-arm64/OpenBotPaginationBaseline.app/Contents/Resources/app.asar/dist/assets/index-DuuoxH5d.js",
+      "line": 9,
+      "column": 127497,
+      "selfMs": 0.696,
+      "samples": 3
+    },
+    {
+      "functionName": "step",
+      "url": "",
+      "line": 1,
+      "column": 126,
+      "selfMs": 0.63,
+      "samples": 3
+    },
+    {
+      "functionName": "hp",
+      "url": "file:///private/tmp/openbot-pagination-baseline-package/mac-arm64/OpenBotPaginationBaseline.app/Contents/Resources/app.asar/dist/assets/index-DuuoxH5d.js",
+      "line": 10,
+      "column": 29092,
+      "selfMs": 0.578,
+      "samples": 2
+    },
+    {
+      "functionName": "rn",
+      "url": "file:///private/tmp/openbot-pagination-baseline-package/mac-arm64/OpenBotPaginationBaseline.app/Contents/Resources/app.asar/dist/assets/index-DuuoxH5d.js",
+      "line": 9,
+      "column": 15034,
+      "selfMs": 0.331,
+      "samples": 1
+    },
+    {
+      "functionName": "Kt",
+      "url": "file:///private/tmp/openbot-pagination-baseline-package/mac-arm64/OpenBotPaginationBaseline.app/Contents/Resources/app.asar/dist/assets/index-DuuoxH5d.js",
+      "line": 9,
+      "column": 10950,
+      "selfMs": 0.329,
+      "samples": 1
+    }
+  ]
+}

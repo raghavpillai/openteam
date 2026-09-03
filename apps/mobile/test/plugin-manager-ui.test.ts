@@ -19,6 +19,9 @@ describe("mobile plugin manager scale and access wiring", () => {
     expect(marketplace).toContain("data.installs.length} installed");
     expect(marketplace).toContain("<GlassSurface");
     expect(marketplace).toContain("featured.slice(0, 4)");
+    expect(marketplace).toContain("BundledGoogleMark");
+    expect(marketplace).toContain('name === "Google Calendar"');
+    expect(marketplace).toContain('name === "Google Drive"');
   });
 
   test("uses the shared server page boundary with searchable, abortable paging", async () => {

@@ -1,0 +1,112 @@
+{
+  "capturedAt": "2026-09-01T22:11:11.726Z",
+  "durationMs": 15065.482,
+  "samplingIntervalUs": 250,
+  "samples": 43958,
+  "hottest": [
+    {
+      "functionName": "(idle)",
+      "url": "",
+      "line": 0,
+      "column": 0,
+      "selfMs": 14896.42,
+      "samples": 59586
+    },
+    {
+      "functionName": "(program)",
+      "url": "",
+      "line": 0,
+      "column": 0,
+      "selfMs": 143.727,
+      "samples": 575
+    },
+    {
+      "functionName": "addEventListener",
+      "url": "",
+      "line": 0,
+      "column": 0,
+      "selfMs": 9.063,
+      "samples": 36
+    },
+    {
+      "functionName": "(garbage collector)",
+      "url": "",
+      "line": 0,
+      "column": 0,
+      "selfMs": 5.809,
+      "samples": 23
+    },
+    {
+      "functionName": "requestAnimationFrame",
+      "url": "",
+      "line": 0,
+      "column": 0,
+      "selfMs": 2.756,
+      "samples": 11
+    },
+    {
+      "functionName": "e",
+      "url": "file:///private/tmp/openbot-pagination-candidate-fixed-package/mac-arm64/OpenBotPaginationCandidateFixed.app/Contents/Resources/app.asar/dist/assets/dist-D7DOSGJl.js",
+      "line": 1,
+      "column": 4264,
+      "selfMs": 2.551,
+      "samples": 10
+    },
+    {
+      "functionName": "step",
+      "url": "",
+      "line": 1,
+      "column": 132,
+      "selfMs": 1.267,
+      "samples": 5
+    },
+    {
+      "functionName": "(anonymous)",
+      "url": "file:///private/tmp/openbot-pagination-candidate-fixed-package/mac-arm64/OpenBotPaginationCandidateFixed.app/Contents/Resources/app.asar/dist/assets/index-C1qOxvx6.js",
+      "line": 9,
+      "column": 127561,
+      "selfMs": 0.966,
+      "samples": 4
+    },
+    {
+      "functionName": "Qt",
+      "url": "file:///private/tmp/openbot-pagination-candidate-fixed-package/mac-arm64/OpenBotPaginationCandidateFixed.app/Contents/Resources/app.asar/dist/assets/index-C1qOxvx6.js",
+      "line": 9,
+      "column": 15033,
+      "selfMs": 0.658,
+      "samples": 3
+    },
+    {
+      "functionName": "fp",
+      "url": "file:///private/tmp/openbot-pagination-candidate-fixed-package/mac-arm64/OpenBotPaginationCandidateFixed.app/Contents/Resources/app.asar/dist/assets/index-C1qOxvx6.js",
+      "line": 10,
+      "column": 28452,
+      "selfMs": 0.334,
+      "samples": 1
+    },
+    {
+      "functionName": "wr",
+      "url": "file:///private/tmp/openbot-pagination-candidate-fixed-package/mac-arm64/OpenBotPaginationCandidateFixed.app/Contents/Resources/app.asar/dist/assets/index-C1qOxvx6.js",
+      "line": 9,
+      "column": 23882,
+      "selfMs": 0.332,
+      "samples": 1
+    },
+    {
+      "functionName": "e",
+      "url": "file:///private/tmp/openbot-pagination-candidate-fixed-package/mac-arm64/OpenBotPaginationCandidateFixed.app/Contents/Resources/app.asar/dist/assets/index-C1qOxvx6.js",
+      "line": 98,
+      "column": 109565,
+      "selfMs": 0.322,
+      "samples": 1
+    },
+    {
+      "functionName": "Jn",
+      "url": "file:///private/tmp/openbot-pagination-candidate-fixed-package/mac-arm64/OpenBotPaginationCandidateFixed.app/Contents/Resources/app.asar/dist/assets/index-C1qOxvx6.js",
+      "line": 9,
+      "column": 21343,
+      "selfMs": 0.32,
+      "samples": 1
+    }
+  ]
+}

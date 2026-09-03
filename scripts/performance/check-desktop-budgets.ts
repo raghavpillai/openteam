@@ -157,7 +157,6 @@ const lazyBudgets: Record<string, number> = {
   spreadsheetPreview: 550_000,
   routineSummary: 40_000,
   routineEditor: 100_000,
-  routineEventFields: 40_000,
   newBot: 20_000,
   pluginSettings: 50_000,
   pluginSettingsDetail: 30_000,

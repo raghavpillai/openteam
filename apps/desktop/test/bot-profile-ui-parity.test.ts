@@ -77,7 +77,7 @@ describe("Grok bot-profile UI parity", () => {
     expect(screen).toContain("onPointerMove");
     expect(screen).toContain('action: "drag"');
     expect(routines).toContain('aria-label="Routines"');
-    expect(routines).toContain('role="list"');
+    expect(routines).toContain('<ul aria-label="Routines"');
   });
 
   test("matches Grok's pinned-grid spacing and permits group channels", async () => {

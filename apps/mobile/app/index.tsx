@@ -98,22 +98,22 @@ function ConversationMark({
   botById: ReadonlyMap<string, BotView>;
   row: ChannelRowProjection;
 }) {
-  if (row.bot) return <BotMark color={row.bot.color} icon={row.bot.icon} size={44} />;
+  if (row.bot) return <BotMark color={row.bot.color} icon={row.bot.icon} size={48} />;
   const members = row.channel.members
     .map((member) => botById.get(member.botId))
     .filter((bot): bot is BotView => Boolean(bot))
     .slice(0, 2);
   if (members.length < 2) {
     const member = members[0];
-    return <BotMark color={member?.color ?? "#858580"} icon={member?.icon} size={44} />;
+    return <BotMark color={member?.color ?? "#858580"} icon={member?.icon} size={48} />;
   }
   return (
     <View style={styles.groupMark}>
       <View style={styles.groupMarkBack}>
-        <BotMark color={members[0].color} icon={members[0].icon} size={32} />
+        <BotMark color={members[0].color} icon={members[0].icon} size={34} />
       </View>
       <View style={styles.groupMarkFront}>
-        <BotMark color={members[1].color} icon={members[1].icon} size={32} />
+        <BotMark color={members[1].color} icon={members[1].icon} size={34} />
       </View>
     </View>
   );
@@ -592,11 +592,11 @@ export default function HomeScreen() {
               </Pressable>
               <View style={styles.statusTitle}>
                 {loading || refreshing ? (
-                  <ActivityIndicator color={theme.textMuted} size="small" />
+                  <>
+                    <ActivityIndicator color={theme.textMuted} size="small" />
+                    <Text style={[styles.statusText, { color: theme.text }]}>Loading</Text>
+                  </>
                 ) : null}
-                <Text style={[styles.statusText, { color: theme.text }]}>
-                  {loading || refreshing ? "Loading" : "OpenBot"}
-                </Text>
               </View>
               <View style={styles.headerActions}>
                 <IconButton
@@ -706,9 +706,9 @@ const styles = StyleSheet.create({
     borderRadius: 11,
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: 9,
   },
-  groupMark: { width: 44, height: 44 },
+  groupMark: { width: 48, height: 48 },
   groupMarkBack: { position: "absolute", left: 1, top: 1 },
   groupMarkFront: { position: "absolute", right: 0, bottom: 0 },
   rowCopy: { flex: 1, gap: 3 },

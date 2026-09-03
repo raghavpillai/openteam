@@ -33,7 +33,7 @@ describe("late native iOS regression guards", () => {
     expect(route).toContain('"Could not mark as unread"');
     expect(sheet).toContain('presentationStyle="fullScreen"');
     expect(sheet).toContain('name="chevron.left"');
-    expect(sheet).toContain("placeholder={`Reply ${botName}`}");
+    expect(sheet).toContain("placeholder={`Reply $" + "{botName}`}");
     expect(sheet).not.toContain("replyPreview=");
     expect(bubble).toContain("threadReplyCountLabel(threadReplyCount, threadReplyCountIsPartial)");
   });
@@ -170,6 +170,10 @@ describe("late native iOS regression guards", () => {
     expect(markdown).toContain("katex.renderToString");
     expect(preview).toContain("File.createDownloadTask");
     expect(preview).toContain("openPreview(localFile.uri)");
+    expect(preview).toContain('presentationStyle="overFullScreen"');
+    expect(preview).toContain("<MobileMarkdown");
+    expect(preview).toContain("forceRich={documentPreview.content.length <= 128_000}");
+    expect(preview).toContain("Share.share({ title: asset.fileName, url: documentPreview.uri })");
     expect(bubble).toContain("accessible={files.length === 0 && stagedFiles.length === 0}");
     expect(bubble).toContain("(files.length > 0 || stagedFiles.length > 0) && renderedContent");
     expect(settings).toContain('authMode === "disabled"');

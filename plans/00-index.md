@@ -15,7 +15,6 @@ in this directory; retained measurements and captures live under [`evidence/`](.
 | [`11-plugin-architecture-research.md`](./11-plugin-architecture-research.md) | Add plugin release updates/rollback, broader catalog/distribution workflows, and a real local-stdio sandbox. |
 | [`29-update-state-manifest.md`](./29-update-state-manifest.md) | Deliver non-cron routine events and settle confirmation, spend, cadence, retry, and coalescing policy. |
 | [`34-ios-mobile-parity.md`](./34-ios-mobile-parity.md) | Complete production signing/APNs, physical-device validation, public-network hardening, and native release automation. |
-| [`41-message-pagination-performance-data.md`](./41-message-pagination-performance-data.md) | Finish the packaged Electron A/B and visual/functional rollout gate for the bounded history implementation currently in the worktree. |
 
 ## Scope rules
 

@@ -1,5 +1,5 @@
 import { BotAvatar } from "./bot-avatar";
-import { Check, Mic, Monitor, Plus, Search } from "./icons";
+import { Check, Mic, Monitor, Plus, Search } from "lucide-react";
 
 /**
  * A rendered view of the desktop app: sidebar, one bot's chat, and the

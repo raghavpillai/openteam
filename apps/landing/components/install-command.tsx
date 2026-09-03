@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Check, Copy } from "./icons";
+import { Check, Copy } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 export const INSTALL_COMMAND = "bunx --bun @openteam/cli install";
 
@@ -34,18 +36,21 @@ export function InstallCommand({ size = "lg" }: { size?: "lg" | "md" }) {
         $
       </span>
       <code className="truncate font-mono text-ink">{INSTALL_COMMAND}</code>
-      <button
+      <Button
         type="button"
+        variant="secondary"
+        size="sm"
         onClick={copy}
         aria-live="polite"
         aria-label={copied ? "Copied" : "Copy install command"}
-        className={`inline-flex shrink-0 items-center gap-1.5 rounded-lg font-medium transition-colors ${
-          large ? "h-10 px-2.5 text-[13px] sm:px-3" : "h-8 px-2.5 text-[12.5px]"
-        } ${copied ? "bg-live-soft text-[#0b7a4b]" : "bg-raised text-ink-2 hover:bg-sunken hover:text-ink"}`}
+        className={cn(
+          large ? "h-10 min-w-10 px-2.5 text-[13px] sm:px-3" : "h-8 px-2.5 text-[12.5px]",
+          copied ? "bg-live-soft text-[#0b7a4b] hover:bg-live-soft" : "text-ink-2 hover:text-ink"
+        )}
       >
-        {copied ? <Check size={14} /> : <Copy size={14} />}
+        {copied ? <Check /> : <Copy />}
         <span className={large ? "hidden sm:inline" : ""}>{copied ? "Copied" : "Copy"}</span>
-      </button>
+      </Button>
     </div>
   );
 }

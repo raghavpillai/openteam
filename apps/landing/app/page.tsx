@@ -1,20 +1,30 @@
-import { AppWindow } from "@/components/app-window";
-import { BotAvatar } from "@/components/bot-avatar";
-import { Wordmark } from "@/components/brand";
 import {
   ArrowRight,
   ArrowUpRight,
   Brain,
   Clock,
   Folder,
-  Github,
   Monitor,
-  Phone,
   Puzzle,
+  Smartphone,
   Users,
-} from "@/components/icons";
+} from "lucide-react";
+import { AppWindow } from "@/components/app-window";
+import { BotAvatar } from "@/components/bot-avatar";
+import { GithubMark, Wordmark } from "@/components/brand";
 import { InstallCommand } from "@/components/install-command";
 import { ScreenViewer } from "@/components/screen-viewer";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
+import { cn } from "@/lib/utils";
 
 const GITHUB = "https://github.com/raghavpillai/openteam";
 const INSTALL_GUIDE = `${GITHUB}#install-the-released-server-stack`;
@@ -64,6 +74,27 @@ const exampleJobs = [
   },
 ] as const;
 
+const steps = [
+  {
+    n: "1",
+    title: "Install on a machine you control",
+    body: "One command sets up the server, the worker, the database, and a shared Linux desktop with Docker. It runs on a VPS, a home server, or a spare Mac.",
+    code: "bunx --bun @openteam/cli install",
+  },
+  {
+    n: "2",
+    title: "Sign in with a model you already have",
+    body: "Use your ChatGPT or Claude subscription, an OpenAI or Anthropic API key, or your own endpoint. Credentials stay on the server.",
+    code: "openteam provider login",
+  },
+  {
+    n: "3",
+    title: "Create a bot and give it a job",
+    body: "Message it from the desktop or iPhone app. It browses, runs commands, and writes files. Close the app whenever. The work continues.",
+    code: "Message Research…",
+  },
+];
+
 const features = [
   {
     icon: Monitor,
@@ -107,6 +138,25 @@ const providers = [
   "Any Google-compatible endpoint",
 ];
 
+const selfHostedFacts = [
+  [
+    "Credentials stay on the server.",
+    "The bots' shells can't read them. The apps never receive them.",
+  ],
+  [
+    "One owner account, HTTPS by default.",
+    "Point a domain at the server and the installer sets up certificates. Or keep it on a private network.",
+  ],
+  [
+    "Back up everything with one script.",
+    "Chat history, memory, browser profiles, and files are restored together, and every bot picks up where it stopped.",
+  ],
+  [
+    "Update and repair from the CLI.",
+    "openteam update checks the release, backs up the database, and rolls back on its own if startup fails.",
+  ],
+];
+
 const faqs = [
   {
     q: "What do I need to run it?",
@@ -142,6 +192,11 @@ const faqs = [
   },
 ];
 
+/* Shared class recipes so the shadcn primitives keep the paper look everywhere. */
+const chip = "h-6 border-line bg-surface px-2 text-[11.5px] text-ink-2";
+const cardBase = "rounded-2xl shadow-card ring-0";
+const bigCta = "h-13 gap-1.5 rounded-xl px-4 text-[14.5px] shadow-card";
+
 function SectionHeading({
   label,
   title,
@@ -153,23 +208,14 @@ function SectionHeading({
   body?: React.ReactNode;
   align?: "center" | "left";
 }) {
-  const centered = align === "center";
   return (
-    <div className={`${centered ? "mx-auto text-center" : ""} max-w-[640px]`}>
+    <div className={cn("max-w-[640px]", align === "center" && "mx-auto text-center")}>
       <div className="microlabel">{label}</div>
       <h2 className="display mt-3 text-[40px] leading-[1.05] text-ink sm:text-[48px]">{title}</h2>
       {body ? (
         <p className="mt-4 text-[17px] leading-[1.55] text-ink-2 text-pretty">{body}</p>
       ) : null}
     </div>
-  );
-}
-
-function Chip({ children }: { children: React.ReactNode }) {
-  return (
-    <span className="inline-flex h-6 items-center rounded-full border border-line bg-surface px-2 text-[11.5px] font-medium text-ink-2">
-      {children}
-    </span>
   );
 }
 
@@ -192,34 +238,39 @@ export default function Home() {
             aria-label="Main"
             className="hidden items-center gap-6 text-[14px] text-ink-2 md:flex"
           >
-            <a className="hover:text-ink" href="#how-it-works">
+            <a className="py-2 hover:text-ink" href="#how-it-works">
               How it works
             </a>
-            <a className="hover:text-ink" href="#features">
+            <a className="py-2 hover:text-ink" href="#features">
               Features
             </a>
-            <a className="hover:text-ink" href="#self-hosted">
+            <a className="py-2 hover:text-ink" href="#self-hosted">
               Self-hosted
             </a>
-            <a className="hover:text-ink" href="#faq">
+            <a className="py-2 hover:text-ink" href="#faq">
               FAQ
             </a>
           </nav>
           <div className="ml-auto flex items-center gap-2">
-            <a
-              href={GITHUB}
-              className="inline-flex h-9 items-center gap-2 rounded-lg px-3 text-[13.5px] font-medium text-ink-2 hover:bg-raised hover:text-ink"
+            <Button
+              variant="ghost"
+              size="lg"
+              className="h-10 gap-2 px-3 text-[13.5px] text-ink-2 hover:text-ink"
+              render={<a href={GITHUB} />}
+              nativeButton={false}
             >
-              <Github size={16} />
+              <GithubMark />
               <span className="hidden sm:inline">GitHub</span>
-            </a>
-            <a
-              href="#install"
-              className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-ink px-3.5 text-[13.5px] font-medium text-paper hover:bg-[#2a2a2a]"
+            </Button>
+            <Button
+              size="lg"
+              className="h-10 px-3.5 text-[13.5px]"
+              render={<a href="#install" />}
+              nativeButton={false}
             >
               Install
-              <ArrowRight size={14} />
-            </a>
+              <ArrowRight />
+            </Button>
           </div>
         </div>
       </header>
@@ -240,7 +291,7 @@ export default function Home() {
               </span>
               <span>Bring your own model</span>
             </p>
-            <h1 className="display mx-auto mt-5 max-w-[24ch] text-[46px] leading-[1.04] text-ink sm:text-[64px] lg:text-[76px]">
+            <h1 className="display mx-auto mt-5 max-w-[24ch] text-[clamp(38px,11.5vw,46px)] leading-[1.04] text-ink sm:text-[64px] lg:text-[76px]">
               Give your AI agents a computer, a&nbsp;memory, and a&nbsp;schedule.
             </h1>
             <p className="mx-auto mt-6 max-w-[640px] text-[18px] leading-[1.55] text-ink-2 text-balance sm:text-[19px]">
@@ -253,13 +304,16 @@ export default function Home() {
               <p className="text-[13.5px] text-ink-3">One command. Runs anywhere Docker runs.</p>
               <div className="mt-3 flex flex-col items-center justify-center gap-3 sm:flex-row">
                 <InstallCommand />
-                <a
-                  href={INSTALL_GUIDE}
-                  className="inline-flex h-13 items-center gap-1.5 rounded-xl border border-line-strong bg-surface px-4 text-[14.5px] font-medium text-ink shadow-card hover:bg-raised"
+                <Button
+                  variant="outline"
+                  size="lg"
+                  className={cn(bigCta, "border-line-strong bg-surface")}
+                  render={<a href={INSTALL_GUIDE} />}
+                  nativeButton={false}
                 >
                   Read the install guide
-                  <ArrowUpRight size={15} className="text-ink-3" />
-                </a>
+                  <ArrowUpRight className="size-[15px] text-ink-3" />
+                </Button>
               </div>
             </div>
           </div>
@@ -275,8 +329,10 @@ export default function Home() {
           </div>
         </section>
 
+        <Separator />
+
         {/* Example jobs */}
-        <section className="hairline-y py-24" aria-labelledby="jobs-title">
+        <section className="py-24" aria-labelledby="jobs-title">
           <div className="container-page">
             <SectionHeading
               label="What a bot can do"
@@ -285,30 +341,35 @@ export default function Home() {
             />
             <ul className="mt-14 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {exampleJobs.map((job) => (
-                <li
-                  key={job.bot}
-                  className="flex flex-col gap-4 rounded-2xl border border-line bg-surface p-5 shadow-card"
-                >
-                  <div className="flex items-center gap-2.5">
-                    <BotAvatar shape={job.shape} color={job.color} size={26} />
-                    <span className="text-[13px] font-medium text-ink">To {job.bot}</span>
-                  </div>
-                  <p className="text-[15.5px] leading-[1.5] text-ink text-pretty">
-                    &ldquo;{job.text}&rdquo;
-                  </p>
-                  <div className="mt-auto flex flex-wrap gap-1.5">
-                    {job.uses.map((u) => (
-                      <Chip key={u}>{u}</Chip>
-                    ))}
-                  </div>
+                <li key={job.bot} className="flex">
+                  <Card className={cn(cardBase, "flex-1 [--card-spacing:--spacing(5)]")}>
+                    <CardContent className="flex flex-1 flex-col gap-4">
+                      <div className="flex items-center gap-2.5">
+                        <BotAvatar shape={job.shape} color={job.color} size={26} />
+                        <span className="text-[13px] font-medium text-ink">To {job.bot}</span>
+                      </div>
+                      <p className="text-[15.5px] leading-[1.5] text-ink text-pretty">
+                        &ldquo;{job.text}&rdquo;
+                      </p>
+                      <div className="mt-auto flex flex-wrap gap-1.5">
+                        {job.uses.map((u) => (
+                          <Badge key={u} variant="outline" className={chip}>
+                            {u}
+                          </Badge>
+                        ))}
+                      </div>
+                    </CardContent>
+                  </Card>
                 </li>
               ))}
             </ul>
           </div>
         </section>
 
+        <Separator />
+
         {/* How it works */}
-        <section id="how-it-works" className="hairline-y scroll-mt-16 py-24">
+        <section id="how-it-works" className="scroll-mt-16 py-24">
           <div className="container-page">
             <SectionHeading
               label="How it works"
@@ -316,53 +377,37 @@ export default function Home() {
               body="No account with us. No hosted service in the middle. The whole thing runs on your machine and talks only to the model you choose."
             />
             <ol className="mt-14 grid gap-4 lg:grid-cols-3">
-              {[
-                {
-                  n: "1",
-                  title: "Install on a machine you control",
-                  body: "One command sets up the server, the worker, the database, and a shared Linux desktop with Docker. It runs on a VPS, a home server, or a spare Mac.",
-                  code: "bunx --bun @openteam/cli install",
-                },
-                {
-                  n: "2",
-                  title: "Sign in with a model you already have",
-                  body: "Use your ChatGPT or Claude subscription, an OpenAI or Anthropic API key, or your own endpoint. Credentials stay on the server.",
-                  code: "openteam provider login",
-                },
-                {
-                  n: "3",
-                  title: "Create a bot and give it a job",
-                  body: "Message it from the desktop or iPhone app. It browses, runs commands, and writes files. Close the app whenever. The work continues.",
-                  code: "Message Research…",
-                },
-              ].map((step) => (
-                <li
-                  key={step.n}
-                  className="flex flex-col rounded-2xl border border-line bg-surface p-6 shadow-card"
-                >
-                  <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-ink font-mono text-[13px] font-medium text-paper">
-                    {step.n}
-                  </span>
-                  <h3 className="mt-5 text-[19px] leading-[1.25] font-medium text-ink text-balance">
-                    {step.title}
-                  </h3>
-                  <p className="mt-2.5 text-[15px] leading-[1.55] text-ink-2 text-pretty">
-                    {step.body}
-                  </p>
-                  <div className="mt-auto pt-6">
-                    <code className="block truncate rounded-lg bg-raised px-3 py-2 font-mono text-[12.5px] text-ink-2">
-                      <span className="text-ink-3">$ </span>
-                      {step.code}
-                    </code>
-                  </div>
+              {steps.map((step) => (
+                <li key={step.n} className="flex min-w-0">
+                  <Card className={cn(cardBase, "min-w-0 flex-1 [--card-spacing:--spacing(6)]")}>
+                    <CardContent className="flex min-w-0 flex-1 flex-col">
+                      <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-ink font-mono text-[13px] font-medium text-paper">
+                        {step.n}
+                      </span>
+                      <h3 className="mt-5 text-[19px] leading-[1.25] font-medium text-ink text-balance">
+                        {step.title}
+                      </h3>
+                      <p className="mt-2.5 text-[15px] leading-[1.55] text-ink-2 text-pretty">
+                        {step.body}
+                      </p>
+                      <div className="mt-auto pt-6">
+                        <code className="block truncate rounded-lg bg-raised px-3 py-2 font-mono text-[12.5px] text-ink-2">
+                          <span className="text-ink-3">$ </span>
+                          {step.code}
+                        </code>
+                      </div>
+                    </CardContent>
+                  </Card>
                 </li>
               ))}
             </ol>
           </div>
         </section>
 
+        <Separator />
+
         {/* Features */}
-        <section id="features" className="hairline-y scroll-mt-16 py-24">
+        <section id="features" className="scroll-mt-16 py-24">
           <div className="container-page">
             <SectionHeading
               label="What every bot gets"
@@ -373,7 +418,7 @@ export default function Home() {
               {features.map((f) => (
                 <li key={f.title}>
                   <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-line bg-surface text-ink shadow-card">
-                    <f.icon size={17} />
+                    <f.icon className="size-[17px]" strokeWidth={1.75} />
                   </span>
                   <h3 className="display mt-4 text-[26px] leading-[1.15] text-ink">{f.title}</h3>
                   <p className="mt-2 text-[15px] leading-[1.55] text-ink-2 text-pretty">{f.body}</p>
@@ -383,8 +428,10 @@ export default function Home() {
           </div>
         </section>
 
+        <Separator />
+
         {/* Screen and takeover */}
-        <section className="hairline-y py-24">
+        <section className="py-24">
           <div className="container-page grid items-center gap-12 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
             <div>
               <SectionHeading
@@ -410,8 +457,10 @@ export default function Home() {
           </div>
         </section>
 
+        <Separator />
+
         {/* Apps */}
-        <section className="hairline-y py-24">
+        <section className="py-24">
           <div className="container-page grid items-center gap-12 lg:grid-cols-[minmax(0,7fr)_minmax(0,5fr)]">
             <div className="order-2 flex justify-center gap-5 sm:gap-8 lg:order-1">
               {/* Plain <img>: these are two static PNGs; the image optimizer route is not part of this deployment. */}
@@ -442,21 +491,29 @@ export default function Home() {
                 body="The desktop app is home base. The iPhone app shows every bot, its status, and its latest message so you can reply, approve a request, or open a screen from anywhere. Nothing runs on the phone, so a dead battery never stops a job."
               />
               <div className="mt-8 flex flex-wrap gap-2">
-                <Chip>
-                  <Monitor size={12} className="mr-1.5" /> Desktop app
-                </Chip>
-                <Chip>
-                  <Phone size={12} className="mr-1.5" /> iPhone app
-                </Chip>
-                <Chip>Search across every bot</Chip>
-                <Chip>Push notifications</Chip>
+                <Badge variant="outline" className={chip}>
+                  <Monitor data-icon="inline-start" />
+                  Desktop app
+                </Badge>
+                <Badge variant="outline" className={chip}>
+                  <Smartphone data-icon="inline-start" />
+                  iPhone app
+                </Badge>
+                <Badge variant="outline" className={chip}>
+                  Search across every bot
+                </Badge>
+                <Badge variant="outline" className={chip}>
+                  Push notifications
+                </Badge>
               </div>
             </div>
           </div>
         </section>
 
+        <Separator />
+
         {/* Models */}
-        <section className="hairline-y py-24">
+        <section className="py-24">
           <div className="container-page">
             <SectionHeading
               label="Bring your own model"
@@ -465,19 +522,23 @@ export default function Home() {
             />
             <ul className="mx-auto mt-10 flex max-w-[820px] flex-wrap justify-center gap-2">
               {providers.map((p) => (
-                <li
+                <Badge
                   key={p}
-                  className="inline-flex h-10 items-center rounded-full border border-line bg-surface px-4 text-[14px] font-medium text-ink shadow-card"
+                  variant="outline"
+                  render={<li />}
+                  className="h-10 border-line bg-surface px-4 text-[14px] text-ink shadow-card"
                 >
                   {p}
-                </li>
+                </Badge>
               ))}
             </ul>
           </div>
         </section>
 
+        <Separator />
+
         {/* Self-hosted */}
-        <section id="self-hosted" className="hairline-y scroll-mt-16 py-24">
+        <section id="self-hosted" className="scroll-mt-16 py-24">
           <div className="container-page">
             <SectionHeading
               label="Self-hosted"
@@ -487,83 +548,72 @@ export default function Home() {
 
             <div className="mx-auto mt-14 max-w-[960px]">
               <div className="grid gap-3 md:grid-cols-[1fr_auto_1.5fr_auto_1fr] md:items-stretch">
-                <div className="rounded-2xl border border-line bg-surface p-5 shadow-card">
-                  <div className="microlabel">Your devices</div>
-                  <ul className="mt-3 space-y-2 text-[14px] text-ink">
-                    <li className="flex items-center gap-2">
-                      <Monitor size={15} className="text-ink-3" /> Desktop app
-                    </li>
-                    <li className="flex items-center gap-2">
-                      <Phone size={15} className="text-ink-3" /> iPhone app
-                    </li>
-                  </ul>
-                  <p className="mt-4 text-[12.5px] leading-[1.45] text-ink-3">
-                    Thin clients. They never hold model credentials.
-                  </p>
-                </div>
+                <Card className={cn(cardBase, "[--card-spacing:--spacing(5)]")}>
+                  <CardContent>
+                    <div className="microlabel">Your devices</div>
+                    <ul className="mt-3 space-y-2 text-[14px] text-ink">
+                      <li className="flex items-center gap-2">
+                        <Monitor className="size-[15px] text-ink-3" /> Desktop app
+                      </li>
+                      <li className="flex items-center gap-2">
+                        <Smartphone className="size-[15px] text-ink-3" /> iPhone app
+                      </li>
+                    </ul>
+                    <p className="mt-4 text-[12.5px] leading-[1.45] text-ink-3">
+                      Thin clients. They never hold model credentials.
+                    </p>
+                  </CardContent>
+                </Card>
 
                 <div className="hidden items-center md:flex" aria-hidden="true">
-                  <ArrowRight size={18} className="text-ink-3" />
+                  <ArrowRight className="size-[18px] text-ink-3" />
                 </div>
 
-                <div className="rounded-2xl border border-ink bg-surface p-5 shadow-card">
-                  <div className="flex items-center justify-between">
-                    <div className="microlabel text-ink">Your server</div>
-                    <span className="inline-flex items-center gap-1.5 rounded-full bg-live-soft px-2 py-0.5 text-[10.5px] font-medium text-[#0b7a4b]">
-                      <span className="live-pulse inline-block h-[5px] w-[5px] rounded-full bg-live" />{" "}
-                      Always on
-                    </span>
-                  </div>
-                  <ul className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-[14px] text-ink">
-                    <li>Server</li>
-                    <li>Worker</li>
-                    <li>Postgres</li>
-                    <li>Linux desktop</li>
-                  </ul>
-                  <div className="mt-4 rounded-lg bg-raised px-3 py-2.5 text-[12.5px] leading-[1.45] text-ink-2">
-                    Bots, memory, browser logins, schedules, and{" "}
-                    <span className="font-mono text-ink">/workspace</span> live here, in volumes you
-                    can back up with one script.
-                  </div>
-                </div>
+                <Card className={cn(cardBase, "ring-1 ring-ink [--card-spacing:--spacing(5)]")}>
+                  <CardContent>
+                    <div className="flex items-center justify-between">
+                      <div className="microlabel text-ink">Your server</div>
+                      <Badge className="h-auto gap-1.5 bg-live-soft px-2 py-0.5 text-[11px] text-[#0b7a4b]">
+                        <span className="live-pulse inline-block h-[5px] w-[5px] rounded-full bg-live" />
+                        Always on
+                      </Badge>
+                    </div>
+                    <ul className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-[14px] text-ink">
+                      <li>Server</li>
+                      <li>Worker</li>
+                      <li>Postgres</li>
+                      <li>Linux desktop</li>
+                    </ul>
+                    <div className="mt-4 rounded-lg bg-raised px-3 py-2.5 text-[12.5px] leading-[1.45] text-ink-2">
+                      Bots, memory, browser logins, schedules, and{" "}
+                      <span className="font-mono text-ink">/workspace</span> live here, in volumes
+                      you can back up with one script.
+                    </div>
+                  </CardContent>
+                </Card>
 
                 <div className="hidden items-center md:flex" aria-hidden="true">
-                  <ArrowRight size={18} className="text-ink-3" />
+                  <ArrowRight className="size-[18px] text-ink-3" />
                 </div>
 
-                <div className="rounded-2xl border border-line bg-surface p-5 shadow-card">
-                  <div className="microlabel">Your model</div>
-                  <ul className="mt-3 space-y-2 text-[14px] text-ink">
-                    <li>ChatGPT or Claude</li>
-                    <li>An API key</li>
-                    <li>Your own endpoint</li>
-                  </ul>
-                  <p className="mt-4 text-[12.5px] leading-[1.45] text-ink-3">
-                    The only outside connection, and you choose it.
-                  </p>
-                </div>
+                <Card className={cn(cardBase, "[--card-spacing:--spacing(5)]")}>
+                  <CardContent>
+                    <div className="microlabel">Your model</div>
+                    <ul className="mt-3 space-y-2 text-[14px] text-ink">
+                      <li>ChatGPT or Claude</li>
+                      <li>An API key</li>
+                      <li>Your own endpoint</li>
+                    </ul>
+                    <p className="mt-4 text-[12.5px] leading-[1.45] text-ink-3">
+                      The only outside connection, and you choose it.
+                    </p>
+                  </CardContent>
+                </Card>
               </div>
             </div>
 
             <ul className="mx-auto mt-12 grid max-w-[960px] gap-x-10 gap-y-6 sm:grid-cols-2">
-              {[
-                [
-                  "Credentials stay on the server.",
-                  "The bots' shells can't read them. The apps never receive them.",
-                ],
-                [
-                  "One owner account, HTTPS by default.",
-                  "Point a domain at the server and the installer sets up certificates. Or keep it on a private network.",
-                ],
-                [
-                  "Back up everything with one script.",
-                  "Chat history, memory, browser profiles, and files are restored together, and every bot picks up where it stopped.",
-                ],
-                [
-                  "Update and repair from the CLI.",
-                  "openteam update checks the release, backs up the database, and rolls back on its own if startup fails.",
-                ],
-              ].map(([title, body]) => (
+              {selfHostedFacts.map(([title, body]) => (
                 <li key={title} className="flex gap-3">
                   <span className="mt-[7px] inline-block h-2 w-2 shrink-0 rounded-full bg-ink" />
                   <div>
@@ -578,8 +628,10 @@ export default function Home() {
           </div>
         </section>
 
+        <Separator />
+
         {/* FAQ */}
-        <section id="faq" className="hairline-y scroll-mt-16 py-24">
+        <section id="faq" className="scroll-mt-16 py-24">
           <div className="container-page grid gap-10 lg:grid-cols-[minmax(0,4fr)_minmax(0,8fr)]">
             <SectionHeading
               align="left"
@@ -587,30 +639,25 @@ export default function Home() {
               title="Before you install."
               body="The practical details that matter before you give a bot real work."
             />
-            <div className="divide-y divide-line border-y border-line">
+            <Accordion className="border-y border-line">
               {faqs.map((f) => (
-                <details key={f.q} className="group">
-                  <summary className="flex cursor-pointer list-none items-center justify-between gap-6 py-5 text-[17px] font-medium text-ink [&::-webkit-details-marker]:hidden">
+                <AccordionItem key={f.q} value={f.q}>
+                  <AccordionTrigger className="items-center gap-6 rounded-none py-5 text-[17px] text-ink hover:no-underline **:data-[slot=accordion-trigger-icon]:size-5 **:data-[slot=accordion-trigger-icon]:text-ink-2">
                     {f.q}
-                    <span
-                      aria-hidden="true"
-                      className="relative inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-line-strong text-ink-2"
-                    >
-                      <span className="absolute h-[1.5px] w-3 bg-current" />
-                      <span className="absolute h-3 w-[1.5px] bg-current transition-transform group-open:rotate-90" />
-                    </span>
-                  </summary>
-                  <p className="max-w-[62ch] pb-6 text-[15.5px] leading-[1.6] text-ink-2 text-pretty">
+                  </AccordionTrigger>
+                  <AccordionContent className="max-w-[62ch] pb-6 text-[15.5px] leading-[1.6] text-ink-2 text-pretty">
                     {f.a}
-                  </p>
-                </details>
+                  </AccordionContent>
+                </AccordionItem>
               ))}
-            </div>
+            </Accordion>
           </div>
         </section>
 
+        <Separator />
+
         {/* Closing */}
-        <section className="hairline-y py-24">
+        <section className="py-24">
           <div className="container-page text-center">
             <div className="mx-auto flex justify-center gap-1.5" aria-hidden="true">
               <BotAvatar shape="circle" color="#ff7a1a" size={36} />
@@ -627,19 +674,24 @@ export default function Home() {
             </p>
             <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
               <InstallCommand />
-              <a
-                href={GITHUB}
-                className="inline-flex h-13 items-center gap-2 rounded-xl border border-line-strong bg-surface px-4 text-[14.5px] font-medium text-ink shadow-card hover:bg-raised"
+              <Button
+                variant="outline"
+                size="lg"
+                className={cn(bigCta, "gap-2 border-line-strong bg-surface")}
+                render={<a href={GITHUB} />}
+                nativeButton={false}
               >
-                <Github size={16} />
+                <GithubMark />
                 Star on GitHub
-              </a>
+              </Button>
             </div>
           </div>
         </section>
       </main>
 
-      <footer className="hairline-y">
+      <Separator />
+
+      <footer>
         <div className="container-page flex flex-col gap-6 py-10 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <Wordmark size={18} />
@@ -649,16 +701,16 @@ export default function Home() {
             aria-label="Footer"
             className="flex flex-wrap gap-x-6 gap-y-2 text-[13.5px] text-ink-2"
           >
-            <a className="hover:text-ink" href={GITHUB}>
+            <a className="py-2 hover:text-ink" href={GITHUB}>
               GitHub
             </a>
-            <a className="hover:text-ink" href={INSTALL_GUIDE}>
+            <a className="py-2 hover:text-ink" href={INSTALL_GUIDE}>
               Install guide
             </a>
-            <a className="hover:text-ink" href={`${GITHUB}/issues`}>
+            <a className="py-2 hover:text-ink" href={`${GITHUB}/issues`}>
               Issues
             </a>
-            <a className="hover:text-ink" href={`${GITHUB}/releases`}>
+            <a className="py-2 hover:text-ink" href={`${GITHUB}/releases`}>
               Releases
             </a>
           </nav>

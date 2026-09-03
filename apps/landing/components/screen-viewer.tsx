@@ -1,5 +1,5 @@
 import { BotAvatar } from "./bot-avatar";
-import { Pointer } from "./icons";
+import { MousePointer2 } from "lucide-react";
 
 /** A bot's live Linux screen, as the desktop app shows it, with you in control. */
 export function ScreenViewer() {
@@ -51,7 +51,7 @@ export function ScreenViewer() {
                 Sign in
               </div>
             </div>
-            <Pointer
+            <MousePointer2
               size={18}
               className="absolute top-[63%] left-[52%] text-ink drop-shadow-[0_2px_3px_rgba(0,0,0,.35)]"
               fill="#ffffff"

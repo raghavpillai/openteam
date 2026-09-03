@@ -1,7 +1,7 @@
 import type { BotView } from "@openbot/contracts";
 import { GROUP_MEMBER_LIMIT, toggleBoundedSelection } from "@openbot/product-core/selection";
 import { clientErrorMessage } from "@openbot/product-core/redaction";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { memo, useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -82,7 +82,8 @@ const MemberRow = memo(function MemberRow({
 export default function NewConversationScreen() {
   const theme = useTheme();
   const { snapshot, createBot, createGroup, isFixture } = useOpenBot();
-  const [mode, setMode] = useState<CreationMode>("bot");
+  const { mode: requestedMode } = useLocalSearchParams<{ mode?: string }>();
+  const [mode, setMode] = useState<CreationMode>(requestedMode === "group" ? "group" : "bot");
   const [name, setName] = useState("");
   const [selectedBotIds, setSelectedBotIds] = useState<string[]>([]);
   const [botQuery, setBotQuery] = useState("");
@@ -226,6 +227,7 @@ export default function NewConversationScreen() {
               <Text style={[styles.eyebrow, { color: theme.textMuted }]}>NAME</Text>
               <TextInput
                 autoFocus
+                keyboardAppearance={theme.dark ? "dark" : "light"}
                 maxLength={80}
                 onChangeText={setName}
                 onSubmitEditing={() => void submit()}
@@ -253,6 +255,7 @@ export default function NewConversationScreen() {
                       autoCapitalize="none"
                       autoCorrect={false}
                       clearButtonMode="while-editing"
+                      keyboardAppearance={theme.dark ? "dark" : "light"}
                       maxLength={120}
                       onChangeText={setBotQuery}
                       placeholder="Search Bots"

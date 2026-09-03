@@ -36,6 +36,10 @@ describe("late native iOS regression guards", () => {
     expect(sheet).toContain("placeholder={`Reply $" + "{botName}`}");
     expect(sheet).not.toContain("replyPreview=");
     expect(bubble).toContain("threadReplyCountLabel(threadReplyCount, threadReplyCountIsPartial)");
+    expect(bubble).toContain("routineChangedEventFor(message)");
+    expect(bubble).toContain("onOpenRoutine?.(routineEvent.automationId)");
+    expect(route).toContain("router.push(routineRoute(channelId, routineId))");
+    expect(route).toContain("onOpenRoutine={openRoutine}");
   });
 
   test("search leaves native text entry uncontrolled while state drives debounced results", async () => {
@@ -96,22 +100,16 @@ describe("late native iOS regression guards", () => {
     expect(editor).toContain("accessibilityLabel={label}");
   });
 
-  test("hidden heavy sheets do no work and run activity remains bounded", async () => {
-    const [route, activity, activityCore, settings, context, working] = await Promise.all([
+  test("hidden heavy sheets do no work and working controls remain accessible", async () => {
+    const [route, settings, context, working] = await Promise.all([
       source("app/chat/[channelId].tsx"),
-      source("src/components/run-activity-sheet.tsx"),
-      Bun.file(new URL("../../../packages/product-core/src/activity.ts", import.meta.url)).text(),
       source("app/settings.tsx"),
       source("src/state/openbot-context.tsx"),
       source("src/components/working-indicator.tsx"),
     ]);
 
-    expect(route).toContain("activityOpen ? (");
-    expect(route).toContain("truncated={activityTruncated[channelId] ?? false}");
-    expect(activity).toContain("<FlatList");
-    expect(activity).not.toContain("<ScrollView");
-    expect(activity).toContain("activityContentSummary");
-    expect(activityCore).toContain("SUMMARY_NODE_LIMIT");
+    expect(route).not.toContain("RunActivitySheet");
+    expect(route).not.toContain("Run activity");
     expect(settings).toContain("{pluginsOpen ? (");
     expect(settings).toContain(
       "<PluginManagerSheet onClose={() => setPluginsOpen(false)} visible />"
@@ -174,7 +172,7 @@ describe("late native iOS regression guards", () => {
     expect(preview).toContain("<MobileMarkdown");
     expect(preview).toContain("forceRich={documentPreview.content.length <= 128_000}");
     expect(preview).toContain("Share.share({ title: asset.fileName, url: documentPreview.uri })");
-    expect(bubble).toContain("accessible={files.length === 0 && stagedFiles.length === 0}");
+    expect(bubble).toContain("accessible={attachmentCount === 0}");
     expect(bubble).toContain("(files.length > 0 || stagedFiles.length > 0) && renderedContent");
     expect(settings).toContain('authMode === "disabled"');
     expect(settings).toContain("Not metered by self-hosted OpenBot");

@@ -448,6 +448,7 @@ export default function ConversationDetailsScreen() {
                 autoCapitalize="none"
                 autoCorrect={false}
                 clearButtonMode="while-editing"
+                keyboardAppearance={theme.dark ? "dark" : "light"}
                 maxLength={120}
                 onChangeText={setBotQuery}
                 placeholder="Search Bots"
@@ -808,6 +809,7 @@ function Field({
       <TextInput
         {...props}
         accessibilityLabel={label}
+        keyboardAppearance={theme.dark ? "dark" : "light"}
         multiline={multiline}
         placeholderTextColor={theme.textFaint}
         style={[

@@ -192,8 +192,6 @@ interface OpenBotState {
     string,
     { beforeSequence: string | null; hasMore: boolean; loading: boolean }
   >;
-  activityTruncated: Record<string, boolean>;
-  activityCounts: Record<string, number>;
   search: (
     query: string,
     category?: SearchCategory,
@@ -457,8 +455,6 @@ export function OpenBotProvider({ children }: { children: React.ReactNode }) {
   const [historyState, setHistoryState] = useState<
     Record<string, { beforeSequence: string | null; hasMore: boolean; loading: boolean }>
   >({});
-  const [activityTruncated, setActivityTruncated] = useState<Record<string, boolean>>({});
-  const [activityCounts, setActivityCounts] = useState<Record<string, number>>({});
   const connectionEpochRef = useRef(0);
   const connectionUrlRef = useRef("");
   const remoteAcceptedEpochRef = useRef(-1);
@@ -582,18 +578,7 @@ export function OpenBotProvider({ children }: { children: React.ReactNode }) {
   const acceptChannelState = useCallback(
     (state: ChannelClientState, epoch = connectionEpochRef.current): boolean => {
       if (epoch !== connectionEpochRef.current) return false;
-      const accepted = acceptRemoteSnapshot(mergeChannelState(snapshotRef.current, state), epoch);
-      if (accepted) {
-        setActivityTruncated((current) => ({
-          ...current,
-          [state.channelId]: Object.values(state.truncated).some(Boolean),
-        }));
-        setActivityCounts((current) => ({
-          ...current,
-          [state.channelId]: state.runs.length + state.runItems.length + state.subagents.length,
-        }));
-      }
-      return accepted;
+      return acceptRemoteSnapshot(mergeChannelState(snapshotRef.current, state), epoch);
     },
     [acceptRemoteSnapshot]
   );
@@ -760,8 +745,6 @@ export function OpenBotProvider({ children }: { children: React.ReactNode }) {
     syncRequestedRef.current = false;
     setSyncReadyEpoch(null);
     setHistoryState({});
-    setActivityTruncated({});
-    setActivityCounts({});
     setDurableSends([]);
     setCapabilities(CLIENT_CAPABILITIES);
     setHiddenBots([]);
@@ -2278,8 +2261,6 @@ export function OpenBotProvider({ children }: { children: React.ReactNode }) {
       releaseChannel,
       loadEarlierMessages,
       historyState,
-      activityTruncated,
-      activityCounts,
       search,
       sendMessage,
       resendFailedMessage,
@@ -2314,8 +2295,6 @@ export function OpenBotProvider({ children }: { children: React.ReactNode }) {
       assetUrl,
       hiddenBots,
       historyState,
-      activityTruncated,
-      activityCounts,
       hydrateChannel,
       releaseChannel,
       loading,

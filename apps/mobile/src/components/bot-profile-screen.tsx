@@ -50,8 +50,19 @@ interface BotProfileScreenProps {
 }
 
 function SelectionRing({ selected, children }: { selected: boolean; children: React.ReactNode }) {
+  const theme = useTheme();
   return (
-    <View style={[styles.selectionRing, selected && styles.selectionRingSelected]}>{children}</View>
+    <View
+      style={[
+        styles.selectionRing,
+        selected && {
+          backgroundColor: theme.surfacePressed,
+          borderColor: theme.textMuted,
+        },
+      ]}
+    >
+      {children}
+    </View>
   );
 }
 
@@ -167,6 +178,7 @@ export function BotProfileScreen({
       <View style={[styles.identityCard, { backgroundColor: panel }]}>
         <TextInput
           accessibilityLabel="Bot name"
+          keyboardAppearance={theme.dark ? "dark" : "light"}
           maxLength={80}
           onBlur={commitIdentity}
           onChangeText={setName}
@@ -178,6 +190,7 @@ export function BotProfileScreen({
         <View style={[styles.identityDivider, { backgroundColor: theme.separator }]} />
         <TextInput
           accessibilityLabel="Bot title"
+          keyboardAppearance={theme.dark ? "dark" : "light"}
           maxLength={120}
           onBlur={commitIdentity}
           onChangeText={setTitle}
@@ -371,7 +384,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  selectionRingSelected: { borderColor: "#5d5d61", backgroundColor: "#2b2b2d" },
   colorDot: { width: 24, height: 24, borderRadius: 12 },
   panelDivider: { height: StyleSheet.hairlineWidth, marginHorizontal: 16 },
   shapeRow: {

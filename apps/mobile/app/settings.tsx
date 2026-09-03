@@ -537,6 +537,7 @@ export default function SettingsScreen() {
                         accessibilityLabel="Server endpoint"
                         autoCapitalize="none"
                         autoCorrect={false}
+                        keyboardAppearance={theme.dark ? "dark" : "light"}
                         keyboardType="url"
                         onChangeText={(value) => {
                           setServerUrl(value);
@@ -685,6 +686,7 @@ export default function SettingsScreen() {
                     autoCapitalize="none"
                     autoCorrect={false}
                     clearButtonMode="while-editing"
+                    keyboardAppearance={theme.dark ? "dark" : "light"}
                     maxLength={120}
                     onChangeText={setBotQuery}
                     placeholder="Search Bots"

@@ -492,6 +492,7 @@ function WidgetCard({
             autoCapitalize="sentences"
             autoComplete="off"
             editable={!pending && !readOnly}
+            keyboardAppearance={theme.dark ? "dark" : "light"}
             multiline
             onChangeText={setCustom}
             onSubmitEditing={() => void submit(widget.multiSelect ? answer : custom.trim())}
@@ -583,6 +584,7 @@ function SecretCard({
               autoCapitalize="none"
               autoComplete="off"
               editable={!pending && !readOnly}
+              keyboardAppearance={theme.dark ? "dark" : "light"}
               onChangeText={setValue}
               placeholder={secretRequestPlaceholder(label)}
               placeholderTextColor={theme.textFaint}

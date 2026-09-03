@@ -44,7 +44,6 @@ import { Composer, type ComposerRecovery, type ReplyTarget } from "../../src/com
 import { GlassSurface } from "../../src/components/glass-surface";
 import { IconButton } from "../../src/components/icon-button";
 import { MessageBubble } from "../../src/components/message-bubble";
-import { RunActivitySheet } from "../../src/components/run-activity-sheet";
 import { ThreadSheet } from "../../src/components/thread-sheet";
 import { WorkingIndicator } from "../../src/components/working-indicator";
 import { conversationDraftKey } from "../../src/drafts";
@@ -54,6 +53,7 @@ import {
 } from "../../src/durable-attachment-stage";
 import { MOBILE_VIRTUAL_LIST_TUNING } from "../../src/list-scale";
 import { setActiveNotificationChannel } from "../../src/notifications";
+import { routineRoute } from "../../src/routine-route";
 import { useOpenBot } from "../../src/state/openbot-context";
 import { useTheme } from "../../src/theme";
 
@@ -138,8 +138,6 @@ export default function ConversationScreen() {
     releaseChannel,
     loadEarlierMessages,
     historyState,
-    activityTruncated,
-    activityCounts,
     cancelRun,
   } = useOpenBot();
   const isFocused = useIsFocused();
@@ -151,7 +149,7 @@ export default function ConversationScreen() {
   const [atLiveEdge, setAtLiveEdge] = useState(!messageId);
   const [threadRootId, setThreadRootId] = useState<string | null>(null);
   const [a2aPeerId, setA2APeerId] = useState<string | null>(null);
-  const [activityOpen, setActivityOpen] = useState(false);
+  const [composerHeight, setComposerHeight] = useState(50);
   const listRef = useRef<FlatList<ConversationTimelineEntry>>(null);
   const atLiveEdgeRef = useRef(!messageId);
   const didPlaceInitialScroll = useRef(false);
@@ -280,23 +278,6 @@ export default function ConversationScreen() {
         (approval) => approval.runId === activeRun.id && approval.status === "pending"
       )
     : [];
-  const channelRuns = useMemo(
-    () => (activityOpen ? snapshot.runs.filter((run) => run.channelId === channelId) : []),
-    [activityOpen, channelId, snapshot.runs]
-  );
-  const channelRunIds = useMemo(() => new Set(channelRuns.map((run) => run.id)), [channelRuns]);
-  const channelRunItems = useMemo(
-    () => (activityOpen ? snapshot.runItems.filter((item) => channelRunIds.has(item.runId)) : []),
-    [activityOpen, channelRunIds, snapshot.runItems]
-  );
-  const channelSubagents = useMemo(
-    () =>
-      activityOpen
-        ? snapshot.subagents.filter((subagent) => subagent.parentChannelId === channelId)
-        : [],
-    [activityOpen, channelId, snapshot.subagents]
-  );
-  const channelActivityCount = activityCounts[channelId] ?? 0;
   const name = bot?.name ?? channel?.name ?? "OpenBot";
   const draftAccountIdentity =
     getAuthAccountIdForServer(connection.serverUrl) ??
@@ -416,6 +397,11 @@ export default function ConversationScreen() {
     [reactToMessage]
   );
 
+  const openRoutine = useCallback(
+    (routineId: string) => router.push(routineRoute(channelId, routineId)),
+    [channelId]
+  );
+
   const updateLiveEdge = useCallback((next: boolean) => {
     atLiveEdgeRef.current = next;
     setAtLiveEdge((current) => (current === next ? current : next));
@@ -454,7 +440,7 @@ export default function ConversationScreen() {
     return () => cancelAnimationFrame(frame);
   }, [messageId, targetIndex]);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: Activity and timeline counts deliberately retrigger live-edge correction after native layout changes.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: Run and timeline changes deliberately retrigger live-edge correction after native layout changes.
   useEffect(() => {
     if (messageId || !didPlaceInitialScroll.current || !atLiveEdgeRef.current) return;
     // FlatList's maintained position can briefly win over onContentSizeChange
@@ -471,7 +457,7 @@ export default function ConversationScreen() {
       cancelAnimationFrame(frame);
       clearTimeout(settled);
     };
-  }, [activeRun?.id, approvals.length, channelActivityCount, messageId, timeline.length]);
+  }, [activeRun?.id, approvals.length, messageId, timeline.length]);
 
   useFocusEffect(
     useCallback(() => {
@@ -550,7 +536,7 @@ export default function ConversationScreen() {
             ref={listRef}
             data={timeline}
             keyExtractor={(entry) => (isA2AActivity(entry) ? entry.id : messageRenderKey(entry))}
-            contentContainerStyle={styles.messages}
+            contentContainerStyle={[styles.messages, { paddingBottom: composerHeight + 8 }]}
             keyboardDismissMode="interactive"
             keyboardShouldPersistTaps="handled"
             maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
@@ -686,6 +672,7 @@ export default function ConversationScreen() {
                   onSecretSubmit={(value) => submitSecret(item.id, value)}
                   onComputerHandoff={(action) => mutateComputerHandoff(item.id, action)}
                   onOpenThread={thread ? () => setThreadRootId(item.id) : undefined}
+                  onOpenRoutine={openRoutine}
                   threadReplyCount={thread?.replies.length ?? 0}
                   threadReplyCountIsPartial={threadReplyCountIsPartial}
                 />
@@ -715,27 +702,6 @@ export default function ConversationScreen() {
                     onResolve={(decision) => resolveApproval(approval.id, decision)}
                   />
                 ))}
-                {channelActivityCount > 0 ? (
-                  <Pressable
-                    accessibilityLabel={`Open run activity with ${channelActivityCount} events`}
-                    accessibilityRole="button"
-                    hitSlop={2}
-                    onPress={() => setActivityOpen(true)}
-                    style={({ pressed }) => [
-                      styles.activityButton,
-                      { borderColor: theme.border, opacity: pressed ? 0.65 : 1 },
-                    ]}
-                  >
-                    <SymbolView
-                      name="list.bullet.rectangle"
-                      size={14}
-                      tintColor={theme.textMuted}
-                    />
-                    <Text style={[styles.activityLabel, { color: theme.textMuted }]}>
-                      Run activity
-                    </Text>
-                  </Pressable>
-                ) : null}
                 {activeRun && approvals.length === 0 ? (
                   <WorkingIndicator name={name} onStop={() => void cancelRun(activeRun.id)} />
                 ) : null}
@@ -755,7 +721,11 @@ export default function ConversationScreen() {
                 updateLiveEdge(true);
                 listRef.current?.scrollToEnd({ animated: true });
               }}
-              style={({ pressed }) => [styles.jumpButton, pressed && styles.jumpButtonPressed]}
+              style={({ pressed }) => [
+                styles.jumpButton,
+                { bottom: composerHeight + 10 },
+                pressed && styles.jumpButtonPressed,
+              ]}
             >
               <GlassSurface
                 fallbackColor={theme.surfaceElevated}
@@ -773,32 +743,40 @@ export default function ConversationScreen() {
           ) : null}
         </View>
 
-        <Composer
-          draftKey={draftKey}
-          botName={name}
-          mentionOptions={mentionOptions}
-          recovery={composerRecovery}
-          onRecoveryApplied={(id) => {
-            setComposerRecovery((current) => (current?.id === id ? null : current));
+        <View
+          onLayout={(event) => {
+            const measuredHeight = Math.ceil(event.nativeEvent.layout.height);
+            setComposerHeight((current) => (current === measuredHeight ? current : measuredHeight));
           }}
-          onRecoveryConsumed={acknowledgeDeliveryRecovery}
-          replyTarget={replyTarget}
-          replyEditVersion={replyEditVersion}
-          onRestoreReply={setReplyTarget}
-          onClearReply={clearReply}
-          assetUrl={assetUrl}
-          onUpload={uploadAsset}
-          onSend={async (content, attachments, stagedAttachments, consumedDraft) => {
-            await sendMessage(channelId, content, attachments, replyTarget?.id, {
-              consumedDraft,
-              stagedAttachments,
-            });
-            setReplyTarget(null);
-          }}
-          onStage={stageMobileDeliveryAttachment}
-          onDiscardStages={discardMobileDeliveryAttachments}
-          uploadCapabilities={capabilities.uploads}
-        />
+          style={styles.composerOverlay}
+        >
+          <Composer
+            draftKey={draftKey}
+            botName={name}
+            mentionOptions={mentionOptions}
+            recovery={composerRecovery}
+            onRecoveryApplied={(id) => {
+              setComposerRecovery((current) => (current?.id === id ? null : current));
+            }}
+            onRecoveryConsumed={acknowledgeDeliveryRecovery}
+            replyTarget={replyTarget}
+            replyEditVersion={replyEditVersion}
+            onRestoreReply={setReplyTarget}
+            onClearReply={clearReply}
+            assetUrl={assetUrl}
+            onUpload={uploadAsset}
+            onSend={async (content, attachments, stagedAttachments, consumedDraft) => {
+              await sendMessage(channelId, content, attachments, replyTarget?.id, {
+                consumedDraft,
+                stagedAttachments,
+              });
+              setReplyTarget(null);
+            }}
+            onStage={stageMobileDeliveryAttachment}
+            onDiscardStages={discardMobileDeliveryAttachments}
+            uploadCapabilities={capabilities.uploads}
+          />
+        </View>
         {activeThread ? (
           <ThreadSheet
             assetUrl={assetUrl}
@@ -846,17 +824,6 @@ export default function ConversationScreen() {
             }}
           />
         ) : null}
-        {activityOpen ? (
-          <RunActivitySheet
-            bots={snapshot.bots}
-            items={channelRunItems}
-            onClose={() => setActivityOpen(false)}
-            runs={channelRuns}
-            subagents={channelSubagents}
-            truncated={activityTruncated[channelId] ?? false}
-            visible
-          />
-        ) : null}
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -866,6 +833,13 @@ const styles = StyleSheet.create({
   safe: { flex: 1 },
   flex: { flex: 1 },
   timeline: { flex: 1 },
+  composerOverlay: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 2,
+  },
   header: {
     height: 42,
     paddingHorizontal: 14,
@@ -896,22 +870,10 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end",
     paddingHorizontal: 14,
     paddingTop: 22,
-    paddingBottom: 8,
+    paddingBottom: 58,
   },
   historyAction: { minHeight: 44, alignItems: "center", justifyContent: "center" },
   historyLabel: { fontSize: 13, lineHeight: 18, fontWeight: "500" },
-  activityButton: {
-    minHeight: 40,
-    marginHorizontal: 16,
-    marginVertical: 3,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 14,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 7,
-  },
-  activityLabel: { fontSize: 12, lineHeight: 16, fontWeight: "600" },
   a2aActivity: {
     minHeight: 42,
     marginVertical: 4,
@@ -937,7 +899,6 @@ const styles = StyleSheet.create({
   a2aPeerName: { flexShrink: 1, fontSize: 12, lineHeight: 16, fontWeight: "600" },
   jumpButton: {
     position: "absolute",
-    bottom: 10,
     right: 18,
     borderRadius: 18,
     shadowColor: "#000",

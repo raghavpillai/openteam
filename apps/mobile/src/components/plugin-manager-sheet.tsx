@@ -460,6 +460,7 @@ export function PluginManagerSheet({
                 autoCapitalize="none"
                 autoCorrect={false}
                 clearButtonMode="while-editing"
+                keyboardAppearance={theme.dark ? "dark" : "light"}
                 maxLength={PLUGIN_BOT_ACCESS_QUERY_MAX_LENGTH}
                 onChangeText={(value) => {
                   setAccessOffset(0);
@@ -567,6 +568,7 @@ export function PluginManagerSheet({
             autoCapitalize="none"
             autoCorrect={false}
             clearButtonMode="while-editing"
+            keyboardAppearance={theme.dark ? "dark" : "light"}
             onChangeText={setQuery}
             placeholder="Search plugins"
             placeholderTextColor={theme.textFaint}
@@ -642,6 +644,7 @@ export function PluginManagerSheet({
                 accessibilityLabel={field.label}
                 autoCapitalize="none"
                 autoCorrect={false}
+                keyboardAppearance={theme.dark ? "dark" : "light"}
                 key={field.key}
                 onChangeText={(value) =>
                   setSetupValues((current) => ({ ...current, [field.key]: value }))

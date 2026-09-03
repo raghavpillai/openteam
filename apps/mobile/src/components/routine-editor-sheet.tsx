@@ -362,6 +362,7 @@ function Field({
       <TextInput
         {...props}
         accessibilityLabel={label}
+        keyboardAppearance={theme.dark ? "dark" : "light"}
         multiline={multiline}
         placeholderTextColor={theme.textFaint}
         style={[

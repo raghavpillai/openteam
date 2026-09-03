@@ -1,4 +1,5 @@
 import {
+  nativeThemePreference,
   normalizeThemePreference,
   resolveTheme,
   type ThemePreference,
@@ -6,7 +7,7 @@ import {
 import * as SecureStore from "expo-secure-store";
 import type React from "react";
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
-import { useColorScheme } from "react-native";
+import { Appearance, useColorScheme } from "react-native";
 
 export type AppearancePreference = ThemePreference;
 export type AccentPreference = "black" | "blue";
@@ -42,6 +43,10 @@ export function AppearanceProvider({ children }: { children: React.ReactNode }) 
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    Appearance.setColorScheme(nativeThemePreference(preference));
+  }, [preference]);
 
   const value = useMemo<AppearanceState>(
     () => ({

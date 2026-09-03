@@ -8,6 +8,11 @@ export const routineIdFromPathname = (pathname: string): string | null => {
   }
 };
 
+export const routineRoute = (channelId: string, routineId: string) => ({
+  pathname: "/routine/[channelId]/[routineId]" as const,
+  params: { channelId, routineId },
+});
+
 const pendingKey = "__openbotPendingRoutineNavigation";
 
 type RoutineNavigationGlobal = typeof globalThis & {

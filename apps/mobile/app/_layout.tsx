@@ -42,8 +42,8 @@ function RootNavigation() {
     },
   };
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-      <SafeAreaProvider>
+    <GestureHandlerRootView style={{ flex: 1, backgroundColor: tokens.background }}>
+      <SafeAreaProvider style={{ flex: 1, backgroundColor: tokens.background }}>
         <ThemeProvider value={navigationTheme}>
           <StatusBar style={dark ? "light" : "dark"} />
           <AuthGate>

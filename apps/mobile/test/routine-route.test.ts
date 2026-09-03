@@ -3,6 +3,7 @@ import {
   clearRoutineNavigation,
   pendingRoutineId,
   routineIdFromPathname,
+  routineRoute,
   stageRoutineNavigation,
 } from "../src/routine-route";
 
@@ -15,6 +16,13 @@ describe("routine route", () => {
   test("does not treat details or malformed encodings as routine destinations", () => {
     expect(routineIdFromPathname("/details/channel-a")).toBeNull();
     expect(routineIdFromPathname("/routine/channel-a/%E0%A4%A")).toBeNull();
+  });
+
+  test("targets the exact routine selected from a conversation event", () => {
+    expect(routineRoute("channel-a", "routine-specific-id")).toEqual({
+      pathname: "/routine/[channelId]/[routineId]",
+      params: { channelId: "channel-a", routineId: "routine-specific-id" },
+    });
   });
 
   test("keeps a modal-to-stack handoff until the matching routine consumes it", () => {

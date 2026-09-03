@@ -16,6 +16,7 @@ describe("mobile virtual-list UI parity", () => {
     expect(route).toContain("size={38}");
     expect(route).toContain('accessibilityRole="checkbox"');
     expect(route).toContain('placeholder={mode === "bot" ? "Research Bot" : "Launch team"}');
+    expect(route).toContain('requestedMode === "group" ? "group" : "bot"');
     expect(route).toContain("await createGroup(name, selectedBotIds)");
     expect(route).toContain('router.replace({ pathname: "/chat/[channelId]"');
     expect(route).toContain(
@@ -149,7 +150,13 @@ describe("mobile virtual-list UI parity", () => {
   });
 
   test("home uses indexed pin lookup, stable rows, and a singleton formatter", async () => {
-    const route = await source("app/index.tsx");
+    const [route, layout, tokens] = await Promise.all([
+      source("app/index.tsx"),
+      source("app/_layout.tsx"),
+      Bun.file(
+        new URL("../../../packages/design-tokens/src/mobile-theme.ts", import.meta.url)
+      ).text(),
+    ]);
 
     expect(route).toContain("selectPinnedRows(rows, pinnedIds)");
     expect(route).toContain("new Set(pinnedIds)");
@@ -162,6 +169,29 @@ describe("mobile virtual-list UI parity", () => {
     expect(route).toContain('row.hasApproval ? "Approval required" : null');
     expect(route).toContain("const unreadCount = row.channel.unreadCount ?? 0");
     expect(route).toContain('router.push({ pathname: "/chat/[channelId]"');
+    expect(route).toContain("creationMenuOpen");
+    expect(route).toContain(">New Bot</Text>");
+    expect(route).toContain(">New Channel</Text>");
+    expect(route).toContain('openCreation("group")');
+    expect(route).toContain("styles.unreadDot");
+    expect(route).toContain('edges={["top", "left", "right"]}');
+    expect(route).toContain("styles.profileRim");
+    expect(route).toContain("styles.creationMenuShadow");
+    expect(route).toContain("boxShadow: theme.dark");
+    expect(route).not.toMatch(/styles\.creationMenuShadow,[\s\S]{0,180}backgroundColor/);
+    expect(route.indexOf("<View style={styles.header}>")).toBeLessThan(
+      route.indexOf("<SectionList")
+    );
+    expect(route).toContain("rowTitle: { flexShrink: 1, fontSize: 17, lineHeight: 20");
+    expect(route).toContain('time: { marginLeft: "auto", fontSize: 13, lineHeight: 16 }');
+    expect(route).toContain("preview: { flex: 1, fontSize: 15, lineHeight: 18 }");
+    expect(route).not.toContain("styles.creationDivider");
+    expect(layout.match(/backgroundColor: tokens\.background/g)).toHaveLength(4);
+    expect(tokens).toContain('background: "#FCFCFC"');
+    expect(tokens).toContain('text: "#000000"');
+    expect(tokens).toContain('textMuted: "#8E8E93"');
+    expect(tokens).toContain('textFaint: "#C3C3C1"');
+    expect(route).toContain("<GlassSurface");
   });
 
   test("reference geometry stays aligned across the home, search, menus, and Bot profile", async () => {
@@ -222,9 +252,9 @@ describe("mobile virtual-list UI parity", () => {
     expect(route).toContain("ThreadSheet");
     expect(route).toContain("threadReplyCount");
     expect(route).toContain("cancelRun(activeRun.id)");
-    expect(route).toContain("RunActivitySheet");
-    expect(route).toContain("snapshot.runItems.filter");
-    expect(route).toContain("snapshot.subagents.filter");
+    expect(route).not.toContain("RunActivitySheet");
+    expect(route).not.toContain("Run activity");
+    expect(route).not.toContain("activityOpen");
     expect(route).toContain("collapseA2ATimeline(mainMessages");
     expect(route).toContain("A2AActivityRow");
     expect(route).toContain("A2AExchangeSheet");
@@ -233,6 +263,9 @@ describe("mobile virtual-list UI parity", () => {
     expect(route).toContain('headerTrailingAction: { marginLeft: "auto" }');
     expect(route).toContain('name="chevron.down"');
     expect(route).not.toContain("styles.jumpLabel");
+    expect(route).toContain("styles.composerOverlay");
+    expect(route).toContain("paddingBottom: composerHeight + 8");
+    expect(route).toContain("bottom: composerHeight + 10");
   });
 
   test("A2A exchanges push a dedicated read-only native transcript over its source", async () => {
@@ -275,8 +308,11 @@ describe("mobile virtual-list UI parity", () => {
   });
 
   test("message rendering includes native Markdown, code, links, and thread controls", async () => {
-    const bubble = await source("src/components/message-bubble.tsx");
-    const markdown = await source("src/components/mobile-markdown.tsx");
+    const [bubble, markdown, imageViewer] = await Promise.all([
+      source("src/components/message-bubble.tsx"),
+      source("src/components/mobile-markdown.tsx"),
+      source("src/components/image-viewer.tsx"),
+    ]);
 
     expect(bubble).toContain("messageNeedsMobileMarkdown");
     expect(bubble).toContain("<MobileMarkdown");
@@ -286,10 +322,17 @@ describe("mobile virtual-list UI parity", () => {
     expect(bubble).toContain('richMessageWrap: { width: "88%" }');
     expect(bubble).toContain("boundedMobileAccessibilitySummary(displayContent)");
     expect(bubble).toContain("hitSlop={6}");
+    expect(bubble).toContain("<ImageViewer item={viewerItem}");
+    expect(bubble).toContain('accessibilityHint="Opens full-screen image viewer"');
     expect(markdown).toContain('block.type === "code"');
     expect(markdown).toContain('accessibilityRole="link"');
     expect(markdown).toContain("parseMobileMarkdown");
     expect(markdown).toContain("codeScroller: { flexGrow: 0 }");
+    expect(imageViewer).toContain('animationType="fade"');
+    expect(imageViewer).toContain('name="square.and.arrow.down"');
+    expect(imageViewer).toContain(">Close</Text>");
+    expect(imageViewer).toContain("<GlassSurface");
+    expect(imageViewer).toContain("Share.share({ message: item.caption, url: item.uri })");
   });
 
   test("the performance fixture seeds real Markdown line breaks", async () => {

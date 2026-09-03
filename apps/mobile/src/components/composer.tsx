@@ -923,7 +923,7 @@ export function Composer({
                         uri: url,
                         ...(attachment.asset ? { headers: authHeadersForUrl(url) } : {}),
                       }}
-                      style={styles.imagePreview}
+                      style={[styles.imagePreview, { backgroundColor: theme.surfacePressed }]}
                     />
                   ) : (
                     <View
@@ -1220,7 +1220,7 @@ const styles = StyleSheet.create({
     paddingBottom: 1,
   },
   attachmentPreviewWrap: { width: 72, height: 56 },
-  imagePreview: { width: 56, height: 56, borderRadius: 11, backgroundColor: "#D6D6D2" },
+  imagePreview: { width: 56, height: 56, borderRadius: 11 },
   filePreview: {
     width: 72,
     height: 56,

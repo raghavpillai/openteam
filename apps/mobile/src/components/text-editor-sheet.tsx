@@ -87,6 +87,7 @@ export function TextEditorSheet({
           <TextInput
             accessibilityLabel={label}
             autoFocus
+            keyboardAppearance={theme.dark ? "dark" : "light"}
             maxLength={20_000}
             multiline
             onChangeText={setDraft}

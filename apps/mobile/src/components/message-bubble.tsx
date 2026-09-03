@@ -1,4 +1,8 @@
 import type { AssetRef, BotView, ChannelMessageView } from "@openbot/contracts";
+import {
+  routineChangedActionLabel,
+  routineChangedEventFor,
+} from "@openbot/product-core/channel-events";
 import { durableSendStatusLabel } from "@openbot/product-core/durable-delivery";
 import {
   a2aProjectionFor,
@@ -33,6 +37,7 @@ import {
 import { useTheme } from "../theme";
 import { AttachmentPreview } from "./attachment-preview";
 import { GlassSurface } from "./glass-surface";
+import { ImageViewer, type ImageViewerItem } from "./image-viewer";
 import { MobileMarkdown, messageNeedsMobileMarkdown } from "./mobile-markdown";
 import { MobileRichMessageCard } from "./rich-message-card";
 
@@ -90,6 +95,7 @@ export function MessageBubble({
   onSecretSubmit,
   onComputerHandoff,
   onOpenThread,
+  onOpenRoutine,
   onStartThread,
   onMarkUnread,
   onReport,
@@ -122,6 +128,7 @@ export function MessageBubble({
   onSecretSubmit: (value: string) => Promise<boolean>;
   onComputerHandoff: (action: "start" | "skip") => Promise<boolean>;
   onOpenThread?: () => void;
+  onOpenRoutine?: (routineId: string) => void;
   onStartThread?: () => void;
   onMarkUnread?: () => void;
   onReport?: () => void;
@@ -146,6 +153,8 @@ export function MessageBubble({
 }) {
   const theme = useTheme();
   const [actionsOpen, setActionsOpen] = useState(false);
+  const [viewerItem, setViewerItem] = useState<ImageViewerItem | null>(null);
+  const routineEvent = useMemo(() => routineChangedEventFor(message), [message]);
   const projectedA2AContext = useMemo(() => a2aProjectionFor(message), [message]);
   const a2aContext = hideA2ALabel ? null : projectedA2AContext;
   const isUser = alignRight ?? (message.sender === "user" && !projectedA2AContext);
@@ -340,6 +349,42 @@ export function MessageBubble({
     displayContent && messageNeedsAdvancedMobileMarkdown(displayContent)
   );
 
+  if (routineEvent) {
+    const opensRoutine = Boolean(onOpenRoutine) && routineEvent.action !== "deleted";
+    return (
+      <Animated.View style={[styles.routineEventWrap, { opacity: deliveryOpacity }]}>
+        <Pressable
+          accessibilityLabel={
+            opensRoutine
+              ? `Open routine ${routineEvent.automationName}`
+              : `${routineChangedActionLabel(routineEvent.action)} ${routineEvent.automationName}`
+          }
+          accessibilityRole={opensRoutine ? "button" : "text"}
+          disabled={!opensRoutine}
+          onPress={() => {
+            void Haptics.selectionAsync();
+            onOpenRoutine?.(routineEvent.automationId);
+          }}
+          style={({ pressed }) => [
+            styles.routineEvent,
+            pressed && { backgroundColor: theme.surfacePressed },
+          ]}
+        >
+          <SymbolView
+            name="clock.arrow.circlepath"
+            size={13}
+            tintColor={theme.textMuted}
+            weight="regular"
+          />
+          <Text numberOfLines={2} style={[styles.routineEventText, { color: theme.textMuted }]}>
+            {routineChangedActionLabel(routineEvent.action)}{" "}
+            {JSON.stringify(routineEvent.automationName)}
+          </Text>
+        </Pressable>
+      </Animated.View>
+    );
+  }
+
   return (
     <Animated.View
       style={[
@@ -453,7 +498,7 @@ export function MessageBubble({
                   ]
             }
             accessibilityState={{ busy: pending }}
-            accessible={files.length === 0 && stagedFiles.length === 0}
+            accessible={attachmentCount === 0}
             delayLongPress={280}
             onLongPress={deliveryActionsDisabled ? undefined : openActions}
             onAccessibilityAction={(event) => {
@@ -495,32 +540,50 @@ export function MessageBubble({
                 ]}
               >
                 {keyedImages.map(({ value: { image, url }, key }, index) => (
-                  <Image
+                  <Pressable
                     accessibilityLabel={image.alt ?? `Attached image ${index + 1}`}
-                    accessible
+                    accessibilityHint="Opens full-screen image viewer"
+                    accessibilityRole="button"
                     key={key}
-                    resizeMode="cover"
-                    source={{ uri: url }}
+                    onPress={() =>
+                      setViewerItem({
+                        caption: image.alt?.trim() || displayContent.trim() || image.fileName,
+                        uri: url,
+                      })
+                    }
                     style={
                       images.length + stagedImages.length === 1
-                        ? styles.singleImage
-                        : styles.gridImage
+                        ? [styles.singleImage, { backgroundColor: theme.surfacePressed }]
+                        : [styles.gridImage, { backgroundColor: theme.surfacePressed }]
                     }
-                  />
+                  >
+                    <Image resizeMode="cover" source={{ uri: url }} style={styles.galleryImage} />
+                  </Pressable>
                 ))}
                 {stagedImages.map((image, index) => (
-                  <Image
+                  <Pressable
                     accessibilityLabel={image.alt ?? `Attached image ${images.length + index + 1}`}
-                    accessible
+                    accessibilityHint="Opens full-screen image viewer"
+                    accessibilityRole="button"
                     key={image.stagingId}
-                    resizeMode="cover"
-                    source={{ uri: image.previewUri }}
+                    onPress={() =>
+                      setViewerItem({
+                        caption: image.alt?.trim() || displayContent.trim() || image.fileName,
+                        uri: image.previewUri ?? "",
+                      })
+                    }
                     style={
                       images.length + stagedImages.length === 1
-                        ? styles.singleImage
-                        : styles.gridImage
+                        ? [styles.singleImage, { backgroundColor: theme.surfacePressed }]
+                        : [styles.gridImage, { backgroundColor: theme.surfacePressed }]
                     }
-                  />
+                  >
+                    <Image
+                      resizeMode="cover"
+                      source={{ uri: image.previewUri }}
+                      style={styles.galleryImage}
+                    />
+                  </Pressable>
                 ))}
               </View>
             ) : null}
@@ -661,6 +724,8 @@ export function MessageBubble({
           </Animated.Text>
         ) : null}
       </Animated.View>
+
+      <ImageViewer item={viewerItem} onClose={() => setViewerItem(null)} />
 
       {actionsOpen ? (
         <Modal
@@ -835,6 +900,18 @@ export function MessageBubble({
 }
 
 const styles = StyleSheet.create({
+  routineEventWrap: { alignSelf: "stretch", alignItems: "center", marginVertical: 3 },
+  routineEvent: {
+    minHeight: 30,
+    maxWidth: "94%",
+    borderRadius: 15,
+    paddingHorizontal: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 5,
+  },
+  routineEventText: { flexShrink: 1, fontSize: 12, lineHeight: 18, fontWeight: "400" },
   messageWrap: { maxWidth: "89%", marginVertical: 3 },
   // Rich cards contain percentage-width children. Give their wrapping message an
   // explicit width so Yoga does not resolve the circular percentage against the
@@ -874,14 +951,15 @@ const styles = StyleSheet.create({
     width: 246,
     height: 184,
     borderRadius: 16,
-    backgroundColor: "#D6D6D2",
+    overflow: "hidden",
   },
   gridImage: {
     width: 112,
     height: 104,
     borderRadius: 14,
-    backgroundColor: "#D6D6D2",
+    overflow: "hidden",
   },
+  galleryImage: { width: "100%", height: "100%" },
   fileList: { alignSelf: "flex-start", gap: 7, marginTop: 7 },
   stagedFile: {
     width: 246,

@@ -1,14 +1,14 @@
 /** Semantic values shared by native clients; components consume roles, not raw colors. */
 export const mobileLightTheme = {
   dark: false,
-  background: "#FFFFFF",
+  background: "#FCFCFC",
   surface: "#F3F3F1",
   surfaceElevated: "#FFFFFF",
   field: "#FCFCFB",
   surfacePressed: "#EAEAE7",
-  text: "#111111",
-  textMuted: "#767672",
-  textFaint: "#A6A6A0",
+  text: "#000000",
+  textMuted: "#8E8E93",
+  textFaint: "#C3C3C1",
   border: "rgba(17,17,17,0.12)",
   separator: "rgba(17,17,17,0.08)",
   userBubble: "#0A0A0A",

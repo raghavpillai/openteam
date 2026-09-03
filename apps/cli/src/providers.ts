@@ -1,7 +1,6 @@
-import { readFileSync } from "node:fs";
 import type { CliOptions } from "./arguments";
 import type { InstallationManifest, InstallationPaths } from "./config";
-import { installationExists, parseEnvironment, readManifest } from "./config";
+import { installationExists, readManifest } from "./config";
 import { PROJECT_NAME } from "./constants";
 import { type ComposeProject, requireComposeProject } from "./docker";
 import { CliError } from "./errors";
@@ -69,25 +68,13 @@ const jsonCommand = <T>(project: ComposeProject, args: readonly string[]): T => 
   }
 };
 
-const currentSelection = (paths: InstallationPaths, project?: ComposeProject) => {
-  if (project) {
-    try {
-      const selected = jsonCommand<{
-        providerId: string;
-        modelId: string;
-        reasoning: string;
-      }>(project, ["selection"]);
-      return { ...selected, thinking: selected.reasoning };
-    } catch {
-      // Fall back to bootstrap values when an older computer image lacks this command.
-    }
-  }
-  const environment = parseEnvironment(readFileSync(paths.environment, "utf8"));
-  return {
-    providerId: environment.get("OPENBOT_PI_PROVIDER") || "openai-codex",
-    modelId: environment.get("OPENBOT_PI_MODEL") || "gpt-5.5",
-    thinking: environment.get("OPENBOT_PI_THINKING") || "high",
-  };
+const currentSelection = (project: ComposeProject) => {
+  const selected = jsonCommand<{
+    providerId: string;
+    modelId: string;
+    reasoning: string;
+  }>(project, ["selection"]);
+  return { ...selected, thinking: selected.reasoning };
 };
 
 const authLabel = (type: string | null): string =>
@@ -95,7 +82,7 @@ const authLabel = (type: string | null): string =>
 
 export const providerListCommand = (paths: InstallationPaths, runner: CommandRunner): void => {
   const project = projectFor(paths, runner);
-  const selected = currentSelection(paths, project).providerId;
+  const selected = currentSelection(project).providerId;
   const providers = jsonCommand<ProviderRow[]>(project, ["providers"]);
   for (const provider of providers) {
     const marker = provider.id === selected ? "*" : " ";
@@ -112,7 +99,7 @@ export const modelListCommand = (
   providerId?: string
 ): void => {
   const project = projectFor(paths, runner);
-  const selected = currentSelection(paths, project);
+  const selected = currentSelection(project);
   const models = jsonCommand<ModelRow[]>(project, ["models", ...(providerId ? [providerId] : [])]);
   for (const model of models) {
     const active = model.providerId === selected.providerId && model.modelId === selected.modelId;
@@ -168,7 +155,7 @@ export const providerLoginCommand = async (
   suppliedPrompter?: SetupPrompter
 ): Promise<void> => {
   const project = projectFor(paths, runner);
-  const providerId = options.providerId || currentSelection(paths, project).providerId;
+  const providerId = options.providerId || currentSelection(project).providerId;
   const providers = jsonCommand<ProviderRow[]>(project, ["providers"]);
   const provider = providers.find((candidate) => candidate.id === providerId);
   if (!provider) throw new CliError(`Unknown Pi inference provider: ${providerId}`);
@@ -195,7 +182,7 @@ export const providerLogoutCommand = (
   providerId?: string
 ): void => {
   const project = projectFor(paths, runner);
-  const selected = currentSelection(paths, project).providerId;
+  const selected = currentSelection(project).providerId;
   const provider = providerId || selected;
   project.runOrThrow(authCommand(["logout", provider]));
 };
@@ -233,7 +220,7 @@ export const providerRemoveCommand = (
   providerId: string
 ): void => {
   const project = projectFor(paths, runner);
-  if (currentSelection(paths, project).providerId === providerId) {
+  if (currentSelection(project).providerId === providerId) {
     throw new CliError("Select a model from another provider before removing the active provider");
   }
   project.runOrThrow(authCommand(["remove-custom", providerId]));

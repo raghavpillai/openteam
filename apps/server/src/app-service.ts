@@ -137,7 +137,7 @@ export class AppService {
       this.computerUrl,
       () => this.queueReady,
       2_500,
-      async () => (await this.agentData.loadRootSettings()).settings.inference
+      () => this.agentData.loadInferenceSettings()
     );
     this.channels = new ChannelService(
       this.prisma,
@@ -160,7 +160,7 @@ export class AppService {
     );
     this.autoReview = new AutoReviewService(
       (path, init) => this.computerFetch(path, init),
-      async () => (await this.agentData.loadRootSettings()).settings.inference
+      () => this.agentData.loadInferenceSettings()
     );
     this.runs = new RunService(
       this.prisma,
@@ -528,14 +528,13 @@ export class AppService {
   serverSettings = (providerId?: string) =>
     Effect.tryPromise({
       try: async (): Promise<ServerSettingsView> => {
-        const root = await this.agentData.loadRootSettings();
-        if (!root.valid) throw new Error(root.error ?? "Server settings are invalid");
-        const selectedProvider = providerId ?? root.settings.inference.providerId;
+        const inference = await this.agentData.loadInferenceSettings();
+        const selectedProvider = providerId ?? inference.providerId;
         const query = new URLSearchParams({ provider: selectedProvider });
         const catalog = await this.computerJson<
           Pick<ServerSettingsView, "providers" | "models" | "modelProviderId">
         >(`/v1/inference/providers?${query}`, { method: "GET" });
-        return { inference: root.settings.inference, ...catalog };
+        return { inference, ...catalog };
       },
       catch: (error) => (error instanceof Error ? error : new Error(String(error))),
     });

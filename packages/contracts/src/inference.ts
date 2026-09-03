@@ -116,13 +116,11 @@ export const serverInferenceSettings = (
   reasoning: normalizePiReasoningLevel(reasoning),
 });
 
-export const defaultServerInferenceSettings = (
-  input: Partial<ServerInferenceSettings> = {}
-): ServerInferenceSettings =>
+export const defaultServerInferenceSettings = (): ServerInferenceSettings =>
   serverInferenceSettings(
-    input.providerId ?? DEFAULT_PI_INFERENCE_PROVIDER,
-    input.modelId ?? DEFAULT_PI_INFERENCE_MODEL,
-    input.reasoning ?? DEFAULT_PI_REASONING_LEVEL
+    DEFAULT_PI_INFERENCE_PROVIDER,
+    DEFAULT_PI_INFERENCE_MODEL,
+    DEFAULT_PI_REASONING_LEVEL
   );
 
 export const piModelRef = (providerId: string, modelId: string): PiModelRef => ({

@@ -293,6 +293,8 @@ describe("API contracts", () => {
         deliveryId: null,
         runtimeProfile: "subagent",
         subagentType: "browserUse",
+        model: "openai-codex/gpt-5.5",
+        reasoning: "high",
         fileAttachments: ["/workspace/shared/clip.mp4"],
         images: [{ url: "data:image/webp;base64,UklGRg==" }],
         dynamicNamespaces: [
@@ -315,6 +317,8 @@ describe("API contracts", () => {
     ).toMatchObject({
       runtimeProfile: "subagent",
       subagentType: "browserUse",
+      model: "openai-codex/gpt-5.5",
+      reasoning: "high",
       screenBotId: "parent-bot-1",
       fileAttachments: ["/workspace/shared/clip.mp4"],
       images: [{ url: "data:image/webp;base64,UklGRg==" }],

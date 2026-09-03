@@ -6,6 +6,8 @@ const inferenceRequest = {
   prompt: "Return OPENBOT_INFERENCE_OK.",
   cwd: "/workspace",
   timeoutMs: 5_000,
+  model: "openai-codex/gpt-5.5",
+  reasoning: "high" as const,
 };
 
 const runtimeWithResult = (result: unknown) => {
@@ -82,5 +84,15 @@ describe("memory inference", () => {
 
     expect(resolved).toEqual({ providerId: "anthropic", modelId: "claude-test" });
     expect(completionOptions).toMatchObject({ reasoning: "low" });
+  });
+
+  test("does not infer a provider for an unqualified runtime model", async () => {
+    const runtime = runtimeWithResult({
+      stopReason: "stop",
+      content: [{ type: "text", text: "unused" }],
+    });
+    await expect(runtime.infer({ ...inferenceRequest, model: "gpt-5.5" })).rejects.toThrow(
+      "provider-qualified"
+    );
   });
 });

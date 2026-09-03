@@ -87,7 +87,7 @@ export class SubagentService {
   ) {}
 
   async task(context: ToolContext, input: TaskInput) {
-    const configuredModel = (await this.agentData.loadRootSettings()).settings.inference;
+    const configuredModel = await this.agentData.loadInferenceSettings();
     const model = formatPiModelRef(configuredModel);
     if (
       input.model &&
@@ -335,7 +335,7 @@ export class SubagentService {
   }
 
   private async launch(context: ToolContext, input: TaskInput, restoredId?: string) {
-    const configuredInference = (await this.agentData.loadRootSettings()).settings.inference;
+    const configuredInference = await this.agentData.loadInferenceSettings();
     const selectedModel = formatPiModelRef(
       input.model
         ? parsePiModelRef(input.model, configuredInference.providerId)

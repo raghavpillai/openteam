@@ -152,8 +152,8 @@ export interface ComputerInferenceRequest {
   prompt: string;
   timeoutMs: number;
   cwd?: string;
-  model?: string;
-  reasoning?: PiReasoningLevel;
+  model: string;
+  reasoning: PiReasoningLevel;
 }
 
 export interface ComputerInferenceResponse {
@@ -179,19 +179,18 @@ export const parseComputerInferenceRequest = (value: unknown): ComputerInference
   if (input.cwd !== undefined && typeof input.cwd !== "string") {
     throw new Error("Inference cwd is invalid");
   }
-  if (input.model !== undefined && typeof input.model !== "string") {
+  if (typeof input.model !== "string" || !input.model.trim()) {
     throw new Error("Inference model is invalid");
   }
+  const reasoning = normalizePiReasoningLevel(input.reasoning);
   return {
     kind: input.kind as ComputerInferenceRequest["kind"],
     instructions,
     prompt,
     timeoutMs: input.timeoutMs,
     ...(typeof input.cwd === "string" ? { cwd: input.cwd } : {}),
-    ...(typeof input.model === "string" ? { model: input.model } : {}),
-    ...(input.reasoning !== undefined
-      ? { reasoning: normalizePiReasoningLevel(input.reasoning) }
-      : {}),
+    model: input.model,
+    reasoning,
   };
 };
 

@@ -16,7 +16,23 @@ afterEach(async () => {
 });
 
 describe("root inference settings", () => {
-  test("migrates an existing v1 root file once so environment values are only bootstrap defaults", async () => {
+  test("creates fixed inference defaults only for a brand-new settings file", async () => {
+    const root = await mkdtemp(join(tmpdir(), "openbot-root-settings-"));
+    temporaryDirectories.push(root);
+    const store = new AgentDataStore({} as PrismaClient, { root, workspaceRoot: root });
+
+    await store.ensureRuntimeDirectories();
+
+    const document = JSON.parse(await readFile(join(root, "settings.json"), "utf8"));
+    expect(document.inference).toEqual({
+      providerId: "openai-codex",
+      modelId: "gpt-5.5",
+      reasoning: "high",
+    });
+    expect((await store.loadRootSettings()).valid).toBe(true);
+  });
+
+  test("does not migrate a settings file that lacks required inference settings", async () => {
     const root = await mkdtemp(join(tmpdir(), "openbot-root-settings-"));
     temporaryDirectories.push(root);
     await writeFile(
@@ -37,11 +53,8 @@ describe("root inference settings", () => {
     await store.ensureRuntimeDirectories();
 
     const document = JSON.parse(await readFile(join(root, "settings.json"), "utf8"));
-    expect(document.inference).toEqual({
-      providerId: process.env.OPENBOT_PI_PROVIDER ?? "openai-codex",
-      modelId: process.env.OPENBOT_PI_MODEL ?? "gpt-5.5",
-      reasoning: process.env.OPENBOT_PI_THINKING ?? "high",
-    });
-    expect((await store.loadRootSettings()).valid).toBe(true);
+    expect(document.inference).toBeUndefined();
+    expect((await store.loadRootSettings()).valid).toBe(false);
+    await expect(store.loadInferenceSettings()).rejects.toThrow("inference is required");
   });
 });

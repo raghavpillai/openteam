@@ -22,6 +22,17 @@ class ProviderRunner implements CommandRunner {
     if (command === "docker" && args[0] === "compose" && args[1] === "version") {
       return { status: 0, stdout: "Docker Compose version v2.30.0", stderr: "" };
     }
+    if (args.includes("selection")) {
+      return {
+        status: 0,
+        stdout: JSON.stringify({
+          providerId: "openai-codex",
+          modelId: "gpt-5.5",
+          reasoning: "high",
+        }),
+        stderr: "",
+      };
+    }
     if (args.includes("providers")) {
       return {
         status: 0,

@@ -870,6 +870,7 @@ test("live filesystem watchers, snapshots, namespaces, and deletion authority ag
     await atomicWrite(join(root, "settings.json"), "{ malformed\n");
     const malformedRootSettings = await store.loadRootSettings();
     expect(malformedRootSettings.valid).toBe(false);
+    await expect(store.loadInferenceSettings()).rejects.toThrow("settings.json");
     expect(malformedRootSettings.settings).toMatchObject({
       version: 1,
       inference: {

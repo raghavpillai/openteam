@@ -9,6 +9,7 @@ import {
   RUNTIME_ENGINES,
   serverInferenceSettings,
 } from "../src/inference";
+import { parseComputerInferenceRequest } from "../src/service-protocol";
 
 describe("Pi inference model references", () => {
   test("keeps runtime engine and inference provider as separate concepts", () => {
@@ -50,5 +51,22 @@ describe("Pi inference model references", () => {
     });
     expect(normalizePiReasoningLevel("xhigh")).toBe("xhigh");
     expect(() => normalizePiReasoningLevel("turbo")).toThrow("Invalid inference reasoning level");
+  });
+
+  test("requires runtime inference selection on direct computer requests", () => {
+    const request = {
+      kind: "verification",
+      instructions: "Verify this response.",
+      prompt: "Return JSON.",
+      timeoutMs: 5_000,
+    };
+    expect(() => parseComputerInferenceRequest(request)).toThrow("Inference model is invalid");
+    expect(
+      parseComputerInferenceRequest({
+        ...request,
+        model: "openai-codex/gpt-5.5",
+        reasoning: "high",
+      })
+    ).toMatchObject({ model: "openai-codex/gpt-5.5", reasoning: "high" });
   });
 });

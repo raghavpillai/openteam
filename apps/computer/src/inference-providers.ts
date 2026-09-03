@@ -21,6 +21,7 @@ interface AuthSessionState extends InferenceProviderAuthSessionView {
 
 const terminalStatus = (status: AuthSessionState["status"]): boolean =>
   status === "connected" || status === "failed" || status === "cancelled";
+const MAX_AUTH_SESSIONS = 64;
 
 const sessionView = (session: AuthSessionState): InferenceProviderAuthSessionView => ({
   id: session.id,
@@ -115,6 +116,18 @@ export class InferenceProviderService {
 
   startAuthSession(providerId: string, authType: AuthType): InferenceProviderAuthSessionView {
     this.pruneSessions();
+    if (this.sessions.size >= MAX_AUTH_SESSIONS) {
+      const terminalSessions = [...this.sessions.values()]
+        .filter((session) => terminalStatus(session.status))
+        .sort((left, right) => left.createdAt - right.createdAt);
+      for (const session of terminalSessions) {
+        this.sessions.delete(session.id);
+        if (this.sessions.size < MAX_AUTH_SESSIONS) break;
+      }
+    }
+    if (this.sessions.size >= MAX_AUTH_SESSIONS) {
+      throw new Error("Too many provider connections are in progress");
+    }
     const runtime = this.runtime();
     const normalizedProviderId = normalizeInferenceProviderId(providerId);
     const provider = runtime.getProvider(normalizedProviderId);
@@ -170,6 +183,10 @@ export class InferenceProviderService {
 
   cancel(sessionId: string): void {
     const session = this.requireSession(sessionId);
+    this.cancelSession(session);
+  }
+
+  private cancelSession(session: AuthSessionState): void {
     if (terminalStatus(session.status)) return;
     session.status = "cancelled";
     session.prompt = null;
@@ -264,7 +281,7 @@ export class InferenceProviderService {
     const now = Date.now();
     for (const [id, session] of this.sessions) {
       const age = now - session.createdAt;
-      if (!terminalStatus(session.status) && age > 15 * 60_000) this.cancel(id);
+      if (!terminalStatus(session.status) && age > 15 * 60_000) this.cancelSession(session);
       if (terminalStatus(session.status) && age > 30 * 60_000) this.sessions.delete(id);
     }
   }

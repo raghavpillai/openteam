@@ -33,6 +33,8 @@ const turnRequest = (overrides: Record<string, unknown> = {}) => ({
   clientMessageId: crypto.randomUUID(),
   cwd: "/workspace",
   instructions: "system",
+  model: "openai-codex/gpt-5.5",
+  reasoning: "high",
   channelId: crypto.randomUUID(),
   deliveryId: null,
   ...overrides,

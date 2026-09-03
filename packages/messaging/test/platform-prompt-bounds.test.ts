@@ -87,15 +87,10 @@ describe("bounded platform target context", () => {
           skillRender: "",
           warnings: [],
         }),
-        loadRootSettings: async () => ({
-          valid: true,
-          settings: {
-            inference: {
-              providerId: "openai-codex",
-              modelId: "gpt-5.5",
-              reasoning: "high",
-            },
-          },
+        loadInferenceSettings: async () => ({
+          providerId: "openai-codex",
+          modelId: "gpt-5.5",
+          reasoning: "high",
         }),
       },
       prisma: {

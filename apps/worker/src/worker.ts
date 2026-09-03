@@ -320,7 +320,7 @@ export class WakeWorker {
     this.workspaceRoot = process.env.OPENBOT_WORKSPACE_ROOT ?? "/workspace";
     this.agentData = new AgentDataStore(this.prisma, {
       memoryInference: async (request) => {
-        const { inference } = (await this.agentData.loadRootSettings()).settings;
+        const inference = await this.agentData.loadInferenceSettings();
         const response = await fetch(`${this.computerUrl}${COMPUTER_API_PATHS.inference}`, {
           method: "POST",
           headers: {
@@ -1194,14 +1194,13 @@ export class WakeWorker {
     let completion: Extract<ComputerEvent, { type: "turn.completed" }> | null = null;
     try {
       await this.reconcileContextState(claimed);
-      const [platformPrompt, pluginContext, rootSettings] = await Promise.all([
+      const [platformPrompt, pluginContext, inference] = await Promise.all([
         this.messaging.platformPrompt(claimed.botId, claimed.contextSessionId),
         subagentLoadsPluginContext(claimed.subagentType)
           ? pluginRuntimeContext(this.prisma, claimed.pluginBotId)
           : Promise.resolve({ dynamicNamespaces: [], skillInstructions: "" }),
-        this.agentData.loadRootSettings(),
+        this.agentData.loadInferenceSettings(),
       ]);
-      const inference = rootSettings.settings.inference;
       // Plugin skills are global/read-only inputs. User workflows are rendered
       // later by platformInstructions and therefore win on conflict.
       const instructions = `${pluginSkillPromptForRuntime(

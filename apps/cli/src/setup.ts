@@ -20,7 +20,11 @@ import { portAvailable, printDoctor, runDoctor } from "./doctor";
 import { CliError } from "./errors";
 import { checkHealth, waitForHealth } from "./health";
 import type { CommandRunner } from "./process";
-import { readRuntimeInferenceSettings, writeRuntimeInferenceSettings } from "./runtime-settings";
+import {
+  readRuntimeInferenceSettings,
+  type RuntimeInferenceSettings,
+  writeRuntimeInferenceSettings,
+} from "./runtime-settings";
 import { inspectPublicReadiness } from "./public-readiness";
 import {
   createSetupPresentation,
@@ -30,7 +34,12 @@ import {
   type SetupStage,
 } from "./ui";
 
-const THINKING_LEVELS = ["minimal", "low", "medium", "high", "xhigh", "max"] as const;
+const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
+const DEFAULT_RUNTIME_INFERENCE: RuntimeInferenceSettings = {
+  providerId: "openai-codex",
+  modelId: "gpt-5.5",
+  reasoning: "high",
+};
 const ACCESS_MODES = ["https", "proxy", "http", "private", "local"] as const;
 const CUSTOM_PROVIDER_APIS = [
   "openai-responses",
@@ -66,9 +75,6 @@ const SETUP_STAGES: readonly SetupStage[] = [
 ] as const;
 const SETUP_KEYS = [
   "OPENBOT_TIME_ZONE",
-  "OPENBOT_PI_PROVIDER",
-  "OPENBOT_PI_MODEL",
-  "OPENBOT_PI_THINKING",
   "OPENBOT_WORKER_CONCURRENCY",
   "OPENBOT_API_PORT",
   "OPENBOT_ACCESS_MODE",
@@ -79,7 +85,6 @@ const SETUP_KEYS = [
   "OPENBOT_AUTH_URL",
   "COMPOSE_PROFILES",
 ] as const;
-
 export interface SetupPrompter {
   question(prompt: string): Promise<string>;
   secret(prompt: string): Promise<string>;
@@ -126,7 +131,6 @@ export interface SetupCommandOptions {
   fresh?: boolean;
   presentation?: SetupPresentation;
   ownerConfigured?: boolean;
-  authenticationTimeoutMs?: number;
 }
 
 export const supportsInteractiveSelection = (
@@ -701,7 +705,8 @@ export const collectSetupConfiguration = async (
   authenticated: boolean,
   prompter: SetupPrompter,
   options: SetupCommandOptions = {},
-  currentOwnerUsername = "openbot"
+  currentOwnerUsername = "openbot",
+  currentInference: RuntimeInferenceSettings = DEFAULT_RUNTIME_INFERENCE
 ): Promise<SetupConfiguration> => {
   const presentation = options.presentation;
   presentation?.stage(0);
@@ -827,7 +832,7 @@ export const collectSetupConfiguration = async (
   }
 
   presentation?.stage(1);
-  const currentThinking = current.get("OPENBOT_PI_THINKING") || "high";
+  const currentThinking = currentInference.reasoning;
   let ownerUsername = currentOwnerUsername;
   let ownerPassword: string | undefined;
   if (options.ownerConfigured) {
@@ -855,14 +860,14 @@ export const collectSetupConfiguration = async (
     ownerPassword,
     apiPort: current.get("OPENBOT_API_PORT") || "8787",
     timeZone: current.get("OPENBOT_TIME_ZONE") || "UTC",
-    provider: current.get("OPENBOT_PI_PROVIDER") || "openai-codex",
-    model: current.get("OPENBOT_PI_MODEL") || "gpt-5.5",
+    provider: currentInference.providerId,
+    model: currentInference.modelId,
     thinking: THINKING_LEVELS.includes(currentThinking as SetupConfiguration["thinking"])
       ? (currentThinking as SetupConfiguration["thinking"])
       : "high",
     workerConcurrency: current.get("OPENBOT_WORKER_CONCURRENCY") || "8",
     authenticate: false,
-    authType: defaultProviderAuthType(current.get("OPENBOT_PI_PROVIDER") || "openai-codex"),
+    authType: defaultProviderAuthType(currentInference.providerId),
   };
 
   presentation?.stage(2);
@@ -877,7 +882,7 @@ export const collectSetupConfiguration = async (
   }
   await collectRuntimeConfiguration(
     configuration,
-    current.get("OPENBOT_PI_PROVIDER") || "openai-codex",
+    currentInference.providerId,
     prompter,
     presentation
   );
@@ -890,7 +895,7 @@ export const collectSetupConfiguration = async (
         )
       : await ask(
           prompter,
-          "Reasoning effort (minimal/low/medium/high/xhigh/max)",
+          "Reasoning effort (off/minimal/low/medium/high/xhigh/max)",
           configuration.thinking,
           thinking
         );
@@ -908,12 +913,10 @@ export const collectSetupConfiguration = async (
   );
   configuration.authenticate = await confirm(
     prompter,
-    authenticated &&
-      configuration.provider === (current.get("OPENBOT_PI_PROVIDER") || "openai-codex")
+    authenticated && configuration.provider === currentInference.providerId
       ? `Configure ${configuration.provider} authentication again?`
       : `Configure ${configuration.provider} authentication now?`,
-    !authenticated ||
-      configuration.provider !== (current.get("OPENBOT_PI_PROVIDER") || "openai-codex")
+    !authenticated || configuration.provider !== currentInference.providerId
   );
   if (configuration.authenticate) {
     if (configuration.provider === "anthropic") {
@@ -952,9 +955,6 @@ export const collectSetupConfiguration = async (
 const updateEnvironment = (contents: string, configuration: SetupConfiguration): string => {
   const values: Record<(typeof SETUP_KEYS)[number], string> = {
     OPENBOT_TIME_ZONE: configuration.timeZone,
-    OPENBOT_PI_PROVIDER: configuration.provider,
-    OPENBOT_PI_MODEL: configuration.model,
-    OPENBOT_PI_THINKING: configuration.thinking,
     OPENBOT_WORKER_CONCURRENCY: configuration.workerConcurrency,
     OPENBOT_API_PORT: configuration.apiPort,
     OPENBOT_ACCESS_MODE: configuration.accessMode,
@@ -975,6 +975,33 @@ const providerUtility = (project: ComposeProject, args: readonly string[], input
     ["run", "--rm", "--no-deps", "--no-TTY", "computer", "openbot-pi-auth", ...args],
     input === undefined ? {} : { input }
   );
+
+const readStoppedRuntimeInference = (project: ComposeProject): RuntimeInferenceSettings => {
+  const result = providerUtility(project, ["selection"]);
+  if (result.status !== 0) {
+    throw new CliError(
+      result.stderr.trim() || result.stdout.trim() || "Could not read runtime inference settings"
+    );
+  }
+  let value: unknown;
+  try {
+    value = JSON.parse(result.stdout);
+  } catch {
+    throw new CliError("Runtime inference settings are invalid");
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new CliError("Runtime inference settings are invalid");
+  }
+  const settings = value as Record<string, unknown>;
+  if (
+    typeof settings.providerId !== "string" ||
+    typeof settings.modelId !== "string" ||
+    !THINKING_LEVELS.includes(settings.reasoning as SetupConfiguration["thinking"])
+  ) {
+    throw new CliError("Runtime inference settings are invalid");
+  }
+  return settings as unknown as RuntimeInferenceSettings;
+};
 
 const registerCustomProvider = (
   project: ComposeProject,
@@ -1034,19 +1061,6 @@ const assertProviderModelAvailable = (
   }
 };
 
-const waitForAuthentication = async (
-  paths: InstallationPaths,
-  timeoutMs = 15_000
-): Promise<boolean> => {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    const health = await checkHealth(paths);
-    if (health.ok && health.inference === "ready") return true;
-    await new Promise((resolve) => setTimeout(resolve, 1_000));
-  }
-  return false;
-};
-
 export const setupCommand = async (
   paths: InstallationPaths,
   runner: CommandRunner,
@@ -1058,14 +1072,11 @@ export const setupCommand = async (
   const previousEnvironment = readFileSync(paths.environment, "utf8");
   const current = new Map(parseEnvironment(previousEnvironment));
   const initialHealth = await checkHealth(paths);
-  if (initialHealth.ok) {
-    const runtimeInference = await readRuntimeInferenceSettings(paths).catch(() => null);
-    if (runtimeInference) {
-      current.set("OPENBOT_PI_PROVIDER", runtimeInference.providerId);
-      current.set("OPENBOT_PI_MODEL", runtimeInference.modelId);
-      current.set("OPENBOT_PI_THINKING", runtimeInference.reasoning);
-    }
-  }
+  const currentInference = initialHealth.ok
+    ? await readRuntimeInferenceSettings(paths)
+    : manifest.ownerUsername
+      ? readStoppedRuntimeInference(project)
+      : DEFAULT_RUNTIME_INFERENCE;
   const prompter = suppliedPrompter || createTerminalPrompter();
   const presentation =
     options.presentation ??
@@ -1087,7 +1098,8 @@ export const setupCommand = async (
           ownerConfigured: Boolean(manifest.ownerUsername),
           presentation,
         },
-        manifest.ownerUsername || "openbot"
+        manifest.ownerUsername || "openbot",
+        currentInference
       );
 
       if (!options.advanced) {
@@ -1271,23 +1283,31 @@ export const setupCommand = async (
         { inherit: true }
       );
     }
-    if (!(await waitForAuthentication(paths, options.authenticationTimeoutMs))) {
-      throw new CliError(
-        `${configuration.provider} authentication completed, but OpenBot still reports it as missing. Run openbot provider login ${configuration.provider} to retry.`
-      );
-    }
     presentation.message(`${configuration.provider} authentication is ready.`, "success");
   }
 
-  await writeRuntimeInferenceSettings(paths, {
+  const nextInference: RuntimeInferenceSettings = {
     providerId: configuration.provider,
     modelId: configuration.model,
     reasoning: configuration.thinking,
-  });
-  presentation.message(
-    `${configuration.provider}/${configuration.model} is active for new inference turns.`,
-    "success"
-  );
+  };
+  if (
+    nextInference.providerId !== currentInference.providerId ||
+    nextInference.modelId !== currentInference.modelId ||
+    nextInference.reasoning !== currentInference.reasoning
+  ) {
+    try {
+      await writeRuntimeInferenceSettings(paths, nextInference);
+    } catch (error) {
+      throw new CliError(
+        `Could not activate ${configuration.provider}/${configuration.model}. Run openbot provider login ${configuration.provider} and retry: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+    presentation.message(
+      `${configuration.provider}/${configuration.model} is active for new inference turns.`,
+      "success"
+    );
+  }
 
   presentation.stage(4);
   presentation.message("Running OpenBot doctor…", "info");

@@ -236,32 +236,20 @@ const main = async (): Promise<void> => {
       resolve(process.env.OPENBOT_AGENT_DATA_ROOT ?? "/home/box/agent-data"),
       "settings.json"
     );
-    try {
-      const document = JSON.parse(await readFile(settingsPath, "utf8")) as {
-        inference?: Record<string, unknown>;
-      };
-      const inference = document.inference;
-      if (!inference) throw new Error("Inference settings are missing");
-      console.log(
-        JSON.stringify(
-          serverInferenceSettings(
-            String(inference.providerId ?? ""),
-            String(inference.modelId ?? ""),
-            inference.reasoning
-          )
+    const document = JSON.parse(await readFile(settingsPath, "utf8")) as {
+      inference?: Record<string, unknown>;
+    };
+    const inference = document.inference;
+    if (!inference) throw new Error("Inference settings are missing");
+    console.log(
+      JSON.stringify(
+        serverInferenceSettings(
+          String(inference.providerId ?? ""),
+          String(inference.modelId ?? ""),
+          inference.reasoning
         )
-      );
-    } catch {
-      console.log(
-        JSON.stringify(
-          serverInferenceSettings(
-            process.env.OPENBOT_PI_PROVIDER ?? "openai-codex",
-            process.env.OPENBOT_PI_MODEL ?? "gpt-5.5",
-            process.env.OPENBOT_PI_THINKING ?? "high"
-          )
-        )
-      );
-    }
+      )
+    );
     return;
   }
   const runtime = await createRuntime();

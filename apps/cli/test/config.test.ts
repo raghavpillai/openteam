@@ -49,6 +49,9 @@ describe("installation configuration", () => {
     expect(first.get("OPENBOT_ACCESS_MODE")).toBe("local");
     expect(first.get("COMPOSE_PROFILES")).toBe("direct");
     expect(first.get("OPENBOT_AUTH_MODE")).toBe("required");
+    expect(first.has("OPENBOT_PI_PROVIDER")).toBe(false);
+    expect(first.has("OPENBOT_PI_MODEL")).toBe(false);
+    expect(first.has("OPENBOT_PI_THINKING")).toBe(false);
     expect(first.get("OPENBOT_CONTROL_TOKEN")).toHaveLength(64);
     expect(first.get("OPENBOT_AUTH_SECRET")).toHaveLength(64);
     expect(first.get("OPENBOT_PROXY_SECRET")).toHaveLength(64);

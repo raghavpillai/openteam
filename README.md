@@ -201,7 +201,9 @@ bash scripts/compose.sh exec computer openbot-pi-auth login openai-codex oauth
 
 The OAuth command offers browser and headless device-code flows. Never put provider credentials in `.env`. Pi stores and refreshes credentials under `/home/box/.pi/agent/auth.json` inside the private `openbot_computer_home` volume. The inference supervisor owns that directory; agent shells and graphical apps run as a separate user that cannot read it. The desktop Server settings page drives the same server-owned connection API without returning credential values to the client.
 
-The active provider, provider-qualified model, and reasoning effort are runtime settings in `/home/box/agent-data/settings.json` (the root `settings.json` in the durable agent-data tree). That file is the source of truth and is updated atomically. Changes from the desktop Server page or `openbot model use` apply to new turns and background inference without restarting services; already-running turns keep the selection they started with. `OPENBOT_PI_PROVIDER`, `OPENBOT_PI_MODEL`, and `OPENBOT_PI_THINKING` are used only to seed a missing or older settings file during installation or migration.
+The active provider, provider-qualified model, and reasoning effort are runtime settings in `/home/box/agent-data/settings.json` (the root `settings.json` in the durable agent-data tree). That file is the only source of truth and is updated atomically. Changes from the desktop Server page or `openbot model use` apply to new turns and background inference without restarting services; already-running turns keep the selection they started with. These runtime options are not environment variables or Compose configuration.
+
+Authenticated clients read the provider/model catalog with `GET /api/v0/server-settings`, apply a selection with `PATCH /api/v0/server-settings/inference`, and use the `/api/v0/inference-providers/*` auth-session endpoints to connect or disconnect providers. Auth-session responses contain prompts and connection status, never submitted credential values.
 
 The management CLI discovers authentication methods and models from Pi:
 

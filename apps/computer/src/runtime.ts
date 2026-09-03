@@ -519,8 +519,8 @@ export class ComputerRuntime {
   private readonly sessionsDir = join(this.agentDir, "sessions", "openbot");
   private readonly contextSessionsDir = join(this.agentDir, "context-sessions");
   private readonly defaultModelRef = piModelRef(
-    process.env.OPENBOT_PI_PROVIDER ?? DEFAULT_PI_INFERENCE_PROVIDER,
-    process.env.OPENBOT_PI_MODEL ?? DEFAULT_PI_INFERENCE_MODEL
+    DEFAULT_PI_INFERENCE_PROVIDER,
+    DEFAULT_PI_INFERENCE_MODEL
   );
   private readonly workspaceRoot = resolve(process.env.OPENBOT_WORKSPACE_ROOT ?? "/workspace");
   private readonly nativeToolExecutor = new NativeToolExecutor({
@@ -535,8 +535,7 @@ export class ComputerRuntime {
       settle: (decision?: ApprovalDecision, error?: Error) => void;
     }
   >();
-  private readonly defaultReasoning =
-    (process.env.OPENBOT_PI_THINKING as PiReasoningLevel | undefined) ?? DEFAULT_PI_REASONING_LEVEL;
+  private readonly defaultReasoning = DEFAULT_PI_REASONING_LEVEL;
   private modelRuntime: ModelRuntime | null = null;
   private readonly inferenceProviders = new InferenceProviderService(
     () => this.requireModelRuntime(),
@@ -654,9 +653,7 @@ export class ComputerRuntime {
 
   async run(request: ComputerTurnRequest): Promise<AsyncIterable<ComputerEvent>> {
     await this.start();
-    const modelRef = request.model
-      ? parsePiModelRef(request.model, this.defaultModelRef.providerId)
-      : this.defaultModelRef;
+    const modelRef = this.parseRuntimeModelRef(request.model);
     if (this.activeByRun.has(request.runId)) {
       throw new Error(`Run ${request.runId} is already active`);
     }
@@ -676,7 +673,7 @@ export class ComputerRuntime {
       runtimeProfile: request.runtimeProfile ?? "agent",
       subagentType: request.subagentType ?? null,
       modelRef,
-      reasoning: request.reasoning ?? this.defaultReasoning,
+      reasoning: request.reasoning,
       cwd: request.cwd,
       instructions: request.instructions,
       userInfoMessage: request.userInfo
@@ -987,19 +984,17 @@ export class ComputerRuntime {
     prompt: string;
     cwd: string;
     timeoutMs: number;
-    model?: string;
-    reasoning?: PiReasoningLevel;
+    model: string;
+    reasoning: PiReasoningLevel;
   }): Promise<string> {
     await this.start();
-    const modelRef = request.model
-      ? parsePiModelRef(request.model, this.defaultModelRef.providerId)
-      : this.defaultModelRef;
+    const modelRef = this.parseRuntimeModelRef(request.model);
     const modelRuntime = this.requireModelRuntime();
     if (!(await modelRuntime.checkAuth(modelRef.providerId))) {
       throw new Error(`Pi inference provider ${modelRef.providerId} is not configured`);
     }
     const model = this.resolveModel(modelRef);
-    const thinkingLevel = clampThinkingLevel(model, request.reasoning ?? this.defaultReasoning);
+    const thinkingLevel = clampThinkingLevel(model, request.reasoning);
     const controller = new AbortController();
     let timedOut = false;
     const timer = setTimeout(() => {
@@ -1064,6 +1059,11 @@ export class ComputerRuntime {
     return this.modelRuntime;
   }
 
+  private parseRuntimeModelRef(value: string): PiModelRef {
+    if (!value.includes("/")) throw new Error("A provider-qualified inference model is required");
+    return parsePiModelRef(value, this.defaultModelRef.providerId);
+  }
+
   private async createSession(
     request: ComputerTurnRequest,
     active: ActiveTurn
@@ -1090,20 +1090,20 @@ export class ComputerRuntime {
     cwd: string,
     instructions: string,
     sessionManager: SessionManager,
-    active?: ActiveTurn,
-    modelRef: PiModelRef = this.defaultModelRef
+    active: ActiveTurn,
+    modelRef: PiModelRef
   ): Promise<AgentSession> {
     const modelRuntime = this.modelRuntime;
     if (!modelRuntime) throw new Error("Pi model runtime is not initialized");
     const model = this.resolveModel(modelRef);
-    const thinkingLevel = clampThinkingLevel(model, active?.reasoning ?? this.defaultReasoning);
+    const thinkingLevel = clampThinkingLevel(model, active.reasoning);
     const persistReserve = grokPiPersistReserve(model.contextWindow ?? 0);
     const settingsManager = SettingsManager.inMemory({
       defaultProvider: modelRef.providerId,
       defaultModel: modelRef.modelId,
       defaultThinkingLevel: thinkingLevel === "off" ? undefined : thinkingLevel,
       compaction: {
-        enabled: Boolean(active),
+        enabled: true,
         reserveTokens: persistReserve,
         keepRecentTokens: 1,
       },
@@ -1119,14 +1119,10 @@ export class ComputerRuntime {
       noPromptTemplates: true,
       noThemes: true,
       systemPrompt: instructions,
-      ...(active
-        ? {
-            extensionFactories: [this.compactionExtension(sessionManager, active)],
-          }
-        : {}),
+      extensionFactories: [this.compactionExtension(sessionManager, active)],
     });
     await resourceLoader.reload();
-    const customTools = active ? this.customTools(active) : [];
+    const customTools = this.customTools(active);
     const { session } = await createAgentSession({
       cwd,
       agentDir: this.agentDir,

@@ -143,6 +143,17 @@ class SetupRunner implements CommandRunner {
           stderr: "",
         };
       }
+      if (action === "selection") {
+        return {
+          status: 0,
+          stdout: JSON.stringify({
+            providerId: "openai-codex",
+            modelId: "gpt-5.5",
+            reasoning: "high",
+          }),
+          stderr: "",
+        };
+      }
       if (action === "login") this.onLogin();
     }
     return { status: 0, stdout: "", stderr: "" };
@@ -158,10 +169,27 @@ const createSetupFixture = (options: { authenticated?: boolean; owner?: boolean 
   const directory = mkdtempSync(join(tmpdir(), "openbot-cli-provider-setup-"));
   temporaryDirectories.push(directory);
   const paths = installationPaths(directory);
-  const state = { authenticated: options.authenticated ?? false };
+  const state = {
+    authenticated: options.authenticated ?? false,
+    inference: { providerId: "openai-codex", modelId: "gpt-5.5", reasoning: "high" },
+  };
   const server = Bun.serve({
     port: 0,
-    fetch() {
+    async fetch(request) {
+      const url = new URL(request.url);
+      if (url.pathname.endsWith("/internal/server-settings/inference")) {
+        if (!state.authenticated) {
+          return Response.json(
+            { error: { message: "Inference provider is not connected" } },
+            { status: 400 }
+          );
+        }
+        state.inference = (await request.json()) as typeof state.inference;
+        return Response.json(state.inference);
+      }
+      if (url.pathname.endsWith("/internal/server-settings")) {
+        return Response.json({ inference: state.inference });
+      }
       return Response.json({
         status: "ready",
         runtime: { inference: state.authenticated ? "ready" : "missing" },
@@ -397,12 +425,7 @@ describe("interactive setup", () => {
   });
 
   test("reconfiguration can keep an already-registered custom provider", async () => {
-    let environment = replaceEnvironmentValue(
-      createEnvironment({ version: "1.2.3", timeZone: "UTC" }),
-      "OPENBOT_PI_PROVIDER",
-      "acme"
-    );
-    environment = replaceEnvironmentValue(environment, "OPENBOT_PI_MODEL", "acme-chat");
+    const environment = createEnvironment({ version: "1.2.3", timeZone: "UTC" });
     const prompter = new AnswerPrompter(["local", "", "", "no"]);
 
     const configuration = await collectSetupConfiguration(
@@ -410,7 +433,8 @@ describe("interactive setup", () => {
       true,
       prompter,
       { ownerConfigured: true },
-      "existing.owner"
+      "existing.owner",
+      { providerId: "acme", modelId: "acme-chat", reasoning: "high" }
     );
 
     expect(configuration.provider).toBe("acme");
@@ -538,9 +562,24 @@ describe("interactive setup", () => {
     temporaryDirectories.push(directory);
     const paths = installationPaths(directory);
     let authenticated = false;
+    let inference = { providerId: "openai-codex", modelId: "gpt-5.5", reasoning: "high" };
     const server = Bun.serve({
       port: 0,
-      fetch() {
+      async fetch(request) {
+        const url = new URL(request.url);
+        if (url.pathname.endsWith("/internal/server-settings/inference")) {
+          if (!authenticated) {
+            return Response.json(
+              { error: { message: "Inference provider is not connected" } },
+              { status: 400 }
+            );
+          }
+          inference = (await request.json()) as typeof inference;
+          return Response.json(inference);
+        }
+        if (url.pathname.endsWith("/internal/server-settings")) {
+          return Response.json({ inference });
+        }
         return Response.json({
           status: "ready",
           runtime: { inference: authenticated ? "ready" : "missing" },
@@ -549,7 +588,7 @@ describe("interactive setup", () => {
     });
     servers.push(server);
 
-    const original = replaceEnvironmentValue(
+    let original = replaceEnvironmentValue(
       createEnvironment({ version: "1.2.3", timeZone: "UTC" }),
       "OPENBOT_API_PORT",
       String(server.port)
@@ -592,7 +631,14 @@ describe("interactive setup", () => {
     const updated = parseEnvironment(updatedContents);
     const before = parseEnvironment(original);
     expect(updated.get("OPENBOT_TIME_ZONE")).toBe("Europe/London");
-    expect(updated.get("OPENBOT_PI_THINKING")).toBe("xhigh");
+    expect(updated.has("OPENBOT_PI_PROVIDER")).toBe(false);
+    expect(updated.has("OPENBOT_PI_MODEL")).toBe(false);
+    expect(updated.has("OPENBOT_PI_THINKING")).toBe(false);
+    expect(inference).toEqual({
+      providerId: "openai-codex",
+      modelId: "gpt-5.5",
+      reasoning: "xhigh",
+    });
     expect(updated.get("OPENBOT_WORKER_CONCURRENCY")).toBe("4");
     expect(updated.get("OPENBOT_CONTROL_TOKEN")).toBe(before.get("OPENBOT_CONTROL_TOKEN"));
     expect(updated.get("OPENBOT_POSTGRES_PASSWORD")).toBe(before.get("OPENBOT_POSTGRES_PASSWORD"));
@@ -645,8 +691,13 @@ describe("interactive setup", () => {
     expect(login?.options?.input).toBe(`${apiKey}\n`);
     expect(runner.calls.flatMap((call) => call.args).join(" ")).not.toContain(apiKey);
     const environment = readFileSync(fixture.paths.environment, "utf8");
-    expect(environment).toContain("OPENBOT_PI_PROVIDER=openai");
-    expect(environment).toContain("OPENBOT_PI_MODEL=gpt-5.5");
+    expect(environment).not.toContain("OPENBOT_PI_PROVIDER");
+    expect(environment).not.toContain("OPENBOT_PI_MODEL");
+    expect(fixture.state.inference).toEqual({
+      providerId: "openai",
+      modelId: "gpt-5.5",
+      reasoning: "high",
+    });
     expect(environment).not.toContain(apiKey);
   });
 
@@ -668,8 +719,13 @@ describe("interactive setup", () => {
     expect(login?.args).not.toContain("--no-TTY");
     expect(login?.options?.inherit).toBe(true);
     const environment = readFileSync(fixture.paths.environment, "utf8");
-    expect(environment).toContain("OPENBOT_PI_PROVIDER=anthropic");
-    expect(environment).toContain("OPENBOT_PI_MODEL=claude-sonnet-5");
+    expect(environment).not.toContain("OPENBOT_PI_PROVIDER");
+    expect(environment).not.toContain("OPENBOT_PI_MODEL");
+    expect(fixture.state.inference).toEqual({
+      providerId: "anthropic",
+      modelId: "claude-sonnet-5",
+      reasoning: "high",
+    });
   });
 
   test("onboards an Anthropic API key over stdin", async () => {
@@ -746,8 +802,13 @@ describe("interactive setup", () => {
     expect(runner.calls[loginIndex]?.options?.input).toBe(`${password}\n`);
     expect(runner.calls.flatMap((call) => call.args).join(" ")).not.toContain(password);
     const environment = readFileSync(fixture.paths.environment, "utf8");
-    expect(environment).toContain("OPENBOT_PI_PROVIDER=acme");
-    expect(environment).toContain("OPENBOT_PI_MODEL=acme-chat");
+    expect(environment).not.toContain("OPENBOT_PI_PROVIDER");
+    expect(environment).not.toContain("OPENBOT_PI_MODEL");
+    expect(fixture.state.inference).toEqual({
+      providerId: "acme",
+      modelId: "acme-chat",
+      reasoning: "high",
+    });
     expect(environment).not.toContain(password);
   });
 
@@ -871,7 +932,7 @@ describe("interactive setup", () => {
       setupCommand(
         fixture.paths,
         runner,
-        { presentation: silentPresentation, authenticationTimeoutMs: 1 },
+        { presentation: silentPresentation },
         new AnswerPrompter(["local", "openai", "", "yes", apiKey, "yes"])
       )
     ).rejects.toThrow("openbot provider login openai");

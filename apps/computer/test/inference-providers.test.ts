@@ -100,5 +100,18 @@ describe("inference provider service", () => {
     );
     expect(submittedSecret).toBe("super-secret-value");
     expect(JSON.stringify(complete)).not.toContain("super-secret-value");
+
+    const expiring = service.startAuthSession("test-provider", "api_key");
+    await eventually(
+      () => service.authSession(expiring.id),
+      (session) => session.status === "waiting"
+    );
+    const internals = service as unknown as {
+      sessions: Map<string, { createdAt: number }>;
+    };
+    const state = internals.sessions.get(expiring.id);
+    if (!state) throw new Error("Expected provider session state");
+    state.createdAt = Date.now() - 16 * 60_000;
+    expect(service.authSession(expiring.id).status).toBe("cancelled");
   });
 });

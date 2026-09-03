@@ -116,7 +116,7 @@ optional proposedRule (max 500 chars) that narrowly describes this action for a 
 export class AutoReviewService {
   constructor(
     private readonly computerFetch: ComputerFetch,
-    private readonly inferenceSettings?: () => Promise<ServerInferenceSettings>
+    private readonly inferenceSettings: () => Promise<ServerInferenceSettings>
   ) {}
 
   async review(input: AutoReviewInput): Promise<AutoReviewOutput> {
@@ -133,15 +133,14 @@ export class AutoReviewService {
       },
     });
     try {
-      const inference = await this.inferenceSettings?.();
+      const inference = await this.inferenceSettings();
       const request = {
         kind: "verification",
         instructions,
         prompt,
         timeoutMs: 15_000,
-        ...(inference
-          ? { model: formatPiModelRef(inference), reasoning: inference.reasoning }
-          : {}),
+        model: formatPiModelRef(inference),
+        reasoning: inference.reasoning,
       } satisfies ComputerInferenceRequest;
       const response = await this.computerFetch(COMPUTER_API_PATHS.inference, {
         method: "POST",

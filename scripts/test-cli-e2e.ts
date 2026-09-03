@@ -578,14 +578,10 @@ const runningServiceContainer = (service: string): string => {
 const assertProviderConfiguration = (thinking: string): void => {
   const environmentPath = join(installationDirectory, ".env");
   const environment = readFileSync(environmentPath, "utf8");
-  const expected = new Map([
-    ["OPENBOT_PI_PROVIDER", canaryProviderId],
-    ["OPENBOT_PI_MODEL", canaryModelId],
-    ["OPENBOT_PI_THINKING", thinking],
-  ]);
-  for (const [key, value] of expected) {
-    if (environmentValue(environment, key) !== value) {
-      throw new Error(`${key} was not persisted as ${value}`);
+  const runtimeKeys = ["OPENBOT_PI_PROVIDER", "OPENBOT_PI_MODEL", "OPENBOT_PI_THINKING"];
+  for (const key of runtimeKeys) {
+    if (environmentValue(environment, key) !== undefined) {
+      throw new Error(`${key} must not be persisted in the installation environment`);
     }
   }
   if (environment.includes(canarySecret)) {
@@ -612,15 +608,25 @@ const assertProviderConfiguration = (thinking: string): void => {
   }
 
   const computer = runningServiceContainer("computer");
+  const selection = JSON.parse(
+    resultText(docker(["exec", computer, "openbot-pi-auth", "selection"]))
+  ) as Record<string, unknown>;
+  if (
+    selection.providerId !== canaryProviderId ||
+    selection.modelId !== canaryModelId ||
+    selection.reasoning !== thinking
+  ) {
+    throw new Error(`Unexpected durable inference settings: ${JSON.stringify(selection)}`);
+  }
   const config = resultText(docker(["inspect", "--format", "{{json .Config}}", computer]));
   if (config.includes(canarySecret)) {
     throw new Error("The provider secret leaked into the computer container configuration");
   }
   const parsed = JSON.parse(config) as { Env?: unknown };
   const containerEnvironment = Array.isArray(parsed.Env) ? parsed.Env : [];
-  for (const [key, value] of expected) {
-    if (!containerEnvironment.includes(`${key}=${value}`)) {
-      throw new Error(`The live computer container is missing ${key}=${value}`);
+  for (const key of runtimeKeys) {
+    if (containerEnvironment.some((entry) => String(entry).startsWith(`${key}=`))) {
+      throw new Error(`The live computer container must not receive ${key}`);
     }
   }
 
@@ -749,7 +755,9 @@ const main = async (): Promise<void> => {
     installationDirectory,
   ]);
   assertProviderConfiguration("low");
-  const selectedEnvironment = readFileSync(join(installationDirectory, ".env"), "utf8");
+  const selectedInference = resultText(
+    docker(["exec", runningServiceContainer("computer"), "openbot-pi-auth", "selection"])
+  );
   const invalidSelection = resultText(
     cliCapture(
       ["model", "use", canaryProviderId, "missing-model", "--dir", installationDirectory],
@@ -759,8 +767,11 @@ const main = async (): Promise<void> => {
   if (!invalidSelection.includes("does not provide")) {
     throw new Error(`Invalid model selection failed unclearly:\n${invalidSelection}`);
   }
-  if (readFileSync(join(installationDirectory, ".env"), "utf8") !== selectedEnvironment) {
-    throw new Error("A rejected model selection changed the live installation environment");
+  const inferenceAfterRejection = resultText(
+    docker(["exec", runningServiceContainer("computer"), "openbot-pi-auth", "selection"])
+  );
+  if (inferenceAfterRejection !== selectedInference) {
+    throw new Error("A rejected model selection changed the durable inference settings");
   }
   const activeRemoval = resultText(
     cliCapture(["provider", "remove", canaryProviderId, "--dir", installationDirectory], 1)

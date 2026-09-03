@@ -169,7 +169,7 @@ export interface OpenBotServerConnection {
 export const testServerConnection = async (serverUrl: string): Promise<OpenBotServerConnection> => {
   const baseUrl = normalizeBaseUrl(serverUrl);
   try {
-    return { baseUrl, mode: await authClient(baseUrl).discoverMode() };
+    return { baseUrl, mode: await authClient(baseUrl).validateServer() };
   } catch (cause) {
     if (cause instanceof OpenBotClientError && cause.code === "offline") {
       throw new Error(

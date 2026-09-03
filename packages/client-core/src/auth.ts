@@ -1,4 +1,9 @@
-import { createJsonTransport, normalizeBaseUrl, type OpenBotFetch } from "./http";
+import {
+  createJsonTransport,
+  normalizeBaseUrl,
+  OpenBotClientError,
+  type OpenBotFetch,
+} from "./http";
 
 export type OpenBotAuthMode = "required" | "disabled";
 export type OpenBotAuthStatus = "checking" | "authenticated" | "signed-out";
@@ -69,6 +74,13 @@ export interface OpenBotAuthClientOptions {
   fetch?: OpenBotFetch;
 }
 
+const invalidOpenBotServer = (status: number): OpenBotClientError =>
+  new OpenBotClientError(
+    "This endpoint is reachable, but it is not a compatible OpenBot server.",
+    "invalid_server",
+    status
+  );
+
 /**
  * Platform-neutral authentication protocol. Persistence and lifecycle policy stay
  * in the desktop/mobile adapters so secrets never cross into an unsafe storage API.
@@ -76,12 +88,20 @@ export interface OpenBotAuthClientOptions {
 export const createOpenBotAuthClient = (options: OpenBotAuthClientOptions) => {
   const transport = createJsonTransport(options);
 
-  const discoverMode = async (): Promise<OpenBotAuthMode> => {
+  const requestMode = async (strict: boolean): Promise<OpenBotAuthMode> => {
     const response = await transport.open("/api/auth/config");
-    if (!response.ok) return "required";
+    if (!response.ok) {
+      if (strict) throw invalidOpenBotServer(response.status);
+      return "required";
+    }
     const body = await responseBody(response);
-    return body?.mode === "disabled" ? "disabled" : "required";
+    if (body?.mode === "required" || body?.mode === "disabled") return body.mode;
+    if (strict) throw invalidOpenBotServer(response.status);
+    return "required";
   };
+
+  const discoverMode = (): Promise<OpenBotAuthMode> => requestMode(false);
+  const validateServer = (): Promise<OpenBotAuthMode> => requestMode(true);
 
   const signIn = async (username: string, password: string): Promise<OpenBotSignInResult> => {
     const response = await transport.open("/api/auth/login", {
@@ -112,7 +132,7 @@ export const createOpenBotAuthClient = (options: OpenBotAuthClientOptions) => {
     });
   };
 
-  return { baseUrl: transport.baseUrl, discoverMode, getSession, signIn, signOut };
+  return { baseUrl: transport.baseUrl, discoverMode, getSession, signIn, signOut, validateServer };
 };
 
 export type OpenBotAuthClient = ReturnType<typeof createOpenBotAuthClient>;

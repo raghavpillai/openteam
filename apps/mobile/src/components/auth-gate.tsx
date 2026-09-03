@@ -200,6 +200,9 @@ export function AuthGate({ children }: { children: ReactNode }) {
   const loginBackground = theme.dark ? "#101010" : "#f5f5f3";
   const actionBackground = theme.dark ? "#ffffff" : "#111111";
   const actionForeground = theme.dark ? "#111111" : "#ffffff";
+  const actionGlassFill = theme.dark ? "rgba(255,255,255,0.58)" : "rgba(17,17,17,0.64)";
+  const actionGlassBorder = theme.dark ? "rgba(255,255,255,0.6)" : "rgba(255,255,255,0.24)";
+  const disabledActionBackground = theme.dark ? "rgba(255,255,255,0.22)" : "rgba(17,17,17,0.2)";
   const cardFallback = theme.dark ? "rgba(35,35,35,0.92)" : "rgba(255,255,255,0.84)";
   const fieldBackground = theme.dark ? "rgba(0,0,0,0.28)" : "rgba(255,255,255,0.56)";
   const primaryGlassTint = theme.dark ? "rgba(255,255,255,0.82)" : "rgba(17,17,17,0.78)";
@@ -530,6 +533,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
                         accessibilityLabel="Server endpoint"
                         autoCapitalize="none"
                         autoCorrect={false}
+                        keyboardAppearance={theme.dark ? "dark" : "light"}
                         keyboardType="url"
                         onChangeText={updateServerUrl}
                         onSubmitEditing={() => void connectToServer()}
@@ -594,7 +598,15 @@ export function AuthGate({ children }: { children: ReactNode }) {
                         <GlassSurface
                           fallbackColor={actionBackground}
                           interactive={!connectDisabled}
-                          style={[styles.signInButton, { borderColor: theme.border }]}
+                          style={[
+                            styles.signInButton,
+                            {
+                              backgroundColor: connectDisabled
+                                ? disabledActionBackground
+                                : actionGlassFill,
+                              borderColor: connectDisabled ? theme.border : actionGlassBorder,
+                            },
+                          ]}
                           tintColor={primaryGlassTint}
                         >
                           {submitting ? (
@@ -655,6 +667,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
                       autoCapitalize="none"
                       autoComplete="username"
                       autoCorrect={false}
+                      keyboardAppearance={theme.dark ? "dark" : "light"}
                       onChangeText={updateUsername}
                       placeholder="Username"
                       placeholderTextColor={theme.textFaint}
@@ -674,6 +687,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
                     <TextInput
                       accessibilityLabel="Password"
                       autoComplete="current-password"
+                      keyboardAppearance={theme.dark ? "dark" : "light"}
                       onChangeText={updatePassword}
                       onSubmitEditing={() => void signInWithCredentials()}
                       placeholder="Password"

@@ -198,6 +198,19 @@ describe("mobile authentication discovery", () => {
     );
   });
 
+  test("rejects a reachable website that is not an OpenBot server", async () => {
+    const calls: string[] = [];
+    globalThis.fetch = (async (url: string | URL | Request) => {
+      calls.push(String(url));
+      return new Response("Not found", { status: 404 });
+    }) as typeof fetch;
+
+    await expect(testServerConnection("https://google.example.test")).rejects.toThrow(
+      "not a compatible OpenBot server"
+    );
+    expect(calls).toEqual(["https://google.example.test/api/auth/config"]);
+  });
+
   test("explicit connection tests do not accept an offline cached public mode", async () => {
     const serverUrl = "https://strict-connect.openbot.test";
     globalThis.fetch = (async () => Response.json({ mode: "disabled" })) as typeof fetch;

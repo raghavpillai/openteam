@@ -350,7 +350,7 @@ export const testServerConnection = async (
 ): Promise<OpenBotServerConnectionResult> => {
   const configured = requireServerUrl(serverUrl);
   try {
-    const observedMode = await authClient(configured).discoverMode();
+    const observedMode = await authClient(configured).validateServer();
     await storeCachedAuthMode(configured, observedMode);
   } catch (cause) {
     if (cause instanceof OpenBotClientError && cause.code === "offline") {

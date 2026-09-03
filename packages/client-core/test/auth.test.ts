@@ -66,6 +66,18 @@ describe("shared authentication protocol", () => {
     expect(await client.getSession("session-token")).toBeNull();
   });
 
+  test("rejects a reachable website that does not expose the OpenBot auth protocol", async () => {
+    const client = createOpenBotAuthClient({
+      baseUrl: "https://example.test",
+      fetch: async () => new Response("Not found", { status: 404 }),
+    });
+
+    await expect(client.validateServer()).rejects.toMatchObject({
+      code: "invalid_server",
+      status: 404,
+    });
+  });
+
   test("surfaces the server's nested authentication error", async () => {
     const client = createOpenBotAuthClient({
       baseUrl: "https://openbot.test",

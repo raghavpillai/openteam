@@ -1848,7 +1848,7 @@ textarea,
 
 .auth-primary-button {
   min-width: 132px;
-  background: color-mix(in srgb, var(--primary) 78%, transparent);
+  background: color-mix(in srgb, var(--primary) 92%, transparent);
   color: var(--primary-foreground);
   box-shadow:
     0 10px 28px color-mix(in srgb, black 16%, transparent),
@@ -1876,7 +1876,7 @@ textarea,
 }
 
 .auth-primary-button:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--primary) 86%, transparent);
+  background: color-mix(in srgb, var(--primary) 100%, transparent);
   box-shadow:
     0 13px 32px color-mix(in srgb, black 20%, transparent),
     inset 0 1px 0 color-mix(in srgb, white 28%, transparent);

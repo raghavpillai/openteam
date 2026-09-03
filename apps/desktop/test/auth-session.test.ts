@@ -48,7 +48,7 @@ const user = {
   username: "owner",
 };
 
-globalThis.fetch = (async (input, init) => {
+const openBotFetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   const url = String(input);
   const method = init?.method ?? "GET";
   calls.push({ method, url });
@@ -62,6 +62,7 @@ globalThis.fetch = (async (input, init) => {
   if (url.endsWith("/api/auth/sign-out")) return new Response(null, { status: 204 });
   return new Response(null, { status: 404 });
 }) as typeof fetch;
+globalThis.fetch = openBotFetch;
 
 const auth = await import("../src/renderer/client/auth");
 
@@ -110,5 +111,16 @@ describe("desktop authenticated session", () => {
       error: null,
       user: null,
     });
+  });
+
+  test("rejects a reachable website that is not an OpenBot server", async () => {
+    globalThis.fetch = (async () => new Response("Not found", { status: 404 })) as typeof fetch;
+    try {
+      await expect(auth.testServerConnection("https://google.example.test")).rejects.toThrow(
+        "not a compatible OpenBot server"
+      );
+    } finally {
+      globalThis.fetch = openBotFetch;
+    }
   });
 });

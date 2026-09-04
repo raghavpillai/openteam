@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "OpenTeam",
-    "slug": "openteam-mobile",
+    "slug": "openbot-mobile",
     "version": "0.1.0",
     "icon": "./assets/openteam-icon-v2.png",
     "orientation": "portrait",
@@ -9,16 +9,18 @@
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "dev.openteam.mobile",
+      "bundleIdentifier": "dev.openbot.mobile",
       "entitlements": {
         "keychain-access-groups": ["$(AppIdentifierPrefix)$(PRODUCT_BUNDLE_IDENTIFIER)"]
       },
       "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false,
         "NSCameraUsageDescription": "OpenTeam uses the camera only when you choose to take a photo for a message.",
         "NSLocalNetworkUsageDescription": "OpenTeam connects to the self-hosted server you choose on your local network.",
         "NSMicrophoneUsageDescription": "OpenTeam uses the microphone only while you dictate a message.",
         "NSSpeechRecognitionUsageDescription": "OpenTeam converts speech to text only when you choose voice input."
-      }
+      },
+      "buildNumber": "3"
     },
     "android": {
       "package": "dev.openteam.mobile"

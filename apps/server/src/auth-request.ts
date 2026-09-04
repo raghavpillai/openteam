@@ -26,13 +26,23 @@ const isPrivateAddress = (address: string): boolean => {
   );
 };
 
+export const loginOriginAllowed = (request: Request, expectedOrigin: string): boolean => {
+  const supplied = request.headers.get("origin")?.trim();
+  if (!supplied || supplied === "null") return true;
+  try {
+    return new URL(supplied).origin === new URL(expectedOrigin).origin;
+  } catch {
+    return false;
+  }
+};
+
 export const authRequestWithClientIp = (
   request: Request,
   requestServer: RequestIpSource,
   proxySecret: string,
   url?: URL,
   body?: string,
-  options: { trustPrivateForwarder?: boolean } = {}
+  options: { trustPrivateForwarder?: boolean; fallbackOrigin?: string; stripCookies?: boolean } = {}
 ): Request => {
   const headers = new Headers(request.headers);
   const proxyAuthenticated =
@@ -49,6 +59,11 @@ export const authRequestWithClientIp = (
   headers.delete("x-forwarded-for");
   headers.delete("x-forwarded-host");
   headers.delete("x-forwarded-proto");
+  const origin = headers.get("origin")?.trim();
+  if ((!origin || origin === "null") && options.fallbackOrigin) {
+    headers.set("origin", options.fallbackOrigin);
+  }
+  if (options.stripCookies) headers.delete("cookie");
   if (isIP(clientIp)) headers.set("x-openteam-client-ip", clientIp);
   else headers.delete("x-openteam-client-ip");
   if (body !== undefined) {

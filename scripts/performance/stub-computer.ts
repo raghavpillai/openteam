@@ -24,7 +24,7 @@ Bun.serve({
     if (request.method === "GET" && url.pathname === "/health") {
       return Response.json({
         status: "ready",
-        agent: { ready: true, authenticated: true },
+        inference: { ready: true, authenticated: true },
       });
     }
     if (request.method === "PUT" && url.pathname === "/v1/directories") {

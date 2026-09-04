@@ -14,9 +14,16 @@ import {
   writeFileAtomic,
   writeManifest,
 } from "./config";
-import { PROJECT_NAME } from "./constants";
+import { API_PORT, PROJECT_NAME } from "./constants";
 import { type ComposeProject, requireComposeProject } from "./docker";
-import { portAvailable, printDoctor, runDoctor } from "./doctor";
+import {
+  firstUnavailablePort,
+  portAvailable,
+  printDoctor,
+  runDoctor,
+  suggestApiPort,
+  viewerPorts,
+} from "./doctor";
 import { CliError } from "./errors";
 import { checkHealth, waitForHealth } from "./health";
 import type { CommandRunner } from "./process";
@@ -858,7 +865,7 @@ export const collectSetupConfiguration = async (
     composeProfiles: selectedAccess === "https" ? "https" : "direct",
     ownerUsername,
     ownerPassword,
-    apiPort: current.get("OPENTEAM_API_PORT") || "8787",
+    apiPort: current.get("OPENTEAM_API_PORT") || String(API_PORT),
     timeZone: current.get("OPENTEAM_TIME_ZONE") || "UTC",
     provider: currentInference.providerId,
     model: currentInference.modelId,
@@ -1081,10 +1088,26 @@ export const setupCommand = async (
   const presentation =
     options.presentation ??
     createSetupPresentation({ version: manifest.version, stages: SETUP_STAGES });
+  const fresh = options.fresh ?? !manifest.ownerUsername;
+  let fallbackApiPort: { configured: number; suggested: number } | null = null;
+  if (fresh && !initialHealth.ok) {
+    const configured = Number(current.get("OPENTEAM_API_PORT") || API_PORT);
+    const suggested = await suggestApiPort("127.0.0.1", configured);
+    if (suggested !== configured) {
+      current.set("OPENTEAM_API_PORT", String(suggested));
+      fallbackApiPort = { configured, suggested };
+    }
+  }
 
   presentation.start();
   presentation.message(`Installation: ${paths.directory}`, "muted");
   presentation.message("Press Enter to keep the value shown in brackets.", "muted");
+  if (fallbackApiPort) {
+    presentation.message(
+      `Port ${fallbackApiPort.configured} is already in use; using ${fallbackApiPort.suggested} as the local API default.`,
+      "info"
+    );
+  }
   let configuration: SetupConfiguration | null = null;
   try {
     while (!configuration) {
@@ -1094,7 +1117,7 @@ export const setupCommand = async (
         prompter,
         {
           ...options,
-          fresh: options.fresh ?? !manifest.ownerUsername,
+          fresh,
           ownerConfigured: Boolean(manifest.ownerUsername),
           presentation,
         },
@@ -1160,6 +1183,24 @@ export const setupCommand = async (
     if (!suppliedPrompter) prompter.close();
   }
   const previousAccessMode = current.get("OPENTEAM_ACCESS_MODE") || "local";
+  if (fresh && !initialHealth.ok) {
+    const apiPort = Number(configuration.apiPort);
+    const unavailableApiPort = await firstUnavailablePort(configuration.bindHost, [apiPort]);
+    if (unavailableApiPort !== null) {
+      throw new CliError(
+        `OpenTeam cannot start because API port ${unavailableApiPort} is already in use. Rerun setup --advanced to choose another port.`
+      );
+    }
+    const unavailableViewerPort = await firstUnavailablePort(
+      configuration.viewerBindHost,
+      viewerPorts()
+    );
+    if (unavailableViewerPort !== null) {
+      throw new CliError(
+        `OpenTeam cannot start because screen-viewer port ${unavailableViewerPort} is already in use. Stop the conflicting service and run setup again.`
+      );
+    }
+  }
   if (configuration.accessMode === "https" && previousAccessMode !== "https") {
     const occupied = (
       await Promise.all(

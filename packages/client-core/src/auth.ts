@@ -81,6 +81,9 @@ const invalidOpenTeamServer = (status: number): OpenTeamClientError =>
     status
   );
 
+const unavailableOpenTeamServer = (status: number): OpenTeamClientError =>
+  new OpenTeamClientError("The OpenTeam server is temporarily unavailable.", "offline", status);
+
 /**
  * Platform-neutral authentication protocol. Persistence and lifecycle policy stay
  * in the desktop/mobile adapters so secrets never cross into an unsafe storage API.
@@ -91,7 +94,11 @@ export const createOpenTeamAuthClient = (options: OpenTeamAuthClientOptions) => 
   const requestMode = async (strict: boolean): Promise<OpenTeamAuthMode> => {
     const response = await transport.open("/api/auth/config");
     if (!response.ok) {
-      if (strict) throw invalidOpenTeamServer(response.status);
+      if (strict) {
+        throw response.status >= 500
+          ? unavailableOpenTeamServer(response.status)
+          : invalidOpenTeamServer(response.status);
+      }
       return "required";
     }
     const body = await responseBody(response);

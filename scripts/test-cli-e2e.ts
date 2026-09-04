@@ -791,7 +791,26 @@ const main = async (): Promise<void> => {
   console.log("\n[E2E] Verifying stop and start…");
   cli(["stop", "--dir", installationDirectory]);
   cli(["status", "--dir", installationDirectory], 2);
-  cli(["start", "--dir", installationDirectory]);
+  try {
+    cli(["start", "--dir", installationDirectory]);
+  } catch (error) {
+    const migrate = resultText(
+      docker([
+        "ps",
+        "--all",
+        "--quiet",
+        "--filter",
+        `label=com.docker.compose.project=${projectName}`,
+        "--filter",
+        "label=com.docker.compose.service=migrate",
+      ])
+    );
+    if (migrate) {
+      console.error("\n[E2E] Migration logs after restart failure:\n");
+      console.error(resultText(docker(["logs", migrate])));
+    }
+    throw error;
+  }
   assertProviderConfiguration("low");
   await assertPersistenceMarker(markerId);
   await completeCanaryTurn(canaryBot.conversationId);

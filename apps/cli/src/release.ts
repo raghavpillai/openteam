@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { basename } from "node:path";
 import { verify, type Bundle } from "sigstore";
+import { withBunCryptoVerifyCompatibility } from "./bun-crypto";
 import { normalizeRepository, normalizeVersion } from "./config";
 import { CliError } from "./errors";
 
@@ -48,12 +49,14 @@ export const verifyReleaseSignature = async (options: {
   }
   const identity = `https://github.com/${normalizeRepository(options.repository)}/.github/workflows/release.yml@refs/tags/v${normalizeVersion(options.version)}`;
   try {
-    await verify(bundle, Buffer.from(options.compose), {
-      certificateIssuer: "https://token.actions.githubusercontent.com",
-      certificateIdentityURI: `^${escapedPattern(identity)}$`,
-      ctLogThreshold: 1,
-      tlogThreshold: 1,
-    });
+    await withBunCryptoVerifyCompatibility(() =>
+      verify(bundle, Buffer.from(options.compose), {
+        certificateIssuer: "https://token.actions.githubusercontent.com",
+        certificateIdentityURI: `^${escapedPattern(identity)}$`,
+        ctLogThreshold: 1,
+        tlogThreshold: 1,
+      })
+    );
   } catch (error) {
     throw new CliError(
       `Sigstore verification failed for OpenTeam ${options.version}: ${error instanceof Error ? error.message : error}`

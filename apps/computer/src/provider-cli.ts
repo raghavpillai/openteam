@@ -13,6 +13,7 @@ import {
   piModelRef,
   serverInferenceSettings,
 } from "@openteam/contracts";
+import { authOptionLabel, defaultAuthOption, selectedAuthOption } from "./provider-auth-prompt";
 
 const agentDir = resolve(process.env.OPENTEAM_PI_AGENT_DIR ?? "/home/box/.pi/agent");
 const authPath = join(agentDir, "auth.json");
@@ -81,15 +82,15 @@ const login = async (providerId: string, authType: AuthType): Promise<void> => {
           return pipedSecret;
         }
         if (prompt.type === "select") {
+          const defaultOption = defaultAuthOption(prompt.options);
           prompt.options.forEach((option, index) => {
-            console.log(
-              `${index + 1}. ${option.label}${option.description ? ` — ${option.description}` : ""}`
-            );
+            console.log(`${index + 1}. ${authOptionLabel(option, option === defaultOption)}`);
           });
-          const answer = (await terminal.question(`${prompt.message}: `)).trim();
-          const selected =
-            prompt.options[Number(answer) - 1] ??
-            prompt.options.find((option) => option.id === answer);
+          const defaultIndex = defaultOption ? prompt.options.indexOf(defaultOption) : 0;
+          const answer = (
+            await terminal.question(`${prompt.message} [${defaultIndex + 1}]: `)
+          ).trim();
+          const selected = selectedAuthOption(prompt.options, answer);
           if (!selected) throw new Error("Invalid authentication selection");
           return selected.id;
         }

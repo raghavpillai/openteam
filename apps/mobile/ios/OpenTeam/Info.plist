@@ -28,12 +28,14 @@
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>openteam</string>
-				<string>dev.openteam.mobile</string>
+				<string>dev.openbot.mobile</string>
 			</array>
 		</dict>
 	</array>
 	<key>CFBundleVersion</key>
-	<string>1</string>
+	<string>3</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>LSMinimumSystemVersion</key>
 	<string>12.0</string>
 	<key>LSRequiresIPhoneOS</key>

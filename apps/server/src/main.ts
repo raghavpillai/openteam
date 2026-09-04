@@ -45,7 +45,7 @@ import { AppService } from "./app-service";
 import { assetResponse } from "./asset-http";
 import { auth, authPrisma } from "./auth";
 import { parseAuthMode } from "./auth-mode";
-import { authRequestWithClientIp } from "./auth-request";
+import { authRequestWithClientIp, loginOriginAllowed } from "./auth-request";
 import { EVENT_POLL_MAX_WAIT_MS, eventPoll, eventStream } from "./event-stream";
 import { corsHeaders, errorResponse, json, parseBody, withCors } from "./http";
 import { messageContextExtents } from "./message-context-query";
@@ -218,13 +218,19 @@ const server = Bun.serve({
         return json(release);
       }
       if (request.method === "POST" && url.pathname === "/api/auth/login") {
+        if (!loginOriginAllowed(request, url.origin)) {
+          return json(
+            { error: { code: "invalid_origin", message: "Origin does not match this server" } },
+            403
+          );
+        }
         const loginRequest = authRequestWithClientIp(
           request,
           requestServer,
           proxySecret,
           new URL("/api/auth/sign-in/username", request.url),
           await request.text(),
-          { trustPrivateForwarder }
+          { trustPrivateForwarder, fallbackOrigin: url.origin, stripCookies: true }
         );
         return withCors(await auth.handler(loginRequest));
       }

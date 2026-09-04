@@ -2,6 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
 import { AuthGate } from "./components/openteam/auth-gate";
+import { Toaster } from "./components/ui/sonner";
 import { installPerformanceMonitoring } from "./lib/performance";
 import { initializeTheme } from "./lib/theme";
 import "./styles.css";
@@ -17,5 +18,6 @@ createRoot(root).render(
     <AuthGate>
       <App />
     </AuthGate>
+    <Toaster position="bottom-right" visibleToasts={3} />
   </StrictMode>
 );

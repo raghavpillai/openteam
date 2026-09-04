@@ -78,6 +78,18 @@ describe("shared authentication protocol", () => {
     });
   });
 
+  test("treats a development proxy upstream failure as an unavailable server", async () => {
+    const client = createOpenTeamAuthClient({
+      baseUrl: "http://127.0.0.1:5173",
+      fetch: async () => new Response("Proxy upstream unavailable", { status: 500 }),
+    });
+
+    await expect(client.validateServer()).rejects.toMatchObject({
+      code: "offline",
+      status: 500,
+    });
+  });
+
   test("surfaces the server's nested authentication error", async () => {
     const client = createOpenTeamAuthClient({
       baseUrl: "https://openteam.test",

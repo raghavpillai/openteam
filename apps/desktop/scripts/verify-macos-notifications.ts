@@ -17,13 +17,13 @@ const requestedIsDirectory = Boolean(
 const searchRoot = requestedIsDirectory && requested ? requested : releaseRoot;
 const discovered = existsSync(searchRoot)
   ? readdirSync(searchRoot, { recursive: true })
-      .filter((entry) => String(entry).endsWith("OpenTeam.app"))
+      .filter((entry) => String(entry).toLowerCase().endsWith("openteam.app"))
       .map((entry) => resolve(searchRoot, String(entry)))
       .sort()
   : [];
 const appPath = requested && !requestedIsDirectory ? requested : discovered[0];
 if (!appPath || !existsSync(appPath)) {
-  throw new Error("OpenTeam.app was not found. Build the macOS package first.");
+  throw new Error("The OpenTeam app bundle was not found. Build the macOS package first.");
 }
 
 const verify = Bun.spawnSync([

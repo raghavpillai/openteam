@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { authRequestWithClientIp } from "../../src/auth-request";
+import { authRequestWithClientIp, loginOriginAllowed } from "../../src/auth-request";
 
 const proxySecret = "openteam-test-proxy-secret-that-is-at-least-32-characters";
 
@@ -93,5 +93,60 @@ describe("authentication client attribution", () => {
 
       expect(attributed.headers.get("x-openteam-client-ip")).toBe("2001:db8::42");
     }
+  });
+
+  test("gives native login requests the server origin without trusting a supplied origin", async () => {
+    for (const suppliedOrigin of [undefined, "null"]) {
+      const request = new Request("https://team.example.test/api/auth/login", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          cookie: "better-auth.session_token=stale.invalid",
+          ...(suppliedOrigin ? { origin: suppliedOrigin } : {}),
+        },
+        body: JSON.stringify({ username: "owner", password: "secret" }),
+      });
+      const attributed = authRequestWithClientIp(
+        request,
+        { requestIP: () => ({ address: "203.0.113.7" }) },
+        proxySecret,
+        new URL("/api/auth/sign-in/username", request.url),
+        await request.text(),
+        { fallbackOrigin: "https://team.example.test", stripCookies: true }
+      );
+
+      expect(attributed.headers.get("origin")).toBe("https://team.example.test");
+      expect(attributed.headers.has("cookie")).toBe(false);
+    }
+
+    const crossOrigin = new Request("https://team.example.test/api/auth/login", {
+      method: "POST",
+      headers: { origin: "https://untrusted.example.test" },
+      body: "{}",
+    });
+    const attributed = authRequestWithClientIp(
+      crossOrigin,
+      { requestIP: () => ({ address: "203.0.113.7" }) },
+      proxySecret,
+      undefined,
+      await crossOrigin.text(),
+      { fallbackOrigin: "https://team.example.test" }
+    );
+    expect(attributed.headers.get("origin")).toBe("https://untrusted.example.test");
+    expect(loginOriginAllowed(crossOrigin, "https://team.example.test")).toBe(false);
+    expect(
+      loginOriginAllowed(
+        new Request("https://team.example.test/api/auth/login", {
+          headers: { origin: "https://team.example.test" },
+        }),
+        "https://team.example.test"
+      )
+    ).toBe(true);
+    expect(
+      loginOriginAllowed(
+        new Request("https://team.example.test/api/auth/login"),
+        "https://team.example.test"
+      )
+    ).toBe(true);
   });
 });

@@ -1,47 +1,48 @@
 # Releasing OpenTeam
 
 The `Release OpenTeam` workflow runs for tags shaped like `v1.2.3`. The tag version must exactly
-match the CLI, server, worker, computer, and desktop package versions.
+match the CLI, server, worker, computer, desktop, and mobile package versions plus the Expo app
+version. Releases are all-or-nothing: the public GitHub release stays unavailable unless every
+desktop installer is signed and the matching iPhone build reaches TestFlight.
 
 ## What a release produces
 
 Users install with `curl -fsSL https://openteam.so/install | sh` (or `install.ps1` on Windows).
 That script downloads a native `openteam` binary from the latest GitHub release and verifies it
-against `SHA256SUMS`, so the release itself is the distribution channel. npm is optional.
+against `SHA256SUMS`, so the release itself is the distribution channel. Node.js, Bun, and npm are
+not required on an end-user machine.
 
 The workflow:
 
-1. **validate**: architecture checks plus CLI, server, worker, computer, and desktop
+1. **validate**: architecture checks plus CLI, server, worker, computer, desktop, and mobile
    typechecks and tests, after generating the database client.
 2. **images**: version-pinned `linux/amd64` and `linux/arm64` server, worker, migrate, and
    computer images pushed to GHCR from digest-pinned build stages, with provenance and SBOM
    attestations.
-3. **github-release**: renders `openteam-compose.yaml` with the exact multi-architecture digest of
-   every image, signs it with the workflow's Sigstore identity, builds the native CLI binaries
-   (`openteam-darwin-arm64`, `openteam-darwin-x64`, `openteam-linux-arm64`, `openteam-linux-x64`,
-   `openteam-windows-x64.exe`), writes `SHA256SUMS` over all of them, attests them, and creates
-   the GitHub release. This job does not wait for desktop builds, so the server release is never
-   blocked by an installer.
-4. **desktop-linux / desktop-windows / desktop-macos**: build the Electron installers. Linux
-   always builds. Windows builds only when `WINDOWS_CSC_LINK` and `WINDOWS_CSC_KEY_PASSWORD` are
-   set. macOS builds only when `MACOS_CSC_LINK`, `MACOS_CSC_KEY_PASSWORD`, `MACOS_CSC_NAME`,
-   `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, and `APPLE_TEAM_ID` are all set. A platform with
-   missing credentials is skipped, not failed.
-5. **desktop-release**: signs the Linux AppImage with Sigstore, writes `DESKTOP_SHA256SUMS`,
-   attests, and uploads whatever installers were built plus their electron-updater metadata to the
-   same release. The download page at `openteam.so/download` reads the release through the GitHub
-   API and offers only the builds that exist.
-6. **npm**: publishes `@openteam/cli` with provenance when `NPM_TOKEN` is set, and exits
-   successfully with a notice when it is not.
+3. **desktop-linux / desktop-windows / desktop-macos**: build the Electron installers. Linux
+   always builds. Windows and macOS signing credentials are mandatory; missing credentials fail
+   the release. The macOS job signs and notarizes its artifacts.
+4. **mobile-ios**: builds the matching iPhone app with EAS and submits that exact build to App
+   Store Connect for TestFlight. `EXPO_TOKEN` and current EAS signing/submission credentials are
+   mandatory.
+5. **github-release**: after every image, desktop, and mobile job succeeds, renders
+   `openteam-compose.yaml` with the exact image digests, signs the Compose bundle and Linux
+   AppImage with the workflow's Sigstore identity, writes CLI and desktop checksums, attests all
+   artifacts, uploads every installer, and publishes the release.
 
 ## Before the first release
 
 1. Make the repository public, or make each GHCR package public after its first push. Installs
    pull the four images anonymously, so private packages are not a supported release state.
-2. Optional: add the desktop signing secrets listed above for the platforms you want installers
-   for. Without them the release ships the Linux AppImage only.
-3. Optional: create the `@openteam` npm organization, grant this repository publish access to
-   `@openteam/cli`, and add a package-scoped granular token as `NPM_TOKEN`.
+2. Add `WINDOWS_CSC_LINK`, `WINDOWS_CSC_KEY_PASSWORD`, `MACOS_CSC_LINK`,
+   `MACOS_CSC_KEY_PASSWORD`, `MACOS_CSC_NAME`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, and
+   `APPLE_TEAM_ID` as repository secrets.
+3. Create an Expo access token for the `zzenn` EAS project and add it as the repository secret
+   `EXPO_TOKEN`. Confirm that the App Store Connect app, distribution certificate, provisioning
+   profile, and production submit credentials are current in EAS. The workflow creates an internal
+   TestFlight group when needed and waits for the exact build's submission to finish.
+4. In App Store Connect, add the submitted build to an external TestFlight group when a public beta
+   is intended. A public TestFlight link requires Apple's beta review.
 
 ## Cutting a release
 
@@ -49,14 +50,14 @@ Only after the full repository check passes:
 
 ```sh
 bun run check
-git tag v0.1.0
-git push origin v0.1.0
+git tag v1.2.3
+git push origin v1.2.3
 ```
 
-Afterwards, from a machine that is not signed in to GitHub, verify anonymous image pulls and run
-the public install command end to end. If you publish to npm, switch `release.yml` to npm trusted
-publishing, remove `NODE_AUTH_TOKEN` from the npm job, and revoke `NPM_TOKEN`; the job already has
-the OIDC permission and provenance continues automatically.
+After the first release, verify anonymous image pulls and the public install command from a machine
+that is not authenticated to GitHub or EAS. Install each desktop artifact on a clean OS, confirm
+its platform signature, and verify that the TestFlight build can sign in to a newly installed
+server before announcing the release.
 
 ## Verification model
 

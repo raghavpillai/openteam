@@ -29,10 +29,37 @@ CREATE TABLE IF NOT EXISTS "SearchDocument" (
       setweight(to_tsvector('simple'::regconfig, COALESCE("subtitle", ''::text)), 'B'::"char") ||
       setweight(to_tsvector('simple'::regconfig, COALESCE("content", ''::text)), 'C'::"char")
     ) STORED,
-    CONSTRAINT "SearchDocument_pkey" PRIMARY KEY ("id"),
-    CONSTRAINT "SearchDocument_kind_check" CHECK (
-      "kind" = ANY (ARRAY['message'::text, 'bot'::text, 'channel'::text, 'file'::text, 'link'::text, 'routine'::text])
-    )
+    CONSTRAINT "SearchDocument_pkey" PRIMARY KEY ("id")
+);
+
+-- Prisma creates this table on fresh databases now that its introspected shape
+-- is declared in schema.prisma, but it cannot express the generated tsvector
+-- column or the kind constraint.
+DO $openteam$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = current_schema()
+      AND table_name = 'SearchDocument'
+      AND column_name = 'searchVector'
+      AND is_generated <> 'ALWAYS'
+  ) THEN
+    ALTER TABLE "SearchDocument" DROP COLUMN "searchVector";
+  END IF;
+END
+$openteam$;
+
+ALTER TABLE "SearchDocument" ADD COLUMN IF NOT EXISTS "searchVector" tsvector
+  GENERATED ALWAYS AS (
+    setweight(to_tsvector('simple'::regconfig, COALESCE("title", ''::text)), 'A'::"char") ||
+    setweight(to_tsvector('simple'::regconfig, COALESCE("subtitle", ''::text)), 'B'::"char") ||
+    setweight(to_tsvector('simple'::regconfig, COALESCE("content", ''::text)), 'C'::"char")
+  ) STORED;
+
+ALTER TABLE "SearchDocument" DROP CONSTRAINT IF EXISTS "SearchDocument_kind_check";
+ALTER TABLE "SearchDocument" ADD CONSTRAINT "SearchDocument_kind_check" CHECK (
+  "kind" = ANY (ARRAY['message'::text, 'bot'::text, 'channel'::text, 'file'::text, 'link'::text, 'routine'::text])
 );
 
 CREATE INDEX IF NOT EXISTS "SearchDocument_kind_updatedAt_idx" ON "SearchDocument" USING btree ("kind", "updatedAt" DESC);

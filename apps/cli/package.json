@@ -22,7 +22,7 @@
     "test": "bun test"
   },
   "engines": {
-    "node": ">=20.17"
+    "node": "^22.22.2 || ^24.15.0 || >=26"
   },
   "publishConfig": {
     "access": "public",
@@ -30,7 +30,7 @@
   },
   "dependencies": {
     "semver": "7.8.5",
-    "sigstore": "4.1.1"
+    "sigstore": "5.0.0"
   },
   "devDependencies": {
     "@openteam/product-core": "workspace:*",

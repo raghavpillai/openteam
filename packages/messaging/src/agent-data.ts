@@ -91,6 +91,12 @@ const ATTACHMENT_COPY_CHUNK_BYTES = 1024 * 1024;
 const MAX_AGENT_ATTACHMENT_PATH_CACHE_ENTRIES = 1_024;
 const UUID_FOLDER = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SQLITE_RUNTIME_FILE = /(?:^|\/)(?:store|conversation-blobs)\.db(?:-(?:wal|shm))?$/;
+const BOX_STORE_RUNTIME_FILE = /(?:^|\/)\.box-store-/;
+
+const privateRuntimePath = (path: string): boolean => {
+  const normalized = path.split(sep).join("/");
+  return SQLITE_RUNTIME_FILE.test(normalized) || BOX_STORE_RUNTIME_FILE.test(normalized);
+};
 
 const writeAttachmentChunk = async (handle: FileHandle, chunk: Uint8Array): Promise<void> => {
   let offset = 0;
@@ -1732,17 +1738,17 @@ export class AgentDataStore {
         ignored: [
           { path: join(this.root, "agent-transcripts"), recursive: true },
           { path: join(this.root, "transcript-publish"), recursive: true },
+          // Ignore these before Chokidar creates an fs.watch handle. The
+          // computer's SQLite snapshots can create and remove `-journal`
+          // sidecars quickly enough for Bun on Docker shared volumes to return
+          // EINVAL and leave the server's event loop unresponsive.
+          (path) => privateRuntimePath(path),
         ],
         awaitWriteFinish: { stabilityThreshold: 50, pollInterval: 10 },
       });
       this.watcher.on("all", (_event, path) => {
         const normalized = relative(this.root, path).split(sep).join("/");
-        if (
-          SQLITE_RUNTIME_FILE.test(normalized) ||
-          normalized.split("/").some((segment) => segment.startsWith(".box-store-"))
-        ) {
-          return;
-        }
+        if (privateRuntimePath(normalized)) return;
         const globalSkillScope = ["workflows", "managed-skills", "plugin-skills"].find((scope) =>
           normalized.startsWith(`${scope}/`)
         );

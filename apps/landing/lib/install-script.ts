@@ -32,7 +32,13 @@ esac
 say "OpenTeam · $platform $architecture"
 
 command_exists docker || fail "Docker is required. Install Docker, then run this command again."
-docker compose version >/dev/null 2>&1 || fail "Docker Compose 2.20 or newer is required."
+if docker compose version >/dev/null 2>&1; then
+  :
+elif command_exists docker-compose && docker-compose version >/dev/null 2>&1; then
+  :
+else
+  fail "Docker Compose 2.20 or newer is required."
+fi
 command_exists curl || fail "curl is required to download the OpenTeam CLI."
 
 repository=$(printenv OPENTEAM_REPOSITORY 2>/dev/null || printf raghavpillai/openteam)
@@ -117,7 +123,18 @@ if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
   Fail "Docker is required. Install Docker Desktop, then run this command again."
 }
 
-try { docker compose version | Out-Null } catch { Fail "Docker Compose 2.20 or newer is required." }
+$composeAvailable = $false
+try {
+  docker compose version | Out-Null
+  $composeAvailable = $LASTEXITCODE -eq 0
+} catch {}
+if (-not $composeAvailable -and (Get-Command docker-compose -ErrorAction SilentlyContinue)) {
+  try {
+    docker-compose version | Out-Null
+    $composeAvailable = $LASTEXITCODE -eq 0
+  } catch {}
+}
+if (-not $composeAvailable) { Fail "Docker Compose 2.20 or newer is required." }
 
 $architecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString().ToLowerInvariant()
 switch ($architecture) {

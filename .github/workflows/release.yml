@@ -22,10 +22,12 @@ jobs:
         shell: bash
         run: |
           version="${GITHUB_REF_NAME#v}"
-          for package in apps/cli/package.json apps/server/package.json apps/worker/package.json apps/computer/package.json apps/desktop/package.json; do
+          for package in apps/cli/package.json apps/server/package.json apps/worker/package.json apps/computer/package.json apps/desktop/package.json apps/mobile/package.json; do
             package_version="$(bun -e "console.log((await Bun.file('$package').json()).version)")"
             test "$version" = "$package_version"
           done
+          mobile_version="$(bun -e "console.log((await Bun.file('apps/mobile/app.json').json()).expo.version)")"
+          test "$version" = "$mobile_version"
           echo "version=$version" >> "$GITHUB_OUTPUT"
       - run: bun install --frozen-lockfile
       - run: bun --filter @openteam/db db:generate
@@ -36,6 +38,8 @@ jobs:
       - run: bun --filter @openteam/desktop test
       - run: bun --filter @openteam/desktop build
       - run: bun scripts/performance/check-desktop-budgets.ts
+      - run: bun --filter @openteam/mobile typecheck
+      - run: bun --filter @openteam/mobile test
       - run: bun --filter @openteam/server typecheck
       - run: bun --filter @openteam/server test
       - run: bun --filter @openteam/worker typecheck
@@ -134,19 +138,15 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.3.8
-      - id: signing
-        name: Check Windows signing credentials
+      - name: Require Windows signing credentials
         shell: pwsh
         run: |
-          $configured = [bool]($env:CSC_LINK -and $env:CSC_KEY_PASSWORD)
-          "configured=$($configured.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
-          if (-not $configured) { Write-Host "Windows signing is not configured; skipping installer." }
-      - if: steps.signing.outputs.configured == 'true'
-        run: bun install --frozen-lockfile
-      - if: steps.signing.outputs.configured == 'true'
-        run: bun --filter @openteam/desktop package
+          if (-not ($env:CSC_LINK -and $env:CSC_KEY_PASSWORD)) {
+            throw "WINDOWS_CSC_LINK and WINDOWS_CSC_KEY_PASSWORD are required; refusing a partial release."
+          }
+      - run: bun install --frozen-lockfile
+      - run: bun --filter @openteam/desktop package
       - name: Verify Windows installer signature
-        if: steps.signing.outputs.configured == 'true'
         shell: pwsh
         run: |
           $installers = Get-ChildItem apps/desktop/release/*.exe
@@ -158,7 +158,6 @@ jobs:
             }
           }
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        if: steps.signing.outputs.configured == 'true'
         with:
           name: desktop-windows
           if-no-files-found: error
@@ -184,22 +183,16 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.3.8
-      - id: signing
-        name: Check macOS signing and notarization credentials
+      - name: Require macOS signing and notarization credentials
         shell: bash
         run: |
-          if [[ -n "$CSC_LINK" && -n "$CSC_KEY_PASSWORD" && -n "$CSC_NAME" && -n "$APPLE_ID" && -n "$APPLE_APP_SPECIFIC_PASSWORD" && -n "$APPLE_TEAM_ID" ]]; then
-            echo "configured=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "configured=false" >> "$GITHUB_OUTPUT"
-            echo "macOS signing is not configured; skipping installers."
-          fi
-      - if: steps.signing.outputs.configured == 'true'
-        run: bun install --frozen-lockfile
-      - if: steps.signing.outputs.configured == 'true'
-        run: bun --filter @openteam/desktop package:mac-release
+          required=(CSC_LINK CSC_KEY_PASSWORD CSC_NAME APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID)
+          for name in "${required[@]}"; do
+            [[ -n "${!name:-}" ]] || { echo "Missing required secret: $name" >&2; exit 1; }
+          done
+      - run: bun install --frozen-lockfile
+      - run: bun --filter @openteam/desktop package:mac-release
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        if: steps.signing.outputs.configured == 'true'
         with:
           name: desktop-macos
           if-no-files-found: error
@@ -209,8 +202,38 @@ jobs:
             apps/desktop/release/latest*.yml
             apps/desktop/release/*.blockmap
 
+  mobile-ios:
+    permissions:
+      contents: read
+    needs: validate
+    runs-on: ubuntu-latest
+    env:
+      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+    defaults:
+      run:
+        working-directory: apps/mobile
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.3.8
+      - name: Require Expo release credentials
+        run: test -n "${EXPO_TOKEN:-}" || { echo "EXPO_TOKEN is required; refusing a release without TestFlight." >&2; exit 1; }
+      - run: bun install --frozen-lockfile
+        working-directory: ${{ github.workspace }}
+      - name: Build the iPhone app
+        id: ios_build
+        shell: bash
+        run: |
+          build_json="$(bunx eas-cli@23.2.0 build --platform ios --profile production --non-interactive --wait --json)"
+          build_id="$(jq -er 'if type == "array" then .[0].id else .id end' <<<"$build_json")"
+          test -n "$build_id"
+          echo "build_id=$build_id" >> "$GITHUB_OUTPUT"
+      - name: Submit the exact iPhone build to TestFlight
+        run: bunx eas-cli@23.2.0 submit --platform ios --profile production --id '${{ steps.ios_build.outputs.build_id }}' --non-interactive --wait --auto-testflight-setup
+
   github-release:
-    needs: [validate, images]
+    needs: [validate, images, desktop-linux, desktop-windows, desktop-macos, mobile-ios]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -229,11 +252,18 @@ jobs:
           pattern: image-digest-*
           path: image-digests
           merge-multiple: true
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: desktop-*
+          path: desktop-release
+          merge-multiple: true
       - name: Create release bundle
         run: |
           bun scripts/render-release-compose.ts deploy/compose.yaml openteam-compose.yaml image-digests
           bun apps/cli/scripts/sign-release.ts openteam-compose.yaml
+          bun apps/cli/scripts/sign-release.ts desktop-release/*.AppImage
           sha256sum openteam-compose.yaml openteam-compose.yaml.sigstore.json apps/cli/release/* > SHA256SUMS
+          sha256sum desktop-release/* > DESKTOP_SHA256SUMS
       - name: Attest release artifacts
         uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
         with:
@@ -241,72 +271,14 @@ jobs:
             openteam-compose.yaml
             openteam-compose.yaml.sigstore.json
             apps/cli/release/*
+            desktop-release/*
       - name: Publish GitHub release assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" openteam-compose.yaml openteam-compose.yaml.sigstore.json SHA256SUMS apps/cli/release/* --clobber
+            gh release upload "$GITHUB_REF_NAME" openteam-compose.yaml openteam-compose.yaml.sigstore.json SHA256SUMS DESKTOP_SHA256SUMS apps/cli/release/* desktop-release/* --clobber
           else
-            gh release create "$GITHUB_REF_NAME" openteam-compose.yaml openteam-compose.yaml.sigstore.json SHA256SUMS apps/cli/release/* --verify-tag --generate-notes --title "OpenTeam ${{ needs.validate.outputs.version }}"
+            gh release create "$GITHUB_REF_NAME" openteam-compose.yaml openteam-compose.yaml.sigstore.json SHA256SUMS DESKTOP_SHA256SUMS apps/cli/release/* desktop-release/* --draft --verify-tag --generate-notes --title "OpenTeam ${{ needs.validate.outputs.version }}"
           fi
-
-  desktop-release:
-    if: ${{ always() && needs.github-release.result == 'success' }}
-    needs: [validate, github-release, desktop-linux, desktop-windows, desktop-macos]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      id-token: write
-      attestations: write
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version: 1.3.8
-      - run: bun install --frozen-lockfile
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          pattern: desktop-*
-          path: desktop-release
-          merge-multiple: true
-      - name: Sign Linux builds and create desktop checksums
-        run: |
-          bun apps/cli/scripts/sign-release.ts desktop-release/*.AppImage
-          sha256sum desktop-release/* > DESKTOP_SHA256SUMS
-      - name: Attest desktop artifacts
-        uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
-        with:
-          subject-path: desktop-release/*
-      - name: Add desktop assets to the GitHub release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "$GITHUB_REF_NAME" DESKTOP_SHA256SUMS desktop-release/* --clobber
-
-  npm:
-    needs: [validate, images, github-release]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version: 1.3.8
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with:
-          node-version: 22
-          registry-url: https://registry.npmjs.org
-      - run: bun install --frozen-lockfile
-      - run: bun --filter @openteam/cli build
-      - name: Publish CLI
-        working-directory: apps/cli
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: |
-          if [ -z "${NODE_AUTH_TOKEN:-}" ]; then
-            echo "NPM_TOKEN is not configured; the GitHub-native CLI is still available."
-            exit 0
-          fi
-          npm publish --access public --provenance
+          gh release edit "$GITHUB_REF_NAME" --draft=false --latest

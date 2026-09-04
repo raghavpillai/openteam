@@ -125,10 +125,10 @@ export default function DownloadPage() {
                 ))}
               </div>
               <p className="mt-5 text-[13.5px] leading-[1.6] text-ink-3">
-                Review the script at{" "}
-                <a className="text-ink underline underline-offset-4" href="/install">
-                  openteam.so/install
-                </a>{" "}
+                Review both installer scripts in a readable page at{" "}
+                <Link className="text-ink underline underline-offset-4" href="/install/source">
+                  openteam.so/install/source
+                </Link>{" "}
                 before running it. Set{" "}
                 <code className="font-mono text-[12.5px] text-ink-2">OPENTEAM_VERSION</code> to
                 install a specific release.

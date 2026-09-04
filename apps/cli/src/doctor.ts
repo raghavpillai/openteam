@@ -72,19 +72,37 @@ export const portAvailable = (host: string, port: number): Promise<boolean> =>
     });
   });
 
-const portRangeAvailable = async (host: string): Promise<number | null> => {
-  const ports = [API_PORT];
-  for (let port = VIEWER_PORT_START; port <= VIEWER_PORT_END; port += 1) ports.push(port);
+export const firstUnavailablePort = async (
+  host: string,
+  ports: readonly number[]
+): Promise<number | null> => {
   for (const port of ports) {
     if (!(await portAvailable(host, port))) return port;
   }
   return null;
 };
 
+export const viewerPorts = (): number[] => {
+  const ports: number[] = [];
+  for (let port = VIEWER_PORT_START; port <= VIEWER_PORT_END; port += 1) ports.push(port);
+  return ports;
+};
+
+export const suggestApiPort = async (host: string, preferred = API_PORT): Promise<number> => {
+  for (let offset = 0; offset < 100; offset += 1) {
+    const candidate = preferred + offset;
+    if (candidate > 65_535) break;
+    if (candidate >= VIEWER_PORT_START && candidate <= VIEWER_PORT_END) continue;
+    if (await portAvailable(host, candidate)) return candidate;
+  }
+  return preferred;
+};
+
 export const runDoctor = async (
   paths: InstallationPaths,
   runner: CommandRunner,
-  requestedProjectName = PROJECT_NAME
+  requestedProjectName = PROJECT_NAME,
+  options: { checkInstallPorts?: boolean } = {}
 ): Promise<DoctorResult> => {
   const checks: DoctorCheck[] = [];
   const installed = installationExists(paths);
@@ -157,12 +175,16 @@ export const runDoctor = async (
       label: "Installation",
       detail: `OpenTeam is not installed at ${paths.directory}`,
     });
-    const unavailablePort = await portRangeAvailable("127.0.0.1");
+    const checkInstallPorts = options.checkInstallPorts ?? true;
+    const unavailablePort = checkInstallPorts
+      ? await firstUnavailablePort("127.0.0.1", [API_PORT, ...viewerPorts()])
+      : null;
     checks.push({
-      level: unavailablePort === null ? "pass" : "fail",
+      level: !checkInstallPorts ? "warn" : unavailablePort === null ? "pass" : "fail",
       label: "Local ports",
-      detail:
-        unavailablePort === null
+      detail: !checkInstallPorts
+        ? "defaults will be checked after guided setup chooses the access mode"
+        : unavailablePort === null
           ? `${API_PORT} and ${VIEWER_PORT_START}-${VIEWER_PORT_END} are available`
           : `port ${unavailablePort} is already in use`,
     });

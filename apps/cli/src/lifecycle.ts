@@ -117,7 +117,9 @@ export const installCommand = async (
   }
 
   const projectName = normalizeProjectName(options.projectName || PROJECT_NAME);
-  const diagnosis = await runDoctor(paths, runner, projectName);
+  const diagnosis = await runDoctor(paths, runner, projectName, {
+    checkInstallPorts: options.noSetup,
+  });
   printDoctor(diagnosis);
   if (!diagnosis.ok) throw new CliError("Fix the doctor failures above, then run install again.");
 

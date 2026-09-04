@@ -13,9 +13,10 @@
     "typecheck": "bun run db:generate && tsc -p tsconfig.json",
     "test": "bun test --pass-with-no-tests",
     "db:generate": "prisma generate --config prisma.config.ts",
-    "db:deploy": "bun run db:push && bun run db:raw",
+    "db:deploy": "bun run db:push",
     "db:studio": "prisma studio --config prisma.config.ts",
-    "db:push": "prisma db push --config prisma.config.ts",
+    "db:prisma-push": "prisma db push --config prisma.config.ts",
+    "db:push": "bun scripts/deploy-schema.ts",
     "db:raw": "bun scripts/apply-raw-schema.ts"
   },
   "dependencies": {

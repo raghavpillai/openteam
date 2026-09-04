@@ -1,16 +1,10 @@
 # OpenTeam CLI
 
 Install and manage the self-hosted OpenTeam server stack. It requires Docker with Compose 2.20 or
-newer, plus either Bun or Node 20.17+ to launch the CLI.
+newer. The supported installer downloads a native CLI, so Node.js and Bun are not required.
 
 ```sh
-bunx --bun @openteam/cli install
-```
-
-The same package can be run with Node:
-
-```sh
-npx @openteam/cli install
+curl -fsSL https://openteam.so/install | sh
 ```
 
 ## Commands

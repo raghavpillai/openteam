@@ -358,7 +358,7 @@ Current routine runtime status. This snapshot is authoritative for this turn and
         (turn) =>
           turn.instructions.includes("Agent-to-agent messaging is asynchronous, like texting.") &&
           turn.instructions.includes("Reply to a peer with SendToAgent") &&
-          turn.instructions.includes("Available SendToAgent targets:")
+          turn.instructions.includes("Recent and related SendToAgent targets (bounded catalog):")
       )
     ).toBe(true);
     expect(snapshot.runs.filter((run) => run.origin === "agent").map((run) => run.botId)).toEqual([

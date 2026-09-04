@@ -17,16 +17,20 @@ const sql = await readFile(
   "utf8"
 );
 
-const client = new Client({ connectionString });
-await client.connect();
-try {
-  await client.query("BEGIN");
-  await client.query(sql);
-  await client.query("COMMIT");
-  console.log("Applied raw schema objects");
-} catch (error) {
-  await client.query("ROLLBACK");
-  throw error;
-} finally {
-  await client.end();
-}
+export const applyRawSchema = async (): Promise<void> => {
+  const client = new Client({ connectionString });
+  await client.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(sql);
+    await client.query("COMMIT");
+    console.log("Applied raw schema objects");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    await client.end();
+  }
+};
+
+if (import.meta.main) await applyRawSchema();

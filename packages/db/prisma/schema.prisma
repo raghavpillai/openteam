@@ -1085,6 +1085,32 @@ model PluginInvocation {
   @@index([runId, startedAt])
 }
 
+// PostgreSQL owns this trigger-maintained search projection. Keeping the
+// introspected shape here prevents `prisma db push` from treating the table as
+// unknown on later deploys. Prisma Client does not expose the unsupported
+// tsvector field; application search continues to use the existing raw SQL.
+model SearchDocument {
+  id           String                   @id
+  kind         String
+  sourceType   String
+  sourceId     String                   @db.Uuid
+  entityId     String
+  channelId    String?                  @db.Uuid
+  messageId    String?                  @db.Uuid
+  botId        String?                  @db.Uuid
+  title        String                   @default("")
+  subtitle     String                   @default("")
+  content      String                   @default("")
+  url          String?
+  createdAt    DateTime                 @default(now()) @db.Timestamptz(6)
+  updatedAt    DateTime                 @default(now()) @db.Timestamptz(6)
+  searchVector Unsupported("tsvector")?
+
+  @@index([kind, updatedAt(sort: Desc)])
+  @@index([sourceType, sourceId], map: "SearchDocument_source_idx")
+  @@ignore
+}
+
 // Better Auth owns these four tables. OpenTeam deliberately provisions only
 // one credential account through the server CLI command.
 model User {

@@ -5,16 +5,22 @@ import { bundleFromJSON } from "@sigstore/bundle";
 import { TrustedRoot } from "@sigstore/protobuf-specs";
 import { toSignedEntity, toTrustMaterial, Verifier } from "@sigstore/verify";
 import { Metadata, MetadataKind } from "@tufjs/models";
+import { needsCryptoVerifyCompatibility } from "../src/bun-crypto";
 import { installCryptoVerifyDefaults } from "../src/runtime-compat";
 
 const fixture = (path: string) => new URL(`./fixtures/${path}`, import.meta.url);
 const readJson = (path: string) => JSON.parse(readFileSync(fixture(path), "utf8"));
 
-// Bun's crypto.verify has no default digest for EC and RSA keys, while Node uses SHA-256.
-// The Sigstore and TUF libraries omit the digest in several places, so a compiled CLI
-// rejected every valid release with "root was signed by 0/3 keys". These tests run under
-// Bun and exercise the same code paths the installer uses.
-describe("crypto.verify default digest under Bun", () => {
+// Bun and Electron use BoringSSL-backed crypto.verify implementations without Node's
+// default digest behavior. These tests run under Bun and exercise the same compatibility
+// path used by the Electron-bundled CLI.
+describe("crypto.verify default digest under BoringSSL runtimes", () => {
+  test("enables compatibility for Bun and Electron, but not standard Node", () => {
+    expect(needsCryptoVerifyCompatibility({ bun: "1.3.8" })).toBe(true);
+    expect(needsCryptoVerifyCompatibility({ electron: "43.4.1" })).toBe(true);
+    expect(needsCryptoVerifyCompatibility({ node: "24.13.1" })).toBe(false);
+  });
+
   test("the shim is installed once", () => {
     expect(installCryptoVerifyDefaults()).toBe(true);
     expect((crypto.verify as { openteamPatched?: boolean }).openteamPatched).toBe(true);

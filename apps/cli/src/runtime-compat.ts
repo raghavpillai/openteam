@@ -1,13 +1,13 @@
 import crypto from "node:crypto";
+import { needsCryptoVerifyCompatibility } from "./bun-crypto";
 
 /**
  * Node's `crypto.verify` picks a default digest when the algorithm is `undefined`
- * (SHA-256 for EC and RSA keys, none for Ed25519/Ed448). Bun's BoringSSL-backed
- * implementation throws `NO_DEFAULT_DIGEST` instead, and the Sigstore and TUF
- * libraries the release verifier relies on omit the algorithm in several places.
- * Under Bun that surfaces as "root was signed by 0/3 keys" or "inclusion promise
- * could not be verified" for a perfectly valid release. Mirror Node's default so the
- * compiled CLI verifies the same bundles Node does.
+ * (SHA-256 for EC and RSA keys, none for Ed25519/Ed448). The BoringSSL-backed
+ * implementations in Bun and Electron throw or reject the signature instead, and
+ * the Sigstore and TUF libraries the release verifier relies on omit the algorithm
+ * in several places. Mirror Node's default so every bundled CLI runtime verifies the
+ * same release bundles.
  */
 type VerifyKey = Parameters<typeof crypto.verify>[2];
 
@@ -38,7 +38,7 @@ type VerifyArgs = [
 type PatchedVerify = typeof crypto.verify & { openteamPatched?: boolean };
 
 export const installCryptoVerifyDefaults = (): boolean => {
-  if (typeof Bun === "undefined") return false;
+  if (!needsCryptoVerifyCompatibility()) return false;
   const current = crypto.verify as PatchedVerify;
   if (current.openteamPatched) return true;
   const original = current as unknown as (...args: VerifyArgs) => unknown;

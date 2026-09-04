@@ -30,7 +30,7 @@ reach it, connecting the apps, and keeping it updated. To run from source instea
 | Inbound ports | TCP 80 and 443 for public HTTPS. The API port for public HTTP or private network. None otherwise. |
 
 The stack is four long-running containers (PostgreSQL, server, worker, computer) plus a few
-one-shot jobs that run migrations and fix volume permissions. Public HTTPS mode adds a Caddy
+one-shot jobs that sync the database schema and fix volume permissions. Public HTTPS mode adds a Caddy
 container for certificates.
 
 ## Install
@@ -229,7 +229,7 @@ What an update does:
 6. Starts the new release and waits until the health endpoint reports `ready` on the new version.
 
 If startup fails, the updater restores the previous Compose file and `.env`, restores the database
-dump if migrations had started, and restarts the old release. The last update job is recorded in
+dump if the schema sync had started, and restarts the old release. The last update job is recorded in
 `<install dir>/update-state.json` for diagnostics.
 
 Patch releases within a compatible protocol line are advisory. The apps show a blocking banner

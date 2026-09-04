@@ -49,10 +49,7 @@ describe("search query parsing", () => {
 
   test("keeps the exact-title lane compact and collision-safe", async () => {
     const migration = await Bun.file(
-      new URL(
-        "../../../packages/db/prisma/migrations/20260903000100_init/migration.sql",
-        import.meta.url
-      )
+      new URL("../../../packages/db/prisma/sql/raw-schema.sql", import.meta.url)
     ).text();
 
     expect(migration).toContain('"SearchDocument_title_exact_hash_idx"');
@@ -97,10 +94,7 @@ describe("search query parsing", () => {
 
   test("projects canonical attachments with a legacy-image fallback", async () => {
     const migration = await Bun.file(
-      new URL(
-        "../../../packages/db/prisma/migrations/20260903000100_init/migration.sql",
-        import.meta.url
-      )
+      new URL("../../../packages/db/prisma/sql/raw-schema.sql", import.meta.url)
     ).text();
 
     expect(migration).toContain('NEW."channelId", NEW."botId"');

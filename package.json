@@ -23,7 +23,7 @@
     "test:cli:e2e": "bun scripts/test-cli-e2e.ts",
     "test:auth:e2e": "bun scripts/test-auth-e2e.ts",
     "db:generate": "bun --filter @openteam/db db:generate",
-    "db:migrate": "bun --filter @openteam/db db:migrate",
+    "db:push": "bun --filter @openteam/db db:push",
     "db:deploy": "bun --filter @openteam/db db:deploy",
     "db:studio": "bun --filter @openteam/db db:studio",
     "auth:setup": "bun scripts/setup-dev-auth.ts",

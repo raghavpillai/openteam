@@ -8,14 +8,17 @@ import {
 
 describe("NotificationService", () => {
   test("migrates legacy registrations fail-closed and retires before Better Auth sign-out", async () => {
-    const migration = await Bun.file(
-      new URL(
-        "../../../packages/db/prisma/migrations/20260903000100_init/migration.sql",
-        import.meta.url
-      )
+    const schema = await Bun.file(
+      new URL("../../../packages/db/prisma/schema.prisma", import.meta.url)
     ).text();
-    expect(migration).toContain('"authRequired" BOOLEAN NOT NULL DEFAULT true');
-    expect(migration).toContain('FOREIGN KEY ("authSessionId") REFERENCES "session"("id")');
+    const pushDevice = schema.slice(
+      schema.indexOf("model PushDevice {"),
+      schema.indexOf("}", schema.indexOf("model PushDevice {"))
+    );
+    expect(pushDevice).toMatch(/authRequired\s+Boolean\s+@default\(true\)/);
+    expect(pushDevice).toMatch(
+      /authSession\s+Session\?\s+@relation\(fields: \[authSessionId\], references: \[id\], onDelete: SetNull\)/
+    );
 
     const main = await Bun.file(new URL("../src/main.ts", import.meta.url)).text();
     const signOutBranch = main.slice(

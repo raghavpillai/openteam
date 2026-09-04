@@ -1,18 +1,17 @@
-import {
-  ArrowRight,
-  ArrowUpRight,
-  Brain,
-  Clock,
-  Folder,
-  Monitor,
-  Puzzle,
-  Smartphone,
-  Users,
-} from "lucide-react";
+import { ArrowRight, ArrowUpRight, Monitor, Smartphone } from "lucide-react";
 import { AppWindow } from "@/components/app-window";
 import { BotAvatar } from "@/components/bot-avatar";
 import { GithubMark, Wordmark } from "@/components/brand";
+import {
+  ComputerVisual,
+  FilesVisual,
+  MemoryVisual,
+  ScheduleVisual,
+  TeamVisual,
+  ToolsVisual,
+} from "@/components/feature-visuals";
 import { InstallCommand } from "@/components/install-command";
+import { Installer } from "@/components/installer";
 import { Reveal } from "@/components/motion";
 import { ScreenViewer } from "@/components/screen-viewer";
 import {
@@ -99,35 +98,46 @@ const steps = [
 
 const features = [
   {
-    icon: Monitor,
+    visual: ComputerVisual,
     title: "It has its own computer.",
-    body: "A real Linux desktop with Chrome, a terminal, and a file manager. A bot opens websites, signs in, downloads files, and runs scripts the way a person would.",
+    body: "A Linux desktop with Chrome, a terminal, and a home folder. Real ones. A bot uses them the way you do: opens sites, signs in, downloads files, runs scripts.",
   },
   {
-    icon: Brain,
+    visual: MemoryVisual,
     title: "It remembers.",
-    body: "A bot keeps its conversation, notes, and browser logins across days and restarts. Tomorrow starts where today ended. You never repeat yourself.",
+    body: "Restart the server. The bot still remembers. Conversation, notes, and browser logins carry over, so tomorrow starts where today ended.",
   },
   {
-    icon: Clock,
+    visual: ScheduleVisual,
     title: "It works on a schedule.",
-    body: "Give a bot a routine: a Monday brief, a nightly check, a weekly cleanup. It runs on time with everything it already knows and leaves a history of every run.",
+    body: "Give it a routine. It runs every morning with everything it already knows, and keeps a history of every run.",
   },
   {
-    icon: Users,
+    visual: TeamVisual,
     title: "It works with other bots.",
-    body: "Put bots in a group to solve something together. Or let one bot spin up helpers for parallel work and gather the results.",
+    body: "Put bots in a group and give them one job. Or let one bot spin up helpers, hand out the work, and gather the results.",
   },
   {
-    icon: Folder,
+    visual: FilesVisual,
     title: "It shares files with you.",
     body: "Every bot reads and writes the same /workspace folder. A file one bot makes is there for the others, and for you, right away.",
   },
   {
-    icon: Puzzle,
+    visual: ToolsVisual,
     title: "It can use your tools.",
     body: "Connect tools through MCP plugins. Save repeatable instructions as skills. Memory and skills are plain files you can open and edit.",
   },
+];
+
+const worksWith = [
+  "OpenAI",
+  "Anthropic",
+  "Google-compatible endpoints",
+  "Docker",
+  "Postgres",
+  "MCP",
+  "Chrome",
+  "Linux",
 ];
 
 const providers = [
@@ -321,9 +331,9 @@ export default function Home() {
               className="rise mx-auto mt-6 max-w-[640px] text-[18px] leading-[1.55] text-ink-2 text-balance sm:text-[19px]"
               style={{ "--d": "180ms" } as React.CSSProperties}
             >
-              OpenTeam runs on a server you control. Each bot gets a real Linux desktop, remembers
-              every conversation, and can work on a schedule. Message it from your desktop or
-              iPhone. Close the app. Come back to the result.
+              Open-source agents that browse, build, and remember, on a server you control. Every
+              bot gets a Linux desktop, a memory that survives restarts, and a schedule. Close the
+              app. Come back to the result.
             </p>
 
             <div
@@ -350,9 +360,13 @@ export default function Home() {
 
           <div className="container-page pb-6">
             <div
-              className="rise mx-auto max-w-[1120px]"
+              className="rise relative isolate mx-auto max-w-[1120px]"
               style={{ "--d": "420ms" } as React.CSSProperties}
             >
+              <div
+                aria-hidden="true"
+                className="hero-glow absolute inset-x-6 top-4 bottom-2 -z-10 rounded-[48px]"
+              />
               <AppWindow />
             </div>
             <p
@@ -362,6 +376,16 @@ export default function Home() {
               The desktop app. Three bots, one owner, and Research asking for a sign-in it
               can&apos;t do on its own.
             </p>
+            <ul
+              aria-label="Works with"
+              className="rise mx-auto mt-12 flex max-w-[900px] flex-wrap items-center justify-center gap-x-6 gap-y-2 text-[12.5px] font-medium text-ink-3"
+              style={{ "--d": "1000ms" } as React.CSSProperties}
+            >
+              <li className="microlabel">Works with</li>
+              {worksWith.map((name) => (
+                <li key={name}>{name}</li>
+              ))}
+            </ul>
           </div>
         </section>
 
@@ -373,7 +397,7 @@ export default function Home() {
             <SectionHeading
               label="What a bot can do"
               title={<span id="jobs-title">Jobs you can hand off today.</span>}
-              body="A bot is a coworker with a computer. It browses, runs commands, reads and writes files, and comes back with an answer. These are the kinds of messages people send."
+              body="Tell a bot what to do, in plain words. It browses, runs commands, reads and writes files, and comes back with an answer. These are the kinds of messages people send."
             />
             <Reveal as="ul" stagger={70} className="mt-14 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {exampleJobs.map((job, i) => (
@@ -412,36 +436,34 @@ export default function Home() {
 
         {/* How it works */}
         <section id="how-it-works" className="scroll-mt-16 py-24">
-          <div className="container-page">
-            <SectionHeading
-              label="How it works"
-              title="Up and running in three steps."
-              body="No account with us. No hosted service in the middle. The whole thing runs on your machine and talks only to the model you choose."
-            />
-            <Reveal as="ol" stagger={90} className="mt-14 grid gap-4 lg:grid-cols-3">
-              {steps.map((step, i) => (
-                <li key={step.n} className="flex min-w-0" style={order(i)}>
-                  <Card className={cn(cardBase, "min-w-0 flex-1 [--card-spacing:--spacing(6)]")}>
-                    <CardContent className="flex min-w-0 flex-1 flex-col">
-                      <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-ink font-mono text-[13px] font-medium text-paper">
-                        {step.n}
-                      </span>
-                      <h3 className="mt-5 text-[19px] leading-[1.25] font-medium text-ink text-balance">
+          <div className="container-page grid items-center gap-12 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
+            <div>
+              <SectionHeading
+                align="left"
+                label="How it works"
+                title="One command. Bots in minutes."
+                body="No hosted account. No usage caps. Just Docker on a machine you control, talking only to the model you choose."
+              />
+              <Reveal as="ol" stagger={90} delay={150} className="mt-10 space-y-7">
+                {steps.map((step, i) => (
+                  <li key={step.n} className="flex gap-4" style={order(i)}>
+                    <span className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-ink font-mono text-[13px] font-medium text-paper">
+                      {step.n}
+                    </span>
+                    <div>
+                      <h3 className="text-[19px] leading-[1.25] font-medium text-ink text-balance">
                         {step.title}
                       </h3>
-                      <p className="mt-2.5 text-[15px] leading-[1.55] text-ink-2 text-pretty">
+                      <p className="mt-1.5 text-[15px] leading-[1.55] text-ink-2 text-pretty">
                         {step.body}
                       </p>
-                      <div className="mt-auto pt-6">
-                        <code className="block truncate rounded-lg bg-raised px-3 py-2 font-mono text-[12.5px] text-ink-2">
-                          <span className="text-ink-3">$ </span>
-                          {step.code}
-                        </code>
-                      </div>
-                    </CardContent>
-                  </Card>
-                </li>
-              ))}
+                    </div>
+                  </li>
+                ))}
+              </Reveal>
+            </div>
+            <Reveal delay={150}>
+              <Installer />
             </Reveal>
           </div>
         </section>
@@ -454,22 +476,38 @@ export default function Home() {
             <SectionHeading
               label="What every bot gets"
               title="More than a chat window."
-              body="A chat window forgets, can't click, and stops when you close the tab. Each OpenTeam bot has what a coworker has."
+              body="Chatbots forget, can't click, and stop when you close the tab. Every OpenTeam bot has what a coworker has."
             />
-            <Reveal
-              as="ul"
-              stagger={70}
-              className="mt-14 grid gap-x-8 gap-y-10 sm:grid-cols-2 lg:grid-cols-3"
-            >
-              {features.map((f, i) => (
-                <li key={f.title} style={order(i)}>
-                  <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-line bg-surface text-ink shadow-card">
-                    <f.icon className="size-[17px]" strokeWidth={1.75} />
-                  </span>
-                  <h3 className="display mt-4 text-[26px] leading-[1.15] text-ink">{f.title}</h3>
-                  <p className="mt-2 text-[15px] leading-[1.55] text-ink-2 text-pretty">{f.body}</p>
-                </li>
-              ))}
+            <Reveal as="ul" stagger={70} className="mt-14 grid gap-4 md:grid-cols-2 lg:grid-cols-12">
+              {features.map((f, i) => {
+                const wide = i === 0;
+                return (
+                  <li
+                    key={f.title}
+                    className={cn("flex", wide ? "md:col-span-2 lg:col-span-7" : i === 1 ? "lg:col-span-5" : "lg:col-span-3")}
+                    style={order(i)}
+                  >
+                    <Card className={cn(cardBase, "flex-1 [--card-spacing:--spacing(6)]")}>
+                      <CardContent
+                        className={cn(
+                          "flex flex-1 flex-col",
+                          wide && "sm:grid sm:grid-cols-[minmax(0,5fr)_minmax(0,6fr)] sm:items-center sm:gap-8"
+                        )}
+                      >
+                        <div>
+                          <h3 className="display text-[26px] leading-[1.15] text-ink">{f.title}</h3>
+                          <p className="mt-2 text-[15px] leading-[1.55] text-ink-2 text-pretty">
+                            {f.body}
+                          </p>
+                        </div>
+                        <div className={cn("mt-auto pt-6", wide && "sm:mt-0 sm:pt-0")}>
+                          <f.visual />
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </li>
+                );
+              })}
             </Reveal>
           </div>
         </section>
@@ -493,9 +531,9 @@ export default function Home() {
                 className="mt-8 space-y-3 text-[15px] text-ink-2"
               >
                 {[
-                  "See exactly what the bot is doing, as it does it.",
-                  "Bots ask before sensitive actions. Nothing happens until you answer.",
-                  "Take control, sign in, and hand back. The bot picks up where you left off.",
+                  "See every click, as it happens.",
+                  "Risky actions wait for you. Nothing happens until you answer.",
+                  "Take the keyboard whenever you want. Hand it back when you're done.",
                 ].map((line, i) => (
                   <li key={line} className="flex items-start gap-3" style={order(i)}>
                     <span className="mt-[9px] inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-ink" />
@@ -550,7 +588,7 @@ export default function Home() {
               <SectionHeading
                 align="left"
                 label="Desktop and iPhone"
-                title="Talk to your bots from your desktop or your phone."
+                title="On your desktop. On your iPhone. Same bots."
                 body="The desktop app is home base. The iPhone app shows every bot, its status, and its latest message so you can reply, approve a request, or open a screen from anywhere. Nothing runs on the phone, so a dead battery never stops a job."
               />
               <Reveal stagger={50} delay={200} className="mt-8 flex flex-wrap gap-2">
@@ -581,7 +619,7 @@ export default function Home() {
             <SectionHeading
               label="Bring your own model"
               title="Use the model you already pay for."
-              body="Sign in once on the server. Every bot uses it. Change the model or the reasoning level from Settings and the next message uses it. No restart."
+              body="Sign in with your ChatGPT or Claude subscription, an API key, or your own endpoint. Every bot uses it. Switch models from Settings. No restart."
             />
             <Reveal
               as="ul"
@@ -610,8 +648,8 @@ export default function Home() {
           <div className="container-page">
             <SectionHeading
               label="Self-hosted"
-              title="Runs on your server. Your data stays there."
-              body="The only thing that leaves your machine is the request to the model provider you chose. Everything else is yours to read, back up, and delete."
+              title="Your server. Your data. Your bots."
+              body="Nothing leaves your machine except the request to the model you chose. Everything else is yours to read, back up, and delete."
             />
 
             <div className="mx-auto mt-14 max-w-[960px]">
@@ -766,13 +804,14 @@ export default function Home() {
               className="display mx-auto mt-6 max-w-[16ch] text-[44px] leading-[1.04] text-ink sm:text-[60px]"
               style={order(1)}
             >
-              Give one bot a real job tonight.
+              Don&apos;t rent an agent. Run one.
             </h2>
             <p
               className="mx-auto mt-5 max-w-[520px] text-[17px] leading-[1.55] text-ink-2 text-pretty"
               style={order(2)}
             >
-              Install takes a few minutes. The first result usually takes less.
+              Your first bot is one command away. Install takes a few minutes. The first result
+              usually takes less.
             </p>
             <div
               className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row"
@@ -800,7 +839,7 @@ export default function Home() {
         <div className="container-page flex flex-col gap-6 py-10 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <Wordmark size={18} />
-            <p className="mt-2 text-[13px] text-ink-3">Open source, self-hosted AI agents.</p>
+            <p className="mt-2 text-[13px] text-ink-3">Open source, self-hosted AI agents. Built in the open.</p>
           </div>
           <nav
             aria-label="Footer"

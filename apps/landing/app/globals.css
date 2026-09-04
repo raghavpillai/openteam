@@ -317,6 +317,20 @@ body {
   }
 }
 
+/* A soft wash of the bot colors behind the hero window. */
+.hero-glow {
+  background: linear-gradient(100deg, #ff7a1a 0%, #ef479b 34%, #925df2 66%, #27baae 100%);
+  filter: blur(54px);
+  opacity: 0.34;
+}
+
+/* Typing caret for the installer terminal. */
+.caret::after {
+  content: "▍";
+  margin-left: 1px;
+  animation: blink 1.1s steps(1) infinite;
+}
+
 /* The hero's faint dot grid fades out before the product window. */
 .dot-grid {
   background-image: radial-gradient(rgba(20, 20, 20, 0.11) 1px, transparent 1px);

@@ -80,7 +80,7 @@ function SidebarRow({
   );
 }
 
-function MiniScreen() {
+export function MiniScreen() {
   return (
     <div className="relative aspect-[16/10] overflow-hidden rounded-md border border-line bg-[#2b2f36]">
       {/* desktop panel */}

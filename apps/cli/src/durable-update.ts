@@ -2,16 +2,34 @@ import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import { closeSync, openSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import semver from "semver";
 import type { CliOptions } from "./arguments";
+import {
+  cliAssetName,
+  CLI_UPDATE_FOLLOWER_PID_ENV,
+  CLI_UPDATE_SOURCE_ENV,
+  CLI_UPDATE_TARGET_ENV,
+  CLI_UPDATE_VERSION_ENV,
+  cliPromotionEnvironment,
+  isBunStandaloneExecutable,
+  isStandaloneCliExecutable,
+  readCliPromotion,
+  removeStagedCli,
+  stageCliUpdate,
+  type StagedCliUpdate,
+} from "./cli-update";
 import type { InstallationPaths } from "./config";
-import { ensureDirectory, normalizeVersion } from "./config";
+import { ensureDirectory, normalizeRepository, normalizeVersion, readManifest } from "./config";
+import { CLI_VERSION } from "./constants";
 import { CliError } from "./errors";
-import { UPDATE_PROGRESS_PREFIX } from "./lifecycle";
+import { resolveUpdateTarget, updateCommand, UPDATE_PROGRESS_PREFIX } from "./lifecycle";
+import type { CommandRunner } from "./process";
 import {
   activeUpdateProcess,
   readUpdateEvents,
   readUpdateState,
   type PersistedUpdateState,
+  writeUpdateState,
 } from "./update-safety";
 
 export const UPDATE_WORKER_JOB_ENV = "OPENTEAM_UPDATE_WORKER_JOB";
@@ -31,11 +49,29 @@ type SpawnWorker = (
   }
 ) => { pid?: number; unref(): void };
 
+type SpawnHandoff = (
+  executable: string,
+  args: readonly string[],
+  options: {
+    cwd: string;
+    detached: true;
+    env: NodeJS.ProcessEnv;
+    stdio: "inherit";
+    windowsHide: true;
+  }
+) => { pid?: number; unref(): void };
+
 interface DurableUpdateDependencies {
   spawnWorker?: SpawnWorker;
   executable?: string;
   argv?: readonly string[];
   environment?: NodeJS.ProcessEnv;
+  platform?: NodeJS.Platform;
+  architecture?: NodeJS.Architecture;
+  versions?: Readonly<Record<string, string | undefined>>;
+  stageCli?: typeof stageCliUpdate;
+  spawnHandoff?: SpawnHandoff;
+  standaloneExecutable?: boolean;
 }
 
 const sleep = (milliseconds: number) =>
@@ -98,10 +134,12 @@ export const updateWorkerJobId = (environment: NodeJS.ProcessEnv = process.env):
 /** Reproduce the current CLI invocation for Node, Electron-as-Node, and Bun executables. */
 export const updateWorkerArguments = (
   argv: readonly string[] = process.argv,
-  executable = process.execPath
+  executable = process.execPath,
+  standaloneExecutable = isBunStandaloneExecutable(argv)
 ): string[] => {
   const entrypoint = argv[1];
   if (!entrypoint) return [];
+  if (standaloneExecutable) return argv.slice(2);
   try {
     if (resolve(entrypoint) === resolve(executable)) return argv.slice(2);
   } catch {
@@ -114,8 +152,9 @@ export const followUpdateJob = async (
   paths: InstallationPaths,
   options: CliOptions,
   jobId: string,
-  spawnedPid?: number
-): Promise<void> => {
+  spawnedPid?: number,
+  releaseForWindowsCliPromotion = false
+): Promise<"complete" | "released-for-cli-promotion"> => {
   const started = Date.now();
   let lastSequence = -1;
   let lastSignature = "";
@@ -136,8 +175,11 @@ export const followUpdateJob = async (
         emitProgress(options, state);
         lastSequence = state.sequence ?? lastSequence;
       }
-      if (state.status === "complete") return;
+      if (state.status === "complete") return "complete";
       if (state.status === "error") throw new CliError(state.message);
+      if (releaseForWindowsCliPromotion && state.phase === "updating-cli") {
+        return "released-for-cli-promotion";
+      }
     }
 
     const activePid = activeUpdateProcess(paths);
@@ -152,11 +194,122 @@ export const followUpdateJob = async (
   }
 };
 
+const numericPid = (value: string | undefined): number | null => {
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+};
+
+export const runUpdateWorker = async (
+  paths: InstallationPaths,
+  options: CliOptions,
+  runner: CommandRunner,
+  jobId: string,
+  dependencies: DurableUpdateDependencies = {}
+): Promise<void> => {
+  const executable = dependencies.executable ?? process.execPath;
+  const argv = dependencies.argv ?? process.argv;
+  const environment = dependencies.environment ?? process.env;
+  const platform = dependencies.platform ?? process.platform;
+  const architecture = dependencies.architecture ?? process.arch;
+  const versions = dependencies.versions ?? process.versions;
+  const standaloneExecutable =
+    dependencies.standaloneExecutable ?? isBunStandaloneExecutable(argv, versions);
+  if (environment[CLI_UPDATE_SOURCE_ENV]) {
+    const promotion = readCliPromotion(environment, executable, CLI_VERSION, platform);
+    try {
+      await updateCommand(paths, options, runner, jobId);
+    } finally {
+      if (promotion) removeStagedCli(promotion, platform);
+    }
+    return;
+  }
+  if (!isStandaloneCliExecutable(argv, executable, versions, platform, standaloneExecutable)) {
+    await updateCommand(paths, options, runner, jobId);
+    return;
+  }
+
+  const manifest = readManifest(paths);
+  if (!manifest)
+    throw new CliError(`OpenTeam installation manifest is missing at ${paths.manifest}`);
+  const repository = normalizeRepository(options.repository || manifest.repository);
+  const target = await resolveUpdateTarget(manifest.version, options, repository);
+  if (!semver.gt(target, CLI_VERSION)) {
+    await updateCommand(paths, options, runner, jobId);
+    return;
+  }
+
+  const message = `Downloading and verifying OpenTeam ${target} command-line tools`;
+  writeUpdateState(paths, {
+    schemaVersion: 1,
+    jobId,
+    workerPid: process.pid,
+    status: "running",
+    phase: "updating-cli",
+    fromVersion: manifest.version,
+    targetVersion: target,
+    message,
+    startedAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  });
+  let staged: StagedCliUpdate | null = null;
+  try {
+    staged = await (dependencies.stageCli ?? stageCliUpdate)({
+      repository,
+      version: target,
+      executable,
+      assetUrl: options.composeUrl
+        ? new URL(cliAssetName(platform, architecture), options.composeUrl).toString()
+        : undefined,
+      checksumUrl: options.checksumUrl,
+      allowUnsigned: options.allowUnsigned,
+      platform,
+      architecture,
+    });
+    const originalArguments = updateWorkerArguments(argv, executable, standaloneExecutable);
+    const handoffArguments = options.version
+      ? originalArguments
+      : [...originalArguments, "--version", target];
+    const followerPid = numericPid(environment[CLI_UPDATE_FOLLOWER_PID_ENV]);
+    const handoff = (dependencies.spawnHandoff ?? (spawn as SpawnHandoff))(
+      staged.source,
+      handoffArguments,
+      {
+        cwd: paths.directory,
+        detached: true,
+        env: {
+          ...environment,
+          [UPDATE_WORKER_JOB_ENV]: jobId,
+          ...cliPromotionEnvironment(staged, followerPid ?? process.pid),
+        },
+        stdio: "inherit",
+        windowsHide: true,
+      }
+    );
+    handoff.unref();
+  } catch (error) {
+    if (staged) removeStagedCli(staged, platform);
+    writeUpdateState(paths, {
+      schemaVersion: 1,
+      jobId,
+      workerPid: process.pid,
+      status: "error",
+      phase: "error",
+      fromVersion: manifest.version,
+      targetVersion: target,
+      message: error instanceof Error ? error.message : String(error),
+      startedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    throw error;
+  }
+};
+
 export const durableUpdateCommand = async (
   paths: InstallationPaths,
   options: CliOptions,
   dependencies: DurableUpdateDependencies = {}
 ): Promise<void> => {
+  const platform = dependencies.platform ?? process.platform;
   const current = readUpdateState(paths);
   if (current?.status === "running" && activeUpdateProcess(paths) !== null) {
     if (!updateTargetMatches(current, options)) {
@@ -164,7 +317,7 @@ export const durableUpdateCommand = async (
         `OpenTeam is already updating to ${current.targetVersion ?? "the latest release"}.`
       );
     }
-    await followUpdateJob(paths, options, current.jobId);
+    await followUpdateJob(paths, options, current.jobId, undefined, platform === "win32");
     return;
   }
 
@@ -173,16 +326,25 @@ export const durableUpdateCommand = async (
   const executable = dependencies.executable ?? process.execPath;
   const argv = dependencies.argv ?? process.argv;
   const environment = dependencies.environment ?? process.env;
+  const standaloneExecutable = dependencies.standaloneExecutable ?? isBunStandaloneExecutable(argv);
+  const workerEnvironment = { ...environment };
+  delete workerEnvironment[CLI_UPDATE_SOURCE_ENV];
+  delete workerEnvironment[CLI_UPDATE_TARGET_ENV];
+  delete workerEnvironment[CLI_UPDATE_VERSION_ENV];
   const log = openSync(paths.updateLog, "w", 0o600);
   let child;
   try {
     child = (dependencies.spawnWorker ?? (spawn as SpawnWorker))(
       executable,
-      updateWorkerArguments(argv, executable),
+      updateWorkerArguments(argv, executable, standaloneExecutable),
       {
         cwd: paths.directory,
         detached: true,
-        env: { ...environment, [UPDATE_WORKER_JOB_ENV]: jobId },
+        env: {
+          ...workerEnvironment,
+          [UPDATE_WORKER_JOB_ENV]: jobId,
+          [CLI_UPDATE_FOLLOWER_PID_ENV]: String(process.pid),
+        },
         stdio: ["ignore", log, log],
         windowsHide: true,
       }
@@ -195,5 +357,5 @@ export const durableUpdateCommand = async (
     closeSync(log);
   }
   child.unref();
-  await followUpdateJob(paths, options, jobId, child.pid);
+  await followUpdateJob(paths, options, jobId, child.pid, platform === "win32");
 };

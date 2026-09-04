@@ -153,6 +153,7 @@ interface OpenTeamServerUpdateStatus {
     | "pulling"
     | "restarting"
     | "verifying"
+    | "updating-cli"
     | "rolling-back"
     | "complete"
     | null;

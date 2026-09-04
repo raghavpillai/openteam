@@ -63,6 +63,7 @@ export type ServerUpdatePhase =
   | "pulling"
   | "restarting"
   | "verifying"
+  | "updating-cli"
   | "rolling-back"
   | "complete";
 
@@ -198,6 +199,7 @@ export const parseUpdateEvent = (line: string): UpdateEvent | null => {
         "pulling",
         "restarting",
         "verifying",
+        "updating-cli",
         "rolling-back",
         "complete",
       ].includes(String(value.phase)) ||
@@ -233,6 +235,7 @@ const readPersistedUpdateState = (
         "pulling",
         "restarting",
         "verifying",
+        "updating-cli",
         "rolling-back",
         "complete",
         "error",

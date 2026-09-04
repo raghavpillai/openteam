@@ -5,7 +5,12 @@ import { resolve } from "node:path";
 import { parseArguments } from "./arguments";
 import { defaultInstallDirectory, installationPaths } from "./config";
 import { CLI_VERSION } from "./constants";
-import { durableUpdateCommand, reportActiveUpdate, updateWorkerJobId } from "./durable-update";
+import {
+  durableUpdateCommand,
+  reportActiveUpdate,
+  runUpdateWorker,
+  updateWorkerJobId,
+} from "./durable-update";
 import { CliError, errorMessage } from "./errors";
 import { helpFor } from "./help";
 import {
@@ -16,7 +21,6 @@ import {
   statusCommand,
   stopCommand,
   uninstallCommand,
-  updateCommand,
 } from "./lifecycle";
 import { accountUpdateCommand } from "./password";
 import { SystemCommandRunner } from "./process";
@@ -61,7 +65,7 @@ const main = async (): Promise<void> => {
     case "update":
       {
         const workerJobId = updateWorkerJobId();
-        if (workerJobId) await updateCommand(paths, options, runner, workerJobId);
+        if (workerJobId) await runUpdateWorker(paths, options, runner, workerJobId);
         else await durableUpdateCommand(paths, options);
       }
       break;

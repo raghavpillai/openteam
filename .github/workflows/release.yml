@@ -261,6 +261,12 @@ jobs:
         run: |
           bun scripts/render-release-compose.ts deploy/compose.yaml openteam-compose.yaml image-digests
           bun apps/cli/scripts/sign-release.ts openteam-compose.yaml
+          for binary in apps/cli/release/openteam-*; do
+            case "$binary" in
+              *.gz) continue ;;
+            esac
+            bun apps/cli/scripts/sign-release.ts "$binary"
+          done
           bun apps/cli/scripts/sign-release.ts desktop-release/*.AppImage
           sha256sum openteam-compose.yaml openteam-compose.yaml.sigstore.json apps/cli/release/* > SHA256SUMS
           sha256sum desktop-release/* > DESKTOP_SHA256SUMS

@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { installationPaths } from "../src/config";
-import { ComposeProject, findCompose } from "../src/docker";
+import { ComposeProject, composeProcessEnvironment, findCompose } from "../src/docker";
 import type { CommandRunner, RunOptions, RunResult } from "../src/process";
 
 class RecordingRunner implements CommandRunner {
@@ -54,6 +54,7 @@ describe("Docker Compose command selection", () => {
     try {
       const paths = installationPaths(directory);
       writeFileSync(paths.compose, "name: openteam\n");
+      writeFileSync(paths.environment, "OPENTEAM_VERSION=1.3.0\nOPENTEAM_CONTROL_TOKEN=secret\n");
       const runner = new RecordingRunner(true);
       const command = findCompose(runner);
       expect(command).not.toBeNull();
@@ -67,10 +68,20 @@ describe("Docker Compose command selection", () => {
         "openteam",
         "--project-directory",
         directory,
+        "--env-file",
+        paths.environment,
         "--file",
         paths.compose,
         "stop",
       ]);
+      expect(
+        composeProcessEnvironment(paths, {
+          PATH: "/usr/bin",
+          OPENTEAM_VERSION: "1.2.3",
+          OPENTEAM_CONTROL_TOKEN: "stale",
+        })
+      ).toEqual({ PATH: "/usr/bin" });
+      expect(call?.options?.env?.OPENTEAM_VERSION).toBeUndefined();
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }

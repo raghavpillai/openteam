@@ -41,6 +41,20 @@ export const verifyReleaseSignature = async (options: {
   compose: string;
   serializedBundle: string;
 }): Promise<void> => {
+  await verifyArtifactSignature({
+    repository: options.repository,
+    version: options.version,
+    artifact: Buffer.from(options.compose),
+    serializedBundle: options.serializedBundle,
+  });
+};
+
+export const verifyArtifactSignature = async (options: {
+  repository: string;
+  version: string;
+  artifact: Uint8Array;
+  serializedBundle: string;
+}): Promise<void> => {
   let bundle: Bundle;
   try {
     bundle = JSON.parse(options.serializedBundle) as Bundle;
@@ -50,7 +64,7 @@ export const verifyReleaseSignature = async (options: {
   const identity = `https://github.com/${normalizeRepository(options.repository)}/.github/workflows/release.yml@refs/tags/v${normalizeVersion(options.version)}`;
   try {
     await withBunCryptoVerifyCompatibility(() =>
-      verify(bundle, Buffer.from(options.compose), {
+      verify(bundle, Buffer.from(options.artifact), {
         certificateIssuer: "https://token.actions.githubusercontent.com",
         certificateIdentityURI: `^${escapedPattern(identity)}$`,
         ctLogThreshold: 1,

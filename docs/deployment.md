@@ -239,20 +239,28 @@ SSH destination such as `owner@openteam-host`. The app uses your SSH agent and a
 `known_hosts` entry, never a password. If SSH is not set up, the app shows the command to copy
 instead. The desktop app updates itself separately from the same page.
 
-`openteam update` upgrades the server stack, not the CLI binary. To update the CLI itself, re-run
-the install command from [Install](#install); it downloads the latest binary and starts the
-existing stack.
+`openteam update` is also the standalone CLI updater. It downloads the target release's native CLI
+beside the installed executable, verifies both checksums and the GitHub Actions Sigstore identity,
+and runs the server transaction through that staged CLI. The installed CLI is replaced only after
+the new server passes readiness checks; the prior executable is retained as `.previous`. The
+Desktop app uses its bundled CLI instead, so Desktop's signed app update replaces that copy.
+
+CLIs released before self-update support cannot bootstrap code they do not contain. Existing early
+installations need to re-run the install command once; subsequent releases use `openteam update`
+alone.
 
 What an update does:
 
-1. Takes a lock so two updates cannot overlap.
-2. Refuses downgrades and prereleases unless you pass `--allow-downgrade` or `--allow-prerelease`.
+1. Resolves the target release and, when necessary, verifies and stages its native CLI.
+2. Takes a lock so two server transactions cannot overlap.
+3. Refuses downgrades and prereleases unless you pass `--allow-downgrade` or `--allow-prerelease`.
    Re-applying the current version needs `--force`.
-3. Checks for 4 GB of free disk and that Docker accepts the new Compose file.
-4. Downloads and verifies the new release, then pulls its images.
-5. Stops the server, worker, and computer briefly and writes a PostgreSQL dump to
+4. Checks for 4 GB of free disk and that Docker accepts the new Compose file.
+5. Downloads and verifies the new release, then pulls its images.
+6. Stops the server, worker, and computer briefly and writes a PostgreSQL dump to
    `<install dir>/backups/`.
-6. Starts the new release and waits until the health endpoint reports `ready` on the new version.
+7. Starts the new release, waits until its health endpoint reports `ready`, and then promotes the
+   staged CLI.
 
 If startup fails, the updater restores the previous Compose file and `.env`, restores the database
 dump if the schema sync had started, and restarts the old release. The last update job is recorded in

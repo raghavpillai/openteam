@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { installationPaths } from "../src/config";
 import {
+  activeUpdateProcess,
   acquireUpdateLock,
   readUpdateEvents,
   readUpdateState,
@@ -59,5 +60,24 @@ describe("update transaction safety", () => {
       message: "Update complete",
     });
     expect(readUpdateEvents(paths, "job-1").map((event) => event.sequence)).toEqual([0, 1]);
+  });
+
+  test("treats the detached CLI bootstrap as active before it takes the server lock", () => {
+    const directory = mkdtempSync(join(tmpdir(), "openteam-update-bootstrap-"));
+    temporaryDirectories.push(directory);
+    const paths = installationPaths(directory);
+    writeUpdateState(paths, {
+      schemaVersion: 1,
+      jobId: "job-1",
+      workerPid: process.pid,
+      status: "running",
+      phase: "updating-cli",
+      fromVersion: "1.2.3",
+      targetVersion: "1.3.0",
+      message: "Downloading command-line tools",
+      startedAt: "2026-09-01T00:00:00.000Z",
+      updatedAt: "2026-09-01T00:00:00.000Z",
+    });
+    expect(activeUpdateProcess(paths)).toBe(process.pid);
   });
 });

@@ -396,6 +396,11 @@ describe("CLI update progress", () => {
         '@@OPENTEAM_UPDATE@@{"phase":"pulling","message":"Pulling images","version":"1.3.0"}'
       )
     ).toEqual({ phase: "pulling", message: "Pulling images", version: "1.3.0" });
+    expect(
+      parseUpdateEvent(
+        '@@OPENTEAM_UPDATE@@{"phase":"updating-cli","message":"Installing command-line tools","version":"1.3.0"}'
+      )
+    ).toMatchObject({ phase: "updating-cli", version: "1.3.0" });
     expect(parseUpdateEvent("docker pull output")).toBeNull();
     expect(parseUpdateEvent('@@OPENTEAM_UPDATE@@{"phase":"shell","message":"bad"}')).toBeNull();
     expect(

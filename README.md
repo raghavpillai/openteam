@@ -111,7 +111,7 @@ server URL, and sign in.
 openteam status                        # health, version, access mode
 openteam doctor                        # host, Docker, port, and readiness checks
 openteam setup                         # change inference (--advanced: connection/server/model controls)
-openteam update                        # upgrade with database backup and rollback
+openteam update                        # update CLI + server with backup and rollback
 openteam logs --service server --follow
 ```
 

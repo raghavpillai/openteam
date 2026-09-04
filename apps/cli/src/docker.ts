@@ -1,5 +1,5 @@
-import { existsSync } from "node:fs";
-import type { InstallationPaths } from "./config";
+import { existsSync, readFileSync } from "node:fs";
+import { parseEnvironment, type InstallationPaths } from "./config";
 import { PROJECT_NAME } from "./constants";
 import { CliError } from "./errors";
 import type { CommandRunner, RunResult } from "./process";
@@ -25,6 +25,18 @@ export const dockerVersion = (runner: CommandRunner): RunResult =>
 
 export const dockerDaemon = (runner: CommandRunner): RunResult =>
   runner.run("docker", ["info", "--format", "{{.ServerVersion}}"]);
+
+export const composeProcessEnvironment = (
+  paths: InstallationPaths,
+  inherited: NodeJS.ProcessEnv = process.env
+): NodeJS.ProcessEnv => {
+  const environment = { ...inherited };
+  if (!existsSync(paths.environment)) return environment;
+  for (const key of parseEnvironment(readFileSync(paths.environment, "utf8")).keys()) {
+    delete environment[key];
+  }
+  return environment;
+};
 
 export const findCompose = (runner: CommandRunner): ComposeCommand | null => {
   const command = (executable: string, prefix: readonly string[], version: string) => {
@@ -75,12 +87,15 @@ export class ComposeProject {
         this.projectName,
         "--project-directory",
         this.paths.directory,
+        "--env-file",
+        this.paths.environment,
         "--file",
         composeFile,
         ...args,
       ],
       {
         cwd: this.paths.directory,
+        env: composeProcessEnvironment(this.paths),
         inherit: options.inherit,
         input: options.input,
         inputFile: options.inputFile,

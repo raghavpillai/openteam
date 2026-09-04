@@ -25,6 +25,7 @@ export type PersistedUpdatePhase =
   | "pulling"
   | "restarting"
   | "verifying"
+  | "updating-cli"
   | "rolling-back"
   | "complete"
   | "error";
@@ -117,10 +118,16 @@ export const activeUpdateProcess = (paths: InstallationPaths): number | null => 
   const ownerPath = join(paths.updateLock, "owner.json");
   try {
     const owner = JSON.parse(readFileSync(ownerPath, "utf8")) as { pid?: unknown };
-    return typeof owner.pid === "number" && processIsAlive(owner.pid) ? owner.pid : null;
+    if (typeof owner.pid === "number" && processIsAlive(owner.pid)) return owner.pid;
   } catch {
-    return null;
+    // A CLI bootstrap worker writes its PID before the server transaction takes the lock.
   }
+  const state = readUpdateState(paths);
+  return state?.status === "running" &&
+    typeof state.workerPid === "number" &&
+    processIsAlive(state.workerPid)
+    ? state.workerPid
+    : null;
 };
 
 export const acquireUpdateLock = (paths: InstallationPaths): (() => void) => {

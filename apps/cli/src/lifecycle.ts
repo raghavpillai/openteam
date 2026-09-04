@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { createInterface } from "node:readline/promises";
 import semver from "semver";
 import type { CliOptions } from "./arguments";
+import { promoteStagedCli, readCliPromotion, waitForCliFollowerToExit } from "./cli-update";
 import type { InstallationManifest, InstallationPaths } from "./config";
 import {
   createEnvironment,
@@ -51,6 +52,7 @@ export type UpdateProgressPhase =
   | "pulling"
   | "restarting"
   | "verifying"
+  | "updating-cli"
   | "rolling-back"
   | "complete";
 
@@ -296,23 +298,20 @@ const updateCommandUnlocked = async (
     });
   };
   report("checking", "Checking the latest OpenTeam release");
-  const target = options.version
-    ? normalizeVersion(options.version)
-    : await latestReleaseVersion(repository);
+  const target = await resolveUpdateTarget(manifest.version, options, repository);
+  const cliPromotion = readCliPromotion(process.env, process.execPath, CLI_VERSION);
   persisted = writeUpdateState(paths, { ...persisted, targetVersion: target });
-  if (semver.lt(target, manifest.version) && !options.allowDowngrade) {
-    throw new CliError(
-      `Refusing to downgrade OpenTeam ${manifest.version} to ${target}. Use --allow-downgrade only for an intentional recovery.`
-    );
-  }
-  if (semver.prerelease(target) && !options.allowPrerelease) {
-    throw new CliError(
-      `Refusing prerelease ${target} on the stable channel. Use --allow-prerelease to opt in.`
-    );
-  }
   if (target === manifest.version && !options.force) {
-    report("complete", `OpenTeam ${target} is already installed`, target);
-    console.log(`OpenTeam ${target} is already installed.`);
+    if (cliPromotion) {
+      report("updating-cli", `Installing OpenTeam ${target} command-line tools`, target);
+      await waitForCliFollowerToExit(cliPromotion);
+      promoteStagedCli(cliPromotion);
+    }
+    const message = cliPromotion
+      ? `OpenTeam ${target} and its command-line tools are up to date`
+      : `OpenTeam ${target} is already installed`;
+    report("complete", message, target);
+    console.log(`${message}.`);
     return;
   }
   console.log(`Updating OpenTeam ${manifest.version} → ${target}…`);
@@ -334,6 +333,7 @@ const updateCommandUnlocked = async (
   const project = requireComposeProject(paths, runner, manifestProjectName(manifest));
   let maintenanceStarted = false;
   let newStackStarted = false;
+  let manifestUpdated = false;
   let backupPath: string | null = null;
   try {
     writeFileAtomic(nextCompose, release.compose, 0o600);
@@ -352,6 +352,20 @@ const updateCommandUnlocked = async (
     newStackStarted = true;
     await startProject(project, paths, runner, target);
     report("verifying", `OpenTeam ${target} passed its readiness checks`, target);
+    writeManifest(paths, {
+      ...manifest,
+      repository,
+      version: target,
+      composeUrl: release.composeUrl,
+      updatedAt: new Date().toISOString(),
+      uninstalledAt: undefined,
+    });
+    manifestUpdated = true;
+    if (cliPromotion) {
+      report("updating-cli", `Installing OpenTeam ${target} command-line tools`, target);
+      await waitForCliFollowerToExit(cliPromotion);
+      promoteStagedCli(cliPromotion);
+    }
   } catch (error) {
     report(
       "rolling-back",
@@ -360,6 +374,7 @@ const updateCommandUnlocked = async (
     );
     writeFileAtomic(paths.compose, previousCompose, 0o600);
     writeFileAtomic(paths.environment, previousEnvironment, 0o600);
+    if (manifestUpdated) writeManifest(paths, manifest);
     rmSync(nextCompose, { force: true });
     let databaseRecoveryError: string | null = null;
     if (newStackStarted && backupPath) {
@@ -385,16 +400,32 @@ const updateCommandUnlocked = async (
       `Update failed and the previous Compose configuration was restored${recoveryDetail}${databaseRecoveryError ? `; database restore also failed: ${databaseRecoveryError}` : ""}: ${error instanceof Error ? error.message : error}`
     );
   }
-  writeManifest(paths, {
-    ...manifest,
-    repository,
-    version: target,
-    composeUrl: release.composeUrl,
-    updatedAt: new Date().toISOString(),
-    uninstalledAt: undefined,
-  });
-  report("complete", `OpenTeam is now running ${target}`, target);
-  console.log(`OpenTeam is now running ${target}.`);
+  const completion = cliPromotion
+    ? `OpenTeam and its command-line tools are now running ${target}`
+    : `OpenTeam is now running ${target}`;
+  report("complete", completion, target);
+  console.log(`${completion}.`);
+};
+
+export const resolveUpdateTarget = async (
+  currentVersion: string,
+  options: CliOptions,
+  repository: string
+): Promise<string> => {
+  const target = options.version
+    ? normalizeVersion(options.version)
+    : await latestReleaseVersion(repository);
+  if (semver.lt(target, currentVersion) && !options.allowDowngrade) {
+    throw new CliError(
+      `Refusing to downgrade OpenTeam ${currentVersion} to ${target}. Use --allow-downgrade only for an intentional recovery.`
+    );
+  }
+  if (semver.prerelease(target) && !options.allowPrerelease) {
+    throw new CliError(
+      `Refusing prerelease ${target} on the stable channel. Use --allow-prerelease to opt in.`
+    );
+  }
+  return target;
 };
 
 export const updateCommand = async (

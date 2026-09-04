@@ -91,11 +91,13 @@ ${helpHint}`,
 
   update: `${heading(
     "openteam update [options]",
-    "Run one durable update job, restart the server stack, verify health, and roll back on failure."
+    "Safely update the CLI and server stack in one durable job, with health checks and rollback."
   )}
 
 The update continues if the terminal, SSH connection, or Desktop app closes. Running the same
-command again reconnects to the active update and resumes high-level progress output.
+command again reconnects to the active update and resumes high-level progress output. A standalone
+CLI stages and verifies the target CLI before updating the server, then installs it only after the
+new server is healthy. Desktop uses the CLI bundled with the app and updates that bundle with Desktop.
 
 Options:
 ${directoryOption}

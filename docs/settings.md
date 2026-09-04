@@ -228,7 +228,7 @@ normally writes it; "Restart" says whether a change needs a container restart.
 
 | Variable | Default | Set by | Restart | Meaning |
 | --- | --- | --- | --- | --- |
-| `OPENTEAM_VERSION` | release | install, update | yes | Release version and image tag |
+| `OPENTEAM_VERSION` | release | install, update | yes | Release version and image tag. The dev stack reports the package version plus `+dev`. |
 | `OPENTEAM_IMAGE_PREFIX` | `ghcr.io/raghavpillai/openteam` | install | yes | Image registry prefix |
 | `OPENTEAM_POSTGRES_PASSWORD` | generated | install | yes | Database password |
 | `OPENTEAM_CONTROL_TOKEN` | generated | install | yes | Token the server, worker, computer, and CLI use with each other |
@@ -259,6 +259,12 @@ Fixed inside the Compose file, not meant to change: `DATABASE_URL`, `OPENTEAM_PO
 (`/asset-store`), `OPENTEAM_BOX_STORE_ROOT` (`/box-store`), `OPENTEAM_PI_AGENT_DIR`
 (`/home/box/.pi/agent`), `OPENTEAM_SCREEN_VIEWER_HOST`, and the agent user ids
 `OPENTEAM_AGENT_UID` (`1001`) and `OPENTEAM_AGENT_GID` (`1000`).
+
+Internal tuning knobs, read by the computer service and not meant for operators:
+`OPENTEAM_MAX_OPEN_AGENT_STORES` (`32`), `OPENTEAM_AGENT_STORE_IDLE_CLOSE_MS` (`120000`),
+`OPENTEAM_HOST_BRIDGE_URL`, `OPENTEAM_NODE_BINARY`, and the debugging switch
+`SAND_DISABLE_MEMORY_FREEZE=1`. `BETTER_AUTH_SECRET` is accepted as an alias for
+`OPENTEAM_AUTH_SECRET`.
 
 Development-only variables for the desktop app: `OPENTEAM_SERVER_URL`, `OPENTEAM_RENDERER_URL`,
 `OPENTEAM_HOST_BRIDGE_PORT` (`8791`), `OPENTEAM_AUTO_REVIEW_MODE` (`off`, `shadow`, `enforce`),

@@ -87,7 +87,8 @@ Requirements: Docker with Compose 2.20+, an x64 or arm64 host, and 8 GB RAM and 
 recommended. The installer downloads a native CLI; Node.js and Bun are not required.
 
 ```sh
-curl -fsSL https://openteam.so/install | sh
+curl -fsSL https://openteam.so/install | sh      # macOS and Linux
+irm https://openteam.so/install.ps1 | iex        # Windows PowerShell
 ```
 
 The installer checks the host, verifies the signed release, pulls digest-pinned images, then asks
@@ -99,8 +100,8 @@ three things:
 | **Owner account** | The single username and password every app signs in with |
 | **Model provider** | ChatGPT Plus/Pro (default), Claude Pro/Max, OpenAI or Anthropic API key, or a custom endpoint, plus a model |
 
-Install the desktop app from [GitHub releases](https://github.com/raghavpillai/openteam/releases),
-enter the server URL, and sign in.
+Install the desktop app from [openteam.so/download](https://openteam.so/download), enter the
+server URL, and sign in.
 
 ```sh
 openteam status                        # health, version, access mode
@@ -110,8 +111,8 @@ openteam update                        # upgrade with database backup and rollba
 openteam logs --service server --follow
 ```
 
-The installer places `openteam` in `~/.local/bin`; add that directory to `PATH` if your shell does
-not already include it. Full guide, including access modes, reverse proxies, updates, backups, and troubleshooting:
+The installer places `openteam` in `~/.local/bin` (Windows: `%LOCALAPPDATA%\OpenTeam\bin`, added
+to your PATH); add the directory to `PATH` if your shell does not already include it. Full guide, including access modes, reverse proxies, updates, backups, and troubleshooting:
 **[docs/deployment.md](docs/deployment.md)**.
 
 ## Settings
@@ -144,8 +145,11 @@ curl http://127.0.0.1:8787/api/v0/health                                        
 bun run desktop                                                                   # Electron against the local stack
 ```
 
-The dev stack publishes the API on `127.0.0.1:8787` and bot screens on `127.0.0.1:6200-6299`;
-the screen ports have no login of their own. Provider credentials go in the computer volume, never
+The dev stack runs as Compose project `openteam-dev`, so its containers are `openteam-dev-*`, its
+volumes `openteam-dev_openteam_*`, and every container carries the label
+`com.openteam.environment=development` (released installs use `openteam` and `production`). It
+reports its version as the package version plus `+dev`. It publishes the API on `127.0.0.1:8787`
+and bot screens on `127.0.0.1:6200-6299`; the screen ports have no login of their own. Provider credentials go in the computer volume, never
 `.env`. `bun run desktop:tailscale` serves the UI to other devices on your tailnet.
 
 ```sh

@@ -21,7 +21,7 @@ reach it, connecting the apps, and keeping it updated. To run from source instea
 
 | Need | Details |
 | --- | --- |
-| Host | An x64 or arm64 machine. A small Linux VM is the usual choice. |
+| Host | An x64 or arm64 machine. A small Linux VM is the usual choice; macOS or Windows with Docker Desktop also works. |
 | Docker | Docker with Compose 2.20 or newer. The installer checks both. |
 | CLI runtime | None. The installer downloads a native CLI binary from GitHub Releases. |
 | Memory | 8 GB recommended. The installer warns below that. |
@@ -36,16 +36,24 @@ container for certificates.
 ## Install
 
 ```sh
-curl -fsSL https://openteam.so/install | sh
+curl -fsSL https://openteam.so/install | sh      # macOS and Linux
+irm https://openteam.so/install.ps1 | iex        # Windows PowerShell
 ```
 
 The installer detects the operating system and architecture, downloads the matching native CLI
-from the latest GitHub release, verifies it against `SHA256SUMS`, installs it to
-`~/.local/bin/openteam`, and starts the guided setup. Set `OPENTEAM_BIN_DIR` to choose another CLI
-location, or `OPENTEAM_VERSION` to install a specific release.
+from the latest GitHub release, verifies it against `SHA256SUMS`, installs it, and starts the
+guided setup. It needs Docker and, on macOS and Linux, `curl`; no Node.js or Bun. Set
+`OPENTEAM_BIN_DIR` to choose another CLI location, or `OPENTEAM_VERSION` to install a specific
+release.
 
-The examples below use `openteam ...`. The installer places the CLI in `~/.local/bin`; add that
-directory to `PATH` if your shell does not already include it.
+| Platform | CLI installed to | PATH |
+| --- | --- | --- |
+| macOS, Linux | `~/.local/bin/openteam` | Add the directory yourself if your shell does not already include it |
+| Windows | `%LOCALAPPDATA%\OpenTeam\bin\openteam.exe` | Added to your user PATH automatically |
+
+The examples below use `openteam ...`. Re-running the install command later replaces the CLI
+binary with the latest release and then runs `openteam install`, which leaves an existing
+installation alone and just starts it.
 
 What `install` does, in order:
 
@@ -168,10 +176,12 @@ The desktop app shows this as **Pi missing**.
 
 ## Connect the apps
 
-**Desktop.** Download the installer for macOS, Windows, or Linux from the
-[GitHub releases](https://github.com/raghavpillai/openteam/releases). On first launch enter the
-server URL that setup printed, then sign in with the owner account. Closing the app never stops a
-bot.
+**Desktop.** Download it from [openteam.so/download](https://openteam.so/download), which offers
+the builds present in the latest [GitHub release](https://github.com/raghavpillai/openteam/releases):
+macOS (Apple silicon and Intel), Windows, and Linux AppImage. A platform's installer is published
+only when the release workflow has that platform's signing credentials, so check the download page
+for what the current release includes. On first launch enter the server URL that setup printed,
+then sign in with the owner account. Closing the app never stops a bot.
 
 **iPhone.** The app in `apps/mobile` is built with Expo. App Store and TestFlight distribution is
 not set up yet, so build it yourself with `bun --filter @openteam/mobile ios`. In the app, open
@@ -217,6 +227,10 @@ SSH destination such as `owner@openteam-host`. The app uses your SSH agent and a
 `known_hosts` entry, never a password. If SSH is not set up, the app shows the command to copy
 instead. The desktop app updates itself separately from the same page.
 
+`openteam update` upgrades the server stack, not the CLI binary. To update the CLI itself, re-run
+the install command from [Install](#install); it downloads the latest binary and starts the
+existing stack.
+
 What an update does:
 
 1. Takes a lock so two updates cannot overlap.
@@ -249,7 +263,12 @@ Everything OpenTeam needs lives in PostgreSQL plus five Docker volumes:
 | `openteam_box_store` | Snapshot blobs and their manifest |
 
 They form one recovery set. Always back up and restore them together. For the cleanest backup,
-stop sending messages and let active runs finish first.
+stop sending messages and let active runs finish first. The names above are the keys in the Compose
+file; Docker prefixes the project name, so `docker volume ls` shows them as
+`openteam_openteam_postgres`, `openteam_openteam_workspace`, and so on. A dev stack from the repo
+uses project `openteam-dev`, so its volumes are `openteam-dev_openteam_*`, and every container
+carries a `com.openteam.environment` label of `production` or `development`, so the two never
+collide on one machine.
 
 **Back up a released install:**
 
@@ -259,13 +278,14 @@ OUT=./openteam-backup-$(date -u +%Y%m%dT%H%M%SZ); mkdir -p "$OUT"
 docker compose --project-name openteam --project-directory "$D" -f "$D/compose.yaml" \
   exec -T postgres pg_dump -U openteam -d openteam --format=custom > "$OUT/postgres.dump"
 for v in computer_home agent_data assets workspace box_store; do
-  docker run --rm -v "openteam_$v:/source:ro" -v "$(cd "$OUT" && pwd):/backup" alpine:3.22 \
+  docker run --rm -v "openteam_openteam_$v:/source:ro" -v "$(cd "$OUT" && pwd):/backup" alpine:3.22 \
     tar -czf "/backup/openteam_$v.tar.gz" -C /source .
 done
 ```
 
 Also copy `~/.openteam/.env`. It holds the database password and signing secrets the restored
-data expects. For the dev stack, `sh scripts/backup.sh` in the repo does the same thing.
+data expects. For the dev stack, `sh scripts/backup.sh` in the repo does the same thing; run it
+with `PROJECT=openteam` to back up a CLI install from a checkout instead.
 
 **Restore:**
 
@@ -277,7 +297,7 @@ $C exec -T postgres dropdb -U openteam --force openteam
 $C exec -T postgres createdb -U openteam openteam
 $C exec -T postgres pg_restore -U openteam -d openteam < "$OUT/postgres.dump"
 for v in computer_home agent_data assets workspace box_store; do
-  docker run --rm -v "openteam_$v:/target" -v "$(cd "$OUT" && pwd):/backup:ro" alpine:3.22 \
+  docker run --rm -v "openteam_openteam_$v:/target" -v "$(cd "$OUT" && pwd):/backup:ro" alpine:3.22 \
     sh -c "find /target -mindepth 1 -delete && tar -xzf /backup/openteam_$v.tar.gz -C /target"
 done
 openteam start

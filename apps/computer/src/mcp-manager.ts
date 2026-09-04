@@ -82,7 +82,7 @@ export class StdioMcpManager {
     const existing = this.clients.get(connectionId);
     if (existing?.fingerprint === fingerprint) return existing;
     if (existing) await this.close(connectionId);
-    const client = new Client({ name: "openteam-computer", version: "0.1.0" });
+    const client = new Client({ name: "openteam-computer", version: "0.0.1" });
     const transport = new StdioClientTransport({
       command: configuration.command,
       args: configuration.args,

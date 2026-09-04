@@ -36,7 +36,7 @@ function PersistentCompatibilityToast({ children }: { children: ReactElement }) 
 }
 
 export function VersionMismatchBanner({ showReview = true }: { showReview?: boolean }) {
-  const clientVersion = window.openteam?.versions.app ?? "0.1.0";
+  const clientVersion = window.openteam?.versions.app ?? "0.0.1";
   const { status, loading, refresh } = useServerUpdateStatus(clientVersion);
   const [clientUpdate, setClientUpdate] = useState<OpenTeamUpdateStatus | null>(null);
   const [acting, setActing] = useState(false);

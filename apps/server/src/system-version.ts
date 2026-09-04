@@ -6,7 +6,7 @@ import {
 } from "@openteam/contracts/version-compatibility";
 
 export { OPENTEAM_API_PROTOCOL_VERSION };
-const FALLBACK_RELEASE_VERSION = "0.1.0";
+const FALLBACK_RELEASE_VERSION = "0.0.1";
 
 const releaseVersionFrom = (environment: NodeJS.ProcessEnv): string => {
   const candidate = environment.OPENTEAM_VERSION?.trim();

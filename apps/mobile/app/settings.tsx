@@ -163,7 +163,7 @@ export default function SettingsScreen() {
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [authMode, setAuthMode] = useState<OpenTeamAuthMode | null>(null);
   const [authUser, setAuthUser] = useState<OpenTeamAuthUser | null>(null);
-  const appVersion = Constants.expoConfig?.version ?? "0.1.0";
+  const appVersion = Constants.expoConfig?.version ?? "0.0.1";
 
   useEffect(() => {
     setServerUrl(connection.serverUrl);

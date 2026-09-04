@@ -2,7 +2,7 @@
   "expo": {
     "name": "OpenTeam",
     "slug": "openbot-mobile",
-    "version": "0.1.0",
+    "version": "0.0.1",
     "icon": "./assets/openteam-icon-v2.png",
     "orientation": "portrait",
     "scheme": "openteam",
@@ -11,7 +11,9 @@
       "supportsTablet": false,
       "bundleIdentifier": "dev.openbot.mobile",
       "entitlements": {
-        "keychain-access-groups": ["$(AppIdentifierPrefix)$(PRODUCT_BUNDLE_IDENTIFIER)"]
+        "keychain-access-groups": [
+          "$(AppIdentifierPrefix)$(PRODUCT_BUNDLE_IDENTIFIER)"
+        ]
       },
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,

@@ -18,7 +18,7 @@ for (let index = 0; index < order.length; index += 1) {
     resolve(app, "package.json"),
     JSON.stringify({
       name: `openteam-perf-${arm}`,
-      version: "0.1.0",
+      version: "0.0.1",
       main: "../dist-electron/main.js",
       type: "module",
     })

@@ -42,7 +42,7 @@ export class OpenTeamOAuthProvider implements OAuthClientProvider {
       client_name: "OpenTeam",
       scope: this.options.scope,
       software_id: "openteam",
-      software_version: "0.1.0",
+      software_version: "0.0.1",
     };
   }
 

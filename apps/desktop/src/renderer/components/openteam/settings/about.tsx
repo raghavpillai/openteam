@@ -35,7 +35,7 @@ export default function AboutPanel({
   onOpenChange: (open: boolean) => void;
   open: boolean;
 }) {
-  const version = window.openteam?.versions.app ?? "0.1.0";
+  const version = window.openteam?.versions.app ?? "0.0.1";
   const copyVersion = () =>
     void navigator.clipboard?.writeText(
       `OpenTeam ${version}\nElectron ${window.openteam?.versions.electron ?? "unknown"}\nChrome ${window.openteam?.versions.chrome ?? "unknown"}`

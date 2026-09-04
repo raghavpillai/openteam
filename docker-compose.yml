@@ -160,7 +160,7 @@ services:
       dockerfile: docker/app.Dockerfile
       target: server
     environment:
-      OPENTEAM_VERSION: ${OPENTEAM_VERSION:-0.1.0+dev}
+      OPENTEAM_VERSION: ${OPENTEAM_VERSION:-0.0.1+dev}
       DATABASE_URL: postgresql://openteam:openteam-local-only@postgres:5432/openteam
       OPENTEAM_PORT: 8787
       OPENTEAM_COMPUTER_URL: http://computer:8790

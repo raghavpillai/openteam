@@ -33,7 +33,7 @@ const clientUpdateFailure = (status: OpenTeamUpdateStatus): string => {
 };
 
 export default function UpdatesSettings() {
-  const clientVersion = window.openteam?.versions.app ?? "0.1.0";
+  const clientVersion = window.openteam?.versions.app ?? "0.0.1";
   const [clientUpdate, setClientUpdate] = useState<OpenTeamUpdateStatus | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);

@@ -8,8 +8,9 @@ import { cn } from "@/lib/utils";
  * motion flag every line is simply shown.
  */
 const LINES: Array<{ kind: "cmd" | "ok" | "next"; text: string }> = [
-  { kind: "cmd", text: "bunx --bun @openteam/cli install" },
+  { kind: "cmd", text: "curl -fsSL https://openteam.so/install | sh" },
   { kind: "ok", text: "Docker and Compose found" },
+  { kind: "ok", text: "Downloaded the openteam CLI" },
   { kind: "ok", text: "Generated installation secrets" },
   { kind: "ok", text: "Verified release checksum and signature" },
   { kind: "ok", text: "Pulled server, worker, computer, and database images" },

@@ -15,7 +15,6 @@ import {
 export interface AccountUpdateOptions {
   username?: string;
   password: boolean;
-  passwordResetAlias?: boolean;
 }
 
 const requireInstallation = (paths: InstallationPaths): InstallationManifest => {
@@ -46,14 +45,17 @@ export const accountUpdateCommand = async (
   let password: string | undefined;
   try {
     console.log(
-      `${options.passwordResetAlias ? "Reset the OpenTeam password" : "Update the OpenTeam owner account"}${
+      `Update the OpenTeam owner account${
         manifest.ownerUsername ? ` for ${manifest.ownerUsername}` : ""
       }.`
     );
-    if (updateBoth) {
-      username = await collectOwnerUsername(prompter!, manifest.ownerUsername || "openteam");
+    if (needsPrompt) {
+      if (!prompter) throw new CliError("Updating account credentials requires a terminal.");
+      if (updateBoth) {
+        username = await collectOwnerUsername(prompter, manifest.ownerUsername || "openteam");
+      }
+      password = await collectConfirmedPassword(prompter);
     }
-    if (updateBoth || options.password) password = await collectConfirmedPassword(prompter!);
   } finally {
     if (!suppliedPrompter) prompter?.close();
   }
@@ -64,20 +66,6 @@ export const accountUpdateCommand = async (
   const ownerUsername = username || manifest.ownerUsername;
   writeManifest(paths, { ...manifest, ownerUsername });
   console.log(
-    options.passwordResetAlias
-      ? "OpenTeam password reset. All desktop and mobile sessions have been signed out."
-      : `OpenTeam owner account updated${ownerUsername ? ` for ${ownerUsername}` : ""}. All desktop and mobile sessions have been signed out.`
+    `OpenTeam owner account updated${ownerUsername ? ` for ${ownerUsername}` : ""}. All desktop and mobile sessions have been signed out.`
   );
 };
-
-export const passwordResetCommand = (
-  paths: InstallationPaths,
-  runner: CommandRunner,
-  suppliedPrompter?: SetupPrompter
-): Promise<void> =>
-  accountUpdateCommand(
-    paths,
-    runner,
-    { password: true, passwordResetAlias: true },
-    suppliedPrompter
-  );

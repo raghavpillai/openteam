@@ -17,11 +17,13 @@ export type CommandName =
   | "model-list"
   | "model-use"
   | "account-update"
-  | "password-reset"
   | "uninstall";
+
+export type HelpTopic = "global" | CommandName | "provider" | "model" | "account";
 
 export interface CliOptions {
   command: CommandName | "help" | "version";
+  helpTopic?: HelpTopic;
   directory?: string;
   version?: string;
   repository?: string;
@@ -73,9 +75,99 @@ const commands = new Set<CommandName>([
   "model-list",
   "model-use",
   "account-update",
-  "password-reset",
   "uninstall",
 ]);
+
+const commandFlags: Record<CommandName, ReadonlySet<string>> = {
+  install: new Set([
+    "--version",
+    "--repository",
+    "--compose-url",
+    "--checksum-url",
+    "--signature-url",
+    "--project-name",
+    "--image-prefix",
+    "--allow-unsigned",
+    "--advanced",
+    "--no-setup",
+  ]),
+  setup: new Set(["--advanced"]),
+  doctor: new Set(["--project-name"]),
+  status: new Set(),
+  update: new Set([
+    "--version",
+    "--repository",
+    "--compose-url",
+    "--checksum-url",
+    "--signature-url",
+    "--force",
+    "--allow-downgrade",
+    "--allow-prerelease",
+    "--allow-unsigned",
+    "--json-progress",
+  ]),
+  stop: new Set(),
+  start: new Set(),
+  logs: new Set(["--follow", "-f", "--tail", "--service"]),
+  "provider-list": new Set(),
+  "provider-login": new Set(["--auth"]),
+  "provider-logout": new Set(),
+  "provider-add": new Set([
+    "--name",
+    "--base-url",
+    "--api",
+    "--model",
+    "--context-window",
+    "--max-tokens",
+    "--reasoning",
+  ]),
+  "provider-remove": new Set(),
+  "model-list": new Set(),
+  "model-use": new Set(["--thinking"]),
+  "account-update": new Set(["--username", "--password"]),
+  uninstall: new Set(["--yes", "-y", "--purge"]),
+};
+
+const commonFlags = new Set(["--dir", "--install-dir"]);
+
+const commandLabel = (command: CommandName): string => command.replace("-", " ");
+
+const emptyOptions = (command: CliOptions["command"], helpTopic?: HelpTopic): CliOptions => ({
+  command,
+  ...(helpTopic ? { helpTopic } : {}),
+  yes: false,
+  purge: false,
+  force: false,
+  allowDowngrade: false,
+  allowPrerelease: false,
+  allowUnsigned: false,
+  advanced: false,
+  noSetup: false,
+  follow: false,
+  jsonProgress: false,
+  password: false,
+});
+
+const helpTopicFromArguments = (parts: readonly string[]): HelpTopic => {
+  const [topic, action, ...extra] = parts;
+  if (!topic || topic === "--help" || topic === "-h") return "global";
+  if (extra.length > 0) throw new CliError(`Unknown help topic: ${parts.join(" ")}`);
+  if (topic === "provider") {
+    if (!action) return "provider";
+    if (["list", "login", "logout", "add", "remove"].includes(action)) {
+      return `provider-${action}` as HelpTopic;
+    }
+  } else if (topic === "model") {
+    if (!action) return "model";
+    if (["list", "use"].includes(action)) return `model-${action}` as HelpTopic;
+  } else if (topic === "account") {
+    if (!action) return "account";
+    if (action === "update") return "account-update";
+  } else if (!action && commands.has(topic as CommandName) && !topic.includes("-")) {
+    return topic as CommandName;
+  }
+  throw new CliError(`Unknown help topic: ${parts.join(" ")}`);
+};
 
 const valueFlags = new Map<
   string,
@@ -123,39 +215,11 @@ const valueFlags = new Map<
 
 export const parseArguments = (argv: readonly string[]): CliOptions => {
   const [rawCommand, ...rawRest] = argv;
-  if (!rawCommand || ["help", "--help", "-h"].includes(rawCommand)) {
-    return {
-      command: "help",
-      yes: false,
-      purge: false,
-      force: false,
-      allowDowngrade: false,
-      allowPrerelease: false,
-      allowUnsigned: false,
-      advanced: false,
-      noSetup: false,
-      follow: false,
-      jsonProgress: false,
-      password: false,
-    };
-  }
+  if (!rawCommand || ["--help", "-h"].includes(rawCommand)) return emptyOptions("help", "global");
+  if (rawCommand === "help") return emptyOptions("help", helpTopicFromArguments(rawRest));
   if (["version", "--version", "-v"].includes(rawCommand)) {
-    return {
-      command: "version",
-      yes: false,
-      purge: false,
-      force: false,
-      allowDowngrade: false,
-      allowPrerelease: false,
-      allowUnsigned: false,
-      advanced: false,
-      noSetup: false,
-      follow: false,
-      jsonProgress: false,
-      password: false,
-    };
+    return emptyOptions("version");
   }
-  const nestedPasswordReset = rawCommand === "password" && rawRest[0] === "reset";
   const nestedAccountUpdate = rawCommand === "account" && rawRest[0] === "update";
   const providerAction = rawCommand === "provider" ? rawRest[0] : undefined;
   const modelAction = rawCommand === "model" ? rawRest[0] : undefined;
@@ -166,27 +230,24 @@ export const parseArguments = (argv: readonly string[]): CliOptions => {
   const nestedProviderRemove = rawCommand === "provider" && providerAction === "remove";
   const nestedModelList = rawCommand === "model" && modelAction === "list";
   const nestedModelUse = rawCommand === "model" && modelAction === "use";
-  const command = nestedPasswordReset
-    ? "password-reset"
-    : nestedAccountUpdate
-      ? "account-update"
-      : nestedProviderList
-        ? "provider-list"
-        : nestedProviderLogin
-          ? "provider-login"
-          : nestedProviderLogout
-            ? "provider-logout"
-            : nestedProviderAdd
-              ? "provider-add"
-              : nestedProviderRemove
-                ? "provider-remove"
-                : nestedModelList
-                  ? "model-list"
-                  : nestedModelUse
-                    ? "model-use"
-                    : rawCommand;
+  const command = nestedAccountUpdate
+    ? "account-update"
+    : nestedProviderList
+      ? "provider-list"
+      : nestedProviderLogin
+        ? "provider-login"
+        : nestedProviderLogout
+          ? "provider-logout"
+          : nestedProviderAdd
+            ? "provider-add"
+            : nestedProviderRemove
+              ? "provider-remove"
+              : nestedModelList
+                ? "model-list"
+                : nestedModelUse
+                  ? "model-use"
+                  : rawCommand;
   let rest =
-    nestedPasswordReset ||
     nestedAccountUpdate ||
     nestedProviderList ||
     nestedProviderLogin ||
@@ -198,23 +259,22 @@ export const parseArguments = (argv: readonly string[]): CliOptions => {
       ? rawRest.slice(1)
       : rawRest;
   if (rest.includes("--help") || rest.includes("-h")) {
-    return {
-      command: "help",
-      yes: false,
-      purge: false,
-      force: false,
-      allowDowngrade: false,
-      allowPrerelease: false,
-      allowUnsigned: false,
-      advanced: false,
-      noSetup: false,
-      follow: false,
-      jsonProgress: false,
-      password: false,
-    };
+    if (commands.has(command as CommandName)) {
+      return emptyOptions("help", command as CommandName);
+    }
+    if (
+      ["provider", "model", "account"].includes(rawCommand) &&
+      (!rawRest[0] || rawRest[0].startsWith("-"))
+    ) {
+      return emptyOptions("help", rawCommand as HelpTopic);
+    }
   }
   if (!commands.has(command as CommandName)) {
-    if (rawCommand === "password") throw new CliError("Usage: openteam password reset");
+    if (rawCommand === "password") {
+      throw new CliError(
+        "openteam password reset was removed; use openteam account update --password"
+      );
+    }
     if (rawCommand === "account") {
       throw new CliError("Usage: openteam account update [--username <name>] [--password]");
     }
@@ -225,20 +285,7 @@ export const parseArguments = (argv: readonly string[]): CliOptions => {
     throw new CliError(`Unknown command: ${rawCommand}`);
   }
 
-  const options: CliOptions = {
-    command: command as CommandName,
-    yes: false,
-    purge: false,
-    force: false,
-    allowDowngrade: false,
-    allowPrerelease: false,
-    allowUnsigned: false,
-    advanced: false,
-    noSetup: false,
-    follow: false,
-    jsonProgress: false,
-    password: false,
-  };
+  const options = emptyOptions(command as CommandName);
   const positional: string[] = [];
   while (rest[0] && !rest[0].startsWith("-")) {
     positional.push(rest[0]);
@@ -265,6 +312,11 @@ export const parseArguments = (argv: readonly string[]): CliOptions => {
   for (let index = 0; index < rest.length; index += 1) {
     const flag = rest[index];
     if (!flag) continue;
+    if (!commonFlags.has(flag) && !commandFlags[options.command as CommandName].has(flag)) {
+      throw new CliError(
+        `Unknown option for ${commandLabel(options.command as CommandName)}: ${flag}`
+      );
+    }
     if (flag === "--yes" || flag === "-y") {
       options.yes = true;
       continue;
@@ -328,14 +380,8 @@ export const parseArguments = (argv: readonly string[]): CliOptions => {
       continue;
     }
     throw new CliError(
-      `Unknown option for ${nestedPasswordReset ? "password reset" : nestedAccountUpdate ? "account update" : rawCommand}: ${flag}`
+      `Unknown option for ${commandLabel(options.command as CommandName)}: ${flag}`
     );
-  }
-  if (
-    (options.username !== undefined || options.password) &&
-    options.command !== "account-update"
-  ) {
-    throw new CliError("--username and --password are only valid with openteam account update");
   }
   if (options.authType !== undefined) {
     const normalized = options.authType.replace("-", "_");
@@ -343,23 +389,6 @@ export const parseArguments = (argv: readonly string[]): CliOptions => {
       throw new CliError("--auth must be oauth or api-key");
     }
     options.authType = normalized;
-    if (options.command !== "provider-login") {
-      throw new CliError("--auth is only valid with openteam provider login");
-    }
-  }
-  const providerAddOptions = [
-    options.providerName,
-    options.baseUrl,
-    options.apiProtocol,
-    options.contextWindow,
-    options.maxTokens,
-    options.reasoning,
-  ];
-  if (
-    providerAddOptions.some((value) => value !== undefined) &&
-    options.command !== "provider-add"
-  ) {
-    throw new CliError("Custom provider options are only valid with openteam provider add");
   }
   if (options.command === "provider-add") {
     if (!options.providerName || !options.baseUrl || !options.apiProtocol || !options.modelId) {
@@ -397,23 +426,11 @@ export const parseArguments = (argv: readonly string[]): CliOptions => {
   if (options.modelId !== undefined && !/^[A-Za-z0-9][A-Za-z0-9._:/-]*$/.test(options.modelId)) {
     throw new CliError("Invalid model id");
   }
-  if (options.thinking !== undefined && options.command !== "model-use") {
-    throw new CliError("--thinking is only valid with openteam model use");
-  }
   if (
     options.thinking !== undefined &&
     !["off", "minimal", "low", "medium", "high", "xhigh", "max"].includes(options.thinking)
   ) {
     throw new CliError("--thinking must be off, minimal, low, medium, high, xhigh, or max");
-  }
-  if (options.noSetup && options.command !== "install") {
-    throw new CliError("--no-setup is only valid with openteam install");
-  }
-  if (
-    (options.follow || options.tail !== undefined || options.service !== undefined) &&
-    options.command !== "logs"
-  ) {
-    throw new CliError("--follow, --tail, and --service are only valid with openteam logs");
   }
   if (options.tail !== undefined && !/^\d+$/.test(options.tail)) {
     throw new CliError("--tail must be a whole number");

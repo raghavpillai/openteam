@@ -3,7 +3,7 @@ import { parseArguments } from "../src/arguments";
 
 describe("CLI arguments", () => {
   test("defaults to help", () => {
-    expect(parseArguments([]).command).toBe("help");
+    expect(parseArguments([])).toMatchObject({ command: "help", helpTopic: "global" });
   });
 
   test("recognizes the interactive setup command", () => {
@@ -14,12 +14,27 @@ describe("CLI arguments", () => {
     });
   });
 
-  test("supports operational logs, provider repair, and command-local help", () => {
+  test("supports operational logs, provider repair, and contextual help", () => {
     expect(parseArguments(["provider", "login"]).command).toBe("provider-login");
     expect(
       parseArguments(["logs", "--follow", "--tail", "50", "--service", "server"])
     ).toMatchObject({ command: "logs", follow: true, tail: "50", service: "server" });
-    expect(parseArguments(["setup", "--help"]).command).toBe("help");
+    expect(parseArguments(["setup", "--help"])).toMatchObject({
+      command: "help",
+      helpTopic: "setup",
+    });
+    expect(parseArguments(["provider", "--help"])).toMatchObject({
+      command: "help",
+      helpTopic: "provider",
+    });
+    expect(parseArguments(["provider", "login", "--help"])).toMatchObject({
+      command: "help",
+      helpTopic: "provider-login",
+    });
+    expect(parseArguments(["help", "provider", "add"])).toMatchObject({
+      command: "help",
+      helpTopic: "provider-add",
+    });
   });
 
   test("parses provider and model management commands", () => {
@@ -99,12 +114,10 @@ describe("CLI arguments", () => {
     );
   });
 
-  test("recognizes the nested password reset command", () => {
-    expect(parseArguments(["password", "reset", "--dir", "/tmp/openteam"])).toMatchObject({
-      command: "password-reset",
-      directory: "/tmp/openteam",
-    });
-    expect(() => parseArguments(["password", "change"])).toThrow("Usage: openteam password reset");
+  test("points the removed password reset alias to account update", () => {
+    expect(() => parseArguments(["password", "reset"])).toThrow(
+      "use openteam account update --password"
+    );
   });
 
   test("recognizes account updates for either or both credentials", () => {
@@ -121,9 +134,7 @@ describe("CLI arguments", () => {
       parseArguments(["account", "update", "--username", "new.owner", "--password"])
     ).toMatchObject({ command: "account-update", username: "new.owner", password: true });
     expect(() => parseArguments(["account", "reset"])).toThrow("Usage: openteam account update");
-    expect(() => parseArguments(["status", "--password"])).toThrow(
-      "only valid with openteam account update"
-    );
+    expect(() => parseArguments(["status", "--password"])).toThrow("Unknown option for status");
     expect(() => parseArguments(["account", "update", "--password", "secret-value"])).toThrow(
       "does not accept a value"
     );
@@ -154,6 +165,12 @@ describe("CLI arguments", () => {
 
   test("enables structured progress for desktop-managed server updates", () => {
     expect(parseArguments(["update", "--json-progress"]).jsonProgress).toBe(true);
+  });
+
+  test("rejects recognized options when they do not apply to the command", () => {
+    expect(() => parseArguments(["status", "--force"])).toThrow("Unknown option for status");
+    expect(() => parseArguments(["install", "--purge"])).toThrow("Unknown option for install");
+    expect(() => parseArguments(["logs", "--allow-prerelease"])).toThrow("Unknown option for logs");
   });
 
   test("rejects unknown commands and options", () => {

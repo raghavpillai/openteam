@@ -11,7 +11,7 @@ import {
   writeFileAtomic,
   writeManifest,
 } from "../src/config";
-import { accountUpdateCommand, passwordResetCommand } from "../src/password";
+import { accountUpdateCommand } from "../src/password";
 import type { CommandRunner, RunOptions, RunResult } from "../src/process";
 import {
   collectSetupConfiguration,
@@ -1106,7 +1106,7 @@ describe("interactive setup", () => {
     expect(runner.calls.some((call) => call.args.includes("up"))).toBe(false);
   });
 
-  test("password reset passes the confirmed secret over stdin and never command arguments", async () => {
+  test("password-only account updates pass the secret over stdin and never command arguments", async () => {
     const directory = mkdtempSync(join(tmpdir(), "openteam-cli-password-"));
     temporaryDirectories.push(directory);
     const paths = installationPaths(directory);
@@ -1126,9 +1126,10 @@ describe("interactive setup", () => {
       ownerUsername: "openteam",
     });
     const runner = new SetupRunner(() => undefined);
-    await passwordResetCommand(
+    await accountUpdateCommand(
       paths,
       runner,
+      { password: true },
       new AnswerPrompter(["new correct horse battery", "new correct horse battery"])
     );
     const call = runner.calls.find((candidate) => candidate.args.includes("owner-credentials"));

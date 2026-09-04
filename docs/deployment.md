@@ -124,7 +124,6 @@ Change it later with:
 openteam account update                 # prompts for both
 openteam account update --username bob  # username only
 openteam account update --password      # password only (prompted, never on the command line)
-openteam password reset                 # same as --password
 ```
 
 Every credential change signs out all desktop and iPhone sessions.
@@ -202,7 +201,7 @@ HTTPS or a private network.
 | `openteam logs [--service server] [--follow] [--tail 200]` | Show or stream container logs. |
 | `openteam setup [--advanced]` | Re-run the access, owner, and runtime wizard. Keeps the owner account and active sessions. |
 | `openteam provider ...` / `openteam model ...` | Manage providers and the active model. See above. |
-| `openteam account update` / `openteam password reset` | Change the owner credentials. |
+| `openteam account update` | Change the owner credentials. |
 | `openteam update [--version X]` | Upgrade the stack. See below. |
 | `openteam uninstall [--purge]` | Remove the stack. See below. |
 

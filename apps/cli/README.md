@@ -18,17 +18,14 @@ openteam update
 openteam stop
 openteam start
 openteam logs
-openteam provider list
-openteam provider login [provider]
-openteam provider logout [provider]
-openteam provider add <id> --name <name> --base-url <url> --api <protocol> --model <id>
-openteam provider remove <id>
-openteam model list [provider]
-openteam model use <provider> <model> [--thinking <level>]
+openteam provider <list|login|logout|add|remove>
+openteam model <list|use>
 openteam account update
-openteam password reset
 openteam uninstall
 ```
+
+Run `openteam <command> --help` or `openteam help <command>` for command-specific usage and
+options. Provider and model subcommands have their own help pages as well.
 
 `openteam install` enters staged setup in the same command. The standalone `openteam setup` command
 reconfigures an existing installation without changing its owner or signing out active sessions.
@@ -53,9 +50,9 @@ may expose it only within the trusted LAN or VPN.
 Passwords are hidden, confirmed, and sent to the server over stdin; they are never stored in `.env`.
 Use `openteam account update` to interactively replace both credentials. Pass `--username <name>`
 for a username-only update, `--password` for a hidden password-only prompt, or combine the flags.
-`openteam password reset` remains a password-only alias. Every credential update revokes all current sessions. Use
-`openteam setup --advanced` to override the hostname, local API port, time zone, reasoning effort, or
-concurrent bot job limit. Provider and model selection are part of both normal and advanced setup.
+Every credential update revokes all current sessions. Use `openteam setup --advanced` to override
+the hostname, local API port, time zone, reasoning effort, or concurrent bot job limit. Provider
+and model selection are part of both normal and advanced setup.
 
 Use `openteam provider login [provider]` to configure OAuth/subscription or API-key authentication without repeating server setup. `provider list` shows the methods Pi supports, and `model list`/`model use` select a provider-qualified model. Anthropic offers Claude Pro/Max OAuth or an API key; OpenAI API access uses the `openai` provider, while ChatGPT/Codex OAuth uses `openai-codex`.
 

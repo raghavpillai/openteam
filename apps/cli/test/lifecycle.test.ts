@@ -14,12 +14,20 @@ import {
   writeManifest,
 } from "../src/config";
 import { runDoctor } from "../src/doctor";
-import { uninstallCommand, updateCommand, UPDATE_PROGRESS_PREFIX } from "../src/lifecycle";
+import {
+  startCommand,
+  statusCommand,
+  uninstallCommand,
+  updateCommand,
+  UPDATE_PROGRESS_PREFIX,
+} from "../src/lifecycle";
 import type { CommandRunner, RunOptions, RunResult } from "../src/process";
 import { readUpdateState } from "../src/update-safety";
 
 class HealthyDockerRunner implements CommandRunner {
   readonly calls: Array<{ command: string; args: readonly string[]; options?: RunOptions }> = [];
+  running = ["postgres", "server", "worker", "computer"];
+  publishedBy: Record<string, string> = {};
   private failedStart = false;
 
   constructor(
@@ -39,7 +47,16 @@ class HealthyDockerRunner implements CommandRunner {
       return { status: 0, stdout: "Docker Compose version v2.30.0", stderr: "" };
     }
     if (args.includes("ps") && args.includes("--services")) {
-      return { status: 0, stdout: "postgres\nserver\nworker\ncomputer\n", stderr: "" };
+      return {
+        status: 0,
+        stdout: this.running.map((service) => `${service}\n`).join(""),
+        stderr: "",
+      };
+    }
+    const publishFilter = args.find((argument) => argument.startsWith("publish="));
+    if (command === "docker" && args[0] === "ps" && publishFilter) {
+      const line = this.publishedBy[publishFilter.slice("publish=".length)];
+      return { status: 0, stdout: line ? `${line}\n` : "", stderr: "" };
     }
     if (this.failPull && args.includes("pull")) {
       return { status: 1, stdout: "", stderr: "fixture pull failed" };
@@ -146,6 +163,36 @@ describe("installed lifecycle", () => {
       detail:
         "runtime reports missing; configure the selected inference provider before running agents",
     });
+  });
+
+  test("start refuses to race another OpenTeam stack that already answers on the API port", async () => {
+    const { paths } = fixture();
+    const runner = new HealthyDockerRunner();
+    runner.running = ["postgres"];
+    const port = parseEnvironment(readFileSync(paths.environment, "utf8")).get("OPENTEAM_API_PORT");
+    runner.publishedBy = { [String(port)]: "openteam-dev-server-1\topenteam-dev" };
+
+    await expect(startCommand(paths, runner)).rejects.toThrow(
+      "Another OpenTeam server is answering at http://127.0.0.1:" +
+        `${port}, but this installation's server is not running. It is container openteam-dev-server-1 (Compose project openteam-dev). Stop that stack with \`docker compose -p openteam-dev down\``
+    );
+    expect(runner.calls.some((call) => call.args.includes("up"))).toBe(false);
+
+    await expect(statusCommand(paths, runner)).rejects.toThrow(
+      "Another OpenTeam server is answering"
+    );
+  });
+
+  test("status flags a different release answering on the configured port", async () => {
+    const { paths } = fixture();
+    const runner = new HealthyDockerRunner();
+    const manifest = readManifest(paths);
+    if (!manifest) throw new Error("fixture manifest missing");
+    writeManifest(paths, { ...manifest, version: "1.2.4" });
+
+    await expect(statusCommand(paths, runner)).rejects.toThrow(
+      "expected release 1.2.4, but 1.2.3 is responding"
+    );
   });
 
   test("safe uninstall removes containers but preserves configuration", async () => {

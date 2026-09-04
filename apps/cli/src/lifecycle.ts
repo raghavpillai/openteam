@@ -27,6 +27,12 @@ import type { CommandRunner } from "./process";
 import { downloadRelease, latestReleaseVersion } from "./release";
 import { setupCommand, type SetupPrompter } from "./setup";
 import {
+  assertOwnServer,
+  assertPortsAvailable,
+  portRequirementsFromEnvironment,
+  runningServices,
+} from "./stack";
+import {
   acquireUpdateLock,
   assertUpdatePreflight,
   createDatabaseBackup,
@@ -75,8 +81,14 @@ const manifestProjectName = (manifest: InstallationManifest): string =>
 const startProject = async (
   project: ComposeProject,
   paths: InstallationPaths,
+  runner: CommandRunner,
   expectedVersion?: string
 ): Promise<void> => {
+  // Refuse to race another stack for the ports; Docker's own error names only the port.
+  const running = runningServices(project);
+  const environment = parseEnvironment(readFileSync(paths.environment, "utf8"));
+  assertOwnServer(runner, await checkHealth(paths), running, environment);
+  await assertPortsAvailable(runner, portRequirementsFromEnvironment(environment, running));
   project.runOrThrow(["up", "--detach", "--remove-orphans", "--wait", "--wait-timeout", "180"], {
     inherit: true,
   });
@@ -156,7 +168,7 @@ export const installCommand = async (
   console.log("Pulling OpenTeam container images…");
   project.runOrThrow(["pull"], { inherit: true });
   if (options.noSetup) {
-    await startProject(project, paths, version);
+    await startProject(project, paths, runner, version);
     console.log(`Installation configuration: ${paths.directory}`);
     console.log("Guided setup was skipped. Run this same launcher with: setup");
     return;
@@ -193,7 +205,8 @@ export const statusCommand = async (
   const project = requireComposeProject(paths, runner, manifestProjectName(manifest));
   const status = project.run(["ps"], { inherit: true });
   if (status.status !== 0) throw new CliError("Could not read Docker Compose service status.");
-  const health = await checkHealth(paths);
+  assertOwnServer(runner, await checkHealth(paths), runningServices(project), environment);
+  const health = await checkHealth(paths, manifest.version);
   if (!health.ok)
     throw new CliError(`OpenTeam is not healthy at ${health.url}: ${health.detail}`, 2);
   console.log(
@@ -217,6 +230,7 @@ export const startCommand = async (
   await startProject(
     requireComposeProject(paths, runner, manifestProjectName(manifest)),
     paths,
+    runner,
     manifest.version
   );
   if (manifest.uninstalledAt) {
@@ -327,7 +341,7 @@ const updateCommandUnlocked = async (
     rmSync(nextCompose, { force: true });
     report("restarting", "Restarting the server, worker, and computer", target);
     newStackStarted = true;
-    await startProject(project, paths, target);
+    await startProject(project, paths, runner, target);
     report("verifying", `OpenTeam ${target} passed its readiness checks`, target);
   } catch (error) {
     report(

@@ -88,6 +88,8 @@ class SetupRunner implements CommandRunner {
   ]);
   failComposeValidation = false;
   failStartup = false;
+  running = ["postgres", "server", "worker", "computer"];
+  publishedBy: Record<string, string> = {};
 
   constructor(private readonly onLogin: () => void = () => undefined) {}
 
@@ -103,7 +105,16 @@ class SetupRunner implements CommandRunner {
       return { status: 0, stdout: "Docker Compose version v2.30.0", stderr: "" };
     }
     if (args.includes("ps") && args.includes("--services")) {
-      return { status: 0, stdout: "postgres\nserver\nworker\ncomputer\n", stderr: "" };
+      return {
+        status: 0,
+        stdout: this.running.map((service) => `${service}\n`).join(""),
+        stderr: "",
+      };
+    }
+    const publishFilter = args.find((argument) => argument.startsWith("publish="));
+    if (command === "docker" && args[0] === "ps" && publishFilter) {
+      const line = this.publishedBy[publishFilter.slice("publish=".length)];
+      return { status: 0, stdout: line ? `${line}\n` : "", stderr: "" };
     }
     if (this.failComposeValidation && args.includes("config")) {
       return { status: 1, stdout: "", stderr: "invalid compose" };
@@ -171,12 +182,16 @@ const createSetupFixture = (options: { authenticated?: boolean; owner?: boolean 
   const paths = installationPaths(directory);
   const state = {
     authenticated: options.authenticated ?? false,
+    rejectControlToken: false,
     inference: { providerId: "openai-codex", modelId: "gpt-5.5", reasoning: "high" },
   };
   const server = Bun.serve({
     port: 0,
     async fetch(request) {
       const url = new URL(request.url);
+      if (state.rejectControlToken && url.pathname.includes("/internal/")) {
+        return Response.json({ error: { message: "Unauthorized" } }, { status: 401 });
+      }
       if (url.pathname.endsWith("/internal/server-settings/inference")) {
         if (!state.authenticated) {
           return Response.json(
@@ -193,6 +208,7 @@ const createSetupFixture = (options: { authenticated?: boolean; owner?: boolean 
       return Response.json({
         status: "ready",
         runtime: { inference: state.authenticated ? "ready" : "missing" },
+        release: { releaseVersion: "1.2.3" },
       });
     },
   });
@@ -583,6 +599,7 @@ describe("interactive setup", () => {
         return Response.json({
           status: "ready",
           runtime: { inference: authenticated ? "ready" : "missing" },
+          release: { releaseVersion: "1.2.3" },
         });
       },
     });
@@ -943,6 +960,40 @@ describe("interactive setup", () => {
     expect(login?.options?.input).toBe(`${apiKey}\n`);
     expect(runner.calls.flatMap((call) => call.args).join(" ")).not.toContain(apiKey);
     expect(readFileSync(fixture.paths.environment, "utf8")).not.toContain(apiKey);
+  });
+
+  test("refuses to run setup while another OpenTeam server answers on the API port", async () => {
+    const fixture = createSetupFixture({ authenticated: true, owner: false });
+    const runner = new SetupRunner();
+    runner.running = ["postgres"];
+    const port = parseEnvironment(fixture.environment).get("OPENTEAM_API_PORT");
+    runner.publishedBy = { [String(port)]: "openteam-dev-server-1\topenteam-dev" };
+    const prompter = new AnswerPrompter([]);
+
+    await expect(
+      setupCommand(fixture.paths, runner, { presentation: silentPresentation }, prompter)
+    ).rejects.toThrow(
+      "Another OpenTeam server is answering at http://127.0.0.1:" +
+        `${port}, but this installation's server is not running. It is container openteam-dev-server-1 (Compose project openteam-dev).`
+    );
+    expect(prompter.prompts).toHaveLength(0);
+    expect(readFileSync(fixture.paths.environment, "utf8")).toBe(fixture.environment);
+    expect(runner.calls.some((call) => call.args.includes("up"))).toBe(false);
+  });
+
+  test("explains a rejected control token instead of a bare Unauthorized", async () => {
+    const fixture = createSetupFixture({ authenticated: true });
+    fixture.state.rejectControlToken = true;
+    const runner = new SetupRunner();
+
+    await expect(
+      setupCommand(
+        fixture.paths,
+        runner,
+        { presentation: silentPresentation },
+        new AnswerPrompter([])
+      )
+    ).rejects.toThrow("rejected this installation's control token");
   });
 
   test("cancels setup before provider validation without changing anything", async () => {

@@ -37,23 +37,17 @@ export const checkHealth = async (
     if (status !== "ready") {
       return { ok: false, url, detail: status ? `runtime is ${status}` : "readiness is unknown" };
     }
-    if (expectedVersion && version !== expectedVersion) {
-      return {
-        ok: false,
+    return withExpectedVersion(
+      {
+        ok: true,
         url,
-        detail: version
-          ? `expected release ${expectedVersion}, but ${version} is responding`
-          : `release ${expectedVersion} was not reported`,
+        detail: status,
+        inference:
+          typeof body?.runtime?.inference === "string" ? body.runtime.inference : undefined,
         version,
-      };
-    }
-    return {
-      ok: true,
-      url,
-      detail: status,
-      inference: typeof body?.runtime?.inference === "string" ? body.runtime.inference : undefined,
-      version,
-    };
+      },
+      expectedVersion
+    );
   } catch (error) {
     return {
       ok: false,
@@ -61,6 +55,22 @@ export const checkHealth = async (
       detail: error instanceof Error ? error.message : String(error),
     };
   }
+};
+
+/** Downgrade a ready result when a different release than expected is answering. */
+export const withExpectedVersion = (
+  result: HealthResult,
+  expectedVersion?: string
+): HealthResult => {
+  if (!result.ok || !expectedVersion || result.version === expectedVersion) return result;
+  return {
+    ok: false,
+    url: result.url,
+    detail: result.version
+      ? `expected release ${expectedVersion}, but ${result.version} is responding`
+      : `release ${expectedVersion} was not reported`,
+    version: result.version,
+  };
 };
 
 export const waitForHealth = async (

@@ -14,14 +14,7 @@ import {
 } from "./config";
 import { API_PORT, PROJECT_NAME } from "./constants";
 import { type ComposeProject, requireComposeProject } from "./docker";
-import {
-  firstUnavailablePort,
-  portAvailable,
-  printDoctor,
-  runDoctor,
-  suggestApiPort,
-  viewerPorts,
-} from "./doctor";
+import { printDoctor, runDoctor, suggestApiPort } from "./doctor";
 import { CliError } from "./errors";
 import { checkHealth, waitForHealth } from "./health";
 import type { CommandRunner } from "./process";
@@ -32,6 +25,12 @@ import {
   writeRuntimeInferenceSettings,
 } from "./runtime-settings";
 import { runSetupSession, type SetupSessionInput } from "./setup-session";
+import {
+  assertOwnServer,
+  assertPortsAvailable,
+  portRequirementsFromConfiguration,
+  runningServices,
+} from "./stack";
 import {
   ACCESS_CHOICES,
   ACCESS_MODES,
@@ -845,6 +844,8 @@ export const setupCommand = async (
   const previousEnvironment = readFileSync(paths.environment, "utf8");
   const current = new Map(parseEnvironment(previousEnvironment));
   const initialHealth = await checkHealth(paths);
+  const running = runningServices(project);
+  assertOwnServer(runner, initialHealth, running, current);
   const currentInference = initialHealth.ok
     ? await readRuntimeInferenceSettings(paths)
     : manifest.ownerUsername
@@ -855,6 +856,7 @@ export const setupCommand = async (
     options.presentation ??
     createSetupPresentation({ version: manifest.version, stages: SETUP_STAGES });
   const fresh = options.fresh ?? !manifest.ownerUsername;
+  const previousApiPort = current.get("OPENTEAM_API_PORT");
   const notes: Array<{ text: string; tone: MessageTone }> = [];
   if (fresh && !initialHealth.ok) {
     const configured = Number(current.get("OPENTEAM_API_PORT") || API_PORT);
@@ -924,37 +926,10 @@ export const setupCommand = async (
     presentation.message("Setup cancelled; no configuration was changed.", "muted");
     return;
   }
-  const previousAccessMode = current.get("OPENTEAM_ACCESS_MODE") || "local";
-  if (fresh && !initialHealth.ok) {
-    const apiPort = Number(configuration.apiPort);
-    const unavailableApiPort = await firstUnavailablePort(configuration.bindHost, [apiPort]);
-    if (unavailableApiPort !== null) {
-      throw new CliError(
-        `OpenTeam cannot start because API port ${unavailableApiPort} is already in use. Rerun setup --advanced to choose another port.`
-      );
-    }
-    const unavailableViewerPort = await firstUnavailablePort(
-      configuration.viewerBindHost,
-      viewerPorts()
-    );
-    if (unavailableViewerPort !== null) {
-      throw new CliError(
-        `OpenTeam cannot start because screen-viewer port ${unavailableViewerPort} is already in use. Stop the conflicting service and run setup again.`
-      );
-    }
-  }
-  if (configuration.accessMode === "https" && previousAccessMode !== "https") {
-    const occupied = (
-      await Promise.all(
-        [80, 443].map(async (port) => ({ port, available: await portAvailable("0.0.0.0", port) }))
-      )
-    ).filter(({ available }) => !available);
-    if (occupied.length) {
-      throw new CliError(
-        `Bundled HTTPS cannot start because port${occupied.length === 1 ? "" : "s"} ${occupied.map(({ port }) => port).join(", ")} ${occupied.length === 1 ? "is" : "are"} already in use. Stop the conflicting proxy or rerun setup and choose Existing HTTPS proxy.`
-      );
-    }
-  }
+  // Ports held by our own running services are fine; a changed API port must be free.
+  const ownedPorts = new Set(running);
+  if (configuration.apiPort !== (previousApiPort || String(API_PORT))) ownedPorts.delete("server");
+  await assertPortsAvailable(runner, portRequirementsFromConfiguration(configuration, ownedPorts));
   let registeredCustomProvider: string | null = null;
   try {
     if (configuration.customProvider) {

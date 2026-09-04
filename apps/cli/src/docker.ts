@@ -15,7 +15,10 @@ export interface ComposeCommand {
 }
 
 const usefulFailure = (result: RunResult): string =>
-  result.stderr.trim() || result.stdout.trim() || result.error?.message || "command failed";
+  result.stderr.trim() ||
+  result.stdout.trim() ||
+  result.error?.message ||
+  "command failed; see the Docker output above";
 
 export const dockerVersion = (runner: CommandRunner): RunResult =>
   runner.run("docker", ["--version"]);

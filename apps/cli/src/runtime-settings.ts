@@ -37,6 +37,11 @@ const request = async (paths: InstallationPaths, url: URL, init: RequestInit = {
     inference?: RuntimeInferenceSettings;
     error?: { message?: unknown };
   } | null;
+  if (response.status === 401 || response.status === 403) {
+    throw new CliError(
+      `The OpenTeam server at ${url.origin} rejected this installation's control token. Another OpenTeam instance is probably listening on that port; run openteam doctor to see which containers hold it.`
+    );
+  }
   if (!response.ok) {
     throw new CliError(
       typeof body?.error?.message === "string"

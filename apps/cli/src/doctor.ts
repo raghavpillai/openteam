@@ -5,8 +5,6 @@ import {
   readFileSync,
   statfsSync,
 } from "node:fs";
-import { createServer } from "node:net";
-import type { EventEmitter } from "node:events";
 import { redactSensitiveText } from "@openteam/product-core/redaction";
 import { arch, freemem, totalmem } from "node:os";
 import { dirname } from "node:path";
@@ -32,9 +30,13 @@ import {
   findCompose,
   MINIMUM_COMPOSE_VERSION,
 } from "./docker";
-import { checkHealth } from "./health";
+import { checkHealth, withExpectedVersion } from "./health";
+import { firstUnavailablePort, viewerPorts } from "./ports";
 import type { CommandRunner } from "./process";
 import { inspectPublicReadiness } from "./public-readiness";
+import { foreignServerDetected, foreignServerMessage } from "./stack";
+
+export { firstUnavailablePort, portAvailable, suggestApiPort, viewerPorts } from "./ports";
 
 type CheckLevel = "pass" | "warn" | "fail";
 
@@ -61,42 +63,6 @@ const nearestExistingDirectory = (path: string): string => {
 };
 
 const formatBytes = (bytes: number): string => `${(bytes / 1024 ** 3).toFixed(1)} GiB`;
-
-export const portAvailable = (host: string, port: number): Promise<boolean> =>
-  new Promise((resolve) => {
-    const server = createServer();
-    server.unref();
-    (server as unknown as EventEmitter).once("error", () => resolve(false));
-    server.listen({ host, port, exclusive: true }, () => {
-      server.close(() => resolve(true));
-    });
-  });
-
-export const firstUnavailablePort = async (
-  host: string,
-  ports: readonly number[]
-): Promise<number | null> => {
-  for (const port of ports) {
-    if (!(await portAvailable(host, port))) return port;
-  }
-  return null;
-};
-
-export const viewerPorts = (): number[] => {
-  const ports: number[] = [];
-  for (let port = VIEWER_PORT_START; port <= VIEWER_PORT_END; port += 1) ports.push(port);
-  return ports;
-};
-
-export const suggestApiPort = async (host: string, preferred = API_PORT): Promise<number> => {
-  for (let offset = 0; offset < 100; offset += 1) {
-    const candidate = preferred + offset;
-    if (candidate > 65_535) break;
-    if (candidate >= VIEWER_PORT_START && candidate <= VIEWER_PORT_END) continue;
-    if (await portAvailable(host, candidate)) return candidate;
-  }
-  return preferred;
-};
 
 export const runDoctor = async (
   paths: InstallationPaths,
@@ -205,6 +171,8 @@ export const runDoctor = async (
     const project = compose?.supported
       ? new ComposeProject(paths, compose, runner, manifest?.projectName || requestedProjectName)
       : null;
+    let runningServices: Set<string> | null = null;
+    let environmentValues: ReadonlyMap<string, string> | null = null;
     if (project) {
       const validation = project.run(["config", "--quiet"]);
       checks.push({
@@ -218,6 +186,7 @@ export const runDoctor = async (
     }
     try {
       const values = parseEnvironment(readFileSync(paths.environment, "utf8"));
+      environmentValues = values;
       const requiredSecrets = [
         "OPENTEAM_POSTGRES_PASSWORD",
         "OPENTEAM_CONTROL_TOKEN",
@@ -294,7 +263,7 @@ export const runDoctor = async (
 
       if (project) {
         const running = project.run(["ps", "--status", "running", "--services"]);
-        const runningServices = new Set(
+        const services = new Set(
           running.status === 0
             ? running.stdout
                 .split(/\r?\n/)
@@ -302,9 +271,10 @@ export const runDoctor = async (
                 .filter(Boolean)
             : []
         );
+        runningServices = services;
         const expected = ["postgres", "server", "worker", "computer"];
         if (accessMode === "https") expected.push("caddy");
-        const missing = expected.filter((service) => !runningServices.has(service));
+        const missing = expected.filter((service) => !services.has(service));
         checks.push({
           level: running.status === 0 && missing.length === 0 ? "pass" : "fail",
           label: "Compose services",
@@ -344,12 +314,21 @@ export const runDoctor = async (
         detail: error instanceof Error ? error.message : String(error),
       });
     }
-    const health = await checkHealth(paths);
-    checks.push({
-      level: health.ok ? "pass" : "fail",
-      label: "OpenTeam health",
-      detail: health.ok ? `${health.detail} at ${health.url}` : `${health.url}: ${health.detail}`,
-    });
+    const probe = await checkHealth(paths);
+    const health = withExpectedVersion(probe, manifest?.version);
+    if (runningServices && environmentValues && foreignServerDetected(probe, runningServices)) {
+      checks.push({
+        level: "fail",
+        label: "OpenTeam health",
+        detail: foreignServerMessage(runner, probe, environmentValues),
+      });
+    } else {
+      checks.push({
+        level: health.ok ? "pass" : "fail",
+        label: "OpenTeam health",
+        detail: health.ok ? `${health.detail} at ${health.url}` : `${health.url}: ${health.detail}`,
+      });
+    }
     if (health.ok && health.inference) {
       checks.push({
         level: health.inference === "ready" ? "pass" : "warn",

@@ -368,3 +368,9 @@ Common problems:
   release itself is fine. Re-run the install command to pick up a fixed CLI. If you must proceed
   with the old binary, `openteam install --allow-unsigned` skips the signature check but still
   verifies the `SHA256SUMS` checksum.
+- **`Bind for 127.0.0.1:6200 failed: port is already allocated`, `Another OpenTeam server is
+  answering`, or `rejected this installation's control token`.** A different stack holds the
+  OpenTeam ports, most often the development Compose stack (`bun run compose:up`, Compose project
+  `openteam-dev`) on the same machine. The two cannot share `8787` and `6200-6299`. Stop the other
+  stack with `bun run compose:down` (or `docker compose -p openteam-dev down`), then run
+  `openteam start`. `openteam doctor` names the container that holds each port.

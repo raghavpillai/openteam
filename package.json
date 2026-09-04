@@ -19,7 +19,7 @@
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
     "check": "bun run typecheck && bun run test && bun run build && bun scripts/performance/check-desktop-budgets.ts",
-    "check:architecture": "bun scripts/check-workspace-boundaries.ts && bun scripts/check-contract-enum-parity.ts && bun scripts/check-mobile-bundle-boundary.ts && bun scripts/check-client-source-duplication.ts",
+    "check:architecture": "bun scripts/check/workspace-boundaries.ts && bun scripts/check/contract-enum-parity.ts && bun scripts/check/mobile-bundle-boundary.ts && bun scripts/check/client-source-duplication.ts",
     "test:cli:e2e": "bun scripts/test-cli-e2e.ts",
     "test:auth:e2e": "bun scripts/test-auth-e2e.ts",
     "db:generate": "bun --filter @openteam/db db:generate",

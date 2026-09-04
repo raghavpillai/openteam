@@ -29,8 +29,8 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from "../ui/dia
 import {
   renderSanitizedDocumentProgressively,
   sanitizePreviewDocument,
-} from "./document-preview-progressive-dom";
-import { parseDocumentPreview } from "./document-preview-worker-client";
+} from "./document-preview/progressive-dom";
+import { parseDocumentPreview } from "./document-preview/worker-client";
 
 export const downloadAttachments = async (attachments: readonly AssetRef[]) => {
   const files = attachments.map((attachment) => ({

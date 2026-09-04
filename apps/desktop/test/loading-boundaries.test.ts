@@ -32,29 +32,29 @@ describe("desktop loading and packaging boundaries", () => {
   });
 
   test("keeps the full emoji corpus behind the panel boundary", async () => {
-    const pickerSource = await readDesktopFile("src/renderer/components/openteam/emoji-picker.tsx");
-    const panelSource = await readDesktopFile("src/renderer/components/openteam/emoji-data.ts");
+    const pickerSource = await readDesktopFile("src/renderer/components/openteam/emoji/picker.tsx");
+    const panelSource = await readDesktopFile("src/renderer/components/openteam/emoji/data.ts");
 
     expect(pickerSource).not.toContain("emojibase-data");
-    expect(pickerSource).toContain('import("./emoji-panel")');
+    expect(pickerSource).toContain('import("./panel")');
     expect(panelSource).toContain("emojibase-data/en/compact.json");
   });
 
   test("keeps rich capabilities in independent dynamic modules", async () => {
     const richSource = await readDesktopFile(
-      "src/renderer/components/ai-elements/message-response-rich.tsx"
+      "src/renderer/components/ai-elements/message-response/rich.tsx"
     );
     const pluginSource = await readDesktopFile(
-      "src/renderer/components/ai-elements/message-response-plugins.ts"
+      "src/renderer/components/ai-elements/message-response/plugins.ts"
     );
 
     expect(richSource).not.toMatch(/from "@streamdown\/(?:cjk|code|math|mermaid)"/);
     for (const capability of ["cjk", "code", "math", "mermaid"]) {
-      expect(pluginSource).toContain(`import("./message-response-${capability}")`);
+      expect(pluginSource).toContain(`import("./${capability}")`);
     }
 
     const codeSource = await readDesktopFile(
-      "src/renderer/components/ai-elements/message-response-code.ts"
+      "src/renderer/components/ai-elements/message-response/code.ts"
     );
     expect(codeSource).not.toContain("@streamdown/code");
     expect(codeSource).not.toMatch(/from ["']shiki["']/);
@@ -161,11 +161,11 @@ describe("desktop loading and packaging boundaries", () => {
       viteSource,
     ] = await Promise.all([
       readDesktopFile("src/renderer/components/openteam/file-attachment.tsx"),
-      readDesktopFile("src/renderer/components/openteam/document-preview-worker-client.ts"),
-      readDesktopFile("src/renderer/components/openteam/document-preview.worker.ts"),
-      readDesktopFile("src/renderer/components/openteam/document-preview-progressive-dom.ts"),
-      readDesktopFile("src/renderer/components/openteam/document-preview-docx-parser.ts"),
-      readDesktopFile("src/renderer/components/openteam/document-preview-spreadsheet-parser.ts"),
+      readDesktopFile("src/renderer/components/openteam/document-preview/worker-client.ts"),
+      readDesktopFile("src/renderer/components/openteam/document-preview/preview.worker.ts"),
+      readDesktopFile("src/renderer/components/openteam/document-preview/progressive-dom.ts"),
+      readDesktopFile("src/renderer/components/openteam/document-preview/docx-parser.ts"),
+      readDesktopFile("src/renderer/components/openteam/document-preview/spreadsheet-parser.ts"),
       readDesktopFile("package.json"),
       readDesktopFile("vite.config.ts"),
     ]);
@@ -183,7 +183,7 @@ describe("desktop loading and packaging boundaries", () => {
     expect(attachmentSource).not.toContain('import("mammoth")');
     expect(attachmentSource).not.toContain('import("xlsx")');
     expect(attachmentSource).toContain("parseDocumentPreview(kind, buffer, controller.signal)");
-    expect(workerClientSource).toContain('new Worker(new URL("./document-preview.worker.ts"');
+    expect(workerClientSource).toContain('new Worker(new URL("./preview.worker.ts"');
     expect(workerClientSource).toContain("worker.terminate()");
     expect(workerClientSource).toContain("worker.postMessage({ buffer, kind }, [buffer])");
     expect(attachmentSource).toContain("sanitizePreviewDocument(html)");
@@ -196,8 +196,8 @@ describe("desktop loading and packaging boundaries", () => {
     expect(progressiveSource).toContain('name.startsWith("on")');
     expect(progressiveSource).toContain("data:image\\/");
     expect(viteSource).toContain('worker: { format: "es" }');
-    expect(workerSource).toContain('import("./document-preview-docx-parser")');
-    expect(workerSource).toContain('import("./document-preview-spreadsheet-parser")');
+    expect(workerSource).toContain('import("./docx-parser")');
+    expect(workerSource).toContain('import("./spreadsheet-parser")');
     expect(docxSource).toContain('import("mammoth")');
     expect(docxSource).not.toContain("xlsx");
     expect(tableSource).toContain('import("xlsx")');
@@ -254,24 +254,24 @@ describe("desktop loading and packaging boundaries", () => {
   test("keeps About and each Settings section in independently audited lazy modules", async () => {
     const [app, shell, general, about, measure, budgets] = await Promise.all([
       readDesktopFile("src/renderer/App.tsx"),
-      readDesktopFile("src/renderer/components/openteam/settings-panel.tsx"),
-      readDesktopFile("src/renderer/components/openteam/settings-general.tsx"),
-      readDesktopFile("src/renderer/components/openteam/settings-about.tsx"),
+      readDesktopFile("src/renderer/components/openteam/settings/panel.tsx"),
+      readDesktopFile("src/renderer/components/openteam/settings/general.tsx"),
+      readDesktopFile("src/renderer/components/openteam/settings/about.tsx"),
       Bun.file(resolve(desktopRoot, "../../scripts/performance/measure-desktop-build.ts")).text(),
       Bun.file(resolve(desktopRoot, "../../scripts/performance/check-desktop-budgets.ts")).text(),
     ]);
 
-    expect(app).toContain('import("./components/openteam/settings-about")');
-    expect(app).toContain('import("./components/openteam/settings-panel")');
-    expect(app).toContain('import("./components/openteam/settings-general")');
-    expect(app).toContain('import("./components/openteam/settings-general-bot")');
-    expect(shell).toContain('import("./settings-general")');
-    expect(shell).toContain('import("./settings-computer")');
-    expect(shell).toContain('import("./settings-server")');
-    expect(shell).toContain('import("./settings-updates")');
+    expect(app).toContain('import("./components/openteam/settings/about")');
+    expect(app).toContain('import("./components/openteam/settings/panel")');
+    expect(app).toContain('import("./components/openteam/settings/general")');
+    expect(app).toContain('import("./components/openteam/settings/general-bot")');
+    expect(shell).toContain('import("./general")');
+    expect(shell).toContain('import("./computer")');
+    expect(shell).toContain('import("./server")');
+    expect(shell).toContain('import("./updates")');
     expect(shell).toContain("attempts < 120");
     expect(shell).not.toContain("Copyright © 2026 OpenTeam contributors");
-    expect(general).toContain('import("./settings-general-bot")');
+    expect(general).toContain('import("./general-bot")');
     expect(about).toContain("Copyright © 2026 OpenTeam contributors");
 
     for (const boundary of [
@@ -309,14 +309,14 @@ describe("desktop loading and packaging boundaries", () => {
     const [app, deepLinks, responseConfig] = await Promise.all([
       readDesktopFile("src/renderer/App.tsx"),
       readDesktopFile("src/renderer/lib/app-deep-links.ts"),
-      readDesktopFile("src/renderer/components/ai-elements/message-response-config.tsx"),
+      readDesktopFile("src/renderer/components/ai-elements/message-response/config.tsx"),
     ]);
 
     expect(app).toContain("OPENTEAM_DEEP_LINK_EVENT,");
-    expect(app).not.toContain('from "./components/ai-elements/message-response-config"');
+    expect(app).not.toContain('from "./components/ai-elements/message-response/config"');
     expect(deepLinks).toContain('OPENTEAM_DEEP_LINK_EVENT = "openteam:deep-link"');
     expect(responseConfig).toContain(
-      'export { OPENTEAM_DEEP_LINK_EVENT } from "../../lib/app-deep-links"'
+      'export { OPENTEAM_DEEP_LINK_EVENT } from "../../../lib/app-deep-links"'
     );
   });
 });

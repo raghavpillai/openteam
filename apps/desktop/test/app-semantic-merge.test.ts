@@ -44,7 +44,7 @@ describe("desktop App semantic merge", () => {
       "new-bot-screen",
       "plugin-settings",
       "search-dialog",
-      "settings-panel",
+      "settings/panel",
     ]) {
       expect(app).toContain(`import("./components/openteam/${module}")`);
     }

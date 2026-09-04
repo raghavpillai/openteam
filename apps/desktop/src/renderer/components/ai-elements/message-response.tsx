@@ -4,7 +4,7 @@ import {
   messageUrlTransform,
   prepareMessageMarkdown,
   streamdownControls,
-} from "./message-response-config";
+} from "./message-response/config";
 
 export default function RichMessageResponse({ children }: { children: string }) {
   return (

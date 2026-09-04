@@ -23,7 +23,7 @@ first/last 250 ms of attachment overhead; heap collection runs outside the frame
 window. Inspect the recorded app-event count rather than assuming every action
 in a long CUA session occurred before the profiler stopped.
 
-`benchmark-client-models.ts` measures synchronous, renderer-neutral algorithms,
+`benchmark/client-models.ts` measures synchronous, renderer-neutral algorithms,
 not device interaction latency. It accepts `OPENTEAM_PERF_CORE_MODULE` and
 `OPENTEAM_PERF_NOTIFICATION_MODULE` paths to frozen baseline modules, plus
 `OPENTEAM_MODEL_SAMPLES` and `OPENTEAM_AUDIT_OUTPUT`. Alternate baseline/candidate
@@ -222,7 +222,7 @@ end-to-end and `Server-Timing` min/p50/p95/max/mean values:
 
 ```sh
 OPENTEAM_AUDIT_OUTPUT=audit/search-current.json \
-  bun scripts/performance/benchmark-search.ts
+  bun scripts/performance/benchmark/search.ts
 ```
 
 Override `OPENTEAM_PERF_BASE_URL`, `OPENTEAM_SEARCH_WARMUPS`, or
@@ -235,7 +235,7 @@ snapshot against the same heavy fixture:
 
 ```sh
 OPENTEAM_AUDIT_OUTPUT=audit/api-current.json \
-  bun scripts/performance/benchmark-api.ts
+  bun scripts/performance/benchmark/api.ts
 ```
 
 Override `OPENTEAM_API_WARMUPS` or `OPENTEAM_API_SAMPLES` to change the sample
@@ -253,7 +253,7 @@ response parity:
 OPENTEAM_AUTH_USERNAME=audit_owner \
 OPENTEAM_AUTH_PASSWORD='local-audit-password' \
 OPENTEAM_AUDIT_OUTPUT=audit/auth-overhead.json \
-  bun scripts/performance/benchmark-auth.ts
+  bun scripts/performance/benchmark/auth.ts
 ```
 
 The disabled arm defaults to `127.0.0.1:8877` and the required arm to

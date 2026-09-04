@@ -15,7 +15,7 @@ import {
 import { Prisma, type PrismaClient } from "@openteam/db";
 import { Effect } from "effect";
 import { approvalViews } from "./approval-view";
-import { subagentActivityView } from "./subagent-view";
+import { subagentActivityView } from "./subagent/view";
 import { toBotView } from "./view-mappers";
 
 const COMPUTER_ID = "00000000-0000-0000-0000-000000000001";

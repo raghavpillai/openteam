@@ -82,7 +82,7 @@ import {
 import { Schema } from "effect";
 import { Type } from "typebox";
 import { agentProcessIdentity, sanitizedAgentEnvironment } from "./agent-process";
-import { BROWSER_USE_TOOLS, BrowserUseSession } from "./browser-use";
+import { BROWSER_USE_TOOLS, BrowserUseSession } from "./browser/use";
 import { ComputerEventQueue } from "./computer-event-queue";
 import { InferenceProviderService } from "./inference-providers";
 import {

@@ -127,7 +127,7 @@ import {
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
 import { BotAvatar } from "./avatar";
-import { EmojiPanel, EmojiPicker, MoreEmojiIcon, QUICK_REACTIONS } from "./emoji-picker";
+import { EmojiPanel, EmojiPicker, MoreEmojiIcon, QUICK_REACTIONS } from "./emoji/picker";
 import { MessageImageGallery } from "./image-attachment";
 import { RichMessage } from "./rich-message";
 import { ThreadTray } from "./thread-tray";

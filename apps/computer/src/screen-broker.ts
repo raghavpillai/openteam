@@ -5,8 +5,8 @@ import { createConnection } from "node:net";
 import { join } from "node:path";
 import type { ComputerUseActionInput, ScreenActionInput } from "@openteam/contracts";
 import { agentProcessIdentity, sanitizedAgentEnvironment } from "./agent-process";
-import { BrowserBroker } from "./browser-broker";
-import { BrowserProfileAuthority } from "./browser-profile-authority";
+import { BrowserBroker } from "./browser/broker";
+import { BrowserProfileAuthority } from "./browser/profile-authority";
 
 const WIDTH = 1280;
 const HEIGHT = 800;

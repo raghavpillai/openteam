@@ -3,11 +3,11 @@ import { describe, expect, test } from "bun:test";
 const settingsSource = (
   await Promise.all(
     [
-      "settings-panel.tsx",
-      "settings-general.tsx",
-      "settings-general-bot.tsx",
-      "settings-computer.tsx",
-      "settings-updates.tsx",
+      "settings/panel.tsx",
+      "settings/general.tsx",
+      "settings/general-bot.tsx",
+      "settings/computer.tsx",
+      "settings/updates.tsx",
     ].map((file) =>
       Bun.file(new URL(`../src/renderer/components/openteam/${file}`, import.meta.url)).text()
     )

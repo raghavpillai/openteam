@@ -53,8 +53,8 @@ import { ScreenService } from "./services/screen-service";
 import { SearchService } from "./services/search-service";
 import { appendEvent } from "./services/service-utils";
 import { SnapshotService } from "./services/snapshot-service";
-import { SUBAGENT_RECOVERY_RUN_STATUSES, subagentRestartError } from "./services/subagent-recovery";
-import { SubagentService } from "./services/subagent-service";
+import { SUBAGENT_RECOVERY_RUN_STATUSES, subagentRestartError } from "./services/subagent/recovery";
+import { SubagentService } from "./services/subagent/service";
 import { TodoService } from "./services/todo-service";
 import { DurableStateService } from "./update-state";
 

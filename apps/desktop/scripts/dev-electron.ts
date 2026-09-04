@@ -45,7 +45,7 @@ const bundleCommands = [
   ],
   [
     "build",
-    "src/main/host-utility.ts",
+    "src/main/host/utility.ts",
     "--outfile",
     "dist-electron/host-utility.js",
     "--target",

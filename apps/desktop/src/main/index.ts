@@ -30,10 +30,10 @@ import {
 } from "./data-url-file";
 import { discardDeliveryFiles, readDeliveryFile, stageDeliveryFile } from "./delivery-file-stage";
 import { DurableSendJournalStore } from "./durable-send-journal-store";
-import { startHostBridge } from "./host-bridge";
-import { isAddressInUseError } from "./host-bridge-listener";
-import { HostJobManager } from "./host-job-manager";
-import type { AutoReviewMode, AutoReviewResult, HostAction } from "./host-permissions";
+import { startHostBridge } from "./host/bridge";
+import { isAddressInUseError } from "./host/bridge-listener";
+import { HostJobManager } from "./host/job-manager";
+import type { AutoReviewMode, AutoReviewResult, HostAction } from "./host/permissions";
 import {
   type DesktopAgentNotificationState,
   DesktopNotificationManager,

@@ -292,7 +292,7 @@ const readLazyClosures = async () => {
         metrics.filter(
           (metric) => metric.path.startsWith(`assets/${prefix}-`) && metric.path.endsWith(".js")
         );
-      const workerEntries = matching("document-preview.worker");
+      const workerEntries = matching("preview.worker");
       const parserEntries = matching(parserPrefix);
       if (workerEntries.length !== 1 || parserEntries.length !== 1) return null;
 
@@ -371,24 +371,24 @@ const readLazyClosures = async () => {
     };
     const boundarySources = {
       basicMarkdown: ["src/renderer/components/ai-elements/message-response.tsx"],
-      advancedRich: ["src/renderer/components/ai-elements/message-response-rich.tsx"],
+      advancedRich: ["src/renderer/components/ai-elements/message-response/rich.tsx"],
       cjk: [
-        "src/renderer/components/ai-elements/message-response-rich.tsx",
-        "src/renderer/components/ai-elements/message-response-cjk.ts",
+        "src/renderer/components/ai-elements/message-response/rich.tsx",
+        "src/renderer/components/ai-elements/message-response/cjk.ts",
       ],
       code: [
-        "src/renderer/components/ai-elements/message-response-rich.tsx",
-        "src/renderer/components/ai-elements/message-response-code.ts",
+        "src/renderer/components/ai-elements/message-response/rich.tsx",
+        "src/renderer/components/ai-elements/message-response/code.ts",
       ],
       math: [
-        "src/renderer/components/ai-elements/message-response-rich.tsx",
-        "src/renderer/components/ai-elements/message-response-math.ts",
+        "src/renderer/components/ai-elements/message-response/rich.tsx",
+        "src/renderer/components/ai-elements/message-response/math.ts",
       ],
       mermaid: [
-        "src/renderer/components/ai-elements/message-response-rich.tsx",
-        "src/renderer/components/ai-elements/message-response-mermaid.ts",
+        "src/renderer/components/ai-elements/message-response/rich.tsx",
+        "src/renderer/components/ai-elements/message-response/mermaid.ts",
       ],
-      emojiPanel: ["src/renderer/components/openteam/emoji-panel.tsx"],
+      emojiPanel: ["src/renderer/components/openteam/emoji/panel.tsx"],
       a2aExchange: ["src/renderer/components/openteam/a2a-exchange-sheet.tsx"],
       asyncTasks: ["src/renderer/components/openteam/async-tasks-panel.tsx"],
       desktopDialogs: ["src/renderer/components/openteam/desktop-dialogs.tsx"],
@@ -410,24 +410,24 @@ const readLazyClosures = async () => {
       search: ["src/renderer/components/openteam/search-dialog.tsx"],
       groupAvatarEditor: ["src/renderer/components/openteam/group-avatar-editor.tsx"],
       settingsInitial: [
-        "src/renderer/components/openteam/settings-panel.tsx",
-        "src/renderer/components/openteam/settings-general.tsx",
-        "src/renderer/components/openteam/settings-general-bot.tsx",
+        "src/renderer/components/openteam/settings/panel.tsx",
+        "src/renderer/components/openteam/settings/general.tsx",
+        "src/renderer/components/openteam/settings/general-bot.tsx",
       ],
-      settingsShell: ["src/renderer/components/openteam/settings-panel.tsx"],
-      settingsAbout: ["src/renderer/components/openteam/settings-about.tsx"],
-      settingsGeneral: ["src/renderer/components/openteam/settings-general.tsx"],
-      settingsGeneralBot: ["src/renderer/components/openteam/settings-general-bot.tsx"],
-      settingsComputer: ["src/renderer/components/openteam/settings-computer.tsx"],
-      settingsServer: ["src/renderer/components/openteam/settings-server.tsx"],
-      settingsUpdates: ["src/renderer/components/openteam/settings-updates.tsx"],
+      settingsShell: ["src/renderer/components/openteam/settings/panel.tsx"],
+      settingsAbout: ["src/renderer/components/openteam/settings/about.tsx"],
+      settingsGeneral: ["src/renderer/components/openteam/settings/general.tsx"],
+      settingsGeneralBot: ["src/renderer/components/openteam/settings/general-bot.tsx"],
+      settingsComputer: ["src/renderer/components/openteam/settings/computer.tsx"],
+      settingsServer: ["src/renderer/components/openteam/settings/server.tsx"],
+      settingsUpdates: ["src/renderer/components/openteam/settings/updates.tsx"],
     };
     const closures = Object.fromEntries(
       Object.entries(boundarySources).map(([name, suffixes]) => [name, closureFor(suffixes)])
     );
-    closures.docxPreview = await workerParserClosureFor("document-preview-docx-parser");
+    closures.docxPreview = await workerParserClosureFor("docx-parser");
     closures.spreadsheetPreview = await workerParserClosureFor(
-      "document-preview-spreadsheet-parser"
+      "spreadsheet-parser"
     );
     const coveredSources = new Set(
       Object.values(boundarySources).flatMap((suffixes) =>
@@ -452,10 +452,10 @@ const readLazyClosures = async () => {
         ).length,
         nestedDynamicGroups: {
           shikiLanguages: nestedDynamicGroupFor(
-            "src/renderer/components/ai-elements/message-response-code.ts"
+            "src/renderer/components/ai-elements/message-response/code.ts"
           ),
           mermaidDiagrams: nestedDynamicGroupFor(
-            "src/renderer/components/ai-elements/message-response-mermaid.ts"
+            "src/renderer/components/ai-elements/message-response/mermaid.ts"
           ),
         },
         uncoveredDynamicSources: dynamicSources.filter((key) => !coveredSources.has(key)),

@@ -72,7 +72,7 @@ describe("OpenTeam release compatibility", () => {
     const [main, settings] = await Promise.all([
       Bun.file(new URL("../src/main/index.ts", import.meta.url)).text(),
       Bun.file(
-        new URL("../src/renderer/components/openteam/settings-updates.tsx", import.meta.url)
+        new URL("../src/renderer/components/openteam/settings/updates.tsx", import.meta.url)
       ).text(),
     ]);
     expect(main).toContain('message: updateAvailable ? null : "You’re up to date"');

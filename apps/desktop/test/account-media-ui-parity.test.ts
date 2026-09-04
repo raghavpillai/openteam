@@ -26,7 +26,7 @@ describe("Grok account and media UI parity guards", () => {
 
   test("keeps source-verified Grok dialog and file-viewer geometry", async () => {
     const [settings, plugins, attachment, sidebar] = await Promise.all([
-      read("../src/renderer/components/openteam/settings-panel.tsx"),
+      read("../src/renderer/components/openteam/settings/panel.tsx"),
       read("../src/renderer/components/openteam/plugin-settings.tsx"),
       read("../src/renderer/components/openteam/file-attachment.tsx"),
       read("../src/renderer/components/openteam/sidebar.tsx"),
@@ -62,11 +62,11 @@ describe("Grok account and media UI parity guards", () => {
   test("keeps document previews, download-all, and media navigation wired", async () => {
     const [attachment, docxParser, tableParser, chat, image, response] = await Promise.all([
       read("../src/renderer/components/openteam/file-attachment.tsx"),
-      read("../src/renderer/components/openteam/document-preview-docx-parser.ts"),
-      read("../src/renderer/components/openteam/document-preview-spreadsheet-parser.ts"),
+      read("../src/renderer/components/openteam/document-preview/docx-parser.ts"),
+      read("../src/renderer/components/openteam/document-preview/spreadsheet-parser.ts"),
       read("../src/renderer/components/openteam/chat-pane.tsx"),
       read("../src/renderer/components/openteam/image-attachment.tsx"),
-      read("../src/renderer/components/ai-elements/message-response-config.tsx"),
+      read("../src/renderer/components/ai-elements/message-response/config.tsx"),
     ]);
 
     expect(attachment).toContain('import("pdfjs-dist")');

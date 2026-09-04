@@ -25,7 +25,7 @@ import type { DurableStateService } from "../update-state";
 import type { AdministrationService } from "./administration-service";
 import type { PluginService } from "./plugin-service";
 import { toError } from "./service-utils";
-import type { SubagentService } from "./subagent-service";
+import type { SubagentService } from "./subagent/service";
 import type { TodoService } from "./todo-service";
 
 export class InternalToolService {

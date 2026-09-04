@@ -95,7 +95,7 @@
     "clean": "bun run scripts/clean-build.ts",
     "clean:release": "bun run scripts/clean-release.ts",
     "build:main": "bun build src/main/index.ts --outdir dist-electron --entry-naming main.js --chunk-naming 'chunks/[name].[ext]' --splitting --target node --format esm --external electron",
-    "build:utility": "bun build src/main/host-utility.ts --outfile dist-electron/host-utility.js --target node --format esm --external electron",
+    "build:utility": "bun build src/main/host/utility.ts --outfile dist-electron/host-utility.js --target node --format esm --external electron",
     "build:server-updater": "bun build ../cli/src/main.ts --outfile dist-electron/openteam-cli.js --target node --format esm",
     "build:preload": "bun build src/preload/index.ts --outfile dist-electron/preload.cjs --target node --format cjs --external electron",
     "build:electron": "bun run build:main && bun run build:utility && bun run build:server-updater && bun run build:preload",

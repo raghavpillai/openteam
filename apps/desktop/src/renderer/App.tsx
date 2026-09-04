@@ -97,12 +97,12 @@ const SearchDialog = lazy(() =>
     default: module.SearchDialog,
   }))
 );
-const AboutPanel = lazy(() => import("./components/openteam/settings-about"));
+const AboutPanel = lazy(() => import("./components/openteam/settings/about"));
 const SettingsPanel = lazy(async () => {
   const [module] = await Promise.all([
-    import("./components/openteam/settings-panel"),
-    import("./components/openteam/settings-general"),
-    import("./components/openteam/settings-general-bot"),
+    import("./components/openteam/settings/panel"),
+    import("./components/openteam/settings/general"),
+    import("./components/openteam/settings/general-bot"),
   ]);
   return {
     default: module.SettingsPanel,

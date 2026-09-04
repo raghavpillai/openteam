@@ -8,8 +8,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
 import {
   advancedMessageCapabilitiesFor,
   messageNeedsAdvancedRenderer,
-} from "./message-response-capabilities";
-import { loadAdvancedMessagePlugins } from "./message-response-plugins";
+} from "./message-response/capabilities";
+import { loadAdvancedMessagePlugins } from "./message-response/plugins";
 
 export function Message({
   from,
@@ -60,7 +60,7 @@ export function MessageContent({
 }
 
 const MarkdownMessageResponse = lazy(() => import("./message-response"));
-const AdvancedMessageResponse = lazy(() => import("./message-response-rich"));
+const AdvancedMessageResponse = lazy(() => import("./message-response/rich"));
 const messageContainsDesktopMarkup = (content: string) =>
   messageContainsMarkdownSyntax(content) || /<\/?[a-z][^>]*>/i.test(content);
 export const messageNeedsMarkdown = (content: string) =>

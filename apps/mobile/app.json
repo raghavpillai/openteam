@@ -11,9 +11,7 @@
       "supportsTablet": false,
       "bundleIdentifier": "dev.openbot.mobile",
       "entitlements": {
-        "keychain-access-groups": [
-          "$(AppIdentifierPrefix)$(PRODUCT_BUNDLE_IDENTIFIER)"
-        ]
+        "keychain-access-groups": ["$(AppIdentifierPrefix)$(PRODUCT_BUNDLE_IDENTIFIER)"]
       },
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,

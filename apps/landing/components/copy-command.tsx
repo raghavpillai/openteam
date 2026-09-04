@@ -2,6 +2,7 @@
 
 import { Check, Copy } from "lucide-react";
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 
 export function CopyCommand({ command }: { command: string }) {
@@ -17,8 +18,10 @@ export function CopyCommand({ command }: { command: string }) {
     try {
       await navigator.clipboard.writeText(command);
       setCopied(true);
+      toast.success("Copied to clipboard");
     } catch {
       setCopied(false);
+      toast.error("Couldn't copy command");
     }
   };
 

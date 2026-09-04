@@ -2,6 +2,7 @@
 
 import { Check, Copy } from "lucide-react";
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -20,8 +21,9 @@ export function InstallCommand({ size = "lg" }: { size?: "lg" | "md" }) {
     try {
       await navigator.clipboard.writeText(INSTALL_COMMAND);
       setCopied(true);
+      toast.success("Copied to clipboard");
     } catch {
-      // Clipboard can be unavailable in some contexts; the command is selectable text anyway.
+      toast.error("Couldn't copy command");
     }
   };
 

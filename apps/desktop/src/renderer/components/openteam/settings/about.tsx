@@ -1,5 +1,11 @@
 import { X } from "lucide-react";
-import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from "../../ui/dialog";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "../../ui/dialog";
 
 function OpenTeamAppIcon() {
   return (

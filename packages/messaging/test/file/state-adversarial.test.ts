@@ -3,7 +3,13 @@ import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseAutomationFile, parseAutomationRuns } from "../../src/automation-files";
-import { atomicWrite, listDirectories, readBytes, readText, safeFolderId } from "../../src/file-state";
+import {
+  atomicWrite,
+  listDirectories,
+  readBytes,
+  readText,
+  safeFolderId,
+} from "../../src/file-state";
 
 test("atomic writes never expose mixed payloads or leave temporary files", async () => {
   const root = await mkdtemp(join(tmpdir(), "openteam-atomic-"));

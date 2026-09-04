@@ -426,9 +426,7 @@ const readLazyClosures = async () => {
       Object.entries(boundarySources).map(([name, suffixes]) => [name, closureFor(suffixes)])
     );
     closures.docxPreview = await workerParserClosureFor("docx-parser");
-    closures.spreadsheetPreview = await workerParserClosureFor(
-      "spreadsheet-parser"
-    );
+    closures.spreadsheetPreview = await workerParserClosureFor("spreadsheet-parser");
     const coveredSources = new Set(
       Object.values(boundarySources).flatMap((suffixes) =>
         suffixes

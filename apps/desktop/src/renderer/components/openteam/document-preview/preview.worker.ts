@@ -20,9 +20,7 @@ workerScope.onmessage = (event) => {
     assertBoundedDocumentArchive(buffer);
     return kind === "docx"
       ? import("./docx-parser").then(({ documentHtml }) => documentHtml(buffer))
-      : import("./spreadsheet-parser").then(({ spreadsheetHtml }) =>
-          spreadsheetHtml(buffer)
-        );
+      : import("./spreadsheet-parser").then(({ spreadsheetHtml }) => spreadsheetHtml(buffer));
   });
   void parse
     .then(assertBoundedDocumentHtml)

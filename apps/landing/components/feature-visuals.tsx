@@ -8,7 +8,11 @@ const frame = "rounded-[12px] border border-line bg-surface shadow-card";
 
 export function ComputerVisual() {
   return (
-    <div role="img" aria-label="A bot's Linux screen with a browser and a terminal open" className={`${frame} p-2`}>
+    <div
+      role="img"
+      aria-label="A bot's Linux screen with a browser and a terminal open"
+      className={`${frame} p-2`}
+    >
       <MiniScreen />
       <div className="mt-2 flex items-center justify-between px-1 text-[11px] text-ink-3">
         <span className="inline-flex items-center gap-1.5">
@@ -49,7 +53,11 @@ export function MemoryVisual() {
 export function ScheduleVisual() {
   const days = ["M", "T", "W", "T", "F", "S", "S"];
   return (
-    <div role="img" aria-label="A routine that runs every Monday at 9:00" className={`${frame} p-3.5`}>
+    <div
+      role="img"
+      aria-label="A routine that runs every Monday at 9:00"
+      className={`${frame} p-3.5`}
+    >
       <div className="flex items-center justify-between">
         <div>
           <div className="text-[12.5px] font-medium text-ink">Weekly quote check</div>
@@ -85,7 +93,11 @@ export function TeamVisual() {
     ["cloud", "#27baae", "Build", "Tests pass. PR is up."],
   ] as const;
   return (
-    <div role="img" aria-label="Three bots reporting into a group called Launch review" className={`${frame} p-3.5`}>
+    <div
+      role="img"
+      aria-label="Three bots reporting into a group called Launch review"
+      className={`${frame} p-3.5`}
+    >
       <div className="flex items-center gap-2 border-b border-line pb-2.5">
         <div className="flex -space-x-1.5">
           <BotAvatar shape="circle" color="#ff7a1a" size={18} />
@@ -119,7 +131,11 @@ export function FilesVisual() {
     [1, "reports", "", false],
   ];
   return (
-    <div role="img" aria-label="The shared workspace folder with a newly written recommendation file" className={`${frame} p-2`}>
+    <div
+      role="img"
+      aria-label="The shared workspace folder with a newly written recommendation file"
+      className={`${frame} p-2`}
+    >
       <ul className="space-y-0.5 font-mono text-[11.5px]">
         {rows.map(([depth, name, when, fresh]) => (
           <li

@@ -6,7 +6,13 @@ import {
   settingsViewForAnchor,
 } from "../../../lib/app-deep-links";
 import { cn } from "../../../lib/cn";
-import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from "../../ui/dialog";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "../../ui/dialog";
 
 const loadGeneralSettings = () => import("./general");
 const loadComputerSettings = () => import("./computer");

@@ -478,20 +478,32 @@ export default function Home() {
               title="More than a chat window."
               body="Chatbots forget, can't click, and stop when you close the tab. Every OpenTeam bot has what a coworker has."
             />
-            <Reveal as="ul" stagger={70} className="mt-14 grid gap-4 md:grid-cols-2 lg:grid-cols-12">
+            <Reveal
+              as="ul"
+              stagger={70}
+              className="mt-14 grid gap-4 md:grid-cols-2 lg:grid-cols-12"
+            >
               {features.map((f, i) => {
                 const wide = i === 0;
                 return (
                   <li
                     key={f.title}
-                    className={cn("flex", wide ? "md:col-span-2 lg:col-span-7" : i === 1 ? "lg:col-span-5" : "lg:col-span-3")}
+                    className={cn(
+                      "flex",
+                      wide
+                        ? "md:col-span-2 lg:col-span-7"
+                        : i === 1
+                          ? "lg:col-span-5"
+                          : "lg:col-span-3"
+                    )}
                     style={order(i)}
                   >
                     <Card className={cn(cardBase, "flex-1 [--card-spacing:--spacing(6)]")}>
                       <CardContent
                         className={cn(
                           "flex flex-1 flex-col",
-                          wide && "sm:grid sm:grid-cols-[minmax(0,5fr)_minmax(0,6fr)] sm:items-center sm:gap-8"
+                          wide &&
+                            "sm:grid sm:grid-cols-[minmax(0,5fr)_minmax(0,6fr)] sm:items-center sm:gap-8"
                         )}
                       >
                         <div>
@@ -839,7 +851,9 @@ export default function Home() {
         <div className="container-page flex flex-col gap-6 py-10 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <Wordmark size={18} />
-            <p className="mt-2 text-[13px] text-ink-3">Open source, self-hosted AI agents. Built in the open.</p>
+            <p className="mt-2 text-[13px] text-ink-3">
+              Open source, self-hosted AI agents. Built in the open.
+            </p>
           </div>
           <nav
             aria-label="Footer"

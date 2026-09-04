@@ -644,9 +644,7 @@
         "label": "bootstrap",
         "path": "/api/v0/client-bootstrap",
         "timingName": "bootstrap",
-        "bytes": [
-          1577616
-        ],
+        "bytes": [1577616],
         "ttfbMs": {
           "min": 36.469749999999976,
           "p50": 46.66141599999992,
@@ -686,9 +684,7 @@
       {
         "label": "runtime",
         "path": "/api/v0/client-runtime",
-        "bytes": [
-          110
-        ],
+        "bytes": [110],
         "ttfbMs": {
           "min": 0.29433300000005147,
           "p50": 0.3704999999999927,
@@ -722,9 +718,7 @@
       {
         "label": "history-100",
         "path": "/api/v0/channels/00afa798-6702-a4d8-ad9b-08737550b907/history?limit=100",
-        "bytes": [
-          40917
-        ],
+        "bytes": [40917],
         "ttfbMs": {
           "min": 1.6440419999998994,
           "p50": 2.4621669999999085,
@@ -759,9 +753,7 @@
         "label": "compatibility-snapshot",
         "path": "/api/v0/client-snapshot",
         "timingName": "snapshot",
-        "bytes": [
-          15799605
-        ],
+        "bytes": [15799605],
         "ttfbMs": {
           "min": 109.09604099999979,
           "p50": 127.05508399999962,

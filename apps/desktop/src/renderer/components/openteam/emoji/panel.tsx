@@ -46,7 +46,7 @@ function EmojiGrid({ onSelect, selectedEmojis, query = "" }: EmojiPanelProps & {
 
   return (
     <div
-      className="grok-scrollbar relative h-[266px] overflow-y-auto px-3 pb-3"
+      className="bot-scrollbar relative h-[266px] overflow-y-auto px-3 pb-3"
       onScroll={(event) => setScrollOffset(event.currentTarget.scrollTop)}
       ref={scrollRef}
     >

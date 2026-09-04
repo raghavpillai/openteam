@@ -258,7 +258,7 @@ test("automation parser supports paused cron, event groups, and operational runs
         trigger: { type: "cron", schedule: "0 8 * * 1-5" },
         triggerPresentation: {
           version: 2,
-          kind: "grok-time-routines",
+          kind: "bot-time-routines",
           schedules: [{ preset: "weekdays", time: "08:00" }],
         },
       })
@@ -270,7 +270,7 @@ test("automation parser supports paused cron, event groups, and operational runs
     );
     expect(presented.triggerPresentation).toEqual({
       version: 2,
-      kind: "grok-time-routines",
+      kind: "bot-time-routines",
       schedules: [{ preset: "weekdays", time: "08:00" }],
     });
 

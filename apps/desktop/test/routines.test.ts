@@ -14,7 +14,7 @@ import {
   routineTriggerValue,
 } from "../src/renderer/lib/routines";
 
-describe("Grok-compatible routine schedule editor", () => {
+describe("OpenTeam-compatible routine schedule editor", () => {
   test("round-trips every visible preset", () => {
     expect(routineScheduleValue(parseRoutineSchedule("0 * * * *"))).toBe("0 * * * *");
     expect(routineScheduleValue(parseRoutineSchedule("15 9 * * *"))).toBe("15 9 * * *");
@@ -24,7 +24,7 @@ describe("Grok-compatible routine schedule editor", () => {
     expect(routineScheduleValue(parseRoutineSchedule("@every 30m"))).toBe("@every 30m");
   });
 
-  test("builds one cron listener or a Grok-style trigger group", () => {
+  test("builds one cron listener or an OpenTeam-style trigger group", () => {
     const weekdays = parseRoutineSchedule("0 9 * * 1-5");
     const daily = parseRoutineSchedule("0 17 * * *");
     expect(routineTriggerValue([weekdays])).toEqual({ type: "cron", schedule: "0 9 * * 1-5" });
@@ -61,7 +61,7 @@ describe("Grok-compatible routine schedule editor", () => {
     expect(routineDraftValid({ name: "Audit", prompt: "", schedule: weekdays })).toBe(false);
   });
 
-  test("uses Grok's defaults and summary wording", () => {
+  test("uses Bot's defaults and summary wording", () => {
     expect(describeRoutineSchedule({ ...DEFAULT_ROUTINE_SCHEDULE, preset: "weekly" })).toBe(
       "Every Monday at 8:00 AM"
     );
@@ -108,7 +108,7 @@ describe("Grok-compatible routine schedule editor", () => {
     });
   });
 
-  test("matches Grok's advanced evenly-spaced time summary", () => {
+  test("matches Bot's advanced evenly-spaced time summary", () => {
     expect(
       describeRoutineSchedule({
         ...DEFAULT_ROUTINE_SCHEDULE,
@@ -132,7 +132,7 @@ describe("Grok-compatible routine schedule editor", () => {
     ];
     const presentation = JSON.parse(JSON.stringify(routinePresentationValue(schedules)));
     expect(routinePresentationDrafts(presentation)).toEqual(schedules);
-    expect(routinePresentationDrafts({ version: 2, kind: "grok-time-routines" })).toBeNull();
+    expect(routinePresentationDrafts({ version: 2, kind: "bot-time-routines" })).toBeNull();
     expect(
       routinePresentationDrafts({
         ...presentation,

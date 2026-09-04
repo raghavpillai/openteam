@@ -27,8 +27,8 @@ const LIVE_ROOT_ID = "sand-live-conversation-root-v1__";
 const SQLITE_MODE = 0o644;
 const LIVE_ROOT_MAX_BYTES = 8 * 1024 * 1024;
 
-export const GROK_AGENT_STORE_MAX_OPEN_AGENTS = 32;
-export const GROK_AGENT_STORE_IDLE_CLOSE_MS = 2 * 60_000;
+export const BOT_AGENT_STORE_MAX_OPEN_AGENTS = 32;
+export const BOT_AGENT_STORE_IDLE_CLOSE_MS = 2 * 60_000;
 
 const safeId = (value: string): string => {
   if (!value || value === "." || value === ".." || /[\\/\0]/.test(value)) {
@@ -175,7 +175,7 @@ export interface StoredTranscriptEntry {
   entry: Record<string, unknown>;
 }
 
-export interface GrokAgentStoreOptions {
+export interface BotAgentStoreOptions {
   maxOpenAgents?: number;
   idleCloseMs?: number;
   now?: () => number;
@@ -220,11 +220,11 @@ interface AgentLeaseContext {
 }
 
 /**
- * Grok-compatible per-agent SQLite stores. PostgreSQL and Pi remain product
+ * OpenTeam-compatible per-agent SQLite stores. PostgreSQL and Pi remain product
  * projections while these files hold the same durable, content-addressed
- * conversation envelopes and prompt snapshots exposed by the Grok box.
+ * conversation envelopes and prompt snapshots exposed by the bot host.
  */
-export class GrokAgentStore {
+export class BotAgentStore {
   private readonly root: string;
   private readonly orphanRoot: string;
   private readonly maxOpenAgents: number;
@@ -273,7 +273,7 @@ export class GrokAgentStore {
   constructor(
     root = process.env.OPENTEAM_AGENT_DATA_ROOT ?? "/home/box/agent-data",
     orphanRoot?: string,
-    options: GrokAgentStoreOptions = {}
+    options: BotAgentStoreOptions = {}
   ) {
     this.root = resolve(root);
     this.orphanRoot = resolve(
@@ -281,10 +281,10 @@ export class GrokAgentStore {
     );
     const configuredMax =
       options.maxOpenAgents ??
-      Number(process.env.OPENTEAM_MAX_OPEN_AGENT_STORES ?? GROK_AGENT_STORE_MAX_OPEN_AGENTS);
+      Number(process.env.OPENTEAM_MAX_OPEN_AGENT_STORES ?? BOT_AGENT_STORE_MAX_OPEN_AGENTS);
     const configuredIdleMs =
       options.idleCloseMs ??
-      Number(process.env.OPENTEAM_AGENT_STORE_IDLE_CLOSE_MS ?? GROK_AGENT_STORE_IDLE_CLOSE_MS);
+      Number(process.env.OPENTEAM_AGENT_STORE_IDLE_CLOSE_MS ?? BOT_AGENT_STORE_IDLE_CLOSE_MS);
     if (!Number.isFinite(configuredMax) || configuredMax < 1) {
       throw new Error("max open agent stores must be a positive number");
     }
@@ -838,7 +838,7 @@ export class GrokAgentStore {
             "utf8"
           );
           if (publication.root.byteLength > LIVE_ROOT_MAX_BYTES) {
-            throw new Error("conversation root exceeds Grok's 8 MiB publication limit");
+            throw new Error("conversation root exceeds the 8 MiB publication limit");
           }
         }
         if (publication.root) publishRoot.run(LIVE_ROOT_ID, publication.root);
@@ -1395,7 +1395,7 @@ export class GrokAgentStore {
     ownerIds.forEach(safeId);
     void minimumAgeMs;
     void this.orphanRoot;
-    // Grok treats a durable agent directory as roster authority. Unknown-but-valid
+    // A durable agent directory is roster authority. Unknown-but-valid
     // directories are returned by listAgentDirectories and adopted by the control plane.
     return [];
   }

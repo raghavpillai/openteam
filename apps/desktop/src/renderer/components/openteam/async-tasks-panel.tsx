@@ -121,7 +121,7 @@ export function AsyncTasksPanel({
           <X className="size-3.5" />
         </Button>
       </header>
-      <div className="grok-scrollbar min-h-0 flex-1 overflow-y-auto p-2" role="list">
+      <div className="bot-scrollbar min-h-0 flex-1 overflow-y-auto p-2" role="list">
         {tasks.length === 0 ? (
           <div className="grid h-full place-items-center px-6 text-center text-[13px] text-foreground-tertiary">
             No async tasks in progress.

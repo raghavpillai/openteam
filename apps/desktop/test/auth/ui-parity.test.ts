@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 const read = async (path: string) => Bun.file(new URL(path, import.meta.url)).text();
 
-describe("Grok desktop authentication UI parity", () => {
+describe("Bot desktop authentication UI parity", () => {
   test("matches the animated glass mobile onboarding treatment", async () => {
     const [source, styles] = await Promise.all([
       read("../../src/renderer/components/openteam/auth-gate.tsx"),

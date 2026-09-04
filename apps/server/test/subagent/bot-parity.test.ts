@@ -9,7 +9,7 @@ import {
   subagentTaskWake,
 } from "../../src/services/subagent/service";
 
-describe("Grok-compatible subagent launch semantics", () => {
+describe("OpenTeam-compatible subagent launch semantics", () => {
   test("passes the Task prompt through as the worker's exact job", () => {
     const input: TaskInput = {
       description: "Check a page",
@@ -35,7 +35,7 @@ describe("Grok-compatible subagent launch semantics", () => {
     expect(graphicalSubagentType("videoReview")).toBe(false);
   });
 
-  test("wraps live steering with Grok's continue-don't-restart instruction", () => {
+  test("wraps live steering with Bot's continue-don't-restart instruction", () => {
     const prompt = subagentSteerPrompt("Check the second tab too.");
     expect(prompt).toStartWith("[Steering message from the parent agent that dispatched you]");
     expect(prompt).toContain("Check the second tab too.");
@@ -44,7 +44,7 @@ describe("Grok-compatible subagent launch semantics", () => {
     );
   });
 
-  test("returns Grok's background result with a resumable external id", () => {
+  test("returns Bot's background result with a resumable external id", () => {
     const result = subagentBackgroundResult(
       "278ef2fe-2d3f-4689-bfa5-b506254f1cc3",
       "/home/box/agent-transcripts/worker.jsonl"

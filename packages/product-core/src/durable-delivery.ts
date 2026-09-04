@@ -682,7 +682,7 @@ export const parseDurableSendJournal = (
   const lineageIds = new Set<string>();
   for (const candidate of value.records) {
     const parsed = parseDurableSendRecord(candidate, Number(value.schemaVersion), expectedScope);
-    // Grok treats a partially corrupt journal as corrupt. Keeping only the
+    // Treat a partially corrupt journal as corrupt. Keeping only the
     // parseable subset can violate ordering or resend a nonce without its owner.
     if (
       !parsed ||
@@ -1096,7 +1096,7 @@ export const createDurableSendController = (
               uncertain: false,
             });
           } else {
-            // Grok marks an initially-online composition as offline when the
+            // Bot marks an initially-online composition as offline when the
             // first attachment commit is where transport loss is discovered.
             await queue(current, disposition === "offline");
           }

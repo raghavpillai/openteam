@@ -2,8 +2,8 @@ import { describe, expect, test } from "bun:test";
 
 const read = async (path: string) => Bun.file(new URL(path, import.meta.url)).text();
 
-describe("Grok account and media UI parity guards", () => {
-  test("keeps the applicable account actions in Grok's menu order", async () => {
+describe("Bot account and media UI parity guards", () => {
+  test("keeps the applicable account actions in Bot's menu order", async () => {
     const source = await read("../src/renderer/components/openteam/sidebar.tsx");
     const menuStart = source.indexOf("<DropdownMenuContent");
     const menuEnd = source.indexOf("</DropdownMenuContent>", menuStart);
@@ -24,7 +24,7 @@ describe("Grok account and media UI parity guards", () => {
     expect(source).toContain("openteam?.updates.openDownload()");
   });
 
-  test("keeps source-verified Grok dialog and file-viewer geometry", async () => {
+  test("keeps source-verified Bot dialog and file-viewer geometry", async () => {
     const [settings, plugins, attachment, sidebar] = await Promise.all([
       read("../src/renderer/components/openteam/settings/panel.tsx"),
       read("../src/renderer/components/openteam/plugin-settings.tsx"),

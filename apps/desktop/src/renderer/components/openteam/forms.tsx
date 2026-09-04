@@ -309,7 +309,7 @@ export function GroupForm({
               />
             </div>
             <div
-              className="grok-scrollbar max-h-[280px] min-h-44 overflow-y-auto py-1.5"
+              className="bot-scrollbar max-h-[280px] min-h-44 overflow-y-auto py-1.5"
               ref={botListRef}
               role="list"
             >

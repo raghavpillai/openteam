@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readdir, readFile, rm, stat, utimes, writeFile } from "
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type BoxStoreDirtyHint, type BoxStoreManifest, BoxStoreSync } from "../src/box-store-sync";
-import { GrokAgentStore } from "../src/grok-agent-store";
+import { BotAgentStore } from "../src/bot-agent-store";
 
 let root: string | null = null;
 
@@ -13,7 +13,7 @@ afterEach(async () => {
   root = null;
 });
 
-describe("Grok-compatible box-store synchronization", () => {
+describe("OpenTeam-compatible box-store synchronization", () => {
   test("stat reuse detects same-size content changes even when mtime is restored", async () => {
     root = await mkdtemp(join(tmpdir(), "openteam-box-store-signature-safety-"));
     const home = join(root, "home");
@@ -177,7 +177,7 @@ describe("Grok-compatible box-store synchronization", () => {
       mkdir(join(sourceHome, ".pi", "agent"), { recursive: true }),
       mkdir(sourceWorkspace, { recursive: true }),
     ]);
-    const stores = new GrokAgentStore(sourceSand, join(root, "orphans"));
+    const stores = new BotAgentStore(sourceSand, join(root, "orphans"));
     await stores.initializeAgent("probe");
     const directory = stores.agentDirectory("probe");
     expect(await readdir(directory)).toEqual(["store.db"]);

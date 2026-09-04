@@ -6,7 +6,7 @@ import {
   nextChannelMemberIds,
 } from "../../src/services/administration-service";
 
-describe("Grok-compatible channel administration", () => {
+describe("OpenTeam-compatible channel administration", () => {
   test("keeps the exact no-op, empty-roster, and not-found results", () => {
     expect(CHANNEL_UPDATE_NOTHING_TO_CHANGE).toBe(
       "Nothing to change: provide add_member_ids and/or remove_member_ids."

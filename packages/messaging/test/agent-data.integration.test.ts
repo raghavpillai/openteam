@@ -11,7 +11,7 @@ import { parseSkillFile } from "../src/skill-files";
 const databaseUrl = process.env.OPENTEAM_TEST_DATABASE_URL;
 const hash = (value: string) => createHash("sha256").update(value).digest("hex");
 
-test("plugin and managed skill caches use the Grok filesystem contract", async () => {
+test("plugin and managed skill caches use the Bot filesystem contract", async () => {
   const temporary = await mkdtemp(join(tmpdir(), "openteam-skill-caches-"));
   const root = join(temporary, "agent-data");
   const store = new AgentDataStore({} as never, {

@@ -62,7 +62,7 @@ interface NormalizedPaletteText {
   sourceIndices: number[];
 }
 
-/** Match Grok Bot's command-palette normalization, including accent and punctuation folding. */
+/** Match OpenTeam's command-palette normalization, including accent and punctuation folding. */
 const normalizePaletteTextWithIndices = (value: string): NormalizedPaletteText => {
   let normalized = "";
   const sourceIndices: number[] = [];

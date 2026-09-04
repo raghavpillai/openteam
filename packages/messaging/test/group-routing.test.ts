@@ -13,7 +13,7 @@ const members = [
   { id: "three", name: "QA" },
 ];
 
-describe("Grok-compatible group routing", () => {
+describe("OpenTeam-compatible group routing", () => {
   test("builds full-name-without-spaces and first-token handles", () => {
     expect(groupMemberMentionHandles("Parity Probe v3")).toEqual(["parityprobev3", "parity"]);
   });

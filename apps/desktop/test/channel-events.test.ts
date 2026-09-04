@@ -37,7 +37,7 @@ describe("channel timeline events", () => {
     expect(channelNameChangedEventFor(message({ type: "status" }))).toBeNull();
   });
 
-  test("projects durable Grok-compatible routine lifecycle events", () => {
+  test("projects durable OpenTeam-compatible routine lifecycle events", () => {
     const value = message({
       type: "event",
       event: {

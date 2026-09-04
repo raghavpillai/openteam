@@ -15,7 +15,7 @@ const base = {
   approvals: [],
 } as unknown as ClientSnapshot;
 
-describe("Grok-compatible notification transitions", () => {
+describe("OpenTeam-compatible notification transitions", () => {
   test("creates the native projection only when a sync target can consume it", () => {
     const unreadIds = new Set(["channel"]);
     const published: ReturnType<typeof desktopNotificationSnapshot>[] = [];

@@ -24,7 +24,7 @@ const attempt = (overrides: Partial<SubagentActivityView> = {}): SubagentActivit
   ...overrides,
 });
 
-describe("Grok-compatible async-task overlay", () => {
+describe("OpenTeam-compatible async-task overlay", () => {
   test("lists only active children owned by the selected parent", () => {
     expect(
       activeAsyncTasksForBot(

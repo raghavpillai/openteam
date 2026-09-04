@@ -255,7 +255,7 @@ test("live 1:1 A2A mirrors both home stores and wakes both agents without a pair
           lastRunAt: new Date("2026-08-27T19:51:57.000Z"),
           runLedger: [
             {
-              id: "grok-parity-manual-run",
+              id: "bot-parity-manual-run",
               trigger: "manual",
               startedAt: Date.parse("2026-08-27T19:51:55.000Z"),
               finishedAt: Date.parse("2026-08-27T19:51:57.000Z"),

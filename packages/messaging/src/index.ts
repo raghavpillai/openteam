@@ -45,7 +45,7 @@ export interface MessageReaction {
   emoji: string;
 }
 
-/** Grok-compatible toggle semantics: each actor may hold multiple emoji. */
+/** OpenTeam-compatible toggle semantics: each actor may hold multiple emoji. */
 export const toggleMessageReaction = (
   reactions: readonly MessageReaction[],
   emoji: string,

@@ -7,7 +7,7 @@ import { AppService } from "../src/app-service";
 
 const databaseUrl = process.env.OPENTEAM_TEST_DATABASE_URL;
 
-test("source-verified Grok A2A errors, group rows, and channel updates run end to end", async () => {
+test("source-verified Bot A2A errors, group rows, and channel updates run end to end", async () => {
   if (!databaseUrl) return;
 
   const workspace = join(tmpdir(), `openteam-a2a-contract-${crypto.randomUUID()}`);

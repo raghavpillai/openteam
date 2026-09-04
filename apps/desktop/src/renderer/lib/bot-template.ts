@@ -98,13 +98,13 @@ const base64UrlDecode = (value: string) => {
 
 export function botTemplateShareUrl(bot: TemplateBot) {
   const data = base64UrlEncode(JSON.stringify(templatePayload(bot)));
-  return `grokbot://app/v1/template/add?data=${data}`;
+  return `openteam://app/v1/template/add?data=${data}`;
 }
 
 export function parseBotTemplateShareUrl(value: string): TemplateBot | null {
   try {
     const url = new URL(value);
-    if (url.protocol !== "grokbot:" || url.hostname !== "app") return null;
+    if (url.protocol !== "openteam:" || url.hostname !== "app") return null;
     if (url.pathname !== "/v1/template/add") return null;
     const data = url.searchParams.get("data");
     if (!data || data.length > 100_000) return null;

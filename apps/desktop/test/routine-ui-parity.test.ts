@@ -16,7 +16,7 @@ const summarySource = () =>
 const rendererSource = (path: string) =>
   readFile(new URL(`../src/renderer/${path}`, import.meta.url), "utf8");
 
-describe("Grok routine UI parity", () => {
+describe("Bot routine UI parity", () => {
   test("uses shadcn controls for every routine schedule picker", async () => {
     const source = await componentSource();
 
@@ -56,7 +56,7 @@ describe("Grok routine UI parity", () => {
     expect(source).not.toContain("m: [1, 2, 5");
   });
 
-  test("preserves Grok's list ordering, empty state, and one-shot conflict rebase", async () => {
+  test("preserves Bot's list ordering, empty state, and one-shot conflict rebase", async () => {
     const [source, summary] = await Promise.all([componentSource(), summarySource()]);
 
     expect(summary).toContain(
@@ -113,7 +113,7 @@ describe("Grok routine UI parity", () => {
     expect(source.slice(updateStart, updateEnd)).not.toContain("enabled:");
   });
 
-  test("keeps the minimum-width routine toolbar inside the Grok panel geometry", async () => {
+  test("keeps the minimum-width routine toolbar inside the Bot panel geometry", async () => {
     const [routine, header] = await Promise.all([
       componentSource(),
       rendererSource("components/openteam/desktop-header.tsx"),

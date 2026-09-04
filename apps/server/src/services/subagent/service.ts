@@ -39,7 +39,7 @@ export const subagentSteerPrompt = (message: string): string =>
     "Take this into account and continue your task from where you are — do not start over.",
   ].join("\n");
 
-export const grokSubagentId = (id: string): string =>
+export const botSubagentId = (id: string): string =>
   id.startsWith("sand-subagent-") ? id : `sand-subagent-${id}`;
 
 export const openteamSubagentId = (id: string): string => id.replace(/^sand-subagent-/, "");
@@ -49,7 +49,7 @@ export const subagentBackgroundResult = (id: string, transcriptPath: string): st
     `Subagent is running in the background. If needed, you can monitor its output by tailing the transcript at: ${transcriptPath}. When you end your turn, you will be automatically sent the subagent's final response upon its completion, so do not wait for it - either end your turn or work on something else.`,
     "Do NOT mention the transcript path to the user. Do NOT try to predict the subagent's response before it replies.",
     "",
-    `Agent ID: ${grokSubagentId(id)} (can be used with the \`resume\` parameter to send a follow-up after it completes)`,
+    `Agent ID: ${botSubagentId(id)} (can be used with the \`resume\` parameter to send a follow-up after it completes)`,
   ].join("\n");
 
 type SubagentDatabase = PrismaClient | Prisma.TransactionClient;
@@ -296,7 +296,7 @@ export class SubagentService {
         throw new ApiError(409, "subagent_steer_rejected", await response.text());
       }
     }
-    return { delivered: true, subagent_id: grokSubagentId(subagent.id), run_id: dispatch.runId };
+    return { delivered: true, subagent_id: botSubagentId(subagent.id), run_id: dispatch.runId };
   }
 
   async stop(parentBotId: string, callId: string, input: StopSubagentInput) {
@@ -331,7 +331,7 @@ export class SubagentService {
         // The durable stopped state wins if the turn ended while cancellation was dispatched.
       }
     }
-    return { stopped: true, subagent_id: grokSubagentId(subagent.id), status: "stopped" };
+    return { stopped: true, subagent_id: botSubagentId(subagent.id), status: "stopped" };
   }
 
   private async launch(context: ToolContext, input: TaskInput, restoredId?: string) {
@@ -581,9 +581,9 @@ export class SubagentService {
       orderBy: { createdAt: "asc" },
     });
     const suffix = running.length
-      ? ` Currently running: ${running.map(({ id: candidate }) => grokSubagentId(candidate)).join(", ")}.`
+      ? ` Currently running: ${running.map(({ id: candidate }) => botSubagentId(candidate)).join(", ")}.`
       : " No subagents are running right now.";
-    return `No subagent "${grokSubagentId(openteamSubagentId(id))}" is currently running. It may have already finished (you're revived automatically with a finished subagent's result), or the id is wrong.${suffix}`;
+    return `No subagent "${botSubagentId(openteamSubagentId(id))}" is currently running. It may have already finished (you're revived automatically with a finished subagent's result), or the id is wrong.${suffix}`;
   }
 
   private attemptForCall(parentBotId: string, parentToolCallId: string) {
@@ -605,7 +605,7 @@ export class SubagentService {
       : [];
     const end = subagent.completedAt ?? subagent.stoppedAt ?? new Date();
     return {
-      subagent_id: grokSubagentId(subagent.id),
+      subagent_id: botSubagentId(subagent.id),
       description: subagent.description,
       subagent_type: subagent.subagentType,
       status: subagent.status,

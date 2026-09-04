@@ -9,7 +9,7 @@ import {
 } from "../src/renderer/lib/bot-template";
 
 describe("OpenTeam template sharing", () => {
-  test("ships the Grok-parity template-sharing flow", () => {
+  test("ships the bot-parity template-sharing flow", () => {
     expect(BOT_TEMPLATE_SHARING_ENABLED).toBe(true);
   });
 
@@ -41,7 +41,7 @@ describe("OpenTeam template sharing", () => {
     });
   });
 
-  test("matches Grok's fixed conversational share request", () => {
+  test("matches Bot's fixed conversational share request", () => {
     expect(BOT_TEMPLATE_REQUEST).toBe(
       "Create a template of yourself that I can share with somebody else."
     );
@@ -59,9 +59,9 @@ describe("OpenTeam template sharing", () => {
     };
     const link = botTemplateShareUrl(bot);
 
-    expect(link).toStartWith("grokbot://app/v1/template/add?data=");
+    expect(link).toStartWith("openteam://app/v1/template/add?data=");
     expect(parseBotTemplateShareUrl(link)).toEqual(bot);
     expect(parseBotTemplate(serializeBotTemplate(bot))).toEqual(bot);
-    expect(parseBotTemplateShareUrl(link.replace("grokbot:", "https:"))).toBeNull();
+    expect(parseBotTemplateShareUrl(link.replace("openteam:", "https:"))).toBeNull();
   });
 });

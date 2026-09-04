@@ -249,7 +249,7 @@ function PdfPreview({ url }: { url: string }) {
   return (
     <div
       aria-label={`${document.numPages} page PDF preview`}
-      className="grok-scrollbar h-full min-h-[360px] overflow-auto bg-[#ececec] dark:bg-[#111]"
+      className="bot-scrollbar h-full min-h-[360px] overflow-auto bg-[#ececec] dark:bg-[#111]"
       ref={scrollRef}
     >
       <div className="relative w-full" style={{ height: totalSize }}>
@@ -501,7 +501,7 @@ export function FileAttachmentCard({ attachment }: { attachment: AssetRef }) {
               <X className="size-4" />
             </button>
           </header>
-          <div className="grok-scrollbar min-h-0 overflow-auto bg-[#fcfcfc] dark:bg-[#070707]">
+          <div className="bot-scrollbar min-h-0 overflow-auto bg-[#fcfcfc] dark:bg-[#070707]">
             <LoadedDocumentPreview attachment={attachment} kind={kind} open={open} />
           </div>
         </DialogContent>

@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 const componentSource = (name: string) =>
   readFile(new URL(`../src/renderer/components/openteam/${name}.tsx`, import.meta.url), "utf8");
 
-describe("Grok group lifecycle UI parity", () => {
+describe("Bot group lifecycle UI parity", () => {
   test("matches the shipped group sidebar lifecycle menu", async () => {
     const sidebar = await componentSource("sidebar");
     const menu = sidebar.slice(
@@ -28,7 +28,7 @@ describe("Grok group lifecycle UI parity", () => {
     expect(menu.indexOf("Hide from sidebar")).toBeLessThan(menu.indexOf("> Delete"));
   });
 
-  test("uses Grok's inline append/remove member interaction", async () => {
+  test("uses Bot's inline append/remove member interaction", async () => {
     const inspector = await componentSource("inspector");
 
     expect(inspector).toContain('className="sand-group-members-section"');
@@ -49,7 +49,7 @@ describe("Grok group lifecycle UI parity", () => {
     expect(inspector).not.toContain("Round {latestRound.roundIndex + 1} of 3");
   });
 
-  test("matches Grok's hidden-agent recovery and group deletion copy", async () => {
+  test("matches Bot's hidden-agent recovery and group deletion copy", async () => {
     const [app, sidebar, dialogs] = await Promise.all([
       readFile(new URL("../src/renderer/App.tsx", import.meta.url), "utf8"),
       componentSource("sidebar"),

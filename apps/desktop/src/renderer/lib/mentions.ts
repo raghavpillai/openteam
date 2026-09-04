@@ -36,7 +36,7 @@ export const mentionRichText = (segments: readonly MentionSegment[]): string => 
   };
   for (const segment of segments) {
     if (segment.type === "mention") {
-      // Grok renders mention atoms in the composer, but persists only their
+      // Bot renders mention atoms in the composer, but persists only their
       // flattened @handle text in ProseMirror richText.
       pushText(`@${segment.handle}`);
       continue;

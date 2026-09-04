@@ -5,7 +5,7 @@ import {
   codeHighlighterCacheLimits,
   getCodeHighlighterCacheStats,
 } from "../../src/renderer/components/ai-elements/message-response/code";
-import { grokShikiTheme } from "../../src/renderer/components/ai-elements/message-response/config";
+import { botShikiTheme } from "../../src/renderer/components/ai-elements/message-response/config";
 
 type HighlightResult = NonNullable<ReturnType<typeof code.highlight>>;
 
@@ -16,7 +16,7 @@ const highlight = (source: string, language: string) =>
       clearTimeout(timeout);
       resolve(result);
     };
-    const immediate = code.highlight({ code: source, language, themes: grokShikiTheme }, finish);
+    const immediate = code.highlight({ code: source, language, themes: botShikiTheme }, finish);
     if (immediate) finish(immediate);
   });
 
@@ -46,7 +46,7 @@ describe("OpenTeam code highlighter", () => {
     const [firstResult, secondResult] = await Promise.all([first, second]);
 
     expect(secondResult).toBe(firstResult);
-    const cached = code.highlight({ code: source, language: "ts", themes: grokShikiTheme });
+    const cached = code.highlight({ code: source, language: "ts", themes: botShikiTheme });
     expect(cached).toBe(firstResult);
     expect(getCodeHighlighterCacheStats()).toMatchObject({
       highlighterEntries: 1,
@@ -58,7 +58,7 @@ describe("OpenTeam code highlighter", () => {
     const result = code.highlight({
       code: "first\nsecond",
       language: "not-a-language",
-      themes: grokShikiTheme,
+      themes: botShikiTheme,
     });
 
     expect(result?.tokens.map((line) => line[0]?.content)).toEqual(["first", "second"]);
@@ -66,7 +66,7 @@ describe("OpenTeam code highlighter", () => {
 
   test("keeps oversized supported-language fences readable without scheduling Shiki", () => {
     const source = "x".repeat(codeHighlighterCacheLimits.highlightSourceCharacters + 1);
-    const result = code.highlight({ code: source, language: "javascript", themes: grokShikiTheme });
+    const result = code.highlight({ code: source, language: "javascript", themes: botShikiTheme });
 
     expect(result?.tokens[0][0]?.content).toBe(source);
     expect(getCodeHighlighterCacheStats()).toMatchObject({

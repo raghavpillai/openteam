@@ -1,7 +1,7 @@
 import { mkdtemp, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { GrokAgentStore } from "../../../apps/computer/src/grok-agent-store";
+import { BotAgentStore } from "../../../apps/computer/src/bot-agent-store";
 import { AUTOMATION_RECONCILE_BATCH_SIZE } from "../../../apps/worker/src/worker";
 import { AgentDataStore } from "../../../packages/messaging/src/agent-data";
 
@@ -74,13 +74,13 @@ try {
     await legacyDirectoryScan(agentsRoot);
   });
 
-  const grokStore = new GrokAgentStore(temporary);
-  await grokStore.agentDirectorySnapshot({ forceRefresh: true });
-  const metricsBeforeCachedPolls = grokStore.agentDirectoryDiscoveryMetrics();
+  const botStore = new BotAgentStore(temporary);
+  await botStore.agentDirectorySnapshot({ forceRefresh: true });
+  const metricsBeforeCachedPolls = botStore.agentDirectoryDiscoveryMetrics();
   const cachedDirectorySamples = await measure(async () => {
-    await grokStore.agentDirectorySnapshot();
+    await botStore.agentDirectorySnapshot();
   });
-  const metricsAfterCachedPolls = grokStore.agentDirectoryDiscoveryMetrics();
+  const metricsAfterCachedPolls = botStore.agentDirectoryDiscoveryMetrics();
 
   let transactionCount = 0;
   const prisma = {

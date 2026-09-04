@@ -57,7 +57,7 @@ index f4fd9f37d9826a3e791f25c9ec748645a33d5616..1b8ae72153364bac1df3a4e0db79614c
 -            // Case 1: remove the failed or truncated message from agent state, compact, and
 -            // retry once. The message remains in session history but is excluded from retry context.
 -            this._overflowRecoveryAttempted = true;
-+            // Grok runs at most five model attempts for one overflowing step. The first
++            // The runtime runs at most five model attempts for one overflowing step. The first
 +            // overflow therefore leaves four post-compaction retries. A fifth overflow
 +            // still compacts the captured state, then terminates without a sixth request.
 +            const willRetryAfterCompaction = this._overflowRecoveryAttempts < 4;

@@ -51,7 +51,7 @@ const eventually = async <T>(
   );
 };
 
-test("provisioning watches preserve Grok's exact three-file creation state", async () => {
+test("provisioning watches preserve Bot's exact three-file creation state", async () => {
   if (!databaseUrl) return;
 
   const prisma = createPrismaClient(databaseUrl);

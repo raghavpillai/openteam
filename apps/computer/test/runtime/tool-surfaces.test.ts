@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { NATIVE_TOOL_NAMES } from "@openteam/contracts";
 import { BROWSER_USE_TOOLS } from "../../src/browser/use";
-import { GrokCompactionArchiveStore, GrokCompactionCoordinator } from "../../src/grok-compaction";
+import { BotCompactionArchiveStore, BotCompactionCoordinator } from "../../src/bot-compaction";
 import { HostApprovalRequiredError } from "../../src/native-tool-executor";
 import {
   CLOSING_SEND_NUDGE_PROMPT,
@@ -90,7 +90,7 @@ const subagentDynamicToolNames = (namespace: string) => {
 };
 
 describe("specialized subagent tool surfaces", () => {
-  test("uses Grok's exact delivery nudges only for user-facing wake sources", () => {
+  test("uses Bot's exact delivery nudges only for user-facing wake sources", () => {
     expect(REPLY_NUDGE_PROMPT).toContain("ack ≠ delivery");
     expect(REPLY_NUDGE_PROMPT).toEndWith("they just keep seeing silence.");
     expect(CLOSING_SEND_NUDGE_PROMPT).toEndWith(
@@ -482,7 +482,7 @@ describe("context turn reservation", () => {
     ]);
     const contextSessionId = crypto.randomUUID();
     const compactionId = crypto.randomUUID();
-    const store = new GrokCompactionArchiveStore(contextSessionsDir);
+    const store = new BotCompactionArchiveStore(contextSessionsDir);
     await store.stage(contextSessionId, {
       id: compactionId,
       reason: "approaching_token_limit",
@@ -532,21 +532,21 @@ describe("context turn reservation", () => {
       "recoverable summary",
       firstKeptEntryId,
       95_000,
-      { openteamGrokCompaction: true, id: compactionId },
+      { openteamBotCompaction: true, id: compactionId },
       true
     );
 
     const runtime = new ComputerRuntime() as unknown as {
       sessionsDir: string;
       contextSessionsDir: string;
-      compactionArchive: GrokCompactionArchiveStore;
-      compaction: GrokCompactionCoordinator;
+      compactionArchive: BotCompactionArchiveStore;
+      compaction: BotCompactionCoordinator;
       contextState(contextSessionId: string): Promise<{ epoch: number }>;
     };
     runtime.sessionsDir = sessionsDir;
     runtime.contextSessionsDir = contextSessionsDir;
     runtime.compactionArchive = store;
-    runtime.compaction = new GrokCompactionCoordinator(store, 0);
+    runtime.compaction = new BotCompactionCoordinator(store, 0);
 
     expect((await runtime.contextState(contextSessionId)).epoch).toBe(1);
     expect((await store.latest(contextSessionId))?.piBaseMessageCount).toBe(

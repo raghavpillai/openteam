@@ -34,7 +34,7 @@ describe("main-agent graphical delegation instructions", () => {
     expect(instructions).toContain("You cannot talk to the user directly");
   });
 
-  test("uses the isolated Grok worker prompt for every subagent type", async () => {
+  test("uses the isolated Bot worker prompt for every subagent type", async () => {
     for (const subagentType of [
       "executor",
       "videoReview",

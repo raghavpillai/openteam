@@ -38,7 +38,7 @@ describe("sidebar row reconciliation", () => {
     ).toBe(true);
   });
 
-  test("finds Grok's nearest unread rows outside the visible sidebar viewport", () => {
+  test("finds Bot's nearest unread rows outside the visible sidebar viewport", () => {
     expect(
       sidebarUnreadJumpTargets(
         [

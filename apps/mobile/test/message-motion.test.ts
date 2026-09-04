@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 
 const source = (path: string) => Bun.file(new URL(`../${path}`, import.meta.url)).text();
 
-test("iOS message motion preserves Grokbot entrance and acknowledgement semantics", async () => {
+test("iOS message motion preserves OpenTeam entrance and acknowledgement semantics", async () => {
   const [bubble, route, context, theme, themeTokens, deliveryPolicy] = await Promise.all([
     source("src/components/message-bubble.tsx"),
     source("app/chat/[channelId].tsx"),

@@ -135,7 +135,7 @@ export const parseAutomationFile = async (
       const presentation = object(value.triggerPresentation, "triggerPresentation");
       if (
         presentation.version === 2 &&
-        presentation.kind === "grok-time-routines" &&
+        presentation.kind === "bot-time-routines" &&
         Array.isArray(presentation.schedules) &&
         JSON.stringify(presentation).length <= 100_000
       ) {

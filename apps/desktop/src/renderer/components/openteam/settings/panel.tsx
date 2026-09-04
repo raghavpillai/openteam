@@ -157,7 +157,7 @@ export function SettingsPanel({
             </button>
           </DialogClose>
           <div
-            className="grok-scrollbar h-full overflow-y-auto px-8 pb-8 pt-8 max-sm:px-6"
+            className="bot-scrollbar h-full overflow-y-auto px-8 pb-8 pt-8 max-sm:px-6"
             ref={scrollRef}
           >
             <h2 className="mb-7 px-2 text-[17px] font-medium leading-6 tracking-[-0.018em]">

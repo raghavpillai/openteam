@@ -6,7 +6,7 @@ const productSource = () =>
   Bun.file(new URL("../../../packages/product-core/src/activity.ts", import.meta.url)).text();
 const styles = () => Bun.file(new URL("../src/renderer/styles.css", import.meta.url)).text();
 
-describe("Grok permission UI parity", () => {
+describe("Bot permission UI parity", () => {
   test("keeps the local-computer gate structurally separate from Auto-review", async () => {
     const value = await source();
     expect(value).toContain('aria-label="Local tool permission"');
@@ -34,7 +34,7 @@ describe("Grok permission UI parity", () => {
     expect(value).toContain("A rule always allowing this was added to your Auto-review settings${");
   });
 
-  test("locks the extracted Grok card tokens and pending-dock geometry", async () => {
+  test("locks the extracted Bot card tokens and pending-dock geometry", async () => {
     const value = await source();
     expect(value).toContain("gap-3 rounded-2xl bg-[#eeeeee] p-3");
     expect(value).toContain("dark:bg-[#262626]");
@@ -54,7 +54,7 @@ describe("Grok permission UI parity", () => {
     expect(value).toContain("<BotThinkingSlot");
   });
 
-  test("matches Grok's disclosure, code block, and hover-copy treatment", async () => {
+  test("matches Bot's disclosure, code block, and hover-copy treatment", async () => {
     const [value, css] = await Promise.all([source(), styles()]);
 
     expect(value).toContain("[overflow-wrap:anywhere]");

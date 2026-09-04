@@ -13,7 +13,7 @@ const asset = (fileName: string, mimeType: string, kind: AssetRef["kind"] = "fil
   kind,
 });
 
-describe("Grok-compatible attachment previews", () => {
+describe("OpenTeam-compatible attachment previews", () => {
   test("routes every supported document and media family to its renderer", () => {
     expect(attachmentPreviewKind(asset("brief.docx", "application/octet-stream"))).toBe("docx");
     expect(attachmentPreviewKind(asset("report.pdf", "application/pdf", "pdf"))).toBe("pdf");

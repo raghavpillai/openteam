@@ -6,10 +6,10 @@ import {
 } from "../src/renderer/lib/app-deep-links";
 import { botTemplateShareUrl } from "../src/renderer/lib/bot-template";
 
-describe("Grok Bot deep-link routing parity", () => {
+describe("OpenTeam deep-link routing parity", () => {
   test("accepts every documented settings anchor and resolves its exact panel", () => {
     for (const anchor of SETTINGS_ANCHORS) {
-      const parsed = parseOpenTeamDeepLink(`grokbot://app/v1/settings?id=${anchor}`);
+      const parsed = parseOpenTeamDeepLink(`openteam://app/v1/settings?id=${anchor}`);
       expect(parsed).toEqual({ kind: "settings", anchor });
       if (parsed?.kind === "settings") expect(settingsViewForAnchor(parsed.anchor)).toBeString();
     }
@@ -19,16 +19,16 @@ describe("Grok Bot deep-link routing parity", () => {
   });
 
   test("preserves the stable plugin id and rejects malformed or unsupported links", () => {
-    expect(parseOpenTeamDeepLink("grokbot://app/v1/plugin/add?id=google-calendar")).toEqual({
+    expect(parseOpenTeamDeepLink("openteam://app/v1/plugin/add?id=google-calendar")).toEqual({
       kind: "plugin",
       pluginId: "google-calendar",
     });
-    expect(parseOpenTeamDeepLink("grokbot://app/v1/settings?id=not-a-real-anchor")).toBeNull();
-    expect(parseOpenTeamDeepLink("grokbot://app/v1/settings?id=plan")).toBeNull();
-    expect(parseOpenTeamDeepLink("grokbot://app/v1/settings?id=language")).toBeNull();
-    expect(parseOpenTeamDeepLink("grokbot://app/v1/settings?id=update-channel")).toBeNull();
+    expect(parseOpenTeamDeepLink("openteam://app/v1/settings?id=not-a-real-anchor")).toBeNull();
+    expect(parseOpenTeamDeepLink("openteam://app/v1/settings?id=plan")).toBeNull();
+    expect(parseOpenTeamDeepLink("openteam://app/v1/settings?id=language")).toBeNull();
+    expect(parseOpenTeamDeepLink("openteam://app/v1/settings?id=update-channel")).toBeNull();
     expect(parseOpenTeamDeepLink("https://app/v1/settings?id=theme")).toBeNull();
-    expect(parseOpenTeamDeepLink("grokbot://app/v1/plugin/add?id=")).toBeNull();
+    expect(parseOpenTeamDeepLink("openteam://app/v1/plugin/add?id=")).toBeNull();
   });
 
   test("previews a valid shared bot template before import", () => {
@@ -46,6 +46,6 @@ describe("Grok Bot deep-link routing parity", () => {
       kind: "template",
       template,
     });
-    expect(parseOpenTeamDeepLink("grokbot://app/v1/template/add?data=broken")).toBeNull();
+    expect(parseOpenTeamDeepLink("openteam://app/v1/template/add?data=broken")).toBeNull();
   });
 });

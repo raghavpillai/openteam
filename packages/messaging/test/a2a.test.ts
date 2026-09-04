@@ -30,7 +30,7 @@ describe("agent-to-agent protocol", () => {
     );
   });
 
-  test("matches Grokbot's group empty/pass handling and 8,000-character clamp", () => {
+  test("matches OpenTeam's group empty/pass handling and 8,000-character clamp", () => {
     expect(clampAgentMessage(`  ${"x".repeat(8_005)}  `)).toBe("x".repeat(8_000));
     expect(normalizeGroupAgentMessage(" \n\t ")).toEqual({ status: "empty", content: "" });
     for (const pass of ["pass", "PASS", "(pass)", "( pass )."]) {
@@ -42,7 +42,7 @@ describe("agent-to-agent protocol", () => {
     });
   });
 
-  test("matches Grokbot's direct-agent wake byte-for-byte when no routines exist", () => {
+  test("matches OpenTeam's direct-agent wake byte-for-byte when no routines exist", () => {
     const wake = directAgentWake({
       senderId: "fd4b1bd8-d320-4653-a765-95254b1fa570",
       senderName: "Test #2",
@@ -60,7 +60,7 @@ Test #2: Reply with exactly: "done"
 If it needs a reply or an action, handle it: reply to Test #2 with SendToAgent (their id: fd4b1bd8-d320-4653-a765-95254b1fa570), which reaches them on a later turn — not a live back-and-forth — and use SendToUser to tell your user only when you have a real result to share. If it is just an FYI with nothing for you to do, it is fine to stay silent — no need to reply just to acknowledge it.`);
   });
 
-  test("matches Grokbot's direct image wake list byte-for-byte", () => {
+  test("matches OpenTeam's direct image wake list byte-for-byte", () => {
     expect(
       directAgentWake({
         senderId: "agent-1",
@@ -82,14 +82,14 @@ Local image files are shown to you alongside this message. To pass one on, re-at
 If it needs a reply or an action, handle it: reply to Planner with SendToAgent (their id: agent-1), which reaches them on a later turn — not a live back-and-forth — and use SendToUser to tell your user only when you have a real result to share. If it is just an FYI with nothing for you to do, it is fine to stay silent — no need to reply just to acknowledge it.`);
   });
 
-  test("matches Grokbot's source-verified group-turn envelope", () => {
+  test("matches OpenTeam's source-verified group-turn envelope", () => {
     expect(
       buildGroupTurnPrompt({
         groupName: "Testing",
-        targetId: "grok",
-        targetName: "Grok",
+        targetId: "bot",
+        targetName: "Bot",
         members: [
-          { id: "grok", name: "Grok" },
+          { id: "bot", name: "Bot" },
           { id: "test-2", name: "Test #2" },
         ],
         messages: [
@@ -104,7 +104,7 @@ If it needs a reply or an action, handle it: reply to Planner with SendToAgent (
 New messages in the room (oldest first):
 User: Do you guys have access to my chats that i've sent to you? or are you guys just running off memories?
 
-It's your turn, Grok. Reply in character with SendToUser if you have something worth adding; if you don't, end your turn without sending anything.`);
+It's your turn, Bot. Reply in character with SendToUser if you have something worth adding; if you don't, end your turn without sending anything.`);
   });
 
   test("formats group reply, participant, attachment, and wind-down variants", () => {
@@ -115,8 +115,8 @@ It's your turn, Grok. Reply in character with SendToUser if you have something w
         targetName: "Test #2",
         members: [
           {
-            id: "grok",
-            name: "Grok",
+            id: "bot",
+            name: "Bot",
             description: "The user works with Workspace every day.",
           },
           { id: "test-2", name: "Test #2" },
@@ -124,7 +124,7 @@ It's your turn, Grok. Reply in character with SendToUser if you have something w
         messages: [
           {
             sender: "agent",
-            senderName: "Grok",
+            senderName: "Bot",
             content: "Same here.",
             reply: { sender: "user", content: "Can you both confirm?" },
           },
@@ -132,7 +132,7 @@ It's your turn, Grok. Reply in character with SendToUser if you have something w
         wrappingUp: true,
       })
     ).toContain(
-      'Participants: Grok (The user works with Workspace every day.)\nNew messages in the room (oldest first):\nGrok: [in reply to User: "Can you both confirm?"] Same here.'
+      'Participants: Bot (The user works with Workspace every day.)\nNew messages in the room (oldest first):\nBot: [in reply to User: "Can you both confirm?"] Same here.'
     );
     expect(
       buildGroupTurnPrompt({
@@ -148,7 +148,7 @@ It's your turn, Grok. Reply in character with SendToUser if you have something w
     );
   });
 
-  test("uses Grokbot's viewer/user labels and 8,000-character reply quote cap", () => {
+  test("uses OpenTeam's viewer/user labels and 8,000-character reply quote cap", () => {
     const prompt = buildGroupTurnPrompt({
       groupName: "Testing",
       targetId: "self",
@@ -181,11 +181,11 @@ It's your turn, Grok. Reply in character with SendToUser if you have something w
     expect(prompt).not.toContain("x".repeat(8_001));
   });
 
-  test("prepends the exact Grokbot automation status reminder", () => {
+  test("prepends the exact OpenTeam automation status reminder", () => {
     const wake = directAgentWake({
       senderId: "57d95f5a-e68f-48a0-bba0-409b086f5da8",
       senderName: "a2a",
-      message: "GROK_A2A_REF — reply with exactly ACK GROK_A2A_REF",
+      message: "BOT_A2A_REF — reply with exactly ACK BOT_A2A_REF",
       priority: false,
       interrupted: false,
       routineStatuses: [
@@ -238,7 +238,7 @@ Current routine runtime status. This snapshot is authoritative for this turn and
     );
   });
 
-  test("uses Grokbot's exact room-turn message-limit notice", () => {
+  test("uses OpenTeam's exact room-turn message-limit notice", () => {
     expect(GROUP_MEMBER_TURN_MESSAGE_LIMIT_NOTICE).toBe(
       "Not delivered — you've reached this room turn's 3-message limit. Consolidate, or wait for your next turn."
     );

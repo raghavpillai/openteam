@@ -19,10 +19,10 @@ const executionAt = (when: Date): RoutineExecutionView => ({
   createdAt: when.toISOString(),
 });
 
-describe("Grok-compatible routine execution times", () => {
+describe("OpenTeam-compatible routine execution times", () => {
   const now = new Date(2026, 7, 31, 12, 50, 0);
 
-  test("uses Grok's recent relative labels", () => {
+  test("uses Bot's recent relative labels", () => {
     expect(formatRoutineExecutionTime(executionAt(new Date(2026, 7, 31, 12, 49, 31)), now)).toBe(
       "Just now"
     );
@@ -34,7 +34,7 @@ describe("Grok-compatible routine execution times", () => {
     );
   });
 
-  test("uses Grok's calendar labels for older runs", () => {
+  test("uses Bot's calendar labels for older runs", () => {
     expect(
       formatRoutineExecutionTime(executionAt(new Date(2026, 7, 31, 9, 15, 0)), now, "en-US")
     ).toBe("Today at 9:15 AM");

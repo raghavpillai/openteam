@@ -354,7 +354,7 @@ function MarketplaceView({
           </button>
         ))}
       </div>
-      <div className="grok-scrollbar mt-6 h-[468px] overflow-y-auto pr-1">
+      <div className="bot-scrollbar mt-6 h-[468px] overflow-y-auto pr-1">
         {groupedHome ? (
           <MarketplaceHome busy={busy} data={data} onInstall={onInstall} onOpen={onOpen} />
         ) : filtered.length ? (
@@ -485,7 +485,7 @@ function InstalledView({
         <ChevronLeft className="size-3.5" /> Back to Marketplace
       </button>
       <SearchField onChange={setQuery} query={query} />
-      <div className="grok-scrollbar mt-7 h-[514px] overflow-y-auto pr-1">
+      <div className="bot-scrollbar mt-7 h-[514px] overflow-y-auto pr-1">
         <section>
           <SectionHeading>Installed</SectionHeading>
           <div className="mt-2 max-w-[390px] space-y-0.5">
@@ -1302,7 +1302,7 @@ function PluginDetail({
   const shareUrl =
     plugin.sourceUrl ??
     plugin.homepageUrl ??
-    `grokbot://app/v1/plugin/add?id=${encodeURIComponent(plugin.key)}`;
+    `openteam://app/v1/plugin/add?id=${encodeURIComponent(plugin.key)}`;
   const sharePlugin = async () => {
     try {
       if (navigator.share) {
@@ -1317,7 +1317,7 @@ function PluginDetail({
     }
   };
   return (
-    <div className="grok-scrollbar h-[624px] overflow-y-auto px-8 pb-8">
+    <div className="bot-scrollbar h-[624px] overflow-y-auto px-8 pb-8">
       <div className="flex items-start gap-3 pt-1">
         <PluginMark logoUrl={plugin.logoUrl} name={plugin.name} size="lg" />
         <div className="min-w-0 flex-1 pt-1">

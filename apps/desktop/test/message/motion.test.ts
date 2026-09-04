@@ -5,7 +5,7 @@ const rendererSource = (path: string) =>
 const productCoreSource = (path: string) =>
   Bun.file(new URL(`../../../../packages/product-core/src/${path}`, import.meta.url)).text();
 
-test("message entrance and acknowledgement motion match Grokbot", async () => {
+test("message entrance and acknowledgement motion match OpenTeam", async () => {
   const [styles, chatPane, message, threadTray, promptInput, durableSends, durableDelivery] =
     await Promise.all([
       rendererSource("styles.css"),
@@ -78,7 +78,7 @@ test("message entrance and acknowledgement motion match Grokbot", async () => {
   expect(durableDelivery).toContain('if (phase === "failed") return "Failed to send"');
 });
 
-test("message bubble geometry and grouping match Grokbot", async () => {
+test("message bubble geometry and grouping match OpenTeam", async () => {
   const [styles, chatPane, message] = await Promise.all([
     rendererSource("styles.css"),
     rendererSource("components/openteam/chat-pane.tsx"),

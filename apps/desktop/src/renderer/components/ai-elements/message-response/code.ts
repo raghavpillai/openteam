@@ -9,7 +9,7 @@ import {
 import { createJavaScriptRegexEngine } from "shiki/engine/javascript";
 import { bundledLanguages, bundledLanguagesInfo } from "shiki/langs";
 import type { CodeHighlighterPlugin, ThemeInput as StreamdownThemeInput } from "streamdown";
-import { grokShikiTheme } from "./config";
+import { botShikiTheme } from "./config";
 
 const TOKEN_CACHE_ENTRY_LIMIT = 192;
 const TOKEN_CACHE_COST_LIMIT = 8 * 1024 * 1024;
@@ -323,7 +323,7 @@ export const code: CodeHighlighterPlugin = {
   name: "shiki",
   type: "code-highlighter",
   getSupportedLanguages: () => Array.from(supportedLanguages),
-  getThemes: () => grokShikiTheme,
+  getThemes: () => botShikiTheme,
   supportsLanguage: (language) => supportedLanguages.has(normalizeLanguage(language)),
   highlight({ code: source, language, themes }, callback) {
     const normalizedLanguage = normalizeLanguage(language);

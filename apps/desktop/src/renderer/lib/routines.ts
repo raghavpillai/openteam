@@ -340,7 +340,7 @@ export const routinePresentationDrafts = (presentation: unknown): RoutineSchedul
   const value = presentation as { version?: unknown; kind?: unknown; schedules?: unknown };
   if (
     value.version !== 2 ||
-    value.kind !== "grok-time-routines" ||
+    value.kind !== "bot-time-routines" ||
     !Array.isArray(value.schedules)
   ) {
     return null;
@@ -355,7 +355,7 @@ export const routinePresentationValue = (
   schedules: readonly RoutineScheduleDraft[]
 ): Record<string, unknown> => ({
   version: 2,
-  kind: "grok-time-routines",
+  kind: "bot-time-routines",
   schedules,
 });
 

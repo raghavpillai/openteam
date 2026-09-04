@@ -11,7 +11,7 @@ const mobileComponentPath = new URL(
   import.meta.url
 );
 
-describe("Grok rich-message visual contract", () => {
+describe("Bot rich-message visual contract", () => {
   test("uses the renderer-matched card, option panel, and field geometry", async () => {
     const source = await readFile(componentPath, "utf8");
 
@@ -40,7 +40,7 @@ describe("Grok rich-message visual contract", () => {
     expect(source).toContain("minHeight: 32");
   });
 
-  test("matches Grok's entrance and conditional-submit motion", async () => {
+  test("matches Bot's entrance and conditional-submit motion", async () => {
     const source = await readFile(stylesPath, "utf8");
 
     expect(source).toContain("translateY(8px) scale(0.985)");
@@ -50,7 +50,7 @@ describe("Grok rich-message visual contract", () => {
     expect(source).toContain("120ms ease-out");
   });
 
-  test("keeps Grok's literal widget copy and accessibility contract on both clients", async () => {
+  test("keeps Bot's literal widget copy and accessibility contract on both clients", async () => {
     const [desktop, mobile] = await Promise.all([
       readFile(componentPath, "utf8"),
       readFile(mobileComponentPath, "utf8"),
@@ -68,7 +68,7 @@ describe("Grok rich-message visual contract", () => {
     expect(desktop).toContain('title="Dismiss without answering"');
   });
 
-  test("keeps Grok's secure-request copy and field treatment on both clients", async () => {
+  test("keeps Bot's secure-request copy and field treatment on both clients", async () => {
     const [desktop, mobile] = await Promise.all([
       readFile(componentPath, "utf8"),
       readFile(mobileComponentPath, "utf8"),

@@ -335,7 +335,7 @@ export function Composer({
 
   useEffect(() => {
     if (!draftReady || !recovery) return;
-    // Mirror Grok's parked-draft behavior: a cancelled queued send never
+    // Mirror Bot's parked-draft behavior: a cancelled queued send never
     // overwrites work the user has already started in the composer.
     if (text.trim() || attachments.length > 0 || replyTarget) return;
     draftHydrationGuardRef.current.markEdited("text");

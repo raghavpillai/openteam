@@ -92,21 +92,21 @@ import {
   resolveDynamicTool,
 } from "./dynamic-tool-gateway";
 import { assertGraphicalShellBoundary } from "./graphical-shell-policy";
-import type { GrokAgentStore } from "./grok-agent-store";
+import type { BotAgentStore } from "./bot-agent-store";
 import {
-  countGrokImages,
-  GROK_IMAGE_TRIGGER,
-  GrokCompactionArchiveStore,
-  GrokCompactionCoordinator,
-  type GrokMessage,
-  type GrokSummaryRequest,
-  type GrokSummaryResult,
-  grokPiPersistReserve,
-  grokSummaryPrompt,
-  grokSummarySystemPrompt,
-  grokUserInfoMessage,
-  replaceGrokUserInfo,
-} from "./grok-compaction";
+  countBotImages,
+  BOT_IMAGE_TRIGGER,
+  BotCompactionArchiveStore,
+  BotCompactionCoordinator,
+  type BotMessage,
+  type BotSummaryRequest,
+  type BotSummaryResult,
+  botPiPersistReserve,
+  botSummaryPrompt,
+  botSummarySystemPrompt,
+  botUserInfoMessage,
+  replaceBotUserInfo,
+} from "./bot-compaction";
 import {
   HostApprovalRequiredError,
   type HostApprovalTokens,
@@ -304,7 +304,7 @@ interface ActiveTurn {
   reasoning: PiReasoningLevel;
   cwd: string;
   instructions: string;
-  userInfoMessage: GrokMessage | null;
+  userInfoMessage: BotMessage | null;
   todoUpdate: string | null;
   automationTrigger: string | null;
   resetSelfSummaryCount: boolean;
@@ -541,15 +541,15 @@ export class ComputerRuntime {
     () => this.requireModelRuntime(),
     join(this.agentDir, "models.json")
   );
-  private readonly compactionArchive = new GrokCompactionArchiveStore(this.contextSessionsDir);
-  private readonly compaction = new GrokCompactionCoordinator(this.compactionArchive);
+  private readonly compactionArchive = new BotCompactionArchiveStore(this.contextSessionsDir);
+  private readonly compaction = new BotCompactionCoordinator(this.compactionArchive);
   private authenticated = false;
   private authentication: { type: "api_key" | "oauth"; source?: string } | undefined;
   private started = false;
 
   constructor(
     private readonly screens = new ScreenBroker(),
-    private readonly grokStore?: GrokAgentStore,
+    private readonly botStore?: BotAgentStore,
     private readonly onTurnEnd?: (dirty: {
       botId: string;
       screenBotId: string;
@@ -677,7 +677,7 @@ export class ComputerRuntime {
       cwd: request.cwd,
       instructions: request.instructions,
       userInfoMessage: request.userInfo
-        ? grokUserInfoMessage(request.userInfo, request.userInfoEpoch ?? 0)
+        ? botUserInfoMessage(request.userInfo, request.userInfoEpoch ?? 0)
         : null,
       todoUpdate: request.todoUpdate ?? null,
       automationTrigger: request.automationTrigger ?? null,
@@ -714,29 +714,29 @@ export class ComputerRuntime {
       if (!authentication) {
         throw new Error(`Pi inference provider ${modelRef.providerId} is not configured`);
       }
-      await this.grokStore?.openForWake(active.botId);
-      await this.grokStore?.recordRequestId(active.botId, active.runId);
-      await this.grokStore?.appendConversationEnvelope(active.botId, {
+      await this.botStore?.openForWake(active.botId);
+      await this.botStore?.recordRequestId(active.botId, active.runId);
+      await this.botStore?.appendConversationEnvelope(active.botId, {
         role: "system",
         content: active.instructions,
         contextSessionId: active.contextSessionId,
         turnId: active.turnId,
       });
       if (request.agentProfileSnapshot) {
-        await this.grokStore?.setPromptSnapshot(
+        await this.botStore?.setPromptSnapshot(
           active.botId,
           "agentProfilePromptSnapshot",
           request.agentProfileSnapshot
         );
       }
       if (request.memorySnapshot) {
-        await this.grokStore?.setPromptSnapshot(
+        await this.botStore?.setPromptSnapshot(
           active.botId,
           "memoryPromptSnapshot",
           request.memorySnapshot
         );
       }
-      await this.grokStore?.appendConversationEnvelope(active.botId, {
+      await this.botStore?.appendConversationEnvelope(active.botId, {
         role: "user",
         content: request.content,
         images: request.images?.length ?? 0,
@@ -833,7 +833,7 @@ export class ComputerRuntime {
         return [];
       }
       const details = entry.details as Record<string, unknown>;
-      return details.openteamGrokCompaction === true && typeof details.id === "string"
+      return details.openteamBotCompaction === true && typeof details.id === "string"
         ? [details.id]
         : [];
     });
@@ -1097,7 +1097,7 @@ export class ComputerRuntime {
     if (!modelRuntime) throw new Error("Pi model runtime is not initialized");
     const model = this.resolveModel(modelRef);
     const thinkingLevel = clampThinkingLevel(model, active.reasoning);
-    const persistReserve = grokPiPersistReserve(model.contextWindow ?? 0);
+    const persistReserve = botPiPersistReserve(model.contextWindow ?? 0);
     const settingsManager = SettingsManager.inMemory({
       defaultProvider: modelRef.providerId,
       defaultModel: modelRef.modelId,
@@ -1143,17 +1143,17 @@ export class ComputerRuntime {
     sessionManager: SessionManager,
     active: ActiveTurn
   ): { name: string; hidden: boolean; factory: ExtensionFactory } {
-    const infer = (request: GrokSummaryRequest, signal: AbortSignal) =>
+    const infer = (request: BotSummaryRequest, signal: AbortSignal) =>
       this.inferCompaction(active, request, signal);
     return {
-      name: "openteam-grok-compaction",
+      name: "openteam-bot-compaction",
       hidden: true,
       factory: (pi) => {
         pi.on("context", async (event) => {
           const usage = active.session?.getContextUsage();
           const messages = await this.compaction.modelContextMessages({
             contextSessionId: active.contextSessionId,
-            piMessages: event.messages as GrokMessage[],
+            piMessages: event.messages as BotMessage[],
             systemPrompt: active.instructions,
             userInfoMessage: active.userInfoMessage,
             usedTokens: usage?.tokens ?? null,
@@ -1187,7 +1187,7 @@ export class ComputerRuntime {
           const usage = active.session.getContextUsage();
           await this.compaction.observe({
             contextSessionId: active.contextSessionId,
-            piMessages: active.session.messages as GrokMessage[],
+            piMessages: active.session.messages as BotMessage[],
             systemPrompt: active.instructions,
             userInfoMessage: active.userInfoMessage,
             usedTokens: usage?.tokens ?? null,
@@ -1202,7 +1202,7 @@ export class ComputerRuntime {
         pi.on("session_before_compact", async (event) => {
           const prepared = await this.compaction.beforePiCompaction({
             contextSessionId: active.contextSessionId,
-            piMessages: sessionManager.buildSessionContext().messages as GrokMessage[],
+            piMessages: sessionManager.buildSessionContext().messages as BotMessage[],
             reason: event.reason,
             firstKeptEntryId: event.preparation.firstKeptEntryId,
             tokensBefore: event.preparation.tokensBefore,
@@ -1218,7 +1218,7 @@ export class ComputerRuntime {
           return prepared ? { compaction: prepared as never } : { cancel: true };
         });
         pi.on("session_compact", async (event) => {
-          const piMessages = sessionManager.buildSessionContext().messages as GrokMessage[];
+          const piMessages = sessionManager.buildSessionContext().messages as BotMessage[];
           const retryError = event.willRetry ? piMessages.at(-1) : undefined;
           const piBaseMessageCount =
             retryError?.role === "assistant" &&
@@ -1256,28 +1256,28 @@ export class ComputerRuntime {
 
   private async inferCompaction(
     active: ActiveTurn,
-    request: GrokSummaryRequest,
+    request: BotSummaryRequest,
     signal: AbortSignal
-  ): Promise<GrokSummaryResult> {
+  ): Promise<BotSummaryResult> {
     const modelRuntime = this.modelRuntime;
     if (!modelRuntime) throw new Error("Pi model runtime is not initialized");
     const model = this.resolveModel(active.modelRef);
     const thinkingLevel = clampThinkingLevel(model, active.reasoning);
     if (signal.aborted) throw new DOMException("Compaction aborted", "AbortError");
 
-    // Grok's summarization wrapper sends the normal model-visible schemas through
+    // The summarization wrapper sends the normal model-visible schemas through
     // a stream-only session. Calling the model runtime directly gives us the same
     // surface while making tool execution structurally impossible.
     const result = await modelRuntime.completeSimple(
       model,
       {
-        systemPrompt: grokSummarySystemPrompt(request.systemPrompt),
+        systemPrompt: botSummarySystemPrompt(request.systemPrompt),
         messages: [
           ...(request.userInfoMessage ? [request.userInfoMessage] : []),
           ...request.messagesToSummarize,
           {
             role: "user",
-            content: [{ type: "text", text: grokSummaryPrompt(request.shorter) }],
+            content: [{ type: "text", text: botSummaryPrompt(request.shorter) }],
             timestamp: Date.now(),
           },
         ] as never,
@@ -1289,7 +1289,7 @@ export class ComputerRuntime {
       }
     );
     if (signal.aborted) throw new DOMException("Compaction aborted", "AbortError");
-    // The coordinator owns Grok's special empty-output retry path.
+    // The coordinator owns the special empty-output retry path.
     return {
       text: textFromContent(result.content),
       usage: result.usage as never,
@@ -2006,14 +2006,14 @@ export class ComputerRuntime {
           });
         }
       }
-      const completedContext = replaceGrokUserInfo(
+      const completedContext = replaceBotUserInfo(
         await this.compaction.contextMessages(
           active.contextSessionId,
-          session.messages as GrokMessage[]
+          session.messages as BotMessage[]
         ),
         active.userInfoMessage
       );
-      const imagePersist = countGrokImages(completedContext) >= GROK_IMAGE_TRIGGER;
+      const imagePersist = countBotImages(completedContext) >= BOT_IMAGE_TRIGGER;
       const projectedReason = this.compaction.projectedReason(active.contextSessionId);
       const projectedCommit = this.compaction.consumeProjectedCommit(active.contextSessionId);
       if (!projectedCommit && (imagePersist || projectedReason) && completedContext.length >= 3) {
@@ -2045,8 +2045,8 @@ export class ComputerRuntime {
     } finally {
       this.compaction.discardBackground(active.contextSessionId);
       this.attachSession(active);
-      if (this.grokStore) {
-        await this.grokStore
+      if (this.botStore) {
+        await this.botStore
           .recordTurnSettlement(active.botId, {
             turnId: active.turnId,
             status,
@@ -2128,7 +2128,7 @@ export class ComputerRuntime {
       active.lastStopReason = message.stopReason ?? null;
       active.lastErrorMessage = message.errorMessage ?? null;
       const text = textFromContent(message.content);
-      void this.grokStore?.appendConversationEnvelope(active.botId, {
+      void this.botStore?.appendConversationEnvelope(active.botId, {
         role: "assistant",
         content: message.content,
         stopReason: message.stopReason ?? null,
@@ -2175,7 +2175,7 @@ export class ComputerRuntime {
         void this.compaction
           .observe({
             contextSessionId: active.contextSessionId,
-            piMessages: active.session.messages as GrokMessage[],
+            piMessages: active.session.messages as BotMessage[],
             systemPrompt: active.instructions,
             userInfoMessage: active.userInfoMessage,
             usedTokens: usage.tokens,

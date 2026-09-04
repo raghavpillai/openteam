@@ -117,7 +117,7 @@ describe("routine schedules", () => {
     ).toThrow("only support time-based schedules");
   });
 
-  test("matches Grok wall-clock behavior through DST gaps and folds", () => {
+  test("matches Bot wall-clock behavior through DST gaps and folds", () => {
     const springGap = normalizeRoutineSchedule("30 2 * * *", "Asia/Jerusalem", {
       enforceMinimum: false,
     });

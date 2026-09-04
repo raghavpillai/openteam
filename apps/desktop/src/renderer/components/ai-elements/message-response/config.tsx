@@ -12,7 +12,7 @@ import { OPENTEAM_DEEP_LINK_EVENT } from "../../../lib/app-deep-links";
 export { OPENTEAM_DEEP_LINK_EVENT } from "../../../lib/app-deep-links";
 
 const SANITIZED_MESSAGE_LINK_PREFIX = "streamdown:sand-msg:";
-const SANITIZED_GROK_BOT_LINK_PREFIX = "streamdown:grokbot:";
+const SANITIZED_OPENTEAM_LINK_PREFIX = "streamdown:openteam:";
 
 export const streamdownControls: ControlsConfig = {
   code: { copy: true, download: false },
@@ -21,8 +21,8 @@ export const streamdownControls: ControlsConfig = {
   table: false,
 };
 
-const grokLightTheme = {
-  name: "grok-light",
+const botLightTheme = {
+  name: "bot-light",
   type: "light",
   colors: {
     "editor.background": "#fcfcfc",
@@ -75,9 +75,9 @@ const grokLightTheme = {
   ],
 } satisfies ThemeInput;
 
-export const grokShikiTheme: [ThemeInput, ThemeInput] = [grokLightTheme, "github-dark"];
+export const botShikiTheme: [ThemeInput, ThemeInput] = [botLightTheme, "github-dark"];
 
-export const grokMermaidOptions: MermaidOptions = {
+export const botMermaidOptions: MermaidOptions = {
   config: {
     theme: "base",
     themeVariables: {
@@ -108,10 +108,10 @@ const normalizeLatexDelimiters = (markdown: string) =>
 export const prepareMessageMarkdown = (markdown: string) =>
   normalizeLatexDelimiters(markdown)
     .replace(/(\]\(\s*)sand-msg:/gi, `$1${SANITIZED_MESSAGE_LINK_PREFIX}`)
-    .replace(/(\]\(\s*)grokbot:/gi, `$1${SANITIZED_GROK_BOT_LINK_PREFIX}`);
+    .replace(/(\]\(\s*)openteam:/gi, `$1${SANITIZED_OPENTEAM_LINK_PREFIX}`);
 
 export const messageUrlTransform: UrlTransform = (url, key, node) =>
-  url.startsWith(SANITIZED_MESSAGE_LINK_PREFIX) || url.startsWith(SANITIZED_GROK_BOT_LINK_PREFIX)
+  url.startsWith(SANITIZED_MESSAGE_LINK_PREFIX) || url.startsWith(SANITIZED_OPENTEAM_LINK_PREFIX)
     ? url
     : defaultUrlTransform(url, key, node);
 
@@ -160,11 +160,11 @@ function MessageLink({ children, className, href, node: _node, ...props }: Markd
     );
   }
 
-  const grokBotPath = href?.startsWith(SANITIZED_GROK_BOT_LINK_PREFIX)
-    ? href.slice(SANITIZED_GROK_BOT_LINK_PREFIX.length)
+  const openTeamPath = href?.startsWith(SANITIZED_OPENTEAM_LINK_PREFIX)
+    ? href.slice(SANITIZED_OPENTEAM_LINK_PREFIX.length)
     : null;
-  if (grokBotPath) {
-    const url = `grokbot:${grokBotPath}`;
+  if (openTeamPath) {
+    const url = `openteam:${openTeamPath}`;
     return (
       <button
         aria-label={`Open ${String(children)}`}

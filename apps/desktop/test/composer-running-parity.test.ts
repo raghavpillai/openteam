@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 const source = (path: string) => Bun.file(new URL(path, import.meta.url)).text();
 
-describe("Grok-compatible composer while a Bot is working", () => {
+describe("OpenTeam-compatible composer while a Bot is working", () => {
   test("keeps send available and does not expose a composer stop button", async () => {
     const [promptInput, chatPane, mentionEditor] = await Promise.all([
       source("../src/renderer/components/ai-elements/prompt-input.tsx"),

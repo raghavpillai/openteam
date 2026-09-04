@@ -5,7 +5,7 @@ import {
   validateSendToUserInput,
 } from "../src";
 
-describe("Grok-compatible rich delivery", () => {
+describe("OpenTeam-compatible rich delivery", () => {
   test("keeps the source-verified channel failure and widget dismissal prompts exact", () => {
     expect(
       buildChannelDeliveryFailureWakePrompt({ channel: "slack:C123", error: "not connected" })

@@ -3,8 +3,8 @@ import { Streamdown } from "streamdown";
 import {
   messageComponents,
   messageUrlTransform,
-  grokMermaidOptions,
-  grokShikiTheme,
+  botMermaidOptions,
+  botShikiTheme,
   prepareMessageMarkdown,
   streamdownControls,
 } from "./config";
@@ -21,13 +21,13 @@ export default function AdvancedMessageResponse({
   const plugins = use(loadAdvancedMessagePlugins(capabilities));
   return (
     <Streamdown
-      className="grok-markdown"
+      className="bot-markdown"
       components={messageComponents}
       controls={streamdownControls}
       lineNumbers={false}
-      mermaid={grokMermaidOptions}
+      mermaid={botMermaidOptions}
       plugins={plugins}
-      shikiTheme={grokShikiTheme}
+      shikiTheme={botShikiTheme}
       urlTransform={messageUrlTransform}
     >
       {prepareMessageMarkdown(children)}

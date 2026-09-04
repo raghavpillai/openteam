@@ -129,7 +129,7 @@ export function NewBotScreen({
               </button>
               <div
                 aria-label={`${matches.length} existing Bots`}
-                className="grok-scrollbar max-h-[360px] overflow-y-auto"
+                className="bot-scrollbar max-h-[360px] overflow-y-auto"
                 ref={resultsRef}
                 role="listbox"
               >

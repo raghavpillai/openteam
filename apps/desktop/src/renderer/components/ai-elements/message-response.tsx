@@ -9,7 +9,7 @@ import {
 export default function RichMessageResponse({ children }: { children: string }) {
   return (
     <Streamdown
-      className="grok-markdown"
+      className="bot-markdown"
       components={messageComponents}
       controls={streamdownControls}
       lineNumbers={false}

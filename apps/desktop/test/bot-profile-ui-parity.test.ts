@@ -4,8 +4,8 @@ import { readFile } from "node:fs/promises";
 const componentSource = (name: string) =>
   readFile(new URL(`../src/renderer/components/openteam/${name}.tsx`, import.meta.url), "utf8");
 
-describe("Grok bot-profile UI parity", () => {
-  test("opens Bot settings from Grok's compact header identity control", async () => {
+describe("OpenTeam-profile UI parity", () => {
+  test("opens Bot settings from Bot's compact header identity control", async () => {
     const header = await componentSource("desktop-header");
 
     expect(header).toContain('aria-label="View conversation details"');
@@ -45,7 +45,7 @@ describe("Grok bot-profile UI parity", () => {
     expect(sidebar).toContain("max-w-24 shrink-0 truncate rounded-[4px]");
   });
 
-  test("matches Grok's details-pane and computer accessibility structure", async () => {
+  test("matches Bot's details-pane and computer accessibility structure", async () => {
     const [app, main, avatar, screen, routines, sidebar] = await Promise.all([
       readFile(new URL("../src/renderer/App.tsx", import.meta.url), "utf8"),
       readFile(new URL("../src/main/index.ts", import.meta.url), "utf8"),
@@ -80,7 +80,7 @@ describe("Grok bot-profile UI parity", () => {
     expect(routines).toContain('<ul aria-label="Routines"');
   });
 
-  test("matches Grok's pinned-grid spacing and permits group channels", async () => {
+  test("matches Bot's pinned-grid spacing and permits group channels", async () => {
     const sidebar = await componentSource("sidebar");
 
     expect(sidebar).toContain('channel?.kind === "bot_dm" || channel?.kind === "group"');
@@ -103,7 +103,7 @@ describe("Grok bot-profile UI parity", () => {
     expect(sidebar).toContain('data-compact-header-divider=""');
   });
 
-  test("shows Grok's green presence dot on every working sidebar avatar", async () => {
+  test("shows Bot's green presence dot on every working sidebar avatar", async () => {
     const sidebar = await componentSource("sidebar");
 
     expect(sidebar).toContain('data-working-indicator=""');
@@ -119,7 +119,7 @@ describe("Grok bot-profile UI parity", () => {
     expect(sidebar).toContain("active={working && !(needsAttention || unread)}");
   });
 
-  test("shows Grok's blue unread badge on compact Bot and group avatars", async () => {
+  test("shows Bot's blue unread badge on compact Bot and group avatars", async () => {
     const sidebar = await componentSource("sidebar");
 
     expect(sidebar).toMatch(
@@ -131,7 +131,7 @@ describe("Grok bot-profile UI parity", () => {
     expect(sidebar).toContain("active={working && !(needsAttention || unread)}");
   });
 
-  test("matches Grok's viewport-aware more-unreads navigator", async () => {
+  test("matches Bot's viewport-aware more-unreads navigator", async () => {
     const sidebar = await componentSource("sidebar");
 
     expect(sidebar).toContain("function UnreadJumpPill({");
@@ -148,7 +148,7 @@ describe("Grok bot-profile UI parity", () => {
     expect(sidebar).not.toContain('viewport.querySelectorAll<HTMLElement>("[data-channel-id]")');
   });
 
-  test("gives group chats Grok's pin, section, unread, and profile paths", async () => {
+  test("gives group chats Bot's pin, section, unread, and profile paths", async () => {
     const sidebar = await componentSource("sidebar");
 
     expect(sidebar).toContain("function GroupContextMenu({");
@@ -160,7 +160,7 @@ describe("Grok bot-profile UI parity", () => {
     expect(sidebar).toContain('onBotAction(bot, "shareAsTemplate")');
   });
 
-  test("uses Grok's conversational template workflow instead of a clipboard export", async () => {
+  test("uses Bot's conversational template workflow instead of a clipboard export", async () => {
     const [chat, sharing] = await Promise.all([
       componentSource("chat-pane"),
       componentSource("bot-template-share"),
@@ -185,7 +185,7 @@ describe("Grok bot-profile UI parity", () => {
     expect(sharing).toContain("View shared template");
   });
 
-  test("matches Grok's context-menu move and pin states for bots and groups", async () => {
+  test("matches Bot's context-menu move and pin states for bots and groups", async () => {
     const sidebar = await componentSource("sidebar");
     const moveMenu = sidebar.slice(
       sidebar.indexOf("function MoveMenu("),
@@ -212,7 +212,7 @@ describe("Grok bot-profile UI parity", () => {
     expect(sidebar.match(/showMove=\{false\}/g)?.length).toBe(2);
   });
 
-  test("uses Grok's section spacing and motion constants", async () => {
+  test("uses Bot's section spacing and motion constants", async () => {
     const [sidebar, styles] = await Promise.all([
       componentSource("sidebar"),
       readFile(new URL("../src/renderer/styles.css", import.meta.url), "utf8"),

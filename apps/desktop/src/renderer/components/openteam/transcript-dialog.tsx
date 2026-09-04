@@ -26,7 +26,7 @@ function TranscriptEvents({ events }: { events: BotTranscriptView["events"] }) {
   return (
     <div
       aria-label={`${events.length} transcript events`}
-      className="grok-scrollbar max-h-[60vh] min-h-0 overflow-auto rounded-xl border bg-muted/25 p-3"
+      className="bot-scrollbar max-h-[60vh] min-h-0 overflow-auto rounded-xl border bg-muted/25 p-3"
       data-virtual-transcript-count={events.length}
       ref={scrollRef}
       role="list"

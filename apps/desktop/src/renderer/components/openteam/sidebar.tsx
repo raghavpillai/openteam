@@ -460,7 +460,7 @@ export function HiddenAgentsDialog({
             Hidden Bots stay active and keep their history, they're just not visible in the sidebar.
           </DialogDescription>
         </div>
-        <div className="grok-scrollbar max-h-[420px] min-h-[96px] overflow-y-auto p-2">
+        <div className="bot-scrollbar max-h-[420px] min-h-[96px] overflow-y-auto p-2">
           {error ? (
             <div className="px-3 py-3 text-center text-[13px] text-destructive">
               Check your connection and try again.
@@ -2265,7 +2265,7 @@ function CompactSidebarContent({
         />
       </div>
       <nav
-        className="grok-scrollbar flex min-h-0 flex-1 flex-col items-center overflow-y-auto px-2 pt-1"
+        className="bot-scrollbar flex min-h-0 flex-1 flex-col items-center overflow-y-auto px-2 pt-1"
         ref={scrollRef}
       >
         {channelCount > 180 ? (
@@ -3231,7 +3231,7 @@ export const Sidebar = memo(function Sidebar({
               <ContextMenuTrigger asChild>
                 <div className="relative flex min-h-0 flex-1">
                   <nav
-                    className="grok-scrollbar flex min-h-0 w-full flex-1 flex-col overflow-y-auto px-[12px]"
+                    className="bot-scrollbar flex min-h-0 w-full flex-1 flex-col overflow-y-auto px-[12px]"
                     onScroll={scheduleUnreadJumpMeasure}
                     ref={sidebarScrollRef}
                     style={

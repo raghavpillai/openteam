@@ -19,7 +19,7 @@ import {
 import { Schema } from "effect";
 import { BoxStoreSync } from "./box-store-sync";
 import { computerEventStream } from "./computer-event-stream";
-import { GrokAgentStore } from "./grok-agent-store";
+import { BotAgentStore } from "./bot-agent-store";
 import { StdioMcpManager } from "./mcp-manager";
 import { resolveWorkspacePath } from "./paths";
 import { ComputerRuntime } from "./runtime";
@@ -30,7 +30,7 @@ const port = Number(process.env.OPENTEAM_COMPUTER_PORT ?? 8790);
 const controlToken = process.env.OPENTEAM_CONTROL_TOKEN ?? "local-compose-only-change-me";
 const workspaceRoot = resolve(process.env.OPENTEAM_WORKSPACE_ROOT ?? "/workspace");
 const screens = new ScreenBroker();
-const agentStores = new GrokAgentStore();
+const agentStores = new BotAgentStore();
 const boxStore = new BoxStoreSync({
   hasLiveAgentHandle: (agentId) => agentStores.hasLiveHandle(agentId),
 });

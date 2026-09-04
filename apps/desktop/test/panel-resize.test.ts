@@ -96,7 +96,7 @@ describe("panel resize snapping", () => {
     });
   });
 
-  test("matches Grok's reversible narrow-window pane thresholds", () => {
+  test("matches Bot's reversible narrow-window pane thresholds", () => {
     expect(shouldForceCompactSidebar(704, 280)).toBe(false);
     expect(shouldForceCompactSidebar(703, 280)).toBe(true);
     expect(shouldForceCompactSidebar(512, COMPACT_SIDEBAR_WIDTH)).toBe(false);
@@ -108,7 +108,7 @@ describe("panel resize snapping", () => {
     expect(CHAT_MIN_WIDTH).toBe(424);
   });
 
-  test("lets the details pane grow only into space beyond Grok's chat minimum", () => {
+  test("lets the details pane grow only into space beyond Bot's chat minimum", () => {
     expect(maxInspectorWidthForLayout(1_024, 280)).toBe(320);
     expect(maxInspectorWidthForLayout(984, 280)).toBe(MIN_INSPECTOR_WIDTH);
     expect(maxInspectorWidthForLayout(800, COMPACT_SIDEBAR_WIDTH)).toBe(288);

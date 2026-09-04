@@ -168,7 +168,7 @@ describe("API contracts", () => {
     ).toMatchObject({ fileName: "upload.png", bytesBase64: "AQID" });
   });
 
-  test("matches Grokbot's file, HTTPS, and data URL image schema for direct A2A", () => {
+  test("matches OpenTeam's file, HTTPS, and data URL image schema for direct A2A", () => {
     expect(
       Schema.decodeUnknownSync(SendToAgentInput)({
         target_id: "f9853a2e-3c07-49a3-854c-fdee0588e68d",
@@ -454,15 +454,15 @@ describe("API contracts", () => {
     expect(NATIVE_TOOL_NAMES).not.toContain("SendMessage");
   });
 
-  test("keeps the source-verified Grok Bot delivery contracts byte-exact", () => {
+  test("keeps the source-verified OpenTeam delivery contracts byte-exact", () => {
     const sendToUser = NATIVE_TOOLS.find((tool) => tool.name === "SendToUser");
     const reactToMessage = NATIVE_TOOLS.find((tool) => tool.name === "ReactToMessage");
     const sendToAgent = CURSOR_TOOLS.find((tool) => tool.tool === "SendToAgent");
 
-    expect(sendToUser?.description.length).toBe(7_443);
-    expect(Buffer.byteLength(sendToUser?.description ?? "")).toBe(7_463);
+    expect(sendToUser?.description.length).toBe(7_446);
+    expect(Buffer.byteLength(sendToUser?.description ?? "")).toBe(7_466);
     expect(sha256(sendToUser?.description ?? "")).toBe(
-      "2062116d74ddaaeb5c14f04ef66fb008287dce9fb504482cfd7c2213d2c0fdaf"
+      "3caa1e14ab8898db3d152e7940ea4364cb9a3d3996d58325cb811f55f59c1659"
     );
     expect(reactToMessage?.description.length).toBe(825);
     expect(Buffer.byteLength(reactToMessage?.description ?? "")).toBe(829);
@@ -488,7 +488,7 @@ describe("API contracts", () => {
       required: string[];
     };
     expect(sha256(JSON.stringify(sendToUserSchema))).toBe(
-      "897798ca262dedd71adb63e22a6c46fdc8b4c7057345a50f8113b5bd6512c1a7"
+      "928e132cecf120a2f1db55417fa1f47e537cdfce978dc74fa8b99d70c21e082d"
     );
     expect(sha256(JSON.stringify(reactToMessageSchema))).toBe(
       "4d3fca3dcb7ae3691ae2c44d0777d80e9d51ce82be88260aab067bfca71ebfe6"

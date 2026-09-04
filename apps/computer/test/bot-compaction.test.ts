@@ -5,30 +5,30 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AgentSession } from "@earendil-works/pi-coding-agent";
 import {
-  closeGrokPreservedTail,
-  countGrokImages,
-  countGrokTurns,
-  GrokCompactionArchiveStore,
-  GrokCompactionCoordinator,
-  type GrokMessage,
-  grokBackgroundThreshold,
-  grokConversationSizeLimits,
-  grokDurableBlocks,
-  grokMessageDigest,
-  grokPersistThreshold,
-  grokPiPersistReserve,
-  grokSummaryMessage,
-  grokSummaryPrompt,
-  grokSummaryRetryDirective,
-  grokSummarySystemPrompt,
-  grokUserInfoMessage,
-  partitionForGrokSummary,
-  reduceGrokSummaryInputMessages,
-  replaceGrokUserInfo,
-  shouldPersistGrokSummary,
-  shouldStartGrokSummary,
+  closeBotPreservedTail,
+  countBotImages,
+  countBotTurns,
+  BotCompactionArchiveStore,
+  BotCompactionCoordinator,
+  type BotMessage,
+  botBackgroundThreshold,
+  botConversationSizeLimits,
+  botDurableBlocks,
+  botMessageDigest,
+  botPersistThreshold,
+  botPiPersistReserve,
+  botSummaryMessage,
+  botSummaryPrompt,
+  botSummaryRetryDirective,
+  botSummarySystemPrompt,
+  botUserInfoMessage,
+  partitionForBotSummary,
+  reduceBotSummaryInputMessages,
+  replaceBotUserInfo,
+  shouldPersistBotSummary,
+  shouldStartBotSummary,
   stripEmptyTrailingAssistantMessages,
-} from "../src/grok-compaction";
+} from "../src/bot-compaction";
 
 const directories: string[] = [];
 
@@ -39,39 +39,39 @@ afterEach(async () => {
 });
 
 const workspace = async (): Promise<string> => {
-  const path = await mkdtemp(join(tmpdir(), "openteam-grok-compaction-"));
+  const path = await mkdtemp(join(tmpdir(), "openteam-bot-compaction-"));
   directories.push(path);
   return path;
 };
 
-const text = (role: string, value: string, options?: Record<string, unknown>): GrokMessage => ({
+const text = (role: string, value: string, options?: Record<string, unknown>): BotMessage => ({
   role,
   content: [{ type: "text", text: value }],
   ...(options ? { providerOptions: { cursor: options } } : {}),
 });
 
-describe("Grok trigger thresholds", () => {
+describe("Bot trigger thresholds", () => {
   test("starts and persists on the first matching absolute-or-percent boundary", () => {
-    expect(grokBackgroundThreshold(272_000)).toBe(244_800);
-    expect(grokPersistThreshold(272_000)).toBe(258_400);
-    expect(grokPiPersistReserve(272_000)).toBe(13_601);
-    expect(shouldStartGrokSummary(244_799, 272_000)).toBe(false);
-    expect(shouldStartGrokSummary(244_800, 272_000)).toBe(true);
-    expect(shouldPersistGrokSummary(258_399, 272_000)).toBe(false);
-    expect(shouldPersistGrokSummary(258_400, 272_000)).toBe(true);
-    expect(grokBackgroundThreshold(64_000)).toBe(54_000);
-    expect(grokPersistThreshold(64_000)).toBe(59_000);
+    expect(botBackgroundThreshold(272_000)).toBe(244_800);
+    expect(botPersistThreshold(272_000)).toBe(258_400);
+    expect(botPiPersistReserve(272_000)).toBe(13_601);
+    expect(shouldStartBotSummary(244_799, 272_000)).toBe(false);
+    expect(shouldStartBotSummary(244_800, 272_000)).toBe(true);
+    expect(shouldPersistBotSummary(258_399, 272_000)).toBe(false);
+    expect(shouldPersistBotSummary(258_400, 272_000)).toBe(true);
+    expect(botBackgroundThreshold(64_000)).toBe(54_000);
+    expect(botPersistThreshold(64_000)).toBe(59_000);
   });
 
-  test("supports Grok's byte-limit environment overrides with safe fallbacks", () => {
+  test("supports Bot's byte-limit environment overrides with safe fallbacks", () => {
     expect(
-      grokConversationSizeLimits({
+      botConversationSizeLimits({
         SAND_CONVERSATION_SOFT_LIMIT_BYTES: "1024",
         SAND_CONVERSATION_HARD_LIMIT_BYTES: "4096",
       })
     ).toEqual({ soft: 1024, hard: 4096 });
     expect(
-      grokConversationSizeLimits({
+      botConversationSizeLimits({
         SAND_CONVERSATION_SOFT_LIMIT_BYTES: "-1",
         SAND_CONVERSATION_HARD_LIMIT_BYTES: "not-a-number",
       })
@@ -79,7 +79,7 @@ describe("Grok trigger thresholds", () => {
   });
 });
 
-describe("Grok summary partition", () => {
+describe("Bot summary partition", () => {
   test("drops only empty trailing assistant envelopes before summarization", () => {
     const messages = [
       text("user", "goal"),
@@ -91,16 +91,16 @@ describe("Grok summary partition", () => {
         stopReason: "error",
         errorMessage: "context_length_exceeded",
       },
-    ] as GrokMessage[];
+    ] as BotMessage[];
     expect(stripEmptyTrailingAssistantMessages(messages)).toEqual(messages.slice(0, -1));
-    expect(partitionForGrokSummary(messages)?.lastUserMessage).toEqual(text("user", "continue"));
+    expect(partitionForBotSummary(messages)?.lastUserMessage).toEqual(text("user", "continue"));
   });
 
   test("peels a leading user-info pair and preserves SelfSummarizer's last user", () => {
     const userInfo = text("user", "<user_info>current identity</user_info>", { isUserInfo: true });
     const priorSummary = text("user", "prior summary", { isSummary: true });
     const lastUser = text("user", "finish the implementation");
-    const partition = partitionForGrokSummary([
+    const partition = partitionForBotSummary([
       userInfo,
       text("user", "original request"),
       text("assistant", "work one"),
@@ -113,7 +113,7 @@ describe("Grok summary partition", () => {
     expect(partition?.messagesToSummarize).toContainEqual(priorSummary);
     expect(partition?.messagesToSummarize).toContainEqual(text("assistant", "work two"));
     if (!partition) throw new Error("Expected a summary partition");
-    const prompt = grokSummaryPrompt();
+    const prompt = botSummaryPrompt();
     expect(prompt).toContain("Summarize the conversation state");
     expect(prompt).not.toContain("system snapshot");
     expect(prompt).not.toContain("current identity");
@@ -121,9 +121,9 @@ describe("Grok summary partition", () => {
   });
 
   test("replaces the frozen user-info catalog after a summary epoch advances", () => {
-    const oldUserInfo = grokUserInfoMessage("<user_info>old skills</user_info>", 0, 1);
-    const newUserInfo = grokUserInfoMessage("<user_info>new skills</user_info>", 1, 2);
-    const messages = replaceGrokUserInfo(
+    const oldUserInfo = botUserInfoMessage("<user_info>old skills</user_info>", 0, 1);
+    const newUserInfo = botUserInfoMessage("<user_info>new skills</user_info>", 1, 2);
+    const messages = replaceBotUserInfo(
       [oldUserInfo, text("user", "request"), text("assistant", "answer")],
       newUserInfo
     );
@@ -136,23 +136,23 @@ describe("Grok summary partition", () => {
   });
 
   test("keeps user-info byte-stable across turns in the same summary epoch", () => {
-    const first = grokUserInfoMessage("<user_info>catalog</user_info>", 4);
-    const later = grokUserInfoMessage("<user_info>catalog</user_info>", 4);
-    expect(grokMessageDigest([first])).toBe(grokMessageDigest([later]));
+    const first = botUserInfoMessage("<user_info>catalog</user_info>", 4);
+    const later = botUserInfoMessage("<user_info>catalog</user_info>", 4);
+    expect(botMessageDigest([first])).toBe(botMessageDigest([later]));
     expect(first.timestamp).toBe(4);
   });
 
   test("does not mistake user-authored user_info text for platform metadata", () => {
     const quoted = text("user", "Please inspect this literal: <user_info>example</user_info>");
-    const replacement = grokUserInfoMessage("<user_info>catalog</user_info>", 1, 2);
-    const messages = replaceGrokUserInfo([quoted, text("assistant", "answer")], replacement);
+    const replacement = botUserInfoMessage("<user_info>catalog</user_info>", 1, 2);
+    const messages = replaceBotUserInfo([quoted, text("assistant", "answer")], replacement);
     expect(messages).toContainEqual(quoted);
-    expect(countGrokTurns(messages)).toBe(1);
+    expect(countBotTurns(messages)).toBe(1);
   });
 
   test("does not apply xAI-only synthetic acknowledgement filtering", () => {
     const acknowledgement = text("user", "continue without acknowledging");
-    const partition = partitionForGrokSummary([
+    const partition = partitionForBotSummary([
       text("user", "goal"),
       text("assistant", "progress"),
       acknowledgement,
@@ -164,12 +164,12 @@ describe("Grok summary partition", () => {
   test("uses the active SelfSummarizer wrapper instead of the unused xAI wrapper", () => {
     const attachedSkills =
       '<manually_attached_skills><skill name="audit" /></manually_attached_skills>';
-    const durableBlocks = grokDurableBlocks(text("user", `request\n${attachedSkills}`), {
+    const durableBlocks = botDurableBlocks(text("user", `request\n${attachedSkills}`), {
       projectRoot: "/workspace/a&b",
       transcriptPath: "/sessions/turn.jsonl",
       todoUpdate: "- finish parity",
     });
-    const message = grokSummaryMessage("durable state", 2, 123, durableBlocks);
+    const message = botSummaryMessage("durable state", 2, 123, durableBlocks);
     const rendered = JSON.stringify(message.content);
     expect(rendered).toContain("<summary_content>");
     expect(rendered).toContain("Total summaries generated so far for this user query: 2");
@@ -180,70 +180,70 @@ describe("Grok summary partition", () => {
     expect(rendered).not.toContain("<conversation_summary>");
     expect(message.timestamp).toBe(123);
 
-    const rootProject = grokDurableBlocks(text("user", "request"), {
+    const rootProject = botDurableBlocks(text("user", "request"), {
       projectRoot: "/workspace/a&b",
       isRootProject: true,
     });
     expect(rootProject).toEqual([
       "<system_reminder>Project root: /workspace/a&amp;b</system_reminder>",
     ]);
-    const rootRendered = JSON.stringify(grokSummaryMessage("root summary", 1, 123, rootProject));
+    const rootRendered = JSON.stringify(botSummaryMessage("root summary", 1, 123, rootProject));
     expect(rootRendered.indexOf("Project root:")).toBeLessThan(
       rootRendered.indexOf("<summary_content>")
     );
   });
 
-  test("matches Grok's summary retry classifier", () => {
+  test("matches Bot's summary retry classifier", () => {
     const named = (name: string, message = name): Error => {
       const error = new Error(message);
       error.name = name;
       return error;
     };
-    expect(grokSummaryRetryDirective(named("OutputTokensLimitExceededError"))).toEqual({
+    expect(botSummaryRetryDirective(named("OutputTokensLimitExceededError"))).toEqual({
       retry: true,
       delay: true,
       reduceInputs: true,
       shorter: true,
     });
-    expect(grokSummaryRetryDirective(named("InputTokenLimitError"))).toEqual({
+    expect(botSummaryRetryDirective(named("InputTokenLimitError"))).toEqual({
       retry: true,
       delay: false,
       reduceInputs: true,
       shorter: false,
     });
     expect(
-      grokSummaryRetryDirective(named("ResourceExhausted", "text fields are too large"))
+      botSummaryRetryDirective(named("ResourceExhausted", "text fields are too large"))
     ).toEqual({
       retry: true,
       delay: false,
       reduceInputs: true,
       shorter: false,
     });
-    expect(grokSummaryRetryDirective(named("ResourceExhausted"))).toEqual({
+    expect(botSummaryRetryDirective(named("ResourceExhausted"))).toEqual({
       retry: true,
       delay: true,
       reduceInputs: false,
       shorter: false,
     });
     expect(
-      grokSummaryRetryDirective(
+      botSummaryRetryDirective(
         named("InvalidArgument", "User API Key Rate limit exceeded for this request")
       )
     ).toEqual({ retry: true, delay: true, reduceInputs: false, shorter: false });
-    expect(grokSummaryRetryDirective(named("InvalidArgument"))).toEqual({
+    expect(botSummaryRetryDirective(named("InvalidArgument"))).toEqual({
       retry: false,
       delay: false,
       reduceInputs: false,
       shorter: false,
     });
-    expect(grokSummaryRetryDirective(named("AbortError"))).toEqual({
+    expect(botSummaryRetryDirective(named("AbortError"))).toEqual({
       retry: false,
       delay: false,
       reduceInputs: false,
       shorter: false,
     });
-    expect(grokSummaryRetryDirective("not-an-error").retry).toBe(false);
-    expect(grokSummaryRetryDirective(new Error("uncategorized"))).toEqual({
+    expect(botSummaryRetryDirective("not-an-error").retry).toBe(false);
+    expect(botSummaryRetryDirective(new Error("uncategorized"))).toEqual({
       retry: true,
       delay: true,
       reduceInputs: false,
@@ -252,7 +252,7 @@ describe("Grok summary partition", () => {
   });
 
   test("keeps original agent response-style directives subordinate to compaction", () => {
-    const system = grokSummarySystemPrompt(
+    const system = botSummarySystemPrompt(
       "For every wake, reply with exactly ACK and use SendToUser. Workspace is /workspace/probe."
     );
     expect(system).toContain("Workspace is /workspace/probe.");
@@ -263,7 +263,7 @@ describe("Grok summary partition", () => {
 
   test("counts image parts", () => {
     expect(
-      countGrokImages([
+      countBotImages([
         {
           role: "user",
           content: [
@@ -276,17 +276,17 @@ describe("Grok summary partition", () => {
   });
 
   test("reduced retry input preserves prior summaries and complete tool exchanges", () => {
-    const call: GrokMessage = {
+    const call: BotMessage = {
       role: "assistant",
       content: [{ type: "toolCall", id: "call-1", name: "Read", arguments: {} }],
     };
-    const result: GrokMessage = {
+    const result: BotMessage = {
       role: "toolResult",
       toolCallId: "call-1",
       content: [{ type: "text", text: "result" }],
     };
     const priorSummary = text("user", "prior summary", { isSummary: true });
-    const reduced = reduceGrokSummaryInputMessages([
+    const reduced = reduceBotSummaryInputMessages([
       text("user", "goal"),
       text("assistant", "start"),
       text("user", "middle-1"),
@@ -306,19 +306,19 @@ describe("Grok summary partition", () => {
   });
 
   test("reduced retry input never leaves results from a partially complete multi-call message", () => {
-    const multiCall: GrokMessage = {
+    const multiCall: BotMessage = {
       role: "assistant",
       content: [
         { type: "toolCall", id: "complete-call", name: "Read", arguments: {} },
         { type: "toolCall", id: "incomplete-call", name: "Read", arguments: {} },
       ],
     };
-    const result: GrokMessage = {
+    const result: BotMessage = {
       role: "toolResult",
       toolCallId: "complete-call",
       content: [{ type: "text", text: "result" }],
     };
-    const reduced = reduceGrokSummaryInputMessages([
+    const reduced = reduceBotSummaryInputMessages([
       text("user", "goal"),
       text("assistant", "start"),
       text("user", "middle-1"),
@@ -336,16 +336,16 @@ describe("Grok summary partition", () => {
   });
 });
 
-describe("Grok overflow attempt budget", () => {
+describe("Bot overflow attempt budget", () => {
   test("allows five overflowing model calls for one step and never makes a sixth", async () => {
     const session = Object.create(AgentSession.prototype) as {
       _overflowRecoveryAttempts: number;
       settingsManager: { getCompactionSettings(): { enabled: boolean } };
       model: { provider: string; id: string; contextWindow: number; maxTokens: number };
       sessionManager: { getBranch(): [] };
-      agent: { state: { messages: GrokMessage[] } };
+      agent: { state: { messages: BotMessage[] } };
       _runAutoCompaction(reason: string, willRetry: boolean): Promise<boolean>;
-      _checkCompaction(message: GrokMessage): Promise<boolean>;
+      _checkCompaction(message: BotMessage): Promise<boolean>;
     };
     session._overflowRecoveryAttempts = 0;
     session.settingsManager = { getCompactionSettings: () => ({ enabled: true }) };
@@ -375,7 +375,7 @@ describe("Grok overflow attempt budget", () => {
         stopReason: "error",
         errorMessage: "context_length_exceeded",
         timestamp,
-      }) as GrokMessage;
+      }) as BotMessage;
     for (let attempt = 0; attempt < 4; attempt += 1) {
       const message = overflow(attempt + 1);
       session.agent.state.messages = [message];
@@ -389,20 +389,20 @@ describe("Grok overflow attempt budget", () => {
   });
 });
 
-describe("Grok preserved suffix", () => {
+describe("Bot preserved suffix", () => {
   test("moves a captured tool-call owner across the boundary with its appended result", () => {
-    const call: GrokMessage = {
+    const call: BotMessage = {
       role: "assistant",
       content: [{ type: "toolCall", id: "call-1", name: "SendToUser", arguments: {} }],
     };
-    const result: GrokMessage = {
+    const result: BotMessage = {
       role: "toolResult",
       toolCallId: "call-1",
       content: [{ type: "text", text: "delivered" }],
     };
     const completed = text("assistant", "done");
     expect(
-      closeGrokPreservedTail(3, [
+      closeBotPreservedTail(3, [
         text("user", "goal"),
         text("assistant", "work"),
         call,
@@ -413,24 +413,24 @@ describe("Grok preserved suffix", () => {
   });
 
   test("keeps sibling results when a multi-call assistant straddles the boundary", () => {
-    const call: GrokMessage = {
+    const call: BotMessage = {
       role: "assistant",
       content: [
         { type: "toolCall", id: "call-1", name: "one", arguments: {} },
         { type: "toolCall", id: "call-2", name: "two", arguments: {} },
       ],
     };
-    const first: GrokMessage = {
+    const first: BotMessage = {
       role: "toolResult",
       toolCallId: "call-1",
       content: [{ type: "text", text: "one" }],
     };
-    const second: GrokMessage = {
+    const second: BotMessage = {
       role: "toolResult",
       toolCallId: "call-2",
       content: [{ type: "text", text: "two" }],
     };
-    expect(closeGrokPreservedTail(3, [text("user", "goal"), call, first, second])).toEqual([
+    expect(closeBotPreservedTail(3, [text("user", "goal"), call, first, second])).toEqual([
       call,
       first,
       second,
@@ -442,7 +442,7 @@ describe("restart-safe compaction archive", () => {
   test("reconstructs last-user + summary and backward-compatible stored tails", async () => {
     const root = await workspace();
     const contextSessionId = crypto.randomUUID();
-    const store = new GrokCompactionArchiveStore(root);
+    const store = new BotCompactionArchiveStore(root);
     const lastUser = text("user", "last real request");
     const preservedTail = text("assistant", "work completed while summary ran");
     const piBase = [text("user", "native summary"), lastUser];
@@ -450,7 +450,7 @@ describe("restart-safe compaction archive", () => {
       id: crypto.randomUUID(),
       reason: "approaching_token_limit",
       summary: "durable summary",
-      prefixDigest: grokMessageDigest([lastUser]),
+      prefixDigest: botMessageDigest([lastUser]),
       piBaseMessageCount: piBase.length,
       userInfoMessage: null,
       lastUserMessage: lastUser,
@@ -471,20 +471,20 @@ describe("restart-safe compaction archive", () => {
     expect(rebuilt[1]?.providerOptions).toEqual({ cursor: { isSummary: true } });
     expect(rebuilt[2]).toEqual(preservedTail);
     expect(rebuilt[3]).toEqual(later);
-    expect(grokMessageDigest(rebuiltAgain)).toBe(grokMessageDigest(rebuilt));
+    expect(botMessageDigest(rebuiltAgain)).toBe(botMessageDigest(rebuilt));
     expect((await store.manifest(contextSessionId)).epoch).toBe(1);
   });
 
   test("repairs a legacy archive whose captured prefix split a tool exchange", async () => {
     const root = await workspace();
     const contextSessionId = crypto.randomUUID();
-    const store = new GrokCompactionArchiveStore(root);
+    const store = new BotCompactionArchiveStore(root);
     const lastUser = text("user", "last request");
-    const call: GrokMessage = {
+    const call: BotMessage = {
       role: "assistant",
       content: [{ type: "toolCall", id: "call-1", name: "SendToUser", arguments: {} }],
     };
-    const result: GrokMessage = {
+    const result: BotMessage = {
       role: "toolResult",
       toolCallId: "call-1",
       content: [{ type: "text", text: "delivered" }],
@@ -495,7 +495,7 @@ describe("restart-safe compaction archive", () => {
       id: crypto.randomUUID(),
       reason: "approaching_image_limit",
       summary: "durable summary",
-      prefixDigest: grokMessageDigest([lastUser, call]),
+      prefixDigest: botMessageDigest([lastUser, call]),
       piBaseMessageCount: nativeBase.length,
       userInfoMessage: null,
       lastUserMessage: lastUser,
@@ -518,14 +518,14 @@ describe("restart-safe compaction archive", () => {
   test("retains the sealed failed assistant before the overflow retry", async () => {
     const root = await workspace();
     const contextSessionId = crypto.randomUUID();
-    const store = new GrokCompactionArchiveStore(root);
+    const store = new BotCompactionArchiveStore(root);
     const lastUser = text("user", "retry this request");
     const nativeBase = [text("user", "native summary"), lastUser];
     await store.commit(contextSessionId, {
       id: crypto.randomUUID(),
       reason: "fallback_on_limit_error",
       summary: "state before overflow",
-      prefixDigest: grokMessageDigest([lastUser]),
+      prefixDigest: botMessageDigest([lastUser]),
       piBaseMessageCount: nativeBase.length,
       userInfoMessage: null,
       lastUserMessage: lastUser,
@@ -554,15 +554,15 @@ describe("restart-safe compaction archive", () => {
   });
 
   test("does not reset the per-query summary count for a simulated continuation", async () => {
-    const store = new GrokCompactionArchiveStore(await workspace());
-    const coordinator = new GrokCompactionCoordinator(store);
+    const store = new BotCompactionArchiveStore(await workspace());
+    const coordinator = new BotCompactionCoordinator(store);
     const contextSessionId = crypto.randomUUID();
     const commit = (label: string) =>
       store.commit(contextSessionId, {
         id: crypto.randomUUID(),
         reason: "approaching_token_limit",
         summary: label,
-        prefixDigest: grokMessageDigest([text("user", label)]),
+        prefixDigest: botMessageDigest([text("user", label)]),
         piBaseMessageCount: 0,
         userInfoMessage: null,
         lastUserMessage: text("user", label),
@@ -588,21 +588,21 @@ describe("restart-safe compaction archive", () => {
     const contextSessionId = crypto.randomUUID();
     const sessionPath = join(root, "session.jsonl");
     await writeFile(sessionPath, "x".repeat(128));
-    const store = new GrokCompactionArchiveStore(join(root, "archives"));
+    const store = new BotCompactionArchiveStore(join(root, "archives"));
     await expect(
       store.enforceSizeLimit(contextSessionId, sessionPath, { soft: 32, hard: 64 })
     ).rejects.toThrow("SAND-E0414 conversationTooLarge");
   });
 
   test("keeps archive epoch monotonic but resets self-summary count per user query", async () => {
-    const store = new GrokCompactionArchiveStore(await workspace());
+    const store = new BotCompactionArchiveStore(await workspace());
     const contextSessionId = crypto.randomUUID();
     const commit = (label: string) =>
       store.commit(contextSessionId, {
         id: crypto.randomUUID(),
         reason: "approaching_token_limit",
         summary: label,
-        prefixDigest: grokMessageDigest([text("user", label)]),
+        prefixDigest: botMessageDigest([text("user", label)]),
         piBaseMessageCount: 1,
         userInfoMessage: null,
         lastUserMessage: text("user", label),
@@ -628,14 +628,14 @@ describe("restart-safe compaction archive", () => {
 
   test("rejects a manifest whose latest pointer is not the final archive", async () => {
     const root = await workspace();
-    const store = new GrokCompactionArchiveStore(root);
+    const store = new BotCompactionArchiveStore(root);
     const contextSessionId = crypto.randomUUID();
     const commit = (label: string) =>
       store.commit(contextSessionId, {
         id: crypto.randomUUID(),
         reason: "approaching_token_limit",
         summary: label,
-        prefixDigest: grokMessageDigest([text("user", label)]),
+        prefixDigest: botMessageDigest([text("user", label)]),
         piBaseMessageCount: 1,
         userInfoMessage: null,
         lastUserMessage: text("user", label),
@@ -664,13 +664,13 @@ describe("restart-safe compaction archive", () => {
 
   test("rejects invalid archive metrics before database projection", async () => {
     const root = await workspace();
-    const store = new GrokCompactionArchiveStore(root);
+    const store = new BotCompactionArchiveStore(root);
     const contextSessionId = crypto.randomUUID();
     await store.commit(contextSessionId, {
       id: crypto.randomUUID(),
       reason: "approaching_token_limit",
       summary: "summary",
-      prefixDigest: grokMessageDigest([text("user", "goal")]),
+      prefixDigest: botMessageDigest([text("user", "goal")]),
       piBaseMessageCount: 1,
       userInfoMessage: null,
       lastUserMessage: text("user", "goal"),
@@ -696,7 +696,7 @@ describe("restart-safe compaction archive", () => {
 
   test("collects only unreferenced archive blobs", async () => {
     const root = await workspace();
-    const store = new GrokCompactionArchiveStore(root);
+    const store = new BotCompactionArchiveStore(root);
     const contextSessionId = crypto.randomUUID();
     const blobs = join(root, contextSessionId, "blobs");
     await mkdir(blobs, { recursive: true });
@@ -707,10 +707,10 @@ describe("restart-safe compaction archive", () => {
   });
 });
 
-describe("Grok coordinator", () => {
+describe("Bot coordinator", () => {
   test("starts turn-only background work at 1,000 users without projecting it", async () => {
-    const store = new GrokCompactionArchiveStore(await workspace());
-    const coordinator = new GrokCompactionCoordinator(store, 0);
+    const store = new BotCompactionArchiveStore(await workspace());
+    const coordinator = new BotCompactionCoordinator(store, 0);
     const contextSessionId = crypto.randomUUID();
     const messages = Array.from({ length: 1_000 }, (_, index) => text("user", `turn-${index}`));
     let calls = 0;
@@ -749,8 +749,8 @@ describe("Grok coordinator", () => {
   });
 
   test("projects a completed background result between model steps at the 90 percent gate", async () => {
-    const store = new GrokCompactionArchiveStore(await workspace());
-    const coordinator = new GrokCompactionCoordinator(store, 0);
+    const store = new BotCompactionArchiveStore(await workspace());
+    const coordinator = new BotCompactionCoordinator(store, 0);
     const contextSessionId = crypto.randomUUID();
     const captured = [
       text("user", "goal"),
@@ -788,10 +788,10 @@ describe("Grok coordinator", () => {
   });
 
   test("projects a valid tool exchange when a completed summary boundary ends on its call", async () => {
-    const store = new GrokCompactionArchiveStore(await workspace());
-    const coordinator = new GrokCompactionCoordinator(store, 0);
+    const store = new BotCompactionArchiveStore(await workspace());
+    const coordinator = new BotCompactionCoordinator(store, 0);
     const contextSessionId = crypto.randomUUID();
-    const call: GrokMessage = {
+    const call: BotMessage = {
       role: "assistant",
       content: [{ type: "toolCall", id: "call-1", name: "SendToUser", arguments: {} }],
     };
@@ -805,7 +805,7 @@ describe("Grok coordinator", () => {
       infer: async () => ({ text: "settled background summary" }),
     });
     await Promise.resolve();
-    const result: GrokMessage = {
+    const result: BotMessage = {
       role: "toolResult",
       toolCallId: "call-1",
       content: [{ type: "text", text: "delivered" }],
@@ -821,8 +821,8 @@ describe("Grok coordinator", () => {
   });
 
   test("starts background inference without waiting for it", async () => {
-    const store = new GrokCompactionArchiveStore(await workspace());
-    const coordinator = new GrokCompactionCoordinator(store, 0);
+    const store = new BotCompactionArchiveStore(await workspace());
+    const coordinator = new BotCompactionCoordinator(store, 0);
     const contextSessionId = crypto.randomUUID();
     let release!: (value: { text: string }) => void;
     let settled = false;
@@ -859,12 +859,12 @@ describe("Grok coordinator", () => {
   });
 
   test("keeps background inference when only a suffix was appended", async () => {
-    const store = new GrokCompactionArchiveStore(await workspace());
-    const coordinator = new GrokCompactionCoordinator(store, 0);
+    const store = new BotCompactionArchiveStore(await workspace());
+    const coordinator = new BotCompactionCoordinator(store, 0);
     const contextSessionId = crypto.randomUUID();
     const initial = [text("user", "goal"), text("assistant", "tool call"), text("user", "latest")];
-    const requests: Array<{ messagesToSummarize: GrokMessage[] }> = [];
-    const infer = async (request: { messagesToSummarize: GrokMessage[] }) => {
+    const requests: Array<{ messagesToSummarize: BotMessage[] }> = [];
+    const infer = async (request: { messagesToSummarize: BotMessage[] }) => {
       requests.push(request);
       return { text: `summary-${requests.length}` };
     };
@@ -904,12 +904,12 @@ describe("Grok coordinator", () => {
   });
 
   test("restarts background inference when an observed prefix message changes", async () => {
-    const store = new GrokCompactionArchiveStore(await workspace());
-    const coordinator = new GrokCompactionCoordinator(store, 0);
+    const store = new BotCompactionArchiveStore(await workspace());
+    const coordinator = new BotCompactionCoordinator(store, 0);
     const contextSessionId = crypto.randomUUID();
     const initial = [text("user", "goal"), text("assistant", "tool call"), text("user", "latest")];
-    const requests: Array<{ messagesToSummarize: GrokMessage[] }> = [];
-    const infer = async (request: { messagesToSummarize: GrokMessage[] }) => {
+    const requests: Array<{ messagesToSummarize: BotMessage[] }> = [];
+    const infer = async (request: { messagesToSummarize: BotMessage[] }) => {
       requests.push(request);
       return { text: `summary-${requests.length}` };
     };
@@ -938,8 +938,8 @@ describe("Grok coordinator", () => {
   });
 
   test("rejects a background result when the system snapshot changed", async () => {
-    const store = new GrokCompactionArchiveStore(await workspace());
-    const coordinator = new GrokCompactionCoordinator(store, 0);
+    const store = new BotCompactionArchiveStore(await workspace());
+    const coordinator = new BotCompactionCoordinator(store, 0);
     const contextSessionId = crypto.randomUUID();
     const messages = [text("user", "goal"), text("assistant", "progress"), text("user", "latest")];
     let calls = 0;
@@ -972,12 +972,12 @@ describe("Grok coordinator", () => {
   });
 
   test("reuses a background result and preserves messages appended after its prefix", async () => {
-    const store = new GrokCompactionArchiveStore(await workspace());
-    const coordinator = new GrokCompactionCoordinator(store, 0);
+    const store = new BotCompactionArchiveStore(await workspace());
+    const coordinator = new BotCompactionCoordinator(store, 0);
     const contextSessionId = crypto.randomUUID();
     const messages = [text("user", "goal"), text("assistant", "progress"), text("user", "latest")];
-    const requests: Array<{ messagesToSummarize: GrokMessage[] }> = [];
-    const infer = async (request: { messagesToSummarize: GrokMessage[] }) => {
+    const requests: Array<{ messagesToSummarize: BotMessage[] }> = [];
+    const infer = async (request: { messagesToSummarize: BotMessage[] }) => {
       requests.push(request);
       return { text: requests.length === 1 ? "stale result" : "fresh result" };
     };
@@ -1007,8 +1007,8 @@ describe("Grok coordinator", () => {
   });
 
   test("clears captured history after a failed Pi compaction", async () => {
-    const store = new GrokCompactionArchiveStore(await workspace());
-    const coordinator = new GrokCompactionCoordinator(store, 0);
+    const store = new BotCompactionArchiveStore(await workspace());
+    const coordinator = new BotCompactionCoordinator(store, 0);
     const contextSessionId = crypto.randomUUID();
     const messages = [text("user", "goal"), text("assistant", "progress"), text("user", "latest")];
     let calls = 0;
@@ -1037,8 +1037,8 @@ describe("Grok coordinator", () => {
   });
 
   test("aborts pending inference when its context is deleted", async () => {
-    const store = new GrokCompactionArchiveStore(await workspace());
-    const coordinator = new GrokCompactionCoordinator(store, 0);
+    const store = new BotCompactionArchiveStore(await workspace());
+    const coordinator = new BotCompactionCoordinator(store, 0);
     const contextSessionId = crypto.randomUUID();
     let aborted = false;
     await coordinator.observe({
@@ -1065,8 +1065,8 @@ describe("Grok coordinator", () => {
   });
 
   test("reuses a non-blocking background result at Pi's persist boundary", async () => {
-    const store = new GrokCompactionArchiveStore(await workspace());
-    const coordinator = new GrokCompactionCoordinator(store, 0);
+    const store = new BotCompactionArchiveStore(await workspace());
+    const coordinator = new BotCompactionCoordinator(store, 0);
     const contextSessionId = crypto.randomUUID();
     const messages = [
       text("user", "goal"),
@@ -1111,8 +1111,8 @@ describe("Grok coordinator", () => {
   });
 
   test("records overflow as fallback even when token background work already exists", async () => {
-    const store = new GrokCompactionArchiveStore(await workspace());
-    const coordinator = new GrokCompactionCoordinator(store, 0);
+    const store = new BotCompactionArchiveStore(await workspace());
+    const coordinator = new BotCompactionCoordinator(store, 0);
     const contextSessionId = crypto.randomUUID();
     const messages = [text("user", "goal"), text("assistant", "progress"), text("user", "latest")];
     await coordinator.observe({
@@ -1138,8 +1138,8 @@ describe("Grok coordinator", () => {
 
   test("recovers a durable intent after Pi persisted but manifest adoption failed", async () => {
     const root = await workspace();
-    const store = new GrokCompactionArchiveStore(root);
-    const coordinator = new GrokCompactionCoordinator(store, 0);
+    const store = new BotCompactionArchiveStore(root);
+    const coordinator = new BotCompactionCoordinator(store, 0);
     const contextSessionId = crypto.randomUUID();
     const messages = [
       text("user", "goal"),
@@ -1162,7 +1162,7 @@ describe("Grok coordinator", () => {
 
     // Simulate a process restart after Pi synchronously appended its entry but
     // before the session_compact handler advanced the manifest.
-    const restarted = new GrokCompactionCoordinator(new GrokCompactionArchiveStore(root), 0);
+    const restarted = new BotCompactionCoordinator(new BotCompactionArchiveStore(root), 0);
     const recovered = await restarted.recoverStaged(contextSessionId, 2, [compactionId]);
     expect(recovered?.id).toBe(compactionId);
     expect(recovered?.piBaseMessageCount).toBe(2);
@@ -1171,8 +1171,8 @@ describe("Grok coordinator", () => {
   });
 
   test("discards an intent when Pi never persisted its matching compaction", async () => {
-    const store = new GrokCompactionArchiveStore(await workspace());
-    const coordinator = new GrokCompactionCoordinator(store, 0);
+    const store = new BotCompactionArchiveStore(await workspace());
+    const coordinator = new BotCompactionCoordinator(store, 0);
     const contextSessionId = crypto.randomUUID();
     await coordinator.beforePiCompaction({
       contextSessionId,
@@ -1195,11 +1195,11 @@ describe("Grok coordinator", () => {
   });
 
   test("archives serialized payloads without nesting prior summary records", async () => {
-    const store = new GrokCompactionArchiveStore(await workspace());
-    const coordinator = new GrokCompactionCoordinator(store, 0);
+    const store = new BotCompactionArchiveStore(await workspace());
+    const coordinator = new BotCompactionCoordinator(store, 0);
     const contextSessionId = crypto.randomUUID();
     const priorSummary = text("user", "old summary record", { isSummary: true });
-    const messages: GrokMessage[] = [
+    const messages: BotMessage[] = [
       {
         role: "user",
         content: [
@@ -1239,10 +1239,10 @@ describe("Grok coordinator", () => {
   });
 
   test("retries transient errors with reduction but retries empty output immediately in full", async () => {
-    const store = new GrokCompactionArchiveStore(await workspace());
-    const coordinator = new GrokCompactionCoordinator(store, 0);
+    const store = new BotCompactionArchiveStore(await workspace());
+    const coordinator = new BotCompactionCoordinator(store, 0);
     const contextSessionId = crypto.randomUUID();
-    const messages: GrokMessage[] = [text("user", "goal")];
+    const messages: BotMessage[] = [text("user", "goal")];
     for (let index = 0; index < 12; index += 1) {
       messages.push(text(index % 2 ? "assistant" : "user", `message-${index}`));
     }
@@ -1277,8 +1277,8 @@ describe("Grok coordinator", () => {
   });
 
   test("does not enter the configured retry delay for empty output", async () => {
-    const store = new GrokCompactionArchiveStore(await workspace());
-    const coordinator = new GrokCompactionCoordinator(store, 60_000);
+    const store = new BotCompactionArchiveStore(await workspace());
+    const coordinator = new BotCompactionCoordinator(store, 60_000);
     const contextSessionId = crypto.randomUUID();
     const compaction = coordinator.beforePiCompaction({
       contextSessionId,
@@ -1305,8 +1305,8 @@ describe("Grok coordinator", () => {
   });
 
   test("aborts immediately while waiting between summary retries", async () => {
-    const store = new GrokCompactionArchiveStore(await workspace());
-    const coordinator = new GrokCompactionCoordinator(store, 60_000);
+    const store = new BotCompactionArchiveStore(await workspace());
+    const coordinator = new BotCompactionCoordinator(store, 60_000);
     const contextSessionId = crypto.randomUUID();
     const controller = new AbortController();
     let firstAttempt!: () => void;

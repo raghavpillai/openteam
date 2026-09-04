@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 const source = (relativePath: string) =>
   readFile(new URL(`../src/${relativePath}`, import.meta.url), "utf8");
 
-describe("Grok window chrome parity", () => {
+describe("Bot window chrome parity", () => {
   test("uses the measured macOS traffic-light inset", async () => {
     const main = await source("main/index.ts");
 
@@ -26,7 +26,7 @@ describe("Grok window chrome parity", () => {
     expect(sidebar).toContain('className="flex shrink-0 flex-col items-center gap-0 pb-2 pt-2"');
   });
 
-  test("uses Grok's exact compact-sidebar footer controls and geometry", async () => {
+  test("uses Bot's exact compact-sidebar footer controls and geometry", async () => {
     const sidebar = await source("renderer/components/openteam/sidebar.tsx");
     const compactFooter = sidebar.slice(
       sidebar.indexOf("function CompactSidebarContent"),

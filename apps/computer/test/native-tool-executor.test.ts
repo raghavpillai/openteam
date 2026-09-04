@@ -208,7 +208,7 @@ describe("native computer tools", () => {
     }
   });
 
-  test("routes Task through the host Auto-review gate with Grok-compatible details", async () => {
+  test("routes Task through the host Auto-review gate with OpenTeam-compatible details", async () => {
     const requests: unknown[] = [];
     const bridge = Bun.serve({
       hostname: "127.0.0.1",

@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { buildSecretProvidedAck } from "../src/services/rich-message-service";
 
 describe("secure rich-message handoff", () => {
-  test("uses Grok's exact hidden acknowledgement without the secret value", () => {
+  test("uses Bot's exact hidden acknowledgement without the secret value", () => {
     const prompt = buildSecretProvidedAck("Slack bot token");
     expect(
       prompt

@@ -73,7 +73,7 @@ stops a bot.
 Bots see eight built-in tools: `SendToUser`, `ReactToMessage`, `update_state`, `Shell`, `Read`,
 `Screenshot`, `GetDynamicTools`, and `CallDynamicTool`. Everything else (the `Computer` tool,
 messaging other bots, subagents, plugins) is discovered and called through the last two. On-disk
-bot state and tool names follow xAI's Grok Bot layout, so bot files stay readable and portable.
+bot state and tool names use OpenTeam's portable layout, so bot files stay readable across hosts.
 
 State lives in PostgreSQL plus five other Docker volumes: computer home (Pi sessions, credentials,
 browser profiles), agent data, assets, workspace, and the snapshot store. A restart resumes

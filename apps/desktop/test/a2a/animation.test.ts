@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 const rendererSource = (path: string) =>
   readFile(new URL(`../../src/renderer/${path}`, import.meta.url), "utf8");
 
-test("A2A exchange motion matches the observed Grok sheet and footer timing", async () => {
+test("A2A exchange motion matches the observed Bot sheet and footer timing", async () => {
   const [styles, chatPane] = await Promise.all([
     rendererSource("styles.css"),
     rendererSource("components/openteam/chat-pane.tsx"),

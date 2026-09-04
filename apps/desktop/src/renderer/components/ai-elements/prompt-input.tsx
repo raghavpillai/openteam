@@ -31,7 +31,7 @@ const MULTILINE_THRESHOLD = 39;
 const SECONDARY_ACTION_CLASS =
   "size-7 rounded-full bg-[#f0f0f0] text-[#696969] shadow-[inset_0_0_0_0.5px_rgba(20,20,20,0.10)] hover:bg-[#e9e9e9] hover:text-[#1f1f1f] disabled:opacity-100 dark:bg-[#3b3b3b] dark:text-[#a8a8a8] dark:shadow-[inset_0_0_0_0.5px_rgba(255,255,255,0.12)] dark:hover:bg-[#484848] dark:hover:text-[#fafafa]";
 
-function GrokPlusIcon({ className }: { className?: string }) {
+function BotPlusIcon({ className }: { className?: string }) {
   return (
     <svg aria-hidden="true" className={className} fill="currentColor" viewBox="0 0 300 300">
       <path d="M150 281Q158 281 163.5 275.5Q169 270 169 263V169H263Q270 169 275.5 163.5Q281 158 281 150Q281 142 275.5 136.5Q270 131 263 131H169V38Q169 30 163.5 24.5Q158 19 150 19Q142 19 136.5 24.5Q131 30 131 37V131H38Q30 131 24.5 136.5Q19 142 19 150Q19 158 24.5 163.5Q30 169 38 169H131V263Q131 270 136.5 275.5Q142 281 150 281Z" />
@@ -39,7 +39,7 @@ function GrokPlusIcon({ className }: { className?: string }) {
   );
 }
 
-function GrokMicIcon({ className }: { className?: string }) {
+function BotMicIcon({ className }: { className?: string }) {
   return (
     <svg aria-hidden="true" className={className} fill="currentColor" viewBox="0 0 300 300">
       <path
@@ -50,7 +50,7 @@ function GrokMicIcon({ className }: { className?: string }) {
   );
 }
 
-function GrokArrowUpIcon({ className }: { className?: string }) {
+function BotArrowUpIcon({ className }: { className?: string }) {
   return (
     <svg aria-hidden="true" className={className} fill="currentColor" viewBox="0 0 300 300">
       <path
@@ -61,7 +61,7 @@ function GrokArrowUpIcon({ className }: { className?: string }) {
   );
 }
 
-function GrokReplyIcon({ className }: { className?: string }) {
+function BotReplyIcon({ className }: { className?: string }) {
   return (
     <svg aria-hidden="true" className={className} fill="currentColor" viewBox="0 0 300 300">
       <path
@@ -72,7 +72,7 @@ function GrokReplyIcon({ className }: { className?: string }) {
   );
 }
 
-function GrokCloseIcon({ className }: { className?: string }) {
+function BotCloseIcon({ className }: { className?: string }) {
   return (
     <svg aria-hidden="true" className={className} fill="currentColor" viewBox="0 0 300 300">
       <path
@@ -591,7 +591,7 @@ export function PromptInput({
                   className="flex w-full animate-in items-center gap-1.5 rounded-[10px] bg-[#f0f0f0] py-1 pl-2 pr-1 text-[14px] leading-[22px] text-[#747474] fade-in-0 slide-in-from-bottom-1 duration-200 motion-reduce:animate-none dark:bg-[#3b3b3b] dark:text-[rgba(240,240,240,0.74)]"
                   data-reply-preview-id={renderedReply.id}
                 >
-                  <GrokReplyIcon className="size-3 shrink-0 text-[#777] dark:text-[rgba(240,240,240,0.60)]" />
+                  <BotReplyIcon className="size-3 shrink-0 text-[#777] dark:text-[rgba(240,240,240,0.60)]" />
                   <span className="min-w-0 flex-1 truncate">{renderedReply.content}</span>
                   <button
                     aria-label="Cancel reply"
@@ -599,7 +599,7 @@ export function PromptInput({
                     onClick={onCancelReply}
                     type="button"
                   >
-                    <GrokCloseIcon className="size-3" />
+                    <BotCloseIcon className="size-3" />
                   </button>
                 </div>
               )}
@@ -685,7 +685,7 @@ export function PromptInput({
                     type="button"
                     variant="ghost"
                   >
-                    <GrokPlusIcon className="size-3.5" />
+                    <BotPlusIcon className="size-3.5" />
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent
@@ -758,7 +758,7 @@ export function PromptInput({
                   type="button"
                   variant="ghost"
                 >
-                  <GrokMicIcon className="size-4 animate-in fade-in-0 zoom-in-50 duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:animate-none" />
+                  <BotMicIcon className="size-4 animate-in fade-in-0 zoom-in-50 duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:animate-none" />
                 </Button>
               )}
               <Button
@@ -768,13 +768,13 @@ export function PromptInput({
                 size="icon"
                 type="submit"
               >
-                <GrokMicIcon
+                <BotMicIcon
                   className={cn(
                     "absolute size-4 transition-[opacity,transform] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none",
                     hasPayload ? "scale-50 opacity-0" : "scale-100 opacity-100"
                   )}
                 />
-                <GrokArrowUpIcon
+                <BotArrowUpIcon
                   className={cn(
                     "absolute size-4 transition-[opacity,transform] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none",
                     hasPayload ? "scale-100 opacity-100" : "scale-50 opacity-0"

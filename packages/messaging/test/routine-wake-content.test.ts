@@ -28,7 +28,7 @@ describe("scheduled routine wake content", () => {
     );
   });
 
-  test("matches Grok's trusted manual-run framing", () => {
+  test("matches Bot's trusted manual-run framing", () => {
     expect(
       manualRoutineWakeContent({
         name: "Daily audit",

@@ -20,11 +20,11 @@ function fixture(): ClientSnapshot {
     bots: [
       {
         id: "bot-1",
-        name: "Grok",
+        name: "Bot",
         instructions: "Be useful.",
         icon: "●",
         color: "#2f8cff",
-        defaultDirectory: "/workspace/bots/grok",
+        defaultDirectory: "/workspace/bots/bot",
         status: "active",
         createdAt: stamp,
         updatedAt: stamp,
@@ -36,7 +36,7 @@ function fixture(): ClientSnapshot {
       {
         id: "channel-1",
         kind: "bot_dm",
-        name: "Grok",
+        name: "Bot",
         description: "",
         directKey: null,
         workingDirectory: null,
@@ -134,8 +134,8 @@ describe("desktop snapshot index", () => {
   test("indexes hot channel data once for fast tab projections", () => {
     const index = createSnapshotIndex(fixture());
 
-    expect(index.botById.get("bot-1")?.name).toBe("Grok");
-    expect(index.channelById.get("channel-1")?.name).toBe("Grok");
+    expect(index.botById.get("bot-1")?.name).toBe("Bot");
+    expect(index.channelById.get("channel-1")?.name).toBe("Bot");
     expect(index.messagesByChannel.get("channel-1")?.map((message) => message.content)).toEqual([
       "Hello",
       "Hi",

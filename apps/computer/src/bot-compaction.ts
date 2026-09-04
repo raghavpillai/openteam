@@ -3,14 +3,14 @@ import { existsSync } from "node:fs";
 import { mkdir, open, readdir, readFile, rename, rm, stat, unlink } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 
-export const GROK_BACKGROUND_UNUSED_TOKENS = 10_000;
-export const GROK_BACKGROUND_UNUSED_PERCENT = 0.1;
-export const GROK_PERSIST_UNUSED_TOKENS = 5_000;
-export const GROK_PERSIST_UNUSED_PERCENT = 0.05;
-export const GROK_TURN_TRIGGER = 1_000;
-export const GROK_IMAGE_TRIGGER = 85;
-export const GROK_CONVERSATION_SOFT_BYTES = 256 * 1024 * 1024;
-export const GROK_CONVERSATION_HARD_BYTES = 1024 * 1024 * 1024;
+export const BOT_BACKGROUND_UNUSED_TOKENS = 10_000;
+export const BOT_BACKGROUND_UNUSED_PERCENT = 0.1;
+export const BOT_PERSIST_UNUSED_TOKENS = 5_000;
+export const BOT_PERSIST_UNUSED_PERCENT = 0.05;
+export const BOT_TURN_TRIGGER = 1_000;
+export const BOT_IMAGE_TRIGGER = 85;
+export const BOT_CONVERSATION_SOFT_BYTES = 256 * 1024 * 1024;
+export const BOT_CONVERSATION_HARD_BYTES = 1024 * 1024 * 1024;
 
 const positiveByteLimit = (value: string | undefined, fallback: number): number => {
   if (!value || !/^\d+$/.test(value)) return fallback;
@@ -18,27 +18,27 @@ const positiveByteLimit = (value: string | undefined, fallback: number): number 
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
 };
 
-export const grokConversationSizeLimits = (
+export const botConversationSizeLimits = (
   environment: Record<string, string | undefined> = process.env
 ): { soft: number; hard: number } => ({
   soft: positiveByteLimit(
     environment.SAND_CONVERSATION_SOFT_LIMIT_BYTES,
-    GROK_CONVERSATION_SOFT_BYTES
+    BOT_CONVERSATION_SOFT_BYTES
   ),
   hard: positiveByteLimit(
     environment.SAND_CONVERSATION_HARD_LIMIT_BYTES,
-    GROK_CONVERSATION_HARD_BYTES
+    BOT_CONVERSATION_HARD_BYTES
   ),
 });
 
-export type GrokCompactionReason =
+export type BotCompactionReason =
   | "approaching_token_limit"
   | "approaching_image_limit"
   | "fallback_on_limit_error"
   | "input_token_limit_error"
   | "self_summary_completed";
 
-export interface GrokMessage {
+export interface BotMessage {
   role?: string;
   content?: unknown;
   timestamp?: number;
@@ -46,7 +46,7 @@ export interface GrokMessage {
   [key: string]: unknown;
 }
 
-export interface GrokSummaryUsage {
+export interface BotSummaryUsage {
   input?: number;
   output?: number;
   cacheRead?: number;
@@ -55,22 +55,22 @@ export interface GrokSummaryUsage {
   [key: string]: unknown;
 }
 
-export interface GrokSummaryResult {
+export interface BotSummaryResult {
   text: string;
-  usage?: GrokSummaryUsage;
+  usage?: BotSummaryUsage;
 }
 
-export interface GrokSummaryRetryDirective {
+export interface BotSummaryRetryDirective {
   retry: boolean;
   delay: boolean;
   reduceInputs: boolean;
   shorter: boolean;
 }
 
-export interface GrokArchiveRecord {
+export interface BotArchiveRecord {
   id: string;
   sequence: number;
-  reason: GrokCompactionReason;
+  reason: BotCompactionReason;
   prefixDigest: string;
   summaryDigest: string;
   summaryBlob: string;
@@ -82,58 +82,58 @@ export interface GrokArchiveRecord {
   completedAt: string;
 }
 
-export interface GrokArchiveBlob {
+export interface BotArchiveBlob {
   version: 1;
   id: string;
   sequence: number;
-  reason: GrokCompactionReason;
+  reason: BotCompactionReason;
   summary: string;
   prefixDigest: string;
   summaryDigest: string;
   piBaseMessageCount: number;
-  userInfoMessage: GrokMessage | null;
-  lastUserMessage: GrokMessage;
-  preservedTailMessages: GrokMessage[];
+  userInfoMessage: BotMessage | null;
+  lastUserMessage: BotMessage;
+  preservedTailMessages: BotMessage[];
   durableBlocks?: string[];
-  summarizedMessages?: GrokMessage[];
+  summarizedMessages?: BotMessage[];
   selfSummaryCount: number;
   tokensBefore: number | null;
   tokensAfter: number | null;
   imageCount: number;
   turnCount: number;
-  usage: GrokSummaryUsage | null;
+  usage: BotSummaryUsage | null;
   startedAt: string;
   completedAt: string;
 }
 
-type GrokArchiveCommitInput = Omit<
-  GrokArchiveBlob,
+type BotArchiveCommitInput = Omit<
+  BotArchiveBlob,
   "version" | "sequence" | "selfSummaryCount" | "summaryDigest"
 >;
 
-type GrokArchiveIntentInput = Omit<GrokArchiveCommitInput, "piBaseMessageCount">;
+type BotArchiveIntentInput = Omit<BotArchiveCommitInput, "piBaseMessageCount">;
 
-interface GrokArchiveIntent {
+interface BotArchiveIntent {
   version: 1;
   contextSessionId: string;
-  archive: GrokArchiveIntentInput;
+  archive: BotArchiveIntentInput;
 }
 
-export interface GrokArchiveManifest {
+export interface BotArchiveManifest {
   version: 1;
   epoch: number;
   selfSummaryCount: number;
   latestArchiveId: string | null;
-  archives: GrokArchiveRecord[];
+  archives: BotArchiveRecord[];
 }
 
-export interface GrokCompactionEvent extends GrokArchiveRecord {
+export interface BotCompactionEvent extends BotArchiveRecord {
   contextSessionId: string;
   compactionId: string;
   epoch: number;
 }
 
-const compactionEvent = (contextSessionId: string, blob: GrokArchiveBlob): GrokCompactionEvent => ({
+const compactionEvent = (contextSessionId: string, blob: BotArchiveBlob): BotCompactionEvent => ({
   contextSessionId,
   compactionId: blob.id,
   id: blob.id,
@@ -151,7 +151,7 @@ const compactionEvent = (contextSessionId: string, blob: GrokArchiveBlob): GrokC
   completedAt: blob.completedAt,
 });
 
-const EMPTY_MANIFEST: GrokArchiveManifest = {
+const EMPTY_MANIFEST: BotArchiveManifest = {
   version: 1,
   epoch: 0,
   selfSummaryCount: 0,
@@ -221,29 +221,29 @@ export const canonicalJson = (value: unknown): string => JSON.stringify(canonica
 export const sha256 = (value: string | Uint8Array): string =>
   createHash("sha256").update(value).digest("hex");
 
-export const grokMessageDigest = (messages: readonly GrokMessage[]): string =>
+export const botMessageDigest = (messages: readonly BotMessage[]): string =>
   sha256(canonicalJson(messages));
 
-const cursorOptions = (message: GrokMessage): Record<string, unknown> => {
+const cursorOptions = (message: BotMessage): Record<string, unknown> => {
   const provider = message.providerOptions;
   if (!provider || typeof provider !== "object") return {};
   const cursor = provider.cursor;
   return cursor && typeof cursor === "object" ? (cursor as Record<string, unknown>) : {};
 };
 
-const isUserInfo = (message: GrokMessage): boolean => {
+const isUserInfo = (message: BotMessage): boolean => {
   if (message.role !== "user") return false;
   const cursor = cursorOptions(message);
   return cursor.isUserInfo === true;
 };
 
-const isSummary = (message: GrokMessage): boolean => cursorOptions(message).isSummary === true;
+const isSummary = (message: BotMessage): boolean => cursorOptions(message).isSummary === true;
 
-export const grokUserInfoMessage = (
+export const botUserInfoMessage = (
   content: string,
   summarizationEpoch: number,
   timestamp = summarizationEpoch
-): GrokMessage => ({
+): BotMessage => ({
   role: "user",
   content: [{ type: "text", text: content }],
   timestamp,
@@ -255,10 +255,10 @@ export const grokUserInfoMessage = (
   },
 });
 
-export const replaceGrokUserInfo = (
-  messages: readonly GrokMessage[],
-  userInfoMessage: GrokMessage | null
-): GrokMessage[] => {
+export const replaceBotUserInfo = (
+  messages: readonly BotMessage[],
+  userInfoMessage: BotMessage | null
+): BotMessage[] => {
   if (!userInfoMessage) return structuredClone([...messages]);
   return [
     structuredClone(userInfoMessage),
@@ -268,13 +268,13 @@ export const replaceGrokUserInfo = (
   ];
 };
 
-export interface GrokPartition {
-  userInfoMessage: GrokMessage | null;
-  lastUserMessage: GrokMessage;
-  messagesToSummarize: GrokMessage[];
+export interface BotPartition {
+  userInfoMessage: BotMessage | null;
+  lastUserMessage: BotMessage;
+  messagesToSummarize: BotMessage[];
 }
 
-const hasModelVisibleContent = (message: GrokMessage): boolean => {
+const hasModelVisibleContent = (message: BotMessage): boolean => {
   if (typeof message.content === "string") return message.content.trim().length > 0;
   if (!Array.isArray(message.content)) return false;
   return message.content.some((part) => {
@@ -287,20 +287,20 @@ const hasModelVisibleContent = (message: GrokMessage): boolean => {
 };
 
 export const stripEmptyTrailingAssistantMessages = (
-  messages: readonly GrokMessage[]
-): GrokMessage[] => {
+  messages: readonly BotMessage[]
+): BotMessage[] => {
   let end = messages.length;
   while (
     end > 0 &&
     messages[end - 1]?.role === "assistant" &&
-    !hasModelVisibleContent(messages[end - 1] as GrokMessage)
+    !hasModelVisibleContent(messages[end - 1] as BotMessage)
   ) {
     end -= 1;
   }
   return structuredClone(messages.slice(0, end));
 };
 
-const messageText = (message: GrokMessage): string =>
+const messageText = (message: BotMessage): string =>
   Array.isArray(message.content)
     ? message.content
         .flatMap((part) => {
@@ -316,8 +316,8 @@ const messageText = (message: GrokMessage): string =>
 const xmlText = (value: string): string =>
   value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 
-export const grokDurableBlocks = (
-  lastUserMessage: GrokMessage,
+export const botDurableBlocks = (
+  lastUserMessage: BotMessage,
   context: {
     projectRoot?: string;
     isRootProject?: boolean;
@@ -327,8 +327,8 @@ export const grokDurableBlocks = (
   }
 ): string[] => {
   const blocks: string[] = [];
-  // Grok Bot only renders the project-root reminder for a root-project agent.
-  // Ordinary durable Bots, including the live parity probe, omit it.
+  // OpenTeam only renders the project-root reminder for a root-project agent.
+  // Ordinary durable bots, including the live parity probe, omit it.
   if (context.isRootProject && context.projectRoot) {
     blocks.push(`<system_reminder>Project root: ${xmlText(context.projectRoot)}</system_reminder>`);
   }
@@ -346,7 +346,7 @@ export const grokDurableBlocks = (
   return blocks;
 };
 
-export const partitionForGrokSummary = (messages: readonly GrokMessage[]): GrokPartition | null => {
+export const partitionForBotSummary = (messages: readonly BotMessage[]): BotPartition | null => {
   const compactable = stripEmptyTrailingAssistantMessages(messages);
   if (compactable.length < 3) return null;
   const firstMessage = compactable[0];
@@ -359,7 +359,7 @@ export const partitionForGrokSummary = (messages: readonly GrokMessage[]): GrokP
   for (let index = compactable.length - 1; index >= 0; index -= 1) {
     const message = compactable[index];
     if (!message) continue;
-    // Grok Bot's active SelfSummarizer uses findLastUserMessageIndex. The
+    // OpenTeam's active SelfSummarizer uses findLastUserMessageIndex. The
     // "last real user" and synthetic-ack filtering belongs to the bundled but
     // unused xAI compaction handler.
     if (index !== userInfoIndex && message.role === "user") {
@@ -392,49 +392,49 @@ const imageParts = (content: unknown): number => {
   ).length;
 };
 
-export const countGrokImages = (messages: readonly GrokMessage[]): number =>
+export const countBotImages = (messages: readonly BotMessage[]): number =>
   messages.reduce((total, message) => total + imageParts(message.content), 0);
 
-export const countGrokTurns = (messages: readonly GrokMessage[]): number =>
+export const countBotTurns = (messages: readonly BotMessage[]): number =>
   messages.filter(
     (message) => message.role === "user" && !isSummary(message) && !isUserInfo(message)
   ).length;
 
-export const grokBackgroundThreshold = (maxTokens: number): number =>
+export const botBackgroundThreshold = (maxTokens: number): number =>
   Math.min(
-    maxTokens - GROK_BACKGROUND_UNUSED_TOKENS,
-    maxTokens * (1 - GROK_BACKGROUND_UNUSED_PERCENT)
+    maxTokens - BOT_BACKGROUND_UNUSED_TOKENS,
+    maxTokens * (1 - BOT_BACKGROUND_UNUSED_PERCENT)
   );
 
-export const grokPersistThreshold = (maxTokens: number): number =>
-  Math.min(maxTokens - GROK_PERSIST_UNUSED_TOKENS, maxTokens * (1 - GROK_PERSIST_UNUSED_PERCENT));
+export const botPersistThreshold = (maxTokens: number): number =>
+  Math.min(maxTokens - BOT_PERSIST_UNUSED_TOKENS, maxTokens * (1 - BOT_PERSIST_UNUSED_PERCENT));
 
 // Pi's native predicate is `used > window - reserve`; add one so the first
-// integer token at Grok's inclusive persist boundary triggers.
-export const grokPiPersistReserve = (maxTokens: number): number =>
-  Math.max(GROK_PERSIST_UNUSED_TOKENS, Math.ceil(maxTokens * GROK_PERSIST_UNUSED_PERCENT)) + 1;
+// integer token at the inclusive persist boundary triggers.
+export const botPiPersistReserve = (maxTokens: number): number =>
+  Math.max(BOT_PERSIST_UNUSED_TOKENS, Math.ceil(maxTokens * BOT_PERSIST_UNUSED_PERCENT)) + 1;
 
-export const shouldStartGrokSummary = (usedTokens: number, maxTokens: number): boolean =>
-  maxTokens > 0 && usedTokens >= grokBackgroundThreshold(maxTokens);
+export const shouldStartBotSummary = (usedTokens: number, maxTokens: number): boolean =>
+  maxTokens > 0 && usedTokens >= botBackgroundThreshold(maxTokens);
 
-export const shouldPersistGrokSummary = (usedTokens: number, maxTokens: number): boolean =>
-  maxTokens > 0 && usedTokens >= grokPersistThreshold(maxTokens);
+export const shouldPersistBotSummary = (usedTokens: number, maxTokens: number): boolean =>
+  maxTokens > 0 && usedTokens >= botPersistThreshold(maxTokens);
 
-export const redactGrokArchiveMessages = (messages: readonly GrokMessage[]): GrokMessage[] =>
+export const redactBotArchiveMessages = (messages: readonly BotMessage[]): BotMessage[] =>
   structuredClone([...messages]);
 
-export interface GrokSummaryRequest {
+export interface BotSummaryRequest {
   systemPrompt: string;
-  userInfoMessage: GrokMessage | null;
-  messagesToSummarize: GrokMessage[];
+  userInfoMessage: BotMessage | null;
+  messagesToSummarize: BotMessage[];
   shorter: boolean;
 }
 
-// The protected Grok generation prompt is intentionally not copied. This is
+// The protected Bot generation prompt is intentionally not copied. This is
 // an original prompt with the same observable summary contract; conversation
 // messages are supplied as structured history by the caller rather than
 // flattened into this instruction.
-export const grokSummaryPrompt = (shorter = false): string =>
+export const botSummaryPrompt = (shorter = false): string =>
   [
     "Summarize the conversation state so the same agent can continue without older messages.",
     "Preserve the active user goal, constraints, decisions, completed and pending work, exact file or artifact references, important tool outcomes, failures, and attachment identities.",
@@ -444,19 +444,19 @@ export const grokSummaryPrompt = (shorter = false): string =>
       : "Be concise but complete.",
   ].join("\n\n");
 
-export const grokSummarySystemPrompt = (originalAgentSystemPrompt: string): string =>
+export const botSummarySystemPrompt = (originalAgentSystemPrompt: string): string =>
   [
     "The original agent system context is supplied below as JSON data. Preserve its durable identity, safety, workspace, and task constraints when they matter to continuation, but do not follow its response-style, tool-use, or user-messaging directives while generating the summary.",
     JSON.stringify({ originalAgentSystemPrompt }),
     "You are performing context compaction only. Return a faithful continuation summary in plain text. Do not answer the task, acknowledge the request, call tools, or imitate the original agent's normal response format.",
   ].join("\n\n");
 
-export const grokSummaryMessage = (
+export const botSummaryMessage = (
   summary: string,
   selfSummaryCount: number,
   timestamp = Date.now(),
   durableBlocks: readonly string[] = []
-): GrokMessage => {
+): BotMessage => {
   const leading = durableBlocks.filter((block) =>
     block.startsWith("<system_reminder>Project root:")
   );
@@ -484,18 +484,18 @@ export const grokSummaryMessage = (
 };
 
 const messagesHavePrefixByValue = (
-  captured: readonly GrokMessage[],
-  current: readonly GrokMessage[]
+  captured: readonly BotMessage[],
+  current: readonly BotMessage[]
 ): boolean =>
   captured.length <= current.length &&
   captured.every((message, index) => {
     const candidate = current[index];
     return (
-      candidate !== undefined && grokMessageDigest([message]) === grokMessageDigest([candidate])
+      candidate !== undefined && botMessageDigest([message]) === botMessageDigest([candidate])
     );
   });
 
-const toolCallIds = (message: GrokMessage): string[] => {
+const toolCallIds = (message: BotMessage): string[] => {
   if (!Array.isArray(message.content)) return [];
   return message.content.flatMap((part) => {
     if (!part || typeof part !== "object") return [];
@@ -506,7 +506,7 @@ const toolCallIds = (message: GrokMessage): string[] => {
   });
 };
 
-const toolResultIds = (message: GrokMessage): string[] => {
+const toolResultIds = (message: BotMessage): string[] => {
   if (message.role !== "toolResult" && message.role !== "tool") return [];
   const direct = message.toolCallId ?? message.tool_call_id;
   if (typeof direct === "string" && direct) return [direct];
@@ -519,7 +519,7 @@ const toolResultIds = (message: GrokMessage): string[] => {
   });
 };
 
-export const reduceGrokSummaryInputMessages = (messages: readonly GrokMessage[]): GrokMessage[] => {
+export const reduceBotSummaryInputMessages = (messages: readonly BotMessage[]): BotMessage[] => {
   if (messages.length <= 8) return structuredClone([...messages]);
   const callIndex = new Map<string, number>();
   const resultIndices = new Map<string, number[]>();
@@ -593,7 +593,7 @@ export const reduceGrokSummaryInputMessages = (messages: readonly GrokMessage[])
   });
 };
 
-const noSummaryRetry = (): GrokSummaryRetryDirective => ({
+const noSummaryRetry = (): BotSummaryRetryDirective => ({
   retry: false,
   delay: false,
   reduceInputs: false,
@@ -601,16 +601,16 @@ const noSummaryRetry = (): GrokSummaryRetryDirective => ({
 });
 
 const summaryRetry = (
-  options: Partial<Omit<GrokSummaryRetryDirective, "retry">> = {}
-): GrokSummaryRetryDirective => ({
+  options: Partial<Omit<BotSummaryRetryDirective, "retry">> = {}
+): BotSummaryRetryDirective => ({
   retry: true,
   delay: options.delay ?? false,
   reduceInputs: options.reduceInputs ?? false,
   shorter: options.shorter ?? false,
 });
 
-/** Source-compatible retry classification for Grok Bot's SelfSummarizer. */
-export const grokSummaryRetryDirective = (error: unknown): GrokSummaryRetryDirective => {
+/** Source-compatible retry classification for OpenTeam's SelfSummarizer. */
+export const botSummaryRetryDirective = (error: unknown): BotSummaryRetryDirective => {
   if (!(error instanceof Error)) return noSummaryRetry();
   const identity = [error.name, error.constructor?.name]
     .filter((value): value is string => typeof value === "string")
@@ -644,21 +644,21 @@ export const grokSummaryRetryDirective = (error: unknown): GrokSummaryRetryDirec
       ? summaryRetry({ delay: true })
       : noSummaryRetry();
   }
-  // Grok retries uncategorized Error instances, but not non-Error throwables.
+  // Bot retries uncategorized Error instances, but not non-Error throwables.
   return summaryRetry({ delay: true });
 };
 
 /**
  * Preserve appended messages verbatim without cutting a provider tool exchange
- * at the background-summary capture boundary. Grok accepts an appended suffix,
+ * at the background-summary capture boundary. The coordinator accepts an appended suffix,
  * but a function result is not valid provider history unless the assistant call
  * that owns it (and the sibling results for that assistant message) travel with
  * the suffix.
  */
-export const closeGrokPreservedTail = (
+export const closeBotPreservedTail = (
   capturedMessageCount: number,
-  messages: readonly GrokMessage[]
-): GrokMessage[] => {
+  messages: readonly BotMessage[]
+): BotMessage[] => {
   const selected = new Set<number>();
   for (let index = Math.max(0, capturedMessageCount); index < messages.length; index += 1) {
     selected.add(index);
@@ -727,7 +727,7 @@ const atomicWrite = async (path: string, data: string): Promise<void> => {
   }
 };
 
-export class GrokCompactionArchiveStore {
+export class BotCompactionArchiveStore {
   private readonly root: string;
   private readonly locks = new Map<string, Promise<void>>();
 
@@ -760,10 +760,10 @@ export class GrokCompactionArchiveStore {
     }
   }
 
-  async manifest(contextSessionId: string): Promise<GrokArchiveManifest> {
+  async manifest(contextSessionId: string): Promise<BotArchiveManifest> {
     const path = join(this.directory(contextSessionId), "manifest.json");
     if (!existsSync(path)) return structuredClone(EMPTY_MANIFEST);
-    const parsed = JSON.parse(await readFile(path, "utf8")) as GrokArchiveManifest;
+    const parsed = JSON.parse(await readFile(path, "utf8")) as BotArchiveManifest;
     if (
       !isRecord(parsed) ||
       parsed.version !== 1 ||
@@ -791,7 +791,7 @@ export class GrokCompactionArchiveStore {
     return parsed;
   }
 
-  async latest(contextSessionId: string): Promise<GrokArchiveBlob | null> {
+  async latest(contextSessionId: string): Promise<BotArchiveBlob | null> {
     const manifest = await this.manifest(contextSessionId);
     if (!manifest.latestArchiveId) return null;
     const record = manifest.archives.find((item) => item.id === manifest.latestArchiveId);
@@ -803,7 +803,7 @@ export class GrokCompactionArchiveStore {
     if (sha256(source) !== record.summaryBlob) {
       throw new Error(`Compaction archive digest mismatch for ${contextSessionId}`);
     }
-    const blob = JSON.parse(source) as GrokArchiveBlob;
+    const blob = JSON.parse(source) as BotArchiveBlob;
     if (
       !isRecord(blob) ||
       blob.version !== 1 ||
@@ -845,10 +845,10 @@ export class GrokCompactionArchiveStore {
     return (await this.readIntent(contextSessionId))?.archive.id ?? null;
   }
 
-  private async readIntent(contextSessionId: string): Promise<GrokArchiveIntent | null> {
+  private async readIntent(contextSessionId: string): Promise<BotArchiveIntent | null> {
     const path = this.intentPath(contextSessionId);
     if (!existsSync(path)) return null;
-    const parsed = JSON.parse(await readFile(path, "utf8")) as GrokArchiveIntent;
+    const parsed = JSON.parse(await readFile(path, "utf8")) as BotArchiveIntent;
     if (
       !isRecord(parsed) ||
       parsed.version !== 1 ||
@@ -875,7 +875,7 @@ export class GrokCompactionArchiveStore {
     return parsed;
   }
 
-  async stage(contextSessionId: string, archive: GrokArchiveIntentInput): Promise<void> {
+  async stage(contextSessionId: string, archive: BotArchiveIntentInput): Promise<void> {
     await this.locked(contextSessionId, async () => {
       const manifest = await this.manifest(contextSessionId);
       if (manifest.archives.some((record) => record.id === archive.id)) {
@@ -883,7 +883,7 @@ export class GrokCompactionArchiveStore {
       }
       await atomicWrite(
         this.intentPath(contextSessionId),
-        canonicalJson({ version: 1, contextSessionId, archive } satisfies GrokArchiveIntent)
+        canonicalJson({ version: 1, contextSessionId, archive } satisfies BotArchiveIntent)
       );
     });
   }
@@ -896,8 +896,8 @@ export class GrokCompactionArchiveStore {
 
   async contextMessages(
     contextSessionId: string,
-    piMessages: readonly GrokMessage[]
-  ): Promise<GrokMessage[]> {
+    piMessages: readonly BotMessage[]
+  ): Promise<BotMessage[]> {
     const latest = await this.latest(contextSessionId);
     if (!latest) return structuredClone([...piMessages]);
     if (piMessages.length < latest.piBaseMessageCount) {
@@ -905,14 +905,14 @@ export class GrokCompactionArchiveStore {
     }
     const appendedMessages = structuredClone(piMessages.slice(latest.piBaseMessageCount));
     const archivedPrefix = latest.summarizedMessages ?? [];
-    const preservedTail = closeGrokPreservedTail(archivedPrefix.length, [
+    const preservedTail = closeBotPreservedTail(archivedPrefix.length, [
       ...archivedPrefix,
       ...latest.preservedTailMessages,
     ]);
     return [
       ...(latest.userInfoMessage ? [structuredClone(latest.userInfoMessage)] : []),
       structuredClone(latest.lastUserMessage),
-      grokSummaryMessage(
+      botSummaryMessage(
         latest.summary,
         latest.selfSummaryCount,
         new Date(latest.completedAt).getTime(),
@@ -925,12 +925,12 @@ export class GrokCompactionArchiveStore {
 
   private async commitLocked(
     contextSessionId: string,
-    input: GrokArchiveCommitInput
-  ): Promise<GrokArchiveBlob> {
+    input: BotArchiveCommitInput
+  ): Promise<BotArchiveBlob> {
     const manifest = await this.manifest(contextSessionId);
     const sequence = manifest.epoch + 1;
     const summaryDigest = sha256(input.summary);
-    const blob: GrokArchiveBlob = {
+    const blob: BotArchiveBlob = {
       ...input,
       version: 1,
       sequence,
@@ -942,7 +942,7 @@ export class GrokCompactionArchiveStore {
     const directory = this.directory(contextSessionId);
     const blobPath = join(directory, "blobs", `${summaryBlob}.json`);
     if (!existsSync(blobPath)) await atomicWrite(blobPath, source);
-    const record: GrokArchiveRecord = {
+    const record: BotArchiveRecord = {
       id: blob.id,
       sequence,
       reason: blob.reason,
@@ -956,7 +956,7 @@ export class GrokCompactionArchiveStore {
       startedAt: blob.startedAt,
       completedAt: blob.completedAt,
     };
-    const next: GrokArchiveManifest = {
+    const next: BotArchiveManifest = {
       version: 1,
       epoch: sequence,
       selfSummaryCount: blob.selfSummaryCount,
@@ -967,7 +967,7 @@ export class GrokCompactionArchiveStore {
     return blob;
   }
 
-  async commit(contextSessionId: string, input: GrokArchiveCommitInput): Promise<GrokArchiveBlob> {
+  async commit(contextSessionId: string, input: BotArchiveCommitInput): Promise<BotArchiveBlob> {
     return this.locked(contextSessionId, () => this.commitLocked(contextSessionId, input));
   }
 
@@ -975,7 +975,7 @@ export class GrokCompactionArchiveStore {
     contextSessionId: string,
     compactionId: string,
     piBaseMessageCount: number
-  ): Promise<GrokArchiveBlob> {
+  ): Promise<BotArchiveBlob> {
     return this.locked(contextSessionId, async () => {
       const intent = await this.readIntent(contextSessionId);
       if (!intent || intent.archive.id !== compactionId) {
@@ -1053,7 +1053,7 @@ export class GrokCompactionArchiveStore {
     sessionPath?: string | null,
     limits: { soft?: number; hard?: number } = {}
   ): Promise<{ bytes: number; reclaimed: number }> {
-    const configured = grokConversationSizeLimits();
+    const configured = botConversationSizeLimits();
     const soft = limits.soft ?? configured.soft;
     const hard = limits.hard ?? configured.hard;
     let bytes = await this.bytes(contextSessionId, sessionPath);
@@ -1080,9 +1080,9 @@ export class GrokCompactionArchiveStore {
 interface PendingSummary {
   contextSessionId: string;
   id: string;
-  reason: GrokCompactionReason;
-  capturedMessages: GrokMessage[];
-  partition: GrokPartition;
+  reason: BotCompactionReason;
+  capturedMessages: BotMessage[];
+  partition: BotPartition;
   durableBlocks: string[];
   prefixDigest: string;
   systemDigest: string;
@@ -1091,61 +1091,61 @@ interface PendingSummary {
   turnCount: number;
   startedAt: string;
   controller: AbortController | null;
-  promise: Promise<GrokSummaryResult>;
-  result: GrokSummaryResult | null;
+  promise: Promise<BotSummaryResult>;
+  result: BotSummaryResult | null;
   projectedMidLoop: boolean;
 }
 
-export interface GrokObservation {
+export interface BotObservation {
   contextSessionId: string;
-  piMessages: readonly GrokMessage[];
+  piMessages: readonly BotMessage[];
   systemPrompt: string;
-  userInfoMessage?: GrokMessage | null;
+  userInfoMessage?: BotMessage | null;
   usedTokens: number | null;
   maxTokens: number;
   projectRoot?: string;
   transcriptPath?: string;
   todoUpdate?: string;
   automationTrigger?: string;
-  infer: (request: GrokSummaryRequest, signal: AbortSignal) => Promise<GrokSummaryResult>;
+  infer: (request: BotSummaryRequest, signal: AbortSignal) => Promise<BotSummaryResult>;
 }
 
-export interface GrokPreparedCompaction {
+export interface BotPreparedCompaction {
   summary: string;
   firstKeptEntryId: string;
-  retainedTail: GrokMessage[];
+  retainedTail: BotMessage[];
   tokensBefore: number;
-  usage?: GrokSummaryUsage;
+  usage?: BotSummaryUsage;
   details: {
-    openteamGrokCompaction: true;
+    openteamBotCompaction: true;
     id: string;
     contextSessionId: string;
-    reason: GrokCompactionReason;
+    reason: BotCompactionReason;
   };
 }
 
-export class GrokCompactionCoordinator {
+export class BotCompactionCoordinator {
   private static readonly MAX_PENDING = 64;
   private readonly pending = new Map<string, PendingSummary>();
-  private readonly forcedReasons = new Map<string, GrokCompactionReason>();
-  private readonly projectedEvents = new Map<string, GrokCompactionEvent>();
+  private readonly forcedReasons = new Map<string, BotCompactionReason>();
+  private readonly projectedEvents = new Map<string, BotCompactionEvent>();
   private readonly projectedCommits = new Set<string>();
   private readonly prepared = new Map<
     string,
     {
       pending: PendingSummary;
-      result: GrokSummaryResult;
-      tail: GrokMessage[];
+      result: BotSummaryResult;
+      tail: BotMessage[];
       piPersisted: boolean;
     }
   >();
 
   constructor(
-    private readonly store: GrokCompactionArchiveStore,
+    private readonly store: BotCompactionArchiveStore,
     private readonly retryDelayMs = 2_000
   ) {}
 
-  forceReason(contextSessionId: string, reason: GrokCompactionReason): void {
+  forceReason(contextSessionId: string, reason: BotCompactionReason): void {
     this.forcedReasons.set(contextSessionId, reason);
   }
 
@@ -1181,7 +1181,7 @@ export class GrokCompactionCoordinator {
     contextSessionId: string,
     piBaseMessageCount: number,
     persistedCompactionIds: readonly string[]
-  ): Promise<GrokArchiveBlob | null> {
+  ): Promise<BotArchiveBlob | null> {
     const stagedId = await this.store.stagedId(contextSessionId);
     if (!stagedId) return null;
     if (!persistedCompactionIds.includes(stagedId)) {
@@ -1200,7 +1200,7 @@ export class GrokCompactionCoordinator {
     if (resetSelfSummaryCount) await this.store.beginUserQuery(contextSessionId);
   }
 
-  takeProjectedEvent(contextSessionId: string): GrokCompactionEvent | null {
+  takeProjectedEvent(contextSessionId: string): BotCompactionEvent | null {
     const event = this.projectedEvents.get(contextSessionId) ?? null;
     this.projectedEvents.delete(contextSessionId);
     return event;
@@ -1219,20 +1219,20 @@ export class GrokCompactionCoordinator {
 
   async contextMessages(
     contextSessionId: string,
-    piMessages: readonly GrokMessage[]
-  ): Promise<GrokMessage[]> {
+    piMessages: readonly BotMessage[]
+  ): Promise<BotMessage[]> {
     return this.store.contextMessages(contextSessionId, piMessages);
   }
 
   async modelContextMessages(input: {
     contextSessionId: string;
-    piMessages: readonly GrokMessage[];
+    piMessages: readonly BotMessage[];
     systemPrompt: string;
-    userInfoMessage?: GrokMessage | null;
+    userInfoMessage?: BotMessage | null;
     usedTokens: number | null;
     maxTokens: number;
-  }): Promise<GrokMessage[]> {
-    const current = replaceGrokUserInfo(
+  }): Promise<BotMessage[]> {
+    const current = replaceBotUserInfo(
       await this.contextMessages(input.contextSessionId, input.piMessages),
       input.userInfoMessage ?? null
     );
@@ -1247,11 +1247,11 @@ export class GrokCompactionCoordinator {
       return current;
     }
     const warrantsMidLoopPersist =
-      countGrokImages(current) >= GROK_IMAGE_TRIGGER ||
-      (input.usedTokens !== null && shouldStartGrokSummary(input.usedTokens, input.maxTokens));
+      countBotImages(current) >= BOT_IMAGE_TRIGGER ||
+      (input.usedTokens !== null && shouldStartBotSummary(input.usedTokens, input.maxTokens));
     if (!warrantsMidLoopPersist) return current;
     pending.projectedMidLoop = true;
-    const tail = closeGrokPreservedTail(pending.capturedMessages.length, current);
+    const tail = closeBotPreservedTail(pending.capturedMessages.length, current);
     const completedAt = new Date().toISOString();
     const tokensAfter = Math.ceil(
       canonicalJson([
@@ -1272,7 +1272,7 @@ export class GrokCompactionCoordinator {
       lastUserMessage: pending.partition.lastUserMessage,
       preservedTailMessages: tail,
       durableBlocks: pending.durableBlocks,
-      summarizedMessages: redactGrokArchiveMessages(
+      summarizedMessages: redactBotArchiveMessages(
         pending.partition.messagesToSummarize.filter((message) => !isSummary(message))
       ),
       tokensBefore: pending.tokensBefore,
@@ -1289,7 +1289,7 @@ export class GrokCompactionCoordinator {
     return [
       ...(blob.userInfoMessage ? [structuredClone(blob.userInfoMessage)] : []),
       structuredClone(blob.lastUserMessage),
-      grokSummaryMessage(
+      botSummaryMessage(
         blob.summary,
         blob.selfSummaryCount,
         new Date(blob.completedAt).getTime(),
@@ -1299,23 +1299,23 @@ export class GrokCompactionCoordinator {
     ];
   }
 
-  projectedReason(contextSessionId: string): GrokCompactionReason | null {
+  projectedReason(contextSessionId: string): BotCompactionReason | null {
     const pending = this.pending.get(contextSessionId);
     return pending?.projectedMidLoop ? pending.reason : null;
   }
 
-  async observe(input: GrokObservation): Promise<void> {
-    const messages = replaceGrokUserInfo(
+  async observe(input: BotObservation): Promise<void> {
+    const messages = replaceBotUserInfo(
       await this.contextMessages(input.contextSessionId, input.piMessages),
       input.userInfoMessage ?? null
     );
-    const imageCount = countGrokImages(messages);
-    const turnCount = countGrokTurns(messages);
-    const reason: GrokCompactionReason | null =
-      imageCount >= GROK_IMAGE_TRIGGER
+    const imageCount = countBotImages(messages);
+    const turnCount = countBotTurns(messages);
+    const reason: BotCompactionReason | null =
+      imageCount >= BOT_IMAGE_TRIGGER
         ? "approaching_image_limit"
-        : turnCount >= GROK_TURN_TRIGGER ||
-            (input.usedTokens !== null && shouldStartGrokSummary(input.usedTokens, input.maxTokens))
+        : turnCount >= BOT_TURN_TRIGGER ||
+            (input.usedTokens !== null && shouldStartBotSummary(input.usedTokens, input.maxTokens))
           ? "approaching_token_limit"
           : null;
     if (!reason) return;
@@ -1330,7 +1330,7 @@ export class GrokCompactionCoordinator {
       existing.controller?.abort();
       this.pending.delete(input.contextSessionId);
     }
-    const partition = partitionForGrokSummary(messages);
+    const partition = partitionForBotSummary(messages);
     if (!partition) return;
     const controller = new AbortController();
     const pending: PendingSummary = {
@@ -1339,8 +1339,8 @@ export class GrokCompactionCoordinator {
       reason,
       capturedMessages: messages,
       partition,
-      durableBlocks: grokDurableBlocks(partition.lastUserMessage, input),
-      prefixDigest: grokMessageDigest(messages),
+      durableBlocks: botDurableBlocks(partition.lastUserMessage, input),
+      prefixDigest: botMessageDigest(messages),
       systemDigest: sha256(input.systemPrompt),
       tokensBefore: input.usedTokens,
       imageCount,
@@ -1351,7 +1351,7 @@ export class GrokCompactionCoordinator {
       result: null,
       projectedMidLoop: false,
     };
-    if (this.pending.size >= GrokCompactionCoordinator.MAX_PENDING) {
+    if (this.pending.size >= BotCompactionCoordinator.MAX_PENDING) {
       const oldest = this.pending.entries().next().value as [string, PendingSummary] | undefined;
       if (oldest) {
         oldest[1].controller?.abort();
@@ -1371,11 +1371,11 @@ export class GrokCompactionCoordinator {
   }
 
   private async generate(
-    partition: GrokPartition,
+    partition: BotPartition,
     systemPrompt: string,
-    infer: GrokObservation["infer"],
+    infer: BotObservation["infer"],
     signal: AbortSignal
-  ): Promise<GrokSummaryResult> {
+  ): Promise<BotSummaryResult> {
     let lastError: unknown;
     let reduceInputs = false;
     let shorter = false;
@@ -1387,7 +1387,7 @@ export class GrokCompactionCoordinator {
             ? partition
             : {
                 ...partition,
-                messagesToSummarize: reduceGrokSummaryInputMessages(partition.messagesToSummarize),
+                messagesToSummarize: reduceBotSummaryInputMessages(partition.messagesToSummarize),
               };
         const result = await infer(
           {
@@ -1401,7 +1401,7 @@ export class GrokCompactionCoordinator {
         if (!result.text.trim()) {
           lastError = new Error("Self-summary returned no content");
           if (attempt === 2) break;
-          // Empty output is its own Grok retry path: immediate, full input, and
+          // Empty output is its own Bot retry path: immediate, full input, and
           // no shorter-output request. It never passes through the error classifier.
           reduceInputs = false;
           shorter = false;
@@ -1411,7 +1411,7 @@ export class GrokCompactionCoordinator {
       } catch (error) {
         lastError = error;
         if (signal.aborted) throw new DOMException("Compaction aborted", "AbortError");
-        const directive = grokSummaryRetryDirective(error);
+        const directive = botSummaryRetryDirective(error);
         if (!directive.retry || attempt === 2) break;
         reduceInputs = directive.reduceInputs;
         shorter = directive.shorter;
@@ -1436,20 +1436,20 @@ export class GrokCompactionCoordinator {
 
   async beforePiCompaction(input: {
     contextSessionId: string;
-    piMessages: readonly GrokMessage[];
+    piMessages: readonly BotMessage[];
     reason: "manual" | "threshold" | "overflow";
     firstKeptEntryId: string;
     tokensBefore: number;
     systemPrompt: string;
-    userInfoMessage?: GrokMessage | null;
+    userInfoMessage?: BotMessage | null;
     projectRoot?: string;
     transcriptPath?: string;
     todoUpdate?: string;
     automationTrigger?: string;
-    infer: GrokObservation["infer"];
+    infer: BotObservation["infer"];
     signal: AbortSignal;
-  }): Promise<GrokPreparedCompaction | null> {
-    const current = replaceGrokUserInfo(
+  }): Promise<BotPreparedCompaction | null> {
+    const current = replaceBotUserInfo(
       await this.contextMessages(input.contextSessionId, input.piMessages),
       input.userInfoMessage ?? null
     );
@@ -1463,10 +1463,10 @@ export class GrokCompactionCoordinator {
         pending.controller?.abort();
         this.pending.delete(input.contextSessionId);
       }
-      const partition = partitionForGrokSummary(current);
+      const partition = partitionForBotSummary(current);
       if (!partition) return null;
       const forced = this.forcedReasons.get(input.contextSessionId);
-      const reason: GrokCompactionReason =
+      const reason: BotCompactionReason =
         forced ??
         (input.reason === "overflow" ? "fallback_on_limit_error" : "approaching_token_limit");
       pending = {
@@ -1475,12 +1475,12 @@ export class GrokCompactionCoordinator {
         reason,
         capturedMessages: current,
         partition,
-        durableBlocks: grokDurableBlocks(partition.lastUserMessage, input),
-        prefixDigest: grokMessageDigest(current),
+        durableBlocks: botDurableBlocks(partition.lastUserMessage, input),
+        prefixDigest: botMessageDigest(current),
         systemDigest: sha256(input.systemPrompt),
         tokensBefore: input.tokensBefore,
-        imageCount: countGrokImages(current),
-        turnCount: countGrokTurns(current),
+        imageCount: countBotImages(current),
+        turnCount: countBotTurns(current),
         startedAt: new Date().toISOString(),
         controller: null,
         promise: this.generate(partition, input.systemPrompt, input.infer, input.signal),
@@ -1497,7 +1497,7 @@ export class GrokCompactionCoordinator {
     }
     const result = await pending.promise;
     pending.result = result;
-    const refreshed = replaceGrokUserInfo(
+    const refreshed = replaceBotUserInfo(
       await this.contextMessages(input.contextSessionId, input.piMessages),
       input.userInfoMessage ?? null
     );
@@ -1505,7 +1505,7 @@ export class GrokCompactionCoordinator {
       this.pending.delete(input.contextSessionId);
       return null;
     }
-    const tail = closeGrokPreservedTail(pending.capturedMessages.length, refreshed);
+    const tail = closeBotPreservedTail(pending.capturedMessages.length, refreshed);
     const completedAt = new Date().toISOString();
     const tokensAfter = Math.ceil(
       canonicalJson([
@@ -1525,7 +1525,7 @@ export class GrokCompactionCoordinator {
       lastUserMessage: pending.partition.lastUserMessage,
       preservedTailMessages: tail,
       durableBlocks: pending.durableBlocks,
-      summarizedMessages: redactGrokArchiveMessages(
+      summarizedMessages: redactBotArchiveMessages(
         pending.partition.messagesToSummarize.filter((message) => !isSummary(message))
       ),
       tokensBefore: pending.tokensBefore,
@@ -1550,7 +1550,7 @@ export class GrokCompactionCoordinator {
       tokensBefore: input.tokensBefore,
       usage: result.usage,
       details: {
-        openteamGrokCompaction: true,
+        openteamBotCompaction: true,
         id: pending.id,
         contextSessionId: input.contextSessionId,
         reason: pending.reason,
@@ -1561,7 +1561,7 @@ export class GrokCompactionCoordinator {
   async afterPiCompaction(input: {
     contextSessionId: string;
     piBaseMessageCount: number;
-  }): Promise<GrokCompactionEvent | null> {
+  }): Promise<BotCompactionEvent | null> {
     const prepared = this.prepared.get(input.contextSessionId);
     if (!prepared) return null;
     prepared.piPersisted = true;

@@ -7,7 +7,7 @@ import {
   wakeResetsSelfSummaryCount,
 } from "../src/worker";
 
-describe("Grok-style runtime context routing", () => {
+describe("OpenTeam-style runtime context routing", () => {
   test("uses the member home context for groups, DM, A2A, routines, bootstrap, and subagents", () => {
     const conversationId = crypto.randomUUID();
     const groupId = crypto.randomUUID();
@@ -31,7 +31,7 @@ describe("Grok-style runtime context routing", () => {
     });
   });
 
-  test("maps durable origins to Grok's exact active request-source names", () => {
+  test("maps durable origins to Bot's exact active request-source names", () => {
     expect(runtimeRequestSourceForOrigin("user")).toBe("turn");
     expect(runtimeRequestSourceForOrigin("bootstrap")).toBe("turn");
     expect(runtimeRequestSourceForOrigin("agent")).toBe("agent");

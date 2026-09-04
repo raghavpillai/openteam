@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { WakeWorker } from "../src/worker";
 
-test("background subagent completion revives the parent with Grok's dedicated source", async () => {
+test("background subagent completion revives the parent with Bot's dedicated source", async () => {
   const calls: unknown[] = [];
   const worker = Object.create(WakeWorker.prototype) as {
     notifySubagentParent: (...args: unknown[]) => Promise<void>;

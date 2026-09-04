@@ -87,7 +87,7 @@ const notificationProjection = ({
   };
 };
 
-describe("Grok-compatible notification transitions", () => {
+describe("OpenTeam-compatible notification transitions", () => {
   test("notifies only on the first transition into waiting for input", async () => {
     const harness = notificationProjection();
     const projection = harness.projection;

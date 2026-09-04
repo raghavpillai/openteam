@@ -1818,7 +1818,7 @@ function ApprovalDetails({
         <div className="approval-code-figure relative w-full min-w-0 rounded-lg bg-[#141414]/[0.04] dark:bg-[#f0f0f0]/[0.04]">
           <pre
             className={cn(
-              "grok-scrollbar max-h-40 overflow-auto whitespace-pre px-3 py-2 font-mono text-[13px] leading-5",
+              "bot-scrollbar max-h-40 overflow-auto whitespace-pre px-3 py-2 font-mono text-[13px] leading-5",
               approvalSecondaryTextClass
             )}
           >

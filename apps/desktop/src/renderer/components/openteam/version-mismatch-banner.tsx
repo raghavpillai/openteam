@@ -8,7 +8,7 @@ import { OPENTEAM_DEEP_LINK_EVENT } from "../../lib/app-deep-links";
 const openUpdates = () =>
   window.dispatchEvent(
     new CustomEvent(OPENTEAM_DEEP_LINK_EVENT, {
-      detail: { url: "grokbot://app/v1/settings?id=update-status" },
+      detail: { url: "openteam://app/v1/settings?id=update-status" },
     })
   );
 

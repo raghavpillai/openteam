@@ -44,7 +44,7 @@ export const parseOpenTeamDeepLink = (value: string): OpenTeamDeepLink | null =>
   } catch {
     return null;
   }
-  if (url.protocol !== "grokbot:" || url.hostname !== "app") return null;
+  if (url.protocol !== "openteam:" || url.hostname !== "app") return null;
 
   const id = url.searchParams.get("id")?.trim() ?? "";
   if (url.pathname === "/v1/settings") {

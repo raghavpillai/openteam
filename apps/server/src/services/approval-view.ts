@@ -23,7 +23,7 @@ type StoredAttempt = {
 };
 
 /**
- * Child runtimes emit approvals on their own run. GrokBot renders and resolves
+ * Child runtimes emit approvals on their own run. BotBot renders and resolves
  * those approvals through the parent conversation and preserves Task-attempt
  * lineage, so expose both identities rather than pretending the child run is
  * the owner.

@@ -54,7 +54,7 @@ export const buildTimelineEventWakePrompt = (event: AgentTimelineEvent): string 
   ].join("\n");
 
 /**
- * Grok-compatible timeline mutation delivery. The visible event is durable, but
+ * OpenTeam-compatible timeline mutation delivery. The visible event is durable, but
  * the hidden background tap is deliberately lossy while the agent is running.
  * Group sessions never use this path.
  */

@@ -99,30 +99,69 @@ const shellQuote = (value: string): string => `'${value.replaceAll("'", `'\\''`)
 const tclQuote = (value: string): string =>
   `{${value.replaceAll("\\", "\\\\").replaceAll("}", "\\}")}}`;
 
-const cliInteractive = (args: readonly string[], input: string) => {
+interface InteractiveInstallAnswers {
+  accessOption: number;
+  username: string;
+  password: string;
+  providerOption: number;
+  providerId: string;
+  providerName: string;
+  providerBaseUrl: string;
+  model: string;
+  apiKey: string;
+}
+
+const setupInput = (answers: InteractiveInstallAnswers): string =>
+  [
+    String(answers.accessOption),
+    "\u001b[C",
+    "\r\u0015",
+    answers.username,
+    "\r",
+    "\r",
+    answers.password,
+    "\r",
+    answers.password,
+    "\r",
+    "\u001b[C",
+    String(answers.providerOption),
+    "\r\u0015",
+    answers.providerId,
+    "\r",
+    "\r",
+    answers.providerName,
+    "\r",
+    "\r",
+    answers.providerBaseUrl,
+    "\r",
+    "\r\u001b[B",
+    "\r",
+    answers.model,
+    "\r",
+    "\r\u001b[B\u001b[B",
+    "\r",
+    answers.apiKey,
+    "\r",
+    "\u001b[C\r",
+  ].join("");
+
+const cliInteractive = (args: readonly string[], answers: InteractiveInstallAnswers) => {
   if (process.platform === "darwin") {
-    const answers = input.trimEnd().split("\n");
-    const accessIndex = Number.parseInt(answers[0] ?? "", 10);
-    const accessInput =
-      Number.isInteger(accessIndex) && accessIndex >= 1 && accessIndex <= 5
-        ? `${"\u001b[B".repeat(accessIndex - 1)}\r`
-        : `${answers[0] ?? ""}\r`;
-    const interactions = [
-      ["Access mode", accessInput],
-      ["OpenTeam username", `${answers[1] ?? ""}\r`],
-      ["OpenTeam password:", `${answers[2] ?? ""}\r`],
-      ["Confirm OpenTeam password:", `${answers[3] ?? ""}\r`],
-      ["Inference provider", `${answers[4] ?? ""}\r`],
-      ["Custom provider id", `${answers[5] ?? ""}\r`],
-      ["Custom provider name", `${answers[6] ?? ""}\r`],
-      ["Custom provider base URL", `${answers[7] ?? ""}\r`],
-      ["Compatible API", `${answers[8] ?? ""}\r`],
-      ["Inference model", `${answers[9] ?? ""}\r`],
-      ["Does this model support reasoning?", `${answers[10] ?? ""}\r`],
-      [`Configure ${canaryProviderId} authentication now?`, `${answers[11] ?? ""}\r`],
-      [`${canaryProviderId} API key or password:`, `${answers[12] ?? ""}\r`],
-      ["Apply this configuration?", `${answers[13] ?? ""}\r`],
-    ] as const;
+    const ownerInput = `\r\u0015${answers.username}\r\r${answers.password}\r${answers.password}\r`;
+    const runtimeInput = [
+      String(answers.providerOption),
+      "\r\u0015",
+      answers.providerId,
+      "\r\r",
+      answers.providerName,
+      "\r\r",
+      answers.providerBaseUrl,
+      "\r\r\u001b[B\r",
+      answers.model,
+      "\r\r\u001b[B\u001b[B\r",
+      answers.apiKey,
+      "\r",
+    ].join("");
     const program = [
       "set timeout 300",
       "set env(TERM) xterm-256color",
@@ -135,10 +174,20 @@ const cliInteractive = (args: readonly string[], input: string) => {
       "  }",
       "}",
       `spawn node ${tclQuote(cliPath)} ${args.map(tclQuote).join(" ")}`,
-      ...interactions.flatMap(([prompt, answer]) => [
-        `expect_prompt ${tclQuote(prompt)}`,
-        `send -- ${tclQuote(answer)}`,
-      ]),
+      `expect_prompt ${tclQuote("1. Access")}`,
+      `send -- ${tclQuote(String(answers.accessOption))}`,
+      "after 100",
+      `send -- ${tclQuote("\u001b[C")}`,
+      `expect_prompt ${tclQuote("2. Owner")}`,
+      `send -- ${tclQuote(ownerInput)}`,
+      "after 100",
+      `send -- ${tclQuote("\u001b[C")}`,
+      `expect_prompt ${tclQuote("3. Runtime")}`,
+      `send -- ${tclQuote(runtimeInput)}`,
+      "after 100",
+      `send -- ${tclQuote("\u001b[C")}`,
+      `expect_prompt ${tclQuote("4. Launch")}`,
+      `send -- ${tclQuote("\r")}`,
       "expect {",
       "  eof {}",
       '  timeout { puts stderr "Timed out waiting for CLI exit"; exit 124 }',
@@ -149,7 +198,7 @@ const cliInteractive = (args: readonly string[], input: string) => {
     return run("expect", ["-c", program]);
   }
   const command = ["node", cliPath, ...args].map(shellQuote).join(" ");
-  return run("script", ["-qefc", command, "/dev/null"], { input });
+  return run("script", ["-qefc", command, "/dev/null"], { input: setupInput(answers) });
 };
 
 const authorizationHeaders = (): Record<string, string> => {
@@ -723,23 +772,17 @@ const main = async (): Promise<void> => {
       "--allow-unsigned",
       ...releaseUrls(firstVersion),
     ],
-    [
-      "5",
-      ownerUsername,
-      ownerPassword,
-      ownerPassword,
-      "4",
-      canaryProviderId,
-      canaryProviderName,
-      canaryBaseUrl,
-      "2",
-      canaryModelId,
-      "no",
-      "yes",
-      canarySecret,
-      "yes",
-      "",
-    ].join("\n")
+    {
+      accessOption: 5,
+      username: ownerUsername,
+      password: ownerPassword,
+      providerOption: 4,
+      providerId: canaryProviderId,
+      providerName: canaryProviderName,
+      providerBaseUrl: canaryBaseUrl,
+      model: canaryModelId,
+      apiKey: canarySecret,
+    }
   );
   await signInOwner();
   cli(["doctor", "--dir", installationDirectory]);

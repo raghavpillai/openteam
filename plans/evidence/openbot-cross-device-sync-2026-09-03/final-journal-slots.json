@@ -1,0 +1,26 @@
+{
+  "mobile": [
+    {
+      "slot": "784017d8c8b4a586185e9b9968d36968.b.json",
+      "generation": 1788481966663,
+      "records": 1
+    },
+    {
+      "slot": "784017d8c8b4a586185e9b9968d36968.a.json",
+      "generation": 1788481966664,
+      "records": 0
+    }
+  ],
+  "desktop": [
+    {
+      "slot": "a91e285c4ab4a1e5b7f596a1562c6adf.b.json",
+      "generation": 1788481977251,
+      "records": 1
+    },
+    {
+      "slot": "a91e285c4ab4a1e5b7f596a1562c6adf.a.json",
+      "generation": 1788481977252,
+      "records": 0
+    }
+  ]
+}

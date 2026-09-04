@@ -1,0 +1,242 @@
+name: openteam
+
+services:
+  postgres:
+    image: postgres:17-alpine@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73
+    environment:
+      POSTGRES_DB: openteam
+      POSTGRES_USER: openteam
+      POSTGRES_PASSWORD: ${OPENTEAM_POSTGRES_PASSWORD:?OPENTEAM_POSTGRES_PASSWORD is required}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U openteam -d openteam"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+    volumes:
+      - openteam_postgres:/var/lib/postgresql/data
+
+  migrate:
+    image: ${OPENTEAM_IMAGE_PREFIX:?OPENTEAM_IMAGE_PREFIX is required}-migrate@sha256:af41c5aab852cb08ee9196142eebe5b2994605026c1bae73d80e89b01fa43a75
+    environment:
+      DATABASE_URL: postgresql://openteam:${OPENTEAM_POSTGRES_PASSWORD}@postgres:5432/openteam
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  agent-data-init:
+    image: alpine:3.22@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce
+    command: ["sh", "-c", "chown -R 1000:1000 /sand-data && chmod 0700 /sand-data"]
+    restart: "no"
+    volumes:
+      - openteam_agent_data:/sand-data
+
+  asset-store-init:
+    image: alpine:3.22@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce
+    command:
+      - sh
+      - -c
+      - >-
+        mkdir -p /asset-store &&
+        if [ -d /sand-data/.openteam ]; then
+          migrated=/asset-store/legacy-agent-data-openteam-$(date +%s) &&
+          cp -a /sand-data/.openteam "$$migrated" &&
+          rm -rf /sand-data/.openteam;
+        fi &&
+        chown -R 1000:1000 /asset-store && chmod 0700 /asset-store
+    depends_on:
+      agent-data-init:
+        condition: service_completed_successfully
+    restart: "no"
+    volumes:
+      - openteam_agent_data:/sand-data
+      - openteam_assets:/asset-store
+
+  computer-home-init:
+    image: alpine:3.22@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce
+    command:
+      - sh
+      - -c
+      - >-
+        chown -R 1000:1000 /home/box && chmod 0700 /home/box &&
+        if [ -d /home/box/agent-data ] && [ ! -L /home/box/agent-data ]; then
+          cp -a /home/box/agent-data/. /home/box/sand-data/ &&
+          mv /home/box/agent-data /home/box/.openteam-agent-data-pre-sand-migration;
+        fi &&
+        if [ ! -L /home/box/agent-data ]; then ln -s /home/box/sand-data /home/box/agent-data; fi &&
+        chown -h 0:0 /home/box/agent-data
+    restart: "no"
+    volumes:
+      - openteam_computer_home:/home/box
+      - openteam_agent_data:/home/box/sand-data
+
+  box-store-init:
+    image: alpine:3.22@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce
+    command: ["sh", "-c", "chown -R 1000:1000 /box-store && chmod 0700 /box-store"]
+    restart: "no"
+    volumes:
+      - openteam_box_store:/box-store
+
+  workspace-init:
+    image: alpine:3.22@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce
+    command: ["sh", "-c", "chown -R 1000:1000 /workspace && chmod 0755 /workspace"]
+    restart: "no"
+    volumes:
+      - openteam_workspace:/workspace
+
+  computer:
+    image: ${OPENTEAM_IMAGE_PREFIX:?OPENTEAM_IMAGE_PREFIX is required}-computer@sha256:1005757adf8c150d75eddd483ca9616128cfa860146123f9cdfb4dfef3e45f28
+    hostname: openteam
+    environment:
+      OPENTEAM_COMPUTER_PORT: 8790
+      OPENTEAM_CONTROL_TOKEN: ${OPENTEAM_CONTROL_TOKEN:?OPENTEAM_CONTROL_TOKEN is required}
+      OPENTEAM_WORKSPACE_ROOT: /workspace
+      OPENTEAM_TIME_ZONE: ${OPENTEAM_TIME_ZONE:-UTC}
+      OPENTEAM_SERVER_URL: http://server:8787
+      OPENTEAM_PI_AGENT_DIR: /home/box/.pi/agent
+      OPENTEAM_AGENT_DATA_ROOT: /home/box/agent-data
+      OPENTEAM_AGENT_DATA_CANONICAL_ROOT: /home/box/sand-data
+      OPENTEAM_BOX_STORE_ROOT: /box-store
+      OPENTEAM_BOX_COPY_IN: ${OPENTEAM_BOX_COPY_IN:-0}
+    depends_on:
+      agent-data-init:
+        condition: service_completed_successfully
+      computer-home-init:
+        condition: service_completed_successfully
+      box-store-init:
+        condition: service_completed_successfully
+      workspace-init:
+        condition: service_completed_successfully
+    cap_drop: ["ALL"]
+    cap_add: ["CHOWN", "DAC_OVERRIDE", "FOWNER", "SETGID", "SETUID"]
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=512m
+    healthcheck:
+      test: ["CMD", "bun", "-e", "const r=await fetch('http://127.0.0.1:8790/health');process.exit(r.ok?0:1)"]
+      interval: 3s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+    ports:
+      - "${OPENTEAM_VIEWER_BIND_HOST:-127.0.0.1}:6200-6299:6200-6299"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - openteam_computer_home:/home/box
+      - openteam_agent_data:/home/box/sand-data
+      - openteam_workspace:/workspace
+      - openteam_box_store:/box-store
+
+  server:
+    image: ${OPENTEAM_IMAGE_PREFIX:?OPENTEAM_IMAGE_PREFIX is required}-server@sha256:969f312ec4260e0b3f7e0a21e8d79b4a92f538f880d2229353570cbc67bba621
+    environment:
+      OPENTEAM_VERSION: ${OPENTEAM_VERSION:?OPENTEAM_VERSION is required}
+      DATABASE_URL: postgresql://openteam:${OPENTEAM_POSTGRES_PASSWORD}@postgres:5432/openteam
+      OPENTEAM_PORT: 8787
+      OPENTEAM_COMPUTER_URL: http://computer:8790
+      OPENTEAM_CONTROL_TOKEN: ${OPENTEAM_CONTROL_TOKEN:?OPENTEAM_CONTROL_TOKEN is required}
+      OPENTEAM_AUTH_SECRET: ${OPENTEAM_AUTH_SECRET:?OPENTEAM_AUTH_SECRET is required}
+      OPENTEAM_PROXY_SECRET: ${OPENTEAM_PROXY_SECRET:?OPENTEAM_PROXY_SECRET is required}
+      OPENTEAM_AUTH_MODE: ${OPENTEAM_AUTH_MODE:-required}
+      OPENTEAM_ACCESS_MODE: ${OPENTEAM_ACCESS_MODE:-local}
+      OPENTEAM_AUTH_URL: ${OPENTEAM_AUTH_URL:-http://127.0.0.1:8787}
+      OPENTEAM_PUBLIC_URL: ${OPENTEAM_PUBLIC_URL:-http://127.0.0.1:8787}
+      OPENTEAM_WORKSPACE_ROOT: /workspace
+      OPENTEAM_TIME_ZONE: ${OPENTEAM_TIME_ZONE:-UTC}
+      OPENTEAM_SCREEN_VIEWER_HOST: ${OPENTEAM_PUBLIC_HOST:-127.0.0.1}
+      OPENTEAM_AGENT_DATA_ROOT: /home/box/agent-data
+      OPENTEAM_ASSET_ROOT: /asset-store
+      OPENTEAM_MEMORY_DREAMING: ${OPENTEAM_MEMORY_DREAMING:-false}
+      OPENTEAM_MARKETPLACE_FILE: ${OPENTEAM_MARKETPLACE_FILE:-}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      asset-store-init:
+        condition: service_completed_successfully
+      computer:
+        condition: service_healthy
+    ports:
+      - "${OPENTEAM_BIND_HOST:-127.0.0.1}:${OPENTEAM_API_PORT:-8787}:8787"
+    healthcheck:
+      test: ["CMD", "bun", "-e", "const r=await fetch('http://127.0.0.1:8787/api/v0/health');const b=await r.json();process.exit(r.ok&&b.status==='ready'?0:1)"]
+      interval: 3s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+    volumes:
+      - openteam_agent_data:/home/box/agent-data
+      - openteam_assets:/asset-store
+      - openteam_workspace:/workspace:ro
+
+  caddy:
+    image: caddy:2.11.4-alpine@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648
+    profiles: ["https"]
+    command:
+      - caddy
+      - reverse-proxy
+      - --from
+      - ${OPENTEAM_PUBLIC_URL:?OPENTEAM_PUBLIC_URL is required}
+      - --to
+      - server:8787
+      - --header-up
+      - "X-OpenTeam-Proxy: ${OPENTEAM_PROXY_SECRET:?OPENTEAM_PROXY_SECRET is required}"
+      - --header-down
+      - "Strict-Transport-Security: max-age=31536000"
+    depends_on:
+      server:
+        condition: service_healthy
+    ports:
+      - "0.0.0.0:80:80"
+      - "0.0.0.0:443:443"
+    restart: unless-stopped
+    cap_drop: ["ALL"]
+    cap_add: ["NET_BIND_SERVICE"]
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    volumes:
+      - openteam_caddy_data:/data
+      - openteam_caddy_config:/config
+
+  worker:
+    image: ${OPENTEAM_IMAGE_PREFIX:?OPENTEAM_IMAGE_PREFIX is required}-worker@sha256:f7086390d55b050d20704f803ea50890d0507cba55d76ddbc449cb1a28bbdf79
+    environment:
+      DATABASE_URL: postgresql://openteam:${OPENTEAM_POSTGRES_PASSWORD}@postgres:5432/openteam
+      OPENTEAM_COMPUTER_URL: http://computer:8790
+      OPENTEAM_CONTROL_TOKEN: ${OPENTEAM_CONTROL_TOKEN:?OPENTEAM_CONTROL_TOKEN is required}
+      OPENTEAM_AUTH_MODE: ${OPENTEAM_AUTH_MODE:-required}
+      EXPO_ACCESS_TOKEN: ${EXPO_ACCESS_TOKEN:-}
+      OPENTEAM_TIME_ZONE: ${OPENTEAM_TIME_ZONE:-UTC}
+      OPENTEAM_WORKER_CONCURRENCY: ${OPENTEAM_WORKER_CONCURRENCY:-8}
+      OPENTEAM_WORKSPACE_ROOT: /workspace
+      OPENTEAM_AGENT_DATA_ROOT: /home/box/agent-data
+      OPENTEAM_ASSET_ROOT: /asset-store
+      OPENTEAM_MEMORY_DREAMING: ${OPENTEAM_MEMORY_DREAMING:-false}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      asset-store-init:
+        condition: service_completed_successfully
+      computer:
+        condition: service_healthy
+    restart: unless-stopped
+    volumes:
+      - openteam_agent_data:/home/box/agent-data
+      - openteam_assets:/asset-store
+      - openteam_workspace:/workspace:ro
+
+volumes:
+  openteam_postgres:
+  openteam_computer_home:
+  openteam_agent_data:
+  openteam_assets:
+  openteam_workspace:
+  openteam_box_store:
+  openteam_caddy_data:
+  openteam_caddy_config:

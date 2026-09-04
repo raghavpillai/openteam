@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import "./runtime-compat";
 import { resolve } from "node:path";
 import { parseArguments } from "./arguments";
 import { defaultInstallDirectory, installationPaths } from "./config";

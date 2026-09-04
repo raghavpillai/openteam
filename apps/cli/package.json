@@ -34,6 +34,10 @@
   },
   "devDependencies": {
     "@openteam/product-core": "workspace:*",
+    "@sigstore/bundle": "4.0.0",
+    "@sigstore/protobuf-specs": "0.5.2",
+    "@sigstore/verify": "3.1.1",
+    "@tufjs/models": "4.1.0",
     "@types/semver": "7.7.1"
   }
 }

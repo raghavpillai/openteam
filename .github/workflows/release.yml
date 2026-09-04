@@ -28,6 +28,7 @@ jobs:
           done
           echo "version=$version" >> "$GITHUB_OUTPUT"
       - run: bun install --frozen-lockfile
+      - run: bun --filter @openteam/db db:generate
       - run: bun --filter @openteam/cli typecheck
       - run: bun --filter @openteam/cli test
       - run: bun --filter @openteam/cli build

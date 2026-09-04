@@ -111,57 +111,35 @@ interface InteractiveInstallAnswers {
   apiKey: string;
 }
 
-const setupInput = (answers: InteractiveInstallAnswers): string =>
+const UP = "\u001b[A";
+const DOWN = "\u001b[B";
+const CLEAR_LINE = "\u0015";
+
+// Each section moves on by itself once its last required field is filled in, and a
+// saved field jumps the highlight to the next missing one, so optional rows are reached
+// with explicit arrow keys.
+const accessInput = (answers: InteractiveInstallAnswers): string => String(answers.accessOption);
+
+const ownerInput = (answers: InteractiveInstallAnswers): string =>
+  `\r${CLEAR_LINE}${answers.username}\r\r${answers.password}\r${answers.password}\r`;
+
+const runtimeInput = (answers: InteractiveInstallAnswers): string =>
   [
-    String(answers.accessOption),
-    "\u001b[C",
-    "\r\u0015",
-    answers.username,
-    "\r",
-    "\r",
-    answers.password,
-    "\r",
-    answers.password,
-    "\r",
-    "\u001b[C",
-    String(answers.providerOption),
-    "\r\u0015",
-    answers.providerId,
-    "\r",
-    "\r",
-    answers.providerName,
-    "\r",
-    "\r",
-    answers.providerBaseUrl,
-    "\r",
-    "\r\u001b[B",
-    "\r",
-    answers.model,
-    "\r",
-    "\r\u001b[B\u001b[B",
-    "\r",
-    answers.apiKey,
-    "\r",
-    "\u001b[C\r",
+    String(answers.providerOption), // custom provider; the highlight lands on the base URL
+    `${UP}${UP}\r${CLEAR_LINE}${answers.providerId}\r`, // provider id, then back to the base URL
+    `${UP}\r${CLEAR_LINE}${answers.providerName}\r`, // provider name, then the base URL again
+    `\r${CLEAR_LINE}${answers.providerBaseUrl}\r`, // base URL, then the model
+    `${UP}\r${DOWN}`, // cycle the API once to openai-completions, back to the model
+    `\r${CLEAR_LINE}${answers.model}\r`, // model, then the API key
+    `${UP}${UP}\r${DOWN}${DOWN}`, // switch reasoning off, back to the API key
+    `\r${CLEAR_LINE}${answers.apiKey}\r`, // last field: Runtime finishes and Review opens
   ].join("");
+
+const setupInput = (answers: InteractiveInstallAnswers): string =>
+  [accessInput(answers), ownerInput(answers), runtimeInput(answers), "\r"].join("");
 
 const cliInteractive = (args: readonly string[], answers: InteractiveInstallAnswers) => {
   if (process.platform === "darwin") {
-    const ownerInput = `\r\u0015${answers.username}\r\r${answers.password}\r${answers.password}\r`;
-    const runtimeInput = [
-      String(answers.providerOption),
-      "\r\u0015",
-      answers.providerId,
-      "\r\r",
-      answers.providerName,
-      "\r\r",
-      answers.providerBaseUrl,
-      "\r\r\u001b[B\r",
-      answers.model,
-      "\r\r\u001b[B\u001b[B\r",
-      answers.apiKey,
-      "\r",
-    ].join("");
     const program = [
       "set timeout 300",
       "set env(TERM) xterm-256color",
@@ -175,18 +153,12 @@ const cliInteractive = (args: readonly string[], answers: InteractiveInstallAnsw
       "}",
       `spawn node ${tclQuote(cliPath)} ${args.map(tclQuote).join(" ")}`,
       `expect_prompt ${tclQuote("1. Access")}`,
-      `send -- ${tclQuote(String(answers.accessOption))}`,
-      "after 100",
-      `send -- ${tclQuote("\u001b[C")}`,
+      `send -- ${tclQuote(accessInput(answers))}`,
       `expect_prompt ${tclQuote("2. Owner")}`,
-      `send -- ${tclQuote(ownerInput)}`,
-      "after 100",
-      `send -- ${tclQuote("\u001b[C")}`,
+      `send -- ${tclQuote(ownerInput(answers))}`,
       `expect_prompt ${tclQuote("3. Runtime")}`,
-      `send -- ${tclQuote(runtimeInput)}`,
-      "after 100",
-      `send -- ${tclQuote("\u001b[C")}`,
-      `expect_prompt ${tclQuote("4. Launch")}`,
+      `send -- ${tclQuote(runtimeInput(answers))}`,
+      `expect_prompt ${tclQuote("4. Review")}`,
       `send -- ${tclQuote("\r")}`,
       "expect {",
       "  eof {}",
@@ -773,10 +745,10 @@ const main = async (): Promise<void> => {
       ...releaseUrls(firstVersion),
     ],
     {
-      accessOption: 5,
+      accessOption: 2,
       username: ownerUsername,
       password: ownerPassword,
-      providerOption: 4,
+      providerOption: 5,
       providerId: canaryProviderId,
       providerName: canaryProviderName,
       providerBaseUrl: canaryBaseUrl,

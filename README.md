@@ -10,7 +10,7 @@ bunx --bun @openteam/cli install
 ```
 
 [What you get](#what-you-get) · [How it works](#how-it-works) · [Quick start](#quick-start) ·
-[Settings](#settings) · [Develop from source](#develop-from-source) · [References](#references)
+[Settings](#settings) · [Develop from source](#develop-from-source)
 
 ## What you get
 
@@ -153,6 +153,7 @@ bun run check                             # typecheck + tests + build + performa
 bun test                                  # unit tests
 bun run check:architecture                # import boundaries, enum parity, mobile bundle contents
 bun run db:generate                       # regenerate the Prisma client
+bun run db:deploy                         # sync the schema and raw SQL objects
 bun --filter @openteam/desktop package    # desktop installer
 bash scripts/compose.sh logs -f server worker computer
 sh scripts/backup.sh                      # dump Postgres and tar the volumes
@@ -168,12 +169,3 @@ OPENTEAM_TEST_DATABASE_URL=postgresql://localhost/openteam_test \
 ```
 
 Releases are cut from `v*` tags. See [`.github/RELEASING.md`](.github/RELEASING.md).
-
-## References
-
-- [Pi agent runtime](https://github.com/earendil-works/pi):
-  [SDK guide](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/sdk.md),
-  [session format](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/sessions.md),
-  [compaction](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/compaction.md)
-- [OpenAI Codex authentication](https://learn.chatgpt.com/docs/auth)
-- Desktop design system: `apps/desktop/DESIGN.md`

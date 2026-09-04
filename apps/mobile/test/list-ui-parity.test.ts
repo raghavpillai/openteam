@@ -114,22 +114,39 @@ describe("mobile virtual-list UI parity", () => {
   test("login exposes the self-hosted endpoint in the shared mobile auth gate", async () => {
     const authGate = await source("src/components/auth-gate.tsx");
 
-    expect(authGate).toContain("SERVER ENDPOINT");
     expect(authGate).toContain('accessibilityLabel="Server endpoint"');
-    expect(authGate).toContain("Use HTTPS except for trusted local");
-    expect(authGate).toContain("development.");
+    expect(authGate).toContain("OPENTEAM SERVER ENDPOINT");
+    expect(authGate).not.toContain("Address reachable from this device");
     expect(authGate).toContain("saveServerConnection(normalized)");
     expect(authGate).toContain("testServerConnection(normalized.serverUrl)");
     expect(authGate).toContain("authenticateConnection(serverUrl, username, password)");
     expect(authGate).toContain('result === "credentials-required"');
     expect(authGate).toContain('setStage("endpoint")');
-    expect(authGate).toContain(">Back</Text>");
-    expect(authGate).toContain("automaticallyAdjustKeyboardInsets");
-    expect(authGate).toContain('keyboardDismissMode="interactive"');
+    expect(authGate).toMatch(/>\s*Back\s*<\/Text>/);
+    expect(authGate).not.toContain("Animated.ScrollView");
+    expect(authGate).not.toContain("automaticallyAdjustKeyboardInsets");
+    expect(authGate).toContain("translateY: panelLift");
+    expect(authGate).toContain("onPress={Keyboard.dismiss}");
+    expect(authGate).toContain("const MINIMUM_SUBMIT_MS = 1000");
+    expect(authGate).toContain("await holdSpinner(startedAt)");
+    expect(authGate).toContain("Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy)");
+    expect(authGate).toContain("Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)");
+    expect(authGate).toContain(
+      "Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)"
+    );
+    expect(authGate).toContain("Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error)");
     expect(authGate).toContain("Animated.timing(stageProgress");
     expect(authGate).toContain("useNativeDriver: true");
     expect(authGate).toContain('stage === "welcome" ? 320 : stage === "endpoint" ? 420 : 340');
-    expect(authGate).toContain('stage !== "welcome" || authFlowMounted');
+    expect(authGate).not.toContain("opacity: endpointOpacity");
+    expect(authGate).not.toContain("opacity: credentialsOpacity");
+    expect(authGate).toContain("const offstageX = width + 24");
+    expect(authGate).toContain("controlPressed: { transform: [{ scale: 0.985 }] }");
+    expect(authGate).not.toContain("controlDisabled");
+    expect(authGate).not.toMatch(/opacity: 0\.\d/);
+    expect(authGate).toContain("const glassSecondary");
+    expect(authGate).toContain("const disabledGlassTint");
+    expect(authGate).not.toContain("theme.textFaint");
     expect(authGate).toContain('pointerEvents={stage === "credentials" ? "auto" : "none"}');
     expect(authGate).toContain("function IdleBot");
     expect(authGate).toContain("Animated.loop(");
@@ -139,7 +156,8 @@ describe("mobile virtual-list UI parity", () => {
     );
     expect(authGate).toContain('submitting ? "Signing In…" : "Sign In"');
     expect(authGate).toContain(': "Connect"');
-    expect(authGate).toContain('import { GlassSurface } from "./glass-surface"');
+    expect(authGate).toContain('import { GlassGroup, GlassSurface } from "./glass-surface"');
+    expect(authGate).toContain("<GlassGroup style={styles.actionRow}>");
     expect(authGate).toContain("styles.credentialsPanel");
     expect(authGate).toContain("tintColor={primaryGlassTint}");
     expect(authGate).toContain("onChangeText={updateServerUrl}");

@@ -1,4 +1,9 @@
-import { type GlassStyle, GlassView, isGlassEffectAPIAvailable } from "expo-glass-effect";
+import {
+  GlassContainer,
+  type GlassStyle,
+  GlassView,
+  isGlassEffectAPIAvailable,
+} from "expo-glass-effect";
 import type React from "react";
 import { Platform, type StyleProp, View, type ViewProps, type ViewStyle } from "react-native";
 import { useTheme } from "../theme";
@@ -45,6 +50,38 @@ export function GlassSurface({
     >
       {children}
     </GlassView>
+  );
+}
+
+/**
+ * Groups sibling glass surfaces. UIKit refuses to sample a backdrop for a glass view nested inside
+ * another glass view's content, so adjacent pills have to live in a container effect rather than
+ * inside a glass card.
+ */
+export function GlassGroup({
+  children,
+  // The native container only installs its effect when spacing changes from its unset default, so
+  // this has to be an explicit number for nested surfaces to keep their backdrop.
+  spacing = 0,
+  style,
+  ...viewProps
+}: {
+  children?: React.ReactNode;
+  spacing?: number;
+  style?: StyleProp<ViewStyle>;
+} & Omit<ViewProps, "children" | "style">) {
+  if (!nativeGlassAvailable) {
+    return (
+      <View {...viewProps} style={style}>
+        {children}
+      </View>
+    );
+  }
+
+  return (
+    <GlassContainer {...viewProps} spacing={spacing} style={style}>
+      {children}
+    </GlassContainer>
   );
 }
 

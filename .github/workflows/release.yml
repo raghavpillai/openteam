@@ -85,7 +85,7 @@ jobs:
           push: true
           tags: ghcr.io/raghavpillai/${{ matrix.image }}:${{ needs.validate.outputs.version }}
           cache-from: type=gha,scope=${{ matrix.image }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=min,scope=${{ matrix.image }}
           provenance: mode=max
           sbom: true
           labels: org.opencontainers.image.source=https://github.com/${{ github.repository }}

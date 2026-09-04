@@ -24,7 +24,7 @@ export const desktopTargets = [
     id: "linux-x64",
     label: "Linux",
     detail: "x64 AppImage",
-    assetPattern: /^OpenTeam-.*-linux-x64\.AppImage$/i,
+    assetPattern: /^OpenTeam-.*-linux-(?:x64|x86_64)\.AppImage$/i,
   },
 ] as const;
 

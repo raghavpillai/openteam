@@ -18,6 +18,11 @@ describe("desktop release mapping", () => {
           browser_download_url: "https://example.com/windows.exe",
           size: 84,
         },
+        {
+          name: "OpenTeam-0.1.0-linux-x86_64.AppImage",
+          browser_download_url: "https://example.com/linux.AppImage",
+          size: 126,
+        },
       ],
     });
 
@@ -25,6 +30,6 @@ describe("desktop release mapping", () => {
     expect(release.downloads["mac-arm64"]?.url).toBe("https://example.com/mac.dmg");
     expect(release.downloads["windows-x64"]?.url).toBe("https://example.com/windows.exe");
     expect(release.downloads["mac-x64"]).toBeNull();
-    expect(release.downloads["linux-x64"]).toBeNull();
+    expect(release.downloads["linux-x64"]?.url).toBe("https://example.com/linux.AppImage");
   });
 });

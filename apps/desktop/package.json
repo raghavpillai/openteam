@@ -45,6 +45,7 @@
   "build": {
     "appId": "dev.openteam.desktop",
     "productName": "OpenTeam",
+    "executableName": "openteam",
     "asar": true,
     "asarUnpack": [
       "dist-electron/openteam-cli.js"

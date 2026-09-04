@@ -199,6 +199,124 @@ body {
   animation: blink 1.1s steps(1) infinite;
 }
 
+/* Motion. Everything below is gated on `data-motion`, which the inline script in
+   layout.tsx sets only when the visitor has not asked for reduced motion. Without it
+   nothing is hidden or moved, so content never depends on JavaScript. */
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+[data-motion] .rise {
+  animation: rise 0.9s var(--ease-out-soft) both;
+  animation-delay: var(--d, 0ms);
+}
+
+[data-motion] [data-reveal] > * {
+  transition:
+    opacity 0.8s var(--ease-out-soft),
+    transform 0.8s var(--ease-out-soft);
+  transition-delay: calc(var(--i, 0) * var(--stagger, 0ms) + var(--reveal-delay, 0ms));
+}
+[data-motion] [data-reveal]:not([data-in]) > * {
+  opacity: 0;
+  transform: translateY(16px);
+}
+
+@keyframes float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-5px);
+  }
+}
+[data-motion] .float {
+  animation: float 4.6s ease-in-out infinite;
+  animation-delay: var(--d, 0ms);
+}
+
+@keyframes eye-blink {
+  0%,
+  94%,
+  100% {
+    transform: scaleY(1);
+  }
+  97% {
+    transform: scaleY(0.08);
+  }
+}
+[data-motion] .eyes-blink {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: eye-blink 5.4s ease-in-out infinite;
+  animation-delay: var(--d, 0ms);
+}
+
+/* Screen viewer: the pointer glides to the sign-in button, then presses it. */
+@keyframes pointer-in {
+  0% {
+    opacity: 0;
+    transform: translate(-140px, -110px);
+  }
+  15% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 1;
+    transform: translate(0, 0);
+  }
+}
+@keyframes press {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(0.965);
+  }
+}
+[data-motion] [data-reveal]:not([data-in]) .pointer-in {
+  opacity: 0;
+}
+[data-motion] [data-reveal][data-in] .pointer-in {
+  animation: pointer-in 1.5s var(--ease-out-soft) 0.5s both;
+}
+[data-motion] [data-reveal][data-in] .press-in {
+  animation: press 0.32s ease-out 2.05s 1;
+}
+[data-motion] [data-reveal] .tline {
+  opacity: 0;
+  transition: opacity 0.35s ease-out;
+  transition-delay: calc(0.7s + var(--i, 0) * 0.22s);
+}
+[data-motion] [data-reveal][data-in] .tline {
+  opacity: 1;
+}
+
+/* Scroll-linked drift for the phone captures, where the browser supports it. */
+@supports (animation-timeline: view()) {
+  @keyframes drift-up {
+    from {
+      transform: translateY(var(--drift, 32px));
+    }
+    to {
+      transform: translateY(0);
+    }
+  }
+  [data-motion] .drift {
+    animation: drift-up linear both;
+    animation-timeline: view();
+    animation-range: entry 0% cover 55%;
+  }
+}
+
 /* The hero's faint dot grid fades out before the product window. */
 .dot-grid {
   background-image: radial-gradient(rgba(20, 20, 20, 0.11) 1px, transparent 1px);

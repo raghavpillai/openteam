@@ -1,5 +1,6 @@
 import { BotAvatar } from "./bot-avatar";
 import { MousePointer2 } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 /** A bot's live Linux screen, as the desktop app shows it, with you in control. */
 export function ScreenViewer() {
@@ -47,13 +48,13 @@ export function ScreenViewer() {
               <div className="mt-2 flex h-8 items-center rounded-md border border-ink bg-surface px-2.5 font-mono text-[11px] tracking-[0.2em] text-ink">
                 ••••••••<span className="blink font-sans tracking-normal">▍</span>
               </div>
-              <div className="mt-3 h-8 rounded-md bg-ink text-center text-[11px] font-medium leading-8 text-paper">
+              <div className="press-in mt-3 h-8 rounded-md bg-ink text-center text-[11px] font-medium leading-8 text-paper">
                 Sign in
               </div>
             </div>
             <MousePointer2
               size={18}
-              className="absolute top-[63%] left-[52%] text-ink drop-shadow-[0_2px_3px_rgba(0,0,0,.35)]"
+              className="pointer-in absolute top-[63%] left-[52%] text-ink drop-shadow-[0_2px_3px_rgba(0,0,0,.35)]"
               fill="#ffffff"
             />
           </div>
@@ -63,11 +64,18 @@ export function ScreenViewer() {
         <div className="absolute top-[30%] right-[4%] hidden h-[56%] w-[30%] overflow-hidden rounded-md bg-[#0f1115] shadow-[0_18px_40px_rgba(0,0,0,.45)] sm:block">
           <div className="h-6 bg-[#1b1e24]" />
           <div className="space-y-2 p-3 font-mono text-[9px] leading-none text-[#9ad7b4]">
-            <div>$ ls quotes/</div>
-            <div className="text-white/60">acme-quote.pdf</div>
-            <div className="text-white/60">globex-quote.pdf</div>
-            <div className="text-white/60">northwind-quote.pdf</div>
-            <div>
+            {["$ ls quotes/", "acme-quote.pdf", "globex-quote.pdf", "northwind-quote.pdf"].map(
+              (line, i) => (
+                <div
+                  key={line}
+                  className={cn("tline", i > 0 && "text-white/60")}
+                  style={{ "--i": i } as React.CSSProperties}
+                >
+                  {line}
+                </div>
+              )
+            )}
+            <div className="tline" style={{ "--i": 4 } as React.CSSProperties}>
               $ <span className="blink">▍</span>
             </div>
           </div>

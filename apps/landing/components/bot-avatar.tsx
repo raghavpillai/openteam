@@ -89,6 +89,8 @@ export function BotAvatar({
   eyeColor = "#ffffff",
   className,
   title,
+  blink = false,
+  blinkDelay = 0,
 }: {
   shape?: BotShape;
   color?: string;
@@ -96,6 +98,10 @@ export function BotAvatar({
   eyeColor?: string;
   className?: string;
   title?: string;
+  /** Blink every few seconds (only when motion is enabled). */
+  blink?: boolean;
+  /** Offset in ms so a group of bots does not blink in unison. */
+  blinkDelay?: number;
 }) {
   const art = ARTWORK[shape];
   const eyes = eyeRects(art.eyes);
@@ -111,7 +117,11 @@ export function BotAvatar({
     >
       {title ? <title>{title}</title> : null}
       <g fill={color}>{art.body}</g>
-      <g fill={eyeColor}>
+      <g
+        fill={eyeColor}
+        className={blink ? "eyes-blink" : undefined}
+        style={blink ? ({ "--d": `${blinkDelay}ms` } as React.CSSProperties) : undefined}
+      >
         {eyes.map((e, i) => (
           <rect
             key={i}

@@ -13,6 +13,7 @@ import { AppWindow } from "@/components/app-window";
 import { BotAvatar } from "@/components/bot-avatar";
 import { GithubMark, Wordmark } from "@/components/brand";
 import { InstallCommand } from "@/components/install-command";
+import { Reveal } from "@/components/motion";
 import { ScreenViewer } from "@/components/screen-viewer";
 import {
   Accordion,
@@ -24,6 +25,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
+import { order } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 
 const GITHUB = "https://github.com/raghavpillai/openteam";
@@ -209,13 +211,25 @@ function SectionHeading({
   align?: "center" | "left";
 }) {
   return (
-    <div className={cn("max-w-[640px]", align === "center" && "mx-auto text-center")}>
-      <div className="microlabel">{label}</div>
-      <h2 className="display mt-3 text-[40px] leading-[1.05] text-ink sm:text-[48px]">{title}</h2>
+    <Reveal
+      stagger={70}
+      className={cn("max-w-[640px]", align === "center" && "mx-auto text-center")}
+    >
+      <div className="microlabel" style={order(0)}>
+        {label}
+      </div>
+      <h2
+        className="display mt-3 text-[40px] leading-[1.05] text-ink sm:text-[48px]"
+        style={order(1)}
+      >
+        {title}
+      </h2>
       {body ? (
-        <p className="mt-4 text-[17px] leading-[1.55] text-ink-2 text-pretty">{body}</p>
+        <p className="mt-4 text-[17px] leading-[1.55] text-ink-2 text-pretty" style={order(2)}>
+          {body}
+        </p>
       ) : null}
-    </div>
+    </Reveal>
   );
 }
 
@@ -280,7 +294,10 @@ export default function Home() {
         <section id="top" className="relative overflow-hidden">
           <div className="dot-grid absolute inset-0 -z-10" aria-hidden="true" />
           <div className="container-page pt-20 pb-10 text-center sm:pt-24">
-            <p className="inline-flex flex-wrap items-center justify-center gap-x-2 text-[13px] font-medium text-ink-2">
+            <p
+              className="rise inline-flex flex-wrap items-center justify-center gap-x-2 text-[13px] font-medium text-ink-2"
+              style={{ "--d": "0ms" } as React.CSSProperties}
+            >
               <span>Open source</span>
               <span className="text-line-strong" aria-hidden="true">
                 ·
@@ -291,16 +308,26 @@ export default function Home() {
               </span>
               <span>Bring your own model</span>
             </p>
-            <h1 className="display mx-auto mt-5 max-w-[24ch] text-[clamp(38px,11.5vw,46px)] leading-[1.04] text-ink sm:text-[64px] lg:text-[76px]">
+            <h1
+              className="rise display mx-auto mt-5 max-w-[24ch] text-[clamp(38px,11.5vw,46px)] leading-[1.04] text-ink sm:text-[64px] lg:text-[76px]"
+              style={{ "--d": "90ms" } as React.CSSProperties}
+            >
               Give your AI agents a computer, a&nbsp;memory, and a&nbsp;schedule.
             </h1>
-            <p className="mx-auto mt-6 max-w-[640px] text-[18px] leading-[1.55] text-ink-2 text-balance sm:text-[19px]">
+            <p
+              className="rise mx-auto mt-6 max-w-[640px] text-[18px] leading-[1.55] text-ink-2 text-balance sm:text-[19px]"
+              style={{ "--d": "180ms" } as React.CSSProperties}
+            >
               OpenTeam runs on a server you control. Each bot gets a real Linux desktop, remembers
               every conversation, and can work on a schedule. Message it from your desktop or
               iPhone. Close the app. Come back to the result.
             </p>
 
-            <div id="install" className="mt-9 scroll-mt-24">
+            <div
+              id="install"
+              className="rise mt-9 scroll-mt-24"
+              style={{ "--d": "270ms" } as React.CSSProperties}
+            >
               <p className="text-[13.5px] text-ink-3">One command. Runs anywhere Docker runs.</p>
               <div className="mt-3 flex flex-col items-center justify-center gap-3 sm:flex-row">
                 <InstallCommand />
@@ -319,10 +346,16 @@ export default function Home() {
           </div>
 
           <div className="container-page pb-6">
-            <div className="mx-auto max-w-[1120px]">
+            <div
+              className="rise mx-auto max-w-[1120px]"
+              style={{ "--d": "420ms" } as React.CSSProperties}
+            >
               <AppWindow />
             </div>
-            <p className="mt-5 text-center text-[12.5px] text-ink-3">
+            <p
+              className="rise mt-5 text-center text-[12.5px] text-ink-3"
+              style={{ "--d": "900ms" } as React.CSSProperties}
+            >
               The desktop app. Three bots, one owner, and Research asking for a sign-in it
               can&apos;t do on its own.
             </p>
@@ -339,13 +372,19 @@ export default function Home() {
               title={<span id="jobs-title">Jobs you can hand off today.</span>}
               body="A bot is a coworker with a computer. It browses, runs commands, reads and writes files, and comes back with an answer. These are the kinds of messages people send."
             />
-            <ul className="mt-14 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {exampleJobs.map((job) => (
-                <li key={job.bot} className="flex">
+            <Reveal as="ul" stagger={70} className="mt-14 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {exampleJobs.map((job, i) => (
+                <li key={job.bot} className="flex" style={order(i)}>
                   <Card className={cn(cardBase, "flex-1 [--card-spacing:--spacing(5)]")}>
                     <CardContent className="flex flex-1 flex-col gap-4">
                       <div className="flex items-center gap-2.5">
-                        <BotAvatar shape={job.shape} color={job.color} size={26} />
+                        <BotAvatar
+                          shape={job.shape}
+                          color={job.color}
+                          size={26}
+                          blink
+                          blinkDelay={i * 900}
+                        />
                         <span className="text-[13px] font-medium text-ink">To {job.bot}</span>
                       </div>
                       <p className="text-[15.5px] leading-[1.5] text-ink text-pretty">
@@ -362,7 +401,7 @@ export default function Home() {
                   </Card>
                 </li>
               ))}
-            </ul>
+            </Reveal>
           </div>
         </section>
 
@@ -376,9 +415,9 @@ export default function Home() {
               title="Up and running in three steps."
               body="No account with us. No hosted service in the middle. The whole thing runs on your machine and talks only to the model you choose."
             />
-            <ol className="mt-14 grid gap-4 lg:grid-cols-3">
-              {steps.map((step) => (
-                <li key={step.n} className="flex min-w-0">
+            <Reveal as="ol" stagger={90} className="mt-14 grid gap-4 lg:grid-cols-3">
+              {steps.map((step, i) => (
+                <li key={step.n} className="flex min-w-0" style={order(i)}>
                   <Card className={cn(cardBase, "min-w-0 flex-1 [--card-spacing:--spacing(6)]")}>
                     <CardContent className="flex min-w-0 flex-1 flex-col">
                       <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-ink font-mono text-[13px] font-medium text-paper">
@@ -400,7 +439,7 @@ export default function Home() {
                   </Card>
                 </li>
               ))}
-            </ol>
+            </Reveal>
           </div>
         </section>
 
@@ -414,9 +453,13 @@ export default function Home() {
               title="More than a chat window."
               body="A chat window forgets, can't click, and stops when you close the tab. Each OpenTeam bot has what a coworker has."
             />
-            <ul className="mt-14 grid gap-x-8 gap-y-10 sm:grid-cols-2 lg:grid-cols-3">
-              {features.map((f) => (
-                <li key={f.title}>
+            <Reveal
+              as="ul"
+              stagger={70}
+              className="mt-14 grid gap-x-8 gap-y-10 sm:grid-cols-2 lg:grid-cols-3"
+            >
+              {features.map((f, i) => (
+                <li key={f.title} style={order(i)}>
                   <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-line bg-surface text-ink shadow-card">
                     <f.icon className="size-[17px]" strokeWidth={1.75} />
                   </span>
@@ -424,7 +467,7 @@ export default function Home() {
                   <p className="mt-2 text-[15px] leading-[1.55] text-ink-2 text-pretty">{f.body}</p>
                 </li>
               ))}
-            </ul>
+            </Reveal>
           </div>
         </section>
 
@@ -440,20 +483,22 @@ export default function Home() {
                 title="Watch the screen. Take over when it matters."
                 body="Every bot has a live screen you can open from the desktop or your phone. When a sign-in, a payment, or a judgment call comes up, the bot asks. You approve once, deny, or take the mouse yourself. Then hand it back."
               />
-              <ul className="mt-8 space-y-3 text-[15px] text-ink-2">
+              <Reveal as="ul" stagger={80} delay={200} className="mt-8 space-y-3 text-[15px] text-ink-2">
                 {[
                   "See exactly what the bot is doing, as it does it.",
                   "Bots ask before sensitive actions. Nothing happens until you answer.",
                   "Take control, sign in, and hand back. The bot picks up where you left off.",
-                ].map((line) => (
-                  <li key={line} className="flex items-start gap-3">
+                ].map((line, i) => (
+                  <li key={line} className="flex items-start gap-3" style={order(i)}>
                     <span className="mt-[9px] inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-ink" />
                     <span className="text-pretty">{line}</span>
                   </li>
                 ))}
-              </ul>
+              </Reveal>
             </div>
-            <ScreenViewer />
+            <Reveal delay={150}>
+              <ScreenViewer />
+            </Reveal>
           </div>
         </section>
 
@@ -462,27 +507,40 @@ export default function Home() {
         {/* Apps */}
         <section className="py-24">
           <div className="container-page grid items-center gap-12 lg:grid-cols-[minmax(0,7fr)_minmax(0,5fr)]">
-            <div className="order-2 flex justify-center gap-5 sm:gap-8 lg:order-1">
-              {/* Plain <img>: these are two static PNGs; the image optimizer route is not part of this deployment. */}
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src="/screenshots/openteam-mobile-home.png"
-                alt="The OpenTeam iPhone app home screen listing three bots: Research is working, Ops is paused until Monday, and Build finished a task."
-                width={1206}
-                height={2622}
-                loading="lazy"
-                className="w-[44%] max-w-[250px] rounded-[28px] shadow-phone"
-              />
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src="/screenshots/openteam-mobile-chat.png"
-                alt="The OpenTeam iPhone app in a conversation with the Research bot, showing a request to approve opening an app."
-                width={1206}
-                height={2622}
-                loading="lazy"
-                className="w-[44%] max-w-[250px] translate-y-10 rounded-[28px] shadow-phone"
-              />
-            </div>
+            <Reveal
+              stagger={120}
+              className="order-2 flex justify-center gap-5 sm:gap-8 lg:order-1"
+            >
+              <div
+                className="drift w-[44%] max-w-[250px]"
+                style={{ ...order(0), "--drift": "20px" } as React.CSSProperties}
+              >
+                {/* Plain <img>: these are two static PNGs; the image optimizer route is not part of this deployment. */}
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src="/screenshots/openteam-mobile-home.png"
+                  alt="The OpenTeam iPhone app home screen listing three bots: Research is working, Ops is paused until Monday, and Build finished a task."
+                  width={1206}
+                  height={2622}
+                  loading="lazy"
+                  className="w-full rounded-[28px] shadow-phone"
+                />
+              </div>
+              <div
+                className="drift w-[44%] max-w-[250px] translate-y-10"
+                style={{ ...order(1), "--drift": "56px" } as React.CSSProperties}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src="/screenshots/openteam-mobile-chat.png"
+                  alt="The OpenTeam iPhone app in a conversation with the Research bot, showing a request to approve opening an app."
+                  width={1206}
+                  height={2622}
+                  loading="lazy"
+                  className="w-full rounded-[28px] shadow-phone"
+                />
+              </div>
+            </Reveal>
             <div className="order-1 lg:order-2">
               <SectionHeading
                 align="left"
@@ -490,22 +548,22 @@ export default function Home() {
                 title="Talk to your bots from your desktop or your phone."
                 body="The desktop app is home base. The iPhone app shows every bot, its status, and its latest message so you can reply, approve a request, or open a screen from anywhere. Nothing runs on the phone, so a dead battery never stops a job."
               />
-              <div className="mt-8 flex flex-wrap gap-2">
-                <Badge variant="outline" className={chip}>
+              <Reveal stagger={50} delay={200} className="mt-8 flex flex-wrap gap-2">
+                <Badge variant="outline" className={chip} style={order(0)}>
                   <Monitor data-icon="inline-start" />
                   Desktop app
                 </Badge>
-                <Badge variant="outline" className={chip}>
+                <Badge variant="outline" className={chip} style={order(1)}>
                   <Smartphone data-icon="inline-start" />
                   iPhone app
                 </Badge>
-                <Badge variant="outline" className={chip}>
+                <Badge variant="outline" className={chip} style={order(2)}>
                   Search across every bot
                 </Badge>
-                <Badge variant="outline" className={chip}>
+                <Badge variant="outline" className={chip} style={order(3)}>
                   Push notifications
                 </Badge>
-              </div>
+              </Reveal>
             </div>
           </div>
         </section>
@@ -520,18 +578,23 @@ export default function Home() {
               title="Use the model you already pay for."
               body="Sign in once on the server. Every bot uses it. Change the model or the reasoning level from Settings and the next message uses it. No restart."
             />
-            <ul className="mx-auto mt-10 flex max-w-[820px] flex-wrap justify-center gap-2">
-              {providers.map((p) => (
+            <Reveal
+              as="ul"
+              stagger={50}
+              className="mx-auto mt-10 flex max-w-[820px] flex-wrap justify-center gap-2"
+            >
+              {providers.map((p, i) => (
                 <Badge
                   key={p}
                   variant="outline"
                   render={<li />}
+                  style={order(i)}
                   className="h-10 border-line bg-surface px-4 text-[14px] text-ink shadow-card"
                 >
                   {p}
                 </Badge>
               ))}
-            </ul>
+            </Reveal>
           </div>
         </section>
 
@@ -547,8 +610,11 @@ export default function Home() {
             />
 
             <div className="mx-auto mt-14 max-w-[960px]">
-              <div className="grid gap-3 md:grid-cols-[1fr_auto_1.5fr_auto_1fr] md:items-stretch">
-                <Card className={cn(cardBase, "[--card-spacing:--spacing(5)]")}>
+              <Reveal
+                stagger={110}
+                className="grid gap-3 md:grid-cols-[1fr_auto_1.5fr_auto_1fr] md:items-stretch"
+              >
+                <Card className={cn(cardBase, "[--card-spacing:--spacing(5)]")} style={order(0)}>
                   <CardContent>
                     <div className="microlabel">Your devices</div>
                     <ul className="mt-3 space-y-2 text-[14px] text-ink">
@@ -565,11 +631,14 @@ export default function Home() {
                   </CardContent>
                 </Card>
 
-                <div className="hidden items-center md:flex" aria-hidden="true">
+                <div className="hidden items-center md:flex" aria-hidden="true" style={order(1)}>
                   <ArrowRight className="size-[18px] text-ink-3" />
                 </div>
 
-                <Card className={cn(cardBase, "ring-1 ring-ink [--card-spacing:--spacing(5)]")}>
+                <Card
+                  className={cn(cardBase, "ring-1 ring-ink [--card-spacing:--spacing(5)]")}
+                  style={order(2)}
+                >
                   <CardContent>
                     <div className="flex items-center justify-between">
                       <div className="microlabel text-ink">Your server</div>
@@ -592,11 +661,11 @@ export default function Home() {
                   </CardContent>
                 </Card>
 
-                <div className="hidden items-center md:flex" aria-hidden="true">
+                <div className="hidden items-center md:flex" aria-hidden="true" style={order(3)}>
                   <ArrowRight className="size-[18px] text-ink-3" />
                 </div>
 
-                <Card className={cn(cardBase, "[--card-spacing:--spacing(5)]")}>
+                <Card className={cn(cardBase, "[--card-spacing:--spacing(5)]")} style={order(4)}>
                   <CardContent>
                     <div className="microlabel">Your model</div>
                     <ul className="mt-3 space-y-2 text-[14px] text-ink">
@@ -609,12 +678,16 @@ export default function Home() {
                     </p>
                   </CardContent>
                 </Card>
-              </div>
+              </Reveal>
             </div>
 
-            <ul className="mx-auto mt-12 grid max-w-[960px] gap-x-10 gap-y-6 sm:grid-cols-2">
-              {selfHostedFacts.map(([title, body]) => (
-                <li key={title} className="flex gap-3">
+            <Reveal
+              as="ul"
+              stagger={70}
+              className="mx-auto mt-12 grid max-w-[960px] gap-x-10 gap-y-6 sm:grid-cols-2"
+            >
+              {selfHostedFacts.map(([title, body], i) => (
+                <li key={title} className="flex gap-3" style={order(i)}>
                   <span className="mt-[7px] inline-block h-2 w-2 shrink-0 rounded-full bg-ink" />
                   <div>
                     <div className="text-[15.5px] font-medium text-ink">{title}</div>
@@ -624,7 +697,7 @@ export default function Home() {
                   </div>
                 </li>
               ))}
-            </ul>
+            </Reveal>
           </div>
         </section>
 
@@ -639,7 +712,8 @@ export default function Home() {
               title="Before you install."
               body="The practical details that matter before you give a bot real work."
             />
-            <Accordion className="border-y border-line">
+            <Reveal delay={120}>
+              <Accordion className="border-y border-line">
               {faqs.map((f) => (
                 <AccordionItem key={f.q} value={f.q}>
                   <AccordionTrigger className="items-center gap-6 rounded-none py-5 text-[17px] text-ink hover:no-underline **:data-[slot=accordion-trigger-icon]:size-5 **:data-[slot=accordion-trigger-icon]:text-ink-2">
@@ -650,7 +724,8 @@ export default function Home() {
                   </AccordionContent>
                 </AccordionItem>
               ))}
-            </Accordion>
+              </Accordion>
+            </Reveal>
           </div>
         </section>
 
@@ -658,21 +733,42 @@ export default function Home() {
 
         {/* Closing */}
         <section className="py-24">
-          <div className="container-page text-center">
-            <div className="mx-auto flex justify-center gap-1.5" aria-hidden="true">
-              <BotAvatar shape="circle" color="#ff7a1a" size={36} />
-              <BotAvatar shape="drop" color="#925df2" size={36} />
-              <BotAvatar shape="cloud" color="#27baae" size={36} />
-              <BotAvatar shape="square" color="#4b8efb" size={36} />
-              <BotAvatar shape="hexagon" color="#ef479b" size={36} />
+          <Reveal stagger={90} className="container-page text-center">
+            <div className="mx-auto flex justify-center gap-1.5" aria-hidden="true" style={order(0)}>
+              {(
+                [
+                  ["circle", "#ff7a1a"],
+                  ["drop", "#925df2"],
+                  ["cloud", "#27baae"],
+                  ["square", "#4b8efb"],
+                  ["hexagon", "#ef479b"],
+                ] as const
+              ).map(([shape, color], i) => (
+                <span
+                  key={shape}
+                  className="float inline-flex"
+                  style={{ "--d": `${i * 380}ms` } as React.CSSProperties}
+                >
+                  <BotAvatar shape={shape} color={color} size={36} blink blinkDelay={i * 1300} />
+                </span>
+              ))}
             </div>
-            <h2 className="display mx-auto mt-6 max-w-[16ch] text-[44px] leading-[1.04] text-ink sm:text-[60px]">
+            <h2
+              className="display mx-auto mt-6 max-w-[16ch] text-[44px] leading-[1.04] text-ink sm:text-[60px]"
+              style={order(1)}
+            >
               Give one bot a real job tonight.
             </h2>
-            <p className="mx-auto mt-5 max-w-[520px] text-[17px] leading-[1.55] text-ink-2 text-pretty">
+            <p
+              className="mx-auto mt-5 max-w-[520px] text-[17px] leading-[1.55] text-ink-2 text-pretty"
+              style={order(2)}
+            >
               Install takes a few minutes. The first result usually takes less.
             </p>
-            <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
+            <div
+              className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row"
+              style={order(3)}
+            >
               <InstallCommand />
               <Button
                 variant="outline"
@@ -685,7 +781,7 @@ export default function Home() {
                 Star on GitHub
               </Button>
             </div>
-          </div>
+          </Reveal>
         </section>
       </main>
 

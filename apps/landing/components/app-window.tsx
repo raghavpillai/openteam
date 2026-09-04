@@ -35,6 +35,7 @@ function SidebarRow({
   preview,
   time,
   active = false,
+  blinkDelay = 0,
 }: {
   shape: "circle" | "drop" | "cloud" | "square" | "hexagon" | "blob";
   color: string;
@@ -44,10 +45,11 @@ function SidebarRow({
   preview: string;
   time: string;
   active?: boolean;
+  blinkDelay?: number;
 }) {
   return (
     <div className={`flex items-center gap-2.5 rounded-lg px-2 py-2 ${active ? "bg-sunken" : ""}`}>
-      <BotAvatar shape={shape} color={color} size={30} />
+      <BotAvatar shape={shape} color={color} size={30} blink blinkDelay={blinkDelay} />
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline justify-between gap-2">
           <span className="truncate text-[12.5px] font-medium text-ink">{name}</span>
@@ -169,6 +171,7 @@ export function AppWindow() {
               tone="attention"
               preview="Approve the DNS change?"
               time="9:41"
+              blinkDelay={1700}
             />
             <SidebarRow
               shape="cloud"
@@ -177,6 +180,7 @@ export function AppWindow() {
               tone="idle"
               preview="Tests pass. PR is up."
               time="8:15"
+              blinkDelay={3100}
             />
             <div className="microlabel px-2 pt-4 pb-1.5">Groups</div>
             <div className="flex items-center gap-2.5 rounded-lg px-2 py-2">
@@ -205,7 +209,7 @@ export function AppWindow() {
         {/* chat */}
         <section className="flex min-w-0 flex-col bg-surface">
           <header className="flex h-12 items-center gap-2.5 border-b border-line px-4">
-            <BotAvatar shape="circle" color="#ff7a1a" size={24} />
+            <BotAvatar shape="circle" color="#ff7a1a" size={24} blink blinkDelay={700} />
             <div className="min-w-0">
               <div className="text-[13px] font-medium leading-4 text-ink">Research</div>
               <div className="flex items-center gap-1.5 text-[11px] leading-4 text-[#0b7a4b]">
@@ -222,15 +226,26 @@ export function AppWindow() {
           </header>
 
           <div className="flex flex-1 flex-col gap-3.5 overflow-hidden px-4 pt-4 pb-2 text-[12.5px] leading-[1.45]">
-            <div className="ml-auto max-w-[78%] rounded-[14px] rounded-br-[4px] bg-ink px-3.5 py-2.5 text-paper">
+            <div
+              className="rise ml-auto max-w-[78%] rounded-[14px] rounded-br-[4px] bg-ink px-3.5 py-2.5 text-paper"
+              style={{ "--d": "900ms" } as React.CSSProperties}
+            >
               Compare the three vendor quotes in /workspace/quotes and write a recommendation.
               Include support costs.
             </div>
 
             <div className="flex items-start gap-2.5">
-              <BotAvatar shape="circle" color="#ff7a1a" size={22} className="mt-0.5" />
+              <span
+                className="rise mt-0.5 inline-flex"
+                style={{ "--d": "1250ms" } as React.CSSProperties}
+              >
+                <BotAvatar shape="circle" color="#ff7a1a" size={22} blink blinkDelay={700} />
+              </span>
               <div className="min-w-0 max-w-[85%] space-y-2.5">
-                <div className="rounded-[12px] border border-line bg-raised">
+                <div
+                  className="rise rounded-[12px] border border-line bg-raised"
+                  style={{ "--d": "1250ms" } as React.CSSProperties}
+                >
                   <div className="flex items-center gap-2 border-b border-line px-3 py-2 text-[11.5px]">
                     <StatusDot tone="live" pulse size={6} />
                     <span className="font-medium text-ink">Working</span>
@@ -262,7 +277,7 @@ export function AppWindow() {
                     </li>
                   </ul>
                 </div>
-                <p className="text-ink">
+                <p className="rise text-ink" style={{ "--d": "1650ms" } as React.CSSProperties}>
                   Acme is cheapest over three years once support is included. Northwind looks
                   cheaper up front but charges extra for priority support. I&apos;m saving the
                   comparison to{" "}
@@ -271,7 +286,10 @@ export function AppWindow() {
                   </span>
                   .
                 </p>
-                <div className="rounded-[12px] border border-attention/30 bg-attention-soft/60 p-3">
+                <div
+                  className="rise rounded-[12px] border border-attention/30 bg-attention-soft/60 p-3"
+                  style={{ "--d": "2050ms" } as React.CSSProperties}
+                >
                   <div className="flex items-center gap-2 text-[11.5px] font-medium text-attention">
                     <StatusDot tone="attention" size={6} /> Needs you
                   </div>

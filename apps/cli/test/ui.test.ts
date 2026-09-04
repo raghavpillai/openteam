@@ -245,7 +245,7 @@ describe("setup session frame", () => {
     expect(frame.body[0]).toBe("1. Access");
     expect(frame.body).toContain("  Access mode");
     expect(frame.body).toContain("    ● Public HTTPS  recommended");
-    expect(frame.body).toContain("      A domain plus automatic TLS.");
+    expect(frame.body).not.toContain("      A domain plus automatic TLS.");
     expect(frame.body).toContain("    ○ This machine only");
     expect(frame.body).toContain("  ❯ Public domain     bot.example.com");
     expect(frame.body).toContain("    [ ] I understand the risk");
@@ -253,7 +253,9 @@ describe("setup session frame", () => {
     expect(frame.body).toContain("  • Caddy obtains the certificate.");
     expect(frame.body).toContain("    Apply and start OpenTeam");
     expect(frame.body[frame.cursorLine]).toBe("  ❯ Public domain     bot.example.com");
-    expect(frame.footer.at(-1)).toBe("  ↑/↓ highlight · Enter select · ←/→ section · Esc cancel");
+    expect(frame.footer.at(-1)).toBe(
+      "  Type to enter · Enter edit · ↑/↓ move · ←/→ step · Esc cancel"
+    );
     const lines = [...frame.header, ...frame.body, ...frame.footer];
     expect(lines.every((line) => line.length <= 72)).toBe(true);
   });
@@ -316,7 +318,7 @@ describe("setup session frame", () => {
     });
     const lines = [...frame.header, ...frame.body, ...frame.footer];
     expect(lines.every((line) => stripAnsi(line).length <= 40)).toBe(true);
-    expect(stripAnsi(frame.footer.at(-1) ?? "")).toBe("  ↑↓ highlight · Enter · ←→ section");
+    expect(stripAnsi(frame.footer.at(-1) ?? "")).toBe("  ↑↓ move · Enter · ←→ · Esc cancel");
   });
 
   test("scrolls the body to keep the highlighted line visible", () => {

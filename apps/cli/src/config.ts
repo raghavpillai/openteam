@@ -9,7 +9,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { homedir } from "node:os";
+import { availableParallelism, homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import {
   COMPOSE_FILENAME,
@@ -108,10 +108,14 @@ export const detectTimeZone = (): string => {
   }
 };
 
+export const detectWorkerConcurrency = (parallelism = availableParallelism()): string =>
+  String(Math.max(1, Math.min(8, Math.floor(parallelism))));
+
 export const createEnvironment = (options: {
   version: string;
   imagePrefix?: string;
   timeZone?: string;
+  workerConcurrency?: string;
 }): string => {
   const version = normalizeVersion(options.version);
   const imagePrefix = assertSingleLine(
@@ -119,6 +123,17 @@ export const createEnvironment = (options: {
     options.imagePrefix?.trim() || DEFAULT_IMAGE_PREFIX
   );
   const timeZone = assertSingleLine("time zone", options.timeZone?.trim() || detectTimeZone());
+  const workerConcurrency = assertSingleLine(
+    "worker concurrency",
+    options.workerConcurrency?.trim() || detectWorkerConcurrency()
+  );
+  if (
+    !/^\d+$/.test(workerConcurrency) ||
+    Number(workerConcurrency) < 1 ||
+    Number(workerConcurrency) > 64
+  ) {
+    throw new CliError("worker concurrency must be between 1 and 64");
+  }
   return [
     `OPENTEAM_VERSION=${version}`,
     `OPENTEAM_IMAGE_PREFIX=${imagePrefix}`,
@@ -136,7 +151,7 @@ export const createEnvironment = (options: {
     "OPENTEAM_AUTH_URL=http://127.0.0.1:8787",
     "OPENTEAM_API_PORT=8787",
     "COMPOSE_PROFILES=direct",
-    "OPENTEAM_WORKER_CONCURRENCY=8",
+    `OPENTEAM_WORKER_CONCURRENCY=${workerConcurrency}`,
     "",
   ].join("\n");
 };

@@ -92,13 +92,16 @@ irm https://openteam.so/install.ps1 | iex        # Windows PowerShell
 ```
 
 The installer checks the host, verifies the signed release, pulls digest-pinned images, then asks
-three things:
+only for the choices it cannot safely make itself. It automatically uses a detected Tailscale,
+WireGuard, or LAN address for private-network access.
 
 | Step | Choices |
 | --- | --- |
-| **Access** | Private network such as Tailscale (default when detected), this machine only (default otherwise), public HTTPS with automatic certificates, existing reverse proxy, or public HTTP |
-| **Owner account** | The single username and password every app signs in with |
-| **Model provider** | ChatGPT Plus/Pro (default), Claude Pro/Max, OpenAI or Anthropic API key, or a custom endpoint, plus a model |
+| **Your account** | The username and password every app signs in with |
+| **Inference** (optional) | ChatGPT Plus/Pro (default), Claude Pro/Max, an API key, another compatible provider, or skip for now. A recommended model is selected automatically. |
+
+Run `openteam setup --advanced` to choose public HTTPS, an existing proxy, public HTTP, or
+this-machine-only access instead.
 
 Install the desktop app from [openteam.so/download](https://openteam.so/download), enter the
 server URL, and sign in.
@@ -106,7 +109,7 @@ server URL, and sign in.
 ```sh
 openteam status                        # health, version, access mode
 openteam doctor                        # host, Docker, port, and readiness checks
-openteam setup                         # change access or runtime settings (--advanced: port, time zone, reasoning, concurrency)
+openteam setup                         # change inference (--advanced: connection/server/model controls)
 openteam update                        # upgrade with database backup and rollback
 openteam logs --service server --follow
 ```
@@ -119,7 +122,7 @@ to your PATH); add the directory to `PATH` if your shell does not already includ
 
 | Where | What | How to change |
 | --- | --- | --- |
-| Install `.env` (written by the CLI) | Access mode, public URL, port, time zone, worker concurrency, secrets | `openteam setup`, `--advanced` for port, time zone, reasoning, concurrency |
+| Install `.env` (written by the CLI) | Access mode, public URL, port, time zone, worker concurrency, secrets | `openteam setup --advanced` for connection, port, time zone, reasoning, or concurrency |
 | Server runtime settings | Provider, model, reasoning effort. Applies to new turns, no restart. | Desktop **Settings → Server**, or `openteam model use <provider> <model> --thinking <level>` |
 | Per-bot files on the computer | Profile, memory, routines, skills, avatar | The apps, the bot itself via `update_state`, or edit the files by hand |
 

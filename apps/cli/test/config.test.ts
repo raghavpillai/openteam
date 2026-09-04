@@ -5,6 +5,7 @@ import { join } from "node:path";
 import {
   createEnvironment,
   defaultInstallDirectory,
+  detectWorkerConcurrency,
   ensureAuthenticationSecret,
   installationPaths,
   normalizeRepository,
@@ -38,8 +39,12 @@ describe("installation configuration", () => {
   });
 
   test("creates random single-line secrets and stable release settings", () => {
-    const first = parseEnvironment(createEnvironment({ version: "1.2.3", timeZone: "Etc/UTC" }));
-    const second = parseEnvironment(createEnvironment({ version: "1.2.3", timeZone: "Etc/UTC" }));
+    const first = parseEnvironment(
+      createEnvironment({ version: "1.2.3", timeZone: "Etc/UTC", workerConcurrency: "8" })
+    );
+    const second = parseEnvironment(
+      createEnvironment({ version: "1.2.3", timeZone: "Etc/UTC", workerConcurrency: "8" })
+    );
     expect(first.get("OPENTEAM_VERSION")).toBe("1.2.3");
     expect(first.get("OPENTEAM_TIME_ZONE")).toBe("Etc/UTC");
     expect(first.get("OPENTEAM_BIND_HOST")).toBe("127.0.0.1");
@@ -47,6 +52,7 @@ describe("installation configuration", () => {
     expect(first.get("OPENTEAM_PUBLIC_HOST")).toBe("127.0.0.1");
     expect(first.get("OPENTEAM_PUBLIC_URL")).toBe("http://127.0.0.1:8787");
     expect(first.get("OPENTEAM_ACCESS_MODE")).toBe("local");
+    expect(first.get("OPENTEAM_WORKER_CONCURRENCY")).toBe("8");
     expect(first.get("COMPOSE_PROFILES")).toBe("direct");
     expect(first.get("OPENTEAM_AUTH_MODE")).toBe("required");
     expect(first.has("OPENTEAM_PI_PROVIDER")).toBe(false);
@@ -59,6 +65,12 @@ describe("installation configuration", () => {
     expect(first.get("OPENTEAM_CONTROL_TOKEN")).not.toBe(second.get("OPENTEAM_CONTROL_TOKEN"));
     expect(first.get("OPENTEAM_AUTH_SECRET")).not.toBe(second.get("OPENTEAM_AUTH_SECRET"));
     expect(first.get("OPENTEAM_PROXY_SECRET")).not.toBe(second.get("OPENTEAM_PROXY_SECRET"));
+  });
+
+  test("chooses a safe task limit from the available CPU count", () => {
+    expect(detectWorkerConcurrency(1)).toBe("1");
+    expect(detectWorkerConcurrency(4)).toBe("4");
+    expect(detectWorkerConcurrency(32)).toBe("8");
   });
 
   test("updates one environment setting without changing secrets", () => {

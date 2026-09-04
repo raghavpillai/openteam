@@ -45,7 +45,7 @@ export const accountUpdateCommand = async (
   let password: string | undefined;
   try {
     console.log(
-      `Update the OpenTeam owner account${
+      `Change the OpenTeam sign-in${
         manifest.ownerUsername ? ` for ${manifest.ownerUsername}` : ""
       }.`
     );
@@ -66,6 +66,6 @@ export const accountUpdateCommand = async (
   const ownerUsername = username || manifest.ownerUsername;
   writeManifest(paths, { ...manifest, ownerUsername });
   console.log(
-    `OpenTeam owner account updated${ownerUsername ? ` for ${ownerUsername}` : ""}. All desktop and mobile sessions have been signed out.`
+    `OpenTeam sign-in updated${ownerUsername ? ` for ${ownerUsername}` : ""}. All desktop and mobile apps have been signed out.`
   );
 };

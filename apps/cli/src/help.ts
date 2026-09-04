@@ -1,7 +1,7 @@
 import type { HelpTopic } from "./arguments";
 import { CLI_VERSION } from "./constants";
 
-const heading = (usage: string, summary: string): string => `OpenTeam CLI ${CLI_VERSION}
+const heading = (usage: string, summary: string): string => `OpenTeam ${CLI_VERSION}
 
 Usage:
   ${usage}
@@ -9,26 +9,26 @@ Usage:
 ${summary}`;
 
 const helpHint = "  --help, -h            Show this help";
-const directoryOption = "  --dir <path>          Override the installation directory";
+const directoryOption = "  --dir <path>          Use a different installation folder";
 
 const pages: Record<HelpTopic, string> = {
-  global: `OpenTeam CLI ${CLI_VERSION}
+  global: `OpenTeam ${CLI_VERSION}
 
 Usage:
   openteam <command> [options]
 
 Commands:
-  install       Install and start OpenTeam
-  setup         Configure an installation
-  status        Show health and services
-  doctor        Diagnose installation problems
-  update        Update OpenTeam
+  install       Set up OpenTeam on this computer
+  setup         Change inference or advanced server settings
+  status        Show whether OpenTeam is running
+  doctor        Check for installation problems
+  update        Install the latest OpenTeam release
   start         Start OpenTeam
   stop          Stop OpenTeam
-  logs          Show service logs
-  provider      Manage provider connections and endpoints
-  model         List or select inference models
-  account       Update owner credentials
+  logs          View troubleshooting logs
+  provider      Manage AI accounts and connections
+  model         View or change the AI model
+  account       Change your username or password
   uninstall     Remove OpenTeam
 
 Global options:
@@ -61,12 +61,12 @@ Advanced release/testing options:
 
   setup: `${heading(
     "openteam setup [options]",
-    "Reconfigure access, runtime, provider, and model, then review and relaunch.\nExisting owner credentials are preserved."
+    "Change which model account OpenTeam uses, or skip inference for now.\nYour connection and existing sign-in stay unchanged unless you choose advanced setup."
   )}
 
 Options:
 ${directoryOption}
-  --advanced            Show port, time-zone, concurrency, and reasoning controls
+  --advanced            Also show connection, server, model, and performance settings
 ${helpHint}`,
 
   doctor: `${heading(
@@ -81,7 +81,7 @@ ${helpHint}`,
 
   status: `${heading(
     "openteam status [options]",
-    "Show the installed version, access settings, Compose services, and server health."
+    "Show the installed version, connection address, services, and overall health."
   )}
 
 Options:
@@ -130,32 +130,32 @@ Options:
 ${directoryOption}
 ${helpHint}`,
 
-  logs: `${heading("openteam logs [options]", "Show recent Compose service logs.")}
+  logs: `${heading("openteam logs [service] [options]", "Show recent troubleshooting logs.")}
 
 Options:
 ${directoryOption}
   --follow, -f          Stream logs until interrupted
   --tail <lines>        Number of recent lines to show (default: 200)
-  --service <name>      Limit output to one Compose service
+  --service <name>      Show logs for one service (or pass its name directly)
 ${helpHint}`,
 
   provider: `${heading(
     "openteam provider <command> [options]",
-    "Manage inference-provider credentials and custom endpoints."
+    "Manage AI account sign-ins and custom providers."
   )}
 
 Commands:
-  list                  List providers and authentication state
-  login [provider]      Configure OAuth or an API key/password
-  logout [provider]     Remove a provider credential
-  add <id>              Add a compatible custom endpoint
-  remove <id>           Remove a custom endpoint
+  list                  Show available AI providers and sign-in status
+  login [provider]      Sign in to a provider (uses the active one by default)
+  logout [provider]     Sign out of a provider
+  add <id>              Connect another compatible AI provider
+  remove <id>           Remove a custom AI provider
 
 Run "openteam provider <command> --help" for command options.`,
 
   "provider-list": `${heading(
     "openteam provider list [options]",
-    "List inference providers, model counts, and authentication state."
+    "Show AI providers, model counts, and sign-in status."
   )}
 
 Options:
@@ -164,7 +164,7 @@ ${helpHint}`,
 
   "provider-login": `${heading(
     "openteam provider login [provider] [options]",
-    "Configure OAuth or an API key/password for a provider.\nThe active provider is used when omitted."
+    "Sign in through a browser or with an API key.\nThe active provider is used when omitted."
   )}
 
 Options:
@@ -183,27 +183,27 @@ ${helpHint}`,
 
   "provider-add": `${heading(
     "openteam provider add <id> [options]",
-    "Add an OpenAI-, Anthropic-, or Google-compatible custom endpoint\nand configure its credential."
+    "Connect an OpenAI-, Anthropic-, or Google-compatible provider."
   )}
 
 Required options:
   --name <name>          Provider display name
   --base-url <url>      Provider API endpoint
-  --api <protocol>      Pi-compatible API protocol
+  --api <format>        API format supported by the provider
   --model <id>          Initial model id
 
 Additional options:
 ${directoryOption}
   --context-window <n>  Model context size
   --max-tokens <n>      Model maximum output tokens
-  --reasoning           Mark the model as reasoning-capable
+  --reasoning           Mark the model as able to think through complex tasks
 ${helpHint}
 
 Protocols: openai-completions, openai-responses, anthropic-messages, google-generative-ai`,
 
   "provider-remove": `${heading(
     "openteam provider remove <id> [options]",
-    "Remove a custom inference provider. The active provider cannot be removed."
+    "Remove a custom AI provider. The active provider cannot be removed."
   )}
 
 Options:
@@ -212,12 +212,12 @@ ${helpHint}`,
 
   model: `${heading(
     "openteam model <command> [options]",
-    "List available inference models or select the installation-wide model."
+    "View available AI models or choose the model OpenTeam uses."
   )}
 
 Commands:
-  list [provider]         List available models
-  use <provider> <model>  Select the active model
+  list [provider]         Show available models
+  use <provider> <model>  Choose the active model
 
 Run "openteam model <command> --help" for command options.`,
 
@@ -242,11 +242,11 @@ ${helpHint}`,
 
   account: `${heading(
     "openteam account <command> [options]",
-    "Manage the OpenTeam owner account. Credential changes revoke all active sessions."
+    "Change the OpenTeam username or password. Changes sign out every app."
   )}
 
 Commands:
-  update                Update the owner username and/or password
+  update                Change the username and/or password
 
 Run "openteam account update --help" for command options.`,
 

@@ -159,9 +159,8 @@ describe("installed lifecycle", () => {
     expect(result.installed).toBe(true);
     expect(result.checks).toContainEqual({
       level: "warn",
-      label: "Inference authentication",
-      detail:
-        "runtime reports missing; configure the selected inference provider before running agents",
+      label: "Inference",
+      detail: "status is missing; connect a model provider before starting a task",
     });
   });
 

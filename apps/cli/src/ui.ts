@@ -293,6 +293,7 @@ export const renderSetupSession = (
     const active = index === input.cursorRow;
     if (
       row.kind === "heading" ||
+      (row.kind === "field" && previousKind === "option") ||
       (row.kind === "action" && previousKind !== "action") ||
       (row.kind === "note" && previousKind !== "note" && previousKind !== null)
     ) {
@@ -323,7 +324,7 @@ export const renderSetupSession = (
         body.push(
           `  ${pointer} ${marker} ${active || row.selected ? paint(styled, label, ANSI.bold) : label}${badge}`
         );
-        if (row.description) {
+        if (row.description && active) {
           for (const line of wrapText(row.description, width - 6)) {
             body.push(`      ${paint(styled, line, ANSI.dim)}`);
           }
@@ -387,16 +388,27 @@ export const renderSetupSession = (
 
   const footer: string[] = [""];
   if (input.notice) footer.push(...noteLines(input.notice.text, input.notice.tone, width, styled));
-  const hint =
-    input.mode === "edit"
-      ? width >= 48
-        ? "  Type to edit · Enter save · Esc discard"
-        : "  Enter save · Esc discard"
-      : width >= 64
-        ? "  ↑/↓ highlight · Enter select · ←/→ section · Esc cancel"
-        : width >= 40
-          ? "  ↑↓ highlight · Enter · ←→ section"
-          : "  ↑↓ · Enter · ←→";
+  const focused = input.cursorRow >= 0 ? input.rows[input.cursorRow] : undefined;
+  let hint: string;
+  if (input.mode === "edit") {
+    hint = width >= 48 ? "  Type to edit · Enter save · Esc discard" : "  Enter save · Esc discard";
+  } else if (!focused) {
+    hint = width < 40 ? "  ←→ · Esc" : "  ←/→ step · Esc cancel";
+  } else if (width < 40) {
+    hint = "  ↑↓ · Enter · ←→ · Esc";
+  } else if (width < 64) {
+    hint = "  ↑↓ move · Enter · ←→ · Esc cancel";
+  } else if (focused?.kind === "text") {
+    hint = focused.value
+      ? "  Type to replace · Enter keep · ↑/↓ move · ←/→ step · Esc cancel"
+      : "  Type to enter · Enter edit · ↑/↓ move · ←/→ step · Esc cancel";
+  } else if (focused?.kind === "toggle" || focused?.kind === "cycle") {
+    hint = "  ↑/↓ move · Enter change · ←/→ step · Esc cancel";
+  } else if (focused?.kind === "action") {
+    hint = "  ↑/↓ choose · Enter confirm · ← back · Esc cancel";
+  } else {
+    hint = "  ↑/↓ choose · Enter confirm · ←/→ step · Esc cancel";
+  }
   footer.push(paint(styled, truncate(hint, width), ANSI.dim));
   return { header, body, footer, cursorLine };
 };
@@ -458,7 +470,7 @@ export const createSetupPresentation = (input: {
     start() {
       write(header());
       for (const line of wrapText(
-        "A few guided steps, then OpenTeam will verify the whole deployment.",
+        "A few quick choices, then OpenTeam will check the rest.",
         width
       )) {
         write(paint(styled, line, ANSI.dim));

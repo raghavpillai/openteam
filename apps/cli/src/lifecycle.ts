@@ -26,6 +26,7 @@ import { checkHealth, waitForHealth } from "./health";
 import type { CommandRunner } from "./process";
 import { downloadRelease, latestReleaseVersion } from "./release";
 import { setupCommand, type SetupPrompter } from "./setup";
+import { ACCESS_MODES, accessLabel, type AccessMode } from "./setup-values";
 import {
   assertOwnServer,
   assertPortsAvailable,
@@ -135,7 +136,7 @@ export const installCommand = async (
   const diagnosis = await runDoctor(paths, runner, projectName, {
     checkInstallPorts: options.noSetup,
   });
-  printDoctor(diagnosis);
+  printDoctor(diagnosis, { compact: true });
   if (!diagnosis.ok) throw new CliError("Fix the doctor failures above, then run install again.");
 
   const version = normalizeVersion(options.version || CLI_VERSION);
@@ -203,7 +204,10 @@ export const statusCommand = async (
   const environment = parseEnvironment(readFileSync(paths.environment, "utf8"));
   const accessMode = environment.get("OPENTEAM_ACCESS_MODE") || "local";
   const publicUrl = environment.get("OPENTEAM_PUBLIC_URL") || "not configured";
-  console.log(`Access: ${accessMode}`);
+  const connection = ACCESS_MODES.includes(accessMode as AccessMode)
+    ? accessLabel(accessMode as AccessMode)
+    : accessMode;
+  console.log(`Connection: ${connection}`);
   console.log(`Server: ${publicUrl}\n`);
   const project = requireComposeProject(paths, runner, manifestProjectName(manifest));
   const status = project.run(["ps"], { inherit: true });

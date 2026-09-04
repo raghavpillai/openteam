@@ -93,7 +93,7 @@ const commandFlags: Record<CommandName, ReadonlySet<string>> = {
   ]),
   setup: new Set(["--advanced"]),
   doctor: new Set(["--project-name"]),
-  status: new Set(),
+  status: new Set(["--json-progress"]),
   update: new Set([
     "--version",
     "--repository",
@@ -131,6 +131,31 @@ const commandFlags: Record<CommandName, ReadonlySet<string>> = {
 const commonFlags = new Set(["--dir", "--install-dir"]);
 
 const commandLabel = (command: CommandName): string => command.replace("-", " ");
+
+const closest = (value: string, choices: readonly string[]): string | null => {
+  const distance = (left: string, right: string): number => {
+    const row = Array.from({ length: right.length + 1 }, (_item, index) => index);
+    for (let leftIndex = 1; leftIndex <= left.length; leftIndex += 1) {
+      let diagonal = row[0] ?? 0;
+      row[0] = leftIndex;
+      for (let rightIndex = 1; rightIndex <= right.length; rightIndex += 1) {
+        const above = row[rightIndex] ?? 0;
+        row[rightIndex] = Math.min(
+          above + 1,
+          (row[rightIndex - 1] ?? 0) + 1,
+          diagonal + (left[leftIndex - 1] === right[rightIndex - 1] ? 0 : 1)
+        );
+        diagonal = above;
+      }
+    }
+    return row[right.length] ?? Number.POSITIVE_INFINITY;
+  };
+  const ranked = choices
+    .map((choice) => ({ choice, distance: distance(value, choice) }))
+    .sort((left, right) => left.distance - right.distance);
+  const match = ranked[0];
+  return match && match.distance <= Math.max(2, Math.floor(value.length / 3)) ? match.choice : null;
+};
 
 const emptyOptions = (command: CliOptions["command"], helpTopic?: HelpTopic): CliOptions => ({
   command,
@@ -223,6 +248,9 @@ export const parseArguments = (argv: readonly string[]): CliOptions => {
   const nestedAccountUpdate = rawCommand === "account" && rawRest[0] === "update";
   const providerAction = rawCommand === "provider" ? rawRest[0] : undefined;
   const modelAction = rawCommand === "model" ? rawRest[0] : undefined;
+  if (rawCommand === "provider" && !providerAction) return emptyOptions("help", "provider");
+  if (rawCommand === "model" && !modelAction) return emptyOptions("help", "model");
+  if (rawCommand === "account" && rawRest.length === 0) return emptyOptions("help", "account");
   const nestedProviderList = rawCommand === "provider" && providerAction === "list";
   const nestedProviderLogin = rawCommand === "provider" && providerAction === "login";
   const nestedProviderLogout = rawCommand === "provider" && providerAction === "logout";
@@ -276,13 +304,40 @@ export const parseArguments = (argv: readonly string[]): CliOptions => {
       );
     }
     if (rawCommand === "account") {
-      throw new CliError("Usage: openteam account update [--username <name>] [--password]");
+      const suggestion = closest(rawRest[0] ?? "", ["update"]);
+      throw new CliError(
+        `Unknown account command: ${rawRest[0]}.${suggestion ? ` Did you mean "${suggestion}"?` : ""}`
+      );
     }
     if (rawCommand === "provider") {
-      throw new CliError("Usage: openteam provider <list|login|logout|add|remove>");
+      const suggestion = closest(rawRest[0] ?? "", ["list", "login", "logout", "add", "remove"]);
+      throw new CliError(
+        `Unknown provider command: ${rawRest[0]}.${suggestion ? ` Did you mean "${suggestion}"?` : ""}`
+      );
     }
-    if (rawCommand === "model") throw new CliError("Usage: openteam model <list|use>");
-    throw new CliError(`Unknown command: ${rawCommand}`);
+    if (rawCommand === "model") {
+      const suggestion = closest(rawRest[0] ?? "", ["list", "use"]);
+      throw new CliError(
+        `Unknown model command: ${rawRest[0]}.${suggestion ? ` Did you mean "${suggestion}"?` : ""}`
+      );
+    }
+    const suggestion = closest(rawCommand, [
+      "install",
+      "setup",
+      "status",
+      "doctor",
+      "update",
+      "start",
+      "stop",
+      "logs",
+      "provider",
+      "model",
+      "account",
+      "uninstall",
+    ]);
+    throw new CliError(
+      `Unknown command: ${rawCommand}.${suggestion ? ` Did you mean "${suggestion}"?` : " Run openteam --help to see available commands."}`
+    );
   }
 
   const options = emptyOptions(command as CommandName);
@@ -306,6 +361,9 @@ export const parseArguments = (argv: readonly string[]): CliOptions => {
     if (positional.length !== 2)
       throw new CliError("openteam model use requires a provider and model");
     [options.providerId, options.modelId] = positional;
+  } else if (command === "logs") {
+    if (positional.length > 1) throw new CliError("openteam logs accepts one service name");
+    options.service = positional[0];
   } else if (positional.length > 0) {
     throw new CliError(`Unexpected argument for ${rawCommand}: ${positional[0]}`);
   }
@@ -375,6 +433,9 @@ export const parseArguments = (argv: readonly string[]): CliOptions => {
     if (property) {
       const value = rest[index + 1];
       if (!value || value.startsWith("--")) throw new CliError(`${flag} requires a value`);
+      if (property === "service" && options.service) {
+        throw new CliError("Choose a log service either by name or with --service, not both");
+      }
       options[property] = value;
       index += 1;
       continue;

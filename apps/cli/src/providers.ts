@@ -58,13 +58,13 @@ const jsonCommand = <T>(project: ComposeProject, args: readonly string[]): T => 
   const result = project.run(authCommand(args));
   if (result.status !== 0) {
     throw new CliError(
-      result.stderr.trim() || result.stdout.trim() || "Pi provider command failed"
+      result.stderr.trim() || result.stdout.trim() || "AI provider command failed"
     );
   }
   try {
     return JSON.parse(result.stdout) as T;
   } catch {
-    throw new CliError("Pi provider command returned invalid data");
+    throw new CliError("OpenTeam received invalid AI provider data");
   }
 };
 
@@ -158,7 +158,7 @@ export const providerLoginCommand = async (
   const providerId = options.providerId || currentSelection(project).providerId;
   const providers = jsonCommand<ProviderRow[]>(project, ["providers"]);
   const provider = providers.find((candidate) => candidate.id === providerId);
-  if (!provider) throw new CliError(`Unknown Pi inference provider: ${providerId}`);
+  if (!provider) throw new CliError(`Unknown AI provider: ${providerId}`);
   const prompter = suppliedPrompter || createTerminalPrompter();
   try {
     const authType = await chooseAuthType(provider, options.authType, prompter);
@@ -254,5 +254,5 @@ export const modelUseCommand = async (
     return;
   }
   await writeRuntimeInferenceSettings(paths, { providerId, modelId, reasoning });
-  console.log(`Selected ${providerId}/${modelId} for new Pi inference turns.`);
+  console.log(`Selected ${providerId}/${modelId} for new tasks.`);
 };

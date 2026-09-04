@@ -332,21 +332,38 @@ export const runDoctor = async (
     if (health.ok && health.inference) {
       checks.push({
         level: health.inference === "ready" ? "pass" : "warn",
-        label: "Inference authentication",
+        label: "Inference",
         detail:
           health.inference === "ready"
-            ? "Pi inference authentication is ready"
-            : `runtime reports ${health.inference}; configure the selected inference provider before running agents`,
+            ? "signed in and ready"
+            : `status is ${health.inference}; connect a model provider before starting a task`,
       });
     }
   }
   return { ok: !checks.some((check) => check.level === "fail"), installed, checks };
 };
 
-export const printDoctor = (result: DoctorResult): void => {
+export const printDoctor = (
+  result: DoctorResult,
+  options: { compact?: boolean; omitLabels?: readonly string[] } = {}
+): void => {
   const marks: Record<CheckLevel, string> = { pass: "✓", warn: "!", fail: "✗" };
-  for (const check of result.checks) {
+  const included = result.checks.filter((check) => !options.omitLabels?.includes(check.label));
+  const visible = options.compact ? included.filter((check) => check.level !== "pass") : included;
+  for (const check of visible) {
     console.log(`${marks[check.level]} ${check.label}: ${redactSensitiveText(check.detail)}`);
+  }
+  if (options.compact) {
+    const warnings = visible.filter((check) => check.level === "warn").length;
+    const failures = visible.filter((check) => check.level === "fail").length;
+    console.log(
+      failures > 0
+        ? `✗ ${failures} blocking ${failures === 1 ? "problem" : "problems"} found.`
+        : warnings > 0
+          ? `✓ Checks passed with ${warnings} ${warnings === 1 ? "warning" : "warnings"}.`
+          : "✓ All checks passed."
+    );
+    return;
   }
   console.log(
     result.ok

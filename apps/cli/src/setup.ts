@@ -13,12 +13,6 @@ import {
   writeManifest,
 } from "./config";
 import { API_PORT, PROJECT_NAME } from "./constants";
-import {
-  type DetectedLogin,
-  detectReusableLogins,
-  type LoginDetectionOptions,
-  readReusableCredential,
-} from "./detected-logins";
 import { type ComposeProject, requireComposeProject } from "./docker";
 import { printDoctor, runDoctor, suggestApiPort } from "./doctor";
 import { CliError } from "./errors";
@@ -53,12 +47,14 @@ import {
   detectPrivateNetworkHost,
   existingReachableHost,
   HTTP_WARNINGS,
+  providerLabel,
   publicUrlFor,
-  recommendedAccessMode,
   SETUP_STAGES,
+  SKIP_INFERENCE_CHOICE,
   type SetupConfiguration,
   type SetupCustomProvider,
   THINKING_LEVELS,
+  thinkingLabel,
   validateAccessMode,
   validateCustomProviderApi,
   validateIntegerInRange,
@@ -123,12 +119,8 @@ export interface SetupCommandOptions {
   fresh?: boolean;
   presentation?: SetupPresentation;
   ownerConfigured?: boolean;
-  /** Detected tailnet or LAN address; `undefined` detects it, `null` means none. */
+  /** Override private-address detection. Primarily useful for deterministic callers and tests. */
   detectedPrivateHost?: string | null;
-  /** Vendor CLI sign-ins to offer for reuse; `undefined` detects them. */
-  detectedLogins?: readonly DetectedLogin[];
-  /** Where to look for those sign-ins; defaults to this machine. */
-  loginDetection?: LoginDetectionOptions;
 }
 
 export const supportsInteractiveSelection = (
@@ -379,18 +371,25 @@ const collectProviderSecret = async (
   prompter: SetupPrompter,
   providerId: string
 ): Promise<string> => {
+  const label =
+    providerId === "openai"
+      ? "OpenAI API key"
+      : providerId === "anthropic"
+        ? "Anthropic API key"
+        : `${providerLabel(providerId)} API key or password`;
   while (true) {
-    const secret = (await prompter.secret(`${providerId} API key or password: `)).trim();
+    const secret = (await prompter.secret(`${label}: `)).trim();
     if (secret) return secret;
-    console.log("  Provider API key or password cannot be empty.");
+    console.log("  API key cannot be empty.");
   }
 };
 
-const collectRuntimeConfiguration = async (
+const collectInferenceConfiguration = async (
   configuration: SetupConfiguration,
   currentProvider: string,
   prompter: SetupPrompter,
-  presentation?: SetupPresentation
+  presentation?: SetupPresentation,
+  chooseModel = false
 ): Promise<void> => {
   const providerChoices: Array<{ label: string; value: string }> = [...BUILTIN_PROVIDER_CHOICES];
   const currentIsBuiltin = BUILTIN_PROVIDER_CHOICES.some(
@@ -398,11 +397,12 @@ const collectRuntimeConfiguration = async (
   );
   if (!currentIsBuiltin) {
     providerChoices.push({
-      label: `Keep existing provider (${currentProvider})`,
+      label: `Keep ${currentProvider}`,
       value: currentProvider,
     });
   }
   providerChoices.push(CUSTOM_PROVIDER_CHOICE);
+  providerChoices.push(SKIP_INFERENCE_CHOICE);
   presentation?.choices([
     ...BUILTIN_PROVIDER_CHOICES.map((choice) => ({
       title: choice.label,
@@ -414,15 +414,30 @@ const collectRuntimeConfiguration = async (
       description: CUSTOM_PROVIDER_CHOICE.description,
       recommended: !currentIsBuiltin,
     },
+    {
+      title: SKIP_INFERENCE_CHOICE.label,
+      description: SKIP_INFERENCE_CHOICE.description,
+    },
   ]);
   const selectedProvider = prompter.select
-    ? await prompter.select("Inference provider", providerChoices, currentProvider)
+    ? await prompter.select("Inference", providerChoices, currentProvider)
     : await ask(
         prompter,
-        "Inference provider (openai-codex/anthropic/openai/custom)",
+        "Inference (openai-codex/anthropic/openai/custom/skip)",
         currentProvider,
-        (value) => validateProviderSelection(value, currentProvider)
+        (value) =>
+          value.trim().toLowerCase() === SKIP_INFERENCE_CHOICE.value
+            ? SKIP_INFERENCE_CHOICE.value
+            : validateProviderSelection(value, currentProvider)
       );
+
+  if (selectedProvider === SKIP_INFERENCE_CHOICE.value) {
+    configuration.skipInference = true;
+    configuration.authenticate = false;
+    configuration.customProvider = undefined;
+    return;
+  }
+  configuration.skipInference = undefined;
 
   if (selectedProvider === "custom") {
     const id = await ask(prompter, "Custom provider id", "my-provider", validateProviderId);
@@ -446,7 +461,7 @@ const collectRuntimeConfiguration = async (
           validateCustomProviderApi
         );
     const selectedModel = await ask(prompter, "Inference model", "model", validateModel);
-    const reasoning = await confirm(prompter, "Does this model support reasoning?", true);
+    const reasoning = await confirm(prompter, "Can this model think through complex tasks?", true);
     configuration.provider = id;
     configuration.model = selectedModel;
     configuration.customProvider = {
@@ -466,7 +481,9 @@ const collectRuntimeConfiguration = async (
     selectedProvider === currentProvider
       ? configuration.model
       : (DEFAULT_PROVIDER_MODELS[selectedProvider] ?? configuration.model);
-  configuration.model = await ask(prompter, "Inference model", selectedDefault, validateModel);
+  configuration.model = chooseModel
+    ? await ask(prompter, "Inference model", selectedDefault, validateModel)
+    : selectedDefault;
 };
 
 /**
@@ -482,59 +499,62 @@ export const collectSetupConfiguration = async (
   currentInference: RuntimeInferenceSettings = DEFAULT_RUNTIME_INFERENCE
 ): Promise<SetupConfiguration> => {
   const presentation = options.presentation;
-  presentation?.stage(0);
-  const detectedPublicHost =
+  const advanced = options.advanced ?? false;
+  const currentAccess = configuredAccessMode(current, options.fresh ?? false);
+  let selectedAccess: SetupConfiguration["accessMode"] = currentAccess;
+  if (advanced) {
+    presentation?.stage(0);
+    while (true) {
+      presentation?.choices(ACCESS_CHOICES);
+      selectedAccess = prompter.select
+        ? await prompter.select(
+            "Connection",
+            ACCESS_CHOICES.map((choice) => ({ label: choice.title, value: choice.value })),
+            currentAccess
+          )
+        : await ask(
+            prompter,
+            "Connection",
+            String(ACCESS_MODES.indexOf(currentAccess) + 1),
+            validateAccessMode
+          );
+      if (selectedAccess !== "http") break;
+      for (const warning of HTTP_WARNINGS) presentation?.message(warning, "warning");
+      if (await confirm(prompter, "Continue with public HTTP?", false)) break;
+      presentation?.message("Choose a different connection.", "muted");
+    }
+  }
+
+  const existingHost = options.fresh ? null : existingReachableHost(current);
+  const detectedPrivateHost =
     options.detectedPrivateHost === undefined
       ? detectPrivateNetworkHost()
       : options.detectedPrivateHost;
-  const recommendedAccess = recommendedAccessMode(detectedPublicHost);
-  const currentAccess = configuredAccessMode(current, options.fresh ?? false, detectedPublicHost);
-  let selectedAccess: SetupConfiguration["accessMode"];
-  while (true) {
-    presentation?.choices(
-      ACCESS_CHOICES.map((choice) => ({
-        ...choice,
-        recommended: choice.value === recommendedAccess,
-      }))
-    );
-    selectedAccess = prompter.select
-      ? await prompter.select(
-          "Access mode",
-          ACCESS_CHOICES.map((choice) => ({ label: choice.title, value: choice.value })),
-          currentAccess
-        )
-      : await ask(
-          prompter,
-          "Access mode",
-          String(ACCESS_MODES.indexOf(currentAccess) + 1),
-          validateAccessMode
-        );
-    if (selectedAccess !== "http") break;
-    for (const warning of HTTP_WARNINGS) presentation?.message(warning, "warning");
-    if (await confirm(prompter, "Continue with insecure public HTTP?", false)) break;
-    presentation?.message("Choose a different access mode.", "muted");
-  }
-
-  const existingHost = existingReachableHost(current);
   let reachableHost = "127.0.0.1";
   if (selectedAccess === "https" || selectedAccess === "proxy") {
-    reachableHost = await askRequired(
-      prompter,
-      "Public domain (A/AAAA record points to this server)",
-      existingHost,
-      validatePublicDomain
-    );
-  } else if (selectedAccess === "http") {
-    reachableHost = await askRequired(
-      prompter,
-      "Public hostname or IPv4 address",
-      existingHost,
-      validatePublicHost
-    );
-  } else if (selectedAccess === "private") {
-    const defaultPrivateHost = existingHost || detectedPublicHost;
     reachableHost =
-      options.advanced || !defaultPrivateHost
+      !advanced && existingHost
+        ? existingHost
+        : await askRequired(
+            prompter,
+            "Public domain (A/AAAA record points to this server)",
+            existingHost,
+            validatePublicDomain
+          );
+  } else if (selectedAccess === "http") {
+    reachableHost =
+      !advanced && existingHost
+        ? existingHost
+        : await askRequired(
+            prompter,
+            "Public hostname or IPv4 address",
+            existingHost,
+            validatePublicHost
+          );
+  } else if (selectedAccess === "private") {
+    const defaultPrivateHost = existingHost || detectedPrivateHost;
+    reachableHost =
+      advanced || !defaultPrivateHost
         ? await askRequired(
             prompter,
             "Private hostname or IPv4 address",
@@ -543,21 +563,20 @@ export const collectSetupConfiguration = async (
           )
         : defaultPrivateHost;
   }
-  for (const note of accessModeNotes(selectedAccess)) presentation?.message(note.text, note.tone);
+  if (advanced) {
+    for (const note of accessModeNotes(selectedAccess)) presentation?.message(note.text, note.tone);
+  }
 
-  presentation?.stage(1);
+  presentation?.stage(advanced ? 1 : 0);
   const currentThinking = currentInference.reasoning;
   let ownerUsername = currentOwnerUsername;
   let ownerPassword: string | undefined;
   if (options.ownerConfigured) {
     presentation?.message(
-      `Keeping the existing owner account (${currentOwnerUsername}) and active sessions.`,
+      `Your existing account (${currentOwnerUsername}) will stay signed in.`,
       "success"
     );
-    presentation?.message(
-      "Use openteam account update when you intentionally want to change credentials.",
-      "muted"
-    );
+    presentation?.message("Run openteam account update if you want to change it.", "muted");
   } else {
     ownerUsername = await collectOwnerUsername(prompter, currentOwnerUsername);
     ownerPassword = await collectConfirmedPassword(prompter);
@@ -581,8 +600,8 @@ export const collectSetupConfiguration = async (
     authType: defaultProviderAuthType(currentInference.providerId),
   };
 
-  presentation?.stage(2);
-  if (options.advanced) {
+  presentation?.stage(advanced ? 2 : 1);
+  if (advanced) {
     configuration.apiPort = await ask(
       prompter,
       "API port",
@@ -596,30 +615,31 @@ export const collectSetupConfiguration = async (
       validateTimeZone
     );
   }
-  await collectRuntimeConfiguration(
+  await collectInferenceConfiguration(
     configuration,
     currentInference.providerId,
     prompter,
-    presentation
+    presentation,
+    advanced
   );
-  if (options.advanced) {
+  if (advanced) {
     configuration.thinking = prompter.select
       ? await prompter.select(
-          "Reasoning effort",
-          THINKING_LEVELS.map((value) => ({ label: value, value })),
+          "Thinking level",
+          THINKING_LEVELS.map((value) => ({ label: thinkingLabel(value), value })),
           configuration.thinking
         )
       : await ask(
           prompter,
-          "Reasoning effort (off/minimal/low/medium/high/xhigh/max)",
+          "Thinking level (off/minimal/low/medium/high/xhigh/max)",
           configuration.thinking,
           validateThinking
         );
     configuration.workerConcurrency = await ask(
       prompter,
-      "Concurrent bot jobs",
+      "Tasks at once",
       configuration.workerConcurrency,
-      validateIntegerInRange("Concurrent bot jobs", 1, 64)
+      validateIntegerInRange("Tasks at once", 1, 64)
     );
   }
   configuration.publicUrl = publicUrlFor(
@@ -627,18 +647,24 @@ export const collectSetupConfiguration = async (
     reachableHost,
     configuration.apiPort
   );
-  configuration.authenticate = await confirm(
-    prompter,
-    authenticated && configuration.provider === currentInference.providerId
-      ? `Configure ${configuration.provider} authentication again?`
-      : `Configure ${configuration.provider} authentication now?`,
-    !authenticated || configuration.provider !== currentInference.providerId
-  );
+  const needsAuthentication =
+    !authenticated || configuration.provider !== currentInference.providerId;
+  configuration.authenticate = configuration.skipInference
+    ? false
+    : advanced
+      ? await confirm(
+          prompter,
+          authenticated && configuration.provider === currentInference.providerId
+            ? `Sign in to ${providerLabel(configuration.provider)} again?`
+            : `Sign in to ${providerLabel(configuration.provider)} during setup?`,
+          needsAuthentication
+        )
+      : needsAuthentication;
   if (configuration.authenticate) {
     if (configuration.provider === "anthropic") {
       configuration.authType = prompter.select
         ? await prompter.select(
-            "Anthropic authentication",
+            "Use",
             [
               { label: "Claude Pro/Max", value: "oauth" },
               { label: "Anthropic API key", value: "api_key" },
@@ -654,7 +680,7 @@ export const collectSetupConfiguration = async (
           });
       if (configuration.authType === "oauth") {
         presentation?.message(
-          "Pi identifies this as Claude Pro/Max authentication; third-party harness traffic may use paid extra usage rather than included plan limits.",
+          "Claude may bill this as extra usage instead of including it with your plan.",
           "warning"
         );
       }
@@ -663,16 +689,6 @@ export const collectSetupConfiguration = async (
     }
     if (configuration.authType === "api_key") {
       configuration.apiKey = await collectProviderSecret(prompter, configuration.provider);
-    } else if (
-      configuration.provider === "openai-codex" ||
-      configuration.provider === "anthropic"
-    ) {
-      const provider = configuration.provider;
-      const detected = (options.detectedLogins ?? []).find((login) => login.provider === provider);
-      if (detected) {
-        configuration.reuseLogin = { provider, source: detected.source };
-        presentation?.message(`Reusing your ${detected.source} sign-in.`, "success");
-      }
     }
   }
   return configuration;
@@ -760,14 +776,14 @@ const assertProviderModelAvailable = (
   const result = providerUtility(project, ["models", providerId]);
   if (result.status !== 0) {
     throw new CliError(
-      `Could not inspect Pi provider ${providerId}: ${result.stderr.trim() || result.stdout.trim() || "provider utility failed"}`
+      `Could not inspect AI provider ${providerId}: ${result.stderr.trim() || result.stdout.trim() || "provider check failed"}`
     );
   }
   let models: unknown;
   try {
     models = JSON.parse(result.stdout);
   } catch {
-    throw new CliError(`Pi returned invalid model metadata for ${providerId}`);
+    throw new CliError(`OpenTeam received invalid model information for ${providerId}`);
   }
   if (
     !Array.isArray(models) ||
@@ -782,18 +798,20 @@ const assertProviderModelAvailable = (
     )
   ) {
     throw new CliError(
-      `Pi does not provide ${providerId}/${modelId}. Choose a model shown by openteam model list ${providerId}.`
+      `${providerId} does not provide ${modelId}. Choose a model shown by openteam model list ${providerId}.`
     );
   }
 };
 
-const configurationSummary = (configuration: SetupConfiguration) => [
-  { label: "Access", value: accessLabel(configuration.accessMode) },
+const configurationSummary = (configuration: SetupConfiguration, advanced: boolean) => [
+  ...(advanced ? [{ label: "Connection", value: accessLabel(configuration.accessMode) }] : []),
   { label: "Address", value: configuration.publicUrl },
-  { label: "Owner", value: configuration.ownerUsername },
+  { label: "Username", value: configuration.ownerUsername },
   {
-    label: "Model",
-    value: `${configuration.provider}/${configuration.model} · ${configuration.thinking}`,
+    label: "Inference",
+    value: configuration.skipInference
+      ? "Skip for now"
+      : `${configuration.customProvider?.name || providerLabel(configuration.provider)} · ${configuration.model}`,
   },
 ];
 
@@ -823,19 +841,11 @@ const collectThroughPrompts = async (
       currentInference
     );
 
-    if (!collectOptions.advanced) {
-      presentation.message(
-        `Using ${candidate.provider}/${candidate.model}, ${candidate.thinking} reasoning, and local API port ${candidate.apiPort}.`,
-        "info"
-      );
-      presentation.message(
-        "Run openteam setup --advanced for port, time-zone, concurrency, and reasoning controls.",
-        "muted"
-      );
-    }
-
-    presentation.stage(3);
-    presentation.summary("Configuration ready", configurationSummary(candidate));
+    presentation.stage(collectOptions.advanced ? 3 : 2);
+    presentation.summary(
+      "Configuration ready",
+      configurationSummary(candidate, collectOptions.advanced ?? false)
+    );
     if (candidate.accessMode === "proxy") {
       presentation.message(
         `Proxy target: http://127.0.0.1:${candidate.apiPort} (WebSocket upgrades must be enabled).`,
@@ -847,7 +857,7 @@ const collectThroughPrompts = async (
         ? await prompter.select(
             "Apply this configuration?",
             [
-              { label: "Apply and start OpenTeam", value: "yes", shortcut: "y" },
+              { label: "Start OpenTeam", value: "yes", shortcut: "y" },
               { label: "Go back", value: "back", shortcut: "b" },
               { label: "Cancel without changes", value: "no", shortcut: "n" },
             ] as const,
@@ -857,7 +867,10 @@ const collectThroughPrompts = async (
       if (!answer || answer === "y" || answer === "yes") return candidate;
       if (answer === "n" || answer === "no") return null;
       if (answer === "b" || answer === "back") {
-        presentation.message("Returning to the access stage.", "muted");
+        presentation.message(
+          `Returning to the ${collectOptions.advanced ? "connection" : "account"} step.`,
+          "muted"
+        );
         break;
       }
       presentation.message("Enter yes, no, or back.", "warning");
@@ -884,13 +897,11 @@ export const setupCommand = async (
       ? readStoppedRuntimeInference(project)
       : DEFAULT_RUNTIME_INFERENCE;
   const prompter = suppliedPrompter || createTerminalPrompter();
+  const guidedStages = options.advanced ? SETUP_STAGES : SETUP_STAGES.slice(1);
   const presentation =
     options.presentation ??
-    createSetupPresentation({ version: manifest.version, stages: SETUP_STAGES });
+    createSetupPresentation({ version: manifest.version, stages: guidedStages });
   const fresh = options.fresh ?? !manifest.ownerUsername;
-  const detectedPrivateHost = detectPrivateNetworkHost();
-  const loginDetection: LoginDetectionOptions = options.loginDetection ?? { runner };
-  const detectedLogins = options.detectedLogins ?? detectReusableLogins(loginDetection);
   const previousApiPort = current.get("OPENTEAM_API_PORT");
   const notes: Array<{ text: string; tone: MessageTone }> = [];
   if (fresh && !initialHealth.ok) {
@@ -908,10 +919,11 @@ export const setupCommand = async (
     ...options,
     fresh,
     ownerConfigured: Boolean(manifest.ownerUsername),
+    detectedPrivateHost:
+      options.detectedPrivateHost === undefined
+        ? detectPrivateNetworkHost()
+        : options.detectedPrivateHost,
     presentation,
-    detectedPrivateHost,
-    detectedLogins,
-    loginDetection,
   };
   const authenticated = initialHealth.inference === "ready";
   const ownerUsername = manifest.ownerUsername || "openteam";
@@ -929,15 +941,17 @@ export const setupCommand = async (
         ownerConfigured: collectOptions.ownerConfigured,
         currentOwnerUsername: ownerUsername,
         currentInference,
-        detectedPrivateHost,
-        detectedLogins,
+        detectedPrivateHost: collectOptions.detectedPrivateHost,
         notes,
       });
       if (configuration) {
         // The session clears itself; leave a settled record of what is being applied.
-        presentation.stage(3);
+        presentation.stage(collectOptions.advanced ? 3 : 2);
         presentation.message(`Installation: ${paths.directory}`, "muted");
-        presentation.summary("Configuration ready", configurationSummary(configuration));
+        presentation.summary(
+          "Configuration ready",
+          configurationSummary(configuration, collectOptions.advanced ?? false)
+        );
         if (configuration.accessMode === "proxy") {
           presentation.message(
             `Proxy target: http://127.0.0.1:${configuration.apiPort} (WebSocket upgrades must be enabled).`,
@@ -971,15 +985,14 @@ export const setupCommand = async (
   await assertPortsAvailable(runner, portRequirementsFromConfiguration(configuration, ownedPorts));
   let registeredCustomProvider: string | null = null;
   try {
-    if (configuration.customProvider) {
-      presentation.message(
-        `Registering custom Pi provider ${configuration.customProvider.id}…`,
-        "info"
-      );
+    if (!configuration.skipInference && configuration.customProvider) {
+      presentation.message(`Connecting ${configuration.customProvider.name}…`, "info");
       registerCustomProvider(project, configuration.customProvider);
       registeredCustomProvider = configuration.customProvider.id;
     }
-    assertProviderModelAvailable(project, configuration.provider, configuration.model);
+    if (!configuration.skipInference) {
+      assertProviderModelAvailable(project, configuration.provider, configuration.model);
+    }
 
     const nextEnvironment = ensureAuthenticationSecret(
       updateEnvironment(previousEnvironment, configuration)
@@ -1057,12 +1070,13 @@ export const setupCommand = async (
     );
   }
 
-  if (configuration.authenticate) {
-    presentation.message(`Configuring ${configuration.provider} authentication…`, "info");
+  if (configuration.skipInference) {
     presentation.message(
-      "Provider credentials are handled by Pi and are not written to .env.",
+      "Inference setup was skipped. Connect a provider later with openteam setup.",
       "muted"
     );
+  } else if (configuration.authenticate) {
+    presentation.message(`Signing in to ${providerLabel(configuration.provider)}…`, "info");
     if (configuration.authType === "api_key") {
       project.runOrThrow(
         [
@@ -1078,39 +1092,12 @@ export const setupCommand = async (
       );
       configuration.apiKey = undefined;
     } else {
-      let imported = false;
-      if (configuration.reuseLogin) {
-        const reusable = readReusableCredential(configuration.reuseLogin.provider, loginDetection);
-        if (!reusable) {
-          presentation.message(
-            `The ${configuration.reuseLogin.source} sign-in could not be read; signing in through the browser instead.`,
-            "warning"
-          );
-        } else {
-          // Tokens travel over stdin only, like API keys, and never appear in arguments.
-          const result = project.run(
-            ["exec", "--no-TTY", "computer", "openteam-pi-auth", "import", configuration.provider],
-            { input: JSON.stringify(reusable.credential) }
-          );
-          if (result.status === 0) {
-            imported = true;
-            presentation.message(`Reused your ${reusable.source} sign-in.`, "success");
-          } else {
-            presentation.message(
-              `Could not reuse the ${reusable.source} sign-in (${result.stderr.trim() || result.stdout.trim() || "import failed"}); signing in through the browser instead.`,
-              "warning"
-            );
-          }
-        }
-      }
-      if (!imported) {
-        project.runOrThrow(
-          ["exec", "computer", "openteam-pi-auth", "login", configuration.provider, "oauth"],
-          { inherit: true }
-        );
-      }
+      project.runOrThrow(
+        ["exec", "computer", "openteam-pi-auth", "login", configuration.provider, "oauth"],
+        { inherit: true }
+      );
     }
-    presentation.message(`${configuration.provider} authentication is ready.`, "success");
+    presentation.message(`${providerLabel(configuration.provider)} is connected.`, "success");
   }
 
   const nextInference: RuntimeInferenceSettings = {
@@ -1119,9 +1106,10 @@ export const setupCommand = async (
     reasoning: configuration.thinking,
   };
   if (
-    nextInference.providerId !== currentInference.providerId ||
-    nextInference.modelId !== currentInference.modelId ||
-    nextInference.reasoning !== currentInference.reasoning
+    !configuration.skipInference &&
+    (nextInference.providerId !== currentInference.providerId ||
+      nextInference.modelId !== currentInference.modelId ||
+      nextInference.reasoning !== currentInference.reasoning)
   ) {
     try {
       await writeRuntimeInferenceSettings(paths, nextInference);
@@ -1130,15 +1118,16 @@ export const setupCommand = async (
         `Could not activate ${configuration.provider}/${configuration.model}. Run openteam provider login ${configuration.provider} and retry: ${error instanceof Error ? error.message : String(error)}`
       );
     }
-    presentation.message(
-      `${configuration.provider}/${configuration.model} is active for new inference turns.`,
-      "success"
-    );
+    presentation.message(`${configuration.model} is ready for new tasks.`, "success");
   }
 
-  presentation.message("Running OpenTeam doctor…", "info");
+  presentation.stage(collectOptions.advanced ? 4 : 3);
+  presentation.message("Checking the installation…", "info");
   const diagnosis = await runDoctor(paths, runner, manifest.projectName || PROJECT_NAME);
-  printDoctor(diagnosis);
+  printDoctor(diagnosis, {
+    compact: true,
+    ...(configuration.skipInference ? { omitLabels: ["Inference"] } : {}),
+  });
   if (!diagnosis.ok) throw new CliError("Setup completed with blocking doctor failures.", 2);
   if (["https", "proxy", "http"].includes(configuration.accessMode)) {
     const readiness = await inspectPublicReadiness(configuration.publicUrl);

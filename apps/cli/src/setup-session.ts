@@ -1,26 +1,30 @@
 import { emitKeypressEvents } from "node:readline";
 import { API_PORT } from "./constants";
-import type { DetectedLogin, ReusableProvider } from "./detected-logins";
 import { CliError } from "./errors";
 import type { RuntimeInferenceSettings } from "./runtime-settings";
 import {
   ACCESS_CHOICES,
   accessLabel,
+  accessModeNotes,
   type AccessMode,
   BUILTIN_PROVIDER_CHOICES,
   bindHostsFor,
   CUSTOM_PROVIDER_APIS,
   CUSTOM_PROVIDER_CHOICE,
   configuredAccessMode,
+  customProviderApiLabel,
   type CustomProviderApi,
   DEFAULT_PROVIDER_MODELS,
   DEFAULT_RUNTIME_INFERENCE,
   defaultProviderAuthType,
   existingReachableHost,
+  HTTP_WARNINGS,
+  providerLabel,
   publicUrlFor,
-  recommendedAccessMode,
+  SKIP_INFERENCE_CHOICE,
   type SetupConfiguration,
   THINKING_LEVELS,
+  thinkingLabel,
   type ThinkingLevel,
   validateIntegerInRange,
   validateModel,
@@ -55,8 +59,6 @@ export interface SetupSessionInput {
   currentOwnerUsername?: string;
   currentInference?: RuntimeInferenceSettings;
   detectedPrivateHost?: string | null;
-  /** Vendor CLI sign-ins found on this machine that Pi can reuse. */
-  detectedLogins?: readonly DetectedLogin[];
   /** Informational notes shown above the launch summary, such as a port fallback. */
   notes?: ReadonlyArray<{ text: string; tone: MessageTone }>;
 }
@@ -94,6 +96,7 @@ interface Editing {
 interface SessionState {
   section: number;
   cursors: number[];
+  visited: boolean[];
   accessMode: AccessMode;
   host: string;
   httpAcknowledged: boolean;
@@ -105,6 +108,7 @@ interface SessionState {
   thinking: ThinkingLevel;
   provider: string;
   model: string;
+  skipInference: boolean;
   custom: {
     id: string;
     name: string;
@@ -129,59 +133,24 @@ export interface SetupSession {
   handle(character: string, key?: SessionKey): SessionOutcome;
 }
 
-/** Sections the user can move between with left/right; Review is the last one. */
+/** Sections the user can move between with left/right. Verify runs after apply. */
 export const SESSION_SECTION_COUNT = 4;
 const ACCESS_SECTION = 0;
 const OWNER_SECTION = 1;
-const RUNTIME_SECTION = 2;
-const REVIEW_SECTION = 3;
-
-interface ProviderOption {
-  id: string;
-  provider: string;
-  authType: "oauth" | "api_key";
-  label: string;
-  description: string;
-}
-
-const BUILTIN_PROVIDER_OPTIONS: readonly ProviderOption[] = [
-  {
-    id: "openai-codex",
-    provider: "openai-codex",
-    authType: "oauth",
-    label: "OpenAI with ChatGPT Plus/Pro",
-    description: "Sign in to ChatGPT in the browser once the stack is up.",
-  },
-  {
-    id: "anthropic",
-    provider: "anthropic",
-    authType: "oauth",
-    label: "Anthropic with Claude Pro/Max",
-    description: "Sign in to Claude in the browser; harness traffic may bill as extra usage.",
-  },
-  {
-    id: "anthropic-key",
-    provider: "anthropic",
-    authType: "api_key",
-    label: "Anthropic with an API key",
-    description: "Paste an Anthropic API key.",
-  },
-  {
-    id: "openai",
-    provider: "openai",
-    authType: "api_key",
-    label: "OpenAI with an API key",
-    description: "Paste an OpenAI API key for directly billed models.",
-  },
-];
+const INFERENCE_SECTION = 2;
+const LAUNCH_SECTION = 3;
+const AUTH_TYPE_LABELS: Record<"oauth" | "api_key", string> = {
+  oauth: "Claude Pro/Max",
+  api_key: "Anthropic API key",
+};
 const PRINTABLE = /^[^\p{Cc}]+$/u;
 
 const hostLabel = (mode: AccessMode): { label: string; placeholder: string } => {
   if (mode === "https" || mode === "proxy") {
-    return { label: "Public domain", placeholder: "bot.example.com (A/AAAA record points here)" };
+    return { label: "Public domain", placeholder: "example: bot.example.com" };
   }
-  if (mode === "http") return { label: "Public host", placeholder: "hostname or IPv4 address" };
-  return { label: "Private host", placeholder: "hostname or IPv4 address" };
+  if (mode === "http") return { label: "Public address", placeholder: "hostname or IPv4 address" };
+  return { label: "Private address", placeholder: "hostname or IPv4 address" };
 };
 
 const validateHost = (mode: AccessMode, value: string): string =>
@@ -199,44 +168,23 @@ export const createSetupSession = (input: SetupSessionInput): SetupSession => {
     (choice) => choice.value === currentProvider
   );
   const detectedPrivateHost = input.detectedPrivateHost ?? null;
-  const initialAccess = configuredAccessMode(input.current, fresh, detectedPrivateHost);
-  const recommendedAccess = recommendedAccessMode(detectedPrivateHost);
+  const initialAccess = configuredAccessMode(input.current, fresh);
   const existingHost = existingReachableHost(input.current);
+  const initialHost =
+    fresh && initialAccess === "private"
+      ? (detectedPrivateHost ?? "")
+      : (existingHost ?? (initialAccess === "private" ? (detectedPrivateHost ?? "") : ""));
+  const needsConnectionInput = !advanced && initialAccess !== "local" && !initialHost;
+  const firstSection = advanced || needsConnectionInput ? ACCESS_SECTION : OWNER_SECTION;
+  const visibleStages = firstSection === ACCESS_SECTION ? input.stages : input.stages.slice(1);
   const currentThinking = currentInference.reasoning as ThinkingLevel;
-  // A stored private address is a poor default for a public domain field; leave it blank instead.
-  const defaultHostFor = (mode: AccessMode): string => {
-    if (mode === "local") return "";
-    if (mode === "https" || mode === "proxy") {
-      if (!existingHost) return "";
-      try {
-        return validatePublicDomain(existingHost);
-      } catch {
-        return "";
-      }
-    }
-    if (mode === "http") return existingHost ?? "";
-    return existingHost ?? detectedPrivateHost ?? "";
-  };
-
-  const detectedLogins = input.detectedLogins ?? [];
-  const detectedFor = (provider: string, authType: string): DetectedLogin | undefined =>
-    authType === "oauth" ? detectedLogins.find((login) => login.provider === provider) : undefined;
-  // A sign-in already on this machine beats the stock default while nothing is authenticated.
-  const initialOption = input.authenticated
-    ? undefined
-    : BUILTIN_PROVIDER_OPTIONS.find((option) => detectedFor(option.provider, option.authType));
-  const initialProvider = initialOption?.provider ?? currentProvider;
-  const initialAuthType = initialOption?.authType ?? defaultProviderAuthType(currentProvider);
-  const initialModel =
-    initialOption && initialOption.provider !== currentProvider
-      ? (DEFAULT_PROVIDER_MODELS[initialOption.provider] ?? currentInference.modelId)
-      : currentInference.modelId;
 
   const state: SessionState = {
-    section: ACCESS_SECTION,
+    section: firstSection,
     cursors: new Array<number>(SESSION_SECTION_COUNT).fill(0),
+    visited: new Array<boolean>(SESSION_SECTION_COUNT).fill(false),
     accessMode: initialAccess,
-    host: defaultHostFor(initialAccess),
+    host: initialHost,
     httpAcknowledged: false,
     ownerUsername: input.currentOwnerUsername || "openteam",
     ownerPassword: null,
@@ -244,8 +192,9 @@ export const createSetupSession = (input: SetupSessionInput): SetupSession => {
     timeZone: input.current.get("OPENTEAM_TIME_ZONE") || "UTC",
     workerConcurrency: input.current.get("OPENTEAM_WORKER_CONCURRENCY") || "8",
     thinking: THINKING_LEVELS.includes(currentThinking) ? currentThinking : "high",
-    provider: initialProvider,
-    model: initialModel,
+    provider: currentProvider,
+    model: currentInference.modelId,
+    skipInference: false,
     custom: {
       id: "my-provider",
       name: "",
@@ -255,11 +204,12 @@ export const createSetupSession = (input: SetupSessionInput): SetupSession => {
       reasoning: true,
     },
     authenticate: !input.authenticated,
-    authType: initialAuthType,
+    authType: defaultProviderAuthType(currentProvider),
     apiKey: null,
     editing: null,
     notice: null,
   };
+  state.visited[firstSection] = true;
 
   const providerId = (): string =>
     state.provider === "custom" ? state.custom.id || "custom provider" : state.provider;
@@ -296,32 +246,47 @@ export const createSetupSession = (input: SetupSessionInput): SetupSession => {
   });
 
   const accessRows = (): SessionRow[] => {
-    const rows: SessionRow[] = [{ kind: "heading", text: "Access mode" }];
-    for (const choice of ACCESS_CHOICES) {
-      rows.push({
-        kind: "option",
-        id: `access:${choice.value}`,
-        label: choice.title,
-        description: choice.description,
-        selected: state.accessMode === choice.value,
-        ...(choice.value === recommendedAccess ? { recommended: true } : {}),
-      });
+    const rows: SessionRow[] = [];
+    if (advanced) {
+      for (const choice of ACCESS_CHOICES) {
+        rows.push({
+          kind: "option",
+          id: `access:${choice.value}`,
+          label: choice.title,
+          description: choice.description,
+          selected: state.accessMode === choice.value,
+          ...("recommended" in choice && choice.recommended ? { recommended: true } : {}),
+        });
+      }
     }
     if (state.accessMode !== "local") {
       const { label, placeholder } = hostLabel(state.accessMode);
       rows.push({ kind: "heading", text: "Address" });
       rows.push(textRow("host", label, state.host, { placeholder }));
+      if (!advanced && !state.host) {
+        rows.push({
+          kind: "note",
+          text: "No private address was detected. Enter a Tailscale, WireGuard, or LAN address.",
+          tone: "info",
+        });
+      } else if (
+        state.accessMode === "private" &&
+        detectedPrivateHost &&
+        state.host === detectedPrivateHost
+      ) {
+        rows.push({ kind: "note", text: "Detected on this computer.", tone: "success" });
+      }
     }
     if (state.accessMode === "http") {
+      for (const text of HTTP_WARNINGS) rows.push({ kind: "note", text, tone: "warning" });
       rows.push({
         kind: "toggle",
         id: "httpAck",
-        label: "Continue without encryption",
-        description:
-          "Passwords and session tokens travel in cleartext, and the iOS app refuses public HTTP.",
+        label: "I understand the risk and want to continue",
         checked: state.httpAcknowledged,
       });
     }
+    for (const note of accessModeNotes(state.accessMode)) rows.push({ kind: "note", ...note });
     return rows;
   };
 
@@ -330,48 +295,69 @@ export const createSetupSession = (input: SetupSessionInput): SetupSession => {
       return [
         {
           kind: "note",
-          text: `Keeping the existing owner account (${state.ownerUsername}) and active sessions. Change it with openteam account update.`,
+          text: `Your existing account (${state.ownerUsername}) will stay signed in.`,
           tone: "success",
+        },
+        {
+          kind: "note",
+          text: "Run openteam account update if you want to change it.",
+          tone: "muted",
         },
       ];
     }
     return [
-      { kind: "heading", text: "Owner account" },
       textRow("username", "Username", state.ownerUsername),
       textRow("password", "Password", state.ownerPassword ?? "", {
         placeholder: "8-128 characters, required",
         secret: true,
         editingLabel: state.editing?.phase === "confirm" ? "Confirm password" : undefined,
       }),
+      {
+        kind: "note",
+        text: "Your password is stored securely and will not appear on screen.",
+        tone: "muted",
+      },
     ];
   };
 
-  const runtimeRows = (): SessionRow[] => {
+  const inferenceRows = (): SessionRow[] => {
     const rows: SessionRow[] = [];
     if (advanced) {
       rows.push({ kind: "heading", text: "Server" });
       rows.push(textRow("apiPort", "API port", state.apiPort));
       rows.push(textRow("timeZone", "Time zone", state.timeZone));
     }
-    rows.push({ kind: "heading", text: "Inference provider" });
-    for (const option of providerOptions()) {
-      const detected = detectedFor(option.provider, option.authType);
-      rows.push({
-        kind: "option",
-        id: `provider:${option.id}`,
-        label: option.label,
-        description: detected
-          ? `Reuses your ${detected.source} sign-in; no browser login needed.`
-          : option.description,
-        selected: state.provider === option.provider && state.authType === option.authType,
-        ...(option.provider === initialProvider && option.authType === initialAuthType
-          ? { recommended: true }
-          : {}),
-        ...(detected ? { badge: "detected" } : {}),
+    const providerChoices: Array<{ label: string; description: string; value: string }> = [
+      ...BUILTIN_PROVIDER_CHOICES,
+    ];
+    if (!currentProviderIsBuiltin) {
+      providerChoices.push({
+        label: `Keep ${currentProvider}`,
+        description: "Continue using the model provider already connected to OpenTeam.",
+        value: currentProvider,
       });
     }
-    rows.push({ kind: "heading", text: "Model" });
+    providerChoices.push(CUSTOM_PROVIDER_CHOICE);
+    for (const choice of providerChoices) {
+      rows.push({
+        kind: "option",
+        id: `provider:${choice.value}`,
+        label: choice.label,
+        description: choice.description,
+        selected: !state.skipInference && state.provider === choice.value,
+        ...(choice.value === currentProvider ? { recommended: true } : {}),
+      });
+    }
+    rows.push({
+      kind: "option",
+      id: `inference:${SKIP_INFERENCE_CHOICE.value}`,
+      label: SKIP_INFERENCE_CHOICE.label,
+      description: SKIP_INFERENCE_CHOICE.description,
+      selected: state.skipInference,
+    });
+    if (state.skipInference) return rows;
     if (state.provider === "custom") {
+      rows.push({ kind: "heading", text: "Provider details" });
       rows.push(textRow("custom.id", "Provider id", state.custom.id, { placeholder: "required" }));
       rows.push(
         textRow("custom.name", "Provider name", state.custom.name, {
@@ -386,8 +372,8 @@ export const createSetupSession = (input: SetupSessionInput): SetupSession => {
       rows.push({
         kind: "cycle",
         id: "custom.api",
-        label: "Compatible API",
-        value: state.custom.api,
+        label: "API format",
+        value: customProviderApiLabel(state.custom.api),
       });
       rows.push(
         textRow("custom.model", "Model", state.custom.model, { placeholder: "model id (required)" })
@@ -395,92 +381,94 @@ export const createSetupSession = (input: SetupSessionInput): SetupSession => {
       rows.push({
         kind: "toggle",
         id: "custom.reasoning",
-        label: "This model supports reasoning",
+        label: "This model can think through complex tasks",
         checked: state.custom.reasoning,
       });
-    } else {
+    } else if (advanced) {
+      rows.push({ kind: "heading", text: "Model" });
       rows.push(textRow("model", "Model", state.model, { placeholder: "model id (required)" }));
+    } else {
+      rows.push({ kind: "field", label: "Model", value: state.model });
     }
     if (advanced) {
       rows.push({
         kind: "cycle",
         id: "thinking",
-        label: "Reasoning effort",
-        value: state.thinking,
+        label: "Thinking level",
+        value: thinkingLabel(state.thinking),
       });
-      rows.push(textRow("workerConcurrency", "Concurrent bot jobs", state.workerConcurrency));
+      rows.push(textRow("workerConcurrency", "Tasks at once", state.workerConcurrency));
     }
-    rows.push({ kind: "heading", text: "Authentication" });
     const again = input.authenticated && state.provider === currentProvider;
-    rows.push({
-      kind: "toggle",
-      id: "authenticate",
-      label: `Configure ${providerId()} authentication ${again ? "again" : "now"}`,
-      checked: state.authenticate,
-    });
-    if (state.authenticate && state.authType === "api_key") {
-      rows.push(
-        textRow("apiKey", "API key or password", state.apiKey ?? "", {
-          placeholder: "required",
-          secret: true,
-        })
-      );
+    if (advanced) {
+      rows.push({ kind: "heading", text: "Sign-in" });
+      rows.push({
+        kind: "toggle",
+        id: "authenticate",
+        label: `${again ? "Sign in again" : "Sign in during setup"}`,
+        checked: state.authenticate,
+      });
+    }
+    if (state.authenticate) {
+      if (state.provider === "anthropic") {
+        rows.push({
+          kind: "cycle",
+          id: "authType",
+          label: "Use",
+          value: AUTH_TYPE_LABELS[state.authType],
+        });
+        if (state.authType === "oauth") {
+          rows.push({
+            kind: "note",
+            text: "Claude may bill this as extra usage instead of including it with your plan.",
+            tone: "warning",
+          });
+        }
+      }
+      if (state.authType === "api_key") {
+        rows.push(
+          textRow(
+            "apiKey",
+            state.provider === "custom" ? "API key or password" : "API key",
+            state.apiKey ?? "",
+            {
+              placeholder: "required",
+              secret: true,
+            }
+          )
+        );
+      } else if (state.provider !== "anthropic") {
+        rows.push({
+          kind: "note",
+          text: `A browser window will open for ${providerLabel(providerId())} sign-in after OpenTeam starts.`,
+          tone: "muted",
+        });
+      }
     }
     return rows;
   };
 
-  const providerOptions = (): readonly ProviderOption[] => {
-    const options: ProviderOption[] = [...BUILTIN_PROVIDER_OPTIONS];
-    if (!currentProviderIsBuiltin) {
-      options.push({
-        id: currentProvider,
-        provider: currentProvider,
-        authType: "api_key",
-        label: `Keep existing provider (${currentProvider})`,
-        description: "Reuse the custom provider already registered with Pi.",
-      });
-    }
-    options.push({
-      id: "custom",
-      provider: "custom",
-      authType: "api_key",
-      label: CUSTOM_PROVIDER_CHOICE.label,
-      description: CUSTOM_PROVIDER_CHOICE.description,
-    });
-    return options;
-  };
-
-  const reusableProvider = (): ReusableProvider | null =>
-    state.provider === "openai-codex" || state.provider === "anthropic" ? state.provider : null;
-
-  const reuseLogin = (): { provider: ReusableProvider; source: string } | undefined => {
-    const provider = reusableProvider();
-    if (!provider || !state.authenticate || state.authType !== "oauth") return undefined;
-    const detected = detectedFor(provider, "oauth");
-    return detected ? { provider, source: detected.source } : undefined;
-  };
-
-  const signInSummary = (): string => {
-    if (!state.authenticate) return "unchanged";
-    if (state.authType === "api_key") return "API key";
-    const reused = reuseLogin();
-    return reused ? `reuse ${reused.source}` : "browser sign-in after launch";
-  };
-
-  const reviewRows = (): SessionRow[] => {
+  const launchRows = (): SessionRow[] => {
     const rows: SessionRow[] = [
-      { kind: "heading", text: "Summary" },
-      { kind: "field", label: "Access", value: accessLabel(state.accessMode) },
       { kind: "field", label: "Address", value: publicUrl() },
-      { kind: "field", label: "Owner", value: state.ownerUsername },
+      { kind: "field", label: "Username", value: state.ownerUsername },
       {
         kind: "field",
-        label: "Model",
-        value: `${providerId()}/${activeModel() || "<model>"} · ${state.thinking}`,
+        label: "Inference",
+        value: state.skipInference
+          ? "Skip for now"
+          : `${state.provider === "custom" ? state.custom.name || providerId() : providerLabel(providerId())} · ${activeModel() || "<model>"}`,
       },
-      { kind: "field", label: "Sign-in", value: signInSummary() },
-      { kind: "field", label: "API port", value: state.apiPort },
     ];
+    if (advanced) {
+      rows.unshift({ kind: "field", label: "Connection", value: accessLabel(state.accessMode) });
+      rows.push(
+        { kind: "field", label: "Thinking", value: thinkingLabel(state.thinking) },
+        { kind: "field", label: "API port", value: state.apiPort },
+        { kind: "field", label: "Time zone", value: state.timeZone },
+        { kind: "field", label: "Tasks at once", value: state.workerConcurrency }
+      );
+    }
     for (const note of input.notes ?? []) rows.push({ kind: "note", ...note });
     if (state.accessMode === "proxy") {
       rows.push({
@@ -492,7 +480,7 @@ export const createSetupSession = (input: SetupSessionInput): SetupSession => {
     for (const problem of problems()) {
       rows.push({ kind: "note", text: problem.message, tone: "warning" });
     }
-    rows.push({ kind: "action", id: "apply", label: "Apply and start OpenTeam", primary: true });
+    rows.push({ kind: "action", id: "apply", label: "Start OpenTeam", primary: true });
     rows.push({ kind: "action", id: "cancel", label: "Cancel without changes" });
     return rows;
   };
@@ -503,10 +491,10 @@ export const createSetupSession = (input: SetupSessionInput): SetupSession => {
         return accessRows();
       case OWNER_SECTION:
         return ownerRows();
-      case RUNTIME_SECTION:
-        return runtimeRows();
+      case INFERENCE_SECTION:
+        return inferenceRows();
       default:
-        return reviewRows();
+        return launchRows();
     }
   };
 
@@ -539,7 +527,7 @@ export const createSetupSession = (input: SetupSessionInput): SetupSession => {
         found.push({
           section: ACCESS_SECTION,
           rowId: "host",
-          message: `${label} is required in Access.`,
+          message: `${label} is required in Connection.`,
         });
       } else {
         try {
@@ -556,7 +544,7 @@ export const createSetupSession = (input: SetupSessionInput): SetupSession => {
         found.push({
           section: ACCESS_SECTION,
           rowId: "httpAck",
-          message: "Acknowledge the public HTTP warning in Access.",
+          message: "Confirm the public HTTP warning in Connection.",
         });
       }
     }
@@ -564,44 +552,49 @@ export const createSetupSession = (input: SetupSessionInput): SetupSession => {
       found.push({
         section: OWNER_SECTION,
         rowId: "password",
-        message: "Set the owner password in Owner.",
+        message: "Set your password in Account.",
       });
     }
-    if (state.provider === "custom") {
-      if (!state.custom.id) {
+    if (!state.skipInference) {
+      if (state.provider === "custom") {
+        if (!state.custom.id) {
+          found.push({
+            section: INFERENCE_SECTION,
+            rowId: "custom.id",
+            message: "Enter the provider id in Inference.",
+          });
+        }
+        if (!state.custom.baseUrl) {
+          found.push({
+            section: INFERENCE_SECTION,
+            rowId: "custom.baseUrl",
+            message: "Enter the provider URL in Inference.",
+          });
+        }
+        if (!state.custom.model) {
+          found.push({
+            section: INFERENCE_SECTION,
+            rowId: "custom.model",
+            message: "Enter the model in Inference.",
+          });
+        }
+      } else if (!state.model) {
         found.push({
-          section: RUNTIME_SECTION,
-          rowId: "custom.id",
-          message: "Enter the custom provider id in Runtime.",
+          section: INFERENCE_SECTION,
+          rowId: "model",
+          message: "Enter the model in Inference.",
         });
       }
-      if (!state.custom.baseUrl) {
+      if (state.authenticate && state.authType === "api_key" && !state.apiKey) {
         found.push({
-          section: RUNTIME_SECTION,
-          rowId: "custom.baseUrl",
-          message: "Enter the custom provider base URL in Runtime.",
+          section: INFERENCE_SECTION,
+          rowId: "apiKey",
+          message:
+            state.provider === "custom"
+              ? "Enter an API key or password in Inference."
+              : "Enter an API key in Inference.",
         });
       }
-      if (!state.custom.model) {
-        found.push({
-          section: RUNTIME_SECTION,
-          rowId: "custom.model",
-          message: "Enter the custom provider model in Runtime.",
-        });
-      }
-    } else if (!state.model) {
-      found.push({
-        section: RUNTIME_SECTION,
-        rowId: "model",
-        message: "Enter the inference model in Runtime.",
-      });
-    }
-    if (state.authenticate && state.authType === "api_key" && !state.apiKey) {
-      found.push({
-        section: RUNTIME_SECTION,
-        rowId: "apiKey",
-        message: `Enter the ${providerId()} API key or password in Runtime.`,
-      });
     }
     return found;
   };
@@ -610,7 +603,7 @@ export const createSetupSession = (input: SetupSessionInput): SetupSession => {
     const remaining = problems();
     if (remaining.length) throw new CliError(remaining[0]!.message);
     const host = reachableHost();
-    const custom = state.provider === "custom";
+    const custom = !state.skipInference && state.provider === "custom";
     return {
       accessMode: state.accessMode,
       ...bindHostsFor(state.accessMode, host),
@@ -619,11 +612,12 @@ export const createSetupSession = (input: SetupSessionInput): SetupSession => {
       ownerPassword: ownerConfigured ? undefined : (state.ownerPassword ?? undefined),
       apiPort: state.apiPort,
       timeZone: state.timeZone,
-      provider: custom ? state.custom.id : state.provider,
-      model: activeModel(),
+      provider: state.skipInference ? currentProvider : custom ? state.custom.id : state.provider,
+      model: state.skipInference ? currentInference.modelId : activeModel(),
       thinking: state.thinking,
       workerConcurrency: state.workerConcurrency,
       authenticate: state.authenticate,
+      ...(state.skipInference ? { skipInference: true } : {}),
       authType: state.authenticate ? state.authType : defaultProviderAuthType(currentProvider),
       apiKey:
         state.authenticate && state.authType === "api_key"
@@ -639,28 +633,37 @@ export const createSetupSession = (input: SetupSessionInput): SetupSession => {
             reasoning: state.custom.reasoning,
           }
         : undefined,
-      reuseLogin: reuseLogin(),
     };
   };
 
   const setAccess = (mode: AccessMode): void => {
+    const previous = state.accessMode;
     state.accessMode = mode;
-    if (!state.host) state.host = defaultHostFor(mode);
+    if (mode === "private" && !state.host && detectedPrivateHost) state.host = detectedPrivateHost;
+    if (previous === "private" && mode !== "private" && state.host === detectedPrivateHost) {
+      state.host = "";
+    }
   };
 
-  const setProvider = (next: string, authType: "oauth" | "api_key"): void => {
-    if (next === state.provider && authType === state.authType) return;
-    const sameAsCurrent =
-      next === currentProvider && authType === defaultProviderAuthType(currentProvider);
+  const setProvider = (next: string): void => {
+    if (next === state.provider && !state.skipInference) return;
+    state.skipInference = false;
+    const changed = next !== state.provider;
     state.provider = next;
-    if (next !== "custom") {
+    if (changed && next !== "custom") {
       state.model =
         next === currentProvider
           ? currentInference.modelId
           : (DEFAULT_PROVIDER_MODELS[next] ?? currentInference.modelId);
     }
-    state.authenticate = !input.authenticated || !sameAsCurrent;
-    state.authType = authType;
+    state.authenticate = !input.authenticated || next !== currentProvider;
+    state.authType = next === "custom" ? "api_key" : defaultProviderAuthType(next);
+    state.apiKey = null;
+  };
+
+  const skipInference = (): void => {
+    state.skipInference = true;
+    state.authenticate = false;
     state.apiKey = null;
   };
 
@@ -671,60 +674,25 @@ export const createSetupSession = (input: SetupSessionInput): SetupSession => {
     state.cursors[state.section] = (current + delta + selectable.length) % selectable.length;
   };
 
+  const moveToSection = (section: number): void => {
+    state.section = Math.max(firstSection, Math.min(SESSION_SECTION_COUNT - 1, section));
+    state.visited[state.section] = true;
+  };
+
   const advanceCursor = (): void => {
     const selectable = selectableRows();
     const current = state.cursors[state.section] ?? 0;
-    if (current < selectable.length - 1) state.cursors[state.section] = current + 1;
-  };
-
-  const sectionProblems = (section: number): SessionProblem[] =>
-    problems().filter((problem) => problem.section === section);
-
-  /** Point the highlight at the next missing field in this section, wrapping to the first. */
-  const focusProblem = (section: number): void => {
-    const remaining = sectionProblems(section);
-    if (!remaining.length) return;
-    const selectable = selectableRows(section);
-    const ids = selectable.map((index) => rowId(rows(section)[index]!));
-    const current = state.cursors[section] ?? 0;
-    const positions = remaining
-      .map((problem) => ids.indexOf(problem.rowId))
-      .filter((position) => position >= 0);
-    const next = positions.find((position) => position > current) ?? positions[0];
-    if (next !== undefined) state.cursors[section] = next;
-  };
-
-  /** Move to the next section that has something to do; Review always waits for Apply. */
-  const advanceSection = (): void => {
-    let next = state.section + 1;
-    while (next < REVIEW_SECTION && selectableRows(next).length === 0) next += 1;
-    state.section = Math.min(next, REVIEW_SECTION);
-  };
-
-  /** A choice was made: leave the section when nothing is missing, else show what is. */
-  const finishSelection = (): void => {
-    if (state.section >= REVIEW_SECTION) return;
-    if (sectionProblems(state.section).length === 0) advanceSection();
-    else focusProblem(state.section);
-  };
-
-  /** A field was saved: the section is done once its last field is filled in. */
-  const finishField = (): void => {
-    if (state.section >= REVIEW_SECTION) return;
-    if (sectionProblems(state.section).length) {
-      focusProblem(state.section);
+    if (current < selectable.length - 1) {
+      state.cursors[state.section] = current + 1;
       return;
     }
-    const selectable = selectableRows();
-    const current = state.cursors[state.section] ?? 0;
-    if (current >= selectable.length - 1) advanceSection();
-    else advanceCursor();
+    if (state.section < SESSION_SECTION_COUNT - 1) moveToSection(state.section + 1);
   };
 
-  const startEditing = (row: Extract<SessionRow, { kind: "text" }>): void => {
+  const startEditing = (row: Extract<SessionRow, { kind: "text" }>, replacement?: string): void => {
     state.editing = {
       rowId: row.id,
-      buffer: row.secret ? "" : row.value,
+      buffer: replacement ?? (row.secret ? "" : row.value),
       secret: Boolean(row.secret),
       phase: "value",
       pending: null,
@@ -762,7 +730,7 @@ export const createSetupSession = (input: SetupSessionInput): SetupSession => {
         });
         break;
       case "workerConcurrency":
-        store(validateIntegerInRange("Concurrent bot jobs", 1, 64), (normalized) => {
+        store(validateIntegerInRange("Tasks at once", 1, 64), (normalized) => {
           state.workerConcurrency = normalized;
         });
         break;
@@ -796,7 +764,7 @@ export const createSetupSession = (input: SetupSessionInput): SetupSession => {
         });
         break;
       case "apiKey":
-        if (!value) throw new Error("Provider API key or password cannot be empty.");
+        if (!value) throw new Error("API key cannot be empty.");
         state.apiKey = value;
         break;
       default:
@@ -834,7 +802,7 @@ export const createSetupSession = (input: SetupSessionInput): SetupSession => {
         }
         state.ownerPassword = editing.pending;
         state.editing = null;
-        finishField();
+        advanceCursor();
         return { type: "continue" };
       }
       try {
@@ -844,7 +812,7 @@ export const createSetupSession = (input: SetupSessionInput): SetupSession => {
         return { type: "continue" };
       }
       state.editing = null;
-      finishField();
+      advanceCursor();
       return { type: "continue" };
     }
     if (key.name === "backspace") {
@@ -874,24 +842,39 @@ export const createSetupSession = (input: SetupSessionInput): SetupSession => {
     switch (row.kind) {
       case "option": {
         const [group, value] = row.id.split(":", 2) as [string, string];
-        if (group === "access") {
-          setAccess(value as AccessMode);
-        } else {
-          const option = providerOptions().find((candidate) => candidate.id === value);
-          if (option) setProvider(option.provider, option.authType);
-        }
-        finishSelection();
+        if (group === "access") setAccess(value as AccessMode);
+        else if (group === "inference") skipInference();
+        else setProvider(value);
+        // Jump past the option group so Enter, Enter flows into the field below it.
+        const selectable = selectableRows();
+        const current = selectable[state.cursors[state.section] ?? 0] ?? -1;
+        const nextField = selectable.findIndex(
+          (index) => index > current && rows()[index]!.kind !== "option"
+        );
+        if (nextField >= 0) state.cursors[state.section] = nextField;
+        else if (state.section < LAUNCH_SECTION) moveToSection(state.section + 1);
         return { type: "continue" };
       }
       case "text":
-        startEditing(row);
+        if (row.value || row.id === "custom.name") {
+          try {
+            commitText(row.id, row.value);
+            advanceCursor();
+          } catch (error) {
+            state.notice = {
+              text: error instanceof Error ? error.message : String(error),
+              tone: "warning",
+            };
+          }
+        } else {
+          startEditing(row);
+        }
         return { type: "continue" };
       case "toggle":
-        if (row.id === "httpAck") {
-          state.httpAcknowledged = !state.httpAcknowledged;
-          finishSelection();
-        } else if (row.id === "authenticate") state.authenticate = !state.authenticate;
+        if (row.id === "httpAck") state.httpAcknowledged = !state.httpAcknowledged;
+        else if (row.id === "authenticate") state.authenticate = !state.authenticate;
         else if (row.id === "custom.reasoning") state.custom.reasoning = !state.custom.reasoning;
+        if (row.id === "httpAck" && state.httpAcknowledged) advanceCursor();
         return { type: "continue" };
       case "cycle":
         if (row.id === "custom.api") {
@@ -900,6 +883,8 @@ export const createSetupSession = (input: SetupSessionInput): SetupSession => {
         } else if (row.id === "thinking") {
           const index = THINKING_LEVELS.indexOf(state.thinking);
           state.thinking = THINKING_LEVELS[(index + 1) % THINKING_LEVELS.length]!;
+        } else if (row.id === "authType") {
+          state.authType = state.authType === "oauth" ? "api_key" : "oauth";
         }
         return { type: "continue" };
       case "action": {
@@ -925,11 +910,11 @@ export const createSetupSession = (input: SetupSessionInput): SetupSession => {
     if (key.ctrl && key.name === "c") return { type: "interrupt" };
     if (key.name === "escape") return { type: "cancel" };
     if (key.name === "left" || (key.name === "tab" && key.shift)) {
-      state.section = Math.max(0, state.section - 1);
+      moveToSection(state.section - 1);
       return { type: "continue" };
     }
     if (key.name === "right" || key.name === "tab") {
-      state.section = Math.min(SESSION_SECTION_COUNT - 1, state.section + 1);
+      moveToSection(state.section + 1);
       return { type: "continue" };
     }
     if (key.name === "up") {
@@ -946,6 +931,18 @@ export const createSetupSession = (input: SetupSessionInput): SetupSession => {
     }
     if (key.name === "end") {
       state.cursors[state.section] = Math.max(0, selectableRows().length - 1);
+      return { type: "continue" };
+    }
+    const focusedIndex = cursorRow();
+    const focused = focusedIndex >= 0 ? rows()[focusedIndex] : undefined;
+    if (
+      focused?.kind === "text" &&
+      character &&
+      PRINTABLE.test(character) &&
+      !key.ctrl &&
+      !key.meta
+    ) {
+      startEditing(focused, character);
       return { type: "continue" };
     }
     if (/^[1-9]$/.test(character)) {
@@ -971,13 +968,17 @@ export const createSetupSession = (input: SetupSessionInput): SetupSession => {
     const sectionProblems = problems();
     return {
       version: input.version,
-      stages: input.stages,
-      activeStage: state.section,
-      completed: input.stages.map(
-        (_stage, index) =>
-          index < REVIEW_SECTION && !sectionProblems.some((problem) => problem.section === index)
-      ),
-      title: `${state.section + 1}. ${stage?.label ?? ""}`,
+      stages: visibleStages,
+      activeStage: state.section - firstSection,
+      completed: visibleStages.map((_stage, index) => {
+        const section = index + firstSection;
+        return (
+          section < LAUNCH_SECTION &&
+          Boolean(state.visited[section]) &&
+          !sectionProblems.some((problem) => problem.section === section)
+        );
+      }),
+      title: `${state.section - firstSection + 1}. ${stage?.label ?? ""}`,
       description: stage?.description ?? "",
       rows: rows(),
       cursorRow: cursorRow(),
@@ -986,9 +987,10 @@ export const createSetupSession = (input: SetupSessionInput): SetupSession => {
     };
   };
 
-  // Start on the currently selected access option so Enter simply confirms it.
-  focusRow(ACCESS_SECTION, `access:${state.accessMode}`);
-  focusRow(RUNTIME_SECTION, `provider:${initialOption?.id ?? state.provider}`);
+  // Advanced setup starts on the chosen connection. The normal flow asks for an
+  // address only when one could not be detected.
+  focusRow(ACCESS_SECTION, advanced ? `access:${state.accessMode}` : "host");
+  focusRow(INFERENCE_SECTION, `provider:${state.provider}`);
 
   return { state, view, rows, problems, configuration, handle };
 };

@@ -4,6 +4,9 @@ import { parseArguments } from "../src/arguments";
 describe("CLI arguments", () => {
   test("defaults to help", () => {
     expect(parseArguments([])).toMatchObject({ command: "help", helpTopic: "global" });
+    expect(parseArguments(["provider"])).toMatchObject({ command: "help", helpTopic: "provider" });
+    expect(parseArguments(["model"])).toMatchObject({ command: "help", helpTopic: "model" });
+    expect(parseArguments(["account"])).toMatchObject({ command: "help", helpTopic: "account" });
   });
 
   test("recognizes the interactive setup command", () => {
@@ -19,6 +22,11 @@ describe("CLI arguments", () => {
     expect(
       parseArguments(["logs", "--follow", "--tail", "50", "--service", "server"])
     ).toMatchObject({ command: "logs", follow: true, tail: "50", service: "server" });
+    expect(parseArguments(["logs", "server", "-f"])).toMatchObject({
+      command: "logs",
+      follow: true,
+      service: "server",
+    });
     expect(parseArguments(["setup", "--help"])).toMatchObject({
       command: "help",
       helpTopic: "setup",
@@ -133,7 +141,7 @@ describe("CLI arguments", () => {
     expect(
       parseArguments(["account", "update", "--username", "new.owner", "--password"])
     ).toMatchObject({ command: "account-update", username: "new.owner", password: true });
-    expect(() => parseArguments(["account", "reset"])).toThrow("Usage: openteam account update");
+    expect(() => parseArguments(["account", "reset"])).toThrow("Unknown account command");
     expect(() => parseArguments(["status", "--password"])).toThrow("Unknown option for status");
     expect(() => parseArguments(["account", "update", "--password", "secret-value"])).toThrow(
       "does not accept a value"
@@ -175,6 +183,8 @@ describe("CLI arguments", () => {
 
   test("rejects unknown commands and options", () => {
     expect(() => parseArguments(["explode"])).toThrow("Unknown command");
+    expect(() => parseArguments(["statsu"])).toThrow('Did you mean "status"?');
+    expect(() => parseArguments(["provider", "logn"])).toThrow('Did you mean "login"?');
     expect(() => parseArguments(["status", "--json"])).toThrow("Unknown option");
   });
 });

@@ -4,8 +4,8 @@ import { helpFor } from "../src/help";
 describe("CLI help", () => {
   test("keeps global help concise and grouped", () => {
     const help = helpFor("global");
-    expect(help).toContain("provider      Manage provider connections and endpoints");
-    expect(help).toContain("model         List or select inference models");
+    expect(help).toContain("provider      Manage AI accounts and connections");
+    expect(help).toContain("model         View or change the AI model");
     expect(help).not.toContain("provider login [provider]");
     expect(help).not.toContain("--compose-url");
     expect(help).not.toContain("--password");
@@ -13,7 +13,7 @@ describe("CLI help", () => {
 
   test("shows only relevant options on command help pages", () => {
     const logs = helpFor("logs");
-    expect(logs).toContain("openteam logs [options]");
+    expect(logs).toContain("openteam logs [service] [options]");
     expect(logs).toContain("--follow, -f");
     expect(logs).not.toContain("--allow-prerelease");
 

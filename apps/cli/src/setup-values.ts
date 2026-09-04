@@ -1,6 +1,5 @@
 import { isIP } from "node:net";
 import { networkInterfaces } from "node:os";
-import type { ReusableProvider } from "./detected-logins";
 import type { RuntimeInferenceSettings } from "./runtime-settings";
 import type { SetupStage } from "./ui";
 
@@ -19,25 +18,30 @@ export const CUSTOM_PROVIDER_APIS = [
 ] as const;
 export const BUILTIN_PROVIDER_CHOICES = [
   {
-    label: "OpenAI with ChatGPT Plus/Pro",
-    description: "Authenticate Pi through the OpenAI Codex OAuth provider.",
+    label: "ChatGPT Plus or Pro",
+    description: "Sign in with ChatGPT in your browser. No API key needed.",
     value: "openai-codex",
   },
   {
-    label: "Anthropic with Claude Pro/Max or an API key",
-    description: "Use Claude Pro/Max OAuth or an Anthropic API key.",
+    label: "Claude Pro, Max, or API key",
+    description: "Sign in with Claude, or use an Anthropic API key.",
     value: "anthropic",
   },
   {
-    label: "OpenAI with an API key",
-    description: "Use an OpenAI API key with a directly billed model.",
+    label: "OpenAI API key",
+    description: "Use an API key billed through your OpenAI account.",
     value: "openai",
   },
 ] as const;
 export const CUSTOM_PROVIDER_CHOICE = {
-  label: "Custom or generic provider",
-  description: "Configure an OpenAI-, Anthropic-, or Google-compatible endpoint and password.",
+  label: "Another AI provider",
+  description: "Connect an OpenAI-, Anthropic-, or Google-compatible service.",
   value: "custom",
+} as const;
+export const SKIP_INFERENCE_CHOICE = {
+  label: "Skip for now",
+  description: "Finish setup without connecting a model provider. You can do this later.",
+  value: "skip",
 } as const;
 export const DEFAULT_PROVIDER_MODELS: Readonly<Record<string, string>> = {
   "openai-codex": "gpt-5.5",
@@ -48,41 +52,43 @@ export const ACCESS_CHOICES = [
   {
     title: "Private network",
     description: "A Tailscale, WireGuard, or LAN address that only your devices can reach.",
+    recommended: true,
     value: "private",
   },
   {
     title: "This machine only",
-    description: "Loopback for the desktop app on this computer or an SSH tunnel.",
+    description: "For this computer, local development, or an SSH tunnel.",
     value: "local",
   },
   {
-    title: "Public HTTPS",
-    description: "A public domain plus automatic TLS from the bundled Caddy proxy.",
+    title: "Public domain with automatic HTTPS",
+    description: "Best for access from anywhere. Requires a domain pointed at this server.",
     value: "https",
   },
   {
-    title: "Existing HTTPS proxy",
-    description: "Use nginx, Caddy, Traefik, or a cloud load balancer you already manage.",
+    title: "Use my existing HTTPS setup",
+    description: "For an existing nginx, Caddy, Traefik, or cloud proxy.",
     value: "proxy",
   },
   {
-    title: "Public HTTP",
-    description: "An IP or hostname without encryption; desktop/testing only, not iOS.",
+    title: "Public address without HTTPS",
+    description: "For temporary desktop testing only. Passwords are not encrypted in transit.",
     value: "http",
   },
 ] as const;
 export const SETUP_STAGES: readonly SetupStage[] = [
-  { label: "Access", description: "Choose how desktop and mobile apps reach this server." },
-  { label: "Owner", description: "Create the single username and password for this OpenTeam." },
-  { label: "Runtime", description: "Choose the Pi inference provider and model." },
+  { label: "Connection", description: "Choose where you want to use OpenTeam from." },
+  { label: "Account", description: "Create the username and password you will sign in with." },
   {
-    label: "Review",
-    description: "Check the configuration, then apply and verify the deployment.",
+    label: "Inference",
+    description: "Choose the model account OpenTeam will use, or skip it for now.",
   },
+  { label: "Review", description: "Check your choices, then start OpenTeam." },
+  { label: "Checks", description: "Make sure everything is ready." },
 ] as const;
 export const HTTP_WARNINGS = [
-  "Public HTTP exposes the owner password and every session token to network observers.",
-  "The iOS app rejects public cleartext connections. Use this only for temporary desktop testing.",
+  "Without HTTPS, other people on the network may be able to see your password and session.",
+  "The iPhone app will not connect this way. Use it only for temporary desktop testing.",
 ] as const;
 
 export type AccessMode = (typeof ACCESS_MODES)[number];
@@ -105,11 +111,10 @@ export interface SetupConfiguration {
   ownerUsername: string;
   ownerPassword?: string;
   authenticate: boolean;
+  skipInference?: boolean;
   authType: "oauth" | "api_key";
   apiKey?: string;
   customProvider?: SetupCustomProvider;
-  /** Copy an existing vendor CLI sign-in into Pi instead of opening a browser. */
-  reuseLogin?: { provider: ReusableProvider; source: string };
 }
 
 export interface SetupCustomProvider {
@@ -262,12 +267,34 @@ export const validateAccessMode = (value: string): AccessMode => {
 
 export const accessLabel = (value: AccessMode): string =>
   ({
-    https: "Public HTTPS",
-    proxy: "Existing HTTPS proxy",
-    http: "Public HTTP",
+    https: "Public domain with HTTPS",
+    proxy: "Existing HTTPS setup",
+    http: "Public address without HTTPS",
     private: "Private network",
     local: "This machine only",
   })[value];
+
+export const providerLabel = (providerId: string): string =>
+  BUILTIN_PROVIDER_CHOICES.find((choice) => choice.value === providerId)?.label ?? providerId;
+
+export const customProviderApiLabel = (api: CustomProviderApi): string =>
+  ({
+    "openai-responses": "OpenAI Responses",
+    "openai-completions": "OpenAI-compatible chat",
+    "anthropic-messages": "Anthropic Messages",
+    "google-generative-ai": "Google Generative AI",
+  })[api];
+
+export const thinkingLabel = (level: ThinkingLevel): string =>
+  ({
+    off: "Off",
+    minimal: "Minimal",
+    low: "Low",
+    medium: "Medium",
+    high: "High",
+    xhigh: "Extra high",
+    max: "Maximum",
+  })[level];
 
 const privateAddressRank = (address: string): number | null => {
   if (/^100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(address)) return 0;
@@ -324,23 +351,15 @@ export const validatePublicDomain = (value: string): string => {
   return normalized;
 };
 
-/**
- * Like OpenClaw, keep the server private by default: the detected tailnet or LAN
- * address when there is one, otherwise loopback. Public modes are explicit choices.
- */
-export const recommendedAccessMode = (detectedPrivateHost: string | null): AccessMode =>
-  detectedPrivateHost ? "private" : "local";
-
 export const configuredAccessMode = (
   current: ReadonlyMap<string, string>,
-  fresh: boolean,
-  detectedPrivateHost: string | null = null
+  fresh: boolean
 ): AccessMode => {
   const stored = current.get("OPENTEAM_ACCESS_MODE");
   if (stored && ACCESS_MODES.includes(stored as AccessMode)) {
     if (!fresh) return stored as AccessMode;
   }
-  if (fresh) return recommendedAccessMode(detectedPrivateHost);
+  if (fresh) return "private";
   const publicUrl = current.get("OPENTEAM_PUBLIC_URL") || "";
   if (publicUrl.startsWith("https://")) return "https";
   if (current.get("OPENTEAM_BIND_HOST") === "127.0.0.1") return "local";
@@ -388,24 +407,18 @@ export const accessModeNotes = (
   const notes: Array<{ text: string; tone: "info" | "success" | "warning" }> = [];
   if (mode === "https") {
     notes.push({
-      text: "OpenTeam will publish ports 80/443; Caddy will obtain and renew the certificate.",
+      text: "OpenTeam will use ports 80 and 443 and keep the HTTPS certificate renewed.",
       tone: "info",
     });
   } else if (mode === "proxy") {
     notes.push({
-      text: "OpenTeam will listen on loopback only. Point your HTTPS proxy at the local API port shown in the summary.",
+      text: "Point your HTTPS proxy to the local address shown on the review step.",
       tone: "info",
     });
   } else if (mode === "private") {
     notes.push({
-      text: "Private mode has no TLS. Keep it behind a trusted LAN or VPN.",
+      text: "Traffic is not encrypted. Only use this on a private network you trust.",
       tone: "warning",
-    });
-  }
-  if (mode === "https" || mode === "proxy" || mode === "http") {
-    notes.push({
-      text: "Raw screen-viewer ports will remain loopback-only in this Internet-facing mode.",
-      tone: "success",
     });
   }
   return notes;

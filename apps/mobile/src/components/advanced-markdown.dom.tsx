@@ -99,7 +99,9 @@ export default function AdvancedMarkdown({
   useEffect(() => {
     const element = root.current;
     if (!element || html.length === 0) return;
-    const diagrams = [...element.querySelectorAll<HTMLElement>("code.language-mermaid")];
+    const diagrams = Array.from(
+      element.querySelectorAll<HTMLElement>("code.language-mermaid")
+    );
     if (diagrams.length === 0) return;
     setRenderError(null);
     mermaid.initialize({

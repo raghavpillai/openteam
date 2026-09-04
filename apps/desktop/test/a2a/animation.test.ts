@@ -11,20 +11,33 @@ test("A2A exchange motion matches the observed Grok sheet and footer timing", as
   ]);
 
   expect(styles).toMatch(
-    /\.a2a-exchange-sheet\[data-state="entering"\]\s*\{\s*animation: a2a-exchange-sheet-enter 120ms/
+    /\.a2a-exchange-sheet\[data-state="entering"\]\s*\{\s*animation: a2a-exchange-sheet-enter 300ms/
   );
   expect(styles).toMatch(
-    /\.a2a-exchange-sheet\[data-state="exiting"\]\s*\{\s*animation: a2a-exchange-sheet-exit 120ms/
+    /\.a2a-exchange-sheet\[data-state="exiting"\]\s*\{\s*animation: a2a-exchange-sheet-exit 300ms/
   );
   expect(styles).toMatch(
-    /\.a2a-exchange-footer\s*\{\s*animation: a2a-exchange-footer-enter 120ms[\s\S]*?300ms both;/
+    /\.a2a-exchange-footer\s*\{\s*animation: a2a-exchange-footer-enter 300ms[\s\S]*?300ms both;/
   );
   expect(styles).toMatch(
-    /\.a2a-exchange-sheet\[data-state="exiting"\] \.a2a-exchange-footer\s*\{\s*animation: a2a-exchange-footer-exit 120ms/
+    /\.a2a-exchange-sheet\[data-state="exiting"\] \.a2a-exchange-footer\s*\{\s*animation: a2a-exchange-footer-exit 300ms/
   );
   expect(styles).toContain("transform: translateY(20px);");
   expect(styles).toContain("transform: translateY(6px);");
   expect(chatPane).toContain('className="a2a-exchange-footer');
+});
+
+test("A2A exchange finishes immediately when Reduced Motion is enabled", async () => {
+  const [styles, sheet] = await Promise.all([
+    rendererSource("styles.css"),
+    rendererSource("components/openteam/a2a-exchange-sheet.tsx"),
+  ]);
+
+  expect(styles).toMatch(
+    /@media \(prefers-reduced-motion: reduce\)[\s\S]*?\.a2a-exchange-sheet,[\s\S]*?\.a2a-exchange-footer,[\s\S]*?\.a2a-exchange-header-tail[\s\S]*?animation: none;/
+  );
+  expect(sheet).toContain('window.matchMedia("(prefers-reduced-motion: reduce)").matches');
+  expect(sheet).toContain("window.requestAnimationFrame(onAnimationEnd)");
 });
 
 test("A2A activity only makes the peer chip interactive", async () => {

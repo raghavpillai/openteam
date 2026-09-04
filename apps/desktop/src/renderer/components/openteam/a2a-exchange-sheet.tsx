@@ -1,4 +1,4 @@
-import type { AnimationEvent, ReactNode } from "react";
+import { useEffect, type AnimationEvent, type ReactNode } from "react";
 import type { A2AExchangePhase } from "../../lib/a2a-exchange";
 
 export function A2AExchangeSheet({
@@ -15,6 +15,12 @@ export function A2AExchangeSheet({
   const finishAnimation = (event: AnimationEvent<HTMLDivElement>) => {
     if (event.target === event.currentTarget) onAnimationEnd();
   };
+
+  useEffect(() => {
+    if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const frame = window.requestAnimationFrame(onAnimationEnd);
+    return () => window.cancelAnimationFrame(frame);
+  }, [onAnimationEnd, phase]);
 
   return (
     <div

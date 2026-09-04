@@ -1204,7 +1204,7 @@ textarea,
 }
 
 .a2a-exchange-sheet[data-state="entering"] {
-  animation: a2a-exchange-sheet-enter 120ms
+  animation: a2a-exchange-sheet-enter 300ms
     linear(
       0,
       0.01588 2%,
@@ -1248,7 +1248,7 @@ textarea,
 }
 
 .a2a-exchange-sheet[data-state="exiting"] {
-  animation: a2a-exchange-sheet-exit 120ms
+  animation: a2a-exchange-sheet-exit 300ms
     linear(
       0,
       0.01588 2%,
@@ -1287,7 +1287,7 @@ textarea,
 }
 
 .a2a-exchange-footer {
-  animation: a2a-exchange-footer-enter 120ms
+  animation: a2a-exchange-footer-enter 300ms
     linear(
       0,
       0.01588 2%,
@@ -1326,7 +1326,7 @@ textarea,
 }
 
 .a2a-exchange-sheet[data-state="exiting"] .a2a-exchange-footer {
-  animation: a2a-exchange-footer-exit 120ms
+  animation: a2a-exchange-footer-exit 300ms
     linear(
       0,
       0.01588 2%,
@@ -1446,6 +1446,12 @@ textarea,
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .a2a-exchange-sheet,
+  .a2a-exchange-footer,
+  .a2a-exchange-header-tail {
+    animation: none;
+  }
+
   .reaction-pill-enter {
     animation: none;
   }

@@ -1,8 +1,7 @@
 import { openTeamCompatibility } from "@openteam/contracts/version-compatibility";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
 import { ArrowRight, Check, Clipboard, LoaderCircle, TriangleAlert } from "lucide-react";
-import { type ReactElement, useEffect, useState } from "react";
-import { toast } from "sonner";
+import { useEffect, useState } from "react";
 import { useServerUpdateStatus } from "../../hooks/use-server-update-status";
 import { OPENTEAM_DEEP_LINK_EVENT } from "../../lib/app-deep-links";
 
@@ -12,28 +11,6 @@ const openUpdates = () =>
       detail: { url: "grokbot://app/v1/settings?id=update-status" },
     })
   );
-
-const COMPATIBILITY_TOAST_ID = "openteam-release-compatibility";
-
-function PersistentCompatibilityToast({ children }: { children: ReactElement }) {
-  useEffect(
-    () => () => {
-      toast.dismiss(COMPATIBILITY_TOAST_ID);
-    },
-    []
-  );
-
-  useEffect(() => {
-    toast.custom(() => children, {
-      id: COMPATIBILITY_TOAST_ID,
-      duration: Number.POSITIVE_INFINITY,
-      dismissible: false,
-      position: "bottom-right",
-    });
-  }, [children]);
-
-  return null;
-}
 
 export function VersionMismatchBanner({ showReview = true }: { showReview?: boolean }) {
   const clientVersion = window.openteam?.versions.app ?? "0.0.1";
@@ -153,77 +130,75 @@ export function VersionMismatchBanner({ showReview = true }: { showReview?: bool
           : "Copy update command";
 
   return (
-    <PersistentCompatibilityToast>
-      <div
-        aria-atomic="true"
-        aria-live="assertive"
-        className="w-full rounded-2xl border border-amber-500/25 bg-background/95 text-foreground shadow-[0_18px_60px_rgba(0,0,0,0.22)] backdrop-blur-xl"
-        role="alert"
-      >
-        <div className="flex items-start gap-3 p-4">
-          <span className="grid size-9 shrink-0 place-items-center rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-300">
-            <TriangleAlert className="size-[18px]" />
-          </span>
+    <div
+      aria-atomic="true"
+      aria-live="assertive"
+      className="fixed bottom-4 right-4 z-50 w-[calc(100vw-2rem)] max-w-[420px] rounded-2xl border border-amber-500/25 bg-background text-foreground shadow-xl"
+      role="alert"
+    >
+      <div className="flex items-start gap-3 p-4">
+        <span className="grid size-9 shrink-0 place-items-center rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-300">
+          <TriangleAlert className="size-[18px]" />
+        </span>
 
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center justify-between gap-2">
-              <p className="text-[13px] font-semibold leading-5">{title}</p>
-              <span className="shrink-0 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-800 dark:text-amber-200">
-                Action required
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-[13px] font-semibold leading-5">{title}</p>
+            <span className="shrink-0 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-800 dark:text-amber-200">
+              Action required
+            </span>
+          </div>
+
+          <p className="mt-1 text-[12px] leading-[18px] text-muted-foreground">{message}</p>
+
+          <div className="mt-3 flex items-center gap-2 rounded-lg border border-border/80 bg-muted px-3 py-2 text-[11px]">
+            <span className="min-w-0">
+              <span className="text-muted-foreground">Desktop</span>{" "}
+              <span className="font-medium text-foreground">{clientVersion}</span>
+            </span>
+            <ArrowRight className="size-3 shrink-0 text-muted-foreground" />
+            <span className="min-w-0">
+              <span className="text-muted-foreground">Server</span>{" "}
+              <span className="font-medium text-foreground">
+                {status.currentVersion ?? "Not reported"}
               </span>
-            </div>
+            </span>
+          </div>
 
-            <p className="mt-1 text-[12px] leading-[18px] text-muted-foreground">{message}</p>
+          {actionError ? (
+            <p className="mt-2 rounded-lg bg-destructive/10 px-2.5 py-2 text-[11px] leading-4 text-destructive">
+              {actionError}
+            </p>
+          ) : null}
 
-            <div className="mt-3 flex items-center gap-2 rounded-lg border border-border/80 bg-muted/55 px-3 py-2 text-[11px]">
-              <span className="min-w-0">
-                <span className="text-muted-foreground">Desktop</span>{" "}
-                <span className="font-medium text-foreground">{clientVersion}</span>
-              </span>
-              <ArrowRight className="size-3 shrink-0 text-muted-foreground" />
-              <span className="min-w-0">
-                <span className="text-muted-foreground">Server</span>{" "}
-                <span className="font-medium text-foreground">
-                  {status.currentVersion ?? "Not reported"}
-                </span>
-              </span>
-            </div>
-
-            {actionError ? (
-              <p className="mt-2 rounded-lg bg-destructive/10 px-2.5 py-2 text-[11px] leading-4 text-destructive">
-                {actionError}
-              </p>
-            ) : null}
-
-            <div className="mt-3 flex items-center justify-end gap-2">
-              {showReview ? (
-                <button
-                  className="h-8 rounded-lg px-3 text-[12px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/35"
-                  onClick={openUpdates}
-                  type="button"
-                >
-                  View details
-                </button>
-              ) : null}
+          <div className="mt-3 flex items-center justify-end gap-2">
+            {showReview ? (
               <button
-                className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg bg-amber-950 px-3 text-[12px] font-medium text-white transition-opacity hover:opacity-85 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-amber-500/35 disabled:pointer-events-none disabled:opacity-60 dark:bg-amber-100 dark:text-amber-950"
-                disabled={acting || clientUpdating}
-                onClick={() => void runDirectAction()}
+                className="h-8 rounded-lg px-3 text-[12px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/35"
+                onClick={openUpdates}
                 type="button"
               >
-                {acting || clientUpdating ? (
-                  <LoaderCircle className="size-3.5 animate-spin" />
-                ) : copied ? (
-                  <Check className="size-3.5" />
-                ) : compatibility !== "client-update-required" && !status.updaterAvailable ? (
-                  <Clipboard className="size-3.5" />
-                ) : null}
-                {actionLabel}
+                View details
               </button>
-            </div>
+            ) : null}
+            <button
+              className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg bg-foreground px-3 text-[12px] font-medium text-background transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/35 disabled:pointer-events-none disabled:opacity-50"
+              disabled={acting || clientUpdating}
+              onClick={() => void runDirectAction()}
+              type="button"
+            >
+              {acting || clientUpdating ? (
+                <LoaderCircle className="size-3.5 animate-spin" />
+              ) : copied ? (
+                <Check className="size-3.5" />
+              ) : compatibility !== "client-update-required" && !status.updaterAvailable ? (
+                <Clipboard className="size-3.5" />
+              ) : null}
+              {actionLabel}
+            </button>
           </div>
         </div>
       </div>
-    </PersistentCompatibilityToast>
+    </div>
   );
 }

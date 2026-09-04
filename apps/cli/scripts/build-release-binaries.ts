@@ -31,4 +31,11 @@ for (const [target, filename] of targets) {
   );
   const exitCode = await child.exited;
   if (exitCode !== 0) throw new Error(`Failed to build ${target} (exit ${exitCode})`);
+  // The install scripts download the gzip copy when it exists and verify the decompressed
+  // binary against the raw binary's SHA256SUMS entry, so both files ship in the release.
+  const binaryPath = resolve(outputDirectory, filename);
+  const compressed = Bun.gzipSync(new Uint8Array(await Bun.file(binaryPath).arrayBuffer()), {
+    level: 9,
+  });
+  await Bun.write(`${binaryPath}.gz`, compressed);
 }

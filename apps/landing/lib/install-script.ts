@@ -67,8 +67,15 @@ cleanup() {
 trap cleanup EXIT HUP INT TERM
 
 say "Downloading OpenTeam $release_tag from GitHub…"
-curl -fL --retry 3 --connect-timeout 15 "$release_base/$asset_name" -o "$binary_path" ||
-  fail "could not download $asset_name from $release_tag."
+# Prefer the gzip copy (about a third of the size); fall back to the raw binary for releases
+# that predate it. The checksum below is always verified against the decompressed binary.
+if command_exists gunzip && curl -fsL --retry 3 --connect-timeout 15 "$release_base/$asset_name.gz" -o "$binary_path.gz" 2>/dev/null; then
+  gunzip -f "$binary_path.gz" || fail "could not decompress $asset_name.gz."
+else
+  rm -f "$binary_path.gz"
+  curl -fL --retry 3 --connect-timeout 15 "$release_base/$asset_name" -o "$binary_path" ||
+    fail "could not download $asset_name from $release_tag."
+fi
 curl -fL --retry 3 --connect-timeout 15 "$release_base/SHA256SUMS" -o "$checksums_path" ||
   fail "could not download checksums for $release_tag."
 
@@ -162,7 +169,18 @@ $installedBinary = Join-Path $binDirectory "openteam.exe"
 
 try {
   Write-Host "Downloading OpenTeam $releaseTag from GitHub..."
-  Invoke-WebRequest "$releaseBase/$assetName" -OutFile $binaryPath
+  # Prefer the gzip copy; fall back to the raw binary for releases that predate it.
+  $compressedPath = "$binaryPath.gz"
+  try {
+    Invoke-WebRequest "$releaseBase/$assetName.gz" -OutFile $compressedPath
+    $compressedStream = [System.IO.File]::OpenRead($compressedPath)
+    $binaryStream = [System.IO.File]::Create($binaryPath)
+    $gzipStream = New-Object System.IO.Compression.GZipStream($compressedStream, [System.IO.Compression.CompressionMode]::Decompress)
+    $gzipStream.CopyTo($binaryStream)
+    $gzipStream.Dispose(); $binaryStream.Dispose(); $compressedStream.Dispose()
+  } catch {
+    Invoke-WebRequest "$releaseBase/$assetName" -OutFile $binaryPath
+  }
   Invoke-WebRequest "$releaseBase/SHA256SUMS" -OutFile $checksumsPath
   $checksumLine = Get-Content $checksumsPath | Where-Object { $_ -match "(^|/)$([regex]::Escape($assetName))$" } | Select-Object -First 1
   if (-not $checksumLine) { Fail "SHA256SUMS does not contain $assetName." }

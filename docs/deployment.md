@@ -41,8 +41,8 @@ irm https://openteam.so/install.ps1 | iex        # Windows PowerShell
 ```
 
 The installer detects the operating system and architecture, downloads the matching native CLI
-from the latest GitHub release, verifies it against `SHA256SUMS`, installs it, and starts the
-guided setup. It needs Docker and, on macOS and Linux, `curl`; no Node.js or Bun. Set
+from the latest GitHub release (the compressed copy when the release has one), verifies it against
+`SHA256SUMS`, installs it, and starts the guided setup. It needs Docker and, on macOS and Linux, `curl`; no Node.js or Bun. Set
 `OPENTEAM_BIN_DIR` to choose another CLI location, or `OPENTEAM_VERSION` to install a specific
 release.
 
@@ -359,3 +359,8 @@ Common problems:
   above.
 - **Another update is already running.** A previous update crashed and left `update.lock` in the
   install directory. If no update process is alive, delete it and retry.
+- **`Sigstore verification failed ... root was signed by 0/3 keys`.** The withdrawn 0.1.0 native CLI could
+  not verify signatures because of a runtime difference in its bundled JavaScript engine; the
+  release itself is fine. Re-run the install command to pick up a fixed CLI. If you must proceed
+  with the old binary, `openteam install --allow-unsigned` skips the signature check but still
+  verifies the `SHA256SUMS` checksum.

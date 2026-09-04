@@ -18,7 +18,8 @@ The workflow:
    typechecks and tests, after generating the database client.
 2. **images**: version-pinned `linux/amd64` and `linux/arm64` server, worker, migrate, and
    computer images pushed to GHCR from digest-pinned build stages, with provenance and SBOM
-   attestations.
+   attestations. The migrate image is a slim stage holding only `packages/db` and its
+   dependencies; it must not inherit the full build stage again.
 3. **desktop-linux / desktop-windows / desktop-macos**: build the Electron installers. Linux
    always builds. Windows and macOS signing credentials are mandatory; missing credentials fail
    the release. The macOS job signs and notarizes its artifacts.
@@ -28,7 +29,10 @@ The workflow:
 5. **github-release**: after every image, desktop, and mobile job succeeds, renders
    `openteam-compose.yaml` with the exact image digests, signs the Compose bundle and Linux
    AppImage with the workflow's Sigstore identity, writes CLI and desktop checksums, attests all
-   artifacts, uploads every installer, and publishes the release.
+   artifacts, uploads every installer, and publishes the release. Each native CLI binary ships
+   with a `.gz` copy at about a third of the size; the install scripts download the compressed
+   copy when it exists and verify the decompressed binary against the raw binary's checksum, so
+   the compressed files add no new trust surface.
 
 ## Before the first release
 
@@ -58,6 +62,17 @@ After the first release, verify anonymous image pulls and the public install com
 that is not authenticated to GitHub or EAS. Install each desktop artifact on a clean OS, confirm
 its platform signature, and verify that the TestFlight build can sign in to a newly installed
 server before announcing the release.
+
+## Testing the native CLI
+
+The published `openteam` binaries run on Bun, while local development usually runs the CLI under
+Node, so runtime differences only show up in the compiled binary. Release verification is the
+known hazard: Bun's `crypto.verify` has no default digest for EC and RSA keys, and the Sigstore and
+TUF libraries rely on Node's default. `apps/cli/src/runtime-compat.ts` fills that in, and
+`apps/cli/test/runtime-compat.test.ts` runs the real verifier under `bun test` against a captured
+release bundle and trust root. Before tagging, also run the freshly built binary once against the
+previous release, for example `apps/cli/release/openteam-darwin-arm64 doctor`, and try
+`openteam install --no-setup` in a throwaway directory if the verification code changed.
 
 ## Verification model
 

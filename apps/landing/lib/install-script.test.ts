@@ -32,4 +32,13 @@ describe("install script", () => {
     expect(powerShellInstallScript).toContain('Join-Path $env:LOCALAPPDATA "OpenTeam\\bin"');
     expect(powerShellInstallScript).toContain("& $installedBinary install @args");
   });
+
+  test("prefers the gzip download and falls back to the raw binary", () => {
+    expect(installScript).toContain('"$release_base/$asset_name.gz" -o "$binary_path.gz"');
+    expect(installScript).toContain('gunzip -f "$binary_path.gz"');
+    expect(installScript).toContain('"$release_base/$asset_name" -o "$binary_path"');
+    expect(powerShellInstallScript).toContain('"$releaseBase/$assetName.gz"');
+    expect(powerShellInstallScript).toContain("System.IO.Compression.GZipStream");
+    expect(powerShellInstallScript).toContain('"$releaseBase/$assetName" -OutFile $binaryPath');
+  });
 });

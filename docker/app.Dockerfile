@@ -28,7 +28,36 @@ COPY packages/messaging ./packages/messaging
 RUN bun --filter @openteam/db db:generate
 RUN bun --filter @openteam/server build && bun --filter @openteam/worker build
 
-FROM build AS migrate
+# The schema sync only needs packages/db and its dependencies (Prisma CLI, its schema
+# engine, and pg), so it gets its own slim stage instead of inheriting the full build stage.
+FROM oven/bun:1.3.8-slim@sha256:68fc2eac7f5dcfc2f69a81d1db02786ab08772eda2e4404eae785c038f8d2e41 AS migrate
+WORKDIR /app
+COPY package.json bun.lock turbo.json tsconfig.base.json ./
+COPY apps/computer/package.json apps/computer/package.json
+COPY apps/cli/package.json apps/cli/package.json
+COPY apps/desktop/package.json apps/desktop/package.json
+COPY apps/landing/package.json apps/landing/package.json
+COPY apps/mobile/package.json apps/mobile/package.json
+COPY apps/server/package.json apps/server/package.json
+COPY apps/worker/package.json apps/worker/package.json
+COPY packages/client-core/package.json packages/client-core/package.json
+COPY packages/contracts/package.json packages/contracts/package.json
+COPY packages/db/package.json packages/db/package.json
+COPY packages/design-tokens/package.json packages/design-tokens/package.json
+COPY packages/messaging/package.json packages/messaging/package.json
+COPY packages/product-core/package.json packages/product-core/package.json
+COPY patches ./patches
+COPY vendor/sheetjs/xlsx-0.20.3.tgz vendor/sheetjs/xlsx-0.20.3.tgz
+RUN bun install --frozen-lockfile --production --filter @openteam/db \
+  && rm -rf /root/.bun/install/cache
+COPY packages/db/prisma.config.ts packages/db/prisma.config.ts
+COPY packages/db/prisma packages/db/prisma
+COPY packages/db/scripts packages/db/scripts
+ENV NODE_ENV=production
+ENV HOME=/tmp
+ENV XDG_CACHE_HOME=/tmp/.cache
+ENV CHECKPOINT_DISABLE=1
+USER 1000:1000
 CMD ["bun", "--filter", "@openteam/db", "db:deploy"]
 
 FROM oven/bun:1.3.8-slim@sha256:68fc2eac7f5dcfc2f69a81d1db02786ab08772eda2e4404eae785c038f8d2e41 AS server

@@ -14,9 +14,8 @@ export interface SetupSummaryRow {
 
 export interface SelectionPromptInput {
   message: string;
-  label: string;
+  options: readonly { label: string }[];
   index: number;
-  count: number;
   color?: boolean;
   width?: number;
 }
@@ -29,17 +28,85 @@ export interface SetupPresentation {
   summary(title: string, rows: readonly SetupSummaryRow[]): void;
 }
 
+/** One line item inside an interactive setup section. */
+export type SessionRow =
+  | { kind: "heading"; text: string }
+  | { kind: "note"; text: string; tone: MessageTone }
+  | { kind: "field"; label: string; value: string }
+  | {
+      kind: "option";
+      id: string;
+      label: string;
+      description?: string;
+      selected: boolean;
+      recommended?: boolean;
+    }
+  | {
+      kind: "text";
+      id: string;
+      label: string;
+      value: string;
+      placeholder?: string;
+      secret?: boolean;
+      editing?: { buffer: string; error: string | null; label?: string };
+    }
+  | { kind: "toggle"; id: string; label: string; checked: boolean; description?: string }
+  | { kind: "cycle"; id: string; label: string; value: string }
+  | { kind: "action"; id: string; label: string; primary?: boolean };
+
+export const SELECTABLE_ROW_KINDS = new Set<SessionRow["kind"]>([
+  "option",
+  "text",
+  "toggle",
+  "cycle",
+  "action",
+]);
+
+export interface SetupSessionView {
+  version: string;
+  stages: readonly SetupStage[];
+  activeStage: number;
+  completed: readonly boolean[];
+  title: string;
+  description: string;
+  rows: readonly SessionRow[];
+  cursorRow: number;
+  mode: "navigate" | "edit";
+  notice: { text: string; tone: MessageTone } | null;
+}
+
+export interface SetupSessionFrame {
+  header: readonly string[];
+  body: readonly string[];
+  footer: readonly string[];
+  cursorLine: number;
+}
+
 const ANSI = {
   reset: "\u001b[0m",
   bold: "\u001b[1m",
   dim: "\u001b[2m",
+  inverse: "\u001b[7m",
   cyan: "\u001b[36m",
   green: "\u001b[32m",
   yellow: "\u001b[33m",
   white: "\u001b[97m",
 } as const;
 
-const colorEnabled = (
+const TONE_MARKS: Record<MessageTone, string> = {
+  info: "•",
+  success: "✓",
+  warning: "!",
+  muted: "·",
+};
+const TONE_CODES: Record<MessageTone, string[]> = {
+  info: [ANSI.cyan],
+  success: [ANSI.green],
+  warning: [ANSI.yellow],
+  muted: [ANSI.dim],
+};
+
+export const colorEnabled = (
   environment: NodeJS.ProcessEnv = process.env,
   terminal = Boolean(stdout.isTTY)
 ): boolean => terminal && environment.NO_COLOR === undefined && environment.TERM !== "dumb";
@@ -87,23 +154,23 @@ const wrapText = (value: string, width: number): string[] => {
 export const renderSelectionPrompt = (input: SelectionPromptInput): readonly string[] => {
   const styled = input.color ?? colorEnabled();
   const width = Math.max(16, Math.min(80, measuredWidth(input.width ?? stdout.columns)));
-  const position = `${input.index + 1}/${input.count}`;
-  const prefix = "  › ";
-  const labelWidth = Math.max(1, width - prefix.length - position.length - 1);
-  const label = truncate(input.label, labelWidth);
-  const gap = " ".repeat(Math.max(1, width - prefix.length - label.length - position.length));
   const hint =
-    width >= 48
-      ? "  ↑/↓/←/→ move · Enter select"
-      : width >= 21
-        ? "  arrows move · Enter"
-        : "  ↑↓ · Enter";
-
-  return [
+    width >= 40 ? "  ↑/↓ move · Enter select" : width >= 21 ? "  arrows · Enter" : "  ↑↓ · Enter";
+  const lines = [
     `${paint(styled, "?", ANSI.cyan)} ${paint(styled, truncate(input.message, width - 2), ANSI.bold)}`,
-    `${paint(styled, prefix, ANSI.cyan)}${paint(styled, label, ANSI.bold)}${gap}${paint(styled, position, ANSI.dim)}`,
-    paint(styled, truncate(hint, width), ANSI.dim),
   ];
+  for (const [index, option] of input.options.entries()) {
+    const active = index === input.index;
+    const prefix = active ? "  ❯ " : "    ";
+    const label = truncate(option.label, Math.max(1, width - prefix.length));
+    lines.push(
+      active
+        ? `${paint(styled, prefix, ANSI.cyan)}${paint(styled, label, ANSI.bold)}`
+        : `${prefix}${paint(styled, label, ANSI.dim)}`
+    );
+  }
+  lines.push(paint(styled, truncate(hint, width), ANSI.dim));
+  return lines;
 };
 
 export const renderSelectionResult = (
@@ -126,21 +193,24 @@ export const renderSetupHeader = (input: {
   version: string;
   stages: readonly SetupStage[];
   activeStage: number;
+  completed?: readonly boolean[];
   color?: boolean;
   width?: number;
 }): string => {
   const styled = input.color ?? false;
   const width = Math.max(32, Math.min(96, measuredWidth(input.width)));
   const heading = ` OPENTEAM SETUP · v${input.version} `;
+  const markerFor = (index: number): "done" | "active" | "pending" => {
+    if (index === input.activeStage) return "active";
+    const done = input.completed ? Boolean(input.completed[index]) : index < input.activeStage;
+    return done ? "done" : "pending";
+  };
+  const markers = { done: "✓", active: "●", pending: "○" } as const;
   if (width < 68) {
     const stage = input.stages[input.activeStage];
-    const markers = input.stages
-      .map((_value, index) =>
-        index < input.activeStage ? "✓" : index === input.activeStage ? "●" : "○"
-      )
-      .join(" ");
+    const compact = input.stages.map((_value, index) => markers[markerFor(index)]).join(" ");
     const progress = truncate(
-      `${markers}  ${input.activeStage + 1}/${input.stages.length} ${stage?.label || ""}`,
+      `${compact}  ${input.activeStage + 1}/${input.stages.length} ${stage?.label || ""}`,
       width - 4
     );
     return [
@@ -150,14 +220,14 @@ export const renderSetupHeader = (input: {
     ].join("\n");
   }
   const rightRule = "─".repeat(Math.max(1, width - heading.length - 3));
-  const rawParts = input.stages.map((stage, index) => {
-    const marker = index < input.activeStage ? "✓" : index === input.activeStage ? "●" : "○";
-    return `${marker} ${stage.label}`;
-  });
+  const rawParts = input.stages.map(
+    (stage, index) => `${markers[markerFor(index)]} ${stage.label}`
+  );
   const progress = rawParts
     .map((value, index) => {
-      if (index < input.activeStage) return paint(styled, value, ANSI.green);
-      if (index === input.activeStage) return paint(styled, value, ANSI.bold, ANSI.cyan);
+      const marker = markerFor(index);
+      if (marker === "done") return paint(styled, value, ANSI.green);
+      if (marker === "active") return paint(styled, value, ANSI.bold, ANSI.cyan);
       return paint(styled, value, ANSI.dim);
     })
     .join(paint(styled, "  ─  ", ANSI.dim));
@@ -168,6 +238,193 @@ export const renderSetupHeader = (input: {
     `${paint(styled, "│", ANSI.cyan)}  ${progress}${progressPadding}${paint(styled, "│", ANSI.cyan)}`,
     `${paint(styled, `╰${"─".repeat(width - 2)}╯`, ANSI.cyan)}`,
   ].join("\n");
+};
+
+const noteLines = (text: string, tone: MessageTone, width: number, styled: boolean): string[] => {
+  const mark = TONE_MARKS[tone];
+  const codes = TONE_CODES[tone];
+  return wrapText(text, width - 4).map((line, index) => {
+    const prefix = index === 0 ? `  ${paint(styled, mark, ...codes)} ` : "    ";
+    return `${prefix}${paint(styled, line, ...codes)}`;
+  });
+};
+
+/**
+ * Render one frame of the interactive setup session. The body carries the section
+ * title and rows; the header and footer are pinned by the terminal driver so the
+ * body can scroll independently inside short terminals.
+ */
+export const renderSetupSession = (
+  input: SetupSessionView & { color?: boolean; width?: number }
+): SetupSessionFrame => {
+  const styled = input.color ?? colorEnabled();
+  const width = Math.max(32, Math.min(100, measuredWidth(input.width ?? stdout.columns)));
+  const header = renderSetupHeader({
+    version: input.version,
+    stages: input.stages,
+    activeStage: input.activeStage,
+    completed: input.completed,
+    color: styled,
+    width: Math.min(width, 96),
+  }).split("\n");
+
+  const body: string[] = [];
+  body.push(paint(styled, truncate(input.title, width), ANSI.bold, ANSI.white));
+  for (const line of wrapText(input.description, width)) body.push(paint(styled, line, ANSI.dim));
+
+  const labelWidth = Math.min(
+    24,
+    Math.max(
+      8,
+      ...input.rows.map((row) =>
+        row.kind === "text" || row.kind === "cycle" || row.kind === "field"
+          ? (row.kind === "text" ? (row.editing?.label ?? row.label) : row.label).length
+          : 0
+      )
+    )
+  );
+  const valueWidth = Math.max(8, width - 4 - labelWidth - 2);
+  let cursorLine = -1;
+  let previousKind: SessionRow["kind"] | null = null;
+
+  for (const [index, row] of input.rows.entries()) {
+    const active = index === input.cursorRow;
+    if (
+      row.kind === "heading" ||
+      (row.kind === "action" && previousKind !== "action") ||
+      (row.kind === "note" && previousKind !== "note" && previousKind !== null)
+    ) {
+      body.push("");
+    }
+    if (active) cursorLine = body.length;
+    const pointer = active ? paint(styled, "❯", ANSI.cyan) : " ";
+    switch (row.kind) {
+      case "heading":
+        body.push(`  ${paint(styled, truncate(row.text, width - 2), ANSI.bold)}`);
+        break;
+      case "note":
+        body.push(...noteLines(row.text, row.tone, width, styled));
+        break;
+      case "field": {
+        const label = truncate(row.label, labelWidth).padEnd(labelWidth);
+        body.push(`    ${paint(styled, label, ANSI.dim)}  ${truncate(row.value, valueWidth)}`);
+        break;
+      }
+      case "option": {
+        const marker = row.selected ? paint(styled, "●", ANSI.green) : paint(styled, "○", ANSI.dim);
+        const badge = row.recommended ? paint(styled, "  recommended", ANSI.green) : "";
+        const badgeWidth = row.recommended ? 13 : 0;
+        const label = truncate(row.label, Math.max(1, width - 6 - badgeWidth));
+        body.push(
+          `  ${pointer} ${marker} ${active || row.selected ? paint(styled, label, ANSI.bold) : label}${badge}`
+        );
+        if (row.description) {
+          for (const line of wrapText(row.description, width - 6)) {
+            body.push(`      ${paint(styled, line, ANSI.dim)}`);
+          }
+        }
+        break;
+      }
+      case "text": {
+        const editing = row.editing;
+        const label = truncate(editing?.label ?? row.label, labelWidth).padEnd(labelWidth);
+        let value: string;
+        if (editing) {
+          const shown = row.secret ? "•".repeat(editing.buffer.length) : editing.buffer;
+          const clipped =
+            shown.length > valueWidth - 1 ? shown.slice(shown.length - (valueWidth - 1)) : shown;
+          value = `${paint(styled, clipped, ANSI.bold)}${paint(styled, " ", ANSI.inverse)}`;
+        } else if (row.value) {
+          value = row.secret
+            ? paint(styled, "••••••••", ANSI.dim)
+            : active
+              ? paint(styled, truncate(row.value, valueWidth), ANSI.bold)
+              : truncate(row.value, valueWidth);
+        } else {
+          value = paint(styled, truncate(row.placeholder ?? "not set", valueWidth), ANSI.dim);
+        }
+        body.push(`  ${pointer} ${active ? paint(styled, label, ANSI.bold) : label}  ${value}`);
+        if (editing?.error) {
+          body.push(
+            ...noteLines(editing.error, "warning", width, styled).map((line) => `  ${line}`)
+          );
+        }
+        break;
+      }
+      case "toggle": {
+        const box = row.checked ? paint(styled, "[x]", ANSI.green) : paint(styled, "[ ]", ANSI.dim);
+        const label = truncate(row.label, Math.max(1, width - 8));
+        body.push(`  ${pointer} ${box} ${active ? paint(styled, label, ANSI.bold) : label}`);
+        if (row.description) {
+          for (const line of wrapText(row.description, width - 8)) {
+            body.push(`        ${paint(styled, line, ANSI.dim)}`);
+          }
+        }
+        break;
+      }
+      case "cycle": {
+        const label = truncate(row.label, labelWidth).padEnd(labelWidth);
+        const value = `‹ ${truncate(row.value, Math.max(1, valueWidth - 4))} ›`;
+        body.push(
+          `  ${pointer} ${active ? paint(styled, label, ANSI.bold) : label}  ${active ? paint(styled, value, ANSI.bold) : value}`
+        );
+        break;
+      }
+      case "action": {
+        const label = truncate(row.label, Math.max(1, width - 4));
+        const codes = row.primary ? [ANSI.bold, ANSI.green] : active ? [ANSI.bold] : [];
+        body.push(`  ${pointer} ${paint(styled, label, ...codes)}`);
+        break;
+      }
+    }
+    previousKind = row.kind;
+  }
+
+  const footer: string[] = [""];
+  if (input.notice) footer.push(...noteLines(input.notice.text, input.notice.tone, width, styled));
+  const hint =
+    input.mode === "edit"
+      ? width >= 48
+        ? "  Type to edit · Enter save · Esc discard"
+        : "  Enter save · Esc discard"
+      : width >= 64
+        ? "  ↑/↓ highlight · Enter select · ←/→ section · Esc cancel"
+        : width >= 40
+          ? "  ↑↓ highlight · Enter · ←→ section"
+          : "  ↑↓ · Enter · ←→";
+  footer.push(paint(styled, truncate(hint, width), ANSI.dim));
+  return { header, body, footer, cursorLine };
+};
+
+/**
+ * Keep a scrolling body within `maxLines`, always keeping the focused line visible.
+ * Returns the lines to draw plus the offset to remember for the next frame.
+ */
+export const clampViewport = (
+  lines: readonly string[],
+  focusLine: number,
+  maxLines: number,
+  previousOffset = 0,
+  color = false
+): { lines: readonly string[]; offset: number } => {
+  const limit = Math.max(3, maxLines);
+  if (lines.length <= limit) return { lines, offset: 0 };
+  const window = limit - 2;
+  let offset = Math.max(0, Math.min(previousOffset, lines.length - window));
+  const focus = focusLine < 0 ? offset : focusLine;
+  if (focus < offset) offset = focus;
+  if (focus >= offset + window) offset = focus - window + 1;
+  offset = Math.max(0, Math.min(offset, lines.length - window));
+  const above = offset;
+  const below = lines.length - offset - window;
+  return {
+    offset,
+    lines: [
+      above > 0 ? paint(color, `  ↑ ${above} more`, ANSI.dim) : "",
+      ...lines.slice(offset, offset + window),
+      below > 0 ? paint(color, `  ↓ ${below} more`, ANSI.dim) : "",
+    ],
+  };
 };
 
 export const createSetupPresentation = (input: {
@@ -206,6 +463,7 @@ export const createSetupPresentation = (input: {
     stage(index) {
       const showHeader = !started || index !== activeStage;
       activeStage = index;
+      started = true;
       if (showHeader) write(`\n${header()}`);
       const stage = input.stages[index];
       if (!stage) return;
@@ -227,13 +485,8 @@ export const createSetupPresentation = (input: {
       write("");
     },
     message(message, tone = "info") {
-      const mark = { info: "•", success: "✓", warning: "!", muted: "·" }[tone];
-      const codes = {
-        info: [ANSI.cyan],
-        success: [ANSI.green],
-        warning: [ANSI.yellow],
-        muted: [ANSI.dim],
-      }[tone];
+      const mark = TONE_MARKS[tone];
+      const codes = TONE_CODES[tone];
       for (const [index, line] of wrapText(message, width - 2).entries()) {
         const prefix = index === 0 ? `${paint(styled, mark, ...codes)} ` : "  ";
         write(`${prefix}${paint(styled, line, ...codes)}`);

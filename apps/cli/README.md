@@ -39,7 +39,11 @@ ChatGPT Plus/Pro OAuth, Claude Pro/Max OAuth, OpenAI and Anthropic API keys, and
 endpoints. Public HTTPS is recommended and uses a bundled Caddy service:
 point a domain's A/AAAA record at the VM and open inbound TCP ports 80 and 443, and Caddy obtains and
 renews the certificate automatically. No certificate needs to exist on the VM beforehand.
-Use Up, Down, Left, or Right in menu prompts, then press Enter to confirm the highlighted option.
+Setup runs as one interactive session with Access, Owner, Runtime, and Launch sections. Left and Right
+move between sections, Up and Down move the highlight within a section, Enter picks the highlighted
+option or edits the highlighted field, and Esc cancels without changes. The Launch section lists anything
+still missing and applies the configuration. Terminals without cursor support (`TERM=dumb`) fall back to
+typed prompts.
 
 Public HTTP accepts an IP address or hostname, but it sends passwords and bearer sessions without
 encryption and is rejected by the iOS app. Setup therefore requires an explicit warning

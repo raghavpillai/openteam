@@ -81,14 +81,17 @@ start without the wizard.
 
 ## Choose how to reach it
 
-The first setup stage asks how the apps will reach the server. You can change it later with
-`openteam setup`.
+Setup is a single interactive session with four sections: Access, Owner, Runtime, and Launch.
+Left and Right move between sections, Up and Down move the highlight, Enter picks an option or
+edits a field, and Esc cancels without changes. The Launch section summarizes the configuration,
+lists anything still missing, and applies it. The Access section asks how the apps will reach the
+server. You can change it later with `openteam setup`.
 
 | Mode | Use when | Ports opened | You must |
 | --- | --- | --- | --- |
 | **Public HTTPS** (default) | The server has a public IP and you own a domain | 80 and 443 on all interfaces. API and screen viewers stay on loopback. | Point an A or AAAA record at the host and allow inbound TCP 80 and 443. |
 | **Existing HTTPS proxy** | You already run nginx, Caddy, Traefik, or a load balancer | Nothing. API binds to `127.0.0.1`. | Proxy to `http://127.0.0.1:8787` and forward WebSocket upgrades. |
-| **Public HTTP** | Quick test on a bare IP, no TLS | API port on all interfaces. Viewers stay on loopback. | Open the API port. Confirm the cleartext warning. |
+| **Public HTTP** | Quick test on a bare IP, no TLS | API port on all interfaces. Viewers stay on loopback. | Open the API port. Tick the cleartext acknowledgement. |
 | **Private network** | The host is only reachable over a LAN or VPN such as Tailscale | API port and `6200-6299` on all interfaces | Nothing if a private IP is detected. |
 | **This machine only** | Server and desktop app on the same computer | Nothing beyond loopback | Nothing. Use an SSH tunnel for remote access. |
 
@@ -203,8 +206,9 @@ HTTPS or a private network.
 | `openteam update [--version X]` | Upgrade the stack. See below. |
 | `openteam uninstall [--purge]` | Remove the stack. See below. |
 
-`openteam setup --advanced` adds four prompts: API port, time zone (IANA name such as
-`America/New_York`), default reasoning effort, and the number of bot turns that can run at once.
+`openteam setup --advanced` adds four fields to the Runtime section: API port, time zone (IANA name
+such as `America/New_York`), default reasoning effort, and the number of bot turns that can run at
+once.
 
 If you need raw Compose access, use the same project settings the CLI uses:
 

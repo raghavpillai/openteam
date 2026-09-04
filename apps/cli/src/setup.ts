@@ -1,6 +1,4 @@
 import { readFileSync } from "node:fs";
-import { isIP } from "node:net";
-import { networkInterfaces } from "node:os";
 import { emitKeypressEvents } from "node:readline";
 import { createInterface } from "node:readline/promises";
 import { Writable } from "node:stream";
@@ -27,59 +25,64 @@ import {
 import { CliError } from "./errors";
 import { checkHealth, waitForHealth } from "./health";
 import type { CommandRunner } from "./process";
+import { inspectPublicReadiness } from "./public-readiness";
 import {
   readRuntimeInferenceSettings,
   type RuntimeInferenceSettings,
   writeRuntimeInferenceSettings,
 } from "./runtime-settings";
-import { inspectPublicReadiness } from "./public-readiness";
+import { runSetupSession, type SetupSessionInput } from "./setup-session";
+import {
+  ACCESS_CHOICES,
+  ACCESS_MODES,
+  accessLabel,
+  accessModeNotes,
+  BUILTIN_PROVIDER_CHOICES,
+  bindHostsFor,
+  CUSTOM_PROVIDER_APIS,
+  CUSTOM_PROVIDER_CHOICE,
+  configuredAccessMode,
+  DEFAULT_PROVIDER_MODELS,
+  DEFAULT_RUNTIME_INFERENCE,
+  defaultProviderAuthType,
+  detectPrivateNetworkHost,
+  existingReachableHost,
+  HTTP_WARNINGS,
+  publicUrlFor,
+  SETUP_STAGES,
+  type SetupConfiguration,
+  type SetupCustomProvider,
+  THINKING_LEVELS,
+  validateAccessMode,
+  validateCustomProviderApi,
+  validateIntegerInRange,
+  validateModel,
+  validateOwnerPassword,
+  validateOwnerUsername,
+  validateProviderBaseUrl,
+  validateProviderId,
+  validateProviderName,
+  validateProviderSelection,
+  validatePublicDomain,
+  validatePublicHost,
+  validateThinking,
+  validateTimeZone,
+} from "./setup-values";
 import {
   createSetupPresentation,
+  type MessageTone,
   renderSelectionPrompt,
   renderSelectionResult,
   type SetupPresentation,
-  type SetupStage,
 } from "./ui";
 
-const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
-const DEFAULT_RUNTIME_INFERENCE: RuntimeInferenceSettings = {
-  providerId: "openai-codex",
-  modelId: "gpt-5.5",
-  reasoning: "high",
-};
-const ACCESS_MODES = ["https", "proxy", "http", "private", "local"] as const;
-const CUSTOM_PROVIDER_APIS = [
-  "openai-responses",
-  "openai-completions",
-  "anthropic-messages",
-  "google-generative-ai",
-] as const;
-const BUILTIN_PROVIDER_CHOICES = [
-  {
-    label: "OpenAI with ChatGPT Plus/Pro",
-    value: "openai-codex",
-  },
-  {
-    label: "Anthropic with Claude Pro/Max or an API key",
-    value: "anthropic",
-  },
-  {
-    label: "OpenAI with an API key",
-    value: "openai",
-  },
-] as const;
-const DEFAULT_PROVIDER_MODELS: Readonly<Record<string, string>> = {
-  "openai-codex": "gpt-5.5",
-  anthropic: "claude-sonnet-5",
-  openai: "gpt-5.5",
-};
-const SETUP_STAGES: readonly SetupStage[] = [
-  { label: "Access", description: "Choose how desktop and mobile apps reach this server." },
-  { label: "Owner", description: "Create the single username and password for this OpenTeam." },
-  { label: "Runtime", description: "Choose the Pi inference provider and model." },
-  { label: "Launch", description: "Apply the configuration and start Docker Compose." },
-  { label: "Verify", description: "Check the deployment, credentials, and public endpoint." },
-] as const;
+export {
+  detectPrivateNetworkHost,
+  type SetupConfiguration,
+  type SetupCustomProvider,
+  validateOwnerUsername,
+} from "./setup-values";
+
 const SETUP_KEYS = [
   "OPENTEAM_TIME_ZONE",
   "OPENTEAM_WORKER_CONCURRENCY",
@@ -92,6 +95,7 @@ const SETUP_KEYS = [
   "OPENTEAM_AUTH_URL",
   "COMPOSE_PROFILES",
 ] as const;
+
 export interface SetupPrompter {
   question(prompt: string): Promise<string>;
   secret(prompt: string): Promise<string>;
@@ -100,37 +104,12 @@ export interface SetupPrompter {
     options: readonly { label: string; value: Value; shortcut?: string }[],
     current: Value
   ): Promise<Value>;
+  /**
+   * Run the whole guided setup as one keyboard-driven session. Resolves with the
+   * configuration to apply, or `null` when the user cancels without changes.
+   */
+  session?(input: SetupSessionInput): Promise<SetupConfiguration | null>;
   close(): void;
-}
-
-export interface SetupConfiguration {
-  accessMode: (typeof ACCESS_MODES)[number];
-  timeZone: string;
-  provider: string;
-  model: string;
-  thinking: (typeof THINKING_LEVELS)[number];
-  workerConcurrency: string;
-  apiPort: string;
-  bindHost: "127.0.0.1" | "0.0.0.0";
-  viewerBindHost: "127.0.0.1" | "0.0.0.0";
-  publicHost: string;
-  publicUrl: string;
-  composeProfiles: "https" | "direct";
-  ownerUsername: string;
-  ownerPassword?: string;
-  authenticate: boolean;
-  authType: "oauth" | "api_key";
-  apiKey?: string;
-  customProvider?: SetupCustomProvider;
-}
-
-export interface SetupCustomProvider {
-  id: string;
-  name: string;
-  baseUrl: string;
-  api: (typeof CUSTOM_PROVIDER_APIS)[number];
-  model: string;
-  reasoning: boolean;
 }
 
 export interface SetupCommandOptions {
@@ -188,6 +167,7 @@ export const createTerminalPrompter = (): SetupPrompter => {
       options: readonly { label: string; value: Value; shortcut?: string }[],
       current: Value
     ) => terminalSelect(message, options, current);
+    prompter.session = (input) => runSetupSession(input);
   }
   return prompter;
 };
@@ -229,12 +209,10 @@ const terminalSelect = <Value extends string>(
     let renderedLineCount = 0;
 
     const render = () => {
-      const selected = options[selectedIndex];
       const lines = renderSelectionPrompt({
         message,
-        label: selected?.label ?? "",
+        options,
         index: selectedIndex,
-        count: options.length,
         width: process.stdout.columns,
       });
       if (renderedLineCount > 0) {
@@ -308,24 +286,16 @@ const terminalSelect = <Value extends string>(
     render();
   });
 
-export const validateOwnerUsername = (value: string): string => {
-  const username = value.trim().toLowerCase();
-  if (username.length < 3 || username.length > 30 || !/^[a-z0-9_.]+$/.test(username)) {
-    throw new Error(
-      "Username must be 3-30 characters and use only letters, numbers, underscores, or dots."
-    );
-  }
-  return username;
-};
-
 export const collectOwnerUsername = (prompter: SetupPrompter, current: string): Promise<string> =>
   ask(prompter, "OpenTeam username", current, validateOwnerUsername);
 
 export const collectConfirmedPassword = async (prompter: SetupPrompter): Promise<string> => {
   while (true) {
     const password = await prompter.secret("OpenTeam password: ");
-    if (password.length < 8 || password.length > 128) {
-      console.log("  Password must be between 8 and 128 characters.");
+    try {
+      validateOwnerPassword(password);
+    } catch (error) {
+      console.log(`  ${error instanceof Error ? error.message : String(error)}`);
       continue;
     }
     const confirmation = await prompter.secret("Confirm OpenTeam password: ");
@@ -404,224 +374,6 @@ const collectProviderSecret = async (
   }
 };
 
-const singleLine = (label: string, value: string): string => {
-  if (!value || value.length > 128 || /[\r\n\0]/.test(value)) {
-    throw new Error(`${label} must be a non-empty single-line value.`);
-  }
-  return value;
-};
-
-const timeZone = (value: string): string => {
-  const normalized = singleLine("Time zone", value);
-  try {
-    new Intl.DateTimeFormat("en-US", { timeZone: normalized }).format();
-    return normalized;
-  } catch {
-    throw new Error("Enter a valid IANA time zone, such as America/New_York.");
-  }
-};
-
-const model = (value: string): string => {
-  const normalized = singleLine("Model", value);
-  if (!/^[A-Za-z0-9][A-Za-z0-9._:/-]*$/.test(normalized)) {
-    throw new Error("Model names may contain letters, numbers, dots, colons, slashes, or hyphens.");
-  }
-  return normalized;
-};
-
-const provider = (value: string): string => {
-  const normalized = singleLine("Inference provider", value).toLowerCase();
-  if (!/^[a-z0-9][a-z0-9._-]*$/.test(normalized)) {
-    throw new Error(
-      "Provider ids may contain lowercase letters, numbers, dots, underscores, or hyphens."
-    );
-  }
-  return normalized;
-};
-
-const providerName = (value: string): string => {
-  const normalized = singleLine("Provider name", value).trim();
-  if (normalized.length > 100) throw new Error("Provider name must be 100 characters or fewer.");
-  return normalized;
-};
-
-const providerBaseUrl = (value: string): string => {
-  const normalized = singleLine("Provider base URL", value);
-  let parsed: URL;
-  try {
-    parsed = new URL(normalized);
-  } catch {
-    throw new Error("Enter a valid provider base URL.");
-  }
-  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
-    throw new Error("Provider base URL must use HTTP or HTTPS.");
-  }
-  return parsed.toString().replace(/\/$/, "");
-};
-
-const customProviderApi = (value: string): SetupCustomProvider["api"] => {
-  const normalized = value.trim().toLowerCase();
-  if (!CUSTOM_PROVIDER_APIS.includes(normalized as SetupCustomProvider["api"])) {
-    throw new Error(`Choose one of: ${CUSTOM_PROVIDER_APIS.join(", ")}.`);
-  }
-  return normalized as SetupCustomProvider["api"];
-};
-
-const providerSelection = (value: string, currentProvider: string): string => {
-  const normalized = value.trim().toLowerCase();
-  if (
-    normalized === "custom" ||
-    normalized === currentProvider ||
-    BUILTIN_PROVIDER_CHOICES.some((choice) => choice.value === normalized)
-  ) {
-    return normalized;
-  }
-  throw new Error("Choose openai-codex, anthropic, openai, or custom.");
-};
-
-const defaultProviderAuthType = (providerId: string): "oauth" | "api_key" =>
-  providerId === "openai-codex" || providerId === "anthropic" ? "oauth" : "api_key";
-
-const thinking = (value: string): SetupConfiguration["thinking"] => {
-  if (!THINKING_LEVELS.includes(value as SetupConfiguration["thinking"])) {
-    throw new Error(`Choose one of: ${THINKING_LEVELS.join(", ")}.`);
-  }
-  return value as SetupConfiguration["thinking"];
-};
-
-const integerInRange = (label: string, minimum: number, maximum: number) => (value: string) => {
-  if (!/^\d+$/.test(value)) throw new Error(`${label} must be a whole number.`);
-  const parsed = Number(value);
-  if (parsed < minimum || parsed > maximum) {
-    throw new Error(`${label} must be between ${minimum} and ${maximum}.`);
-  }
-  return String(parsed);
-};
-
-const accessMode = (value: string): SetupConfiguration["accessMode"] => {
-  const normalized = value.trim().toLowerCase();
-  const aliases: Record<string, SetupConfiguration["accessMode"]> = {
-    "1": "https",
-    https: "https",
-    public: "https",
-    "public-https": "https",
-    "2": "proxy",
-    http: "http",
-    "public-http": "http",
-    proxy: "proxy",
-    "external-proxy": "proxy",
-    "3": "http",
-    "4": "private",
-    private: "private",
-    vpn: "private",
-    tailnet: "private",
-    "5": "local",
-    local: "local",
-    loopback: "local",
-  };
-  const selected = aliases[normalized];
-  if (selected) return selected;
-  throw new Error("Choose 1, 2, 3, 4, or 5.");
-};
-
-const accessLabel = (value: SetupConfiguration["accessMode"]): string =>
-  ({
-    https: "Public HTTPS",
-    proxy: "Existing HTTPS proxy",
-    http: "Public HTTP",
-    private: "Private network",
-    local: "This machine only",
-  })[value];
-
-const privateAddressRank = (address: string): number | null => {
-  if (/^100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(address)) return 0;
-  if (/^192\.168\./.test(address)) return 1;
-  if (/^10\./.test(address)) return 2;
-  const match = address.match(/^172\.(\d+)\./);
-  if (match?.[1] && Number(match[1]) >= 16 && Number(match[1]) <= 31) return 3;
-  return null;
-};
-
-export const detectPrivateNetworkHost = (
-  interfaces: ReturnType<typeof networkInterfaces> = networkInterfaces()
-): string | null => {
-  const candidates: Array<{ address: string; rank: number }> = [];
-  for (const [name, addresses] of Object.entries(interfaces)) {
-    if (/^(?:docker|br-|veth|virbr|podman|cni|flannel)/i.test(name)) continue;
-    for (const address of addresses || []) {
-      if (address.internal || address.family !== "IPv4") continue;
-      const rank = privateAddressRank(address.address);
-      if (rank !== null) candidates.push({ address: address.address, rank });
-    }
-  }
-  candidates.sort((left, right) => left.rank - right.rank);
-  return candidates[0]?.address || null;
-};
-
-const publicHost = (value: string): string => {
-  const normalized = singleLine("Hostname or IPv4 address", value).toLowerCase();
-  if (/^\d+(?:\.\d+){3}$/.test(normalized)) {
-    const octets = normalized.split(".").map(Number);
-    if (octets.every((octet) => octet >= 0 && octet <= 255)) return normalized;
-    throw new Error("Enter a valid IPv4 address.");
-  }
-  if (
-    normalized.length > 253 ||
-    !normalized
-      .split(".")
-      .every((label) => /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/.test(label))
-  ) {
-    throw new Error("Enter a hostname or IPv4 address clients can reach.");
-  }
-  return normalized;
-};
-
-const publicDomain = (value: string): string => {
-  const normalized = publicHost(value);
-  if (
-    isIP(normalized) !== 0 ||
-    !normalized.includes(".") ||
-    /\.(?:local|internal|localhost|home\.arpa)$/i.test(normalized)
-  ) {
-    throw new Error("Enter a public domain name, such as bot.example.com.");
-  }
-  return normalized;
-};
-
-const configuredAccessMode = (
-  current: ReadonlyMap<string, string>,
-  fresh: boolean
-): SetupConfiguration["accessMode"] => {
-  const stored = current.get("OPENTEAM_ACCESS_MODE");
-  if (stored && ACCESS_MODES.includes(stored as SetupConfiguration["accessMode"])) {
-    if (!fresh) return stored as SetupConfiguration["accessMode"];
-  }
-  if (fresh) return "https";
-  const publicUrl = current.get("OPENTEAM_PUBLIC_URL") || "";
-  if (publicUrl.startsWith("https://")) return "https";
-  if (current.get("OPENTEAM_BIND_HOST") === "127.0.0.1") return "local";
-  return "private";
-};
-
-const hostFromPublicUrl = (value: string | undefined): string | null => {
-  if (!value) return null;
-  try {
-    return new URL(value).hostname || null;
-  } catch {
-    return null;
-  }
-};
-
-const publicUrlFor = (
-  mode: SetupConfiguration["accessMode"],
-  host: string,
-  apiPort: string
-): string => {
-  if (mode === "https" || mode === "proxy") return `https://${host}`;
-  const port = apiPort === "80" ? "" : `:${apiPort}`;
-  return `http://${host}${port}`;
-};
-
 const collectRuntimeConfiguration = async (
   configuration: SetupConfiguration,
   currentProvider: string,
@@ -629,33 +381,26 @@ const collectRuntimeConfiguration = async (
   presentation?: SetupPresentation
 ): Promise<void> => {
   const providerChoices: Array<{ label: string; value: string }> = [...BUILTIN_PROVIDER_CHOICES];
-  if (!BUILTIN_PROVIDER_CHOICES.some((choice) => choice.value === currentProvider)) {
+  const currentIsBuiltin = BUILTIN_PROVIDER_CHOICES.some(
+    (choice) => choice.value === currentProvider
+  );
+  if (!currentIsBuiltin) {
     providerChoices.push({
       label: `Keep existing provider (${currentProvider})`,
       value: currentProvider,
     });
   }
-  providerChoices.push({ label: "Custom or generic provider", value: "custom" });
+  providerChoices.push(CUSTOM_PROVIDER_CHOICE);
   presentation?.choices([
+    ...BUILTIN_PROVIDER_CHOICES.map((choice) => ({
+      title: choice.label,
+      description: choice.description,
+      recommended: currentProvider === choice.value,
+    })),
     {
-      title: "OpenAI with ChatGPT Plus/Pro",
-      description: "Authenticate Pi through the OpenAI Codex OAuth provider.",
-      recommended: currentProvider === "openai-codex",
-    },
-    {
-      title: "Anthropic",
-      description: "Use Claude Pro/Max OAuth or an Anthropic API key.",
-      recommended: currentProvider === "anthropic",
-    },
-    {
-      title: "OpenAI API",
-      description: "Use an OpenAI API key with a directly billed model.",
-      recommended: currentProvider === "openai",
-    },
-    {
-      title: "Custom or generic",
-      description: "Configure an OpenAI-, Anthropic-, or Google-compatible endpoint and password.",
-      recommended: !BUILTIN_PROVIDER_CHOICES.some((choice) => choice.value === currentProvider),
+      title: CUSTOM_PROVIDER_CHOICE.label,
+      description: CUSTOM_PROVIDER_CHOICE.description,
+      recommended: !currentIsBuiltin,
     },
   ]);
   const selectedProvider = prompter.select
@@ -664,13 +409,18 @@ const collectRuntimeConfiguration = async (
         prompter,
         "Inference provider (openai-codex/anthropic/openai/custom)",
         currentProvider,
-        (value) => providerSelection(value, currentProvider)
+        (value) => validateProviderSelection(value, currentProvider)
       );
 
   if (selectedProvider === "custom") {
-    const id = await ask(prompter, "Custom provider id", "my-provider", provider);
-    const name = await ask(prompter, "Custom provider name", id, providerName);
-    const baseUrl = await askRequired(prompter, "Custom provider base URL", null, providerBaseUrl);
+    const id = await ask(prompter, "Custom provider id", "my-provider", validateProviderId);
+    const name = await ask(prompter, "Custom provider name", id, validateProviderName);
+    const baseUrl = await askRequired(
+      prompter,
+      "Custom provider base URL",
+      null,
+      validateProviderBaseUrl
+    );
     const api = prompter.select
       ? await prompter.select(
           "Compatible API",
@@ -681,9 +431,9 @@ const collectRuntimeConfiguration = async (
           prompter,
           "Compatible API (openai-responses/openai-completions/anthropic-messages/google-generative-ai)",
           "openai-responses",
-          customProviderApi
+          validateCustomProviderApi
         );
-    const selectedModel = await ask(prompter, "Inference model", "model", model);
+    const selectedModel = await ask(prompter, "Inference model", "model", validateModel);
     const reasoning = await confirm(prompter, "Does this model support reasoning?", true);
     configuration.provider = id;
     configuration.model = selectedModel;
@@ -704,9 +454,13 @@ const collectRuntimeConfiguration = async (
     selectedProvider === currentProvider
       ? configuration.model
       : (DEFAULT_PROVIDER_MODELS[selectedProvider] ?? configuration.model);
-  configuration.model = await ask(prompter, "Inference model", selectedDefault, model);
+  configuration.model = await ask(prompter, "Inference model", selectedDefault, validateModel);
 };
 
+/**
+ * Sequential prompt flow used by terminals without cursor control and by tests.
+ * Interactive terminals run the same questions as a single session instead.
+ */
 export const collectSetupConfiguration = async (
   current: ReadonlyMap<string, string>,
   authenticated: boolean,
@@ -717,126 +471,58 @@ export const collectSetupConfiguration = async (
 ): Promise<SetupConfiguration> => {
   const presentation = options.presentation;
   presentation?.stage(0);
-  const choices = [
-    {
-      title: "Public HTTPS",
-      description: "A domain plus automatic TLS from the bundled Caddy proxy.",
-      recommended: true,
-      value: "https",
-    },
-    {
-      title: "Existing HTTPS proxy",
-      description: "Use nginx, Caddy, Traefik, or a cloud load balancer you already manage.",
-      value: "proxy",
-    },
-    {
-      title: "Public HTTP",
-      description: "An IP or hostname without encryption; desktop/testing only, not iOS.",
-      value: "http",
-    },
-    {
-      title: "Private network",
-      description: "A LAN, Tailscale, WireGuard, or another trusted private network.",
-      value: "private",
-    },
-    {
-      title: "This machine only",
-      description: "Loopback access for development or an SSH tunnel.",
-      value: "local",
-    },
-  ] as const;
   const currentAccess = configuredAccessMode(current, options.fresh ?? false);
   let selectedAccess: SetupConfiguration["accessMode"];
   while (true) {
-    presentation?.choices(choices);
+    presentation?.choices(ACCESS_CHOICES);
     selectedAccess = prompter.select
       ? await prompter.select(
           "Access mode",
-          choices.map((choice) => ({ label: choice.title, value: choice.value })),
+          ACCESS_CHOICES.map((choice) => ({ label: choice.title, value: choice.value })),
           currentAccess
         )
       : await ask(
           prompter,
           "Access mode",
           String(ACCESS_MODES.indexOf(currentAccess) + 1),
-          accessMode
+          validateAccessMode
         );
     if (selectedAccess !== "http") break;
-    presentation?.message(
-      "Public HTTP exposes the owner password and every session token to network observers.",
-      "warning"
-    );
-    presentation?.message(
-      "The iOS app rejects public cleartext connections. Use this only for temporary desktop testing.",
-      "warning"
-    );
+    for (const warning of HTTP_WARNINGS) presentation?.message(warning, "warning");
     if (await confirm(prompter, "Continue with insecure public HTTP?", false)) break;
     presentation?.message("Choose a different access mode.", "muted");
   }
 
-  const existingPublicHost = current.get("OPENTEAM_PUBLIC_HOST");
-  const existingUrlHost = hostFromPublicUrl(current.get("OPENTEAM_PUBLIC_URL"));
+  const existingHost = existingReachableHost(current);
   const detectedPublicHost = detectPrivateNetworkHost();
-  const existingReachableHost =
-    existingUrlHost && existingUrlHost !== "127.0.0.1"
-      ? existingUrlHost
-      : existingPublicHost && existingPublicHost !== "127.0.0.1"
-        ? existingPublicHost
-        : null;
   let reachableHost = "127.0.0.1";
   if (selectedAccess === "https" || selectedAccess === "proxy") {
     reachableHost = await askRequired(
       prompter,
       "Public domain (A/AAAA record points to this server)",
-      existingReachableHost,
-      publicDomain
+      existingHost,
+      validatePublicDomain
     );
-    if (selectedAccess === "https") {
-      presentation?.message(
-        "OpenTeam will publish ports 80/443; Caddy will obtain and renew the certificate.",
-        "info"
-      );
-    } else {
-      presentation?.message(
-        "OpenTeam will listen on loopback only. Point your HTTPS proxy at the local API port shown in the summary.",
-        "info"
-      );
-    }
   } else if (selectedAccess === "http") {
     reachableHost = await askRequired(
       prompter,
       "Public hostname or IPv4 address",
-      existingReachableHost,
-      publicHost
+      existingHost,
+      validatePublicHost
     );
   } else if (selectedAccess === "private") {
-    const defaultPrivateHost = existingReachableHost || detectedPublicHost;
+    const defaultPrivateHost = existingHost || detectedPublicHost;
     reachableHost =
       options.advanced || !defaultPrivateHost
         ? await askRequired(
             prompter,
             "Private hostname or IPv4 address",
             defaultPrivateHost,
-            publicHost
+            validatePublicHost
           )
         : defaultPrivateHost;
-    presentation?.message(
-      "Private mode has no TLS. Keep it behind a trusted LAN or VPN.",
-      "warning"
-    );
   }
-
-  const bindHost: SetupConfiguration["bindHost"] =
-    selectedAccess === "http" || selectedAccess === "private" ? "0.0.0.0" : "127.0.0.1";
-  const viewerBindHost: SetupConfiguration["viewerBindHost"] =
-    selectedAccess === "private" ? "0.0.0.0" : "127.0.0.1";
-  const screenViewerHost = selectedAccess === "private" ? reachableHost : "127.0.0.1";
-  if (selectedAccess === "https" || selectedAccess === "proxy" || selectedAccess === "http") {
-    presentation?.message(
-      "Raw screen-viewer ports will remain loopback-only in this Internet-facing mode.",
-      "success"
-    );
-  }
+  for (const note of accessModeNotes(selectedAccess)) presentation?.message(note.text, note.tone);
 
   presentation?.stage(1);
   const currentThinking = currentInference.reasoning;
@@ -858,11 +544,8 @@ export const collectSetupConfiguration = async (
 
   const configuration: SetupConfiguration = {
     accessMode: selectedAccess,
-    bindHost,
-    viewerBindHost,
-    publicHost: screenViewerHost,
+    ...bindHostsFor(selectedAccess, reachableHost),
     publicUrl: "",
-    composeProfiles: selectedAccess === "https" ? "https" : "direct",
     ownerUsername,
     ownerPassword,
     apiPort: current.get("OPENTEAM_API_PORT") || String(API_PORT),
@@ -883,9 +566,14 @@ export const collectSetupConfiguration = async (
       prompter,
       "API port",
       configuration.apiPort,
-      integerInRange("API port", 1, 65535)
+      validateIntegerInRange("API port", 1, 65535)
     );
-    configuration.timeZone = await ask(prompter, "Time zone", configuration.timeZone, timeZone);
+    configuration.timeZone = await ask(
+      prompter,
+      "Time zone",
+      configuration.timeZone,
+      validateTimeZone
+    );
   }
   await collectRuntimeConfiguration(
     configuration,
@@ -904,13 +592,13 @@ export const collectSetupConfiguration = async (
           prompter,
           "Reasoning effort (off/minimal/low/medium/high/xhigh/max)",
           configuration.thinking,
-          thinking
+          validateThinking
         );
     configuration.workerConcurrency = await ask(
       prompter,
       "Concurrent bot jobs",
       configuration.workerConcurrency,
-      integerInRange("Concurrent bot jobs", 1, 64)
+      validateIntegerInRange("Concurrent bot jobs", 1, 64)
     );
   }
   configuration.publicUrl = publicUrlFor(
@@ -1068,6 +756,84 @@ const assertProviderModelAvailable = (
   }
 };
 
+const configurationSummary = (configuration: SetupConfiguration) => [
+  { label: "Access", value: accessLabel(configuration.accessMode) },
+  { label: "Address", value: configuration.publicUrl },
+  { label: "Owner", value: configuration.ownerUsername },
+  {
+    label: "Model",
+    value: `${configuration.provider}/${configuration.model} · ${configuration.thinking}`,
+  },
+];
+
+/** Collect a configuration through the sequential prompts, including the apply confirmation. */
+const collectThroughPrompts = async (
+  prompter: SetupPrompter,
+  presentation: SetupPresentation,
+  collectOptions: SetupCommandOptions,
+  current: ReadonlyMap<string, string>,
+  authenticated: boolean,
+  ownerUsername: string,
+  currentInference: RuntimeInferenceSettings,
+  installationDirectory: string,
+  notes: ReadonlyArray<{ text: string; tone: MessageTone }>
+): Promise<SetupConfiguration | null> => {
+  presentation.start();
+  presentation.message(`Installation: ${installationDirectory}`, "muted");
+  presentation.message("Press Enter to keep the value shown in brackets.", "muted");
+  for (const note of notes) presentation.message(note.text, note.tone);
+  while (true) {
+    const candidate = await collectSetupConfiguration(
+      current,
+      authenticated,
+      prompter,
+      collectOptions,
+      ownerUsername,
+      currentInference
+    );
+
+    if (!collectOptions.advanced) {
+      presentation.message(
+        `Using ${candidate.provider}/${candidate.model}, ${candidate.thinking} reasoning, and local API port ${candidate.apiPort}.`,
+        "info"
+      );
+      presentation.message(
+        "Run openteam setup --advanced for port, time-zone, concurrency, and reasoning controls.",
+        "muted"
+      );
+    }
+
+    presentation.stage(3);
+    presentation.summary("Configuration ready", configurationSummary(candidate));
+    if (candidate.accessMode === "proxy") {
+      presentation.message(
+        `Proxy target: http://127.0.0.1:${candidate.apiPort} (WebSocket upgrades must be enabled).`,
+        "info"
+      );
+    }
+    while (true) {
+      const answer = prompter.select
+        ? await prompter.select(
+            "Apply this configuration?",
+            [
+              { label: "Apply and start OpenTeam", value: "yes", shortcut: "y" },
+              { label: "Go back", value: "back", shortcut: "b" },
+              { label: "Cancel without changes", value: "no", shortcut: "n" },
+            ] as const,
+            "yes"
+          )
+        : (await prompter.question("Apply this configuration? [Y/n/back] ")).trim().toLowerCase();
+      if (!answer || answer === "y" || answer === "yes") return candidate;
+      if (answer === "n" || answer === "no") return null;
+      if (answer === "b" || answer === "back") {
+        presentation.message("Returning to the access stage.", "muted");
+        break;
+      }
+      presentation.message("Enter yes, no, or back.", "warning");
+    }
+  }
+};
+
 export const setupCommand = async (
   paths: InstallationPaths,
   runner: CommandRunner,
@@ -1089,98 +855,74 @@ export const setupCommand = async (
     options.presentation ??
     createSetupPresentation({ version: manifest.version, stages: SETUP_STAGES });
   const fresh = options.fresh ?? !manifest.ownerUsername;
-  let fallbackApiPort: { configured: number; suggested: number } | null = null;
+  const notes: Array<{ text: string; tone: MessageTone }> = [];
   if (fresh && !initialHealth.ok) {
     const configured = Number(current.get("OPENTEAM_API_PORT") || API_PORT);
     const suggested = await suggestApiPort("127.0.0.1", configured);
     if (suggested !== configured) {
       current.set("OPENTEAM_API_PORT", String(suggested));
-      fallbackApiPort = { configured, suggested };
+      notes.push({
+        text: `Port ${configured} is already in use; using ${suggested} as the local API default.`,
+        tone: "info",
+      });
     }
   }
+  const collectOptions: SetupCommandOptions = {
+    ...options,
+    fresh,
+    ownerConfigured: Boolean(manifest.ownerUsername),
+    presentation,
+  };
+  const authenticated = initialHealth.inference === "ready";
+  const ownerUsername = manifest.ownerUsername || "openteam";
 
-  presentation.start();
-  presentation.message(`Installation: ${paths.directory}`, "muted");
-  presentation.message("Press Enter to keep the value shown in brackets.", "muted");
-  if (fallbackApiPort) {
-    presentation.message(
-      `Port ${fallbackApiPort.configured} is already in use; using ${fallbackApiPort.suggested} as the local API default.`,
-      "info"
-    );
-  }
-  let configuration: SetupConfiguration | null = null;
+  let configuration: SetupConfiguration | null;
   try {
-    while (!configuration) {
-      const candidate = await collectSetupConfiguration(
+    if (prompter.session) {
+      configuration = await prompter.session({
+        version: manifest.version,
+        stages: SETUP_STAGES,
         current,
-        initialHealth.inference === "ready",
+        authenticated,
+        advanced: collectOptions.advanced,
+        fresh,
+        ownerConfigured: collectOptions.ownerConfigured,
+        currentOwnerUsername: ownerUsername,
+        currentInference,
+        detectedPrivateHost: detectPrivateNetworkHost(),
+        notes,
+      });
+      if (configuration) {
+        // The session clears itself; leave a settled record of what is being applied.
+        presentation.stage(3);
+        presentation.message(`Installation: ${paths.directory}`, "muted");
+        presentation.summary("Configuration ready", configurationSummary(configuration));
+        if (configuration.accessMode === "proxy") {
+          presentation.message(
+            `Proxy target: http://127.0.0.1:${configuration.apiPort} (WebSocket upgrades must be enabled).`,
+            "info"
+          );
+        }
+      }
+    } else {
+      configuration = await collectThroughPrompts(
         prompter,
-        {
-          ...options,
-          fresh,
-          ownerConfigured: Boolean(manifest.ownerUsername),
-          presentation,
-        },
-        manifest.ownerUsername || "openteam",
-        currentInference
+        presentation,
+        collectOptions,
+        current,
+        authenticated,
+        ownerUsername,
+        currentInference,
+        paths.directory,
+        notes
       );
-
-      if (!options.advanced) {
-        presentation.message(
-          `Using ${candidate.provider}/${candidate.model}, ${candidate.thinking} reasoning, and local API port ${candidate.apiPort}.`,
-          "info"
-        );
-        presentation.message(
-          "Run openteam setup --advanced for port, time-zone, concurrency, and reasoning controls.",
-          "muted"
-        );
-      }
-
-      presentation.stage(3);
-      presentation.summary("Configuration ready", [
-        { label: "Access", value: accessLabel(candidate.accessMode) },
-        { label: "Address", value: candidate.publicUrl },
-        { label: "Owner", value: candidate.ownerUsername },
-        {
-          label: "Model",
-          value: `${candidate.provider}/${candidate.model} · ${candidate.thinking}`,
-        },
-      ]);
-      if (candidate.accessMode === "proxy") {
-        presentation.message(
-          `Proxy target: http://127.0.0.1:${candidate.apiPort} (WebSocket upgrades must be enabled).`,
-          "info"
-        );
-      }
-      while (true) {
-        const answer = prompter.select
-          ? await prompter.select(
-              "Apply this configuration?",
-              [
-                { label: "Apply and start OpenTeam", value: "yes", shortcut: "y" },
-                { label: "Go back", value: "back", shortcut: "b" },
-                { label: "Cancel without changes", value: "no", shortcut: "n" },
-              ] as const,
-              "yes"
-            )
-          : (await prompter.question("Apply this configuration? [Y/n/back] ")).trim().toLowerCase();
-        if (!answer || answer === "y" || answer === "yes") {
-          configuration = candidate;
-          break;
-        }
-        if (answer === "n" || answer === "no") {
-          presentation.message("Setup cancelled; no configuration was changed.", "muted");
-          return;
-        }
-        if (answer === "b" || answer === "back") {
-          presentation.message("Returning to the access stage.", "muted");
-          break;
-        }
-        presentation.message("Enter yes, no, or back.", "warning");
-      }
     }
   } finally {
     if (!suppliedPrompter) prompter.close();
+  }
+  if (!configuration) {
+    presentation.message("Setup cancelled; no configuration was changed.", "muted");
+    return;
   }
   const previousAccessMode = current.get("OPENTEAM_ACCESS_MODE") || "local";
   if (fresh && !initialHealth.ok) {

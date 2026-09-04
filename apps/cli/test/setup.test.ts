@@ -961,6 +961,100 @@ describe("interactive setup", () => {
     expect(runner.calls.some((call) => call.args.includes("up"))).toBe(false);
   });
 
+  test("applies a configuration produced by an interactive session and records it", async () => {
+    const fixture = createSetupFixture({ owner: false });
+    const runner = new SetupRunner(() => {
+      fixture.state.authenticated = true;
+    });
+    const output: string[] = [];
+    const presentation: SetupPresentation = {
+      ...silentPresentation,
+      message: (message) => output.push(message),
+      summary: (title, rows) => output.push(title, ...rows.map((row) => row.value)),
+    };
+    const seen: Array<Parameters<NonNullable<SetupPrompter["session"]>>[0]> = [];
+    const answers = new AnswerPrompter([]);
+    const prompter: SetupPrompter = {
+      question: (prompt) => answers.question(prompt),
+      secret: (prompt) => answers.secret(prompt),
+      async session(input) {
+        seen.push(input);
+        return {
+          accessMode: "local",
+          bindHost: "127.0.0.1",
+          viewerBindHost: "127.0.0.1",
+          publicHost: "127.0.0.1",
+          publicUrl: `http://127.0.0.1:${input.current.get("OPENTEAM_API_PORT")}`,
+          composeProfiles: "direct",
+          ownerUsername: "session.owner",
+          ownerPassword: "correct horse battery staple",
+          apiPort: input.current.get("OPENTEAM_API_PORT") ?? "8787",
+          timeZone: "UTC",
+          provider: "anthropic",
+          model: "claude-sonnet-5",
+          thinking: "high",
+          workerConcurrency: "8",
+          authenticate: true,
+          authType: "oauth",
+        };
+      },
+      close() {},
+    };
+
+    await setupCommand(fixture.paths, runner, { presentation }, prompter);
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toMatchObject({
+      version: "1.2.3",
+      authenticated: false,
+      fresh: true,
+      ownerConfigured: false,
+      currentOwnerUsername: "openteam",
+    });
+    expect(seen[0]?.stages.map((stage) => stage.label)).toEqual([
+      "Access",
+      "Owner",
+      "Runtime",
+      "Launch",
+      "Verify",
+    ]);
+    expect(output).toContain("Configuration ready");
+    expect(output).toContain("anthropic/claude-sonnet-5 · high");
+    expect(readManifest(fixture.paths)?.ownerUsername).toBe("session.owner");
+    const login = runner.calls.find((call) => providerAction(call) === "login");
+    expect(login?.args.slice(-3)).toEqual(["login", "anthropic", "oauth"]);
+    expect(fixture.state.inference).toEqual({
+      providerId: "anthropic",
+      modelId: "claude-sonnet-5",
+      reasoning: "high",
+    });
+  });
+
+  test("a cancelled interactive session leaves the installation untouched", async () => {
+    const fixture = createSetupFixture();
+    const runner = new SetupRunner();
+    const output: string[] = [];
+    const answers = new AnswerPrompter([]);
+    const prompter: SetupPrompter = {
+      question: (prompt) => answers.question(prompt),
+      secret: (prompt) => answers.secret(prompt),
+      session: async () => null,
+      close() {},
+    };
+
+    await setupCommand(
+      fixture.paths,
+      runner,
+      { presentation: { ...silentPresentation, message: (message) => output.push(message) } },
+      prompter
+    );
+
+    expect(output).toContain("Setup cancelled; no configuration was changed.");
+    expect(readFileSync(fixture.paths.environment, "utf8")).toBe(fixture.environment);
+    expect(runner.calls.some((call) => providerAction(call))).toBe(false);
+    expect(runner.calls.some((call) => call.args.includes("up"))).toBe(false);
+  });
+
   test("password reset passes the confirmed secret over stdin and never command arguments", async () => {
     const directory = mkdtempSync(join(tmpdir(), "openteam-cli-password-"));
     temporaryDirectories.push(directory);

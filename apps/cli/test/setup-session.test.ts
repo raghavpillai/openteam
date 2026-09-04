@@ -52,6 +52,9 @@ const rowIds = (target: SetupSession) =>
     .filter((row) => SELECTABLE_ROW_KINDS.has(row.kind))
     .map((row) => ("id" in row ? row.id : row.kind));
 
+const textRow = (target: SetupSession, id: string) =>
+  target.view().rows.find((row) => row.kind === "text" && row.id === id);
+
 const edit = (target: SetupSession, value: string) => {
   enter(target);
   expect(target.view().mode).toBe("edit");
@@ -65,13 +68,13 @@ describe("interactive setup session", () => {
     const setup = session();
     expect(setup.view().activeStage).toBe(0);
     expect(setup.view().title).toBe("1. Access");
-    expect(highlighted(setup)).toBe("access:https");
+    expect(highlighted(setup)).toBe("access:local");
 
     press(setup, "down");
-    expect(highlighted(setup)).toBe("access:proxy");
+    expect(highlighted(setup)).toBe("access:https");
     press(setup, "up");
     press(setup, "up");
-    expect(highlighted(setup)).toBe("host");
+    expect(highlighted(setup)).toBe("access:private");
 
     press(setup, "right");
     expect(setup.view().activeStage).toBe(1);
@@ -82,49 +85,82 @@ describe("interactive setup session", () => {
     press(setup, "right");
     press(setup, "right");
     expect(setup.view().activeStage).toBe(3);
-    expect(setup.view().title).toBe("4. Launch");
+    expect(setup.view().title).toBe("4. Review");
 
     press(setup, "left");
     press(setup, "left");
     press(setup, "left");
     press(setup, "left");
     expect(setup.view().activeStage).toBe(0);
-    expect(highlighted(setup)).toBe("host");
-    expect(setup.view().stages).toHaveLength(5);
+    expect(highlighted(setup)).toBe("access:private");
+    expect(setup.view().stages.map((stage) => stage.label)).toEqual([
+      "Access",
+      "Owner",
+      "Runtime",
+      "Review",
+    ]);
   });
 
-  test("fresh public HTTPS setup flows from access to launch with Enter and arrows", () => {
+  test("recommends the detected private network and otherwise this machine only", () => {
+    const detected = session({ detectedPrivateHost: "100.100.10.5" });
+    expect(detected.state).toMatchObject({ accessMode: "private", host: "100.100.10.5" });
+    expect(highlighted(detected)).toBe("access:private");
+    expect(
+      detected.rows().find((row) => row.kind === "option" && row.id === "access:private")
+    ).toMatchObject({ selected: true, recommended: true });
+    expect(detected.rows().filter((row) => row.kind === "option" && row.recommended)).toHaveLength(
+      1
+    );
+
+    const loopback = session({ detectedPrivateHost: null });
+    expect(loopback.state).toMatchObject({ accessMode: "local", host: "" });
+    expect(
+      loopback.rows().find((row) => row.kind === "option" && row.id === "access:local")
+    ).toMatchObject({ selected: true, recommended: true });
+    expect(rowIds(loopback)).toEqual([
+      "access:private",
+      "access:local",
+      "access:https",
+      "access:proxy",
+      "access:http",
+    ]);
+  });
+
+  test("finishing a section moves to the next one, and Review waits for Apply", () => {
     const setup = session();
 
-    expect(enter(setup)).toEqual({ type: "continue" });
+    expect(type(setup, "3")).toEqual({ type: "continue" });
+    expect(setup.state.accessMode).toBe("https");
+    expect(setup.view().activeStage).toBe(0);
     expect(highlighted(setup)).toBe("host");
     expect(edit(setup, "bot.example.com")).toEqual({ type: "continue" });
     expect(setup.view().mode).toBe("navigate");
-    expect(setup.view().notice).toEqual({ text: "Press → to continue to Owner.", tone: "muted" });
-    expect(setup.view().completed).toEqual([true, false, true, false, false]);
-
-    press(setup, "right");
+    expect(setup.view().activeStage).toBe(1);
     expect(highlighted(setup)).toBe("username");
+    expect(setup.view().completed).toEqual([true, false, true, false]);
+
     enter(setup);
-    expect(
-      setup.view().rows.find((row) => row.kind === "text" && row.id === "username")
-    ).toMatchObject({ editing: { buffer: "openteam", error: null } });
+    expect(textRow(setup, "username")).toMatchObject({
+      editing: { buffer: "openteam", error: null },
+    });
     enter(setup);
+    expect(setup.view().activeStage).toBe(1);
     expect(highlighted(setup)).toBe("password");
     enter(setup);
     type(setup, PASSWORD);
     enter(setup);
-    expect(
-      setup.view().rows.find((row) => row.kind === "text" && row.id === "password")
-    ).toMatchObject({ editing: { buffer: "", label: "Confirm password" } });
+    expect(textRow(setup, "password")).toMatchObject({
+      editing: { buffer: "", label: "Confirm password" },
+    });
     type(setup, PASSWORD);
     enter(setup);
     expect(setup.view().mode).toBe("navigate");
-    expect(setup.view().completed).toEqual([true, true, true, false, false]);
-
-    press(setup, "right");
+    expect(setup.view().activeStage).toBe(2);
     expect(highlighted(setup)).toBe("provider:openai-codex");
-    press(setup, "right");
+    expect(setup.view().completed).toEqual([true, true, true, false]);
+
+    type(setup, "1");
+    expect(setup.view().activeStage).toBe(3);
     expect(highlighted(setup)).toBe("apply");
     expect(setup.view().rows).toContainEqual({
       kind: "field",
@@ -162,28 +198,26 @@ describe("interactive setup session", () => {
     press(setup, "right");
     expect(
       setup.rows().filter((row) => row.kind === "note" && row.tone === "warning")
-    ).toHaveLength(2);
+    ).toHaveLength(1);
 
     expect(enter(setup)).toEqual({ type: "continue" });
-    expect(setup.view().activeStage).toBe(0);
-    expect(highlighted(setup)).toBe("host");
+    expect(setup.view().activeStage).toBe(1);
+    expect(highlighted(setup)).toBe("password");
     expect(setup.view().notice).toEqual({
-      text: "Public domain is required in Access.",
+      text: "Set the owner password in Owner.",
       tone: "warning",
     });
-    expect(() => setup.configuration()).toThrow("Public domain is required");
+    expect(() => setup.configuration()).toThrow("Set the owner password");
   });
 
   test("validates text fields inline and lets Esc discard an edit", () => {
     const setup = session();
-    enter(setup);
+    type(setup, "3");
     edit(setup, "203.0.113.9");
     expect(setup.view().mode).toBe("edit");
-    expect(setup.view().rows.find((row) => row.kind === "text" && row.id === "host")).toMatchObject(
-      {
-        editing: { error: "Enter a public domain name, such as bot.example.com." },
-      }
-    );
+    expect(textRow(setup, "host")).toMatchObject({
+      editing: { error: "Enter a public domain name, such as bot.example.com." },
+    });
 
     press(setup, "right");
     expect(setup.view().activeStage).toBe(0);
@@ -194,31 +228,56 @@ describe("interactive setup session", () => {
 
   test("public HTTP needs a host and an explicit acknowledgement", () => {
     const setup = session();
-    type(setup, "3");
+    type(setup, "5");
     expect(setup.state.accessMode).toBe("http");
     expect(highlighted(setup)).toBe("host");
     expect(rowIds(setup)).toEqual([
+      "access:private",
+      "access:local",
       "access:https",
       "access:proxy",
       "access:http",
-      "access:private",
-      "access:local",
       "host",
       "httpAck",
     ]);
     edit(setup, "203.0.113.9");
+    expect(setup.view().activeStage).toBe(0);
     expect(setup.problems().map((problem) => problem.rowId)).toEqual(["httpAck", "password"]);
 
     expect(highlighted(setup)).toBe("httpAck");
     press(setup, "space");
     expect(setup.state.httpAcknowledged).toBe(true);
+    expect(setup.view().activeStage).toBe(1);
     expect(setup.problems().map((problem) => problem.rowId)).toEqual(["password"]);
   });
 
-  test("private mode prefills the detected address and keeps viewers on the LAN", () => {
+  test("a stored private address never prefills the public domain field", () => {
+    const setup = session({
+      current: environment({ OPENTEAM_PUBLIC_HOST: "100.113.180.21" }),
+      ownerConfigured: true,
+      detectedPrivateHost: null,
+    });
+    expect(setup.state.accessMode).toBe("local");
+    expect(setup.state.host).toBe("");
+    type(setup, "3");
+    expect(setup.state.host).toBe("");
+    expect(setup.view().activeStage).toBe(0);
+    type(setup, "1");
+    expect(setup.state.host).toBe("100.113.180.21");
+    expect(setup.view().activeStage).toBe(2);
+    press(setup, "left");
+    press(setup, "left");
+    type(setup, "3");
+    expect(setup.state.host).toBe("100.113.180.21");
+    expect(setup.problems()[0]?.message).toContain("Enter a public domain name");
+  });
+
+  test("private mode prefills the detected address and skips a configured owner", () => {
     const setup = session({ detectedPrivateHost: "100.100.10.5", ownerConfigured: true });
-    type(setup, "4");
+    expect(setup.state.accessMode).toBe("private");
+    type(setup, "1");
     expect(setup.state.host).toBe("100.100.10.5");
+    expect(setup.view().activeStage).toBe(2);
     expect(setup.problems()).toEqual([]);
     expect(setup.configuration()).toMatchObject({
       accessMode: "private",
@@ -237,9 +296,7 @@ describe("interactive setup session", () => {
     enter(setup);
     type(setup, "short");
     enter(setup);
-    expect(
-      setup.view().rows.find((row) => row.kind === "text" && row.id === "password")
-    ).toMatchObject({
+    expect(textRow(setup, "password")).toMatchObject({
       editing: { error: "Password must be between 8 and 128 characters." },
     });
     press(setup, "u", { ctrl: true });
@@ -247,9 +304,7 @@ describe("interactive setup session", () => {
     enter(setup);
     type(setup, "something else entirely");
     enter(setup);
-    expect(
-      setup.view().rows.find((row) => row.kind === "text" && row.id === "password")
-    ).toMatchObject({
+    expect(textRow(setup, "password")).toMatchObject({
       editing: { buffer: "", error: "Passwords do not match. Try again." },
     });
     expect(setup.state.ownerPassword).toBeNull();
@@ -259,44 +314,42 @@ describe("interactive setup session", () => {
     enter(setup);
     expect(setup.state.ownerPassword).toBe(PASSWORD);
     expect(setup.view().mode).toBe("navigate");
+    expect(setup.view().activeStage).toBe(2);
   });
 
-  test("switching providers resets the model, authentication defaults, and any typed key", () => {
+  test("provider options carry the sign-in method and reset the model, defaults, and key", () => {
     const setup = session({ authenticated: true, ownerConfigured: true });
-    type(setup, "5");
-    press(setup, "right");
-    press(setup, "right");
+    type(setup, "2");
+    expect(setup.view().activeStage).toBe(2);
     expect(setup.state.authenticate).toBe(false);
     expect(
       setup.rows().find((row) => row.kind === "toggle" && row.id === "authenticate")
     ).toMatchObject({ label: "Configure openai-codex authentication again", checked: false });
-
-    type(setup, "2");
-    expect(setup.state).toMatchObject({
-      provider: "anthropic",
-      model: "claude-sonnet-5",
-      authenticate: true,
-      authType: "oauth",
-    });
-    expect(highlighted(setup)).toBe("model");
     expect(rowIds(setup)).toEqual([
       "provider:openai-codex",
       "provider:anthropic",
+      "provider:anthropic-key",
       "provider:openai",
       "provider:custom",
       "model",
       "authenticate",
-      "authType",
     ]);
 
-    press(setup, "down");
-    press(setup, "down");
-    expect(highlighted(setup)).toBe("authType");
-    enter(setup);
-    expect(setup.state.authType).toBe("api_key");
-    press(setup, "down");
+    type(setup, "3");
+    expect(setup.state).toMatchObject({
+      provider: "anthropic",
+      model: "claude-sonnet-5",
+      authenticate: true,
+      authType: "api_key",
+      apiKey: null,
+    });
+    expect(setup.view().activeStage).toBe(2);
     expect(highlighted(setup)).toBe("apiKey");
+    expect(setup.problems().map((problem) => problem.message)).toEqual([
+      "Enter the anthropic API key or password in Runtime.",
+    ]);
     edit(setup, "anthropic-test-secret");
+    expect(setup.view().activeStage).toBe(3);
     expect(setup.configuration()).toMatchObject({
       provider: "anthropic",
       model: "claude-sonnet-5",
@@ -305,34 +358,97 @@ describe("interactive setup session", () => {
       apiKey: "anthropic-test-secret",
     });
 
-    type(setup, "3");
+    press(setup, "left");
+    type(setup, "2");
+    expect(setup.state).toMatchObject({
+      provider: "anthropic",
+      authenticate: true,
+      authType: "oauth",
+      apiKey: null,
+    });
+    expect(setup.view().activeStage).toBe(3);
+
+    press(setup, "left");
+    type(setup, "4");
     expect(setup.state).toMatchObject({
       provider: "openai",
       model: "gpt-5.5",
-      authenticate: true,
       authType: "api_key",
-      apiKey: null,
     });
-    expect(setup.problems().map((problem) => problem.message)).toEqual([
-      "Enter the openai API key or password in Runtime.",
-    ]);
+    expect(setup.view().activeStage).toBe(2);
+    expect(highlighted(setup)).toBe("apiKey");
 
     type(setup, "1");
-    expect(setup.state).toMatchObject({ provider: "openai-codex", model: "gpt-5.5" });
-    expect(setup.state.authenticate).toBe(false);
+    expect(setup.state).toMatchObject({
+      provider: "openai-codex",
+      model: "gpt-5.5",
+      authenticate: false,
+      authType: "oauth",
+    });
+    expect(setup.view().activeStage).toBe(3);
+  });
+
+  test("preselects a detected sign-in and marks it for reuse", () => {
+    const claude = { provider: "anthropic" as const, source: "Claude Code (macOS Keychain)" };
+    const setup = session({ detectedLogins: [claude], ownerConfigured: true });
+    expect(setup.state).toMatchObject({
+      provider: "anthropic",
+      model: "claude-sonnet-5",
+      authenticate: true,
+      authType: "oauth",
+    });
+    type(setup, "2");
+    expect(setup.view().activeStage).toBe(2);
+    expect(highlighted(setup)).toBe("provider:anthropic");
+    expect(
+      setup.rows().find((row) => row.kind === "option" && row.id === "provider:anthropic")
+    ).toMatchObject({
+      selected: true,
+      recommended: true,
+      badge: "detected",
+      description: "Reuses your Claude Code (macOS Keychain) sign-in; no browser login needed.",
+    });
+    expect(
+      setup.rows().find((row) => row.kind === "option" && row.id === "provider:openai-codex")
+    ).not.toMatchObject({ recommended: true });
+    expect(setup.configuration().reuseLogin).toEqual(claude);
+
+    enter(setup);
+    expect(setup.view().activeStage).toBe(3);
+    expect(setup.rows()).toContainEqual({
+      kind: "field",
+      label: "Sign-in",
+      value: "reuse Claude Code (macOS Keychain)",
+    });
+
+    press(setup, "left");
+    type(setup, "3");
+    expect(highlighted(setup)).toBe("apiKey");
+    edit(setup, "anthropic-test-secret");
+    expect(setup.view().activeStage).toBe(3);
+    expect(setup.configuration().reuseLogin).toBeUndefined();
+    expect(setup.rows()).toContainEqual({ kind: "field", label: "Sign-in", value: "API key" });
+
+    const authenticated = session({
+      detectedLogins: [claude],
+      ownerConfigured: true,
+      authenticated: true,
+    });
+    expect(authenticated.state).toMatchObject({ provider: "openai-codex", authenticate: false });
+    expect(authenticated.configuration().reuseLogin).toBeUndefined();
   });
 
   test("custom providers collect every field, cycle the API, and register on apply", () => {
     const setup = session({ ownerConfigured: true });
+    type(setup, "2");
     type(setup, "5");
-    press(setup, "right");
-    press(setup, "right");
-    type(setup, "4");
     expect(setup.state.provider).toBe("custom");
-    expect(highlighted(setup)).toBe("custom.id");
+    expect(setup.view().activeStage).toBe(2);
+    expect(highlighted(setup)).toBe("custom.baseUrl");
     expect(rowIds(setup)).toEqual([
       "provider:openai-codex",
       "provider:anthropic",
+      "provider:anthropic-key",
       "provider:openai",
       "provider:custom",
       "custom.id",
@@ -345,12 +461,16 @@ describe("interactive setup session", () => {
       "apiKey",
     ]);
 
+    press(setup, "up");
+    press(setup, "up");
+    expect(highlighted(setup)).toBe("custom.id");
     edit(setup, "BAD ID");
     expect(setup.view().mode).toBe("edit");
     press(setup, "u", { ctrl: true });
     type(setup, "acme");
     enter(setup);
-    expect(highlighted(setup)).toBe("custom.name");
+    expect(highlighted(setup)).toBe("custom.baseUrl");
+    press(setup, "up");
     edit(setup, "Acme AI");
     expect(highlighted(setup)).toBe("custom.baseUrl");
     edit(setup, "ftp://api.example.com");
@@ -358,18 +478,23 @@ describe("interactive setup session", () => {
     press(setup, "u", { ctrl: true });
     type(setup, "https://api.example.com/v1/");
     enter(setup);
-    expect(highlighted(setup)).toBe("custom.api");
+    expect(highlighted(setup)).toBe("custom.model");
+    press(setup, "up");
     enter(setup);
     enter(setup);
     enter(setup);
     expect(setup.state.custom.api).toBe("google-generative-ai");
     press(setup, "down");
     edit(setup, "gemini-2.5-pro");
+    expect(highlighted(setup)).toBe("apiKey");
+    press(setup, "up");
+    press(setup, "up");
     expect(highlighted(setup)).toBe("custom.reasoning");
     enter(setup);
     press(setup, "down");
     press(setup, "down");
     edit(setup, "generic-provider-password");
+    expect(setup.view().activeStage).toBe(3);
 
     expect(setup.problems()).toEqual([]);
     expect(setup.configuration()).toMatchObject({
@@ -391,31 +516,27 @@ describe("interactive setup session", () => {
 
   test("advanced mode exposes server settings with validation", () => {
     const setup = session({ advanced: true, ownerConfigured: true });
-    press(setup, "right");
-    press(setup, "right");
+    type(setup, "2");
+    expect(setup.view().activeStage).toBe(2);
     expect(rowIds(setup).slice(0, 2)).toEqual(["apiPort", "timeZone"]);
     expect(highlighted(setup)).toBe("provider:openai-codex");
-    type(setup, "2");
-    expect(highlighted(setup)).toBe("model");
     press(setup, "home");
     expect(highlighted(setup)).toBe("apiPort");
     edit(setup, "invalid");
-    expect(
-      setup.view().rows.find((row) => row.kind === "text" && row.id === "apiPort")
-    ).toMatchObject({
+    expect(textRow(setup, "apiPort")).toMatchObject({
       editing: { error: "API port must be a whole number." },
     });
     press(setup, "u", { ctrl: true });
     type(setup, "9444");
     enter(setup);
+    expect(highlighted(setup)).toBe("timeZone");
     edit(setup, "Europe/London");
+    expect(highlighted(setup)).toBe("provider:openai-codex");
     expect(rowIds(setup)).toContain("thinking");
     expect(rowIds(setup)).toContain("workerConcurrency");
     press(setup, "end");
-    expect(highlighted(setup)).toBe("authType");
+    expect(highlighted(setup)).toBe("authenticate");
     press(setup, "up");
-    press(setup, "up");
-    expect(highlighted(setup)).toBe("workerConcurrency");
     edit(setup, "4");
     expect(highlighted(setup)).toBe("authenticate");
     press(setup, "up");
@@ -423,10 +544,8 @@ describe("interactive setup session", () => {
     expect(highlighted(setup)).toBe("thinking");
     enter(setup);
     expect(setup.state.thinking).toBe("xhigh");
+    expect(setup.view().activeStage).toBe(2);
 
-    press(setup, "left");
-    press(setup, "left");
-    type(setup, "5");
     expect(setup.configuration()).toMatchObject({
       accessMode: "local",
       publicUrl: "http://127.0.0.1:9444",
@@ -449,13 +568,13 @@ describe("interactive setup session", () => {
     expect(highlighted(setup)).toBe("access:local");
     press(setup, "right");
     expect(setup.view().cursorRow).toBe(-1);
-    expect(setup.rows().map((row) => row.kind)).toEqual(["note", "note"]);
+    expect(setup.rows().map((row) => row.kind)).toEqual(["note"]);
     press(setup, "right");
     expect(highlighted(setup)).toBe("provider:acme");
     expect(
       setup.rows().find((row) => row.kind === "option" && row.id === "provider:acme")
     ).toMatchObject({ label: "Keep existing provider (acme)", selected: true, recommended: true });
-    expect(setup.view().completed).toEqual([true, true, true, false, false]);
+    expect(setup.view().completed).toEqual([true, true, true, false]);
     expect(setup.configuration()).toMatchObject({
       accessMode: "local",
       ownerUsername: "existing.owner",
@@ -467,7 +586,7 @@ describe("interactive setup session", () => {
     });
   });
 
-  test("launch notes surface port fallbacks and the cancel action ends without changes", () => {
+  test("review notes surface port fallbacks and the cancel action ends without changes", () => {
     const setup = session({
       current: environment({ OPENTEAM_API_PORT: "8788" }),
       notes: [{ text: "Port 8787 is already in use; using 8788.", tone: "info" }],
@@ -490,7 +609,7 @@ describe("interactive setup session", () => {
     expect(press(session(), "escape")).toEqual({ type: "cancel" });
     expect(press(session(), "c", { ctrl: true })).toEqual({ type: "interrupt" });
     const editing = session();
-    enter(editing);
+    type(editing, "3");
     enter(editing);
     expect(editing.view().mode).toBe("edit");
     expect(press(editing, "c", { ctrl: true })).toEqual({ type: "interrupt" });

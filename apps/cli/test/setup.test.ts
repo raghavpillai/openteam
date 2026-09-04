@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -16,6 +16,7 @@ import type { CommandRunner, RunOptions, RunResult } from "../src/process";
 import {
   collectSetupConfiguration,
   detectPrivateNetworkHost,
+  type SetupConfiguration,
   type SetupPrompter,
   selectionActionForKey,
   setupCommand,
@@ -88,6 +89,8 @@ class SetupRunner implements CommandRunner {
   ]);
   failComposeValidation = false;
   failStartup = false;
+  failImport = false;
+  readonly imports: string[] = [];
   running = ["postgres", "server", "worker", "computer"];
   publishedBy: Record<string, string> = {};
 
@@ -166,10 +169,49 @@ class SetupRunner implements CommandRunner {
         };
       }
       if (action === "login") this.onLogin();
+      if (action === "import") {
+        if (this.failImport) return { status: 1, stdout: "", stderr: "unknown command import" };
+        this.imports.push(options?.input ?? "");
+        this.onLogin();
+      }
     }
     return { status: 0, stdout: "", stderr: "" };
   }
 }
+
+const fakeJwt = (payload: Record<string, unknown>): string =>
+  ["e30", Buffer.from(JSON.stringify(payload)).toString("base64url"), "sig"].join(".");
+
+/** A prompter whose session immediately returns a loopback configuration plus overrides. */
+const sessionPrompter = (overrides: Partial<SetupConfiguration>): SetupPrompter => {
+  const answers = new AnswerPrompter([]);
+  return {
+    question: (prompt) => answers.question(prompt),
+    secret: (prompt) => answers.secret(prompt),
+    async session(input) {
+      const apiPort = input.current.get("OPENTEAM_API_PORT") ?? "8787";
+      return {
+        accessMode: "local",
+        bindHost: "127.0.0.1",
+        viewerBindHost: "127.0.0.1",
+        publicHost: "127.0.0.1",
+        publicUrl: `http://127.0.0.1:${apiPort}`,
+        composeProfiles: "direct",
+        ownerUsername: input.currentOwnerUsername ?? "openteam",
+        apiPort,
+        timeZone: "UTC",
+        provider: "openai-codex",
+        model: "gpt-5.5",
+        thinking: "high",
+        workerConcurrency: "8",
+        authenticate: false,
+        authType: "oauth",
+        ...overrides,
+      };
+    },
+    close() {},
+  };
+};
 
 const providerAction = (call: SetupRunner["calls"][number]): string | undefined => {
   const index = call.args.indexOf("openteam-pi-auth");
@@ -460,10 +502,66 @@ describe("interactive setup", () => {
     expect(prompter.prompts.some((prompt) => prompt.includes("Custom provider id"))).toBe(false);
   });
 
-  test("fresh setup defaults to automatic public HTTPS with internal ports kept private", async () => {
+  test("fresh setup defaults to the detected private network without asking for a host", async () => {
     const current = parseEnvironment(createEnvironment({ version: "1.2.3", timeZone: "UTC" }));
     const prompter = new AnswerPrompter([
       "",
+      "",
+      "correct horse battery staple",
+      "correct horse battery staple",
+      "",
+      "",
+      "no",
+    ]);
+
+    const configuration = await collectSetupConfiguration(current, false, prompter, {
+      fresh: true,
+      detectedPrivateHost: "100.100.10.5",
+    });
+
+    expect(configuration).toMatchObject({
+      accessMode: "private",
+      bindHost: "0.0.0.0",
+      viewerBindHost: "0.0.0.0",
+      publicHost: "100.100.10.5",
+      publicUrl: "http://100.100.10.5:8787",
+      composeProfiles: "direct",
+    });
+    expect(prompter.prompts[0]).toBe("Access mode [1]: ");
+  });
+
+  test("fresh setup falls back to this machine only when no private address is detected", async () => {
+    const current = parseEnvironment(createEnvironment({ version: "1.2.3", timeZone: "UTC" }));
+    const prompter = new AnswerPrompter([
+      "",
+      "",
+      "correct horse battery staple",
+      "correct horse battery staple",
+      "",
+      "",
+      "no",
+    ]);
+
+    const configuration = await collectSetupConfiguration(current, false, prompter, {
+      fresh: true,
+      detectedPrivateHost: null,
+    });
+
+    expect(configuration).toMatchObject({
+      accessMode: "local",
+      bindHost: "127.0.0.1",
+      viewerBindHost: "127.0.0.1",
+      publicHost: "127.0.0.1",
+      publicUrl: "http://127.0.0.1:8787",
+      composeProfiles: "direct",
+    });
+    expect(prompter.prompts[0]).toBe("Access mode [2]: ");
+  });
+
+  test("public HTTPS is an explicit choice that keeps internal ports private", async () => {
+    const current = parseEnvironment(createEnvironment({ version: "1.2.3", timeZone: "UTC" }));
+    const prompter = new AnswerPrompter([
+      "https",
       "bot.example.com",
       "",
       "correct horse battery staple",
@@ -475,6 +573,7 @@ describe("interactive setup", () => {
 
     const configuration = await collectSetupConfiguration(current, false, prompter, {
       fresh: true,
+      detectedPrivateHost: "100.100.10.5",
     });
 
     expect(configuration).toMatchObject({
@@ -510,9 +609,9 @@ describe("interactive setup", () => {
   test("public HTTP requires acknowledgement and keeps screen viewers off the Internet", async () => {
     const current = parseEnvironment(createEnvironment({ version: "1.2.3", timeZone: "UTC" }));
     const prompter = new AnswerPrompter([
-      "3",
+      "5",
       "no",
-      "3",
+      "http",
       "yes",
       "203.0.113.9",
       "",
@@ -626,7 +725,7 @@ describe("interactive setup", () => {
     });
 
     const prompter = new AnswerPrompter([
-      "5",
+      "local",
       "",
       "correct horse battery staple",
       "correct horse battery staple",
@@ -642,7 +741,7 @@ describe("interactive setup", () => {
     const runner = new SetupRunner(() => {
       authenticated = true;
     });
-    await setupCommand(paths, runner, { advanced: true }, prompter);
+    await setupCommand(paths, runner, { advanced: true, detectedLogins: [] }, prompter);
 
     const updatedContents = readFileSync(paths.environment, "utf8");
     const updated = parseEnvironment(updatedContents);
@@ -693,7 +792,7 @@ describe("interactive setup", () => {
     await setupCommand(
       fixture.paths,
       runner,
-      { presentation: silentPresentation },
+      { presentation: silentPresentation, detectedLogins: [] },
       new AnswerPrompter(["local", "openai", "", "yes", apiKey, "yes"])
     );
 
@@ -729,7 +828,7 @@ describe("interactive setup", () => {
     await setupCommand(
       fixture.paths,
       runner,
-      { presentation: silentPresentation },
+      { presentation: silentPresentation, detectedLogins: [] },
       new AnswerPrompter(["local", "anthropic", "", "yes", "oauth", "yes"])
     );
 
@@ -757,7 +856,7 @@ describe("interactive setup", () => {
     await setupCommand(
       fixture.paths,
       runner,
-      { presentation: silentPresentation },
+      { presentation: silentPresentation, detectedLogins: [] },
       new AnswerPrompter(["local", "anthropic", "", "yes", "api-key", apiKey, "yes"])
     );
 
@@ -779,7 +878,7 @@ describe("interactive setup", () => {
     await setupCommand(
       fixture.paths,
       runner,
-      { presentation: silentPresentation },
+      { presentation: silentPresentation, detectedLogins: [] },
       new AnswerPrompter([
         "local",
         "custom",
@@ -839,7 +938,7 @@ describe("interactive setup", () => {
       setupCommand(
         fixture.paths,
         runner,
-        { presentation: silentPresentation },
+        { presentation: silentPresentation, detectedLogins: [] },
         new AnswerPrompter(["local", "openai", "not-a-real-model", "no", "yes"])
       )
     ).rejects.toThrow("openteam model list openai");
@@ -858,7 +957,7 @@ describe("interactive setup", () => {
       setupCommand(
         fixture.paths,
         runner,
-        { presentation: silentPresentation },
+        { presentation: silentPresentation, detectedLogins: [] },
         new AnswerPrompter([
           "local",
           "custom",
@@ -889,7 +988,7 @@ describe("interactive setup", () => {
       setupCommand(
         fixture.paths,
         runner,
-        { presentation: silentPresentation },
+        { presentation: silentPresentation, detectedLogins: [] },
         new AnswerPrompter([
           "local",
           "custom",
@@ -920,7 +1019,7 @@ describe("interactive setup", () => {
       setupCommand(
         fixture.paths,
         runner,
-        { presentation: silentPresentation },
+        { presentation: silentPresentation, detectedLogins: [] },
         new AnswerPrompter([
           "local",
           "custom",
@@ -951,7 +1050,7 @@ describe("interactive setup", () => {
       setupCommand(
         fixture.paths,
         runner,
-        { presentation: silentPresentation },
+        { presentation: silentPresentation, detectedLogins: [] },
         new AnswerPrompter(["local", "openai", "", "yes", apiKey, "yes"])
       )
     ).rejects.toThrow("openteam provider login openai");
@@ -971,7 +1070,12 @@ describe("interactive setup", () => {
     const prompter = new AnswerPrompter([]);
 
     await expect(
-      setupCommand(fixture.paths, runner, { presentation: silentPresentation }, prompter)
+      setupCommand(
+        fixture.paths,
+        runner,
+        { presentation: silentPresentation, detectedLogins: [] },
+        prompter
+      )
     ).rejects.toThrow(
       "Another OpenTeam server is answering at http://127.0.0.1:" +
         `${port}, but this installation's server is not running. It is container openteam-dev-server-1 (Compose project openteam-dev).`
@@ -990,10 +1094,122 @@ describe("interactive setup", () => {
       setupCommand(
         fixture.paths,
         runner,
-        { presentation: silentPresentation },
+        { presentation: silentPresentation, detectedLogins: [] },
         new AnswerPrompter([])
       )
     ).rejects.toThrow("rejected this installation's control token");
+  });
+
+  test("imports a detected Codex sign-in instead of opening a browser", async () => {
+    const fixture = createSetupFixture();
+    const runner = new SetupRunner(() => {
+      fixture.state.authenticated = true;
+    });
+    const home = mkdtempSync(join(tmpdir(), "openteam-cli-home-"));
+    temporaryDirectories.push(home);
+    mkdirSync(join(home, ".codex"), { recursive: true });
+    const accessToken = fakeJwt({
+      exp: Math.floor(Date.now() / 1000) + 3600,
+      "https://api.openai.com/auth": { chatgpt_account_id: "acct-123" },
+    });
+    writeFileSync(
+      join(home, ".codex", "auth.json"),
+      JSON.stringify({
+        auth_mode: "chatgpt",
+        tokens: { access_token: accessToken, refresh_token: "codex-refresh-secret" },
+      })
+    );
+    const detected = {
+      provider: "openai-codex" as const,
+      source: "Codex CLI (~/.codex/auth.json)",
+    };
+    const output: string[] = [];
+    const prompter = sessionPrompter({
+      provider: "openai-codex",
+      model: "gpt-5.5",
+      authenticate: true,
+      authType: "oauth",
+      reuseLogin: detected,
+    });
+
+    await setupCommand(
+      fixture.paths,
+      runner,
+      {
+        presentation: { ...silentPresentation, message: (message) => output.push(message) },
+        detectedLogins: [detected],
+        loginDetection: { home, env: {}, platform: "linux" },
+      },
+      prompter
+    );
+
+    const importCall = runner.calls.find((call) => providerAction(call) === "import");
+    expect(importCall?.args).toContain("--no-TTY");
+    expect(importCall?.args.slice(-2)).toEqual(["import", "openai-codex"]);
+    expect(JSON.parse(runner.imports[0] ?? "{}")).toMatchObject({
+      type: "oauth",
+      access: accessToken,
+      refresh: "codex-refresh-secret",
+      accountId: "acct-123",
+    });
+    expect(runner.calls.some((call) => providerAction(call) === "login")).toBe(false);
+    expect(runner.calls.flatMap((call) => call.args).join(" ")).not.toContain(
+      "codex-refresh-secret"
+    );
+    expect(output).toContain("Reused your Codex CLI (~/.codex/auth.json) sign-in.");
+    expect(fixture.state.inference.providerId).toBe("openai-codex");
+  });
+
+  test("falls back to the browser sign-in when the running stack cannot import", async () => {
+    const fixture = createSetupFixture();
+    const runner = new SetupRunner(() => {
+      fixture.state.authenticated = true;
+    });
+    runner.failImport = true;
+    const home = mkdtempSync(join(tmpdir(), "openteam-cli-home-"));
+    temporaryDirectories.push(home);
+    mkdirSync(join(home, ".claude"), { recursive: true });
+    writeFileSync(
+      join(home, ".claude", ".credentials.json"),
+      JSON.stringify({
+        claudeAiOauth: {
+          accessToken: "claude-access",
+          refreshToken: "claude-refresh-secret",
+          expiresAt: Date.now() + 3600_000,
+        },
+      })
+    );
+    const detected = {
+      provider: "anthropic" as const,
+      source: "Claude Code (~/.claude/.credentials.json)",
+    };
+    const output: string[] = [];
+
+    await setupCommand(
+      fixture.paths,
+      runner,
+      {
+        presentation: { ...silentPresentation, message: (message) => output.push(message) },
+        detectedLogins: [detected],
+        loginDetection: { home, env: {}, platform: "linux" },
+      },
+      sessionPrompter({
+        provider: "anthropic",
+        model: "claude-sonnet-5",
+        authenticate: true,
+        authType: "oauth",
+        reuseLogin: detected,
+      })
+    );
+
+    expect(runner.calls.some((call) => providerAction(call) === "import")).toBe(true);
+    const login = runner.calls.find((call) => providerAction(call) === "login");
+    expect(login?.args.slice(-3)).toEqual(["login", "anthropic", "oauth"]);
+    expect(login?.options?.inherit).toBe(true);
+    expect(output.some((message) => message.includes("signing in through the browser"))).toBe(true);
+    expect(runner.calls.flatMap((call) => call.args).join(" ")).not.toContain(
+      "claude-refresh-secret"
+    );
   });
 
   test("cancels setup before provider validation without changing anything", async () => {
@@ -1003,7 +1219,7 @@ describe("interactive setup", () => {
     await setupCommand(
       fixture.paths,
       runner,
-      { presentation: silentPresentation },
+      { presentation: silentPresentation, detectedLogins: [] },
       new AnswerPrompter(["local", "", "", "no", "no"])
     );
 
@@ -1052,7 +1268,7 @@ describe("interactive setup", () => {
       close() {},
     };
 
-    await setupCommand(fixture.paths, runner, { presentation }, prompter);
+    await setupCommand(fixture.paths, runner, { presentation, detectedLogins: [] }, prompter);
 
     expect(seen).toHaveLength(1);
     expect(seen[0]).toMatchObject({
@@ -1066,8 +1282,7 @@ describe("interactive setup", () => {
       "Access",
       "Owner",
       "Runtime",
-      "Launch",
-      "Verify",
+      "Review",
     ]);
     expect(output).toContain("Configuration ready");
     expect(output).toContain("anthropic/claude-sonnet-5 · high");
@@ -1096,7 +1311,10 @@ describe("interactive setup", () => {
     await setupCommand(
       fixture.paths,
       runner,
-      { presentation: { ...silentPresentation, message: (message) => output.push(message) } },
+      {
+        presentation: { ...silentPresentation, message: (message) => output.push(message) },
+        detectedLogins: [],
+      },
       prompter
     );
 

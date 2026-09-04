@@ -81,22 +81,31 @@ start without the wizard.
 
 ## Choose how to reach it
 
-Setup is a single interactive session with four sections: Access, Owner, Runtime, and Launch.
-Left and Right move between sections, Up and Down move the highlight, Enter picks an option or
-edits a field, and Esc cancels without changes. The Launch section summarizes the configuration,
-lists anything still missing, and applies it. The Access section asks how the apps will reach the
+Setup is a single interactive session with four sections: Access, Owner, Runtime, and Review.
+Up and Down move the highlight, Enter picks an option or edits a field, and Esc cancels without
+changes. Finishing a section moves you to the next one; Left and Right move between them by hand.
+The Review section summarizes the configuration, lists anything still missing, and waits for you
+to apply it. The Access section asks how the apps will reach the
 server. You can change it later with `openteam setup`.
+
+Setup keeps the server private by default, the same posture OpenClaw takes: it recommends
+**Private network** when it detects a Tailscale, WireGuard, or LAN address, and **This machine
+only** otherwise. The public modes are explicit choices.
 
 | Mode | Use when | Ports opened | You must |
 | --- | --- | --- | --- |
-| **Public HTTPS** (default) | The server has a public IP and you own a domain | 80 and 443 on all interfaces. API and screen viewers stay on loopback. | Point an A or AAAA record at the host and allow inbound TCP 80 and 443. |
+| **Private network** (default when a private address is detected) | The host is only reachable over a LAN or VPN such as Tailscale | API port and `6200-6299` on all interfaces | Nothing if a private IP is detected. |
+| **This machine only** (default otherwise) | Server and desktop app on the same computer | Nothing beyond loopback | Nothing. Use an SSH tunnel for remote access. |
+| **Public HTTPS** | The server has a public IP and you own a domain | 80 and 443 on all interfaces. API and screen viewers stay on loopback. | Point an A or AAAA record at the host and allow inbound TCP 80 and 443. |
 | **Existing HTTPS proxy** | You already run nginx, Caddy, Traefik, or a load balancer | Nothing. API binds to `127.0.0.1`. | Proxy to `http://127.0.0.1:8787` and forward WebSocket upgrades. |
 | **Public HTTP** | Quick test on a bare IP, no TLS | API port on all interfaces. Viewers stay on loopback. | Open the API port. Tick the cleartext acknowledgement. |
-| **Private network** | The host is only reachable over a LAN or VPN such as Tailscale | API port and `6200-6299` on all interfaces | Nothing if a private IP is detected. |
-| **This machine only** | Server and desktop app on the same computer | Nothing beyond loopback | Nothing. Use an SSH tunnel for remote access. |
 
 Notes per mode:
 
+- **Private network.** Setup prefers a Tailscale address, then a LAN address, and fills it in for
+  you. The screen viewer ports have no login of their own, so keep this mode off untrusted
+  networks.
+- **This machine only.** Nothing leaves loopback. Reach it from elsewhere with an SSH tunnel.
 - **Public HTTPS.** Enter a real domain, not an IP. The bundled Caddy container gets and renews
   the certificate automatically, so the host needs no existing certificate. Setup refuses to
   switch into this mode if something else already listens on 80 or 443.
@@ -106,8 +115,6 @@ Notes per mode:
   `X-OpenTeam-Proxy: <OPENTEAM_PROXY_SECRET from .env>` to be trusted for client IPs.
 - **Public HTTP.** Your password and session tokens travel unencrypted. The iPhone app refuses
   cleartext connections to public addresses, so only the desktop app works here.
-- **Private network.** Setup prefers a Tailscale address, then a LAN address. The screen viewer
-  ports have no login of their own, so keep this mode off untrusted networks.
 
 After applying, setup checks DNS, the public endpoint, and certificate expiry for the three
 internet-facing modes. If the stack fails to come up, setup restores the previous `.env`.
@@ -132,6 +139,13 @@ Every credential change signs out all desktop and iPhone sessions.
 
 The last setup stage picks the provider and model that all bots use. You can change this at any
 time from the desktop app (**Settings → Server**) or the CLI, without restarting anything.
+
+If the Codex CLI or Claude Code is already signed in on this machine, setup detects it (in
+`~/.codex/auth.json`, `~/.claude/.credentials.json`, or the macOS Keychain), preselects that
+provider with a "detected" tag, and copies the sign-in into Pi so no browser login is needed. Pi
+uses the same OAuth clients as those tools, so the shared refresh token keeps working. If the two
+sides ever disagree after a refresh, sign in again on the side that fails. Set `CODEX_HOME` or
+`CLAUDE_CONFIG_DIR` if those tools keep their files elsewhere.
 
 | Provider | Sign in with | Default model |
 | --- | --- | --- |

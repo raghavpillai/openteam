@@ -13,6 +13,12 @@ import {
   writeManifest,
 } from "./config";
 import { API_PORT, PROJECT_NAME } from "./constants";
+import {
+  type DetectedLogin,
+  detectReusableLogins,
+  type LoginDetectionOptions,
+  readReusableCredential,
+} from "./detected-logins";
 import { type ComposeProject, requireComposeProject } from "./docker";
 import { printDoctor, runDoctor, suggestApiPort } from "./doctor";
 import { CliError } from "./errors";
@@ -48,6 +54,7 @@ import {
   existingReachableHost,
   HTTP_WARNINGS,
   publicUrlFor,
+  recommendedAccessMode,
   SETUP_STAGES,
   type SetupConfiguration,
   type SetupCustomProvider,
@@ -116,6 +123,12 @@ export interface SetupCommandOptions {
   fresh?: boolean;
   presentation?: SetupPresentation;
   ownerConfigured?: boolean;
+  /** Detected tailnet or LAN address; `undefined` detects it, `null` means none. */
+  detectedPrivateHost?: string | null;
+  /** Vendor CLI sign-ins to offer for reuse; `undefined` detects them. */
+  detectedLogins?: readonly DetectedLogin[];
+  /** Where to look for those sign-ins; defaults to this machine. */
+  loginDetection?: LoginDetectionOptions;
 }
 
 export const supportsInteractiveSelection = (
@@ -470,10 +483,20 @@ export const collectSetupConfiguration = async (
 ): Promise<SetupConfiguration> => {
   const presentation = options.presentation;
   presentation?.stage(0);
-  const currentAccess = configuredAccessMode(current, options.fresh ?? false);
+  const detectedPublicHost =
+    options.detectedPrivateHost === undefined
+      ? detectPrivateNetworkHost()
+      : options.detectedPrivateHost;
+  const recommendedAccess = recommendedAccessMode(detectedPublicHost);
+  const currentAccess = configuredAccessMode(current, options.fresh ?? false, detectedPublicHost);
   let selectedAccess: SetupConfiguration["accessMode"];
   while (true) {
-    presentation?.choices(ACCESS_CHOICES);
+    presentation?.choices(
+      ACCESS_CHOICES.map((choice) => ({
+        ...choice,
+        recommended: choice.value === recommendedAccess,
+      }))
+    );
     selectedAccess = prompter.select
       ? await prompter.select(
           "Access mode",
@@ -493,7 +516,6 @@ export const collectSetupConfiguration = async (
   }
 
   const existingHost = existingReachableHost(current);
-  const detectedPublicHost = detectPrivateNetworkHost();
   let reachableHost = "127.0.0.1";
   if (selectedAccess === "https" || selectedAccess === "proxy") {
     reachableHost = await askRequired(
@@ -641,6 +663,16 @@ export const collectSetupConfiguration = async (
     }
     if (configuration.authType === "api_key") {
       configuration.apiKey = await collectProviderSecret(prompter, configuration.provider);
+    } else if (
+      configuration.provider === "openai-codex" ||
+      configuration.provider === "anthropic"
+    ) {
+      const provider = configuration.provider;
+      const detected = (options.detectedLogins ?? []).find((login) => login.provider === provider);
+      if (detected) {
+        configuration.reuseLogin = { provider, source: detected.source };
+        presentation?.message(`Reusing your ${detected.source} sign-in.`, "success");
+      }
     }
   }
   return configuration;
@@ -856,6 +888,9 @@ export const setupCommand = async (
     options.presentation ??
     createSetupPresentation({ version: manifest.version, stages: SETUP_STAGES });
   const fresh = options.fresh ?? !manifest.ownerUsername;
+  const detectedPrivateHost = detectPrivateNetworkHost();
+  const loginDetection: LoginDetectionOptions = options.loginDetection ?? { runner };
+  const detectedLogins = options.detectedLogins ?? detectReusableLogins(loginDetection);
   const previousApiPort = current.get("OPENTEAM_API_PORT");
   const notes: Array<{ text: string; tone: MessageTone }> = [];
   if (fresh && !initialHealth.ok) {
@@ -874,6 +909,9 @@ export const setupCommand = async (
     fresh,
     ownerConfigured: Boolean(manifest.ownerUsername),
     presentation,
+    detectedPrivateHost,
+    detectedLogins,
+    loginDetection,
   };
   const authenticated = initialHealth.inference === "ready";
   const ownerUsername = manifest.ownerUsername || "openteam";
@@ -891,7 +929,8 @@ export const setupCommand = async (
         ownerConfigured: collectOptions.ownerConfigured,
         currentOwnerUsername: ownerUsername,
         currentInference,
-        detectedPrivateHost: detectPrivateNetworkHost(),
+        detectedPrivateHost,
+        detectedLogins,
         notes,
       });
       if (configuration) {
@@ -1039,10 +1078,37 @@ export const setupCommand = async (
       );
       configuration.apiKey = undefined;
     } else {
-      project.runOrThrow(
-        ["exec", "computer", "openteam-pi-auth", "login", configuration.provider, "oauth"],
-        { inherit: true }
-      );
+      let imported = false;
+      if (configuration.reuseLogin) {
+        const reusable = readReusableCredential(configuration.reuseLogin.provider, loginDetection);
+        if (!reusable) {
+          presentation.message(
+            `The ${configuration.reuseLogin.source} sign-in could not be read; signing in through the browser instead.`,
+            "warning"
+          );
+        } else {
+          // Tokens travel over stdin only, like API keys, and never appear in arguments.
+          const result = project.run(
+            ["exec", "--no-TTY", "computer", "openteam-pi-auth", "import", configuration.provider],
+            { input: JSON.stringify(reusable.credential) }
+          );
+          if (result.status === 0) {
+            imported = true;
+            presentation.message(`Reused your ${reusable.source} sign-in.`, "success");
+          } else {
+            presentation.message(
+              `Could not reuse the ${reusable.source} sign-in (${result.stderr.trim() || result.stdout.trim() || "import failed"}); signing in through the browser instead.`,
+              "warning"
+            );
+          }
+        }
+      }
+      if (!imported) {
+        project.runOrThrow(
+          ["exec", "computer", "openteam-pi-auth", "login", configuration.provider, "oauth"],
+          { inherit: true }
+        );
+      }
     }
     presentation.message(`${configuration.provider} authentication is ready.`, "success");
   }
@@ -1070,7 +1136,6 @@ export const setupCommand = async (
     );
   }
 
-  presentation.stage(4);
   presentation.message("Running OpenTeam doctor…", "info");
   const diagnosis = await runDoctor(paths, runner, manifest.projectName || PROJECT_NAME);
   printDoctor(diagnosis);

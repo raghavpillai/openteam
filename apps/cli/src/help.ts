@@ -61,7 +61,7 @@ Advanced release/testing options:
 
   setup: `${heading(
     "openteam setup [options]",
-    "Reconfigure access, runtime, provider, model, and launch settings.\nExisting owner credentials are preserved."
+    "Reconfigure access, runtime, provider, and model, then review and relaunch.\nExisting owner credentials are preserved."
   )}
 
 Options:

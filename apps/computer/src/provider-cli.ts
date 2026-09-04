@@ -4,7 +4,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
-import type { AuthEvent, AuthPrompt, AuthType } from "@earendil-works/pi-ai";
+import type { AuthEvent, AuthPrompt, AuthType, OAuthCredential } from "@earendil-works/pi-ai";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import {
   formatPiModelRef,
@@ -29,6 +29,7 @@ const usage = () => {
   openteam-pi-auth selection
   openteam-pi-auth models [provider]
   openteam-pi-auth login <provider> <oauth|api_key>
+  openteam-pi-auth import <provider>   # reads OAuth tokens JSON from stdin
   openteam-pi-auth logout <provider>
   openteam-pi-auth verify <provider> <model>
   openteam-pi-auth add-custom       # reads JSON from stdin
@@ -104,6 +105,70 @@ const login = async (providerId: string, authType: AuthType): Promise<void> => {
   const status = await runtime.checkAuth(providerId);
   if (!status) throw new Error(`${provider.name} authentication was not stored`);
   console.log(`${provider.name} ${status.type.replace("_", " ")} authentication is ready.`);
+};
+
+type OAuthImportInput = {
+  access: string;
+  refresh: string;
+  expires: number;
+  accountId?: string;
+};
+
+const oauthImportInput = (value: unknown): OAuthImportInput => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("OAuth import input must be an object");
+  }
+  const input = value as Record<string, unknown>;
+  const access = typeof input.access === "string" ? input.access.trim() : "";
+  const refresh = typeof input.refresh === "string" ? input.refresh.trim() : "";
+  if (!access || !refresh) throw new Error("OAuth import needs access and refresh tokens");
+  const expires = Number(input.expires ?? 0);
+  if (!Number.isFinite(expires) || expires < 0) throw new Error("OAuth expiry is invalid");
+  const accountId = typeof input.accountId === "string" ? input.accountId.trim() : "";
+  return { access, refresh, expires, ...(accountId ? { accountId } : {}) };
+};
+
+const writeAuthCredential = async (
+  providerId: string,
+  credential: OAuthCredential
+): Promise<void> => {
+  let document: Record<string, unknown> = {};
+  if (existsSync(authPath)) {
+    const parsed: unknown = JSON.parse(await readFile(authPath, "utf8"));
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      document = parsed as Record<string, unknown>;
+    }
+  }
+  document[providerId] = credential;
+  await mkdir(dirname(authPath), { recursive: true });
+  const temporary = `${authPath}.${process.pid}.tmp`;
+  await writeFile(temporary, `${JSON.stringify(document, null, 2)}\n`, { mode: 0o600 });
+  await rename(temporary, authPath);
+};
+
+/**
+ * Store an OAuth sign-in copied from a vendor CLI (Codex CLI, Claude Code). Pi uses the
+ * same OAuth clients, so the refresh token keeps working. An expired access token is
+ * refreshed here so a dead refresh token fails during setup rather than on first use.
+ */
+const importOAuthCredential = async (providerId: string): Promise<void> => {
+  const runtime = await createRuntime();
+  const provider = runtime.getProvider(providerId);
+  if (!provider) throw new Error(`Unknown Pi inference provider: ${providerId}`);
+  const oauth = provider.auth.oauth;
+  if (!oauth) throw new Error(`${provider.name} does not support OAuth authentication`);
+  const input = oauthImportInput(JSON.parse(await stdinText()));
+  let credential: OAuthCredential = { type: "oauth", ...input };
+  if (credential.expires <= Date.now()) {
+    credential = {
+      ...(await oauth.refresh(credential, AbortSignal.timeout(30_000))),
+      type: "oauth",
+    };
+  }
+  await writeAuthCredential(providerId, credential);
+  const status = await runtime.checkAuth(providerId);
+  if (!status) throw new Error(`${provider.name} authentication was not stored`);
+  console.log(`${provider.name} sign-in was imported and is ready.`);
 };
 
 const readModelsDocument = async (): Promise<Record<string, unknown>> => {
@@ -316,6 +381,7 @@ const main = async (): Promise<void> => {
     }
     return login(providerId, rawArgument);
   }
+  if (command === "import") return importOAuthCredential(providerId);
   if (command === "logout") {
     await runtime.logout(providerId);
     console.log(`Logged out of ${providerId}.`);

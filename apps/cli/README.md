@@ -29,17 +29,19 @@ options. Provider and model subcommands have their own help pages as well.
 
 `openteam install` enters staged setup in the same command. The standalone `openteam setup` command
 reconfigures an existing installation without changing its owner or signing out active sessions.
-Setup chooses bundled public HTTPS, an existing HTTPS reverse proxy/load balancer, acknowledged
-public HTTP, private-network, or loopback access; creates the single OpenTeam username/password owner; and
+Setup chooses private-network, loopback, bundled public HTTPS, existing HTTPS reverse proxy/load
+balancer, or acknowledged public HTTP access; creates the single OpenTeam username/password owner; and
 selects and configures a Pi inference provider and provider-qualified model. The guided choices cover
 ChatGPT Plus/Pro OAuth, Claude Pro/Max OAuth, OpenAI and Anthropic API keys, and compatible custom
-endpoints. Public HTTPS is recommended and uses a bundled Caddy service:
-point a domain's A/AAAA record at the VM and open inbound TCP ports 80 and 443, and Caddy obtains and
-renews the certificate automatically. No certificate needs to exist on the VM beforehand.
-Setup runs as one interactive session with Access, Owner, Runtime, and Launch sections. Left and Right
-move between sections, Up and Down move the highlight within a section, Enter picks the highlighted
-option or edits the highlighted field, and Esc cancels without changes. The Launch section lists anything
-still missing and applies the configuration. Terminals without cursor support (`TERM=dumb`) fall back to
+endpoints. Like OpenClaw, setup stays private by default: it recommends the detected Tailscale, WireGuard,
+or LAN address, or this machine only when none is found. Public HTTPS is an explicit choice that uses a
+bundled Caddy service: point a domain's A/AAAA record at the VM and open inbound TCP ports 80 and 443,
+and Caddy obtains and renews the certificate automatically. No certificate needs to exist on the VM
+beforehand.
+Setup runs as one interactive session with Access, Owner, Runtime, and Review sections. Up and Down move
+the highlight within a section, Enter picks the highlighted option or edits the highlighted field, and Esc
+cancels without changes. Finishing a section moves to the next one automatically; Left and Right move
+between sections by hand. The Review section lists anything still missing and waits for Apply. Terminals without cursor support (`TERM=dumb`) fall back to
 typed prompts.
 
 Public HTTP accepts an IP address or hostname, but it sends passwords and bearer sessions without

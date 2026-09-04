@@ -96,7 +96,7 @@ three things:
 
 | Step | Choices |
 | --- | --- |
-| **Access** | Public HTTPS with automatic certificates (default), existing reverse proxy, public HTTP, private network, or this machine only |
+| **Access** | Private network such as Tailscale (default when detected), this machine only (default otherwise), public HTTPS with automatic certificates, existing reverse proxy, or public HTTP |
 | **Owner account** | The single username and password every app signs in with |
 | **Model provider** | ChatGPT Plus/Pro (default), Claude Pro/Max, OpenAI or Anthropic API key, or a custom endpoint, plus a model |
 

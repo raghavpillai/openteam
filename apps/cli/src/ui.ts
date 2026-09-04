@@ -40,6 +40,8 @@ export type SessionRow =
       description?: string;
       selected: boolean;
       recommended?: boolean;
+      /** Short green tag such as "detected"; joined with "recommended" when both apply. */
+      badge?: string;
     }
   | {
       kind: "text";
@@ -312,8 +314,11 @@ export const renderSetupSession = (
       }
       case "option": {
         const marker = row.selected ? paint(styled, "●", ANSI.green) : paint(styled, "○", ANSI.dim);
-        const badge = row.recommended ? paint(styled, "  recommended", ANSI.green) : "";
-        const badgeWidth = row.recommended ? 13 : 0;
+        const tags = [row.badge, row.recommended ? "recommended" : null]
+          .filter(Boolean)
+          .join(" · ");
+        const badge = tags ? paint(styled, `  ${tags}`, ANSI.green) : "";
+        const badgeWidth = tags ? tags.length + 2 : 0;
         const label = truncate(row.label, Math.max(1, width - 6 - badgeWidth));
         body.push(
           `  ${pointer} ${marker} ${active || row.selected ? paint(styled, label, ANSI.bold) : label}${badge}`

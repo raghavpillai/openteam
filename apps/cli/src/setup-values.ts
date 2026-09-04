@@ -1,5 +1,6 @@
 import { isIP } from "node:net";
 import { networkInterfaces } from "node:os";
+import type { ReusableProvider } from "./detected-logins";
 import type { RuntimeInferenceSettings } from "./runtime-settings";
 import type { SetupStage } from "./ui";
 
@@ -9,7 +10,7 @@ export const DEFAULT_RUNTIME_INFERENCE: RuntimeInferenceSettings = {
   modelId: "gpt-5.5",
   reasoning: "high",
 };
-export const ACCESS_MODES = ["https", "proxy", "http", "private", "local"] as const;
+export const ACCESS_MODES = ["private", "local", "https", "proxy", "http"] as const;
 export const CUSTOM_PROVIDER_APIS = [
   "openai-responses",
   "openai-completions",
@@ -45,9 +46,18 @@ export const DEFAULT_PROVIDER_MODELS: Readonly<Record<string, string>> = {
 };
 export const ACCESS_CHOICES = [
   {
+    title: "Private network",
+    description: "A Tailscale, WireGuard, or LAN address that only your devices can reach.",
+    value: "private",
+  },
+  {
+    title: "This machine only",
+    description: "Loopback for the desktop app on this computer or an SSH tunnel.",
+    value: "local",
+  },
+  {
     title: "Public HTTPS",
-    description: "A domain plus automatic TLS from the bundled Caddy proxy.",
-    recommended: true,
+    description: "A public domain plus automatic TLS from the bundled Caddy proxy.",
     value: "https",
   },
   {
@@ -60,23 +70,15 @@ export const ACCESS_CHOICES = [
     description: "An IP or hostname without encryption; desktop/testing only, not iOS.",
     value: "http",
   },
-  {
-    title: "Private network",
-    description: "A LAN, Tailscale, WireGuard, or another trusted private network.",
-    value: "private",
-  },
-  {
-    title: "This machine only",
-    description: "Loopback access for development or an SSH tunnel.",
-    value: "local",
-  },
 ] as const;
 export const SETUP_STAGES: readonly SetupStage[] = [
   { label: "Access", description: "Choose how desktop and mobile apps reach this server." },
   { label: "Owner", description: "Create the single username and password for this OpenTeam." },
   { label: "Runtime", description: "Choose the Pi inference provider and model." },
-  { label: "Launch", description: "Apply the configuration and start Docker Compose." },
-  { label: "Verify", description: "Check the deployment, credentials, and public endpoint." },
+  {
+    label: "Review",
+    description: "Check the configuration, then apply and verify the deployment.",
+  },
 ] as const;
 export const HTTP_WARNINGS = [
   "Public HTTP exposes the owner password and every session token to network observers.",
@@ -106,6 +108,8 @@ export interface SetupConfiguration {
   authType: "oauth" | "api_key";
   apiKey?: string;
   customProvider?: SetupCustomProvider;
+  /** Copy an existing vendor CLI sign-in into Pi instead of opening a browser. */
+  reuseLogin?: { provider: ReusableProvider; source: string };
 }
 
 export interface SetupCustomProvider {
@@ -233,23 +237,23 @@ export const validateIntegerInRange =
 export const validateAccessMode = (value: string): AccessMode => {
   const normalized = value.trim().toLowerCase();
   const aliases: Record<string, AccessMode> = {
-    "1": "https",
-    https: "https",
-    public: "https",
-    "public-https": "https",
-    "2": "proxy",
-    http: "http",
-    "public-http": "http",
-    proxy: "proxy",
-    "external-proxy": "proxy",
-    "3": "http",
-    "4": "private",
+    "1": "private",
     private: "private",
     vpn: "private",
     tailnet: "private",
-    "5": "local",
+    "2": "local",
     local: "local",
     loopback: "local",
+    "3": "https",
+    https: "https",
+    public: "https",
+    "public-https": "https",
+    "4": "proxy",
+    proxy: "proxy",
+    "external-proxy": "proxy",
+    "5": "http",
+    http: "http",
+    "public-http": "http",
   };
   const selected = aliases[normalized];
   if (selected) return selected;
@@ -320,15 +324,23 @@ export const validatePublicDomain = (value: string): string => {
   return normalized;
 };
 
+/**
+ * Like OpenClaw, keep the server private by default: the detected tailnet or LAN
+ * address when there is one, otherwise loopback. Public modes are explicit choices.
+ */
+export const recommendedAccessMode = (detectedPrivateHost: string | null): AccessMode =>
+  detectedPrivateHost ? "private" : "local";
+
 export const configuredAccessMode = (
   current: ReadonlyMap<string, string>,
-  fresh: boolean
+  fresh: boolean,
+  detectedPrivateHost: string | null = null
 ): AccessMode => {
   const stored = current.get("OPENTEAM_ACCESS_MODE");
   if (stored && ACCESS_MODES.includes(stored as AccessMode)) {
     if (!fresh) return stored as AccessMode;
   }
-  if (fresh) return "https";
+  if (fresh) return recommendedAccessMode(detectedPrivateHost);
   const publicUrl = current.get("OPENTEAM_PUBLIC_URL") || "";
   if (publicUrl.startsWith("https://")) return "https";
   if (current.get("OPENTEAM_BIND_HOST") === "127.0.0.1") return "local";

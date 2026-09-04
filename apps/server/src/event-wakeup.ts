@@ -5,8 +5,8 @@ const RECONNECT_DELAY_MS = 1_000;
 const UNHEALTHY_POLL_MS = 1_500;
 
 /**
- * One LISTEN connection fans a commit notification out to every active SSE
- * response. The monotonically increasing version closes the query/wait race:
+ * One LISTEN connection fans a commit notification out to every active live
+ * event request. The monotonically increasing version closes the query/wait race:
  * a notification arriving between an empty query and wait() resolves the wait
  * immediately.
  */
@@ -26,7 +26,7 @@ export class EventWakeup {
   async start(): Promise<void> {
     this.stopped = false;
     await this.connect().catch((error) => {
-      console.warn("event LISTEN unavailable; SSE will use keepalive fallback", error);
+      console.warn("event LISTEN unavailable; live events will use polling fallback", error);
       this.scheduleReconnect();
     });
   }

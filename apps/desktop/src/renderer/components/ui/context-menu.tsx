@@ -23,14 +23,21 @@ export function ContextMenuContent({
   );
 }
 
+type ContextMenuItemProps = ComponentProps<typeof ContextMenuPrimitive.Item> & {
+  variant?: "default" | "destructive";
+};
+
 export function ContextMenuItem({
   className,
+  variant = "default",
   ...props
-}: ComponentProps<typeof ContextMenuPrimitive.Item>) {
+}: ContextMenuItemProps) {
   return (
     <ContextMenuPrimitive.Item
       className={cn(
         "relative flex h-8 cursor-pointer select-none items-center gap-2.5 rounded-lg px-2 text-[13px] outline-none data-[disabled]:pointer-events-none data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground data-[disabled]:opacity-50 [&_svg]:shrink-0 [&_svg]:text-foreground-secondary",
+        variant === "destructive" &&
+          "text-destructive data-[highlighted]:bg-destructive/10 data-[highlighted]:text-destructive [&_svg]:text-destructive",
         className
       )}
       {...props}

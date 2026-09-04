@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { type EventStreamSource, eventStream, SSE_EVENT_BATCH_SIZE } from "../src/event-stream";
+import {
+  type EventStreamSource,
+  eventPoll,
+  eventStream,
+  SSE_EVENT_BATCH_SIZE,
+} from "../src/event-stream";
 
 const decoder = new TextDecoder();
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
@@ -104,6 +109,39 @@ describe("pull-driven event stream", () => {
     expect(limits.every((limit) => limit === SSE_EVENT_BATCH_SIZE)).toBe(true);
   });
 
+  test("re-queries and emits immediately when a waiting stream is notified", async () => {
+    let available = false;
+    const cursors: bigint[] = [];
+    const source: EventStreamSource = {
+      eventVersion: 7,
+      eventWindowAfter: async (cursor) => {
+        cursors.push(cursor);
+        return {
+          oldest: available ? 41n : null,
+          latest: available ? 41n : null,
+          cursorExpired: false,
+          cursorAhead: false,
+          events: available ? [event(41)] : [],
+        };
+      },
+      waitForEvent: async (version, timeoutMs) => {
+        expect(version).toBe(7);
+        expect(timeoutMs).toBe(15_000);
+        available = true;
+        return 8;
+      },
+    };
+    const reader = eventStream(source, 40n, new AbortController().signal).getReader();
+
+    expect(decoder.decode((await reader.read()).value)).toBe(": connected\n\n");
+    const notifiedChunk = decoder.decode((await reader.read()).value);
+    await reader.cancel();
+
+    expect(cursors).toEqual([40n, 40n]);
+    expect(notifiedChunk).toContain("id: 41\n");
+    expect(notifiedChunk).toContain('"sequence":"41"');
+  });
+
   test("invalid cursors emit one snapshot.required product event", async () => {
     const source: EventStreamSource = {
       eventVersion: 0,
@@ -152,5 +190,83 @@ describe("pull-driven event stream", () => {
     await pendingRead;
 
     expect(waitSignal?.aborted).toBe(true);
+  });
+});
+
+describe("wake-driven event polling", () => {
+  test("returns an available bounded batch immediately", async () => {
+    const source: EventStreamSource = {
+      eventVersion: 4,
+      eventWindowAfter: async (cursor, limit) => ({
+        oldest: 1n,
+        latest: 100n,
+        cursorExpired: false,
+        cursorAhead: false,
+        events: Array.from({ length: limit }, (_, index) => event(Number(cursor) + index + 1)),
+      }),
+      waitForEvent: async () => {
+        throw new Error("an available batch must not wait");
+      },
+    };
+
+    const batch = await eventPoll(source, 10n, new AbortController().signal);
+
+    expect(batch.events).toHaveLength(SSE_EVENT_BATCH_SIZE);
+    expect(batch.events[0]?.sequence).toBe("11");
+    expect(batch.events.at(-1)?.sequence).toBe("74");
+  });
+
+  test("re-queries after a wakeup without waiting for a fallback refresh", async () => {
+    let available = false;
+    const cursors: bigint[] = [];
+    const source: EventStreamSource = {
+      eventVersion: 7,
+      eventWindowAfter: async (cursor) => {
+        cursors.push(cursor);
+        return {
+          oldest: available ? 1n : null,
+          latest: available ? 41n : null,
+          cursorExpired: false,
+          cursorAhead: false,
+          events: available ? [event(41)] : [],
+        };
+      },
+      waitForEvent: async (version, timeoutMs) => {
+        expect(version).toBe(7);
+        expect(timeoutMs).toBe(25_000);
+        available = true;
+        return 8;
+      },
+    };
+
+    const batch = await eventPoll(source, 40n, new AbortController().signal);
+
+    expect(cursors).toEqual([40n, 40n]);
+    expect(batch.events.map((item) => item.sequence)).toEqual(["41"]);
+  });
+
+  test("preserves snapshot recovery semantics for invalid cursors", async () => {
+    const source: EventStreamSource = {
+      eventVersion: 0,
+      eventWindowAfter: async () => ({
+        oldest: 10n,
+        latest: 20n,
+        cursorExpired: false,
+        cursorAhead: true,
+        events: [],
+      }),
+      waitForEvent: async () => {
+        throw new Error("an invalid cursor must not wait");
+      },
+    };
+
+    const batch = await eventPoll(source, 50n, new AbortController().signal, 0);
+
+    expect(batch.events).toHaveLength(1);
+    expect(batch.events[0]).toMatchObject({
+      sequence: "20",
+      topic: "snapshot.required",
+      payload: { reason: "cursor_ahead", oldestAvailable: "10", latestAvailable: "20" },
+    });
   });
 });

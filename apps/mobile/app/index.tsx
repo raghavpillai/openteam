@@ -3,6 +3,7 @@ import { toggleSidebarUnread } from "@openteam/contracts/client-preferences";
 import { channelMessageSummary } from "@openteam/product-core/channel-events";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
 import type { ChannelRowProjection } from "@openteam/product-core/snapshot";
+import { formatRosterTimestamp } from "@openteam/product-core/timestamps";
 import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
@@ -34,25 +35,7 @@ import { MOBILE_VIRTUAL_LIST_TUNING, selectPinnedRows } from "../src/list-scale"
 import { useOpenTeam } from "../src/state/openteam-context";
 import { metrics, useTheme } from "../src/theme";
 
-const rosterTimeFormatter = new Intl.DateTimeFormat(undefined, {
-  hour: "numeric",
-  minute: "2-digit",
-});
-
-const timeLabel = (value: string | undefined): string => {
-  if (!value) return "";
-  const date = new Date(value);
-  const now = new Date();
-  const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-  const startValue = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
-  const dayDifference = Math.round((startToday - startValue) / 86_400_000);
-  if (dayDifference === 0) return rosterTimeFormatter.format(date);
-  if (dayDifference === 1) return "Yesterday";
-  if (dayDifference > 1 && dayDifference < 7) {
-    return date.toLocaleDateString([], { weekday: "long" });
-  }
-  return date.toLocaleDateString([], { month: "numeric", day: "numeric" });
-};
+const timeLabel = formatRosterTimestamp;
 
 type ConversationItem =
   | { kind: "channel"; row: ChannelRowProjection }

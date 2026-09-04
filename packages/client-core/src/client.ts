@@ -13,11 +13,12 @@ import type {
   ClientBootstrapView,
   ClientRuntimeView,
   ClientSnapshot,
-  ConfigurePluginConnectionInput,
   ComputerHandoffMutationInput,
+  ConfigurePluginConnectionInput,
   CreateBotInput,
   CreateGroupInput,
   CreateRoutineInput,
+  InferenceProviderAuthSessionView,
   MessageDeliveryStatusView,
   PluginBotAccessView,
   PluginConnectionStatusesView,
@@ -27,9 +28,6 @@ import type {
   RegisterPushDeviceInput,
   RichMessageMutationView,
   RootSettingsView,
-  ServerInferenceSettings,
-  ServerSettingsView,
-  InferenceProviderAuthSessionView,
   RoutineExecutionView,
   RoutineView,
   ScreenActionInput,
@@ -37,6 +35,8 @@ import type {
   SearchCategory,
   SearchResponse,
   SendMessageInput,
+  ServerInferenceSettings,
+  ServerSettingsView,
   SetChannelHiddenInput,
   SetChannelMembersInput,
   SetPluginToolPolicyInput,
@@ -48,13 +48,19 @@ import type {
   UploadAssetInput,
 } from "@openteam/contracts";
 import { PLUGIN_CONNECTION_STATUS_MAX_IDS } from "@openteam/contracts/plugin-settings";
-import { consumeProductEventStream, type ProductEventHandlers } from "./events";
+import {
+  consumeProductEventStream,
+  type ProductEventHandlers,
+  readProductEventBatch,
+} from "./events";
 import { createJsonTransport, type OpenTeamTransportOptions } from "./http";
 import { normalizeClientSnapshot } from "./snapshot";
 
 export interface OpenTeamClientOptions extends OpenTeamTransportOptions {
   createId?: () => string;
   timeZone?: () => string;
+  /** Use long polling where fetch does not expose an incrementally readable SSE body. */
+  eventTransport?: "stream" | "long-poll";
 }
 
 export interface SendMessageOptions {
@@ -276,7 +282,30 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
       handlers: ProductEventHandlers,
       signal?: AbortSignal
     ) => {
-      const cursor = /^\d+$/.test(after) ? after : "0";
+      let cursor = /^\d+$/.test(after) ? after : "0";
+      if (options.eventTransport === "long-poll") {
+        let opened = false;
+        while (!signal?.aborted) {
+          const params = new URLSearchParams({
+            after: cursor,
+            waitMs: opened ? "25000" : "0",
+          });
+          const response = await transport.open(`/api/v0/events/poll?${params}`, {
+            headers: { accept: "application/json" },
+            signal,
+          });
+          const events = await readProductEventBatch(response);
+          if (!opened) {
+            opened = true;
+            handlers.onOpen?.();
+          }
+          for (const event of events) {
+            cursor = /^\d+$/.test(event.sequence) ? event.sequence : cursor;
+            handlers.onEvent(event);
+          }
+        }
+        return;
+      }
       const response = await transport.open(`/api/v0/events?after=${encodeURIComponent(cursor)}`, {
         headers: { accept: "text/event-stream" },
         signal,

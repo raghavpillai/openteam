@@ -2,6 +2,70 @@
 
 This directory starts a disposable OpenTeam stack for renderer and Electron stress testing. It does not use the normal OpenTeam database or agent-data volume.
 
+## Client CPU and smoothness profiling
+
+`profile-desktop-runtime.ts` records an Electron CPU profile, Chromium timeline,
+visible/focused rAF cadence, long tasks, Event Timing, app metrics, and before/after
+GC heap sizes. It observes the app; it never clicks, types, or scrolls. Perform
+those actions through CUA while the script prints `PROFILE_READY`:
+
+```sh
+OPENTEAM_AUDIT_CDP_URL=http://127.0.0.1:9334 \
+OPENTEAM_AUDIT_PROFILE_MS=60000 \
+OPENTEAM_AUDIT_OUTPUT=/tmp/openteam-profile \
+  bun scripts/performance/profile-desktop-runtime.ts
+```
+
+Keep production builds frozen under separate directories so rebuilding cannot
+replace hashed chunks in a running baseline. Use identical fixtures, viewport,
+theme, warmup, and action counts for both arms. The frame summary excludes the
+first/last 250 ms of attachment overhead; heap collection runs outside the frame
+window. Inspect the recorded app-event count rather than assuming every action
+in a long CUA session occurred before the profiler stopped.
+
+`benchmark-client-models.ts` measures synchronous, renderer-neutral algorithms,
+not device interaction latency. It accepts `OPENTEAM_PERF_CORE_MODULE` and
+`OPENTEAM_PERF_NOTIFICATION_MODULE` paths to frozen baseline modules, plus
+`OPENTEAM_MODEL_SAMPLES` and `OPENTEAM_AUDIT_OUTPUT`. Alternate baseline/candidate
+order, and do not run these CPU-heavy loops during UI frame measurements. Bun's
+`--cpu-prof --cpu-prof-md` options retain attributable CPU samples.
+
+### Isolated iOS release probe
+
+`ios-frame-probe.m` is an opt-in **profiling library**, never part of the shipping
+app or its Pods. It records native main-run-loop CADisplayLink intervals, process
+CPU time, physical footprint, and the first React content notification when
+available. Build it with the installed simulator SDK:
+
+```sh
+sdk=$(xcrun --sdk iphonesimulator --show-sdk-path)
+xcrun clang -dynamiclib -fobjc-arc -O2 -isysroot "$sdk" \
+  -target arm64-apple-ios16.4-simulator \
+  -framework Foundation -framework UIKit -framework QuartzCore \
+  scripts/performance/ios-frame-probe.m -o /tmp/openteam-frame-probe.dylib
+codesign --force --sign - /tmp/openteam-frame-probe.dylib
+
+# Use a dedicated simulator, an Xcode-built Release app, and synthetic data.
+SIMCTL_CHILD_DYLD_INSERT_LIBRARIES=/tmp/openteam-frame-probe.dylib \
+SIMCTL_CHILD_OPENTEAM_FRAME_PROBE_LABEL=baseline-scroll \
+SIMCTL_CHILD_OPENTEAM_FRAME_PROBE_SECONDS=60 \
+SIMCTL_CHILD_OPENTEAM_FRAME_PROBE_DELAY=2 \
+  xcrun simctl launch "$device" dev.openteam.mobile
+```
+
+The JSON is written to the isolated app's Documents directory. Obtain its path
+with `xcrun simctl get_app_container "$device" dev.openteam.mobile data`.
+Use the **same probe and release native binary** for both arms. Preserve Xcode's
+simulated entitlements and identifier; isolation comes from the dedicated
+simulator, not from editing a compiled identifier. Never disable system security
+to make a profiler attach.
+
+CADisplayLink cadence is not a GPU-presented-frame counter, physical-iPhone FPS,
+or a battery benchmark. The probe adds a small, identical display-link workload
+to both arms. Record CPU samples (`sample`) separately from frame runs. Exclude
+interrupted runs, verify that gestures actually moved content, and do not count
+failed Instruments connections as completed traces.
+
 ## Build and release gates
 
 `bun desktop:performance` performs a clean renderer/main/preload/utility build, reads the generated Vite manifest, and enforces startup, CSS, complete-renderer, and lazy-feature closure budgets.

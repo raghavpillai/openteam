@@ -46,7 +46,7 @@ import { assetResponse } from "./asset-http";
 import { auth, authPrisma } from "./auth";
 import { parseAuthMode } from "./auth-mode";
 import { authRequestWithClientIp } from "./auth-request";
-import { eventStream } from "./event-stream";
+import { EVENT_POLL_MAX_WAIT_MS, eventPoll, eventStream } from "./event-stream";
 import { corsHeaders, errorResponse, json, parseBody, withCors } from "./http";
 import { messageContextExtents } from "./message-context-query";
 import { runOwnerCredentialCommand } from "./owner-credentials";
@@ -1094,6 +1094,18 @@ const server = Bun.serve({
             "x-accel-buffering": "no",
           },
         });
+      }
+      if (request.method === "GET" && path === "/api/events/poll") {
+        const cursor = eventCursor(
+          url.searchParams.get("after") ?? request.headers.get("last-event-id")
+        );
+        const waitMs = boundedQueryInteger(
+          url.searchParams.get("waitMs"),
+          EVENT_POLL_MAX_WAIT_MS,
+          EVENT_POLL_MAX_WAIT_MS,
+          "waitMs"
+        );
+        return json(await eventPoll(app, cursor, request.signal, waitMs));
       }
       return json({ error: { code: "not_found", message: "Route not found" } }, 404);
     } catch (error) {

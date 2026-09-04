@@ -109,6 +109,7 @@ export function useOpenTeam() {
   const refreshInFlight = useRef<Promise<void> | null>(null);
   const refreshRequested = useRef(false);
   const refreshNeedsForeground = useRef(false);
+  const refreshError = useRef<unknown>(null);
   const initialRefreshStarted = useRef(false);
   const legacyMode = useRef(false);
   const bootstrapRef = useRef<ClientBootstrapView | null>(null);
@@ -712,6 +713,7 @@ export function useOpenTeam() {
             const cycleQuiet = !refreshNeedsForeground.current;
             refreshRequested.current = false;
             refreshNeedsForeground.current = false;
+            refreshError.current = null;
             try {
               if (legacyMode.current) {
                 const incoming = await api.snapshot();
@@ -775,7 +777,9 @@ export function useOpenTeam() {
                 }
               }
               setError(null);
+              refreshError.current = null;
             } catch (cause) {
+              refreshError.current = cause;
               setError(clientErrorMessage(cause, "Could not refresh OpenTeam"));
             }
           }
@@ -890,7 +894,10 @@ export function useOpenTeam() {
     if (!snapshot) return;
     const liveSync = createDesktopLiveSyncController({
       cursor: () => cursor.current,
-      synchronize: () => refresh(true),
+      synchronize: async () => {
+        await refresh(true);
+        if (refreshError.current) throw refreshError.current;
+      },
       handleEvent: (productEvent) => {
         cursor.current = productEvent.sequence;
         return shouldRefreshForEvent(productEvent);

@@ -53,12 +53,32 @@ export interface ChannelHistoryState {
 const numericCursor = (value: string | null): bigint | null =>
   value && /^\d+$/.test(value) ? BigInt(value) : null;
 
+// Sorting the same retained window repeatedly used to parse each date/sequence
+// O(n log n) times. Weak keys follow the lifetime of the bounded message window;
+// checking the source value also keeps these helpers correct for mutable callers.
+const sequenceValues = new WeakMap<object, { source: string; value: bigint | null }>();
+const sequenceValue = (entity: { sequence: string }): bigint | null => {
+  const cached = sequenceValues.get(entity);
+  if (cached?.source === entity.sequence) return cached.value;
+  const value = numericCursor(entity.sequence);
+  sequenceValues.set(entity, { source: entity.sequence, value });
+  return value;
+};
+const createdAtValues = new WeakMap<object, { source: string; value: number }>();
+export const messageCreatedAtMs = (message: { createdAt: string }): number => {
+  const cached = createdAtValues.get(message);
+  if (cached?.source === message.createdAt) return cached.value;
+  const value = Date.parse(message.createdAt);
+  createdAtValues.set(message, { source: message.createdAt, value });
+  return value;
+};
+
 export const compareEntitySequence = (
   left: { sequence: string },
   right: { sequence: string }
 ): number => {
-  const a = numericCursor(left.sequence);
-  const b = numericCursor(right.sequence);
+  const a = sequenceValue(left);
+  const b = sequenceValue(right);
   return a !== null && b !== null
     ? a < b
       ? -1
@@ -93,8 +113,7 @@ export const reconcileActiveHistoryRefresh = (
 };
 
 const messageOrder = (left: ChannelMessageView, right: ChannelMessageView): number =>
-  new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime() ||
-  left.id.localeCompare(right.id);
+  messageCreatedAtMs(left) - messageCreatedAtMs(right) || left.id.localeCompare(right.id);
 
 const metadataFor = (message: ChannelMessageView): Record<string, unknown> =>
   message.metadata && typeof message.metadata === "object" && !Array.isArray(message.metadata)

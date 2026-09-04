@@ -9,6 +9,57 @@ export const SCREEN_STATUS_POLL_MS = 4_000;
 export const SCREEN_TAKEOVER_HEARTBEAT_MS = 20_000;
 export const SCREEN_FRAME_REFRESH_MS = 5_000;
 
+/** Defer navigation cleanup one turn so React effect reattachment does not dismiss a handoff. */
+export const createHandoffReleaseController = ({
+  release,
+  schedule = setTimeout,
+  cancel = clearTimeout,
+}: {
+  release: () => void | Promise<unknown>;
+  schedule?: (callback: () => void, delayMs: number) => ReturnType<typeof setTimeout>;
+  cancel?: (timer: ReturnType<typeof setTimeout>) => void;
+}) => {
+  let finishing = false;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const cancelTimer = () => {
+    if (timer !== null) cancel(timer);
+    timer = null;
+  };
+  const releaseNow = () => {
+    cancelTimer();
+    if (finishing) return;
+    finishing = true;
+    try {
+      void Promise.resolve(release()).catch(() => undefined);
+    } catch {
+      /* best-effort dismissal */
+    }
+  };
+  return {
+    resume: () => {
+      cancelTimer();
+      finishing = false;
+    },
+    beginFinish: (): boolean => {
+      if (finishing) return false;
+      finishing = true;
+      cancelTimer();
+      return true;
+    },
+    retry: () => {
+      finishing = false;
+    },
+    release: releaseNow,
+    deferRelease: () => {
+      if (finishing || timer !== null) return;
+      timer = schedule(() => {
+        timer = null;
+        releaseNow();
+      }, 0);
+    },
+  };
+};
+
 export const enableScreenForSession = (current: ReadonlySet<string>, botId: string) => {
   if (current.has(botId)) return current;
   const next = new Set(current);

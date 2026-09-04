@@ -1,5 +1,6 @@
 import type { BotView, RoutineView } from "@openteam/contracts";
 import {
+  BOT_AVATAR_DEALT_COLORS,
   BOT_AVATAR_SHAPES,
   type BotAvatarShape,
   DEFAULT_BOT_AVATAR,
@@ -22,19 +23,7 @@ import { useTheme } from "../theme";
 import { BotMark } from "./bot-mark";
 import { IconButton } from "./icon-button";
 
-const PROFILE_COLORS = [
-  "#ffffff",
-  "#a47952",
-  "#f23d52",
-  "#ff7a1a",
-  "#ff9e12",
-  "#10b972",
-  "#27baae",
-  "#4b8efb",
-  "#925df2",
-  "#ef479b",
-  "#878787",
-] as const;
+const PROFILE_COLORS = ["#ffffff", ...BOT_AVATAR_DEALT_COLORS] as const;
 
 interface BotProfileScreenProps {
   bot: BotView;

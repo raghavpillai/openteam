@@ -1,0 +1,10 @@
+{
+  "kind": "Same Xcode Release native shell with optimized production Hermes export",
+  "nativeUUID": "UUID: 208B130A-F31A-3E17-A8A7-C00FF859ABA8 (arm64) /var/folders/qz/z9zw1vg957n39ddb4x5qqjqm0000gp/T/openbot-client-perf-20260903-lfn0e3wc/native/derived/Build/Products/Release-iphonesimulator/OpenBot.app/OpenBot",
+  "hermesSha256": "fe99c015f9721e818249947ba91456ba16899058e5b07c080faa531f0a3782ef",
+  "hermesBytes": 4651160,
+  "bundleId": "dev.openbot.mobile",
+  "deviceId": "2F1DCBAF-F213-479F-8773-342E17200F99",
+  "server": "http://127.0.0.1:8879",
+  "note": "Xcode-generated simulated entitlements; no restricted signing entitlements or OS security changes. Same release native shell used for both benchmark arms."
+}

@@ -1,5 +1,8 @@
 import {
   createKeyedRequestCoordinator,
+  createSerialPoller,
+  createHandoffReleaseController,
+  SCREEN_TAKEOVER_HEARTBEAT_MS,
   SCREEN_FRAME_REFRESH_MS,
   SCREEN_STATUS_POLL_MS,
 } from "@openteam/client-core";
@@ -50,8 +53,15 @@ export function BotScreen({
   const [handoffPending, setHandoffPending] = useState(false);
   const viewerOpenedAt = useRef(0);
   const actionTail = useRef(Promise.resolve());
-  const handoffFinishing = useRef(false);
-  const handoffReleaseTimer = useRef<number | null>(null);
+  const handoffRelease = useMemo(
+    () =>
+      createHandoffReleaseController({
+        release: () => {
+          if (handoff) api.releaseComputerHandoff(handoff.messageId);
+        },
+      }),
+    [handoff?.messageId]
+  );
   const pointerGesture = useRef<{
     moved: boolean;
     path: Array<{ x: number; y: number }>;
@@ -77,13 +87,18 @@ export function BotScreen({
   }, [active, enabled, refreshStatus, screen]);
   useEffect(() => {
     if (!shouldPollScreenStatus(enabled, active, screen?.state)) return;
-    const pollStatus = () => {
-      if (document.visibilityState === "visible") void refreshStatus();
-    };
-    const timer = window.setInterval(pollStatus, SCREEN_STATUS_POLL_MS);
+    const poller = createSerialPoller({
+      intervalMs: SCREEN_STATUS_POLL_MS,
+      immediate: false,
+      task: async () => {
+        if (document.visibilityState === "visible") await refreshStatus();
+      },
+    });
+    const pollStatus = () => poller.wake();
+    poller.start();
     document.addEventListener("visibilitychange", pollStatus);
     return () => {
-      window.clearInterval(timer);
+      poller.stop();
       document.removeEventListener("visibilitychange", pollStatus);
     };
   }, [active, enabled, refreshStatus, screen?.state]);
@@ -112,21 +127,20 @@ export function BotScreen({
   }, [active, enabled, open, screen?.state]);
   const finishHandoff = useCallback(
     async (action: "complete" | "skip" | "dismiss") => {
-      if (!handoff || handoffPending) return;
-      handoffFinishing.current = true;
+      if (!handoff || handoffPending || !handoffRelease.beginFinish()) return;
       setHandoffPending(true);
       try {
         await api.mutateComputerHandoff(handoff.messageId, action);
         setOpen(false);
         onHandoffFinished?.();
       } catch (cause) {
-        handoffFinishing.current = false;
+        handoffRelease.retry();
         setError(clientErrorMessage(cause, "Could not return computer control"));
       } finally {
         setHandoffPending(false);
       }
     },
-    [handoff, handoffPending, onHandoffFinished]
+    [handoff, handoffPending, handoffRelease, onHandoffFinished]
   );
   const closeViewer = useCallback(() => {
     if (handoff) {
@@ -141,26 +155,13 @@ export function BotScreen({
   }, [active, closeViewer, open]);
   useEffect(() => {
     if (!handoff) return;
-    if (handoffReleaseTimer.current !== null) {
-      window.clearTimeout(handoffReleaseTimer.current);
-      handoffReleaseTimer.current = null;
-    }
-    handoffFinishing.current = false;
-    const releaseHandoff = () => {
-      if (handoffFinishing.current) return;
-      handoffFinishing.current = true;
-      api.releaseComputerHandoff(handoff.messageId);
-    };
-    window.addEventListener("pagehide", releaseHandoff);
+    handoffRelease.resume();
+    window.addEventListener("pagehide", handoffRelease.release);
     return () => {
-      window.removeEventListener("pagehide", releaseHandoff);
-      if (handoffFinishing.current) return;
-      handoffReleaseTimer.current = window.setTimeout(() => {
-        handoffReleaseTimer.current = null;
-        releaseHandoff();
-      }, 0);
+      window.removeEventListener("pagehide", handoffRelease.release);
+      handoffRelease.deferRelease();
     };
-  }, [handoff]);
+  }, [handoff?.messageId, handoffRelease]);
   useEffect(() => {
     if (!open) return;
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -186,18 +187,24 @@ export function BotScreen({
   }, [bot.id, handoff, onEnable, refreshStatus, screen]);
   useEffect(() => {
     if (!handoff || !open) return;
-    const heartbeat = () => {
-      void api
-        .screenTakeover(bot.id, true)
-        .then(setScreen)
-        .catch((cause) => setError(clientErrorMessage(cause, "Could not keep computer control")));
-    };
-    heartbeat();
-    const timer = window.setInterval(heartbeat, 20_000);
-    document.addEventListener("visibilitychange", heartbeat);
+    let active = true;
+    const poller = createSerialPoller({
+      intervalMs: SCREEN_TAKEOVER_HEARTBEAT_MS,
+      task: async () => {
+        try {
+          const next = await api.screenTakeover(bot.id, true);
+          if (active) setScreen(next);
+        } catch (cause) {
+          if (active) setError(clientErrorMessage(cause, "Could not keep computer control"));
+        }
+      },
+    });
+    poller.start();
+    document.addEventListener("visibilitychange", poller.wake);
     return () => {
-      window.clearInterval(timer);
-      document.removeEventListener("visibilitychange", heartbeat);
+      active = false;
+      poller.stop();
+      document.removeEventListener("visibilitychange", poller.wake);
     };
   }, [bot.id, handoff, open]);
   const viewerReady = screen?.state === "ready";

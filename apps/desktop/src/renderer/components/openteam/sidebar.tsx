@@ -9,6 +9,7 @@ import {
 } from "@dnd-kit/react";
 import { isSortable, useSortable } from "@dnd-kit/react/sortable";
 import type { BotView, ChannelMessageView, ChannelView, RunView } from "@openteam/contracts";
+import { formatRosterTimestamp } from "@openteam/product-core/timestamps";
 import {
   ArrowDown,
   ArrowUp,
@@ -572,33 +573,8 @@ const sidebarSensors = [
   KeyboardSensor,
 ];
 
-function timeLabel(value: string) {
-  const date = new Date(value);
-  const now = new Date();
-  const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-  const startValue = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
-  if (startValue === startToday - 86_400_000) return "Yesterday";
-  if (startValue !== startToday) {
-    return date.toLocaleDateString([], { month: "numeric", day: "numeric" });
-  }
-  return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-}
-
-function compactTimeLabel(value: string) {
-  const date = new Date(value);
-  const now = new Date();
-  const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-  const startValue = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
-  const dayDifference = Math.round((startToday - startValue) / 86_400_000);
-  if (dayDifference === 0) {
-    return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-  }
-  if (dayDifference === 1) return "Yesterday";
-  if (dayDifference > 1 && dayDifference < 7) {
-    return date.toLocaleDateString([], { weekday: "long" });
-  }
-  return date.toLocaleDateString([], { month: "numeric", day: "numeric" });
-}
+const timeLabel = (value: string) => formatRosterTimestamp(value, "expanded");
+const compactTimeLabel = (value: string) => formatRosterTimestamp(value);
 
 function ChannelPreviewTooltipContent({
   row,

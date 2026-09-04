@@ -27,7 +27,9 @@ test("iOS message motion preserves Grokbot entrance and acknowledgement semantic
   expect(route).toContain("knownMessageKeys.current = new Set(mainMessages.map(messageRenderKey))");
   expect(route).not.toContain("knownMessageKeys.current.add");
   expect(context).toContain("createDurableSendController");
-  expect(context).toContain("renderKey:");
+  expect(context).toContain("projectOutgoingMessages(snapshot.channelMessages, durableSends");
+  expect(context).toContain('echoRenderKey: "delivery"');
+  expect(context).toContain('orderBy: "messageId"');
   expect(context).toContain("delivery.nonce");
   expect(context).toContain("clientId: record.nonce");
   expect(context).toContain("await sendController.enqueue");

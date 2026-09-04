@@ -1,4 +1,5 @@
 import type { BotView, ChannelView, SearchResultView, UpdateBotInput } from "@openteam/contracts";
+import { createReadReceiptController } from "@openteam/product-core/read-receipts";
 import { CircleAlert, LoaderCircle, RefreshCw } from "lucide-react";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./client/openteam-api";
@@ -29,10 +30,6 @@ import { activeAsyncTaskChannelIds, activeAsyncTasksForBot } from "./lib/async-t
 import { BOT_TEMPLATE_SHARING_ENABLED, type TemplateBot } from "./lib/bot-template";
 import { cn } from "./lib/cn";
 import {
-  COMPUTER_HANDOFF_OPEN_EVENT,
-  type ComputerHandoffOpenDetail,
-} from "./lib/computer-handoff";
-import {
   CHAT_SETTINGS_KEYWORDS,
   HIDDEN_BOTS_PALETTE_KEYWORDS,
   PLUGINS_PALETTE_KEYWORDS,
@@ -41,6 +38,10 @@ import {
   UPDATE_PALETTE_KEYWORDS,
   updatePalettePresentation,
 } from "./lib/command-palette";
+import {
+  COMPUTER_HANDOFF_OPEN_EVENT,
+  type ComputerHandoffOpenDetail,
+} from "./lib/computer-handoff";
 import { deriveUnreadChannelIds, syncDesktopNotificationSnapshot } from "./lib/notifications";
 import {
   COMPACT_SIDEBAR_WIDTH,
@@ -216,7 +217,7 @@ export default function App() {
   const previousUnreadSnapshot = useRef(snapshot);
   const selectedIdRef = useRef(selectedId);
   selectedIdRef.current = selectedId;
-  const readRequests = useRef(new Set<string>());
+  const readReceipts = useRef(createReadReceiptController());
   const forcedSidebarCompact = shouldForceCompactSidebar(viewportWidth, sidebarLayout.width);
   const effectiveSidebarWidth =
     forcedSidebarCompact || sidebarLayout.compact ? COMPACT_SIDEBAR_WIDTH : sidebarLayout.width;
@@ -257,30 +258,20 @@ export default function App() {
   const markChannelRead = useCallback(
     (channelId: string) => {
       sidebarPreferences.markRead(channelId);
-      if (readRequests.current.has(channelId)) return;
-
       const channel = index.channelById.get(channelId);
       if (channel?.unreadCount === 0) return;
-
       const latestSequence = index.latestMessageByChannel.get(channelId)?.sequence;
       const throughSequence =
         latestSequence && /^\d+$/.test(latestSequence) ? latestSequence : undefined;
-
-      readRequests.current.add(channelId);
-      void api
-        .markChannelRead(channelId, throughSequence)
-        .then(() => {
-          // Release the guard before publishing the authoritative read count. If a
-          // message arrived during this request, the refreshed snapshot can queue
-          // the newer sequence instead of leaving it unread until another event.
-          readRequests.current.delete(channelId);
-          return refresh(true);
-        })
-        .catch(() => undefined)
-        .finally(() => readRequests.current.delete(channelId));
+      void readReceipts.current.request(channelId, throughSequence, {
+        send: (id, sequence) => api.markChannelRead(id, sequence),
+        onAcknowledged: () => refresh(true),
+      });
     },
     [index.channelById, index.latestMessageByChannel, refresh, sidebarPreferences.markRead]
   );
+
+  useEffect(() => () => readReceipts.current.clear(), []);
 
   useEffect(() => {
     const handleResize = () => setViewportWidth(window.innerWidth);

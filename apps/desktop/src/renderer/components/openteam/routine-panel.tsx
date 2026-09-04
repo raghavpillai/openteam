@@ -1,4 +1,7 @@
-import { routineOrdinalLabel } from "@openteam/product-core/routines";
+import {
+  routineExecutionStatusPresentation,
+  routineOrdinalLabel,
+} from "@openteam/product-core/routines";
 import { isTransientRoutineExecutionStatus } from "@openteam/product-core/statuses";
 import {
   Check,
@@ -692,22 +695,8 @@ function ScheduleCard({
   );
 }
 
-const executionStatus = (execution: RoutineExecutionView): string => {
-  switch (execution.status) {
-    case "queued":
-    case "running":
-    case "waiting_approval":
-      return "Running";
-    case "completed":
-      return "Succeeded";
-    case "failed":
-      return "Failed";
-    case "cancelled":
-      return "Cancelled";
-    case "skipped":
-      return "Skipped";
-  }
-};
+const executionStatus = (execution: RoutineExecutionView): string =>
+  routineExecutionStatusPresentation(execution.status, "activity").label;
 
 function RunHistory({
   executions,

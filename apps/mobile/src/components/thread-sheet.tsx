@@ -72,6 +72,9 @@ export function ThreadSheet({
   mentionOptions,
   onClose,
   onLoadEarlier,
+  onLoadLater,
+  historyHasNewer,
+  onVisibleMessageIds,
   onReact,
   onResendFailed,
   onDeleteFailed,
@@ -98,6 +101,9 @@ export function ThreadSheet({
   mentionOptions: Array<{ id: string; label: string; handle: string }>;
   onClose: () => void;
   onLoadEarlier: () => Promise<void>;
+  onLoadLater: () => Promise<void>;
+  historyHasNewer: boolean;
+  onVisibleMessageIds: (ids: readonly string[], atBottom: boolean) => void;
   onReact: (messageId: string, emoji: string) => Promise<void>;
   onResendFailed: (nonce: string) => Promise<void>;
   onDeleteFailed: (nonce: string) => Promise<void>;
@@ -136,6 +142,8 @@ export function ThreadSheet({
   const placedThreadIdRef = useRef<string | null>(null);
   const targetScrollRetries = useRef(0);
   const onVisibleSequenceRef = useRef(onVisibleSequence);
+  const historyViewportRef = useRef({ onVisibleMessageIds, historyHasNewer });
+  historyViewportRef.current = { onVisibleMessageIds, historyHasNewer };
   const messages = useMemo(() => (thread ? [thread.root, ...thread.replies] : []), [thread]);
   const byId = useMemo(() => new Map(messages.map((message) => [message.id, message])), [messages]);
   const threadRootId = thread?.root.id ?? null;
@@ -149,6 +157,10 @@ export function ThreadSheet({
         viewableItems.map(({ isViewable, item }) => ({ isViewable, item }))
       );
       if (highest) onVisibleSequenceRef.current(highest);
+      historyViewportRef.current.onVisibleMessageIds(
+        viewableItems.filter(({ isViewable }) => isViewable).map(({ item }) => item.id),
+        atLiveEdgeRef.current && !historyViewportRef.current.historyHasNewer
+      );
     }
   ).current;
 
@@ -270,11 +282,9 @@ export function ThreadSheet({
             }}
             onScroll={(event) => {
               const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
-              atLiveEdgeRef.current = isNearLiveEdge(
-                contentOffset.y,
-                layoutMeasurement.height,
-                contentSize.height
-              );
+              atLiveEdgeRef.current =
+                !historyHasNewer &&
+                isNearLiveEdge(contentOffset.y, layoutMeasurement.height, contentSize.height);
             }}
             onScrollToIndexFailed={({ index, averageItemLength }) => {
               listRef.current?.scrollToOffset({
@@ -292,6 +302,10 @@ export function ThreadSheet({
               });
             }}
             onViewableItemsChanged={onViewableItemsChanged}
+            onEndReached={() => {
+              if (historyHasNewer) void onLoadLater();
+            }}
+            onEndReachedThreshold={0.5}
             scrollEventThrottle={32}
             ListHeaderComponent={
               <View>

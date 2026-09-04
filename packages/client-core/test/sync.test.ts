@@ -1,10 +1,50 @@
 import { describe, expect, test } from "bun:test";
 import type { ProductEvent } from "@openteam/contracts";
 import {
+  TrailingAsyncCoalescer,
   createLiveSyncController,
   createReconnectingProductEventStream,
   type ProductEventHandlers,
 } from "../src";
+
+describe("bounded live refresh coalescing", () => {
+  test("refreshes during a continuous burst rather than waiting for silence", async () => {
+    let refreshes = 0;
+    const coalescer = new TrailingAsyncCoalescer(async () => {
+      refreshes += 1;
+    }, 15);
+    const stream = setInterval(() => coalescer.trigger(), 2);
+    try {
+      await Bun.sleep(70);
+      expect(refreshes).toBeGreaterThanOrEqual(2);
+    } finally {
+      clearInterval(stream);
+      coalescer.cancel();
+    }
+  });
+
+  test("never overlaps refreshes and preserves an update received during a slow read", async () => {
+    const first = deferred();
+    let calls = 0;
+    let running = 0;
+    let maximum = 0;
+    const coalescer = new TrailingAsyncCoalescer(async () => {
+      calls += 1;
+      maximum = Math.max(maximum, ++running);
+      if (calls === 1) await first.promise;
+      running -= 1;
+    }, 0);
+    coalescer.trigger();
+    await Bun.sleep(5);
+    coalescer.trigger();
+    coalescer.trigger();
+    first.resolve();
+    await coalescer.flush();
+    expect(calls).toBe(2);
+    expect(maximum).toBe(1);
+    coalescer.cancel();
+  });
+});
 
 const deferred = () => {
   let resolve!: () => void;

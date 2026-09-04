@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
+import { mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DurableSendJournalStore } from "../src/main/durable-send-journal-store";
@@ -33,6 +33,26 @@ const storedFiles = async (directory: string) =>
   );
 
 describe("desktop durable-send journal store", () => {
+  test("retains the other backup slot even when writes land on the same clock parity", async () => {
+    const { directory, store } = await fixture();
+    const clock = spyOn(Date, "now").mockReturnValue(1_000);
+    try {
+      const scope = "desktop:server:clock-jump";
+      await store.write(scope, { revision: 1 });
+      clock.mockReturnValue(2_000);
+      await store.write(scope, { revision: 2 });
+      const files = (await storedFiles(directory)).sort(
+        (a, b) => b.value.generation - a.value.generation
+      );
+      expect(files).toHaveLength(2);
+      expect(files[0]!.value.generation).toBe(files[1]!.value.generation + 1);
+      await writeFile(join(directory, files[0]!.name), "{corrupt", "utf8");
+      expect(await new DurableSendJournalStore(directory).read(scope)).toEqual({ revision: 1 });
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
   test("serializes writes and returns the latest complete generation", async () => {
     const { directory, store } = await fixture();
     await Promise.all([

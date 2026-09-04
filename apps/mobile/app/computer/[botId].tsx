@@ -1,3 +1,8 @@
+import { createSerialPoller } from "@openteam/client-core/async";
+import {
+  createHandoffReleaseController,
+  SCREEN_TAKEOVER_HEARTBEAT_MS,
+} from "@openteam/client-core/screen";
 import type { ScreenActionInput, ScreenStatusView } from "@openteam/contracts";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
 import * as Clipboard from "expo-clipboard";
@@ -190,8 +195,13 @@ export default function ComputerScreen() {
   const zoomRef = useRef(1);
   const offsetRef = useRef({ x: 0, y: 0 });
   const lastTapAt = useRef(0);
-  const handoffFinished = useRef(false);
-  const handoffDismissTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const handoffRelease = useMemo(
+    () =>
+      createHandoffReleaseController({
+        release: () => (handoffId ? mutateComputerHandoff(handoffId, "dismiss") : undefined),
+      }),
+    [handoffId, mutateComputerHandoff]
+  );
   const gesture = useRef({
     startedAt: 0,
     touches: 1,
@@ -250,11 +260,11 @@ export default function ComputerScreen() {
   useFocusEffect(
     useCallback(() => {
       setActionBusy(false);
-      void refresh();
-      const timer = setInterval(() => void refresh(), 2_500);
+      const poller = createSerialPoller({ intervalMs: 2_500, task: refresh });
+      poller.start();
       const appStateSubscription = AppState.addEventListener("change", (state) => {
         if (state === "active") {
-          void refresh();
+          poller.wake();
           return;
         }
         refreshEpoch.current += 1;
@@ -262,7 +272,7 @@ export default function ComputerScreen() {
       });
       return () => {
         appStateSubscription.remove();
-        clearInterval(timer);
+        poller.stop();
         refreshEpoch.current += 1;
         statusRevision.current += 1;
       };
@@ -271,34 +281,29 @@ export default function ComputerScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      if (handoffDismissTimer.current) {
-        clearTimeout(handoffDismissTimer.current);
-        handoffDismissTimer.current = null;
-      }
-      handoffFinished.current = false;
+      handoffRelease.resume();
       return () => {
-        if (!handoffId || handoffFinished.current) return;
-        handoffDismissTimer.current = setTimeout(() => {
-          handoffDismissTimer.current = null;
-          if (handoffFinished.current) return;
-          handoffFinished.current = true;
-          void mutateComputerHandoff(handoffId, "dismiss").catch(() => undefined);
-        }, 0);
+        if (handoffId) handoffRelease.deferRelease();
       };
-    }, [handoffId, mutateComputerHandoff])
+    }, [handoffId, handoffRelease])
   );
 
   useEffect(() => {
     if (!botId || !handoffId) return;
-    const heartbeat = () => {
-      if (AppState.currentState !== "active") return;
-      void setScreenTakeover(botId, true)
-        .then(setStatus)
-        .catch(() => undefined);
+    let active = true;
+    const poller = createSerialPoller({
+      intervalMs: SCREEN_TAKEOVER_HEARTBEAT_MS,
+      task: async () => {
+        if (AppState.currentState !== "active") return;
+        const next = await setScreenTakeover(botId, true);
+        if (active) setStatus(next);
+      },
+    });
+    poller.start();
+    return () => {
+      active = false;
+      poller.stop();
     };
-    heartbeat();
-    const timer = setInterval(heartbeat, 20_000);
-    return () => clearInterval(timer);
   }, [botId, handoffId, setScreenTakeover]);
 
   useEffect(() => {
@@ -647,14 +652,13 @@ export default function ComputerScreen() {
   };
 
   const finishHandoff = async (action: "complete" | "skip" | "dismiss") => {
-    if (!handoffId || handoffFinished.current) return;
-    handoffFinished.current = true;
+    if (!handoffId || !handoffRelease.beginFinish()) return;
     try {
       await mutateComputerHandoff(handoffId, action);
       if (router.canGoBack()) router.back();
       else router.replace("/");
     } catch (cause) {
-      handoffFinished.current = false;
+      handoffRelease.retry();
       setError(clientErrorMessage(cause, "Could not return computer control"));
     }
   };

@@ -6,6 +6,7 @@ import {
   DURABLE_SEND_JOURNAL_MAX_BYTES,
   durableSendScope,
   durableSendScopeHash,
+  nextDurableSendJournalGeneration,
 } from "@openteam/product-core/durable-delivery";
 import * as FileSystem from "expo-file-system/legacy";
 
@@ -90,7 +91,7 @@ export const createMobileDurableSendStorage = (scopeInput: string): DurableSendS
           if (!directory || paths.length === 0) {
             throw new Error("Durable message storage is unavailable on this device.");
           }
-          const generation = Math.max(Date.now(), (generations.get(scope) ?? 0) + 1);
+          const generation = nextDurableSendJournalGeneration(generations.get(scope));
           const payload = JSON.stringify({ generation, scope, journal } satisfies StoredJournal);
           if (new TextEncoder().encode(payload).byteLength > DURABLE_SEND_JOURNAL_MAX_BYTES) {
             throw new Error("Durable message journal exceeds its storage limit.");

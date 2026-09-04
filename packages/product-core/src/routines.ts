@@ -147,8 +147,16 @@ export interface RoutineExecutionStatusPresentation {
 }
 
 export const routineExecutionStatusPresentation = (
-  status: RoutineExecutionView["status"]
+  status: RoutineExecutionView["status"],
+  style: "detail" | "activity" | "raw" = "detail"
 ): RoutineExecutionStatusPresentation => {
+  // Labels are deliberately presentation-specific: this extraction must not
+  // rename the desktop activity indicator or the native editor's existing rows.
+  if (style === "raw")
+    return { ...routineExecutionStatusPresentation(status), label: status.replace("_", " ") };
+  if (style === "activity" && ["queued", "running", "waiting_approval"].includes(status)) {
+    return { label: "Running", tone: "muted" };
+  }
   switch (status) {
     case "completed":
       return { label: "Succeeded", tone: "success" };

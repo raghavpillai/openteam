@@ -137,6 +137,10 @@ export default function ConversationScreen() {
     hydrateChannel,
     releaseChannel,
     loadEarlierMessages,
+    loadLaterMessages,
+    jumpToLatestMessages,
+    setHistoryViewport,
+    visibleHistoryMessageIds,
     historyState,
     cancelRun,
   } = useOpenTeam();
@@ -152,6 +156,10 @@ export default function ConversationScreen() {
   const [composerHeight, setComposerHeight] = useState(50);
   const listRef = useRef<FlatList<ConversationTimelineEntry>>(null);
   const atLiveEdgeRef = useRef(!messageId);
+  const visibleMessageIds = useRef<readonly string[]>([]);
+  const jumpingToLatest = useRef(false);
+  const historyViewportRef = useRef({ channelId, setHistoryViewport, threadRootId });
+  historyViewportRef.current = { channelId, setHistoryViewport, threadRootId };
   const didPlaceInitialScroll = useRef(false);
   const targetScrollRetries = useRef(0);
   const knownMessageKeys = useRef<Set<string> | null>(null);
@@ -167,10 +175,14 @@ export default function ConversationScreen() {
     [snapshot.channels]
   );
   const bot = botId ? botById.get(botId) : undefined;
-  const messages = useMemo(
-    () => snapshot.channelMessages.filter((message) => message.channelId === channelId),
-    [channelId, snapshot.channelMessages]
-  );
+  const messages = useMemo(() => {
+    const visible = visibleHistoryMessageIds(channelId);
+    return snapshot.channelMessages.filter(
+      (message) =>
+        message.channelId === channelId &&
+        (!visible || visible.has(message.id) || Boolean(metadataFor(message).clientDelivery))
+    );
+  }, [channelId, snapshot.channelMessages, visibleHistoryMessageIds]);
   const byId = useMemo(() => new Map(messages.map((message) => [message.id, message])), [messages]);
   useEffect(() => {
     if (composerRecovery) return;
@@ -300,6 +312,17 @@ export default function ConversationScreen() {
         }))
       );
       if (highest) setVisibleReadSequence((current) => laterSequence(current, highest));
+      const ids = viewableItems.flatMap(({ isViewable, item }) =>
+        !isViewable
+          ? []
+          : isA2AActivity(item)
+            ? item.entries.map((message) => message.id)
+            : [item.id]
+      );
+      visibleMessageIds.current = ids;
+      const viewport = historyViewportRef.current;
+      if (!viewport.threadRootId)
+        viewport.setHistoryViewport(viewport.channelId, ids, atLiveEdgeRef.current);
     }
   ).current;
 
@@ -405,12 +428,22 @@ export default function ConversationScreen() {
   const updateLiveEdge = useCallback((next: boolean) => {
     atLiveEdgeRef.current = next;
     setAtLiveEdge((current) => (current === next ? current : next));
+    const viewport = historyViewportRef.current;
+    if (!viewport.threadRootId)
+      viewport.setHistoryViewport(viewport.channelId, visibleMessageIds.current, next);
   }, []);
+
+  useEffect(() => {
+    if (!threadRootId)
+      setHistoryViewport(channelId, visibleMessageIds.current, atLiveEdgeRef.current);
+  }, [channelId, setHistoryViewport, threadRootId]);
 
   useEffect(() => {
     knownChannelId.current = channelId;
     didPlaceInitialScroll.current = false;
     targetScrollRetries.current = 0;
+    jumpingToLatest.current = false;
+    visibleMessageIds.current = [];
     setVisibleReadSequence(null);
     setA2APeerId(null);
     updateLiveEdge(!messageId);
@@ -559,9 +592,15 @@ export default function ConversationScreen() {
             }}
             onScroll={(event) => {
               const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
-              updateLiveEdge(
-                isNearLiveEdge(contentOffset.y, layoutMeasurement.height, contentSize.height)
+              if (jumpingToLatest.current) return;
+              const nearEnd = isNearLiveEdge(
+                contentOffset.y,
+                layoutMeasurement.height,
+                contentSize.height
               );
+              updateLiveEdge(nearEnd && !channelHistory?.hasNewer);
+              if (nearEnd && channelHistory?.hasNewer && !threadRootId)
+                void loadLaterMessages(channelId);
             }}
             onScrollToIndexFailed={({ index, averageItemLength }) => {
               listRef.current?.scrollToOffset({
@@ -579,6 +618,10 @@ export default function ConversationScreen() {
               }, 80);
             }}
             onViewableItemsChanged={onViewableItemsChanged}
+            onEndReached={() => {
+              if (channelHistory?.hasNewer && !threadRootId) void loadLaterMessages(channelId);
+            }}
+            onEndReachedThreshold={0.5}
             scrollEventThrottle={32}
             viewabilityConfig={viewabilityConfig}
             renderItem={({ item }) => {
@@ -612,6 +655,10 @@ export default function ConversationScreen() {
                   ? (peer as Record<string, unknown>).id
                   : null;
               const peerBot = typeof peerId === "string" ? botById.get(peerId) : undefined;
+              const groupSpeaker =
+                channel?.kind === "group" && item.senderBotId
+                  ? botById.get(item.senderBotId)
+                  : undefined;
               const clientDelivery = clientDeliveryFor(item);
               const deliveryState = clientDelivery?.state;
               const deliveryNonce = clientDelivery?.nonce;
@@ -632,6 +679,8 @@ export default function ConversationScreen() {
                   animateEntrance={enteringMessageKeys.has(renderKey)}
                   message={item}
                   pending={deliveryState === "pending" || deliveryState === "queued"}
+                  showSpeakerName={Boolean(groupSpeaker)}
+                  speakerName={groupSpeaker?.name}
                   deliveryState={
                     deliveryState === "pending" ||
                     deliveryState === "queued" ||
@@ -719,7 +768,19 @@ export default function ConversationScreen() {
               hitSlop={4}
               onPress={() => {
                 updateLiveEdge(true);
-                listRef.current?.scrollToEnd({ animated: true });
+                if (!channelHistory?.hasNewer) {
+                  listRef.current?.scrollToEnd({ animated: true });
+                  return;
+                }
+                jumpingToLatest.current = true;
+                void jumpToLatestMessages(channelId).finally(() => {
+                  requestAnimationFrame(() => {
+                    if (historyViewportRef.current.channelId !== channelId) return;
+                    jumpingToLatest.current = false;
+                    updateLiveEdge(true);
+                    listRef.current?.scrollToEnd({ animated: true });
+                  });
+                });
               }}
               style={({ pressed }) => [
                 styles.jumpButton,
@@ -788,6 +849,13 @@ export default function ConversationScreen() {
             mentionOptions={mentionOptions}
             onClose={() => setThreadRootId(null)}
             onLoadEarlier={() => loadEarlierMessages(channelId)}
+            onLoadLater={() =>
+              channelHistory?.hasNewer ? loadLaterMessages(channelId) : Promise.resolve()
+            }
+            historyHasNewer={channelHistory?.hasNewer ?? false}
+            onVisibleMessageIds={(ids, atBottom) =>
+              setHistoryViewport(channelId, ids, atBottom && !channelHistory?.hasNewer)
+            }
             onReact={handleReaction}
             onResendFailed={resendFailed}
             onDeleteFailed={deleteFailed}

@@ -13,7 +13,9 @@ describe("desktop App semantic merge", () => {
     expect(app).toContain("window.addEventListener(OPENTEAM_DEEP_LINK_EVENT, handleDeepLink)");
     expect(app).toContain("setSettingsTarget({ anchor: target.anchor, nonce: Date.now() })");
     expect(app).toContain("setPluginTarget({ pluginId: target.pluginId, nonce: Date.now() })");
-    expect(app).toContain(".markChannelRead(channelId, throughSequence)");
+    expect(app).toContain("readReceipts.current.request(channelId, throughSequence");
+    expect(app).toContain("api.markChannelRead(id, sequence)");
+    expect(app).toContain("onAcknowledged: () => refresh(true)");
     expect(app).toContain("sidebarPreferences.markUnreadMany(unreadChannelIds)");
     expect(app).toContain("sidebarPreferences.markReadMany(readChannelIds)");
     expect(app).toContain("api.updateChannelProfile(channelId, name, description)");

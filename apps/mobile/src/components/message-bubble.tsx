@@ -36,7 +36,6 @@ import {
 } from "../mobile-markdown-core";
 import { useTheme } from "../theme";
 import { AttachmentPreview } from "./attachment-preview";
-import { GlassSurface } from "./glass-surface";
 import { ImageViewer, type ImageViewerItem } from "./image-viewer";
 import { MobileMarkdown, messageNeedsMobileMarkdown } from "./mobile-markdown";
 import { MobileRichMessageCard } from "./rich-message-card";
@@ -117,6 +116,7 @@ export function MessageBubble({
   onCancelQueued,
   readOnly = false,
   speakerName,
+  showSpeakerName = false,
 }: {
   message: ChannelMessageView;
   peerBot?: Pick<BotView, "color" | "icon" | "name">;
@@ -150,6 +150,7 @@ export function MessageBubble({
   onCancelQueued?: (nonce: string) => void;
   readOnly?: boolean;
   speakerName?: string;
+  showSpeakerName?: boolean;
 }) {
   const theme = useTheme();
   const [actionsOpen, setActionsOpen] = useState(false);
@@ -450,6 +451,9 @@ export function MessageBubble({
           },
         ]}
       >
+        {showSpeakerName && speakerName ? (
+          <Text style={[styles.speakerLabel, { color: theme.textMuted }]}>{speakerName}</Text>
+        ) : null}
         {a2aContext ? (
           <View style={styles.a2aLabel}>
             <SymbolView name="message.fill" size={12} tintColor={theme.textMuted} />
@@ -979,6 +983,13 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   a2aText: { fontSize: 12, lineHeight: 16, fontWeight: "600" },
+  speakerLabel: {
+    paddingHorizontal: 5,
+    paddingBottom: 3,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "600",
+  },
   replyPreview: {
     maxWidth: "94%",
     flexDirection: "row",

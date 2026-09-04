@@ -1,4 +1,9 @@
-import type { ProductEvent } from "@openteam/contracts";
+import type {
+  ChannelClientState,
+  ChannelHistoryPage,
+  ClientBootstrapView,
+  ProductEvent,
+} from "@openteam/contracts";
 import type { ProductEventHandlers } from "./events";
 
 export const LIVE_SYNC_DEBOUNCE_MS = 50;
@@ -19,6 +24,71 @@ export const shouldRefreshForEvent = (event: ProductEvent): boolean => {
 
 const numericCursor = (value: string): bigint | null =>
   /^\d+$/.test(value) ? BigInt(value) : null;
+
+export const clientReadCoversCursor = (revision: string, cursor: string): boolean => {
+  const read = numericCursor(revision);
+  const required = numericCursor(cursor);
+  return read !== null && required !== null && read >= required;
+};
+
+export interface LiveSnapshotSyncOptions {
+  readBootstrap: () => Promise<ClientBootstrapView>;
+  readHistory: (channelId: string) => Promise<ChannelHistoryPage>;
+  readState: (channelId: string) => Promise<ChannelClientState>;
+  activeChannel: () => string | null;
+  historyIdentity: (channelId: string) => unknown;
+  pendingHistory: (channelId: string) => Promise<unknown> | null;
+  isCurrent: () => boolean;
+  acceptBootstrap: (bootstrap: ClientBootstrapView) => boolean;
+  acceptHistory: (history: ChannelHistoryPage) => void;
+  acceptState: (state: ChannelClientState) => void;
+  /** Request another read after competing work settles, even if no further event arrives. */
+  defer: (pending?: Promise<unknown>) => void;
+}
+
+/** Do not mistake a newer bootstrap cursor for a successfully refreshed conversation. */
+export const synchronizeClientSnapshot = async (
+  options: LiveSnapshotSyncOptions
+): Promise<"applied" | "deferred" | "stale"> => {
+  const channelId = options.activeChannel();
+  const pending = channelId ? options.pendingHistory(channelId) : null;
+  const historyIdentity = channelId ? options.historyIdentity(channelId) : undefined;
+  const [bootstrap, history, state] = await Promise.all([
+    options.readBootstrap(),
+    channelId && !pending ? options.readHistory(channelId) : Promise.resolve(null),
+    channelId && !pending ? options.readState(channelId) : Promise.resolve(null),
+  ]);
+  if (!options.isCurrent()) return "stale";
+  if (!options.acceptBootstrap(bootstrap)) {
+    options.defer();
+    return "deferred";
+  }
+  if (
+    !channelId ||
+    options.activeChannel() !== channelId ||
+    !bootstrap.channels.some((channel) => channel.id === channelId)
+  )
+    return "applied";
+  // Paging must not hold up global previews/unread state. Only defer the
+  // competing conversation read, and catch it up when that work settles.
+  const competing = options.pendingHistory(channelId) ?? pending;
+  if (
+    competing ||
+    options.historyIdentity(channelId) !== historyIdentity ||
+    !history ||
+    !state ||
+    history.channelId !== channelId ||
+    state.channelId !== channelId ||
+    !clientReadCoversCursor(history.revision, bootstrap.cursor) ||
+    !clientReadCoversCursor(state.revision, bootstrap.cursor)
+  ) {
+    options.defer(competing ?? undefined);
+    return "deferred";
+  }
+  options.acceptHistory(history);
+  options.acceptState(state);
+  return "applied";
+};
 
 export class CommittedEventCursor {
   private committed = 0n;
@@ -69,7 +139,9 @@ export class TrailingAsyncCoalescer {
 
   trigger(): void {
     this.pending = true;
-    if (this.timer) clearTimeout(this.timer);
+    // Bound event-to-refresh latency even when a busy workspace never goes
+    // quiet. Keep the first timer instead of debouncing every event forever.
+    if (this.timer !== null) return;
     this.timer = setTimeout(() => {
       this.timer = null;
       void this.flush();
@@ -152,6 +224,7 @@ export interface LiveSyncControllerOptions {
   schedule?: (callback: () => void, delayMs: number) => ReturnType<typeof setTimeout>;
   cancel?: (timer: ReturnType<typeof setTimeout>) => void;
   delayForReconnectAttempt?: (attempt: number) => number;
+  delayForSyncRetryAttempt?: (attempt: number) => number;
 }
 
 /** Fetch-backed SSE lifecycle. Apps still decide when foreground/background permits a connection. */
@@ -264,15 +337,36 @@ export const createLiveSyncController = ({
   schedule = setTimeout,
   cancel = clearTimeout,
   delayForReconnectAttempt,
+  delayForSyncRetryAttempt = reconnectDelay,
 }: LiveSyncControllerOptions): LiveSyncController => {
   let active = false;
   let stopped = false;
   let streamHealthy = false;
   let reconnectNeedsSync = false;
   let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
+  let syncRetryTimer: ReturnType<typeof setTimeout> | null = null;
+  let syncRetryAttempt = 0;
+
+  const clearSyncRetry = () => {
+    if (syncRetryTimer !== null) cancel(syncRetryTimer);
+    syncRetryTimer = null;
+  };
 
   const coalescer = new TrailingAsyncCoalescer(async () => {
-    if (active && !stopped && isCurrent()) await synchronize();
+    if (!active || stopped || !isCurrent()) return;
+    clearSyncRetry();
+    try {
+      await synchronize();
+      syncRetryAttempt = 0;
+    } catch {
+      // An open event transport is not proof that the snapshot read succeeded.
+      // Retry the final update even when no subsequent event will wake us.
+      if (!active || stopped || !isCurrent()) return;
+      syncRetryTimer = schedule(() => {
+        syncRetryTimer = null;
+        if (active && !stopped && isCurrent()) coalescer.trigger();
+      }, delayForSyncRetryAttempt(syncRetryAttempt++));
+    }
   }, debounceMs);
 
   const clearFallback = () => {
@@ -338,6 +432,7 @@ export const createLiveSyncController = ({
         stream.pause();
         coalescer.cancel();
         clearFallback();
+        clearSyncRetry();
         return;
       }
       if (synchronizeAfterResume) {
@@ -358,6 +453,7 @@ export const createLiveSyncController = ({
       stream.stop();
       coalescer.cancel();
       clearFallback();
+      clearSyncRetry();
     },
   };
 };

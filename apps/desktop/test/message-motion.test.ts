@@ -43,7 +43,7 @@ test("message entrance and acknowledgement motion match Grokbot", async () => {
   expect(chatPane).toContain('event.animationName === "message-row-enter-reduced"');
   expect(chatPane).toContain("setEntranceActive(false)");
   expect(chatPane).toContain("sendController.reconcile(messages)");
-  expect(chatPane).toContain("durableSendAuthoritativeEcho(delivery, messages)");
+  expect(chatPane).toContain("projectOutgoingMessages(messages, channelSends)");
   expect(chatPane).toContain("durableSendStatusLabel");
   expect(chatPane).toContain(
     "knownMessageIds.current = new Set(messages.map((message) => message.id))"

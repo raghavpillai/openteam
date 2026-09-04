@@ -20,9 +20,9 @@ describe("chat performance and functionality reconciliation", () => {
     const chat = await source("components/openteam/chat-pane.tsx");
 
     expect(chat).toContain("maxItems: 80");
-    expect(chat).toContain("durableSendAuthoritativeEcho(delivery, messages)");
-    expect(chat).toContain("return authoritative ? [authoritative.id] : []");
-    expect(chat).toContain("authoritativeById.get(delivery.acceptedMessage.id)");
+    expect(chat).toContain("projectOutgoingMessages(messages, channelSends)");
+    expect(chat).not.toContain("durableSendAuthoritativeEcho(delivery, messages)");
+    expect(chat).toContain("entry.delivery !== null || enteringMessageIds.has(entry.message.id)");
     expect(chat).toContain("messageDisplayProjection(message)");
     expect(chat).toContain("@openteam/product-core");
     expect(chat).toContain('import("./file-attachment")');

@@ -11,6 +11,16 @@ const DURABLE_SEND_LEGACY_SCHEMA_VERSION = 1;
 export const DURABLE_SEND_ACK_TIMEOUT_MS = 120_000;
 export const DURABLE_SEND_JOURNAL_MAX_BYTES = 16 * 1024 * 1024;
 export const DURABLE_SEND_SCOPE_MAX_LENGTH = 2_048;
+
+/** Consecutive generations must alternate backup slots, regardless of wall-clock jumps. */
+export const nextDurableSendJournalGeneration = (previous?: number, now = Date.now()): number => {
+  const generation = previous === undefined ? now : previous + 1;
+  if (!Number.isSafeInteger(generation) || generation < 0) {
+    throw new Error("Durable message journal generation is invalid");
+  }
+  return generation;
+};
+
 /** A corruption/abuse guard, never a retention policy for live sends. */
 export const DURABLE_SEND_MAX_RECORDS = 10_000;
 
@@ -764,6 +774,45 @@ export const durableSendAuthoritativeEcho = (
   return acceptedMessagePromptDigest(authoritative, record.target) === record.promptDigest
     ? authoritative
     : null;
+};
+
+/** Index one immutable transcript for a batch, preserving the legacy first-match semantics. */
+export const createDurableSendEchoResolver = (
+  messages: readonly ChannelMessageView[],
+  expectedLookups: number
+): ((record: DurableSendRecord) => ChannelMessageView | null) => {
+  // Building an index costs more than a few short scans for the normal one-send case.
+  if (expectedLookups < 5 || messages.length < 32) {
+    return (record) => durableSendAuthoritativeEcho(record, messages);
+  }
+  type Match = { message: ChannelMessageView; order: number };
+  const byChannel = new Map<string, Map<string, Match>>();
+  const byId = new Map<string, ChannelMessageView>();
+  for (let order = 0; order < messages.length; order += 1) {
+    const message = messages[order]!;
+    if (!byId.has(message.id)) byId.set(message.id, message);
+    if (typeof message.clientId !== "string") continue;
+    let nonces = byChannel.get(message.channelId);
+    if (!nonces) {
+      nonces = new Map();
+      byChannel.set(message.channelId, nonces);
+    }
+    if (!nonces.has(message.clientId)) nonces.set(message.clientId, { message, order });
+  }
+  return (record) => {
+    const nonces = byChannel.get(record.target.channelId);
+    let first = nonces?.get(record.nonce);
+    for (const nonce of record.priorNonces) {
+      const match = nonces?.get(nonce);
+      if (match && (!first || match.order < first.order)) first = match;
+    }
+    const authoritative =
+      first?.message ?? (record.acceptedMessage ? byId.get(record.acceptedMessage.id) : undefined);
+    return authoritative &&
+      acceptedMessagePromptDigest(authoritative, record.target) === record.promptDigest
+      ? authoritative
+      : null;
+  };
 };
 
 const fallbackNonce = (): string =>

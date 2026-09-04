@@ -9,7 +9,9 @@ describe("desktop shared client controllers", () => {
 
     expect(screen).toContain("SCREEN_STATUS_POLL_MS");
     expect(screen).toContain("shouldPollScreenStatus");
-    expect(screen).toContain("window.setInterval(pollStatus, SCREEN_STATUS_POLL_MS)");
+    expect(screen).toContain("createSerialPoller");
+    expect(screen).toContain("intervalMs: SCREEN_STATUS_POLL_MS");
+    expect(screen).toContain("immediate: false");
     expect(screen).not.toContain("createScreenSessionController");
     expect(screen).toContain("if (!handoff || !open) return;");
     expect(screen).toContain(".screenTakeover(bot.id, true)");
@@ -47,8 +49,9 @@ describe("desktop shared client controllers", () => {
     expect(screen).toContain("I'm done, continue");
     expect(screen).toContain('finishHandoff("dismiss")');
     expect(screen).toContain("api.releaseComputerHandoff(handoff.messageId)");
-    expect(screen).toContain("window.clearTimeout(handoffReleaseTimer.current)");
-    expect(screen).toContain("window.setTimeout(() => {");
-    expect(screen).toContain('window.addEventListener("pagehide", releaseHandoff)');
+    expect(screen).toContain("createHandoffReleaseController");
+    expect(screen).toContain("handoffRelease.resume()");
+    expect(screen).toContain("handoffRelease.deferRelease()");
+    expect(screen).toContain('window.addEventListener("pagehide", handoffRelease.release)');
   });
 });

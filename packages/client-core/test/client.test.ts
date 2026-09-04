@@ -191,6 +191,81 @@ describe("mobile-safe OpenTeam client", () => {
     expect(topics).toEqual(["41:channel.message.accepted"]);
   });
 
+  test("long-polls ordered product events for fetch runtimes without streaming bodies", async () => {
+    const calls: Array<{ url: string; authorization: string | null; accept: string | null }> = [];
+    const controller = new AbortController();
+    const responses = [
+      {
+        events: [
+          {
+            sequence: "41",
+            topic: "channel.message.accepted",
+            entityId: "message-1",
+            payload: {},
+            createdAt: "2026-08-31T00:00:00.000Z",
+          },
+        ],
+      },
+      {
+        events: [
+          {
+            sequence: "42",
+            topic: "run.completed",
+            entityId: "run-1",
+            payload: {},
+            createdAt: "2026-08-31T00:00:01.000Z",
+          },
+        ],
+      },
+    ];
+    const fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      const headers = new Headers(init?.headers);
+      calls.push({
+        url: String(url),
+        authorization: headers.get("authorization"),
+        accept: headers.get("accept"),
+      });
+      return Response.json(responses.shift());
+    }) as unknown as typeof globalThis.fetch;
+    const client = createOpenTeamClient({
+      baseUrl: "http://openteam.test",
+      fetch,
+      getAuthToken: () => "mobile-session",
+      eventTransport: "long-poll",
+    });
+    const topics: string[] = [];
+    let opens = 0;
+
+    await client.listenForEvents(
+      "40",
+      {
+        onOpen: () => {
+          opens += 1;
+        },
+        onEvent: (event) => {
+          topics.push(`${event.sequence}:${event.topic}`);
+          if (event.sequence === "42") controller.abort();
+        },
+      },
+      controller.signal
+    );
+
+    expect(opens).toBe(1);
+    expect(calls).toEqual([
+      {
+        url: "http://openteam.test/api/v0/events/poll?after=40&waitMs=0",
+        authorization: "Bearer mobile-session",
+        accept: "application/json",
+      },
+      {
+        url: "http://openteam.test/api/v0/events/poll?after=41&waitMs=25000",
+        authorization: "Bearer mobile-session",
+        accept: "application/json",
+      },
+    ]);
+    expect(topics).toEqual(["41:channel.message.accepted", "42:run.completed"]);
+  });
+
   test("surfaces stream diagnostics without confusing them for product events", async () => {
     const response = new Response(
       'event: stream-error\ndata: {"message":"listener unavailable"}\n\n',

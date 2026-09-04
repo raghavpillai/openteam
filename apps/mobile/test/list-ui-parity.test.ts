@@ -162,7 +162,13 @@ describe("mobile virtual-list UI parity", () => {
     expect(route).toContain("new Set(pinnedIds)");
     expect(route).not.toContain("rows.find");
     expect(route).not.toContain("pinnedIds.includes");
-    expect(route.match(/new Intl.DateTimeFormat/g)).toHaveLength(1);
+    expect(route).toContain('from "@openteam/product-core/timestamps"');
+    expect(route).toContain("const timeLabel = formatRosterTimestamp");
+    expect(route).not.toContain("new Intl.DateTimeFormat");
+    const timestamps = await Bun.file(
+      new URL("../../../packages/product-core/src/timestamps.ts", import.meta.url)
+    ).text();
+    expect(timestamps).toContain("const rosterTimeFormatter = new Intl.DateTimeFormat");
     expect(route).toContain("memo(function ChannelRow");
     expect(route).toContain("MOBILE_VIRTUAL_LIST_TUNING");
     expect(route).toContain("accessibilityState={{ busy: working }}");
@@ -335,6 +341,19 @@ describe("mobile virtual-list UI parity", () => {
     expect(imageViewer).toContain("Share.share({ message: item.caption, url: item.uri })");
   });
 
+  test("group messages identify the Bot that sent each reply", async () => {
+    const [chat, bubble] = await Promise.all([
+      source("app/chat/[channelId].tsx"),
+      source("src/components/message-bubble.tsx"),
+    ]);
+
+    expect(chat).toContain('channel?.kind === "group" && item.senderBotId');
+    expect(chat).toContain("showSpeakerName={Boolean(groupSpeaker)}");
+    expect(chat).toContain("speakerName={groupSpeaker?.name}");
+    expect(bubble).toContain("showSpeakerName && speakerName");
+    expect(bubble).toContain("styles.speakerLabel");
+  });
+
   test("the performance fixture seeds real Markdown line breaks", async () => {
     const seed = await source("../../scripts/performance/seed.sql");
 
@@ -373,8 +392,10 @@ describe("mobile virtual-list UI parity", () => {
     expect(route).toContain("Skip this step");
     expect(route).toContain("I'm done, continue");
     expect(route).toContain('mutateComputerHandoff(handoffId, "dismiss")');
-    expect(route).toContain("clearTimeout(handoffDismissTimer.current)");
-    expect(route).toContain("handoffDismissTimer.current = setTimeout(() => {");
+    expect(route).toContain("handoffRelease.resume()");
+    expect(route).toContain("handoffRelease.deferRelease()");
+    expect(route).toContain("createHandoffReleaseController");
+    expect(route).toContain("createSerialPoller");
     expect(route).toContain("PanResponder.create");
     expect(route).toContain('action: "drag"');
     expect(route).toContain("updateComputerViewport(");

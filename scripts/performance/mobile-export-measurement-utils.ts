@@ -7,10 +7,12 @@ export const MOBILE_EXPORT_BUDGETS = {
   // (Mermaid/KaTeX) and the branded About artwork as native assets.
   assets: 30,
   assetBytes: 7_000_000,
-  exactBundleBytes: 4_600_000,
-  // Native delivery telemetry, attachment actions, and conversation parity
-  // measure 3,719,744 B in the production source-mapped Hermes export.
-  mappedBundleBytes: 3_720_000,
+  // The shared 500-message / 2 MiB history engine now also runs on iOS,
+  // including viewport retention, forward paging, and cached latest-tail recovery.
+  // Measured exports: 4,647,746 B exact / 3,791,244 B source-mapped. This is
+  // application code, not a new dependency; keep less than 0.3% headroom.
+  exactBundleBytes: 4_660_000,
+  mappedBundleBytes: 3_800_000,
   metroModules: 2_250,
   sourceFiles: 1_850,
 } as const;

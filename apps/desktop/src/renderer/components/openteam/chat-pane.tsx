@@ -16,10 +16,6 @@ import {
   channelMessageAddress,
   type DurableSendPayload,
   type DurableSendRecord,
-  durableSendAuthoritativeEcho,
-  durableSendIsInFlight,
-  durableSendMessage,
-  durableSendRenderKey,
   durableSendStatusLabel,
   messageAssets,
   messageDisplayProjection,
@@ -28,6 +24,7 @@ import {
   messageRenderKey,
   messageSenderLabel,
   ownReactionEmojiSet,
+  projectOutgoingMessages,
   replyTargetFor,
 } from "@openteam/product-core";
 import {
@@ -2032,61 +2029,14 @@ export const ChatPane = memo(function ChatPane({
     () => durableRecoveries.filter((record) => record.target.channelId === channel.id),
     [channel.id, durableRecoveries]
   );
-  const visibleMessages = useMemo(() => {
-    const authoritativeEchoes = new Map(
-      channelSends.flatMap((delivery) => {
-        const echo = durableSendAuthoritativeEcho(delivery, messages);
-        return echo ? [[delivery.nonce, echo] as const] : [];
-      })
-    );
-    const optimisticServerIds = new Set(
-      channelSends.flatMap((delivery) => {
-        const authoritative = authoritativeEchoes.get(delivery.nonce) ?? delivery.acceptedMessage;
-        return authoritative ? [authoritative.id] : [];
-      })
-    );
-    const authoritativeById = new Map(messages.map((message) => [message.id, message] as const));
-    return [
-      ...messages
-        .filter((message) => !optimisticServerIds.has(message.id))
-        .map((message) => ({
-          renderKey: messageRenderKey(message),
-          message,
-          pending: false,
-          animateEntrance: enteringMessageIds.has(message.id),
-          delivery: null,
-        })),
-      ...channelSends.map((delivery) => ({
-        renderKey: authoritativeEchoes.get(delivery.nonce)
-          ? messageRenderKey(authoritativeEchoes.get(delivery.nonce) as ChannelMessageView)
-          : durableSendRenderKey(delivery),
-        message:
-          authoritativeEchoes.get(delivery.nonce) ??
-          (delivery.acceptedMessage
-            ? authoritativeById.get(delivery.acceptedMessage.id)
-            : undefined) ??
-          durableSendMessage(delivery),
-        pending: authoritativeEchoes.has(delivery.nonce) ? false : durableSendIsInFlight(delivery),
-        animateEntrance: true,
-        delivery: authoritativeEchoes.has(delivery.nonce)
-          ? {
-              ...delivery,
-              phase: "accepted-awaiting-echo" as const,
-              acceptedMessage: authoritativeEchoes.get(delivery.nonce) as ChannelMessageView,
-              acceptedAtMs:
-                delivery.acceptedAtMs ??
-                Date.parse(
-                  (authoritativeEchoes.get(delivery.nonce) as ChannelMessageView).createdAt
-                ),
-            }
-          : delivery,
+  const visibleMessages = useMemo(
+    () =>
+      projectOutgoingMessages(messages, channelSends).map((entry) => ({
+        ...entry,
+        animateEntrance: entry.delivery !== null || enteringMessageIds.has(entry.message.id),
       })),
-    ].sort(
-      (left, right) =>
-        new Date(left.message.createdAt).getTime() - new Date(right.message.createdAt).getTime() ||
-        left.renderKey.localeCompare(right.renderKey)
-    );
-  }, [channelSends, enteringMessageIds, messages]);
+    [channelSends, enteringMessageIds, messages]
+  );
   const messagesById = useMemo(
     () => new Map(visibleMessages.map(({ message }) => [message.id, message] as const)),
     [visibleMessages]

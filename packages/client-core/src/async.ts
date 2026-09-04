@@ -9,6 +9,8 @@ export const MAX_PARALLEL_UPLOADS = 2;
 export interface SerialPollerOptions {
   intervalMs: number;
   task: () => Promise<void>;
+  /** False preserves callers whose first refresh is handled separately. */
+  immediate?: boolean;
   schedule?: (callback: () => void, delayMs: number) => ReturnType<typeof setTimeout>;
   cancel?: (timer: ReturnType<typeof setTimeout>) => void;
 }
@@ -17,6 +19,7 @@ export interface SerialPollerOptions {
 export const createSerialPoller = ({
   intervalMs,
   task,
+  immediate = true,
   schedule = setTimeout,
   cancel = clearTimeout,
 }: SerialPollerOptions): SerialPoller => {
@@ -49,7 +52,8 @@ export const createSerialPoller = ({
     start: () => {
       if (!stopped) return;
       stopped = false;
-      void run();
+      if (immediate) void run();
+      else scheduleNext();
     },
     stop: () => {
       stopped = true;

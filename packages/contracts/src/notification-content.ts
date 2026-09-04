@@ -12,28 +12,47 @@ export const PUSH_DELIVERY_ADVISORY_LOCK = {
 export const normalizeNotificationText = (value: string): string =>
   value.replace(/\s+/g, " ").trim();
 
+type GraphemeSegmenter = { segment: (input: string) => Iterable<{ segment: string }> };
+type GraphemeSegmenterConstructor = new (
+  locale?: string,
+  options?: { granularity: "grapheme" }
+) => GraphemeSegmenter;
+let cachedSegmenterConstructor: GraphemeSegmenterConstructor | undefined;
+let cachedSegmenter: GraphemeSegmenter | undefined;
+const notificationSegmenter = (): GraphemeSegmenter | undefined => {
+  const Segmenter = (Intl as unknown as { Segmenter?: GraphemeSegmenterConstructor }).Segmenter;
+  if (Segmenter !== cachedSegmenterConstructor) {
+    cachedSegmenterConstructor = Segmenter;
+    cachedSegmenter = Segmenter ? new Segmenter(undefined, { granularity: "grapheme" }) : undefined;
+  }
+  return cachedSegmenter;
+};
+
 export const notificationGraphemes = (value: string): string[] => {
   const normalized = normalizeNotificationText(value);
-  const Segmenter = (
-    Intl as unknown as {
-      Segmenter?: new (
-        locale?: string,
-        options?: { granularity: "grapheme" }
-      ) => { segment: (input: string) => Iterable<{ segment: string }> };
-    }
-  ).Segmenter;
-  return Segmenter
-    ? [...new Segmenter(undefined, { granularity: "grapheme" }).segment(normalized)].map(
-        (part) => part.segment
-      )
+  const segmenter = notificationSegmenter();
+  return segmenter
+    ? [...segmenter.segment(normalized)].map((part) => part.segment)
     : Array.from(normalized);
 };
 
 export const truncateNotificationText = (value: string, limit = 140): string => {
-  const graphemes = notificationGraphemes(value);
-  return graphemes.length <= limit
-    ? graphemes.join("")
-    : `${graphemes.slice(0, Math.max(0, limit - 1)).join("")}…`;
+  const normalized = normalizeNotificationText(value);
+  if (normalized.length <= limit) return normalized;
+  if (Number.isNaN(limit) || limit < 0) return "…";
+  const prefixLength = Math.max(0, Math.trunc(limit - 1));
+  // Whitespace normalization removes CRLF clusters; ASCII then has one code
+  // unit per grapheme. Unicode still takes the exact grapheme-aware path.
+  if (/^[\x00-\x7f]*$/.test(normalized)) return `${normalized.slice(0, prefixLength)}…`;
+  const segments = notificationSegmenter()?.segment(normalized) ?? normalized;
+  let count = 0;
+  let prefix = "";
+  for (const part of segments) {
+    count += 1;
+    if (count > limit) return `${prefix}…`;
+    if (count <= prefixLength) prefix += typeof part === "string" ? part : part.segment;
+  }
+  return normalized;
 };
 
 export type AgentNotificationKind = "agent-needs-input" | "agent-done";

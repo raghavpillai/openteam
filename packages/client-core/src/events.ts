@@ -8,6 +8,35 @@ export interface ProductEventHandlers {
   onStreamError?: (message: string) => void;
 }
 
+export const readProductEventBatch = async (response: Response): Promise<ProductEvent[]> => {
+  if (!response.ok) {
+    throw new OpenTeamClientError(
+      `Event poll failed (${response.status})`,
+      "event_poll_failed",
+      response.status
+    );
+  }
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch {
+    throw new OpenTeamClientError("OpenTeam returned an invalid event poll", "invalid_event");
+  }
+  if (
+    typeof body !== "object" ||
+    body === null ||
+    !("events" in body) ||
+    !Array.isArray(body.events)
+  ) {
+    throw new OpenTeamClientError("OpenTeam returned an invalid event poll", "invalid_event");
+  }
+  try {
+    return body.events.map(parseProductEvent);
+  } catch {
+    throw new OpenTeamClientError("OpenTeam returned an invalid live event", "invalid_event");
+  }
+};
+
 const eventBlock = (block: string, handlers: ProductEventHandlers): void => {
   let eventName = "message";
   const data: string[] = [];

@@ -8,9 +8,11 @@ import { createOpenTeamClient } from "@openteam/client-core/client";
 import {
   CommittedEventCursor,
   createLiveSyncController,
-  reconnectDelay,
+  LIVE_SYNC_DEBOUNCE_MS,
   RUNTIME_REFRESH_MS,
+  reconnectDelay,
   shouldRefreshForEvent,
+  synchronizeClientSnapshot,
 } from "@openteam/client-core/sync";
 import type {
   AssetRef,
@@ -41,30 +43,36 @@ import {
   toggleSidebarPinned,
 } from "@openteam/contracts/client-preferences";
 import {
+  createChannelHistoryStore,
+  MESSAGE_HISTORY_PAGE_SIZE,
+} from "@openteam/product-core/channel-history";
+import {
   classifyDurableSendError,
   createDurableSendController,
   type DurableSendController,
   type DurableSendPayload,
   type DurableSendRecord,
-  durableSendAuthoritativeEcho,
-  durableSendIsInFlight,
   durableSendMessage,
-  durableSendRenderKey,
   durableSendVisualState,
-  messageDeliveryAcceptance,
   type MessageDeliveryAcceptance,
+  messageDeliveryAcceptance,
 } from "@openteam/product-core/durable-delivery";
 import {
   latestNumericSequence,
   mergeBootstrapWithHistory,
   mergeChannelMessages,
   mergeChannelState,
-  reconcileActiveHistoryRefresh,
   retainedHistoryIds,
+  sortedUniqueMessages,
   touchHistoryLru,
   trimInactiveHistories,
 } from "@openteam/product-core/history";
 import { messageMetadata, toggleOwnReaction } from "@openteam/product-core/messages";
+import { projectOutgoingMessages } from "@openteam/product-core/outgoing-messages";
+import {
+  createReadReceiptController,
+  readReceiptTarget,
+} from "@openteam/product-core/read-receipts";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
 import { selectChannelRows } from "@openteam/product-core/snapshot";
 import { fetch as expoFetch } from "expo/fetch";
@@ -88,13 +96,13 @@ import {
   onBeforeSignOut,
   requireAuthenticationForServer,
 } from "../auth";
-import { createMobileDurableSendStorage } from "../durable-send-storage";
 import { recordMobileDeliveryTelemetry } from "../delivery-telemetry";
+import { clearConversationDraftIfCurrent } from "../drafts";
 import {
   discardMobileDeliveryAttachments,
   mobileDeliveryAttachmentUri,
 } from "../durable-attachment-stage";
-import { clearConversationDraftIfCurrent } from "../drafts";
+import { createMobileDurableSendStorage } from "../durable-send-storage";
 import { mobileFixture } from "../fixtures";
 import { uploadNativeAsset } from "../native-asset-upload";
 import {
@@ -188,9 +196,13 @@ interface OpenTeamState {
   hydrateChannel: (channelId: string, targetMessageId?: string) => Promise<void>;
   releaseChannel: (channelId: string) => void;
   loadEarlierMessages: (channelId: string) => Promise<void>;
+  loadLaterMessages: (channelId: string) => Promise<void>;
+  jumpToLatestMessages: (channelId: string) => Promise<void>;
+  setHistoryViewport: (channelId: string, messageIds: readonly string[], atBottom: boolean) => void;
+  visibleHistoryMessageIds: (channelId: string) => ReadonlySet<string> | null;
   historyState: Record<
     string,
-    { beforeSequence: string | null; hasMore: boolean; loading: boolean }
+    { beforeSequence: string | null; hasMore: boolean; loading: boolean; hasNewer?: boolean }
   >;
   search: (
     query: string,
@@ -311,6 +323,7 @@ export function OpenTeamProvider({ children }: { children: React.ReactNode }) {
       ? createOpenTeamClient({
           baseUrl: serverUrl,
           fetch: expoFetch as unknown as typeof fetch,
+          eventTransport: "long-poll",
           getAuthToken: () => getAuthTokenForServer(serverUrl),
           onUnauthorized: (usedToken) => requireAuthenticationForServer(serverUrl, usedToken),
         })
@@ -453,7 +466,10 @@ export function OpenTeamProvider({ children }: { children: React.ReactNode }) {
     useState<NotificationPermissionState>("loading");
   const [notificationError, setNotificationError] = useState<string | null>(null);
   const [historyState, setHistoryState] = useState<
-    Record<string, { beforeSequence: string | null; hasMore: boolean; loading: boolean }>
+    Record<
+      string,
+      { beforeSequence: string | null; hasMore: boolean; loading: boolean; hasNewer?: boolean }
+    >
   >({});
   const connectionEpochRef = useRef(0);
   const connectionUrlRef = useRef("");
@@ -463,13 +479,13 @@ export function OpenTeamProvider({ children }: { children: React.ReactNode }) {
   const activeHistoryChannelId = useRef<string | null>(null);
   const inactiveHistoryLru = useRef<string[]>([]);
   const hydrationRequests = useRef(createKeyedRequestCoordinator());
-  const pendingReadSequences = useRef(new Map<string, bigint>());
-  const acknowledgedReadSequences = useRef(new Map<string, bigint>());
-  const readRequests = useRef(new Map<string, Promise<void>>());
+  const historyStore = useRef(createChannelHistoryStore());
+  const readReceipts = useRef(createReadReceiptController());
   const lastBadgeCountRef = useRef<number | null>(null);
   const syncRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const syncRetryAttemptRef = useRef(0);
   const syncRemoteCallbackRef = useRef<(() => Promise<void>) | null>(null);
+  const deferredHistorySyncs = useRef(new WeakSet<Promise<unknown>>());
   const pushOperationsRef = useRef(new Map<MobileClient, Set<Promise<unknown>>>());
   const acceptedSendRefreshesRef = useRef(new Set<string>());
 
@@ -525,6 +541,16 @@ export function OpenTeamProvider({ children }: { children: React.ReactNode }) {
   const acceptRemoteSnapshot = useCallback(
     (next: ClientSnapshot, epoch = connectionEpochRef.current, persist = true): boolean => {
       if (epoch !== connectionEpochRef.current) return false;
+      const activeChannel = activeHistoryChannelId.current;
+      const retained = activeChannel ? historyStore.current.retained(activeChannel) : null;
+      if (retained)
+        next = {
+          ...next,
+          channelMessages: sortedUniqueMessages([
+            ...next.channelMessages.filter((message) => message.channelId !== activeChannel),
+            ...retained,
+          ]),
+        };
       snapshotRef.current = next;
       setSnapshot(next);
       if (persist && connectionUrlRef.current) {
@@ -537,11 +563,47 @@ export function OpenTeamProvider({ children }: { children: React.ReactNode }) {
     },
     []
   );
+  const setHistoryViewport = useCallback(
+    (channelId: string, messageIds: readonly string[], atBottom: boolean) => {
+      historyStore.current.setViewport(channelId, messageIds, atBottom);
+    },
+    []
+  );
+  const visibleHistoryMessageIds = useCallback((channelId: string): ReadonlySet<string> | null => {
+    return historyStore.current.visibleIds(channelId);
+  }, []);
+  const publishHistory = useCallback(
+    (channelId: string, epoch = connectionEpochRef.current) => {
+      if (epoch !== connectionEpochRef.current || channelId !== activeHistoryChannelId.current)
+        return;
+      const status = historyStore.current.status(channelId);
+      if (!status) return;
+      // acceptRemoteSnapshot already merges the active retained window. Doing
+      // the same full snapshot sort here doubled this work for every page.
+      acceptRemoteSnapshot(snapshotRef.current, epoch);
+      setHistoryState((current) => {
+        const previous = current[channelId];
+        return previous &&
+          !previous.loading &&
+          previous.beforeSequence === status.beforeSequence &&
+          previous.hasMore === status.hasMore &&
+          previous.hasNewer === status.hasNewer
+          ? current
+          : { ...current, [channelId]: { ...status, loading: false } };
+      });
+    },
+    [acceptRemoteSnapshot]
+  );
   const acceptRemoteBootstrap = useCallback(
     (bootstrap: ClientBootstrapView, epoch = connectionEpochRef.current): boolean => {
       if (epoch !== connectionEpochRef.current) return false;
       if (!eventCursorRef.current.commit(bootstrap.cursor)) return false;
       setCapabilities(bootstrap.capabilities ?? CLIENT_CAPABILITIES);
+      const activeChannel = activeHistoryChannelId.current;
+      if (activeChannel && !bootstrap.channels.some((channel) => channel.id === activeChannel)) {
+        historyStore.current.delete(activeChannel);
+        hydrationRequests.current.invalidate(activeChannel);
+      }
       const retained = retainedHistoryIds(
         activeHistoryChannelId.current,
         inactiveHistoryLru.current
@@ -584,61 +646,35 @@ export function OpenTeamProvider({ children }: { children: React.ReactNode }) {
   );
   const visibleSnapshot = useMemo<ClientSnapshot>(() => {
     if (durableSends.length === 0) return snapshot;
-    const authoritativeEchoes = new Map(
-      durableSends.flatMap((delivery) => {
-        const echo = durableSendAuthoritativeEcho(delivery, snapshot.channelMessages);
-        return echo ? [[delivery.nonce, echo] as const] : [];
-      })
-    );
-    const outgoingServerIds = new Set(
-      durableSends.flatMap((delivery) => {
-        const authoritative = authoritativeEchoes.get(delivery.nonce) ?? delivery.acceptedMessage;
-        return authoritative ? [authoritative.id] : [];
-      })
-    );
-    const authoritativeById = new Map(
-      snapshot.channelMessages.map((message) => [message.id, message] as const)
-    );
-    const projectedOutgoing = durableSends.map((delivery) => {
-      const authoritativeEcho = authoritativeEchoes.get(delivery.nonce);
-      const message =
-        authoritativeEcho ??
-        (delivery.acceptedMessage
-          ? authoritativeById.get(delivery.acceptedMessage.id)
-          : undefined) ??
-        durableSendMessage(delivery);
-      return {
-        ...message,
-        metadata: {
-          ...messageMetadata(message),
-          clientDelivery: {
-            renderKey: durableSendRenderKey(delivery),
-            nonce: delivery.nonce,
-            state: authoritativeEcho ? "accepted" : durableSendVisualState(delivery),
-            inFlight: authoritativeEcho ? false : durableSendIsInFlight(delivery),
-            composedAtMs: delivery.queuedAtMs,
-            queuedAtMs: delivery.queuedAtMs,
-            acceptedAtMs:
-              delivery.acceptedAtMs ??
-              (authoritativeEcho ? Date.parse(authoritativeEcho.createdAt) : null),
-            transportDown:
-              delivery.phase === "queued" &&
-              (AppState.currentState !== "active" ||
-                Date.now() < sendTransportDownUntilMsRef.current),
-            failure: delivery.failure,
-          },
-        },
-      };
+    const projected = projectOutgoingMessages(snapshot.channelMessages, durableSends, {
+      echoRenderKey: "delivery",
+      orderBy: "messageId",
     });
     return {
       ...snapshot,
-      channelMessages: [
-        ...snapshot.channelMessages.filter((message) => !outgoingServerIds.has(message.id)),
-        ...projectedOutgoing,
-      ].sort(
-        (left, right) =>
-          new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime() ||
-          left.id.localeCompare(right.id)
+      channelMessages: projected.map(({ message, delivery, renderKey, pending }) =>
+        delivery
+          ? {
+              ...message,
+              metadata: {
+                ...messageMetadata(message),
+                clientDelivery: {
+                  renderKey,
+                  nonce: delivery.nonce,
+                  state: durableSendVisualState(delivery),
+                  inFlight: pending,
+                  composedAtMs: delivery.queuedAtMs,
+                  queuedAtMs: delivery.queuedAtMs,
+                  acceptedAtMs: delivery.acceptedAtMs,
+                  transportDown:
+                    delivery.phase === "queued" &&
+                    (AppState.currentState !== "active" ||
+                      Date.now() < sendTransportDownUntilMsRef.current),
+                  failure: delivery.failure,
+                },
+              },
+            }
+          : message
       ),
     };
   }, [durableSends, sendTransportRevision, snapshot]);
@@ -734,9 +770,8 @@ export function OpenTeamProvider({ children }: { children: React.ReactNode }) {
     activeHistoryChannelId.current = null;
     inactiveHistoryLru.current = [];
     hydrationRequests.current.clear();
-    pendingReadSequences.current.clear();
-    acknowledgedReadSequences.current.clear();
-    readRequests.current.clear();
+    historyStore.current.clear();
+    readReceipts.current.clear();
     lastBadgeCountRef.current = null;
     if (syncRetryTimerRef.current) clearTimeout(syncRetryTimerRef.current);
     syncRetryTimerRef.current = null;
@@ -841,6 +876,31 @@ export function OpenTeamProvider({ children }: { children: React.ReactNode }) {
     if (hasNewAcceptance) void refresh();
   }, [durableSends, refresh]);
 
+  const scheduleSyncRetry = useCallback(
+    (operationClient: MobileClient, epoch: number, delay: number) => {
+      if (!operationIsCurrent(operationClient, epoch) || syncRetryTimerRef.current) return;
+      syncRetryTimerRef.current = setTimeout(() => {
+        syncRetryTimerRef.current = null;
+        if (operationIsCurrent(operationClient, epoch)) void syncRemoteCallbackRef.current?.();
+      }, delay);
+    },
+    [operationIsCurrent]
+  );
+
+  const deferHistorySync = useCallback(
+    (operationClient: MobileClient, epoch: number, pending?: Promise<unknown>) => {
+      const retry = () => scheduleSyncRetry(operationClient, epoch, LIVE_SYNC_DEBOUNCE_MS);
+      if (!pending) {
+        retry();
+        return;
+      }
+      if (deferredHistorySyncs.current.has(pending)) return;
+      deferredHistorySyncs.current.add(pending);
+      void pending.then(retry, retry);
+    },
+    [scheduleSyncRetry]
+  );
+
   const syncRequestRef = useRef<Promise<void> | null>(null);
   const syncRequestedRef = useRef(false);
   const syncRemote = useCallback(async () => {
@@ -855,42 +915,27 @@ export function OpenTeamProvider({ children }: { children: React.ReactNode }) {
     const request = (async () => {
       do {
         syncRequestedRef.current = false;
-        const activeChannelId = activeHistoryChannelId.current;
-        const [bootstrap, activeHistory, activeState] = await Promise.all([
-          operationClient.bootstrap(),
-          activeChannelId
-            ? operationClient.channelHistory(activeChannelId, { limit: 100 }).catch(() => null)
-            : Promise.resolve(null),
-          activeChannelId
-            ? operationClient.channelState(activeChannelId).catch(() => null)
-            : Promise.resolve(null),
-        ]);
-        if (!operationIsCurrent(operationClient, epoch)) return;
-        if (!acceptRemoteBootstrap(bootstrap, epoch)) {
-          throw new Error("OpenTeam returned a bootstrap older than an observed event");
-        }
-        if (
-          activeChannelId &&
-          activeHistory &&
-          activeHistoryChannelId.current === activeChannelId
-        ) {
-          acceptChannelMessages(
-            activeChannelId,
-            [...activeHistory.messages, ...activeHistory.threadContext],
-            epoch
-          );
-          setHistoryState((current) => ({
-            ...current,
-            [activeChannelId]: reconcileActiveHistoryRefresh(current[activeChannelId], {
-              beforeSequence: activeHistory.beforeSequence,
-              hasMore: activeHistory.hasMore,
-              loading: false,
-            }),
-          }));
-        }
-        if (activeChannelId && activeState && activeHistoryChannelId.current === activeChannelId) {
-          acceptChannelState(activeState, epoch);
-        }
+        const outcome = await synchronizeClientSnapshot({
+          readBootstrap: () => operationClient.bootstrap(),
+          readHistory: (channelId) =>
+            operationClient.channelHistory(channelId, { limit: MESSAGE_HISTORY_PAGE_SIZE }),
+          readState: (channelId) => operationClient.channelState(channelId),
+          activeChannel: () => activeHistoryChannelId.current,
+          historyIdentity: (channelId) => historyStore.current.get(channelId),
+          pendingHistory: (channelId) => hydrationRequests.current.pending(channelId),
+          isCurrent: () => operationIsCurrent(operationClient, epoch),
+          acceptBootstrap: (bootstrap) => acceptRemoteBootstrap(bootstrap, epoch),
+          acceptHistory: (page) => {
+            historyStore.current.acceptPage(page, "refresh");
+            publishHistory(page.channelId, epoch);
+          },
+          acceptState: (state) => {
+            acceptChannelState(state, epoch);
+          },
+          defer: (pending) => deferHistorySync(operationClient, epoch, pending),
+        });
+        if (outcome === "stale") return;
+        if (outcome === "deferred") continue;
         setError(null);
         setLoading(false);
         syncRetryAttemptRef.current = 0;
@@ -901,27 +946,29 @@ export function OpenTeamProvider({ children }: { children: React.ReactNode }) {
       .catch((cause) => {
         if (operationIsCurrent(operationClient, epoch)) {
           setError(clientErrorMessage(cause, "Could not reach OpenTeam"));
-          if (!syncRetryTimerRef.current) {
-            const delay = reconnectDelay(syncRetryAttemptRef.current);
-            syncRetryAttemptRef.current += 1;
-            syncRetryTimerRef.current = setTimeout(() => {
-              syncRetryTimerRef.current = null;
-              void syncRemoteCallbackRef.current?.();
-            }, delay);
-          }
+          const delay = reconnectDelay(syncRetryAttemptRef.current);
+          syncRetryAttemptRef.current += 1;
+          scheduleSyncRetry(operationClient, epoch, delay);
         }
       })
       .finally(() => {
-        if (syncRequestRef.current === request) syncRequestRef.current = null;
+        if (syncRequestRef.current === request) {
+          syncRequestRef.current = null;
+          // A continuation can request a refresh after the loop's final check.
+          // Preserve that last update instead of waiting for a fallback poll.
+          if (syncRequestedRef.current) scheduleSyncRetry(operationClient, epoch, 0);
+        }
       });
     syncRequestRef.current = request;
     await request;
   }, [
-    acceptChannelMessages,
+    publishHistory,
     acceptChannelState,
     acceptRemoteBootstrap,
     client,
     operationIsCurrent,
+    deferHistorySync,
+    scheduleSyncRetry,
   ]);
   syncRemoteCallbackRef.current = syncRemote;
 
@@ -1122,21 +1169,25 @@ export function OpenTeamProvider({ children }: { children: React.ReactNode }) {
       inactiveHistoryLru.current = inactiveHistoryLru.current.filter(
         (candidate) => candidate !== channelId
       );
-      const requestKey = `hydrate:${channelId}:${targetMessageId ?? "latest"}`;
       const operationClient = client;
       const epoch = connectionEpochRef.current;
-      await hydrationRequests.current.run(requestKey, async () => {
-        setHistoryState((current) => ({
-          ...current,
+      hydrationRequests.current.invalidate(channelId);
+      await hydrationRequests.current.run(channelId, async (lease) => {
+        const current = () =>
+          operationIsCurrent(operationClient, epoch) &&
+          hydrationRequests.current.isCurrent(lease) &&
+          activeHistoryChannelId.current === channelId;
+        setHistoryState((state) => ({
+          ...state,
           [channelId]: {
-            beforeSequence: current[channelId]?.beforeSequence ?? null,
-            hasMore: current[channelId]?.hasMore ?? false,
+            beforeSequence: state[channelId]?.beforeSequence ?? null,
+            hasMore: state[channelId]?.hasMore ?? false,
             loading: true,
           },
         }));
         try {
           const [page, targetContext, channelState] = await Promise.all([
-            operationClient.channelHistory(channelId, { limit: 100 }),
+            operationClient.channelHistory(channelId, { limit: MESSAGE_HISTORY_PAGE_SIZE }),
             targetMessageId
               ? operationClient
                   .messageContext(targetMessageId, { before: 40, after: 40 })
@@ -1144,34 +1195,20 @@ export function OpenTeamProvider({ children }: { children: React.ReactNode }) {
               : Promise.resolve(null),
             operationClient.channelState(channelId),
           ]);
-          if (!operationIsCurrent(operationClient, epoch)) return;
-          acceptChannelMessages(
-            channelId,
-            [
-              ...page.messages,
-              ...page.threadContext,
-              ...(targetContext?.messages ?? []),
-              ...(targetContext?.threadContext ?? []),
-            ],
-            epoch
-          );
+          if (!current()) return;
+          historyStore.current.acceptPage(page, "replace");
+          if (targetContext?.channelId === channelId)
+            historyStore.current.acceptContext(targetContext);
+          publishHistory(channelId, epoch);
           acceptChannelState(channelState, epoch);
-          setHistoryState((current) => ({
-            ...current,
-            [channelId]: {
-              beforeSequence: page.beforeSequence,
-              hasMore: page.hasMore,
-              loading: false,
-            },
-          }));
           setError(null);
         } catch (cause) {
-          if (!operationIsCurrent(operationClient, epoch)) return;
-          setHistoryState((current) => ({
-            ...current,
+          if (!current()) return;
+          setHistoryState((state) => ({
+            ...state,
             [channelId]: {
-              beforeSequence: current[channelId]?.beforeSequence ?? null,
-              hasMore: current[channelId]?.hasMore ?? false,
+              beforeSequence: state[channelId]?.beforeSequence ?? null,
+              hasMore: state[channelId]?.hasMore ?? false,
               loading: false,
             },
           }));
@@ -1179,17 +1216,20 @@ export function OpenTeamProvider({ children }: { children: React.ReactNode }) {
         }
       });
     },
-    [acceptChannelMessages, acceptChannelState, client, operationIsCurrent]
+    [acceptChannelState, client, operationIsCurrent, publishHistory]
   );
 
   const releaseChannel = useCallback(
     (channelId: string) => {
       if (activeHistoryChannelId.current !== channelId) return;
       activeHistoryChannelId.current = null;
+      hydrationRequests.current.invalidate(channelId);
+      historyStore.current.delete(channelId);
       inactiveHistoryLru.current = touchHistoryLru(inactiveHistoryLru.current, channelId);
       const retained = retainedHistoryIds(null, inactiveHistoryLru.current);
-      const next = trimInactiveHistories(snapshotRef.current, null, inactiveHistoryLru.current);
-      acceptRemoteSnapshot(next);
+      acceptRemoteSnapshot(
+        trimInactiveHistories(snapshotRef.current, null, inactiveHistoryLru.current)
+      );
       setHistoryState((current) =>
         Object.fromEntries(Object.entries(current).filter(([id]) => retained.has(id)))
       );
@@ -1197,45 +1237,80 @@ export function OpenTeamProvider({ children }: { children: React.ReactNode }) {
     [acceptRemoteSnapshot]
   );
 
-  const loadEarlierMessages = useCallback(
-    async (channelId: string) => {
-      if (!client) return;
-      const requestKey = `earlier:${channelId}`;
-      const state = historyState[channelId];
-      if (!state?.hasMore || state.loading || !state.beforeSequence) return;
+  const loadHistoryPage = useCallback(
+    async (channelId: string, direction: "older" | "newer") => {
+      if (!client || activeHistoryChannelId.current !== channelId) return;
+      const entry = historyStore.current.get(channelId);
+      const status = historyStore.current.status(channelId);
+      if (!entry || !status || !(direction === "older" ? status.hasMore : status.hasNewer)) return;
       const operationClient = client;
       const epoch = connectionEpochRef.current;
-      await hydrationRequests.current.run(requestKey, async () => {
-        setHistoryState((current) => ({
-          ...current,
-          [channelId]: { ...state, loading: true },
-        }));
+      await hydrationRequests.current.run(channelId, async (lease) => {
+        const current = () =>
+          operationIsCurrent(operationClient, epoch) &&
+          hydrationRequests.current.isCurrent(lease) &&
+          activeHistoryChannelId.current === channelId;
+        if (direction === "older")
+          setHistoryState((state) => ({ ...state, [channelId]: { ...status, loading: true } }));
         try {
-          const page = await operationClient.channelHistory(channelId, {
-            beforeSequence: state.beforeSequence ?? undefined,
-            limit: 100,
-          });
-          if (!operationIsCurrent(operationClient, epoch)) return;
-          acceptChannelMessages(channelId, [...page.messages, ...page.threadContext], epoch);
-          setHistoryState((current) => ({
-            ...current,
-            [channelId]: {
-              beforeSequence: page.beforeSequence,
-              hasMore: page.hasMore,
-              loading: false,
-            },
-          }));
+          if (entry.window.context || direction === "newer") {
+            const messages = entry.window.context
+              ? entry.history.searchContext
+              : entry.history.messages;
+            const edge = direction === "older" ? messages[0] : messages.at(-1);
+            if (!edge) return;
+            const page = await operationClient.messageContext(edge.id, {
+              direction: direction === "older" ? "before" : "after",
+              limit: MESSAGE_HISTORY_PAGE_SIZE,
+            });
+            if (!current() || page.channelId !== channelId) return;
+            historyStore.current.expand(page, direction);
+          } else {
+            const page = await operationClient.channelHistory(channelId, {
+              beforeSequence: status.beforeSequence ?? undefined,
+              limit: MESSAGE_HISTORY_PAGE_SIZE,
+            });
+            if (!current()) return;
+            historyStore.current.acceptPage(page, "older");
+          }
+          publishHistory(channelId, epoch);
         } catch (cause) {
-          if (!operationIsCurrent(operationClient, epoch)) return;
-          setHistoryState((current) => ({
-            ...current,
-            [channelId]: { ...state, loading: false },
-          }));
-          setError(clientErrorMessage(cause, "Could not load earlier messages"));
+          if (!current()) return;
+          setError(
+            clientErrorMessage(
+              cause,
+              direction === "older"
+                ? "Could not load earlier messages"
+                : "Could not load later messages"
+            )
+          );
+        } finally {
+          if (current() && direction === "older")
+            setHistoryState((state) => {
+              const previous = state[channelId];
+              return previous ? { ...state, [channelId]: { ...previous, loading: false } } : state;
+            });
         }
       });
     },
-    [acceptChannelMessages, client, historyState, operationIsCurrent]
+    [client, operationIsCurrent, publishHistory]
+  );
+  const loadEarlierMessages = useCallback(
+    (channelId: string) => loadHistoryPage(channelId, "older"),
+    [loadHistoryPage]
+  );
+  const loadLaterMessages = useCallback(
+    (channelId: string) => loadHistoryPage(channelId, "newer"),
+    [loadHistoryPage]
+  );
+  const jumpToLatestMessages = useCallback(
+    async (channelId: string) => {
+      hydrationRequests.current.invalidate(channelId);
+      historyStore.current.setViewport(channelId, [], true);
+      if (historyStore.current.jumpToLatest(channelId)) publishHistory(channelId);
+      await hydrateChannel(channelId);
+    },
+    [hydrateChannel, publishHistory]
   );
 
   const markChannelRead = useCallback(
@@ -1244,22 +1319,12 @@ export function OpenTeamProvider({ children }: { children: React.ReactNode }) {
       const channel = current.channels.find((candidate) => candidate.id === channelId);
       const latestValue = latestNumericSequence(current.channelMessages, channelId);
       if (!latestValue) return;
-      let latest: bigint;
-      let requested: bigint;
-      try {
-        latest = BigInt(latestValue);
-        requested = throughSequence === undefined ? latest : BigInt(throughSequence);
-      } catch {
-        return;
-      }
-      const targetSequence = requested < latest ? requested : latest;
-      if (targetSequence < 0n) return;
-      const acknowledged = acknowledgedReadSequences.current.get(channelId) ?? -1n;
-      const pending = pendingReadSequences.current.get(channelId) ?? -1n;
-      if ((channel?.unreadCount ?? 0) <= 0 && acknowledged < 0n && pending < 0n) return;
-      if (targetSequence <= acknowledged) return;
-      if (targetSequence > pending) pendingReadSequences.current.set(channelId, targetSequence);
-      if (targetSequence >= latest) {
+      const target = readReceiptTarget(latestValue, throughSequence);
+      if (target === null) return;
+      if ((channel?.unreadCount ?? 0) <= 0 && !readReceipts.current.hasState(channelId)) return;
+      const acknowledged = readReceipts.current.acknowledgedThrough(channelId);
+      if (acknowledged !== null && BigInt(target) <= BigInt(acknowledged)) return;
+      if (BigInt(target) >= BigInt(latestValue)) {
         acceptRemoteSnapshot({
           ...current,
           channels: current.channels.map((candidate) =>
@@ -1268,52 +1333,27 @@ export function OpenTeamProvider({ children }: { children: React.ReactNode }) {
         });
       }
       if (!client) return;
-      const existing = readRequests.current.get(channelId);
-      if (existing) return existing;
       const operationClient = client;
       const epoch = connectionEpochRef.current;
-      let request!: Promise<void>;
-      request = (async () => {
-        try {
-          while (operationIsCurrent(operationClient, epoch)) {
-            const target = pendingReadSequences.current.get(channelId);
-            const readThrough = acknowledgedReadSequences.current.get(channelId) ?? -1n;
-            if (target === undefined || target <= readThrough) break;
-            const result = await operationClient.markChannelRead(channelId, target.toString());
-            if (!operationIsCurrent(operationClient, epoch)) return;
-            const confirmed = BigInt(result.lastReadSequence);
-            acknowledgedReadSequences.current.set(
-              channelId,
-              confirmed > readThrough ? confirmed : readThrough
-            );
-            if ((pendingReadSequences.current.get(channelId) ?? -1n) <= confirmed) {
-              pendingReadSequences.current.delete(channelId);
-            }
-            const next = snapshotRef.current;
-            acceptRemoteSnapshot(
-              {
-                ...next,
-                channels: next.channels.map((candidate) =>
-                  candidate.id === channelId
-                    ? { ...candidate, unreadCount: result.unreadCount }
-                    : candidate
-                ),
-              },
-              epoch
-            );
-          }
-        } catch (cause) {
-          if (operationIsCurrent(operationClient, epoch)) {
-            setError(clientErrorMessage(cause, "Could not update read state"));
-          }
-        } finally {
-          if (readRequests.current.get(channelId) === request) {
-            readRequests.current.delete(channelId);
-          }
-        }
-      })();
-      readRequests.current.set(channelId, request);
-      await request;
+      await readReceipts.current.request(channelId, target, {
+        send: (id, sequence) => operationClient.markChannelRead(id, sequence),
+        isCurrent: () => operationIsCurrent(operationClient, epoch),
+        onAcknowledged: (result) => {
+          const next = snapshotRef.current;
+          acceptRemoteSnapshot(
+            {
+              ...next,
+              channels: next.channels.map((candidate) =>
+                candidate.id === channelId
+                  ? { ...candidate, unreadCount: result.unreadCount }
+                  : candidate
+              ),
+            },
+            epoch
+          );
+        },
+        onError: (cause) => setError(clientErrorMessage(cause, "Could not update read state")),
+      });
     },
     [acceptRemoteSnapshot, client, operationIsCurrent]
   );
@@ -1979,6 +2019,7 @@ export function OpenTeamProvider({ children }: { children: React.ReactNode }) {
       const previous = snapshotRef.current.channelMessages.find(
         (message) => message.id === messageId
       );
+      if (previous) historyStore.current.patch(toggleOwnReaction(previous, emoji));
       setSnapshot((current) => ({
         ...current,
         channelMessages: current.channelMessages.map((message) =>
@@ -1991,6 +2032,7 @@ export function OpenTeamProvider({ children }: { children: React.ReactNode }) {
       try {
         const result = await operationClient.reactToMessage(messageId, emoji);
         if (!operationIsCurrent(operationClient, epoch)) return;
+        historyStore.current.patch(result.message);
         setSnapshot((current) => ({
           ...current,
           channelMessages: current.channelMessages.map((message) =>
@@ -2000,6 +2042,7 @@ export function OpenTeamProvider({ children }: { children: React.ReactNode }) {
       } catch (cause) {
         if (!operationIsCurrent(operationClient, epoch)) return;
         if (previous) {
+          historyStore.current.patch(previous);
           setSnapshot((current) => ({
             ...current,
             channelMessages: current.channelMessages.map((message) =>
@@ -2016,6 +2059,7 @@ export function OpenTeamProvider({ children }: { children: React.ReactNode }) {
   const acceptRichMessageMutation = useCallback(
     (message: ChannelMessageView, operationClient: MobileClient, epoch: number): boolean => {
       if (!operationIsCurrent(operationClient, epoch)) return false;
+      historyStore.current.patch(message);
       setSnapshot((current) => ({
         ...current,
         channelMessages: current.channelMessages.map((candidate) =>
@@ -2260,6 +2304,10 @@ export function OpenTeamProvider({ children }: { children: React.ReactNode }) {
       hydrateChannel,
       releaseChannel,
       loadEarlierMessages,
+      loadLaterMessages,
+      jumpToLatestMessages,
+      setHistoryViewport,
+      visibleHistoryMessageIds,
       historyState,
       search,
       sendMessage,
@@ -2299,6 +2347,10 @@ export function OpenTeamProvider({ children }: { children: React.ReactNode }) {
       releaseChannel,
       loading,
       loadEarlierMessages,
+      loadLaterMessages,
+      jumpToLatestMessages,
+      setHistoryViewport,
+      visibleHistoryMessageIds,
       markChannelRead,
       notificationError,
       notificationPermission,

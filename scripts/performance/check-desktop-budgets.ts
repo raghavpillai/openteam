@@ -102,11 +102,10 @@ atMost("startup bytes", result.renderer.startup.bytes, 1_200_000);
 const startupCssBytes = result.renderer.startup.files
   .filter((file) => file.path.endsWith(".css"))
   .reduce((total, file) => total + file.bytes, 0);
-// Responsive settings plus the animated glass onboarding bring the complete
-// startup stylesheet to 173,763 bytes. Keep less than 0.4% headroom and stay
-// below upstream's 178.8 KB rather than moving established surfaces behind
-// first-open boundaries.
-atMost("startup CSS bytes", startupCssBytes, 174_400);
+// The shadcn shell and modular responsive sidebar bring the complete startup
+// stylesheet to 177,306 bytes. Keep less than 0.4% headroom and stay below
+// 178 KB rather than moving established navigation behind first-open boundaries.
+atMost("startup CSS bytes", startupCssBytes, 178_000);
 // Durable recovery, viewport-aware history, scroll restoration, thread
 // retention, and configurable-server onboarding bring the complete renderer to
 // 15,580,624 bytes. Keep less than 0.009% headroom while the compressed,

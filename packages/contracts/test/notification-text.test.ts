@@ -51,6 +51,27 @@ describe("notification text", () => {
     expect(value.slice(0, -1)).toBe(family.repeat(139));
   });
 
+  test("bounded preview work preserves the original text for ASCII, Unicode, and edge limits", () => {
+    const inputs = [
+      "",
+      " \nhello\t world ",
+      "plain text ".repeat(20_000),
+      "👨‍👩‍👧‍👦".repeat(150),
+      "e\u0301".repeat(150),
+      "你好🇺🇸👩🏽‍💻".repeat(150),
+    ];
+    for (const input of inputs) {
+      const graphemes = notificationGraphemes(input);
+      for (const limit of [0, 1, 2, 2.5, 5, 140, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+        const previous =
+          graphemes.length <= limit
+            ? graphemes.join("")
+            : `${graphemes.slice(0, Math.max(0, limit - 1)).join("")}…`;
+        expect(truncateNotificationText(input, limit)).toBe(previous);
+      }
+    }
+  });
+
   test("provides useful structured fallbacks for attachment-only messages", () => {
     expect(
       notificationMessagePreview({

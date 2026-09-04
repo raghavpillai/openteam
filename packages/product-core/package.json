@@ -23,7 +23,10 @@
     "./snapshot": "./src/snapshot.ts",
     "./snapshot-reconcile": "./src/snapshot-reconcile.ts",
     "./statuses": "./src/statuses.ts",
-    "./timestamps": "./src/timestamps.ts"
+    "./timestamps": "./src/timestamps.ts",
+    "./channel-history": "./src/channel-history.ts",
+    "./outgoing-messages": "./src/outgoing-messages.ts",
+    "./read-receipts": "./src/read-receipts.ts"
   },
   "scripts": {
     "build": "bun build src/index.ts --outdir dist --target browser",

@@ -1,6 +1,10 @@
 import type { RoutineExecutionView, RoutineView } from "@openteam/contracts";
-import { routineScheduleEditMode, routineSchedulePatch } from "@openteam/product-core/routines";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
+import {
+  routineExecutionStatusPresentation,
+  routineScheduleEditMode,
+  routineSchedulePatch,
+} from "@openteam/product-core/routines";
 import { hasTransientRoutineExecution } from "@openteam/product-core/statuses";
 import { useEffect, useState } from "react";
 import {
@@ -285,7 +289,7 @@ export function RoutineEditorSheet({
                       >
                         <View style={styles.historyCopy}>
                           <Text style={[styles.historyStatus, { color: theme.text }]}>
-                            {execution.status.replace("_", " ")}
+                            {routineExecutionStatusPresentation(execution.status, "raw").label}
                           </Text>
                           <Text style={[styles.historyDate, { color: theme.textMuted }]}>
                             {executionDate.format(new Date(execution.createdAt))}

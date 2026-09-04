@@ -20,7 +20,7 @@
         "NSMicrophoneUsageDescription": "OpenTeam uses the microphone only while you dictate a message.",
         "NSSpeechRecognitionUsageDescription": "OpenTeam converts speech to text only when you choose voice input."
       },
-      "buildNumber": "3"
+      "buildNumber": "4"
     },
     "android": {
       "package": "dev.openteam.mobile"

@@ -1,5 +1,6 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
+import { Toaster } from "sonner";
 import App from "./App";
 import { AuthGate } from "./components/openteam/auth-gate";
 import { installPerformanceMonitoring } from "./lib/performance";
@@ -14,6 +15,7 @@ if (!root) throw new Error("OpenTeam renderer root is missing");
 
 createRoot(root).render(
   <StrictMode>
+    <Toaster closeButton position="bottom-right" richColors theme="system" />
     <AuthGate>
       <App />
     </AuthGate>

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -127,6 +128,72 @@ describe("managed server updater", () => {
     expect(statuses.every((status) => status.currentVersion === "1.2.3")).toBe(true);
   });
 
+  test("reconnects to persisted local progress after the desktop process restarts", async () => {
+    const fixture = updaterFixture();
+    const jobId = randomUUID();
+    mkdirSync(join(fixture.directory, "update.lock"), { mode: 0o700 });
+    writeFileSync(
+      join(fixture.directory, "update.lock", "owner.json"),
+      `${JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() })}\n`
+    );
+    writeFileSync(
+      join(fixture.directory, "update-state.json"),
+      `${JSON.stringify({
+        schemaVersion: 1,
+        jobId,
+        status: "running",
+        phase: "pulling",
+        fromVersion: "1.2.3",
+        targetVersion: "1.3.0",
+        message: "Downloading components",
+      })}\n`
+    );
+    const updater = new ServerUpdater({
+      cliPath: fixture.cliPath,
+      executablePath: "/Applications/OpenTeam.app/Contents/MacOS/OpenTeam",
+      environment: fixture.environment,
+      fetcher: async () => {
+        throw new Error("version endpoint should not delay persisted progress");
+      },
+    });
+
+    await expect(updater.status("http://127.0.0.1:9444", "1.3.0")).resolves.toMatchObject({
+      status: "updating",
+      phase: "pulling",
+      message: "Downloading components",
+      jobId,
+      safeToCloseDesktop: true,
+    });
+  });
+
+  test("does not report stale persisted progress as a live update", async () => {
+    const fixture = updaterFixture();
+    writeFileSync(
+      join(fixture.directory, "update-state.json"),
+      `${JSON.stringify({
+        schemaVersion: 1,
+        jobId: randomUUID(),
+        status: "running",
+        phase: "restarting",
+        fromVersion: "1.2.3",
+        targetVersion: "1.3.0",
+        message: "Restarting OpenTeam",
+      })}\n`
+    );
+    const updater = new ServerUpdater({
+      cliPath: fixture.cliPath,
+      executablePath: "/Applications/OpenTeam.app/Contents/MacOS/OpenTeam",
+      environment: fixture.environment,
+      fetcher: async () => versionResponse("1.2.3"),
+    });
+
+    await expect(updater.status("http://127.0.0.1:9444", "1.3.0")).resolves.toMatchObject({
+      status: "error",
+      message: "The update worker stopped unexpectedly. Run the update again to recover safely.",
+      safeToCloseDesktop: false,
+    });
+  });
+
   test("runs the bundled CLI and publishes a verified successful update", async () => {
     const fixture = updaterFixture();
     const statuses: ServerUpdateStatus[] = [];
@@ -249,6 +316,41 @@ describe("managed server updater", () => {
     });
   });
 
+  test("reconnects to a remote durable update over read-only SSH status", async () => {
+    const fixture = updaterFixture();
+    const child = fakeUpdaterProcess();
+    let spawnedArguments: readonly string[] = [];
+    const updater = new ServerUpdater({
+      cliPath: fixture.cliPath,
+      executablePath: "/Applications/OpenTeam.app/Contents/MacOS/OpenTeam",
+      sshExecutable: "/usr/bin/ssh",
+      environment: fixture.environment,
+      fetcher: async () => new Response("unavailable", { status: 503 }),
+      spawnUpdater: (_executable, args) => {
+        spawnedArguments = args;
+        setTimeout(() => {
+          child.stdout.write(
+            '@@OPENTEAM_UPDATE@@{"phase":"restarting","message":"Restarting OpenTeam","version":"1.3.0","jobId":"job-1","safeToCloseDesktop":true}\n'
+          );
+          child.emit("close", 0);
+        }, 0);
+        return child as never;
+      },
+    });
+
+    await expect(
+      updater.status("https://server.example", "1.3.0", "owner@server.example")
+    ).resolves.toMatchObject({
+      status: "updating",
+      phase: "restarting",
+      message: "Restarting OpenTeam",
+      jobId: "job-1",
+      safeToCloseDesktop: true,
+    });
+    expect(spawnedArguments).toContain("status");
+    expect(spawnedArguments).toContain("--json-progress");
+  });
+
   test("updates a remote server through strict non-interactive SSH", async () => {
     const fixture = updaterFixture();
     const child = fakeUpdaterProcess();
@@ -296,5 +398,10 @@ describe("CLI update progress", () => {
     ).toEqual({ phase: "pulling", message: "Pulling images", version: "1.3.0" });
     expect(parseUpdateEvent("docker pull output")).toBeNull();
     expect(parseUpdateEvent('@@OPENTEAM_UPDATE@@{"phase":"shell","message":"bad"}')).toBeNull();
+    expect(
+      parseUpdateEvent(
+        '@@OPENTEAM_UPDATE@@{"phase":"checking","message":"Accepted","jobId":"job-1","safeToCloseDesktop":true}'
+      )
+    ).toMatchObject({ jobId: "job-1", safeToCloseDesktop: true });
   });
 });

@@ -75,5 +75,12 @@ The Electron client can run this command locally or over non-interactive SSH. Re
 working SSH agent, an existing host-key entry, and `openteam` on the remote command path. Password and
 host-key prompts are intentionally rejected.
 
+`openteam update` remains the only update command an operator needs. It hands the transaction to a
+detached worker, follows a replayable high-level progress journal, and performs the server-stack
+restart only after release verification, image download, and backup finish. Closing the terminal,
+SSH session, or Electron desktop app does not stop the worker; running the same update command again
+reattaches to the active job. Detailed worker output is retained in `update.log`, and structured
+events are retained in `update-events.jsonl` beside `update-state.json`.
+
 `uninstall` removes the containers but preserves the installation configuration and Docker volumes.
 Use `openteam uninstall --purge` to permanently delete the installation data.

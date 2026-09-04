@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 import { parseArguments } from "./arguments";
 import { defaultInstallDirectory, installationPaths } from "./config";
 import { CLI_VERSION } from "./constants";
+import { durableUpdateCommand, reportActiveUpdate, updateWorkerJobId } from "./durable-update";
 import { CliError, errorMessage } from "./errors";
 import { helpFor } from "./help";
 import {
@@ -54,10 +55,15 @@ const main = async (): Promise<void> => {
       await doctorCommand(paths, options, runner);
       break;
     case "status":
+      if (options.jsonProgress && reportActiveUpdate(paths, options)) break;
       await statusCommand(paths, runner);
       break;
     case "update":
-      await updateCommand(paths, options, runner);
+      {
+        const workerJobId = updateWorkerJobId();
+        if (workerJobId) await updateCommand(paths, options, runner, workerJobId);
+        else await durableUpdateCommand(paths, options);
+      }
       break;
     case "stop":
       stopCommand(paths, runner);

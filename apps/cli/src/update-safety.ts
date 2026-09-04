@@ -1,4 +1,5 @@
 import {
+  appendFileSync,
   chmodSync,
   existsSync,
   mkdirSync,
@@ -31,6 +32,8 @@ export type PersistedUpdatePhase =
 export interface PersistedUpdateState {
   schemaVersion: 1;
   jobId: string;
+  sequence?: number;
+  workerPid?: number;
   status: "running" | "complete" | "error";
   phase: PersistedUpdatePhase;
   fromVersion: string;
@@ -45,7 +48,19 @@ export const writeUpdateState = (
   paths: InstallationPaths,
   state: PersistedUpdateState
 ): PersistedUpdateState => {
-  const next = { ...state, updatedAt: new Date().toISOString() };
+  const previous = readUpdateState(paths);
+  const sameJob = previous?.jobId === state.jobId;
+  const next = {
+    ...state,
+    sequence: sameJob ? (previous.sequence ?? -1) + 1 : (state.sequence ?? 0),
+    updatedAt: new Date().toISOString(),
+  };
+  const event = `${JSON.stringify(next)}\n`;
+  if (sameJob && existsSync(paths.updateEvents)) {
+    appendFileSync(paths.updateEvents, event, { encoding: "utf8", mode: 0o600, flush: true });
+  } else {
+    writeFileAtomic(paths.updateEvents, event, 0o600);
+  }
   writeFileAtomic(paths.updateState, `${JSON.stringify(next, null, 2)}\n`, 0o600);
   return next;
 };
@@ -60,6 +75,34 @@ export const readUpdateState = (paths: InstallationPaths): PersistedUpdateState 
   }
 };
 
+export const readUpdateEvents = (
+  paths: InstallationPaths,
+  jobId: string,
+  afterSequence = -1
+): PersistedUpdateState[] => {
+  if (!existsSync(paths.updateEvents)) return [];
+  try {
+    return readFileSync(paths.updateEvents, "utf8")
+      .split(/\r?\n/)
+      .filter(Boolean)
+      .flatMap((line) => {
+        try {
+          const state = JSON.parse(line) as PersistedUpdateState;
+          return state.schemaVersion === 1 &&
+            state.jobId === jobId &&
+            Number.isSafeInteger(state.sequence) &&
+            (state.sequence ?? -1) > afterSequence
+            ? [state]
+            : [];
+        } catch {
+          return [];
+        }
+      });
+  } catch {
+    return [];
+  }
+};
+
 const processIsAlive = (pid: number): boolean => {
   if (!Number.isSafeInteger(pid) || pid < 1) return false;
   try {
@@ -67,6 +110,16 @@ const processIsAlive = (pid: number): boolean => {
     return true;
   } catch (error) {
     return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
+};
+
+export const activeUpdateProcess = (paths: InstallationPaths): number | null => {
+  const ownerPath = join(paths.updateLock, "owner.json");
+  try {
+    const owner = JSON.parse(readFileSync(ownerPath, "utf8")) as { pid?: unknown };
+    return typeof owner.pid === "number" && processIsAlive(owner.pid) ? owner.pid : null;
+  } catch {
+    return null;
   }
 };
 

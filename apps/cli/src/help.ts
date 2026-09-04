@@ -90,8 +90,11 @@ ${helpHint}`,
 
   update: `${heading(
     "openteam update [options]",
-    "Back up the database, update the server stack, verify health, and roll back on failure."
+    "Run one durable update job, restart the server stack, verify health, and roll back on failure."
   )}
+
+The update continues if the terminal, SSH connection, or Desktop app closes. Running the same
+command again reconnects to the active update and resumes high-level progress output.
 
 Options:
 ${directoryOption}

@@ -18,7 +18,9 @@ import {
   DEFAULT_REPOSITORY,
   ENV_FILENAME,
   INSTALLATION_FILENAME,
+  UPDATE_EVENTS_FILENAME,
   UPDATE_LOCK_DIRECTORY,
+  UPDATE_LOG_FILENAME,
   UPDATE_STATE_FILENAME,
 } from "./constants";
 import { CliError } from "./errors";
@@ -41,6 +43,8 @@ export interface InstallationPaths {
   environment: string;
   manifest: string;
   updateState: string;
+  updateEvents: string;
+  updateLog: string;
   updateLock: string;
   backups: string;
 }
@@ -66,6 +70,8 @@ export const installationPaths = (directory: string): InstallationPaths => ({
   environment: join(resolve(directory), ENV_FILENAME),
   manifest: join(resolve(directory), INSTALLATION_FILENAME),
   updateState: join(resolve(directory), UPDATE_STATE_FILENAME),
+  updateEvents: join(resolve(directory), UPDATE_EVENTS_FILENAME),
+  updateLog: join(resolve(directory), UPDATE_LOG_FILENAME),
   updateLock: join(resolve(directory), UPDATE_LOCK_DIRECTORY),
   backups: join(resolve(directory), BACKUP_DIRECTORY),
 });

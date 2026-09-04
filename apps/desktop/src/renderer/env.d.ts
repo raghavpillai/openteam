@@ -158,4 +158,6 @@ interface OpenTeamServerUpdateStatus {
     | null;
   message: string | null;
   manualCommand: string;
+  jobId: string | null;
+  safeToCloseDesktop: boolean;
 }

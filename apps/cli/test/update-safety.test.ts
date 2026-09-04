@@ -3,7 +3,12 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { installationPaths } from "../src/config";
-import { acquireUpdateLock, readUpdateState, writeUpdateState } from "../src/update-safety";
+import {
+  acquireUpdateLock,
+  readUpdateEvents,
+  readUpdateState,
+  writeUpdateState,
+} from "../src/update-safety";
 
 const temporaryDirectories: string[] = [];
 
@@ -30,7 +35,7 @@ describe("update transaction safety", () => {
     const directory = mkdtempSync(join(tmpdir(), "openteam-update-state-"));
     temporaryDirectories.push(directory);
     const paths = installationPaths(directory);
-    writeUpdateState(paths, {
+    const initial = writeUpdateState(paths, {
       schemaVersion: 1,
       jobId: "job-1",
       status: "running",
@@ -45,6 +50,14 @@ describe("update transaction safety", () => {
       jobId: "job-1",
       status: "running",
       phase: "pulling",
+      sequence: 0,
     });
+    writeUpdateState(paths, {
+      ...initial,
+      phase: "complete",
+      status: "complete",
+      message: "Update complete",
+    });
+    expect(readUpdateEvents(paths, "job-1").map((event) => event.sequence)).toEqual([0, 1]);
   });
 });

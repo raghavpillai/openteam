@@ -57,10 +57,13 @@ const reportUpdateProgress = (
   options: CliOptions,
   phase: UpdateProgressPhase,
   message: string,
-  version?: string
+  version?: string,
+  jobId?: string
 ) => {
   if (!options.jsonProgress) return;
-  console.log(`${UPDATE_PROGRESS_PREFIX}${JSON.stringify({ phase, message, version })}`);
+  console.log(
+    `${UPDATE_PROGRESS_PREFIX}${JSON.stringify({ phase, message, version, jobId, safeToCloseDesktop: true })}`
+  );
 };
 
 const requireInstallation = (paths: InstallationPaths): InstallationManifest => {
@@ -255,18 +258,20 @@ export const logsCommand = (
 const updateCommandUnlocked = async (
   paths: InstallationPaths,
   options: CliOptions,
-  runner: CommandRunner
+  runner: CommandRunner,
+  jobId: string
 ): Promise<void> => {
   const manifest = requireInstallation(paths);
   const repository = normalizeRepository(options.repository || manifest.repository);
   let persisted: PersistedUpdateState = writeUpdateState(paths, {
     schemaVersion: 1,
-    jobId: randomUUID(),
+    jobId,
+    workerPid: process.pid,
     status: "running",
     phase: "checking",
     fromVersion: manifest.version,
     targetVersion: options.version ? normalizeVersion(options.version) : null,
-    message: "Checking the latest OpenTeam release",
+    message: "Update accepted; it will continue if this window closes",
     startedAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   });
@@ -276,7 +281,7 @@ const updateCommandUnlocked = async (
     version?: string,
     extra: Partial<PersistedUpdateState> = {}
   ) => {
-    reportUpdateProgress(options, phase, message, version);
+    reportUpdateProgress(options, phase, message, version, jobId);
     persisted = writeUpdateState(paths, {
       ...persisted,
       ...extra,
@@ -391,14 +396,15 @@ const updateCommandUnlocked = async (
 export const updateCommand = async (
   paths: InstallationPaths,
   options: CliOptions,
-  runner: CommandRunner
+  runner: CommandRunner,
+  jobId: string = randomUUID()
 ): Promise<void> => {
   const releaseLock = acquireUpdateLock(paths);
   try {
-    await updateCommandUnlocked(paths, options, runner);
+    await updateCommandUnlocked(paths, options, runner, jobId);
   } catch (error) {
     const state = readUpdateState(paths);
-    if (state?.status === "running") {
+    if (state?.jobId === jobId && state.status === "running") {
       writeUpdateState(paths, {
         ...state,
         status: "error",

@@ -289,14 +289,18 @@ export default function UpdatesSettings() {
           }
           description={
             serverUpdating
-              ? (server.message ?? "Updating the managed OpenTeam stack")
+              ? `${server.message ?? "Updating the managed OpenTeam stack"}${
+                  server.safeToCloseDesktop
+                    ? " The update will continue if you close the desktop app."
+                    : ""
+                }`
               : server?.currentVersion
                 ? server.updaterAvailable
-                  ? "Server, worker, database migrations, and computer container"
+                  ? "Server stack, worker, database migrations, and computer container"
                   : "Run the update command on the server computer"
                 : (server?.message ?? "Checking the server release")
           }
-          title={`Server & computer ${server?.currentVersion ?? "unknown"}`}
+          title={`Server stack ${server?.currentVersion ?? "unknown"}`}
         />
         {server?.updateMethod !== "local" ? (
           <SettingsRow
@@ -315,7 +319,7 @@ export default function UpdatesSettings() {
             }
             description={
               server?.updateMethod === "ssh"
-                ? "Uses your operating system SSH agent and known_hosts; passwords are never stored. Keep OpenTeam open until the update finishes"
+                ? "Uses your operating system SSH agent and known_hosts; passwords are never stored. The server update continues after it starts, even if Desktop closes"
                 : "Enter an SSH host already configured on this computer to enable one-click remote updates"
             }
             title="Remote server access"

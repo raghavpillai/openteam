@@ -80,6 +80,8 @@ export interface ServerUpdateStatus {
   phase: ServerUpdatePhase | null;
   message: string | null;
   manualCommand: string;
+  jobId: string | null;
+  safeToCloseDesktop: boolean;
 }
 
 interface Installation {
@@ -92,6 +94,18 @@ interface UpdateEvent {
   phase: ServerUpdatePhase;
   message: string;
   version?: string;
+  jobId?: string;
+  safeToCloseDesktop?: boolean;
+}
+
+interface PersistedUpdateState {
+  schemaVersion: 1;
+  jobId: string;
+  status: "running" | "complete" | "error";
+  phase: ServerUpdatePhase | "error";
+  fromVersion: string;
+  targetVersion: string | null;
+  message: string;
 }
 
 type Fetcher = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
@@ -187,13 +201,69 @@ export const parseUpdateEvent = (line: string): UpdateEvent | null => {
         "rolling-back",
         "complete",
       ].includes(String(value.phase)) ||
-      typeof value.message !== "string"
+      typeof value.message !== "string" ||
+      (value.jobId !== undefined &&
+        (typeof value.jobId !== "string" || value.jobId.length > 128)) ||
+      (value.safeToCloseDesktop !== undefined && typeof value.safeToCloseDesktop !== "boolean")
     ) {
       return null;
     }
     return value as UpdateEvent;
   } catch {
     return null;
+  }
+};
+
+const readPersistedUpdateState = (
+  installation: Installation | null
+): PersistedUpdateState | null => {
+  if (!installation) return null;
+  try {
+    const value = JSON.parse(
+      readFileSync(join(installation.directory, "update-state.json"), "utf8")
+    ) as Partial<PersistedUpdateState>;
+    if (
+      value.schemaVersion !== 1 ||
+      typeof value.jobId !== "string" ||
+      !["running", "complete", "error"].includes(String(value.status)) ||
+      ![
+        "checking",
+        "downloading",
+        "backing-up",
+        "pulling",
+        "restarting",
+        "verifying",
+        "rolling-back",
+        "complete",
+        "error",
+      ].includes(String(value.phase)) ||
+      typeof value.message !== "string"
+    ) {
+      return null;
+    }
+    return value as PersistedUpdateState;
+  } catch {
+    return null;
+  }
+};
+
+const persistedUpdateIsActive = (installation: Installation | null): boolean => {
+  if (!installation) return false;
+  try {
+    const owner = JSON.parse(
+      readFileSync(join(installation.directory, "update.lock", "owner.json"), "utf8")
+    ) as { pid?: unknown };
+    if (typeof owner.pid !== "number" || !Number.isSafeInteger(owner.pid) || owner.pid < 1) {
+      return false;
+    }
+    try {
+      process.kill(owner.pid, 0);
+      return true;
+    } catch (error) {
+      return (error as NodeJS.ErrnoException).code === "EPERM";
+    }
+  } catch {
+    return false;
   }
 };
 
@@ -242,6 +312,54 @@ const fetchVersion = async (
   }
 };
 
+const fetchRemoteUpdateProgress = async (options: {
+  target: string;
+  executable: string;
+  environment: NodeJS.ProcessEnv;
+  spawnUpdater: SpawnUpdater;
+}): Promise<UpdateEvent | null> => {
+  let child: UpdaterProcess;
+  try {
+    child = options.spawnUpdater(
+      options.executable,
+      [
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "StrictHostKeyChecking=yes",
+        "-o",
+        "ConnectTimeout=5",
+        options.target,
+        "openteam",
+        "status",
+        "--json-progress",
+      ],
+      { env: options.environment, stdio: ["ignore", "pipe", "pipe"] }
+    );
+  } catch {
+    return null;
+  }
+  const lines = new BoundedUpdateLineBuffer();
+  let latest: UpdateEvent | null = null;
+  child.stdout.setEncoding("utf8");
+  child.stderr.resume();
+  child.stdout.on("data", (chunk: string) => {
+    for (const line of lines.push(chunk)) latest = parseUpdateEvent(line) ?? latest;
+  });
+  return new Promise((resolvePromise) => {
+    const timeout = setTimeout(() => child.kill(), 8_000);
+    timeout.unref?.();
+    child.once("error", () => {
+      clearTimeout(timeout);
+      resolvePromise(null);
+    });
+    child.once("close", () => {
+      clearTimeout(timeout);
+      resolvePromise(latest);
+    });
+  });
+};
+
 export class ServerUpdater {
   private child: UpdaterProcess | null = null;
   private snapshot: ServerUpdateStatus | null = null;
@@ -288,12 +406,72 @@ export class ServerUpdater {
     const remoteTarget = normalizeSshTarget(sshTarget);
     const updateMethod = locallyManaged ? "local" : remoteTarget ? "ssh" : "manual";
     const updaterAvailable = updateMethod !== "manual";
+    const persisted = locallyManaged ? readPersistedUpdateState(installation) : null;
+    if (persisted?.status === "running" && persistedUpdateIsActive(installation)) {
+      this.snapshot = {
+        serverUrl,
+        currentVersion: installation?.version ?? persisted.fromVersion,
+        targetVersion: persisted.targetVersion ?? targetVersion,
+        apiProtocolVersion: null,
+        minimumClientVersion: null,
+        maximumClientVersionExclusive: null,
+        recommendedClientVersion: null,
+        updateMethod,
+        updaterAvailable,
+        status: "updating",
+        phase: persisted.phase === "error" ? null : persisted.phase,
+        message: persisted.message,
+        manualCommand: manualCommand(targetVersion),
+        jobId: persisted.jobId,
+        safeToCloseDesktop: true,
+      };
+      return this.snapshot;
+    }
     // Version discovery is useful for every server, even when this computer is
     // not allowed to manage that server's Docker installation. The renderer
     // also checks the endpoint, but the main-process result keeps remote and
     // cross-origin connections reliable and gives every caller one complete
     // status object.
     const release = await fetchVersion(this.options.fetcher ?? fetch, serverUrl);
+    const pathEntries = [
+      environment.PATH,
+      "/usr/local/bin",
+      "/opt/homebrew/bin",
+      "/usr/bin",
+      "/bin",
+    ].filter((value): value is string => Boolean(value));
+    const remoteProgress =
+      !release && remoteTarget
+        ? await fetchRemoteUpdateProgress({
+            target: remoteTarget,
+            executable: this.options.sshExecutable ?? "ssh",
+            environment: {
+              ...environment,
+              PATH: [...new Set(pathEntries)].join(delimiter),
+            },
+            spawnUpdater: this.options.spawnUpdater ?? spawn,
+          })
+        : null;
+    if (remoteProgress && remoteProgress.phase !== "complete") {
+      this.snapshot = {
+        serverUrl,
+        currentVersion: null,
+        targetVersion: remoteProgress.version ?? targetVersion,
+        apiProtocolVersion: null,
+        minimumClientVersion: null,
+        maximumClientVersionExclusive: null,
+        recommendedClientVersion: null,
+        updateMethod,
+        updaterAvailable,
+        status: "updating",
+        phase: remoteProgress.phase,
+        message: remoteProgress.message,
+        manualCommand: manualCommand(targetVersion),
+        jobId: remoteProgress.jobId ?? null,
+        safeToCloseDesktop: remoteProgress.safeToCloseDesktop === true,
+      };
+      return this.snapshot;
+    }
     const currentVersion =
       release?.releaseVersion ?? (locallyManaged ? installation?.version : null) ?? null;
     this.snapshot = {
@@ -314,7 +492,17 @@ export class ServerUpdater {
           : "Using the local installation record because this server predates version reporting."
         : "Configure an SSH destination to update this server securely from the desktop app.",
       manualCommand: manualCommand(targetVersion),
+      jobId: persisted?.jobId ?? null,
+      safeToCloseDesktop: false,
     };
+    if (persisted?.status === "error") {
+      this.snapshot.status = "error";
+      this.snapshot.message = persisted.message;
+    } else if (persisted?.status === "running") {
+      this.snapshot.status = "error";
+      this.snapshot.message =
+        "The update worker stopped unexpectedly. Run the update again to recover safely.";
+    }
     return this.snapshot;
   }
 
@@ -346,6 +534,7 @@ export class ServerUpdater {
         ? `Preparing to update the server to ${targetVersion}`
         : "Preparing to update the server to the latest release",
       targetVersion,
+      safeToCloseDesktop: false,
     });
 
     const environment = this.options.environment ?? process.env;
@@ -418,6 +607,8 @@ export class ServerUpdater {
             event.phase === "complete"
               ? (completedVersion ?? targetVersion ?? before.currentVersion)
               : before.currentVersion,
+          jobId: event.jobId ?? this.snapshot?.jobId ?? null,
+          safeToCloseDesktop: event.safeToCloseDesktop === true,
         });
       }
     });
@@ -429,7 +620,7 @@ export class ServerUpdater {
       child.once("error", (error) => {
         this.child = null;
         const message = safeErrorMessage(error);
-        publish({ status: "error", message });
+        publish({ status: "error", message, safeToCloseDesktop: false });
         reject(new Error(message));
       });
       child.once("close", async (code) => {
@@ -438,7 +629,7 @@ export class ServerUpdater {
           const message = redactSensitiveText(
             output.trim().split(/\r?\n/).at(-1) || `Updater exited with code ${code}`
           );
-          publish({ status: "error", message });
+          publish({ status: "error", message, safeToCloseDesktop: false });
           reject(new Error(message));
           return;
         }
@@ -455,6 +646,7 @@ export class ServerUpdater {
           currentVersion,
           apiProtocolVersion:
             release?.apiProtocolVersion ?? this.snapshot?.apiProtocolVersion ?? null,
+          safeToCloseDesktop: false,
         });
         resolvePromise(this.snapshot as ServerUpdateStatus);
       });

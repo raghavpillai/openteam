@@ -22,6 +22,8 @@ const unavailableStatus = (targetVersion: string | null): OpenTeamServerUpdateSt
   phase: null,
   message: "Run the update command on the server computer.",
   manualCommand: manualCommand(targetVersion),
+  jobId: null,
+  safeToCloseDesktop: false,
 });
 
 export function useServerUpdateStatus(
@@ -86,6 +88,12 @@ export function useServerUpdateStatus(
       }),
     [refresh]
   );
+
+  useEffect(() => {
+    if (status?.status !== "updating") return;
+    const interval = window.setInterval(() => void refresh(), 1_500);
+    return () => window.clearInterval(interval);
+  }, [refresh, status?.status]);
 
   return { status, loading, refresh };
 }

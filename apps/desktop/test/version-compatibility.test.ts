@@ -62,10 +62,20 @@ describe("OpenTeam release compatibility", () => {
   });
 
   test("keeps mismatch guidance visible before a user signs in", async () => {
-    const authGate = await Bun.file(
-      new URL("../src/renderer/components/openteam/auth-gate.tsx", import.meta.url)
-    ).text();
+    const [authGate, notifier, entrypoint] = await Promise.all([
+      Bun.file(
+        new URL("../src/renderer/components/openteam/auth-gate.tsx", import.meta.url)
+      ).text(),
+      Bun.file(
+        new URL("../src/renderer/components/openteam/version-mismatch-banner.tsx", import.meta.url)
+      ).text(),
+      Bun.file(new URL("../src/renderer/index.tsx", import.meta.url)).text(),
+    ]);
     expect(authGate).toContain("<VersionMismatchBanner showReview={false} />");
+    expect(notifier).toContain("toast.warning(title");
+    expect(notifier).toContain("duration: Number.POSITIVE_INFINITY");
+    expect(notifier).toContain("action: { label: actionLabel");
+    expect(entrypoint).toContain('position="bottom-right"');
   });
 
   test("confirms a successful desktop update check to the user", async () => {

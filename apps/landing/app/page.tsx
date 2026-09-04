@@ -29,7 +29,7 @@ import { order } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 
 const GITHUB = "https://github.com/raghavpillai/openteam";
-const INSTALL_GUIDE = `${GITHUB}#install-the-released-server-stack`;
+const INSTALL_GUIDE = "/download";
 
 const exampleJobs = [
   {
@@ -81,7 +81,7 @@ const steps = [
     n: "1",
     title: "Install on a machine you control",
     body: "One command sets up the server, the worker, the database, and a shared Linux desktop with Docker. It runs on a VPS, a home server, or a spare Mac.",
-    code: "bunx --bun @openteam/cli install",
+    code: "curl -fsSL openteam.so/install | sh",
   },
   {
     n: "2",
@@ -162,7 +162,7 @@ const selfHostedFacts = [
 const faqs = [
   {
     q: "What do I need to run it?",
-    a: "A machine that stays on, with Docker installed, plus Bun or Node 20. A small VPS, a home server, or a spare Mac all work. The installer checks the host, pulls the images, starts everything, and waits until it's healthy.",
+    a: "A machine that stays on with Docker installed. A small VPS, a home server, or a spare Mac all work. The installer detects the host, downloads a verified native CLI from GitHub, pulls the images, and waits until everything is healthy.",
   },
   {
     q: "Does anything run on my laptop or phone?",
@@ -261,6 +261,9 @@ export default function Home() {
             <a className="py-2 hover:text-ink" href="#self-hosted">
               Self-hosted
             </a>
+            <a className="py-2 hover:text-ink" href="/download">
+              Download
+            </a>
             <a className="py-2 hover:text-ink" href="#faq">
               FAQ
             </a>
@@ -279,7 +282,7 @@ export default function Home() {
             <Button
               size="lg"
               className="h-10 px-3.5 text-[13.5px]"
-              render={<a href="#install" />}
+              render={<a href="/download" />}
               nativeButton={false}
             >
               Install
@@ -338,7 +341,7 @@ export default function Home() {
                   render={<a href={INSTALL_GUIDE} />}
                   nativeButton={false}
                 >
-                  Read the install guide
+                  Download options
                   <ArrowUpRight className="size-[15px] text-ink-3" />
                 </Button>
               </div>
@@ -483,7 +486,12 @@ export default function Home() {
                 title="Watch the screen. Take over when it matters."
                 body="Every bot has a live screen you can open from the desktop or your phone. When a sign-in, a payment, or a judgment call comes up, the bot asks. You approve once, deny, or take the mouse yourself. Then hand it back."
               />
-              <Reveal as="ul" stagger={80} delay={200} className="mt-8 space-y-3 text-[15px] text-ink-2">
+              <Reveal
+                as="ul"
+                stagger={80}
+                delay={200}
+                className="mt-8 space-y-3 text-[15px] text-ink-2"
+              >
                 {[
                   "See exactly what the bot is doing, as it does it.",
                   "Bots ask before sensitive actions. Nothing happens until you answer.",
@@ -507,10 +515,7 @@ export default function Home() {
         {/* Apps */}
         <section className="py-24">
           <div className="container-page grid items-center gap-12 lg:grid-cols-[minmax(0,7fr)_minmax(0,5fr)]">
-            <Reveal
-              stagger={120}
-              className="order-2 flex justify-center gap-5 sm:gap-8 lg:order-1"
-            >
+            <Reveal stagger={120} className="order-2 flex justify-center gap-5 sm:gap-8 lg:order-1">
               <div
                 className="drift w-[44%] max-w-[250px]"
                 style={{ ...order(0), "--drift": "20px" } as React.CSSProperties}
@@ -714,16 +719,16 @@ export default function Home() {
             />
             <Reveal delay={120}>
               <Accordion className="border-y border-line">
-              {faqs.map((f) => (
-                <AccordionItem key={f.q} value={f.q}>
-                  <AccordionTrigger className="items-center gap-6 rounded-none py-5 text-[17px] text-ink hover:no-underline **:data-[slot=accordion-trigger-icon]:size-5 **:data-[slot=accordion-trigger-icon]:text-ink-2">
-                    {f.q}
-                  </AccordionTrigger>
-                  <AccordionContent className="max-w-[62ch] pb-6 text-[15.5px] leading-[1.6] text-ink-2 text-pretty">
-                    {f.a}
-                  </AccordionContent>
-                </AccordionItem>
-              ))}
+                {faqs.map((f) => (
+                  <AccordionItem key={f.q} value={f.q}>
+                    <AccordionTrigger className="items-center gap-6 rounded-none py-5 text-[17px] text-ink hover:no-underline **:data-[slot=accordion-trigger-icon]:size-5 **:data-[slot=accordion-trigger-icon]:text-ink-2">
+                      {f.q}
+                    </AccordionTrigger>
+                    <AccordionContent className="max-w-[62ch] pb-6 text-[15.5px] leading-[1.6] text-ink-2 text-pretty">
+                      {f.a}
+                    </AccordionContent>
+                  </AccordionItem>
+                ))}
               </Accordion>
             </Reveal>
           </div>
@@ -734,7 +739,11 @@ export default function Home() {
         {/* Closing */}
         <section className="py-24">
           <Reveal stagger={90} className="container-page text-center">
-            <div className="mx-auto flex justify-center gap-1.5" aria-hidden="true" style={order(0)}>
+            <div
+              className="mx-auto flex justify-center gap-1.5"
+              aria-hidden="true"
+              style={order(0)}
+            >
               {(
                 [
                   ["circle", "#ff7a1a"],
@@ -801,7 +810,7 @@ export default function Home() {
               GitHub
             </a>
             <a className="py-2 hover:text-ink" href={INSTALL_GUIDE}>
-              Install guide
+              Download
             </a>
             <a className="py-2 hover:text-ink" href={`${GITHUB}/issues`}>
               Issues

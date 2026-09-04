@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { Check, Copy } from "lucide-react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-export const INSTALL_COMMAND = "bunx --bun @openteam/cli install";
+export const INSTALL_COMMAND = "curl -fsSL https://openteam.so/install | sh";
 
 export function InstallCommand({ size = "lg" }: { size?: "lg" | "md" }) {
   const [copied, setCopied] = useState(false);

@@ -23,7 +23,7 @@ reach it, connecting the apps, and keeping it updated. To run from source instea
 | --- | --- |
 | Host | An x64 or arm64 machine. A small Linux VM is the usual choice. |
 | Docker | Docker with Compose 2.20 or newer. The installer checks both. |
-| CLI runtime | Node 20.17+ or Bun, only to run the `openteam` CLI. |
+| CLI runtime | None. The installer downloads a native CLI binary from GitHub Releases. |
 | Memory | 8 GB recommended. The installer warns below that. |
 | Disk | 8 GB free recommended at install. Updates need at least 4 GB free. |
 | Local ports | `8787` and `6200-6299` must be free on `127.0.0.1` before install. |
@@ -36,12 +36,16 @@ container for certificates.
 ## Install
 
 ```sh
-bunx --bun @openteam/cli install     # or: npx @openteam/cli install
+curl -fsSL https://openteam.so/install | sh
 ```
 
-The examples below use `openteam ...`. If you have not installed the CLI globally
-(`npm install -g @openteam/cli`), prefix each command with `bunx --bun @openteam/cli` or
-`npx @openteam/cli`.
+The installer detects the operating system and architecture, downloads the matching native CLI
+from the latest GitHub release, verifies it against `SHA256SUMS`, installs it to
+`~/.local/bin/openteam`, and starts the guided setup. Set `OPENTEAM_BIN_DIR` to choose another CLI
+location, or `OPENTEAM_VERSION` to install a specific release.
+
+The examples below use `openteam ...`. The installer places the CLI in `~/.local/bin`; add that
+directory to `PATH` if your shell does not already include it.
 
 What `install` does, in order:
 

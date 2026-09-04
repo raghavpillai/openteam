@@ -6,7 +6,7 @@ OpenTeam gives AI agents a persistent Linux computer, shared files, and time to 
 They keep working after you close the app. You can watch their screen or take over at any point.
 
 ```sh
-bunx --bun @openteam/cli install
+curl -fsSL https://openteam.so/install | sh
 ```
 
 [What you get](#what-you-get) · [How it works](#how-it-works) · [Quick start](#quick-start) ·
@@ -83,11 +83,11 @@ sessions, chat, memory, browser logins, schedules, and files. Back up and restor
 
 ## Quick start
 
-Requirements: Docker with Compose 2.20+, Node 20.17+ or Bun for the CLI, an x64 or arm64 host,
-8 GB RAM and 8 GB free disk recommended.
+Requirements: Docker with Compose 2.20+, an x64 or arm64 host, and 8 GB RAM and 8 GB free disk
+recommended. The installer downloads a native CLI; Node.js and Bun are not required.
 
 ```sh
-bunx --bun @openteam/cli install     # or: npx @openteam/cli install
+curl -fsSL https://openteam.so/install | sh
 ```
 
 The installer checks the host, verifies the signed release, pulls digest-pinned images, then asks
@@ -110,8 +110,8 @@ openteam update                        # upgrade with database backup and rollba
 openteam logs --service server --follow
 ```
 
-Prefix with `bunx --bun @openteam/cli` if the CLI is not installed globally. Full guide, including
-access modes, reverse proxies, updates, backups, and troubleshooting:
+The installer places `openteam` in `~/.local/bin`; add that directory to `PATH` if your shell does
+not already include it. Full guide, including access modes, reverse proxies, updates, backups, and troubleshooting:
 **[docs/deployment.md](docs/deployment.md)**.
 
 ## Settings

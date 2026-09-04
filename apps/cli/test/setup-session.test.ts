@@ -31,6 +31,7 @@ const session = (overrides: Partial<SetupSessionInput> = {}): SetupSession =>
     authenticated: false,
     fresh: true,
     detectedPrivateHost: "100.100.10.5",
+    detectedLogins: [],
     ...overrides,
   });
 
@@ -64,6 +65,28 @@ const edit = (target: SetupSession, value: string) => {
 };
 
 describe("interactive setup session", () => {
+  test("prefers and reuses a detected vendor sign-in", () => {
+    const detected = {
+      provider: "anthropic" as const,
+      source: "Claude Code (~/.claude/.credentials.json)",
+    };
+    const setup = session({ ownerConfigured: true, detectedLogins: [detected] });
+
+    expect(setup.state.provider).toBe("anthropic");
+    expect(setup.state.model).toBe("claude-sonnet-5");
+    press(setup, "right");
+    expect(
+      setup.rows().find((row) => "id" in row && row.id === "provider:anthropic")
+    ).toMatchObject({
+      selected: true,
+      recommended: true,
+      badge: "detected",
+      description:
+        "Reuses your Claude Code (~/.claude/.credentials.json) sign-in; no browser login needed.",
+    });
+    expect(setup.configuration().reuseLogin).toEqual(detected);
+  });
+
   test("left and right move between sections while up and down move the highlight", () => {
     const setup = session();
     expect(setup.view().activeStage).toBe(0);

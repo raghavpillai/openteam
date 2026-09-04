@@ -158,12 +158,14 @@ describe("CLI arguments", () => {
         "/tmp/openteam",
         "--repository",
         "owner/repo",
+        "--allow-prerelease",
       ])
     ).toMatchObject({
       command: "install",
       version: "1.2.3",
       directory: "/tmp/openteam",
       repository: "owner/repo",
+      allowPrerelease: true,
     });
   });
 

@@ -1,5 +1,6 @@
 import { emitKeypressEvents } from "node:readline";
 import { API_PORT } from "./constants";
+import type { DetectedLogin, ReusableProvider } from "./detected-logins";
 import { CliError } from "./errors";
 import type { RuntimeInferenceSettings } from "./runtime-settings";
 import {
@@ -59,6 +60,8 @@ export interface SetupSessionInput {
   currentOwnerUsername?: string;
   currentInference?: RuntimeInferenceSettings;
   detectedPrivateHost?: string | null;
+  /** Vendor CLI sign-ins found on this machine that Pi can reuse. */
+  detectedLogins?: readonly DetectedLogin[];
   /** Informational notes shown above the launch summary, such as a port fallback. */
   notes?: ReadonlyArray<{ text: string; tone: MessageTone }>;
 }
@@ -167,6 +170,17 @@ export const createSetupSession = (input: SetupSessionInput): SetupSession => {
   const currentProviderIsBuiltin = BUILTIN_PROVIDER_CHOICES.some(
     (choice) => choice.value === currentProvider
   );
+  const detectedLogins = input.detectedLogins ?? [];
+  const detectedFor = (provider: string): DetectedLogin | undefined =>
+    detectedLogins.find((login) => login.provider === provider);
+  const initialLogin = input.authenticated
+    ? undefined
+    : BUILTIN_PROVIDER_CHOICES.map((choice) => detectedFor(choice.value)).find(Boolean);
+  const initialProvider = initialLogin?.provider ?? currentProvider;
+  const initialModel =
+    initialProvider === currentProvider
+      ? currentInference.modelId
+      : (DEFAULT_PROVIDER_MODELS[initialProvider] ?? currentInference.modelId);
   const detectedPrivateHost = input.detectedPrivateHost ?? null;
   const initialAccess = configuredAccessMode(input.current, fresh);
   const existingHost = existingReachableHost(input.current);
@@ -192,8 +206,8 @@ export const createSetupSession = (input: SetupSessionInput): SetupSession => {
     timeZone: input.current.get("OPENTEAM_TIME_ZONE") || "UTC",
     workerConcurrency: input.current.get("OPENTEAM_WORKER_CONCURRENCY") || "8",
     thinking: THINKING_LEVELS.includes(currentThinking) ? currentThinking : "high",
-    provider: currentProvider,
-    model: currentInference.modelId,
+    provider: initialProvider,
+    model: initialModel,
     skipInference: false,
     custom: {
       id: "my-provider",
@@ -204,7 +218,7 @@ export const createSetupSession = (input: SetupSessionInput): SetupSession => {
       reasoning: true,
     },
     authenticate: !input.authenticated,
-    authType: defaultProviderAuthType(currentProvider),
+    authType: defaultProviderAuthType(initialProvider),
     apiKey: null,
     editing: null,
     notice: null,
@@ -218,6 +232,16 @@ export const createSetupSession = (input: SetupSessionInput): SetupSession => {
   const reachableHost = (): string => (state.accessMode === "local" ? "127.0.0.1" : state.host);
   const publicUrl = (): string =>
     publicUrlFor(state.accessMode, reachableHost() || "<host>", state.apiPort);
+  const reusableProvider = (): ReusableProvider | null =>
+    state.provider === "openai-codex" || state.provider === "anthropic" ? state.provider : null;
+  const reuseLogin = (): { provider: ReusableProvider; source: string } | undefined => {
+    const provider = reusableProvider();
+    if (!provider || state.skipInference || !state.authenticate || state.authType !== "oauth") {
+      return undefined;
+    }
+    const detected = detectedFor(provider);
+    return detected ? { provider, source: detected.source } : undefined;
+  };
 
   const editingFor = (rowId: string, label?: string) =>
     state.editing?.rowId === rowId
@@ -339,13 +363,17 @@ export const createSetupSession = (input: SetupSessionInput): SetupSession => {
     }
     providerChoices.push(CUSTOM_PROVIDER_CHOICE);
     for (const choice of providerChoices) {
+      const detected = detectedFor(choice.value);
       rows.push({
         kind: "option",
         id: `provider:${choice.value}`,
         label: choice.label,
-        description: choice.description,
+        description: detected
+          ? `Reuses your ${detected.source} sign-in; no browser login needed.`
+          : choice.description,
         selected: !state.skipInference && state.provider === choice.value,
-        ...(choice.value === currentProvider ? { recommended: true } : {}),
+        ...(choice.value === initialProvider ? { recommended: true } : {}),
+        ...(detected ? { badge: "detected" } : {}),
       });
     }
     rows.push({
@@ -437,6 +465,12 @@ export const createSetupSession = (input: SetupSessionInput): SetupSession => {
             }
           )
         );
+      } else if (reuseLogin()) {
+        rows.push({
+          kind: "note",
+          text: `OpenTeam will reuse your ${reuseLogin()!.source} sign-in after it starts.`,
+          tone: "muted",
+        });
       } else if (state.provider !== "anthropic") {
         rows.push({
           kind: "note",
@@ -633,6 +667,7 @@ export const createSetupSession = (input: SetupSessionInput): SetupSession => {
             reasoning: state.custom.reasoning,
           }
         : undefined,
+      reuseLogin: reuseLogin(),
     };
   };
 

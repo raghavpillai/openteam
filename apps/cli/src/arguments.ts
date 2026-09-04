@@ -87,6 +87,7 @@ const commandFlags: Record<CommandName, ReadonlySet<string>> = {
     "--signature-url",
     "--project-name",
     "--image-prefix",
+    "--allow-prerelease",
     "--allow-unsigned",
     "--advanced",
     "--no-setup",

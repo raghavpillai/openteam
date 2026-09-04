@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -16,6 +16,7 @@ import type { CommandRunner, RunOptions, RunResult } from "../src/process";
 import {
   collectSetupConfiguration,
   detectPrivateNetworkHost,
+  type SetupConfiguration,
   type SetupPrompter,
   selectionActionForKey,
   setupCommand,
@@ -88,6 +89,8 @@ class SetupRunner implements CommandRunner {
   ]);
   failComposeValidation = false;
   failStartup = false;
+  failImport = false;
+  readonly imports: string[] = [];
   running = ["postgres", "server", "worker", "computer"];
   publishedBy: Record<string, string> = {};
 
@@ -166,6 +169,11 @@ class SetupRunner implements CommandRunner {
         };
       }
       if (action === "login") this.onLogin();
+      if (action === "import") {
+        if (this.failImport) return { status: 1, stdout: "", stderr: "unknown command import" };
+        this.imports.push(options?.input ?? "");
+        this.onLogin();
+      }
     }
     return { status: 0, stdout: "", stderr: "" };
   }
@@ -174,6 +182,40 @@ class SetupRunner implements CommandRunner {
 const providerAction = (call: SetupRunner["calls"][number]): string | undefined => {
   const index = call.args.indexOf("openteam-pi-auth");
   return index < 0 ? undefined : call.args[index + 1];
+};
+
+const fakeJwt = (payload: Record<string, unknown>): string =>
+  ["e30", Buffer.from(JSON.stringify(payload)).toString("base64url"), "sig"].join(".");
+
+/** A prompter whose session immediately returns a loopback configuration plus overrides. */
+const sessionPrompter = (overrides: Partial<SetupConfiguration>): SetupPrompter => {
+  const answers = new AnswerPrompter([]);
+  return {
+    question: (prompt) => answers.question(prompt),
+    secret: (prompt) => answers.secret(prompt),
+    async session(input) {
+      const apiPort = input.current.get("OPENTEAM_API_PORT") ?? "8787";
+      return {
+        accessMode: "local",
+        bindHost: "127.0.0.1",
+        viewerBindHost: "127.0.0.1",
+        publicHost: "127.0.0.1",
+        publicUrl: `http://127.0.0.1:${apiPort}`,
+        composeProfiles: "direct",
+        ownerUsername: input.currentOwnerUsername ?? "openteam",
+        apiPort,
+        timeZone: "UTC",
+        provider: "openai-codex",
+        model: "gpt-5.5",
+        thinking: "high",
+        workerConcurrency: "8",
+        authenticate: false,
+        authType: "oauth",
+        ...overrides,
+      };
+    },
+    close() {},
+  };
 };
 
 const createSetupFixture = (options: { authenticated?: boolean; owner?: boolean } = {}) => {
@@ -672,7 +714,7 @@ describe("interactive setup", () => {
     const runner = new SetupRunner(() => {
       authenticated = true;
     });
-    await setupCommand(paths, runner, { advanced: true }, prompter);
+    await setupCommand(paths, runner, { advanced: true, detectedLogins: [] }, prompter);
 
     const updatedContents = readFileSync(paths.environment, "utf8");
     const updated = parseEnvironment(updatedContents);
@@ -783,7 +825,7 @@ describe("interactive setup", () => {
     await setupCommand(
       fixture.paths,
       runner,
-      { presentation: silentPresentation },
+      { presentation: silentPresentation, detectedLogins: [] },
       new AnswerPrompter(["anthropic", "oauth", "yes"])
     );
 
@@ -1054,6 +1096,116 @@ describe("interactive setup", () => {
         new AnswerPrompter([])
       )
     ).rejects.toThrow("rejected this installation's control token");
+  });
+
+  test("imports a detected Codex sign-in instead of opening a browser", async () => {
+    const fixture = createSetupFixture();
+    const runner = new SetupRunner(() => {
+      fixture.state.authenticated = true;
+    });
+    const home = mkdtempSync(join(tmpdir(), "openteam-cli-home-"));
+    temporaryDirectories.push(home);
+    mkdirSync(join(home, ".codex"), { recursive: true });
+    const accessToken = fakeJwt({
+      exp: Math.floor(Date.now() / 1000) + 3600,
+      "https://api.openai.com/auth": { chatgpt_account_id: "acct-123" },
+    });
+    writeFileSync(
+      join(home, ".codex", "auth.json"),
+      JSON.stringify({
+        auth_mode: "chatgpt",
+        tokens: { access_token: accessToken, refresh_token: "codex-refresh-secret" },
+      })
+    );
+    const detected = {
+      provider: "openai-codex" as const,
+      source: "Codex CLI (~/.codex/auth.json)",
+    };
+    const output: string[] = [];
+
+    await setupCommand(
+      fixture.paths,
+      runner,
+      {
+        presentation: { ...silentPresentation, message: (message) => output.push(message) },
+        detectedLogins: [detected],
+        loginDetection: { home, env: {}, platform: "linux" },
+      },
+      sessionPrompter({
+        provider: "openai-codex",
+        model: "gpt-5.5",
+        authenticate: true,
+        authType: "oauth",
+        reuseLogin: detected,
+      })
+    );
+
+    const importCall = runner.calls.find((call) => providerAction(call) === "import");
+    expect(importCall?.args).toContain("--no-TTY");
+    expect(importCall?.args.slice(-2)).toEqual(["import", "openai-codex"]);
+    expect(JSON.parse(runner.imports[0] ?? "{}")).toMatchObject({
+      type: "oauth",
+      access: accessToken,
+      refresh: "codex-refresh-secret",
+      accountId: "acct-123",
+    });
+    expect(runner.calls.some((call) => providerAction(call) === "login")).toBe(false);
+    expect(runner.calls.flatMap((call) => call.args).join(" ")).not.toContain(
+      "codex-refresh-secret"
+    );
+    expect(output).toContain("Reused your Codex CLI (~/.codex/auth.json) sign-in.");
+  });
+
+  test("falls back to browser sign-in when a detected login cannot be imported", async () => {
+    const fixture = createSetupFixture();
+    const runner = new SetupRunner(() => {
+      fixture.state.authenticated = true;
+    });
+    runner.failImport = true;
+    const home = mkdtempSync(join(tmpdir(), "openteam-cli-home-"));
+    temporaryDirectories.push(home);
+    mkdirSync(join(home, ".claude"), { recursive: true });
+    writeFileSync(
+      join(home, ".claude", ".credentials.json"),
+      JSON.stringify({
+        claudeAiOauth: {
+          accessToken: "claude-access",
+          refreshToken: "claude-refresh-secret",
+          expiresAt: Date.now() + 3600_000,
+        },
+      })
+    );
+    const detected = {
+      provider: "anthropic" as const,
+      source: "Claude Code (~/.claude/.credentials.json)",
+    };
+    const output: string[] = [];
+
+    await setupCommand(
+      fixture.paths,
+      runner,
+      {
+        presentation: { ...silentPresentation, message: (message) => output.push(message) },
+        detectedLogins: [detected],
+        loginDetection: { home, env: {}, platform: "linux" },
+      },
+      sessionPrompter({
+        provider: "anthropic",
+        model: "claude-sonnet-5",
+        authenticate: true,
+        authType: "oauth",
+        reuseLogin: detected,
+      })
+    );
+
+    expect(runner.calls.some((call) => providerAction(call) === "import")).toBe(true);
+    const login = runner.calls.find((call) => providerAction(call) === "login");
+    expect(login?.args.slice(-3)).toEqual(["login", "anthropic", "oauth"]);
+    expect(login?.options?.inherit).toBe(true);
+    expect(output.some((message) => message.includes("signing in through the browser"))).toBe(true);
+    expect(runner.calls.flatMap((call) => call.args).join(" ")).not.toContain(
+      "claude-refresh-secret"
+    );
   });
 
   test("cancels setup before provider validation without changing anything", async () => {

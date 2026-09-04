@@ -100,7 +100,6 @@ const tclQuote = (value: string): string =>
   `{${value.replaceAll("\\", "\\\\").replaceAll("}", "\\}")}}`;
 
 interface InteractiveInstallAnswers {
-  accessOption: number;
   username: string;
   password: string;
   providerOption: number;
@@ -111,32 +110,28 @@ interface InteractiveInstallAnswers {
   apiKey: string;
 }
 
-const UP = "\u001b[A";
 const DOWN = "\u001b[B";
-const CLEAR_LINE = "\u0015";
 
 // Each section moves on by itself once its last required field is filled in, and a
 // saved field jumps the highlight to the next missing one, so optional rows are reached
 // with explicit arrow keys.
-const accessInput = (answers: InteractiveInstallAnswers): string => String(answers.accessOption);
-
 const ownerInput = (answers: InteractiveInstallAnswers): string =>
-  `\r${CLEAR_LINE}${answers.username}\r\r${answers.password}\r${answers.password}\r`;
+  `${answers.username}\r${answers.password}\r${answers.password}\r`;
 
-const runtimeInput = (answers: InteractiveInstallAnswers): string =>
+const inferenceInput = (answers: InteractiveInstallAnswers): string =>
   [
-    String(answers.providerOption), // custom provider; the highlight lands on the base URL
-    `${UP}${UP}\r${CLEAR_LINE}${answers.providerId}\r`, // provider id, then back to the base URL
-    `${UP}\r${CLEAR_LINE}${answers.providerName}\r`, // provider name, then the base URL again
-    `\r${CLEAR_LINE}${answers.providerBaseUrl}\r`, // base URL, then the model
-    `${UP}\r${DOWN}`, // cycle the API once to openai-completions, back to the model
-    `\r${CLEAR_LINE}${answers.model}\r`, // model, then the API key
-    `${UP}${UP}\r${DOWN}${DOWN}`, // switch reasoning off, back to the API key
-    `\r${CLEAR_LINE}${answers.apiKey}\r`, // last field: Runtime finishes and Review opens
+    String(answers.providerOption), // custom provider; the highlight lands on its id
+    `${answers.providerId}\r`,
+    `${answers.providerName}\r`,
+    `${answers.providerBaseUrl}\r`,
+    `\r${DOWN}`, // cycle the API once to openai-completions, then move to the model
+    `${answers.model}\r`,
+    `\r${DOWN}`, // switch reasoning off, then move to the API key
+    `${answers.apiKey}\r`, // last field: Inference finishes and Review opens
   ].join("");
 
 const setupInput = (answers: InteractiveInstallAnswers): string =>
-  [accessInput(answers), ownerInput(answers), runtimeInput(answers), "\r"].join("");
+  [ownerInput(answers), inferenceInput(answers), "\r"].join("");
 
 const cliInteractive = (args: readonly string[], answers: InteractiveInstallAnswers) => {
   if (process.platform === "darwin") {
@@ -152,13 +147,11 @@ const cliInteractive = (args: readonly string[], answers: InteractiveInstallAnsw
       "  }",
       "}",
       `spawn node ${tclQuote(cliPath)} ${args.map(tclQuote).join(" ")}`,
-      `expect_prompt ${tclQuote("1. Access")}`,
-      `send -- ${tclQuote(accessInput(answers))}`,
-      `expect_prompt ${tclQuote("2. Owner")}`,
+      `expect_prompt ${tclQuote("1. Account")}`,
       `send -- ${tclQuote(ownerInput(answers))}`,
-      `expect_prompt ${tclQuote("3. Runtime")}`,
-      `send -- ${tclQuote(runtimeInput(answers))}`,
-      `expect_prompt ${tclQuote("4. Review")}`,
+      `expect_prompt ${tclQuote("2. Inference")}`,
+      `send -- ${tclQuote(inferenceInput(answers))}`,
+      `expect_prompt ${tclQuote("3. Review")}`,
       `send -- ${tclQuote("\r")}`,
       "expect {",
       "  eof {}",
@@ -745,10 +738,9 @@ const main = async (): Promise<void> => {
       ...releaseUrls(firstVersion),
     ],
     {
-      accessOption: 2,
       username: ownerUsername,
       password: ownerPassword,
-      providerOption: 5,
+      providerOption: 4,
       providerId: canaryProviderId,
       providerName: canaryProviderName,
       providerBaseUrl: canaryBaseUrl,

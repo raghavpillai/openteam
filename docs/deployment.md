@@ -138,6 +138,11 @@ available for account and server management, but bots cannot run turns until inf
 Advanced setup can change the model during installation. You can also change it at any
 time from the desktop app (**Settings → Server**) or the CLI, without restarting anything.
 
+If the Codex CLI or Claude Code is already signed in on this machine, setup detects it (in
+`~/.codex/auth.json`, `~/.claude/.credentials.json`, or the macOS Keychain), preselects that
+provider with a **detected** tag, and reuses the sign-in so no browser login is needed. Set
+`CODEX_HOME` or `CLAUDE_CONFIG_DIR` if those tools keep their files elsewhere.
+
 | Provider | Sign in with | Default model |
 | --- | --- | --- |
 | `openai-codex` (default) | ChatGPT Plus or Pro account (OAuth) | `gpt-5.5` |

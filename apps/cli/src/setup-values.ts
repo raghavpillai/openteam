@@ -1,5 +1,6 @@
 import { isIP } from "node:net";
 import { networkInterfaces } from "node:os";
+import type { ReusableProvider } from "./detected-logins";
 import type { RuntimeInferenceSettings } from "./runtime-settings";
 import type { SetupStage } from "./ui";
 
@@ -115,6 +116,8 @@ export interface SetupConfiguration {
   authType: "oauth" | "api_key";
   apiKey?: string;
   customProvider?: SetupCustomProvider;
+  /** Copy an existing vendor CLI sign-in into Pi instead of opening a browser. */
+  reuseLogin?: { provider: ReusableProvider; source: string };
 }
 
 export interface SetupCustomProvider {

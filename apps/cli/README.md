@@ -54,7 +54,8 @@ for a username-only update, `--password` for a hidden password-only prompt, or c
 Every credential update revokes all current sessions. Use `openteam setup --advanced` to override
 the connection mode, hostname, local API port, time zone, model, thinking level, or number of tasks that can run at once.
 The time zone, private-network address, free API port, current inference settings, and initial task limit are
-detected when possible.
+detected when possible. Setup also detects compatible Codex CLI and Claude Code sign-ins and reuses
+them without opening another browser login.
 
 Use `openteam provider login [provider]` to configure OAuth/subscription or API-key authentication without repeating server setup. `provider list` shows the methods Pi supports, and `model list`/`model use` select a provider-qualified model. Anthropic offers Claude Pro/Max OAuth or an API key; OpenAI API access uses the `openai` provider, while ChatGPT/Codex OAuth uses `openai-codex`.
 

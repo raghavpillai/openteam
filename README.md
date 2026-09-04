@@ -93,7 +93,8 @@ irm https://openteam.so/install.ps1 | iex        # Windows PowerShell
 
 The installer checks the host, verifies the signed release, pulls digest-pinned images, then asks
 only for the choices it cannot safely make itself. It automatically uses a detected Tailscale,
-WireGuard, or LAN address for private-network access.
+WireGuard, or LAN address for private-network access, and reuses an existing Codex CLI or Claude
+Code sign-in when available.
 
 | Step | Choices |
 | --- | --- |

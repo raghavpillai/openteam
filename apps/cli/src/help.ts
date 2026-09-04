@@ -52,6 +52,7 @@ ${helpHint}
 
 Advanced release/testing options:
   --repository <owner/repo>  Override the GitHub release repository
+  --allow-prerelease        Permit an explicit prerelease target
   --allow-unsigned           Permit unsigned test bundles (unsafe)
   --compose-url <url>        Override the Compose asset URL
   --checksum-url <url>       Override the SHA256SUMS asset URL

@@ -1,7 +1,11 @@
-name: openteam
+name: openteam-dev
+
+x-openteam-labels: &openteam-labels
+  com.openteam.environment: development
 
 services:
   postgres:
+    labels: *openteam-labels
     image: postgres:17-alpine@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73
     environment:
       POSTGRES_DB: openteam
@@ -17,6 +21,7 @@ services:
       - openteam_postgres:/var/lib/postgresql/data
 
   migrate:
+    labels: *openteam-labels
     build:
       context: .
       dockerfile: docker/app.Dockerfile
@@ -29,6 +34,7 @@ services:
     restart: "no"
 
   agent-data-init:
+    labels: *openteam-labels
     image: alpine:3.22@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce
     command: ["sh", "-c", "chown -R 1000:1000 /sand-data && chmod -R g+rwX /sand-data && chmod 0770 /sand-data"]
     restart: "no"
@@ -36,6 +42,7 @@ services:
       - openteam_agent_data:/sand-data
 
   asset-store-init:
+    labels: *openteam-labels
     image: alpine:3.22@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce
     command:
       - sh
@@ -57,6 +64,7 @@ services:
       - openteam_assets:/asset-store
 
   computer-home-init:
+    labels: *openteam-labels
     image: alpine:3.22@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce
     command:
       - sh
@@ -79,6 +87,7 @@ services:
       - openteam_agent_data:/home/box/sand-data
 
   box-store-init:
+    labels: *openteam-labels
     image: alpine:3.22@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce
     command: ["sh", "-c", "chown -R 1000:1000 /box-store && chmod 0700 /box-store"]
     restart: "no"
@@ -86,6 +95,7 @@ services:
       - openteam_box_store:/box-store
 
   workspace-init:
+    labels: *openteam-labels
     image: alpine:3.22@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce
     command: ["sh", "-c", "chown -R 1000:1000 /workspace && chmod -R g+rwX /workspace && chmod 0770 /workspace"]
     restart: "no"
@@ -93,6 +103,7 @@ services:
       - openteam_workspace:/workspace
 
   computer:
+    labels: *openteam-labels
     build:
       context: .
       dockerfile: docker/computer.Dockerfile
@@ -143,12 +154,13 @@ services:
       - openteam_box_store:/box-store
 
   server:
+    labels: *openteam-labels
     build:
       context: .
       dockerfile: docker/app.Dockerfile
       target: server
     environment:
-      OPENTEAM_VERSION: ${OPENTEAM_VERSION:-0.1.0}
+      OPENTEAM_VERSION: ${OPENTEAM_VERSION:-0.1.0+dev}
       DATABASE_URL: postgresql://openteam:openteam-local-only@postgres:5432/openteam
       OPENTEAM_PORT: 8787
       OPENTEAM_COMPUTER_URL: http://computer:8790
@@ -183,6 +195,7 @@ services:
       - openteam_workspace:/workspace:ro
 
   worker:
+    labels: *openteam-labels
     build:
       context: .
       dockerfile: docker/app.Dockerfile

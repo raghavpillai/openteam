@@ -233,6 +233,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
   const hasUsername = username.trim().length > 0;
   const hasPassword = password.length > 0;
   const hasCompleteCredentials = hasUsername && hasPassword;
+  const usesCleartextHttp = /^http:\/\//i.test(serverUrl.trim());
   const connectDisabled = submitting || !serverUrl.trim();
   const signInDisabled = submitting || !hasCompleteCredentials;
   const stageTarget = stage === "welcome" ? 0 : stage === "endpoint" ? 1 : 2;
@@ -592,6 +593,11 @@ export function AuthGate({ children }: { children: ReactNode }) {
                 {stage === "endpoint" && error ? (
                   <Text style={[styles.error, { color: glassDanger }]}>{error}</Text>
                 ) : null}
+                {stage === "endpoint" && usesCleartextHttp ? (
+                  <Text style={[styles.error, { color: glassDanger }]}>
+                    HTTP is not encrypted. Only connect through a network or VPN you trust.
+                  </Text>
+                ) : null}
               </GlassSurface>
               <GlassGroup style={styles.actionRow}>
                 <Pressable
@@ -734,6 +740,11 @@ export function AuthGate({ children }: { children: ReactNode }) {
                 />
                 {stage === "credentials" && error ? (
                   <Text style={[styles.error, { color: glassDanger }]}>{error}</Text>
+                ) : null}
+                {stage === "credentials" && usesCleartextHttp ? (
+                  <Text style={[styles.error, { color: glassDanger }]}>
+                    Your password will be sent without HTTPS protection.
+                  </Text>
                 ) : null}
               </GlassSurface>
               <GlassGroup style={styles.actionRow}>

@@ -119,6 +119,8 @@ describe("mobile virtual-list UI parity", () => {
     expect(authGate).not.toContain("Address reachable from this device");
     expect(authGate).toContain("saveServerConnection(normalized)");
     expect(authGate).toContain("testServerConnection(normalized.serverUrl)");
+    expect(authGate).toContain("HTTP is not encrypted");
+    expect(authGate).toContain("Your password will be sent without HTTPS protection");
     expect(authGate).toContain("authenticateConnection(serverUrl, username, password)");
     expect(authGate).toContain('result === "credentials-required"');
     expect(authGate).toContain('setStage("endpoint")');

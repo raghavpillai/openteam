@@ -18,6 +18,13 @@ interface ExpoConfig {
 interface IntrospectedConfig {
   _internal?: {
     modResults?: {
+      android?: {
+        manifest?: {
+          manifest?: {
+            application?: Array<{ $?: Record<string, string> }>;
+          };
+        };
+      };
       ios?: {
         entitlements?: Record<string, unknown>;
         infoPlist?: Record<string, unknown>;
@@ -41,6 +48,11 @@ const invariant = (condition: unknown, message: string): asserts condition => {
 const plistString = (plist: string, key: string): string | null => {
   const match = plist.match(new RegExp(`<key>${key}</key>\\s*<string>([^<]*)</string>`));
   return match?.[1] ?? null;
+};
+
+const plistBoolean = (plist: string, key: string): boolean | null => {
+  const match = plist.match(new RegExp(`<key>${key}</key>\\s*<(true|false)\\s*/>`));
+  return match ? match[1] === "true" : null;
 };
 
 const pluginOptions = (config: ExpoConfig, name: string): Record<string, unknown> | null => {
@@ -100,15 +112,45 @@ const mobilePackage = JSON.parse(packageText) as {
 };
 const generatedInfo = introspected._internal?.modResults?.ios?.infoPlist;
 const generatedEntitlements = introspected._internal?.modResults?.ios?.entitlements;
+const generatedAndroidApplication =
+  introspected._internal?.modResults?.android?.manifest?.manifest?.application?.[0]?.$;
 const imagePicker = pluginOptions(config, "expo-image-picker");
 const secureStore = pluginOptions(config, "expo-secure-store");
+const buildProperties = pluginOptions(config, "expo-build-properties");
 
 invariant(generatedInfo, "Expo introspection did not return an iOS Info.plist");
 invariant(secureStore?.faceIDPermission === false, "unused Face ID permission must stay disabled");
 invariant(
+  JSON.stringify(buildProperties?.android) === JSON.stringify({ usesCleartextTraffic: true }),
+  "Android cleartext HTTP support is not configured"
+);
+invariant(
+  generatedAndroidApplication?.["android:usesCleartextTraffic"] === "true",
+  "Expo introspection did not enable Android cleartext HTTP support"
+);
+invariant(
   generatedInfo.NSFaceIDUsageDescription === undefined &&
     plistString(infoPlist, "NSFaceIDUsageDescription") === null,
   "unused Face ID usage text was generated or checked in"
+);
+const configuredAts = config.expo.ios?.infoPlist?.NSAppTransportSecurity as
+  | Record<string, unknown>
+  | undefined;
+const generatedAts = generatedInfo.NSAppTransportSecurity as Record<string, unknown> | undefined;
+invariant(
+  configuredAts?.NSAllowsArbitraryLoads === true &&
+    configuredAts.NSAllowsLocalNetworking === undefined,
+  "Expo config must permit arbitrary raw HTTP without a conflicting local-only exception"
+);
+invariant(
+  generatedAts?.NSAllowsArbitraryLoads === true &&
+    generatedAts.NSAllowsLocalNetworking === undefined,
+  "Expo introspection did not preserve arbitrary raw HTTP support"
+);
+invariant(
+  plistBoolean(infoPlist, "NSAllowsArbitraryLoads") === true &&
+    plistBoolean(infoPlist, "NSAllowsLocalNetworking") === null,
+  "checked-in Info.plist does not preserve arbitrary raw HTTP support"
 );
 
 for (const [key, configured] of [

@@ -16,12 +16,21 @@ describe("mobile server configuration", () => {
     );
   });
 
-  test("supports a reachable HTTP endpoint for local self-hosting", () => {
+  test("supports a raw HTTP endpoint using a Tailscale IPv4 address", () => {
     expect(
       normalizeServerConnection({
-        serverUrl: " http://192.168.1.42:4040/ ",
+        serverUrl: " http://100.94.42.50:8787/ ",
       })
-    ).toEqual({ serverUrl: "http://192.168.1.42:4040" });
+    ).toEqual({ serverUrl: "http://100.94.42.50:8787" });
+  });
+
+  test("supports raw HTTP endpoints using public IPv4 and IPv6 addresses", () => {
+    expect(normalizeServerConnection({ serverUrl: "http://203.0.113.7:8787/" })).toEqual({
+      serverUrl: "http://203.0.113.7:8787",
+    });
+    expect(normalizeServerConnection({ serverUrl: "http://[2001:db8::7]:8787/" })).toEqual({
+      serverUrl: "http://[2001:db8::7]:8787",
+    });
   });
 
   test("preserves a reverse-proxy path", () => {

@@ -20,6 +20,11 @@ const plistString = (plist: string, key: string): string | null => {
   return match?.[1] ?? null;
 };
 
+const plistBoolean = (plist: string, key: string): boolean | null => {
+  const match = plist.match(new RegExp(`<key>${key}</key>\\s*<(true|false)\\s*/>`));
+  return match ? match[1] === "true" : null;
+};
+
 const pluginOptions = (config: ExpoConfig, name: string): Record<string, unknown> | null => {
   const entry = config.expo.plugins?.find(
     (plugin) => (Array.isArray(plugin) ? plugin[0] : plugin) === name
@@ -41,8 +46,16 @@ describe("checked-in iOS native configuration", () => {
     const secureStore = pluginOptions(config, "expo-secure-store");
 
     expect(config.expo.android?.package).toBe("dev.openteam.mobile");
+    expect(pluginOptions(config, "expo-build-properties")?.android).toEqual({
+      usesCleartextTraffic: true,
+    });
     expect(secureStore?.faceIDPermission).toBe(false);
     expect(plistString(infoPlist, "NSFaceIDUsageDescription")).toBeNull();
+    expect(config.expo.ios?.infoPlist?.NSAppTransportSecurity).toEqual({
+      NSAllowsArbitraryLoads: true,
+    });
+    expect(plistBoolean(infoPlist, "NSAllowsArbitraryLoads")).toBe(true);
+    expect(plistBoolean(infoPlist, "NSAllowsLocalNetworking")).toBeNull();
 
     for (const [key, configured] of [
       ["NSCameraUsageDescription", imagePicker?.cameraPermission],

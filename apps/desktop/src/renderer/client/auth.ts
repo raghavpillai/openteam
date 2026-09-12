@@ -62,6 +62,13 @@ let refreshRequest: Promise<OpenTeamAuthSnapshot> | null = null;
 const authClient = (baseUrl = API_BASE) => createOpenTeamAuthClient({ baseUrl });
 const authBridge = () => window.openteam?.auth;
 
+const requestSignIn = (baseUrl: string, username: string, password: string) => {
+  const bridge = authBridge();
+  return bridge
+    ? bridge.signIn(baseUrl, username, password)
+    : authClient(baseUrl).signIn(username, password);
+};
+
 const loadAuthToken = (): Promise<string | null> => {
   if (token) return Promise.resolve(token);
   if (tokenReadRequest) return tokenReadRequest;
@@ -155,7 +162,7 @@ export const refreshAuthSession = (): Promise<OpenTeamAuthSnapshot> => {
 };
 
 export const signIn = async (username: string, password: string): Promise<OpenTeamAuthSnapshot> => {
-  const result = await authClient().signIn(username, password);
+  const result = await requestSignIn(API_BASE, username, password);
   await persistAuthToken(result.token);
   cacheUser(result.user);
   return refreshAuthSession();
@@ -198,7 +205,7 @@ export const signInToServer = async (
   username: string,
   password: string
 ): Promise<void> => {
-  const result = await authClient(normalizeBaseUrl(serverUrl)).signIn(username, password);
+  const result = await requestSignIn(normalizeBaseUrl(serverUrl), username, password);
   await persistAuthToken(result.token);
   cacheUser(result.user);
 };
@@ -206,7 +213,11 @@ export const signInToServer = async (
 export const signOut = async (): Promise<void> => {
   const currentToken = token ?? (await loadAuthToken());
   try {
-    if (currentToken) await authClient().signOut(currentToken);
+    if (currentToken) {
+      const bridge = authBridge();
+      if (bridge) await bridge.signOut(API_BASE, currentToken);
+      else await authClient().signOut(currentToken);
+    }
   } catch {
     // Local sign-out must still succeed if the server is unavailable.
   } finally {

@@ -2,6 +2,12 @@ interface Window {
   openteam?: {
     platform: string;
     auth: {
+      signIn: (
+        serverUrl: string,
+        username: string,
+        password: string
+      ) => Promise<import("@openteam/client-core").OpenTeamSignInResult>;
+      signOut: (serverUrl: string, token: string) => Promise<void>;
       readToken: () => Promise<OpenTeamAuthTokenStorageResult>;
       writeToken: (token: string) => Promise<OpenTeamAuthTokenStorageResult>;
       clearToken: () => Promise<OpenTeamAuthTokenStorageResult>;

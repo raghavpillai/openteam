@@ -25,6 +25,13 @@ Object.defineProperty(globalThis, "window", {
     location: { href: "http://127.0.0.1:8787" },
     openteam: {
       auth: {
+        signIn: async (serverUrl: string, username: string, password: string) => {
+          nativeCalls.push({ method: "signIn", serverUrl, username, password });
+          return { token: "test-session-token", user };
+        },
+        signOut: async (serverUrl: string, token: string) => {
+          nativeCalls.push({ method: "signOut", serverUrl, token });
+        },
         readToken: async () => ({ token: secureToken, persistence: "encrypted", backend: "test" }),
         writeToken: async (token: string) => {
           secureToken = token;
@@ -40,6 +47,7 @@ Object.defineProperty(globalThis, "window", {
 });
 
 const calls: Array<{ method: string; url: string }> = [];
+const nativeCalls: Array<Record<string, string>> = [];
 const user = {
   email: "owner@openteam.invalid",
   id: "owner-1",
@@ -92,17 +100,16 @@ describe("desktop authenticated session", () => {
     expect(auth.getAuthToken()).toBe("test-session-token");
     expect(secureToken).toBe("test-session-token");
     expect(localStorage.getItem("openteam:auth-token")).toBeNull();
+    expect(nativeCalls.at(-1)).toMatchObject({
+      method: "signIn",
+      username: "owner",
+      password: "secret",
+    });
 
     await auth.signOut();
 
-    // Other renderer tests may have initialized the shared same-origin HTTP
-    // module first. This contract owns the authenticated path and method; URL
-    // origin selection has its own runtime-url coverage.
-    expect(
-      calls.some(
-        ({ method, url }) => method === "POST" && new URL(url).pathname === "/api/auth/sign-out"
-      )
-    ).toBe(true);
+    expect(nativeCalls.at(-1)).toMatchObject({ method: "signOut", token: "test-session-token" });
+    expect(calls.some(({ method }) => method === "POST")).toBe(false);
     expect(auth.getAuthToken()).toBeNull();
     expect(auth.getAuthSnapshot()).toEqual({
       mode: "required",
@@ -111,6 +118,18 @@ describe("desktop authenticated session", () => {
       error: null,
       user: null,
     });
+  });
+
+  test("uses native login for a newly selected remote server", async () => {
+    await auth.signInToServer("http://100.94.42.50:8787/", "owner", "secret");
+    expect(nativeCalls.at(-1)).toEqual({
+      method: "signIn",
+      serverUrl: "http://100.94.42.50:8787",
+      username: "owner",
+      password: "secret",
+    });
+    expect(secureToken).toBe("test-session-token");
+    await auth.clearAuthCredentialsForServerChange();
   });
 
   test("rejects a reachable website that is not an OpenTeam server", async () => {

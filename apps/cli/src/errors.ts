@@ -3,7 +3,8 @@ import { safeErrorMessage } from "@openteam/product-core/redaction";
 export class CliError extends Error {
   constructor(
     message: string,
-    readonly exitCode = 1
+    readonly exitCode = 1,
+    readonly reported = false
   ) {
     super(message);
     this.name = "CliError";

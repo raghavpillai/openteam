@@ -113,6 +113,8 @@ const main = async (): Promise<void> => {
 };
 
 main().catch((error) => {
-  console.error(`openteam: ${errorMessage(error)}`);
+  if (!(error instanceof CliError && error.reported)) {
+    console.error(`openteam: ${errorMessage(error)}`);
+  }
   process.exitCode = error instanceof CliError ? error.exitCode : 1;
 });

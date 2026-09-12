@@ -225,6 +225,26 @@ usage. A failed request is a blocking **AI connection** check; credentials are r
 diagnostics. If no provider is connected, the test is explicitly marked as not tested. The
 request runs without bot tools or conversation history and does not change your model selection.
 
+The standalone report groups service, AI, storage, and host/setup checks, with recovery commands
+for failures. It checks Docker health and recent restart loops, the schema deployment container's
+exit status, a database query using the server's credentials, and the computer API from the server.
+Worker diagnostics include a fresh event-loop heartbeat, a small job that must be consumed and
+acknowledged through the real queue, overdue runnable jobs, and expired leases on running tasks.
+The diagnostic job is removed afterward and has a short retention limit. Older worker images
+without the diagnostic hook are reported as unverified failures; update them with
+`openteam update --force`.
+
+Storage checks create, read, and delete temporary files in each service's writable volumes and
+in the computer workspace as the bot's unprivileged UID. They also check service access to existing
+agent directories. Doctor reports permission problems without changing permissions. Docker
+commands have a 10-second default limit; service probes allow 15 seconds and the model probe
+allows 40 seconds. Guided install/setup preflight stays lightweight and skips these live probes.
+
+Doctor always finishes without starting services or launching setup. A stopped stack, incomplete
+installation, unfinished owner setup, or failed check exits `2`; warnings alone exit `0`. On a
+fresh machine, missing installation is a warning, but host or port failures still exit `2`.
+Redirected output and `NO_COLOR` omit colors, and the report wraps to the terminal width.
+
 `openteam setup --advanced` adds the connection mode, API port, time zone (IANA name such as
 `America/New_York`), inference model, thinking level, and the number of tasks that can run at once.
 

@@ -231,13 +231,22 @@ export const doctorCommand = async (
   options: CliOptions,
   runner: CommandRunner
 ): Promise<void> => {
-  const manifest = readManifest(paths);
-  const projectName = normalizeProjectName(
-    options.projectName || manifest?.projectName || PROJECT_NAME
-  );
-  const diagnosis = await runDoctor(paths, runner, projectName, { testInference: true });
+  const projectName = normalizeProjectName(options.projectName || PROJECT_NAME);
+  const interactive = Boolean(process.stdout.isTTY) && process.env.TERM !== "dumb";
+  const diagnosis = await runDoctor(paths, runner, projectName, {
+    testInference: true,
+    deepChecks: true,
+    onProgress: interactive
+      ? (stage) =>
+          process.stdout.write(
+            `\r\x1b[2K${`  ◇ ${stage}…`.slice(0, Math.max(16, process.stdout.columns || 80) - 1)}`
+          )
+      : undefined,
+  }).finally(() => {
+    if (interactive) process.stdout.write("\r\x1b[2K");
+  });
   printDoctor(diagnosis);
-  if (!diagnosis.ok) throw new CliError("Doctor checks failed.", 2);
+  if (!diagnosis.ok) throw new CliError("Doctor checks failed.", 2, true);
 };
 
 export const statusCommand = async (

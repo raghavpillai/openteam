@@ -72,7 +72,7 @@ ${helpHint}`,
 
   doctor: `${heading(
     "openteam doctor [options]",
-    "Check Docker, system resources, ports, configuration, permissions, readiness, and the selected model's API connection.\nSends one short inference request using your saved provider, model, and thinking setting."
+    "Check container health, database/schema setup, worker heartbeat and queue processing, computer API, storage permissions, and host configuration.\nSends one short inference request using your saved provider, model, and thinking setting.\nFinishes without starting services or setup. Failed checks exit 2; warnings alone exit 0."
   )}
 
 Options:

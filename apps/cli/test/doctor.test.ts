@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseArguments } from "../src/arguments";
@@ -18,6 +18,7 @@ import {
   suggestApiPort,
   viewerPorts,
 } from "../src/doctor";
+import { SERVER_PROBE, WORKER_PROBE, STORAGE_PROBE } from "../src/doctor-probes";
 import { doctorCommand } from "../src/lifecycle";
 import type { CommandRunner, RunOptions, RunResult } from "../src/process";
 
@@ -124,6 +125,44 @@ const installedFixture = () => {
         return { status: 0, stdout: "Docker Compose version v2.30.0", stderr: "" };
       if (args.includes("ps") && args.includes("--services"))
         return { status: 0, stdout: this.running.join("\n"), stderr: "" };
+      if (args.includes("ps") && args.includes("--quiet"))
+        return { status: 0, stdout: "a".repeat(64), stderr: "" };
+      if (args[0] === "inspect")
+        return {
+          status: 0,
+          stdout: [...this.running, "migrate"]
+            .map((service) =>
+              JSON.stringify({
+                service,
+                state: service === "migrate" ? "exited" : "running",
+                health: "healthy",
+                exitCode: 0,
+                restarts: 0,
+                startedAt: new Date().toISOString(),
+              })
+            )
+            .join("\n"),
+          stderr: "",
+        };
+      if (args.includes("exec") && !options?.input) {
+        const script = args.at(-1)!;
+        const labels = script.includes(SERVER_PROBE)
+          ? ["Database", "Pending jobs", "Run leases", "Computer API"]
+          : script.includes(WORKER_PROBE)
+            ? ["Worker heartbeat", "Queue round trip"]
+            : script.includes(STORAGE_PROBE)
+              ? args.includes("computer")
+                ? ["workspace"]
+                : ["agents", "assets"]
+              : [];
+        return {
+          status: 0,
+          stdout: JSON.stringify(
+            labels.map((label) => ({ label, level: "pass", detail: "Verified" }))
+          ),
+          stderr: "",
+        };
+      }
       if (args.includes("exec")) {
         this.probes.push({ args, options });
         return this.result;
@@ -152,7 +191,8 @@ describe("doctor model API connection", () => {
       reasoning: "medium",
     });
     expect(state.requests.every((request) => request.method === "GET")).toBe(true);
-    expect(output.join("\n")).toContain("✓ AI connection: openai-codex/gpt-5.6-sol responded");
+    expect(output.join("\n")).toContain("✓ AI connection");
+    expect(output.join("\n")).toContain("openai-codex/gpt-5.6-sol responded");
   });
 
   test("returns exit code 2 for failed inference even when health and credentials pass", async () => {
@@ -256,5 +296,54 @@ describe("doctor model API connection", () => {
     expect(result.ok).toBe(true);
     expect(runner.probes).toHaveLength(0);
     expect(result.checks.some((check) => check.label === "AI connection")).toBe(false);
+  });
+
+  test("stopped services skip dependent probes and never start containers", async () => {
+    const { paths, runner } = installedFixture();
+    runner.running = [];
+    const calls: readonly string[][] = [];
+    const original = runner.run.bind(runner);
+    const recording: CommandRunner = {
+      run: (command, args, options) => {
+        (calls as string[][]).push([...args]);
+        return original(command, args, options);
+      },
+    };
+    const result = await runDoctor(paths, recording, "openteam", {
+      deepChecks: true,
+      testInference: true,
+    });
+    expect(result.ok).toBe(false);
+    expect(result.checks.find((c) => c.label === "Worker heartbeat")).toMatchObject({
+      level: "warn",
+    });
+    expect(
+      calls.some((args) => args.includes("up") || args.includes("start") || args.includes("exec"))
+    ).toBe(false);
+  });
+
+  test("an invalid manifest is included in the report instead of throwing before rendering", async () => {
+    const { paths, runner } = installedFixture();
+    writeFileSync(paths.manifest, "{broken");
+    const result = await runDoctor(paths, runner, "openteam", { deepChecks: true });
+    expect(result.ok).toBe(false);
+    expect(result.checks.find((c) => c.label === "Installation")?.detail).toContain(
+      "Invalid installation manifest"
+    );
+  });
+
+  test("distinguishes an incomplete installation from a fresh machine", async () => {
+    const { paths, runner } = installedFixture();
+    rmSync(paths.compose);
+    expect(await runDoctor(paths, runner, "openteam", { checkInstallPorts: false })).toMatchObject({
+      ok: false,
+      installed: false,
+    });
+    rmSync(paths.environment);
+    rmSync(paths.manifest);
+    expect(await runDoctor(paths, runner, "openteam", { checkInstallPorts: false })).toMatchObject({
+      ok: true,
+      installed: false,
+    });
   });
 });

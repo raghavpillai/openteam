@@ -1,5 +1,6 @@
 import { Effect } from "effect";
 import { WakeWorker } from "./worker";
+import { startWorkerDiagnostics } from "./diagnostics";
 
 const worker = new WakeWorker();
 await Effect.runPromise(
@@ -8,8 +9,10 @@ await Effect.runPromise(
     catch: (error) => (error instanceof Error ? error : new Error(String(error))),
   })
 );
+const stopDiagnostics = await startWorkerDiagnostics(worker.boss);
 
 const shutdown = async () => {
+  await stopDiagnostics();
   await worker.stop();
   process.exit(0);
 };

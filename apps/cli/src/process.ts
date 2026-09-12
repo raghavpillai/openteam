@@ -9,6 +9,7 @@ export interface RunOptions {
   inputFile?: string;
   outputFile?: string;
   timeoutMs?: number;
+  killSignal?: NodeJS.Signals;
 }
 
 export interface RunResult {
@@ -33,6 +34,7 @@ export class SystemCommandRunner implements CommandRunner {
         encoding: "utf8",
         shell: false,
         timeout: options.timeoutMs,
+        killSignal: options.killSignal,
         input: options.input,
         stdio: options.inherit
           ? [input ?? (options.input === undefined ? "inherit" : "pipe"), "inherit", "inherit"]

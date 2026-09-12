@@ -11,6 +11,7 @@ import { dirname } from "node:path";
 import type { InstallationPaths } from "./config";
 import {
   environmentModeIsPrivate,
+  defaultInstallDirectory,
   installationExists,
   parseEnvironment,
   readManifest,
@@ -30,8 +31,17 @@ import {
   findCompose,
   MINIMUM_COMPOSE_VERSION,
 } from "./docker";
-import { checkHealth, withExpectedVersion } from "./health";
+import { checkHealth, withExpectedVersion, type HealthResult } from "./health";
 import { checkInferenceConnection } from "./inference-connection";
+import {
+  boundedDoctorRunner,
+  checkContainers,
+  runServiceProbe,
+  SERVER_PROBE,
+  WORKER_PROBE,
+  STORAGE_PROBE,
+} from "./doctor-probes";
+import { renderDoctor } from "./doctor-ui";
 import { firstUnavailablePort, viewerPorts } from "./ports";
 import type { CommandRunner } from "./process";
 import { inspectPublicReadiness } from "./public-readiness";
@@ -52,6 +62,8 @@ export interface DoctorResult {
   ok: boolean;
   installed: boolean;
   checks: readonly DoctorCheck[];
+  elapsedMs?: number;
+  commandDirectory?: string;
 }
 
 const nearestExistingDirectory = (path: string): string => {
@@ -68,10 +80,20 @@ const formatBytes = (bytes: number): string => `${(bytes / 1024 ** 3).toFixed(1)
 
 export const runDoctor = async (
   paths: InstallationPaths,
-  runner: CommandRunner,
+  suppliedRunner: CommandRunner,
   requestedProjectName = PROJECT_NAME,
-  options: { checkInstallPorts?: boolean; testInference?: boolean } = {}
+  options: {
+    checkInstallPorts?: boolean;
+    testInference?: boolean;
+    deepChecks?: boolean;
+    onProgress?: (stage: string) => void;
+  } = {}
 ): Promise<DoctorResult> => {
+  const started = Date.now();
+  const runner = boundedDoctorRunner(suppliedRunner);
+  const commandDirectory =
+    paths.directory === defaultInstallDirectory() ? undefined : paths.directory;
+  options.onProgress?.("Checking host and Docker");
   const checks: DoctorCheck[] = [];
   const installed = installationExists(paths);
   const machineArchitecture = arch();
@@ -120,8 +142,10 @@ export const runDoctor = async (
     label: "Docker CLI",
     detail: docker.status === 0 ? docker.stdout.trim() : "not found",
   });
+  let daemonReady = false;
   if (docker.status === 0) {
     const daemon = dockerDaemon(runner);
+    daemonReady = daemon.status === 0;
     checks.push({
       level: daemon.status === 0 ? "pass" : "fail",
       label: "Docker daemon",
@@ -139,9 +163,11 @@ export const runDoctor = async (
 
   if (!installed) {
     checks.push({
-      level: "warn",
+      level: [paths.manifest, paths.environment, paths.compose].some(existsSync) ? "fail" : "warn",
       label: "Installation",
-      detail: `OpenTeam is not installed at ${paths.directory}`,
+      detail: [paths.manifest, paths.environment, paths.compose].some(existsSync)
+        ? `Installation is incomplete at ${paths.directory}; run openteam install`
+        : `OpenTeam is not installed at ${paths.directory}; run openteam install`,
     });
     const checkInstallPorts = options.checkInstallPorts ?? true;
     const unavailablePort = checkInstallPorts
@@ -157,7 +183,18 @@ export const runDoctor = async (
           : `port ${unavailablePort} is already in use`,
     });
   } else {
-    const manifest = readManifest(paths);
+    options.onProgress?.("Checking configuration and services");
+    let manifest;
+    try {
+      manifest = readManifest(paths);
+    } catch {
+      checks.push({
+        level: "fail",
+        label: "Installation",
+        detail: `Invalid installation manifest at ${paths.manifest}; repair it before starting OpenTeam`,
+      });
+      return { ok: false, installed, checks, elapsedMs: Date.now() - started, commandDirectory };
+    }
     checks.push({
       level: manifest ? "pass" : "fail",
       label: "Installation",
@@ -170,13 +207,23 @@ export const runDoctor = async (
         ? "configuration permissions are private"
         : `${paths.environment} is readable by other users`,
     });
-    const project = compose?.supported
-      ? new ComposeProject(paths, compose, runner, manifest?.projectName || requestedProjectName)
-      : null;
+    const project =
+      compose?.supported && daemonReady
+        ? new ComposeProject(paths, compose, runner, manifest?.projectName || requestedProjectName)
+        : null;
     let runningServices: Set<string> | null = null;
     let environmentValues: ReadonlyMap<string, string> | null = null;
     if (project) {
-      const validation = project.run(["config", "--quiet"]);
+      let validation;
+      try {
+        validation = project.run(["config", "--quiet"]);
+      } catch {
+        validation = {
+          status: 1,
+          stdout: "",
+          stderr: "Could not read the Compose configuration or environment file",
+        };
+      }
       checks.push({
         level: validation.status === 0 ? "pass" : "fail",
         label: "Compose configuration",
@@ -277,6 +324,7 @@ export const runDoctor = async (
         const expected = ["postgres", "server", "worker", "computer"];
         if (accessMode === "https") expected.push("caddy");
         const missing = expected.filter((service) => !services.has(service));
+        if (options.deepChecks) checks.push(...checkContainers(project, runner, expected));
         checks.push({
           level: running.status === 0 && missing.length === 0 ? "pass" : "fail",
           label: "Compose services",
@@ -316,7 +364,43 @@ export const runDoctor = async (
         detail: error instanceof Error ? error.message : String(error),
       });
     }
-    const probe = await checkHealth(paths);
+    if (options.deepChecks && project) {
+      options.onProgress?.("Testing database, computer, and worker");
+      const probeService = (service: string, script: string, labels: string[], storage = false) => {
+        checks.push(
+          ...(runningServices?.has(service)
+            ? runServiceProbe(project, service, script, labels, storage)
+            : labels.map(
+                (label): DoctorCheck => ({
+                  level: "warn",
+                  label,
+                  detail: `Not tested; ${service} is not running`,
+                })
+              ))
+        );
+      };
+      probeService("server", SERVER_PROBE, [
+        "Database",
+        "Pending jobs",
+        "Run leases",
+        "Computer API",
+      ]);
+      probeService("worker", WORKER_PROBE, ["Worker heartbeat", "Queue round trip"]);
+      options.onProgress?.("Verifying storage permissions");
+      probeService("server", STORAGE_PROBE, ["Server agent storage", "Server asset storage"], true);
+      probeService("worker", STORAGE_PROBE, ["Worker agent storage", "Worker asset storage"], true);
+      probeService("computer", STORAGE_PROBE, ["Bot workspace storage"], true);
+    }
+    let probe: HealthResult;
+    try {
+      probe = await checkHealth(paths);
+    } catch {
+      probe = {
+        ok: false,
+        url: paths.directory,
+        detail: "Could not read the server connection configuration",
+      };
+    }
     const health = withExpectedVersion(probe, manifest?.version);
     const foreignServer = runningServices && foreignServerDetected(probe, runningServices);
     if (foreignServer && environmentValues) {
@@ -363,6 +447,7 @@ export const runDoctor = async (
         });
       } else {
         try {
+          options.onProgress?.("Testing the saved AI model (up to 40s)");
           const settings = await readRuntimeInferenceSettings(paths);
           const connection = checkInferenceConnection(project, settings);
           checks.push({
@@ -380,34 +465,41 @@ export const runDoctor = async (
       }
     }
   }
-  return { ok: !checks.some((check) => check.level === "fail"), installed, checks };
+  return {
+    ok: !checks.some((check) => check.level === "fail"),
+    installed,
+    checks,
+    elapsedMs: Date.now() - started,
+    commandDirectory,
+  };
 };
 
 export const printDoctor = (
   result: DoctorResult,
   options: { compact?: boolean; omitLabels?: readonly string[] } = {}
 ): void => {
-  const marks: Record<CheckLevel, string> = { pass: "✓", warn: "!", fail: "✗" };
-  const included = result.checks.filter((check) => !options.omitLabels?.includes(check.label));
-  const visible = options.compact ? included.filter((check) => check.level !== "pass") : included;
-  for (const check of visible) {
-    console.log(`${marks[check.level]} ${check.label}: ${redactSensitiveText(check.detail)}`);
-  }
-  if (options.compact) {
-    const warnings = visible.filter((check) => check.level === "warn").length;
-    const failures = visible.filter((check) => check.level === "fail").length;
+  if (!options.compact) {
     console.log(
-      failures > 0
-        ? `✗ ${failures} blocking ${failures === 1 ? "problem" : "problems"} found.`
-        : warnings > 0
-          ? `✓ Checks passed with ${warnings} ${warnings === 1 ? "warning" : "warnings"}.`
-          : "✓ All checks passed."
+      renderDoctor({
+        ...result,
+        checks: result.checks.filter((check) => !options.omitLabels?.includes(check.label)),
+      })
     );
     return;
   }
+  const marks: Record<CheckLevel, string> = { pass: "✓", warn: "!", fail: "✗" };
+  const included = result.checks.filter((check) => !options.omitLabels?.includes(check.label));
+  const visible = included.filter((check) => check.level !== "pass");
+  for (const check of visible) {
+    console.log(`${marks[check.level]} ${check.label}: ${redactSensitiveText(check.detail)}`);
+  }
+  const warnings = visible.filter((check) => check.level === "warn").length;
+  const failures = visible.filter((check) => check.level === "fail").length;
   console.log(
-    result.ok
-      ? "\nOpenTeam doctor found no blocking problems."
-      : "\nOpenTeam doctor found blocking problems."
+    failures > 0
+      ? `✗ ${failures} blocking ${failures === 1 ? "problem" : "problems"} found.`
+      : warnings > 0
+        ? `✓ Checks passed with ${warnings} ${warnings === 1 ? "warning" : "warnings"}.`
+        : "✓ All checks passed."
   );
 };

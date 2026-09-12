@@ -1,7 +1,23 @@
 import { describe, expect, test } from "bun:test";
 
-const source = async (name: "app-service.ts" | "event-stream.ts" | "main.ts") =>
-  Bun.file(new URL(`../src/${name}`, import.meta.url)).text();
+const source = async (name: "app-service.ts" | "event-stream.ts" | "main.ts") => {
+  const modules =
+    name === "main.ts"
+      ? [
+          name,
+          ...new Bun.Glob("routes/*.ts").scanSync({
+            cwd: new URL("../src/", import.meta.url).pathname,
+          }),
+        ]
+      : name === "app-service.ts"
+        ? [name, "services/startup-recovery.ts", "services/settings-service.ts"]
+        : [name];
+  return (
+    await Promise.all(
+      modules.map((file) => Bun.file(new URL(`../src/${file}`, import.meta.url)).text())
+    )
+  ).join("\n");
+};
 
 describe("server semantic merge guard", () => {
   test("retains upstream service wiring alongside the bounded client surfaces", async () => {

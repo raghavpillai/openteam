@@ -516,382 +516,390 @@ export default function ConversationScreen() {
         keyboardVerticalOffset={0}
         style={styles.flex}
       >
-        <View style={styles.header}>
-          <IconButton
-            label="Back"
-            name="chevron.left"
-            onPress={() => (router.canGoBack() ? router.back() : router.replace("/"))}
-            size={38}
-            symbolSize={18}
-            tone="surface"
-          />
-          <Pressable
-            accessibilityLabel={`${name} conversation details`}
-            accessibilityRole="button"
-            onPress={() => router.push({ pathname: "/details/[channelId]", params: { channelId } })}
-            style={({ pressed }) => pressed && styles.identityPressed}
-          >
-            <GlassSurface
-              fallbackColor={theme.surfaceElevated}
-              interactive
-              style={[
-                styles.identity,
-                {
-                  borderColor: theme.border,
-                  shadowColor: theme.dark ? "#000" : "#77776F",
-                },
-              ]}
-            >
-              <BotMark color={bot?.color ?? "#858580"} icon={bot?.icon} size={27} />
-              <Text numberOfLines={1} style={[styles.title, { color: theme.text }]}>
-                {name}
-              </Text>
-            </GlassSurface>
-          </Pressable>
-          <IconButton
-            label="Open shared computer"
-            name="desktopcomputer"
-            disabled={!botId}
-            onPress={() => {
-              if (!botId) return;
-              router.push({ pathname: "/computer/[botId]", params: { botId } });
-            }}
-            size={38}
-            symbolSize={18}
-            style={styles.headerTrailingAction}
-            tone="surface"
-          />
-        </View>
-
-        <View style={styles.timeline}>
-          <FlatList
-            {...MOBILE_VIRTUAL_LIST_TUNING}
-            ref={listRef}
-            data={timeline}
-            keyExtractor={(entry) => (isA2AActivity(entry) ? entry.id : messageRenderKey(entry))}
-            contentContainerStyle={[styles.messages, { paddingBottom: composerHeight + 8 }]}
-            keyboardDismissMode="interactive"
-            keyboardShouldPersistTaps="handled"
-            maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
-            onContentSizeChange={() => {
-              if (!didPlaceInitialScroll.current) {
-                if (messageId && targetIndex < 0) return;
-                didPlaceInitialScroll.current = true;
-                if (messageId) {
-                  listRef.current?.scrollToIndex({
-                    index: targetIndex,
-                    animated: false,
-                    viewPosition: 0.5,
-                  });
-                } else {
-                  listRef.current?.scrollToEnd({ animated: false });
-                }
-                return;
-              }
-              if (atLiveEdgeRef.current) listRef.current?.scrollToEnd({ animated: false });
-            }}
-            onScroll={(event) => {
-              const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
-              if (jumpingToLatest.current) return;
-              const nearEnd = isNearLiveEdge(
-                contentOffset.y,
-                layoutMeasurement.height,
-                contentSize.height
-              );
-              updateLiveEdge(nearEnd && !channelHistory?.hasNewer);
-              if (nearEnd && channelHistory?.hasNewer && !threadRootId)
-                void loadLaterMessages(channelId);
-            }}
-            onScrollToIndexFailed={({ index, averageItemLength }) => {
-              listRef.current?.scrollToOffset({
-                animated: false,
-                offset: Math.max(0, averageItemLength * index),
-              });
-              if (targetScrollRetries.current >= 2) return;
-              targetScrollRetries.current += 1;
-              setTimeout(() => {
-                listRef.current?.scrollToIndex({
-                  index,
-                  animated: false,
-                  viewPosition: 0.5,
-                });
-              }, 80);
-            }}
-            onViewableItemsChanged={onViewableItemsChanged}
-            onEndReached={() => {
-              if (channelHistory?.hasNewer && !threadRootId) void loadLaterMessages(channelId);
-            }}
-            onEndReachedThreshold={0.5}
-            scrollEventThrottle={32}
-            viewabilityConfig={viewabilityConfig}
-            renderItem={({ item }) => {
-              if (isA2AActivity(item)) {
-                const peer = item.peerId ? botById.get(item.peerId) : undefined;
-                const group = item.peerId ? channelById.get(item.peerId) : undefined;
-                const onOpen = peer
-                  ? () => setA2APeerId(peer.id)
-                  : group?.kind === "group"
-                    ? () =>
-                        router.push({
-                          pathname: "/chat/[channelId]",
-                          params: { channelId: group.id },
-                        })
-                    : undefined;
-                return (
-                  <A2AActivityRow
-                    count={item.entries.length}
-                    onOpen={onOpen}
-                    peer={peer}
-                    peerName={item.peerName ?? group?.name ?? "another agent"}
-                  />
-                );
-              }
-              const metadata = metadataFor(item);
-              const replyId = metadata.replyTo;
-              const replyPreview = typeof replyId === "string" ? byId.get(replyId)?.content : null;
-              const peer = metadata.fromAgent ?? metadata.toAgent;
-              const peerId =
-                peer && typeof peer === "object" && !Array.isArray(peer)
-                  ? (peer as Record<string, unknown>).id
-                  : null;
-              const peerBot = typeof peerId === "string" ? botById.get(peerId) : undefined;
-              const groupSpeaker =
-                channel?.kind === "group" && item.senderBotId
-                  ? botById.get(item.senderBotId)
-                  : undefined;
-              const clientDelivery = clientDeliveryFor(item);
-              const deliveryState = clientDelivery?.state;
-              const deliveryNonce = clientDelivery?.nonce;
-              const deliveryComposedAtMs = clientDelivery?.composedAtMs;
-              const deliveryQueuedAtMs = clientDelivery?.queuedAtMs;
-              const deliveryAcceptedAtMs = clientDelivery?.acceptedAtMs;
-              const renderKey = messageRenderKey(item);
-              const thread = threads.get(item.id);
-              const threadReplyCountIsPartial = thread
-                ? mayHaveEarlierThreadReplies(
-                    thread.root.sequence,
-                    channelHistory?.beforeSequence,
-                    channelHistory?.hasMore ?? false
-                  )
-                : false;
-              return (
-                <MessageBubble
-                  animateEntrance={enteringMessageKeys.has(renderKey)}
-                  message={item}
-                  pending={deliveryState === "pending" || deliveryState === "queued"}
-                  showSpeakerName={Boolean(groupSpeaker)}
-                  speakerName={groupSpeaker?.name}
-                  deliveryState={
-                    deliveryState === "pending" ||
-                    deliveryState === "queued" ||
-                    deliveryState === "accepted" ||
-                    deliveryState === "failed"
-                      ? deliveryState
-                      : undefined
-                  }
-                  deliveryNonce={typeof deliveryNonce === "string" ? deliveryNonce : undefined}
-                  deliveryComposedAtMs={
-                    typeof deliveryComposedAtMs === "number" ? deliveryComposedAtMs : null
-                  }
-                  deliveryQueuedAtMs={
-                    typeof deliveryQueuedAtMs === "number" ? deliveryQueuedAtMs : null
-                  }
-                  deliveryAcceptedAtMs={
-                    typeof deliveryAcceptedAtMs === "number" ? deliveryAcceptedAtMs : null
-                  }
-                  deliveryTransportDown={clientDelivery?.transportDown === true}
-                  onResendFailed={(nonce) => void resendFailed(nonce)}
-                  onDeleteFailed={(nonce) => void deleteFailed(nonce)}
-                  onCancelQueued={(nonce) => void recoverCancelledMessage(nonce)}
-                  peerBot={peerBot}
-                  replyPreview={replyPreview}
-                  assetUrl={assetUrl}
-                  onReply={() => selectReply({ id: item.id, content: item.content })}
-                  onStartThread={() => setThreadRootId(item.id)}
-                  onMarkUnread={() => void markConversationUnread()}
-                  onReport={() =>
-                    Alert.alert(
-                      "Report message",
-                      "Message reporting is not available on this self-hosted server."
-                    )
-                  }
-                  onReact={(emoji) => void handleReaction(item.id, emoji)}
-                  onWidgetResponse={(value) => respondToWidget(item.id, value)}
-                  onWidgetDismiss={() => dismissWidget(item.id)}
-                  onSecretSubmit={(value) => submitSecret(item.id, value)}
-                  onComputerHandoff={(action) => mutateComputerHandoff(item.id, action)}
-                  onOpenThread={thread ? () => setThreadRootId(item.id) : undefined}
-                  onOpenRoutine={openRoutine}
-                  threadReplyCount={thread?.replies.length ?? 0}
-                  threadReplyCountIsPartial={threadReplyCountIsPartial}
-                />
-              );
-            }}
-            ListHeaderComponent={
-              historyState[channelId]?.loading ? (
-                <ActivityIndicator color={theme.textMuted} style={styles.historyAction} />
-              ) : historyState[channelId]?.hasMore ? (
-                <Pressable
-                  accessibilityRole="button"
-                  onPress={() => void loadEarlierMessages(channelId)}
-                  style={({ pressed }) => [styles.historyAction, pressed && { opacity: 0.65 }]}
-                >
-                  <Text style={[styles.historyLabel, { color: theme.textMuted }]}>
-                    Load earlier messages
-                  </Text>
-                </Pressable>
-              ) : null
-            }
-            ListFooterComponent={
-              <View>
-                {approvals.map((approval) => (
-                  <ApprovalCard
-                    key={approval.id}
-                    approval={approval}
-                    onResolve={(decision) => resolveApproval(approval.id, decision)}
-                  />
-                ))}
-                {activeRun && approvals.length === 0 ? (
-                  <WorkingIndicator name={name} onStop={() => void cancelRun(activeRun.id)} />
-                ) : null}
-              </View>
-            }
-          />
-          {!atLiveEdge && timeline.length > 0 ? (
+        {/* Absolute overlays must be inside the keyboard-resized content area. */}
+        <View testID="chat-keyboard-content" style={styles.flex}>
+          <View style={styles.header}>
+            <IconButton
+              label="Back"
+              name="chevron.left"
+              onPress={() => (router.canGoBack() ? router.back() : router.replace("/"))}
+              size={38}
+              symbolSize={18}
+              tone="surface"
+            />
             <Pressable
-              accessibilityLabel={
-                (channel?.unreadCount ?? 0) > 0
-                  ? `Jump to latest, ${channel?.unreadCount} unread`
-                  : "Jump to latest"
-              }
+              accessibilityLabel={`${name} conversation details`}
               accessibilityRole="button"
-              hitSlop={4}
-              onPress={() => {
-                updateLiveEdge(true);
-                if (!channelHistory?.hasNewer) {
-                  listRef.current?.scrollToEnd({ animated: true });
-                  return;
-                }
-                jumpingToLatest.current = true;
-                void jumpToLatestMessages(channelId).finally(() => {
-                  requestAnimationFrame(() => {
-                    if (historyViewportRef.current.channelId !== channelId) return;
-                    jumpingToLatest.current = false;
-                    updateLiveEdge(true);
-                    listRef.current?.scrollToEnd({ animated: true });
-                  });
-                });
-              }}
-              style={({ pressed }) => [
-                styles.jumpButton,
-                { bottom: composerHeight + 10 },
-                pressed && styles.jumpButtonPressed,
-              ]}
+              onPress={() =>
+                router.push({ pathname: "/details/[channelId]", params: { channelId } })
+              }
+              style={({ pressed }) => pressed && styles.identityPressed}
             >
               <GlassSurface
                 fallbackColor={theme.surfaceElevated}
                 interactive
-                style={[styles.jumpSurface, { borderColor: theme.border }]}
+                style={[
+                  styles.identity,
+                  {
+                    borderColor: theme.border,
+                    shadowColor: theme.dark ? "#000" : "#77776F",
+                  },
+                ]}
               >
-                <SymbolView
-                  name="chevron.down"
-                  size={15}
-                  tintColor={theme.text}
-                  weight="semibold"
-                />
+                <BotMark color={bot?.color ?? "#858580"} icon={bot?.icon} size={27} />
+                <Text numberOfLines={1} style={[styles.title, { color: theme.text }]}>
+                  {name}
+                </Text>
               </GlassSurface>
             </Pressable>
+            <IconButton
+              label="Open shared computer"
+              name="desktopcomputer"
+              disabled={!botId}
+              onPress={() => {
+                if (!botId) return;
+                router.push({ pathname: "/computer/[botId]", params: { botId } });
+              }}
+              size={38}
+              symbolSize={18}
+              style={styles.headerTrailingAction}
+              tone="surface"
+            />
+          </View>
+
+          <View style={styles.timeline}>
+            <FlatList
+              {...MOBILE_VIRTUAL_LIST_TUNING}
+              ref={listRef}
+              data={timeline}
+              keyExtractor={(entry) => (isA2AActivity(entry) ? entry.id : messageRenderKey(entry))}
+              contentContainerStyle={[styles.messages, { paddingBottom: composerHeight + 8 }]}
+              keyboardDismissMode="interactive"
+              keyboardShouldPersistTaps="handled"
+              maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
+              onContentSizeChange={() => {
+                if (!didPlaceInitialScroll.current) {
+                  if (messageId && targetIndex < 0) return;
+                  didPlaceInitialScroll.current = true;
+                  if (messageId) {
+                    listRef.current?.scrollToIndex({
+                      index: targetIndex,
+                      animated: false,
+                      viewPosition: 0.5,
+                    });
+                  } else {
+                    listRef.current?.scrollToEnd({ animated: false });
+                  }
+                  return;
+                }
+                if (atLiveEdgeRef.current) listRef.current?.scrollToEnd({ animated: false });
+              }}
+              onScroll={(event) => {
+                const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+                if (jumpingToLatest.current) return;
+                const nearEnd = isNearLiveEdge(
+                  contentOffset.y,
+                  layoutMeasurement.height,
+                  contentSize.height
+                );
+                updateLiveEdge(nearEnd && !channelHistory?.hasNewer);
+                if (nearEnd && channelHistory?.hasNewer && !threadRootId)
+                  void loadLaterMessages(channelId);
+              }}
+              onScrollToIndexFailed={({ index, averageItemLength }) => {
+                listRef.current?.scrollToOffset({
+                  animated: false,
+                  offset: Math.max(0, averageItemLength * index),
+                });
+                if (targetScrollRetries.current >= 2) return;
+                targetScrollRetries.current += 1;
+                setTimeout(() => {
+                  listRef.current?.scrollToIndex({
+                    index,
+                    animated: false,
+                    viewPosition: 0.5,
+                  });
+                }, 80);
+              }}
+              onViewableItemsChanged={onViewableItemsChanged}
+              onEndReached={() => {
+                if (channelHistory?.hasNewer && !threadRootId) void loadLaterMessages(channelId);
+              }}
+              onEndReachedThreshold={0.5}
+              scrollEventThrottle={32}
+              viewabilityConfig={viewabilityConfig}
+              renderItem={({ item }) => {
+                if (isA2AActivity(item)) {
+                  const peer = item.peerId ? botById.get(item.peerId) : undefined;
+                  const group = item.peerId ? channelById.get(item.peerId) : undefined;
+                  const onOpen = peer
+                    ? () => setA2APeerId(peer.id)
+                    : group?.kind === "group"
+                      ? () =>
+                          router.push({
+                            pathname: "/chat/[channelId]",
+                            params: { channelId: group.id },
+                          })
+                      : undefined;
+                  return (
+                    <A2AActivityRow
+                      count={item.entries.length}
+                      onOpen={onOpen}
+                      peer={peer}
+                      peerName={item.peerName ?? group?.name ?? "another agent"}
+                    />
+                  );
+                }
+                const metadata = metadataFor(item);
+                const replyId = metadata.replyTo;
+                const replyPreview =
+                  typeof replyId === "string" ? byId.get(replyId)?.content : null;
+                const peer = metadata.fromAgent ?? metadata.toAgent;
+                const peerId =
+                  peer && typeof peer === "object" && !Array.isArray(peer)
+                    ? (peer as Record<string, unknown>).id
+                    : null;
+                const peerBot = typeof peerId === "string" ? botById.get(peerId) : undefined;
+                const groupSpeaker =
+                  channel?.kind === "group" && item.senderBotId
+                    ? botById.get(item.senderBotId)
+                    : undefined;
+                const clientDelivery = clientDeliveryFor(item);
+                const deliveryState = clientDelivery?.state;
+                const deliveryNonce = clientDelivery?.nonce;
+                const deliveryComposedAtMs = clientDelivery?.composedAtMs;
+                const deliveryQueuedAtMs = clientDelivery?.queuedAtMs;
+                const deliveryAcceptedAtMs = clientDelivery?.acceptedAtMs;
+                const renderKey = messageRenderKey(item);
+                const thread = threads.get(item.id);
+                const threadReplyCountIsPartial = thread
+                  ? mayHaveEarlierThreadReplies(
+                      thread.root.sequence,
+                      channelHistory?.beforeSequence,
+                      channelHistory?.hasMore ?? false
+                    )
+                  : false;
+                return (
+                  <MessageBubble
+                    animateEntrance={enteringMessageKeys.has(renderKey)}
+                    message={item}
+                    pending={deliveryState === "pending" || deliveryState === "queued"}
+                    showSpeakerName={Boolean(groupSpeaker)}
+                    speakerName={groupSpeaker?.name}
+                    deliveryState={
+                      deliveryState === "pending" ||
+                      deliveryState === "queued" ||
+                      deliveryState === "accepted" ||
+                      deliveryState === "failed"
+                        ? deliveryState
+                        : undefined
+                    }
+                    deliveryNonce={typeof deliveryNonce === "string" ? deliveryNonce : undefined}
+                    deliveryComposedAtMs={
+                      typeof deliveryComposedAtMs === "number" ? deliveryComposedAtMs : null
+                    }
+                    deliveryQueuedAtMs={
+                      typeof deliveryQueuedAtMs === "number" ? deliveryQueuedAtMs : null
+                    }
+                    deliveryAcceptedAtMs={
+                      typeof deliveryAcceptedAtMs === "number" ? deliveryAcceptedAtMs : null
+                    }
+                    deliveryTransportDown={clientDelivery?.transportDown === true}
+                    onResendFailed={(nonce) => void resendFailed(nonce)}
+                    onDeleteFailed={(nonce) => void deleteFailed(nonce)}
+                    onCancelQueued={(nonce) => void recoverCancelledMessage(nonce)}
+                    peerBot={peerBot}
+                    replyPreview={replyPreview}
+                    assetUrl={assetUrl}
+                    onReply={() => selectReply({ id: item.id, content: item.content })}
+                    onStartThread={() => setThreadRootId(item.id)}
+                    onMarkUnread={() => void markConversationUnread()}
+                    onReport={() =>
+                      Alert.alert(
+                        "Report message",
+                        "Message reporting is not available on this self-hosted server."
+                      )
+                    }
+                    onReact={(emoji) => void handleReaction(item.id, emoji)}
+                    onWidgetResponse={(value) => respondToWidget(item.id, value)}
+                    onWidgetDismiss={() => dismissWidget(item.id)}
+                    onSecretSubmit={(value) => submitSecret(item.id, value)}
+                    onComputerHandoff={(action) => mutateComputerHandoff(item.id, action)}
+                    onOpenThread={thread ? () => setThreadRootId(item.id) : undefined}
+                    onOpenRoutine={openRoutine}
+                    threadReplyCount={thread?.replies.length ?? 0}
+                    threadReplyCountIsPartial={threadReplyCountIsPartial}
+                  />
+                );
+              }}
+              ListHeaderComponent={
+                historyState[channelId]?.loading ? (
+                  <ActivityIndicator color={theme.textMuted} style={styles.historyAction} />
+                ) : historyState[channelId]?.hasMore ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    onPress={() => void loadEarlierMessages(channelId)}
+                    style={({ pressed }) => [styles.historyAction, pressed && { opacity: 0.65 }]}
+                  >
+                    <Text style={[styles.historyLabel, { color: theme.textMuted }]}>
+                      Load earlier messages
+                    </Text>
+                  </Pressable>
+                ) : null
+              }
+              ListFooterComponent={
+                <View>
+                  {approvals.map((approval) => (
+                    <ApprovalCard
+                      key={approval.id}
+                      approval={approval}
+                      onResolve={(decision) => resolveApproval(approval.id, decision)}
+                    />
+                  ))}
+                  {activeRun && approvals.length === 0 ? (
+                    <WorkingIndicator name={name} onStop={() => void cancelRun(activeRun.id)} />
+                  ) : null}
+                </View>
+              }
+            />
+            {!atLiveEdge && timeline.length > 0 ? (
+              <Pressable
+                accessibilityLabel={
+                  (channel?.unreadCount ?? 0) > 0
+                    ? `Jump to latest, ${channel?.unreadCount} unread`
+                    : "Jump to latest"
+                }
+                accessibilityRole="button"
+                hitSlop={4}
+                onPress={() => {
+                  updateLiveEdge(true);
+                  if (!channelHistory?.hasNewer) {
+                    listRef.current?.scrollToEnd({ animated: true });
+                    return;
+                  }
+                  jumpingToLatest.current = true;
+                  void jumpToLatestMessages(channelId).finally(() => {
+                    requestAnimationFrame(() => {
+                      if (historyViewportRef.current.channelId !== channelId) return;
+                      jumpingToLatest.current = false;
+                      updateLiveEdge(true);
+                      listRef.current?.scrollToEnd({ animated: true });
+                    });
+                  });
+                }}
+                style={({ pressed }) => [
+                  styles.jumpButton,
+                  { bottom: composerHeight + 10 },
+                  pressed && styles.jumpButtonPressed,
+                ]}
+              >
+                <GlassSurface
+                  fallbackColor={theme.surfaceElevated}
+                  interactive
+                  style={[styles.jumpSurface, { borderColor: theme.border }]}
+                >
+                  <SymbolView
+                    name="chevron.down"
+                    size={15}
+                    tintColor={theme.text}
+                    weight="semibold"
+                  />
+                </GlassSurface>
+              </Pressable>
+            ) : null}
+          </View>
+
+          <View
+            onLayout={(event) => {
+              const measuredHeight = Math.ceil(event.nativeEvent.layout.height);
+              setComposerHeight((current) =>
+                current === measuredHeight ? current : measuredHeight
+              );
+            }}
+            style={styles.composerOverlay}
+          >
+            <Composer
+              draftKey={draftKey}
+              botName={name}
+              mentionOptions={mentionOptions}
+              recovery={composerRecovery}
+              onRecoveryApplied={(id) => {
+                setComposerRecovery((current) => (current?.id === id ? null : current));
+              }}
+              onRecoveryConsumed={acknowledgeDeliveryRecovery}
+              replyTarget={replyTarget}
+              replyEditVersion={replyEditVersion}
+              onRestoreReply={setReplyTarget}
+              onClearReply={clearReply}
+              assetUrl={assetUrl}
+              onUpload={uploadAsset}
+              onSend={async (content, attachments, stagedAttachments, consumedDraft) => {
+                await sendMessage(channelId, content, attachments, replyTarget?.id, {
+                  consumedDraft,
+                  stagedAttachments,
+                });
+                setReplyTarget(null);
+              }}
+              onStage={stageMobileDeliveryAttachment}
+              onDiscardStages={discardMobileDeliveryAttachments}
+              uploadCapabilities={capabilities.uploads}
+            />
+          </View>
+          {activeThread ? (
+            <ThreadSheet
+              assetUrl={assetUrl}
+              botById={botById}
+              botName={name}
+              draftKey={draftKey}
+              historyHasMore={activeThreadHasMore}
+              historyLoading={channelHistory?.loading ?? false}
+              mentionOptions={mentionOptions}
+              onClose={() => setThreadRootId(null)}
+              onLoadEarlier={() => loadEarlierMessages(channelId)}
+              onLoadLater={() =>
+                channelHistory?.hasNewer ? loadLaterMessages(channelId) : Promise.resolve()
+              }
+              historyHasNewer={channelHistory?.hasNewer ?? false}
+              onVisibleMessageIds={(ids, atBottom) =>
+                setHistoryViewport(channelId, ids, atBottom && !channelHistory?.hasNewer)
+              }
+              onReact={handleReaction}
+              onResendFailed={resendFailed}
+              onDeleteFailed={deleteFailed}
+              onCancelQueued={cancelQueuedMessage}
+              deliveryRecoveries={deliveryRecoveries.filter(
+                (record) => record.target.channelId === channelId && record.payload.isFork === true
+              )}
+              onAcknowledgeRecovery={acknowledgeDeliveryRecovery}
+              onSecretSubmit={submitSecret}
+              onComputerHandoff={mutateComputerHandoff}
+              onSend={(content, attachments, stagedAttachments, replyToMessageId, consumedDraft) =>
+                sendMessage(channelId, content, attachments, replyToMessageId, {
+                  isFork: true,
+                  consumedDraft,
+                  stagedAttachments,
+                })
+              }
+              onUpload={uploadAsset}
+              onVisibleSequence={recordVisibleSequence}
+              onWidgetDismiss={dismissWidget}
+              onWidgetResponse={respondToWidget}
+              targetMessageId={focusedThreadRootId === threadRootId ? messageId : undefined}
+              thread={activeThread}
+              uploadCapabilities={capabilities.uploads}
+            />
+          ) : null}
+          {a2aExchange ? (
+            <A2AExchangeSheet
+              assetUrl={assetUrl}
+              exchange={a2aExchange}
+              onClose={() => setA2APeerId(null)}
+              onOpenComputer={() => {
+                if (bot) router.push(`/computer/${bot.id}`);
+              }}
+            />
           ) : null}
         </View>
-
-        <View
-          onLayout={(event) => {
-            const measuredHeight = Math.ceil(event.nativeEvent.layout.height);
-            setComposerHeight((current) => (current === measuredHeight ? current : measuredHeight));
-          }}
-          style={styles.composerOverlay}
-        >
-          <Composer
-            draftKey={draftKey}
-            botName={name}
-            mentionOptions={mentionOptions}
-            recovery={composerRecovery}
-            onRecoveryApplied={(id) => {
-              setComposerRecovery((current) => (current?.id === id ? null : current));
-            }}
-            onRecoveryConsumed={acknowledgeDeliveryRecovery}
-            replyTarget={replyTarget}
-            replyEditVersion={replyEditVersion}
-            onRestoreReply={setReplyTarget}
-            onClearReply={clearReply}
-            assetUrl={assetUrl}
-            onUpload={uploadAsset}
-            onSend={async (content, attachments, stagedAttachments, consumedDraft) => {
-              await sendMessage(channelId, content, attachments, replyTarget?.id, {
-                consumedDraft,
-                stagedAttachments,
-              });
-              setReplyTarget(null);
-            }}
-            onStage={stageMobileDeliveryAttachment}
-            onDiscardStages={discardMobileDeliveryAttachments}
-            uploadCapabilities={capabilities.uploads}
-          />
-        </View>
-        {activeThread ? (
-          <ThreadSheet
-            assetUrl={assetUrl}
-            botById={botById}
-            botName={name}
-            draftKey={draftKey}
-            historyHasMore={activeThreadHasMore}
-            historyLoading={channelHistory?.loading ?? false}
-            mentionOptions={mentionOptions}
-            onClose={() => setThreadRootId(null)}
-            onLoadEarlier={() => loadEarlierMessages(channelId)}
-            onLoadLater={() =>
-              channelHistory?.hasNewer ? loadLaterMessages(channelId) : Promise.resolve()
-            }
-            historyHasNewer={channelHistory?.hasNewer ?? false}
-            onVisibleMessageIds={(ids, atBottom) =>
-              setHistoryViewport(channelId, ids, atBottom && !channelHistory?.hasNewer)
-            }
-            onReact={handleReaction}
-            onResendFailed={resendFailed}
-            onDeleteFailed={deleteFailed}
-            onCancelQueued={cancelQueuedMessage}
-            deliveryRecoveries={deliveryRecoveries.filter(
-              (record) => record.target.channelId === channelId && record.payload.isFork === true
-            )}
-            onAcknowledgeRecovery={acknowledgeDeliveryRecovery}
-            onSecretSubmit={submitSecret}
-            onComputerHandoff={mutateComputerHandoff}
-            onSend={(content, attachments, stagedAttachments, replyToMessageId, consumedDraft) =>
-              sendMessage(channelId, content, attachments, replyToMessageId, {
-                isFork: true,
-                consumedDraft,
-                stagedAttachments,
-              })
-            }
-            onUpload={uploadAsset}
-            onVisibleSequence={recordVisibleSequence}
-            onWidgetDismiss={dismissWidget}
-            onWidgetResponse={respondToWidget}
-            targetMessageId={focusedThreadRootId === threadRootId ? messageId : undefined}
-            thread={activeThread}
-            uploadCapabilities={capabilities.uploads}
-          />
-        ) : null}
-        {a2aExchange ? (
-          <A2AExchangeSheet
-            assetUrl={assetUrl}
-            exchange={a2aExchange}
-            onClose={() => setA2APeerId(null)}
-            onOpenComputer={() => {
-              if (bot) router.push(`/computer/${bot.id}`);
-            }}
-          />
-        ) : null}
       </KeyboardAvoidingView>
     </SafeAreaView>
   );

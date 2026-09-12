@@ -1,0 +1,201 @@
+{
+  "botId": "2dbd4dc3-2df5-4689-b02d-13e4c7e99da1",
+  "screen": {
+    "botId": "2dbd4dc3-2df5-4689-b02d-13e4c7e99da1",
+    "state": "ready",
+    "width": 1280,
+    "height": 800,
+    "display": 100,
+    "humanTakeover": false,
+    "agentInputPaused": false,
+    "apps": [
+      "chromium",
+      "thunar",
+      "terminal"
+    ],
+    "browserProfileScope": "computer",
+    "browserSessionScope": "computer",
+    "browserSessionMechanism": "shared-profiles",
+    "browserStateCoverage": [
+      "cookies",
+      "local-storage",
+      "session-storage",
+      "indexed-db",
+      "service-workers",
+      "cache-storage",
+      "extensions",
+      "saved-passwords",
+      "client-certificates",
+      "settings",
+      "bookmarks",
+      "history",
+      "open-tabs"
+    ],
+    "browserTargetRouting": "bot-owned-tabs"
+  },
+  "openApp": {
+    "botId": "2dbd4dc3-2df5-4689-b02d-13e4c7e99da1",
+    "state": "ready",
+    "width": 1280,
+    "height": 800,
+    "display": 100,
+    "humanTakeover": false,
+    "agentInputPaused": false,
+    "apps": [
+      "chromium",
+      "thunar",
+      "terminal"
+    ],
+    "browserProfileScope": "computer",
+    "browserSessionScope": "computer",
+    "browserSessionMechanism": "shared-profiles",
+    "browserStateCoverage": [
+      "cookies",
+      "local-storage",
+      "session-storage",
+      "indexed-db",
+      "service-workers",
+      "cache-storage",
+      "extensions",
+      "saved-passwords",
+      "client-certificates",
+      "settings",
+      "bookmarks",
+      "history",
+      "open-tabs"
+    ],
+    "browserTargetRouting": "bot-owned-tabs"
+  },
+  "takeover": {
+    "botId": "2dbd4dc3-2df5-4689-b02d-13e4c7e99da1",
+    "state": "ready",
+    "width": 1280,
+    "height": 800,
+    "display": 100,
+    "humanTakeover": true,
+    "agentInputPaused": false,
+    "apps": [
+      "chromium",
+      "thunar",
+      "terminal"
+    ],
+    "browserProfileScope": "computer",
+    "browserSessionScope": "computer",
+    "browserSessionMechanism": "shared-profiles",
+    "browserStateCoverage": [
+      "cookies",
+      "local-storage",
+      "session-storage",
+      "indexed-db",
+      "service-workers",
+      "cache-storage",
+      "extensions",
+      "saved-passwords",
+      "client-certificates",
+      "settings",
+      "bookmarks",
+      "history",
+      "open-tabs"
+    ],
+    "browserTargetRouting": "bot-owned-tabs"
+  },
+  "released": {
+    "botId": "2dbd4dc3-2df5-4689-b02d-13e4c7e99da1",
+    "state": "ready",
+    "width": 1280,
+    "height": 800,
+    "display": 100,
+    "humanTakeover": false,
+    "agentInputPaused": false,
+    "apps": [
+      "chromium",
+      "thunar",
+      "terminal"
+    ],
+    "browserProfileScope": "computer",
+    "browserSessionScope": "computer",
+    "browserSessionMechanism": "shared-profiles",
+    "browserStateCoverage": [
+      "cookies",
+      "local-storage",
+      "session-storage",
+      "indexed-db",
+      "service-workers",
+      "cache-storage",
+      "extensions",
+      "saved-passwords",
+      "client-certificates",
+      "settings",
+      "bookmarks",
+      "history",
+      "open-tabs"
+    ],
+    "browserTargetRouting": "bot-owned-tabs"
+  },
+  "paused": {
+    "botId": "2dbd4dc3-2df5-4689-b02d-13e4c7e99da1",
+    "state": "ready",
+    "width": 1280,
+    "height": 800,
+    "display": 100,
+    "humanTakeover": false,
+    "agentInputPaused": true,
+    "apps": [
+      "chromium",
+      "thunar",
+      "terminal"
+    ],
+    "browserProfileScope": "computer",
+    "browserSessionScope": "computer",
+    "browserSessionMechanism": "shared-profiles",
+    "browserStateCoverage": [
+      "cookies",
+      "local-storage",
+      "session-storage",
+      "indexed-db",
+      "service-workers",
+      "cache-storage",
+      "extensions",
+      "saved-passwords",
+      "client-certificates",
+      "settings",
+      "bookmarks",
+      "history",
+      "open-tabs"
+    ],
+    "browserTargetRouting": "bot-owned-tabs"
+  },
+  "unpaused": {
+    "botId": "2dbd4dc3-2df5-4689-b02d-13e4c7e99da1",
+    "state": "ready",
+    "width": 1280,
+    "height": 800,
+    "display": 100,
+    "humanTakeover": false,
+    "agentInputPaused": false,
+    "apps": [
+      "chromium",
+      "thunar",
+      "terminal"
+    ],
+    "browserProfileScope": "computer",
+    "browserSessionScope": "computer",
+    "browserSessionMechanism": "shared-profiles",
+    "browserStateCoverage": [
+      "cookies",
+      "local-storage",
+      "session-storage",
+      "indexed-db",
+      "service-workers",
+      "cache-storage",
+      "extensions",
+      "saved-passwords",
+      "client-certificates",
+      "settings",
+      "bookmarks",
+      "history",
+      "open-tabs"
+    ],
+    "browserTargetRouting": "bot-owned-tabs"
+  }
+}

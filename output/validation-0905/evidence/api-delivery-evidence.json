@@ -1,0 +1,81 @@
+{
+  "clientId": "qa-idempotent-5a577d90-a565-418b-bc92-88edb190539c",
+  "first": {
+    "message": {
+      "id": "15bfa760-4999-4b41-83c2-574151254068",
+      "sequence": "6",
+      "channelId": "8ecd3f64-d292-4cba-9561-90afb9f428b1",
+      "sender": "user",
+      "senderBotId": null,
+      "sourceRunId": null,
+      "clientId": "qa-idempotent-5a577d90-a565-418b-bc92-88edb190539c",
+      "content": "QA_API_DEDUP_0905",
+      "metadata": {
+        "type": "text"
+      },
+      "createdAt": "2026-09-05T19:00:42.881Z"
+    },
+    "run": {
+      "id": "b015677d-aac8-4df4-8685-90c1ae8bcdee",
+      "botId": "a0880731-47bb-4365-bfb3-a4e1d135396b",
+      "conversationId": "91d34f55-be19-4c3e-bd67-a3c703a00bb2",
+      "userMessageId": "5aeacf35-36be-45aa-bc1a-6458a4598b64",
+      "status": "queued",
+      "runtimeTurnId": null,
+      "inferenceProvider": null,
+      "inferenceModel": null,
+      "origin": "user",
+      "channelId": "8ecd3f64-d292-4cba-9561-90afb9f428b1",
+      "deliveryId": null,
+      "error": null,
+      "startedAt": null,
+      "completedAt": null,
+      "createdAt": "2026-09-05T19:00:42.889Z",
+      "updatedAt": "2026-09-05T19:00:42.889Z"
+    }
+  },
+  "replay": {
+    "run": {
+      "id": "b015677d-aac8-4df4-8685-90c1ae8bcdee",
+      "botId": "a0880731-47bb-4365-bfb3-a4e1d135396b",
+      "error": null,
+      "origin": "user",
+      "status": "queued",
+      "channelId": "8ecd3f64-d292-4cba-9561-90afb9f428b1",
+      "createdAt": "2026-09-05T19:00:42.889Z",
+      "startedAt": null,
+      "updatedAt": "2026-09-05T19:00:42.889Z",
+      "deliveryId": null,
+      "completedAt": null,
+      "runtimeTurnId": null,
+      "userMessageId": "5aeacf35-36be-45aa-bc1a-6458a4598b64",
+      "conversationId": "91d34f55-be19-4c3e-bd67-a3c703a00bb2",
+      "inferenceModel": null,
+      "inferenceProvider": null
+    },
+    "message": {
+      "id": "15bfa760-4999-4b41-83c2-574151254068",
+      "sender": "user",
+      "content": "QA_API_DEDUP_0905",
+      "clientId": "qa-idempotent-5a577d90-a565-418b-bc92-88edb190539c",
+      "metadata": {
+        "type": "text"
+      },
+      "sequence": "6",
+      "channelId": "8ecd3f64-d292-4cba-9561-90afb9f428b1",
+      "createdAt": "2026-09-05T19:00:42.881Z",
+      "senderBotId": null,
+      "sourceRunId": null
+    }
+  },
+  "asset": {
+    "assetId": "8790242e97fe1cc6d350040506347737786ad453f93c6c4a89be5ff8bbb2206b",
+    "fileName": "qa-validation.png",
+    "mimeType": "image/png",
+    "byteSize": 1059127,
+    "kind": "image",
+    "width": 1024,
+    "height": 1024
+  },
+  "byteLength": 1059127
+}

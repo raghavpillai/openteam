@@ -1,125 +1,49 @@
+import type { ComputerUseActionInput, ScreenActionInput } from "@openteam/contracts";
 import { type ChildProcess, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { chown, cp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
-import { createConnection } from "node:net";
+import { chown, cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { ComputerUseActionInput, ScreenActionInput } from "@openteam/contracts";
-import { agentProcessIdentity, sanitizedAgentEnvironment } from "./agent-process";
+import { agentProcessIdentity } from "./agent-process";
 import { BrowserBroker } from "./browser/broker";
 import { BrowserProfileAuthority } from "./browser/profile-authority";
+import { performComputerUseAction } from "./screen/actions";
+import {
+  environment,
+  exists,
+  failSession,
+  processHasExited,
+  refreshSessionHealth,
+  removeProcess,
+  run,
+  stopProcesses,
+  tcpPortAccepts,
+  viewerHttpResponds,
+} from "./screen/processes";
+import type { ScreenSession, ScreenStatus } from "./screen/types";
 
 const WIDTH = 1280;
+
 const HEIGHT = 800;
+
 const MAX_SCREENS = 100;
+
 const DISPLAY_BASE = 100;
+
 const RFB_PORT_BASE = 5900;
+
 const VIEWER_PORT_BASE = 6200;
+
 const BROWSER_DEBUG_PORT_BASE = 9300;
+
 const TAKEOVER_TTL_MS = 45_000;
-const SCREEN_HEALTH_CHECK_INTERVAL_MS = 2_000;
-const ENDPOINT_PROBE_TIMEOUT_MS = 1_000;
+
 const ENDPOINT_STARTUP_TIMEOUT_MS = 10_000;
+
 const DESKTOP_CONFIG_ROOT = "/usr/share/openteam-desktop/config";
-
-type ScreenState = "starting" | "ready" | "failed";
-
-interface ScreenSession {
-  botId: string;
-  cwd: string;
-  slot: number;
-  display: number;
-  rfbPort: number;
-  viewerPort: number;
-  viewerPassword: string;
-  browserDebugPort: number;
-  profileDirectory: string;
-  runtimeDirectory: string;
-  state: ScreenState;
-  error: string | null;
-  humanTakeoverUntil: number;
-  agentInputPaused: boolean;
-  destroyed: boolean;
-  stopping: boolean;
-  processes: ChildProcess[];
-  browserProcess: ChildProcess | null;
-  startPromise: Promise<void> | null;
-  lastHealthCheckAt: number;
-  healthCheckPromise: Promise<boolean> | null;
-}
-
-export interface ScreenStatus {
-  botId: string;
-  state: ScreenState;
-  width: number;
-  height: number;
-  display: number;
-  viewerPort: number;
-  viewerPassword: string;
-  humanTakeover: boolean;
-  agentInputPaused: boolean;
-  apps: Array<"chromium" | "thunar" | "terminal">;
-  browserProfileScope: "computer";
-  browserSessionScope: "computer";
-  browserSessionMechanism: "shared-profiles";
-  browserStateCoverage: Array<
-    | "cookies"
-    | "local-storage"
-    | "session-storage"
-    | "indexed-db"
-    | "service-workers"
-    | "cache-storage"
-    | "extensions"
-    | "saved-passwords"
-    | "client-certificates"
-    | "settings"
-    | "bookmarks"
-    | "history"
-    | "open-tabs"
-  >;
-  browserTargetRouting: "bot-owned-tabs";
-  error: string | null;
-}
-
-const processError = (command: string, stderr: string, code: number | null) =>
-  new Error(`${command} exited ${code ?? "without a code"}${stderr ? `: ${stderr.trim()}` : ""}`);
 
 // Classic VNC authentication uses only the first eight password characters.
 // Six random bytes encode to eight base64url characters, preserving all 48 bits.
 export const createViewerPassword = (): string => randomBytes(6).toString("base64url");
-
-const run = async (
-  command: string,
-  args: string[],
-  options: { env?: NodeJS.ProcessEnv; captureStdout?: boolean } = {}
-): Promise<Buffer> =>
-  new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
-      env: options.env,
-      ...agentProcessIdentity(),
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    const stdout: Buffer[] = [];
-    let stderr = "";
-    child.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));
-    child.stderr.setEncoding("utf8");
-    child.stderr.on("data", (chunk: string) => {
-      stderr = `${stderr}${chunk}`.slice(-4_000);
-    });
-    child.once("error", reject);
-    child.once("exit", (code) => {
-      if (code === 0) resolve(options.captureStdout ? Buffer.concat(stdout) : Buffer.alloc(0));
-      else reject(processError(command, stderr, code));
-    });
-  });
-
-const exists = async (path: string): Promise<boolean> => {
-  try {
-    await stat(path);
-    return true;
-  } catch {
-    return false;
-  }
-};
 
 export class ScreenBroker {
   private readonly sessions = new Map<string, ScreenSession>();
@@ -180,7 +104,7 @@ export class ScreenBroker {
     } else {
       session.cwd = cwd;
     }
-    if (session.state === "ready") await this.refreshSessionHealth(session);
+    if (session.state === "ready") await refreshSessionHealth(session);
     if (!session.startPromise && session.state !== "ready") {
       session.startPromise = this.startSession(session).finally(() => {
         session!.startPromise = null;
@@ -197,7 +121,7 @@ export class ScreenBroker {
   async screenshot(botId: string, cwd: string): Promise<Buffer> {
     const session = await this.readySession(botId, cwd);
     return run("import", ["-display", `:${session.display}`, "-window", "root", "png:-"], {
-      env: this.environment(session),
+      env: environment(this.home, session),
       captureStdout: true,
     });
   }
@@ -210,7 +134,7 @@ export class ScreenBroker {
   ): Promise<ScreenStatus> {
     const session = await this.readySession(botId, cwd);
     if (actor === "agent") this.assertAgentControl(session);
-    const env = this.environment(session);
+    const env = environment(this.home, session);
     switch (input.action) {
       case "move":
         await run("xdotool", ["mousemove", "--sync", String(input.x), String(input.y)], { env });
@@ -286,10 +210,10 @@ export class ScreenBroker {
   ): Promise<Buffer> {
     const session = await this.readySession(botId, cwd);
     this.assertAgentControl(session);
-    const env = this.environment(session);
+    const env = environment(this.home, session);
     for (const action of actions) {
       this.assertAgentControl(session);
-      await this.performComputerUseAction(action, env);
+      await performComputerUseAction(action, env);
     }
     const finalAction = actions.at(-1)?.action;
     if (finalAction && finalAction !== "wait" && finalAction !== "screenshot") {
@@ -303,7 +227,7 @@ export class ScreenBroker {
 
   async commandEnvironment(botId: string, cwd: string): Promise<NodeJS.ProcessEnv> {
     const session = await this.readySession(botId, cwd);
-    return this.environment(session);
+    return environment(this.home, session);
   }
 
   async browserEndpointForAgent(botId: string, cwd: string): Promise<string> {
@@ -346,7 +270,7 @@ export class ScreenBroker {
       session.destroyed = true;
       session.state = "failed";
       await this.browserBroker.detach(botId);
-      await this.stopProcesses(session);
+      await stopProcesses(session);
       await this.profileAuthority.publish(session.profileDirectory);
       await session.startPromise?.catch(() => undefined);
       this.sessions.delete(botId);
@@ -382,104 +306,6 @@ export class ScreenBroker {
     }
   }
 
-  private async performComputerUseAction(
-    input: ComputerUseActionInput,
-    env: NodeJS.ProcessEnv
-  ): Promise<void> {
-    const button = input.button === "right" ? "3" : input.button === "middle" ? "2" : "1";
-    const modifiers = input.modifiers?.split("+") ?? [];
-    const held = modifiers.flatMap((modifier) => ["keydown", modifier]);
-    const released = [...modifiers].reverse().flatMap((modifier) => ["keyup", modifier]);
-    const position =
-      input.x === undefined || input.y === undefined
-        ? []
-        : ["mousemove", "--sync", String(input.x), String(input.y)];
-    switch (input.action) {
-      case "screenshot":
-        return;
-      case "move":
-        if (position.length > 0) await run("xdotool", position, { env });
-        return;
-      case "click":
-        await run(
-          "xdotool",
-          [
-            ...position,
-            ...held,
-            "click",
-            "--repeat",
-            String(input.count ?? 1),
-            "--delay",
-            "140",
-            button,
-            ...released,
-          ],
-          { env }
-        );
-        return;
-      case "drag": {
-        const points = input.path?.length
-          ? [...input.path]
-          : [
-              { x: input.x!, y: input.y! },
-              { x: input.x2!, y: input.y2! },
-            ];
-        const first = points[0]!;
-        const path = points
-          .slice(1)
-          .flatMap((point) => ["mousemove", "--sync", String(point.x), String(point.y)]);
-        await run(
-          "xdotool",
-          [
-            "mousemove",
-            "--sync",
-            String(first.x),
-            String(first.y),
-            ...held,
-            "mousedown",
-            button,
-            ...path,
-            "mouseup",
-            button,
-            ...released,
-          ],
-          { env }
-        );
-        return;
-      }
-      case "type":
-        await run("xdotool", ["type", "--clearmodifiers", "--delay", "2", "--", input.text!], {
-          env,
-        });
-        return;
-      case "key":
-        await run("xdotool", ["key", "--clearmodifiers", input.key!], { env });
-        return;
-      case "scroll": {
-        const scrollButton = { up: "4", down: "5", left: "6", right: "7" }[input.direction!];
-        await run(
-          "xdotool",
-          [
-            ...position,
-            ...held,
-            "click",
-            "--repeat",
-            String(input.amount ?? 3),
-            "--delay",
-            "30",
-            scrollButton,
-            ...released,
-          ],
-          { env }
-        );
-        return;
-      }
-      case "wait":
-        await new Promise((resolve) => setTimeout(resolve, input.durationMs!));
-        return;
-    }
-  }
-
   private async startSession(session: ScreenSession): Promise<void> {
     this.assertNotDestroyed(session);
     session.state = "starting";
@@ -489,7 +315,7 @@ export class ScreenBroker {
       session.browserProcess && session.browserProcess.exitCode === null
     );
     await this.browserBroker.detach(session.botId);
-    await this.stopProcesses(session);
+    await stopProcesses(session);
     try {
       await this.prepareAgentDirectory(session.profileDirectory, 0o770);
       if (stoppedOwnedBrowser) await this.profileAuthority.publish(session.profileDirectory);
@@ -520,7 +346,7 @@ export class ScreenBroker {
         "Xvfb",
         [display, "-screen", "0", `${WIDTH}x${HEIGHT}x24`, "-nolisten", "tcp", "-ac"],
         session,
-        this.environment(session),
+        environment(this.home, session),
         "/workspace",
         true
       );
@@ -531,7 +357,7 @@ export class ScreenBroker {
         xvfb
       );
       this.assertNotDestroyed(session);
-      const env = this.environment(session);
+      const env = environment(this.home, session);
       const dbus = this.spawnLongLived(
         "dbus-daemon",
         [
@@ -597,14 +423,9 @@ export class ScreenBroker {
         true
       );
       await Promise.all([
+        this.waitForEndpoint(() => tcpPortAccepts(session.rfbPort), "VNC server", session, vnc),
         this.waitForEndpoint(
-          () => this.tcpPortAccepts(session.rfbPort),
-          "VNC server",
-          session,
-          vnc
-        ),
-        this.waitForEndpoint(
-          () => this.viewerHttpResponds(session.viewerPort),
+          () => viewerHttpResponds(session.viewerPort),
           "noVNC viewer",
           session,
           viewer
@@ -617,7 +438,7 @@ export class ScreenBroker {
     } catch (error) {
       session.state = "failed";
       session.error = error instanceof Error ? error.message : String(error);
-      await this.stopProcesses(session);
+      await stopProcesses(session);
       throw error;
     }
   }
@@ -636,7 +457,7 @@ export class ScreenBroker {
   }
 
   private openApp(session: ScreenSession, app: "chromium" | "thunar" | "terminal"): ChildProcess {
-    const env = this.environment(session);
+    const env = environment(this.home, session);
     if (app === "chromium") {
       if (session.browserProcess && session.browserProcess.exitCode === null) {
         return session.browserProcess;
@@ -687,7 +508,7 @@ export class ScreenBroker {
     command: string,
     args: string[],
     session: ScreenSession,
-    env = this.environment(session),
+    env = environment(this.home, session),
     cwd = "/workspace",
     critical = false
   ): ChildProcess {
@@ -699,93 +520,16 @@ export class ScreenBroker {
     });
     session.processes.push(child);
     child.once("error", (error) => {
-      const tracked = this.removeProcess(session, child);
+      const tracked = removeProcess(session, child);
       if (critical && tracked) {
-        this.failSession(session, `${command} failed to start: ${error.message}`);
+        failSession(session, `${command} failed to start: ${error.message}`);
       }
     });
     child.once("exit", () => {
-      const tracked = this.removeProcess(session, child);
-      if (critical && tracked) this.failSession(session, `${command} exited unexpectedly`);
+      const tracked = removeProcess(session, child);
+      if (critical && tracked) failSession(session, `${command} exited unexpectedly`);
     });
     return child;
-  }
-
-  private removeProcess(session: ScreenSession, child: ChildProcess): boolean {
-    const index = session.processes.indexOf(child);
-    if (index < 0) return false;
-    session.processes.splice(index, 1);
-    return true;
-  }
-
-  private failSession(session: ScreenSession, error: string): void {
-    if (session.destroyed || session.stopping) return;
-    session.state = "failed";
-    session.error = error;
-  }
-
-  private async stopProcesses(session: ScreenSession): Promise<void> {
-    const processes = [...session.processes];
-    if (processes.length === 0) {
-      session.browserProcess = null;
-      return;
-    }
-    const wasStopping = session.stopping;
-    session.stopping = true;
-    try {
-      for (const process of processes) process.kill("SIGTERM");
-      await this.waitForProcessExit(processes, 2_000);
-      const survivors = processes.filter((process) => !this.processHasExited(process));
-      for (const process of survivors) process.kill("SIGKILL");
-      await this.waitForProcessExit(survivors, 2_000);
-    } finally {
-      session.stopping = wasStopping;
-      session.processes = [];
-      session.browserProcess = null;
-    }
-  }
-
-  private async waitForProcessExit(processes: ChildProcess[], timeoutMs: number): Promise<void> {
-    if (processes.every((process) => this.processHasExited(process))) return;
-    await Promise.race([
-      Promise.all(
-        processes.map(
-          (process) =>
-            new Promise<void>((resolve) => {
-              if (this.processHasExited(process)) resolve();
-              else process.once("exit", () => resolve());
-            })
-        )
-      ),
-      new Promise((resolve) => setTimeout(resolve, timeoutMs)),
-    ]);
-  }
-
-  private processHasExited(process: ChildProcess): boolean {
-    return process.exitCode !== null || process.signalCode !== null;
-  }
-
-  private environment(session: ScreenSession): NodeJS.ProcessEnv {
-    const environment = sanitizedAgentEnvironment(process.env);
-    return {
-      ...environment,
-      HOME: this.home,
-      DISPLAY: `:${session.display}`,
-      XDG_RUNTIME_DIR: session.runtimeDirectory,
-      DBUS_SESSION_BUS_ADDRESS: `unix:path=${join(session.runtimeDirectory, "bus")}`,
-      XDG_CONFIG_HOME: join(session.runtimeDirectory, "config"),
-      XDG_CACHE_HOME: join(session.runtimeDirectory, "cache"),
-      XDG_DATA_HOME: join(session.runtimeDirectory, "data"),
-      XDG_CURRENT_DESKTOP: "XFCE",
-      XDG_SESSION_DESKTOP: "xfce",
-      DESKTOP_SESSION: "xfce",
-      XDG_SESSION_TYPE: "x11",
-      GDK_BACKEND: "x11",
-      GTK_THEME: "Adwaita",
-      OPENTEAM_SCREEN_CWD: session.cwd,
-      OPENTEAM_BROWSER_PROFILE: session.profileDirectory,
-      OPENTEAM_BROWSER_DEBUG_PORT: String(session.browserDebugPort),
-    };
   }
 
   private async prepareAgentDirectory(path: string, mode: number): Promise<void> {
@@ -793,58 +537,6 @@ export class ScreenBroker {
     const identity = agentProcessIdentity();
     if (identity.uid !== undefined && identity.gid !== undefined) {
       await chown(path, identity.uid, identity.gid);
-    }
-  }
-
-  private async refreshSessionHealth(session: ScreenSession): Promise<void> {
-    if (Date.now() - session.lastHealthCheckAt < SCREEN_HEALTH_CHECK_INTERVAL_MS) return;
-    if (!session.healthCheckPromise) {
-      session.lastHealthCheckAt = Date.now();
-      const probe = this.sessionEndpointsReady(session);
-      session.healthCheckPromise = probe;
-      void probe.finally(() => {
-        if (session.healthCheckPromise === probe) session.healthCheckPromise = null;
-      });
-    }
-    if (!(await session.healthCheckPromise)) {
-      this.failSession(session, "The VNC or noVNC endpoint stopped responding");
-    }
-  }
-
-  private async sessionEndpointsReady(session: ScreenSession): Promise<boolean> {
-    const [vncReady, viewerReady] = await Promise.all([
-      this.tcpPortAccepts(session.rfbPort),
-      this.viewerHttpResponds(session.viewerPort),
-    ]);
-    return vncReady && viewerReady;
-  }
-
-  private async tcpPortAccepts(port: number): Promise<boolean> {
-    return new Promise((resolve) => {
-      const socket = createConnection({ host: "127.0.0.1", port });
-      let settled = false;
-      const finish = (ready: boolean) => {
-        if (settled) return;
-        settled = true;
-        socket.destroy();
-        resolve(ready);
-      };
-      socket.setTimeout(ENDPOINT_PROBE_TIMEOUT_MS);
-      socket.once("connect", () => finish(true));
-      socket.once("error", () => finish(false));
-      socket.once("timeout", () => finish(false));
-    });
-  }
-
-  private async viewerHttpResponds(port: number): Promise<boolean> {
-    try {
-      const response = await fetch(`http://127.0.0.1:${port}/openteam.html`, {
-        method: "HEAD",
-        signal: AbortSignal.timeout(ENDPOINT_PROBE_TIMEOUT_MS),
-      });
-      return response.ok;
-    } catch {
-      return false;
     }
   }
 
@@ -858,7 +550,7 @@ export class ScreenBroker {
     while (Date.now() < deadline) {
       this.assertNotDestroyed(session);
       if (session.state === "failed") throw new Error(session.error ?? `${label} failed to start`);
-      if (this.processHasExited(process)) throw new Error(`${label} exited before becoming ready`);
+      if (processHasExited(process)) throw new Error(`${label} exited before becoming ready`);
       if (await probe()) return;
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
@@ -944,3 +636,5 @@ export class ScreenBroker {
     );
   }
 }
+
+export { type ScreenStatus } from "./screen/types";

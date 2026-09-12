@@ -1,0 +1,1264 @@
+{
+  "baselineCommit": "2caa85e70ffb15b0221babdfd84dcb7716b0d6ad",
+  "database": [
+    {
+      "name": "bootstrap-1000-bots",
+      "unit": "milliseconds",
+      "baseline": {
+        "median": 23.94839600000023,
+        "p95": 27.89366599999994,
+        "min": 22.2587910000002,
+        "max": 28.741958000000068
+      },
+      "candidate": {
+        "median": 23.808145500000023,
+        "p95": 25.140457999999853,
+        "min": 22.01433300000008,
+        "max": 29.732790999999906
+      },
+      "medianChangePct": -0.5856362989830499,
+      "medianDifference": 0.1297294999998826,
+      "medianDifference95pctBootstrapCI": [
+        -0.3537930000002234,
+        0.2677910000002157
+      ]
+    },
+    {
+      "name": "client-snapshot",
+      "unit": "milliseconds",
+      "baseline": {
+        "median": 78.08222899999964,
+        "p95": 82.60066600000027,
+        "min": 73.63079099999959,
+        "max": 92.10029200000008
+      },
+      "candidate": {
+        "median": 78.16122949999954,
+        "p95": 84.09183399999893,
+        "min": 72.20741699999962,
+        "max": 87.2000420000004
+      },
+      "medianChangePct": 0.10117603071999604,
+      "medianDifference": 0.16635500000029424,
+      "medianDifference95pctBootstrapCI": [
+        -0.8409999999998945,
+        2.0339989999974932
+      ]
+    },
+    {
+      "name": "history-100",
+      "unit": "milliseconds",
+      "baseline": {
+        "median": 0.5370414999997593,
+        "p95": 0.7058340000003227,
+        "min": 0.4903329999997368,
+        "max": 1.67133400000057
+      },
+      "candidate": {
+        "median": 0.5278335000002699,
+        "p95": 0.7628330000006827,
+        "min": 0.47820800000044983,
+        "max": 1.616041999999652
+      },
+      "medianChangePct": -1.7145788546124474,
+      "medianDifference": -0.002645999999913329,
+      "medianDifference95pctBootstrapCI": [
+        -0.01827050000156305,
+        0.010292000000845292
+      ]
+    },
+    {
+      "name": "message-context-101",
+      "unit": "milliseconds",
+      "baseline": {
+        "median": 0.7094790000001012,
+        "p95": 0.8193750000009459,
+        "min": 0.639500000001135,
+        "max": 1.5636669999985315
+      },
+      "candidate": {
+        "median": 0.7053955000010319,
+        "p95": 0.814542000000074,
+        "min": 0.6196669999990263,
+        "max": 1.7252079999998386
+      },
+      "medianChangePct": -0.5755631948329287,
+      "medianDifference": -0.001958499998181651,
+      "medianDifference95pctBootstrapCI": [
+        -0.02025100000173552,
+        0.017749999999068677
+      ]
+    },
+    {
+      "name": "channel-activity",
+      "unit": "milliseconds",
+      "baseline": {
+        "median": 0.7997709999999643,
+        "p95": 1.1042909999996482,
+        "min": 0.6162079999994603,
+        "max": 2.105959000000439
+      },
+      "candidate": {
+        "median": 0.7963330000002316,
+        "p95": 1.0456250000006548,
+        "min": 0.6144580000000133,
+        "max": 2.2895410000000993
+      },
+      "medianChangePct": -0.42987305112749397,
+      "medianDifference": -0.016874999999345164,
+      "medianDifference95pctBootstrapCI": [
+        -0.03504199999952107,
+        0.012915999999677297
+      ]
+    },
+    {
+      "name": "search-all",
+      "unit": "milliseconds",
+      "baseline": {
+        "median": 10.905312500000946,
+        "p95": 11.381416999998692,
+        "min": 10.156458999999813,
+        "max": 11.9359170000007
+      },
+      "candidate": {
+        "median": 10.852499499999794,
+        "p95": 11.38604099999975,
+        "min": 9.987750000000233,
+        "max": 11.506333999999697
+      },
+      "medianChangePct": -0.48428690146335995,
+      "medianDifference": -0.04041700000016135,
+      "medianDifference95pctBootstrapCI": [
+        -0.1808340000006865,
+        0.08995900000081747
+      ]
+    },
+    {
+      "name": "search-messages",
+      "unit": "milliseconds",
+      "baseline": {
+        "median": 2.4852499999997235,
+        "p95": 2.894625000000815,
+        "min": 2.1967919999988226,
+        "max": 3.524374999997235
+      },
+      "candidate": {
+        "median": 2.4953744999984337,
+        "p95": 2.852041999998619,
+        "min": 2.175707999998849,
+        "max": 3.080333999998402
+      },
+      "medianChangePct": 0.40738356296998735,
+      "medianDifference": -0.011230000000068685,
+      "medianDifference95pctBootstrapCI": [
+        -0.05170899999939138,
+        0.021333500002583605
+      ]
+    }
+  ],
+  "computer": [
+    {
+      "name": "compaction-digest-2000-messages",
+      "unit": "milliseconds",
+      "baseline": {
+        "median": 1.0606044999999824,
+        "p95": 1.6038330000000087,
+        "min": 1.0036250000000564,
+        "max": 1.8165420000000267
+      },
+      "candidate": {
+        "median": 1.029167000000001,
+        "p95": 1.5493339999999876,
+        "min": 0.9784170000000358,
+        "max": 2.2636669999999413
+      },
+      "medianChangePct": -2.9641115043337884,
+      "medianDifference": -0.03264549999991573,
+      "medianDifference95pctBootstrapCI": [
+        -0.05204100000000267,
+        -0.022562499999963848
+      ]
+    },
+    {
+      "name": "compaction-partition-2000-messages",
+      "unit": "milliseconds",
+      "baseline": {
+        "median": 3.063833500000044,
+        "p95": 3.6931670000000167,
+        "min": 2.7517500000000155,
+        "max": 3.9828750000000355
+      },
+      "candidate": {
+        "median": 2.9804579999999987,
+        "p95": 3.335333999999989,
+        "min": 2.7458749999999554,
+        "max": 3.686374999999998
+      },
+      "medianChangePct": -2.7212803828942977,
+      "medianDifference": -0.01808299999999008,
+      "medianDifference95pctBootstrapCI": [
+        -0.09091700000004721,
+        0.05037550000002966
+      ]
+    },
+    {
+      "name": "sqlite-publish-100-envelopes",
+      "unit": "milliseconds",
+      "baseline": {
+        "median": 0.754854000000023,
+        "p95": 3.294458000000077,
+        "min": 0.3669999999999618,
+        "max": 5.7768330000000105
+      },
+      "candidate": {
+        "median": 0.7248960000000011,
+        "p95": 3.4155829999999696,
+        "min": 0.366292000000044,
+        "max": 4.997707999999989
+      },
+      "medianChangePct": -3.9687144798889573,
+      "medianDifference": 0.014458499999989272,
+      "medianDifference95pctBootstrapCI": [
+        -0.0053339999999479915,
+        0.057770999999945616
+      ]
+    },
+    {
+      "name": "sqlite-read-transcript-1000",
+      "unit": "milliseconds",
+      "baseline": {
+        "median": 0.4484375000000682,
+        "p95": 1.0780419999999822,
+        "min": 0.386209000000008,
+        "max": 1.1768329999999878
+      },
+      "candidate": {
+        "median": 0.449666499999978,
+        "p95": 0.5514170000000149,
+        "min": 0.40391699999997854,
+        "max": 0.5610829999999396
+      },
+      "medianChangePct": 0.2740627177498789,
+      "medianDifference": -0.0051045000000158325,
+      "medianDifference95pctBootstrapCI": [
+        -0.010791999999980817,
+        0.0002290000000471082
+      ]
+    },
+    {
+      "name": "sqlite-kv-200-roundtrips",
+      "unit": "milliseconds",
+      "baseline": {
+        "median": 1.8811459999999443,
+        "p95": 4.486917000000176,
+        "min": 1.6281249999999545,
+        "max": 4.929333999999926
+      },
+      "candidate": {
+        "median": 2.238978999999972,
+        "p95": 4.426040999999941,
+        "min": 1.892041000000063,
+        "max": 4.616167000000132
+      },
+      "medianChangePct": 19.022074841614554,
+      "medianDifference": 0.30531199999995806,
+      "medianDifference95pctBootstrapCI": [
+        0.2641254999998637,
+        0.38937449999991713
+      ]
+    },
+    {
+      "name": "snapshot-250-agents-unchanged",
+      "unit": "milliseconds",
+      "baseline": {
+        "median": 23.668686999999977,
+        "p95": 24.409165999999914,
+        "min": 21.427999999999884,
+        "max": 25.01558299999988
+      },
+      "candidate": {
+        "median": 23.349874999999997,
+        "p95": 25.322791999999936,
+        "min": 21.18745799999988,
+        "max": 25.97287499999993
+      },
+      "medianChangePct": -1.3469779713592867,
+      "medianDifference": -0.4451040000000148,
+      "medianDifference95pctBootstrapCI": [
+        -0.7635000000000218,
+        0.44945700000016586
+      ]
+    },
+    {
+      "name": "snapshot-one-dirty-agent",
+      "unit": "milliseconds",
+      "baseline": {
+        "median": 1.887666500000023,
+        "p95": 2.2678750000000036,
+        "min": 1.6022499999999127,
+        "max": 2.379291000000194
+      },
+      "candidate": {
+        "median": 1.902645499999835,
+        "p95": 2.9425419999997757,
+        "min": 1.637416999999914,
+        "max": 4.051209000000199
+      },
+      "medianChangePct": 0.7935194060927575,
+      "medianDifference": 0.039812500000152795,
+      "medianDifference95pctBootstrapCI": [
+        -0.061916000000110216,
+        0.09008300000004965
+      ]
+    }
+  ],
+  "httpDispatch": [
+    {
+      "name": "bootstrap",
+      "unit": "microseconds/request",
+      "baseline": {
+        "median": 7.075584000000049,
+        "p95": 10.24591600000008,
+        "min": 5.915165999999999,
+        "max": 32.39833399999998
+      },
+      "candidate": {
+        "median": 7.174959000000058,
+        "p95": 10.285915999999927,
+        "min": 5.873916000000008,
+        "max": 13.426249999999982
+      },
+      "medianChangePct": 1.4044777081299253,
+      "medianDifference": 0.0993750000000091
+    },
+    {
+      "name": "history",
+      "unit": "microseconds/request",
+      "baseline": {
+        "median": 8.415166999999997,
+        "p95": 11.510750000000144,
+        "min": 7.302082000000155,
+        "max": 15.473418000000038
+      },
+      "candidate": {
+        "median": 10.542290999999977,
+        "p95": 13.703834000000143,
+        "min": 9.573915999999826,
+        "max": 19.33874999999989
+      },
+      "medianChangePct": 25.27726425393557,
+      "medianDifference": 2.1271239999999807
+    },
+    {
+      "name": "send-message",
+      "unit": "microseconds/request",
+      "baseline": {
+        "median": 10.134500000000003,
+        "p95": 13.530081999999993,
+        "min": 9.153249999999844,
+        "max": 19.004083999999924
+      },
+      "candidate": {
+        "median": 12.90579200000002,
+        "p95": 15.891665999999987,
+        "min": 11.676584000000048,
+        "max": 17.19216600000004
+      },
+      "medianChangePct": 27.345128028023247,
+      "medianDifference": 2.7712920000000167
+    },
+    {
+      "name": "unknown-route",
+      "unit": "microseconds/request",
+      "baseline": {
+        "median": 6.504374999999982,
+        "p95": 7.360834000000068,
+        "min": 5.974916000000121,
+        "max": 9.773500000000013
+      },
+      "candidate": {
+        "median": 7.616666000000009,
+        "p95": 10.481416000000081,
+        "min": 6.9243320000000494,
+        "max": 11.15949999999998
+      },
+      "medianChangePct": 17.10065917171182,
+      "medianDifference": 1.1122910000000275
+    }
+  ],
+  "kvConfirmation": [
+    {
+      "round": 0,
+      "name": "write",
+      "unit": "microseconds/operation",
+      "baseline": {
+        "median": 9.501416000000063,
+        "p95": 12.651583999999957,
+        "min": 5.794750000000022,
+        "max": 16.84999999999991
+      },
+      "candidate": {
+        "median": 9.455416000000127,
+        "p95": 12.767833999999993,
+        "min": 5.965584000000035,
+        "max": 14.887250000000222
+      },
+      "medianChangePct": -0.4841383642178676
+    },
+    {
+      "round": 0,
+      "name": "read",
+      "unit": "microseconds/operation",
+      "baseline": {
+        "median": 1.8262090000000626,
+        "p95": 2.061000000000149,
+        "min": 1.6920000000000073,
+        "max": 2.519416000000092
+      },
+      "candidate": {
+        "median": 1.831081999999924,
+        "p95": 2.0218339999996715,
+        "min": 1.6953319999997802,
+        "max": 2.4388340000000426
+      },
+      "medianChangePct": 0.2668369282957883
+    },
+    {
+      "round": 0,
+      "name": "roundtrip",
+      "unit": "microseconds/operation",
+      "baseline": {
+        "median": 11.967791999999918,
+        "p95": 13.670750000000226,
+        "min": 8.01575000000048,
+        "max": 16.508499999999913
+      },
+      "candidate": {
+        "median": 10.833458000000064,
+        "p95": 13.589332000000468,
+        "min": 8.016749999999774,
+        "max": 14.163082000000031
+      },
+      "medianChangePct": -9.478222883551634
+    },
+    {
+      "round": 1,
+      "name": "write",
+      "unit": "microseconds/operation",
+      "baseline": {
+        "median": 9.985541000000012,
+        "p95": 12.462084000000004,
+        "min": 5.932999999999993,
+        "max": 14.308415999999852
+      },
+      "candidate": {
+        "median": 9.827165999999806,
+        "p95": 12.71633399999996,
+        "min": 6.059417999999823,
+        "max": 14.552999999999884
+      },
+      "medianChangePct": -1.5860432599516194
+    },
+    {
+      "round": 1,
+      "name": "read",
+      "unit": "microseconds/operation",
+      "baseline": {
+        "median": 1.89587500000016,
+        "p95": 2.2852499999999054,
+        "min": 1.7226659999996627,
+        "max": 4.331749999999829
+      },
+      "candidate": {
+        "median": 1.8794580000001133,
+        "p95": 2.624666000000161,
+        "min": 1.71225000000004,
+        "max": 2.895415999999841
+      },
+      "medianChangePct": -0.8659326168679593
+    },
+    {
+      "round": 1,
+      "name": "roundtrip",
+      "unit": "microseconds/operation",
+      "baseline": {
+        "median": 10.893916999999874,
+        "p95": 13.95324999999957,
+        "min": 8.11158400000022,
+        "max": 15.12158399999953
+      },
+      "candidate": {
+        "median": 10.863417000000481,
+        "p95": 13.999915999999757,
+        "min": 8.199499999999716,
+        "max": 15.516915999999583
+      },
+      "medianChangePct": -0.27997275910394137
+    },
+    {
+      "round": 2,
+      "name": "write",
+      "unit": "microseconds/operation",
+      "baseline": {
+        "median": 9.298832999999831,
+        "p95": 12.309917999999925,
+        "min": 5.9369180000003325,
+        "max": 27.078832000000148
+      },
+      "candidate": {
+        "median": 9.133792000000199,
+        "p95": 12.96691600000031,
+        "min": 6.145918000000165,
+        "max": 15.43483399999991
+      },
+      "medianChangePct": -1.7748571245406408
+    },
+    {
+      "round": 2,
+      "name": "read",
+      "unit": "microseconds/operation",
+      "baseline": {
+        "median": 1.8141660000001139,
+        "p95": 2.037999999999556,
+        "min": 1.7072499999999309,
+        "max": 2.9025000000001455
+      },
+      "candidate": {
+        "median": 1.8512909999999465,
+        "p95": 2.052915999999641,
+        "min": 1.745582000000013,
+        "max": 2.3966660000000957
+      },
+      "medianChangePct": 2.046394872345214
+    },
+    {
+      "round": 2,
+      "name": "roundtrip",
+      "unit": "microseconds/operation",
+      "baseline": {
+        "median": 11.193915999999717,
+        "p95": 13.937165999999706,
+        "min": 7.989416000000347,
+        "max": 16.15625
+      },
+      "candidate": {
+        "median": 10.857375000000047,
+        "p95": 13.714333999999326,
+        "min": 8.233000000000175,
+        "max": 14.533167999999932
+      },
+      "medianChangePct": -3.00646351106868
+    }
+  ],
+  "source": {
+    "baseline": {
+      "files": 62,
+      "lines": 24525,
+      "maxFileLines": 2307
+    },
+    "candidate": {
+      "files": 120,
+      "lines": 25052,
+      "maxFileLines": 750
+    }
+  },
+  "mobile": {
+    "baseline": {
+      "exact": {
+        "assets": 26,
+        "assetBytes": 6480918,
+        "bundleBytes": 4659557,
+        "bundleGzipBytes": 1958394,
+        "bundleSha256": "09e015f2cb10d54b2528bf1ce3394c55e3164288aad1b4d1e5172154607f52b1",
+        "durationMs": 19608,
+        "hermesBytecodeVersion": 98,
+        "metroModules": 2201,
+        "sourceMaps": 0
+      },
+      "mapped": {
+        "bundleBytes": 3801044,
+        "durationMs": 6302,
+        "metroModules": 1757,
+        "packages": {
+          "(runtime/generated)": {
+            "modules": 2,
+            "sourceCharacters": 464
+          },
+          "@expo/cli": {
+            "modules": 1,
+            "sourceCharacters": 23553
+          },
+          "@expo/dom-webview": {
+            "modules": 3,
+            "sourceCharacters": 2033
+          },
+          "@expo/metro-runtime": {
+            "modules": 5,
+            "sourceCharacters": 10978
+          },
+          "@openteam/client-core": {
+            "modules": 9,
+            "sourceCharacters": 71615
+          },
+          "@openteam/contracts": {
+            "modules": 6,
+            "sourceCharacters": 19164
+          },
+          "@openteam/design-tokens": {
+            "modules": 3,
+            "sourceCharacters": 8096
+          },
+          "@openteam/mobile": {
+            "modules": 59,
+            "sourceCharacters": 730723
+          },
+          "@openteam/mobile-native": {
+            "modules": 1,
+            "sourceCharacters": 2317
+          },
+          "@openteam/product-core": {
+            "modules": 21,
+            "sourceCharacters": 218056
+          },
+          "@radix-ui/react-compose-refs": {
+            "modules": 1,
+            "sourceCharacters": 2588
+          },
+          "@radix-ui/react-slot": {
+            "modules": 1,
+            "sourceCharacters": 5777
+          },
+          "@react-native-masked-view/masked-view": {
+            "modules": 2,
+            "sourceCharacters": 2468
+          },
+          "@react-native/assets-registry": {
+            "modules": 1,
+            "sourceCharacters": 2541
+          },
+          "@react-native/js-polyfills": {
+            "modules": 2,
+            "sourceCharacters": 24081
+          },
+          "@react-native/normalize-colors": {
+            "modules": 1,
+            "sourceCharacters": 13582
+          },
+          "@react-native/virtualized-lists": {
+            "modules": 15,
+            "sourceCharacters": 156159
+          },
+          "@ungap/structured-clone": {
+            "modules": 4,
+            "sourceCharacters": 8521
+          },
+          "abort-controller": {
+            "modules": 2,
+            "sourceCharacters": 3846
+          },
+          "base64-js": {
+            "modules": 1,
+            "sourceCharacters": 3932
+          },
+          "color": {
+            "modules": 1,
+            "sourceCharacters": 11169
+          },
+          "color-convert": {
+            "modules": 3,
+            "sourceCharacters": 21005
+          },
+          "color-name": {
+            "modules": 1,
+            "sourceCharacters": 4617
+          },
+          "color-string": {
+            "modules": 1,
+            "sourceCharacters": 5716
+          },
+          "decode-uri-component": {
+            "modules": 1,
+            "sourceCharacters": 2261
+          },
+          "escape-string-regexp": {
+            "modules": 1,
+            "sourceCharacters": 457
+          },
+          "event-target-shim": {
+            "modules": 1,
+            "sourceCharacters": 23411
+          },
+          "expo": {
+            "modules": 51,
+            "sourceCharacters": 176462
+          },
+          "expo-application": {
+            "modules": 3,
+            "sourceCharacters": 9177
+          },
+          "expo-asset": {
+            "modules": 12,
+            "sourceCharacters": 23919
+          },
+          "expo-clipboard": {
+            "modules": 5,
+            "sourceCharacters": 10515
+          },
+          "expo-constants": {
+            "modules": 3,
+            "sourceCharacters": 8606
+          },
+          "expo-document-picker": {
+            "modules": 2,
+            "sourceCharacters": 1357
+          },
+          "expo-file-system": {
+            "modules": 21,
+            "sourceCharacters": 122713
+          },
+          "expo-glass-effect": {
+            "modules": 5,
+            "sourceCharacters": 2724
+          },
+          "expo-haptics": {
+            "modules": 3,
+            "sourceCharacters": 6975
+          },
+          "expo-image-picker": {
+            "modules": 4,
+            "sourceCharacters": 28716
+          },
+          "expo-linking": {
+            "modules": 6,
+            "sourceCharacters": 20955
+          },
+          "expo-modules-core": {
+            "modules": 28,
+            "sourceCharacters": 46682
+          },
+          "expo-notifications": {
+            "modules": 53,
+            "sourceCharacters": 93068
+          },
+          "expo-router": {
+            "modules": 377,
+            "sourceCharacters": 1227250
+          },
+          "expo-secure-store": {
+            "modules": 2,
+            "sourceCharacters": 6954
+          },
+          "expo-status-bar": {
+            "modules": 2,
+            "sourceCharacters": 3190
+          },
+          "expo-symbols": {
+            "modules": 3,
+            "sourceCharacters": 1715
+          },
+          "fast-deep-equal": {
+            "modules": 1,
+            "sourceCharacters": 1177
+          },
+          "filter-obj": {
+            "modules": 1,
+            "sourceCharacters": 346
+          },
+          "flow-enums-runtime": {
+            "modules": 1,
+            "sourceCharacters": 3300
+          },
+          "hoist-non-react-statics": {
+            "modules": 1,
+            "sourceCharacters": 2743
+          },
+          "invariant": {
+            "modules": 1,
+            "sourceCharacters": 1397
+          },
+          "is-arrayish": {
+            "modules": 1,
+            "sourceCharacters": 318
+          },
+          "memoize-one": {
+            "modules": 1,
+            "sourceCharacters": 1305
+          },
+          "nanoid": {
+            "modules": 1,
+            "sourceCharacters": 508
+          },
+          "nullthrows": {
+            "modules": 1,
+            "sourceCharacters": 384
+          },
+          "promise": {
+            "modules": 3,
+            "sourceCharacters": 9934
+          },
+          "query-string": {
+            "modules": 1,
+            "sourceCharacters": 11554
+          },
+          "react": {
+            "modules": 4,
+            "sourceCharacters": 18589
+          },
+          "react-freeze": {
+            "modules": 1,
+            "sourceCharacters": 591
+          },
+          "react-is": {
+            "modules": 4,
+            "sourceCharacters": 7384
+          },
+          "react-native": {
+            "modules": 450,
+            "sourceCharacters": 2102429
+          },
+          "react-native-gesture-handler": {
+            "modules": 86,
+            "sourceCharacters": 289285
+          },
+          "react-native-is-edge-to-edge": {
+            "modules": 1,
+            "sourceCharacters": 350
+          },
+          "react-native-reanimated": {
+            "modules": 294,
+            "sourceCharacters": 932948
+          },
+          "react-native-safe-area-context": {
+            "modules": 8,
+            "sourceCharacters": 8699
+          },
+          "react-native-screens": {
+            "modules": 83,
+            "sourceCharacters": 150857
+          },
+          "react-native-worklets": {
+            "modules": 42,
+            "sourceCharacters": 131957
+          },
+          "regenerator-runtime": {
+            "modules": 1,
+            "sourceCharacters": 25202
+          },
+          "scheduler": {
+            "modules": 2,
+            "sourceCharacters": 11077
+          },
+          "semver": {
+            "modules": 21,
+            "sourceCharacters": 44989
+          },
+          "simple-swizzle": {
+            "modules": 1,
+            "sourceCharacters": 571
+          },
+          "split-on-first": {
+            "modules": 1,
+            "sourceCharacters": 459
+          },
+          "stacktrace-parser": {
+            "modules": 1,
+            "sourceCharacters": 3599
+          },
+          "standard-navigation": {
+            "modules": 1,
+            "sourceCharacters": 186
+          },
+          "strict-uri-encode": {
+            "modules": 1,
+            "sourceCharacters": 138
+          },
+          "warn-once": {
+            "modules": 1,
+            "sourceCharacters": 314
+          },
+          "whatwg-fetch": {
+            "modules": 1,
+            "sourceCharacters": 19815
+          },
+          "whatwg-url-minimum": {
+            "modules": 1,
+            "sourceCharacters": 35949
+          }
+        },
+        "routes": [
+          "_layout.tsx",
+          "chat/[channelId].tsx",
+          "computer/[botId].tsx",
+          "details/[channelId].tsx",
+          "index.tsx",
+          "new.tsx",
+          "routine/[channelId]/[routineId].tsx",
+          "search.tsx",
+          "settings.tsx"
+        ],
+        "sourceFiles": 1747,
+        "sourceMapBytes": 9591369
+      },
+      "expectedRoutes": [
+        "_layout.tsx",
+        "chat/[channelId].tsx",
+        "computer/[botId].tsx",
+        "details/[channelId].tsx",
+        "index.tsx",
+        "new.tsx",
+        "routine/[channelId]/[routineId].tsx",
+        "search.tsx",
+        "settings.tsx"
+      ]
+    },
+    "candidate": {
+      "exact": {
+        "assets": 26,
+        "assetBytes": 6480918,
+        "bundleBytes": 4659657,
+        "bundleGzipBytes": 1958033,
+        "bundleSha256": "7cef6f17c1de34f90bf9fe6baff636cc88539f73fbdfc7eb5ad8eca8d037ab9b",
+        "durationMs": 22298,
+        "hermesBytecodeVersion": 98,
+        "metroModules": 2201,
+        "sourceMaps": 0
+      },
+      "mapped": {
+        "bundleBytes": 3801132,
+        "durationMs": 6384,
+        "metroModules": 1991,
+        "packages": {
+          "(runtime/generated)": {
+            "modules": 2,
+            "sourceCharacters": 464
+          },
+          "@expo/cli": {
+            "modules": 1,
+            "sourceCharacters": 23553
+          },
+          "@expo/dom-webview": {
+            "modules": 3,
+            "sourceCharacters": 2033
+          },
+          "@expo/metro-runtime": {
+            "modules": 5,
+            "sourceCharacters": 10978
+          },
+          "@openteam/client-core": {
+            "modules": 9,
+            "sourceCharacters": 71615
+          },
+          "@openteam/contracts": {
+            "modules": 6,
+            "sourceCharacters": 19164
+          },
+          "@openteam/design-tokens": {
+            "modules": 3,
+            "sourceCharacters": 8096
+          },
+          "@openteam/mobile": {
+            "modules": 59,
+            "sourceCharacters": 731724
+          },
+          "@openteam/mobile-native": {
+            "modules": 1,
+            "sourceCharacters": 2317
+          },
+          "@openteam/product-core": {
+            "modules": 21,
+            "sourceCharacters": 218056
+          },
+          "@radix-ui/react-compose-refs": {
+            "modules": 1,
+            "sourceCharacters": 2588
+          },
+          "@radix-ui/react-slot": {
+            "modules": 1,
+            "sourceCharacters": 5777
+          },
+          "@react-native-masked-view/masked-view": {
+            "modules": 2,
+            "sourceCharacters": 2468
+          },
+          "@react-native/assets-registry": {
+            "modules": 1,
+            "sourceCharacters": 2541
+          },
+          "@react-native/js-polyfills": {
+            "modules": 2,
+            "sourceCharacters": 24081
+          },
+          "@react-native/normalize-colors": {
+            "modules": 1,
+            "sourceCharacters": 13582
+          },
+          "@react-native/virtualized-lists": {
+            "modules": 15,
+            "sourceCharacters": 156159
+          },
+          "@ungap/structured-clone": {
+            "modules": 4,
+            "sourceCharacters": 8521
+          },
+          "abort-controller": {
+            "modules": 2,
+            "sourceCharacters": 3846
+          },
+          "base64-js": {
+            "modules": 1,
+            "sourceCharacters": 3932
+          },
+          "color": {
+            "modules": 1,
+            "sourceCharacters": 11169
+          },
+          "color-convert": {
+            "modules": 3,
+            "sourceCharacters": 21005
+          },
+          "color-name": {
+            "modules": 1,
+            "sourceCharacters": 4617
+          },
+          "color-string": {
+            "modules": 1,
+            "sourceCharacters": 5716
+          },
+          "decode-uri-component": {
+            "modules": 1,
+            "sourceCharacters": 2261
+          },
+          "escape-string-regexp": {
+            "modules": 1,
+            "sourceCharacters": 457
+          },
+          "event-target-shim": {
+            "modules": 1,
+            "sourceCharacters": 23411
+          },
+          "expo": {
+            "modules": 51,
+            "sourceCharacters": 176462
+          },
+          "expo-application": {
+            "modules": 3,
+            "sourceCharacters": 9177
+          },
+          "expo-asset": {
+            "modules": 12,
+            "sourceCharacters": 23919
+          },
+          "expo-clipboard": {
+            "modules": 5,
+            "sourceCharacters": 10515
+          },
+          "expo-constants": {
+            "modules": 3,
+            "sourceCharacters": 8606
+          },
+          "expo-document-picker": {
+            "modules": 2,
+            "sourceCharacters": 1357
+          },
+          "expo-file-system": {
+            "modules": 21,
+            "sourceCharacters": 122713
+          },
+          "expo-glass-effect": {
+            "modules": 5,
+            "sourceCharacters": 2724
+          },
+          "expo-haptics": {
+            "modules": 3,
+            "sourceCharacters": 6975
+          },
+          "expo-image-picker": {
+            "modules": 4,
+            "sourceCharacters": 28716
+          },
+          "expo-linking": {
+            "modules": 6,
+            "sourceCharacters": 20955
+          },
+          "expo-modules-core": {
+            "modules": 28,
+            "sourceCharacters": 46682
+          },
+          "expo-notifications": {
+            "modules": 53,
+            "sourceCharacters": 93068
+          },
+          "expo-router": {
+            "modules": 377,
+            "sourceCharacters": 1227250
+          },
+          "expo-secure-store": {
+            "modules": 2,
+            "sourceCharacters": 6954
+          },
+          "expo-status-bar": {
+            "modules": 2,
+            "sourceCharacters": 3190
+          },
+          "expo-symbols": {
+            "modules": 3,
+            "sourceCharacters": 1715
+          },
+          "fast-deep-equal": {
+            "modules": 1,
+            "sourceCharacters": 1177
+          },
+          "filter-obj": {
+            "modules": 1,
+            "sourceCharacters": 346
+          },
+          "flow-enums-runtime": {
+            "modules": 1,
+            "sourceCharacters": 3300
+          },
+          "hoist-non-react-statics": {
+            "modules": 1,
+            "sourceCharacters": 2743
+          },
+          "invariant": {
+            "modules": 1,
+            "sourceCharacters": 1397
+          },
+          "is-arrayish": {
+            "modules": 1,
+            "sourceCharacters": 318
+          },
+          "memoize-one": {
+            "modules": 1,
+            "sourceCharacters": 1305
+          },
+          "nanoid": {
+            "modules": 1,
+            "sourceCharacters": 508
+          },
+          "nullthrows": {
+            "modules": 1,
+            "sourceCharacters": 384
+          },
+          "promise": {
+            "modules": 3,
+            "sourceCharacters": 9934
+          },
+          "query-string": {
+            "modules": 1,
+            "sourceCharacters": 11554
+          },
+          "react": {
+            "modules": 4,
+            "sourceCharacters": 18589
+          },
+          "react-freeze": {
+            "modules": 1,
+            "sourceCharacters": 591
+          },
+          "react-is": {
+            "modules": 4,
+            "sourceCharacters": 7384
+          },
+          "react-native": {
+            "modules": 450,
+            "sourceCharacters": 2102429
+          },
+          "react-native-gesture-handler": {
+            "modules": 86,
+            "sourceCharacters": 289285
+          },
+          "react-native-is-edge-to-edge": {
+            "modules": 1,
+            "sourceCharacters": 350
+          },
+          "react-native-reanimated": {
+            "modules": 294,
+            "sourceCharacters": 932948
+          },
+          "react-native-safe-area-context": {
+            "modules": 8,
+            "sourceCharacters": 8699
+          },
+          "react-native-screens": {
+            "modules": 83,
+            "sourceCharacters": 150857
+          },
+          "react-native-worklets": {
+            "modules": 42,
+            "sourceCharacters": 131957
+          },
+          "regenerator-runtime": {
+            "modules": 1,
+            "sourceCharacters": 25202
+          },
+          "scheduler": {
+            "modules": 2,
+            "sourceCharacters": 11077
+          },
+          "semver": {
+            "modules": 21,
+            "sourceCharacters": 44989
+          },
+          "simple-swizzle": {
+            "modules": 1,
+            "sourceCharacters": 571
+          },
+          "split-on-first": {
+            "modules": 1,
+            "sourceCharacters": 459
+          },
+          "stacktrace-parser": {
+            "modules": 1,
+            "sourceCharacters": 3599
+          },
+          "standard-navigation": {
+            "modules": 1,
+            "sourceCharacters": 186
+          },
+          "strict-uri-encode": {
+            "modules": 1,
+            "sourceCharacters": 138
+          },
+          "warn-once": {
+            "modules": 1,
+            "sourceCharacters": 314
+          },
+          "whatwg-fetch": {
+            "modules": 1,
+            "sourceCharacters": 19815
+          },
+          "whatwg-url-minimum": {
+            "modules": 1,
+            "sourceCharacters": 35949
+          }
+        },
+        "routes": [
+          "_layout.tsx",
+          "chat/[channelId].tsx",
+          "computer/[botId].tsx",
+          "details/[channelId].tsx",
+          "index.tsx",
+          "new.tsx",
+          "routine/[channelId]/[routineId].tsx",
+          "search.tsx",
+          "settings.tsx"
+        ],
+        "sourceFiles": 1747,
+        "sourceMapBytes": 9592415
+      },
+      "expectedRoutes": [
+        "_layout.tsx",
+        "chat/[channelId].tsx",
+        "computer/[botId].tsx",
+        "details/[channelId].tsx",
+        "index.tsx",
+        "new.tsx",
+        "routine/[channelId]/[routineId].tsx",
+        "search.tsx",
+        "settings.tsx"
+      ]
+    }
+  },
+  "sourceFilesChangedDuringAudit": []
+}

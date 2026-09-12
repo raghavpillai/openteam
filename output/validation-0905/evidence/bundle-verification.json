@@ -1,0 +1,17 @@
+[
+  {
+    "app": "computer",
+    "sha256": "10682ad8e9cec05a60ca9e7a15fb048aad17fd989105d0e080f61f75b1d98969",
+    "matchesContainer": true
+  },
+  {
+    "app": "server",
+    "sha256": "eabfb47c87bdeff76fb0c18d4bdd825315a72df69059e42fdd7fb47a1d8a1b07",
+    "matchesContainer": true
+  },
+  {
+    "app": "worker",
+    "sha256": "4707c110eaab2179de605136077ea3ff54fd5a219af032db790198b365a3d050",
+    "matchesContainer": true
+  }
+]

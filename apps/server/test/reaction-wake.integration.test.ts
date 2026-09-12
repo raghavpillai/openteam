@@ -10,7 +10,7 @@ import { ChannelService } from "../src/services/channel-service";
 
 const databaseUrl = process.env.OPENTEAM_TEST_DATABASE_URL;
 
-test("a user reaction resumes the authoring Bot through the handoff source", async () => {
+test("a user reaction wakes the authoring Bot as priority user input", async () => {
   if (!databaseUrl) return;
 
   const prisma = createPrismaClient(databaseUrl);
@@ -24,6 +24,10 @@ test("a user reaction resumes the authoring Bot through the handoff source", asy
     prisma,
     {
       send: async (name: string, data: unknown) => {
+        jobs.push({ name, data });
+        return randomUUID();
+      },
+      sendDebounced: async (name: string, data: unknown) => {
         jobs.push({ name, data });
         return randomUUID();
       },
@@ -84,10 +88,10 @@ test("a user reaction resumes the authoring Bot through the handoff source", asy
       where: { id: runId },
       include: { messages: true, inboxEvents: true },
     });
-    expect(run.origin).toBe("handoff_resume");
+    expect(run.origin).toBe("user");
     expect(run.messages[0]?.content).toContain("The user reacted 👍");
     expect(run.inboxEvents[0]).toMatchObject({ type: "user.reaction", priority: 300 });
-    expect(run.inboxEvents[0]?.payload).toMatchObject({ origin: "handoff_resume" });
+    expect(run.inboxEvents[0]?.payload).toMatchObject({ origin: "user" });
 
     const removed = await Effect.runPromise(
       service.reactToMessage(messageId, {
@@ -97,8 +101,9 @@ test("a user reaction resumes the authoring Bot through the handoff source", asy
       })
     );
     expect(removed).toMatchObject({ reacted: false, removed: true, runId: null });
-    expect(await prisma.run.count({ where: { botId, origin: "handoff_resume" } })).toBe(1);
+    expect(await prisma.run.count({ where: { botId, origin: "user" } })).toBe(1);
     expect(jobs.filter(({ name }) => name === "bot-wake")).toHaveLength(1);
+    expect(jobs.some(({ name }) => name === "transcript-project")).toBe(true);
   } finally {
     await prisma.bot.deleteMany({ where: { id: botId } });
     await prisma.$disconnect();

@@ -1,3 +1,4 @@
+import type { ChannelMessageView } from "@openteam/contracts";
 import { type BotView, type ChannelView, resolveBotAvatarMark } from "@openteam/contracts";
 import type { Prisma } from "@openteam/db";
 
@@ -72,3 +73,27 @@ export const toBotView = (bot: BotWithConversation): BotView => {
       .channelId,
   };
 };
+
+export const toChannelMessageView = (message: {
+  id: string;
+  clientId?: string | null;
+  sequence: bigint;
+  channelId: string;
+  sender: string;
+  senderBotId: string | null;
+  sourceRunId: string | null;
+  content: string;
+  metadata: unknown;
+  createdAt: Date;
+}): ChannelMessageView => ({
+  id: message.id,
+  ...(typeof message.clientId === "string" ? { clientId: message.clientId } : {}),
+  sequence: message.sequence.toString(),
+  channelId: message.channelId,
+  sender: message.sender as ChannelMessageView["sender"],
+  senderBotId: message.senderBotId,
+  sourceRunId: message.sourceRunId,
+  content: message.content,
+  metadata: message.metadata,
+  createdAt: message.createdAt.toISOString(),
+});

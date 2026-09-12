@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>OpenTeam Computer Use Challenge</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: system-ui, sans-serif;
+      }
+      body {
+        align-items: center;
+        background: #f3f5f8;
+        display: flex;
+        justify-content: center;
+        margin: 0;
+        min-height: 100vh;
+      }
+      main {
+        background: white;
+        border: 2px solid #111827;
+        border-radius: 20px;
+        box-shadow: 0 16px 48px #11182722;
+        padding: 44px;
+        width: min(560px, calc(100vw - 80px));
+      }
+      label,
+      input,
+      button {
+        display: block;
+        font-size: 20px;
+        width: 100%;
+      }
+      input,
+      button {
+        box-sizing: border-box;
+        margin-top: 14px;
+        padding: 14px 16px;
+      }
+      button {
+        background: #111827;
+        border: 0;
+        border-radius: 10px;
+        color: white;
+        cursor: pointer;
+      }
+      #proof {
+        color: #047857;
+        font-size: 28px;
+        font-weight: 800;
+        margin-top: 28px;
+        min-height: 40px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>OpenTeam Computer Use Challenge</h1>
+      <p>Type the validation phrase, then reveal the proof.</p>
+      <label for="phrase">Validation phrase</label>
+      <input id="phrase" autocomplete="off" placeholder="Type OPENTEAM" />
+      <button id="reveal" type="button">Reveal proof</button>
+      <div id="proof" role="status" aria-live="polite"></div>
+    </main>
+    <script>
+      document.querySelector("#reveal").addEventListener("click", () => {
+        const value = document.querySelector("#phrase").value.trim();
+        document.querySelector("#proof").textContent =
+          value === "OPENTEAM" ? "GROK-CUA-PROOF-0906" : "Try again";
+      });
+    </script>
+  </body>
+</html>

@@ -12,7 +12,7 @@ describe("runtime health", () => {
       20
     );
     let probeCount = 0;
-    Object.assign(service, {
+    Object.assign((service as unknown as { runtimeHealth: object }).runtimeHealth, {
       probeRuntimeStatus: () => {
         probeCount += 1;
         return new Promise<never>(() => undefined);

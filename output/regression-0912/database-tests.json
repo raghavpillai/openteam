@@ -1,0 +1,72 @@
+[
+  {
+    "arm": "baseline",
+    "file": "apps/server/test/a2a-contract.integration.test.ts",
+    "exit": 0,
+    "elapsedSeconds": 0.707,
+    "log": "/Users/raghav/OpenBot/output/regression-0912/baseline-integration-0.log"
+  },
+  {
+    "arm": "baseline",
+    "file": "apps/server/test/agent-file-lifecycle.integration.test.ts",
+    "exit": 0,
+    "elapsedSeconds": 0.368,
+    "log": "/Users/raghav/OpenBot/output/regression-0912/baseline-integration-1.log"
+  },
+  {
+    "arm": "baseline",
+    "file": "apps/server/test/plugin/lifecycle.integration.test.ts",
+    "exit": 0,
+    "elapsedSeconds": 0.386,
+    "log": "/Users/raghav/OpenBot/output/regression-0912/baseline-integration-2.log"
+  },
+  {
+    "arm": "baseline",
+    "file": "apps/server/test/reaction-wake.integration.test.ts",
+    "exit": 1,
+    "elapsedSeconds": 0.304,
+    "log": "/Users/raghav/OpenBot/output/regression-0912/baseline-integration-3.log"
+  },
+  {
+    "arm": "baseline",
+    "file": "apps/worker/test/a2a-live.integration.test.ts",
+    "exit": 0,
+    "elapsedSeconds": 12.592,
+    "log": "/Users/raghav/OpenBot/output/regression-0912/baseline-integration-4.log"
+  },
+  {
+    "arm": "candidate",
+    "file": "apps/server/test/a2a-contract.integration.test.ts",
+    "exit": 0,
+    "elapsedSeconds": 0.654,
+    "log": "/Users/raghav/OpenBot/output/regression-0912/candidate-integration-0.log"
+  },
+  {
+    "arm": "candidate",
+    "file": "apps/server/test/agent-file-lifecycle.integration.test.ts",
+    "exit": 0,
+    "elapsedSeconds": 0.416,
+    "log": "/Users/raghav/OpenBot/output/regression-0912/candidate-integration-1.log"
+  },
+  {
+    "arm": "candidate",
+    "file": "apps/server/test/plugin/lifecycle.integration.test.ts",
+    "exit": 0,
+    "elapsedSeconds": 0.418,
+    "log": "/Users/raghav/OpenBot/output/regression-0912/candidate-integration-2.log"
+  },
+  {
+    "arm": "candidate",
+    "file": "apps/server/test/reaction-wake.integration.test.ts",
+    "exit": 0,
+    "elapsedSeconds": 0.293,
+    "log": "/Users/raghav/OpenBot/output/regression-0912/candidate-integration-3.log"
+  },
+  {
+    "arm": "candidate",
+    "file": "apps/worker/test/a2a-live.integration.test.ts",
+    "exit": 0,
+    "elapsedSeconds": 12.628,
+    "log": "/Users/raghav/OpenBot/output/regression-0912/candidate-integration-4.log"
+  }
+]

@@ -5,7 +5,7 @@ import type {
   SearchResultView,
 } from "@openteam/contracts";
 import { Prisma, type PrismaClient } from "@openteam/db";
-import { Effect } from "effect";
+import { serviceEffect } from "./service-utils";
 
 const RESULT_LIMIT = 24;
 export const SEARCH_CANDIDATE_LIMIT = 512;
@@ -60,26 +60,25 @@ export class SearchService {
   constructor(private readonly prisma: PrismaClient) {}
 
   search = (query: string, category: SearchCategory) =>
-    Effect.tryPromise({
-      try: async (): Promise<SearchResponse> => {
-        const normalized = normalizeSearchQuery(query);
-        const tsQuery = prefixTsQuery(normalized);
-        const kind = categoryKind(category);
+    serviceEffect(async (): Promise<SearchResponse> => {
+      const normalized = normalizeSearchQuery(query);
+      const tsQuery = prefixTsQuery(normalized);
+      const kind = categoryKind(category);
 
-        // An empty Messages view is intentionally a prompt, not a dump of the transcript.
-        if (category === "messages" && !normalized) return { query: normalized, results: [] };
-        if (normalized && !tsQuery) return { query: normalized, results: [] };
+      // An empty Messages view is intentionally a prompt, not a dump of the transcript.
+      if (category === "messages" && !normalized) return { query: normalized, results: [] };
+      if (normalized && !tsQuery) return { query: normalized, results: [] };
 
-        // Keep the full-text predicate directly on SearchDocument. A materialized
-        // search-input CTE turns this into a join filter and prevents PostgreSQL
-        // from using SearchDocument_searchVector_idx.
-        const fullTextPredicate = tsQuery
-          ? Prisma.sql`AND document."searchVector" @@ to_tsquery('simple', ${tsQuery})`
-          : Prisma.empty;
-        const fullTextScore = tsQuery
-          ? Prisma.sql`ts_rank_cd(document."searchVector", to_tsquery('simple', ${tsQuery}), 32)`
-          : Prisma.sql`0`;
-        const candidateColumns = Prisma.sql`
+      // Keep the full-text predicate directly on SearchDocument. A materialized
+      // search-input CTE turns this into a join filter and prevents PostgreSQL
+      // from using SearchDocument_searchVector_idx.
+      const fullTextPredicate = tsQuery
+        ? Prisma.sql`AND document."searchVector" @@ to_tsquery('simple', ${tsQuery})`
+        : Prisma.empty;
+      const fullTextScore = tsQuery
+        ? Prisma.sql`ts_rank_cd(document."searchVector", to_tsquery('simple', ${tsQuery}), 32)`
+        : Prisma.sql`0`;
+      const candidateColumns = Prisma.sql`
           document."id",
           document."kind",
           document."title",
@@ -92,7 +91,7 @@ export class SearchService {
           document."updatedAt",
           document."searchVector"
         `;
-        const eligibleDocumentPredicate = Prisma.sql`
+      const eligibleDocumentPredicate = Prisma.sql`
           WHERE (${kind}::text IS NULL OR document."kind" = ${kind})
             AND (
               ${normalized} <> '' OR ${category} <> 'all' OR
@@ -118,7 +117,7 @@ export class SearchService {
             )
         `;
 
-        const rows = await this.prisma.$queryRaw<SearchRow[]>(Prisma.sql`
+      const rows = await this.prisma.$queryRaw<SearchRow[]>(Prisma.sql`
           WITH visible_bots AS MATERIALIZED (
             SELECT bot."id"
             FROM "Bot" AS bot
@@ -250,12 +249,10 @@ export class SearchService {
           ORDER BY document.score DESC, document."updatedAt" DESC, document."id" ASC
         `);
 
-        const results: SearchResultView[] = rows.map((row) => ({
-          ...row,
-          createdAt: row.createdAt.toISOString(),
-        }));
-        return { query: normalized, results };
-      },
-      catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+      const results: SearchResultView[] = rows.map((row) => ({
+        ...row,
+        createdAt: row.createdAt.toISOString(),
+      }));
+      return { query: normalized, results };
     });
 }

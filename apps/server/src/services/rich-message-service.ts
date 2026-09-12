@@ -1,6 +1,5 @@
 import {
   ApiError,
-  type ChannelMessageView,
   type ComputerHandoffMutationInput,
   type RichMessageMutationView,
   type SecretSubmissionInput,
@@ -12,41 +11,15 @@ import { type AgentMessaging, PRIORITY } from "@openteam/messaging";
 import { Effect } from "effect";
 import type { PluginService } from "./plugin-service";
 import type { ScreenService } from "./screen-service";
-import { appendEvent, toError, toJson } from "./service-utils";
+import { appendEvent, metadataRecord, serviceEffect, toJson } from "./service-utils";
+import { toChannelMessageView as messageView } from "./view-mappers";
 
 type Metadata = Record<string, unknown>;
-
-const metadataRecord = (value: unknown): Metadata =>
-  value && typeof value === "object" && !Array.isArray(value) ? { ...(value as Metadata) } : {};
 
 const stringRecord = (value: unknown): Record<string, unknown> | null =>
   value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
-
-const messageView = (message: {
-  id: string;
-  clientId?: string | null;
-  sequence: bigint;
-  channelId: string;
-  sender: string;
-  senderBotId: string | null;
-  sourceRunId: string | null;
-  content: string;
-  metadata: unknown;
-  createdAt: Date;
-}): ChannelMessageView => ({
-  id: message.id,
-  ...(typeof message.clientId === "string" ? { clientId: message.clientId } : {}),
-  sequence: message.sequence.toString(),
-  channelId: message.channelId,
-  sender: message.sender as ChannelMessageView["sender"],
-  senderBotId: message.senderBotId,
-  sourceRunId: message.sourceRunId,
-  content: message.content,
-  metadata: message.metadata,
-  createdAt: message.createdAt.toISOString(),
-});
 
 const widgetOptions = (widget: Record<string, unknown>): Array<Record<string, unknown>> =>
   Array.isArray(widget.options)
@@ -129,8 +102,8 @@ export class RichMessageService {
   ) {}
 
   respondToWidget = (messageId: string, input: WidgetResponseInput) =>
-    Effect.tryPromise({
-      try: async (): Promise<RichMessageMutationView> =>
+    serviceEffect(
+      async (): Promise<RichMessageMutationView> =>
         this.prisma.$transaction(async (tx) => {
           await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`rich-message:${messageId}`}))`;
           const message = await tx.channelMessage.findUnique({
@@ -183,13 +156,12 @@ export class RichMessageService {
           });
           await this.messaging.scheduleTranscriptProjection(tx, [message.senderBotId]);
           return { accepted: true, message: messageView(updated), runId: wake.run.id };
-        }),
-      catch: toError,
-    });
+        })
+    );
 
   dismissWidget = (messageId: string, input: WidgetDismissInput) =>
-    Effect.tryPromise({
-      try: async (): Promise<RichMessageMutationView> =>
+    serviceEffect(
+      async (): Promise<RichMessageMutationView> =>
         this.prisma.$transaction(async (tx) => {
           await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`rich-message:${messageId}`}))`;
           const message = await tx.channelMessage.findUnique({
@@ -227,80 +199,76 @@ export class RichMessageService {
           });
           await this.messaging.scheduleTranscriptProjection(tx, [message.senderBotId]);
           return { accepted: true, message: messageView(updated), runId: null };
-        }),
-      catch: toError,
-    });
+        })
+    );
 
   submitSecret = (messageId: string, input: SecretSubmissionInput) =>
-    Effect.tryPromise({
-      try: async (): Promise<RichMessageMutationView> => {
-        const value = input.value;
-        if (!value.trim()) throw new ApiError(400, "secret_required", "A secret value is required");
-        return this.prisma.$transaction(async (tx) => {
-          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`rich-message:${messageId}`}))`;
-          const message = await tx.channelMessage.findUnique({
-            where: { id: messageId },
-            include: { channel: true },
-          });
-          const metadata = metadataRecord(message?.metadata);
-          const request = stringRecord(metadata.secretRequest) ?? stringRecord(metadata.secret);
-          if (
-            !message ||
-            message.sender !== "agent" ||
-            !message.senderBotId ||
-            message.channel.archivedAt ||
-            metadata.type !== "secret-request" ||
-            !request ||
-            typeof request.label !== "string" ||
-            typeof request.connector !== "string" ||
-            typeof request.field !== "string"
-          ) {
-            throw new ApiError(404, "secret_request_not_found", "Live secret request not found");
-          }
-          if (metadata.secretProvided === true) {
-            return { accepted: false, message: messageView(message), runId: null };
-          }
-          await this.plugins.storeConnectorSecret({
-            botId: message.senderBotId,
-            connector: request.connector,
-            field: request.field,
-            value,
-          });
-          const wake = await this.messaging.enqueueWake(tx, {
-            botId: message.senderBotId,
-            channelId: message.channelId,
-            origin: "handoff_resume",
-            type: "secret.provided",
-            content: buildSecretProvidedAck(request.label),
-            clientId: `secret:${message.id}:provided`,
-            priority: PRIORITY.user,
-            wrapUserContent: false,
-          });
-          const updated = await tx.channelMessage.update({
-            where: { id: message.id },
-            data: {
-              metadata: toJson({
-                ...metadata,
-                secretProvided: true,
-                secretSubmissionClientId: input.clientId,
-              }),
-            },
-          });
-          await appendEvent(tx, "channel.message.updated", message.id, {
-            channelId: message.channelId,
-            messageId: message.id,
-            reason: "secret-provided",
-          });
-          await this.messaging.scheduleTranscriptProjection(tx, [message.senderBotId]);
-          return { accepted: true, message: messageView(updated), runId: wake.run.id };
+    serviceEffect(async (): Promise<RichMessageMutationView> => {
+      const value = input.value;
+      if (!value.trim()) throw new ApiError(400, "secret_required", "A secret value is required");
+      return this.prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`rich-message:${messageId}`}))`;
+        const message = await tx.channelMessage.findUnique({
+          where: { id: messageId },
+          include: { channel: true },
         });
-      },
-      catch: toError,
+        const metadata = metadataRecord(message?.metadata);
+        const request = stringRecord(metadata.secretRequest) ?? stringRecord(metadata.secret);
+        if (
+          !message ||
+          message.sender !== "agent" ||
+          !message.senderBotId ||
+          message.channel.archivedAt ||
+          metadata.type !== "secret-request" ||
+          !request ||
+          typeof request.label !== "string" ||
+          typeof request.connector !== "string" ||
+          typeof request.field !== "string"
+        ) {
+          throw new ApiError(404, "secret_request_not_found", "Live secret request not found");
+        }
+        if (metadata.secretProvided === true) {
+          return { accepted: false, message: messageView(message), runId: null };
+        }
+        await this.plugins.storeConnectorSecret({
+          botId: message.senderBotId,
+          connector: request.connector,
+          field: request.field,
+          value,
+        });
+        const wake = await this.messaging.enqueueWake(tx, {
+          botId: message.senderBotId,
+          channelId: message.channelId,
+          origin: "handoff_resume",
+          type: "secret.provided",
+          content: buildSecretProvidedAck(request.label),
+          clientId: `secret:${message.id}:provided`,
+          priority: PRIORITY.user,
+          wrapUserContent: false,
+        });
+        const updated = await tx.channelMessage.update({
+          where: { id: message.id },
+          data: {
+            metadata: toJson({
+              ...metadata,
+              secretProvided: true,
+              secretSubmissionClientId: input.clientId,
+            }),
+          },
+        });
+        await appendEvent(tx, "channel.message.updated", message.id, {
+          channelId: message.channelId,
+          messageId: message.id,
+          reason: "secret-provided",
+        });
+        await this.messaging.scheduleTranscriptProjection(tx, [message.senderBotId]);
+        return { accepted: true, message: messageView(updated), runId: wake.run.id };
+      });
     });
 
   mutateComputerHandoff = (messageId: string, input: ComputerHandoffMutationInput) =>
-    Effect.tryPromise({
-      try: async (): Promise<RichMessageMutationView> =>
+    serviceEffect(
+      async (): Promise<RichMessageMutationView> =>
         this.prisma.$transaction(async (tx) => {
           await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`rich-message:${messageId}`}))`;
           const message = await tx.channelMessage.findUnique({
@@ -391,7 +359,6 @@ export class RichMessageService {
           });
           await this.messaging.scheduleTranscriptProjection(tx, [message.senderBotId]);
           return { accepted: true, message: messageView(updated), runId: wake.run.id };
-        }),
-      catch: toError,
-    });
+        })
+    );
 }

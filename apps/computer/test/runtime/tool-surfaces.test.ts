@@ -15,6 +15,8 @@ import {
   REPLY_NUDGE_PROMPT,
 } from "../../src/runtime";
 
+const runtimeTools = () => (new ComputerRuntime() as unknown as { tools: unknown }).tools;
+
 const temporaryRoots: string[] = [];
 
 afterEach(async () => {
@@ -41,14 +43,14 @@ const turnRequest = (overrides: Record<string, unknown> = {}) => ({
 });
 
 const toolNames = (subagentType: "computerUse" | "browserUse" | "executor" | null) => {
-  const runtime = new ComputerRuntime() as unknown as {
+  const runtime = runtimeTools() as unknown as {
     customTools(active: { subagentType: typeof subagentType }): Array<{ name: string }>;
   };
   return runtime.customTools({ subagentType }).map((tool) => tool.name);
 };
 
 const toolDescriptions = (subagentType: "computerUse" | "browserUse") => {
-  const runtime = new ComputerRuntime() as unknown as {
+  const runtime = runtimeTools() as unknown as {
     customTools(active: { subagentType: typeof subagentType }): Array<{
       name: string;
       description: string;
@@ -60,7 +62,7 @@ const toolDescriptions = (subagentType: "computerUse" | "browserUse") => {
 };
 
 const dynamicToolNames = (namespace: string) => {
-  const runtime = new ComputerRuntime() as unknown as {
+  const runtime = runtimeTools() as unknown as {
     dynamicCatalog(active: {
       runtimeProfile: "agent";
       pluginNamespaces: [];
@@ -75,7 +77,7 @@ const dynamicToolNames = (namespace: string) => {
 };
 
 const subagentDynamicToolNames = (namespace: string) => {
-  const runtime = new ComputerRuntime() as unknown as {
+  const runtime = runtimeTools() as unknown as {
     dynamicCatalog(active: {
       runtimeProfile: "subagent";
       pluginNamespaces: [];
@@ -105,7 +107,7 @@ describe("specialized subagent tool surfaces", () => {
   });
 
   test("summary requests receive normal schemas but no executable tool functions", () => {
-    const runtime = new ComputerRuntime() as unknown as {
+    const runtime = runtimeTools() as unknown as {
       customTools(active: { subagentType: null }): Array<{
         name: string;
         description: string;
@@ -178,7 +180,7 @@ describe("specialized subagent tool surfaces", () => {
 
   test("directory tools validate bounded inputs and route through the control plane", async () => {
     const calls: Array<{ tool: string; args: unknown }> = [];
-    const runtime = new ComputerRuntime() as unknown as {
+    const runtime = runtimeTools() as unknown as {
       callControlPlaneTool(
         active: unknown,
         callId: string,
@@ -241,7 +243,7 @@ describe("specialized subagent tool surfaces", () => {
 describe("local computer approval broker", () => {
   const runtimeHarness = () => {
     const events: Array<Record<string, unknown>> = [];
-    const runtime = new ComputerRuntime() as unknown as {
+    const runtime = runtimeTools() as unknown as {
       executeHostTool(
         active: { runId: string; turnId: string; queue: { push(event: unknown): void } },
         callId: string,
@@ -310,7 +312,7 @@ describe("local computer approval broker", () => {
 
   test("routes Shell by machineId while keeping omitted machineId in the box", async () => {
     const calls: string[] = [];
-    const runtime = new ComputerRuntime() as unknown as {
+    const runtime = runtimeTools() as unknown as {
       nativeToolExecutor: {
         shell: (...args: unknown[]) => Promise<unknown>;
         externalShell: (...args: unknown[]) => Promise<unknown>;
@@ -350,7 +352,7 @@ describe("local computer approval broker", () => {
 
 describe("compaction durable state capture", () => {
   test("refreshes the summary todo snapshot after a successful TodoWrite", async () => {
-    const runtime = new ComputerRuntime() as unknown as {
+    const runtime = runtimeTools() as unknown as {
       callControlPlaneTool(): Promise<{
         content: Array<{ type: "text"; text: string }>;
         details: Record<string, unknown>;
@@ -383,7 +385,7 @@ describe("compaction durable state capture", () => {
   });
 
   test("clears the summary todo snapshot when TodoWrite clears the queue", async () => {
-    const runtime = new ComputerRuntime() as unknown as {
+    const runtime = runtimeTools() as unknown as {
       callControlPlaneTool(): Promise<{
         content: Array<{ type: "text"; text: string }>;
         details: Record<string, unknown>;

@@ -1,0 +1,6 @@
+: connected
+
+id: 224
+event: product
+data: {"sequence":"224","topic":"message.accepted","entityId":"8ed4cf37-264c-4a30-9cf3-cf51007b95ea","payload":{"botId":"a0880731-47bb-4365-bfb3-a4e1d135396b","runId":"ee543d98-09bf-4efb-9759-ab8918b4313a","origin":"user","channelId":"8ecd3f64-d292-4cba-9561-90afb9f428b1","messageId":"8ed4cf37-264c-4a30-9cf3-cf51007b95ea","deliveryMode":"turn","conversationId":"91d34f55-be19-4c3e-bd67-a3c703a00bb2"},"createdAt":"2026-09-05T19:08:41.856Z"}
+

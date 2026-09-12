@@ -36,14 +36,20 @@ describe("graphical screen lifecycle", () => {
   });
 
   test("proves both VNC endpoints are live before reporting ready and rechecks them later", async () => {
-    const source = await Bun.file(new URL("../src/screen-broker.ts", import.meta.url)).text();
+    const source = (
+      await Promise.all(
+        ["screen-broker.ts", "screen/processes.ts"].map((file) =>
+          Bun.file(new URL(`../src/${file}`, import.meta.url)).text()
+        )
+      )
+    ).join("\n");
 
     expect(source).toContain("this.waitForEndpoint(");
-    expect(source).toContain("this.tcpPortAccepts(session.rfbPort)");
-    expect(source).toContain("this.viewerHttpResponds(session.viewerPort)");
-    expect(source).toContain("await this.refreshSessionHealth(session)");
+    expect(source).toContain("tcpPortAccepts(session.rfbPort)");
+    expect(source).toContain("viewerHttpResponds(session.viewerPort)");
+    expect(source).toContain("await refreshSessionHealth(session)");
     expect(source).toContain(
-      'this.failSession(session, "The VNC or noVNC endpoint stopped responding")'
+      'failSession(session, "The VNC or noVNC endpoint stopped responding")'
     );
     expect(source).not.toContain("setTimeout(resolve, 450)");
   });

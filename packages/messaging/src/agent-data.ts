@@ -1158,6 +1158,36 @@ export class AgentDataStore {
     await this.initializeBot(botId);
   }
 
+  /** Copy only durable configuration into a newly created bot, never its working data. */
+  async copyBotConfigurationFiles(tx: Tx, sourceId: string, targetId: string): Promise<void> {
+    safeFolderId(sourceId, "source bot id");
+    safeFolderId(targetId, "target bot id");
+    if (sourceId === targetId) throw new Error("A duplicate must have a new bot id");
+    const source = await tx.bot.findUniqueOrThrow({ where: { id: sourceId } });
+    const target = await tx.bot.findUniqueOrThrow({ where: { id: targetId } });
+    const directory = this.botDirectory(targetId);
+    await mkdir(directory, { recursive: true, mode: 0o755 });
+    await atomicWrite(join(directory, "profile.json"), jsonFile(profileDocument(target)));
+    const settingsText = await readText(join(this.botDirectory(sourceId), "settings.json"));
+    const settings = settingsText ? parseJsonObject(settingsText, "settings.json") : {};
+    await atomicWrite(
+      join(directory, "settings.json"),
+      jsonFile({ ...settings, ...settingsDocument(target), hiddenFromSidebar: false })
+    );
+    if (source.avatarPath) {
+      const avatar = await this.readStoredAvatar(sourceId, source.avatarPath);
+      const path = join(directory, `avatar${avatar.extension}`);
+      await atomicWrite(path, avatar.bytes);
+      await tx.bot.update({ where: { id: targetId }, data: { avatarPath: path } });
+    }
+    // Saved skills and workspace files are already shared. Do not recursively copy
+    // the source directory: it also contains memory, attachments, and transcripts.
+    const routines = await tx.routine.findMany({ where: { botId: targetId, deletedAt: null } });
+    for (const routine of routines) {
+      await writeAutomationFiles(directory, { ...routine, runLedger: [] });
+    }
+  }
+
   async initializeBot(botId: string): Promise<void> {
     await this.withFileMutation(botId, "initialize", async (tx) => {
       const bot = await tx.bot.findUnique({

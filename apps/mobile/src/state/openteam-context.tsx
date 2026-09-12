@@ -1460,17 +1460,8 @@ export function OpenTeamProvider({ children }: { children: React.ReactNode }) {
       if (!client) throw new Error("Connect OpenTeam to a server before duplicating a Bot.");
       const operationClient = client;
       const epoch = connectionEpochRef.current;
-      const source = snapshotRef.current.bots.find((bot) => bot.id === botId);
-      if (!source) throw new Error("Bot not found.");
-      const duplicate = await operationClient.createBot({
+      const duplicate = await operationClient.duplicateBot(botId, {
         clientRequestId: mutationId(),
-        name: `${source.name} Copy`,
-        title: source.title,
-        description: source.description,
-        instructions: source.instructions,
-        icon: source.icon,
-        color: source.color,
-        notificationsEnabled: source.notificationsEnabled,
       });
       if (!operationIsCurrent(operationClient, epoch)) {
         throw new Error("The OpenTeam server changed while duplicating this Bot.");

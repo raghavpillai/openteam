@@ -317,6 +317,7 @@ export class AppService {
   }
 
   createBot = forwardServiceMethod(() => this.bots.create);
+  duplicateBot = forwardServiceMethod(() => this.bots.duplicate);
 
   broadcast = (input: import("@openteam/contracts").AdminBroadcastInput) =>
     serviceEffect(() => this.messaging.broadcast(input));

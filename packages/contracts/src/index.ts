@@ -160,6 +160,11 @@ export const CreateBotInput = Schema.Struct({
 });
 export type CreateBotInput = typeof CreateBotInput.Type;
 
+export const DuplicateBotInput = Schema.Struct({
+  clientRequestId: Schema.String.pipe(Schema.minLength(8), Schema.maxLength(120)),
+});
+export type DuplicateBotInput = typeof DuplicateBotInput.Type;
+
 export const UpdateBotInput = Schema.Struct({
   name: Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(80))),
   title: Schema.optional(Schema.String.pipe(Schema.maxLength(120))),

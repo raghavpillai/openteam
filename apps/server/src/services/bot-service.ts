@@ -3,6 +3,7 @@ import {
   type BotTranscriptView,
   type BotView,
   type CreateBotInput,
+  type DuplicateBotInput,
   resolveBotAvatarMark,
   type UpdateBotInput,
 } from "@openteam/contracts";
@@ -24,6 +25,7 @@ import {
   toJson,
 } from "./service-utils";
 import { type BotWithConversation, toBotView } from "./view-mappers";
+import { duplicateBot } from "./bot-duplication";
 
 export class BotService {
   constructor(
@@ -51,6 +53,20 @@ export class BotService {
       });
       return bots.map(toBotView);
     });
+
+  duplicate = (sourceId: string, input: DuplicateBotInput) =>
+    serviceEffect(() =>
+      duplicateBot(
+        {
+          prisma: this.prisma,
+          boss: this.boss,
+          agentData: this.agentData,
+          computerFetch: this.computerFetch,
+        },
+        sourceId,
+        input
+      )
+    );
 
   create = (input: CreateBotInput) =>
     serviceEffect(async () => {

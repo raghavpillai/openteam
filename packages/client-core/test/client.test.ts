@@ -360,6 +360,7 @@ describe("mobile-safe OpenTeam client", () => {
     });
 
     await client.createBot({ clientRequestId: "create-bot-1", name: "Research" });
+    await client.duplicateBot("bot/1", { clientRequestId: "duplicate-bot-1" });
     await client.createGroup({ name: "Launch", botIds: ["bot/1"] });
     await client.renameChannel("channel/1", "Launch room");
     await client.updateChannelProfile("channel/1", "Launch room", "Ships the launch");
@@ -380,6 +381,11 @@ describe("mobile-safe OpenTeam client", () => {
         "http://openteam.test/api/v0/bots",
         "POST",
         { clientRequestId: "create-bot-1", name: "Research" },
+      ],
+      [
+        "http://openteam.test/api/v0/bots/bot%2F1/duplicate",
+        "POST",
+        { clientRequestId: "duplicate-bot-1" },
       ],
       ["http://openteam.test/api/v0/channels", "POST", { name: "Launch", botIds: ["bot/1"] }],
       [

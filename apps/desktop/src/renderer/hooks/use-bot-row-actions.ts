@@ -49,19 +49,10 @@ export function useBotRowActions(options: {
         return;
       }
       if (action === "duplicate") {
-        const suffix = " copy";
-        const name = `${bot.name.slice(0, 80 - suffix.length)}${suffix}`;
         void options
           .mutate(() =>
-            api.createBot({
+            api.duplicateBot(bot.id, {
               clientRequestId: crypto.randomUUID(),
-              name,
-              title: bot.title,
-              description: bot.description,
-              instructions: bot.instructions,
-              icon: bot.icon,
-              color: bot.color,
-              notificationsEnabled: bot.notificationsEnabled,
             })
           )
           .then((duplicate) => options.setSelectedId(duplicate.dmChannelId));

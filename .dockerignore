@@ -20,4 +20,5 @@ apps/mobile/**
 **/Pods
 **/build
 **/artifacts
+output
 packages/db/src/generated

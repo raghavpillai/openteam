@@ -1,7 +1,0 @@
-{
-  "passed": true,
-  "messageCount": 12,
-  "channels": 2,
-  "replayDeduplicated": true,
-  "initialReadinessWindowExceeded": true
-}

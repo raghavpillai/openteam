@@ -5,6 +5,7 @@ import { DownloadOptions } from "@/components/download-options";
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
 import { LandingEffects } from "@/components/landing-effects";
+import { SectionBot } from "@/components/section-bot";
 import { Button } from "@/components/ui/button";
 import "../landing.css";
 import "./download.css";
@@ -30,7 +31,7 @@ export default function DownloadPage() {
       </a>
       <SiteHeader />
       <main id="main" className="ot-container">
-        <section className="dl-hero">
+        <section className="dl-hero ot-bot-section">
           <div>
             <p className="ot-eyebrow">GET OPENTEAM</p>
             <h1>
@@ -53,9 +54,10 @@ export default function DownloadPage() {
               </a>
             </div>
           </div>
+          <SectionBot bot="research" />
         </section>
 
-        <section id="server" className="dl-step">
+        <section id="server" className="dl-step ot-bot-section">
           <div className="dl-step-heading">
             <span className="ot-eyebrow">01 / SERVER</span>
             <h2>Install the server.</h2>
@@ -114,9 +116,10 @@ export default function DownloadPage() {
               </a>
             </div>
           </div>
+          <SectionBot bot="engineering" side="right" />
         </section>
 
-        <section id="desktop" className="dl-step">
+        <section id="desktop" className="dl-step ot-bot-section">
           <div className="dl-step-heading">
             <span className="ot-eyebrow">02 / DESKTOP</span>
             <h2>Download the app.</h2>
@@ -125,9 +128,10 @@ export default function DownloadPage() {
           <div className="dl-step-content">
             <DownloadOptions />
           </div>
+          <SectionBot bot="operations" />
         </section>
 
-        <section className="dl-step dl-mobile-step">
+        <section className="dl-step dl-mobile-step ot-bot-section">
           <div className="dl-step-heading">
             <span className="ot-eyebrow">03 / IPHONE</span>
             <h2>Check in from your phone.</h2>
@@ -152,6 +156,7 @@ export default function DownloadPage() {
               </Button>
             </div>
           </div>
+          <SectionBot bot="research" side="right" />
         </section>
       </main>
       <SiteFooter />

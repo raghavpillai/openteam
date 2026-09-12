@@ -15,6 +15,7 @@ import {
   Terminal,
 } from "lucide-react";
 import { BotAvatar } from "@/components/bot-avatar";
+import { SectionBot } from "@/components/section-bot";
 import { GithubMark } from "@/components/brand";
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
@@ -100,7 +101,7 @@ export default function Home() {
       </a>
       <SiteHeader home />
       <main id="main">
-        <section className="ot-hero ot-container">
+        <section className="ot-hero ot-container ot-bot-section">
           <div className="ot-hero-top">
             <div>
               <a className="ot-eyebrow ot-release" href={`${GITHUB}/releases`}>
@@ -137,6 +138,7 @@ export default function Home() {
             </span>
             <span>Interactive product recreation · Sample tasks and data</span>
           </div>
+          <SectionBot bot="research" />
         </section>
         <section className="ot-providers ot-container" aria-label="Supported model providers">
           <p>
@@ -160,7 +162,7 @@ export default function Home() {
             </span>
           </div>
         </section>
-        <section id="plugins" className="ot-section ot-container ot-plugins">
+        <section id="plugins" className="ot-section ot-container ot-plugins ot-bot-section">
           <div className="ot-section-heading">
             <div>
               <p className="ot-eyebrow">PLUGINS</p>
@@ -205,8 +207,9 @@ export default function Home() {
           >
             Browse bundled plugins <ArrowUpRight size={16} />
           </a>
+          <SectionBot bot="operations" side="right" />
         </section>
-        <section id="how-it-works" className="ot-section ot-container">
+        <section id="how-it-works" className="ot-section ot-container ot-bot-section">
           <div className="ot-section-heading">
             <div>
               <p className="ot-eyebrow">EXAMPLE TASKS</p>
@@ -270,8 +273,9 @@ export default function Home() {
               </article>
             ))}
           </div>
+          <SectionBot bot="engineering" />
         </section>
-        <section className="ot-capabilities ot-container">
+        <section className="ot-capabilities ot-container ot-bot-section">
           <div className="ot-section-heading">
             <div>
               <p className="ot-eyebrow">AGENT CAPABILITIES</p>
@@ -309,7 +313,9 @@ export default function Home() {
           <div className="ot-persistence-grid">
             <article className="ot-memory-card">
               <div className="ot-card-copy">
-                <span className="ot-eyebrow">PERSISTENT CONTEXT</span>
+                <span className="ot-eyebrow ot-bot-label">
+                  PERSISTENT CONTEXT <SectionBot bot="research" inline />
+                </span>
                 <h3>
                   Saved conversations.
                   <br />
@@ -324,7 +330,9 @@ export default function Home() {
             </article>
             <article className="ot-routine-card">
               <div className="ot-card-copy">
-                <span className="ot-eyebrow">SCHEDULED TASKS</span>
+                <span className="ot-eyebrow ot-bot-label">
+                  SCHEDULED TASKS <SectionBot bot="operations" inline />
+                </span>
                 <h3>
                   Run tasks
                   <br />
@@ -358,9 +366,10 @@ export default function Home() {
               </div>
             ))}
           </div>
+          <SectionBot bot="research" side="right" />
         </section>
         <section className="ot-anywhere">
-          <div className="ot-container ot-anywhere-inner">
+          <div className="ot-container ot-anywhere-inner ot-bot-section">
             <div className="ot-anywhere-copy">
               <p className="ot-eyebrow">DESKTOP + IPHONE</p>
               <h2>
@@ -383,9 +392,10 @@ export default function Home() {
               <GetStarted />
             </div>
             <MobileDemo />
+            <SectionBot bot="operations" />
           </div>
         </section>
-        <section id="open-source" className="ot-section ot-container ot-ownership">
+        <section id="open-source" className="ot-section ot-container ot-ownership ot-bot-section">
           <div>
             <p className="ot-eyebrow">OPEN SOURCE + SELF-HOSTED</p>
             <h2>
@@ -429,8 +439,9 @@ export default function Home() {
               </article>
             ))}
           </div>
+          <SectionBot bot="engineering" side="right" />
         </section>
-        <section className="ot-start ot-container">
+        <section className="ot-start ot-container ot-bot-section">
           <div>
             <p className="ot-eyebrow">GET STARTED</p>
             <h2>
@@ -487,8 +498,9 @@ export default function Home() {
               <Server size={14} /> Docker Compose 2.20+ · 8 GB RAM recommended
             </p>
           </div>
+          <SectionBot bot="research" />
         </section>
-        <section id="faq" className="ot-section ot-container ot-faq">
+        <section id="faq" className="ot-section ot-container ot-faq ot-bot-section">
           <div>
             <p className="ot-eyebrow">FAQ</p>
             <h2>
@@ -508,6 +520,7 @@ export default function Home() {
               </AccordionItem>
             ))}
           </Accordion>
+          <SectionBot bot="operations" side="right" />
         </section>
       </main>
       <SiteFooter home />

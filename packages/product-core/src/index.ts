@@ -26,3 +26,4 @@ export {
   type TransientRoutineExecutionStatus,
 } from "./statuses";
 export * from "./timestamps";
+export * from "./bot-avatar";

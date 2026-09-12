@@ -2,6 +2,7 @@ import { resolveBotAvatarMark } from "@openteam/contracts/bot-avatar";
 import { Pipette } from "lucide-react";
 import { Popover as PopoverPrimitive } from "radix-ui";
 import { useState } from "react";
+import { useBotAvatarMode } from "./bot-avatar-activity";
 import { cn } from "../../lib/cn";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
 import {
@@ -40,6 +41,7 @@ function PickerShape({
         shape={shape}
       />
       <BotAvatarGlyph
+        mode="idle"
         className="relative size-9 overflow-visible"
         color={color}
         outlineColor={selected ? "var(--avatar-picker-outline-inner)" : undefined}
@@ -62,6 +64,8 @@ export function AvatarPicker({
   onChange: (next: { color: string; icon: string }) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const activityMode = useBotAvatarMode(botId);
+  const previewMode = activityMode === "still" ? "idle" : activityMode;
   const selectedShape = normalizeBotAvatarShape(icon);
 
   return (
@@ -75,6 +79,7 @@ export function AvatarPicker({
               type="button"
             >
               <BotAvatarGlyph
+                mode={previewMode}
                 className={cn(
                   "pointer-events-none absolute size-16 overflow-visible transition-opacity duration-100",
                   open ? "opacity-100" : "group-hover:opacity-0 group-focus-visible:opacity-0"
@@ -83,6 +88,7 @@ export function AvatarPicker({
                 shape={selectedShape}
               />
               <BotAvatarGlyph
+                mode={previewMode}
                 className={cn(
                   "pointer-events-none absolute size-16 overflow-visible opacity-0 transition-opacity duration-100",
                   open ? "opacity-0" : "group-hover:opacity-100 group-focus-visible:opacity-100"
@@ -116,7 +122,7 @@ export function AvatarPicker({
         <PopoverPrimitive.Content
           align="center"
           aria-label="Avatar selector"
-          className="z-[110] w-[248px] overflow-hidden rounded-2xl border border-[#e4e4e4] bg-[#fcfcfc] text-foreground shadow-[0_8px_24px_rgba(0,0,0,0.10)] outline-none animate-in fade-in-0 zoom-in-95 dark:border-[#393939] dark:bg-[#181818] dark:shadow-[0_10px_30px_rgba(0,0,0,0.45)]"
+          className="z-[110] w-[248px] max-h-[var(--radix-popover-content-available-height)] overflow-y-auto rounded-2xl border border-[#e4e4e4] bg-[#fcfcfc] text-foreground shadow-[0_8px_24px_rgba(0,0,0,0.10)] outline-none animate-in fade-in-0 zoom-in-95 dark:border-[#393939] dark:bg-[#181818] dark:shadow-[0_10px_30px_rgba(0,0,0,0.45)]"
           collisionPadding={8}
           side="bottom"
           sideOffset={6}
@@ -129,7 +135,7 @@ export function AvatarPicker({
               className="px-1.5 py-1 text-[13px] leading-[18px] text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:underline"
               onClick={() => {
                 const dealt = resolveBotAvatarMark({ agentId: botId });
-                onChange({ icon: dealt.shape, color: dealt.color });
+                onChange({ icon: normalizeBotAvatarShape(dealt.shape), color: dealt.color });
               }}
               type="button"
             >

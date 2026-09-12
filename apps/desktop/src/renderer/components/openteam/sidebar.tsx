@@ -1274,7 +1274,7 @@ function DraggablePinnedTile({
         size="pin"
       >
         {bot ? (
-          <BotAvatar bot={bot} size="lg" />
+          <BotAvatar bot={bot} channelId={channel.id} size="lg" />
         ) : (
           <ChannelAvatar botById={botById} channel={channel} size="lg" />
         )}

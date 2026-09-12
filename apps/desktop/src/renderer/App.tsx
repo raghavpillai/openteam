@@ -1,3 +1,4 @@
+import { BotAvatarActivityProvider } from "./components/openteam/bot-avatar-activity";
 import type { BotView, ChannelView, SearchResultView, UpdateBotInput } from "@openteam/contracts";
 import { createReadReceiptController } from "@openteam/product-core/read-receipts";
 import { CircleAlert, LoaderCircle, RefreshCw } from "lucide-react";
@@ -1017,6 +1018,10 @@ export default function App() {
   }
 
   return (
+    <BotAvatarActivityProvider
+      channel={newBotPicker || pendingBot ? null : a2aExchangeChannel ?? selected}
+      run={index.activeRunByChannel.get((a2aExchangeChannel ?? selected)?.id ?? "")}
+    >
     <TooltipProvider>
       <main className="flex h-screen overflow-hidden bg-background text-foreground">
         <div aria-hidden="true" className="electron-window-drag-strip" />
@@ -1430,5 +1435,6 @@ export default function App() {
         )}
       </main>
     </TooltipProvider>
+    </BotAvatarActivityProvider>
   );
 }

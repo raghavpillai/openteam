@@ -45,10 +45,40 @@
 .landing .ot-brand {
   color: #111;
 }
-.landing .ot-brand-bot,
-.landing .ot-provider-logo img,
-.landing .ot-job-top .robot-avatar {
+.landing .ot-provider-logo img {
   filter: grayscale(1);
+}
+.ot-margin-bots {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  overflow: clip;
+  pointer-events: none;
+  user-select: none;
+}
+.ot-margin-bot {
+  position: absolute;
+  display: block;
+  opacity: 0.42;
+}
+.ot-margin-bot-research {
+  top: 180px;
+  left: calc((100% - 1240px) / 4 - 38px);
+  transform: rotate(-12deg);
+}
+.ot-margin-bot-operations {
+  top: 420px;
+  right: calc((100% - 1240px) / 4 - 32px);
+  transform: rotate(12deg);
+}
+.ot-margin-bot-engineering {
+  top: 1170px;
+  left: calc((100% - 1240px) / 4 - 26px);
+  transform: rotate(-8deg);
+}
+/* The outer grid margins disappear on smaller screens. Keep the content clear. */
+@media (max-width: 1439px) {
+  .ot-margin-bots { display: none; }
 }
 .landing .ot-nav-links,
 .landing .ot-github {

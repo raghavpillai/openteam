@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { BotAvatar } from "./bot-avatar";
 
 /** Decorative grid and progressive, once-per-section entrance motion. */
 export function LandingEffects() {
@@ -68,5 +69,20 @@ export function LandingEffects() {
     };
   }, []);
 
-  return <div ref={ref} className="ot-grid-backdrop" aria-hidden="true" />;
+  return (
+    <>
+      <div ref={ref} className="ot-grid-backdrop" aria-hidden="true" />
+      <div className="ot-margin-bots" aria-hidden="true">
+        <span className="ot-margin-bot ot-margin-bot-research">
+          <BotAvatar shape="helmet" color="#ff7a1a" size={76} mode="idle" />
+        </span>
+        <span className="ot-margin-bot ot-margin-bot-operations">
+          <BotAvatar shape="pod" color="#925df2" size={64} mode="idle" blinkDelay={900} />
+        </span>
+        <span className="ot-margin-bot ot-margin-bot-engineering">
+          <BotAvatar shape="chip" color="#27baae" size={52} mode="idle" blinkDelay={1800} />
+        </span>
+      </div>
+    </>
+  );
 }

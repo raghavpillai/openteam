@@ -205,7 +205,9 @@ export const createSetupSession = (input: SetupSessionInput): SetupSession => {
     apiPort: input.current.get("OPENTEAM_API_PORT") || String(API_PORT),
     timeZone: input.current.get("OPENTEAM_TIME_ZONE") || "UTC",
     workerConcurrency: input.current.get("OPENTEAM_WORKER_CONCURRENCY") || "8",
-    thinking: THINKING_LEVELS.includes(currentThinking) ? currentThinking : "high",
+    thinking: THINKING_LEVELS.includes(currentThinking)
+      ? currentThinking
+      : DEFAULT_RUNTIME_INFERENCE.reasoning,
     provider: initialProvider,
     model: initialModel,
     skipInference: false,

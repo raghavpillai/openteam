@@ -6,8 +6,8 @@ export const isRuntimeEngine = (value: unknown): value is RuntimeEngine =>
   typeof value === "string" && (RUNTIME_ENGINES as readonly string[]).includes(value);
 
 export const DEFAULT_PI_INFERENCE_PROVIDER = "openai-codex";
-export const DEFAULT_PI_INFERENCE_MODEL = "gpt-5.5";
-export const DEFAULT_PI_REASONING_LEVEL = "high" as const;
+export const DEFAULT_PI_INFERENCE_MODEL = "gpt-5.6-sol";
+export const DEFAULT_PI_REASONING_LEVEL = "medium" as const;
 
 export const PI_REASONING_LEVELS = [
   "off",

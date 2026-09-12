@@ -606,7 +606,7 @@ export const collectSetupConfiguration = async (
     model: currentInference.modelId,
     thinking: THINKING_LEVELS.includes(currentThinking as SetupConfiguration["thinking"])
       ? (currentThinking as SetupConfiguration["thinking"])
-      : "high",
+      : DEFAULT_RUNTIME_INFERENCE.reasoning,
     workerConcurrency: current.get("OPENTEAM_WORKER_CONCURRENCY") || "8",
     authenticate: false,
     authType: defaultProviderAuthType(currentInference.providerId),

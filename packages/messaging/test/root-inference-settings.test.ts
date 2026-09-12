@@ -26,8 +26,8 @@ describe("root inference settings", () => {
     const document = JSON.parse(await readFile(join(root, "settings.json"), "utf8"));
     expect(document.inference).toEqual({
       providerId: "openai-codex",
-      modelId: "gpt-5.5",
-      reasoning: "high",
+      modelId: "gpt-5.6-sol",
+      reasoning: "medium",
     });
     expect((await store.loadRootSettings()).valid).toBe(true);
   });

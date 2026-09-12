@@ -145,10 +145,13 @@ provider with a **detected** tag, and reuses the sign-in so no browser login is 
 
 | Provider | Sign in with | Default model |
 | --- | --- | --- |
-| `openai-codex` (default) | ChatGPT Plus or Pro account (OAuth) | `gpt-5.5` |
+| `openai-codex` (default) | ChatGPT Plus or Pro account (OAuth) | `gpt-5.6-sol` |
 | `anthropic` | Claude Pro or Max account (OAuth), or an Anthropic API key | `claude-sonnet-5` |
-| `openai` | OpenAI API key | `gpt-5.5` |
+| `openai` | OpenAI API key | `gpt-5.6-sol` |
 | Custom | Any OpenAI-, Anthropic-, or Google-compatible endpoint with an API key | Your choice |
+
+Fresh installations start with `medium` thinking. Reconfiguring an existing provider preserves
+its saved model and reasoning level unless you change them.
 
 ```sh
 openteam provider list                              # providers, model counts, sign-in state

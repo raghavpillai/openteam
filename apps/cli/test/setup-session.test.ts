@@ -157,8 +157,8 @@ describe("interactive setup session", () => {
       apiPort: "8787",
       timeZone: "UTC",
       provider: "openai-codex",
-      model: "gpt-5.5",
-      thinking: "high",
+      model: "gpt-5.6-sol",
+      thinking: "medium",
       workerConcurrency: "8",
       authenticate: true,
       authType: "oauth",
@@ -333,7 +333,7 @@ describe("interactive setup session", () => {
     type(setup, "3");
     expect(setup.state).toMatchObject({
       provider: "openai",
-      model: "gpt-5.5",
+      model: "gpt-5.6-sol",
       authenticate: true,
       authType: "api_key",
       apiKey: null,
@@ -344,7 +344,7 @@ describe("interactive setup session", () => {
 
     press(setup, "home");
     type(setup, "1");
-    expect(setup.state).toMatchObject({ provider: "openai-codex", model: "gpt-5.5" });
+    expect(setup.state).toMatchObject({ provider: "openai-codex", model: "gpt-5.6-sol" });
     expect(setup.state.authenticate).toBe(false);
   });
 
@@ -352,7 +352,7 @@ describe("interactive setup session", () => {
     const setup = session();
     press(setup, "right");
 
-    expect(setup.rows()).toContainEqual({ kind: "field", label: "Model", value: "gpt-5.5" });
+    expect(setup.rows()).toContainEqual({ kind: "field", label: "Model", value: "gpt-5.6-sol" });
     expect(rowIds(setup)).not.toContain("model");
     expect(rowIds(setup)).not.toContain("thinking");
     expect(rowIds(setup)).not.toContain("workerConcurrency");
@@ -377,7 +377,7 @@ describe("interactive setup session", () => {
       skipInference: true,
       authenticate: false,
       provider: "openai-codex",
-      model: "gpt-5.5",
+      model: "gpt-5.6-sol",
     });
   });
 
@@ -478,7 +478,7 @@ describe("interactive setup session", () => {
     press(setup, "up");
     expect(highlighted(setup)).toBe("thinking");
     enter(setup);
-    expect(setup.state.thinking).toBe("xhigh");
+    expect(setup.state.thinking).toBe("high");
 
     press(setup, "left");
     press(setup, "left");
@@ -488,7 +488,7 @@ describe("interactive setup session", () => {
       publicUrl: "http://127.0.0.1:9444",
       apiPort: "9444",
       timeZone: "Europe/London",
-      thinking: "xhigh",
+      thinking: "high",
       workerConcurrency: "4",
     });
   });

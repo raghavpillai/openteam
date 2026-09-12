@@ -84,9 +84,9 @@ const silentPresentation: SetupPresentation = {
 class SetupRunner implements CommandRunner {
   readonly calls: Array<{ command: string; args: readonly string[]; options?: RunOptions }> = [];
   readonly models = new Map<string, string[]>([
-    ["openai-codex", ["gpt-5.5"]],
+    ["openai-codex", ["gpt-5.5", "gpt-5.6-sol"]],
     ["anthropic", ["claude-sonnet-5", "claude-sonnet-4-5"]],
-    ["openai", ["gpt-5.5"]],
+    ["openai", ["gpt-5.5", "gpt-5.6-sol"]],
   ]);
   failComposeValidation = false;
   failStartup = false;
@@ -362,8 +362,8 @@ describe("interactive setup", () => {
       apiPort: "8787",
       timeZone: "UTC",
       provider: "openai-codex",
-      model: "gpt-5.5",
-      thinking: "high",
+      model: "gpt-5.6-sol",
+      thinking: "medium",
       workerConcurrency: "8",
       authenticate: true,
       authType: "oauth",
@@ -806,7 +806,7 @@ describe("interactive setup", () => {
     expect(environment).not.toContain("OPENTEAM_PI_MODEL");
     expect(fixture.state.inference).toEqual({
       providerId: "openai",
-      modelId: "gpt-5.5",
+      modelId: "gpt-5.6-sol",
       reasoning: "high",
     });
     expect(environment).not.toContain(apiKey);

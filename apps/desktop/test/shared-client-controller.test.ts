@@ -24,9 +24,9 @@ describe("desktop shared client controllers", () => {
     expect(screen).toContain("api.screenFrameUrl");
     expect(screen).toContain("api.screenAction");
     expect(screen).toContain("<iframe");
-    expect(screen).toContain("resolveViewerUrl");
-    expect(screen).toContain('resolved.searchParams.set("view_only", "false")');
-    expect(screen).toContain('source.hostname === "127.0.0.1"');
+    expect(screen).toContain(
+      "resolveLiveViewerUrl(screen.viewerUrl, window.location.href, API_BASE)"
+    );
   });
 
   test("keeps human input active alongside agent input", async () => {

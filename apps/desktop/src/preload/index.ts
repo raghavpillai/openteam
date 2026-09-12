@@ -156,6 +156,10 @@ const notificationSnapshot = (value: unknown) => {
 contextBridge.exposeInMainWorld("openteam", {
   platform: process.platform,
   auth: {
+    signIn: (serverUrl: string, username: string, password: string) =>
+      ipcRenderer.invoke("openteam:auth:sign-in", serverUrl, username, password),
+    signOut: (serverUrl: string, token: string) =>
+      ipcRenderer.invoke("openteam:auth:sign-out", serverUrl, token),
     readToken: async () =>
       authTokenStorageResult(await ipcRenderer.invoke("openteam:auth-token:read")),
     writeToken: async (token: string) => {

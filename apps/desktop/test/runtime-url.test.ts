@@ -3,6 +3,7 @@ import {
   CONFIGURED_API_BASE_KEY,
   resolveApiBase,
   resolveConfiguredApiBase,
+  resolveLiveViewerUrl,
   resolveViewerUrl,
   saveConfiguredApiBase,
 } from "../src/renderer/client/runtime-url";
@@ -74,5 +75,34 @@ describe("runtime URLs", () => {
     expect(
       resolveViewerUrl("http://127.0.0.1:6207/openteam.html", "file:///Applications/OpenTeam.app")
     ).toBe("http://127.0.0.1:6207/openteam.html");
+  });
+
+  test("does not send a remote computer through the local Vite viewer proxy", () => {
+    const viewer = "http://100.94.42.50:6200/openteam.html#password=test";
+    const page = "http://127.0.0.1:5173/";
+    const api = "http://100.94.42.50:8787";
+    expect(resolveViewerUrl(viewer, page, api)).toBe(viewer);
+    expect(resolveLiveViewerUrl(viewer, page, api)).toBe("");
+  });
+
+  test("uses authenticated frames for a remote server advertising a loopback viewer", () => {
+    const viewer = "http://127.0.0.1:6200/openteam.html#password=test";
+    const api = "http://100.94.42.50:8787";
+    for (const page of ["http://127.0.0.1:5173/", "file:///Applications/OpenTeam.app/index.html"]) {
+      expect(resolveLiveViewerUrl(viewer, page, api)).toBe("");
+    }
+  });
+
+  test("retains live viewers for local and same-host development", () => {
+    const viewer = "http://127.0.0.1:6207/openteam.html#password=test";
+    expect(resolveLiveViewerUrl(viewer, "http://localhost:5173/", "http://127.0.0.1:8787")).toBe(
+      "http://localhost:5173/novnc/6207/openteam.html?view_only=false#password=test"
+    );
+    expect(
+      resolveLiveViewerUrl(viewer, "http://100.94.42.50:5173/", "http://100.94.42.50:8787")
+    ).toBe("http://100.94.42.50:5173/novnc/6207/openteam.html?view_only=false#password=test");
+    expect(
+      resolveLiveViewerUrl(viewer, "file:///Applications/OpenTeam.app", "http://127.0.0.1:8787")
+    ).toBe("http://127.0.0.1:6207/openteam.html?view_only=false#password=test");
   });
 });

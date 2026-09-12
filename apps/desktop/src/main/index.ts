@@ -21,6 +21,7 @@ import {
   shell,
 } from "electron";
 import type { AppUpdater } from "electron-updater";
+import { desktopSignIn, desktopSignOut } from "./auth-client";
 import { DesktopAuthTokenStore } from "./auth-token-store";
 import { resolveControlToken } from "./control-token";
 import {
@@ -593,6 +594,25 @@ ipcMain.handle("openteam:auth-token:write", (event, value: unknown) => {
   return requireAuthTokenStore(event).write(value);
 });
 ipcMain.handle("openteam:auth-token:clear", (event) => requireAuthTokenStore(event).clear());
+
+const requireAuthSender = (event: Electron.IpcMainInvokeEvent) => {
+  if (
+    !mainWindow ||
+    event.sender !== mainWindow.webContents ||
+    event.senderFrame !== mainWindow.webContents.mainFrame
+  ) {
+    throw new Error("Authentication is unavailable");
+  }
+};
+
+ipcMain.handle("openteam:auth:sign-in", (event, serverUrl, username, password) => {
+  requireAuthSender(event);
+  return desktopSignIn(serverUrl, username, password);
+});
+ipcMain.handle("openteam:auth:sign-out", (event, serverUrl, token) => {
+  requireAuthSender(event);
+  return desktopSignOut(serverUrl, token);
+});
 
 ipcMain.handle("openteam:updates:check", async (event) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) {

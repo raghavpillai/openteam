@@ -201,7 +201,7 @@ export default function Home() {
           </div>
           <a
             className="ot-text-link ot-plugins-source"
-            href={`${GITHUB}/tree/main/packages/plugins`}
+            href={`${GITHUB}/blob/main/apps/server/src/plugins/catalog.ts`}
           >
             Browse bundled plugins <ArrowUpRight size={16} />
           </a>

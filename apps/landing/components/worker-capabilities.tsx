@@ -60,6 +60,7 @@ export function WorkerCapabilities() {
             <Icon size={17} /> {label}
           </Tabs.Tab>
         ))}
+        <Tabs.Indicator className="ot-worker-indicator" />
       </Tabs.List>
       {capabilities.map(({ id, heading, description, detail, demo: Demo }) => (
         <Tabs.Panel value={id} key={id} className={`ot-worker-panel ot-worker-panel-${id}`}>

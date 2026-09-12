@@ -1,6 +1,7 @@
 import { ArrowUpRight } from "lucide-react";
 import { GithubMark, Wordmark } from "./brand";
 import { Button } from "./ui/button";
+import { MotionToggle } from "./motion-toggle";
 import "./site-header.css";
 
 const GITHUB = "https://github.com/raghavpillai/openteam";
@@ -27,6 +28,7 @@ export function SiteHeader({ home = false }: { home?: boolean }) {
           ))}
         </nav>
         <div className="ot-nav-actions">
+          <MotionToggle />
           <a className="ot-github" href={GITHUB} aria-label="OpenTeam on GitHub">
             <GithubMark />
             <span>GitHub</span>

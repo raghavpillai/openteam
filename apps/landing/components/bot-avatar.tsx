@@ -74,16 +74,18 @@ export function BotAvatar({
     const element = ref.current;
     if (!element) return;
     let inViewport = false;
-    const sync = () => setVisible(inViewport && !document.hidden);
+    const sync = () => setVisible(inViewport && !document.hidden && !document.documentElement.hasAttribute("data-motion-paused"));
     const observer = new IntersectionObserver(([entry]) => {
       inViewport = entry?.isIntersecting ?? false;
       sync();
     });
     observer.observe(element);
     document.addEventListener("visibilitychange", sync);
+    window.addEventListener("openteam:motion-preference", sync);
     return () => {
       observer.disconnect();
       document.removeEventListener("visibilitychange", sync);
+      window.removeEventListener("openteam:motion-preference", sync);
     };
   }, [activity]);
   return (

@@ -33,6 +33,7 @@ import { Button } from "@/components/ui/button";
 import "./landing.css";
 import "./monochrome.css";
 import "./structure.css";
+import "./alive.css";
 
 const GITHUB = "https://github.com/raghavpillai/openteam";
 const questions = [

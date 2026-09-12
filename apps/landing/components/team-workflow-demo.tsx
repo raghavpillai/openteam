@@ -1,8 +1,8 @@
 "use client";
 
 import { Dialog } from "@base-ui/react/dialog";
-import { ChevronsRight, FileText, Info, Settings, X } from "lucide-react";
-import { useState } from "react";
+import { ChevronsRight, FileText, Info, Pause, Play, RotateCcw, Settings, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { BotAvatar } from "./bot-avatar";
 import { DesktopMicIcon, DesktopPlusIcon } from "./desktop-demo-controls";
 import "./team-workflow-demo.css";
@@ -55,6 +55,27 @@ const files = {
 
 type SampleFile = keyof typeof files;
 
+// Deliberate pauses make the shared-file handoff readable. It runs once, then
+// stays on the finished conversation until the visitor chooses Replay.
+const stageDurations = [1800, 1100, 2100] as const;
+const stageDescriptions = [
+  "Research is reviewing the customer feedback.",
+  "Research saved the brief to the shared workspace.",
+  "Engineering is reading the brief and planning the fix.",
+  "Handoff complete. Both sample files are ready to open.",
+];
+
+function TypingIndicator({ member, active }: { member: (typeof members)[number]; active: boolean }) {
+  return (
+    <div className="twd-typing-row" aria-hidden="true">
+      <BotAvatar shape={member.shape} color={member.color} size={22} mode={active ? "thinking" : "still"} />
+      <span className="twd-typing-bubble">
+        <i /><i /><i />
+      </span>
+    </div>
+  );
+}
+
 function GroupAvatar() {
   return (
     <span className="twd-group-avatar" aria-hidden="true">
@@ -99,10 +120,78 @@ function FileAttachment({
  */
 export function TeamWorkflowDemo() {
   const [preview, setPreview] = useState<SampleFile | null>(null);
+  const [stage, setStage] = useState(3);
+  const [motionAllowed, setMotionAllowed] = useState(false);
+  const [visible, setVisible] = useState(false);
+  const [paused, setPaused] = useState(false);
+  const showcase = useRef<HTMLElement>(null);
+  const started = useRef(false);
+  const remaining = useRef<number | null>(null);
   const document = preview ? files[preview] : null;
+  const playing = motionAllowed && visible && !paused && preview === null;
+  const shownStage = motionAllowed ? stage : 3;
+
+  useEffect(() => {
+    const element = showcase.current;
+    if (!element) return;
+    const preference = window.matchMedia("(prefers-reduced-motion: reduce)");
+    let inView = false;
+    const sync = () => {
+      const allowed = !preference.matches && !window.document.documentElement.hasAttribute("data-motion-paused");
+      const onScreen = inView && !window.document.hidden;
+      setMotionAllowed(allowed);
+      setVisible(onScreen);
+      if (allowed && onScreen && !started.current) {
+        started.current = true;
+        remaining.current = null;
+        setStage(0);
+      }
+      if (!allowed) setStage(3);
+    };
+    const observer = new IntersectionObserver(([entry]) => {
+      inView = Boolean(entry?.isIntersecting && entry.intersectionRatio >= 0.3);
+      sync();
+    }, { threshold: 0.3 });
+    observer.observe(element);
+    preference.addEventListener("change", sync);
+    window.addEventListener("openteam:motion-preference", sync);
+    window.document.addEventListener("visibilitychange", sync);
+    return () => {
+      observer.disconnect();
+      preference.removeEventListener("change", sync);
+      window.removeEventListener("openteam:motion-preference", sync);
+      window.document.removeEventListener("visibilitychange", sync);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!playing || stage >= stageDurations.length) return;
+    const duration = remaining.current ?? stageDurations[stage];
+    const began = performance.now();
+    let advanced = false;
+    const timeout = window.setTimeout(() => {
+      advanced = true;
+      remaining.current = null;
+      setStage((current) => current + 1);
+    }, duration);
+    return () => {
+      window.clearTimeout(timeout);
+      if (!advanced) remaining.current = Math.max(0, duration - (performance.now() - began));
+    };
+  }, [playing, stage]);
+
+  const togglePlayback = () => {
+    if (stage === 3) {
+      remaining.current = null;
+      setStage(0);
+      setPaused(false);
+    } else {
+      setPaused((current) => !current);
+    }
+  };
 
   return (
-    <figure className="twd-showcase">
+    <figure className="twd-showcase" ref={showcase} data-playing={playing} data-motion-enabled={motionAllowed}>
       <div className="twd-app">
         <section className="twd-chat" aria-label="Signup improvements sample group conversation">
           <header className="twd-header">
@@ -121,14 +210,15 @@ export function TeamWorkflowDemo() {
               </p>
             </div>
 
-            <div className="twd-message" aria-label="Message from Research">
+            <div className="twd-message" aria-label="Message from Research" data-revealed={shownStage >= 1}>
+              {shownStage === 0 && <TypingIndicator member={members[0]} active={playing} />}
               <span className="twd-sender">Research</span>
-              <div className="twd-agent-row">
+              <div className="twd-agent-row" aria-hidden={shownStage < 1} inert={shownStage < 1}>
                 <BotAvatar
                   shape={members[0].shape}
                   color={members[0].color}
                   size={22}
-                  mode="idle"
+                  mode={playing ? "idle" : "still"}
                 />
                 <div className="twd-message-content">
                   <FileAttachment file="brief" onOpen={setPreview} />
@@ -140,14 +230,15 @@ export function TeamWorkflowDemo() {
               </div>
             </div>
 
-            <div className="twd-message" aria-label="Message from Engineering">
+            <div className="twd-message" aria-label="Message from Engineering" data-revealed={shownStage >= 3} data-pending={shownStage < 2}>
+              {shownStage === 2 && <TypingIndicator member={members[1]} active={playing} />}
               <span className="twd-sender">Engineering</span>
-              <div className="twd-agent-row">
+              <div className="twd-agent-row" aria-hidden={shownStage < 3} inert={shownStage < 3}>
                 <BotAvatar
                   shape={members[1].shape}
                   color={members[1].color}
                   size={22}
-                  mode="idle"
+                  mode={playing ? "idle" : "still"}
                   blinkDelay={1800}
                 />
                 <div className="twd-message-content">
@@ -182,13 +273,27 @@ export function TeamWorkflowDemo() {
           <p>Members</p>
           {members.map((member) => (
             <div className="twd-member" key={member.name}>
-              <BotAvatar shape={member.shape} color={member.color} size={22} mode="still" />
+              <BotAvatar
+                shape={member.shape}
+                color={member.color}
+                size={22}
+                mode={playing && ((member.name === "Research" && stage === 0) || (member.name === "Engineering" && stage === 2)) ? "thinking" : "still"}
+              />
               <span>{member.name}</span>
             </div>
           ))}
         </aside>
       </div>
-      <figcaption>Sample group conversation · Open a file to inspect the handoff.</figcaption>
+      <figcaption>
+        <span>Sample group conversation · Open a file to inspect the handoff.</span>
+        {motionAllowed && (
+          <button type="button" className="twd-playback" onClick={togglePlayback} aria-label={stage === 3 ? "Replay team handoff" : paused ? "Resume team handoff" : "Pause team handoff"}>
+            {stage === 3 ? <RotateCcw size={12} /> : paused ? <Play size={12} /> : <Pause size={12} />}
+            {stage === 3 ? "Replay" : paused ? "Resume" : "Pause"}
+          </button>
+        )}
+        <span className="twd-announcement" role="status" aria-live="polite">{stageDescriptions[shownStage]}</span>
+      </figcaption>
 
       <Dialog.Root open={preview !== null} onOpenChange={(open) => !open && setPreview(null)}>
         <Dialog.Portal>

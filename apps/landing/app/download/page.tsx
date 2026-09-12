@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import "../landing.css";
 import "./download.css";
 import "../monochrome.css";
+import "../alive.css";
 
 const GITHUB = "https://github.com/raghavpillai/openteam";
 const INSTALL_COMMAND = "curl -fsSL https://openteam.so/install | sh";

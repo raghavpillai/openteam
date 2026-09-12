@@ -38,7 +38,7 @@ const views = [
 // data. The 1000 × 700 image dimensions below preserve their logical UI size.
 // View selection and image enlargement belong to the landing page, outside the app.
 export function PluginsDemo() {
-  const [selected, setSelected] = useState(1);
+  const [selected, setSelected] = useState(0);
   const [expanded, setExpanded] = useState(false);
   const view = views[selected];
   return (
@@ -65,10 +65,14 @@ export function PluginsDemo() {
           aria-label={`Expand screenshot: ${view.label}`}
           onClick={() => setExpanded(true)}
         >
-          <Image src={view.src} width={1000} height={700} unoptimized alt={view.alt} />
+          {views.map((item, index) => (
+            <Image key={item.id} className="pl-slide" data-active={selected === index ? "" : undefined}
+              src={item.src} width={1000} height={700} unoptimized
+              alt={selected === index ? item.alt : ""} aria-hidden={selected !== index} />
+          ))}
         </button>
         <figcaption>
-          <p aria-live="polite">{view.description}</p>
+          <p key={view.id} className="pl-description" aria-live="polite">{view.description}</p>
           <Button variant="ghost" className="pl-expand" onClick={() => setExpanded(true)}>
             <Expand size={14} /> Expand screenshot
           </Button>

@@ -208,7 +208,7 @@ HTTPS or a private network.
 | Command | What it does |
 | --- | --- |
 | `openteam status` | Version, install directory, access mode, public URL, container list, health. Exits non-zero when unhealthy. |
-| `openteam doctor` | Host, Docker, port, permission, and readiness checks. Exits `2` if any check fails. |
+| `openteam doctor` | Host, Docker, port, permission, readiness, and a live API request to the selected model. Exits `2` if any check fails. |
 | `openteam start` | Start the stack and wait for health. |
 | `openteam stop` | Stop the containers. Data is kept. |
 | `openteam logs [server] [--follow] [--tail 200]` | Show or stream container logs. |
@@ -217,6 +217,13 @@ HTTPS or a private network.
 | `openteam account update` | Change the owner credentials. |
 | `openteam update [--version X]` | Upgrade the stack. See below. |
 | `openteam uninstall [--purge]` | Remove the stack. See below. |
+
+`doctor` sends one short request through the computer using the saved provider, model, and
+thinking setting. This checks that the provider can actually respond, including for API-key
+and subscription sign-ins. The model request has a 30-second timeout and uses normal provider
+usage. A failed request is a blocking **AI connection** check; credentials are redacted from
+diagnostics. If no provider is connected, the test is explicitly marked as not tested. The
+request runs without bot tools or conversation history and does not change your model selection.
 
 `openteam setup --advanced` adds the connection mode, API port, time zone (IANA name such as
 `America/New_York`), inference model, thinking level, and the number of tasks that can run at once.

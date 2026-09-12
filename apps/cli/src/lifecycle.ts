@@ -235,7 +235,7 @@ export const doctorCommand = async (
   const projectName = normalizeProjectName(
     options.projectName || manifest?.projectName || PROJECT_NAME
   );
-  const diagnosis = await runDoctor(paths, runner, projectName);
+  const diagnosis = await runDoctor(paths, runner, projectName, { testInference: true });
   printDoctor(diagnosis);
   if (!diagnosis.ok) throw new CliError("Doctor checks failed.", 2);
 };

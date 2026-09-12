@@ -31,9 +31,11 @@ import {
   MINIMUM_COMPOSE_VERSION,
 } from "./docker";
 import { checkHealth, withExpectedVersion } from "./health";
+import { checkInferenceConnection } from "./inference-connection";
 import { firstUnavailablePort, viewerPorts } from "./ports";
 import type { CommandRunner } from "./process";
 import { inspectPublicReadiness } from "./public-readiness";
+import { readRuntimeInferenceSettings } from "./runtime-settings";
 import { foreignServerDetected, foreignServerMessage } from "./stack";
 
 export { firstUnavailablePort, portAvailable, suggestApiPort, viewerPorts } from "./ports";
@@ -68,7 +70,7 @@ export const runDoctor = async (
   paths: InstallationPaths,
   runner: CommandRunner,
   requestedProjectName = PROJECT_NAME,
-  options: { checkInstallPorts?: boolean } = {}
+  options: { checkInstallPorts?: boolean; testInference?: boolean } = {}
 ): Promise<DoctorResult> => {
   const checks: DoctorCheck[] = [];
   const installed = installationExists(paths);
@@ -316,7 +318,8 @@ export const runDoctor = async (
     }
     const probe = await checkHealth(paths);
     const health = withExpectedVersion(probe, manifest?.version);
-    if (runningServices && environmentValues && foreignServerDetected(probe, runningServices)) {
+    const foreignServer = runningServices && foreignServerDetected(probe, runningServices);
+    if (foreignServer && environmentValues) {
       checks.push({
         level: "fail",
         label: "OpenTeam health",
@@ -335,9 +338,46 @@ export const runDoctor = async (
         label: "Inference",
         detail:
           health.inference === "ready"
-            ? "signed in and ready"
+            ? "provider credentials are configured"
             : `status is ${health.inference}; connect a model provider before starting a task`,
       });
+    }
+    if (options.testInference) {
+      if (
+        !health.ok ||
+        foreignServer ||
+        !project ||
+        !runningServices?.has("server") ||
+        !runningServices.has("computer")
+      ) {
+        checks.push({
+          level: "warn",
+          label: "AI connection",
+          detail: "not tested; resolve the server and computer health failures first",
+        });
+      } else if (health.inference === "missing") {
+        checks.push({
+          level: "warn",
+          label: "AI connection",
+          detail: "not tested; no provider is connected. Run openteam setup",
+        });
+      } else {
+        try {
+          const settings = await readRuntimeInferenceSettings(paths);
+          const connection = checkInferenceConnection(project, settings);
+          checks.push({
+            level: connection.ok ? "pass" : "fail",
+            label: "AI connection",
+            detail: connection.detail,
+          });
+        } catch (error) {
+          checks.push({
+            level: "fail",
+            label: "AI connection",
+            detail: redactSensitiveText(error instanceof Error ? error.message : String(error)),
+          });
+        }
+      }
     }
   }
   return { ok: !checks.some((check) => check.level === "fail"), installed, checks };

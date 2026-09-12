@@ -28,6 +28,16 @@ const modelsStorePath = join(agentDir, "models-store.json");
 const createRuntime = () =>
   ModelRuntime.create({ authPath, modelsPath, modelsStorePath, allowModelNetwork: false });
 
+// Await the write so large JSON responses are fully flushed through Docker's stdout pipe.
+const writeJson = async (value: unknown): Promise<void> => {
+  await new Promise<void>((resolve, reject) => {
+    process.stdout.write(`${JSON.stringify(value)}\n`, (error) => {
+      if (error) reject(error);
+      else resolve();
+    });
+  });
+};
+
 const usage = () => {
   console.error(`Usage:
   openteam-pi-auth providers
@@ -311,13 +321,11 @@ const main = async (): Promise<void> => {
     };
     const inference = document.inference;
     if (!inference) throw new Error("Inference settings are missing");
-    console.log(
-      JSON.stringify(
-        serverInferenceSettings(
-          String(inference.providerId ?? ""),
-          String(inference.modelId ?? ""),
-          inference.reasoning
-        )
+    await writeJson(
+      serverInferenceSettings(
+        String(inference.providerId ?? ""),
+        String(inference.modelId ?? ""),
+        inference.reasoning
       )
     );
     return;
@@ -360,7 +368,7 @@ const main = async (): Promise<void> => {
         };
       })
     );
-    console.log(JSON.stringify(rows));
+    await writeJson(rows);
     return;
   }
   if (command === "models") {
@@ -374,7 +382,7 @@ const main = async (): Promise<void> => {
       contextWindow: model.contextWindow,
       maxTokens: model.maxTokens,
     }));
-    console.log(JSON.stringify(models));
+    await writeJson(models);
     return;
   }
   if (!rawProvider) throw new Error(`${command} requires a provider`);

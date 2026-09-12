@@ -298,6 +298,7 @@ export default function HomeScreen() {
   const {
     archiveBot,
     deleteGroup,
+    duplicateBot,
     error,
     isFixture,
     loading,
@@ -314,6 +315,7 @@ export default function HomeScreen() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionRow, setActionRow] = useState<ChannelRowProjection | null>(null);
   const [creationMenuOpen, setCreationMenuOpen] = useState(false);
+  const duplicatingBotIds = useRef(new Set<string>());
   const pinnedIds = sidebarPreferences.pinnedIds;
   const pinnedIdSet = useMemo(() => new Set(pinnedIds), [pinnedIds]);
   const unreadIdSet = useMemo(
@@ -454,6 +456,22 @@ export default function HomeScreen() {
       });
     },
     [perform, sidebarPreferences, updateSidebarPreferences]
+  );
+  const handleDuplicate = useCallback(
+    (row: ChannelRowProjection) => {
+      const botId = row.bot?.id;
+      if (!botId || duplicatingBotIds.current.has(botId)) return;
+      duplicatingBotIds.current.add(botId);
+      void perform(async () => {
+        try {
+          const channelId = await duplicateBot(botId);
+          router.push({ pathname: "/chat/[channelId]", params: { channelId } });
+        } finally {
+          duplicatingBotIds.current.delete(botId);
+        }
+      });
+    },
+    [duplicateBot, perform]
   );
   const handleDelete = useCallback(
     (row: ChannelRowProjection) => {
@@ -645,6 +663,7 @@ export default function HomeScreen() {
           onClose={() => setActionRow(null)}
           onCopyId={() => void Clipboard.setStringAsync(actionRow.channel.id)}
           onDelete={() => handleDelete(actionRow)}
+          onDuplicate={actionRow.bot ? () => handleDuplicate(actionRow) : undefined}
           onHide={() => handleHide(actionRow)}
           onMove={(sectionId) => handleMove(actionRow.channel.id, sectionId)}
           onNewSection={() => handleNewSection(actionRow)}

@@ -7,6 +7,9 @@ import { AgentDataStore, RoutineService } from "@openteam/messaging";
 import { Effect } from "effect";
 import { PgBoss } from "pg-boss";
 import { BotService } from "../src/services/bot-service";
+import type { AppService } from "../src/app-service";
+import { errorResponse } from "../src/http";
+import { botRoutes } from "../src/routes/bot";
 
 const databaseUrl = process.env.OPENTEAM_TEST_DATABASE_URL;
 
@@ -60,6 +63,7 @@ describe.skipIf(!databaseUrl)("Bot duplication with PostgreSQL and real agent fi
     await store.initializeBot(source.id);
     await store.writeBotFiles(source.id, ["settings"]);
     let computerAvailable = true;
+    let computerDisconnected = false;
     const computerCalls: string[] = [];
     const service = (queue = boss) =>
       new BotService(
@@ -68,6 +72,7 @@ describe.skipIf(!databaseUrl)("Bot duplication with PostgreSQL and real agent fi
         workspace,
         async (path) => {
           computerCalls.push(path);
+          if (computerDisconnected) throw new TypeError("fetch failed");
           return new Response(computerAvailable ? null : "offline", {
             status: computerAvailable ? 204 : 503,
           });
@@ -88,6 +93,10 @@ describe.skipIf(!databaseUrl)("Bot duplication with PostgreSQL and real agent fi
       },
       online: () => {
         computerAvailable = true;
+        computerDisconnected = false;
+      },
+      disconnect: () => {
+        computerDisconnected = true;
       },
       cleanup: async () => {
         const bots = await prisma.bot.findMany({
@@ -252,6 +261,7 @@ describe.skipIf(!databaseUrl)("Bot duplication with PostgreSQL and real agent fi
       });
       expect(stored).toMatchObject({
         namedBy: "app",
+        createdAt: f.source.createdAt,
         runtimeSessionId: null,
         runtimeSessionPath: null,
         episodePending: 0,
@@ -390,6 +400,240 @@ describe.skipIf(!databaseUrl)("Bot duplication with PostgreSQL and real agent fi
           f.service().duplicate(f.source.id, { clientRequestId: `${f.source.id}:archived` })
         )
       ).rejects.toThrow("Bot not found");
+    } finally {
+      await f.cleanup();
+    }
+  }, 30_000);
+
+  test("long Unicode names keep whole characters and remain editable", async () => {
+    const f = await fixture();
+    try {
+      const name = `${"A".repeat(74)}🚀`;
+      await f.store.mutateBotFiles(f.source.id, ["profile"], (tx) =>
+        tx.bot.update({ where: { id: f.source.id }, data: { name } })
+      );
+      const copy = await Effect.runPromise(
+        f.service().duplicate(f.source.id, { clientRequestId: `${f.source.id}:unicode` })
+      );
+      expect(copy.name).toBe(`${"A".repeat(74)} copy`);
+      expect(copy.name.length).toBeLessThanOrEqual(80);
+      expect(
+        JSON.parse(await readFile(join(f.store.botDirectory(copy.id), "profile.json"), "utf8")).name
+      ).toBe(copy.name);
+    } finally {
+      await f.cleanup();
+    }
+  }, 30_000);
+
+  test("malformed settings use reconciled defaults without preventing duplication", async () => {
+    const f = await fixture();
+    try {
+      const path = join(f.store.botDirectory(f.source.id), "settings.json");
+      await writeFile(path, "{broken JSON");
+      const copy = await Effect.runPromise(
+        f.service().duplicate(f.source.id, { clientRequestId: `${f.source.id}:bad-settings` })
+      );
+      expect(copy.notificationsEnabled).toBe(true);
+      expect(copy.hiddenFromSidebar).toBe(false);
+      expect(
+        JSON.parse(await readFile(join(f.store.botDirectory(copy.id), "settings.json"), "utf8"))
+      ).toEqual({ notifyOnAgentUpdates: true, hiddenFromSidebar: false });
+      expect(await readFile(path, "utf8")).toBe("{broken JSON");
+    } finally {
+      await f.cleanup();
+    }
+  }, 30_000);
+
+  test("replaying a deleted duplicate never recreates its computer store", async () => {
+    const f = await fixture();
+    try {
+      const input = { clientRequestId: `${f.source.id}:deleted-copy` };
+      const copy = await Effect.runPromise(f.service().duplicate(f.source.id, input));
+      await prisma.bot.update({ where: { id: copy.id }, data: { status: "archived" } });
+      await f.store.deleteAgentFiles(copy.id);
+      const calls = f.computerCalls.length;
+      await expect(Effect.runPromise(f.service().duplicate(f.source.id, input))).rejects.toThrow(
+        "Duplicated bot no longer exists"
+      );
+      expect(f.computerCalls).toHaveLength(calls);
+      expect(await readdir(join(f.root, "agents"))).toEqual([f.source.id]);
+      expect(await prisma.bot.count({ where: { defaultDirectory: f.workspace } })).toBe(2);
+    } finally {
+      await f.cleanup();
+    }
+  }, 30_000);
+
+  test("invalid source identifiers are rejected as unavailable bots", async () => {
+    const f = await fixture();
+    try {
+      for (const id of ["not-a-uuid", "..", "%2F", ""]) {
+        await expect(
+          Effect.runPromise(
+            f.service().duplicate(id, {
+              clientRequestId: `${f.source.id}:invalid-${id}`,
+            })
+          )
+        ).rejects.toThrow("Bot not found");
+      }
+      expect(await prisma.bot.count({ where: { defaultDirectory: f.workspace } })).toBe(1);
+      expect(f.computerCalls).toHaveLength(0);
+    } finally {
+      await f.cleanup();
+    }
+  }, 30_000);
+
+  test("the HTTP route validates requests, ignores client configuration, and returns conflict/gone statuses", async () => {
+    const f = await fixture();
+    const app = { duplicateBot: f.service().duplicate } as unknown as AppService;
+    const request = async (body: string, id = f.source.id) => {
+      const url = new URL(`http://localhost/api/bots/${id}/duplicate`);
+      try {
+        return (await botRoutes({
+          app,
+          url,
+          path: url.pathname,
+          authMode: "disabled",
+          request: new Request(url, {
+            method: "POST",
+            body,
+            headers: { "content-type": "application/json" },
+          }),
+          authenticatedSessionId: null,
+        }))!;
+      } catch (error) {
+        return errorResponse(error);
+      }
+    };
+    try {
+      for (const body of [
+        "{",
+        "{}",
+        "null",
+        '{"clientRequestId":123}',
+        '{"clientRequestId":"short"}',
+        JSON.stringify({ clientRequestId: "a".repeat(121) }),
+      ]) {
+        expect((await request(body)).status).toBe(400);
+      }
+      const input = {
+        clientRequestId: `${f.source.id}:http`,
+        name: "Injected title",
+        instructions: "Injected instructions",
+        status: "archived",
+      };
+      const response = await request(JSON.stringify(input));
+      expect(response.status).toBe(201);
+      const copy = await response.json();
+      expect(copy.name).toBe(`${f.source.name.slice(0, 75)} copy`);
+      expect(copy.instructions).toBe(f.source.instructions);
+      expect(copy.status).toBe("provisioning");
+      expect((await request(JSON.stringify(input), copy.id)).status).toBe(409);
+      expect((await request(JSON.stringify(input), "invalid-id")).status).toBe(404);
+      await prisma.bot.update({ where: { id: copy.id }, data: { status: "archived" } });
+      expect((await request(JSON.stringify(input))).status).toBe(410);
+    } finally {
+      await f.cleanup();
+    }
+  }, 30_000);
+
+  test("a failed source is reusable but its runtime failures, child identities, and deleted routines are not inherited", async () => {
+    const f = await fixture();
+    try {
+      await prisma.bot.update({
+        where: { id: f.source.id },
+        data: {
+          status: "failed",
+          onboardingStatus: "failed",
+          provisioningError: { message: "SOURCE_FAILURE" },
+          dreamingEnabled: true,
+          inferenceProvider: "test-provider",
+          inferenceModel: "test-model",
+        },
+      });
+      const child = await prisma.bot.create({
+        data: {
+          name: "Hidden child",
+          defaultDirectory: f.workspace,
+          status: "active",
+          conversation: { create: {} },
+          subagentIdentity: {
+            create: {
+              parentBotId: f.source.id,
+              parentRunId: crypto.randomUUID(),
+              parentChannelId: f.channel.id,
+              launchCallId: crypto.randomUUID(),
+              description: "Source child",
+              prompt: "SOURCE_CHILD_PROMPT",
+              subagentType: "general",
+              outputPath: "source-child.txt",
+            },
+          },
+        },
+      });
+      await expect(
+        Effect.runPromise(
+          f.service().duplicate(child.id, { clientRequestId: `${f.source.id}:child` })
+        )
+      ).rejects.toThrow("Bot not found");
+      await prisma.routine.create({
+        data: {
+          botId: f.source.id,
+          slug: "deleted-routine",
+          name: "Deleted source routine",
+          prompt: "Do not copy this routine",
+          trigger: { type: "cron", schedule: "0 0 1 1 *" },
+          scheduleText: "0 0 1 1 *",
+          scheduleKind: "cron",
+          cronExpression: "0 0 1 1 *",
+          timezone: "UTC",
+          enabled: false,
+          deletedAt: new Date(),
+        },
+      });
+      const copy = await Effect.runPromise(
+        f.service().duplicate(f.source.id, { clientRequestId: `${f.source.id}:failed-source` })
+      );
+      const stored = await prisma.bot.findUniqueOrThrow({
+        where: { id: copy.id },
+        include: { parentSubagents: true, subagentIdentity: true, routines: true },
+      });
+      expect(stored).toMatchObject({
+        status: "provisioning",
+        onboardingStatus: "completed",
+        provisioningError: null,
+        dreamingEnabled: true,
+        inferenceProvider: "test-provider",
+        inferenceModel: "test-model",
+        runtimeSessionId: null,
+        parentSubagents: [],
+        subagentIdentity: null,
+        routines: [],
+      });
+      expect(copy.hasAvatar).toBe(false);
+      expect(await prisma.bot.count({ where: { defaultDirectory: f.workspace } })).toBe(3);
+    } finally {
+      await f.cleanup();
+    }
+  }, 30_000);
+
+  test("a disconnected computer returns a retryable error and preserves the original snapshot", async () => {
+    const f = await fixture();
+    try {
+      const input = { clientRequestId: `${f.source.id}:disconnect` };
+      f.disconnect();
+      const result = await Effect.runPromise(
+        Effect.either(f.service().duplicate(f.source.id, input))
+      );
+      expect(result).toMatchObject({
+        _tag: "Left",
+        left: { status: 503, code: "agent_store_unavailable" },
+      });
+      expect(await prisma.bot.count({ where: { defaultDirectory: f.workspace } })).toBe(2);
+      await prisma.bot.update({ where: { id: f.source.id }, data: { status: "archived" } });
+      f.online();
+      const replay = await Effect.runPromise(f.service().duplicate(f.source.id, input));
+      expect(replay.title).toBe(f.source.title);
+      expect(await prisma.bot.count({ where: { defaultDirectory: f.workspace } })).toBe(2);
     } finally {
       await f.cleanup();
     }

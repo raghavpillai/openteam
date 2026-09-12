@@ -1169,7 +1169,13 @@ export class AgentDataStore {
     await mkdir(directory, { recursive: true, mode: 0o755 });
     await atomicWrite(join(directory, "profile.json"), jsonFile(profileDocument(target)));
     const settingsText = await readText(join(this.botDirectory(sourceId), "settings.json"));
-    const settings = settingsText ? parseJsonObject(settingsText, "settings.json") : {};
+    let settings: Record<string, unknown> = {};
+    try {
+      if (settingsText) settings = parseJsonObject(settingsText, "settings.json");
+    } catch {
+      // Reconciliation already applied the host's defaults for invalid settings.
+      // Keep the original file intact and give the copy a valid settings document.
+    }
     await atomicWrite(
       join(directory, "settings.json"),
       jsonFile({ ...settings, ...settingsDocument(target), hiddenFromSidebar: false })

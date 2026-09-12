@@ -2,6 +2,7 @@ import { ApiError, type BotView, type DuplicateBotInput } from "@openteam/contra
 import { COMPUTER_API_PATHS } from "@openteam/contracts/service-protocol";
 import { Prisma, type PrismaClient } from "@openteam/db";
 import type { AgentDataStore } from "@openteam/messaging";
+import { Schema } from "effect";
 import { fromPrisma, type PgBoss } from "pg-boss";
 import { appendEvent, type ComputerFetch, hashRequest, toJson } from "./service-utils";
 import { toBotView } from "./view-mappers";
@@ -13,12 +14,25 @@ interface Dependencies {
   computerFetch: ComputerFetch;
 }
 
+const nameSegments = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+const duplicateName = (name: string): string => {
+  let prefix = "";
+  for (const { segment } of nameSegments.segment(name)) {
+    if (prefix.length + segment.length > 75) break;
+    prefix += segment;
+  }
+  return `${prefix} copy`;
+};
+
 /** A new identity and empty conversation with the source's durable configuration. */
 export async function duplicateBot(
   { prisma, boss, agentData, computerFetch }: Dependencies,
   sourceId: string,
   input: DuplicateBotInput
 ): Promise<BotView> {
+  if (!Schema.is(Schema.UUID)(sourceId)) {
+    throw new ApiError(404, "bot_not_found", "Bot not found");
+  }
   const scope = "bot:duplicate";
   const requestHash = hashRequest({ sourceId, ...input });
   const requestKey = { scope_key: { scope, key: input.clientRequestId } };
@@ -33,17 +47,25 @@ export async function duplicateBot(
     const response = record.response as { botId?: string } | null;
     if (!response?.botId)
       throw new ApiError(409, "request_in_progress", "This bot is being duplicated");
-    const bot = await prisma.bot.findUniqueOrThrow({
+    const bot = await prisma.bot.findUnique({
       where: { id: response.botId },
       include: { conversation: true, channelMemberships: { include: { channel: true } } },
     });
+    if (!bot || bot.status === "archived") {
+      throw new ApiError(410, "duplicate_deleted", "Duplicated bot no longer exists");
+    }
     // This PUT is idempotent. A retry after a computer outage finishes the same
     // duplicate instead of copying newer source state or creating another bot.
-    const store = await computerFetch(COMPUTER_API_PATHS.agentStore(bot.id), {
-      method: "PUT",
-      body: JSON.stringify({ createdAt: bot.createdAt.getTime() }),
-      signal: AbortSignal.timeout(15_000),
-    });
+    let store: Response;
+    try {
+      store = await computerFetch(COMPUTER_API_PATHS.agentStore(bot.id), {
+        method: "PUT",
+        body: JSON.stringify({ createdAt: bot.createdAt.getTime() }),
+        signal: AbortSignal.timeout(15_000),
+      });
+    } catch {
+      throw new ApiError(503, "agent_store_unavailable", "The bot's computer is unavailable");
+    }
     if (!store.ok) throw new ApiError(503, "agent_store_unavailable", await store.text());
     return toBotView(bot);
   };
@@ -79,7 +101,7 @@ export async function duplicateBot(
         if (!source || source.status === "archived" || source.subagentIdentity) {
           throw new ApiError(404, "bot_not_found", "Bot not found");
         }
-        const name = `${source.name.slice(0, 75)} copy`;
+        const name = duplicateName(source.name);
         await tx.bot.create({
           data: {
             id: botId,
@@ -97,6 +119,9 @@ export async function duplicateBot(
             runtimeEngine: source.runtimeEngine,
             inferenceProvider: source.inferenceProvider,
             inferenceModel: source.inferenceModel,
+            // Grok keeps the source's creation time in the cloned store/sidebar.
+            // The new identity and bot.created event still identify this action.
+            createdAt: source.createdAt,
             status: "provisioning",
             // Duplicates open with no greeting, bootstrap turn, or inherited context.
             onboardingStatus: "completed",

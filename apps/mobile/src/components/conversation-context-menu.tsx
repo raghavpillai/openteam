@@ -86,6 +86,7 @@ export function ConversationContextMenu({
   onClose,
   onCopyId,
   onDelete,
+  onDuplicate,
   onHide,
   onMove,
   onNewSection,
@@ -101,6 +102,7 @@ export function ConversationContextMenu({
   onClose: () => void;
   onCopyId: () => void;
   onDelete: () => void;
+  onDuplicate?: () => void;
   onHide: () => void;
   onMove: (sectionId: string | null) => void;
   onNewSection: () => void;
@@ -193,6 +195,13 @@ export function ConversationContextMenu({
               trailing="expanded"
             />
             <Separator />
+            {onDuplicate ? (
+              <MenuRow
+                icon="plus.square.on.square"
+                label="Duplicate"
+                onPress={() => closeAfter(onDuplicate)}
+              />
+            ) : null}
             <MenuRow icon="doc.on.doc" label="Copy ID" onPress={() => closeAfter(onCopyId)} />
             <MenuRow destructive icon="trash" label="Delete" onPress={() => closeAfter(onDelete)} />
           </MenuCard>

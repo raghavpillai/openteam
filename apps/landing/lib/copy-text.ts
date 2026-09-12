@@ -16,7 +16,7 @@ export async function copyText(text: string): Promise<void> {
   const field = document.createElement("textarea");
   field.value = text;
   field.readOnly = true;
-  field.style.cssText = "position:fixed;left:-9999px;top:0;opacity:0";
+  field.style.cssText = "position:fixed;left:-9999px;top:0;opacity:0;font-size:16px";
   document.body.appendChild(field);
   let copied = false;
   try {

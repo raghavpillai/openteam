@@ -1,7 +1,7 @@
 "use client";
 
 import { ArrowUpRight } from "lucide-react";
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import { GithubMark, Wordmark } from "./brand";
 import { Button } from "./ui/button";
 import "./site-header.css";
@@ -10,6 +10,15 @@ const GITHUB = "https://github.com/raghavpillai/openteam";
 
 export function SiteHeader({ home = false }: { home?: boolean }) {
   const menu = useRef<HTMLDetailsElement>(null);
+  useEffect(() => {
+    const dismissOutside = (event: PointerEvent) => {
+      if (menu.current?.open && !menu.current.contains(event.target as Node)) {
+        menu.current.open = false;
+      }
+    };
+    document.addEventListener("pointerdown", dismissOutside);
+    return () => document.removeEventListener("pointerdown", dismissOutside);
+  }, []);
   const prefix = home ? "" : "/";
   const links = [
     ["How it works", "how-it-works"],

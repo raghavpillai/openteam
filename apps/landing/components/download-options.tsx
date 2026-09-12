@@ -36,11 +36,21 @@ const iconFor = (target: DesktopTargetId) => {
 export function targetForPlatform(
   platform: string,
   userAgent: string,
-  architecture: string
+  architecture: string,
+  maxTouchPoints = 0
 ): DesktopTargetId | null {
   const normalizedPlatform = platform.toLowerCase();
   const normalizedAgent = userAgent.toLowerCase();
   const normalizedArchitecture = architecture.toLowerCase();
+
+  // Android reports Linux; iPadOS Safari can report a desktop Mac platform.
+  // Neither can run a desktop build, so leave the platform choice unselected.
+  if (
+    /android|iphone|ipad|ipod/.test(`${normalizedPlatform} ${normalizedAgent}`) ||
+    (normalizedPlatform.includes("mac") && maxTouchPoints > 1)
+  ) {
+    return null;
+  }
 
   if (normalizedPlatform.includes("mac") || normalizedAgent.includes("macintosh")) {
     if (normalizedArchitecture.includes("arm")) return "mac-arm64";
@@ -75,7 +85,7 @@ export const detectTarget = async (): Promise<DesktopTargetId | null> => {
     // Architecture hints are optional and privacy-gated in some browsers.
   }
 
-  return targetForPlatform(platform, ua, architecture);
+  return targetForPlatform(platform, ua, architecture, browser.maxTouchPoints);
 };
 
 const formatSize = (bytes: number) => `${Math.max(1, Math.round(bytes / 1024 / 1024))} MB`;

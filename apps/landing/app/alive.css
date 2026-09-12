@@ -116,3 +116,98 @@
   .ot-grid-signal { display: none; }
   .landing *, .pl-lightbox, .pl-lightbox-backdrop { animation: none !important; transition-duration: .01ms !important; }
 }
+
+/* Touch targets expand without changing the desktop app recreation. */
+@media (pointer: coarse) {
+  .landing .ot-site-header .ot-nav .ot-button,
+  .landing .ot-site-header .ot-wordmark,
+  .landing .ot-site-header .ot-github {
+    min-height: 44px;
+    height: auto;
+  }
+  .landing .ot-site-header .ot-mobile-menu > summary {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 44px;
+    min-height: 44px;
+    padding: 0;
+  }
+  .landing .ot-site-header .ot-mobile-menu nav a,
+  .landing .pd-scenario,
+  .landing .pd-replay,
+  .landing .twd-playback,
+  .landing .pl-view,
+  .landing .pl-expand,
+  .landing .ot-worker-tab,
+  .landing .dt-file-open,
+  .landing .dc-demo-caption button,
+  .landing .dc-handoff-actions button,
+  .landing .dr-actions button:not(.dr-switch),
+  .landing .dr-triggers > button,
+  .landing .dl-download-button,
+  .landing .dl-command .dl-copy {
+    min-height: 44px;
+    height: auto;
+  }
+  .landing .dt-chat-header,
+  .landing .dc-viewer-header {
+    height: 52px;
+  }
+  .landing button.dt-icon-button,
+  .dt-preview-dialog[role="dialog"] > header .dt-icon-button,
+  .twd-preview-dialog .twd-close,
+  .pl-lightbox[role="dialog"] > header button,
+  .landing .dc-viewer-header button,
+  .landing .dr-remove-schedule,
+  .landing .dl-command .dl-copy,
+  .landing .ot-setup-command button {
+    min-width: 44px;
+    min-height: 44px;
+    height: 44px;
+  }
+  .landing button.dt-icon-button,
+  .dt-preview-dialog[role="dialog"] > header .dt-icon-button,
+  .twd-preview-dialog .twd-close,
+  .pl-lightbox[role="dialog"] > header button,
+  .landing .dc-viewer-header .dc-viewer-close,
+  .landing .dr-remove-schedule {
+    width: 44px;
+    flex-shrink: 0;
+  }
+  .dt-preview-dialog[role="dialog"] { grid-template-rows: 52px minmax(0, 1fr); }
+  .dt-computer-dialog[role="dialog"] { grid-template-rows: 52px auto; }
+  .landing .dr-triggers > div { min-height: 48px; }
+  .landing .dr-remove-schedule { opacity: 1; }
+  .landing .dr-switch {
+    position: relative;
+    flex: 0 0 44px;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    background: transparent;
+  }
+  .landing .dr-switch[aria-checked] { background: transparent; }
+  .landing .dr-switch::before {
+    content: "";
+    position: absolute;
+    inset: 14px 8px;
+    border-radius: 99px;
+    background: #d9d9d9;
+  }
+  .landing .dr-switch[aria-checked="true"]::before { background: #070707; }
+  .landing .dr-switch > span {
+    position: absolute;
+    left: 10px;
+    top: 16px;
+  }
+  .landing .dr-fields input,
+  .landing .dr-fields textarea { font-size: 16px; }
+  .pl-lightbox-image,
+  .dt-preview-content,
+  .twd-preview-dialog { overscroll-behavior: contain; }
+}
+@media (pointer: coarse) and (max-width: 700px) {
+  .landing .dc-viewer-header > span { display: none; }
+  .landing .dc-viewer-header .dc-viewer-skip { margin-right: auto; }
+}

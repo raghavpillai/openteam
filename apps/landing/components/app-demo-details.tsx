@@ -189,6 +189,7 @@ export function RoutineDemo() {
             <Button
               onClick={() => {
                 setDeleted(false);
+                setRunning(false);
                 setHasRun(false);
                 setSchedules(["Every day at 8:00 AM"]);
                 setEnabled(true);
@@ -210,8 +211,12 @@ export function RoutineDemo() {
               >
                 <span />
               </button>
-              <span>Active</span>
-              <Button variant="secondary" className="dr-delete" onClick={() => setDeleted(true)}>
+              <span>{enabled ? "Active" : "Inactive"}</span>
+              <Button variant="secondary" className="dr-delete" onClick={() => {
+                setRunning(false);
+                setHasRun(false);
+                setDeleted(true);
+              }}>
                 Delete
               </Button>
               <Button className="dr-test" onClick={() => setRunning(true)} disabled={running}>

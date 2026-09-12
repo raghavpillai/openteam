@@ -13,6 +13,14 @@ describe("download target detection", () => {
     expect(targetForPlatform("Linux", "Mozilla/5.0", "x86_64")).toBe("linux-x64");
   });
 
+  test("does not recommend desktop builds to phones and tablets", () => {
+    expect(targetForPlatform("Linux armv8l", "Mozilla/5.0 (Linux; Android 15; Pixel 9)", "arm64", 5)).toBeNull();
+    expect(targetForPlatform("iPhone", "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X)", "", 5)).toBeNull();
+    expect(targetForPlatform("iPad", "Mozilla/5.0 (iPad; CPU OS 18_5 like Mac OS X)", "", 5)).toBeNull();
+    expect(targetForPlatform("MacIntel", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15)", "", 5)).toBeNull();
+    expect(targetForPlatform("Windows", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)", "x86_64", 10)).toBe("windows-x64");
+  });
+
   test("does not guess for an unknown platform", () => {
     expect(targetForPlatform("", "Mozilla/5.0", "")).toBeNull();
   });

@@ -1,8 +1,7 @@
 export const ELECTRON_BUNDLE_ARTIFACTS = [
   "main.js",
-  "chunks/index.js",
-  "chunks/main.js",
   "host-utility.js",
+  "openteam-cli.js",
   "preload.cjs",
 ] as const;
 
@@ -41,5 +40,8 @@ export const isElectronBundleArtifact = (filename: string | Buffer | null) => {
     "\\",
     "/"
   );
-  return ELECTRON_BUNDLE_ARTIFACTS.includes(value as (typeof ELECTRON_BUNDLE_ARTIFACTS)[number]);
+  return (
+    ELECTRON_BUNDLE_ARTIFACTS.includes(value as (typeof ELECTRON_BUNDLE_ARTIFACTS)[number]) ||
+    /^chunks\/.+\.js$/.test(value)
+  );
 };

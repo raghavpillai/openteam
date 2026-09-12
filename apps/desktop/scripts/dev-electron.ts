@@ -57,6 +57,16 @@ const bundleCommands = [
   ],
   [
     "build",
+    "../cli/src/main.ts",
+    "--outfile",
+    "dist-electron/openteam-cli.js",
+    "--target",
+    "node",
+    "--format",
+    "esm",
+  ],
+  [
+    "build",
     "src/preload/index.ts",
     "--outfile",
     "dist-electron/preload.cjs",
@@ -72,20 +82,30 @@ const bundleCommands = [
 const delay = (milliseconds: number) =>
   new Promise<void>((resolveDelay) => setTimeout(resolveDelay, milliseconds));
 
-const snapshotArtifacts = async () =>
-  Promise.all(
-    ELECTRON_BUNDLE_ARTIFACTS.map(async (artifact) => {
+const snapshotArtifacts = async () => {
+  const chunks: string[] = [];
+  for await (const chunk of new Bun.Glob("chunks/**/*.js").scan(bundleRoot)) chunks.push(chunk);
+  return Promise.all(
+    [...ELECTRON_BUNDLE_ARTIFACTS, ...chunks].sort().map(async (artifact) => {
       const details = await stat(resolve(bundleRoot, artifact));
       return `${artifact}:${details.size}:${details.mtimeMs}`;
     })
   );
+};
 
 const waitForStableArtifacts = async () => {
   for (let attempt = 0; attempt < 40; attempt += 1) {
-    const before = await snapshotArtifacts();
-    await delay(50);
-    const after = await snapshotArtifacts();
-    if (before.every((value, index) => value === after[index])) return;
+    try {
+      const before = await snapshotArtifacts();
+      await delay(50);
+      const after = await snapshotArtifacts();
+      if (before.length === after.length && before.every((value, index) => value === after[index]))
+        return;
+    } catch (error) {
+      // A rebuild can replace an entry or remove a lazy chunk between scans.
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      await delay(50);
+    }
   }
   throw new Error("Electron development bundles did not stabilize");
 };
@@ -147,7 +167,8 @@ const spawnElectron = () => {
 
   void child.exited.then((exitCode) => {
     if (electronProcess === child) electronProcess = null;
-    if (shuttingDown || expectedElectronExits.has(child)) return;
+    const expected = expectedElectronExits.delete(child);
+    if (shuttingDown || expected) return;
     console.error(`[electron] development process exited (${exitCode})`);
     void shutdown(exitCode === 0 ? 0 : exitCode);
   });
@@ -155,7 +176,6 @@ const spawnElectron = () => {
 
 const restartElectron = async () => {
   const previous = electronProcess;
-  electronProcess = null;
   if (previous) {
     expectedElectronExits.add(previous);
     console.log("[electron] restarting after main-process bundle change");
@@ -212,7 +232,12 @@ outputWatcher = watch(bundleRoot, { recursive: true }, (_event, filename) => {
   if (filename === null) {
     for (const artifact of ELECTRON_BUNDLE_ARTIFACTS) observedInitialArtifacts.add(artifact);
   } else {
-    observedInitialArtifacts.add(filename.toString());
+    const artifact = filename.toString().replaceAll("\\", "/");
+    if (
+      ELECTRON_BUNDLE_ARTIFACTS.includes(artifact as (typeof ELECTRON_BUNDLE_ARTIFACTS)[number])
+    ) {
+      observedInitialArtifacts.add(artifact);
+    }
   }
 
   if (observedInitialArtifacts.size === ELECTRON_BUNDLE_ARTIFACTS.length) {
@@ -241,11 +266,16 @@ for (const command of bundleCommands) {
 process.once("SIGINT", () => void shutdown(0));
 process.once("SIGTERM", () => void shutdown(0));
 
-console.log(`[electron] waiting for ${environment.waitResource}`);
-await Promise.all([initialArtifacts, waitOn({ resources: [environment.waitResource] })]);
-await waitForStableArtifacts();
-developmentReady = true;
-requestedGeneration = 0;
-spawnElectron();
+try {
+  console.log(`[electron] waiting for ${environment.waitResource}`);
+  await Promise.all([initialArtifacts, waitOn({ resources: [environment.waitResource] })]);
+  await waitForStableArtifacts();
+  developmentReady = true;
+  requestedGeneration = 0;
+  spawnElectron();
+} catch (error) {
+  console.error("[electron] startup failed", error);
+  await shutdown(1);
+}
 
 await new Promise<never>(() => undefined);

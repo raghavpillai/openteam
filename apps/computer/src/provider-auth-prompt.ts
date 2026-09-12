@@ -1,3 +1,5 @@
+import type { Interface } from "node:readline/promises";
+
 export interface AuthSelectOption {
   id: string;
   label: string;
@@ -26,4 +28,20 @@ export const selectedAuthOption = <Option extends AuthSelectOption>(
   const value = answer.trim();
   if (!value) return defaultAuthOption(options);
   return options[Number(value) - 1] ?? options.find((option) => option.id === value);
+};
+export const createAuthQuestion = (terminal: Interface) => {
+  const inputClosed = new AbortController();
+  terminal.once("close", () => inputClosed.abort());
+  return async (message: string): Promise<string> => {
+    try {
+      return await terminal.question(message, { signal: inputClosed.signal });
+    } catch (error) {
+      if (inputClosed.signal.aborted) {
+        throw new Error(
+          "Provider sign-in did not complete because terminal input closed. Retry in an interactive terminal."
+        );
+      }
+      throw error;
+    }
+  };
 };

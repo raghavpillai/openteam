@@ -12,7 +12,7 @@ import {
   writeFileAtomic,
   writeManifest,
 } from "./config";
-import { API_PORT, PROJECT_NAME } from "./constants";
+import { API_PORT, CLI_VERSION, PROJECT_NAME } from "./constants";
 import {
   type DetectedLogin,
   detectReusableLogins,
@@ -22,8 +22,10 @@ import {
 import { type ComposeProject, requireComposeProject } from "./docker";
 import { printDoctor, runDoctor, suggestApiPort } from "./doctor";
 import { CliError } from "./errors";
-import { checkHealth, waitForHealth } from "./health";
+import { checkHealth } from "./health";
+import { SETUP_JOBS_NOTE, waitForStartup } from "./startup";
 import type { CommandRunner } from "./process";
+import { supportsCredentialImport } from "./provider-capabilities";
 import { inspectPublicReadiness } from "./public-readiness";
 import {
   readRuntimeInferenceSettings,
@@ -920,17 +922,28 @@ export const setupCommand = async (
   const prompter = suppliedPrompter || createTerminalPrompter();
   const guidedStages = options.advanced ? SETUP_STAGES : SETUP_STAGES.slice(1);
   const presentation =
-    options.presentation ??
-    createSetupPresentation({ version: manifest.version, stages: guidedStages });
+    options.presentation ?? createSetupPresentation({ version: CLI_VERSION, stages: guidedStages });
   const fresh = options.fresh ?? !manifest.ownerUsername;
   const detectedPrivateHost =
     options.detectedPrivateHost === undefined
       ? detectPrivateNetworkHost()
       : options.detectedPrivateHost;
   const loginDetection: LoginDetectionOptions = options.loginDetection ?? { runner };
-  const detectedLogins = options.detectedLogins ?? detectReusableLogins(loginDetection);
+  const localLogins = options.detectedLogins ?? detectReusableLogins(loginDetection);
+  const canImportLogin =
+    localLogins.length > 0 && supportsCredentialImport(project, running.has("computer"));
+  const detectedLogins = canImportLogin ? localLogins : [];
   const previousApiPort = current.get("OPENTEAM_API_PORT");
   const notes: Array<{ text: string; tone: MessageTone }> = [];
+  if (manifest.version !== CLI_VERSION) {
+    notes.push({ text: `Installed server release: v${manifest.version}.`, tone: "muted" });
+  }
+  if (localLogins.length && !canImportLogin && initialHealth.inference !== "ready") {
+    notes.push({
+      text: "Use a fresh provider sign-in for this installation; reusing saved CLI sign-ins is not available.",
+      tone: "info",
+    });
+  }
   if (fresh && !initialHealth.ok) {
     const configured = Number(current.get("OPENTEAM_API_PORT") || API_PORT);
     const suggested = await suggestApiPort("127.0.0.1", configured);
@@ -958,7 +971,7 @@ export const setupCommand = async (
   try {
     if (prompter.session) {
       configuration = await prompter.session({
-        version: manifest.version,
+        version: CLI_VERSION,
         stages: SETUP_STAGES,
         current,
         authenticated,
@@ -975,6 +988,7 @@ export const setupCommand = async (
         // The session clears itself; leave a settled record of what is being applied.
         presentation.stage(collectOptions.advanced ? 3 : 2);
         presentation.message(`Installation: ${paths.directory}`, "muted");
+        presentation.message(`Installed server release: v${manifest.version}`, "muted");
         presentation.summary(
           "Configuration ready",
           configurationSummary(configuration, collectOptions.advanced ?? false)
@@ -1009,6 +1023,7 @@ export const setupCommand = async (
   // Ports held by our own running services are fine; a changed API port must be free.
   const ownedPorts = new Set(running);
   if (configuration.apiPort !== (previousApiPort || String(API_PORT))) ownedPorts.delete("server");
+  presentation.message("Checking startup ports…", "info");
   await assertPortsAvailable(runner, portRequirementsFromConfiguration(configuration, ownedPorts));
   let registeredCustomProvider: string | null = null;
   try {
@@ -1044,9 +1059,10 @@ export const setupCommand = async (
           // Stop a previously enabled proxy explicitly when switching away from HTTPS.
           project.run(["stop", "caddy"]);
         }
+        presentation.message(SETUP_JOBS_NOTE, "info");
         project.runOrThrow(["up", "--detach", "--remove-orphans"], { inherit: true });
         process.stdout.write("Waiting for OpenTeam");
-        const health = await waitForHealth(paths);
+        const health = await waitForStartup(project, paths);
         if (!health.ok) throw new CliError(`OpenTeam did not become healthy: ${health.detail}`);
         presentation.message(
           `Core services are ready at ${health.url.replace(/\/api\/v0\/health$/, "")}`,
@@ -1120,11 +1136,11 @@ export const setupCommand = async (
       configuration.apiKey = undefined;
     } else {
       let imported = false;
-      if (configuration.reuseLogin) {
+      if (configuration.reuseLogin && canImportLogin) {
         const reusable = readReusableCredential(configuration.reuseLogin.provider, loginDetection);
         if (!reusable) {
           presentation.message(
-            `The ${configuration.reuseLogin.source} sign-in could not be read; signing in through the browser instead.`,
+            `The ${configuration.reuseLogin.source} sign-in is no longer available. Continue with a fresh provider sign-in.`,
             "warning"
           );
         } else {
@@ -1138,18 +1154,48 @@ export const setupCommand = async (
             presentation.message(`Reused your ${reusable.source} sign-in.`, "success");
           } else {
             presentation.message(
-              `Could not reuse the ${reusable.source} sign-in (${result.stderr.trim() || result.stdout.trim() || "import failed"}); signing in through the browser instead.`,
+              `Could not reuse the ${reusable.source} sign-in. Continue with a fresh provider sign-in.`,
               "warning"
             );
           }
         }
       }
       if (!imported) {
+        presentation.message(
+          `Continue with a fresh ${providerLabel(configuration.provider)} sign-in.`,
+          "info"
+        );
+        if (configuration.provider === "openai-codex") {
+          presentation.message(
+            "If you are connected over SSH, choose Device code login at the next prompt.",
+            "info"
+          );
+        }
         project.runOrThrow(
           ["exec", "computer", "openteam-pi-auth", "login", configuration.provider, "oauth"],
           { inherit: true }
         );
       }
+    }
+    // Older helpers can exit successfully when stdin closes during an OAuth prompt.
+    // Check the saved authentication in a separate process before reporting success.
+    const verification = project.run(
+      [
+        "exec",
+        "--no-TTY",
+        "computer",
+        "openteam-pi-auth",
+        "verify",
+        configuration.provider,
+        configuration.model,
+      ],
+      { timeoutMs: 10_000 }
+    );
+    if (verification.status !== 0) {
+      throw new CliError(
+        `${providerLabel(configuration.provider)} sign-in did not complete or could not be verified. Run openteam provider login ${configuration.provider}, finish the provider sign-in, then retry openteam setup.`,
+        2
+      );
     }
     presentation.message(`${providerLabel(configuration.provider)} is connected.`, "success");
   }
@@ -1183,6 +1229,16 @@ export const setupCommand = async (
     ...(configuration.skipInference ? { omitLabels: ["Inference"] } : {}),
   });
   if (!diagnosis.ok) throw new CliError("Setup completed with blocking doctor failures.", 2);
+  if (
+    configuration.authenticate &&
+    !configuration.skipInference &&
+    !diagnosis.checks.some((check) => check.label === "Inference" && check.level === "pass")
+  ) {
+    throw new CliError(
+      `The provider sign-in was saved, but OpenTeam cannot use it yet. Run openteam doctor to check inference, then retry openteam setup.`,
+      2
+    );
+  }
   if (["https", "proxy", "http"].includes(configuration.accessMode)) {
     const readiness = await inspectPublicReadiness(configuration.publicUrl);
     const publicFailure = [

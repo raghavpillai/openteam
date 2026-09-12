@@ -8,6 +8,7 @@ export interface HealthResult {
   detail: string;
   inference?: string;
   version?: string;
+  connectionFailed?: boolean;
 }
 
 export const healthUrl = (paths: InstallationPaths): string => {
@@ -49,10 +50,16 @@ export const checkHealth = async (
       expectedVersion
     );
   } catch (error) {
+    const cause = error instanceof Error ? error.cause : undefined;
+    const code =
+      cause && typeof cause === "object" && "code" in cause && typeof cause.code === "string"
+        ? cause.code
+        : undefined;
     return {
       ok: false,
       url,
-      detail: error instanceof Error ? error.message : String(error),
+      detail: `${error instanceof Error ? error.message : String(error)}${code ? ` (${code})` : ""}`,
+      connectionFailed: true,
     };
   }
 };
@@ -76,15 +83,30 @@ export const withExpectedVersion = (
 export const waitForHealth = async (
   paths: InstallationPaths,
   timeoutMs = 180_000,
-  expectedVersion?: string
+  expectedVersion?: string,
+  diagnose?: (health: HealthResult, elapsedMs: number) => void
 ): Promise<HealthResult> => {
-  const deadline = Date.now() + timeoutMs;
+  const started = Date.now();
+  const deadline = started + timeoutMs;
   let latest = await checkHealth(paths, expectedVersion);
-  while (!latest.ok && Date.now() < deadline) {
-    process.stdout.write(".");
-    await new Promise((resolve) => setTimeout(resolve, 2_000));
-    latest = await checkHealth(paths, expectedVersion);
+  let lastDetail: string | undefined;
+  let lastReported = 0;
+  try {
+    while (!latest.ok) {
+      if (latest.detail !== lastDetail || Date.now() - lastReported >= 10_000) {
+        process.stdout.write(
+          `\n  ${latest.url}: ${latest.detail} (${Math.floor((Date.now() - started) / 1_000)}s elapsed)`
+        );
+        lastDetail = latest.detail;
+        lastReported = Date.now();
+      }
+      diagnose?.(latest, Date.now() - started);
+      if (Date.now() >= deadline) break;
+      await new Promise((resolve) => setTimeout(resolve, Math.min(2_000, deadline - Date.now())));
+      latest = await checkHealth(paths, expectedVersion);
+    }
+    return latest;
+  } finally {
+    process.stdout.write("\n");
   }
-  process.stdout.write("\n");
-  return latest;
 };

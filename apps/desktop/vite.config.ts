@@ -37,11 +37,12 @@ const emojiPickerRuntimeData = (): Plugin => ({
     const entries = (JSON.parse(source) as EmojiRuntimeSource[])
       .filter((entry) => entry.group !== undefined && supportedGroups.has(entry.group))
       .sort((left, right) => (left.order ?? 0) - (right.order ?? 0))
-      .map(({ unicode, label, group, order, tags, emoticon }) => ({
+      // Entries are already sorted; the runtime's stable sort preserves this
+      // order when the original numeric sort keys are omitted.
+      .map(({ unicode, label, group, tags, emoticon }) => ({
         unicode,
         label,
         group,
-        order,
         tags,
         emoticon,
       }));

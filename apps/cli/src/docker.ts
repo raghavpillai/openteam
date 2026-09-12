@@ -75,6 +75,7 @@ export class ComposeProject {
       input?: string;
       inputFile?: string;
       outputFile?: string;
+      timeoutMs?: number;
     } = {}
   ): RunResult {
     const composeFile = options.composeFile ?? this.paths.compose;
@@ -100,6 +101,7 @@ export class ComposeProject {
         input: options.input,
         inputFile: options.inputFile,
         outputFile: options.outputFile,
+        timeoutMs: options.timeoutMs,
       }
     );
   }

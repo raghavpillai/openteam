@@ -11,6 +11,7 @@ export interface PortOccupant {
   host: string;
   container?: string;
   project?: string;
+  tailscale?: boolean;
 }
 
 export interface PortRequirements {
@@ -18,7 +19,7 @@ export interface PortRequirements {
   apiPort: number;
   viewerHost: string;
   https: boolean;
-  /** Services whose published ports belong to this installation and need no check. */
+  /** Services whose existing Docker listeners are allowed; host proxies still need checking. */
   running: ReadonlySet<string>;
 }
 
@@ -101,14 +102,54 @@ export const portRequirementsFromConfiguration = (
   running,
 });
 
+/** Tailscale binds the tailnet interface, so a Docker wildcard listener can still conflict
+ * even when its container is running (Docker on a VM cannot see host-side listeners).
+ * Loopback listeners can coexist with Tailscale Serve and must remain allowed.
+ */
+const tailscalePortConflict = (
+  runner: CommandRunner,
+  requirements: PortRequirements
+): PortOccupant | null => {
+  const ports = new Map<number, string>();
+  if (requirements.apiHost === "0.0.0.0" || requirements.apiHost === "::") {
+    ports.set(requirements.apiPort, requirements.apiHost);
+  }
+  if (requirements.viewerHost === "0.0.0.0" || requirements.viewerHost === "::") {
+    for (const port of viewerPorts()) ports.set(port, requirements.viewerHost);
+  }
+  if (requirements.https) {
+    ports.set(80, "0.0.0.0");
+    ports.set(443, "0.0.0.0");
+  }
+  if (!ports.size) return null;
+
+  const result = runner.run("tailscale", ["serve", "status", "--json"], { timeoutMs: 3_000 });
+  if (result.status !== 0) return null;
+  try {
+    const config = JSON.parse(result.stdout) as {
+      TCP?: Record<string, unknown>;
+      Foreground?: Record<string, { TCP?: Record<string, unknown> }>;
+    } | null;
+    const listeners = [config?.TCP, ...Object.values(config?.Foreground ?? {}).map((v) => v?.TCP)];
+    for (const [port, host] of ports) {
+      if (listeners.some((tcp) => tcp?.[String(port)])) return { port, host, tailscale: true };
+    }
+  } catch {
+    // Tailscale is optional. Older or unavailable daemons must not prevent startup.
+  }
+  return null;
+};
+
 /**
  * Find the first port this installation needs that something else already holds.
- * Ports published by services that are already running belong to us and are skipped.
+ * Check host proxies before allowing ports held by our own running Docker services.
  */
 export const findPortConflict = async (
   runner: CommandRunner,
   requirements: PortRequirements
 ): Promise<PortOccupant | null> => {
+  const tailscale = tailscalePortConflict(runner, requirements);
+  if (tailscale) return tailscale;
   const { running } = requirements;
   if (!running.has("server")) {
     const occupant = await firstOccupiedPort(runner, requirements.apiHost, [requirements.apiPort]);
@@ -139,6 +180,13 @@ const stopHint = (occupant: PortOccupant): string =>
 
 export const portConflictMessage = (occupant: PortOccupant): string => {
   const port = occupant.port;
+  if (occupant.tailscale) {
+    const alternative =
+      port === 80 || port === 443 || (port >= VIEWER_PORT_START && port <= VIEWER_PORT_END)
+        ? "choose a loopback connection with an existing proxy"
+        : "choose a different API port or a loopback connection with an existing proxy";
+    return `OpenTeam cannot start because Tailscale Serve already uses port ${port}, which conflicts with Docker binding ${occupant.host}:${port}. This can leave containers healthy while Colima cannot forward the port to this machine. Inspect the rule with \`tailscale serve status\`, then remove or move that listener, or use \`openteam setup --advanced\` to ${alternative}. Retry openteam start after resolving the conflict.`;
+  }
   const remedy =
     port === 80 || port === 443
       ? `${stopHint(occupant)}, or rerun setup and choose Existing HTTPS proxy.`

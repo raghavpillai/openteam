@@ -167,6 +167,9 @@ export const providerLoginCommand = async (
       if (!key) throw new CliError("Provider API key or password cannot be empty");
       project.runOrThrow(authCommand(["login", providerId, "api_key"]), { input: `${key}\n` });
     } else {
+      if (providerId === "openai-codex") {
+        console.log("If you are connected over SSH, choose Device code login at the next prompt.");
+      }
       project.runOrThrow(["exec", "computer", "openteam-pi-auth", "login", providerId, "oauth"], {
         inherit: true,
       });
@@ -174,6 +177,16 @@ export const providerLoginCommand = async (
   } finally {
     if (!suppliedPrompter) prompter.close();
   }
+  const connected = jsonCommand<ProviderRow[]>(project, ["providers"]).some(
+    (candidate) => candidate.id === providerId && candidate.configured
+  );
+  if (!connected) {
+    throw new CliError(
+      `${provider.name} sign-in did not complete. Retry openteam provider login ${providerId} in an interactive terminal and finish the provider sign-in.`,
+      2
+    );
+  }
+  console.log(`${provider.name} is connected.`);
 };
 
 export const providerLogoutCommand = (

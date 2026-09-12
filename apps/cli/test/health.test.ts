@@ -1,9 +1,9 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { installationPaths, writeFileAtomic } from "../src/config";
-import { checkHealth, healthUrl } from "../src/health";
+import { checkHealth, healthUrl, waitForHealth } from "../src/health";
 
 const temporaryDirectories: string[] = [];
 const servers: Array<{ stop(force?: boolean): void }> = [];
@@ -42,5 +42,33 @@ describe("installation health URL", () => {
     expect((await checkHealth(paths, "1.3.0")).detail).toContain("1.2.3 is responding");
     version = "1.3.0";
     expect(await checkHealth(paths, "1.3.0")).toMatchObject({ ok: true, version: "1.3.0" });
+  });
+
+  test("distinguishes connection failures from an HTTP readiness failure and prints the cause", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "openteam-cli-health-"));
+    temporaryDirectories.push(directory);
+    const paths = installationPaths(directory);
+    const server = Bun.serve({ port: 0, fetch: () => new Response("starting", { status: 503 }) });
+    servers.push(server);
+    writeFileAtomic(paths.environment, `OPENTEAM_API_PORT=${server.port}\n`);
+    expect(await checkHealth(paths)).toMatchObject({ ok: false, detail: "HTTP 503" });
+    expect((await checkHealth(paths)).connectionFailed).toBeUndefined();
+    server.stop(true);
+    expect(await checkHealth(paths)).toMatchObject({ ok: false, connectionFailed: true });
+
+    const output: string[] = [];
+    const writer = spyOn(process.stdout, "write").mockImplementation((chunk) => {
+      output.push(String(chunk));
+      return true;
+    });
+    try {
+      const result = await waitForHealth(paths, 0);
+      expect(result.ok).toBe(false);
+      expect(output.join("")).toContain(result.url);
+      expect(output.join("")).toContain(result.detail);
+      expect(output.join("")).toContain("s elapsed");
+    } finally {
+      writer.mockRestore();
+    }
   });
 });

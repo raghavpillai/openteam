@@ -11,6 +11,7 @@ import {
   writeFileAtomic,
   writeManifest,
 } from "../src/config";
+import { CLI_VERSION } from "../src/constants";
 import { accountUpdateCommand } from "../src/password";
 import type { CommandRunner, RunOptions, RunResult } from "../src/process";
 import {
@@ -90,14 +91,18 @@ class SetupRunner implements CommandRunner {
   failComposeValidation = false;
   failStartup = false;
   failImport = false;
+  failVerify = false;
+  supportsImport = true;
   readonly imports: string[] = [];
   running = ["postgres", "server", "worker", "computer"];
   publishedBy: Record<string, string> = {};
+  tailscale = "{}";
 
   constructor(private readonly onLogin: () => void = () => undefined) {}
 
   run(command: string, args: readonly string[], options?: RunOptions): RunResult {
     this.calls.push({ command, args, options });
+    if (command === "tailscale") return { status: 0, stdout: this.tailscale, stderr: "" };
     if (command === "docker" && args[0] === "--version") {
       return { status: 0, stdout: "Docker version 29.0.0", stderr: "" };
     }
@@ -128,6 +133,13 @@ class SetupRunner implements CommandRunner {
     const utility = args.indexOf("openteam-pi-auth");
     if (utility >= 0) {
       const action = args[utility + 1];
+      if (!action) {
+        return {
+          status: 2,
+          stdout: "",
+          stderr: `Usage:\n  openteam-pi-auth providers\n${this.supportsImport ? "  openteam-pi-auth import <provider>\n" : ""}`,
+        };
+      }
       if (action === "add-custom") {
         const input = JSON.parse(options?.input ?? "{}") as {
           id?: string;
@@ -169,8 +181,16 @@ class SetupRunner implements CommandRunner {
         };
       }
       if (action === "login") this.onLogin();
+      if (action === "verify" && this.failVerify) {
+        return { status: 1, stdout: "", stderr: "Authentication missing: secret-test-token" };
+      }
       if (action === "import") {
-        if (this.failImport) return { status: 1, stdout: "", stderr: "unknown command import" };
+        if (this.failImport)
+          return {
+            status: 1,
+            stdout: "",
+            stderr: "Usage: openteam-pi-auth import rejected claude-refresh-secret",
+          };
         this.imports.push(options?.input ?? "");
         this.onLogin();
       }
@@ -1044,6 +1064,73 @@ describe("interactive setup", () => {
     expect(runner.calls.filter((call) => call.args.includes("up"))).toHaveLength(2);
   });
 
+  test("rejects an OAuth helper that exits zero without saving authentication", async () => {
+    const fixture = createSetupFixture({ owner: true });
+    const runner = new SetupRunner();
+    runner.failVerify = true;
+    const output: string[] = [];
+    const presentation: SetupPresentation = {
+      ...silentPresentation,
+      message: (message) => output.push(message),
+      summary: (title) => output.push(title),
+    };
+    await expect(
+      setupCommand(
+        fixture.paths,
+        runner,
+        { presentation, detectedLogins: [] },
+        sessionPrompter({ authenticate: true })
+      )
+    ).rejects.toThrow("sign-in did not complete or could not be verified");
+    expect(runner.calls.some((call) => providerAction(call) === "login")).toBe(true);
+    expect(runner.calls.some((call) => providerAction(call) === "verify")).toBe(true);
+    expect(output.join("\n")).not.toContain("is connected");
+    expect(output.join("\n")).not.toContain("OpenTeam is ready");
+    expect(output.join("\n")).not.toContain("secret-test-token");
+  });
+
+  test("does not declare setup ready when saved authentication is unavailable to the server", async () => {
+    const fixture = createSetupFixture({ owner: true });
+    const output: string[] = [];
+    await expect(
+      setupCommand(
+        fixture.paths,
+        new SetupRunner(),
+        {
+          detectedLogins: [],
+          presentation: { ...silentPresentation, summary: (title) => output.push(title) },
+        },
+        sessionPrompter({ authenticate: true })
+      )
+    ).rejects.toThrow("OpenTeam cannot use it yet");
+    expect(output).not.toContain("OpenTeam is ready");
+  });
+
+  test("uses the CLI version in setup and labels the installed server release separately", async () => {
+    const fixture = createSetupFixture({ authenticated: true, owner: true });
+    const output: string[] = [];
+    const prompter = sessionPrompter({});
+    const collect = prompter.session!;
+    prompter.session = async (input) => {
+      expect(input.version).toBe(CLI_VERSION);
+      expect(input.notes).toContainEqual({
+        text: "Installed server release: v1.2.3.",
+        tone: "muted",
+      });
+      return collect(input);
+    };
+    await setupCommand(
+      fixture.paths,
+      new SetupRunner(),
+      {
+        detectedLogins: [],
+        presentation: { ...silentPresentation, message: (message) => output.push(message) },
+      },
+      prompter
+    );
+    expect(output).toContain("Installed server release: v1.2.3");
+  });
+
   test("reports authentication readiness failure without leaking the submitted API key", async () => {
     const fixture = createSetupFixture();
     const apiKey = "failed-auth-secret";
@@ -1081,6 +1168,31 @@ describe("interactive setup", () => {
     expect(prompter.prompts).toHaveLength(0);
     expect(readFileSync(fixture.paths.environment, "utf8")).toBe(fixture.environment);
     expect(runner.calls.some((call) => call.args.includes("up"))).toBe(false);
+  });
+
+  test("checks Tailscale before broadening a running server's bind address", async () => {
+    const fixture = createSetupFixture({ authenticated: true });
+    const port = parseEnvironment(fixture.environment).get("OPENTEAM_API_PORT")!;
+    const runner = new SetupRunner();
+    runner.tailscale = JSON.stringify({ TCP: { [port]: { TCPForward: `127.0.0.1:${port}` } } });
+
+    await expect(
+      setupCommand(
+        fixture.paths,
+        runner,
+        { presentation: silentPresentation },
+        sessionPrompter({
+          accessMode: "private",
+          bindHost: "0.0.0.0",
+          publicHost: "100.94.42.50",
+          publicUrl: `http://100.94.42.50:${port}`,
+        })
+      )
+    ).rejects.toThrow(`Tailscale Serve already uses port ${port}`);
+
+    expect(readFileSync(fixture.paths.environment, "utf8")).toBe(fixture.environment);
+    expect(runner.calls.some((call) => call.args.includes("up"))).toBe(false);
+    expect(runner.calls.some((call) => call.args.includes("owner-credentials"))).toBe(false);
   });
 
   test("explains a rejected control token instead of a bare Unauthorized", async () => {
@@ -1156,7 +1268,52 @@ describe("interactive setup", () => {
     expect(output).toContain("Reused your Codex CLI (~/.codex/auth.json) sign-in.");
   });
 
-  test("falls back to browser sign-in when a detected login cannot be imported", async () => {
+  test("does not offer or attempt credential import on older computer images", async () => {
+    const fixture = createSetupFixture();
+    const runner = new SetupRunner(() => {
+      fixture.state.authenticated = true;
+    });
+    runner.supportsImport = false;
+    const detected = {
+      provider: "openai-codex" as const,
+      source: "Codex CLI (~/.codex/auth.json)",
+    };
+    const output: string[] = [];
+    const prompter = sessionPrompter({ authenticate: true, reuseLogin: detected });
+    const session = prompter.session!;
+    prompter.session = async (input) => {
+      expect(input.detectedLogins).toEqual([]);
+      expect(
+        input.notes?.some((note) =>
+          note.text.includes("reusing saved CLI sign-ins is not available")
+        )
+      ).toBe(true);
+      // A stale selection must not bypass the capability check during apply either.
+      return session(input);
+    };
+    await setupCommand(
+      fixture.paths,
+      runner,
+      {
+        presentation: { ...silentPresentation, message: (message) => output.push(message) },
+        detectedLogins: [detected],
+        loginDetection: { home: fixture.paths.directory, env: {}, platform: "linux" },
+      },
+      prompter
+    );
+
+    const probe = runner.calls.find((call) => call.args.at(-1) === "openteam-pi-auth");
+    expect(probe?.args).toContain("--no-TTY");
+    expect(probe?.options?.input).toBeUndefined();
+    expect(runner.calls.some((call) => providerAction(call) === "import")).toBe(false);
+    expect(runner.calls.some((call) => providerAction(call) === "login")).toBe(true);
+    expect(output.join("\n")).toContain("fresh ChatGPT Plus or Pro sign-in");
+    expect(output.join("\n")).toContain("choose Device code login");
+    expect(output.join("\n")).not.toContain("Usage:");
+    expect(output.join("\n")).not.toContain("Could not reuse");
+  });
+
+  test("falls back to a fresh sign-in without displaying import diagnostics or credentials", async () => {
     const fixture = createSetupFixture();
     const runner = new SetupRunner(() => {
       fixture.state.authenticated = true;
@@ -1202,7 +1359,9 @@ describe("interactive setup", () => {
     const login = runner.calls.find((call) => providerAction(call) === "login");
     expect(login?.args.slice(-3)).toEqual(["login", "anthropic", "oauth"]);
     expect(login?.options?.inherit).toBe(true);
-    expect(output.some((message) => message.includes("signing in through the browser"))).toBe(true);
+    expect(output.some((message) => message.includes("fresh provider sign-in"))).toBe(true);
+    expect(output.join("\n")).not.toContain("Usage:");
+    expect(output.join("\n")).not.toContain("claude-refresh-secret");
     expect(runner.calls.flatMap((call) => call.args).join(" ")).not.toContain(
       "claude-refresh-secret"
     );
@@ -1268,7 +1427,7 @@ describe("interactive setup", () => {
 
     expect(seen).toHaveLength(1);
     expect(seen[0]).toMatchObject({
-      version: "1.2.3",
+      version: CLI_VERSION,
       authenticated: false,
       fresh: true,
       ownerConfigured: false,

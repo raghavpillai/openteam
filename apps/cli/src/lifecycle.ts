@@ -23,11 +23,17 @@ import { CLI_VERSION, DEFAULT_REPOSITORY, PROJECT_NAME } from "./constants";
 import { type ComposeProject, requireComposeProject } from "./docker";
 import { printDoctor, runDoctor } from "./doctor";
 import { CliError } from "./errors";
-import { checkHealth, waitForHealth } from "./health";
+import { checkHealth, type HealthResult, withExpectedVersion } from "./health";
 import type { CommandRunner } from "./process";
 import { downloadRelease, latestReleaseVersion } from "./release";
 import { setupCommand, type SetupPrompter } from "./setup";
 import { ACCESS_MODES, accessLabel, type AccessMode } from "./setup-values";
+import {
+  assertServerReachable,
+  inspectStartupState,
+  SETUP_JOBS_NOTE,
+  waitForStartup,
+} from "./startup";
 import {
   assertOwnServer,
   assertPortsAvailable,
@@ -84,24 +90,62 @@ const requireInstallation = (paths: InstallationPaths): InstallationManifest => 
 const manifestProjectName = (manifest: InstallationManifest): string =>
   normalizeProjectName(manifest.projectName || PROJECT_NAME);
 
+const printStartupReady = (
+  environment: ReadonlyMap<string, string>,
+  health: HealthResult,
+  alreadyRunning = false
+): void => {
+  const localUrl = health.url.replace(/\/api\/v0\/health$/, "");
+  const publicUrl = environment.get("OPENTEAM_PUBLIC_URL")?.trim().replace(/\/+$/, "");
+  console.log(`OpenTeam is ${alreadyRunning ? "already running" : "ready"} at ${localUrl}`);
+  if (publicUrl && publicUrl !== localUrl) console.log(`Network address: ${publicUrl}`);
+  if (health.inference && health.inference !== "ready") {
+    console.log(
+      health.inference === "missing"
+        ? "No AI provider is connected. Run openteam setup to connect one before starting AI tasks."
+        : `AI is not ready (${health.inference}). Run openteam setup to check your provider connection.`
+    );
+  }
+  console.log("To stop OpenTeam, run: openteam stop");
+};
+
 const startProject = async (
   project: ComposeProject,
   paths: InstallationPaths,
   runner: CommandRunner,
-  expectedVersion?: string
+  expectedVersion?: string,
+  options: { skipIfReady?: boolean } = {}
 ): Promise<void> => {
   // Refuse to race another stack for the ports; Docker's own error names only the port.
   const running = runningServices(project);
   const environment = parseEnvironment(readFileSync(paths.environment, "utf8"));
-  assertOwnServer(runner, await checkHealth(paths), running, environment);
+  console.log("Checking startup ports…");
+  const initialHealth = await checkHealth(paths);
+  assertOwnServer(runner, initialHealth, running, environment);
   await assertPortsAvailable(runner, portRequirementsFromEnvironment(environment, running));
+  if (running.has("server")) assertServerReachable(project, initialHealth);
+  if (options.skipIfReady) {
+    const state = inspectStartupState(project, environment);
+    const health = withExpectedVersion(initialHealth, expectedVersion);
+    if (!state.notReady.length && health.ok) {
+      printStartupReady(environment, health, true);
+      return;
+    }
+    if (state.stopped) console.log("OpenTeam is stopped. Starting services…");
+    else if (state.notReady.length) {
+      console.log(
+        `OpenTeam is partially running. Starting or checking: ${state.notReady.join(", ")}…`
+      );
+    } else console.log(`OpenTeam is running but not ready (${health.detail}). Checking services…`);
+  }
+  console.log(SETUP_JOBS_NOTE);
   project.runOrThrow(["up", "--detach", "--remove-orphans", "--wait", "--wait-timeout", "180"], {
     inherit: true,
   });
   process.stdout.write("Waiting for OpenTeam");
-  const health = await waitForHealth(paths, 180_000, expectedVersion);
+  const health = await waitForStartup(project, paths, expectedVersion);
   if (!health.ok) throw new CliError(`OpenTeam did not become healthy: ${health.detail}`);
-  console.log(`OpenTeam is ready at ${health.url.replace(/\/api\/v0\/health$/, "")}`);
+  printStartupReady(environment, health);
 };
 
 export const installCommand = async (
@@ -129,7 +173,7 @@ export const installCommand = async (
       );
     } else {
       console.log(`OpenTeam ${existing.version} is already installed; starting it.`);
-      await startCommand(paths, runner);
+      await startCommand(paths, runner, { allowIncompleteSetup: options.noSetup });
     }
     return;
   }
@@ -233,14 +277,22 @@ export const stopCommand = (paths: InstallationPaths, runner: CommandRunner): vo
 
 export const startCommand = async (
   paths: InstallationPaths,
-  runner: CommandRunner
+  runner: CommandRunner,
+  options: { allowIncompleteSetup?: boolean } = {}
 ): Promise<void> => {
   const manifest = requireInstallation(paths);
+  if (!manifest.ownerUsername?.trim() && !options.allowIncompleteSetup) {
+    throw new CliError(
+      "OpenTeam is installed, but account setup is incomplete. Run openteam setup to create your sign-in, then retry openteam start.",
+      2
+    );
+  }
   await startProject(
     requireComposeProject(paths, runner, manifestProjectName(manifest)),
     paths,
     runner,
-    manifest.version
+    manifest.version,
+    { skipIfReady: true }
   );
   if (manifest.uninstalledAt) {
     writeManifest(paths, { ...manifest, uninstalledAt: undefined });

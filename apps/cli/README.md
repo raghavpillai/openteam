@@ -27,6 +27,27 @@ openteam uninstall
 Run `openteam <command> --help` or `openteam help <command>` for command-specific usage and
 options. Provider and model subcommands have their own help pages as well.
 
+`start` and setup check for port conflicts before starting containers, including Tailscale Serve
+listeners that can block Colima's host port forwarding even when Docker reports a running server.
+Loopback servers behind Tailscale Serve are allowed. Conflicts report the affected port and how to
+inspect or change the listener; the CLI does not change Tailscale rules automatically. While waiting
+for readiness, the CLI prints the health URL, current failure, and elapsed time. If the server is
+ready inside Docker but remains unreachable from the host, startup reports a forwarding error
+instead of waiting the full three minutes.
+On success, `start` also prints the configured network address when it differs from the local
+health-check address, so you can connect from another device using your Tailscale, LAN, or HTTPS URL.
+Storage initialization and database migrations run as one-time jobs. Docker displays `Exited` after
+they finish; exit code `0` means they completed successfully. The server, worker, database, and
+computer services keep running.
+Repeating `start` still runs preflight. If all required services and the expected server release are
+ready, it prints `OpenTeam is already running` with the connection addresses and leaves the services
+and completed setup jobs alone. Otherwise it reports whether OpenTeam is stopped, partially running,
+or not ready before starting or checking the services.
+`start` requires completed account setup and directs unfinished installations to `openteam setup`.
+Connecting an AI provider can be skipped during setup; services can still run, but startup explicitly
+reports that AI tasks need a provider connection. `install --no-setup` remains an explicit automation
+option for starting the core services before account setup.
+
 `openteam install` enters staged setup in the same command. The standalone `openteam setup` command
 reconfigures an existing installation without changing its owner or signing out active sessions.
 Fresh installs automatically use a detected Tailscale, WireGuard, or LAN address for private-network
@@ -55,7 +76,13 @@ Every credential update revokes all current sessions. Use `openteam setup --adva
 the connection mode, hostname, local API port, time zone, model, thinking level, or number of tasks that can run at once.
 The time zone, private-network address, free API port, current inference settings, and initial task limit are
 detected when possible. Setup also detects compatible Codex CLI and Claude Code sign-ins and reuses
-them without opening another browser login.
+them without opening another browser login when the installed computer image supports importing
+sign-ins. Older images use a fresh provider sign-in and explain this before setup is applied. For
+ChatGPT sign-in over SSH, choose Device code login when prompted.
+Setup and provider login verify that authentication was saved before reporting a connection.
+If input closes before sign-in finishes, retry the login in an interactive terminal. Setup also
+checks that the running server can use the sign-in before declaring authenticated setup ready.
+The setup header shows the CLI version; the installed server release is labeled separately.
 
 Use `openteam provider login [provider]` to configure OAuth/subscription or API-key authentication without repeating server setup. `provider list` shows the methods Pi supports, and `model list`/`model use` select a provider-qualified model. Anthropic offers Claude Pro/Max OAuth or an API key; OpenAI API access uses the `openai` provider, while ChatGPT/Codex OAuth uses `openai-codex`.
 

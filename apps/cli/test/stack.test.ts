@@ -11,11 +11,13 @@ import {
 
 class DockerPsRunner implements CommandRunner {
   readonly calls: Array<{ command: string; args: readonly string[]; options?: RunOptions }> = [];
+  tailscale: RunResult = { status: 1, stdout: "", stderr: "not installed" };
 
   constructor(private readonly publishers: Record<string, string> = {}) {}
 
   run(command: string, args: readonly string[], options?: RunOptions): RunResult {
     this.calls.push({ command, args, options });
+    if (command === "tailscale") return this.tailscale;
     const filter = args.find((argument) => argument.startsWith("publish="));
     if (command === "docker" && args[0] === "ps" && filter) {
       const port = filter.slice("publish=".length);
@@ -37,6 +39,91 @@ const withListener = async (run: (port: number) => Promise<void>) => {
 };
 
 describe("stack inspection", () => {
+  test("detects a Tailscale API listener even when Docker claims the server is running", async () => {
+    const runner = new DockerPsRunner({ "8787": "openteam-server-1\topenteam" });
+    runner.tailscale = {
+      status: 0,
+      stdout: JSON.stringify({ TCP: { "8787": { TCPForward: "127.0.0.1:8787" } } }),
+      stderr: "",
+    };
+    const conflict = await findPortConflict(
+      runner,
+      portRequirementsFromEnvironment(
+        new Map([["OPENTEAM_BIND_HOST", "0.0.0.0"]]),
+        new Set(["server", "computer"])
+      )
+    );
+    expect(conflict).toEqual({ port: 8787, host: "0.0.0.0", tailscale: true });
+    expect(portConflictMessage(conflict!)).toContain("Tailscale Serve already uses port 8787");
+    expect(portConflictMessage(conflict!)).toContain("tailscale serve status");
+    expect(portConflictMessage(conflict!)).not.toContain("docker compose -p openteam down");
+    expect(runner.calls.find((call) => call.command === "tailscale")?.options?.timeoutMs).toBe(
+      3_000
+    );
+  });
+
+  test("allows a loopback server behind Tailscale Serve", async () => {
+    const runner = new DockerPsRunner();
+    runner.tailscale = {
+      status: 0,
+      stdout: JSON.stringify({ TCP: { "8787": { TCPForward: "127.0.0.1:8787" } } }),
+      stderr: "",
+    };
+    expect(
+      await findPortConflict(
+        runner,
+        portRequirementsFromEnvironment(new Map(), new Set(["server", "computer"]))
+      )
+    ).toBeNull();
+    expect(runner.calls).toHaveLength(0);
+  });
+
+  test("detects foreground Tailscale listeners on viewer and HTTPS ports", async () => {
+    const runner = new DockerPsRunner();
+    runner.tailscale = {
+      status: 0,
+      stdout: JSON.stringify({
+        Foreground: { session: { TCP: { "6205": {}, "443": { HTTPS: true } } } },
+      }),
+      stderr: "",
+    };
+    const requirements = portRequirementsFromEnvironment(
+      new Map([["OPENTEAM_VIEWER_BIND_HOST", "0.0.0.0"]]),
+      new Set(["server", "computer", "caddy"])
+    );
+    expect(await findPortConflict(runner, requirements)).toMatchObject({
+      port: 6205,
+      tailscale: true,
+    });
+    expect(
+      await findPortConflict(runner, { ...requirements, viewerHost: "127.0.0.1", https: true })
+    ).toMatchObject({ port: 443, tailscale: true });
+  });
+
+  test("ignores unrelated rules, service VIPs, and unavailable or invalid Tailscale output", async () => {
+    const runner = new DockerPsRunner();
+    const requirements = portRequirementsFromEnvironment(
+      new Map([["OPENTEAM_BIND_HOST", "0.0.0.0"]]),
+      new Set(["server", "computer"])
+    );
+    for (const result of [
+      { status: 1, stdout: "", stderr: "daemon unavailable" },
+      { status: 0, stdout: "not JSON", stderr: "" },
+      { status: 0, stdout: "null", stderr: "" },
+      {
+        status: 0,
+        stdout: JSON.stringify({
+          TCP: { "10000": { HTTPS: true } },
+          Services: { example: { TCP: { "8787": {} } } },
+        }),
+        stderr: "",
+      },
+    ]) {
+      runner.tailscale = result;
+      expect(await findPortConflict(runner, requirements)).toBeNull();
+    }
+  });
+
   test("names the container and Compose project that publish a port", () => {
     const runner = new DockerPsRunner({ "6200": "openteam-dev-computer-1\topenteam-dev" });
     expect(describePortOccupant(runner, "127.0.0.1", 6200)).toEqual({

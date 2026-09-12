@@ -8,6 +8,7 @@ export interface RunOptions {
   input?: string;
   inputFile?: string;
   outputFile?: string;
+  timeoutMs?: number;
 }
 
 export interface RunResult {
@@ -31,6 +32,7 @@ export class SystemCommandRunner implements CommandRunner {
         env: options.env ?? process.env,
         encoding: "utf8",
         shell: false,
+        timeout: options.timeoutMs,
         input: options.input,
         stdio: options.inherit
           ? [input ?? (options.input === undefined ? "inherit" : "pipe"), "inherit", "inherit"]

@@ -18,12 +18,12 @@ Usage:
   openteam <command> [options]
 
 Commands:
-  install       Set up OpenTeam on this computer
-  setup         Change inference or advanced server settings
+  install       Install OpenTeam and run guided setup
+  setup         Finish setup or change accounts and settings
   status        Show whether OpenTeam is running
   doctor        Check for installation problems
   update        Install the latest OpenTeam release
-  start         Start OpenTeam
+  start         Start OpenTeam after account setup
   stop          Stop OpenTeam
   logs          View troubleshooting logs
   provider      Manage AI accounts and connections
@@ -62,7 +62,7 @@ Advanced release/testing options:
 
   setup: `${heading(
     "openteam setup [options]",
-    "Change which model account OpenTeam uses, or skip inference for now.\nYour connection and existing sign-in stay unchanged unless you choose advanced setup."
+    "Finish account setup and connect an AI provider, or change an existing setup.\nInference can be skipped for now. Your existing sign-in stays unchanged."
   )}
 
 Options:
@@ -117,7 +117,7 @@ Advanced release/testing options:
 
   start: `${heading(
     "openteam start [options]",
-    "Start or recreate the installed OpenTeam services and wait for health."
+    "Requires completed account setup; run openteam setup first.\nCheck preflight and start services if needed. Healthy installations report already running.\nAI tasks require a connected provider; startup reports when inference is unavailable."
   )}
 
 Options:

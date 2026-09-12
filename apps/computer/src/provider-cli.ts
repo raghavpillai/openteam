@@ -13,7 +13,12 @@ import {
   piModelRef,
   serverInferenceSettings,
 } from "@openteam/contracts";
-import { authOptionLabel, defaultAuthOption, selectedAuthOption } from "./provider-auth-prompt";
+import {
+  authOptionLabel,
+  createAuthQuestion,
+  defaultAuthOption,
+  selectedAuthOption,
+} from "./provider-auth-prompt";
 
 const agentDir = resolve(process.env.OPENTEAM_PI_AGENT_DIR ?? "/home/box/.pi/agent");
 const authPath = join(agentDir, "auth.json");
@@ -75,6 +80,7 @@ const login = async (providerId: string, authType: AuthType): Promise<void> => {
     authType === "api_key" && !process.stdin.isTTY ? (await stdinText()).trim() : "";
   let secretUsed = false;
   const terminal = createInterface({ input: process.stdin, output: process.stdout });
+  const question = createAuthQuestion(terminal);
   try {
     await runtime.login(providerId, authType, {
       prompt: async (prompt) => {
@@ -88,14 +94,12 @@ const login = async (providerId: string, authType: AuthType): Promise<void> => {
             console.log(`${index + 1}. ${authOptionLabel(option, option === defaultOption)}`);
           });
           const defaultIndex = defaultOption ? prompt.options.indexOf(defaultOption) : 0;
-          const answer = (
-            await terminal.question(`${prompt.message} [${defaultIndex + 1}]: `)
-          ).trim();
+          const answer = (await question(`${prompt.message} [${defaultIndex + 1}]: `)).trim();
           const selected = selectedAuthOption(prompt.options, answer);
           if (!selected) throw new Error("Invalid authentication selection");
           return selected.id;
         }
-        return terminal.question(`${promptLabel(prompt)}: `);
+        return question(`${promptLabel(prompt)}: `);
       },
       notify: renderAuthEvent,
     });
@@ -404,7 +408,7 @@ const main = async (): Promise<void> => {
   process.exitCode = 2;
 };
 
-main().catch((error) => {
+await main().catch((error) => {
   console.error(error instanceof Error ? error.message : String(error));
   process.exitCode = 1;
 });

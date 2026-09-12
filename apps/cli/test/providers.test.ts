@@ -16,6 +16,8 @@ import type { SetupPrompter } from "../src/setup";
 class ProviderRunner implements CommandRunner {
   readonly calls: Array<{ command: string; args: readonly string[]; options?: RunOptions }> = [];
   private customProviderAdded = false;
+  failLogin = false;
+  readonly connected = new Set(["openai-codex"]);
 
   run(command: string, args: readonly string[], options?: RunOptions): RunResult {
     this.calls.push({ command, args, options });
@@ -41,7 +43,7 @@ class ProviderRunner implements CommandRunner {
             id: "openai-codex",
             name: "OpenAI Codex",
             authMethods: [{ type: "oauth", label: "ChatGPT", subscription: true }],
-            configured: true,
+            configured: this.connected.has("openai-codex"),
             authType: "oauth",
             authSource: "OAuth",
             models: 4,
@@ -54,7 +56,7 @@ class ProviderRunner implements CommandRunner {
               { type: "oauth", label: "Claude Pro/Max", subscription: true },
               { type: "api_key", label: "Anthropic API key", subscription: false },
             ],
-            configured: false,
+            configured: this.connected.has("anthropic"),
             authType: null,
             authSource: null,
             models: 3,
@@ -66,7 +68,7 @@ class ProviderRunner implements CommandRunner {
                   id: "acme",
                   name: "Acme AI",
                   authMethods: [{ type: "api_key", label: "API key", subscription: false }],
-                  configured: false,
+                  configured: this.connected.has("acme"),
                   authType: null,
                   authSource: null,
                   models: 1,
@@ -79,6 +81,8 @@ class ProviderRunner implements CommandRunner {
       };
     }
     if (args.includes("add-custom")) this.customProviderAdded = true;
+    if (args.includes("login") && !this.failLogin)
+      this.connected.add(args[args.indexOf("login") + 1]!);
     return { status: 0, stdout: "", stderr: "" };
   }
 }
@@ -123,6 +127,19 @@ const fixture = () => {
 };
 
 describe("provider management", () => {
+  test("does not accept a zero exit code without saved provider authentication", async () => {
+    const runner = new ProviderRunner();
+    runner.failLogin = true;
+    runner.connected.clear();
+    await expect(
+      providerLoginCommand(
+        fixture(),
+        runner,
+        { providerId: "openai-codex", authType: "oauth" },
+        new SecretPrompter("")
+      )
+    ).rejects.toThrow("sign-in did not complete");
+  });
   test("lists Pi providers and marks the selected provider", () => {
     const runner = new ProviderRunner();
     const output: string[] = [];

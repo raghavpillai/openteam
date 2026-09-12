@@ -19,6 +19,7 @@ import {
   defaultAuthOption,
   selectedAuthOption,
 } from "./provider-auth-prompt";
+import { availableInferenceModels, requireInferenceModel } from "./inference-models";
 
 const agentDir = resolve(process.env.OPENTEAM_PI_AGENT_DIR ?? "/home/box/.pi/agent");
 const authPath = join(agentDir, "auth.json");
@@ -363,7 +364,7 @@ const main = async (): Promise<void> => {
           configured: Boolean(status),
           authType: status?.type ?? null,
           authSource: status?.source ?? null,
-          models: runtime.getModels(provider.id).length,
+          models: availableInferenceModels(runtime, provider.id).length,
           custom: customProviderIds.has(provider.id),
         };
       })
@@ -373,7 +374,7 @@ const main = async (): Promise<void> => {
   }
   if (command === "models") {
     const providerId = rawProvider ? normalizeInferenceProviderId(rawProvider) : undefined;
-    const models = runtime.getModels(providerId).map((model) => ({
+    const models = availableInferenceModels(runtime, providerId).map((model) => ({
       providerId: model.provider,
       modelId: model.id,
       name: model.name,
@@ -402,9 +403,7 @@ const main = async (): Promise<void> => {
   if (command === "verify") {
     if (!rawArgument) throw new Error("verify requires a model");
     const ref = piModelRef(providerId, rawArgument);
-    if (!runtime.getModel(ref.providerId, ref.modelId)) {
-      throw new Error(`Pi does not provide ${formatPiModelRef(ref)}`);
-    }
+    requireInferenceModel(runtime, ref);
     if (!(await runtime.checkAuth(providerId))) {
       throw new Error(`Inference provider ${providerId} is not authenticated`);
     }

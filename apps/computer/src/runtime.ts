@@ -44,6 +44,7 @@ import {
 } from "./bot-compaction";
 import { ComputerEventQueue } from "./computer-event-queue";
 import { InferenceProviderService } from "./inference-providers";
+import { requireInferenceModel } from "./inference-models";
 import { decodeInlineImages, loadAttachmentImages } from "./runtime/attachments";
 import { compactionExtension, inferCompaction } from "./runtime/compaction";
 import { textFromContent } from "./runtime/content";
@@ -508,9 +509,7 @@ export class ComputerRuntime {
   private resolveModel(ref: PiModelRef) {
     const modelRuntime = this.modelRuntime;
     if (!modelRuntime) throw new Error("Pi model runtime is not initialized");
-    const model = modelRuntime.getModel(ref.providerId, ref.modelId);
-    if (!model) throw new Error(`Pi does not provide ${formatPiModelRef(ref)}`);
-    return model;
+    return requireInferenceModel(modelRuntime, ref);
   }
 
   private requireModelRuntime(): ModelRuntime {

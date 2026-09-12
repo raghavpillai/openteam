@@ -4,13 +4,13 @@ import { readFile } from "node:fs/promises";
 import type { AuthEvent, AuthPrompt, AuthType } from "@earendil-works/pi-ai";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import {
-  formatPiModelRef,
   type InferenceModelView,
   type InferenceProviderAuthSessionView,
   type InferenceProviderView,
   normalizeInferenceProviderId,
   type ServerInferenceSettings,
 } from "@openteam/contracts";
+import { availableInferenceModels, requireInferenceModel } from "./inference-models";
 
 interface AuthSessionState extends InferenceProviderAuthSessionView {
   controller: AbortController;
@@ -80,14 +80,14 @@ export class InferenceProviderService {
           authType: authentication?.type ?? null,
           authSource: authentication?.source ?? null,
           custom: customIds.has(provider.id),
-          modelCount: runtime.getModels(provider.id).length,
+          modelCount: availableInferenceModels(runtime, provider.id).length,
         };
       })
     );
     const requestedProvider = normalizeInferenceProviderId(
       providerId ?? providers[0]?.id ?? "openai-codex"
     );
-    const models = runtime.getModels(requestedProvider).map(
+    const models = availableInferenceModels(runtime, requestedProvider).map(
       (model): InferenceModelView => ({
         providerId: model.provider,
         modelId: model.id,
@@ -102,9 +102,7 @@ export class InferenceProviderService {
 
   async verify(settings: ServerInferenceSettings): Promise<void> {
     const runtime = this.runtime();
-    if (!runtime.getModel(settings.providerId, settings.modelId)) {
-      throw new Error(`Pi does not provide ${formatPiModelRef(settings)}`);
-    }
+    requireInferenceModel(runtime, settings);
     if (!(await runtime.checkAuth(settings.providerId))) {
       throw new Error(`Inference provider ${settings.providerId} is not connected`);
     }

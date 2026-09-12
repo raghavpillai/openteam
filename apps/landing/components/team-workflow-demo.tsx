@@ -1,7 +1,7 @@
 "use client";
 
 import { Dialog } from "@base-ui/react/dialog";
-import { ChevronsRight, FileText, Info, Pause, Play, RotateCcw, Settings, X } from "lucide-react";
+import { ChevronsRight, FileText, Info, Settings, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { BotAvatar } from "./bot-avatar";
 import { DesktopMicIcon, DesktopPlusIcon } from "./desktop-demo-controls";
@@ -120,16 +120,17 @@ function FileAttachment({
  */
 export function TeamWorkflowDemo() {
   const [preview, setPreview] = useState<SampleFile | null>(null);
-  const [stage, setStage] = useState(3);
+  const [stage, setStage] = useState(0);
+  const [replayCount, setReplayCount] = useState(0);
   const [motionAllowed, setMotionAllowed] = useState(false);
   const [visible, setVisible] = useState(false);
-  const [paused, setPaused] = useState(false);
   const showcase = useRef<HTMLElement>(null);
   const started = useRef(false);
   const remaining = useRef<number | null>(null);
+  const playbackRun = useRef(0);
   const document = preview ? files[preview] : null;
-  const playing = motionAllowed && visible && !paused && preview === null;
-  const shownStage = motionAllowed ? stage : 3;
+  const playing = motionAllowed && visible && preview === null;
+  const shownStage = stage;
 
   useEffect(() => {
     const element = showcase.current;
@@ -137,7 +138,7 @@ export function TeamWorkflowDemo() {
     const preference = window.matchMedia("(prefers-reduced-motion: reduce)");
     let inView = false;
     const sync = () => {
-      const allowed = !preference.matches && !window.document.documentElement.hasAttribute("data-motion-paused");
+      const allowed = !preference.matches;
       const onScreen = inView && !window.document.hidden;
       setMotionAllowed(allowed);
       setVisible(onScreen);
@@ -152,14 +153,13 @@ export function TeamWorkflowDemo() {
       inView = Boolean(entry?.isIntersecting && entry.intersectionRatio >= 0.3);
       sync();
     }, { threshold: 0.3 });
+    sync();
     observer.observe(element);
     preference.addEventListener("change", sync);
-    window.addEventListener("openteam:motion-preference", sync);
     window.document.addEventListener("visibilitychange", sync);
     return () => {
       observer.disconnect();
       preference.removeEventListener("change", sync);
-      window.removeEventListener("openteam:motion-preference", sync);
       window.document.removeEventListener("visibilitychange", sync);
     };
   }, []);
@@ -176,18 +176,19 @@ export function TeamWorkflowDemo() {
     }, duration);
     return () => {
       window.clearTimeout(timeout);
-      if (!advanced) remaining.current = Math.max(0, duration - (performance.now() - began));
+      // A restarted run owns its own timing; an old cleanup must not give it
+      // the previous stage's partially elapsed duration.
+      if (!advanced && playbackRun.current === replayCount) {
+        remaining.current = Math.max(0, duration - (performance.now() - began));
+      }
     };
-  }, [playing, stage]);
+  }, [playing, stage, replayCount]);
 
-  const togglePlayback = () => {
-    if (stage === 3) {
-      remaining.current = null;
-      setStage(0);
-      setPaused(false);
-    } else {
-      setPaused((current) => !current);
-    }
+  const replay = () => {
+    playbackRun.current += 1;
+    remaining.current = null;
+    setReplayCount(playbackRun.current);
+    setStage(0);
   };
 
   return (
@@ -287,9 +288,8 @@ export function TeamWorkflowDemo() {
       <figcaption>
         <span>Sample group conversation · Open a file to inspect the handoff.</span>
         {motionAllowed && (
-          <button type="button" className="twd-playback" onClick={togglePlayback} aria-label={stage === 3 ? "Replay team handoff" : paused ? "Resume team handoff" : "Pause team handoff"}>
-            {stage === 3 ? <RotateCcw size={12} /> : paused ? <Play size={12} /> : <Pause size={12} />}
-            {stage === 3 ? "Replay" : paused ? "Resume" : "Pause"}
+          <button type="button" className="twd-playback" onClick={replay} aria-label="Replay team handoff">
+            Replay
           </button>
         )}
         <span className="twd-announcement" role="status" aria-live="polite">{stageDescriptions[shownStage]}</span>

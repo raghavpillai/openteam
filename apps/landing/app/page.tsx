@@ -109,9 +109,8 @@ export default function Home() {
                 <ArrowUpRight size={13} />
               </a>
               <h1>
-                Run your own
-                <br />
-                <span>AI team.</span>
+                <span className="ot-title-line"><span>Run your own </span></span>
+                <span className="ot-title-line"><span>AI team.</span></span>
               </h1>
             </div>
             <div className="ot-hero-description">

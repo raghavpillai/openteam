@@ -39,11 +39,14 @@ const views = [
 // View selection and image enlargement belong to the landing page, outside the app.
 export function PluginsDemo() {
   const [selected, setSelected] = useState(0);
+  const [previous, setPrevious] = useState(0);
+  const [direction, setDirection] = useState("forward");
   const [expanded, setExpanded] = useState(false);
   const view = views[selected];
   return (
-    <div className="pl-demo">
+    <div className="pl-demo" data-direction={direction}>
       <div className="pl-views" aria-label="Plugin screenshots">
+        <span className="pl-selection" style={{ "--selection": selected } as React.CSSProperties} aria-hidden="true" />
         {views.map((item, index) => (
           <Button
             key={item.id}
@@ -51,7 +54,12 @@ export function PluginsDemo() {
             aria-pressed={selected === index}
             aria-controls="plugin-screenshot"
             className="pl-view"
-            onClick={() => setSelected(index)}
+            onClick={() => {
+              if (index === selected) return;
+              setPrevious(selected);
+              setDirection(index > selected ? "forward" : "backward");
+              setSelected(index);
+            }}
           >
             <item.icon size={16} />
             {item.label}
@@ -66,13 +74,13 @@ export function PluginsDemo() {
           onClick={() => setExpanded(true)}
         >
           {views.map((item, index) => (
-            <Image key={item.id} className="pl-slide" data-active={selected === index ? "" : undefined}
+            <Image key={item.id} className="pl-slide" data-active={selected === index ? "" : undefined} data-previous={previous === index ? "" : undefined}
               src={item.src} width={1000} height={700} unoptimized
               alt={selected === index ? item.alt : ""} aria-hidden={selected !== index} />
           ))}
         </button>
         <figcaption>
-          <p key={view.id} className="pl-description" aria-live="polite">{view.description}</p>
+          <p className="pl-description" aria-live="polite">{view.description}</p>
           <Button variant="ghost" className="pl-expand" onClick={() => setExpanded(true)}>
             <Expand size={14} /> Expand screenshot
           </Button>

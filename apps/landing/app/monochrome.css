@@ -430,23 +430,6 @@
 .pl-lightbox-image {
   background: #eee;
 }
-@keyframes mono-enter {
-  from { opacity: 0; transform: translateY(16px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-@media (prefers-reduced-motion: no-preference) {
-  .ot-hero-top > div:first-child,
-  .dl-hero > div:first-child {
-    animation: mono-enter 700ms cubic-bezier(.22,1,.36,1) both;
-  }
-  .ot-hero-description,
-  .dl-intro {
-    animation: mono-enter 700ms cubic-bezier(.22,1,.36,1) 90ms both;
-  }
-  .ot-hero .pd-showcase {
-    animation: mono-enter 850ms cubic-bezier(.22,1,.36,1) 180ms both;
-  }
-}
 @media (max-width: 1000px) {
   .landing .ot-hero { padding-top: 66px; }
   .landing::before { left: 24px; right: 24px; }

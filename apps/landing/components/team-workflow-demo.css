@@ -161,15 +161,12 @@
   font: inherit;
   text-align: left;
   cursor: pointer;
-  transition:
-    background 150ms ease,
-    border-color 150ms ease,
-    transform 180ms ease;
+  transition: background-color 180ms ease, border-color 180ms ease, box-shadow 200ms ease;
 }
 
 .twd-file:hover {
-  transform: translateY(-2px);
   border-color: #b6b6b6;
+  box-shadow: 0 3px 12px #00000009;
   background: #f5f5f5;
 }
 
@@ -480,7 +477,7 @@
 }
 .twd-message[data-revealed="false"] > .twd-agent-row {
   opacity: 0;
-  transform: translateY(8px);
+  transform: translateY(6px);
   pointer-events: none;
 }
 .twd-message[data-pending="true"] > .twd-sender {
@@ -521,7 +518,7 @@
   align-items: center;
   justify-content: center;
   gap: 5px;
-  min-width: 72px;
+  min-width: 54px;
   padding: 5px 8px;
   border: 1px solid #dcdcdc;
   border-radius: 6px;
@@ -573,10 +570,6 @@
 .twd-preview-dialog[data-ending-style] {
   opacity: 0;
   transform: translate(-50%, calc(-50% + 8px)) scale(0.985);
-}
-html[data-motion-paused] .twd-preview-backdrop,
-html[data-motion-paused] .twd-preview-dialog {
-  transition: none;
 }
 @media (prefers-reduced-motion: reduce) {
   .twd-preview-backdrop,

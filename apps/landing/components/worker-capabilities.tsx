@@ -3,6 +3,7 @@
 import { Tabs } from "@base-ui/react/tabs";
 import { ArrowUpRight, CalendarClock, HardDrive, Monitor, Smartphone } from "lucide-react";
 import { ComputerDemo, MemoryDemo, MobileDemo, RoutineDemo } from "./app-demo-details";
+import { useLayoutEffect, useRef, useState } from "react";
 
 const capabilities = [
   {
@@ -52,8 +53,27 @@ const capabilities = [
 ];
 
 export function WorkerCapabilities() {
+  const [selected, setSelected] = useState("computer");
+  const [direction, setDirection] = useState("forward");
+  const stage = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const element = stage.current;
+    const panel = element?.querySelector<HTMLElement>(`[data-capability="${selected}"]`);
+    if (!element || !panel) return;
+    const resize = () => {
+      const floor = matchMedia("(min-width: 851px)").matches ? 650 : 0;
+      element.style.height = `${Math.max(floor, panel.offsetHeight)}px`;
+    };
+    resize();
+    const observer = new ResizeObserver(resize);
+    observer.observe(panel);
+    return () => observer.disconnect();
+  }, [selected]);
   return (
-    <Tabs.Root defaultValue="computer" className="ot-worker-tabs">
+    <Tabs.Root value={selected} onValueChange={(value) => {
+      setDirection(capabilities.findIndex((item) => item.id === value) >= capabilities.findIndex((item) => item.id === selected) ? "forward" : "backward");
+      setSelected(String(value));
+    }} className="ot-worker-tabs" data-direction={direction}>
       <Tabs.List className="ot-worker-tab-list" aria-label="Explore worker capabilities">
         {capabilities.map(({ id, label, icon: Icon }) => (
           <Tabs.Tab value={id} key={id} className="ot-worker-tab">
@@ -62,8 +82,9 @@ export function WorkerCapabilities() {
         ))}
         <Tabs.Indicator className="ot-worker-indicator" />
       </Tabs.List>
+      <div className="ot-worker-stage" ref={stage}>
       {capabilities.map(({ id, heading, description, detail, demo: Demo }) => (
-        <Tabs.Panel value={id} key={id} className={`ot-worker-panel ot-worker-panel-${id}`}>
+        <Tabs.Panel keepMounted value={id} key={id} data-capability={id} className={`ot-worker-panel ot-worker-panel-${id}`}>
           <div className="ot-worker-panel-copy">
             <h3>{heading}</h3>
             <p>{description}</p>
@@ -79,6 +100,7 @@ export function WorkerCapabilities() {
           </div>
         </Tabs.Panel>
       ))}
+      </div>
     </Tabs.Root>
   );
 }

@@ -7,17 +7,13 @@ import {
   ArrowDownToLine,
   CalendarClock,
   ChevronsRight,
-  Minimize2,
   PanelLeftClose,
   PanelLeftOpen,
   Plug,
   Clock3,
   FileText,
   Monitor,
-  Pause,
-  Play,
   Plus,
-  RotateCcw,
   Search,
   Settings,
   Terminal,
@@ -148,14 +144,12 @@ function TrafficLights() {
 
 export function ProductDemo() {
   const showcase = useRef<HTMLDivElement>(null);
-  const started = useRef(false);
   const [selected, setSelected] = useState(0);
-  const [stage, setStage] = useState(4);
-  const [paused, setPaused] = useState(false);
-  const [autoCycle, setAutoCycle] = useState(true);
+  const [stage, setStage] = useState(0);
+  const [manualRun, setManualRun] = useState(false);
   const [visible, setVisible] = useState(false);
   const [documentVisible, setDocumentVisible] = useState(false);
-  const [reducedMotion, setReducedMotion] = useState(true);
+  const [reducedMotion, setReducedMotion] = useState(false);
   const [replayCount, setReplayCount] = useState(0);
   const [compact, setCompact] = useState(false);
   const [details, setDetails] = useState(true);
@@ -165,14 +159,13 @@ export function ProductDemo() {
   const fileBytes = new TextEncoder().encode(sampleFileContent(scenario)).byteLength;
   const fileSize = fileBytes < 1024 ? `${fileBytes} B` : `${(fileBytes / 1024).toFixed(1)} KB`;
   const done = stage >= 4;
-  const touring = autoCycle && !reducedMotion;
-  const active = visible && documentVisible && !paused && preview === null;
+  const active = visible && documentVisible && preview === null;
   const avatarMode = !active || reducedMotion ? "still" : done ? "idle" : "thinking";
 
   useEffect(() => {
     const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
     const syncMotion = () => {
-      const disabled = motion.matches || document.documentElement.hasAttribute("data-motion-paused");
+      const disabled = motion.matches;
       setReducedMotion(disabled);
       // Always leave a readable, complete conversation when motion is disabled.
       if (disabled) setStage(4);
@@ -181,7 +174,6 @@ export function ProductDemo() {
     syncMotion();
     syncDocument();
     motion.addEventListener("change", syncMotion);
-    window.addEventListener("openteam:motion-preference", syncMotion);
     document.addEventListener("visibilitychange", syncDocument);
     const observer = new IntersectionObserver(
       ([entry]) => setVisible(entry?.isIntersecting ?? false),
@@ -191,41 +183,24 @@ export function ProductDemo() {
     return () => {
       observer.disconnect();
       motion.removeEventListener("change", syncMotion);
-      window.removeEventListener("openteam:motion-preference", syncMotion);
       document.removeEventListener("visibilitychange", syncDocument);
     };
   }, []);
 
   useEffect(() => {
-    if (!active || reducedMotion || started.current) return;
-    started.current = true;
-    setStage(0);
-    setReplayCount((count) => count + 1);
-  }, [active, reducedMotion]);
-
-  useEffect(() => {
-    if (!active || reducedMotion || (done && !touring)) return;
-    // Let the result stay on screen long enough to read before the next worker.
-    const timer = setTimeout(() => {
-      if (done) {
-        setSelected((index) => (index + 1) % examples.length);
-        setStage(0);
-      } else {
-        setStage((current) => current + 1);
-      }
-    }, done ? 7000 : stage === 0 ? 1100 : 1200);
-    return () => clearTimeout(timer);
-  }, [stage, done, active, touring, reducedMotion]);
+    if (!active || reducedMotion || done) return;
+    // One deliberate run, then leave the finished work available to inspect.
+    const timer = window.setTimeout(() => {
+      setStage((current) => current + 1);
+    }, stage === 0 ? 1100 : 1400);
+    return () => window.clearTimeout(timer);
+  }, [stage, done, active, reducedMotion, replayCount]);
 
   const choose = useCallback((index: number, startReplay = true) => {
-    started.current = true;
-    // Choosing a conversation hands the demo over to the visitor. The tour
-    // never replaces a task they selected or a file they are inspecting.
-    setAutoCycle(false);
+    setManualRun(true);
     setSelected(index);
     setStage(startReplay && !reducedMotion ? 0 : 4);
     setReplayCount((count) => count + 1);
-    setPaused(false);
     setPreview(null);
   }, [reducedMotion]);
   useEffect(() => {
@@ -242,23 +217,7 @@ export function ProductDemo() {
     window.addEventListener(DEMO_TASK_EVENT, selectTask);
     return () => window.removeEventListener(DEMO_TASK_EVENT, selectTask);
   }, [choose]);
-  const replay = () => {
-    if (reducedMotion) {
-      started.current = true;
-      setAutoCycle(false);
-      setStage((current) => current >= 4 ? 0 : current + 1);
-      setPaused(false);
-      setPreview(null);
-      return;
-    }
-    if (done && !touring) {
-      started.current = true;
-      setStage(0);
-      setReplayCount((count) => count + 1);
-      setPaused(false);
-      setPreview(null);
-    } else setPaused((value) => !value);
-  };
+  const replay = () => choose(selected);
   const download = () => {
     const text = sampleFileContent(scenario);
     const url = URL.createObjectURL(
@@ -278,12 +237,9 @@ export function ProductDemo() {
       ref={showcase}
       data-demo-task={scenario.id}
       data-demo-stage={stage}
-      data-demo-running={active && !reducedMotion && (!done || touring)}
+      data-demo-running={active && !reducedMotion && !done}
       data-demo-motion={!reducedMotion}
-      onFocusCapture={(event) => {
-        // Keep the selected worker stable while someone uses its controls.
-        if (!event.target.closest(".pd-replay")) setAutoCycle(false);
-      }}
+
     >
       <div className="pd-scenarios">
         <span className="pd-try-label">SAMPLE TASKS</span>
@@ -312,14 +268,15 @@ export function ProductDemo() {
             </Button>
           ))}
         </div>
-        <Button variant="ghost" className="pd-replay" onClick={replay}>
-          {done && !touring ? <RotateCcw size={13} /> : paused || reducedMotion ? <Play size={13} /> : <Pause size={13} />}
-          {done && !touring ? "Replay demo" : reducedMotion ? "Next step" : paused ? "Resume" : "Pause"}
-        </Button>
+        {!reducedMotion && (
+          <Button variant="ghost" className="pd-replay" onClick={replay} aria-label="Replay demo">
+            Replay
+          </Button>
+        )}
       </div>
-      <div className="pd-playback-progress" aria-live={autoCycle ? "off" : "polite"}>
+      <div className="pd-playback-progress" aria-live={manualRun ? "polite" : "off"}>
         <span className={`pd-playback-dot ${done ? "is-complete" : ""}`} aria-hidden="true" />
-        <span>{done ? scenario.preview : paused ? "Run paused" : scenario.steps[stage]}</span>
+        <span>{done ? scenario.preview : scenario.steps[stage]}</span>
         <span className="pd-step-count" aria-hidden="true">{done ? "4 / 4" : `${stage + 1} / 4`}</span>
       </div>
       <div className={`dt-app ${compact ? "dt-compact" : ""} ${details ? "dt-details-open" : ""}`}>
@@ -371,11 +328,7 @@ export function ProductDemo() {
                         <time>{i === 0 ? "8:01 AM" : i === 1 ? "8:00 AM" : "Yesterday"}</time>
                       </span>
                       <small>
-                        {i === selected && !done
-                          ? paused
-                            ? "Run paused"
-                            : "Working…"
-                          : item.preview}
+                        {i === selected && !done ? "Working…" : item.preview}
                       </small>
                     </span>
                   </button>
@@ -425,19 +378,24 @@ export function ProductDemo() {
             key={`${scenario.id}-${replayCount}`}
             role="log"
             aria-label="Sample messages"
-            aria-live={autoCycle ? "off" : "polite"}
+            aria-live={manualRun ? "polite" : "off"}
           >
             <p className="dt-date">Today 8:00 AM</p>
             <div className="dt-message dt-message-user">
               <div className="dt-bubble">{scenario.prompt}</div>
             </div>
-            {stage > 0 && (
-              <div className="dt-message dt-ack">
+            <div className="dt-response-slot">
+              <div className="dt-message dt-ack" data-revealed={stage > 0} aria-hidden={stage === 0} inert={stage === 0}>
                 <div className="dt-bubble">{scenario.acknowledgment}</div>
               </div>
-            )}
-            {done ? (
-              <div className="dt-message dt-result">
+              {stage === 0 && (
+                <div className={`dt-thinking ${!active ? "is-paused" : ""}`} aria-hidden="true">
+                  <span /><span /><span />
+                </div>
+              )}
+            </div>
+            <div className="dt-response-slot">
+              <div className="dt-message dt-result" data-revealed={done} aria-hidden={!done} inert={!done}>
                 <div className="dt-bubble">{scenario.reply}</div>
                 <article className="dt-file">
                   <button
@@ -469,18 +427,17 @@ export function ProductDemo() {
                   </button>
                 </article>
               </div>
-            ) : (
-              <div
-                className={`dt-thinking ${!active ? "is-paused" : ""}`}
-                role="status"
-                aria-live={autoCycle ? "off" : "polite"}
-                aria-label={paused ? "Run paused" : `${scenario.name} is working`}
-              >
-                <span />
-                <span />
-                <span />
-              </div>
-            )}
+              {stage > 0 && !done && (
+                <div
+                  className={`dt-thinking ${!active ? "is-paused" : ""}`}
+                  role="status"
+                  aria-live={manualRun ? "polite" : "off"}
+                  aria-label={`${scenario.name} is working`}
+                >
+                  <span /><span /><span />
+                </div>
+              )}
+            </div>
           </div>
           <div className="dt-composer-dock">
             <div className="dt-composer" aria-label="Sample message composer">
@@ -573,7 +530,7 @@ export function ProductDemo() {
                 className="dt-icon-button"
                 aria-label={preview === "computer" ? "Close computer view" : "Close preview"}
               >
-                {preview === "computer" ? <Minimize2 size={16} /> : <X size={16} />}
+                <X size={18} />
               </Dialog.Close>
             </header>
             <Dialog.Description className="dt-visually-hidden">

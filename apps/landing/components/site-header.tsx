@@ -1,12 +1,15 @@
+"use client";
+
 import { ArrowUpRight } from "lucide-react";
+import { useRef } from "react";
 import { GithubMark, Wordmark } from "./brand";
 import { Button } from "./ui/button";
-import { MotionToggle } from "./motion-toggle";
 import "./site-header.css";
 
 const GITHUB = "https://github.com/raghavpillai/openteam";
 
 export function SiteHeader({ home = false }: { home?: boolean }) {
+  const menu = useRef<HTMLDetailsElement>(null);
   const prefix = home ? "" : "/";
   const links = [
     ["How it works", "how-it-works"],
@@ -28,7 +31,6 @@ export function SiteHeader({ home = false }: { home?: boolean }) {
           ))}
         </nav>
         <div className="ot-nav-actions">
-          <MotionToggle />
           <a className="ot-github" href={GITHUB} aria-label="OpenTeam on GitHub">
             <GithubMark />
             <span>GitHub</span>
@@ -41,9 +43,16 @@ export function SiteHeader({ home = false }: { home?: boolean }) {
             Install <ArrowUpRight size={15} />
           </Button>
         </div>
-        <details className="ot-mobile-menu">
+        <details className="ot-mobile-menu" ref={menu} onKeyDown={(event) => {
+          if (event.key === "Escape" && menu.current) {
+            menu.current.open = false;
+            menu.current.querySelector("summary")?.focus();
+          }
+        }}>
           <summary>Menu</summary>
-          <nav aria-label="Mobile navigation">
+          <nav aria-label="Mobile navigation" onClick={(event) => {
+            if ((event.target as HTMLElement).closest("a") && menu.current) menu.current.open = false;
+          }}>
             {links.map(([label, id]) => (
               <a href={`${prefix}#${id}`} key={id}>
                 {label}

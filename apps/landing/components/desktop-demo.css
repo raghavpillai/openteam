@@ -675,34 +675,46 @@ button.dt-icon-button:hover {
   color: #7b7b7b;
 }
 .dt-computer-dialog {
-  width: 100vw;
-  height: 100dvh;
-  border-radius: 0;
-  border: 0;
-  background: #0c0c0c;
-  color: #ccc;
-  grid-template-rows: 44px minmax(0, 1fr);
+  width: min(1120px, calc(100vw - 32px), calc((90dvh - 68px) * 1.6));
+  height: auto;
+  max-height: 90dvh;
+  border: 1px solid #ffffff2e;
+  border-radius: 14px;
+  background: #101010;
+  color: #f1f1f1;
+  grid-template-rows: 52px auto;
 }
 .dt-computer-dialog > header {
-  background: transparent;
-  border-bottom: 0;
+  padding: 0 8px 0 18px;
+  background: #191919;
+  border-bottom: 1px solid #ffffff12;
 }
 .dt-computer-dialog > header h2 {
-  visibility: hidden;
+  font-size: 14px;
+  line-height: 20px;
 }
-.dt-computer-dialog .dt-icon-button {
-  color: #bbb;
+.dt-computer-dialog > header .dt-icon-button {
+  width: 40px;
+  height: 40px;
+  color: #ddd;
+  border-radius: 8px;
+}
+.dt-computer-dialog > header .dt-icon-button:hover {
+  background: #ffffff12;
+  color: #fff;
 }
 .dt-computer-dialog .dt-preview-content {
   display: grid;
   place-items: center;
-  background: #0c0c0c;
+  background: #101010;
   padding: 8px;
 }
 .dt-computer-dialog .dt-screen-canvas {
-  width: min(100%, calc((100dvh - 60px) * 1.6));
+  display: block;
+  width: 100%;
   height: auto;
   aspect-ratio: 16 / 10;
+  border-radius: 4px;
 }
 .dt-visually-hidden {
   position: absolute;
@@ -773,8 +785,8 @@ button.dt-icon-button:hover {
     height: calc(100dvh - 48px);
   }
   .dt-computer-dialog {
-    width: 100vw;
-    height: 100dvh;
+    width: min(calc(100vw - 24px), calc((90dvh - 68px) * 1.6));
+    height: auto;
   }
   .dt-document {
     padding: 24px 18px;
@@ -885,13 +897,14 @@ button.dt-icon-button:hover {
   50% { opacity: 0.35; }
 }
 @media (prefers-reduced-motion: no-preference) {
-  .pd-showcase[data-demo-motion="true"] .dt-message-user,
-  .pd-showcase[data-demo-motion="true"] .dt-ack,
-  .pd-showcase[data-demo-motion="true"] .dt-result {
-    animation: dt-message-arrive 380ms cubic-bezier(0.2, 0.75, 0.3, 1) both;
+  .pd-showcase[data-demo-motion="true"] .dt-message-user {
+    animation: dt-message-arrive 400ms cubic-bezier(0.2, 0.75, 0.3, 1) both;
+  }
+  .pd-showcase[data-demo-motion="true"] .dt-message[data-revealed] {
+    transition: opacity 280ms ease, transform 420ms cubic-bezier(0.2, 0.75, 0.3, 1);
   }
   .pd-showcase[data-demo-motion="true"] .dt-result .dt-file {
-    animation: dt-message-arrive 420ms 140ms cubic-bezier(0.2, 0.75, 0.3, 1) both;
+    transition: opacity 320ms ease 90ms, transform 450ms cubic-bezier(0.2, 0.75, 0.3, 1) 90ms, background-color 160ms ease, box-shadow 180ms ease;
   }
   .pd-showcase[data-demo-motion="true"] .pd-playback-dot:not(.is-complete) {
     animation: dt-playback-pulse 1.4s ease-in-out infinite;
@@ -928,4 +941,44 @@ button.dt-icon-button:hover {
   background: #f0f0f0;
   color: #696969;
   box-shadow: inset 0 0 0 0.5px #1414141a;
+}
+
+/* Every reply keeps its final space while typing. Reveals never move another
+   message, the composer, or the pointer target of a file attachment. */
+.dt-response-slot {
+  position: relative;
+  flex-shrink: 0;
+}
+.dt-message-user + .dt-response-slot {
+  margin-top: 4px;
+}
+.dt-response-slot + .dt-response-slot {
+  margin-top: -8px;
+}
+.dt-response-slot .dt-result {
+  margin-top: 0;
+}
+.dt-response-slot > .dt-thinking {
+  position: absolute;
+  inset: 0 auto auto 0;
+}
+.dt-message[data-revealed="false"] {
+  opacity: 0;
+  transform: translateY(6px);
+  visibility: hidden;
+  pointer-events: none;
+}
+.dt-result[data-revealed="false"] .dt-file {
+  opacity: 0;
+  transform: translateY(5px);
+}
+.pd-showcase .pd-replay {
+  min-width: 54px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .dt-message[data-revealed],
+  .dt-result .dt-file {
+    transition: none;
+    transform: none;
+  }
 }

@@ -36,9 +36,8 @@ export default function DownloadPage() {
           <div>
             <p className="ot-eyebrow">GET OPENTEAM</p>
             <h1>
-              Install the server.
-              <br />
-              <span>Connect the app.</span>
+              <span className="ot-title-line"><span>Install the server. </span></span>
+              <span className="ot-title-line"><span>Connect the app.</span></span>
             </h1>
           </div>
           <div className="dl-intro">

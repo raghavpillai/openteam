@@ -1,0 +1,17 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><title>VNC Input Lab</title>
+<style>body{font:20px system-ui;margin:30px;background:#edf3fc;color:#172e50}h1{margin:0 0 12px}section{background:white;padding:18px;margin:16px 0;border:2px solid #c4d2e8;border-radius:12px}button,input,textarea{font:inherit;padding:10px}label{display:block;margin:8px 0}textarea{width:92%;height:85px}#drag{width:140px;padding:20px;background:#bad6ff;touch-action:none;position:relative;cursor:grab}#log{font:14px monospace;white-space:pre-wrap;max-height:140px;overflow:auto}.spacer{height:650px}#bottom{background:#cdf5dc}</style>
+<h1>VNC Input Lab</h1><p>Disposable local test. No data leaves this computer.</p>
+<section><button id="click">Click target</button> <b id="count">Clicks: 0</b> <button id="reset">Reset log</button>
+<label>Manual text <input id="manual" placeholder="Type here"></label><label>Agent text <input id="agent" placeholder="Agent writes here"></label>
+<label>Clipboard / Unicode / multiline<textarea id="paste" placeholder="Paste or type here"></textarea></label></section>
+<section><div id="drag">Drag me</div><p id="position">Drag: 0, 0</p><div id="log" aria-live="polite">Ready</div></section>
+<div class="spacer">Scroll down to the green marker.</div><section id="bottom">BOTTOM MARKER — scrolling passed</section>
+<script>
+let count=0, lines=[]; const log=t=>{lines.push(t);document.querySelector('#log').textContent=lines.slice(-8).join('\n');localStorage.setItem('vnc-qa-evidence',JSON.stringify({count,lines,manual:manual.value,agent:agent.value,paste:paste.value,scrollY}));};
+document.querySelector('#click').onclick=()=>{document.querySelector('#count').textContent='Clicks: '+(++count);log('click '+count)};
+document.querySelector('#reset').onclick=()=>{lines=[];log('reset')};
+for(const el of [manual,agent,paste]){el.addEventListener('input',()=>log(el.id+' = '+JSON.stringify(el.value)));el.addEventListener('keydown',e=>log('key '+e.key+' ctrl='+e.ctrlKey+' alt='+e.altKey+' shift='+e.shiftKey+' meta='+e.metaKey));}
+document.addEventListener('contextmenu',e=>{e.preventDefault();log('right click '+e.clientX+','+e.clientY)});
+let start;drag.onpointerdown=e=>{start={x:e.clientX,y:e.clientY};drag.setPointerCapture(e.pointerId)};drag.onpointermove=e=>{if(!start)return;const x=e.clientX-start.x,y=e.clientY-start.y;drag.style.transform=`translate(${x}px,${y}px)`;position.textContent=`Drag: ${x}, ${y}`};drag.onpointerup=e=>{log(position.textContent);start=null};
+window.addEventListener('scroll',()=>log('scroll '+scrollY));
+</script></html>

@@ -43,7 +43,7 @@ const GITHUB = "https://github.com/raghavpillai/openteam";
 const questions = [
   [
     "What does OpenTeam do?",
-    "OpenTeam is a self-hosted workspace for AI agents. Each agent has a role and an ongoing conversation. Agents can browse the web, run code, and create files on a persistent Linux computer. Conversations, memory, and browser profiles stay on your server between tasks.",
+    "OpenTeam lets you run your own team of AI agents. Give each agent a role, connect apps through plugins, and message agents individually or in group chats. They can browse the web, run code, share files, and delegate work to each other. Conversations and saved memory persist between tasks, and agents keep running while your server stays on.",
   ],
   [
     "What do I need to run it?",
@@ -109,16 +109,16 @@ export default function Home() {
                 <ArrowUpRight size={13} />
               </a>
               <h1>
-                AI agents with
+                Run your own
                 <br />
-                <span>computer access.</span>
+                <span>AI team.</span>
               </h1>
             </div>
             <div className="ot-hero-description">
               <p>
-                Message an agent to research vendors, check dashboards, or fix a failing test.
-                Agents use a Linux computer, plugins, and reusable skills to do the work on your
-                server, even after you close the app.
+                Give each agent a role and connect your apps with plugins. Message them
+                individually or bring the team into a group chat. They use a shared computer,
+                remember your instructions, and keep working on your server after you close the app.
               </p>
               <div className="ot-hero-actions">
                 <GetStarted />

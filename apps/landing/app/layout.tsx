@@ -6,9 +6,9 @@ import { cn } from "@/lib/utils";
 
 const geist = Geist({ subsets: ["latin"], variable: "--font-sans" });
 
-const title = "OpenTeam | Self-hosted AI agents with computer access";
+const title = "OpenTeam | Run your own AI team";
 const description =
-  "Run open-source AI agents with computer access, app plugins, reusable skills, memory, and scheduled tasks. Use your own server and inference.";
+  "Create a team of AI agents, connect your apps with plugins, and give them work in chat. Agents share a computer and keep working on your server after you close the app.";
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://openteam.so"),

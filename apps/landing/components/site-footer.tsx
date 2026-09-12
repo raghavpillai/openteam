@@ -10,7 +10,7 @@ export function SiteFooter({ home = false }: { home?: boolean }) {
         <a href={home ? "#top" : "/"} className="ot-wordmark" aria-label="OpenTeam home">
           <Wordmark size={36} textSize={24} />
         </a>
-        <p>AI agents that run on your server.</p>
+        <p>Your AI team, running on your server.</p>
         <nav aria-label="Footer navigation">
           <a href={GITHUB}>GitHub</a>
           <a href="/download">Download</a>

@@ -134,8 +134,13 @@
   padding-top: 88px;
 }
 .landing .ot-hero-top {
-  align-items: flex-end;
+  align-items: flex-start;
   margin-bottom: 64px;
+}
+@media (min-width: 1151px) {
+  .landing .ot-hero-description {
+    width: 430px;
+  }
 }
 .landing .ot-hero h1 {
   color: #111;

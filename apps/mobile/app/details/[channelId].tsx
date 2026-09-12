@@ -1,5 +1,5 @@
 import type { BotView, RoutineView } from "@openteam/contracts";
-import type { BotAvatarShape } from "@openteam/contracts/bot-avatar";
+import type { RobotAvatarShape as BotAvatarShape } from "@openteam/contracts/robot-avatar";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
 import { GROUP_MEMBER_LIMIT, toggleBoundedSelection } from "@openteam/product-core/selection";
 import { router, useLocalSearchParams, usePathname } from "expo-router";

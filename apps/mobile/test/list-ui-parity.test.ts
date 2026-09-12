@@ -247,7 +247,10 @@ describe("mobile virtual-list UI parity", () => {
     expect(composer).toContain("paddingRight: 29");
     expect(composer).toContain("gap: 9");
     expect(profile).toContain("size={98}");
-    expect(profile).toContain("characterCard: { height: 218");
+    // Twelve robots occupy two rows; the card must grow without clipping Reset.
+    expect(profile).not.toContain("characterCard: { height:");
+    expect(profile).toContain('shapeChoice: { width: "16.666%"');
+    expect(profile).not.toContain("showFace={false}");
     expect(profile).toContain("paddingTop: 0");
     expect(marketplace).toContain("width: 228");
     expect(richCard).toContain("styles.dismissedOptions");

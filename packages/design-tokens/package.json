@@ -6,7 +6,6 @@
   "exports": {
     ".": "./src/index.ts",
     "./appearance": "./src/appearance.ts",
-    "./bot-avatar-artwork": "./src/bot-avatar-artwork.ts",
     "./mobile-theme": "./src/mobile-theme.ts",
     "./robot-avatar-artwork": "./src/robot-avatar-artwork.ts",
     "./robot-avatar.css": "./src/robot-avatar.css"

@@ -1,17 +1,25 @@
+import type { BotAvatarShape } from "@openteam/contracts/bot-avatar";
+import { normalizeRobotAvatarShape, type RobotAvatarShape } from "@openteam/contracts/robot-avatar";
 import {
-  BOT_AVATAR_ARTWORK,
-  BOT_AVATAR_VIEW_BOX,
-  botAvatarEyeRects,
-  botAvatarEyeTransform,
-} from "@openteam/design-tokens/bot-avatar-artwork";
+  ROBOT_AVATAR_ARTWORK,
+  ROBOT_AVATAR_VIEW_BOX,
+  robotAvatarFaceColor,
+  robotAvatarTempo,
+  type RobotAvatarNode,
+} from "@openteam/design-tokens/robot-avatar-artwork";
+import { createElement, type CSSProperties } from "react";
 
-export type BotShape = "blob" | "circle" | "drop" | "cloud" | "square" | "hexagon";
+export type BotShape = RobotAvatarShape | BotAvatarShape;
+
+function renderNode(node: RobotAvatarNode, key: number): React.ReactElement {
+  return createElement(node.tag, { ...node.attributes, key }, node.children?.map(renderNode));
+}
 
 export function BotAvatar({
-  shape = "blob",
+  shape = "goggles",
   color = "#ff7a1a",
   size = 32,
-  eyeColor = "#ffffff",
+  eyeColor,
   className,
   title,
   blink = false,
@@ -23,48 +31,34 @@ export function BotAvatar({
   eyeColor?: string;
   className?: string;
   title?: string;
-  /** Blink every few seconds (only when motion is enabled). */
+  /** Animate the robot's idle pose when motion is enabled. */
   blink?: boolean;
   /** Offset in ms so a group of bots does not blink in unison. */
   blinkDelay?: number;
 }) {
-  const art = BOT_AVATAR_ARTWORK[shape];
-  const eyes = botAvatarEyeRects(art.eyes);
+  const robot = normalizeRobotAvatarShape(shape);
   return (
     <svg
       aria-hidden={title ? undefined : "true"}
       role={title ? "img" : undefined}
-      className={className}
-      viewBox={BOT_AVATAR_VIEW_BOX}
+      className={`robot-avatar ${className ?? ""}`}
+      data-avatar-mode={blink ? "idle" : "still"}
+      data-avatar-shape={robot}
+      viewBox={ROBOT_AVATAR_VIEW_BOX}
       width={size}
       height={size}
-      style={{ flex: "0 0 auto" }}
+      style={
+        {
+          flex: "0 0 auto",
+          color,
+          "--robot-face": eyeColor ?? robotAvatarFaceColor(color),
+          "--robot-tempo": `${robotAvatarTempo(robot)}s`,
+          "--robot-delay": `${blinkDelay}ms`,
+        } as CSSProperties
+      }
     >
       {title ? <title>{title}</title> : null}
-      <g fill={color}>
-        {art.body.kind === "circle" ? (
-          <circle cx={art.body.cx} cy={art.body.cy} r={art.body.r} />
-        ) : (
-          <path d={art.body.d} transform={art.body.transform} />
-        )}
-      </g>
-      <g
-        fill={eyeColor}
-        className={blink ? "eyes-blink" : undefined}
-        style={blink ? ({ "--d": `${blinkDelay}ms` } as React.CSSProperties) : undefined}
-      >
-        {eyes.map((e, i) => (
-          <rect
-            key={i}
-            x={e.x}
-            y={e.y}
-            width={e.width}
-            height={e.height}
-            rx={e.rx}
-            transform={botAvatarEyeTransform(e)}
-          />
-        ))}
-      </g>
+      <g className="robot-avatar-body">{ROBOT_AVATAR_ARTWORK[robot].map(renderNode)}</g>
     </svg>
   );
 }

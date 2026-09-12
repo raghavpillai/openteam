@@ -20,7 +20,7 @@ type LandingStage = "checking" | "welcome" | "endpoint" | "credentials";
 const decorations = [
   {
     color: "#08c875",
-    shape: "cloud",
+    shape: "chip",
     left: "16%",
     top: "12%",
     size: "clamp(72px, 8vw, 112px)",
@@ -28,7 +28,7 @@ const decorations = [
   },
   {
     color: "#f72591",
-    shape: "drop",
+    shape: "pod",
     left: "64%",
     top: "17%",
     size: "clamp(58px, 6vw, 84px)",
@@ -36,7 +36,7 @@ const decorations = [
   },
   {
     color: "#8850f5",
-    shape: "pill",
+    shape: "terminal",
     left: "-2%",
     top: "35%",
     size: "clamp(62px, 7vw, 94px)",
@@ -44,7 +44,7 @@ const decorations = [
   },
   {
     color: "#9d683e",
-    shape: "circle",
+    shape: "helmet",
     left: "91%",
     top: "34%",
     size: "clamp(64px, 7vw, 98px)",
@@ -52,7 +52,7 @@ const decorations = [
   },
   {
     color: "#ff9912",
-    shape: "circle",
+    shape: "helmet",
     left: "-3%",
     top: "61%",
     size: "clamp(76px, 9vw, 122px)",
@@ -60,7 +60,7 @@ const decorations = [
   },
   {
     color: "#ff2445",
-    shape: "circle",
+    shape: "helmet",
     left: "94%",
     top: "61%",
     size: "clamp(76px, 9vw, 122px)",
@@ -68,7 +68,7 @@ const decorations = [
   },
   {
     color: "#1685ed",
-    shape: "square",
+    shape: "tv-head",
     left: "8%",
     top: "80%",
     size: "clamp(68px, 8vw, 108px)",
@@ -76,7 +76,7 @@ const decorations = [
   },
   {
     color: "#08bca9",
-    shape: "circle",
+    shape: "helmet",
     left: "82%",
     top: "80%",
     size: "clamp(64px, 7vw, 98px)",
@@ -84,7 +84,7 @@ const decorations = [
   },
   {
     color: "#ff6811",
-    shape: "hexagon",
+    shape: "hex-visor",
     left: "46%",
     top: "84%",
     size: "clamp(74px, 9vw, 118px)",

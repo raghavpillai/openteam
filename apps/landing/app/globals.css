@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "tw-animate-css";
+@import "@openteam/design-tokens/robot-avatar.css";
 @import "shadcn/tailwind.css";
 
 @custom-variant dark (&:is(.dark *));
@@ -242,21 +243,13 @@ body {
   animation-delay: var(--d, 0ms);
 }
 
-@keyframes eye-blink {
-  0%,
-  94%,
-  100% {
-    transform: scaleY(1);
-  }
-  97% {
-    transform: scaleY(0.08);
-  }
+html:not([data-motion]) .robot-avatar * {
+  animation: none;
 }
-[data-motion] .eyes-blink {
-  transform-box: fill-box;
-  transform-origin: center;
-  animation: eye-blink 5.4s ease-in-out infinite;
-  animation-delay: var(--d, 0ms);
+.robot-avatar .robot-avatar-body,
+.robot-avatar [data-p="eyes"],
+.robot-avatar [data-p="visor"] {
+  animation-delay: var(--robot-delay, 0ms);
 }
 
 /* Screen viewer: the pointer glides to the sign-in button, then presses it. */

@@ -1,11 +1,10 @@
 import type { BotView, RoutineView } from "@openteam/contracts";
+import { BOT_AVATAR_DEALT_COLORS, DEFAULT_BOT_AVATAR } from "@openteam/contracts/bot-avatar";
 import {
-  BOT_AVATAR_DEALT_COLORS,
-  BOT_AVATAR_SHAPES,
-  type BotAvatarShape,
-  DEFAULT_BOT_AVATAR,
-  normalizeBotAvatarShape,
-} from "@openteam/contracts/bot-avatar";
+  ROBOT_AVATAR_SHAPES as BOT_AVATAR_SHAPES,
+  type RobotAvatarShape as BotAvatarShape,
+  normalizeRobotAvatarShape as normalizeBotAvatarShape,
+} from "@openteam/contracts/robot-avatar";
 import { routineScheduleSummary as routineSummary } from "@openteam/product-core/routines";
 import { SymbolView } from "expo-symbols";
 import { useEffect, useState } from "react";
@@ -161,7 +160,7 @@ export function BotProfileScreen({
   const header = (
     <>
       <View style={styles.avatarWrap}>
-        <BotMark color={color} icon={shape} showFace={false} size={98} />
+        <BotMark color={color} icon={shape} size={98} />
       </View>
 
       <View style={[styles.identityCard, { backgroundColor: panel }]}>
@@ -226,7 +225,7 @@ export function BotProfileScreen({
               style={({ pressed }) => [styles.shapeChoice, pressed && styles.pressed]}
             >
               <SelectionRing selected={candidate === shape}>
-                <BotMark color={color} icon={candidate} showFace={false} size={24} />
+                <BotMark color={color} icon={candidate} size={24} />
               </SelectionRing>
             </Pressable>
           ))}
@@ -235,7 +234,12 @@ export function BotProfileScreen({
         <Pressable
           accessibilityRole="button"
           disabled={avatarSaving}
-          onPress={() => void commitAvatar(DEFAULT_BOT_AVATAR.shape, DEFAULT_BOT_AVATAR.color)}
+          onPress={() =>
+            void commitAvatar(
+              normalizeBotAvatarShape(DEFAULT_BOT_AVATAR.shape),
+              DEFAULT_BOT_AVATAR.color
+            )
+          }
           style={({ pressed }) => [styles.resetRow, pressed && styles.pressed]}
         >
           <Text style={[styles.resetText, { color: theme.accent }]}>Reset to default</Text>
@@ -354,7 +358,7 @@ const styles = StyleSheet.create({
   },
   sectionLabel: { marginLeft: 16, fontSize: 13, lineHeight: 18 },
   characterLabel: { marginTop: 30, marginBottom: 8 },
-  characterCard: { height: 218, borderRadius: 16, overflow: "hidden" },
+  characterCard: { borderRadius: 16, overflow: "hidden" },
   colorGrid: {
     height: 103,
     paddingHorizontal: 16,
@@ -376,14 +380,15 @@ const styles = StyleSheet.create({
   colorDot: { width: 24, height: 24, borderRadius: 12 },
   panelDivider: { height: StyleSheet.hairlineWidth, marginHorizontal: 16 },
   shapeRow: {
-    height: 64,
+    paddingVertical: 10,
     paddingHorizontal: 5,
+    flexWrap: "wrap",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
   },
-  shapeChoice: { width: 39, height: 44, alignItems: "center", justifyContent: "center" },
-  resetRow: { flex: 1, paddingHorizontal: 16, justifyContent: "center" },
+  shapeChoice: { width: "16.666%", height: 44, alignItems: "center", justifyContent: "center" },
+  resetRow: { minHeight: 50, paddingHorizontal: 16, justifyContent: "center" },
   resetText: { fontSize: 14, lineHeight: 19 },
   helper: { marginTop: 9, marginLeft: 16, fontSize: 13, lineHeight: 18 },
   disclosure: {

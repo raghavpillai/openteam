@@ -7,12 +7,12 @@ export const MOBILE_EXPORT_BUDGETS = {
   // (Mermaid/KaTeX) and the branded About artwork as native assets.
   assets: 30,
   assetBytes: 7_000_000,
-  // The shared 500-message / 2 MiB history engine now also runs on iOS,
-  // including viewport retention, forward paging, and cached latest-tail recovery.
-  // Measured exports: 4,647,746 B exact / 3,791,244 B source-mapped. This is
-  // application code, not a new dependency; keep less than 0.3% headroom.
-  exactBundleBytes: 4_660_000,
-  mappedBundleBytes: 3_800_000,
+  // Shared robot artwork now uses native SVG primitives on iOS. Direct primitive
+  // imports omit the library's XML/CSS parsers and filters (saving 92 KB exact).
+  // Measured exports: 4,749,837 B exact / 3,875,148 B source-mapped, roughly
+  // 102 KB / 84 KB above the prior history-engine baseline. Keep <0.4% headroom.
+  exactBundleBytes: 4_765_000,
+  mappedBundleBytes: 3_890_000,
   metroModules: 2_250,
   sourceFiles: 1_850,
 } as const;

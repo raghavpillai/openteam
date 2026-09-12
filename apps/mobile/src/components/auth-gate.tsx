@@ -47,15 +47,15 @@ async function holdSpinner(startedAt: number) {
 }
 
 const decorations = [
-  { color: "#08c875", icon: "cloud", left: 0.18, size: 0.205, top: 0.11, rotate: "-8deg" },
-  { color: "#f72591", icon: "drop", left: 0.57, size: 0.16, top: 0.17, rotate: "18deg" },
-  { color: "#8850f5", icon: "pill", left: -0.02, size: 0.14, top: 0.31, rotate: "80deg" },
-  { color: "#9d683e", icon: "circle", left: 0.88, size: 0.16, top: 0.31, rotate: "-22deg" },
-  { color: "#ff9912", icon: "circle", left: -0.09, size: 0.2, top: 0.5, rotate: "15deg" },
-  { color: "#ff2445", icon: "circle", left: 0.93, size: 0.2, top: 0.51, rotate: "-22deg" },
-  { color: "#1685ed", icon: "square", left: 0.03, size: 0.18, top: 0.7, rotate: "4deg" },
-  { color: "#08bca9", icon: "circle", left: 0.8, size: 0.16, top: 0.7, rotate: "-18deg" },
-  { color: "#ff6811", icon: "hexagon", left: 0.36, size: 0.21, top: 0.76, rotate: "4deg" },
+  { color: "#08c875", icon: "chip", left: 0.18, size: 0.205, top: 0.11, rotate: "-8deg" },
+  { color: "#f72591", icon: "pod", left: 0.57, size: 0.16, top: 0.17, rotate: "18deg" },
+  { color: "#8850f5", icon: "terminal", left: -0.02, size: 0.14, top: 0.31, rotate: "80deg" },
+  { color: "#9d683e", icon: "helmet", left: 0.88, size: 0.16, top: 0.31, rotate: "-22deg" },
+  { color: "#ff9912", icon: "helmet", left: -0.09, size: 0.2, top: 0.5, rotate: "15deg" },
+  { color: "#ff2445", icon: "helmet", left: 0.93, size: 0.2, top: 0.51, rotate: "-22deg" },
+  { color: "#1685ed", icon: "tv-head", left: 0.03, size: 0.18, top: 0.7, rotate: "4deg" },
+  { color: "#08bca9", icon: "helmet", left: 0.8, size: 0.16, top: 0.7, rotate: "-18deg" },
+  { color: "#ff6811", icon: "hex-visor", left: 0.36, size: 0.21, top: 0.76, rotate: "4deg" },
 ] as const;
 
 function IdleBot({

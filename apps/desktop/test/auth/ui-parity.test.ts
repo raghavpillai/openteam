@@ -3,24 +3,22 @@ import { describe, expect, test } from "bun:test";
 const read = async (path: string) => Bun.file(new URL(path, import.meta.url)).text();
 
 describe("Bot desktop authentication UI parity", () => {
-  test("matches the animated glass mobile onboarding treatment", async () => {
+  test("uses compact desktop onboarding with accessible stage transitions", async () => {
     const [source, styles] = await Promise.all([
       read("../../src/renderer/components/openteam/auth-gate.tsx"),
       read("../../src/renderer/styles.css"),
     ]);
 
-    expect(source).toContain("<AuthBotField />");
     expect(source).toContain("<BotAvatarGlyph");
-    expect(source).toContain('data-exits={index >= 6 ? "true" : undefined}');
-    expect(source).toContain('className="auth-glass auth-brand-card"');
+    expect(source).toContain('className="auth-brand"');
     expect(source).toContain('className="auth-stage-frame"');
     expect(source).toContain('setStage("endpoint")');
     expect(source).toContain('setStage("credentials")');
     expect(source).toContain('setStage("welcome")');
-    expect(styles).toContain("@keyframes auth-bot-idle");
-    expect(styles).toContain("backdrop-filter: blur(28px) saturate(155%)");
-    expect(styles).toContain('.auth-shell[data-stage="endpoint"]');
-    expect(styles).toContain('.auth-shell[data-stage="credentials"]');
+    expect(source).toContain("inert={!endpointVisible}");
+    expect(source).toContain("inert={!credentialsVisible}");
+    expect(styles).toContain('.auth-stage-layer[aria-hidden="true"]');
+    expect(source).toContain("ResizeObserver");
     expect(styles).toContain("@media (prefers-reduced-motion: reduce)");
   });
 

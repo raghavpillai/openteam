@@ -143,7 +143,7 @@ describe("mobile virtual-list UI parity", () => {
     expect(authGate).not.toContain("opacity: endpointOpacity");
     expect(authGate).not.toContain("opacity: credentialsOpacity");
     expect(authGate).toContain("const offstageX = width + 24");
-    expect(authGate).toContain("controlPressed: { transform: [{ scale: 0.985 }] }");
+    expect(authGate).toContain("Animated.spring(scale");
     expect(authGate).not.toContain("controlDisabled");
     expect(authGate).not.toMatch(/opacity: 0\.\d/);
     expect(authGate).toContain("const glassSecondary");
@@ -154,7 +154,7 @@ describe("mobile virtual-list UI parity", () => {
     expect(authGate).toContain("Animated.loop(");
     expect(authGate).toContain("isInteraction: false");
     expect(authGate).toContain(
-      'accessibilityElementsHidden={stage === "credentials" && keyboardVisible}'
+      'accessibilityElementsHidden={stage !== "welcome" && keyboardVisible}'
     );
     expect(authGate).toContain('submitting ? "Signing In…" : "Sign In"');
     expect(authGate).toContain(': "Connect"');

@@ -11,6 +11,8 @@ import {
   Keyboard,
   Platform,
   Pressable,
+  type PressableProps,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -44,6 +46,158 @@ async function holdSpinner(startedAt: number) {
   const remaining = MINIMUM_SUBMIT_MS - (Date.now() - startedAt);
   if (remaining <= 0) return;
   await new Promise((resolve) => setTimeout(resolve, remaining));
+}
+
+// Animate notice content, never a glass surface's ancestor opacity. Keep the text during
+// dismissal and measure it unconstrained, so multiline errors also expand and collapse smoothly.
+function AuthNotice({
+  message,
+  color,
+  reduceMotion,
+}: {
+  message: string | null;
+  color: string;
+  reduceMotion: boolean;
+}) {
+  const lastMessage = useRef(message);
+  if (message) lastMessage.current = message;
+  const [contentHeight, setContentHeight] = useState(0);
+  const noticeHeight = useRef(new Animated.Value(0)).current;
+  const visibility = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const animation = Animated.parallel([
+      Animated.timing(noticeHeight, {
+        toValue: message ? contentHeight : 0,
+        duration: reduceMotion ? 0 : 220,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: false,
+      }),
+      Animated.timing(visibility, {
+        toValue: message ? 1 : 0,
+        duration: reduceMotion ? 0 : 180,
+        useNativeDriver: true,
+      }),
+    ]);
+    animation.start();
+    return () => animation.stop();
+  }, [contentHeight, message, noticeHeight, reduceMotion, visibility]);
+  useEffect(() => {
+    if (message && Platform.OS === "ios") {
+      AccessibilityInfo.announceForAccessibilityWithOptions(message, { queue: true });
+    }
+  }, [message]);
+  return (
+    <Animated.View
+      accessibilityElementsHidden={!message}
+      importantForAccessibility={message ? "auto" : "no-hide-descendants"}
+      style={{ height: noticeHeight, overflow: "hidden" }}
+    >
+      <Animated.View
+        onLayout={(event) => setContentHeight(event.nativeEvent.layout.height)}
+        style={{
+          position: "absolute",
+          left: 0,
+          right: 0,
+          paddingTop: 8,
+          paddingBottom: 2,
+          opacity: visibility,
+          transform: [
+            { translateY: visibility.interpolate({ inputRange: [0, 1], outputRange: [-4, 0] }) },
+          ],
+        }}
+      >
+        <Text accessibilityLiveRegion="polite" style={[styles.error, { color }]}>
+          {lastMessage.current}
+        </Text>
+      </Animated.View>
+    </Animated.View>
+  );
+}
+
+function AuthSubmitLabel({
+  busy,
+  busyLabel,
+  idleLabel,
+  color,
+  reduceMotion,
+}: {
+  busy: boolean;
+  busyLabel: string;
+  idleLabel: string;
+  color: string;
+  reduceMotion: boolean;
+}) {
+  const progress = useRef(new Animated.Value(busy ? 1 : 0)).current;
+  useEffect(() => {
+    const animation = Animated.timing(progress, {
+      toValue: busy ? 1 : 0,
+      duration: reduceMotion ? 0 : 160,
+      easing: Easing.out(Easing.quad),
+      useNativeDriver: true,
+    });
+    animation.start();
+    return () => animation.stop();
+  }, [busy, progress, reduceMotion]);
+  return (
+    <View
+      style={{ flex: 1, minHeight: 24 }}
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+    >
+      <Animated.View
+        style={[
+          styles.submitLabel,
+          { opacity: progress.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }) },
+        ]}
+      >
+        <Text style={[styles.primaryButtonText, { color }]}>{idleLabel}</Text>
+      </Animated.View>
+      <Animated.View style={[styles.submitLabel, { opacity: progress }]}>
+        <ActivityIndicator animating={busy} color={color} size="small" />
+        <Text style={[styles.primaryButtonText, { color }]}>{busyLabel}</Text>
+      </Animated.View>
+    </View>
+  );
+}
+
+function AuthButton({
+  reduceMotion,
+  style,
+  disabled,
+  ...props
+}: PressableProps & { reduceMotion: boolean }) {
+  const scale = useRef(new Animated.Value(1)).current;
+  const animatePress = (pressed: boolean) => {
+    Animated.spring(scale, {
+      toValue: pressed && !reduceMotion ? 0.975 : 1,
+      stiffness: 450,
+      damping: 30,
+      mass: 0.6,
+      useNativeDriver: true,
+    }).start();
+  };
+  useEffect(() => {
+    if (disabled || reduceMotion) {
+      scale.stopAnimation();
+      scale.setValue(1);
+    }
+    return () => scale.stopAnimation();
+  }, [disabled, reduceMotion, scale]);
+  return (
+    <Pressable
+      {...props}
+      disabled={disabled}
+      style={style}
+      onPressIn={() => animatePress(true)}
+      onPressOut={() => animatePress(false)}
+    >
+      {(state) => (
+        <Animated.View style={{ flex: 1, transform: [{ scale }] }}>
+          {typeof props.children === "function" ? props.children(state) : props.children}
+        </Animated.View>
+      )}
+    </Pressable>
+  );
 }
 
 const decorations = [
@@ -198,7 +352,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
   const insets = useSafeAreaInsets();
   const [state, setState] = useState<OpenTeamAuthStatus>("checking");
   const [stage, setStage] = useState<SignInStage>("welcome");
-  const [reduceMotion, setReduceMotion] = useState(false);
+  const [reduceMotion, setReduceMotion] = useState(true);
   const [serverUrl, setServerUrl] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -206,11 +360,31 @@ export function AuthGate({ children }: { children: ReactNode }) {
   const [submitting, setSubmitting] = useState(false);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [keyboardInset, setKeyboardInset] = useState(0);
+  const [keyboardDuration, setKeyboardDuration] = useState(250);
   const authRequestGeneration = useRef(0);
   const usernameInput = useRef<TextInput>(null);
+  const passwordInput = useRef<TextInput>(null);
+  const requestPending = useRef(false);
   const stageProgress = useRef(new Animated.Value(0)).current;
   const keyboardProgress = useRef(new Animated.Value(0)).current;
   const panelLift = useRef(new Animated.Value(0)).current;
+  const appEntryOffset = useRef(new Animated.Value(12)).current;
+
+  useEffect(() => {
+    if (state !== "authenticated") {
+      appEntryOffset.setValue(12);
+      return;
+    }
+    // Slide the app into place at full opacity so native glass keeps its backdrop.
+    const animation = Animated.timing(appEntryOffset, {
+      toValue: 0,
+      duration: reduceMotion ? 0 : 240,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    });
+    animation.start();
+    return () => animation.stop();
+  }, [appEntryOffset, reduceMotion, state]);
   const loginBackground = theme.dark ? "#101010" : "#f5f5f3";
   const actionBackground = theme.dark ? "#ffffff" : "#111111";
   const actionForeground = theme.dark ? "#111111" : "#ffffff";
@@ -238,6 +412,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
   const signInDisabled = submitting || !hasCompleteCredentials;
   const stageTarget = stage === "welcome" ? 0 : stage === "endpoint" ? 1 : 2;
   const welcomeHeroOffset = Math.max(0, height * 0.42 - 48);
+  const formMaxHeight = Math.max(120, height - insets.top - insets.bottom - keyboardInset - 100);
   // Every stage transition slides rather than cross-fades. UIKit drops a glass view's backdrop as
   // soon as an ancestor's alpha leaves 1 and never restores it, so a faded-in card would arrive
   // permanently flat. Off-stage surfaces are parked outside the clipped root instead.
@@ -313,20 +488,24 @@ export function AuthGate({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const animation = Animated.timing(keyboardProgress, {
-      toValue: stage === "credentials" && keyboardVisible ? 1 : 0,
-      duration: reduceMotion ? 0 : 180,
-      easing: Easing.out(Easing.quad),
+      toValue: stage !== "welcome" && keyboardVisible ? 1 : 0,
+      duration: reduceMotion ? 0 : keyboardDuration,
+      easing: Easing.out(Easing.cubic),
       useNativeDriver: true,
     });
     animation.start();
     return () => animation.stop();
-  }, [keyboardProgress, keyboardVisible, reduceMotion, stage]);
+  }, [keyboardDuration, keyboardProgress, keyboardVisible, reduceMotion, stage]);
 
   useEffect(() => {
     let cancelled = false;
     const unsubscribe = onAuthenticationRequired(() => {
       const generation = authRequestGeneration.current + 1;
       authRequestGeneration.current = generation;
+      requestPending.current = false;
+      setSubmitting(false);
+      setPassword("");
+      setError(null);
       const configured = getConfiguredAuthServer();
       if (!configured) {
         setStage("endpoint");
@@ -379,9 +558,11 @@ export function AuthGate({ children }: { children: ReactNode }) {
     const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
     const show = Keyboard.addListener(showEvent, (event) => {
       setKeyboardVisible(true);
-      setKeyboardInset(Math.max(0, (event.endCoordinates?.height ?? 0) - insets.bottom));
+      setKeyboardDuration(event.duration || 250);
+      setKeyboardInset(Math.max(0, height - event.endCoordinates.screenY - insets.bottom));
     });
-    const hide = Keyboard.addListener(hideEvent, () => {
+    const hide = Keyboard.addListener(hideEvent, (event) => {
+      setKeyboardDuration(event.duration || 250);
       setKeyboardVisible(false);
       setKeyboardInset(0);
     });
@@ -389,21 +570,22 @@ export function AuthGate({ children }: { children: ReactNode }) {
       show.remove();
       hide.remove();
     };
-  }, [insets.bottom]);
+  }, [height, insets.bottom]);
 
   useEffect(() => {
     const animation = Animated.timing(panelLift, {
       toValue: -keyboardInset,
-      duration: reduceMotion ? 0 : 240,
+      duration: reduceMotion ? 0 : keyboardDuration,
       easing: Easing.out(Easing.cubic),
       useNativeDriver: true,
     });
     animation.start();
     return () => animation.stop();
-  }, [keyboardInset, panelLift, reduceMotion]);
+  }, [keyboardDuration, keyboardInset, panelLift, reduceMotion]);
 
   const connectToServer = async () => {
-    if (connectDisabled) return;
+    if (connectDisabled || requestPending.current) return;
+    requestPending.current = true;
     const generation = authRequestGeneration.current + 1;
     authRequestGeneration.current = generation;
     const startedAt = Date.now();
@@ -430,12 +612,16 @@ export function AuthGate({ children }: { children: ReactNode }) {
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       setError(clientErrorMessage(cause, "Could not connect to this OpenTeam server"));
     } finally {
-      if (generation === authRequestGeneration.current) setSubmitting(false);
+      if (generation === authRequestGeneration.current) {
+        requestPending.current = false;
+        setSubmitting(false);
+      }
     }
   };
 
   const signInWithCredentials = async () => {
-    if (signInDisabled) return;
+    if (signInDisabled || requestPending.current) return;
+    requestPending.current = true;
     const generation = authRequestGeneration.current + 1;
     authRequestGeneration.current = generation;
     const startedAt = Date.now();
@@ -457,18 +643,27 @@ export function AuthGate({ children }: { children: ReactNode }) {
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       setError(clientErrorMessage(cause, "Could not sign in to OpenTeam"));
     } finally {
-      if (generation === authRequestGeneration.current) setSubmitting(false);
+      if (generation === authRequestGeneration.current) {
+        requestPending.current = false;
+        setSubmitting(false);
+      }
     }
   };
 
-  if (state === "authenticated") return children;
+  if (state === "authenticated") {
+    return (
+      <Animated.View style={{ flex: 1, transform: [{ translateY: appEntryOffset }] }}>
+        {children}
+      </Animated.View>
+    );
+  }
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: loginBackground }]}>
       <View style={styles.screen}>
         <BotField reduceMotion={reduceMotion} transitionProgress={stageProgress} />
         <Animated.View
-          accessibilityElementsHidden={stage === "credentials" && keyboardVisible}
+          accessibilityElementsHidden={stage !== "welcome" && keyboardVisible}
           pointerEvents="none"
           style={[
             styles.hero,
@@ -485,7 +680,9 @@ export function AuthGate({ children }: { children: ReactNode }) {
               },
             ]}
           >
-            <Text style={[styles.title, { color: theme.text }]}>OpenTeam</Text>
+            <Text accessibilityRole="header" style={[styles.title, { color: theme.text }]}>
+              OpenTeam
+            </Text>
             <Text style={[styles.tagline, { color: glassSecondary }]}>
               Your team of always-on Bots{"\n"}that finish the work
             </Text>
@@ -493,7 +690,11 @@ export function AuthGate({ children }: { children: ReactNode }) {
         </Animated.View>
 
         {state === "checking" ? (
-          <View style={styles.bottomArea}>
+          <View
+            accessibilityRole="progressbar"
+            accessibilityLabel="Checking session"
+            style={styles.bottomArea}
+          >
             <GlassSurface
               fallbackColor={actionBackground}
               style={[styles.primaryButton, { borderColor: theme.border }]}
@@ -513,13 +714,20 @@ export function AuthGate({ children }: { children: ReactNode }) {
               pointerEvents={stage === "welcome" ? "auto" : "none"}
               style={[styles.bottomArea, { transform: [{ translateY: welcomeTranslateY }] }]}
             >
-              <Pressable
+              <AuthNotice
+                message={stage === "welcome" ? error : null}
+                color={glassDanger}
+                reduceMotion={reduceMotion}
+              />
+              <AuthButton
+                reduceMotion={reduceMotion}
                 accessibilityRole="button"
                 onPress={() => {
                   void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+                  setError(null);
                   setStage("endpoint");
                 }}
-                style={({ pressed }) => [styles.primaryButtonHit, pressed && styles.controlPressed]}
+                style={styles.primaryButtonHit}
               >
                 <GlassSurface
                   fallbackColor={actionBackground}
@@ -531,7 +739,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
                     Log In
                   </Text>
                 </GlassSurface>
-              </Pressable>
+              </AuthButton>
             </Animated.View>
             {keyboardVisible ? (
               <Pressable
@@ -552,56 +760,73 @@ export function AuthGate({ children }: { children: ReactNode }) {
                 },
               ]}
             >
-              <GlassSurface
-                fallbackColor={cardFallback}
-                style={[
-                  styles.credentialsPanel,
-                  {
-                    borderColor: theme.border,
-                    shadowColor: theme.dark ? "#000000" : "#74746d",
-                  },
-                ]}
+              <ScrollView
+                bounces={false}
+                keyboardShouldPersistTaps="handled"
+                style={{ maxHeight: formMaxHeight, borderRadius: 30 }}
               >
-                <View style={styles.endpointGroup}>
-                  <Text style={[styles.endpointLabel, { color: glassLabel }]}>
-                    OPENTEAM SERVER ENDPOINT
-                  </Text>
-                  <TextInput
-                    accessibilityHint="Enter the HTTP or HTTPS address this device can use to reach your self-hosted OpenTeam server"
-                    accessibilityLabel="Server endpoint"
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    keyboardAppearance={theme.dark ? "dark" : "light"}
-                    keyboardType="url"
-                    onChangeText={updateServerUrl}
-                    onSubmitEditing={() => void connectToServer()}
-                    placeholder="https://openteam.example.com"
-                    placeholderTextColor={glassPlaceholder}
-                    returnKeyType="go"
-                    style={[
-                      styles.input,
-                      {
-                        backgroundColor: fieldBackground,
-                        borderColor: theme.border,
-                        color: theme.text,
-                      },
-                    ]}
-                    textContentType="URL"
-                    value={serverUrl}
+                <GlassSurface
+                  fallbackColor={cardFallback}
+                  style={[
+                    styles.credentialsPanel,
+                    {
+                      borderColor: theme.border,
+                      shadowColor: theme.dark ? "#000000" : "#74746d",
+                    },
+                  ]}
+                >
+                  <View style={styles.endpointGroup}>
+                    <Text style={[styles.endpointLabel, { color: glassLabel }]}>
+                      OPENTEAM SERVER ENDPOINT
+                    </Text>
+                    <TextInput
+                      accessibilityHint="Enter the HTTP or HTTPS address this device can use to reach your self-hosted OpenTeam server"
+                      accessibilityLabel="Server endpoint"
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      keyboardAppearance={theme.dark ? "dark" : "light"}
+                      editable={stage === "endpoint" && !submitting}
+                      keyboardType="url"
+                      onChangeText={updateServerUrl}
+                      onSubmitEditing={() => void connectToServer()}
+                      placeholder="https://openteam.example.com"
+                      placeholderTextColor={glassPlaceholder}
+                      returnKeyType="go"
+                      style={[
+                        styles.input,
+                        {
+                          backgroundColor: fieldBackground,
+                          borderColor: theme.border,
+                          color: theme.text,
+                        },
+                      ]}
+                      textContentType="URL"
+                      value={serverUrl}
+                    />
+                  </View>
+                  <AuthNotice
+                    message={
+                      stage === "endpoint"
+                        ? [
+                            error,
+                            usesCleartextHttp
+                              ? "HTTP is not encrypted. Only connect through a network or VPN you trust."
+                              : null,
+                          ]
+                            .filter(Boolean)
+                            .join("\n\n") || null
+                        : null
+                    }
+                    color={error ? glassDanger : glassSecondary}
+                    reduceMotion={reduceMotion}
                   />
-                </View>
-                {stage === "endpoint" && error ? (
-                  <Text style={[styles.error, { color: glassDanger }]}>{error}</Text>
-                ) : null}
-                {stage === "endpoint" && usesCleartextHttp ? (
-                  <Text style={[styles.error, { color: glassDanger }]}>
-                    HTTP is not encrypted. Only connect through a network or VPN you trust.
-                  </Text>
-                ) : null}
-              </GlassSurface>
+                </GlassSurface>
+              </ScrollView>
               <GlassGroup style={styles.actionRow}>
-                <Pressable
+                <AuthButton
+                  reduceMotion={reduceMotion}
                   accessibilityRole="button"
+                  accessibilityState={{ disabled: submitting }}
                   disabled={submitting}
                   onPress={() => {
                     void Haptics.selectionAsync();
@@ -609,10 +834,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
                     setError(null);
                     setStage("welcome");
                   }}
-                  style={({ pressed }) => [
-                    styles.cancelButtonHit,
-                    pressed && styles.controlPressed,
-                  ]}
+                  style={styles.cancelButtonHit}
                 >
                   <GlassSurface
                     fallbackColor={theme.dark ? "#343434" : "#e2e2df"}
@@ -629,15 +851,15 @@ export function AuthGate({ children }: { children: ReactNode }) {
                       Cancel
                     </Text>
                   </GlassSurface>
-                </Pressable>
-                <Pressable
+                </AuthButton>
+                <AuthButton
+                  reduceMotion={reduceMotion}
                   accessibilityRole="button"
+                  accessibilityLabel={submitting ? "Connecting…" : "Connect"}
+                  accessibilityState={{ disabled: connectDisabled, busy: submitting }}
                   disabled={connectDisabled}
                   onPress={() => void connectToServer()}
-                  style={({ pressed }) => [
-                    styles.signInButtonHit,
-                    pressed && !connectDisabled && styles.controlPressed,
-                  ]}
+                  style={styles.signInButtonHit}
                 >
                   <GlassSurface
                     fallbackColor={actionBackground}
@@ -648,19 +870,17 @@ export function AuthGate({ children }: { children: ReactNode }) {
                     ]}
                     tintColor={connectDisabled ? disabledGlassTint : primaryGlassTint}
                   >
-                    {submitting ? (
-                      <ActivityIndicator color={actionForeground} size="small" />
-                    ) : null}
-                    <Text
-                      style={[
-                        styles.primaryButtonText,
-                        { color: connectDisabled ? mutedActionForeground : actionForeground },
-                      ]}
-                    >
-                      {submitting ? "Connecting…" : "Connect"}
-                    </Text>
+                    <AuthSubmitLabel
+                      busy={submitting}
+                      busyLabel="Connecting…"
+                      idleLabel="Connect"
+                      color={
+                        connectDisabled && !submitting ? mutedActionForeground : actionForeground
+                      }
+                      reduceMotion={reduceMotion}
+                    />
                   </GlassSurface>
-                </Pressable>
+                </AuthButton>
               </GlassGroup>
             </Animated.View>
 
@@ -675,81 +895,102 @@ export function AuthGate({ children }: { children: ReactNode }) {
                 },
               ]}
             >
-              <GlassSurface
-                fallbackColor={cardFallback}
-                style={[
-                  styles.credentialsPanel,
-                  {
-                    borderColor: theme.border,
-                    shadowColor: theme.dark ? "#000000" : "#74746d",
-                  },
-                ]}
+              <ScrollView
+                bounces={false}
+                keyboardShouldPersistTaps="handled"
+                style={{ maxHeight: formMaxHeight, borderRadius: 30 }}
               >
-                <View style={styles.accountHeader}>
-                  <Text style={[styles.endpointLabel, { color: glassLabel }]}>ACCOUNT</Text>
-                  <Text style={[styles.accountTitle, { color: theme.text }]}>Sign in</Text>
-                  <Text
-                    numberOfLines={1}
-                    style={[styles.connectedServer, { color: glassSecondary }]}
-                  >
-                    {serverUrl}
-                  </Text>
-                </View>
-                <TextInput
-                  accessibilityLabel="Username"
-                  autoCapitalize="none"
-                  autoComplete="username"
-                  autoCorrect={false}
-                  keyboardAppearance={theme.dark ? "dark" : "light"}
-                  onChangeText={updateUsername}
-                  placeholder="Username"
-                  placeholderTextColor={glassPlaceholder}
-                  ref={usernameInput}
-                  returnKeyType="next"
+                <GlassSurface
+                  fallbackColor={cardFallback}
                   style={[
-                    styles.input,
+                    styles.credentialsPanel,
                     {
-                      backgroundColor: fieldBackground,
                       borderColor: theme.border,
-                      color: theme.text,
+                      shadowColor: theme.dark ? "#000000" : "#74746d",
                     },
                   ]}
-                  textContentType="username"
-                  value={username}
-                />
-                <TextInput
-                  accessibilityLabel="Password"
-                  autoComplete="current-password"
-                  keyboardAppearance={theme.dark ? "dark" : "light"}
-                  onChangeText={updatePassword}
-                  onSubmitEditing={() => void signInWithCredentials()}
-                  placeholder="Password"
-                  placeholderTextColor={glassPlaceholder}
-                  returnKeyType="go"
-                  secureTextEntry
-                  style={[
-                    styles.input,
-                    {
-                      backgroundColor: fieldBackground,
-                      borderColor: theme.border,
-                      color: theme.text,
-                    },
-                  ]}
-                  textContentType="password"
-                  value={password}
-                />
-                {stage === "credentials" && error ? (
-                  <Text style={[styles.error, { color: glassDanger }]}>{error}</Text>
-                ) : null}
-                {stage === "credentials" && usesCleartextHttp ? (
-                  <Text style={[styles.error, { color: glassDanger }]}>
-                    Your password will be sent without HTTPS protection.
-                  </Text>
-                ) : null}
-              </GlassSurface>
+                >
+                  <View style={styles.accountHeader}>
+                    <Text style={[styles.endpointLabel, { color: glassLabel }]}>ACCOUNT</Text>
+                    <Text style={[styles.accountTitle, { color: theme.text }]}>Sign in</Text>
+                    <Text
+                      numberOfLines={1}
+                      style={[styles.connectedServer, { color: glassSecondary }]}
+                    >
+                      {serverUrl}
+                    </Text>
+                  </View>
+                  <TextInput
+                    accessibilityLabel="Username"
+                    autoCapitalize="none"
+                    autoComplete="username"
+                    autoCorrect={false}
+                    keyboardAppearance={theme.dark ? "dark" : "light"}
+                    editable={stage === "credentials" && !submitting}
+                    onChangeText={updateUsername}
+                    onSubmitEditing={() => passwordInput.current?.focus()}
+                    submitBehavior="submit"
+                    placeholder="Username"
+                    placeholderTextColor={glassPlaceholder}
+                    ref={usernameInput}
+                    returnKeyType="next"
+                    style={[
+                      styles.input,
+                      {
+                        backgroundColor: fieldBackground,
+                        borderColor: theme.border,
+                        color: theme.text,
+                      },
+                    ]}
+                    textContentType="username"
+                    value={username}
+                  />
+                  <TextInput
+                    accessibilityLabel="Password"
+                    autoComplete="current-password"
+                    keyboardAppearance={theme.dark ? "dark" : "light"}
+                    editable={stage === "credentials" && !submitting}
+                    onChangeText={updatePassword}
+                    ref={passwordInput}
+                    onSubmitEditing={() => void signInWithCredentials()}
+                    placeholder="Password"
+                    placeholderTextColor={glassPlaceholder}
+                    returnKeyType="go"
+                    secureTextEntry
+                    style={[
+                      styles.input,
+                      {
+                        backgroundColor: fieldBackground,
+                        borderColor: theme.border,
+                        color: theme.text,
+                      },
+                    ]}
+                    textContentType="password"
+                    value={password}
+                  />
+                  <AuthNotice
+                    message={
+                      stage === "credentials"
+                        ? [
+                            error,
+                            usesCleartextHttp
+                              ? "Your password will be sent without HTTPS protection."
+                              : null,
+                          ]
+                            .filter(Boolean)
+                            .join("\n\n") || null
+                        : null
+                    }
+                    color={error ? glassDanger : glassSecondary}
+                    reduceMotion={reduceMotion}
+                  />
+                </GlassSurface>
+              </ScrollView>
               <GlassGroup style={styles.actionRow}>
-                <Pressable
+                <AuthButton
+                  reduceMotion={reduceMotion}
                   accessibilityRole="button"
+                  accessibilityState={{ disabled: submitting }}
                   disabled={submitting}
                   onPress={() => {
                     void Haptics.selectionAsync();
@@ -758,10 +999,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
                     setPassword("");
                     setStage("endpoint");
                   }}
-                  style={({ pressed }) => [
-                    styles.cancelButtonHit,
-                    pressed && styles.controlPressed,
-                  ]}
+                  style={styles.cancelButtonHit}
                 >
                   <GlassSurface
                     fallbackColor={theme.dark ? "#343434" : "#e2e2df"}
@@ -778,15 +1016,15 @@ export function AuthGate({ children }: { children: ReactNode }) {
                       Back
                     </Text>
                   </GlassSurface>
-                </Pressable>
-                <Pressable
+                </AuthButton>
+                <AuthButton
+                  reduceMotion={reduceMotion}
                   accessibilityRole="button"
+                  accessibilityLabel={submitting ? "Signing In…" : "Sign In"}
+                  accessibilityState={{ disabled: signInDisabled, busy: submitting }}
                   disabled={signInDisabled}
                   onPress={() => void signInWithCredentials()}
-                  style={({ pressed }) => [
-                    styles.signInButtonHit,
-                    pressed && !signInDisabled && styles.controlPressed,
-                  ]}
+                  style={styles.signInButtonHit}
                 >
                   <GlassSurface
                     fallbackColor={actionBackground}
@@ -797,19 +1035,17 @@ export function AuthGate({ children }: { children: ReactNode }) {
                     ]}
                     tintColor={signInDisabled ? disabledGlassTint : primaryGlassTint}
                   >
-                    {submitting ? (
-                      <ActivityIndicator color={actionForeground} size="small" />
-                    ) : null}
-                    <Text
-                      style={[
-                        styles.primaryButtonText,
-                        { color: signInDisabled ? mutedActionForeground : actionForeground },
-                      ]}
-                    >
-                      {submitting ? "Signing In…" : "Sign In"}
-                    </Text>
+                    <AuthSubmitLabel
+                      busy={submitting}
+                      busyLabel="Signing In…"
+                      idleLabel="Sign In"
+                      color={
+                        signInDisabled && !submitting ? mutedActionForeground : actionForeground
+                      }
+                      reduceMotion={reduceMotion}
+                    />
                   </GlassSurface>
-                </Pressable>
+                </AuthButton>
               </GlassGroup>
             </Animated.View>
           </>
@@ -851,7 +1087,7 @@ const styles = StyleSheet.create({
   title: { fontSize: 34, lineHeight: 41, fontWeight: "600", letterSpacing: -0.8 },
   tagline: { marginTop: 13, textAlign: "center", fontSize: 16, lineHeight: 21 },
   bottomArea: { position: "absolute", left: 26, right: 26, bottom: 14 },
-  primaryButtonHit: { minHeight: 58, borderRadius: 29 },
+  primaryButtonHit: { minHeight: 58, borderRadius: 29, marginTop: 8 },
   primaryButton: {
     minHeight: 58,
     borderRadius: 29,
@@ -892,7 +1128,8 @@ const styles = StyleSheet.create({
     letterSpacing: 0.8,
   },
   input: {
-    height: 52,
+    minHeight: 52,
+    paddingVertical: 12,
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: 16,
     paddingHorizontal: 16,
@@ -925,5 +1162,15 @@ const styles = StyleSheet.create({
   },
   // Never dim these with opacity. A glass surface whose ancestor sits below alpha 1 when the
   // effect installs renders permanently flat, and Connect mounts disabled.
-  controlPressed: { transform: [{ scale: 0.985 }] },
+  submitLabel: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 9,
+  },
 });

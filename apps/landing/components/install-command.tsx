@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { copyText } from "@/lib/copy-text";
 
 export const INSTALL_COMMAND = "curl -fsSL https://openteam.so/install | sh";
 
@@ -19,7 +20,7 @@ export function InstallCommand({ size = "lg" }: { size?: "lg" | "md" }) {
 
   const copy = async () => {
     try {
-      await navigator.clipboard.writeText(INSTALL_COMMAND);
+      await copyText(INSTALL_COMMAND);
       setCopied(true);
       toast.success("Copied to clipboard");
     } catch {

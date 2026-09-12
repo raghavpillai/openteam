@@ -4,8 +4,9 @@ import { Check, Copy } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { copyText } from "@/lib/copy-text";
 
-export function CopyCommand({ command }: { command: string }) {
+export function CopyCommand({ command, label }: { command: string; label?: string }) {
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
@@ -16,7 +17,7 @@ export function CopyCommand({ command }: { command: string }) {
 
   const copy = async () => {
     try {
-      await navigator.clipboard.writeText(command);
+      await copyText(command);
       setCopied(true);
       toast.success("Copied to clipboard");
     } catch {
@@ -26,20 +27,18 @@ export function CopyCommand({ command }: { command: string }) {
   };
 
   return (
-    <div className="flex min-w-0 items-center gap-3 rounded-xl border border-line bg-raised px-3 py-2.5 sm:px-4">
-      <span aria-hidden="true" className="font-mono text-[13px] text-ink-3">
+    <div className="dl-command">
+      <span aria-hidden="true" className="dl-command-prompt">
         $
       </span>
-      <code className="min-w-0 flex-1 overflow-x-auto py-1 font-mono text-[13px] whitespace-nowrap text-ink sm:text-[14px]">
-        {command}
-      </code>
+      <code>{command}</code>
       <Button
         type="button"
         variant="ghost"
         size="sm"
-        className="h-8 shrink-0 px-2.5 text-ink-2"
+        className="dl-copy"
         onClick={copy}
-        aria-label={copied ? "Copied" : `Copy ${command}`}
+        aria-label={copied ? "Copied" : (label ?? `Copy ${command}`)}
       >
         {copied ? <Check /> : <Copy />}
         <span className="hidden sm:inline">{copied ? "Copied" : "Copy"}</span>

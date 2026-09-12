@@ -1,0 +1,417 @@
+/* Marketing surfaces. Product previews retain the app's own visual language. */
+.landing {
+  position: relative;
+  isolation: isolate;
+  --ot-bg: #fff;
+  --ot-ink: #111;
+  --ot-muted: #666;
+  --ot-line: #e4e4e4;
+  --ot-accent: #f3f3f3;
+  --ot-green: #111;
+  background: var(--ot-bg);
+}
+.ot-grid-backdrop {
+  position: absolute;
+  z-index: -1;
+  inset: 60px 0 auto;
+  height: min(1000px, 110vh);
+  pointer-events: none;
+  background-image:
+    linear-gradient(#00000008 1px, transparent 1px),
+    linear-gradient(90deg, #00000008 1px, transparent 1px),
+    linear-gradient(#0000000a 1px, transparent 1px),
+    linear-gradient(90deg, #0000000a 1px, transparent 1px);
+  background-size: 10px 10px, 10px 10px, 100px 100px, 100px 100px;
+  background-position: center top;
+  mask-image: linear-gradient(#000 0%, #000 35%, transparent 95%);
+}
+.landing::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  top: 60px;
+  bottom: 0;
+  left: max(24px, calc((100% - 1290px) / 2));
+  right: max(24px, calc((100% - 1290px) / 2));
+  border-inline: 1px solid #ededed;
+  pointer-events: none;
+}
+.landing .ot-header {
+  position: relative;
+  z-index: 10;
+  background: #fffffff5;
+  border-bottom-color: #ddd;
+}
+.landing .ot-brand {
+  color: #111;
+}
+.landing .ot-brand-bot,
+.landing .ot-provider-logo img,
+.landing .ot-job-top .robot-avatar {
+  filter: grayscale(1);
+}
+.landing .ot-nav-links,
+.landing .ot-github {
+  color: #555;
+}
+.landing .ot-nav-links a {
+  position: relative;
+  padding-block: 6px;
+}
+.landing .ot-nav-links a::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 1px;
+  height: 1px;
+  background: #111;
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 200ms ease;
+}
+.landing .ot-nav-links a:hover::after,
+.landing .ot-nav-links a:focus-visible::after {
+  transform: scaleX(1);
+}
+.landing .ot-hero {
+  padding-top: 88px;
+}
+.landing .ot-hero-top {
+  align-items: flex-end;
+  margin-bottom: 64px;
+}
+.landing .ot-hero h1 {
+  color: #111;
+  font-weight: 500;
+  line-height: 1.02;
+}
+.landing .ot-hero h1 > span {
+  color: #636363;
+}
+.landing .ot-hero-description > p:first-child {
+  color: #505050;
+}
+.landing .ot-release {
+  color: #555;
+}
+.landing .ot-eyebrow,
+.landing .ot-hero-note,
+.landing .ot-demo-caption,
+.landing .ot-job-tags,
+.landing .pl-disclosure,
+.landing .ot-footer-bottom {
+  color: #707070;
+}
+.landing .ot-version {
+  color: #fff;
+  background: #111;
+  border-color: #111;
+  border-radius: 2px;
+  padding: 1px 6px;
+}
+.landing .ot-button {
+  position: relative;
+  overflow: hidden;
+  background: #111;
+  border-color: #111;
+  color: #fff;
+  border-radius: 5px;
+  box-shadow: 0 1px 2px #00000012;
+  transition: background 180ms, box-shadow 180ms, transform 180ms;
+}
+.landing .ot-button:hover {
+  background: #303030;
+  border-color: #303030;
+  box-shadow: 0 5px 14px #0000001a;
+  transform: translateY(-2px);
+}
+.landing .ot-button > svg,
+.landing .ot-text-link > svg {
+  transition: transform 180ms ease;
+}
+.landing .ot-button:hover > svg,
+.landing .ot-text-link:hover > svg {
+  transform: translate(2px, -2px);
+}
+.landing .ot-text-link[href="#product"]:hover > svg {
+  transform: translateY(3px);
+}
+.landing .pd-showcase {
+  position: relative;
+  background: #f0f0f0;
+  border-color: #d1d1d1;
+  border-radius: 10px;
+  box-shadow: 0 3px 5px #00000003, 0 24px 70px -32px #00000038;
+}
+.landing .pd-scenarios {
+  color: #666;
+}
+.landing .pd-scenario.is-selected {
+  color: #111;
+  background: #fff;
+  border-color: #d7d7d7;
+  box-shadow: 0 1px 3px #0000000d;
+}
+.landing .pd-scenario:hover {
+  color: #111;
+  background: #fff;
+}
+.landing .pd-replay {
+  color: #555;
+}
+.landing .ot-providers {
+  padding-block: 42px;
+}
+.landing .ot-provider-logo {
+  opacity: 0.7;
+  transition: opacity 200ms, transform 200ms;
+}
+.landing .ot-provider-logo:hover {
+  opacity: 1;
+  transform: translateY(-2px);
+}
+.landing .ot-section-heading {
+  position: relative;
+}
+.landing .ot-section-heading::before,
+.landing .ot-ownership::before,
+.landing .ot-faq::before {
+  content: "+";
+  position: absolute;
+  top: -34px;
+  left: -31px;
+  width: 12px;
+  text-align: center;
+  color: #909090;
+  font: 16px/1 "Plex Mono", monospace;
+}
+.landing .ot-ownership,
+.landing .ot-faq {
+  position: relative;
+}
+.landing .ot-ownership::before,
+.landing .ot-faq::before {
+  top: 60px;
+}
+.landing h2 > span {
+  color: #737373;
+}
+.landing .pl-demo {
+  background: #f5f5f5;
+  border-color: #dedede;
+  border-radius: 10px;
+}
+.landing .pl-view[aria-pressed="true"] {
+  background: #111;
+  border-color: #111;
+  color: #fff;
+}
+.landing .pl-view,
+.landing .pl-image-button {
+  transition: background 180ms, border-color 180ms, box-shadow 180ms;
+}
+.landing .pl-image-button:hover {
+  border-color: #999;
+  box-shadow: 0 16px 40px -20px #00000040;
+}
+.landing .ot-jobs {
+  gap: 0;
+  background: #fff;
+}
+.landing .ot-job {
+  position: relative;
+  transition: background 220ms;
+}
+.landing .ot-job::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  background: #111;
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 300ms cubic-bezier(.22, 1, .36, 1);
+}
+.landing .ot-job:hover {
+  background: #fafafa;
+}
+.landing .ot-job:hover::after {
+  transform: scaleX(1);
+}
+.landing .ot-job-number {
+  color: #777;
+}
+.landing .ot-job-result {
+  color: #555;
+}
+.landing .ot-feature-icon {
+  background: #fff;
+  border-color: #ddd;
+  color: #111;
+  box-shadow: 0 2px 4px #00000006;
+}
+.landing .dc-demo-caption,
+.landing .dr-caption {
+  color: #737373;
+}
+.landing .ot-persistence-grid {
+  border-color: #ddd;
+}
+.landing .ot-persistence-grid > article {
+  background: #f7f7f7;
+}
+.landing .ot-persistence-grid > article + article {
+  background: #fafafa;
+}
+.landing .ot-small-features > div {
+  border-top: 1px solid #ddd;
+  padding-top: 24px;
+}
+.landing .ot-small-features svg,
+.landing .ot-ownership-facts > article > svg {
+  color: #333;
+}
+.landing .ot-anywhere {
+  position: relative;
+  background-color: #111;
+  background-image:
+    linear-gradient(#ffffff06 1px, transparent 1px),
+    linear-gradient(90deg, #ffffff06 1px, transparent 1px);
+  background-size: 64px 64px;
+  color: #fff;
+}
+.landing .ot-anywhere .ot-eyebrow,
+.landing .ot-platforms,
+.landing .dm-phone-caption {
+  color: #aaa;
+}
+.landing .ot-anywhere-copy > p:not(:first-child) {
+  color: #bcbcbc;
+}
+.landing .ot-anywhere .ot-button {
+  background: #fff;
+  border-color: #fff;
+  color: #111;
+}
+.landing .ot-anywhere .ot-button:hover {
+  background: #e7e7e7;
+  border-color: #e7e7e7;
+}
+.landing .ot-start {
+  background: #fafafa;
+  border-color: #d5d5d5;
+}
+.landing .ot-setup {
+  background: #171717;
+  border-color: #2d2d2d;
+  color: #fff;
+  box-shadow: 0 18px 34px -24px #0005;
+}
+.landing .ot-terminal-heading {
+  color: #aaa;
+  border-color: #ffffff17;
+}
+.landing .ot-setup-command > div {
+  background: #242424;
+  border-color: #3a3a3a;
+}
+.landing .ot-setup-command code,
+.landing .ot-setup li strong {
+  color: #f3f3f3;
+}
+.landing .ot-setup-command button {
+  background: #383838;
+  color: #ddd;
+}
+.landing .ot-setup-command button:hover {
+  background: #4b4b4b;
+}
+.landing .ot-setup-command > div > span,
+.landing .ot-setup li > span,
+.landing .ot-setup li > svg {
+  color: #aaa;
+}
+.landing .ot-setup li p,
+.landing .ot-setup .ot-setup-note {
+  color: #999;
+}
+.landing .ot-faq-trigger {
+  color: #222;
+  transition: color 180ms, padding-left 180ms;
+}
+.landing .ot-faq-trigger:hover {
+  color: #000;
+  padding-left: 6px;
+}
+.landing .ot-faq-answer,
+.landing .ot-footer,
+.landing .ot-footer nav {
+  color: #666;
+}
+.landing .ot-footer {
+  background: #fff;
+}
+.landing .ot-site-header .ot-mobile-menu nav {
+  background: #fff;
+  border-color: #ddd;
+  box-shadow: 0 10px 24px #00000014;
+}
+.landing .ot-site-header .ot-mobile-menu nav a:hover {
+  background: #f3f3f3;
+}
+.pl-lightbox {
+  background: #fff;
+  color: #111;
+}
+.pl-lightbox-image {
+  background: #eee;
+}
+@keyframes mono-enter {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .ot-hero-top > div:first-child,
+  .dl-hero > div:first-child {
+    animation: mono-enter 700ms cubic-bezier(.22,1,.36,1) both;
+  }
+  .ot-hero-description,
+  .dl-intro {
+    animation: mono-enter 700ms cubic-bezier(.22,1,.36,1) 90ms both;
+  }
+  .ot-hero .pd-showcase {
+    animation: mono-enter 850ms cubic-bezier(.22,1,.36,1) 180ms both;
+  }
+}
+@media (max-width: 1000px) {
+  .landing .ot-hero { padding-top: 66px; }
+  .landing::before { left: 24px; right: 24px; }
+  .landing .ot-section-heading::before,
+  .landing .ot-ownership::before,
+  .landing .ot-faq::before { left: -14px; }
+}
+@media (max-width: 850px) {
+  .landing .ot-hero-top { align-items: flex-start; }
+}
+@media (max-width: 700px) {
+  .ot-grid-backdrop { top: 56px; height: 760px; }
+  .landing::before { display: none; }
+  .landing .ot-hero { padding-top: 42px; }
+  .landing .ot-hero-top { margin-bottom: 36px; }
+  .landing .ot-section-heading::before,
+  .landing .ot-ownership::before,
+  .landing .ot-faq::before { display: none; }
+  .landing .ot-providers { padding-block: 32px; }
+  .landing .pd-showcase,
+  .landing .pl-demo { border-radius: 8px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .landing .ot-button:hover,
+  .landing .ot-provider-logo:hover,
+  .landing .ot-button:hover > svg,
+  .landing .ot-text-link[href="#product"]:hover > svg,
+  .landing .ot-text-link:hover > svg { transform: none; }
+}

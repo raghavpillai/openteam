@@ -11,7 +11,7 @@ export function ScreenViewer() {
       className="overflow-hidden rounded-[14px] bg-surface shadow-window"
     >
       <div className="flex h-11 items-center gap-2.5 border-b border-line bg-raised px-3.5">
-        <BotAvatar shape="circle" color="#ff7a1a" size={22} />
+        <BotAvatar shape="helmet" color="#ff7a1a" size={22} />
         <span className="text-[13px] font-medium text-ink">Research&apos;s screen</span>
         <span className="inline-flex items-center gap-1.5 rounded-full bg-live-soft px-2 py-0.5 text-[10.5px] font-medium text-[#0b7a4b]">
           <span className="live-pulse inline-block h-[5px] w-[5px] rounded-full bg-live" /> Live

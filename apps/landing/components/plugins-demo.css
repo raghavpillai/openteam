@@ -1,0 +1,231 @@
+.ot-plugins {
+  border-bottom: 1px solid var(--ot-line);
+}
+.ot-plugins .ot-section-heading > p {
+  max-width: 370px;
+}
+.ot-plugin-points {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 42px;
+  margin-top: 44px;
+}
+.ot-plugin-points article {
+  padding-top: 20px;
+  border-top: 1px solid var(--ot-line);
+}
+.ot-plugin-points h3 {
+  font-size: 19px;
+  font-weight: 500;
+  line-height: 1.35;
+  letter-spacing: -0.4px;
+}
+.ot-plugin-points p {
+  margin-top: 10px;
+  font-size: 16px;
+  line-height: 1.7;
+  color: #6c6c6c;
+}
+.ot-plugins-source {
+  margin-top: 28px;
+}
+.pl-demo {
+  min-width: 0;
+  padding: 20px 28px 18px;
+  border: 1px solid #d1d1d1;
+  border-radius: 16px;
+  background: #eeeeee;
+}
+.pl-views {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin: 0 0 22px;
+}
+.pl-view {
+  height: 42px;
+  padding: 0 16px;
+  gap: 9px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: #616161;
+  font-size: 14px;
+  font-weight: 500;
+}
+.pl-view:hover {
+  background: #e3e3e3;
+}
+.pl-view[aria-pressed="true"] {
+  color: #fbfbfb;
+  background: #353535;
+  border-color: #353535;
+}
+.pl-figure {
+  max-width: 1000px;
+  margin: 0 auto;
+}
+.pl-image-button {
+  display: block;
+  width: 100%;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid #0000001a;
+  border-radius: 13px;
+  background: #fcfcfc;
+  box-shadow: 0 18px 42px -20px #2929294d;
+  cursor: zoom-in;
+}
+.pl-image-button img {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 10 / 7;
+  object-fit: contain;
+}
+.pl-figure figcaption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  margin-top: 20px;
+}
+.pl-figure figcaption p {
+  font-size: 14px;
+  line-height: 1.6;
+  color: #535353;
+}
+.pl-expand {
+  gap: 8px;
+  color: #535353;
+  font-size: 13px;
+  font-weight: 400;
+}
+.pl-disclosure {
+  max-width: 1000px;
+  margin: 12px auto 0;
+  color: #727272;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.pl-lightbox-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 110;
+  background: #181818d9;
+}
+.pl-lightbox {
+  position: fixed;
+  z-index: 111;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(1040px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  display: flex;
+  flex-direction: column;
+  border: 1px solid #ffffff26;
+  border-radius: 16px;
+  background: #f9f9f9;
+  color: #353535;
+  overflow: hidden;
+  box-shadow: 0 24px 72px #0006;
+}
+.pl-lightbox > header {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 16px;
+}
+.pl-lightbox h2 {
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+.pl-lightbox > header button {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: #ebebeb;
+}
+.pl-lightbox-description {
+  font-size: 14px;
+  line-height: 1.5;
+  color: #616161;
+  padding: 0 16px 16px;
+}
+.pl-lightbox-image {
+  min-height: 0;
+  overflow: auto;
+  background: #e4e4e4;
+  padding: 12px;
+}
+.pl-lightbox-image img {
+  display: block;
+  width: 100%;
+  min-width: 1000px;
+  height: auto;
+  border-radius: 13px;
+}
+.pl-pan-hint {
+  display: none;
+}
+.ot-small-features.ot-shared-features {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+@media (max-width: 1060px) {
+  .pl-pan-hint {
+    display: block;
+    padding: 0 16px 12px;
+    color: #616161;
+    font-size: 12px;
+    line-height: 1.5;
+  }
+}
+@media (max-width: 700px) {
+  .ot-plugins .ot-section-heading > p {
+    max-width: 100%;
+  }
+  .pl-demo {
+    padding: 12px;
+    border-radius: 12px;
+  }
+  .pl-views {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 4px;
+    margin-bottom: 14px;
+  }
+  .pl-view {
+    justify-content: flex-start;
+    min-height: 42px;
+    padding: 0 12px;
+  }
+  .pl-figure figcaption {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 16px;
+  }
+  .pl-expand {
+    padding-left: 0;
+    min-height: 36px;
+  }
+  .pl-disclosure {
+    margin-top: 12px;
+  }
+  .ot-plugin-points {
+    grid-template-columns: 1fr;
+    gap: 24px;
+    margin-top: 30px;
+  }
+  .ot-plugin-points article {
+    padding-top: 18px;
+  }
+  .ot-small-features.ot-shared-features {
+    grid-template-columns: 1fr;
+  }
+}

@@ -1,6 +1,6 @@
 "use client";
 
-import { Apple, Download, Monitor, Package, Terminal } from "lucide-react";
+import { Laptop, Download, Monitor, Package, Terminal } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -28,7 +28,7 @@ interface NavigatorHints extends Navigator {
 }
 
 const iconFor = (target: DesktopTargetId) => {
-  if (target.startsWith("mac")) return Apple;
+  if (target.startsWith("mac")) return Laptop;
   if (target.startsWith("windows")) return Monitor;
   return Terminal;
 };
@@ -95,82 +95,73 @@ export function DownloadOptions() {
       .catch(() => setReleaseState({ state: "unavailable" }));
   }, []);
 
+  const suggested = desktopTargets.find((item) => item.id === recommended);
+
   return (
-    <div>
-      <div className="mb-4 flex flex-col gap-2 text-[13.5px] text-ink-2 sm:flex-row sm:items-center sm:justify-between">
+    <div className="dl-options">
+      <div className="dl-release-meta">
         <p aria-live="polite">
-          {recommended
-            ? `We think this device needs ${desktopTargets.find((item) => item.id === recommended)?.label} · ${desktopTargets.find((item) => item.id === recommended)?.detail}.`
-            : "Choose your system below. We could not reliably identify this device."}
+          {suggested
+            ? `Suggested for this device: ${suggested.label} · ${suggested.detail}.`
+            : "Choose your desktop build."}
         </p>
         {releaseState.state === "ready" ? (
-          <a
-            className="shrink-0 font-mono text-[12px] text-ink-3 hover:text-ink"
-            href={releaseState.release.releaseUrl}
-          >
-            OpenTeam {releaseState.release.version}
-          </a>
+          <a href={releaseState.release.releaseUrl}>Release {releaseState.release.version}</a>
         ) : null}
       </div>
-
-      <div className="overflow-hidden rounded-2xl border border-line bg-surface shadow-card">
+      <div className="dl-builds">
         {desktopTargets.map((target) => {
           const Icon = iconFor(target.id);
           const asset =
             releaseState.state === "ready" ? releaseState.release.downloads[target.id] : null;
           const isRecommended = recommended === target.id;
           return (
-            <div
-              key={target.id}
-              className="flex min-h-20 items-center gap-3 border-b border-line px-4 py-3 last:border-b-0 sm:gap-4 sm:px-5"
-            >
-              <span className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-line bg-raised text-ink-2">
-                <Icon className="size-5" aria-hidden="true" />
-              </span>
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-medium text-ink">{target.label}</span>
-                  {isRecommended ? (
-                    <Badge className="h-5 border-live/20 bg-live-soft px-2 text-[10.5px] text-[#0b7a4b]">
-                      Recommended
-                    </Badge>
-                  ) : null}
+            <article className="dl-build" data-recommended={isRecommended} key={target.id}>
+              <div className="dl-build-heading">
+                <span className="dl-platform-icon">
+                  <Icon size={22} aria-hidden="true" />
+                </span>
+                <div>
+                  <h3>{target.label}</h3>
+                  <p>{target.detail}</p>
                 </div>
-                <p className="mt-0.5 text-[13px] text-ink-3">
-                  {target.detail}
-                  {asset ? ` · ${formatSize(asset.size)}` : ""}
-                </p>
+              </div>
+              <div className="dl-build-info">
+                {isRecommended && <Badge className="dl-recommended">Suggested</Badge>}
+                <span>
+                  {asset
+                    ? formatSize(asset.size)
+                    : target.id.startsWith("mac")
+                      ? ".dmg"
+                      : target.id.startsWith("windows")
+                        ? ".exe"
+                        : ".AppImage"}
+                </span>
               </div>
               {asset ? (
                 <Button
-                  variant={isRecommended ? "default" : "outline"}
-                  size="lg"
-                  className="h-10 shrink-0 gap-2 px-3.5"
+                  className="dl-download-button"
+                  aria-label={`Download ${target.label} ${target.detail}`}
                   render={<a href={`/api/download/desktop?target=${target.id}`} />}
                   nativeButton={false}
                 >
-                  <Download className="size-4" />
-                  <span className="hidden sm:inline">Download</span>
+                  <Download size={16} /> Download
                 </Button>
               ) : (
-                <Button variant="outline" size="lg" className="h-10 shrink-0 px-3.5" disabled>
+                <Button className="dl-download-button" disabled>
                   {releaseState.state === "loading" ? "Checking…" : "Not available"}
                 </Button>
               )}
-            </div>
+            </article>
           );
         })}
       </div>
-
       {releaseState.state === "unavailable" ? (
-        <div className="mt-4 flex items-start gap-3 rounded-xl border border-attention/25 bg-attention-soft px-4 py-3 text-[13.5px] text-ink-2">
-          <Package className="mt-0.5 size-4 shrink-0 text-attention" aria-hidden="true" />
+        <div className="dl-release-error" role="status">
+          <Package size={17} aria-hidden="true" />
           <p>
-            Desktop builds have not been published yet. Check the{" "}
-            <a className="font-medium text-ink underline underline-offset-4" href={RELEASES_URL}>
-              releases page
-            </a>{" "}
-            for availability.
+            Couldn’t load the latest release. Check <a href={RELEASES_URL}>GitHub Releases</a> for
+            downloads.
           </p>
         </div>
       ) : null}

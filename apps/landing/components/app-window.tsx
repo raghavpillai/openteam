@@ -1,3 +1,4 @@
+import type { RobotAvatarShape } from "@openteam/contracts/robot-avatar";
 import { BotAvatar } from "./bot-avatar";
 import { Check, Mic, Monitor, Plus, Search } from "lucide-react";
 
@@ -37,7 +38,7 @@ function SidebarRow({
   active = false,
   blinkDelay = 0,
 }: {
-  shape: "circle" | "drop" | "cloud" | "square" | "hexagon" | "blob";
+  shape: RobotAvatarShape;
   color: string;
   name: string;
   status?: string;
@@ -154,7 +155,7 @@ export function AppWindow() {
           <div className="px-2.5">
             <div className="microlabel px-2 pb-1.5">Bots</div>
             <SidebarRow
-              shape="circle"
+              shape="helmet"
               color="#ff7a1a"
               name="Research"
               status="Working"
@@ -164,7 +165,7 @@ export function AppWindow() {
               active
             />
             <SidebarRow
-              shape="drop"
+              shape="pod"
               color="#925df2"
               name="Ops"
               status="Needs you"
@@ -174,7 +175,7 @@ export function AppWindow() {
               blinkDelay={1700}
             />
             <SidebarRow
-              shape="cloud"
+              shape="chip"
               color="#27baae"
               name="Build"
               tone="idle"
@@ -185,9 +186,9 @@ export function AppWindow() {
             <div className="microlabel px-2 pt-4 pb-1.5">Groups</div>
             <div className="flex items-center gap-2.5 rounded-lg px-2 py-2">
               <div className="flex -space-x-2">
-                <BotAvatar shape="circle" color="#ff7a1a" size={22} />
-                <BotAvatar shape="drop" color="#925df2" size={22} />
-                <BotAvatar shape="cloud" color="#27baae" size={22} />
+                <BotAvatar shape="helmet" color="#ff7a1a" size={22} />
+                <BotAvatar shape="pod" color="#925df2" size={22} />
+                <BotAvatar shape="chip" color="#27baae" size={22} />
               </div>
               <div className="min-w-0 flex-1">
                 <div className="flex items-baseline justify-between gap-2">
@@ -209,7 +210,7 @@ export function AppWindow() {
         {/* chat */}
         <section className="flex min-w-0 flex-col bg-surface">
           <header className="flex h-12 items-center gap-2.5 border-b border-line px-4">
-            <BotAvatar shape="circle" color="#ff7a1a" size={24} blink blinkDelay={700} />
+            <BotAvatar shape="helmet" color="#ff7a1a" size={24} blink blinkDelay={700} />
             <div className="min-w-0">
               <div className="text-[13px] font-medium leading-4 text-ink">Research</div>
               <div className="flex items-center gap-1.5 text-[11px] leading-4 text-[#0b7a4b]">
@@ -239,7 +240,7 @@ export function AppWindow() {
                 className="rise mt-0.5 inline-flex"
                 style={{ "--d": "1250ms" } as React.CSSProperties}
               >
-                <BotAvatar shape="circle" color="#ff7a1a" size={22} blink blinkDelay={700} />
+                <BotAvatar shape="helmet" color="#ff7a1a" size={22} blink blinkDelay={700} />
               </span>
               <div className="min-w-0 max-w-[85%] space-y-2.5">
                 <div

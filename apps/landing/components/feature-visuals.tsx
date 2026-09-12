@@ -88,9 +88,9 @@ export function ScheduleVisual() {
 
 export function TeamVisual() {
   const lines = [
-    ["circle", "#ff7a1a", "Research", "Comparison is in /workspace/quotes."],
-    ["drop", "#925df2", "Ops", "Rollback plan is ready. Waiting on Build."],
-    ["cloud", "#27baae", "Build", "Tests pass. PR is up."],
+    ["helmet", "#ff7a1a", "Research", "Comparison is in /workspace/quotes."],
+    ["pod", "#925df2", "Ops", "Rollback plan is ready. Waiting on Build."],
+    ["chip", "#27baae", "Build", "Tests pass. PR is up."],
   ] as const;
   return (
     <div
@@ -100,9 +100,9 @@ export function TeamVisual() {
     >
       <div className="flex items-center gap-2 border-b border-line pb-2.5">
         <div className="flex -space-x-1.5">
-          <BotAvatar shape="circle" color="#ff7a1a" size={18} />
-          <BotAvatar shape="drop" color="#925df2" size={18} />
-          <BotAvatar shape="cloud" color="#27baae" size={18} />
+          <BotAvatar shape="helmet" color="#ff7a1a" size={18} />
+          <BotAvatar shape="pod" color="#925df2" size={18} />
+          <BotAvatar shape="chip" color="#27baae" size={18} />
         </div>
         <span className="text-[12px] font-medium text-ink">Launch review</span>
         <span className="ml-auto text-[10.5px] text-ink-3">3 bots</span>

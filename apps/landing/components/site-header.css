@@ -1,0 +1,111 @@
+.landing .ot-site-header .ot-nav {
+  position: relative;
+  height: 60px;
+  gap: 36px;
+  flex-wrap: nowrap;
+}
+.landing .ot-site-header .ot-wordmark {
+  flex-shrink: 0;
+}
+.landing .ot-site-header .ot-wordmark > span > span {
+  font-size: 24px !important;
+  letter-spacing: -0.7px;
+}
+.landing .ot-site-header .ot-nav-links {
+  gap: 24px;
+  font-size: 14px;
+}
+.landing .ot-site-header .ot-nav-actions {
+  gap: 24px;
+}
+.landing .ot-site-header .ot-button {
+  min-height: 34px;
+  height: 34px;
+  padding-inline: 13px;
+  font-size: 13px;
+  gap: 10px;
+}
+@media (max-width: 1000px) {
+  .landing .ot-site-header .ot-nav {
+    gap: 24px;
+  }
+  .landing .ot-site-header .ot-nav-links {
+    gap: 18px;
+  }
+  .landing .ot-site-header .ot-nav-actions {
+    gap: 18px;
+  }
+}
+@media (max-width: 950px) {
+  .landing .ot-site-header .ot-nav-links {
+    display: none;
+  }
+  .landing .ot-site-header .ot-mobile-menu {
+    display: block;
+    color: #6e6e6e;
+    font-size: 13px;
+  }
+  .landing .ot-site-header .ot-mobile-menu > summary {
+    list-style: none;
+    cursor: pointer;
+    padding: 10px 0;
+  }
+  .landing .ot-site-header .ot-mobile-menu > summary::-webkit-details-marker {
+    display: none;
+  }
+  .landing .ot-site-header .ot-mobile-menu nav {
+    position: absolute;
+    top: 53px;
+    right: 0;
+    z-index: 20;
+    display: flex;
+    flex-direction: column;
+    min-width: 190px;
+    padding: 10px;
+    border: 1px solid #dedede;
+    border-radius: 8px;
+    background: #fbfbfb;
+    box-shadow: 0 10px 25px #38383820;
+    font-size: 14px;
+  }
+  .landing .ot-site-header .ot-mobile-menu nav a {
+    padding: 10px;
+  }
+}
+@media (max-width: 700px) {
+  .landing .ot-site-header .ot-nav {
+    height: 56px;
+    gap: 12px;
+  }
+  .landing .ot-site-header .ot-wordmark > span > span {
+    font-size: 22px !important;
+  }
+  .landing .ot-site-header .ot-brand-bot {
+    width: 32px;
+    height: 32px;
+  }
+  .landing .ot-site-header .ot-nav-actions {
+    gap: 0;
+  }
+  .landing .ot-site-header .ot-button {
+    min-height: 32px;
+    height: 32px;
+    padding-inline: 10px;
+    font-size: 12px;
+    gap: 6px;
+  }
+  .landing .ot-site-header .ot-mobile-menu nav {
+    top: 49px;
+  }
+  .landing .ot-site-header .ot-mobile-menu {
+    font-size: 12px;
+  }
+}
+@media (max-width: 370px) {
+  .landing .ot-site-header .ot-nav {
+    gap: 9px;
+  }
+  .landing .ot-site-header .ot-wordmark > span > span {
+    font-size: 20px !important;
+  }
+}

@@ -116,9 +116,9 @@ export default function Home() {
             </div>
             <div className="ot-hero-description">
               <p>
-                Give each agent a role and connect your apps with plugins. Message them
-                individually or bring the team into a group chat. They use a shared computer,
-                remember your instructions, and keep working on your server after you close the app.
+                Digital workers that run on your compute and work in your apps. They have their
+                own computer and shared workspace, remember your instructions, and delegate work
+                to each other.
               </p>
               <div className="ot-hero-actions">
                 <GetStarted />

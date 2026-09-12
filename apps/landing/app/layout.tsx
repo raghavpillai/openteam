@@ -8,7 +8,7 @@ const geist = Geist({ subsets: ["latin"], variable: "--font-sans" });
 
 const title = "OpenTeam | Run your own AI team";
 const description =
-  "Create a team of AI agents, connect your apps with plugins, and give them work in chat. Agents share a computer and keep working on your server after you close the app.";
+  "Digital workers that run on your compute and work in your apps. They have their own computer and shared workspace, remember your instructions, and delegate work to each other.";
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://openteam.so"),

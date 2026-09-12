@@ -41,7 +41,6 @@ import {
   Settings,
   Smartphone,
   Trash2,
-  Upload,
   UserRound,
 } from "lucide-react";
 import { Collapsible } from "radix-ui";
@@ -56,7 +55,6 @@ import type {
 import { PINNED_GROUP_ID, UNASSIGNED_GROUP_ID } from "../../hooks/use-sidebar-preferences";
 import { useVirtualWindow } from "../../hooks/use-virtual-window";
 import { accountPresentation } from "../../lib/account";
-import { BOT_TEMPLATE_SHARING_ENABLED } from "../../lib/bot-template";
 import { channelMessageSummary } from "../../lib/channel-events";
 import { cn } from "../../lib/cn";
 import {
@@ -537,7 +535,6 @@ export type BotRowAction =
   | "toggleUnread"
   | "editProfile"
   | "duplicate"
-  | "shareAsTemplate"
   | "copyConversationId"
   | "showAsyncTasks"
   | "hide"
@@ -782,11 +779,6 @@ function BotContextMenu({
       <ContextMenuItem onSelect={() => onBotAction(bot, "duplicate")}>
         <CopyPlus className="size-4" /> Duplicate
       </ContextMenuItem>
-      {BOT_TEMPLATE_SHARING_ENABLED && (
-        <ContextMenuItem onSelect={() => onBotAction(bot, "shareAsTemplate")}>
-          <Upload className="size-4" /> Share as template
-        </ContextMenuItem>
-      )}
       <ContextMenuSeparator />
       <ContextMenuItem onSelect={() => onBotAction(bot, "copyConversationId")}>
         <Copy className="size-4" /> Copy conversation ID

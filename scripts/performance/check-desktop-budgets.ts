@@ -149,7 +149,6 @@ const lazyBudgets: Record<string, number> = {
   inspector: 150_000,
   avatarPicker: 20_000,
   botScreen: 20_000,
-  botTemplateShare: 20_000,
   fileAttachment: 20_000,
   pdfPreview: 1_500_000,
   docxPreview: 550_000,

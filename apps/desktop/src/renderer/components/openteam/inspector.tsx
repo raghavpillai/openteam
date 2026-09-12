@@ -1,7 +1,6 @@
 import type { BotView, ChannelView, UpdateBotInput } from "@openteam/contracts";
 import { Plus } from "lucide-react";
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { BOT_TEMPLATE_SHARING_ENABLED } from "../../lib/bot-template";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -35,11 +34,6 @@ const RoutineEditor = lazy(() =>
 const RoutinesSummary = lazy(() =>
   import("./routine-summary").then((module) => ({ default: module.RoutinesSummary }))
 );
-const BotTemplateSettingsFooter = lazy(() =>
-  import("./bot-template-share").then((module) => ({
-    default: module.BotTemplateSettingsFooter,
-  }))
-);
 const GroupAvatarEditor = lazy(() =>
   import("./group-avatar-editor").then((module) => ({ default: module.GroupAvatarEditor }))
 );
@@ -66,11 +60,9 @@ const draftOf = (bot: BotView): ProfileDraft => ({
 
 function BotSettings({
   bot,
-  onShareAsTemplate,
   onUpdate,
 }: {
   bot: BotView;
-  onShareAsTemplate: () => void;
   onUpdate: (input: UpdateBotInput) => Promise<BotView>;
 }) {
   const [draft, setDraft] = useState(() => draftOf(bot));
@@ -233,13 +225,6 @@ function BotSettings({
           <p className="text-xs text-destructive">Could not save. Your draft is still here.</p>
         )}
       </div>
-      {BOT_TEMPLATE_SHARING_ENABLED && (
-        <Suspense fallback={<div className="mt-auto h-10 pt-6" />}>
-          <div className="mt-auto pt-6">
-            <BotTemplateSettingsFooter bot={bot} onShare={onShareAsTemplate} />
-          </div>
-        </Suspense>
-      )}
     </div>
   );
 }
@@ -379,7 +364,6 @@ export const Inspector = memo(function Inspector({
   onModeChange,
   onUpdateBot,
   onRetryBot,
-  onShareAsTemplate,
   onOpenTeam,
   onSetGroupAvatar,
   onSetMembers,
@@ -397,7 +381,6 @@ export const Inspector = memo(function Inspector({
   onModeChange: (mode: InspectorMode) => void;
   onUpdateBot: (botId: string, input: UpdateBotInput) => Promise<BotView>;
   onRetryBot: (botId: string) => Promise<void>;
-  onShareAsTemplate: (bot: BotView) => void;
   onOpenTeam: (botId: string) => void;
   onSetGroupAvatar: (channelId: string, pngBase64: string | null) => Promise<void>;
   onSetMembers: (channelId: string, botIds: string[]) => Promise<void>;
@@ -459,11 +442,7 @@ export const Inspector = memo(function Inspector({
   if (bot && mode === "settings") {
     return (
       <aside aria-label="Settings" className="size-full bg-background">
-        <BotSettings
-          bot={bot}
-          onShareAsTemplate={() => onShareAsTemplate(bot)}
-          onUpdate={(input) => onUpdateBot(bot.id, input)}
-        />
+        <BotSettings bot={bot} onUpdate={(input) => onUpdateBot(bot.id, input)} />
       </aside>
     );
   }

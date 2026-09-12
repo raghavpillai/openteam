@@ -4,7 +4,6 @@ import {
   SETTINGS_ANCHORS,
   settingsViewForAnchor,
 } from "../src/renderer/lib/app-deep-links";
-import { botTemplateShareUrl } from "../src/renderer/lib/bot-template";
 
 describe("OpenTeam deep-link routing parity", () => {
   test("accepts every documented settings anchor and resolves its exact panel", () => {
@@ -31,7 +30,7 @@ describe("OpenTeam deep-link routing parity", () => {
     expect(parseOpenTeamDeepLink("openteam://app/v1/plugin/add?id=")).toBeNull();
   });
 
-  test("previews a valid shared bot template before import", () => {
+  test("rejects retired shared bot template links", () => {
     const template = {
       name: "Research Bot",
       title: "research",
@@ -42,10 +41,11 @@ describe("OpenTeam deep-link routing parity", () => {
       notificationsEnabled: true,
     };
 
-    expect(parseOpenTeamDeepLink(botTemplateShareUrl(template))).toEqual({
-      kind: "template",
-      template,
-    });
+    const data = Buffer.from(
+      JSON.stringify({ format: "openteam.bot-template", version: 1, bot: template })
+    ).toString("base64url");
+
+    expect(parseOpenTeamDeepLink(`openteam://app/v1/template/add?data=${data}`)).toBeNull();
     expect(parseOpenTeamDeepLink("openteam://app/v1/template/add?data=broken")).toBeNull();
   });
 });

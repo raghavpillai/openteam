@@ -5,14 +5,12 @@ import type { BotRowAction } from "../components/openteam/sidebar";
 import type { OpenTeamMutation } from "../state/use-openteam";
 
 export type InspectorMode = "summary" | "settings" | "routine";
-type SupportedBotRowAction = BotRowAction | "shareAsTemplate";
 
 export function useBotRowActions(options: {
   mutate: OpenTeamMutation;
   setSelectedId: (id: string | null) => void;
   setDetailsOpen: (open: boolean) => void;
   setInspectorMode: (mode: InspectorMode) => void;
-  shareAsTemplate: (bot: BotView) => void;
   togglePinned: (channelId: string) => void;
   toggleUnread: (channelId: string) => void;
 }) {
@@ -23,7 +21,7 @@ export function useBotRowActions(options: {
   } | null>(null);
 
   const handleBotRowAction = useCallback(
-    (bot: BotView, action: SupportedBotRowAction) => {
+    (bot: BotView, action: BotRowAction) => {
       if (action === "togglePin") {
         options.togglePinned(bot.dmChannelId);
         return;
@@ -34,10 +32,6 @@ export function useBotRowActions(options: {
       }
       if (action === "copyConversationId") {
         void navigator.clipboard.writeText(bot.conversationId);
-        return;
-      }
-      if (action === "shareAsTemplate") {
-        options.shareAsTemplate(bot);
         return;
       }
       if (action === "retry") {
@@ -82,7 +76,6 @@ export function useBotRowActions(options: {
       options.setDetailsOpen,
       options.setInspectorMode,
       options.setSelectedId,
-      options.shareAsTemplate,
       options.togglePinned,
       options.toggleUnread,
     ]

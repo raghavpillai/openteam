@@ -396,7 +396,6 @@ const readLazyClosures = async () => {
       inspector: ["src/renderer/components/openteam/inspector.tsx"],
       avatarPicker: ["src/renderer/components/openteam/avatar-picker.tsx"],
       botScreen: ["src/renderer/components/openteam/bot-screen.tsx"],
-      botTemplateShare: ["src/renderer/components/openteam/bot-template-share.tsx"],
       fileAttachment: ["src/renderer/components/openteam/file-attachment.tsx"],
       pdfPreview: [
         "node_modules/pdfjs-dist/build/pdf.mjs",

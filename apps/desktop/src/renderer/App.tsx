@@ -27,7 +27,6 @@ import {
   type SettingsAnchor,
 } from "./lib/app-deep-links";
 import { activeAsyncTaskChannelIds, activeAsyncTasksForBot } from "./lib/async-tasks";
-import { BOT_TEMPLATE_SHARING_ENABLED, type TemplateBot } from "./lib/bot-template";
 import { cn } from "./lib/cn";
 import {
   CHAT_SETTINGS_KEYWORDS,
@@ -65,11 +64,6 @@ const A2AExchangeSheet = lazy(() =>
 const AsyncTasksPanel = lazy(() =>
   import("./components/openteam/async-tasks-panel").then((module) => ({
     default: module.AsyncTasksPanel,
-  }))
-);
-const BotTemplateImportDialog = lazy(() =>
-  import("./components/openteam/bot-template-share").then((module) => ({
-    default: module.BotTemplateImportDialog,
   }))
 );
 const DesktopDialogs = lazy(() =>
@@ -154,11 +148,6 @@ export default function App() {
   const [themePreference, setThemePreferenceState] = useState(readThemePreference);
   const [paletteUpdateStatus, setPaletteUpdateStatus] = useState<OpenTeamUpdateStatus | null>(null);
   const [pluginsOpen, setPluginsOpen] = useState(false);
-  const [templateImport, setTemplateImport] = useState<TemplateBot | null>(null);
-  const [templateShareRequest, setTemplateShareRequest] = useState<{
-    botId: string;
-    nonce: number;
-  } | null>(null);
   const [settingsTarget, setSettingsTarget] = useState<{
     anchor: SettingsAnchor;
     nonce: number;
@@ -291,9 +280,6 @@ export default function App() {
         setPluginTarget({ pluginId: target.pluginId, nonce: Date.now() });
         setPluginsOpen(true);
       }
-      if (BOT_TEMPLATE_SHARING_ENABLED && target?.kind === "template") {
-        setTemplateImport(target.template);
-      }
     };
     window.addEventListener(OPENTEAM_DEEP_LINK_EVENT, handleDeepLink);
     return () => window.removeEventListener(OPENTEAM_DEEP_LINK_EVENT, handleDeepLink);
@@ -417,14 +403,6 @@ export default function App() {
     const idle = window.requestIdleCallback(preloadSearchDialog, { timeout: 2_000 });
     return () => window.cancelIdleCallback(idle);
   }, [appReady]);
-  const shareBotAsTemplate = useCallback(
-    (bot: BotView) => {
-      if (!BOT_TEMPLATE_SHARING_ENABLED) return;
-      setSelectedId(bot.dmChannelId);
-      setTemplateShareRequest({ botId: bot.id, nonce: Date.now() });
-    },
-    [setSelectedId]
-  );
   const {
     confirmDeleteBot,
     deleteBotTarget,
@@ -437,7 +415,6 @@ export default function App() {
     setSelectedId,
     setDetailsOpen,
     setInspectorMode,
-    shareAsTemplate: shareBotAsTemplate,
     togglePinned: sidebarPreferences.togglePinned,
     toggleUnread: sidebarPreferences.toggleUnread,
   });
@@ -1217,9 +1194,6 @@ export default function App() {
                         selectedBot={bot}
                         searchContextMessageIds={searchContextMessageIdsByChannel.get(channelId)}
                         subagents={index.subagentsByChannel.get(channelId) ?? []}
-                        templateShareRequest={
-                          templateShareRequest?.botId === bot?.id ? templateShareRequest : null
-                        }
                         threadContextMessageIds={threadContextMessageIdsByChannel.get(channelId)}
                       />
                     </div>
@@ -1371,7 +1345,6 @@ export default function App() {
                           onModeChange={setInspectorMode}
                           onOpenTeam={openInspectorBot}
                           onRetryBot={retryInspectorBot}
-                          onShareAsTemplate={shareBotAsTemplate}
                           onSetGroupAvatar={setChannelAvatar}
                           onSetMembers={setChannelMembers}
                           onUpdateGroupProfile={updateGroupProfile}
@@ -1444,31 +1417,6 @@ export default function App() {
         {loadedSurfaces.current.about && (
           <Suspense fallback={null}>
             <AboutPanel onOpenChange={setAboutOpen} open={aboutOpen} />
-          </Suspense>
-        )}
-        {BOT_TEMPLATE_SHARING_ENABLED && templateImport && (
-          <Suspense fallback={null}>
-            <BotTemplateImportDialog
-              onAdd={async (template) => {
-                const bot = await mutate(() =>
-                  api.createBot({
-                    clientRequestId: crypto.randomUUID(),
-                    name: template.name,
-                    title: template.title,
-                    description: template.description,
-                    instructions: template.instructions,
-                    icon: template.icon,
-                    color: template.color,
-                    notificationsEnabled: template.notificationsEnabled,
-                  })
-                );
-                setTemplateImport(null);
-                setSelectedId(bot.dmChannelId);
-              }}
-              onOpenChange={(open) => !open && setTemplateImport(null)}
-              open
-              template={templateImport}
-            />
           </Suspense>
         )}
         {asyncTasksBot && (

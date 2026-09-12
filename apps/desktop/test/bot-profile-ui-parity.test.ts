@@ -39,8 +39,6 @@ describe("OpenTeam-profile UI parity", () => {
     expect(inspector).toContain('aria-label="Settings"');
     expect(inspector).not.toContain("Back to bot details");
     expect(inspector).not.toContain('saveState === "saved" ? "Saved"');
-    expect(inspector).toContain("BotTemplateSettingsFooter");
-    expect(inspector).toContain("onShareAsTemplate(bot)");
     expect(sidebar).toContain("{bot.title}");
     expect(sidebar).toContain("max-w-24 shrink-0 truncate rounded-[4px]");
   });
@@ -157,32 +155,23 @@ describe("OpenTeam-profile UI parity", () => {
     expect(sidebar).toContain('onGroupAction(channel, "toggleUnread")');
     expect(sidebar).toContain('onGroupAction(channel, "editProfile")');
     expect(sidebar).toContain('onGroupAction(channel, "copyConversationId")');
-    expect(sidebar).toContain('onBotAction(bot, "shareAsTemplate")');
   });
 
-  test("uses Bot's conversational template workflow instead of a clipboard export", async () => {
-    const [chat, sharing] = await Promise.all([
+  test("omits bot template sharing from settings, menus, and chat", async () => {
+    const sources = await Promise.all([
+      componentSource("inspector"),
+      componentSource("sidebar"),
       componentSource("chat-pane"),
-      componentSource("bot-template-share"),
     ]);
 
-    expect(chat).toContain('import("./bot-template-share")');
-    expect(chat).toContain("BotTemplateConversationFlow");
-    expect(chat).toContain("onSubmitPrompt={(content) => enqueueDurableSend(content, [])}");
-    expect(sharing).toContain("BOT_TEMPLATE_REQUEST");
-    expect(sharing).toContain("onSubmitPrompt(BOT_TEMPLATE_REQUEST)");
-    expect(sharing).toContain("TemplateAudienceQuestion");
-    expect(sharing).toContain("createBotTemplateDraft(bot, audience)");
-    expect(sharing).toContain("BotTemplateCard");
-    expect(sharing).toContain("Who should this template be for?");
-    expect(sharing).toContain("Team stays inside your workspace");
-    expect(sharing).toContain("People in your team can use it");
-    expect(sharing).toContain("Anyone with the link can use it");
-    expect(sharing).toContain("I’ll pull together a shareable template of this bot.");
-    expect(sharing).toContain("View Details");
-    expect(sharing).toContain("Publishing…");
-    expect(sharing).toContain("Copy link");
-    expect(sharing).toContain("View shared template");
+    for (const source of sources) {
+      expect(source).not.toContain("Share as template");
+      expect(source).not.toContain("bot-template");
+      expect(source).not.toContain("BotTemplate");
+      expect(source).not.toContain("shareAsTemplate");
+      expect(source).not.toContain("onShareAsTemplate");
+      expect(source).not.toContain("templateShareRequest");
+    }
   });
 
   test("matches Bot's context-menu move and pin states for bots and groups", async () => {

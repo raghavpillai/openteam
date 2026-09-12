@@ -135,11 +135,6 @@ import { ThreadTray } from "./thread-tray";
 const MessageFileAttachments = lazy(() =>
   import("./file-attachment").then((module) => ({ default: module.MessageFileAttachments }))
 );
-const BotTemplateConversationFlow = lazy(() =>
-  import("./bot-template-share").then((module) => ({
-    default: module.BotTemplateConversationFlow,
-  }))
-);
 
 const downloadAttachments = async (attachments: readonly AssetRef[]) =>
   (await import("./file-attachment")).downloadAttachments(attachments);
@@ -185,7 +180,6 @@ interface ChatPaneProps {
   onCloseViewOnly?: () => void;
   onOpenA2A?: (sourceBotId: string, peerId: string, trigger: HTMLButtonElement) => void;
   onOpenRoutine?: (routineId: string) => void;
-  templateShareRequest?: { botId: string; nonce: number } | null;
 }
 
 const runGroupsEqual = <T,>(
@@ -239,7 +233,6 @@ const chatPanePropsEqual = (previous: ChatPaneProps, next: ChatPaneProps) =>
   previous.onCloseViewOnly === next.onCloseViewOnly &&
   previous.onOpenA2A === next.onOpenA2A &&
   previous.onOpenRoutine === next.onOpenRoutine &&
-  previous.templateShareRequest === next.templateShareRequest &&
   runGroupsEqual(next.runs, previous.itemsByRun, next.itemsByRun) &&
   runGroupsEqual(next.runs, previous.approvalsByRun, next.approvalsByRun) &&
   subagentApprovalGroupsEqual(next.subagents, previous.approvalsByRun, next.approvalsByRun);
@@ -1962,7 +1955,6 @@ export const ChatPane = memo(function ChatPane({
   onCloseViewOnly,
   onOpenA2A,
   onOpenRoutine,
-  templateShareRequest,
 }: ChatPaneProps) {
   const now = useDayClock(active);
   const [replyTarget, setReplyTarget] = useState<{
@@ -2606,15 +2598,6 @@ export const ChatPane = memo(function ChatPane({
                   )
                 }
               />
-            )}
-            {templateShareRequest && selectedBot && (
-              <Suspense fallback={null}>
-                <BotTemplateConversationFlow
-                  bot={selectedBot}
-                  onSubmitPrompt={(content) => enqueueDurableSend(content, [])}
-                  request={templateShareRequest}
-                />
-              </Suspense>
             )}
           </ConversationContent>
           <ConversationViewportAnchor

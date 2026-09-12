@@ -26,15 +26,12 @@ describe("chat performance and functionality reconciliation", () => {
     expect(chat).toContain("messageDisplayProjection(message)");
     expect(chat).toContain("@openteam/product-core");
     expect(chat).toContain('import("./file-attachment")');
-    expect(chat).toContain('import("./bot-template-share")');
-    expect(chat).toContain("<BotTemplateConversationFlow");
     expect(chat).toContain("onOpenRoutine={onOpenRoutine}");
     expect(chat).toContain("approvalPresentation(approval)");
     expect(chat).toContain("@openteam/product-core");
     expect(chat).not.toContain('details.type === "autoReview"');
     expect(chat).not.toContain('details.type === "localTool"');
     expect(chat).not.toContain('from "./file-attachment"');
-    expect(chat).not.toContain('from "./bot-template-share"');
   });
 
   test("keeps thread and media interactions accessible under bounded rendering", async () => {

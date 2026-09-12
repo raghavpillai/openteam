@@ -32,8 +32,7 @@ const viewByAnchor: Record<SettingsAnchor, SettingsView> = {
 
 export type OpenTeamDeepLink =
   | { kind: "settings"; anchor: SettingsAnchor }
-  | { kind: "plugin"; pluginId: string }
-  | { kind: "template"; template: TemplateBot };
+  | { kind: "plugin"; pluginId: string };
 
 export const settingsViewForAnchor = (anchor: SettingsAnchor): SettingsView => viewByAnchor[anchor];
 
@@ -58,11 +57,5 @@ export const parseOpenTeamDeepLink = (value: string): OpenTeamDeepLink | null =>
   ) {
     return { kind: "plugin", pluginId: id };
   }
-  if (url.pathname === "/v1/template/add") {
-    const template = parseBotTemplateShareUrl(value);
-    return template ? { kind: "template", template } : null;
-  }
   return null;
 };
-
-import { parseBotTemplateShareUrl, type TemplateBot } from "./bot-template";

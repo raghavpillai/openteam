@@ -27,9 +27,9 @@ describe("desktop App semantic merge", () => {
     );
     expect(app).toContain("target={settingsTarget}");
     expect(app).toContain("target={pluginTarget}");
-    expect(app).toContain("<BotTemplateImportDialog");
-    expect(actions).toContain('if (action === "shareAsTemplate")');
-    expect(actions).toContain("options.shareAsTemplate(bot)");
+    expect(app).not.toContain("BotTemplateImportDialog");
+    expect(app).not.toContain("templateShareRequest");
+    expect(actions).not.toContain("shareAsTemplate");
   });
 
   test("retains bounded navigation and lazy optional surfaces", async () => {
@@ -38,7 +38,6 @@ describe("desktop App semantic merge", () => {
     for (const module of [
       "a2a-exchange-sheet",
       "async-tasks-panel",
-      "bot-template-share",
       "desktop-dialogs",
       "inspector",
       "new-bot-screen",

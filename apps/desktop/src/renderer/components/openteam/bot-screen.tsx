@@ -11,7 +11,8 @@ import { clientErrorMessage } from "@openteam/product-core/redaction";
 import { LoaderCircle, Minimize2, Monitor, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../client/openteam-api";
-import { resolveViewerUrl } from "../../client/runtime-url";
+import { API_BASE } from "../../client/http";
+import { resolveLiveViewerUrl } from "../../client/runtime-url";
 import { useAuthenticatedResource } from "../../hooks/use-authenticated-resource";
 import { measureUntilNextPaint, recordPerformance } from "../../lib/performance";
 import {
@@ -210,18 +211,7 @@ export function BotScreen({
   const viewerReady = screen?.state === "ready";
   const liveViewerUrl = useMemo(() => {
     if (!open || !screen?.viewerUrl) return "";
-    try {
-      const source = new URL(screen.viewerUrl);
-      const resolved = new URL(resolveViewerUrl(screen.viewerUrl, window.location.href));
-      const loopback = source.hostname === "127.0.0.1" || source.hostname === "localhost";
-      const sameOrigin =
-        window.location.protocol !== "file:" && resolved.origin === window.location.origin;
-      if (!loopback && !sameOrigin) return "";
-      resolved.searchParams.set("view_only", "false");
-      return resolved.toString();
-    } catch {
-      return "";
-    }
+    return resolveLiveViewerUrl(screen.viewerUrl, window.location.href, API_BASE);
   }, [open, screen?.viewerUrl]);
   const frameSource = useAuthenticatedResource(
     enabled && screen?.state === "ready" ? api.screenFrameUrl(bot.id, frameRevision) : null

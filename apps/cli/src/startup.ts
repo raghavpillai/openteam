@@ -6,17 +6,14 @@ import { type HealthResult, waitForHealth } from "./health";
 export const SETUP_JOBS_NOTE =
   'Storage setup and database migrations are one-time jobs. Docker shows them as "Exited" when finished; exit code 0 means success.';
 
-interface ServiceState {
+export interface ServiceState {
   Service: string;
   State: string;
   Health?: string;
   ExitCode?: number;
 }
 
-export const inspectStartupState = (
-  project: ComposeProject,
-  environment: ReadonlyMap<string, string>
-): { stopped: boolean; notReady: string[] } => {
+export const readServiceStates = (project: ComposeProject): ServiceState[] => {
   const result = project.run(["ps", "--all", "--format", "json"], { timeoutMs: 5_000 });
   if (result.status !== 0) {
     throw new CliError(
@@ -51,6 +48,10 @@ export const inspectStartupState = (
       "Could not inspect OpenTeam services: Docker Compose returned invalid service state."
     );
   }
+  return services;
+};
+
+export const expectedServices = (environment: ReadonlyMap<string, string>): string[] => {
   const expected = ["postgres", "server", "worker", "computer"];
   if (
     (environment.get("COMPOSE_PROFILES") || "")
@@ -59,6 +60,14 @@ export const inspectStartupState = (
   ) {
     expected.push("caddy");
   }
+  return expected;
+};
+
+export const summarizeStartupState = (
+  services: readonly ServiceState[],
+  environment: ReadonlyMap<string, string>
+): { stopped: boolean; notReady: string[] } => {
+  const expected = expectedServices(environment);
   const notReady = expected.filter((name) => {
     const instances = services.filter((service) => service.Service === name);
     return (
@@ -83,6 +92,12 @@ export const inspectStartupState = (
     notReady: [...new Set(notReady)],
   };
 };
+
+export const inspectStartupState = (
+  project: ComposeProject,
+  environment: ReadonlyMap<string, string>
+): { stopped: boolean; notReady: string[] } =>
+  summarizeStartupState(readServiceStates(project), environment);
 
 /** A healthy container cannot repair a missing host listener by waiting longer. */
 export const assertServerReachable = (project: ComposeProject, health: HealthResult): void => {

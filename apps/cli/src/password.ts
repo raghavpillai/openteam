@@ -1,3 +1,5 @@
+import { renderSummary } from "./command-ui";
+import { printMessage } from "./terminal";
 import type { InstallationManifest, InstallationPaths } from "./config";
 import { installationExists, readManifest, writeManifest } from "./config";
 import { PROJECT_NAME } from "./constants";
@@ -44,7 +46,7 @@ export const accountUpdateCommand = async (
     options.username === undefined ? undefined : validateOwnerUsername(options.username);
   let password: string | undefined;
   try {
-    console.log(
+    printMessage(
       `Change the OpenTeam sign-in${
         manifest.ownerUsername ? ` for ${manifest.ownerUsername}` : ""
       }.`
@@ -66,6 +68,11 @@ export const accountUpdateCommand = async (
   const ownerUsername = username || manifest.ownerUsername;
   writeManifest(paths, { ...manifest, ownerUsername });
   console.log(
-    `OpenTeam sign-in updated${ownerUsername ? ` for ${ownerUsername}` : ""}. All desktop and mobile apps have been signed out.`
+    renderSummary(
+      "account",
+      "SIGN-IN UPDATED",
+      ownerUsername ? [{ label: "Username", value: ownerUsername }] : [],
+      [{ text: "All desktop and mobile apps have been signed out.", tone: "info" }]
+    )
   );
 };

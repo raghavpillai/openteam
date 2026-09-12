@@ -122,6 +122,8 @@ describe("durable one-command update", () => {
     expect(unrefCalled).toBe(true);
     expect(messages.some((message) => message.includes('"safeToCloseDesktop":true'))).toBe(true);
     expect(messages.some((message) => message.includes('"phase":"complete"'))).toBe(true);
+    expect(messages.every((message) => message.startsWith("@@OPENTEAM_UPDATE@@"))).toBe(true);
+    expect(messages.some((message) => message.includes("\x1b"))).toBe(false);
   });
 
   test("reattaches to an active matching job instead of starting another worker", async () => {

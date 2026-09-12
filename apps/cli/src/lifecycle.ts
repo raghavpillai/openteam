@@ -1,3 +1,5 @@
+import { installationCommand, renderStatus, renderSummary } from "./command-ui";
+import { printMessage, TerminalReport } from "./terminal";
 import { readFileSync, rmSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { createInterface } from "node:readline/promises";
@@ -31,6 +33,9 @@ import { ACCESS_MODES, accessLabel, type AccessMode } from "./setup-values";
 import {
   assertServerReachable,
   inspectStartupState,
+  expectedServices,
+  readServiceStates,
+  summarizeStartupState,
   SETUP_JOBS_NOTE,
   waitForStartup,
 } from "./startup";
@@ -91,22 +96,41 @@ const manifestProjectName = (manifest: InstallationManifest): string =>
   normalizeProjectName(manifest.projectName || PROJECT_NAME);
 
 const printStartupReady = (
+  paths: InstallationPaths,
   environment: ReadonlyMap<string, string>,
   health: HealthResult,
   alreadyRunning = false
 ): void => {
   const localUrl = health.url.replace(/\/api\/v0\/health$/, "");
   const publicUrl = environment.get("OPENTEAM_PUBLIC_URL")?.trim().replace(/\/+$/, "");
-  console.log(`OpenTeam is ${alreadyRunning ? "already running" : "ready"} at ${localUrl}`);
-  if (publicUrl && publicUrl !== localUrl) console.log(`Network address: ${publicUrl}`);
-  if (health.inference && health.inference !== "ready") {
-    console.log(
-      health.inference === "missing"
-        ? "No AI provider is connected. Run openteam setup to connect one before starting AI tasks."
-        : `AI is not ready (${health.inference}). Run openteam setup to check your provider connection.`
-    );
-  }
-  console.log("To stop OpenTeam, run: openteam stop");
+  console.log(
+    renderSummary(
+      "start",
+      alreadyRunning ? "ALREADY RUNNING" : "READY",
+      [
+        { label: "Server", value: localUrl },
+        ...(publicUrl && publicUrl !== localUrl
+          ? [{ label: "Network address", value: publicUrl }]
+          : []),
+        ...(health.version ? [{ label: "Version", value: health.version }] : []),
+      ],
+      [
+        { text: `OpenTeam is ${alreadyRunning ? "already running" : "ready"}.`, tone: "success" },
+        ...(health.inference && health.inference !== "ready"
+          ? [
+              {
+                text:
+                  health.inference === "missing"
+                    ? `No AI provider is connected. Run ${installationCommand(paths, "setup")} to connect one before starting AI tasks.`
+                    : `AI is not ready (${health.inference}). Run ${installationCommand(paths, "setup")} to check your provider connection.`,
+                tone: "warning" as const,
+              },
+            ]
+          : []),
+        { text: `To stop OpenTeam, run: ${installationCommand(paths, "stop")}`, tone: "info" },
+      ]
+    )
+  );
 };
 
 const startProject = async (
@@ -119,7 +143,7 @@ const startProject = async (
   // Refuse to race another stack for the ports; Docker's own error names only the port.
   const running = runningServices(project);
   const environment = parseEnvironment(readFileSync(paths.environment, "utf8"));
-  console.log("Checking startup ports…");
+  printMessage("Checking startup ports…");
   const initialHealth = await checkHealth(paths);
   assertOwnServer(runner, initialHealth, running, environment);
   await assertPortsAvailable(runner, portRequirementsFromEnvironment(environment, running));
@@ -128,24 +152,24 @@ const startProject = async (
     const state = inspectStartupState(project, environment);
     const health = withExpectedVersion(initialHealth, expectedVersion);
     if (!state.notReady.length && health.ok) {
-      printStartupReady(environment, health, true);
+      printStartupReady(paths, environment, health, true);
       return;
     }
-    if (state.stopped) console.log("OpenTeam is stopped. Starting services…");
+    if (state.stopped) printMessage("OpenTeam is stopped. Starting services…");
     else if (state.notReady.length) {
-      console.log(
+      printMessage(
         `OpenTeam is partially running. Starting or checking: ${state.notReady.join(", ")}…`
       );
-    } else console.log(`OpenTeam is running but not ready (${health.detail}). Checking services…`);
+    } else printMessage(`OpenTeam is running but not ready (${health.detail}). Checking services…`);
   }
-  console.log(SETUP_JOBS_NOTE);
+  printMessage(SETUP_JOBS_NOTE, "muted");
   project.runOrThrow(["up", "--detach", "--remove-orphans", "--wait", "--wait-timeout", "180"], {
     inherit: true,
   });
-  process.stdout.write("Waiting for OpenTeam");
+  printMessage("Waiting for OpenTeam…");
   const health = await waitForStartup(project, paths, expectedVersion);
   if (!health.ok) throw new CliError(`OpenTeam did not become healthy: ${health.detail}`);
-  printStartupReady(environment, health);
+  printStartupReady(paths, environment, health);
 };
 
 export const installCommand = async (
@@ -172,7 +196,7 @@ export const installCommand = async (
         suppliedPrompter
       );
     } else {
-      console.log(`OpenTeam ${existing.version} is already installed; starting it.`);
+      printMessage(`OpenTeam ${existing.version} is already installed; starting it.`);
       await startCommand(paths, runner, { allowIncompleteSetup: options.noSetup });
     }
     return;
@@ -187,7 +211,7 @@ export const installCommand = async (
 
   const version = normalizeVersion(options.version || CLI_VERSION);
   const repository = normalizeRepository(options.repository || DEFAULT_REPOSITORY);
-  console.log(`\nDownloading OpenTeam ${version} release configuration…`);
+  printMessage(`Downloading OpenTeam ${version} release configuration…`);
   const release = await downloadRelease({
     repository,
     version,
@@ -215,12 +239,14 @@ export const installCommand = async (
   });
 
   const project = requireComposeProject(paths, runner, projectName);
-  console.log("Pulling OpenTeam container images…");
+  printMessage("Pulling OpenTeam container images…");
   project.runOrThrow(["pull"], { inherit: true });
   if (options.noSetup) {
     await startProject(project, paths, runner, version);
-    console.log(`Installation configuration: ${paths.directory}`);
-    console.log("Guided setup was skipped. Run this same launcher with: setup");
+    printMessage(`Installation configuration: ${paths.directory}`, "muted");
+    printMessage(
+      `Guided setup was skipped. Run ${installationCommand(paths, "setup")} to finish setup.`
+    );
     return;
   }
   await setupCommand(paths, runner, { advanced: options.advanced, fresh: true }, suppliedPrompter);
@@ -254,26 +280,63 @@ export const statusCommand = async (
   runner: CommandRunner
 ): Promise<void> => {
   const manifest = requireInstallation(paths);
-  console.log(`OpenTeam ${manifest.version}`);
-  console.log(`Installation: ${paths.directory}\n`);
   const environment = parseEnvironment(readFileSync(paths.environment, "utf8"));
   const accessMode = environment.get("OPENTEAM_ACCESS_MODE") || "local";
   const publicUrl = environment.get("OPENTEAM_PUBLIC_URL") || "not configured";
   const connection = ACCESS_MODES.includes(accessMode as AccessMode)
     ? accessLabel(accessMode as AccessMode)
     : accessMode;
-  console.log(`Connection: ${connection}`);
-  console.log(`Server: ${publicUrl}\n`);
   const project = requireComposeProject(paths, runner, manifestProjectName(manifest));
-  const status = project.run(["ps"], { inherit: true });
-  if (status.status !== 0) throw new CliError("Could not read Docker Compose service status.");
-  assertOwnServer(runner, await checkHealth(paths), runningServices(project), environment);
-  const health = await checkHealth(paths, manifest.version);
-  if (!health.ok)
-    throw new CliError(`OpenTeam is not healthy at ${health.url}: ${health.detail}`, 2);
+  const services = readServiceStates(project);
+  const state = summarizeStartupState(services, environment);
+  const probe = await checkHealth(paths);
+  let health = withExpectedVersion(probe, manifest.version);
+  let failure: CliError | undefined;
+  let ownershipFailure = false;
+  try {
+    assertOwnServer(
+      runner,
+      probe,
+      new Set(services.filter((s) => s.State === "running").map((s) => s.Service)),
+      environment
+    );
+  } catch (error) {
+    ownershipFailure = true;
+    failure = new CliError(
+      error instanceof Error ? error.message : String(error),
+      error instanceof CliError ? error.exitCode : 2,
+      true
+    );
+    health = { ...health, ok: false, detail: failure.message };
+  }
+  if (!health.ok && !failure)
+    failure = new CliError(`OpenTeam is not healthy at ${health.url}: ${health.detail}`, 2, true);
+  if (state.notReady.length && !failure)
+    failure = new CliError(
+      `OpenTeam services need attention: ${state.notReady.join(", ")}`,
+      2,
+      true
+    );
   console.log(
-    `\nHealth: ${health.detail}${health.version ? `; release ${health.version}` : ""}${health.inference ? `; inference ${health.inference}` : ""} (${health.url})`
+    renderStatus({
+      version: manifest.version,
+      directory: paths.directory,
+      connection,
+      server: publicUrl,
+      services,
+      expected: expectedServices(environment),
+      health,
+      next: installationCommand(
+        paths,
+        !manifest.ownerUsername?.trim()
+          ? "setup"
+          : state.stopped && !ownershipFailure
+            ? "start"
+            : "doctor"
+      ),
+    })
   );
+  if (failure) throw failure;
 };
 
 export const stopCommand = (paths: InstallationPaths, runner: CommandRunner): void => {
@@ -281,7 +344,17 @@ export const stopCommand = (paths: InstallationPaths, runner: CommandRunner): vo
   requireComposeProject(paths, runner, manifestProjectName(manifest)).runOrThrow(["stop"], {
     inherit: true,
   });
-  console.log("OpenTeam is stopped. Its data and containers are preserved.");
+  console.log(
+    renderSummary(
+      "stop",
+      "STOPPED",
+      [{ label: "Installation", value: paths.directory }],
+      [
+        { text: "OpenTeam is stopped. Its data and containers are preserved.", tone: "success" },
+        { text: installationCommand(paths, "start"), tone: "info" },
+      ]
+    )
+  );
 };
 
 export const startCommand = async (
@@ -520,7 +593,8 @@ const confirmation = async (question: string): Promise<boolean> => {
   }
   const prompt = createInterface({ input: process.stdin, output: process.stdout });
   try {
-    const answer = await prompt.question(`${question} [y/N] `);
+    console.log(new TerminalReport().notice(question, "warning").toString());
+    const answer = await prompt.question("  Continue? [y/N] ");
     return /^y(?:es)?$/i.test(answer.trim());
   } finally {
     prompt.close();
@@ -537,7 +611,7 @@ export const uninstallCommand = async (
     ? "Permanently delete all OpenTeam containers, volumes, configuration, sessions, and workspace data?"
     : "Remove the OpenTeam containers while preserving configuration and data?";
   if (!options.yes && !(await confirmation(question))) {
-    console.log("Uninstall cancelled.");
+    printMessage("Uninstall cancelled.", "muted");
     return;
   }
   const project = requireComposeProject(paths, runner, manifestProjectName(manifest));
@@ -547,12 +621,21 @@ export const uninstallCommand = async (
   );
   if (options.purge) {
     rmSync(paths.directory, { recursive: true, force: true });
-    console.log("OpenTeam and its local Docker data were permanently removed.");
+    printMessage("OpenTeam and its local Docker data were permanently removed.", "success");
     return;
   }
   writeManifest(paths, { ...manifest, uninstalledAt: new Date().toISOString() });
   console.log(
-    `OpenTeam containers were removed. Configuration and data remain at ${paths.directory}.`
+    renderSummary(
+      "uninstall",
+      "CONTAINERS REMOVED",
+      [{ label: "Data preserved", value: paths.directory }],
+      [
+        {
+          text: `Run ${installationCommand(paths, "start")} to recreate the containers with the preserved data.`,
+          tone: "info",
+        },
+      ]
+    )
   );
-  console.log("Run openteam start to recreate the containers with the preserved data.");
 };

@@ -288,13 +288,15 @@ describe("installed lifecycle", () => {
     } finally {
       log.mockRestore();
     }
-    expect(output.filter((line) => line === "Checking startup ports…")).toHaveLength(2);
-    expect(
-      output.filter((line) => line.includes("OpenTeam is already running at http://127.0.0.1:"))
-    ).toHaveLength(2);
-    expect(
-      output.filter((line) => line === "Network address: http://100.64.0.5:8787")
-    ).toHaveLength(2);
+    expect(output.filter((line) => line.includes("Checking startup ports…"))).toHaveLength(2);
+    const summaries = output.filter((line) => line.includes("ALREADY RUNNING"));
+    expect(summaries).toHaveLength(2);
+    for (const summary of summaries) {
+      expect(summary).toContain("OpenTeam is already running");
+      expect(summary).toContain("http://127.0.0.1:");
+      expect(summary).toContain("Network address");
+      expect(summary).toContain("http://100.64.0.5:8787");
+    }
     expect(runner.calls.some((call) => call.args.includes("up"))).toBe(false);
     expect(runner.calls.some((call) => call.args.includes("-e"))).toBe(false);
   });
@@ -436,6 +438,30 @@ describe("installed lifecycle", () => {
     await expect(statusCommand(paths, runner)).rejects.toThrow(
       "expected release 1.2.4, but 1.2.3 is responding"
     );
+  });
+
+  test("status reports a missing worker even when the API is healthy, without starting services", async () => {
+    const { paths } = fixture("ready");
+    const runner = new HealthyDockerRunner();
+    runner.running = ["postgres", "server", "computer"];
+    const output: string[] = [];
+    const log = spyOn(console, "log").mockImplementation((value) => {
+      output.push(String(value));
+    });
+    try {
+      await expect(statusCommand(paths, runner)).rejects.toMatchObject({
+        exitCode: 2,
+        reported: true,
+      });
+    } finally {
+      log.mockRestore();
+    }
+    expect(output.join("\n")).toContain("NEEDS ATTENTION");
+    expect(output.join("\n")).toContain("Not created");
+    expect(
+      runner.calls.some((call) => call.args.includes("up") || call.args.includes("start"))
+    ).toBe(false);
+    expect(runner.calls.filter((call) => call.args.includes("ps"))).toHaveLength(1);
   });
 
   test("safe uninstall removes containers but preserves configuration", async () => {

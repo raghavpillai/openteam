@@ -1,22 +1,6 @@
-import { redactSensitiveText } from "@openteam/product-core/redaction";
 import type { DoctorCheck, DoctorResult } from "./doctor";
 import { colorEnabled } from "./ui";
-
-const clean = (value: string): string =>
-  redactSensitiveText(value)
-    .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "")
-    .replace(/[\x00-\x1f\x7f-\x9f]/g, " ");
-const wrap = (value: string, width: number): string[] => {
-  const lines: string[] = [];
-  let rest = clean(value).trim();
-  while (rest.length > width) {
-    const space = rest.lastIndexOf(" ", width);
-    const split = space > width / 2 ? space : width;
-    lines.push(rest.slice(0, split));
-    rest = rest.slice(split).trimStart();
-  }
-  return [...lines, rest];
-};
+import { cleanTerminalText as clean, wrapTerminalText as wrap } from "./terminal";
 
 const scopedCommands = (text: string, result: DoctorResult): string => {
   if (!result.commandDirectory) return text;

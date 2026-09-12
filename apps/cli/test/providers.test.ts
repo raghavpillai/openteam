@@ -150,8 +150,13 @@ describe("provider management", () => {
     } finally {
       console.log = original;
     }
-    expect(output[0]).toStartWith("* openai-codex");
-    expect(output[1]).toContain("oauth, api key");
+    const text = output.join("\n");
+    expect(text).toContain("CONNECTED ACCOUNTS");
+    expect(text).toContain("● openai-codex");
+    expect(text).toContain("Connected · OAuth");
+    expect(text).toContain("AVAILABLE TO CONNECT");
+    expect(text.replace(/\s+/g, " ")).toContain("Claude Pro/Max / Anthropic API key");
+    expect(text.indexOf("openai-codex")).toBeLessThan(text.indexOf("anthropic"));
   });
 
   test("passes API keys over stdin and never command arguments", async () => {

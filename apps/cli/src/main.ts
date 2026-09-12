@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 
 import "./runtime-compat";
+import { renderHelp, renderCommandError } from "./command-ui";
+import { colorEnabled } from "./ui";
 import { resolve } from "node:path";
 import { parseArguments } from "./arguments";
 import { defaultInstallDirectory, installationPaths } from "./config";
@@ -38,7 +40,7 @@ import { setupCommand } from "./setup";
 const main = async (): Promise<void> => {
   const options = parseArguments(process.argv.slice(2));
   if (options.command === "help") {
-    console.log(helpFor(options.helpTopic));
+    console.log(renderHelp(helpFor(options.helpTopic)));
     return;
   }
   if (options.command === "version") {
@@ -114,7 +116,12 @@ const main = async (): Promise<void> => {
 
 main().catch((error) => {
   if (!(error instanceof CliError && error.reported)) {
-    console.error(`openteam: ${errorMessage(error)}`);
+    console.error(
+      renderCommandError(errorMessage(error), {
+        color: colorEnabled(process.env, Boolean(process.stderr.isTTY)),
+        width: process.stderr.columns,
+      })
+    );
   }
   process.exitCode = error instanceof CliError ? error.exitCode : 1;
 });

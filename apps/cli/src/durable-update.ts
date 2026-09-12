@@ -1,3 +1,5 @@
+import { installationCommand, renderUpdateEvent } from "./command-ui";
+import { TerminalReport } from "./terminal";
 import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import { closeSync, openSync, readFileSync } from "node:fs";
@@ -104,7 +106,7 @@ const emitProgress = (options: CliOptions, state: PersistedUpdateState): void =>
     );
     return;
   }
-  console.log(state.message);
+  console.log(renderUpdateEvent(state));
 };
 
 export const reportActiveUpdate = (paths: InstallationPaths, options: CliOptions): boolean => {
@@ -156,6 +158,15 @@ export const followUpdateJob = async (
   releaseForWindowsCliPromotion = false
 ): Promise<"complete" | "released-for-cli-promotion"> => {
   const started = Date.now();
+  if (!options.jsonProgress)
+    console.log(
+      new TerminalReport()
+        .header("update", "FOLLOWING UPDATE")
+        .text(
+          `Progress is saved. You can close this terminal and reconnect with ${installationCommand(paths, "update")}.`
+        )
+        .toString() + "\n"
+    );
   let lastSequence = -1;
   let lastSignature = "";
   while (true) {

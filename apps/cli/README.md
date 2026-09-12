@@ -44,9 +44,19 @@ ready, it prints `OpenTeam is already running` with the connection addresses and
 and completed setup jobs alone. Otherwise it reports whether OpenTeam is stopped, partially running,
 or not ready before starting or checking the services.
 `start` requires completed account setup and directs unfinished installations to `openteam setup`.
+
 Connecting an AI provider can be skipped during setup; services can still run, but startup explicitly
 reports that AI tasks need a provider connection. `install --no-setup` remains an explicit automation
 option for starting the core services before account setup.
+
+Human-facing commands use a consistent terminal layout: grouped help, a service dashboard for
+`status`, connected-account and model catalogs, and clear confirmations for lifecycle and account
+changes. Model listings highlight the saved selection and thinking level and retain complete model
+identifiers. `status` exits `2` when required services or initialization jobs are not ready, including
+a missing worker even if the API responds. Use `doctor` for deeper connection and storage checks.
+Output wraps to the terminal width and respects `NO_COLOR` and `TERM=dumb`. Redirected output has
+no color escapes; `--version`, update JSON progress, and raw Docker log streams keep their existing
+formats. Human update progress shows each phase as it happens.
 
 `openteam install` enters staged setup in the same command. The standalone `openteam setup` command
 reconfigures an existing installation without changing its owner or signing out active sessions.

@@ -17,19 +17,23 @@ const pages: Record<HelpTopic, string> = {
 Usage:
   openteam <command> [options]
 
-Commands:
+Getting started:
   install       Install OpenTeam and run guided setup
   setup         Finish setup or change accounts and settings
+
+Your installation:
   status        Show whether OpenTeam is running
   doctor        Check for installation problems
   update        Install the latest OpenTeam release
   start         Start OpenTeam after account setup
   stop          Stop OpenTeam
   logs          View troubleshooting logs
+  uninstall     Remove OpenTeam
+
+Models and accounts:
   provider      Manage AI accounts and connections
   model         View or change the AI model
   account       Change your username or password
-  uninstall     Remove OpenTeam
 
 Global options:
 ${directoryOption}

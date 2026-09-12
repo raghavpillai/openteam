@@ -1,3 +1,10 @@
+import {
+  installationCommand,
+  renderModelCatalog,
+  renderProviderCatalog,
+  renderSummary,
+} from "./command-ui";
+import { printMessage } from "./terminal";
 import type { CliOptions } from "./arguments";
 import type { InstallationManifest, InstallationPaths } from "./config";
 import { installationExists, readManifest } from "./config";
@@ -8,7 +15,7 @@ import type { CommandRunner } from "./process";
 import { readRuntimeInferenceSettings, writeRuntimeInferenceSettings } from "./runtime-settings";
 import { createTerminalPrompter, type SetupPrompter } from "./setup";
 
-type ProviderRow = {
+export type ProviderRow = {
   id: string;
   name: string;
   authMethods: Array<{ type: "oauth" | "api_key"; label: string; subscription: boolean }>;
@@ -19,7 +26,7 @@ type ProviderRow = {
   custom: boolean;
 };
 
-type ModelRow = {
+export type ModelRow = {
   providerId: string;
   modelId: string;
   name: string;
@@ -77,20 +84,11 @@ const currentSelection = (project: ComposeProject) => {
   return { ...selected, thinking: selected.reasoning };
 };
 
-const authLabel = (type: string | null): string =>
-  type === "api_key" ? "API key" : type === "oauth" ? "OAuth" : "not configured";
-
 export const providerListCommand = (paths: InstallationPaths, runner: CommandRunner): void => {
   const project = projectFor(paths, runner);
   const selected = currentSelection(project).providerId;
   const providers = jsonCommand<ProviderRow[]>(project, ["providers"]);
-  for (const provider of providers) {
-    const marker = provider.id === selected ? "*" : " ";
-    const methods = provider.authMethods.map((method) => method.type.replace("_", " ")).join(", ");
-    console.log(
-      `${marker} ${provider.id.padEnd(26)} ${provider.name} · ${provider.models} models · ${provider.configured ? authLabel(provider.authType) : methods || "ambient credentials"}`
-    );
-  }
+  console.log(renderProviderCatalog(providers, selected, paths));
 };
 
 export const modelListCommand = (
@@ -101,12 +99,7 @@ export const modelListCommand = (
   const project = projectFor(paths, runner);
   const selected = currentSelection(project);
   const models = jsonCommand<ModelRow[]>(project, ["models", ...(providerId ? [providerId] : [])]);
-  for (const model of models) {
-    const active = model.providerId === selected.providerId && model.modelId === selected.modelId;
-    console.log(
-      `${active ? "*" : " "} ${model.providerId}/${model.modelId} · ${model.contextWindow.toLocaleString()} context${model.reasoning ? " · reasoning" : ""}${model.input.includes("image") ? " · images" : ""}`
-    );
-  }
+  console.log(renderModelCatalog(models, selected, paths, providerId));
 };
 
 const chooseAuthType = async (
@@ -168,7 +161,7 @@ export const providerLoginCommand = async (
       project.runOrThrow(authCommand(["login", providerId, "api_key"]), { input: `${key}\n` });
     } else {
       if (providerId === "openai-codex") {
-        console.log("If you are connected over SSH, choose Device code login at the next prompt.");
+        printMessage("If you are connected over SSH, choose Device code login at the next prompt.");
       }
       project.runOrThrow(["exec", "computer", "openteam-pi-auth", "login", providerId, "oauth"], {
         inherit: true,
@@ -186,7 +179,14 @@ export const providerLoginCommand = async (
       2
     );
   }
-  console.log(`${provider.name} is connected.`);
+  console.log(
+    renderSummary(
+      "provider",
+      "CONNECTED",
+      [{ label: "Provider", value: `${provider.name} (${providerId})` }],
+      [{ text: installationCommand(paths, `model list ${providerId}`), tone: "info" }]
+    )
+  );
 };
 
 export const providerLogoutCommand = (
@@ -198,6 +198,7 @@ export const providerLogoutCommand = (
   const selected = currentSelection(project).providerId;
   const provider = providerId || selected;
   project.runOrThrow(authCommand(["logout", provider]));
+  printMessage(`Removed the saved sign-in for ${provider}.`, "success");
 };
 
 export const providerAddCommand = async (
@@ -224,7 +225,9 @@ export const providerAddCommand = async (
     { providerId: options.providerId, authType: "api_key" },
     suppliedPrompter
   );
-  console.log(`Use it with: openteam model use ${options.providerId} ${options.modelId}`);
+  printMessage(
+    `Use it with: ${installationCommand(paths, `model use ${options.providerId} ${options.modelId}`)}`
+  );
 };
 
 export const providerRemoveCommand = (
@@ -237,6 +240,7 @@ export const providerRemoveCommand = (
     throw new CliError("Select a model from another provider before removing the active provider");
   }
   project.runOrThrow(authCommand(["remove-custom", providerId]));
+  printMessage(`Removed custom provider ${providerId}.`, "success");
 };
 
 export const modelUseCommand = async (
@@ -263,9 +267,29 @@ export const modelUseCommand = async (
     current.modelId === modelId &&
     current.reasoning === reasoning
   ) {
-    console.log(`${providerId}/${modelId} is already selected.`);
+    console.log(
+      renderSummary(
+        "model",
+        "ALREADY SELECTED",
+        [
+          { label: "Model", value: `${providerId}/${modelId}` },
+          { label: "Thinking", value: reasoning },
+        ],
+        [{ text: "This model and thinking level are already selected.", tone: "success" }]
+      )
+    );
     return;
   }
   await writeRuntimeInferenceSettings(paths, { providerId, modelId, reasoning });
-  console.log(`Selected ${providerId}/${modelId} for new tasks.`);
+  console.log(
+    renderSummary(
+      "model",
+      "MODEL SELECTED",
+      [
+        { label: "Model", value: `${providerId}/${modelId}` },
+        { label: "Thinking", value: reasoning },
+      ],
+      [{ text: "Ready for new tasks.", tone: "success" }]
+    )
+  );
 };

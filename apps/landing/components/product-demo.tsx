@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Dialog } from "@base-ui/react/dialog";
 import {
   ArrowDownToLine,
@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 import { BotAvatar } from "./bot-avatar";
 import { DesktopPlusIcon, DesktopMicIcon } from "./desktop-demo-controls";
+import { DEMO_TASK_EVENT } from "./demo-task-link";
 import { Button } from "./ui/button";
 import "./desktop-demo.css";
 
@@ -165,12 +166,26 @@ export function ProductDemo() {
     const timer = setTimeout(() => setStage((s) => s + 1), 1150);
     return () => clearTimeout(timer);
   }, [stage, done, paused]);
-  const choose = (index: number) => {
+  const choose = useCallback((index: number, startReplay = false) => {
     setSelected(index);
-    setStage(4);
+    setStage(startReplay ? 0 : 4);
     setPaused(false);
     setPreview(null);
-  };
+  }, []);
+  useEffect(() => {
+    const selectTask = (event: Event) => {
+      if (!(event instanceof CustomEvent)) return;
+      const detail: unknown = event.detail;
+      if (!detail || typeof detail !== "object" || !("task" in detail)) return;
+      const task = detail.task;
+      if (task !== "research" && task !== "operations" && task !== "engineering") return;
+      const id = task === "engineering" ? "code" : task;
+      const index = examples.findIndex((example) => example.id === id);
+      if (index >= 0) choose(index, true);
+    };
+    window.addEventListener(DEMO_TASK_EVENT, selectTask);
+    return () => window.removeEventListener(DEMO_TASK_EVENT, selectTask);
+  }, [choose]);
   const replay = () => {
     if (done) {
       setStage(0);

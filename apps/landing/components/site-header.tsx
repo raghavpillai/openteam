@@ -8,9 +8,9 @@ const GITHUB = "https://github.com/raghavpillai/openteam";
 export function SiteHeader({ home = false }: { home?: boolean }) {
   const prefix = home ? "" : "/";
   const links = [
-    ["Demo", "product"],
+    ["How it works", "how-it-works"],
+    ["Use cases", "use-cases"],
     ["Plugins", "plugins"],
-    ["Use cases", "how-it-works"],
     ["Open source", "open-source"],
   ];
   return (

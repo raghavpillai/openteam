@@ -3,15 +3,12 @@ import {
   ArrowDown,
   ArrowUpRight,
   Check,
-  Code2,
   FileText,
   GitBranch,
   Globe2,
-  HardDrive,
   LockKeyhole,
   Monitor,
   Server,
-  Smartphone,
   Terminal,
 } from "lucide-react";
 import { BotAvatar } from "@/components/bot-avatar";
@@ -22,13 +19,10 @@ import { SiteFooter } from "@/components/site-footer";
 import { LandingEffects } from "@/components/landing-effects";
 import { InstallCommand } from "@/components/install-command";
 import { PluginsDemo } from "@/components/plugins-demo";
-import {
-  ProductDemo,
-  ComputerDemo,
-  RoutineDemo,
-  MobileDemo,
-  MemoryDemo,
-} from "@/components/product-demo";
+import { ProductDemo } from "@/components/product-demo";
+import { DemoTaskLink } from "@/components/demo-task-link";
+import { TeamWorkflowDemo } from "@/components/team-workflow-demo";
+import { WorkerCapabilities } from "@/components/worker-capabilities";
 import {
   Accordion,
   AccordionContent,
@@ -38,6 +32,7 @@ import {
 import { Button } from "@/components/ui/button";
 import "./landing.css";
 import "./monochrome.css";
+import "./structure.css";
 
 const GITHUB = "https://github.com/raghavpillai/openteam";
 const questions = [
@@ -70,6 +65,10 @@ const questions = [
     "There is no OpenTeam subscription. You pay for the machine that runs it and any charges from your model provider.",
   ],
   [
+    "Where does my data live?",
+    "Chats, saved memory, files, and browser sessions are stored on your server. Model requests go to the inference provider you connect, and plugins communicate with the services you enable.",
+  ],
+  [
     "How mature is OpenTeam?",
     "OpenTeam is early software for people comfortable with Docker and a terminal. The desktop app supports macOS, Windows, and Linux; check the download page for available builds. The iPhone app must currently be built from source. It is not available through the App Store or TestFlight.",
   ],
@@ -94,7 +93,7 @@ function GetStarted({
 }
 export default function Home() {
   return (
-    <div className="landing" id="top">
+    <div className="landing ot-home" id="top">
       <LandingEffects />
       <a href="#main" className="ot-skip">
         Skip to content
@@ -116,9 +115,9 @@ export default function Home() {
             </div>
             <div className="ot-hero-description">
               <p>
-                Digital workers that run on your compute and work in your apps. They have their
-                own computer and shared workspace, remember your instructions, and delegate work
-                to each other.
+                Digital workers that run on your compute and work in your apps. They have their own
+                computer and shared workspace, remember your instructions, and delegate work to each
+                other.
               </p>
               <div className="ot-hero-actions">
                 <GetStarted />
@@ -129,7 +128,7 @@ export default function Home() {
               <p className="ot-hero-note">Docker required · Bring your own inference</p>
             </div>
           </div>
-          <div id="product" className="ot-product-anchor">
+          <div id="product" tabIndex={-1} className="ot-product-anchor">
             <ProductDemo />
           </div>
           <div className="ot-demo-caption">
@@ -140,27 +139,150 @@ export default function Home() {
           </div>
           <SectionBot bot="research" />
         </section>
-        <section className="ot-providers ot-container" aria-label="Supported model providers">
-          <p>
-            <strong>Bring your own inference.</strong>
-          </p>
-          <div className="ot-provider-logo ot-provider-openai">
-            <Image src="/logos/openai.svg" alt="OpenAI" width={1604} height={718} unoptimized />
-          </div>
-          <div className="ot-provider-logo ot-provider-anthropic">
-            <Image src="/logos/anthropic.svg" alt="Anthropic" width={570} height={64} unoptimized />
-          </div>
-          <div className="ot-provider-logo ot-provider-google">
-            <Image src="/logos/google.svg" alt="Google" width={74} height={24} unoptimized />
-          </div>
-          <div className="ot-provider-endpoint">
-            <Terminal size={22} />
+        <nav className="ot-proof-strip ot-container" aria-label="Why run OpenTeam">
+          <a href="#open-source">
+            <Server size={19} />
             <span>
-              Compatible
-              <br />
-              endpoint
+              <strong>Your compute</strong>
+              <small>Run on your computer or server</small>
             </span>
+            <ArrowUpRight size={15} />
+          </a>
+          <a href="#open-source">
+            <Terminal size={19} />
+            <span>
+              <strong>Your inference</strong>
+              <small>Connect the provider you choose</small>
+            </span>
+            <ArrowUpRight size={15} />
+          </a>
+          <a href={GITHUB}>
+            <GithubMark />
+            <span>
+              <strong>Open source</strong>
+              <small>Inspect the runtime and apps</small>
+            </span>
+            <ArrowUpRight size={15} />
+          </a>
+        </nav>
+        <section id="use-cases" className="ot-use-cases ot-section ot-container ot-bot-section">
+          <div className="ot-section-heading">
+            <div>
+              <p className="ot-eyebrow">EXAMPLE TASKS</p>
+              <h2>
+                Delegate research,
+                <br />
+                <span>reporting, and code.</span>
+              </h2>
+            </div>
+            <p>
+              Explore sample tasks and the files they produce. Open a demo to follow the worker
+              through the task and inspect the result.
+            </p>
           </div>
+          <div className="ot-jobs">
+            {[
+              {
+                number: "01",
+                task: "research" as const,
+                shape: "helmet" as const,
+                color: "#ff7a1a",
+                name: "Research",
+                title: "Compare vendors",
+                result: "A comparison, recommendation, and source links.",
+                icon: FileText,
+                tags: "WEB + FILES",
+              },
+              {
+                number: "02",
+                task: "operations" as const,
+                shape: "pod" as const,
+                color: "#925df2",
+                name: "Operations",
+                title: "Monitor dashboards",
+                result: "A daily report showing what changed.",
+                icon: Globe2,
+                tags: "BROWSER + ROUTINES",
+              },
+              {
+                number: "03",
+                task: "engineering" as const,
+                shape: "chip" as const,
+                color: "#27baae",
+                name: "Engineering",
+                title: "Fix failing tests",
+                result: "A proposed fix, with the diff and test results.",
+                icon: GitBranch,
+                tags: "TERMINAL + CODE",
+              },
+            ].map((job) => (
+              <article key={job.number} className="ot-job">
+                <div className="ot-job-top">
+                  <BotAvatar shape={job.shape} color={job.color} size={32} mode="idle" />
+                  <span>{job.name}</span>
+                  <span className="ot-job-number">{job.number}</span>
+                </div>
+                <h3>{job.title}</h3>
+                <div className="ot-job-result">
+                  <job.icon size={17} />
+                  <span>{job.result}</span>
+                </div>
+                <span className="ot-eyebrow ot-job-tags">{job.tags}</span>
+                <DemoTaskLink task={job.task} className="ot-text-link ot-job-demo-link">
+                  See {job.name.toLowerCase()} demo <ArrowUpRight size={15} />
+                </DemoTaskLink>
+              </article>
+            ))}
+          </div>
+          <SectionBot bot="engineering" />
+        </section>
+        <section
+          id="how-it-works"
+          className="ot-section ot-container ot-team-section ot-bot-section"
+        >
+          <div className="ot-section-heading">
+            <div>
+              <p className="ot-eyebrow">HOW IT WORKS</p>
+              <h2>
+                How your AI team
+                <br />
+                <span>works together.</span>
+              </h2>
+            </div>
+            <p>
+              Workers can message each other, delegate subtasks, and use the same project files.
+            </p>
+          </div>
+          <div className="ot-team-explainer">
+            <ol className="ot-team-steps">
+              <li>
+                <span>01</span>
+                <div>
+                  <h3>Give each worker a role.</h3>
+                  <p>Define its responsibilities and save instructions it can reuse.</p>
+                </div>
+              </li>
+              <li>
+                <span>02</span>
+                <div>
+                  <h3>Connect apps and skills.</h3>
+                  <p>Add plugins and choose which accounts each worker can access.</p>
+                </div>
+              </li>
+              <li>
+                <span>03</span>
+                <div>
+                  <h3>Bring the team into a group.</h3>
+                  <p>
+                    Workers can pass tasks to each other and build on the files their teammates
+                    create.
+                  </p>
+                </div>
+              </li>
+            </ol>
+            <TeamWorkflowDemo />
+          </div>
+          <SectionBot bot="research" side="right" />
         </section>
         <section id="plugins" className="ot-section ot-container ot-plugins ot-bot-section">
           <div className="ot-section-heading">
@@ -209,239 +331,129 @@ export default function Home() {
           </a>
           <SectionBot bot="operations" side="right" />
         </section>
-        <section id="how-it-works" className="ot-section ot-container ot-bot-section">
+        <section
+          id="capabilities"
+          className="ot-section ot-container ot-worker-section ot-bot-section"
+        >
           <div className="ot-section-heading">
             <div>
-              <p className="ot-eyebrow">EXAMPLE TASKS</p>
+              <p className="ot-eyebrow">THE WORKSPACE</p>
               <h2>
-                Delegate research,
+                A computer, memory,
                 <br />
-                <span>reporting, and code.</span>
+                <span>and a schedule.</span>
               </h2>
             </div>
-            <p>
-              Send a request in chat. Follow the agent&apos;s progress, then review its reports,
-              source links, or code changes in your workspace.
-            </p>
+            <p>Explore the tools your workers use and the controls you have over their work.</p>
           </div>
-          <div className="ot-jobs">
-            {[
-              {
-                number: "01",
-                shape: "helmet" as const,
-                color: "#ff7a1a",
-                name: "Research",
-                request:
-                  "Compare these vendors on price and features. Recommend one and cite your sources.",
-                result: "A comparison, recommendation, and source links.",
-                icon: FileText,
-                tags: "WEB + FILES",
-              },
-              {
-                number: "02",
-                shape: "pod" as const,
-                color: "#925df2",
-                name: "Operations",
-                request: "Check the dashboards every morning. Flag what changed.",
-                result: "A daily report showing what changed.",
-                icon: Globe2,
-                tags: "BROWSER + ROUTINES",
-              },
-              {
-                number: "03",
-                shape: "chip" as const,
-                color: "#27baae",
-                name: "Engineering",
-                request: "Run the tests, fix the failure, and show me the diff.",
-                result: "A proposed fix, with the diff and test results.",
-                icon: GitBranch,
-                tags: "TERMINAL + CODE",
-              },
-            ].map((job) => (
-              <article key={job.number} className="ot-job">
-                <div className="ot-job-top">
-                  <BotAvatar shape={job.shape} color={job.color} size={32} mode="idle" />
-                  <span>{job.name}</span>
-                  <span className="ot-job-number">{job.number}</span>
-                </div>
-                <h3>“{job.request}”</h3>
-                <div className="ot-job-result">
-                  <job.icon size={17} />
-                  <span>{job.result}</span>
-                </div>
-                <span className="ot-eyebrow ot-job-tags">{job.tags}</span>
-              </article>
-            ))}
-          </div>
-          <SectionBot bot="engineering" />
+          <WorkerCapabilities />
+          <SectionBot bot="operations" />
         </section>
-        <section className="ot-capabilities ot-container ot-bot-section">
-          <div className="ot-section-heading">
+        <section
+          id="open-source"
+          className="ot-section ot-container ot-ownership-section ot-bot-section"
+        >
+          <div className="ot-ownership">
             <div>
-              <p className="ot-eyebrow">AGENT CAPABILITIES</p>
+              <p className="ot-eyebrow">OPEN SOURCE + SELF-HOSTED</p>
               <h2>
-                Computer access.
+                Run OpenTeam
                 <br />
-                <span>Memory. Scheduled tasks.</span>
+                <span>on your server.</span>
               </h2>
-            </div>
-          </div>
-          <div className="ot-computer-row">
-            <div className="ot-feature-copy">
-              <div className="ot-feature-icon">
-                <Monitor size={23} />
-              </div>
-              <h3>
-                Watch the screen.
-                <br />
-                Take control when needed.
-              </h3>
-              <p>
-                Agents use Chromium, a terminal, and a shared filesystem. Each agent has its own
-                screen and browser profile.
-              </p>
-              <p>
-                Watch the live screen. When an agent needs you to sign in, take control of the mouse
-                and keyboard, then resume the task.
-              </p>
-              <a className="ot-text-link" href="#product">
-                View the demo workspace <ArrowUpRight size={16} />
+              <a href={GITHUB} className="ot-text-link">
+                <GithubMark /> View source on GitHub <ArrowUpRight size={16} />
               </a>
             </div>
-            <ComputerDemo />
-          </div>
-          <div className="ot-persistence-grid">
-            <article className="ot-memory-card">
-              <div className="ot-card-copy">
-                <span className="ot-eyebrow ot-bot-label">
-                  PERSISTENT CONTEXT <SectionBot bot="research" inline />
-                </span>
-                <h3>
-                  Saved conversations.
-                  <br />
-                  Persistent memory.
-                </h3>
-                <p>
-                  Each agent keeps its conversation, saved notes, and browser profile between tasks
-                  and server restarts.
-                </p>
-              </div>
-              <MemoryDemo />
-            </article>
-            <article className="ot-routine-card">
-              <div className="ot-card-copy">
-                <span className="ot-eyebrow ot-bot-label">
-                  SCHEDULED TASKS <SectionBot bot="operations" inline />
-                </span>
-                <h3>
-                  Run tasks
-                  <br />
-                  on a schedule.
-                </h3>
-                <p>
-                  Ask an agent to check your dashboards every morning or prepare a weekly report.
-                  Set a schedule, then review each run in its conversation and run history.
-                </p>
-              </div>
-              <RoutineDemo />
-            </article>
-          </div>
-          <div className="ot-small-features ot-shared-features">
-            {[
-              {
-                icon: HardDrive,
-                title: "Share files across agents.",
-                text: "Save a brief with one agent and ask another to work from it. Both can read and update the same workspace files.",
-              },
-              {
-                icon: Code2,
-                title: "Coordinate multiple agents.",
-                text: "Put agents in a group chat. They can message each other and delegate subtasks.",
-              },
-            ].map((item) => (
-              <div key={item.title}>
-                <item.icon size={22} />
-                <h3>{item.title}</h3>
-                <p>{item.text}</p>
-              </div>
-            ))}
-          </div>
-          <SectionBot bot="research" side="right" />
-        </section>
-        <section className="ot-anywhere">
-          <div className="ot-container ot-anywhere-inner ot-bot-section">
-            <div className="ot-anywhere-copy">
-              <p className="ot-eyebrow">DESKTOP + IPHONE</p>
-              <h2>
-                Close the app.
-                <br />
-                Agents keep running.
-              </h2>
-              <p>
-                Jobs run on your server while it stays on. Use the desktop or iPhone app to check
-                progress, review files, and send the next task.
-              </p>
-              <div className="ot-platforms">
-                <span>
-                  <Monitor size={17} /> macOS, Windows, Linux
-                </span>
-                <span>
-                  <Smartphone size={17} /> iPhone · build from source
-                </span>
-              </div>
-              <GetStarted />
+            <div className="ot-ownership-facts">
+              {[
+                {
+                  icon: Server,
+                  title: "Deploy with Docker.",
+                  text: "Run OpenTeam with Docker Compose on a VPS, home server, or spare Mac.",
+                },
+                {
+                  icon: LockKeyhole,
+                  title: "Workspace stored on your server.",
+                  text: "Chats, memory, files, and browser profiles live on your server. Model requests go to the provider you choose.",
+                },
+                {
+                  icon: Terminal,
+                  title: "Choose your inference provider.",
+                  text: "Connect ChatGPT or Claude, use an OpenAI or Anthropic API key, or configure a compatible model endpoint.",
+                },
+                {
+                  icon: GitBranch,
+                  title: "Read and modify the code.",
+                  text: "Inspect the server, runtime, and apps. Build plugins, add skills, or modify the source.",
+                },
+              ].map((item) => (
+                <article key={item.title}>
+                  <item.icon size={21} />
+                  <div>
+                    <h3>{item.title}</h3>
+                    <p>{item.text}</p>
+                  </div>
+                </article>
+              ))}
             </div>
-            <MobileDemo />
-            <SectionBot bot="operations" />
           </div>
-        </section>
-        <section id="open-source" className="ot-section ot-container ot-ownership ot-bot-section">
-          <div>
-            <p className="ot-eyebrow">OPEN SOURCE + SELF-HOSTED</p>
-            <h2>
-              Run OpenTeam
-              <br />
-              <span>on your server.</span>
-            </h2>
-            <a href={GITHUB} className="ot-text-link">
-              <GithubMark /> View source on GitHub <ArrowUpRight size={16} />
-            </a>
-          </div>
-          <div className="ot-ownership-facts">
-            {[
-              {
-                icon: Server,
-                title: "Deploy with Docker.",
-                text: "Run OpenTeam with Docker Compose on a VPS, home server, or spare Mac.",
-              },
-              {
-                icon: LockKeyhole,
-                title: "Workspace stored on your server.",
-                text: "Chats, memory, files, and browser profiles live on your server. Model requests go to the provider you choose.",
-              },
-              {
-                icon: Terminal,
-                title: "Choose your inference provider.",
-                text: "Connect ChatGPT or Claude, use an OpenAI or Anthropic API key, or configure a compatible model endpoint.",
-              },
-              {
-                icon: GitBranch,
-                title: "Read and modify the code.",
-                text: "Inspect the server, runtime, and apps. Build plugins, add skills, or modify the source.",
-              },
-            ].map((item) => (
-              <article key={item.title}>
-                <item.icon size={21} />
-                <div>
-                  <h3>{item.title}</h3>
-                  <p>{item.text}</p>
-                </div>
-              </article>
-            ))}
+          <div
+            className="ot-providers ot-ownership-providers"
+            aria-label="Supported model providers"
+          >
+            <p>
+              <strong>Bring your own inference.</strong>
+            </p>
+            <div className="ot-provider-logo ot-provider-openai">
+              <Image src="/logos/openai.svg" alt="OpenAI" width={1604} height={718} unoptimized />
+            </div>
+            <div className="ot-provider-logo ot-provider-anthropic">
+              <Image
+                src="/logos/anthropic.svg"
+                alt="Anthropic"
+                width={570}
+                height={64}
+                unoptimized
+              />
+            </div>
+            <div className="ot-provider-logo ot-provider-google">
+              <Image src="/logos/google.svg" alt="Google" width={74} height={24} unoptimized />
+            </div>
+            <div className="ot-provider-endpoint">
+              <Terminal size={22} />
+              <span>
+                Compatible
+                <br />
+                endpoint
+              </span>
+            </div>
           </div>
           <SectionBot bot="engineering" side="right" />
         </section>
-        <section className="ot-start ot-container ot-bot-section">
+        <section id="faq" className="ot-section ot-container ot-faq ot-bot-section">
+          <div>
+            <p className="ot-eyebrow">FAQ</p>
+            <h2>
+              Setup, models,
+              <br />
+              <span>and costs.</span>
+            </h2>
+            <a className="ot-text-link" href={`${GITHUB}/issues`}>
+              Ask a question on GitHub <ArrowUpRight size={15} />
+            </a>
+          </div>
+          <Accordion>
+            {questions.map(([q, a]) => (
+              <AccordionItem key={q} value={q}>
+                <AccordionTrigger className="ot-faq-trigger">{q}</AccordionTrigger>
+                <AccordionContent className="ot-faq-answer">{a}</AccordionContent>
+              </AccordionItem>
+            ))}
+          </Accordion>
+          <SectionBot bot="operations" side="right" />
+        </section>
+        <section id="get-started" className="ot-start ot-container ot-bot-section">
           <div>
             <p className="ot-eyebrow">GET STARTED</p>
             <h2>
@@ -499,28 +511,6 @@ export default function Home() {
             </p>
           </div>
           <SectionBot bot="research" />
-        </section>
-        <section id="faq" className="ot-section ot-container ot-faq ot-bot-section">
-          <div>
-            <p className="ot-eyebrow">FAQ</p>
-            <h2>
-              Setup, models,
-              <br />
-              <span>and costs.</span>
-            </h2>
-            <a className="ot-text-link" href={`${GITHUB}/issues`}>
-              Ask a question on GitHub <ArrowUpRight size={15} />
-            </a>
-          </div>
-          <Accordion>
-            {questions.map(([q, a]) => (
-              <AccordionItem key={q} value={q}>
-                <AccordionTrigger className="ot-faq-trigger">{q}</AccordionTrigger>
-                <AccordionContent className="ot-faq-answer">{a}</AccordionContent>
-              </AccordionItem>
-            ))}
-          </Accordion>
-          <SectionBot bot="operations" side="right" />
         </section>
       </main>
       <SiteFooter home />

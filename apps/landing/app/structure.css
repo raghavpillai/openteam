@@ -1,0 +1,379 @@
+/* A single reading path: product, examples, teamwork, tools, ownership, install. */
+.ot-home .ot-section {
+  padding-block: 80px;
+}
+.ot-home .ot-product-anchor {
+  outline-offset: 8px;
+}
+.ot-proof-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 36px;
+  border-block: 1px solid #e4e4e4;
+}
+.ot-proof-strip > a {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 24px 28px;
+  transition: background 160ms ease;
+}
+.ot-proof-strip > a:first-child {
+  padding-left: 0;
+}
+.ot-proof-strip > a + a {
+  border-left: 1px solid #e4e4e4;
+}
+.ot-proof-strip > a:hover {
+  background: #f7f7f7;
+}
+.ot-proof-strip > a > svg {
+  flex-shrink: 0;
+  color: #555;
+}
+.ot-proof-strip > a > svg:last-child {
+  margin-left: auto;
+  color: #999;
+}
+.ot-proof-strip strong {
+  display: block;
+  font-size: 14px;
+  font-weight: 500;
+}
+.ot-proof-strip small {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: #737373;
+}
+.ot-home .ot-use-cases {
+  padding-top: 72px;
+  padding-bottom: 56px;
+}
+.ot-home .ot-use-cases .ot-section-heading {
+  margin-bottom: 28px;
+}
+.ot-home .ot-job {
+  display: flex;
+  flex-direction: column;
+}
+.ot-home .ot-job h3 {
+  font-size: 24px;
+  min-height: 0;
+  margin-block: 22px;
+}
+.ot-job-demo-link {
+  margin-top: 24px;
+  width: fit-content;
+}
+.ot-home .ot-team-section {
+  padding-top: 52px;
+  border-bottom: 1px solid #e4e4e4;
+}
+.ot-team-explainer {
+  display: grid;
+  grid-template-columns: minmax(230px, 0.7fr) minmax(0, 1.6fr);
+  gap: 48px;
+  align-items: center;
+}
+.ot-team-steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.ot-team-steps li {
+  display: flex;
+  align-items: baseline;
+  gap: 18px;
+  padding: 26px 0;
+}
+.ot-team-steps li + li {
+  border-top: 1px solid #e4e4e4;
+}
+.ot-team-steps li > span {
+  font:
+    11px / 1.4 "Plex Mono",
+    monospace;
+  color: #999;
+}
+.ot-team-steps h3 {
+  font-size: 20px;
+  line-height: 1.3;
+  font-weight: 500;
+  letter-spacing: -0.4px;
+}
+.ot-team-steps p {
+  font-size: 15px;
+  line-height: 1.7;
+  color: #666;
+  margin-top: 10px;
+}
+.ot-home .ot-plugins {
+  border-bottom: 1px solid #e4e4e4;
+}
+.ot-home .ot-worker-section {
+  border-bottom: 1px solid #e4e4e4;
+}
+.ot-worker-tab-list {
+  display: flex;
+  gap: 30px;
+  border-bottom: 1px solid #ddd;
+}
+.ot-worker-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  position: relative;
+  padding: 17px 0;
+  border: 0;
+  background: none;
+  color: #777;
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.ot-worker-tab[data-active] {
+  color: #111;
+}
+.ot-worker-tab[data-active]::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 -1px;
+  height: 2px;
+  background: #111;
+}
+.ot-worker-tab:hover {
+  color: #111;
+}
+.ot-worker-tab:focus-visible {
+  outline: 2px solid #111;
+  outline-offset: 4px;
+  border-radius: 2px;
+}
+.ot-worker-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 0.72fr) minmax(0, 1.28fr);
+  gap: 64px;
+  align-items: center;
+  min-height: 510px;
+  padding-top: 40px;
+}
+.ot-worker-panel-copy h3 {
+  font-size: 30px;
+  line-height: 1.16;
+  font-weight: 400;
+  letter-spacing: -0.9px;
+}
+.ot-worker-panel-copy p {
+  font-size: 16px;
+  line-height: 1.75;
+  margin-top: 18px;
+  color: #666;
+}
+.ot-worker-panel-copy .ot-text-link {
+  margin-top: 24px;
+}
+.ot-worker-panel-demo {
+  min-width: 0;
+}
+.ot-worker-panel .dm-file {
+  min-height: 300px;
+}
+.ot-worker-panel .dr-demo {
+  max-width: 480px;
+  margin-inline: auto;
+}
+.ot-worker-panel .ot-mobile-scene {
+  min-height: 0;
+  width: 100%;
+}
+.ot-worker-panel-apps {
+  padding-block: 30px 0;
+}
+.ot-home .ot-ownership-section .ot-ownership {
+  gap: 75px;
+}
+.ot-home .ot-ownership-section .ot-ownership::before {
+  content: none;
+}
+.ot-home .ot-ownership-providers {
+  width: 100%;
+  margin-top: 48px;
+  padding-block: 28px;
+  border-block: 1px solid #e4e4e4;
+}
+.ot-home .ot-ownership-providers > p {
+  max-width: 150px;
+}
+.ot-home .ot-ownership-providers .ot-provider-logo {
+  max-width: 160px;
+}
+.ot-home .ot-faq {
+  padding-top: 20px;
+  padding-bottom: 70px;
+}
+.ot-home .ot-start {
+  margin-bottom: 84px;
+  scroll-margin-top: 30px;
+}
+@media (min-width: 851px) and (max-width: 1150px) {
+  .ot-proof-strip > a {
+    padding-inline: 18px;
+    gap: 10px;
+  }
+  .ot-team-explainer {
+    grid-template-columns: minmax(220px, 0.7fr) minmax(0, 1.45fr);
+    gap: 30px;
+  }
+  .ot-worker-panel {
+    gap: 36px;
+  }
+}
+@media (max-width: 850px) {
+  .ot-proof-strip {
+    grid-template-columns: 1fr;
+    margin-top: 28px;
+  }
+  .ot-proof-strip > a,
+  .ot-proof-strip > a:first-child {
+    padding: 17px 8px;
+  }
+  .ot-proof-strip > a + a {
+    border-left: 0;
+    border-top: 1px solid #e4e4e4;
+  }
+  .ot-proof-strip small {
+    display: inline;
+  }
+  .ot-proof-strip strong {
+    display: inline;
+    margin-right: 12px;
+  }
+  .ot-team-explainer {
+    grid-template-columns: 1fr;
+    gap: 28px;
+  }
+  .ot-team-steps {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 22px;
+  }
+  .ot-team-steps li {
+    display: block;
+    padding: 0;
+  }
+  .ot-team-steps li + li {
+    border-top: 0;
+  }
+  .ot-team-steps h3 {
+    margin-top: 12px;
+    font-size: 18px;
+  }
+  .ot-team-steps p {
+    font-size: 14px;
+  }
+  .ot-worker-panel {
+    grid-template-columns: 1fr;
+    gap: 30px;
+    min-height: 0;
+  }
+  .ot-worker-panel-copy {
+    max-width: 560px;
+  }
+  .ot-worker-panel-copy h3 {
+    font-size: 27px;
+  }
+  .ot-worker-panel-demo {
+    max-width: 680px;
+    width: 100%;
+    margin-inline: auto;
+  }
+  .ot-home .ot-ownership-section .ot-ownership {
+    gap: 35px;
+  }
+}
+@media (max-width: 700px) {
+  .ot-home .ot-section {
+    padding-block: 54px;
+  }
+  .ot-home .ot-use-cases {
+    padding-top: 50px;
+    padding-bottom: 32px;
+  }
+  .ot-proof-strip strong {
+    display: block;
+    margin-right: 0;
+  }
+  .ot-proof-strip small {
+    display: block;
+  }
+  .ot-home .ot-job h3 {
+    min-height: 0;
+    font-size: 23px;
+  }
+  .ot-team-steps {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+  .ot-team-steps li {
+    display: flex;
+    padding-block: 18px;
+  }
+  .ot-team-steps li + li {
+    border-top: 1px solid #e4e4e4;
+  }
+  .ot-team-steps h3 {
+    margin-top: 0;
+  }
+  .ot-team-steps p {
+    margin-top: 6px;
+  }
+  .ot-team-explainer {
+    gap: 16px;
+  }
+  .ot-team-explainer > .twd-showcase {
+    order: -1;
+  }
+  .ot-worker-tab-list {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0 20px;
+  }
+  .ot-worker-tab {
+    justify-content: flex-start;
+    font-size: 13px;
+    padding: 13px 0;
+  }
+  .ot-worker-panel {
+    padding-top: 28px;
+  }
+  .ot-worker-panel-copy p {
+    font-size: 15px;
+  }
+  .ot-worker-panel .dm-file {
+    min-height: 0;
+  }
+  .ot-home .ot-ownership-section .ot-ownership {
+    grid-template-columns: 1fr;
+    gap: 30px;
+  }
+  .ot-home .ot-ownership-providers {
+    margin-top: 30px;
+  }
+  .ot-home .ot-ownership-providers > p {
+    max-width: none;
+  }
+  .ot-home .ot-faq {
+    padding-top: 16px;
+  }
+  .ot-home .ot-start {
+    margin-bottom: 54px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ot-proof-strip > a {
+    transition: none;
+  }
+}

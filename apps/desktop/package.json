@@ -65,6 +65,9 @@
       "icon": "../mobile/assets/openteam-icon-v2.png",
       "identity": "-",
       "hardenedRuntime": false,
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "OpenTeam uses the microphone when you record a voice note or test your input. Only voice notes are sent to your server for transcription."
+      },
       "category": "public.app-category.productivity",
       "target": [
         "dmg",

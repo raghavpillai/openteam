@@ -9,7 +9,8 @@ export class RuntimeHealth {
     private readonly computerUrl: string,
     private readonly isQueueReady: () => boolean,
     private readonly runtimeProbeTimeoutMs: number,
-    private readonly inferenceSettings?: () => Promise<ServerInferenceSettings>
+    private readonly inferenceSettings?: () => Promise<ServerInferenceSettings>,
+    private readonly transcriptionStatus?: () => Promise<"configured" | "missing" | "invalid">
   ) {}
   private runtimeCache: { expiresAt: number; value: Snapshot["runtime"] } | null = null;
 
@@ -45,6 +46,8 @@ export class RuntimeHealth {
       queue: this.isQueueReady() ? "ready" : "unavailable",
       computer,
       inference,
+      transcription:
+        (await this.transcriptionStatus?.().catch(() => "invalid" as const)) ?? "missing",
     };
   }
 

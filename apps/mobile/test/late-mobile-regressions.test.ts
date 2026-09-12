@@ -154,13 +154,13 @@ describe("late native iOS regression guards", () => {
       source("app/settings.tsx"),
     ]);
 
-    expect(composer).toContain('label="Start voice input"');
+    expect(composer).toContain('"Start voice input"');
     expect(composer).toContain('label="Stop recording"');
     expect(composer).toContain('label="Transcribe and send"');
     expect(composer).toContain("Retry upload");
     expect(composer).toContain("Cancel upload");
-    expect(voice).toContain("MAX_RECORDING_MS = 300_000");
-    expect(voice).toContain("MIN_RECORDING_MS = 500");
+    expect(voice).toContain("MAX_VOICE_NOTE_MS");
+    expect(voice).toContain("MIN_VOICE_NOTE_MS");
     expect(upload).toContain("createUploadTask");
     expect(upload).toContain("signal: input.signal");
     expect(markdown).toContain('securityLevel: "strict"');

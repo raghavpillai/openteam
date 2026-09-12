@@ -6,13 +6,10 @@ import {
 
 export type SpeechState = "idle" | "requesting" | "recording" | "processing" | "error";
 
-interface SpeechStateEvent {
-  state: SpeechState;
-}
-
-interface SpeechResultEvent {
-  transcript: string;
-  final: boolean;
+export interface VoiceRecording {
+  uri: string;
+  mimeType: string;
+  durationMs: number;
 }
 
 interface SpeechLevelEvent {
@@ -25,16 +22,14 @@ interface SpeechErrorEvent {
 }
 
 type OpenTeamNativeEvents = {
-  onSpeechState: (event: SpeechStateEvent) => void;
-  onSpeechResult: (event: SpeechResultEvent) => void;
   onSpeechLevel: (event: SpeechLevelEvent) => void;
   onSpeechError: (event: SpeechErrorEvent) => void;
 };
 
 declare class OpenTeamNativeModuleType extends NativeModule<OpenTeamNativeEvents> {
-  startSpeech(locale?: string): void;
-  stopSpeech(): void;
-  cancelSpeech(): void;
+  startVoiceRecording(): Promise<void>;
+  stopVoiceRecording(): Promise<VoiceRecording>;
+  cancelVoiceRecording(): void;
   isCameraAvailable(): boolean;
   openPreview(uri: string): Promise<boolean>;
 }
@@ -44,20 +39,19 @@ const nativeModule =
 
 export const openTeamNativeAvailable = nativeModule !== null;
 
-export const startSpeech = (locale?: string) => nativeModule?.startSpeech(locale);
-export const stopSpeech = () => nativeModule?.stopSpeech();
-export const cancelSpeech = () => nativeModule?.cancelSpeech();
+export const voiceRecordingAvailable = typeof nativeModule?.startVoiceRecording === "function";
+export const startVoiceRecording = async () => {
+  if (!voiceRecordingAvailable) throw new Error("Update the OpenTeam app to record voice notes.");
+  await nativeModule!.startVoiceRecording();
+};
+export const stopVoiceRecording = async (): Promise<VoiceRecording> => {
+  if (!voiceRecordingAvailable) throw new Error("Recording is unavailable.");
+  return nativeModule!.stopVoiceRecording();
+};
+export const cancelVoiceRecording = () => nativeModule?.cancelVoiceRecording?.();
 export const isCameraAvailable = (): boolean | null => nativeModule?.isCameraAvailable() ?? null;
 export const openPreview = async (uri: string): Promise<boolean> =>
   (await nativeModule?.openPreview(uri)) ?? false;
-
-export const addSpeechStateListener = (
-  listener: OpenTeamNativeEvents["onSpeechState"]
-): EventSubscription | null => nativeModule?.addListener("onSpeechState", listener) ?? null;
-
-export const addSpeechResultListener = (
-  listener: OpenTeamNativeEvents["onSpeechResult"]
-): EventSubscription | null => nativeModule?.addListener("onSpeechResult", listener) ?? null;
 
 export const addSpeechLevelListener = (
   listener: OpenTeamNativeEvents["onSpeechLevel"]

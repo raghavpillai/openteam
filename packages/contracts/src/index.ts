@@ -9,6 +9,7 @@ export * from "./bot-avatar";
 export * from "./capabilities";
 export * from "./client-preferences";
 export * from "./inference";
+export * from "./transcription";
 export * from "./notification-content";
 export * from "./plugin-settings";
 export * from "./routine-types";
@@ -1716,6 +1717,8 @@ export interface Snapshot {
     queue: "ready" | "unavailable";
     computer: "ready" | "unavailable";
     inference: "ready" | "missing" | "invalid" | "unavailable";
+    /** Absent on older servers; clients must keep voice notes disabled in that case. */
+    transcription?: "configured" | "missing" | "invalid";
   };
 }
 

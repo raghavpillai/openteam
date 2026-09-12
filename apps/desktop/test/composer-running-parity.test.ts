@@ -10,7 +10,10 @@ describe("OpenTeam-compatible composer while a Bot is working", () => {
       source("../src/renderer/components/openteam/mention-editor.tsx"),
     ]);
 
-    expect(promptInput).toContain("const blocked = Boolean(disabled || submitting || staging)");
+    expect(promptInput).toContain(
+      "const blocked = Boolean(disabled || submitting || staging || voice.active)"
+    );
+    // Dictation keeps the draft editable; its shortcut handler owns Enter/Escape.
     expect(promptInput).toContain("disabled={Boolean(disabled)}");
     expect(mentionEditor).toContain("const keepCaret = document.activeElement === editor");
     expect(mentionEditor).toContain("editor.focus({ preventScroll: true })");

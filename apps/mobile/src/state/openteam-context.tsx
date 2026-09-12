@@ -105,6 +105,7 @@ import {
 import { createMobileDurableSendStorage } from "../durable-send-storage";
 import { mobileFixture } from "../fixtures";
 import { uploadNativeAsset } from "../native-asset-upload";
+import { uploadNativeVoiceNote } from "../native-transcription-upload";
 import {
   listenForPushTokenChanges,
   type NotificationPermissionState,
@@ -225,6 +226,7 @@ interface OpenTeamState {
   cancelQueuedMessage: (nonce: string) => Promise<DurableSendPayload | null>;
   deliveryRecoveries: readonly DurableSendRecord[];
   acknowledgeDeliveryRecovery: (nonce: string) => Promise<void>;
+  transcribeAudio: (uri: string, signal: AbortSignal) => Promise<{ text: string }>;
   uploadAsset: (input: {
     uri: string;
     fileName: string;
@@ -2138,6 +2140,26 @@ export function OpenTeamProvider({ children }: { children: React.ReactNode }) {
     [client, operationIsCurrent]
   );
 
+  const transcribeAudio = useCallback(
+    async (uri: string, signal: AbortSignal) => {
+      if (!client) throw new Error("Connect OpenTeam before transcribing voice notes.");
+      const operationClient = client;
+      const epoch = connectionEpochRef.current;
+      const uploadToken = getAuthTokenForServer(operationClient.baseUrl);
+      const result = await uploadNativeVoiceNote({
+        serverUrl: operationClient.baseUrl,
+        file: new File(uri),
+        authToken: uploadToken,
+        signal,
+        onUnauthorized: () => requireAuthenticationForServer(operationClient.baseUrl, uploadToken),
+      });
+      if (!operationIsCurrent(operationClient, epoch))
+        throw new Error("The OpenTeam connection changed while transcribing.");
+      return result;
+    },
+    [client, operationIsCurrent]
+  );
+
   const assetUrl = useCallback(
     (asset: Pick<AssetRef, "assetId" | "fileName">, download = false) =>
       client?.assetUrl(asset, download) ?? null,
@@ -2308,6 +2330,7 @@ export function OpenTeamProvider({ children }: { children: React.ReactNode }) {
       deliveryRecoveries,
       acknowledgeDeliveryRecovery,
       uploadAsset,
+      transcribeAudio,
       assetUrl,
       reactToMessage,
       respondToWidget,
@@ -2394,6 +2417,7 @@ export function OpenTeamProvider({ children }: { children: React.ReactNode }) {
       deliveryRecoveries,
       acknowledgeDeliveryRecovery,
       uploadAsset,
+      transcribeAudio,
       setScreenTakeover,
       visibleSnapshot,
       rows,

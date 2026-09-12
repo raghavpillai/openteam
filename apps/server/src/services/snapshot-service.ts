@@ -84,14 +84,16 @@ export class SnapshotService {
     private readonly computerUrl: string,
     private readonly isQueueReady: () => boolean,
     private readonly runtimeProbeTimeoutMs = 2_500,
-    private readonly inferenceSettings?: () => Promise<ServerInferenceSettings>
+    private readonly inferenceSettings?: () => Promise<ServerInferenceSettings>,
+    transcriptionStatus?: () => Promise<"configured" | "missing" | "invalid">
   ) {
     this.runtimeHealth = new RuntimeHealth(
       prisma,
       computerUrl,
       isQueueReady,
       runtimeProbeTimeoutMs,
-      inferenceSettings
+      inferenceSettings,
+      transcriptionStatus
     );
   }
 

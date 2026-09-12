@@ -158,10 +158,6 @@ for (const [key, configured] of [
   ["NSPhotoLibraryUsageDescription", imagePicker?.photosPermission],
   ["NSLocalNetworkUsageDescription", config.expo.ios?.infoPlist?.NSLocalNetworkUsageDescription],
   ["NSMicrophoneUsageDescription", config.expo.ios?.infoPlist?.NSMicrophoneUsageDescription],
-  [
-    "NSSpeechRecognitionUsageDescription",
-    config.expo.ios?.infoPlist?.NSSpeechRecognitionUsageDescription,
-  ],
 ] as const) {
   invariant(typeof configured === "string" && configured.length > 0, `${key} is not configured`);
   invariant(
@@ -175,6 +171,11 @@ for (const [key, configured] of [
 invariant(
   imagePicker?.microphonePermission === config.expo.ios?.infoPlist?.NSMicrophoneUsageDescription,
   "microphone usage descriptions conflict"
+);
+invariant(
+  generatedInfo.NSSpeechRecognitionUsageDescription === undefined &&
+    plistString(infoPlist, "NSSpeechRecognitionUsageDescription") === null,
+  "server transcription must not request Apple speech recognition"
 );
 invariant(mobilePackage.version === config.expo.version, "package and Expo versions differ");
 invariant(

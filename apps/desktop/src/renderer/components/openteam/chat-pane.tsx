@@ -2648,6 +2648,7 @@ export const ChatPane = memo(function ChatPane({
             </div>
           ) : (
             <PromptInput
+              transcriptionConfigured={runtime.transcription === "configured"}
               uploadCapabilities={capabilities.uploads}
               disabled={!canSend}
               docked

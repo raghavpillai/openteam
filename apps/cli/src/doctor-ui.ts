@@ -44,12 +44,17 @@ export const doctorNextSteps = (result: DoctorResult): string[] => {
     steps.push(
       "Run openteam provider list to check sign-in, then openteam model list to check available models."
     );
+  if (failed("Transcription"))
+    steps.push(
+      "Open Settings → Server → Transcription, check the provider URL, model and key, then use Test connection."
+    );
   if (!steps.length && !result.ok)
     steps.push("Resolve the failed checks above, then run openteam doctor again.");
   return steps.map((step) => scopedCommands(step, result));
 };
 
 const group = ({ label }: DoctorCheck): string => {
+  if (label === "Transcription") return "VOICE NOTES";
   if (["Inference", "AI connection"].includes(label)) return "AI CONNECTION";
   if (label.includes("storage")) return "STORAGE";
   if (
@@ -110,7 +115,7 @@ export const renderDoctor = (
     lines.push(`  ${paint(line, 90)}`);
   if (result.elapsedMs !== undefined)
     lines.push(`  ${paint(`Completed in ${(result.elapsedMs / 1000).toFixed(1)}s`, 90)}`);
-  for (const name of ["SERVICES", "AI CONNECTION", "STORAGE", "HOST & SETUP"]) {
+  for (const name of ["SERVICES", "AI CONNECTION", "VOICE NOTES", "STORAGE", "HOST & SETUP"]) {
     const checks = result.checks.filter((c) => group(c) === name);
     if (!checks.length) continue;
     lines.push(

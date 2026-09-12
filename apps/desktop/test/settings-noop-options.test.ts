@@ -18,7 +18,6 @@ describe("desktop settings controls", () => {
   test("does not render controls without implementations", () => {
     for (const label of [
       "Language",
-      "Microphone",
       "Use hardware acceleration",
       "Timezone",
       "Use hardware security keys",

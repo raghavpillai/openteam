@@ -1,4 +1,4 @@
-import type { ClipboardEvent, KeyboardEvent, MutableRefObject } from "react";
+import type { ClipboardEvent, CSSProperties, KeyboardEvent, MutableRefObject } from "react";
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useVirtualWindow } from "../../hooks/use-virtual-window";
 import { cn } from "../../lib/cn";
@@ -67,6 +67,7 @@ const currentMentionQuery = (editor: HTMLDivElement) => {
 
 export function MentionEditor({
   className,
+  style,
   disabled,
   editorRef,
   options,
@@ -78,6 +79,7 @@ export function MentionEditor({
   onSubmit,
 }: {
   className?: string;
+  style?: CSSProperties;
   disabled?: boolean;
   editorRef: MutableRefObject<HTMLDivElement | null>;
   options: readonly MentionOption[];
@@ -222,7 +224,9 @@ export function MentionEditor({
     [editorRef, emit, query]
   );
 
-  useEffect(() => {
+  // Clear on commit: a delayed passive effect from an empty draft can otherwise
+  // erase a fast dictation result appended before the next React render.
+  useLayoutEffect(() => {
     const editor = editorRef.current;
     if (!editor || value || !editor.textContent) return;
     const keepCaret = document.activeElement === editor;
@@ -296,6 +300,7 @@ export function MentionEditor({
           className
         )}
         contentEditable={!disabled}
+        style={style}
         data-placeholder={placeholder}
         aria-activedescendant={
           query !== null && filtered.length > 0 ? `${listboxId}-option-${activeIndex}` : undefined

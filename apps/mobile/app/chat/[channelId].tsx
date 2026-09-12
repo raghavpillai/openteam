@@ -125,6 +125,7 @@ export default function ConversationScreen() {
     deliveryRecoveries,
     acknowledgeDeliveryRecovery,
     uploadAsset,
+    transcribeAudio,
     assetUrl,
     reactToMessage,
     respondToWidget,
@@ -836,6 +837,8 @@ export default function ConversationScreen() {
             style={styles.composerOverlay}
           >
             <Composer
+              transcriptionConfigured={snapshot?.runtime.transcription === "configured"}
+              onTranscribe={transcribeAudio}
               draftKey={draftKey}
               botName={name}
               mentionOptions={mentionOptions}

@@ -65,10 +65,6 @@ describe("checked-in iOS native configuration", () => {
         config.expo.ios?.infoPlist?.NSLocalNetworkUsageDescription,
       ],
       ["NSMicrophoneUsageDescription", config.expo.ios?.infoPlist?.NSMicrophoneUsageDescription],
-      [
-        "NSSpeechRecognitionUsageDescription",
-        config.expo.ios?.infoPlist?.NSSpeechRecognitionUsageDescription,
-      ],
     ] as const) {
       expect(typeof configured).toBe("string");
       expect(config.expo.ios?.infoPlist?.[key] ?? configured).toBe(configured);
@@ -109,15 +105,16 @@ describe("checked-in iOS native configuration", () => {
     expect(mobilePackage.dependencies?.["expo-updates"]).toBeUndefined();
   });
 
-  test("guards unavailable audio input before installing the native recording tap", async () => {
+  test("records temporary audio without requesting Apple speech recognition", async () => {
     const module = await readMobileFile("modules/openteam-native/ios/OpenTeamNativeModule.swift");
-
-    expect(module).toContain("format.sampleRate.isFinite");
-    expect(module).toContain("format.sampleRate > 0");
-    expect(module).toContain("format.channelCount > 0");
-    expect(module.indexOf("format.channelCount > 0")).toBeLessThan(
-      module.indexOf("inputNode.installTap")
+    expect(module).toContain("AVAudioRecorder");
+    expect(module).toContain("guard recorder.record()");
+    expect(module).toContain("requestRecordPermission");
+    expect(module).not.toContain("SFSpeechRecognizer");
+    expect(await readMobileFile("ios/OpenTeam/Info.plist")).not.toContain(
+      "NSSpeechRecognitionUsageDescription"
     );
+    expect(await readMobileFile("app.json")).not.toContain("NSSpeechRecognitionUsageDescription");
   });
 
   test("reports native camera availability before image-picker presentation", async () => {

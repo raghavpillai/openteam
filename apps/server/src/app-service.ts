@@ -9,7 +9,9 @@ import {
   RoutineService,
 } from "@openteam/messaging";
 import { Effect } from "effect";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
+import { TranscriptionService } from "./transcription/service";
+import { TranscriptionStore } from "./transcription/store";
 import { PgBoss } from "pg-boss";
 import { EventWakeup } from "./event-wakeup";
 import { AdministrationService } from "./services/administration-service";
@@ -38,6 +40,7 @@ const COMPUTER_ID = "00000000-0000-0000-0000-000000000001";
 const ASSET_ID = /^[a-f0-9]{64}$/;
 
 export class AppService {
+  readonly transcription: TranscriptionService;
   private readonly settings: SettingsService;
 
   readonly prisma: PrismaClient;
@@ -85,6 +88,9 @@ export class AppService {
     this.agentData = new AgentDataStore(this.prisma, {
       workspaceRoot: this.workspaceRoot,
     });
+    this.transcription = new TranscriptionService(
+      new TranscriptionStore(join(this.agentData.root, "transcription.json"))
+    );
     this.screens = new ScreenService(
       this.prisma,
       this.agentData.root,
@@ -115,7 +121,8 @@ export class AppService {
       this.computerUrl,
       () => this.queueReady,
       2_500,
-      () => this.agentData.loadInferenceSettings()
+      () => this.agentData.loadInferenceSettings(),
+      () => this.transcription.store.status()
     );
     this.channels = new ChannelService(
       this.prisma,

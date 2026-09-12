@@ -49,6 +49,12 @@ import type {
   UploadAssetInput,
 } from "@openteam/contracts";
 import { PLUGIN_CONNECTION_STATUS_MAX_IDS } from "@openteam/contracts/plugin-settings";
+import type {
+  TranscriptionSettingsInput,
+  TranscriptionSettingsView,
+  TranscriptionCheck,
+  TranscriptionResult,
+} from "@openteam/contracts/transcription";
 import {
   consumeProductEventStream,
   type ProductEventHandlers,
@@ -128,6 +134,24 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
         .request<ClientSnapshot>("/api/v0/client-snapshot")
         .then((snapshot) => normalizeClientSnapshot(snapshot)),
     rootSettings: () => transport.request<RootSettingsView>("/api/v0/settings"),
+    transcriptionSettings: () =>
+      transport.request<TranscriptionSettingsView>("/api/v0/server-settings/transcription"),
+    updateTranscriptionSettings: (input: TranscriptionSettingsInput) =>
+      transport.request<TranscriptionSettingsView>("/api/v0/server-settings/transcription", {
+        method: "PUT",
+        body: JSON.stringify(input),
+      }),
+    checkTranscription: () =>
+      transport.request<TranscriptionCheck>("/api/v0/server-settings/transcription/check", {
+        method: "POST",
+      }),
+    transcribeAudio: (audio: Blob, signal?: AbortSignal) =>
+      transport.request<TranscriptionResult>("/api/v0/transcriptions", {
+        method: "POST",
+        headers: { "content-type": audio.type || "audio/wav" },
+        body: audio,
+        signal,
+      }),
     serverSettings: (providerId?: string) => {
       const query = providerId
         ? `?${new URLSearchParams({ provider: providerId }).toString()}`

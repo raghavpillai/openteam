@@ -10,6 +10,7 @@
     "./client-preferences": "./src/client-preferences.ts",
     "./event-protocol": "./src/event-protocol.ts",
     "./inference": "./src/inference.ts",
+    "./transcription": "./src/transcription.ts",
     "./notification-content": "./src/notification-content.ts",
     "./plugin-settings": "./src/plugin-settings.ts",
     "./routine-types": "./src/routine-types.ts",

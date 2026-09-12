@@ -2,6 +2,33 @@ import { describe, expect, test } from "bun:test";
 import { authResponseError, createOpenTeamAuthClient } from "../src/auth";
 
 const baseUrl = "https://auth-qa.test";
+describe("session revocation", () => {
+  test("sign-out uses its explicit token without native cookie credentials", async () => {
+    const client = createOpenTeamAuthClient({
+      baseUrl,
+      fetch: async (url, init) => {
+        expect(url).toBe(`${baseUrl}/api/auth/sign-out`);
+        expect(new Headers(init?.headers).get("authorization")).toBe("Bearer test-token");
+        // Model the native cookie jar: including login cookies without an Origin
+        // produces a CSRF rejection before Better Auth can revoke the session.
+        return init?.credentials === "omit"
+          ? Response.json({ success: true })
+          : Response.json({ code: "MISSING_OR_NULL_ORIGIN" }, { status: 403 });
+      },
+    });
+    await expect(client.signOut("test-token")).resolves.toBeUndefined();
+  });
+  test("a rejected sign-out cannot silently claim session revocation", async () => {
+    const client = createOpenTeamAuthClient({
+      baseUrl,
+      fetch: async () => new Response(null, { status: 503 }),
+    });
+    await expect(client.signOut("test-token")).rejects.toMatchObject({
+      code: "sign_out_failed",
+      status: 503,
+    });
+  });
+});
 describe("bounded authentication requests", () => {
   for (const operation of [
     "validateServer",

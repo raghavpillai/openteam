@@ -18,6 +18,7 @@ import { pluginMutationRoutes } from "./routes/plugin-mutation";
 import { pluginQueryRoutes } from "./routes/plugin-query";
 import { routineRoutes } from "./routes/routine";
 import { settingsRoutes } from "./routes/settings";
+import { transcriptionRoutes } from "./routes/transcription";
 import { parseAutoReviewInput } from "./services/auto-review-service";
 import { systemVersion } from "./system-version";
 
@@ -56,7 +57,7 @@ const authorizedInternal = (request: Request): boolean => {
 };
 
 const server = Bun.serve({
-  hostname: "0.0.0.0",
+  hostname: process.env.OPENTEAM_SERVER_HOST ?? "0.0.0.0",
   port,
   idleTimeout: 255,
   maxRequestBodySize: 280 * 1024 * 1024,
@@ -150,6 +151,23 @@ const server = Bun.serve({
         }
         return json(await run(app.serverSettings(url.searchParams.get("provider") ?? undefined)));
       }
+      if (
+        path === "/api/internal/server-settings/transcription" ||
+        path === "/api/internal/server-settings/transcription/check"
+      ) {
+        if (!authorizedInternal(request))
+          return json({ error: { code: "unauthorized", message: "Unauthorized" } }, 401);
+        const response = await transcriptionRoutes({
+          app,
+          request,
+          url,
+          path: path.replace("/internal/", "/"),
+          authMode,
+          authenticatedSessionId: null,
+        });
+        if (response) return response;
+        return json({ error: { code: "method_not_allowed", message: "Method not allowed" } }, 405);
+      }
       if (request.method === "GET" && (url.pathname === "/health" || path === "/api/health")) {
         const runtime = await run(app.health());
         return json(
@@ -178,6 +196,7 @@ const server = Bun.serve({
         clientRoutes,
         pluginQueryRoutes,
         settingsRoutes,
+        transcriptionRoutes,
         pluginMutationRoutes,
         botRoutes,
         routineRoutes,

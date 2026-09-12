@@ -123,8 +123,12 @@ export function Composer({
   onUpload,
   assetUrl,
   uploadCapabilities = CLIENT_CAPABILITIES.uploads,
+  transcriptionConfigured = false,
+  onTranscribe,
 }: {
   draftKey: string;
+  transcriptionConfigured?: boolean;
+  onTranscribe?: (uri: string, signal: AbortSignal) => Promise<{ text: string }>;
   botName: string;
   placeholder?: string;
   mentionOptions?: readonly MentionOption[];
@@ -197,15 +201,20 @@ export function Composer({
   const hasPayload = hasText || attachments.length > 0;
   latestText.current = text;
   latestAttachments.current = attachments;
-  const voice = useVoiceInput((transcript) => {
-    const existing = latestText.current.trimEnd();
-    const nextText = existing ? `${existing} ${transcript}` : transcript;
-    updateText(nextText);
-    if (sendAfterVoice.current) {
-      sendAfterVoice.current = false;
-      void submitPayload(nextText.trim(), latestAttachments.current);
-    }
-  });
+  const voice = useVoiceInput(
+    (transcript) => {
+      const existing = latestText.current.trimEnd();
+      const nextText = existing ? `${existing} ${transcript}` : transcript;
+      updateText(nextText);
+      if (sendAfterVoice.current) {
+        sendAfterVoice.current = false;
+        void submitPayload(nextText.trim(), latestAttachments.current);
+      }
+    },
+    transcriptionConfigured,
+    onTranscribe
+  );
+  useEffect(() => () => voice.cancel(), [draftKey]);
   const voiceActive =
     voice.state === "requesting" || voice.state === "recording" || voice.state === "processing";
   useEffect(() => {
@@ -1007,6 +1016,16 @@ export function Composer({
             {attachmentError ?? voice.error}
           </Text>
         ) : null}
+        {voice.canRetry ? (
+          <View style={{ flexDirection: "row", gap: 16, paddingHorizontal: 12 }}>
+            <Pressable accessibilityRole="button" onPress={voice.retry}>
+              <Text style={{ color: theme.accent }}>Retry transcription</Text>
+            </Pressable>
+            <Pressable accessibilityRole="button" onPress={voice.cancel}>
+              <Text style={{ color: theme.textMuted }}>Discard recording</Text>
+            </Pressable>
+          </View>
+        ) : null}
 
         {visibleMentions.length > 0 ? (
           <View
@@ -1139,22 +1158,18 @@ export function Composer({
                 symbolSize={17}
                 tone="dark"
               />
-            ) : voice.available ? (
+            ) : (
               <IconButton
-                label="Start voice input"
+                label={
+                  voice.available
+                    ? "Start voice input"
+                    : "Set up transcription in Server settings to use voice notes"
+                }
                 name="mic.fill"
+                disabled={!voice.available || sending}
                 onPress={voice.start}
                 size={34}
                 symbolSize={16}
-                tone={theme.dark ? "dark" : "subtle"}
-              />
-            ) : (
-              <IconButton
-                label="Open keyboard"
-                name="keyboard"
-                onPress={() => textInputRef.current?.focus()}
-                size={34}
-                symbolSize={17}
                 tone={theme.dark ? "dark" : "subtle"}
               />
             )}

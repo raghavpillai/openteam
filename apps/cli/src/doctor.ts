@@ -33,6 +33,7 @@ import {
 } from "./docker";
 import { checkHealth, withExpectedVersion, type HealthResult } from "./health";
 import { checkInferenceConnection } from "./inference-connection";
+import { checkTranscription } from "./transcription-check";
 import {
   boundedDoctorRunner,
   checkContainers,
@@ -425,6 +426,18 @@ export const runDoctor = async (
             ? "provider credentials are configured"
             : `status is ${health.inference}; connect a model provider before starting a task`,
       });
+    }
+    if (options.deepChecks || options.testInference) {
+      options.onProgress?.("Checking transcription from the server");
+      checks.push(
+        health.ok && !foreignServer
+          ? await checkTranscription(paths)
+          : {
+              label: "Transcription",
+              level: "warn",
+              detail: "Not tested; resolve the server health failures first.",
+            }
+      );
     }
     if (options.testInference) {
       if (

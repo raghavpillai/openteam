@@ -42,6 +42,7 @@ export function IconButton({
     <Pressable
       accessibilityLabel={label}
       accessibilityRole="button"
+      accessibilityState={{ disabled }}
       disabled={disabled}
       hitSlop={6}
       onPress={() => {

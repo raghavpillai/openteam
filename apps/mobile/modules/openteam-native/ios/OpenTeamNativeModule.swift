@@ -1,41 +1,102 @@
 import AVFoundation
 import ExpoModulesCore
 import QuickLook
-import Speech
 import UIKit
 
+// Expo's string-based rejection overload loses its reason in debug builds.
+// Supply a typed exception so production and development show the same message.
+private final class VoiceRecordingException: GenericException<(code: String, message: String)>, @unchecked Sendable {
+  override var code: String { param.code }
+  override var reason: String { param.message }
+  override var debugDescription: String { reason }
+}
+
 public final class OpenTeamNativeModule: Module, QLPreviewControllerDataSource {
-  private let audioEngine = AVAudioEngine()
-  private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
-  private var recognitionTask: SFSpeechRecognitionTask?
-  private var speechRecognizer: SFSpeechRecognizer?
-  private var lastTranscript = ""
-  private var lastLevelAt: TimeInterval = 0
+  private var recorder: AVAudioRecorder?
+  private var recordingURL: URL?
+  private var levelTimer: Timer?
+  private var interruptionObserver: NSObjectProtocol?
+  private var generation = 0
   private var previewURL: URL?
-  private var requestGeneration = 0
-  private var stopping = false
-  private var tapInstalled = false
 
   public func definition() -> ModuleDefinition {
     Name("OpenTeamNative")
-    Events("onSpeechState", "onSpeechResult", "onSpeechLevel", "onSpeechError")
+    Events("onSpeechLevel", "onSpeechError")
 
-    Function("startSpeech") { (locale: String?) in
+    AsyncFunction("startVoiceRecording") { (promise: Promise) in
       DispatchQueue.main.async { [weak self] in
-        self?.requestSpeech(locale: locale)
+        guard let self else { promise.reject(VoiceRecordingException(("unavailable", "Recorder is unavailable."))); return }
+        self.cancelRecording()
+        let requestGeneration = self.generation
+        AVAudioSession.sharedInstance().requestRecordPermission { [weak self] granted in
+          DispatchQueue.main.async {
+            guard let self, self.generation == requestGeneration else {
+              promise.reject(VoiceRecordingException(("cancelled", "Recording cancelled."))); return
+            }
+            guard granted else {
+              promise.reject(VoiceRecordingException(("permission", "Allow microphone access in Settings to record a voice note."))); return
+            }
+            do {
+              let session = AVAudioSession.sharedInstance()
+              try session.setCategory(.record, mode: .measurement)
+              try session.setActive(true)
+              let directory = FileManager.default.temporaryDirectory.appendingPathComponent("openteam-voice-notes", isDirectory: true)
+              try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+              // These are only this module's temporary voice-note files.
+              for old in (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.contentModificationDateKey])) ?? [] {
+                let date = (try? old.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
+                if date < Date().addingTimeInterval(-86400) { try? FileManager.default.removeItem(at: old) }
+              }
+              let url = directory.appendingPathComponent(UUID().uuidString).appendingPathExtension("wav")
+              self.recordingURL = url
+              let recorder = try AVAudioRecorder(url: url, settings: [
+                AVFormatIDKey: kAudioFormatLinearPCM,
+                AVSampleRateKey: 16000,
+                AVNumberOfChannelsKey: 1,
+                AVLinearPCMBitDepthKey: 16,
+                AVLinearPCMIsFloatKey: false,
+                AVLinearPCMIsBigEndianKey: false,
+              ])
+              self.recorder = recorder
+              recorder.isMeteringEnabled = true
+              guard recorder.record() else { throw NSError(domain: "OpenTeam", code: 1) }
+              self.levelTimer = Timer.scheduledTimer(withTimeInterval: 0.08, repeats: true) { [weak self] _ in
+                guard let self, let recorder = self.recorder else { return }
+                recorder.updateMeters()
+                let level = max(0, min(1, (Double(recorder.averagePower(forChannel: 0)) + 55) / 55))
+                self.sendEvent("onSpeechLevel", ["level": level])
+              }
+              self.interruptionObserver = NotificationCenter.default.addObserver(forName: AVAudioSession.interruptionNotification, object: session, queue: .main) { [weak self] _ in
+                guard let self, self.recorder != nil else { return }
+                self.cancelRecording()
+                self.sendEvent("onSpeechError", ["code": "interrupted", "message": "Recording was interrupted. Try again."])
+              }
+              promise.resolve(nil)
+            } catch {
+              self.cancelRecording()
+              promise.reject(VoiceRecordingException(("unavailable", "OpenTeam could not start the microphone.")))
+            }
+          }
+        }
       }
     }
 
-    Function("stopSpeech") {
+    AsyncFunction("stopVoiceRecording") { (promise: Promise) in
       DispatchQueue.main.async { [weak self] in
-        self?.stopAndTranscribe()
+        guard let self, let recorder = self.recorder, let url = self.recordingURL else {
+          promise.reject(VoiceRecordingException(("unavailable", "No recording is active."))); return
+        }
+        let durationMs = recorder.currentTime * 1000
+        recorder.stop()
+        self.recorder = nil
+        self.recordingURL = nil
+        self.releaseAudioSession()
+        promise.resolve(["uri": url.absoluteString, "mimeType": "audio/wav", "durationMs": durationMs])
       }
     }
 
-    Function("cancelSpeech") {
-      DispatchQueue.main.async { [weak self] in
-        self?.cancelRecognition(emitIdle: true)
-      }
+    Function("cancelVoiceRecording") {
+      DispatchQueue.main.async { [weak self] in self?.cancelRecording() }
     }
 
     Function("isCameraAvailable") {
@@ -67,9 +128,7 @@ public final class OpenTeamNativeModule: Module, QLPreviewControllerDataSource {
     }
 
     OnDestroy {
-      DispatchQueue.main.async { [weak self] in
-        self?.cancelRecognition(emitIdle: false)
-      }
+      DispatchQueue.main.async { [weak self] in self?.cancelRecording() }
     }
   }
 
@@ -84,170 +143,20 @@ public final class OpenTeamNativeModule: Module, QLPreviewControllerDataSource {
     (previewURL ?? URL(fileURLWithPath: "/")) as NSURL
   }
 
-  private func requestSpeech(locale: String?) {
-    cancelRecognition(emitIdle: false)
-    requestGeneration += 1
-    let generation = requestGeneration
-    sendEvent("onSpeechState", ["state": "requesting"])
-
-    SFSpeechRecognizer.requestAuthorization { [weak self] speechStatus in
-      AVAudioSession.sharedInstance().requestRecordPermission { granted in
-        DispatchQueue.main.async {
-          guard let self, generation == self.requestGeneration else { return }
-          guard speechStatus == .authorized, granted else {
-            self.fail(
-              code: "permission",
-              message: "Allow microphone and speech recognition access in Settings to dictate."
-            )
-            return
-          }
-          self.beginRecognition(locale: locale)
-        }
-      }
-    }
-  }
-
-  private func beginRecognition(locale: String?) {
-    let selectedLocale = locale.flatMap(Locale.init(identifier:)) ?? Locale.current
-    guard let recognizer = SFSpeechRecognizer(locale: selectedLocale), recognizer.isAvailable else {
-      fail(code: "unavailable", message: "Speech recognition is not available right now.")
-      return
-    }
-
-    do {
-      let audioSession = AVAudioSession.sharedInstance()
-      try audioSession.setCategory(.record, mode: .measurement, options: [.duckOthers])
-      try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
-
-      let request = SFSpeechAudioBufferRecognitionRequest()
-      request.shouldReportPartialResults = true
-      speechRecognizer = recognizer
-      recognitionRequest = request
-      lastTranscript = ""
-      stopping = false
-
-      let inputNode = audioEngine.inputNode
-      let format = inputNode.outputFormat(forBus: 0)
-      guard format.sampleRate.isFinite, format.sampleRate > 0, format.channelCount > 0 else {
-        fail(code: "unavailable", message: "No microphone input is available on this device.")
-        return
-      }
-      inputNode.installTap(onBus: 0, bufferSize: 1_024, format: format) { [weak self] buffer, _ in
-        guard let self else { return }
-        request.append(buffer)
-        self.emitLevel(buffer)
-      }
-      tapInstalled = true
-      audioEngine.prepare()
-      try audioEngine.start()
-
-      recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
-        DispatchQueue.main.async {
-          self?.handleRecognition(result: result, error: error)
-        }
-      }
-      sendEvent("onSpeechState", ["state": "recording"])
-    } catch {
-      fail(code: "unavailable", message: "OpenTeam could not start the microphone.")
-    }
-  }
-
-  private func emitLevel(_ buffer: AVAudioPCMBuffer) {
-    let now = Date.timeIntervalSinceReferenceDate
-    guard now - lastLevelAt >= 0.08 else { return }
-    lastLevelAt = now
-    guard let samples = buffer.floatChannelData?[0] else { return }
-    let count = Int(buffer.frameLength)
-    guard count > 0 else { return }
-    var sum: Float = 0
-    for index in 0..<count {
-      let value = samples[index]
-      sum += value * value
-    }
-    let rms = sqrt(sum / Float(count))
-    let decibels = 20 * log10(max(rms, 0.000_01))
-    let level = max(0, min(1, (Double(decibels) + 55) / 55))
-    DispatchQueue.main.async { [weak self] in
-      self?.sendEvent("onSpeechLevel", ["level": level])
-    }
-  }
-
-  private func handleRecognition(result: SFSpeechRecognitionResult?, error: Error?) {
-    if let result {
-      lastTranscript = result.bestTranscription.formattedString
-      sendEvent("onSpeechResult", [
-        "transcript": lastTranscript,
-        "final": result.isFinal,
-      ])
-      if result.isFinal {
-        finishRecognition()
-        return
-      }
-    }
-    guard error != nil else { return }
-    if stopping, !lastTranscript.isEmpty {
-      sendEvent("onSpeechResult", ["transcript": lastTranscript, "final": true])
-      finishRecognition()
-    } else if stopping {
-      fail(code: "interrupted", message: "No speech was detected. Try again.")
-    } else {
-      fail(code: "interrupted", message: "Voice input was interrupted. Try again.")
-    }
-  }
-
-  private func stopAndTranscribe() {
-    guard recognitionRequest != nil else { return }
-    stopping = true
-    stopAudioInput()
-    recognitionRequest?.endAudio()
-    sendEvent("onSpeechState", ["state": "processing"])
-
-    let generation = requestGeneration
-    DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in
-      guard let self, generation == self.requestGeneration, self.stopping else { return }
-      if !self.lastTranscript.isEmpty {
-        self.sendEvent("onSpeechResult", ["transcript": self.lastTranscript, "final": true])
-        self.finishRecognition()
-      } else {
-        self.fail(code: "interrupted", message: "No speech was detected. Try again.")
-      }
-    }
-  }
-
-  private func stopAudioInput() {
-    if audioEngine.isRunning {
-      audioEngine.stop()
-    }
-    if tapInstalled {
-      audioEngine.inputNode.removeTap(onBus: 0)
-      tapInstalled = false
-    }
-  }
-
-  private func finishRecognition() {
-    cancelRecognition(emitIdle: false)
-    sendEvent("onSpeechState", ["state": "idle"])
-  }
-
-  private func cancelRecognition(emitIdle: Bool) {
-    requestGeneration += 1
-    stopAudioInput()
-    recognitionRequest?.endAudio()
-    recognitionTask?.cancel()
-    recognitionRequest = nil
-    recognitionTask = nil
-    speechRecognizer = nil
-    stopping = false
-    lastTranscript = ""
+  private func releaseAudioSession() {
+    levelTimer?.invalidate()
+    levelTimer = nil
+    if let observer = interruptionObserver { NotificationCenter.default.removeObserver(observer) }
+    interruptionObserver = nil
     try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
-    if emitIdle {
-      sendEvent("onSpeechState", ["state": "idle"])
-    }
   }
 
-  private func fail(code: String, message: String) {
-    cancelRecognition(emitIdle: false)
-    sendEvent("onSpeechError", ["code": code, "message": message])
-    sendEvent("onSpeechState", ["state": "error"])
+  private func cancelRecording() {
+    generation += 1
+    recorder?.stop()
+    recorder = nil
+    if let url = recordingURL { try? FileManager.default.removeItem(at: url) }
+    recordingURL = nil
+    releaseAudioSession()
   }
 }

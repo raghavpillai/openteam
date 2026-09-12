@@ -171,11 +171,20 @@ export const createOpenTeamAuthClient = (options: OpenTeamAuthClientOptions) => 
 
   const signOut = (token: string): Promise<void> =>
     withDeadline(async (signal) => {
-      await transport.open("/api/auth/sign-out", {
+      const response = await transport.open("/api/auth/sign-out", {
         method: "POST",
         signal,
+        // Native fetch otherwise includes saved login cookies without an Origin,
+        // which correctly fails the server's cookie-based CSRF protection.
+        credentials: "omit",
         headers: { authorization: `Bearer ${token}` },
       });
+      if (!response.ok)
+        throw new OpenTeamClientError(
+          "The server could not complete sign-out. Please try again.",
+          "sign_out_failed",
+          response.status
+        );
     });
 
   return { baseUrl: transport.baseUrl, discoverMode, getSession, signIn, signOut, validateServer };

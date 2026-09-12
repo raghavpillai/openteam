@@ -30,6 +30,7 @@ describe("runtime health", () => {
       queue: "ready",
       computer: "unavailable",
       inference: "unavailable",
+      transcription: "missing",
     });
     expect(second).toEqual(first);
     expect(probeCount).toBe(1);

@@ -14,10 +14,13 @@ import type { ClipboardEvent, FormEvent, DragEvent as ReactDragEvent, RefObject 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { cn } from "../../lib/cn";
+import { useVoiceNote } from "../../hooks/use-voice-note";
+import { useVoiceShortcuts } from "../../hooks/use-voice-shortcuts";
 import { fileDragContainsFiles } from "../../lib/file-drop";
 import type { MentionOption } from "../../lib/mentions";
 import { ImageAttachment } from "../openteam/image-attachment";
 import { MentionEditor } from "../openteam/mention-editor";
+import { VoiceRecordingChip } from "../openteam/voice-recording-chip";
 import { Button } from "../ui/button";
 import {
   DropdownMenu,
@@ -109,6 +112,7 @@ export function PromptInput({
   onSubmit,
   mentionOptions = [],
   uploadCapabilities = CLIENT_CAPABILITIES.uploads,
+  transcriptionConfigured = false,
 }: {
   docked?: boolean;
   disabled?: boolean;
@@ -133,6 +137,7 @@ export function PromptInput({
   onDiscardStages?: (attachments: readonly DurableStagedAttachment[]) => Promise<void>;
   mentionOptions?: readonly MentionOption[];
   uploadCapabilities?: ClientCapabilities["uploads"];
+  transcriptionConfigured?: boolean;
   onSubmit: (
     value: string,
     attachments: AssetRef[],
@@ -150,6 +155,44 @@ export function PromptInput({
   const [autoExpanded, setAutoExpanded] = useState(false);
   const [textareaHeight, setTextareaHeight] = useState(20);
   const textareaRef = useRef<HTMLDivElement>(null);
+  const sendAfterVoice = useRef(false);
+  const [voiceReadyToSend, setVoiceReadyToSend] = useState(false);
+  const trailingRef = useRef<HTMLDivElement>(null);
+  const [trailingWidth, setTrailingWidth] = useState(28);
+  const voice = useVoiceNote(transcriptionConfigured, (text) => {
+    const editor = textareaRef.current;
+    if (!editor) return;
+    // Append a text node so existing mention tokens retain their identity and markup.
+    editor.append(document.createTextNode(`${editor.textContent?.trim() ? " " : ""}${text}`));
+    editor.dispatchEvent(new Event("input", { bubbles: true }));
+    editor.focus();
+    setVoiceReadyToSend(sendAfterVoice.current && Boolean(text.trim()));
+    sendAfterVoice.current = false;
+  });
+  const startVoice = () => {
+    sendAfterVoice.current = false;
+    setVoiceReadyToSend(false);
+    voice.start();
+    textareaRef.current?.focus();
+  };
+  const cancelVoice = () => {
+    sendAfterVoice.current = false;
+    setVoiceReadyToSend(false);
+    voice.cancel();
+    textareaRef.current?.focus();
+  };
+  const stopVoice = () => {
+    voice.stop();
+    textareaRef.current?.focus();
+  };
+  const sendVoice = () => {
+    if (voice.state === "requesting") {
+      cancelVoice();
+      return;
+    }
+    sendAfterVoice.current = true;
+    stopVoice();
+  };
   const fileInputRef = useRef<HTMLInputElement>(null);
   const previewUrls = useRef(new Set<string>());
   const attachmentsRef = useRef<PendingAttachment[]>([]);
@@ -173,7 +216,12 @@ export function PromptInput({
   const replyOpen = Boolean(reply);
   const hasText = value.trim().length > 0;
   const hasPayload = hasText || attachments.length > 0;
-  const expanded = autoExpanded || replyOpen || attachments.length > 0 || Boolean(attachmentError);
+  const expanded =
+    autoExpanded ||
+    replyOpen ||
+    attachments.length > 0 ||
+    Boolean(attachmentError) ||
+    Boolean(voice.error || voice.notice);
   const maxAttachments = uploadCapabilities.maxAttachmentsPerMessage;
 
   useEffect(() => {
@@ -249,7 +297,11 @@ export function PromptInput({
     if (nextAutoExpanded !== autoExpanded) setAutoExpanded(nextAutoExpanded);
 
     const nextExpanded =
-      nextAutoExpanded || replyOpen || attachments.length > 0 || Boolean(attachmentError);
+      nextAutoExpanded ||
+      replyOpen ||
+      attachments.length > 0 ||
+      Boolean(attachmentError) ||
+      Boolean(voice.error || voice.notice);
     const minimumHeight = nextExpanded ? 20 : 32;
     const contentHeight = Math.max(
       minimumHeight,
@@ -266,7 +318,16 @@ export function PromptInput({
     textarea.style.height = `${previousHeight}px`;
     void textarea.offsetHeight;
     textarea.style.height = `${contentHeight}px`;
-  }, [attachmentError, attachments.length, autoExpanded, replyOpen, value]);
+  }, [
+    attachmentError,
+    attachments.length,
+    autoExpanded,
+    replyOpen,
+    value,
+    voice.error,
+    voice.notice,
+    trailingWidth,
+  ]);
 
   const addFiles = useCallback(
     async (files: File[]) => {
@@ -356,7 +417,32 @@ export function PromptInput({
     [maxAttachments, onDiscardStages, onStage, replaceAttachments, uploadCapabilities]
   );
 
-  const blocked = Boolean(disabled || submitting || staging);
+  const blocked = Boolean(disabled || submitting || staging || voice.active);
+  useVoiceShortcuts({
+    editor: textareaRef,
+    available: voice.available && !disabled && !submitting && !staging,
+    active: voice.active,
+    state: voice.state,
+    start: startVoice,
+    stop: stopVoice,
+    cancel: cancelVoice,
+    sendWhenReady: sendVoice,
+  });
+  useLayoutEffect(() => {
+    const trailing = trailingRef.current;
+    if (!trailing) return;
+    const measure = () => setTrailingWidth(trailing.getBoundingClientRect().width);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(trailing);
+    return () => observer.disconnect();
+  }, []);
+  useEffect(() => {
+    if (voice.state === "error" || !transcriptionConfigured || disabled) {
+      sendAfterVoice.current = false;
+      setVoiceReadyToSend(false);
+    }
+  }, [voice.state, transcriptionConfigured, disabled]);
 
   useEffect(() => {
     const target = dropTargetRef?.current;
@@ -487,6 +573,12 @@ export function PromptInput({
     event.preventDefault();
     void addFiles(files);
   };
+
+  useEffect(() => {
+    if (!voiceReadyToSend || blocked) return;
+    setVoiceReadyToSend(false);
+    void submit();
+  }, [voiceReadyToSend, blocked]);
 
   const onDrop = (event: ReactDragEvent<HTMLFormElement>) => {
     if (!fileDragContainsFiles(event.dataTransfer)) return;
@@ -661,6 +753,46 @@ export function PromptInput({
             </div>
           )}
 
+          {voice.error || voice.notice ? (
+            <div
+              className="flex items-center gap-2 px-2 pb-1 text-[12px]"
+              role="status"
+              aria-live="polite"
+            >
+              <span
+                className={cn(
+                  "min-w-0 flex-1",
+                  voice.error ? "text-destructive" : "text-foreground-secondary"
+                )}
+              >
+                {voice.error ?? voice.notice}
+              </span>
+              {voice.canRetry ? (
+                <button type="button" onClick={voice.retry} className="shrink-0 underline">
+                  Retry transcription
+                </button>
+              ) : null}
+              <button
+                type="button"
+                onClick={cancelVoice}
+                aria-label="Dismiss voice note notice"
+                className="shrink-0 p-1"
+              >
+                <X className="size-3" />
+              </button>
+            </div>
+          ) : null}
+          {voice.active ? (
+            <button
+              type="button"
+              onClick={cancelVoice}
+              aria-label="Cancel voice note"
+              className="sr-only focus:not-sr-only focus:self-start focus:rounded-full focus:px-2 focus:py-1 focus:text-xs"
+            >
+              Cancel voice note (Esc)
+            </button>
+          ) : null}
+
           {attachmentError && (
             <div aria-live="polite" className="px-2 pb-1 text-[11px] text-destructive">
               {attachmentError}
@@ -727,12 +859,17 @@ export function PromptInput({
               onSubmit={() => void submit()}
               options={mentionOptions}
               placeholder={
-                attachments.length > 0
-                  ? "Add a message, or hit send."
-                  : reply
-                    ? "Reply…"
-                    : placeholder
+                voice.active
+                  ? voice.state === "processing"
+                    ? "Transcribing…"
+                    : "Listening…"
+                  : attachments.length > 0
+                    ? "Add a message, or hit send."
+                    : reply
+                      ? "Reply…"
+                      : placeholder
               }
+              style={!expanded ? { paddingRight: `${trailingWidth + 12}px` } : undefined}
               value={value}
               onHeightChange={() => {
                 const editor = textareaRef.current;
@@ -748,39 +885,100 @@ export function PromptInput({
                 "absolute z-10 flex items-center gap-2",
                 expanded ? "-right-1 bottom-0" : "bottom-[3px] right-1"
               )}
+              ref={trailingRef}
             >
-              {hasPayload && (
-                <Button
-                  aria-label="Voice input unavailable"
-                  className={SECONDARY_ACTION_CLASS}
-                  disabled
-                  size="icon"
-                  type="button"
-                  variant="ghost"
+              {voice.state === "recording" || voice.state === "requesting" ? (
+                <>
+                  <VoiceRecordingChip
+                    elapsedMs={voice.elapsedMs}
+                    stream={voice.stream}
+                    onStop={stopVoice}
+                  />
+                  <Button
+                    aria-label="Transcribe and send"
+                    title="Transcribe and send"
+                    className="size-7 rounded-full bg-[#070707] text-[#fcfcfc] shadow-none hover:bg-[#070707] hover:opacity-90 dark:bg-[#fafafa] dark:text-[#141414] dark:hover:bg-[#fafafa]"
+                    onClick={sendVoice}
+                    size="icon"
+                    type="button"
+                  >
+                    <BotArrowUpIcon className="size-3.5" />
+                  </Button>
+                  <span role="status" className="sr-only">
+                    {voice.state === "requesting" ? "Requesting microphone…" : "Listening…"}
+                  </span>
+                </>
+              ) : voice.state === "processing" ? (
+                <span
+                  role="status"
+                  aria-label="Transcribing voice input…"
+                  className="flex size-7 shrink-0 items-center justify-center"
                 >
-                  <BotMicIcon className="size-4 animate-in fade-in-0 zoom-in-50 duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:animate-none" />
-                </Button>
+                  <span
+                    aria-hidden="true"
+                    className="size-[18px] animate-spin rounded-full border-2 border-[#14141433] border-t-[#141414] dark:border-[#f0f0f033] dark:border-t-[#f0f0f0]"
+                  />
+                </span>
+              ) : (
+                <>
+                  {hasPayload && (
+                    <Button
+                      aria-label={
+                        voice.available
+                          ? "Record voice note"
+                          : "Set up transcription in Server settings to use voice notes"
+                      }
+                      title={
+                        voice.available
+                          ? `Click or hold ${/Mac/.test(navigator.platform) ? "⌘D" : "Ctrl+D"} to dictate`
+                          : "Set up transcription in Server settings"
+                      }
+                      className={cn(SECONDARY_ACTION_CLASS, "disabled:opacity-40")}
+                      disabled={!voice.available || blocked}
+                      onClick={startVoice}
+                      size="icon"
+                      type="button"
+                      variant="ghost"
+                    >
+                      <BotMicIcon className="size-4 animate-in fade-in-0 zoom-in-50 duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:animate-none" />
+                    </Button>
+                  )}
+                  <Button
+                    aria-label={
+                      hasPayload
+                        ? "Send message"
+                        : voice.available
+                          ? "Record voice note"
+                          : "Set up transcription in Server settings to use voice notes"
+                    }
+                    title={
+                      !hasPayload && !voice.available
+                        ? "Set up transcription in Server settings"
+                        : !hasPayload
+                          ? `Click or hold ${/Mac/.test(navigator.platform) ? "⌘D" : "Ctrl+D"} to dictate`
+                          : undefined
+                    }
+                    className="relative size-7 rounded-full bg-[#070707] text-[#fcfcfc] shadow-none transition-opacity hover:bg-[#070707] hover:opacity-90 disabled:bg-[#070707] disabled:opacity-40 dark:bg-[#fafafa] dark:text-[#141414] dark:hover:bg-[#fafafa]"
+                    disabled={blocked || (!hasPayload && !voice.available)}
+                    onClick={!hasPayload ? startVoice : undefined}
+                    size="icon"
+                    type={hasPayload ? "submit" : "button"}
+                  >
+                    <BotMicIcon
+                      className={cn(
+                        "absolute size-4 transition-[opacity,transform] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none",
+                        hasPayload ? "scale-50 opacity-0" : "scale-100 opacity-100"
+                      )}
+                    />
+                    <BotArrowUpIcon
+                      className={cn(
+                        "absolute size-4 transition-[opacity,transform] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none",
+                        hasPayload ? "scale-100 opacity-100" : "scale-50 opacity-0"
+                      )}
+                    />
+                  </Button>
+                </>
               )}
-              <Button
-                aria-label={hasPayload ? "Send message" : "Voice input unavailable"}
-                className="relative size-7 rounded-full bg-[#070707] text-[#fcfcfc] shadow-none transition-opacity hover:bg-[#070707] hover:opacity-90 disabled:bg-[#070707] disabled:opacity-40 dark:bg-[#fafafa] dark:text-[#141414] dark:hover:bg-[#fafafa]"
-                disabled={blocked}
-                size="icon"
-                type="submit"
-              >
-                <BotMicIcon
-                  className={cn(
-                    "absolute size-4 transition-[opacity,transform] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none",
-                    hasPayload ? "scale-50 opacity-0" : "scale-100 opacity-100"
-                  )}
-                />
-                <BotArrowUpIcon
-                  className={cn(
-                    "absolute size-4 transition-[opacity,transform] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none",
-                    hasPayload ? "scale-100 opacity-100" : "scale-50 opacity-0"
-                  )}
-                />
-              </Button>
             </div>
           </div>
         </div>

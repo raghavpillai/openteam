@@ -62,6 +62,7 @@ const installedFixture = () => {
     version: "1.2.3",
     settingsStatus: 200,
     invalidSettings: false,
+    transcriptionLevel: "warn" as "pass" | "warn" | "fail",
     selected: { providerId: "openai-codex", modelId: "gpt-5.6-sol", reasoning: "medium" },
     requests: [] as Array<{ method: string; path: string }>,
   };
@@ -86,6 +87,14 @@ const installedFixture = () => {
             { status: state.settingsStatus }
           );
         return Response.json(state.invalidSettings ? {} : { inference: state.selected });
+      }
+      if (path === "/api/v0/internal/server-settings/transcription/check") {
+        if (request.headers.get("authorization") !== `Bearer ${token}`)
+          return new Response(null, { status: 401 });
+        return Response.json({
+          level: state.transcriptionLevel,
+          detail: "Transcription diagnostic",
+        });
       }
       return new Response(null, { status: 404 });
     },
@@ -174,6 +183,23 @@ const installedFixture = () => {
 };
 
 describe("doctor model API connection", () => {
+  test("optional transcription setup warns while provider failure makes doctor fail", async () => {
+    const { paths, state, runner } = installedFixture();
+    const missing = await runDoctor(paths, runner, "openteam", { deepChecks: true });
+    expect(missing.ok).toBe(true);
+    expect(missing.checks).toContainEqual({
+      label: "Transcription",
+      level: "warn",
+      detail: "Transcription diagnostic",
+    });
+    state.transcriptionLevel = "fail";
+    const unavailable = await runDoctor(paths, runner, "openteam", { deepChecks: true });
+    expect(unavailable.ok).toBe(false);
+    expect(unavailable.checks.find((check) => check.label === "Transcription")?.level).toBe("fail");
+    expect(state.requests.some((request) => request.path.endsWith("/audio/transcriptions"))).toBe(
+      false
+    );
+  });
   test("the doctor command tests the saved model once without modifying settings", async () => {
     const { paths, state, runner } = installedFixture();
     const output: string[] = [];
@@ -190,7 +216,14 @@ describe("doctor model API connection", () => {
       model: "openai-codex/gpt-5.6-sol",
       reasoning: "medium",
     });
-    expect(state.requests.every((request) => request.method === "GET")).toBe(true);
+    expect(
+      state.requests.every(
+        (request) =>
+          request.method === "GET" ||
+          (request.method === "POST" &&
+            request.path === "/api/v0/internal/server-settings/transcription/check")
+      )
+    ).toBe(true);
     expect(output.join("\n")).toContain("✓ AI connection");
     expect(output.join("\n")).toContain("openai-codex/gpt-5.6-sol responded");
   });
@@ -245,7 +278,9 @@ describe("doctor model API connection", () => {
       detail: "not tested; no provider is connected. Run openteam setup",
     });
     expect(runner.probes).toHaveLength(0);
-    expect(state.requests).toHaveLength(1);
+    expect(
+      state.requests.filter((request) => !request.path.endsWith("/transcription/check"))
+    ).toHaveLength(1);
   });
 
   test.each([
@@ -265,7 +300,9 @@ describe("doctor model API connection", () => {
       "not tested"
     );
     expect(runner.probes).toHaveLength(0);
-    expect(state.requests).toHaveLength(1);
+    expect(
+      state.requests.filter((request) => !request.path.endsWith("/transcription/check"))
+    ).toHaveLength(1);
   });
 
   test("does not send inference when the settings API rejects this installation's control token", async () => {

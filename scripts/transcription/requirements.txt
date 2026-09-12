@@ -1,0 +1,4 @@
+mlx-audio[stt]==0.5.3
+fastapi==0.141.1
+uvicorn==0.52.4
+python-multipart==0.0.32

@@ -1,5 +1,6 @@
 export const SETTINGS_ANCHORS = [
   "theme",
+  "microphone",
   "local-execution",
   "computers",
   "inference-provider",
@@ -19,6 +20,7 @@ const settingsAnchorSet = new Set<string>(SETTINGS_ANCHORS);
 
 const viewByAnchor: Record<SettingsAnchor, SettingsView> = {
   theme: "general",
+  microphone: "general",
   "local-execution": "computer",
   computers: "computer",
   "inference-provider": "server",

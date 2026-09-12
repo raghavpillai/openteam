@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <title>OpenTeam app icon</title>
+  <!-- Classic 2D bot from packages/design-tokens/src/robot-avatar-artwork.ts.
+       Face projection matches apps/mobile/src/components/bot-mark.tsx.
+       Full-bleed opaque background; iOS supplies the corner mask. -->
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="0.32" y2="1">
+      <stop offset="0" stop-color="#303035"/>
+      <stop offset="0.52" stop-color="#171719"/>
+      <stop offset="1" stop-color="#060607"/>
+    </linearGradient>
+    <radialGradient id="light" cx="0.34" cy="-0.12" r="0.94">
+      <stop offset="0" stop-color="#777780" stop-opacity="0.19"/>
+      <stop offset="1" stop-color="#777780" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="shadow" x="-40%" y="-30%" width="180%" height="180%" color-interpolation-filters="sRGB">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="1.6"/>
+      <feOffset dy="1.1"/>
+      <feComponentTransfer><feFuncA type="linear" slope="0.24"/></feComponentTransfer>
+      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#background)"/>
+  <rect width="1024" height="1024" fill="url(#light)"/>
+  <g transform="translate(92 105) scale(8.4)" filter="url(#shadow)">
+    <rect x="47" y="6" width="6" height="18" rx="3" fill="#27baae"></rect>
+    <circle cx="50" cy="7" r="5.5" fill="#27baae"></circle>
+    <rect x="14" y="22" width="72" height="62" rx="14" fill="#27baae"></rect>
+    <g transform="translate(52 0) scale(0.9703 1) translate(-50 0)"><rect x="24" y="36" width="52" height="20" rx="10" fill="#1b1b1d"></rect><g fill="#27baae"><circle cx="40.5" cy="46" r="4"></circle><circle cx="64.5" cy="46" r="4"></circle></g><g fill="#1b1b1d"><rect x="35" y="64" width="8" height="6" rx="2.5"></rect><rect x="46" y="64" width="8" height="6" rx="2.5"></rect><rect x="57" y="64" width="8" height="6" rx="2.5"></rect></g></g>
+  </g>
+</svg>

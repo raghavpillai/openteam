@@ -7,6 +7,7 @@ import {
   memo,
   useEffect,
   useId,
+  useLayoutEffect,
   useRef,
   useState,
   type CSSProperties,
@@ -27,6 +28,7 @@ import {
   type RobotAvatarNode,
 } from "@openteam/design-tokens/robot-avatar-artwork";
 import "@openteam/design-tokens/robot-avatar.css";
+import { createRobotAvatarMotion } from "../../lib/robot-avatar-motion";
 
 export {
   BOT_AVATAR_COLORS,
@@ -74,7 +76,20 @@ export const BotAvatarGlyph = memo(function BotAvatarGlyph({
   const robot = normalizeRobotAvatarShape(shape);
   const outlineId = useId();
   const ref = useRef<SVGSVGElement>(null);
+  const motion = useRef<ReturnType<typeof createRobotAvatarMotion> | null>(null);
   const [visible, setVisible] = useState(false);
+  useLayoutEffect(() => {
+    if (!ref.current) return;
+    const controller = createRobotAvatarMotion(ref.current);
+    motion.current = controller;
+    return () => {
+      controller.dispose();
+      motion.current = null;
+    };
+  }, [robot]);
+  useLayoutEffect(() => {
+    motion.current?.setMode(visible ? mode : "still", visible && !document.hidden);
+  }, [mode, visible, robot]);
   useEffect(() => {
     if (mode === "still") return;
     const element = ref.current;
@@ -99,7 +114,7 @@ export const BotAvatarGlyph = memo(function BotAvatarGlyph({
       viewBox={ROBOT_AVATAR_VIEW_BOX}
       {...props}
       className={`robot-avatar ${className ?? ""}`}
-      data-avatar-mode={mode === "still" || !visible ? "still" : mode}
+      data-avatar-mode="still"
       data-avatar-shape={robot}
       ref={ref}
       style={

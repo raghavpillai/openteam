@@ -6,6 +6,7 @@ dist/
 dist-electron/
 coverage/
 *.log
+*.tsbuildinfo
 .DS_Store
 packages/db/src/generated/
 apps/desktop/release/
@@ -15,4 +16,5 @@ apps/desktop/release-local/
 apps/mobile/.expo/
 apps/mobile/dist-web/
 /artifacts/
+/findings/
 /output/

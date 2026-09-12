@@ -29,6 +29,12 @@ not evidence of OpenTeam capabilities.
 - Agents run on the user's server. Work can continue after the client closes
   while that server stays on. Avoid guarantees of uninterrupted operation or
   successful completion of every task.
+- The server stack needs a running Docker Engine for Linux containers and Compose
+  2.20+. Linux can run the engine directly; Docker Desktop supplies the VM and
+  engine on macOS and Windows. The Docker CLI alone is not a runtime.
+- The OpenTeam desktop app provides the approval bridge for delegated task launches,
+  including computer-use workers, and physical-host tools. Those operations need the
+  app running and reachable from the server's computer container.
 - Plugins connect apps and supply skills. Explain account access and tool
   approval controls where relevant.
 - Skills save reusable instructions and supporting files. Do not imply that an

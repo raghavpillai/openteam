@@ -31,7 +31,7 @@ esac
 
 say "OpenTeam · $platform $architecture"
 
-command_exists docker || fail "Docker is required. Install Docker, then run this command again."
+command_exists docker || fail "Docker is required. Install Docker Engine and Compose on Linux, or Docker Desktop on macOS, then run this command again."
 if docker compose version >/dev/null 2>&1; then
   :
 elif command_exists docker-compose && docker-compose version >/dev/null 2>&1; then
@@ -127,7 +127,7 @@ function Fail([string]$Message) {
 }
 
 if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
-  Fail "Docker is required. Install Docker Desktop, then run this command again."
+  Fail "Docker is required. Install and start Docker Desktop with Linux containers, then run this command again."
 }
 
 $composeAvailable = $false

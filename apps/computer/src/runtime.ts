@@ -49,6 +49,7 @@ import { decodeInlineImages, loadAttachmentImages } from "./runtime/attachments"
 import { compactionExtension, inferCompaction } from "./runtime/compaction";
 import { textFromContent } from "./runtime/content";
 import { attachSession, routeEvent } from "./runtime/events";
+import { inferenceReasoningOptions, reasoningExtension } from "./runtime/reasoning";
 import { assertSessionPath } from "./runtime/session-path";
 import { RuntimeTools } from "./runtime/tools";
 import type { ActiveTurn, RuntimeImage, TurnStatus } from "./runtime/types";
@@ -456,7 +457,6 @@ export class ComputerRuntime {
       throw new Error(`Pi inference provider ${modelRef.providerId} is not configured`);
     }
     const model = this.resolveModel(modelRef);
-    const thinkingLevel = clampThinkingLevel(model, request.reasoning);
     const controller = new AbortController();
     let timedOut = false;
     const timer = setTimeout(() => {
@@ -480,7 +480,7 @@ export class ComputerRuntime {
         },
         {
           signal: controller.signal,
-          reasoning: thinkingLevel === "off" ? undefined : thinkingLevel,
+          ...inferenceReasoningOptions(model, request.reasoning),
         }
       );
       if (result.stopReason === "error" || result.stopReason === "aborted") {
@@ -559,7 +559,7 @@ export class ComputerRuntime {
     const settingsManager = SettingsManager.inMemory({
       defaultProvider: modelRef.providerId,
       defaultModel: modelRef.modelId,
-      defaultThinkingLevel: thinkingLevel === "off" ? undefined : thinkingLevel,
+      defaultThinkingLevel: thinkingLevel,
       compaction: {
         enabled: true,
         reserveTokens: persistReserve,
@@ -577,7 +577,10 @@ export class ComputerRuntime {
       noPromptTemplates: true,
       noThemes: true,
       systemPrompt: instructions,
-      extensionFactories: [this.compactionExtension(sessionManager, active)],
+      extensionFactories: [
+        this.compactionExtension(sessionManager, active),
+        reasoningExtension(model, active.reasoning),
+      ],
     });
     await resourceLoader.reload();
     const customTools = this.customTools(active);

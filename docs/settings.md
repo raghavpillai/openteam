@@ -260,9 +260,17 @@ Fixed inside the Compose file, not meant to change: `DATABASE_URL`, `OPENTEAM_PO
 (`/home/box/.pi/agent`), `OPENTEAM_SCREEN_VIEWER_HOST`, and the agent user ids
 `OPENTEAM_AGENT_UID` (`1001`) and `OPENTEAM_AGENT_GID` (`1000`).
 
+The computer service uses `OPENTEAM_HOST_BRIDGE_URL` (default
+`http://host.docker.internal:8791`) to reach the OpenTeam desktop app's approval and physical-host
+bridge. Delegated task launches, including computer-use workers, require this bridge. For a
+desktop app on another host, set a reachable URL in the computer service's environment through
+a Compose override and recreate that service. Setting an arbitrary key in the install `.env`
+alone does not pass it into the container. The bridge and server must use the same control token.
+Docker Desktop supplies the container engine; it does not replace the OpenTeam approval bridge.
+
 Internal tuning knobs, read by the computer service and not meant for operators:
 `OPENTEAM_MAX_OPEN_AGENT_STORES` (`32`), `OPENTEAM_AGENT_STORE_IDLE_CLOSE_MS` (`120000`),
-`OPENTEAM_HOST_BRIDGE_URL`, `OPENTEAM_NODE_BINARY`, and the debugging switch
+`OPENTEAM_NODE_BINARY`, and the debugging switch
 `SAND_DISABLE_MEMORY_FREEZE=1`. `BETTER_AUTH_SECRET` is accepted as an alias for
 `OPENTEAM_AUTH_SECRET`.
 

@@ -1,7 +1,13 @@
 # OpenTeam CLI
 
-Install and manage the self-hosted OpenTeam server stack. It requires Docker with Compose 2.20 or
-newer. The supported installer downloads a native CLI, so Node.js and Bun are not required.
+Install and manage the self-hosted OpenTeam server stack. It requires a running Docker Engine for
+Linux containers, the Docker CLI, and Compose 2.20 or newer. The supported installer downloads a
+native CLI, so Node.js and Bun are not required.
+
+Linux can run Docker Engine and Compose directly. On macOS and Windows, Docker Desktop supplies
+the Linux VM and Docker tools; its backend must stay running. The CLI checks the engine and
+Compose, without requiring Docker Desktop specifically. It uses your active Docker context and
+does not install or start a VM backend. Verify it with `docker info` and `docker compose version`.
 
 ```sh
 curl -fsSL https://openteam.so/install | sh
@@ -28,7 +34,7 @@ Run `openteam <command> --help` or `openteam help <command>` for command-specifi
 options. Provider and model subcommands have their own help pages as well.
 
 `start` and setup check for port conflicts before starting containers, including Tailscale Serve
-listeners that can block Colima's host port forwarding even when Docker reports a running server.
+listeners that can block Docker's host port forwarding even when Docker reports a running server.
 Loopback servers behind Tailscale Serve are allowed. Conflicts report the affected port and how to
 inspect or change the listener; the CLI does not change Tailscale rules automatically. While waiting
 for readiness, the CLI prints the health URL, current failure, and elapsed time. If the server is

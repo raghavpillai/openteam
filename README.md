@@ -17,9 +17,9 @@ curl -fsSL https://openteam.so/install | sh
 - **Bots that remember.** One ongoing conversation per bot that resumes after restarts, plus dated
   Markdown memory in three scopes: per bot, shared across all bots, and per project. All
   hand-editable.
-- **A real computer.** One always-on Debian XFCE desktop shared by every bot, with Chromium, a file
-  manager, and a terminal. Each bot gets its own 1280×800 screen and browser profile, so logins
-  persist and bots never fight over the mouse.
+- **A real computer.** One always-on Debian environment with XFCE, Chromium, a file manager,
+  and a terminal. Each bot gets its own 1280×800 screen and browser profile, so logins persist
+  and bots can use separate desktops concurrently.
 - **Watch or take over.** Live screen view in the desktop and iPhone apps over noVNC. A bot pauses
   and hands you the step when a login, 2FA, CAPTCHA, or payment needs a human, or asks you a
   yes/no question.
@@ -41,8 +41,10 @@ curl -fsSL https://openteam.so/install | sh
 
 ## How it works
 
-Everything runs in Docker Compose on one machine. The apps are thin clients: closing them never
-stops a bot.
+The server, database, worker, and Linux computer run in Docker Compose on one machine. Server-side
+turns and schedules continue when a client closes. The OpenTeam desktop app also provides the
+approval bridge used to launch delegated tasks, including computer-use workers, and to access
+the physical host; keep it running when work needs that bridge.
 
 ```text
  Desktop app · iPhone app        chat, live screens, settings (no model credentials)
@@ -83,8 +85,14 @@ sessions, chat, memory, browser logins, schedules, and files. Back up and restor
 
 ## Quick start
 
-Requirements: Docker with Compose 2.20+, an x64 or arm64 host, and 8 GB RAM and 8 GB free disk
-recommended. The installer downloads a native CLI; Node.js and Bun are not required.
+Requirements: a running Docker Engine for Linux containers, the Docker CLI, Compose 2.20+, and
+an x64 or arm64 host. We recommend 8 GB RAM and 8 GB free disk. The installer downloads a native
+CLI; Node.js and Bun are not required.
+
+On Linux, install Docker Engine and Compose directly. On macOS or Windows, Docker Desktop supplies
+the Linux VM, engine, and Compose; keep its backend running. OpenTeam checks Docker and Compose,
+without requiring Docker Desktop specifically. Installing only the `docker` command is not enough.
+See [runtime requirements](docs/deployment.md#requirements).
 
 ```sh
 curl -fsSL https://openteam.so/install | sh      # macOS and Linux
@@ -153,8 +161,10 @@ The dev stack runs as Compose project `openteam-dev`, so its containers are `ope
 volumes `openteam-dev_openteam_*`, and every container carries the label
 `com.openteam.environment=development` (released installs use `openteam` and `production`). It
 reports its version as the package version plus `+dev`. It publishes the API on `127.0.0.1:8787`
-and bot screens on `127.0.0.1:6200-6299`; the screen ports have no login of their own. Provider credentials go in the computer volume, never
-`.env`. `bun run desktop:tailscale` serves the UI to other devices on your tailnet.
+and bot screens on `127.0.0.1:6200-6299`. Each live screen uses a generated VNC credential supplied
+by the authenticated app; keep viewer ports on loopback or a trusted private network. Provider
+credentials go in the computer volume, never `.env`. `bun run desktop:tailscale` serves the UI to
+other devices on your tailnet.
 
 ```sh
 bun run check                             # typecheck + tests + build + performance budgets (what CI runs)

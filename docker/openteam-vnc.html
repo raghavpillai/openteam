@@ -34,8 +34,16 @@
 
       const query = new URLSearchParams(window.location.search);
       const fragment = new URLSearchParams(window.location.hash.slice(1));
-      const password = fragment.get("password");
-      if (!password) throw new Error("Viewer credential is missing");
+      const credentialKey = `openteam:viewer:${window.location.pathname}`;
+      let password = fragment.get("password");
+      try {
+        // Retain the credential only in this tab so a refresh can reconnect
+        // after the fragment has been removed from the visible URL.
+        password ??= sessionStorage.getItem(credentialKey);
+        if (password) sessionStorage.setItem(credentialKey, password);
+      } catch {
+        // Restricted embedded browsers can still use the supplied fragment.
+      }
       history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
       const path = query.get("path") ?? "websockify";
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
@@ -50,6 +58,7 @@
 
       const setConnectionState = (state) => {
         screen.dataset.connectionState = state;
+        window.parent.postMessage({ type: "openteam:screen-connection", state }, "*");
       };
 
       const scheduleReconnect = () => {
@@ -88,6 +97,9 @@
           connection.addEventListener("securityfailure", (event) => {
             if (rfb !== connection) return;
             shouldReconnect = false;
+            try {
+              sessionStorage.removeItem(credentialKey);
+            } catch {}
             setConnectionState("authentication-failed");
             console.error("VNC authentication failed", event.detail);
           });
@@ -114,7 +126,8 @@
         },
         { once: true }
       );
-      connect();
+      if (password) connect();
+      else setConnectionState("authentication-failed");
     </script>
   </head>
   <body>

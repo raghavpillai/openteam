@@ -49,6 +49,9 @@ RUN apt-get update \
     curl \
     dbus-x11 \
     fonts-liberation \
+    fonts-noto-core \
+    fonts-noto-cjk \
+    fonts-noto-color-emoji \
     ffmpeg \
     gcc \
     gh \

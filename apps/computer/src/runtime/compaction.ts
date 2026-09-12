@@ -1,4 +1,3 @@
-import { clampThinkingLevel } from "@earendil-works/pi-ai";
 import type {
   ExtensionFactory,
   ModelRuntime,
@@ -15,6 +14,7 @@ import {
   botSummarySystemPrompt,
 } from "../bot-compaction";
 import { textFromContent } from "./content";
+import { inferenceReasoningOptions } from "./reasoning";
 import type { RuntimeTools } from "./tools";
 import type { ActiveTurn } from "./types";
 
@@ -136,7 +136,6 @@ export async function inferCompaction(
 ): Promise<BotSummaryResult> {
   if (!modelRuntime) throw new Error("Pi model runtime is not initialized");
   const model = resolveModel(active.modelRef);
-  const thinkingLevel = clampThinkingLevel(model, active.reasoning);
   if (signal.aborted) throw new DOMException("Compaction aborted", "AbortError");
 
   // The summarization wrapper sends the normal model-visible schemas through
@@ -159,7 +158,7 @@ export async function inferCompaction(
     },
     {
       signal,
-      reasoning: thinkingLevel === "off" ? undefined : thinkingLevel,
+      ...inferenceReasoningOptions(model, active.reasoning),
     }
   );
   if (signal.aborted) throw new DOMException("Compaction aborted", "AbortError");

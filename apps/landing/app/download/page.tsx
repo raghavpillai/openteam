@@ -101,8 +101,9 @@ export default function DownloadPage() {
               )}
             </div>
             <p className="dl-setup-note">
-              Downloads the CLI, verifies its SHA-256 checksum, and starts guided setup. No Node.js
-              or Bun required.
+              Requires a running Docker Engine and Compose. Use Docker Engine on Linux or Docker
+              Desktop on macOS and Windows. Downloads the CLI, verifies its SHA-256 checksum, and
+              starts guided setup. No Node.js or Bun required.
             </p>
             <p className="dl-version-note">
               Set <code>OPENTEAM_VERSION</code> to install a specific release.

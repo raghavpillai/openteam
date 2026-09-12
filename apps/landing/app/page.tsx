@@ -47,7 +47,7 @@ const questions = [
   ],
   [
     "What do I need to run it?",
-    "A machine that stays on, Docker with Compose 2.20+, and a supported model account, API key, or compatible endpoint. A VPS, home server, or spare Mac works. We recommend 8 GB of RAM and 8 GB of free disk space. Guided setup installs the server; the desktop app connects to it.",
+    "A machine that stays on, a running Docker Engine with Compose 2.20+, and a supported model account, API key, or compatible endpoint. Linux can run the engine directly; Docker Desktop supplies it on macOS and Windows. We recommend 8 GB of RAM and 8 GB of free disk space. Guided setup installs the server; the desktop app connects to it.",
   ],
   [
     "Which model providers can I connect?",
@@ -63,7 +63,7 @@ const questions = [
   ],
   [
     "Will agents keep working when I close the app?",
-    "Yes, as long as your server stays on. Agents and scheduled tasks run on the server. The desktop and iPhone apps are clients, so closing an app does not stop a job.",
+    "Server-side turns and schedules continue while your server stays on. Keep the OpenTeam desktop app running when work needs its approval bridge: launching delegated tasks, including computer-use workers, or accessing your physical computer.",
   ],
   [
     "What does OpenTeam cost?",

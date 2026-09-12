@@ -21,17 +21,32 @@ reach it, connecting the apps, and keeping it updated. To run from source instea
 
 | Need | Details |
 | --- | --- |
-| Host | An x64 or arm64 machine. A small Linux VM is the usual choice; macOS or Windows with Docker Desktop also works. |
-| Docker | Docker with Compose 2.20 or newer. The installer checks both. |
+| Host | An x64 or arm64 machine running Linux, macOS, or Windows. |
+| Docker | A running Docker Engine for Linux containers, the Docker CLI, and Compose 2.20 or newer. The installer checks the CLI, daemon, and Compose. |
 | CLI runtime | None. The installer downloads a native CLI binary from GitHub Releases. |
 | Memory | 8 GB recommended. The installer warns below that. |
 | Disk | 8 GB free recommended at install. Updates need at least 4 GB free. |
 | Local ports | `8787` and `6200-6299` must be free on `127.0.0.1` before install. |
 | Inbound ports | TCP 80 and 443 for public HTTPS. The API port for public HTTP or private network. None otherwise. |
 
+On Linux, Docker Engine and Compose run directly on the host; Docker Desktop is optional. On
+macOS and Windows, Docker Desktop supplies a Linux VM, the engine, and Compose. Keep the backend
+running; its dashboard window can be closed. Installing only the `docker` command does not supply
+an engine. See Docker's [Engine installation](https://docs.docker.com/engine/install/) and
+[Desktop installation](https://docs.docker.com/desktop/setup/install/) guides.
+
+OpenTeam uses the active Docker context and checks the engine and Compose rather than a particular
+VM manager. It does not install or start a VM backend or switch Docker contexts. Before installing,
+confirm that both commands succeed against the engine you intend to use:
+
+```sh
+docker info
+docker compose version
+```
+
 The stack is four long-running containers (PostgreSQL, server, worker, computer) plus a few
 one-shot jobs that sync the database schema and fix volume permissions. Public HTTPS mode adds a Caddy
-container for certificates.
+container for certificates. Docker runs the whole server stack, including the agent desktop.
 
 ## Install
 
@@ -108,8 +123,8 @@ Notes per mode:
   `X-OpenTeam-Proxy: <OPENTEAM_PROXY_SECRET from .env>` to be trusted for client IPs.
 - **Public HTTP.** Your password and session tokens travel unencrypted. The iPhone app refuses
   cleartext connections to public addresses, so only the desktop app works here.
-- **Private network.** Setup prefers a Tailscale address, then a LAN address. The screen viewer
-  ports have no login of their own, so keep this mode off untrusted networks.
+- **Private network.** Setup prefers a Tailscale address, then a LAN address. The app supplies a
+  generated credential for each live screen. Keep the viewer ports on a trusted LAN or VPN.
 
 After applying, setup checks DNS, the public endpoint, and certificate expiry for the three
 internet-facing modes. If the stack fails to come up, setup restores the previous `.env`.
@@ -196,7 +211,15 @@ the builds present in the latest [GitHub release](https://github.com/raghavpilla
 macOS (Apple silicon and Intel), Windows, and Linux AppImage. A platform's installer is published
 only when the release workflow has that platform's signing credentials, so check the download page
 for what the current release includes. On first launch enter the server URL that setup printed,
-then sign in with the owner account. Closing the app never stops a bot.
+then sign in with the owner account. Server-side turns and schedules continue when a client
+closes. Keep the OpenTeam desktop app running when work needs its approval bridge: launching
+delegated tasks, including computer-use workers, or accessing the physical host. Docker Desktop
+provides the container runtime; the OpenTeam desktop app provides this separate bridge.
+
+Each bot has its own screen and browser profile inside the shared Linux computer, so different
+bots can work concurrently. Multiple viewers can watch the same screen. Use takeover or pause
+before typing on a screen an agent is using; this interrupts active agent input and rejects
+queued input from before the control change. Return control when the manual step is finished.
 
 **iPhone.** The app in `apps/mobile` is built with Expo. App Store and TestFlight distribution is
 not set up yet, so build it yourself with `bun --filter @openteam/mobile ios`. In the app, open
@@ -320,6 +343,10 @@ uses project `openteam-dev`, so its volumes are `openteam-dev_openteam_*`, and e
 carries a `com.openteam.environment` label of `production` or `development`, so the two never
 collide on one machine.
 
+Volumes belong to the Docker engine that created them. Switching Docker contexts or VM backends
+does not move the volumes or their data. Back up this recovery set on the old engine and restore
+it on the new one before removing the old backend.
+
 **Back up a released install:**
 
 ```sh
@@ -364,8 +391,11 @@ The plain SQL dumps that `openteam update` writes can be restored with `psql` in
 - **Authentication is on by default.** `OPENTEAM_AUTH_MODE=required` makes every app sign in with
   the owner account. `disabled` removes all API authentication and gives any client full access.
   Only use it on a fully isolated network, never behind a proxy or on the internet.
-- **Screen viewer ports have no login.** The `6200-6299` range serves live bot screens over noVNC.
-  It stays on loopback in every mode except private network. Do not expose it further.
+- **Screen viewers require a credential.** The `6200-6299` range serves live bot screens over
+  noVNC. The authenticated app supplies a generated per-screen credential in the viewer URL
+  fragment. The viewer removes the fragment from the visible URL and keeps the credential in
+  tab-scoped session storage for refreshes. Treat viewer links as credentials and keep these
+  ports on loopback or a trusted private network.
 - **Secrets file permissions.** `doctor` fails if `.env` is readable by other users.
 - **Credentials stay server-side.** Provider tokens live in the computer container's private
   volume. Bot shells run as a separate user that cannot read them, and the apps only ever receive
@@ -397,6 +427,13 @@ openteam logs --service server --follow
 
 Common problems:
 
+- **Docker CLI works but the daemon is unreachable.** `docker --version` checks only the client.
+  Run `docker info`, start the intended Docker backend, and check `docker context show`. On a
+  Linux host, start Docker Engine; on macOS or Windows using Docker Desktop, start its backend.
+- **Physical-host bridge is offline.** Keep the OpenTeam desktop app running and connected to
+  the intended server. Its approval bridge must be reachable from the computer container and
+  use the same control token. Delegated task launches, including computer-use workers, need
+  this bridge even when the Docker services themselves are healthy.
 - **Install fails on ports.** Something already uses `8787` or a port in `6200-6299` on loopback.
   Free it, or pick another API port with `openteam setup --advanced`.
 - **Cannot switch to public HTTPS.** Another process holds port 80 or 443. Stop it, or use

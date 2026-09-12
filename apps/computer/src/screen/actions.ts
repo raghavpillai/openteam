@@ -1,9 +1,77 @@
+import { setTimeout as delay } from "node:timers/promises";
 import type { ComputerUseActionInput } from "@openteam/contracts";
 import { run } from "./processes";
+import { typeText } from "./typing";
+
+// Accept common browser/agent spellings while preserving case-sensitive X keysyms.
+const KEY_ALIASES: Record<string, string> = {
+  enter: "Return",
+  return: "Return",
+  esc: "Escape",
+  escape: "Escape",
+  tab: "Tab",
+  backspace: "BackSpace",
+  delete: "Delete",
+  del: "Delete",
+  space: "space",
+  spacebar: "space",
+  home: "Home",
+  end: "End",
+  insert: "Insert",
+  pageup: "Prior",
+  pagedown: "Next",
+  arrowleft: "Left",
+  left: "Left",
+  arrowright: "Right",
+  right: "Right",
+  arrowup: "Up",
+  up: "Up",
+  arrowdown: "Down",
+  down: "Down",
+};
+const normalizeKey = (key: string) =>
+  key
+    .split("+")
+    .map((part) => KEY_ALIASES[part.toLowerCase()] ?? part)
+    .join("+");
 
 export async function performComputerUseAction(
   input: ComputerUseActionInput,
-  env: NodeJS.ProcessEnv
+  env: NodeJS.ProcessEnv,
+  signal?: AbortSignal
+): Promise<void> {
+  signal?.throwIfAborted();
+  try {
+    await performAction(input, env, signal);
+  } finally {
+    if (signal?.aborted && input.action !== "wait" && input.action !== "screenshot") {
+      // A terminated xdotool may not have reached its keyup/mouseup commands.
+      await run(
+        "xdotool",
+        [
+          "keyup",
+          "--delay",
+          "0",
+          // Numeric keycodes also release an interrupted character key, even
+          // after its temporary Unicode mapping has already been restored.
+          ...Array.from({ length: 248 }, (_, index) => String(index + 8).padStart(3, "0")),
+          "mouseup",
+          "1",
+          "mouseup",
+          "2",
+          "mouseup",
+          "3",
+        ],
+        { env }
+      );
+    }
+  }
+}
+
+async function performAction(
+  input: ComputerUseActionInput,
+  env: NodeJS.ProcessEnv,
+  signal?: AbortSignal
 ): Promise<void> {
   const button = input.button === "right" ? "3" : input.button === "middle" ? "2" : "1";
   const modifiers = input.modifiers?.split("+") ?? [];
@@ -12,12 +80,14 @@ export async function performComputerUseAction(
   const position =
     input.x === undefined || input.y === undefined
       ? []
-      : ["mousemove", "--sync", String(input.x), String(input.y)];
+      : // --sync waits for a motion event even when the pointer is already here.
+        // X11 orders these requests before the click/key requests that follow.
+        ["mousemove", String(input.x), String(input.y)];
   switch (input.action) {
     case "screenshot":
       return;
     case "move":
-      if (position.length > 0) await run("xdotool", position, { env });
+      if (position.length > 0) await run("xdotool", position, { env, signal });
       return;
     case "click":
       await run(
@@ -33,7 +103,7 @@ export async function performComputerUseAction(
           button,
           ...released,
         ],
-        { env }
+        { env, signal }
       );
       return;
     case "drag": {
@@ -46,12 +116,11 @@ export async function performComputerUseAction(
       const first = points[0]!;
       const path = points
         .slice(1)
-        .flatMap((point) => ["mousemove", "--sync", String(point.x), String(point.y)]);
+        .flatMap((point) => ["mousemove", String(point.x), String(point.y)]);
       await run(
         "xdotool",
         [
           "mousemove",
-          "--sync",
           String(first.x),
           String(first.y),
           ...held,
@@ -62,17 +131,23 @@ export async function performComputerUseAction(
           button,
           ...released,
         ],
-        { env }
+        { env, signal }
       );
       return;
     }
     case "type":
-      await run("xdotool", ["type", "--clearmodifiers", "--delay", "2", "--", input.text!], {
-        env,
-      });
+      await typeText(input.text!, env, signal);
       return;
     case "key":
-      await run("xdotool", ["key", "--clearmodifiers", input.key!], { env });
+      await run(
+        "xdotool",
+        ["key", "--clearmodifiers", normalizeKey([...modifiers, input.key!].join("+"))],
+        {
+          env,
+          failOnStderr: true,
+          signal,
+        }
+      );
       return;
     case "scroll": {
       const scrollButton = { up: "4", down: "5", left: "6", right: "7" }[input.direction!];
@@ -89,12 +164,12 @@ export async function performComputerUseAction(
           scrollButton,
           ...released,
         ],
-        { env }
+        { env, signal }
       );
       return;
     }
     case "wait":
-      await new Promise((resolve) => setTimeout(resolve, input.durationMs!));
+      await delay(input.durationMs!, undefined, { signal });
       return;
   }
 }

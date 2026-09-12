@@ -115,7 +115,7 @@ export const assertServerReachable = (project: ComposeProject, health: HealthRes
   );
   if (internal.status === 0 && internal.stdout.trim() === "ready") {
     throw new CliError(
-      `OpenTeam is ready inside Docker, but ${health.url} cannot be reached from this machine (${health.detail}). Check Docker's host port forwarding and other listeners on that port. With Colima, a Tailscale Serve listener can prevent forwarding even though Docker reports healthy containers; inspect it with \`tailscale serve status\`. Resolve the port conflict or repair Docker's forwarding, then retry openteam start.`
+      `OpenTeam is ready inside Docker, but ${health.url} cannot be reached from this machine (${health.detail}). Check Docker's host port forwarding and other listeners on that port, including Tailscale Serve rules shown by \`tailscale serve status\`. Resolve the port conflict or repair Docker's forwarding, then retry openteam start.`
     );
   }
 };

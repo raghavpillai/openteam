@@ -4,7 +4,7 @@ import type {
 } from "@openteam/contracts/service-protocol";
 import type { Database } from "bun:sqlite";
 import { AsyncLocalStorage } from "node:async_hooks";
-import { chmod, mkdir, rm } from "node:fs/promises";
+import { chmod, mkdir, rm, stat } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import {
   AgentDirectoryInventory,
@@ -51,6 +51,14 @@ export {
 export const BOT_AGENT_STORE_MAX_OPEN_AGENTS = 32;
 
 export const BOT_AGENT_STORE_IDLE_CLOSE_MS = 2 * 60_000;
+
+// The computer supervisor and server/worker have different UIDs, but share
+// the box group. Repair older directories too; mkdir does not change their mode.
+const ensureSharedAgentDirectory = async (directory: string): Promise<void> => {
+  await mkdir(directory, { recursive: true, mode: 0o770 });
+  const mode = (await stat(directory)).mode & 0o7777;
+  if ((mode & 0o070) !== 0o070) await chmod(directory, mode | 0o070);
+};
 
 /**
  * OpenTeam-compatible per-agent SQLite stores. PostgreSQL and Pi remain product
@@ -143,7 +151,8 @@ export class BotAgentStore {
 
   private async initializeAgentStore(agentId: string, createdAt: number): Promise<void> {
     const directory = this.agentDirectory(agentId);
-    await mkdir(directory, { recursive: true, mode: 0o755 });
+    await ensureSharedAgentDirectory(dirname(directory));
+    await ensureSharedAgentDirectory(directory);
     const path = join(directory, "store.db");
     const database = await openStoreWithRecovery(agentId, path, createdAt, false);
     let checkpointed = false;
@@ -262,8 +271,8 @@ export class BotAgentStore {
     try {
       await this.initializeAgent(agentId);
       const directory = this.agentDirectory(agentId);
-      await mkdir(join(directory, "memory"), { recursive: true, mode: 0o755 });
-      await mkdir(join(directory, "automations"), { recursive: true, mode: 0o755 });
+      await ensureSharedAgentDirectory(join(directory, "memory"));
+      await ensureSharedAgentDirectory(join(directory, "automations"));
       const storePath = join(directory, "store.db");
       const blobPath = join(directory, "conversation-blobs.db");
       store = await openStoreWithRecovery(agentId, storePath, this.now(), true);

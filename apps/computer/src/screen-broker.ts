@@ -1,8 +1,8 @@
-import type { ComputerUseActionInput, ScreenActionInput } from "@openteam/contracts";
 import { type ChildProcess, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { chown, cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { chown, cp, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import type { ComputerUseActionInput, ScreenActionInput } from "@openteam/contracts";
 import { agentProcessIdentity } from "./agent-process";
 import { BrowserBroker } from "./browser/broker";
 import { BrowserProfileAuthority } from "./browser/profile-authority";
@@ -54,7 +54,12 @@ export class ScreenBroker {
   private readonly browserBroker: BrowserBroker;
   private readonly profileAuthority: BrowserProfileAuthority;
   private loaded = false;
+  private loading: Promise<void> | null = null;
   private allocation: Promise<void> = Promise.resolve();
+  private mappingWrites: Promise<void> = Promise.resolve();
+  private readonly inputQueues = new WeakMap<ScreenSession, Promise<void>>();
+  private readonly inputRevisions = new WeakMap<ScreenSession, number>();
+  private readonly activeAgentInput = new WeakMap<ScreenSession, AbortController>();
 
   constructor(private readonly home = process.env.HOME ?? "/home/box") {
     this.stateRoot = join(home, ".openteam");
@@ -74,33 +79,37 @@ export class ScreenBroker {
         if (this.slotByBot.delete(botId)) await this.persistMappings();
         throw new Error("Graphical screen was destroyed");
       }
-      session = {
-        botId,
-        cwd,
-        slot,
-        display: DISPLAY_BASE + slot,
-        rfbPort: RFB_PORT_BASE + slot,
-        viewerPort: VIEWER_PORT_BASE + slot,
-        viewerPassword: createViewerPassword(),
-        browserDebugPort: BROWSER_DEBUG_PORT_BASE + slot,
-        profileDirectory:
-          slot === 0
-            ? join(this.home, "chrome-profile")
-            : join(this.home, `chrome-profile-${slot + 1}`),
-        runtimeDirectory: join("/tmp", `openteam-screen-${slot}`),
-        state: "starting",
-        error: null,
-        humanTakeoverUntil: 0,
-        agentInputPaused: false,
-        destroyed: false,
-        stopping: false,
-        processes: [],
-        browserProcess: null,
-        startPromise: null,
-        lastHealthCheckAt: 0,
-        healthCheckPromise: null,
-      };
-      this.sessions.set(botId, session);
+      // Another request may have created this session while slot allocation waited.
+      session = this.sessions.get(botId);
+      if (!session) {
+        session = {
+          botId,
+          cwd,
+          slot,
+          display: DISPLAY_BASE + slot,
+          rfbPort: RFB_PORT_BASE + slot,
+          viewerPort: VIEWER_PORT_BASE + slot,
+          viewerPassword: createViewerPassword(),
+          browserDebugPort: BROWSER_DEBUG_PORT_BASE + slot,
+          profileDirectory:
+            slot === 0
+              ? join(this.home, "chrome-profile")
+              : join(this.home, `chrome-profile-${slot + 1}`),
+          runtimeDirectory: join("/tmp", `openteam-screen-${slot}`),
+          state: "starting",
+          error: null,
+          humanTakeoverUntil: 0,
+          agentInputPaused: false,
+          destroyed: false,
+          stopping: false,
+          processes: [],
+          browserProcess: null,
+          startPromise: null,
+          lastHealthCheckAt: 0,
+          healthCheckPromise: null,
+        };
+        this.sessions.set(botId, session);
+      }
     } else {
       session.cwd = cwd;
     }
@@ -133,74 +142,54 @@ export class ScreenBroker {
     actor: "agent" | "human"
   ): Promise<ScreenStatus> {
     const session = await this.readySession(botId, cwd);
-    if (actor === "agent") this.assertAgentControl(session);
-    const env = environment(this.home, session);
-    switch (input.action) {
-      case "move":
-        await run("xdotool", ["mousemove", "--sync", String(input.x), String(input.y)], { env });
-        break;
-      case "click": {
-        const button = input.button === "right" ? "3" : input.button === "middle" ? "2" : "1";
-        const args = ["mousemove", "--sync", String(input.x), String(input.y), "click"];
-        if (input.double) args.push("--repeat", "2", "--delay", "140");
-        args.push(button);
-        await run("xdotool", args, { env });
-        break;
-      }
-      case "drag": {
-        const button = input.button === "right" ? "3" : input.button === "middle" ? "2" : "1";
-        const [first, ...rest] = input.path;
-        if (!first) throw new Error("A drag path needs at least two points");
-        await run(
-          "xdotool",
-          [
-            "mousemove",
-            "--sync",
-            String(first.x),
-            String(first.y),
-            "mousedown",
-            button,
-            ...rest.flatMap((point) => ["mousemove", "--sync", String(point.x), String(point.y)]),
-            "mouseup",
-            button,
-          ],
-          { env }
-        );
-        break;
-      }
-      case "type":
-        await run("xdotool", ["type", "--clearmodifiers", "--delay", "2", "--", input.text], {
-          env,
-        });
-        break;
-      case "key":
-        await run("xdotool", ["key", "--clearmodifiers", ...input.keys], { env });
-        break;
-      case "scroll": {
-        const button = input.deltaY >= 0 ? "5" : "4";
-        const repeat = Math.max(1, Math.abs(input.deltaY));
-        await run("xdotool", ["click", "--repeat", String(repeat), "--delay", "30", button], {
-          env,
-        });
-        break;
-      }
-      case "open_app":
-        this.openApp(session, input.app);
-        if (input.app === "chromium") {
-          await this.browserBroker.attach(
-            session.botId,
-            session.browserDebugPort,
-            session.profileDirectory,
-            60
+    return this.withInput(session, actor, async (signal) => {
+      const env = environment(this.home, session);
+      switch (input.action) {
+        case "move":
+        case "drag":
+        case "type":
+          await performComputerUseAction(input, env, signal);
+          break;
+        case "click":
+          await performComputerUseAction({ ...input, count: input.double ? 2 : 1 }, env, signal);
+          break;
+        case "key":
+          for (const key of input.keys) {
+            signal?.throwIfAborted();
+            await performComputerUseAction({ action: "key", key }, env, signal);
+          }
+          break;
+        case "scroll":
+          await performComputerUseAction(
+            {
+              action: "scroll",
+              direction: input.deltaY >= 0 ? "down" : "up",
+              amount: Math.max(1, Math.abs(input.deltaY)),
+            },
+            env,
+            signal
           );
-        }
-        await new Promise((resolve) => setTimeout(resolve, input.app === "chromium" ? 1_500 : 700));
-        break;
-      case "wait":
-        await new Promise((resolve) => setTimeout(resolve, input.ms));
-        break;
-    }
-    return this.statusFor(session);
+          break;
+        case "open_app":
+          this.openApp(session, input.app);
+          if (input.app === "chromium") {
+            await this.browserBroker.attach(
+              session.botId,
+              session.browserDebugPort,
+              session.profileDirectory,
+              60
+            );
+          }
+          await new Promise((resolve) =>
+            setTimeout(resolve, input.app === "chromium" ? 1_500 : 700)
+          );
+          break;
+        case "wait":
+          await performComputerUseAction({ action: "wait", durationMs: input.ms }, env, signal);
+          break;
+      }
+      return this.statusFor(session);
+    });
   }
 
   async actComputerUse(
@@ -209,19 +198,22 @@ export class ScreenBroker {
     actions: readonly ComputerUseActionInput[]
   ): Promise<Buffer> {
     const session = await this.readySession(botId, cwd);
-    this.assertAgentControl(session);
-    const env = environment(this.home, session);
-    for (const action of actions) {
-      this.assertAgentControl(session);
-      await performComputerUseAction(action, env);
-    }
-    const finalAction = actions.at(-1)?.action;
-    if (finalAction && finalAction !== "wait" && finalAction !== "screenshot") {
-      await new Promise((resolve) => setTimeout(resolve, 150));
-    }
-    return run("import", ["-display", `:${session.display}`, "-window", "root", "png:-"], {
-      env,
-      captureStdout: true,
+    return this.withInput(session, "agent", async (signal) => {
+      const env = environment(this.home, session);
+      for (const action of actions) {
+        signal?.throwIfAborted();
+        this.assertAgentControl(session);
+        await performComputerUseAction(action, env, signal);
+      }
+      const finalAction = actions.at(-1)?.action;
+      if (finalAction && finalAction !== "wait" && finalAction !== "screenshot") {
+        await new Promise((resolve) => setTimeout(resolve, 150));
+      }
+      return run("import", ["-display", `:${session.display}`, "-window", "root", "png:-"], {
+        env,
+        captureStdout: true,
+        signal,
+      });
     });
   }
 
@@ -253,12 +245,14 @@ export class ScreenBroker {
   async takeover(botId: string, cwd: string, active: boolean): Promise<ScreenStatus> {
     const session = await this.readySession(botId, cwd);
     session.humanTakeoverUntil = active ? Date.now() + TAKEOVER_TTL_MS : 0;
+    if (active) await this.interruptAgentInput(session);
     return this.statusFor(session);
   }
 
   async pauseAgent(botId: string, cwd: string, paused: boolean): Promise<ScreenStatus> {
     const session = await this.readySession(botId, cwd);
     session.agentInputPaused = paused;
+    if (paused) await this.interruptAgentInput(session);
     return this.statusFor(session);
   }
 
@@ -269,6 +263,8 @@ export class ScreenBroker {
     if (session) {
       session.destroyed = true;
       session.state = "failed";
+      await this.interruptAgentInput(session);
+      await this.inputQueues.get(session);
       await this.browserBroker.detach(botId);
       await stopProcesses(session);
       await this.profileAuthority.publish(session.profileDirectory);
@@ -292,6 +288,48 @@ export class ScreenBroker {
     if (session.agentInputPaused) throw new Error("Agent graphical input is paused");
     if (session.humanTakeoverUntil > Date.now()) {
       throw new Error("The user currently holds the graphical input lease");
+    }
+  }
+
+  private withInput<T>(
+    session: ScreenSession,
+    actor: "agent" | "human",
+    operation: (signal?: AbortSignal) => Promise<T>
+  ): Promise<T> {
+    const revision = this.inputRevisions.get(session) ?? 0;
+    const result = (this.inputQueues.get(session) ?? Promise.resolve()).then(async () => {
+      this.assertNotDestroyed(session);
+      let controller: AbortController | undefined;
+      if (actor === "agent") {
+        this.assertAgentControl(session);
+        if (revision !== (this.inputRevisions.get(session) ?? 0)) {
+          throw new Error("Graphical control changed; inspect the screen before retrying input");
+        }
+        controller = new AbortController();
+        this.activeAgentInput.set(session, controller);
+      }
+      try {
+        return await operation(controller?.signal);
+      } finally {
+        if (controller) this.activeAgentInput.delete(session);
+      }
+    });
+    this.inputQueues.set(
+      session,
+      result.then(
+        () => undefined,
+        () => undefined
+      )
+    );
+    return result;
+  }
+
+  private async interruptAgentInput(session: ScreenSession): Promise<void> {
+    this.inputRevisions.set(session, (this.inputRevisions.get(session) ?? 0) + 1);
+    const controller = this.activeAgentInput.get(session);
+    if (controller) {
+      controller.abort(new Error("Agent graphical input interrupted by a control change"));
+      await this.inputQueues.get(session);
     }
   }
 
@@ -340,6 +378,8 @@ export class ScreenBroker {
       });
       await mkdir(join(session.runtimeDirectory, "cache"), { recursive: true });
       await mkdir(join(session.runtimeDirectory, "data"), { recursive: true });
+      // Concurrent Xvfb processes race when creating their shared socket directory.
+      await mkdir("/tmp/.X11-unix", { recursive: true, mode: 0o1777 });
       this.assertNotDestroyed(session);
       const display = `:${session.display}`;
       const xvfb = this.spawnLongLived(
@@ -594,6 +634,15 @@ export class ScreenBroker {
 
   private async loadMappings(): Promise<void> {
     if (this.loaded) return;
+    if (!this.loading) {
+      this.loading = this.readMappings().finally(() => {
+        this.loading = null;
+      });
+    }
+    await this.loading;
+  }
+
+  private async readMappings(): Promise<void> {
     await mkdir(this.stateRoot, { recursive: true });
     try {
       const parsed = JSON.parse(await readFile(this.mappingPath, "utf8")) as Record<string, number>;
@@ -612,7 +661,12 @@ export class ScreenBroker {
     const existing = this.slotByBot.get(botId);
     if (existing !== undefined) return existing;
     let allocated = -1;
-    this.allocation = this.allocation.then(async () => {
+    const allocation = this.allocation.then(async () => {
+      const reserved = this.slotByBot.get(botId);
+      if (reserved !== undefined) {
+        allocated = reserved;
+        return;
+      }
       const used = new Set(this.slotByBot.values());
       for (let slot = 0; slot < MAX_SCREENS; slot += 1) {
         if (!used.has(slot)) {
@@ -624,17 +678,30 @@ export class ScreenBroker {
       if (allocated < 0) throw new Error(`OpenTeam supports at most ${MAX_SCREENS} live screens`);
       await this.persistMappings();
     });
-    await this.allocation;
+    this.allocation = allocation.catch(() => undefined);
+    await allocation;
     return allocated;
   }
 
   private async persistMappings(): Promise<void> {
-    await writeFile(
-      this.mappingPath,
-      `${JSON.stringify(Object.fromEntries(this.slotByBot), null, 2)}\n`,
-      { mode: 0o600 }
-    );
+    const persist = this.mappingWrites.then(async () => {
+      const temporary = `${this.mappingPath}.${randomBytes(6).toString("hex")}.tmp`;
+      try {
+        await writeFile(
+          temporary,
+          `${JSON.stringify(Object.fromEntries(this.slotByBot), null, 2)}\n`,
+          {
+            mode: 0o600,
+          }
+        );
+        await rename(temporary, this.mappingPath);
+      } finally {
+        await rm(temporary, { force: true });
+      }
+    });
+    this.mappingWrites = persist.catch(() => undefined);
+    await persist;
   }
 }
 
-export { type ScreenStatus } from "./screen/types";
+export type { ScreenStatus } from "./screen/types";

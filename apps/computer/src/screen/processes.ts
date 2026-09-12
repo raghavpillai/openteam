@@ -15,9 +15,15 @@ export const processError = (command: string, stderr: string, code: number | nul
 export const run = async (
   command: string,
   args: string[],
-  options: { env?: NodeJS.ProcessEnv; captureStdout?: boolean } = {}
+  options: {
+    env?: NodeJS.ProcessEnv;
+    captureStdout?: boolean;
+    failOnStderr?: boolean;
+    signal?: AbortSignal;
+  } = {}
 ): Promise<Buffer> =>
   new Promise((resolve, reject) => {
+    options.signal?.throwIfAborted();
     const child = spawn(command, args, {
       env: options.env,
       ...agentProcessIdentity(),
@@ -25,14 +31,26 @@ export const run = async (
     });
     const stdout: Buffer[] = [];
     let stderr = "";
+    let killTimer: ReturnType<typeof setTimeout> | undefined;
+    const abort = () => {
+      child.kill("SIGTERM");
+      killTimer = setTimeout(() => child.kill("SIGKILL"), 500);
+      killTimer.unref();
+    };
+    options.signal?.addEventListener("abort", abort, { once: true });
     child.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));
     child.stderr.setEncoding("utf8");
     child.stderr.on("data", (chunk: string) => {
       stderr = `${stderr}${chunk}`.slice(-4_000);
     });
     child.once("error", reject);
-    child.once("exit", (code) => {
-      if (code === 0) resolve(options.captureStdout ? Buffer.concat(stdout) : Buffer.alloc(0));
+    // Wait for stdio to drain; exit can arrive before xdotool's error output.
+    child.once("close", (code) => {
+      options.signal?.removeEventListener("abort", abort);
+      clearTimeout(killTimer);
+      if (options.signal?.aborted) reject(options.signal.reason);
+      else if (code === 0 && !(options.failOnStderr && stderr.trim()))
+        resolve(options.captureStdout ? Buffer.concat(stdout) : Buffer.alloc(0));
       else reject(processError(command, stderr, code));
     });
   });

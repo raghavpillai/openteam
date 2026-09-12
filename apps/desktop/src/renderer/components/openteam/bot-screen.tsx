@@ -1,17 +1,17 @@
 import {
+  createHandoffReleaseController,
   createKeyedRequestCoordinator,
   createSerialPoller,
-  createHandoffReleaseController,
-  SCREEN_TAKEOVER_HEARTBEAT_MS,
   SCREEN_FRAME_REFRESH_MS,
   SCREEN_STATUS_POLL_MS,
+  SCREEN_TAKEOVER_HEARTBEAT_MS,
 } from "@openteam/client-core";
 import type { BotView, ScreenActionInput, ScreenStatusView } from "@openteam/contracts";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
 import { LoaderCircle, Minimize2, Monitor, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api } from "../../client/openteam-api";
 import { API_BASE } from "../../client/http";
+import { api } from "../../client/openteam-api";
 import { resolveLiveViewerUrl } from "../../client/runtime-url";
 import { useAuthenticatedResource } from "../../hooks/use-authenticated-resource";
 import { measureUntilNextPaint, recordPerformance } from "../../lib/performance";
@@ -53,15 +53,17 @@ export function BotScreen({
   const [open, setOpen] = useState(false);
   const [handoffPending, setHandoffPending] = useState(false);
   const viewerOpenedAt = useRef(0);
+  const viewerFrame = useRef<HTMLIFrameElement>(null);
   const actionTail = useRef(Promise.resolve());
+  const handoffMessageId = handoff?.messageId;
   const handoffRelease = useMemo(
     () =>
       createHandoffReleaseController({
         release: () => {
-          if (handoff) api.releaseComputerHandoff(handoff.messageId);
+          if (handoffMessageId) api.releaseComputerHandoff(handoffMessageId);
         },
       }),
-    [handoff?.messageId]
+    [handoffMessageId]
   );
   const pointerGesture = useRef<{
     moved: boolean;
@@ -155,14 +157,14 @@ export function BotScreen({
     closeViewer();
   }, [active, closeViewer, open]);
   useEffect(() => {
-    if (!handoff) return;
+    if (!handoffMessageId) return;
     handoffRelease.resume();
     window.addEventListener("pagehide", handoffRelease.release);
     return () => {
       window.removeEventListener("pagehide", handoffRelease.release);
       handoffRelease.deferRelease();
     };
-  }, [handoff?.messageId, handoffRelease]);
+  }, [handoffMessageId, handoffRelease]);
   useEffect(() => {
     if (!open) return;
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -178,7 +180,7 @@ export function BotScreen({
     measureUntilNextPaint("view.desktop-open", { botId: bot.id });
     onEnable();
     setOpen(true);
-    if (!screen) void refreshStatus();
+    void refreshStatus();
   };
   useEffect(() => {
     if (!handoff || handoff.botId !== bot.id) return;
@@ -211,8 +213,26 @@ export function BotScreen({
   const viewerReady = screen?.state === "ready";
   const liveViewerUrl = useMemo(() => {
     if (!open || !screen?.viewerUrl) return "";
-    return resolveLiveViewerUrl(screen.viewerUrl, window.location.href, API_BASE);
+    const resolved = resolveLiveViewerUrl(screen.viewerUrl, window.location.href, API_BASE);
+    if (!resolved) return "";
+    const viewer = new URL(resolved);
+    // Fetch the current viewer script when opening or rotating VNC credentials.
+    viewer.searchParams.set("v", String(Date.now()));
+    return viewer.toString();
   }, [open, screen?.viewerUrl]);
+  useEffect(() => {
+    if (!open || !liveViewerUrl) return;
+    const viewerOrigin = new URL(liveViewerUrl).origin;
+    const receiveConnectionState = (event: MessageEvent) => {
+      if (event.source !== viewerFrame.current?.contentWindow || event.origin !== viewerOrigin)
+        return;
+      if (event.data?.type !== "openteam:screen-connection") return;
+      if (["reconnecting", "authentication-failed"].includes(event.data.state))
+        void refreshStatus();
+    };
+    window.addEventListener("message", receiveConnectionState);
+    return () => window.removeEventListener("message", receiveConnectionState);
+  }, [liveViewerUrl, open, refreshStatus]);
   const frameSource = useAuthenticatedResource(
     enabled && screen?.state === "ready" ? api.screenFrameUrl(bot.id, frameRevision) : null
   );
@@ -255,7 +275,7 @@ export function BotScreen({
   );
   const handleRemoteKey = useCallback(
     (event: React.KeyboardEvent<HTMLDivElement>) => {
-      if (event.key === "Escape") return;
+      if (["Escape", "Control", "Alt", "Shift", "Meta"].includes(event.key)) return;
       const names: Record<string, string> = {
         Enter: "Return",
         Backspace: "BackSpace",
@@ -390,6 +410,7 @@ export function BotScreen({
             >
               {viewerReady && liveViewerUrl ? (
                 <iframe
+                  ref={viewerFrame}
                   className="absolute inset-0 size-full border-0 bg-[#1b1d1f]"
                   key={liveViewerUrl}
                   onLoad={() => {
@@ -415,10 +436,10 @@ export function BotScreen({
                       return;
                     }
                     event.currentTarget.focus();
+                    // The browser already emits both clicks of a double-click.
                     void act({
                       action: "click",
                       ...remotePoint(event.currentTarget, event.clientX, event.clientY),
-                      ...(event.detail > 1 ? { double: true } : {}),
                     });
                   }}
                   onContextMenu={(event) => {
@@ -485,13 +506,13 @@ export function BotScreen({
                     if (deltaY) void act({ action: "scroll", deltaY });
                   }}
                   role="application"
+                  // biome-ignore lint/a11y/noNoninteractiveTabindex: The remote desktop application receives keyboard input.
                   tabIndex={0}
                 >
                   <img
                     alt={`${bot.name}'s Linux screen`}
                     className="pointer-events-none size-full select-none object-contain"
                     draggable={false}
-                    key={frameSource}
                     onLoad={() => {
                       if (!viewerOpenedAt.current) return;
                       recordPerformance(

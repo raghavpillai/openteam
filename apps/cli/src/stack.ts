@@ -185,7 +185,7 @@ export const portConflictMessage = (occupant: PortOccupant): string => {
       port === 80 || port === 443 || (port >= VIEWER_PORT_START && port <= VIEWER_PORT_END)
         ? "choose a loopback connection with an existing proxy"
         : "choose a different API port or a loopback connection with an existing proxy";
-    return `OpenTeam cannot start because Tailscale Serve already uses port ${port}, which conflicts with Docker binding ${occupant.host}:${port}. This can leave containers healthy while Colima cannot forward the port to this machine. Inspect the rule with \`tailscale serve status\`, then remove or move that listener, or use \`openteam setup --advanced\` to ${alternative}. Retry openteam start after resolving the conflict.`;
+    return `OpenTeam cannot start because Tailscale Serve already uses port ${port}, which conflicts with Docker binding ${occupant.host}:${port}. This can leave containers healthy while Docker cannot forward the port to this machine. Inspect the rule with \`tailscale serve status\`, then remove or move that listener, or use \`openteam setup --advanced\` to ${alternative}. Retry openteam start after resolving the conflict.`;
   }
   const remedy =
     port === 80 || port === 443

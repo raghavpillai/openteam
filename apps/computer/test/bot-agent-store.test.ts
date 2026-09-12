@@ -1,6 +1,16 @@
 import { Database } from "bun:sqlite";
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readdir, readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  rm,
+  stat,
+  utimes,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BotAgentStore } from "../src/bot-agent-store";
@@ -17,6 +27,47 @@ afterEach(async () => {
 });
 
 describe("OpenTeam-compatible agent SQLite stores", () => {
+  test("first wake leaves shared agent directories writable by the server group", async () => {
+    root = await mkdtemp(join(tmpdir(), "openteam-agent-permissions-"));
+    store = new BotAgentStore(root);
+    await store.openForWake(agentId);
+
+    for (const directory of [
+      join(root, "agents"),
+      store.agentDirectory(agentId),
+      join(store.agentDirectory(agentId), "memory"),
+      join(store.agentDirectory(agentId), "automations"),
+    ]) {
+      expect((await stat(directory)).mode & 0o070).toBe(0o070);
+      expect((await stat(directory)).mode & 0o007).toBe(0);
+    }
+    expect((await stat(join(store.agentDirectory(agentId), "store.db"))).mode & 0o777).toBe(0o644);
+  });
+
+  test("reopening repairs legacy shared directory permissions without replacing saved files", async () => {
+    root = await mkdtemp(join(tmpdir(), "openteam-agent-permissions-"));
+    store = new BotAgentStore(root);
+    await store.openForWake(agentId);
+    await store.closeAgent(agentId);
+
+    const directories = [
+      join(root, "agents"),
+      store.agentDirectory(agentId),
+      join(store.agentDirectory(agentId), "memory"),
+      join(store.agentDirectory(agentId), "automations"),
+    ];
+    const saved = join(directories[3]!, "saved.json");
+    await writeFile(saved, '{"schedule":"@every 30s"}\n');
+    for (const directory of directories) await chmod(directory, 0o750);
+
+    await store.openForWake(agentId);
+
+    for (const directory of directories) {
+      expect((await stat(directory)).mode & 0o7777).toBe(0o770);
+    }
+    expect(await readFile(saved, "utf8")).toBe('{"schedule":"@every 30s"}\n');
+  });
+
   test("bounds idle handles with LRU eviction and deterministic idle close", async () => {
     root = await mkdtemp(join(tmpdir(), "openteam-bot-handle-lru-"));
     let now = 1_000;

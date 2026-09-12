@@ -105,13 +105,13 @@ Build the production renderer and start the isolated backend:
 
 ```sh
 bun --filter @openteam/desktop build
-docker-compose -f scripts/performance/docker-compose.yml up --build -d server
+docker compose -f scripts/performance/docker-compose.yml up --build -d server
 ```
 
 Seed a scale point. The script is incremental and deterministic, so increasing the values adds only missing rows:
 
 ```sh
-docker-compose -f scripts/performance/docker-compose.yml exec -T postgres \
+docker compose -f scripts/performance/docker-compose.yml exec -T postgres \
   psql -U openteam -d openteam_perf_audit \
   -v bot_count=1000 \
   -v messages_per_bot=20 \
@@ -137,7 +137,7 @@ fixture set for final simulator CUA without changing the normal desktop
 baseline:
 
 ```sh
-docker-compose -f scripts/performance/docker-compose.yml exec -T postgres \
+docker compose -f scripts/performance/docker-compose.yml exec -T postgres \
   psql -U openteam -d openteam_perf_audit \
   -v bot_count=1000 \
   -v messages_per_bot=20 \
@@ -266,7 +266,7 @@ The disabled arm defaults to `127.0.0.1:8877` and the required arm to
 Stop Electron and the renderer with `Ctrl-C`, then delete only the isolated Compose containers and volumes:
 
 ```sh
-docker-compose -f scripts/performance/docker-compose.yml down -v
+docker compose -f scripts/performance/docker-compose.yml down -v
 ```
 
 The synthetic rows and isolated PostgreSQL volume are intentionally unrecoverable after `down -v`; rerun the seed command to regenerate them.

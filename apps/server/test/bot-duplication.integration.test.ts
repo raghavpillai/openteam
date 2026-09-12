@@ -3,8 +3,9 @@ import { access, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createPrismaClient } from "@openteam/db";
+import { CreateBotInput, UpdateBotInput } from "@openteam/contracts";
 import { AgentDataStore, RoutineService } from "@openteam/messaging";
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import { PgBoss } from "pg-boss";
 import { BotService } from "../src/services/bot-service";
 import type { AppService } from "../src/app-service";
@@ -34,7 +35,7 @@ describe.skipIf(!databaseUrl)("Bot duplication with PostgreSQL and real agent fi
     await mkdir(workspace);
     const source = await prisma.bot.create({
       data: {
-        name: "Research ".repeat(10).slice(0, 80),
+        name: "Research ".repeat(10).trim(),
         title: "Regional research",
         description: "Never send external messages.",
         instructions: "Cite sources.",
@@ -47,6 +48,7 @@ describe.skipIf(!databaseUrl)("Bot duplication with PostgreSQL and real agent fi
         runtimeSessionPath: join(directory, "old-session.jsonl"),
         episodePending: 3,
         episodeTurns: [{ user: "OLD_CONTEXT_NONCE" }],
+        createdAt: new Date("2026-08-15T10:00:00Z"),
         conversation: { create: { continuity: "attached", compactionEpoch: 4 } },
       },
       include: { conversation: true },
@@ -233,7 +235,7 @@ describe.skipIf(!databaseUrl)("Bot duplication with PostgreSQL and real agent fi
         f.service().duplicate(f.source.id, { clientRequestId: `${f.source.id}:copy` })
       );
       expect(duplicate).toMatchObject({
-        name: `${f.source.name.slice(0, 75)} copy`,
+        name: `${f.source.name} copy`,
         title: f.source.title,
         description: f.source.description,
         instructions: f.source.instructions,
@@ -243,7 +245,7 @@ describe.skipIf(!databaseUrl)("Bot duplication with PostgreSQL and real agent fi
         defaultDirectory: f.workspace,
         onboardingStatus: "completed",
       });
-      expect(duplicate.name.length).toBeLessThanOrEqual(80);
+      expect(duplicate.name.length).toBeGreaterThan(80);
       expect(duplicate.id).not.toBe(f.source.id);
       expect(duplicate.conversationId).not.toBe(f.source.conversation!.id);
       const stored = await prisma.bot.findUniqueOrThrow({
@@ -273,6 +275,9 @@ describe.skipIf(!databaseUrl)("Bot duplication with PostgreSQL and real agent fi
       expect(stored.channelMemberships.map((entry) => entry.channelId)).toEqual([
         duplicate.dmChannelId,
       ]);
+      expect(
+        (await prisma.channel.findUniqueOrThrow({ where: { id: duplicate.dmChannelId } })).createdAt
+      ).toEqual(f.source.createdAt);
       expect(
         await prisma.channelMember.count({ where: { channelId: group.id, botId: duplicate.id } })
       ).toBe(0);
@@ -405,21 +410,49 @@ describe.skipIf(!databaseUrl)("Bot duplication with PostgreSQL and real agent fi
     }
   }, 30_000);
 
-  test("long Unicode names keep whole characters and remain editable", async () => {
+  test("Grok naming preserves full Unicode names, repeated copies, and edits after reconciliation", async () => {
     const f = await fixture();
     try {
-      const name = `${"A".repeat(74)}🚀`;
+      const name = `${"A".repeat(98)}🚀`;
+      expect(Schema.is(CreateBotInput)({ clientRequestId: `${f.source.id}:long`, name })).toBe(
+        true
+      );
       await f.store.mutateBotFiles(f.source.id, ["profile"], (tx) =>
         tx.bot.update({ where: { id: f.source.id }, data: { name } })
       );
       const copy = await Effect.runPromise(
         f.service().duplicate(f.source.id, { clientRequestId: `${f.source.id}:unicode` })
       );
-      expect(copy.name).toBe(`${"A".repeat(74)} copy`);
-      expect(copy.name.length).toBeLessThanOrEqual(80);
+      expect(copy.name).toBe(`${name} copy`);
+      await f.store.reconcileBot(copy.id);
+      expect((await prisma.bot.findUniqueOrThrow({ where: { id: copy.id } })).name).toBe(copy.name);
+      expect(
+        (await prisma.channel.findUniqueOrThrow({ where: { id: copy.dmChannelId } })).name
+      ).toBe(copy.name);
+      const sibling = await Effect.runPromise(
+        f.service().duplicate(f.source.id, { clientRequestId: `${f.source.id}:sibling` })
+      );
+      expect(sibling.id).not.toBe(copy.id);
+      expect(sibling.name).toBe(copy.name);
+      const nested = await Effect.runPromise(
+        f.service().duplicate(copy.id, { clientRequestId: `${f.source.id}:nested` })
+      );
+      expect(nested.name).toBe(`${name} copy copy`);
+      expect(nested.title).toBe(f.source.title);
+      const edit = { name: `${copy.name} edited`, title: "Edited label" };
+      expect(Schema.is(UpdateBotInput)(edit)).toBe(true);
+      await Effect.runPromise(f.service().update(copy.id, edit));
+      await f.store.reconcileBot(copy.id);
+      expect(await prisma.bot.findUniqueOrThrow({ where: { id: copy.id } })).toMatchObject(edit);
+      expect((await prisma.bot.findUniqueOrThrow({ where: { id: f.source.id } })).title).toBe(
+        f.source.title
+      );
+      expect((await prisma.bot.findUniqueOrThrow({ where: { id: sibling.id } })).title).toBe(
+        f.source.title
+      );
       expect(
         JSON.parse(await readFile(join(f.store.botDirectory(copy.id), "profile.json"), "utf8")).name
-      ).toBe(copy.name);
+      ).toBe(edit.name);
     } finally {
       await f.cleanup();
     }
@@ -524,7 +557,7 @@ describe.skipIf(!databaseUrl)("Bot duplication with PostgreSQL and real agent fi
       const response = await request(JSON.stringify(input));
       expect(response.status).toBe(201);
       const copy = await response.json();
-      expect(copy.name).toBe(`${f.source.name.slice(0, 75)} copy`);
+      expect(copy.name).toBe(`${f.source.name} copy`);
       expect(copy.instructions).toBe(f.source.instructions);
       expect(copy.status).toBe("provisioning");
       expect((await request(JSON.stringify(input), copy.id)).status).toBe(409);

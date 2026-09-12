@@ -2435,16 +2435,14 @@ export const ChatPane = memo(function ChatPane({
                 description={
                   channel.kind === "group"
                     ? "One room, delivered to each bot in order."
-                    : "Messages wake the same durable Pi session."
+                    : ""
                 }
                 icon={
                   channel.kind === "group" ? (
                     <Users className="size-8" />
-                  ) : (
-                    <MessageCircle className="size-8" />
-                  )
+                  ) : undefined
                 }
-                title={channel.kind === "group" ? "Start the group" : "Start a conversation"}
+                title={channel.kind === "group" ? "Start the group" : "No messages yet"}
               />
             ) : (
               <VirtualizedTimeline

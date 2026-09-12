@@ -164,7 +164,6 @@ function BotSettings({
             aria-label="Bot name"
             className="h-9 rounded-[7px] border-[#d9d9d9] px-2.5 text-[14px] shadow-none focus-visible:ring-0 dark:border-[#393939] dark:bg-[#181818]"
             id={`settings-name-${bot.id}`}
-            maxLength={80}
             onBlur={flush}
             onChange={(event) => queue({ ...draft, name: event.target.value })}
             placeholder="Bob"

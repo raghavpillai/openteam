@@ -1,4 +1,4 @@
-import type { ChannelMessageView } from "@openteam/contracts";
+import type { BotView, ChannelMessageView } from "@openteam/contracts";
 import { addSidebarUnread } from "@openteam/contracts/client-preferences";
 import { mentionHandleFor } from "@openteam/product-core/mentions";
 import {
@@ -39,7 +39,7 @@ import {
 } from "../../src/chat-viewport";
 import { A2AExchangeSheet, type MobileA2AExchange } from "../../src/components/a2a-exchange-sheet";
 import { ApprovalCard } from "../../src/components/approval-card";
-import { BotMark } from "../../src/components/bot-mark";
+import { BotAvatar } from "../../src/components/bot-avatar";
 import { Composer, type ComposerRecovery, type ReplyTarget } from "../../src/components/composer";
 import { GlassSurface } from "../../src/components/glass-surface";
 import { IconButton } from "../../src/components/icon-button";
@@ -72,7 +72,7 @@ function A2AActivityRow({
 }: {
   count: number;
   onOpen?: () => void;
-  peer?: { color: string; icon: string; name: string };
+  peer?: BotView;
   peerName: string;
 }) {
   const theme = useTheme();
@@ -98,7 +98,7 @@ function A2AActivityRow({
         {count} {count === 1 ? "message" : "messages"} with
       </Text>
       <View style={[styles.a2aPeer, { borderColor: theme.border }]}>
-        <BotMark color={peer?.color ?? "#858580"} icon={peer?.icon} size={20} />
+        <BotAvatar bot={peer} color={peer?.color ?? "#858580"} size={20} />
         <Text numberOfLines={1} style={[styles.a2aPeerName, { color: theme.text }]}>
           {name}
         </Text>
@@ -546,7 +546,7 @@ export default function ConversationScreen() {
                   },
                 ]}
               >
-                <BotMark color={bot?.color ?? "#858580"} icon={bot?.icon} size={27} />
+                <BotAvatar bot={bot} color={bot?.color ?? "#858580"} size={27} />
                 <Text numberOfLines={1} style={[styles.title, { color: theme.text }]}>
                   {name}
                 </Text>
@@ -573,7 +573,18 @@ export default function ConversationScreen() {
               ref={listRef}
               data={timeline}
               keyExtractor={(entry) => (isA2AActivity(entry) ? entry.id : messageRenderKey(entry))}
-              contentContainerStyle={[styles.messages, { paddingBottom: composerHeight + 8 }]}
+              contentContainerStyle={[
+                styles.messages,
+                timeline.length === 0 && styles.emptyMessages,
+                { paddingBottom: composerHeight + 8 },
+              ]}
+              ListEmptyComponent={
+                bot?.onboardingStatus === "completed" && !channelHistory?.loading ? (
+                  <Text style={[styles.emptyMessageLabel, { color: theme.textMuted }]}>
+                    No messages yet
+                  </Text>
+                ) : null
+              }
               keyboardDismissMode="interactive"
               keyboardShouldPersistTaps="handled"
               maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
@@ -948,6 +959,8 @@ const styles = StyleSheet.create({
     paddingTop: 22,
     paddingBottom: 58,
   },
+  emptyMessages: { justifyContent: "center", alignItems: "center" },
+  emptyMessageLabel: { fontSize: 15, lineHeight: 20 },
   historyAction: { minHeight: 44, alignItems: "center", justifyContent: "center" },
   historyLabel: { fontSize: 13, lineHeight: 18, fontWeight: "500" },
   a2aActivity: {

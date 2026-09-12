@@ -150,7 +150,7 @@ export type ApprovalDecision = typeof ApprovalDecision.Type;
 
 export const CreateBotInput = Schema.Struct({
   clientRequestId: Schema.String.pipe(Schema.minLength(8), Schema.maxLength(120)),
-  name: Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(80))),
+  name: Schema.optional(Schema.String.pipe(Schema.minLength(1))),
   title: Schema.optional(Schema.String.pipe(Schema.maxLength(120))),
   description: Schema.optional(Schema.String.pipe(Schema.maxLength(2_000))),
   instructions: Schema.optional(Schema.String.pipe(Schema.maxLength(20_000))),
@@ -166,7 +166,7 @@ export const DuplicateBotInput = Schema.Struct({
 export type DuplicateBotInput = typeof DuplicateBotInput.Type;
 
 export const UpdateBotInput = Schema.Struct({
-  name: Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(80))),
+  name: Schema.optional(Schema.String.pipe(Schema.minLength(1))),
   title: Schema.optional(Schema.String.pipe(Schema.maxLength(120))),
   description: Schema.optional(Schema.String.pipe(Schema.maxLength(2_000))),
   instructions: Schema.optional(Schema.String.pipe(Schema.maxLength(20_000))),

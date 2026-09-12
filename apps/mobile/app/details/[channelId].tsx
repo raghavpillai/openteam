@@ -18,7 +18,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { BotMark } from "../../src/components/bot-mark";
+import { BotAvatar } from "../../src/components/bot-avatar";
 import { BotProfileScreen } from "../../src/components/bot-profile-screen";
 import { IconButton } from "../../src/components/icon-button";
 import { RoutineEditorSheet } from "../../src/components/routine-editor-sheet";
@@ -145,7 +145,7 @@ const MemberRow = memo(function MemberRow({
         last && styles.listRowLast,
       ]}
     >
-      <BotMark color={bot.color} icon={bot.icon} size={38} />
+      <BotAvatar bot={bot} size={38} />
       <Text numberOfLines={1} style={[styles.memberName, { color: theme.text }]}>
         {bot.name}
       </Text>

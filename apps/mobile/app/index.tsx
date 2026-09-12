@@ -24,7 +24,7 @@ import ReanimatedSwipeable, {
   type SwipeableMethods,
 } from "react-native-gesture-handler/ReanimatedSwipeable";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { BotMark } from "../src/components/bot-mark";
+import { BotAvatar } from "../src/components/bot-avatar";
 import {
   ConversationContextMenu,
   type MoveDestination,
@@ -63,12 +63,15 @@ interface ChannelRowProps {
 const sameVisibleRow = (left: ChannelRowProjection, right: ChannelRowProjection): boolean =>
   left.channel.id === right.channel.id &&
   left.channel.name === right.channel.name &&
+  left.channel.createdAt === right.channel.createdAt &&
   left.channel.unreadCount === right.channel.unreadCount &&
   left.bot?.id === right.bot?.id &&
   left.bot?.name === right.bot?.name &&
   left.bot?.title === right.bot?.title &&
   left.bot?.color === right.bot?.color &&
   left.bot?.icon === right.bot?.icon &&
+  left.bot?.hasAvatar === right.bot?.hasAvatar &&
+  left.bot?.updatedAt === right.bot?.updatedAt &&
   left.latest?.id === right.latest?.id &&
   left.latest?.content === right.latest?.content &&
   left.latest?.createdAt === right.latest?.createdAt &&
@@ -82,22 +85,22 @@ function ConversationMark({
   botById: ReadonlyMap<string, BotView>;
   row: ChannelRowProjection;
 }) {
-  if (row.bot) return <BotMark color={row.bot.color} icon={row.bot.icon} size={48} />;
+  if (row.bot) return <BotAvatar bot={row.bot} size={48} />;
   const members = row.channel.members
     .map((member) => botById.get(member.botId))
     .filter((bot): bot is BotView => Boolean(bot))
     .slice(0, 2);
   if (members.length < 2) {
     const member = members[0];
-    return <BotMark color={member?.color ?? "#858580"} icon={member?.icon} size={48} />;
+    return <BotAvatar bot={member} color={member?.color ?? "#858580"} size={48} />;
   }
   return (
     <View style={styles.groupMark}>
       <View style={styles.groupMarkBack}>
-        <BotMark color={members[0].color} icon={members[0].icon} size={34} />
+        <BotAvatar bot={members[0]} size={34} />
       </View>
       <View style={styles.groupMarkFront}>
-        <BotMark color={members[1].color} icon={members[1].icon} size={34} />
+        <BotAvatar bot={members[1]} size={34} />
       </View>
     </View>
   );
@@ -235,7 +238,7 @@ const ChannelRow = memo(function ChannelRow({
               </View>
             ) : null}
             <Text style={[styles.time, { color: theme.textFaint }]}>
-              {timeLabel(row.latest?.createdAt)}
+              {timeLabel(row.latest?.createdAt ?? row.channel.createdAt)}
             </Text>
           </View>
           <View style={styles.previewLine}>
@@ -246,11 +249,7 @@ const ChannelRow = memo(function ChannelRow({
               <View style={[styles.workingDot, { backgroundColor: theme.success }]} />
             ) : null}
             <Text numberOfLines={1} style={[styles.preview, { color: theme.textMuted }]}>
-              {working
-                ? "Working…"
-                : row.latest
-                  ? channelMessageSummary(row.latest)
-                  : "Start a conversation"}
+              {working ? "Working…" : row.latest ? channelMessageSummary(row.latest) : ""}
             </Text>
             {unread ? <View style={styles.unreadDot} /> : null}
           </View>

@@ -959,7 +959,7 @@ const ChannelRow = memo(function ChannelRow({
           : bot?.status === "failed"
             ? "Setup needs attention"
             : latestPreview ||
-              (channel.kind === "agent_dm" ? "Private bot exchange" : "No messages yet");
+              (channel.kind === "agent_dm" ? "Private bot exchange" : "");
   const content = (
     <Button
       className={cn(

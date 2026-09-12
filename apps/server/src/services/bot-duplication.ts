@@ -14,14 +14,9 @@ interface Dependencies {
   computerFetch: ComputerFetch;
 }
 
-const nameSegments = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 const duplicateName = (name: string): string => {
-  let prefix = "";
-  for (const { segment } of nameSegments.segment(name)) {
-    if (prefix.length + segment.length > 75) break;
-    prefix += segment;
-  }
-  return `${prefix} copy`;
+  const trimmed = name.trim();
+  return trimmed ? `${trimmed} copy` : "copy";
 };
 
 /** A new identity and empty conversation with the source's durable configuration. */
@@ -134,6 +129,8 @@ export async function duplicateBot(
             id: dmChannelId,
             kind: "bot_dm",
             name,
+            // An empty Grok duplicate is ordered and dated by its original creation time.
+            createdAt: source.createdAt,
             directKey: `bot:${botId}`,
             members: { create: { botId, ordinal: 0 } },
           },

@@ -30,7 +30,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { BotMark } from "../src/components/bot-mark";
+import { BotAvatar } from "../src/components/bot-avatar";
 import { GlassSurface } from "../src/components/glass-surface";
 import { IconButton } from "../src/components/icon-button";
 import { stageRoutineNavigation } from "../src/routine-route";
@@ -132,7 +132,7 @@ function ResultGlyph({
   const theme = useTheme();
   const bot = result.botId ? botById.get(result.botId) : undefined;
   if (bot && (result.kind === "bot" || result.kind === "message")) {
-    return <BotMark color={bot.color} icon={bot.icon} size={48} />;
+    return <BotAvatar bot={bot} size={48} />;
   }
   return (
     <View style={[styles.resultGlyph, { backgroundColor: theme.surface }]}>

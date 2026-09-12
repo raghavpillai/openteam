@@ -65,7 +65,6 @@ export function NewBotForm({
         <Label htmlFor="new-bot-name">Name</Label>
         <Input
           id="new-bot-name"
-          maxLength={80}
           onChange={(event) => setName(event.target.value)}
           value={name}
         />
@@ -173,7 +172,6 @@ export function BotForm({
         <Label htmlFor="bot-name">Name</Label>
         <Input
           id="bot-name"
-          maxLength={80}
           onChange={(event) => setName(event.target.value)}
           value={name}
         />

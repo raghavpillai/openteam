@@ -445,7 +445,8 @@ const profileValues = (input: unknown) => {
       ? (input as Record<string, unknown>)
       : {};
   return {
-    name: boundedString(value.name, 80),
+    // Duplication appends to the full name; reconciliation must not cut off its suffix.
+    name: typeof value.name === "string" ? value.name.trim() : "",
     description: boundedString(value.description, 2_000),
     title: boundedString(value.title, 120),
     icon: boundedString(value.avatarShape, 16),

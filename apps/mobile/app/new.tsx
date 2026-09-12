@@ -15,7 +15,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { BotMark } from "../src/components/bot-mark";
+import { BotAvatar } from "../src/components/bot-avatar";
 import { IconButton } from "../src/components/icon-button";
 import {
   BOT_ROSTER_SEARCH_THRESHOLD,
@@ -60,7 +60,7 @@ const MemberRow = memo(function MemberRow({
         last && styles.memberLast,
       ]}
     >
-      <BotMark color={bot.color} icon={bot.icon} size={38} />
+      <BotAvatar bot={bot} size={38} />
       <Text numberOfLines={1} style={[styles.memberName, { color: theme.text }]}>
         {bot.name}
       </Text>
@@ -228,7 +228,7 @@ export default function NewConversationScreen() {
               <TextInput
                 autoFocus
                 keyboardAppearance={theme.dark ? "dark" : "light"}
-                maxLength={80}
+                maxLength={mode === "group" ? 80 : undefined}
                 onChangeText={setName}
                 onSubmitEditing={() => void submit()}
                 placeholder={mode === "bot" ? "Research Bot" : "Launch team"}

@@ -20,6 +20,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useTheme } from "../theme";
 import { BotMark } from "./bot-mark";
+import { BotAvatar } from "./bot-avatar";
 import { IconButton } from "./icon-button";
 
 const PROFILE_COLORS = ["#ffffff", ...BOT_AVATAR_DEALT_COLORS] as const;
@@ -141,7 +142,7 @@ export function BotProfileScreen({
   };
 
   const commitAvatar = async (nextShape: BotAvatarShape, nextColor: string) => {
-    if (avatarSaving || (nextShape === shape && nextColor === color)) return;
+    if (avatarSaving || (!bot.hasAvatar && nextShape === shape && nextColor === color)) return;
     const previousShape = shape;
     const previousColor = color;
     setShape(nextShape);
@@ -160,14 +161,13 @@ export function BotProfileScreen({
   const header = (
     <>
       <View style={styles.avatarWrap}>
-        <BotMark color={color} icon={shape} size={98} />
+        <BotAvatar bot={bot} color={color} icon={shape} showCustomAvatar={!avatarSaving} size={98} />
       </View>
 
       <View style={[styles.identityCard, { backgroundColor: panel }]}>
         <TextInput
           accessibilityLabel="Bot name"
           keyboardAppearance={theme.dark ? "dark" : "light"}
-          maxLength={80}
           onBlur={commitIdentity}
           onChangeText={setName}
           returnKeyType="done"

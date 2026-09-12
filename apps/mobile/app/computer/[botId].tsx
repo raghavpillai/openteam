@@ -27,7 +27,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { authHeadersForUrl } from "../../src/auth";
-import { BotMark } from "../../src/components/bot-mark";
+import { BotAvatar } from "../../src/components/bot-avatar";
 import { ComputerHelpSheet } from "../../src/components/computer-help-sheet";
 import {
   clampComputerViewport,
@@ -681,7 +681,7 @@ export default function ComputerScreen() {
           symbolSize={20}
         />
         <View style={styles.titlePill}>
-          <BotMark color={bot?.color ?? "#8057F5"} icon={bot?.icon} size={26} />
+          <BotAvatar bot={bot} color={bot?.color ?? "#8057F5"} size={26} />
           <Text numberOfLines={1} style={styles.title}>
             {bot?.name ?? "OpenTeam"}
           </Text>

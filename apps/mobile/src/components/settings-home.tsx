@@ -125,6 +125,8 @@ export function SettingsHome({
   appVersion,
   appearance,
   authRequired,
+  hapticsEnabled,
+  hapticsDisabled,
   notificationPermission,
   onAccount,
   onAppearance,
@@ -135,12 +137,15 @@ export function SettingsHome({
   onPlugins,
   onSignOut,
   onSystemPreferenceInfo,
+  onToggleHaptics,
   user,
 }: {
   accent: AccentPreference;
   appVersion: string;
   appearance: AppearancePreference;
   authRequired: boolean;
+  hapticsEnabled: boolean;
+  hapticsDisabled: boolean;
   notificationPermission: NotificationPermission;
   onAccount: () => void;
   onAppearance: () => void;
@@ -150,7 +155,8 @@ export function SettingsHome({
   onNotifications: () => void;
   onPlugins: () => void;
   onSignOut: () => void;
-  onSystemPreferenceInfo: (setting: "language" | "haptics" | "timezone") => void;
+  onSystemPreferenceInfo: (setting: "language" | "timezone") => void;
+  onToggleHaptics: (enabled: boolean) => void;
   user: OpenTeamAuthUser | null;
 }) {
   const theme = useTheme();
@@ -316,13 +322,16 @@ export function SettingsHome({
         />
         <Row
           last
-          onPress={() => onSystemPreferenceInfo("haptics")}
-          title="Haptics"
+          title="App haptics"
+          description="Feedback for gestures and important actions. System controls follow iOS settings."
           trailing={
-            <View style={styles.valueWithChevron}>
-              <Text style={[styles.value, { color: theme.textMuted }]}>On</Text>
-              <Chevron theme={theme} />
-            </View>
+            <Switch
+              accessibilityLabel="App haptics"
+              disabled={hapticsDisabled}
+              value={hapticsEnabled}
+              onValueChange={onToggleHaptics}
+              trackColor={{ true: theme.accent }}
+            />
           }
         />
       </Card>

@@ -9,6 +9,7 @@ import { AuthGate } from "../src/components/auth-gate";
 import { channelIdFromNotificationResponse, Notifications } from "../src/notifications";
 import { OpenTeamProvider } from "../src/state/openteam-context";
 import { darkTheme, lightTheme } from "../src/theme";
+import { hapticPreferences } from "../src/haptic-preferences";
 
 function NotificationNavigation() {
   useEffect(() => {
@@ -89,6 +90,9 @@ function RootNavigation() {
 }
 
 export default function RootLayout() {
+  useEffect(() => {
+    void hapticPreferences.hydrate();
+  }, []);
   return (
     <AppearanceProvider>
       <RootNavigation />

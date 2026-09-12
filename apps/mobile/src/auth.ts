@@ -324,7 +324,7 @@ export const authenticateConnection = async (
     try {
       await authClient(requireServerUrl(serverUrl)).discoverMode();
     } catch (cause) {
-      if (cause instanceof OpenTeamClientError && cause.code === "offline") {
+      if (cause instanceof OpenTeamClientError && cause.code === "offline" && cause.status === 0) {
         throw new Error(
           "Could not reach this OpenTeam server. Check the endpoint and your connection."
         );
@@ -336,7 +336,7 @@ export const authenticateConnection = async (
   try {
     await signIn(serverUrl, username, password);
   } catch (cause) {
-    if (cause instanceof OpenTeamClientError && cause.code === "offline") {
+    if (cause instanceof OpenTeamClientError && cause.code === "offline" && cause.status === 0) {
       throw new Error(
         "Could not reach this OpenTeam server. Check the endpoint and your connection."
       );
@@ -353,7 +353,7 @@ export const testServerConnection = async (
     const observedMode = await authClient(configured).validateServer();
     await storeCachedAuthMode(configured, observedMode);
   } catch (cause) {
-    if (cause instanceof OpenTeamClientError && cause.code === "offline") {
+    if (cause instanceof OpenTeamClientError && cause.code === "offline" && cause.status === 0) {
       throw new Error(
         "Could not reach this OpenTeam server. Check the endpoint and your connection."
       );

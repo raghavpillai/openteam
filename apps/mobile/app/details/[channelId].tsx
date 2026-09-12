@@ -1,3 +1,4 @@
+import * as Haptics from "../../src/haptics";
 import type { BotView, RoutineView } from "@openteam/contracts";
 import type { RobotAvatarShape as BotAvatarShape } from "@openteam/contracts/robot-avatar";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
@@ -110,6 +111,7 @@ interface MemberRowProps {
   first: boolean;
   last: boolean;
   selected: boolean;
+  disabled: boolean;
   onToggle: (botId: string) => void;
 }
 
@@ -125,6 +127,7 @@ const MemberRow = memo(function MemberRow({
   first,
   last,
   selected,
+  disabled,
   onToggle,
 }: MemberRowProps) {
   const theme = useTheme();
@@ -132,8 +135,12 @@ const MemberRow = memo(function MemberRow({
     <Pressable
       accessibilityLabel={`${selected ? "Remove" : "Add"} ${bot.name}`}
       accessibilityRole="checkbox"
-      accessibilityState={{ checked: selected }}
-      onPress={() => onToggle(bot.id)}
+      accessibilityState={{ checked: selected, disabled }}
+      disabled={disabled}
+      onPress={() => {
+        void Haptics.selectionAsync();
+        onToggle(bot.id);
+      }}
       style={[
         styles.member,
         {
@@ -333,6 +340,7 @@ export default function ConversationDetailsScreen() {
           current.map((candidate) => (candidate.id === updated.id ? updated : candidate))
         );
       } catch (cause) {
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
         setError(clientErrorMessage(cause, "OpenTeam could not update this routine."));
       } finally {
         setRoutineMutationId(null);
@@ -377,7 +385,9 @@ export default function ConversationDetailsScreen() {
       }
       formDirtyRef.current = false;
       setSaved(true);
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (cause) {
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       setError(clientErrorMessage(cause, "OpenTeam could not save these changes."));
     } finally {
       setSaving(false);
@@ -407,6 +417,9 @@ export default function ConversationDetailsScreen() {
         first={index === 0}
         last={index === filteredBots.length - 1}
         selected={memberIdSet.has(item.id)}
+        disabled={
+          memberIdSet.has(item.id) ? memberIdSet.size <= 1 : memberIdSet.size >= GROUP_MEMBER_LIMIT
+        }
         onToggle={toggleMember}
       />
     ),

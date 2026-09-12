@@ -6,7 +6,7 @@ import {
 import type { ScreenActionInput, ScreenStatusView } from "@openteam/contracts";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
 import * as Clipboard from "expo-clipboard";
-import * as Haptics from "expo-haptics";
+import * as Haptics from "../../src/haptics";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
@@ -100,10 +100,7 @@ function StageButton({
       accessibilityRole="button"
       disabled={disabled}
       hitSlop={5}
-      onPress={() => {
-        void Haptics.selectionAsync();
-        onPress();
-      }}
+      onPress={onPress}
       style={({ pressed }) => [
         styles.stageButtonHit,
         { height: Math.max(44, size), width: Math.max(44, size) },
@@ -654,11 +651,14 @@ export default function ComputerScreen() {
   const finishHandoff = async (action: "complete" | "skip" | "dismiss") => {
     if (!handoffId || !handoffRelease.beginFinish()) return;
     try {
-      await mutateComputerHandoff(handoffId, action);
+      const accepted = await mutateComputerHandoff(handoffId, action);
+      if (!accepted) throw new Error("Computer control wasn’t returned. Please try again.");
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       if (router.canGoBack()) router.back();
       else router.replace("/");
     } catch (cause) {
       handoffRelease.retry();
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       setError(clientErrorMessage(cause, "Could not return computer control"));
     }
   };

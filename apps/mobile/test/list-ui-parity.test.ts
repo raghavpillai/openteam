@@ -114,8 +114,8 @@ describe("mobile virtual-list UI parity", () => {
   test("login exposes the self-hosted endpoint in the shared mobile auth gate", async () => {
     const authGate = await source("src/components/auth-gate.tsx");
 
-    expect(authGate).toContain('accessibilityLabel="Server endpoint"');
-    expect(authGate).toContain("OPENTEAM SERVER ENDPOINT");
+    expect(authGate).toContain('accessibilityLabel="Server address"');
+    expect(authGate).toContain("Connect to your server");
     expect(authGate).not.toContain("Address reachable from this device");
     expect(authGate).toContain("saveServerConnection(normalized)");
     expect(authGate).toContain("testServerConnection(normalized.serverUrl)");
@@ -129,10 +129,10 @@ describe("mobile virtual-list UI parity", () => {
     expect(authGate).not.toContain("automaticallyAdjustKeyboardInsets");
     expect(authGate).toContain("translateY: panelLift");
     expect(authGate).toContain("onPress={Keyboard.dismiss}");
-    expect(authGate).toContain("const MINIMUM_SUBMIT_MS = 1000");
+    expect(authGate).toContain("const MINIMUM_SUBMIT_MS = 350");
     expect(authGate).toContain("await holdSpinner(startedAt)");
-    expect(authGate).toContain("Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy)");
-    expect(authGate).toContain("Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)");
+    expect(authGate).toContain("Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)");
+    expect(authGate).not.toContain("Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)");
     expect(authGate).toContain(
       "Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)"
     );

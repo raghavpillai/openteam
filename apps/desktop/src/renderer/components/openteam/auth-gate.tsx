@@ -1,3 +1,4 @@
+import { normalizeBaseUrl } from "@openteam/client-core/http";
 import { ArrowLeft, ArrowRight, CircleAlert, LoaderCircle } from "lucide-react";
 import type { FormEvent, ReactNode } from "react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -103,6 +104,10 @@ export function AuthGate({ children }: { children: ReactNode }) {
   const passwordInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
+    if (auth.error) setError(auth.error);
+  }, [auth.error]);
+
+  useEffect(() => {
     if (error)
       (stage === "endpoint" ? serverInput : passwordInput).current?.focus({ preventScroll: true });
   }, [error, stage]);
@@ -141,6 +146,12 @@ export function AuthGate({ children }: { children: ReactNode }) {
   const connect = async (event: FormEvent) => {
     event.preventDefault();
     if (!serverUrl.trim() || connecting) return;
+    try {
+      normalizeBaseUrl(serverUrl);
+    } catch (cause) {
+      setError(authErrorMessage(cause, "Enter your server address."));
+      return;
+    }
     setConnecting(true);
     setError(null);
     try {
@@ -166,7 +177,8 @@ export function AuthGate({ children }: { children: ReactNode }) {
 
   if (auth.status === "authenticated") return children;
 
-  if (auth.status === "checking") {
+  // Keep the active submit feedback mounted while sign-in verifies its new session.
+  if (auth.status === "checking" && !submitting && !connecting) {
     return (
       <LandingShell stage="checking">
         <div aria-live="polite" className="auth-session-status" data-active="true" role="status">
@@ -202,6 +214,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
           Log In
           <ArrowRight aria-hidden="true" className="size-[18px]" />
         </button>
+        <AuthFeedback id="startup-error" message={welcomeVisible ? error : null} />
       </div>
       <form
         noValidate
@@ -210,11 +223,18 @@ export function AuthGate({ children }: { children: ReactNode }) {
         inert={!endpointVisible}
         data-active={endpointVisible}
         className="electron-no-drag auth-stage-layer auth-endpoint-card"
+        onKeyDown={(event) => {
+          if (event.key === "Escape" && !connecting) {
+            event.preventDefault();
+            setError(null);
+            setStage("welcome");
+          }
+        }}
         onSubmit={(event) => void connect(event)}
       >
         <div className="auth-form-heading">
           <h2>Connect to your server</h2>
-          <p>Bring your team into this Mac.</p>
+          <p>Use your existing OpenTeam server.</p>
         </div>
         <label className="auth-field-label" htmlFor="server-url">
           Server address
@@ -241,7 +261,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
           value={serverUrl}
         />
         <p className="auth-field-hint" id="server-hint">
-          Enter the address of your OpenTeam server.
+          Use the server address from your OpenTeam setup.
         </p>
         <AuthFeedback id="server-error" message={endpointVisible ? error : null} />
         <div className="auth-actions">
@@ -276,6 +296,14 @@ export function AuthGate({ children }: { children: ReactNode }) {
         inert={!credentialsVisible}
         data-active={credentialsVisible}
         className="electron-no-drag auth-stage-layer auth-credentials-card"
+        onKeyDown={(event) => {
+          if (event.key === "Escape" && !submitting) {
+            event.preventDefault();
+            setError(null);
+            setPassword("");
+            setStage("endpoint");
+          }
+        }}
         onSubmit={(event) => void submit(event)}
       >
         <div className="auth-form-heading">

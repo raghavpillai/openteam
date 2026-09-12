@@ -13,7 +13,7 @@ import {
   searchResultKindLabel,
   writeSearchCache,
 } from "@openteam/product-core/search";
-import * as Haptics from "expo-haptics";
+import * as Haptics from "../src/haptics";
 import { router } from "expo-router";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -399,7 +399,6 @@ export default function SearchScreen() {
 
   const openResult = useCallback(
     (result: SearchResultView) => {
-      void Haptics.selectionAsync();
       if (result.kind === "link" && result.url) {
         void Linking.openURL(result.url);
         return;
@@ -468,7 +467,6 @@ export default function SearchScreen() {
           label={`Search category: ${activeSection.label}`}
           name="line.3.horizontal.decrease"
           onPress={() => {
-            void Haptics.selectionAsync();
             setFilterOpen((current) => !current);
           }}
           size={40}
@@ -524,7 +522,7 @@ export default function SearchScreen() {
                   accessibilityState={{ selected: active }}
                   key={section.category}
                   onPress={() => {
-                    void Haptics.selectionAsync();
+                    if (!active) void Haptics.selectionAsync();
                     showSection(index);
                   }}
                   style={({ pressed }) => [

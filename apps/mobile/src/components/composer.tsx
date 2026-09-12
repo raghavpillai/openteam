@@ -17,7 +17,7 @@ import {
 } from "@openteam/product-core/mentions";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
 import * as DocumentPicker from "expo-document-picker";
-import * as Haptics from "expo-haptics";
+import * as Haptics from "../haptics";
 import * as ImagePicker from "expo-image-picker";
 import { SymbolView } from "expo-symbols";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -220,6 +220,7 @@ export function Composer({
 
   const chooseMention = (option: MentionOption) => {
     if (!mentionMatch || mentionQuery === null) return;
+    void Haptics.selectionAsync();
     updateText(
       insertPlainTextMention(text, mentionMatch.index ?? 0, mentionMatch[0], option.handle)
     );
@@ -511,10 +512,18 @@ export function Composer({
     consumeEmptyRecovery(latestText.current, next.length);
   };
 
+  const reportAttachmentError = (
+    message: string,
+    type = Haptics.NotificationFeedbackType.Error
+  ) => {
+    setAttachmentError(message);
+    void Haptics.notificationAsync(type);
+  };
+
   const pickFromLibrary = async () => {
     const remaining = remainingAttachmentCapacity(attachments.length, uploadCapabilities);
     if (remaining <= 0) {
-      setAttachmentError(
+      reportAttachmentError(
         `You can attach up to ${uploadCapabilities.maxAttachmentsPerMessage} files.`
       );
       return;
@@ -544,13 +553,13 @@ export function Composer({
         uploadCapabilities
       );
       if (tooLarge) {
-        setAttachmentError(
+        reportAttachmentError(
           `${tooLarge.candidate.fileName || "That image"} is larger than ${formatAttachmentBytes(tooLarge.limit)}.`
         );
         return;
       }
       if (result.assets.length === 0) {
-        setAttachmentError("The selected image could not be read.");
+        reportAttachmentError("The selected image could not be read.");
         return;
       }
       stageAttachments(
@@ -567,7 +576,7 @@ export function Composer({
         })
       );
     } catch (cause) {
-      setAttachmentError(clientErrorMessage(cause, "The image picker could not open."));
+      reportAttachmentError(clientErrorMessage(cause, "The image picker could not open."));
     } finally {
       setPicking(false);
     }
@@ -576,7 +585,7 @@ export function Composer({
   const pickFiles = async () => {
     const remaining = remainingAttachmentCapacity(attachments.length, uploadCapabilities);
     if (remaining <= 0) {
-      setAttachmentError(
+      reportAttachmentError(
         `You can attach up to ${uploadCapabilities.maxAttachmentsPerMessage} files.`
       );
       return;
@@ -600,7 +609,7 @@ export function Composer({
         uploadCapabilities
       );
       if (tooLarge) {
-        setAttachmentError(
+        reportAttachmentError(
           `${tooLarge.candidate.fileName} is larger than ${formatAttachmentBytes(tooLarge.limit)}.`
         );
         return;
@@ -618,10 +627,13 @@ export function Composer({
         }))
       );
       if (result.assets.length > remaining) {
-        setAttachmentError(attachmentOverflowMessage(remaining));
+        reportAttachmentError(
+          attachmentOverflowMessage(remaining),
+          Haptics.NotificationFeedbackType.Warning
+        );
       }
     } catch (cause) {
-      setAttachmentError(clientErrorMessage(cause, "The file could not be read."));
+      reportAttachmentError(clientErrorMessage(cause, "The file could not be read."));
     } finally {
       setPicking(false);
     }
@@ -629,7 +641,7 @@ export function Composer({
 
   const takePhoto = async () => {
     if (remainingAttachmentCapacity(attachments.length, uploadCapabilities) <= 0) {
-      setAttachmentError(
+      reportAttachmentError(
         `You can attach up to ${uploadCapabilities.maxAttachmentsPerMessage} files.`
       );
       return;
@@ -638,7 +650,7 @@ export function Composer({
     // source as an uncaught native exception on iOS simulators. Check the real
     // UIKit capability before asking for permission or launching the picker.
     if (isCameraAvailable() === false) {
-      setAttachmentError("Camera capture is not available on this device.");
+      reportAttachmentError("Camera capture is not available on this device.");
       return;
     }
     setPicking(true);
@@ -646,7 +658,7 @@ export function Composer({
     try {
       const permission = await ImagePicker.requestCameraPermissionsAsync();
       if (!permission.granted) {
-        setAttachmentError("Camera access is needed to take a photo.");
+        reportAttachmentError("Camera access is needed to take a photo.");
         return;
       }
       const result = await ImagePicker.launchCameraAsync({
@@ -660,7 +672,7 @@ export function Composer({
       const mimeType = normalizedImageMime(asset.mimeType, fileName);
       const limit = attachmentByteLimit({ fileName, mimeType }, uploadCapabilities);
       if (typeof asset.fileSize === "number" && asset.fileSize > limit) {
-        setAttachmentError(
+        reportAttachmentError(
           `${asset.fileName ?? "That photo"} is larger than ${formatAttachmentBytes(limit)}.`
         );
         return;
@@ -676,7 +688,7 @@ export function Composer({
         },
       ]);
     } catch (cause) {
-      setAttachmentError(clientErrorMessage(cause, "The camera could not open."));
+      reportAttachmentError(clientErrorMessage(cause, "The camera could not open."));
     } finally {
       setPicking(false);
     }
@@ -773,6 +785,7 @@ export function Composer({
       latestAttachments.current = recoverable;
       setAttachments(recoverable);
       setAttachmentError(clientErrorMessage(cause, "The message could not be sent."));
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     } finally {
       setSending(false);
     }

@@ -1,3 +1,4 @@
+import * as Haptics from "../../src/haptics";
 import type { BotView, ChannelMessageView } from "@openteam/contracts";
 import { addSidebarUnread } from "@openteam/contracts/client-preferences";
 import { mentionHandleFor } from "@openteam/product-core/mentions";
@@ -339,6 +340,7 @@ export default function ConversationScreen() {
     try {
       await updateSidebarPreferences(addSidebarUnread(sidebarPreferences, [channelId]));
     } catch (cause) {
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       Alert.alert(
         "Could not mark as unread",
         clientErrorMessage(cause, "OpenTeam could not update this conversation.")
@@ -365,6 +367,7 @@ export default function ConversationScreen() {
           replyTarget: recoveredReply,
         });
       } catch (cause) {
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
         Alert.alert(
           "Message not cancelled",
           clientErrorMessage(cause, "OpenTeam could not cancel this message.")
@@ -379,6 +382,7 @@ export default function ConversationScreen() {
       try {
         await resendFailedMessage(nonce);
       } catch (cause) {
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
         Alert.alert(
           "Message not resent",
           clientErrorMessage(cause, "OpenTeam could not resend this message.")
@@ -393,6 +397,7 @@ export default function ConversationScreen() {
       try {
         await deleteFailedMessage(nonce);
       } catch (cause) {
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
         Alert.alert(
           "Message not deleted",
           clientErrorMessage(cause, "OpenTeam could not delete this message.")
@@ -411,6 +416,7 @@ export default function ConversationScreen() {
       try {
         await reactToMessage(messageId, emoji);
       } catch (cause) {
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
         Alert.alert(
           "Reaction not sent",
           clientErrorMessage(cause, "OpenTeam could not update this reaction.")

@@ -132,7 +132,6 @@ export function A2AExchangeSheet({
 
           <View style={[styles.header, { top: insets.top }]}>
             <IconButton
-              haptic="light"
               label="Back to source conversation"
               name="chevron.left"
               onPress={close}

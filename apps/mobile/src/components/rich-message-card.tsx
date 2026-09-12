@@ -1,3 +1,4 @@
+import * as Haptics from "../haptics";
 import type {
   ChannelMessageView,
   RichMessageComputerHandoff,
@@ -16,9 +17,14 @@ import {
 import { SymbolView } from "expo-symbols";
 import { router } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
-import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { useTheme } from "../theme";
 import { BotMark } from "./bot-mark";
+
+const actionFailed = (message: string) => {
+  void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+  Alert.alert("Couldn’t complete the action", message);
+};
 
 export function MobileRichMessageCard({
   message,
@@ -192,9 +198,13 @@ export function MobileRichMessageCard({
         setLocal({ ...previous, widgetDismissed: true });
         try {
           const accepted = await onWidgetDismiss();
-          if (!accepted) setLocal(previous);
+          if (!accepted) {
+            setLocal(previous);
+            actionFailed("This question could not be dismissed. Please try again.");
+          }
         } catch {
           setLocal(previous);
+          actionFailed("This question could not be dismissed. Please try again.");
         }
       }}
       onSubmit={async (value) => {
@@ -202,9 +212,13 @@ export function MobileRichMessageCard({
         setLocal({ ...previous, respondedValue: value });
         try {
           const accepted = await onWidgetResponse(value);
-          if (!accepted) setLocal(previous);
+          if (!accepted) {
+            setLocal(previous);
+            actionFailed("Your answer could not be sent. Please try again.");
+          }
         } catch {
           setLocal(previous);
+          actionFailed("Your answer could not be sent. Please try again.");
         }
       }}
       widget={widget}
@@ -236,7 +250,12 @@ function ComputerHandoffCard({
     if (pending || readOnly || terminal || (action === "start" && !botId)) return;
     setPending(true);
     try {
-      await onMutate(action);
+      const accepted = await onMutate(action);
+      if (!accepted) {
+        actionFailed("The computer request could not be updated. Please try again.");
+        return;
+      }
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       setLocalState(action === "start" ? "active" : "skipped");
       if (action === "start" && botId) {
         router.push({
@@ -244,6 +263,8 @@ function ComputerHandoffCard({
           params: { botId, handoffId: messageId },
         });
       }
+    } catch {
+      actionFailed("The computer request could not be updated. Please try again.");
     } finally {
       setPending(false);
     }
@@ -390,6 +411,7 @@ function WidgetCard({
   );
   const submit = async (value: string) => {
     if (!value || pending || readOnly) return;
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setPending(true);
     try {
       await onSubmit(value);
@@ -444,6 +466,7 @@ function WidgetCard({
                   void submit(value);
                   return;
                 }
+                void Haptics.selectionAsync();
                 setSelected((current) => new Set(toggleWidgetSelection(current, value)));
               }}
               style={({ pressed }) => [
@@ -608,9 +631,15 @@ function SecretCard({
                 setValue("");
                 setPending(true);
                 try {
-                  await onSubmit(secret);
+                  const accepted = await onSubmit(secret);
+                  if (accepted) {
+                    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                  } else {
+                    actionFailed("This value could not be saved. Enter it again to retry.");
+                  }
                 } catch {
                   // The field remains empty so a submitted secret never lingers in memory.
+                  actionFailed("This value could not be saved. Enter it again to retry.");
                 } finally {
                   setPending(false);
                 }

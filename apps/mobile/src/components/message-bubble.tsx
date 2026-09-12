@@ -14,7 +14,8 @@ import {
 } from "@openteam/product-core/messages";
 import { formatOfflineDeliveryLabel } from "@openteam/product-core/timestamps";
 import * as Clipboard from "expo-clipboard";
-import * as Haptics from "expo-haptics";
+import * as Haptics from "../haptics";
+import { ReplySwipe } from "../reply-swipe";
 import { SymbolView } from "expo-symbols";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -68,7 +69,10 @@ function ReactionPill({
         accessibilityLabel={`${emoji} reaction, ${count}`}
         accessibilityRole={readOnly ? "text" : "button"}
         disabled={readOnly}
-        onPress={onPress}
+        onPress={() => {
+          void Haptics.selectionAsync();
+          onPress();
+        }}
         style={({ pressed }) => [
           styles.reactionPill,
           { backgroundColor: theme.reaction, opacity: pressed ? 0.72 : 1 },
@@ -165,7 +169,7 @@ export function MessageBubble({
   const entranceOpacity = useRef(new Animated.Value(enters ? 0 : 1)).current;
   const entranceTransform = useRef(new Animated.Value(enters ? 0 : 1)).current;
   const swipeOffset = useRef(new Animated.Value(0)).current;
-  const swipeThresholdReached = useRef(false);
+  const replySwipe = useRef(new ReplySwipe()).current;
   const reactions = useMemo(() => messageReactionPills(message), [message]);
   const display = useMemo(() => messageDisplayProjection(message), [message]);
   const { attachments, stagedAttachments, displayContent, files, images, richMessage } = display;
@@ -231,12 +235,13 @@ export function MessageBubble({
   }, [currentSentOfflineAtMs, retainedSentOfflineAtMs, sentOfflineVisibility]);
 
   useEffect(() => {
-    if (!enters) return;
+    if (!enters && !swipeToThreadEnabled) return;
     let cancelled = false;
     let animation: Animated.CompositeAnimation | null = null;
     const start = (reduced: boolean) => {
       if (cancelled) return;
       setReduceMotion(reduced);
+      if (!enters) return;
       const easing = Easing.bezier(0.23, 1, 0.32, 1);
       animation = reduced
         ? Animated.timing(entranceOpacity, {
@@ -261,12 +266,14 @@ export function MessageBubble({
           ]);
       animation.start();
     };
-    void AccessibilityInfo.isReduceMotionEnabled().then(start, () => start(false));
+    void AccessibilityInfo.isReduceMotionEnabled().then(start, () => start(true));
+    const subscription = AccessibilityInfo.addEventListener("reduceMotionChanged", setReduceMotion);
     return () => {
       cancelled = true;
+      subscription.remove();
       animation?.stop();
     };
-  }, [entranceOpacity, entranceTransform, enters]);
+  }, [entranceOpacity, entranceTransform, enters, swipeToThreadEnabled]);
 
   const swipeResponder = useMemo(
     () =>
@@ -277,25 +284,26 @@ export function MessageBubble({
           Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.2,
         onPanResponderGrant: () => {
           swipeOffset.stopAnimation();
-          swipeThresholdReached.current = false;
+          replySwipe.reset();
         },
         onPanResponderMove: (_event, gesture) => {
           const distance = Math.max(0, gesture.dx);
           const resistedDistance = Math.min(distance, 52) + Math.max(0, distance - 52) * 0.28;
           swipeOffset.setValue(Math.min(78, resistedDistance));
-          const reached = distance >= 52;
-          if (reached && !swipeThresholdReached.current) {
-            swipeThresholdReached.current = true;
-            void Haptics.selectionAsync();
-          } else if (!reached && distance < 40) {
-            swipeThresholdReached.current = false;
+          if (replySwipe.move(distance)) {
+            void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
           }
         },
         onPanResponderRelease: (_event, gesture) => {
-          const shouldOpen = gesture.dx >= 52 || (gesture.dx >= 24 && gesture.vx >= 0.65);
-          if (shouldOpen && onStartThread) {
-            if (!swipeThresholdReached.current) {
+          const result = replySwipe.release(gesture.dx, gesture.vx);
+          if (result.open && onStartThread) {
+            if (result.signal) {
               void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            }
+            if (reduceMotion !== false) {
+              swipeOffset.setValue(0);
+              onStartThread();
+              return;
             }
             Animated.timing(swipeOffset, {
               toValue: 78,
@@ -304,12 +312,14 @@ export function MessageBubble({
               useNativeDriver: true,
             }).start(({ finished }) => {
               swipeOffset.setValue(0);
-              swipeThresholdReached.current = false;
               if (finished) onStartThread();
             });
             return;
           }
-          swipeThresholdReached.current = false;
+          if (reduceMotion !== false) {
+            swipeOffset.setValue(0);
+            return;
+          }
           Animated.spring(swipeOffset, {
             toValue: 0,
             damping: 18,
@@ -319,7 +329,11 @@ export function MessageBubble({
           }).start();
         },
         onPanResponderTerminate: () => {
-          swipeThresholdReached.current = false;
+          replySwipe.reset();
+          if (reduceMotion !== false) {
+            swipeOffset.setValue(0);
+            return;
+          }
           Animated.spring(swipeOffset, {
             toValue: 0,
             damping: 18,
@@ -330,7 +344,7 @@ export function MessageBubble({
         },
         onPanResponderTerminationRequest: () => false,
       }),
-    [onStartThread, swipeOffset, swipeToThreadEnabled]
+    [onStartThread, reduceMotion, replySwipe, swipeOffset, swipeToThreadEnabled]
   );
 
   const openActions = () => {
@@ -363,7 +377,6 @@ export function MessageBubble({
           accessibilityRole={opensRoutine ? "button" : "text"}
           disabled={!opensRoutine}
           onPress={() => {
-            void Haptics.selectionAsync();
             onOpenRoutine?.(routineEvent.automationId);
           }}
           style={({ pressed }) => [
@@ -409,11 +422,14 @@ export function MessageBubble({
               }),
               transform: [
                 {
-                  scale: swipeOffset.interpolate({
-                    inputRange: [0, 52],
-                    outputRange: [0.72, 1],
-                    extrapolate: "clamp",
-                  }),
+                  scale:
+                    reduceMotion !== false
+                      ? 1
+                      : swipeOffset.interpolate({
+                          inputRange: [0, 52],
+                          outputRange: [0.72, 1],
+                          extrapolate: "clamp",
+                        }),
                 },
               ],
             },
@@ -683,7 +699,10 @@ export function MessageBubble({
                 accessibilityLabel="Resend failed message"
                 accessibilityRole="button"
                 hitSlop={6}
-                onPress={() => onResendFailed(deliveryNonce)}
+                onPress={() => {
+                  void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  onResendFailed(deliveryNonce);
+                }}
                 style={({ pressed }) => [styles.deliveryAction, { opacity: pressed ? 0.55 : 1 }]}
               >
                 <Text style={[styles.deliveryActionText, { color: theme.accent }]}>Resend</Text>
@@ -758,6 +777,7 @@ export function MessageBubble({
                         key={emoji}
                         onPress={() => {
                           setActionsOpen(false);
+                          void Haptics.selectionAsync();
                           onReact(emoji);
                         }}
                         style={({ pressed }) => [
@@ -864,7 +884,12 @@ export function MessageBubble({
                   accessibilityRole="button"
                   onPress={() => {
                     setActionsOpen(false);
-                    void Clipboard.setStringAsync(message.content);
+                    void Clipboard.setStringAsync(message.content)
+                      .then(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light))
+                      .catch(() => {
+                        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+                        Alert.alert("Couldn’t copy message", "Please try again.");
+                      });
                   }}
                   style={({ pressed }) => [
                     styles.menuRow,

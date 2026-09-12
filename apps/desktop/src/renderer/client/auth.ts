@@ -8,6 +8,7 @@ import {
   OpenTeamClientError,
   parseAuthUser,
 } from "@openteam/client-core";
+import { authErrorMessage } from "@openteam/product-core/auth-feedback";
 import { resolveConfiguredApiBase } from "./runtime-url";
 
 export type {
@@ -155,9 +156,19 @@ export const refreshAuthSession = (): Promise<OpenTeamAuthSnapshot> => {
           ? readCachedUser()
           : null),
     });
-  })().finally(() => {
-    refreshRequest = null;
-  });
+  })()
+    .catch((cause) =>
+      authStore.publish({
+        status: "signed-out",
+        mode: "required",
+        connection: "unknown",
+        error: authErrorMessage(cause, "Could not restore your sign-in. Please sign in again."),
+        user: null,
+      })
+    )
+    .finally(() => {
+      refreshRequest = null;
+    });
   return refreshRequest;
 };
 
@@ -165,7 +176,11 @@ export const signIn = async (username: string, password: string): Promise<OpenTe
   const result = await requestSignIn(API_BASE, username, password);
   await persistAuthToken(result.token);
   cacheUser(result.user);
-  return refreshAuthSession();
+  const session = await refreshAuthSession();
+  if (session.status !== "authenticated") {
+    throw new Error(session.error ?? "The server could not verify your sign-in. Please try again.");
+  }
+  return session;
 };
 
 export interface OpenTeamServerConnection {
@@ -180,7 +195,7 @@ export const testServerConnection = async (
   try {
     return { baseUrl, mode: await authClient(baseUrl).validateServer() };
   } catch (cause) {
-    if (cause instanceof OpenTeamClientError && cause.code === "offline") {
+    if (cause instanceof OpenTeamClientError && cause.code === "offline" && cause.status === 0) {
       throw new Error(
         "Could not reach this OpenTeam server. Check the endpoint and your connection."
       );

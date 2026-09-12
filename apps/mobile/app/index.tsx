@@ -5,7 +5,7 @@ import { clientErrorMessage } from "@openteam/product-core/redaction";
 import type { ChannelRowProjection } from "@openteam/product-core/snapshot";
 import { formatRosterTimestamp } from "@openteam/product-core/timestamps";
 import * as Clipboard from "expo-clipboard";
-import * as Haptics from "expo-haptics";
+import * as Haptics from "../src/haptics";
 import { router } from "expo-router";
 import { SymbolView } from "expo-symbols";
 import { memo, useCallback, useMemo, useRef, useState } from "react";
@@ -313,6 +313,10 @@ export default function HomeScreen() {
   } = useOpenTeam();
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionRow, setActionRow] = useState<ChannelRowProjection | null>(null);
+  const openConversationMenu = useCallback((row: ChannelRowProjection) => {
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setActionRow(row);
+  }, []);
   const [creationMenuOpen, setCreationMenuOpen] = useState(false);
   const duplicatingBotIds = useRef(new Set<string>());
   const pinnedIds = sidebarPreferences.pinnedIds;
@@ -336,6 +340,7 @@ export default function HomeScreen() {
     try {
       await action();
     } catch (cause) {
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       setActionError(clientErrorMessage(cause, "OpenTeam could not update this conversation."));
     }
   }, []);
@@ -521,7 +526,7 @@ export default function HomeScreen() {
           botById={botById}
           manualUnread={unreadIdSet.has(item.row.channel.id)}
           onHide={handleHide}
-          onLongPress={setActionRow}
+          onLongPress={openConversationMenu}
           onTogglePinned={handleTogglePinned}
           pinned={pinnedIdSet.has(item.row.channel.id)}
           row={item.row}
@@ -534,6 +539,7 @@ export default function HomeScreen() {
       botById,
       handleHide,
       handleTogglePinned,
+      openConversationMenu,
       pinnedIdSet,
       theme.textFaint,
       unreadIdSet,

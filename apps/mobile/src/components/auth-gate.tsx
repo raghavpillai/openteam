@@ -1,6 +1,6 @@
 import type { OpenTeamAuthStatus } from "@openteam/client-core/auth";
-import { clientErrorMessage } from "@openteam/product-core/redaction";
-import * as Haptics from "expo-haptics";
+import { authErrorMessage } from "@openteam/product-core/auth-feedback";
+import * as Haptics from "../haptics";
 import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -40,7 +40,7 @@ type SignInStage = "welcome" | "endpoint" | "credentials";
 
 // A round trip that resolves instantly reads as a dead button, so the spinner is held long enough
 // to register as work before the result haptic lands.
-const MINIMUM_SUBMIT_MS = 1000;
+const MINIMUM_SUBMIT_MS = 350;
 
 async function holdSpinner(startedAt: number) {
   const remaining = MINIMUM_SUBMIT_MS - (Date.now() - startedAt);
@@ -543,7 +543,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
       })
       .catch((cause) => {
         if (cancelled || initialGeneration !== authRequestGeneration.current) return;
-        setError(clientErrorMessage(cause, "Could not load the OpenTeam server"));
+        setError(authErrorMessage(cause, "Could not load the OpenTeam server"));
         setState("signed-out");
       });
     return () => {
@@ -585,32 +585,40 @@ export function AuthGate({ children }: { children: ReactNode }) {
 
   const connectToServer = async () => {
     if (connectDisabled || requestPending.current) return;
+    let normalized: ReturnType<typeof normalizeServerConnection>;
+    try {
+      normalized = normalizeServerConnection({ serverUrl });
+    } catch (cause) {
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      setError(authErrorMessage(cause, "Enter your server address."));
+      return;
+    }
     requestPending.current = true;
     const generation = authRequestGeneration.current + 1;
     authRequestGeneration.current = generation;
     const startedAt = Date.now();
-    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setSubmitting(true);
     setError(null);
     try {
-      const normalized = normalizeServerConnection({ serverUrl });
       const result = await testServerConnection(normalized.serverUrl);
       await holdSpinner(startedAt);
       if (generation !== authRequestGeneration.current) return;
       setServerUrl(normalized.serverUrl);
-      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       if (result === "credentials-required") {
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         setStage("credentials");
         return;
       }
       await saveServerConnection(normalized);
       if (generation !== authRequestGeneration.current) return;
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setState("authenticated");
     } catch (cause) {
       await holdSpinner(startedAt);
       if (generation !== authRequestGeneration.current) return;
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      setError(clientErrorMessage(cause, "Could not connect to this OpenTeam server"));
+      setError(authErrorMessage(cause, "Could not connect to this OpenTeam server"));
     } finally {
       if (generation === authRequestGeneration.current) {
         requestPending.current = false;
@@ -625,7 +633,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
     const generation = authRequestGeneration.current + 1;
     authRequestGeneration.current = generation;
     const startedAt = Date.now();
-    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setSubmitting(true);
     setError(null);
     try {
@@ -641,7 +649,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
       await holdSpinner(startedAt);
       if (generation !== authRequestGeneration.current) return;
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      setError(clientErrorMessage(cause, "Could not sign in to OpenTeam"));
+      setError(authErrorMessage(cause, "Could not sign in to OpenTeam"));
     } finally {
       if (generation === authRequestGeneration.current) {
         requestPending.current = false;
@@ -723,7 +731,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
                 reduceMotion={reduceMotion}
                 accessibilityRole="button"
                 onPress={() => {
-                  void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+                  void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                   setError(null);
                   setStage("endpoint");
                 }}
@@ -776,12 +784,23 @@ export function AuthGate({ children }: { children: ReactNode }) {
                   ]}
                 >
                   <View style={styles.endpointGroup}>
+                    <View style={styles.accountHeader}>
+                      <Text
+                        accessibilityRole="header"
+                        style={[styles.accountTitle, { color: theme.text }]}
+                      >
+                        Connect to your server
+                      </Text>
+                      <Text style={[styles.connectedServer, { color: glassSecondary }]}>
+                        Use the server address from your OpenTeam setup.
+                      </Text>
+                    </View>
                     <Text style={[styles.endpointLabel, { color: glassLabel }]}>
-                      OPENTEAM SERVER ENDPOINT
+                      SERVER ADDRESS
                     </Text>
                     <TextInput
                       accessibilityHint="Enter the HTTP or HTTPS address this device can use to reach your self-hosted OpenTeam server"
-                      accessibilityLabel="Server endpoint"
+                      accessibilityLabel="Server address"
                       autoCapitalize="none"
                       autoCorrect={false}
                       keyboardAppearance={theme.dark ? "dark" : "light"}
@@ -829,7 +848,6 @@ export function AuthGate({ children }: { children: ReactNode }) {
                   accessibilityState={{ disabled: submitting }}
                   disabled={submitting}
                   onPress={() => {
-                    void Haptics.selectionAsync();
                     Keyboard.dismiss();
                     setError(null);
                     setStage("welcome");
@@ -848,7 +866,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
                         { color: submitting ? mutedCancelForeground : theme.text },
                       ]}
                     >
-                      Cancel
+                      Back
                     </Text>
                   </GlassSurface>
                 </AuthButton>
@@ -993,7 +1011,6 @@ export function AuthGate({ children }: { children: ReactNode }) {
                   accessibilityState={{ disabled: submitting }}
                   disabled={submitting}
                   onPress={() => {
-                    void Haptics.selectionAsync();
                     Keyboard.dismiss();
                     setError(null);
                     setPassword("");

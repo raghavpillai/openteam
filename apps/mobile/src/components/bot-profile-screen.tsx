@@ -1,4 +1,5 @@
 import type { BotView, RoutineView } from "@openteam/contracts";
+import * as Haptics from "../haptics";
 import { BOT_AVATAR_DEALT_COLORS, DEFAULT_BOT_AVATAR } from "@openteam/contracts/bot-avatar";
 import {
   ROBOT_AVATAR_SHAPES as BOT_AVATAR_SHAPES,
@@ -138,11 +139,14 @@ export function BotProfileScreen({
       return;
     }
     if (nextName === bot.name && nextTitle === bot.title) return;
-    void onSaveIdentity(nextName, nextTitle);
+    void onSaveIdentity(nextName, nextTitle).catch(() => {
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    });
   };
 
   const commitAvatar = async (nextShape: BotAvatarShape, nextColor: string) => {
     if (avatarSaving || (!bot.hasAvatar && nextShape === shape && nextColor === color)) return;
+    void Haptics.selectionAsync();
     const previousShape = shape;
     const previousColor = color;
     setShape(nextShape);
@@ -153,6 +157,7 @@ export function BotProfileScreen({
     } catch {
       setShape(previousShape);
       setColor(previousColor);
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     } finally {
       setAvatarSaving(false);
     }

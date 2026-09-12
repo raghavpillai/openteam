@@ -120,7 +120,7 @@ describe("late native iOS regression guards", () => {
     expect(working).toContain('accessibilityRole="button"');
   });
 
-  test("sending and opening attachments use one light haptic without changing other icon feedback", async () => {
+  test("sending and opening attachments opt into feedback while ordinary icon buttons stay quiet", async () => {
     const [composer, iconButton] = await Promise.all([
       source("src/components/composer.tsx"),
       source("src/components/icon-button.tsx"),
@@ -135,7 +135,7 @@ describe("late native iOS regression guards", () => {
     expect(composer).not.toContain("ActionSheetIOS.showActionSheetWithOptions");
     expect(composer).toMatch(/label="Send message"[\s\S]*?haptic="none"/);
     expect(composer).toMatch(/label="Transcribe and send"[\s\S]*?haptic="none"/);
-    expect(iconButton).toContain('haptic = "selection"');
+    expect(iconButton).toContain('haptic = "none"');
     expect(iconButton).toContain('haptic?: "selection" | "light" | "none"');
     expect(iconButton).toContain('if (haptic === "light")');
     expect(iconButton).toContain("void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);");

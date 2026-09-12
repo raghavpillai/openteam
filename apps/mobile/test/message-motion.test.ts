@@ -67,7 +67,7 @@ test("right-swiping a message reveals the native thread affordance and opens its
 
   expect(bubble).toContain("PanResponder.create");
   expect(bubble).toContain("onMoveShouldSetPanResponderCapture");
-  expect(bubble).toContain("gesture.dx >= 52");
+  expect(bubble).toContain("replySwipe.release(gesture.dx, gesture.vx)");
   expect(bubble).toContain("swipeThreadIndicator");
   expect(bubble).toContain("if (finished) onStartThread()");
   expect(route).toContain("onStartThread={() => setThreadRootId(item.id)}");

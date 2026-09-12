@@ -1,4 +1,4 @@
-import * as Haptics from "expo-haptics";
+import * as Haptics from "../haptics";
 import { SymbolView } from "expo-symbols";
 import { useState } from "react";
 import {
@@ -31,7 +31,6 @@ export function ImageViewer({
   const [loading, setLoading] = useState(true);
 
   const close = () => {
-    void Haptics.selectionAsync();
     onClose();
   };
 
@@ -41,6 +40,7 @@ export function ImageViewer({
     try {
       await Share.share({ message: item.caption, url: item.uri });
     } catch {
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       Alert.alert("Couldn’t Share", "This image could not be shared right now.");
     }
   };

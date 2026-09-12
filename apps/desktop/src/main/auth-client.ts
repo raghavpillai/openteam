@@ -13,7 +13,7 @@ const authClient = (serverUrl: unknown) => {
         ...init,
         credentials: "omit",
         redirect: "error",
-        signal: AbortSignal.timeout(30_000),
+        signal: init?.signal ?? AbortSignal.timeout(15_000),
       }),
   });
 };

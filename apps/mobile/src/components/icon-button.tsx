@@ -1,4 +1,4 @@
-import * as Haptics from "expo-haptics";
+import * as Haptics from "../haptics";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
 import { Pressable, type StyleProp, StyleSheet, View, type ViewStyle } from "react-native";
 import { useTheme } from "../theme";
@@ -13,7 +13,7 @@ export function IconButton({
   size = 38,
   symbolSize = 20,
   disabled = false,
-  haptic = "selection",
+  haptic = "none",
   style,
 }: {
   name: SymbolViewProps["name"];

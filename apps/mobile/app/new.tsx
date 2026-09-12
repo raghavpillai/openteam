@@ -1,4 +1,5 @@
 import type { BotView } from "@openteam/contracts";
+import * as Haptics from "../src/haptics";
 import { GROUP_MEMBER_LIMIT, toggleBoundedSelection } from "@openteam/product-core/selection";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
 import { router, useLocalSearchParams } from "expo-router";
@@ -32,6 +33,7 @@ interface MemberRowProps {
   first: boolean;
   last: boolean;
   selected: boolean;
+  disabled: boolean;
   onToggle: (botId: string) => void;
 }
 
@@ -40,6 +42,7 @@ const MemberRow = memo(function MemberRow({
   first,
   last,
   selected,
+  disabled,
   onToggle,
 }: MemberRowProps) {
   const theme = useTheme();
@@ -47,8 +50,12 @@ const MemberRow = memo(function MemberRow({
     <Pressable
       accessibilityLabel={`${selected ? "Remove" : "Add"} ${bot.name}`}
       accessibilityRole="checkbox"
-      accessibilityState={{ checked: selected }}
-      onPress={() => onToggle(bot.id)}
+      accessibilityState={{ checked: selected, disabled }}
+      disabled={disabled}
+      onPress={() => {
+        void Haptics.selectionAsync();
+        onToggle(bot.id);
+      }}
       style={[
         styles.member,
         {
@@ -116,8 +123,10 @@ export default function NewConversationScreen() {
     try {
       const channelId =
         mode === "bot" ? await createBot(name) : await createGroup(name, selectedBotIds);
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       router.replace({ pathname: "/chat/[channelId]", params: { channelId } });
     } catch (cause) {
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       setError(clientErrorMessage(cause, "OpenTeam could not create this conversation."));
     } finally {
       setCreating(false);
@@ -131,6 +140,7 @@ export default function NewConversationScreen() {
         first={index === 0}
         last={index === filteredBots.length - 1}
         selected={selectedBotIdSet.has(item.id)}
+        disabled={!selectedBotIdSet.has(item.id) && selectedBotIdSet.size >= GROUP_MEMBER_LIMIT}
         onToggle={toggleBot}
       />
     ),
@@ -204,6 +214,7 @@ export default function NewConversationScreen() {
                     accessibilityState={{ selected: mode === candidate }}
                     key={candidate}
                     onPress={() => {
+                      if (mode !== candidate) void Haptics.selectionAsync();
                       setMode(candidate);
                       setError(null);
                     }}

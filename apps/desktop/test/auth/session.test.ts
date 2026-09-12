@@ -16,6 +16,7 @@ const storage: Storage = {
   setItem: (key, value) => values.set(key, value),
 };
 let secureToken: string | null = null;
+let failTokenRead = false;
 
 Object.defineProperty(globalThis, "localStorage", { configurable: true, value: storage });
 Object.defineProperty(globalThis, "window", {
@@ -32,7 +33,10 @@ Object.defineProperty(globalThis, "window", {
         signOut: async (serverUrl: string, token: string) => {
           nativeCalls.push({ method: "signOut", serverUrl, token });
         },
-        readToken: async () => ({ token: secureToken, persistence: "encrypted", backend: "test" }),
+        readToken: async () => {
+          if (failTokenRead) throw new Error("Keychain unavailable: native diagnostic");
+          return { token: secureToken, persistence: "encrypted", backend: "test" };
+        },
         writeToken: async (token: string) => {
           secureToken = token;
           return { token, persistence: "encrypted", backend: "test" };
@@ -138,6 +142,40 @@ describe("desktop authenticated session", () => {
       await expect(auth.testServerConnection("https://google.example.test")).rejects.toThrow(
         "not a compatible OpenTeam server"
       );
+    } finally {
+      globalThis.fetch = openTeamFetch;
+    }
+  });
+
+  test("leaves startup checking with a readable error when secure storage fails, then retries", async () => {
+    await auth.clearAuthCredentialsForServerChange();
+    failTokenRead = true;
+    try {
+      const snapshot = await auth.refreshAuthSession();
+      expect(snapshot.status).toBe("signed-out");
+      expect(snapshot.user).toBeNull();
+      expect(snapshot.error).toBe(
+        "OpenTeam could not access your saved sign-in. Restart the app and try again."
+      );
+    } finally {
+      failTokenRead = false;
+    }
+    expect((await auth.refreshAuthSession()).error).toBeNull();
+    expect((await auth.signIn("owner", "secret")).status).toBe("authenticated");
+    await auth.signOut();
+  });
+
+  test("reports rejected session verification instead of silently returning to the form", async () => {
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) =>
+      String(input).endsWith("/api/auth/get-session")
+        ? new Response(null, { status: 401 })
+        : openTeamFetch(input, init)) as typeof fetch;
+    try {
+      await expect(auth.signIn("owner", "secret")).rejects.toThrow(
+        "The server could not verify your sign-in. Please try again."
+      );
+      expect(auth.getAuthToken()).toBeNull();
+      expect(auth.getAuthSnapshot().status).toBe("signed-out");
     } finally {
       globalThis.fetch = openTeamFetch;
     }

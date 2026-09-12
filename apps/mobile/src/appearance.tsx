@@ -34,11 +34,16 @@ export function AppearanceProvider({ children }: { children: React.ReactNode }) 
     void Promise.all([
       SecureStore.getItemAsync(STORAGE_KEY),
       SecureStore.getItemAsync(ACCENT_STORAGE_KEY),
-    ]).then(([storedPreference, storedAccent]) => {
-      if (!active) return;
-      setPreferenceState(normalizeThemePreference(storedPreference));
-      setAccentState(storedAccent === "blue" ? "blue" : "black");
-    });
+    ])
+      .then(([storedPreference, storedAccent]) => {
+        if (!active) return;
+        setPreferenceState(normalizeThemePreference(storedPreference));
+        setAccentState(storedAccent === "blue" ? "blue" : "black");
+      })
+      .catch(() => {
+        // A locked or unavailable Keychain must not interrupt the sign-in screen.
+        // Keep the system appearance until preferences can be loaded on a later launch.
+      });
     return () => {
       active = false;
     };

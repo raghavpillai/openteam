@@ -1,4 +1,6 @@
 import type { OpenTeamAuthUser } from "@openteam/client-core/auth";
+import * as Haptics from "../src/haptics";
+import { hapticPreferences, useHapticPreference } from "../src/haptic-preferences";
 import type { BotView } from "@openteam/contracts";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
 import * as Clipboard from "expo-clipboard";
@@ -164,6 +166,19 @@ export default function SettingsScreen() {
   const [authMode, setAuthMode] = useState<OpenTeamAuthMode | null>(null);
   const [authUser, setAuthUser] = useState<OpenTeamAuthUser | null>(null);
   const appVersion = Constants.expoConfig?.version ?? "0.0.1";
+  const haptics = useHapticPreference();
+  const updateHaptics = (enabled: boolean) => {
+    void hapticPreferences.setEnabled(enabled).catch(() => {
+      Alert.alert(
+        "Haptics preference wasn’t saved",
+        "Your choice applies now, but OpenTeam couldn’t save it for your next launch.",
+        [
+          { text: "Cancel", style: "cancel" },
+          { text: "Try again", onPress: () => updateHaptics(enabled) },
+        ]
+      );
+    });
+  };
 
   useEffect(() => {
     setServerUrl(connection.serverUrl);
@@ -245,7 +260,9 @@ export default function SettingsScreen() {
     setConnectionError(null);
     try {
       await saveConnection({ serverUrl });
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (cause) {
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       setConnectionError(clientErrorMessage(cause, "Could not save this server"));
     } finally {
       setConnectionSaving(false);
@@ -263,7 +280,13 @@ export default function SettingsScreen() {
       : "Enable";
   const handleToggleNotifications = useCallback(
     (botId: string, enabled: boolean) => {
-      void setBotNotifications(botId, enabled);
+      void setBotNotifications(botId, enabled).catch((cause) => {
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        Alert.alert(
+          "Notifications weren’t updated",
+          clientErrorMessage(cause, "Please try again.")
+        );
+      });
     },
     [setBotNotifications]
   );
@@ -271,6 +294,7 @@ export default function SettingsScreen() {
     (botId: string) => {
       setHiddenError(null);
       void setBotHidden(botId, false).catch((cause) => {
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
         setHiddenError(clientErrorMessage(cause, "OpenTeam could not show this conversation."));
       });
     },
@@ -426,6 +450,9 @@ export default function SettingsScreen() {
           appVersion={appVersion}
           appearance={appearance}
           authRequired={authMode === "required"}
+          hapticsEnabled={haptics.enabled}
+          hapticsDisabled={!haptics.ready || haptics.saving}
+          onToggleHaptics={updateHaptics}
           notificationPermission={notificationPermission}
           onAccount={() => setAdvancedOpen(true)}
           onAppearance={() => setAppearanceOpen(true)}
@@ -460,19 +487,11 @@ export default function SettingsScreen() {
           }
           onSystemPreferenceInfo={(setting) => {
             const copy = {
-              haptics: "OpenTeam follows the native iOS haptic behavior for interactive controls.",
               language: "OpenTeam currently follows this device’s system language.",
               timezone:
                 "OpenTeam uses the time zone reported by this device for routine schedules.",
             }[setting];
-            Alert.alert(
-              setting === "timezone"
-                ? "Time Zone"
-                : setting === "language"
-                  ? "Language"
-                  : "Haptics",
-              copy
-            );
+            Alert.alert(setting === "timezone" ? "Time Zone" : "Language", copy);
           }}
           user={authUser}
         />

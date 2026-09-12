@@ -1,5 +1,6 @@
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
+import * as Haptics from "../haptics";
 import { type AccentPreference, type AppearancePreference, useAppearance } from "../appearance";
 import { useTheme } from "../theme";
 import { IconButton } from "./icon-button";
@@ -22,6 +23,16 @@ const accentOptions: Array<{ value: AccentPreference; label: string; color: stri
 export function AppearanceSheet({ onClose }: { onClose: () => void }) {
   const theme = useTheme();
   const { accent, preference, setAccent, setPreference } = useAppearance();
+  const saveAppearance = (save: () => Promise<void>) => {
+    void Haptics.selectionAsync();
+    void save().catch(() => {
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      Alert.alert(
+        "Appearance wasn’t saved",
+        "Your change applies for this session. OpenTeam couldn’t save it for your next launch."
+      );
+    });
+  };
 
   return (
     <View style={[styles.screen, { backgroundColor: theme.dark ? "#141414" : theme.background }]}>
@@ -48,7 +59,9 @@ export function AppearanceSheet({ onClose }: { onClose: () => void }) {
                 accessibilityLabel={`${option.label} appearance`}
                 accessibilityRole="button"
                 accessibilityState={{ selected }}
-                onPress={() => void setPreference(option.value)}
+                onPress={() => {
+                  if (!selected) saveAppearance(() => setPreference(option.value));
+                }}
                 style={({ pressed }) => [
                   styles.modeCard,
                   {
@@ -89,7 +102,9 @@ export function AppearanceSheet({ onClose }: { onClose: () => void }) {
                 accessibilityLabel={`${option.label} accent`}
                 accessibilityRole="button"
                 accessibilityState={{ selected }}
-                onPress={() => void setAccent(option.value)}
+                onPress={() => {
+                  if (!selected) saveAppearance(() => setAccent(option.value));
+                }}
                 style={({ pressed }) => [
                   styles.accentCard,
                   {

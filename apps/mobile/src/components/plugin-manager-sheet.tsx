@@ -1,3 +1,4 @@
+import * as Haptics from "../haptics";
 import type {
   PluginBotAccessItemView,
   PluginBotAccessView,
@@ -42,6 +43,7 @@ const emptySettings = (): PluginSettingsView => ({
 });
 
 interface MutationOptions {
+  successFeedback?: boolean;
   optimistic?: () => void;
   rollback?: () => void;
   refreshSettings?: boolean;
@@ -113,7 +115,13 @@ export function PluginManagerSheet({
       try {
         await operation();
         if (options.refreshSettings !== false) await refresh();
+        // Native switches already acknowledge access toggles. Only completed commands
+        // need a separate success notification.
+        if (!options.optimistic && options.successFeedback !== false) {
+          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        }
       } catch (cause) {
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
         options.rollback?.();
         setError(clientErrorMessage(cause, "OpenTeam could not update this plugin."));
       } finally {
@@ -274,10 +282,14 @@ export function PluginManagerSheet({
       return;
     }
     if (connection.canAuthenticate || connection.status === "needs_auth") {
-      void mutate(key, async () => {
-        const authorizationUrl = await authenticatePlugin(connection.id);
-        if (authorizationUrl) await Linking.openURL(authorizationUrl);
-      });
+      void mutate(
+        key,
+        async () => {
+          const authorizationUrl = await authenticatePlugin(connection.id);
+          if (authorizationUrl) await Linking.openURL(authorizationUrl);
+        },
+        { successFeedback: false }
+      );
       return;
     }
     void mutate(key, () => connectPlugin(connection.id));

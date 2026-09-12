@@ -1,7 +1,7 @@
 import type { ApprovalView } from "@openteam/contracts";
 import { approvalPresentation } from "@openteam/product-core/activity";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
-import * as Haptics from "expo-haptics";
+import * as Haptics from "../haptics";
 import { SymbolView } from "expo-symbols";
 import { useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
@@ -25,12 +25,9 @@ export function ApprovalCard({
     setError(null);
     try {
       await onResolve(decision);
-      void Haptics.notificationAsync(
-        decision === "accept"
-          ? Haptics.NotificationFeedbackType.Success
-          : Haptics.NotificationFeedbackType.Warning
-      );
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (cause) {
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       setError(clientErrorMessage(cause, "This approval could not be resolved."));
       setResolving(null);
     }

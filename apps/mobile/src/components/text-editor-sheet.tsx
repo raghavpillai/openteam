@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import * as Haptics from "../haptics";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -44,8 +45,10 @@ export function TextEditorSheet({
     setError(null);
     try {
       await onSave(draft);
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       onClose();
     } catch (cause) {
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       setError(cause instanceof Error ? cause.message : "Could not save changes.");
     } finally {
       setSaving(false);

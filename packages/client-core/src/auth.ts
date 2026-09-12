@@ -65,13 +65,23 @@ export const authResponseError = async (response: Response): Promise<string> => 
   return (
     (typeof nested?.message === "string" && nested.message) ||
     (typeof body?.message === "string" && body.message) ||
-    `Sign-in failed (${response.status})`
+    (response.status === 401
+      ? "The username or password is incorrect. Check your details and try again."
+      : response.status === 403
+        ? "This account cannot sign in to this server. Contact your server administrator."
+        : response.status === 429
+          ? "Too many sign-in attempts. Wait a moment and try again."
+          : response.status >= 500
+            ? "The server could not complete sign-in. Please try again shortly."
+            : "Could not sign in. Please try again.")
   );
 };
 
 export interface OpenTeamAuthClientOptions {
   baseUrl: string;
   fetch?: OpenTeamFetch;
+  /** Includes receiving and parsing the response body, not just connecting. */
+  timeoutMs?: number;
 }
 
 const invalidOpenTeamServer = (status: number): OpenTeamClientError =>
@@ -91,53 +101,82 @@ const unavailableOpenTeamServer = (status: number): OpenTeamClientError =>
 export const createOpenTeamAuthClient = (options: OpenTeamAuthClientOptions) => {
   const transport = createJsonTransport(options);
 
-  const requestMode = async (strict: boolean): Promise<OpenTeamAuthMode> => {
-    const response = await transport.open("/api/auth/config");
-    if (!response.ok) {
-      if (strict) {
-        throw response.status >= 500
-          ? unavailableOpenTeamServer(response.status)
-          : invalidOpenTeamServer(response.status);
-      }
-      return "required";
+  // A silent server (or stalled response body) must not leave onboarding permanently busy.
+  const withDeadline = async <T>(operation: (signal: AbortSignal) => Promise<T>): Promise<T> => {
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout>;
+    const deadline = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        reject(
+          new OpenTeamClientError(
+            "The server took too long to respond. Please try again.",
+            "timeout"
+          )
+        );
+        controller.abort();
+      }, options.timeoutMs ?? 15_000);
+    });
+    try {
+      return await Promise.race([operation(controller.signal), deadline]);
+    } finally {
+      clearTimeout(timer!);
     }
-    const body = await responseBody(response);
-    if (body?.mode === "required" || body?.mode === "disabled") return body.mode;
-    if (strict) throw invalidOpenTeamServer(response.status);
-    return "required";
   };
+
+  const requestMode = (strict: boolean): Promise<OpenTeamAuthMode> =>
+    withDeadline(async (signal) => {
+      const response = await transport.open("/api/auth/config", { signal });
+      if (!response.ok) {
+        if (strict) {
+          throw response.status >= 500
+            ? unavailableOpenTeamServer(response.status)
+            : invalidOpenTeamServer(response.status);
+        }
+        return "required";
+      }
+      const body = await responseBody(response);
+      if (body?.mode === "required" || body?.mode === "disabled") return body.mode;
+      if (strict) throw invalidOpenTeamServer(response.status);
+      return "required";
+    });
 
   const discoverMode = (): Promise<OpenTeamAuthMode> => requestMode(false);
   const validateServer = (): Promise<OpenTeamAuthMode> => requestMode(true);
 
-  const signIn = async (username: string, password: string): Promise<OpenTeamSignInResult> => {
-    const response = await transport.open("/api/auth/login", {
-      method: "POST",
-      body: JSON.stringify({ username: username.trim(), password, rememberMe: true }),
+  const signIn = (username: string, password: string): Promise<OpenTeamSignInResult> =>
+    withDeadline(async (signal) => {
+      const response = await transport.open("/api/auth/login", {
+        method: "POST",
+        signal,
+        body: JSON.stringify({ username: username.trim(), password, rememberMe: true }),
+      });
+      if (!response.ok) throw new Error(await authResponseError(response));
+      const token = response.headers.get("set-auth-token")?.trim() ?? "";
+      if (!token) throw new Error("The server did not return an OpenTeam session token");
+      const body = await responseBody(response);
+      return { token, user: parseAuthUser(body?.user) };
     });
-    if (!response.ok) throw new Error(await authResponseError(response));
-    const token = response.headers.get("set-auth-token")?.trim() ?? "";
-    if (!token) throw new Error("The server did not return an OpenTeam session token");
-    const body = await responseBody(response);
-    return { token, user: parseAuthUser(body?.user) };
-  };
 
-  const getSession = async (token: string): Promise<OpenTeamAuthSession | null> => {
-    const response = await transport.open("/api/auth/get-session", {
-      headers: { authorization: `Bearer ${token}` },
+  const getSession = (token: string): Promise<OpenTeamAuthSession | null> =>
+    withDeadline(async (signal) => {
+      const response = await transport.open("/api/auth/get-session", {
+        signal,
+        headers: { authorization: `Bearer ${token}` },
+      });
+      if (!response.ok) return null;
+      const body = await responseBody(response);
+      const user = parseAuthUser(body?.user);
+      return body?.session && user ? { session: body.session, user } : null;
     });
-    if (!response.ok) return null;
-    const body = await responseBody(response);
-    const user = parseAuthUser(body?.user);
-    return body?.session && user ? { session: body.session, user } : null;
-  };
 
-  const signOut = async (token: string): Promise<void> => {
-    await transport.open("/api/auth/sign-out", {
-      method: "POST",
-      headers: { authorization: `Bearer ${token}` },
+  const signOut = (token: string): Promise<void> =>
+    withDeadline(async (signal) => {
+      await transport.open("/api/auth/sign-out", {
+        method: "POST",
+        signal,
+        headers: { authorization: `Bearer ${token}` },
+      });
     });
-  };
 
   return { baseUrl: transport.baseUrl, discoverMode, getSession, signIn, signOut, validateServer };
 };

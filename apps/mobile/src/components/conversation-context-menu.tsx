@@ -1,4 +1,3 @@
-import * as Haptics from "expo-haptics";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
 import { useState } from "react";
 import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
@@ -26,10 +25,7 @@ function MenuRow({ destructive = false, icon, label, onPress, trailing }: MenuRo
   return (
     <Pressable
       accessibilityRole="menuitem"
-      onPress={() => {
-        void Haptics.selectionAsync();
-        onPress();
-      }}
+      onPress={onPress}
       style={({ pressed }) => [
         styles.menuRow,
         pressed && {

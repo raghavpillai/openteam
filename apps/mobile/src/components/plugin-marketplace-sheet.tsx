@@ -1,3 +1,4 @@
+import * as Haptics from "../haptics";
 import {
   PLUGIN_MARKETPLACE_CATEGORIES,
   type PluginMarketplaceCategory,
@@ -271,14 +272,22 @@ export function PluginMarketplaceSheet({
   const featured = data.catalog.filter((plugin) => plugin.featured);
   const teamPlugins = data.catalog.filter((plugin) => !plugin.featured);
 
-  const mutate = async (key: string, action: () => Promise<void>) => {
+  const mutate = async (
+    key: string,
+    action: () => Promise<void>,
+    options: { successFeedback?: boolean } = {}
+  ) => {
     if (busyKey) return;
     setBusyKey(key);
     setError(null);
     try {
       await action();
       await refresh();
+      if (options.successFeedback !== false) {
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      }
     } catch (cause) {
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       setError(clientErrorMessage(cause, "OpenTeam could not update this plugin."));
     } finally {
       setBusyKey(null);
@@ -302,10 +311,14 @@ export function PluginMarketplaceSheet({
       return;
     }
     if (connection.canAuthenticate || connection.status === "needs_auth") {
-      void mutate(key, async () => {
-        const authorizationUrl = await authenticatePlugin(connection.id);
-        if (authorizationUrl) await Linking.openURL(authorizationUrl);
-      });
+      void mutate(
+        key,
+        async () => {
+          const authorizationUrl = await authenticatePlugin(connection.id);
+          if (authorizationUrl) await Linking.openURL(authorizationUrl);
+        },
+        { successFeedback: false }
+      );
       return;
     }
     void mutate(key, () => connectPlugin(connection.id));
@@ -494,6 +507,7 @@ export function PluginMarketplaceSheet({
                   accessibilityState={{ selected: item === category }}
                   key={item}
                   onPress={() => {
+                    if (item !== category) void Haptics.selectionAsync();
                     setCategory(item);
                     setFilterOpen(false);
                   }}

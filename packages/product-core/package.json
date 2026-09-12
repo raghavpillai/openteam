@@ -16,6 +16,7 @@
     "./messages": "./src/messages.ts",
     "./plugin-access": "./src/plugin-access.ts",
     "./redaction": "./src/redaction.ts",
+    "./auth-feedback": "./src/auth-feedback.ts",
     "./rich-messages": "./src/rich-messages.ts",
     "./routines": "./src/routines.ts",
     "./search": "./src/search.ts",

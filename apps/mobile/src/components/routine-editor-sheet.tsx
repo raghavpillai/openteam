@@ -1,4 +1,5 @@
 import type { RoutineExecutionView, RoutineView } from "@openteam/contracts";
+import * as Haptics from "../haptics";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
 import {
   routineExecutionStatusPresentation,
@@ -120,6 +121,7 @@ export function RoutineEditorSheet({
   const save = async () => {
     if (!name.trim() || !prompt.trim() || saving) return;
     if (!routine && !schedule.trim()) {
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       setError("A schedule is required. Use cron syntax or @every, such as @every 2h.");
       return;
     }
@@ -141,8 +143,10 @@ export function RoutineEditorSheet({
             enabled,
           });
       onSaved(saved);
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       onClose();
     } catch (cause) {
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       setError(clientErrorMessage(cause, "OpenTeam could not save this routine."));
     } finally {
       setSaving(false);
@@ -155,11 +159,13 @@ export function RoutineEditorSheet({
     setError(null);
     try {
       const execution = await runRoutineNow(routine.id);
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       setExecutions((current) => [
         execution,
         ...current.filter((item) => item.id !== execution.id),
       ]);
     } catch (cause) {
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       setError(clientErrorMessage(cause, "OpenTeam could not run this routine."));
     } finally {
       setRunning(false);
@@ -318,17 +324,23 @@ export function RoutineEditorSheet({
                           onPress: () =>
                             void deleteRoutine(routine)
                               .then(() => {
+                                void Haptics.notificationAsync(
+                                  Haptics.NotificationFeedbackType.Success
+                                );
                                 onDeleted(routine.id);
                                 onClose();
                               })
-                              .catch((cause) =>
+                              .catch((cause) => {
+                                void Haptics.notificationAsync(
+                                  Haptics.NotificationFeedbackType.Error
+                                );
                                 setError(
                                   clientErrorMessage(
                                     cause,
                                     "OpenTeam could not delete this routine."
                                   )
-                                )
-                              ),
+                                );
+                              }),
                         },
                       ]
                     )

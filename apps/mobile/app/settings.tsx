@@ -408,7 +408,14 @@ export default function SettingsScreen() {
           { backgroundColor: theme.surfaceElevated, borderColor: theme.border },
         ]}
       >
-        <Image source={require("../assets/openteam-icon-v2.png")} style={styles.appIcon} />
+        <Image
+          source={
+            theme.dark
+              ? require("../assets/openteam-icon-dark.png")
+              : require("../assets/openteam-icon.png")
+          }
+          style={styles.appIcon}
+        />
         <Text style={[styles.aboutTitle, { color: theme.text }]}>OpenTeam</Text>
         <Text style={[styles.aboutVersion, { color: theme.textMuted }]}>Version {appVersion}</Text>
         <Text style={[styles.aboutCopyright, { color: theme.textMuted }]}>

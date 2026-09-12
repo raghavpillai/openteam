@@ -62,7 +62,7 @@
       "package.json"
     ],
     "mac": {
-      "icon": "../mobile/assets/openteam-icon-v2.png",
+      "icon": "../../packages/design-tokens/assets/OpenTeam.icon",
       "identity": "-",
       "hardenedRuntime": false,
       "extendInfo": {
@@ -75,16 +75,19 @@
       ]
     },
     "linux": {
-      "icon": "../mobile/assets/openteam-icon-v2.png",
+      "icon": "../../packages/design-tokens/assets/openteam-desktop-light.png",
       "target": [
         "AppImage"
       ]
     },
     "win": {
-      "icon": "../mobile/assets/openteam-icon-v2.png",
+      "icon": "../../packages/design-tokens/assets/icon.ico",
       "target": [
         "nsis"
       ]
+    },
+    "dmg": {
+      "icon": "../../packages/design-tokens/assets/icon.icns"
     },
     "artifactName": "OpenTeam-${version}-${os}-${arch}.${ext}",
     "publish": {

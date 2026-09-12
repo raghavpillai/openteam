@@ -358,7 +358,14 @@ export function SettingsHome({
       ) : null}
 
       <View style={styles.about}>
-        <Image source={require("../../assets/openteam-icon-v2.png")} style={styles.appIcon} />
+        <Image
+          source={
+            theme.dark
+              ? require("../../assets/openteam-icon-dark.png")
+              : require("../../assets/openteam-icon.png")
+          }
+          style={styles.appIcon}
+        />
         <Text style={[styles.appName, { color: theme.text }]}>OpenTeam</Text>
         <Text style={[styles.appVersion, { color: theme.textMuted }]}>{appVersion}</Text>
       </View>

@@ -3,11 +3,12 @@
     "name": "OpenTeam",
     "slug": "openbot-mobile",
     "version": "0.0.1",
-    "icon": "./assets/openteam-icon-v2.png",
+    "icon": "./assets/openteam-icon.png",
     "orientation": "portrait",
     "scheme": "openteam",
     "userInterfaceStyle": "automatic",
     "ios": {
+      "icon": "../../packages/design-tokens/assets/OpenTeam.icon",
       "supportsTablet": false,
       "bundleIdentifier": "dev.openbot.mobile",
       "entitlements": {

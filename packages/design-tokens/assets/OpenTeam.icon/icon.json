@@ -1,0 +1,87 @@
+{
+  "fill-specializations": [
+    {
+      "value": {
+        "linear-gradient": [
+          "srgb:0.98039,0.98431,0.98431,1.00000",
+          "srgb:0.89804,0.90980,0.90980,1.00000"
+        ]
+      }
+    },
+    {
+      "appearance": "dark",
+      "value": {
+        "linear-gradient": [
+          "srgb:0.16078,0.16863,0.18431,1.00000",
+          "srgb:0.03137,0.03529,0.04314,1.00000"
+        ]
+      }
+    }
+  ],
+  "groups": [
+    {
+      "name": "Robot",
+      "layers": [
+        {
+          "image-name": "eyes.svg",
+          "name": "Eyes",
+          "fill": {
+            "linear-gradient": [
+              "srgb:0.35686,0.88235,0.81176,1.00000",
+              "srgb:0.22745,0.77647,0.71765,1.00000"
+            ]
+          },
+          "glass": false
+        },
+        {
+          "image-name": "face.svg",
+          "name": "Face",
+          "fill": {
+            "linear-gradient": [
+              "srgb:0.15294,0.17255,0.18039,1.00000",
+              "srgb:0.06275,0.09020,0.09804,1.00000"
+            ]
+          },
+          "glass": false
+        },
+        {
+          "image-name": "body.svg",
+          "name": "Body",
+          "fill-specializations": [
+            {
+              "value": {
+                "linear-gradient": [
+                  "srgb:0.26275,0.80000,0.74118,1.00000",
+                  "srgb:0.13725,0.66667,0.62353,1.00000"
+                ]
+              }
+            },
+            {
+              "appearance": "dark",
+              "value": {
+                "linear-gradient": [
+                  "srgb:0.25882,0.79216,0.73725,1.00000",
+                  "srgb:0.14902,0.69804,0.64706,1.00000"
+                ]
+              }
+            }
+          ],
+          "glass": true
+        }
+      ],
+      "lighting": "combined",
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.2
+      },
+      "translucency": {
+        "enabled": false,
+        "value": 0.5
+      },
+      "specular": false
+    }
+  ],
+  "supported-platforms": {
+    "squares": "shared"
+  }
+}

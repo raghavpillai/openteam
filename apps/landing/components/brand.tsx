@@ -1,11 +1,11 @@
 import type { SVGProps } from "react";
-import Image from "next/image";
 import { cn } from "@/lib/utils";
+import { BotAvatar } from "./bot-avatar";
 
 export function Wordmark({
   size = 30,
   textSize = Math.round(size * 1.18),
-  animated = false,
+  animated = true,
 }: {
   size?: number;
   textSize?: number;
@@ -13,15 +13,12 @@ export function Wordmark({
 }) {
   return (
     <span className="ot-brand">
-      <Image
-        src="/openteam-icon.png"
-        alt=""
-        width={size}
-        height={size}
-        unoptimized
-        loading={animated ? "eager" : "lazy"}
-        fetchPriority={animated ? "high" : undefined}
-        className={cn("ot-brand-bot", animated && "ot-brand-bot-animated")}
+      <BotAvatar
+        shape="classic"
+        color="#27baae"
+        size={size}
+        mode={animated ? "idle" : "still"}
+        className="ot-brand-bot"
       />
       <span style={{ fontSize: textSize, lineHeight: 1 }}>OpenTeam</span>
     </span>

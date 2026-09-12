@@ -16,29 +16,6 @@
 }
 .ot-brand-bot {
   flex-shrink: 0;
-  object-fit: contain;
-  border-radius: 26%;
-}
-.ot-brand-bot-animated {
-  transform-origin: 50% 75%;
-  animation: openteam-brand-idle 4.8s ease-in-out infinite;
-}
-@keyframes openteam-brand-idle {
-  0%,
-  100% {
-    transform: translateY(0) rotate(0);
-  }
-  25% {
-    transform: translateY(-1.5px) rotate(-4deg);
-  }
-  60% {
-    transform: translateY(-0.5px) rotate(3deg);
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .ot-brand-bot-animated {
-    animation: none;
-  }
 }
 
 /* Vendored fonts (latin subsets, OFL). Licenses live next to the files in /public/fonts. */

@@ -27,6 +27,8 @@ describe("native computer tools", () => {
     const agentRoot = join(sandRoot, "agents", "probe");
     await mkdir(join(sandRoot, ".openteam"), { recursive: true });
     await mkdir(agentRoot, { recursive: true });
+    await mkdir(join(sandRoot, "plugin-skills"), { recursive: true });
+    await writeFile(join(sandRoot, "plugin-skills", "cache.json"), '{"skills":[]}\n');
     await writeFile(join(agentRoot, "profile.json"), '{"name":"Probe"}\n');
     await writeFile(join(agentRoot, "store.db"), "not a readable projection");
     await writeFile(join(sandRoot, ".openteam", "marker.json"), "{}\n");
@@ -39,6 +41,9 @@ describe("native computer tools", () => {
     expect(
       (await executor.read({ path: join(agentRoot, "profile.json") }, root)).content[0]
     ).toEqual({ type: "text", text: '1: {"name":"Probe"}\n2: ' });
+    expect(
+      (await executor.read({ path: join(sandRoot, "plugin-skills", "cache.json") }, root)).content[0]
+    ).toEqual({ type: "text", text: '1: {"skills":[]}\n2: ' });
     await expect(executor.read({ path: join(agentRoot, "store.db") }, root)).rejects.toThrow(
       "Read does not expose live agent SQLite files"
     );

@@ -18,8 +18,9 @@ describe("chat performance and functionality reconciliation", () => {
 
   test("keeps bounded virtual histories while restoring rich message branches", async () => {
     const chat = await source("components/openteam/chat-pane.tsx");
+    const timeline = await source("components/openteam/virtualized-timeline.tsx");
 
-    expect(chat).toContain("maxItems: 80");
+    expect(timeline).toContain("maxItems: 80");
     expect(chat).toContain("projectOutgoingMessages(messages, channelSends)");
     expect(chat).not.toContain("durableSendAuthoritativeEcho(delivery, messages)");
     expect(chat).toContain("entry.delivery !== null || enteringMessageIds.has(entry.message.id)");

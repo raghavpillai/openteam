@@ -1,3 +1,4 @@
+import { pluginManagementRoutes } from "./plugin-management";
 import {
   AddCustomMcpInput,
   ApiError,
@@ -15,6 +16,8 @@ import { type RouteContext, run } from "./context";
 import { bodyRoute, dispatchRoutes, effectRoute } from "./dispatch";
 
 export async function pluginMutationRoutes(context: RouteContext): Promise<Response | undefined> {
+  const managed = await pluginManagementRoutes(context);
+  if (managed) return managed;
   const { app, request, url, path } = context;
 
   if (request.method === "GET" && path === "/api/plugin-oauth/callback") {
@@ -23,10 +26,10 @@ export async function pluginMutationRoutes(context: RouteContext): Promise<Respo
     const state = url.searchParams.get("state");
     const oauthError = url.searchParams.get("error");
     if (oauthError) {
-      throw new ApiError(
-        400,
-        "plugin_oauth_denied",
-        url.searchParams.get("error_description") ?? oauthError
+      if (connectionId && state) await run(app.plugins.cancelAuthentication(connectionId, state));
+      return new Response(
+        "<!doctype html><meta charset=utf-8><title>Authorization cancelled</title><style>body{font:16px system-ui;display:grid;place-items:center;min-height:100vh;margin:0;background:#171717;color:#f5f5f5}main{text-align:center}p{color:#a3a3a3}</style><main><h1>Authorization cancelled</h1><p>Return to OpenTeam to try again when you are ready.</p></main>",
+        { headers: { "content-type": "text/html; charset=utf-8" } }
       );
     }
     if (!connectionId || !code || !state) {

@@ -92,7 +92,7 @@ export class NotificationService {
     serviceEffect(async () => {
       const result = await this.prisma.$transaction(
         async (tx) => {
-          await tx.$queryRaw`
+          await tx.$executeRaw`
               SELECT pg_advisory_xact_lock(
                 ${PUSH_DELIVERY_ADVISORY_LOCK.namespace},
                 ${PUSH_DELIVERY_ADVISORY_LOCK.key}

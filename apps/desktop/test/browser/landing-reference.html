@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>OpenTeam desktop reference · Synthetic data</title>
+    <script>
+      // This fixture never connects to a server or invokes Electron IPC.
+      // Open on localhost, separate from the regular 127.0.0.1 app origin.
+      if (window.openteam) throw new Error("Open this fixture in a browser, not Electron.");
+      window.fetch = async () => {
+        throw new Error("Network requests are disabled in the desktop reference fixture.");
+      };
+      window.open = () => null;
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="./landing-reference.tsx"></script>
+  </body>
+</html>

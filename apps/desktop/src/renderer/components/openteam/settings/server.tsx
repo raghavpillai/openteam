@@ -5,11 +5,15 @@ import {
 } from "@openteam/contracts/inference";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
 import { Check, ExternalLink, LoaderCircle } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../../../client/openteam-api";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
 import { SectionLabel, SettingsGroup, SettingsRow } from "./ui";
 import { TranscriptionSettingsPanel } from "./transcription";
+
+const WebSearchSettingsPanel = lazy(() =>
+  import("./web-search").then((module) => ({ default: module.WebSearchSettingsPanel }))
+);
 
 const actionButton =
   "inline-flex h-8 items-center gap-1.5 rounded-[8px] bg-black px-3 text-[12px] text-white outline-none hover:opacity-80 disabled:opacity-50 dark:bg-white dark:text-black";
@@ -434,6 +438,9 @@ export default function ServerSettings() {
       {error ? (
         <div className="mt-3 px-2 text-[12px] text-red-600 dark:text-red-400">{error}</div>
       ) : null}
+      <Suspense fallback={<div className="mt-7 text-[12px] text-foreground-secondary">Loading web search settings…</div>}>
+        <WebSearchSettingsPanel />
+      </Suspense>
       <TranscriptionSettingsPanel />
     </>
   );

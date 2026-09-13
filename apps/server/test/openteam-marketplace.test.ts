@@ -10,14 +10,14 @@ describe("OpenTeam marketplace", () => {
     const source = new OpenTeamMarketplaceSource(undefined, bundledOpenTeamMarketplace);
     const plugins = await source.plugins();
 
-    expect(plugins).toHaveLength(11);
+    expect(plugins).toHaveLength(9);
     expect(plugins.map((plugin) => plugin.key)).toContain("gmail");
     expect(plugins.map((plugin) => plugin.key)).toContain("github");
     expect(plugins.map((plugin) => plugin.key)).toContain("slack");
     expect(plugins.map((plugin) => plugin.key)).toContain("notion");
     expect(plugins.map((plugin) => plugin.key)).toContain("linear");
-    expect(plugins.map((plugin) => plugin.key)).toContain("atlassian");
-    expect(plugins.map((plugin) => plugin.key)).toContain("asana");
+    expect(plugins.map((plugin) => plugin.key)).not.toContain("atlassian");
+    expect(plugins.map((plugin) => plugin.key)).not.toContain("asana");
     expect(plugins.map((plugin) => plugin.key)).toContain("research-playbook");
     expect(plugins.every((plugin) => plugin.sourceRevision === "2026.08.29.4")).toBe(true);
   });

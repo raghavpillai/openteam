@@ -1,8 +1,83 @@
+import { createToolValidator } from "@openteam/plugin-sdk/json-schema";
 import type { PluginConnectionView, PluginDynamicNamespace } from "@openteam/contracts";
 import { ApiError } from "@openteam/contracts";
 import type { Prisma } from "@openteam/db";
 import type { PluginDefinition, PluginToolDefinition } from "../../plugins/catalog";
 import { toJson } from "../service-utils";
+import { pluginIconUrl, substituteConfiguration, type ConfigValue } from "@openteam/plugin-sdk";
+
+export function runtimeConfiguration(connection: {
+  configuration: Prisma.JsonValue;
+  credentials?: Prisma.JsonValue;
+}): JsonObject {
+  const config = jsonObject(connection.configuration);
+  const credentials = jsonObject(connection.credentials);
+  const values = { ...jsonObject(config.values), ...jsonObject(credentials.values) } as Record<
+    string,
+    ConfigValue
+  >;
+  const resolved = jsonObject(
+    substituteConfiguration(
+      {
+        ...config,
+        ...(credentials.headers ? { headers: credentials.headers } : {}),
+        ...(credentials.env ? { env: credentials.env } : {}),
+        ...(credentials.clientSecret ? { clientSecret: credentials.clientSecret } : {}),
+      },
+      values
+    )
+  );
+  for (const key of ["clientId", "clientSecret", "scope"])
+    if (values[key] !== undefined) resolved[key] = values[key];
+  for (const key of ["headers", "env"])
+    if (resolved[key])
+      resolved[key] = Object.fromEntries(
+        Object.entries(jsonObject(resolved[key])).map(([name, value]) => [name, String(value)])
+      );
+  if (Array.isArray(resolved.args)) resolved.args = resolved.args.map(String);
+  return resolved;
+}
+
+export function runtimeEndpoint(connection: {
+  endpoint: string | null;
+  configuration: Prisma.JsonValue;
+  credentials?: Prisma.JsonValue;
+}): string | null {
+  const config = jsonObject(connection.configuration);
+  const credentials = jsonObject(connection.credentials);
+  const values = { ...jsonObject(config.values), ...jsonObject(credentials.values) } as Record<
+    string,
+    ConfigValue
+  >;
+  const endpoint = substituteConfiguration(connection.endpoint, values);
+  return typeof endpoint === "string" ? endpoint : null;
+}
+
+export function redactConnectionSecrets(
+  value: unknown,
+  connection: { configuration: Prisma.JsonValue; credentials: Prisma.JsonValue }
+): unknown {
+  const values: string[] = [];
+  const collect = (entry: unknown) => {
+    if (typeof entry === "string" && entry.length >= 4) values.push(entry);
+    else if (Array.isArray(entry)) entry.forEach(collect);
+    else if (entry && typeof entry === "object") Object.values(entry).forEach(collect);
+  };
+  collect(connection.credentials);
+  const config = jsonObject(connection.configuration);
+  collect(config.clientSecret);
+  collect(config.headers);
+  collect(config.env);
+  const scrub = (entry: unknown): unknown =>
+    typeof entry === "string"
+      ? values.reduce((text, secret) => text.replaceAll(secret, "[redacted]"), entry)
+      : Array.isArray(entry)
+        ? entry.map(scrub)
+        : entry && typeof entry === "object"
+          ? Object.fromEntries(Object.entries(entry).map(([key, nested]) => [key, scrub(nested)]))
+          : entry;
+  return scrub(redact(value));
+}
 
 export type JsonObject = Record<string, unknown>;
 
@@ -135,21 +210,36 @@ export const canonicalJson = (value: unknown): string => {
   return JSON.stringify(value) ?? "null";
 };
 
-export const boundPluginResult = (value: unknown, depth = 0): unknown => {
+export const boundPluginResult = (
+  value: unknown,
+  depth = 0,
+  budget = { remaining: 200_000 }
+): unknown => {
+  if (budget.remaining <= 0) return "[result limit reached]";
+  budget.remaining -= 20;
   if (depth >= 8) return "[nested value omitted]";
   if (typeof value === "string") {
-    return value.length > 100_000 ? `${value.slice(0, 100_000)}… [truncated]` : value;
+    const limit = Math.max(0, Math.min(100_000, budget.remaining));
+    budget.remaining -= Math.min(value.length, limit);
+    return value.length > limit ? `${value.slice(0, limit)}… [truncated]` : value;
   }
   if (Array.isArray(value)) {
-    const items = value.slice(0, 100).map((item) => boundPluginResult(item, depth + 1));
+    const items: unknown[] = [];
+    for (const item of value.slice(0, 100)) {
+      if (budget.remaining <= 0) break;
+      items.push(boundPluginResult(item, depth + 1, budget));
+    }
     if (value.length > 100) items.push(`[${value.length - 100} items omitted]`);
     return items;
   }
   if (!value || typeof value !== "object") return value;
   const entries = Object.entries(value as JsonObject).slice(0, 200);
-  const object = Object.fromEntries(
-    entries.map(([key, nested]) => [key, boundPluginResult(nested, depth + 1)])
-  );
+  const object: JsonObject = {};
+  for (const [key, nested] of entries) {
+    if (budget.remaining <= 0) break;
+    budget.remaining -= key.length;
+    object[key.slice(0, 1000)] = boundPluginResult(nested, depth + 1, budget);
+  }
   if (Object.keys(value as JsonObject).length > entries.length) {
     object._openteamOmitted = "Additional object fields were omitted";
   }
@@ -157,57 +247,26 @@ export const boundPluginResult = (value: unknown, depth = 0): unknown => {
 };
 
 export const validateJsonSchema = (
-  schemaValue: Readonly<Record<string, unknown>>,
-  value: unknown,
-  path = "arguments"
+  schema: Readonly<Record<string, unknown>>,
+  value: unknown
 ): void => {
-  const schema = jsonObject(schemaValue);
-  if (schema.type === "object") {
-    if (!value || typeof value !== "object" || Array.isArray(value)) {
-      throw new ApiError(400, "plugin_arguments_invalid", `${path} must be an object`);
-    }
-    const object = value as JsonObject;
-    const required = Array.isArray(schema.required)
-      ? schema.required.filter((key): key is string => typeof key === "string")
-      : [];
-    for (const key of required) {
-      if (!(key in object)) {
-        throw new ApiError(400, "plugin_arguments_invalid", `${path}.${key} is required`);
-      }
-    }
-    const properties = jsonObject(schema.properties);
-    if (schema.additionalProperties === false) {
-      const unknown = Object.keys(object).find((key) => !(key in properties));
-      if (unknown) {
-        throw new ApiError(400, "plugin_arguments_invalid", `${path}.${unknown} is not allowed`);
-      }
-    }
-    for (const [key, nested] of Object.entries(object)) {
-      const propertySchema = properties[key];
-      if (propertySchema && typeof propertySchema === "object") {
-        validateJsonSchema(propertySchema as JsonObject, nested, `${path}.${key}`);
-      }
-    }
-    return;
+  let validator;
+  try {
+    validator = createToolValidator(schema);
+  } catch {
+    throw new ApiError(
+      409,
+      "plugin_schema_invalid",
+      "The provider returned an invalid tool schema. Refresh its tools or contact the plugin author."
+    );
   }
-  if (schema.type === "string") {
-    if (typeof value !== "string") {
-      throw new ApiError(400, "plugin_arguments_invalid", `${path} must be a string`);
-    }
-    if (typeof schema.maxLength === "number" && value.length > schema.maxLength) {
-      throw new ApiError(400, "plugin_arguments_invalid", `${path} is too long`);
-    }
-    return;
-  }
-  if (schema.type === "number") {
-    if (typeof value !== "number" || !Number.isFinite(value)) {
-      throw new ApiError(400, "plugin_arguments_invalid", `${path} must be a finite number`);
-    }
-    return;
-  }
-  if (schema.type === "boolean" && typeof value !== "boolean") {
-    throw new ApiError(400, "plugin_arguments_invalid", `${path} must be a boolean`);
-  }
+  const result = validator(value);
+  if (!result.valid)
+    throw new ApiError(
+      400,
+      "plugin_arguments_invalid",
+      `Invalid tool arguments: ${result.errorMessage}`
+    );
 };
 
 export const manifestJson = (plugin: PluginDefinition) => toJson(plugin);
@@ -231,7 +290,7 @@ export const substituteValues = (value: unknown, values: Record<string, string>)
 
 export const hasPlaceholder = (value: unknown): boolean =>
   typeof value === "string"
-    ? /\$\{[A-Z][A-Z0-9_]*\}/.test(value)
+    ? /\$\{(?!PLUGIN_ROOT\})[A-Za-z_][A-Za-z0-9_]*\}/.test(value)
     : Array.isArray(value)
       ? value.some(hasPlaceholder)
       : Boolean(value && typeof value === "object" && Object.values(value).some(hasPlaceholder));
@@ -249,7 +308,11 @@ export const definitionFromManifest = (value: unknown): PluginDefinition | undef
   return manifest as unknown as PluginDefinition;
 };
 
-export const catalogView = (plugin: PluginDefinition, installed: boolean) => ({
+export const catalogView = (
+  plugin: PluginDefinition,
+  installed: boolean,
+  iconFallback?: PluginDefinition
+) => ({
   key: plugin.key,
   version: plugin.version,
   name: plugin.name,
@@ -263,7 +326,8 @@ export const catalogView = (plugin: PluginDefinition, installed: boolean) => ({
   homepageUrl: plugin.homepageUrl ?? null,
   sourceUrl: plugin.sourceUrl ?? null,
   sourceRevision: plugin.sourceRevision ?? null,
-  logoUrl: plugin.logoUrl ?? null,
+  // Older installed snapshots can use the catalog artwork without updating their package.
+  logoUrl: pluginIconUrl(plugin) ?? (iconFallback ? pluginIconUrl(iconFallback) : null),
   setupFields: plugin.setupFields ?? [],
   setup: plugin.setup ?? null,
   connections: plugin.connections.map(
@@ -291,8 +355,9 @@ export function connectionConfigured(connection: {
   configuration: Prisma.JsonValue;
   credentials: Prisma.JsonValue;
 }): boolean {
+  const configuration = runtimeConfiguration(connection);
+  if (hasPlaceholder(configuration)) return false;
   if (connection.authType === "none") return true;
-  const configuration = jsonObject(connection.configuration);
   const credentials = jsonObject(connection.credentials);
   if (connection.authType === "token") {
     return (

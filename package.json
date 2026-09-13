@@ -11,7 +11,10 @@
     "packages/db",
     "packages/design-tokens",
     "packages/messaging",
-    "packages/product-core"
+    "packages/product-core",
+    "packages/plugin-sdk",
+    "packages/plugins",
+    "packages/shell-jobs"
   ],
   "scripts": {
     "build": "turbo run build",

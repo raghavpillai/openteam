@@ -179,6 +179,7 @@ const ThreadMessage = ({
 };
 
 export function ThreadTray({
+  transcriptionConfigured,
   botById,
   mentionOptions,
   open,
@@ -197,6 +198,7 @@ export function ThreadTray({
   onStage,
   onDiscardStages,
 }: {
+  transcriptionConfigured: boolean;
   botById: ReadonlyMap<string, BotView>;
   mentionOptions: readonly MentionOption[];
   open: boolean;
@@ -365,6 +367,7 @@ export function ThreadTray({
         </div>
         <div className="shrink-0 border-t pt-3">
           <PromptInput
+            transcriptionConfigured={transcriptionConfigured && open}
             key={root.id}
             mentionOptions={mentionOptions}
             recovery={composerRecovery}

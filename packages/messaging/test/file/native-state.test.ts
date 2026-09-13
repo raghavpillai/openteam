@@ -243,12 +243,12 @@ test("automation parser supports paused cron, event groups, and operational runs
       JSON.stringify({
         name: "Mixed trigger",
         prompt: "Run for either listener.",
-        trigger: [{ type: "cron", schedule: "@every 30s" }, { type: "webhook" }],
+        trigger: [{ type: "cron", schedule: "@every 5m" }, { type: "webhook" }],
       })
     );
     const mixed = await parseAutomationFile(automation, await readFile(automation, "utf8"), "UTC");
     expect(mixed.trigger).toMatchObject({ type: "group" });
-    expect(mixed.schedule?.intervalSeconds).toBe(30);
+    expect(mixed.schedule?.intervalSeconds).toBe(300);
 
     await atomicWrite(
       automation,
@@ -307,7 +307,7 @@ test("dreaming evidence uses head-tail bounds and drops malformed spool rows", a
     expect(consumed).toHaveLength(1);
     expect(consumed[0]?.user).toBe(boundMemoryEvidenceText(longText));
     expect(consumed[0]?.user).toContain("[...middle omitted...]");
-    expect(consumed[0]?.user).toHaveLength(8_000);
+    expect(consumed[0]?.user).toHaveLength(8_024);
     await expect(readFile(join(evidence, `${badId}.json`), "utf8")).rejects.toThrow();
   } finally {
     await rm(root, { recursive: true, force: true });

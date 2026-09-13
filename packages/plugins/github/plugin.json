@@ -1,0 +1,49 @@
+{
+  "key": "github",
+  "version": "1.0.1",
+  "name": "GitHub",
+  "description": "Search repositories, inspect code, manage issues, and work with pull requests.",
+  "publisher": "GitHub",
+  "category": "Agent Orchestration",
+  "featured": true,
+  "components": [
+    "mcp"
+  ],
+  "homepageUrl": "https://github.com/github/github-mcp-server",
+  "setup": {
+    "kind": "token",
+    "connectionKey": "github",
+    "title": "Connect GitHub",
+    "description": "Paste a GitHub personal access token to connect the official remote server.",
+    "documentationUrl": "https://github.com/github/github-mcp-server/blob/main/docs/host-integration.md",
+    "steps": [
+      "Create a fine-grained personal access token in GitHub settings.",
+      "Choose only the repositories and permissions you want OpenTeam to use.",
+      "Paste the token below. OpenTeam stores it on your self-hosted server."
+    ],
+    "fields": [
+      {
+        "key": "token",
+        "label": "Personal access token",
+        "placeholder": "github_pat_…",
+        "required": true,
+        "secret": true,
+        "helpText": "Fine-grained tokens are recommended."
+      }
+    ],
+    "requiredScopes": []
+  },
+  "skills": [],
+  "connections": [
+    {
+      "key": "github",
+      "name": "GitHub",
+      "transport": "http",
+      "auth": "token",
+      "endpoint": "https://api.githubcopilot.com/mcp/",
+      "tools": []
+    }
+  ],
+  "schemaVersion": 1,
+  "icon": "assets/icon.png"
+}

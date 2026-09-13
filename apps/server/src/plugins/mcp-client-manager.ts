@@ -3,6 +3,7 @@ import { auth, type OAuthClientProvider } from "@modelcontextprotocol/sdk/client
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { PluginToolDefinition } from "./catalog";
+import { discoverAllTools } from "@openteam/plugin-sdk";
 
 export interface HttpMcpConnectionOptions {
   endpoint: string;
@@ -32,21 +33,23 @@ const toolDefinition = (candidate: {
     description: candidate.description ?? "",
     inputSchema: candidate.inputSchema ?? { type: "object" },
     risk: destructive ? "destructive" : readOnly ? "read" : "write",
-    defaultDecision: readOnly ? "allow" : "prompt",
+    defaultDecision: readOnly && !destructive ? "allow" : "prompt",
   };
 };
 
 /** Owns live Streamable HTTP sessions and keeps tool calls off the renderer/model process. */
 export class McpHttpClientManager {
   private readonly clients = new Map<string, ManagedHttpClient>();
+  onToolsChanged?: (connectionId: string, tools: PluginToolDefinition[]) => Promise<void>;
 
   async discover(
     connectionId: string,
     options: HttpMcpConnectionOptions
   ): Promise<PluginToolDefinition[]> {
     const managed = await this.get(connectionId, options);
-    const result = await managed.client.listTools({}, { timeout: 30_000 });
-    return result.tools.map(toolDefinition);
+    return (
+      await discoverAllTools((cursor) => managed.client.listTools({ cursor }, { timeout: 30_000 }))
+    ).map(toolDefinition);
   }
 
   async call(
@@ -80,10 +83,10 @@ export class McpHttpClientManager {
     if (!provider) throw new Error("OAuth provider is required");
     const originalRedirect = provider.redirectToAuthorization.bind(provider);
     provider.redirectToAuthorization = async (url) => {
-      authorizationUrl = url.toString();
       await originalRedirect(url);
+      authorizationUrl = url.toString();
     };
-    await auth(provider, { serverUrl: options.endpoint });
+    await auth(provider, { serverUrl: options.endpoint, scope: provider.clientMetadata.scope });
     if (!authorizationUrl) {
       throw new Error("The MCP server did not request OAuth authorization");
     }
@@ -101,6 +104,7 @@ export class McpHttpClientManager {
     await auth(options.authProvider, {
       serverUrl: options.endpoint,
       authorizationCode,
+      scope: options.authProvider.clientMetadata.scope,
     });
     return this.discover(connectionId, options);
   }
@@ -165,7 +169,11 @@ export class McpHttpClientManager {
         listChanged: {
           tools: {
             onChanged: () => {
-              // The next settings/runtime refresh obtains the latest descriptor snapshot.
+              if (this.clients.has(connectionId)) {
+                void this.discover(connectionId, options)
+                  .then((tools) => this.onToolsChanged?.(connectionId, tools))
+                  .catch(() => undefined);
+              }
             },
           },
         },
@@ -202,7 +210,7 @@ export class McpHttpClientManager {
       if (this.clients.get(connectionId) === managed) this.clients.delete(connectionId);
     };
     try {
-      await client.connect(transport);
+      await client.connect(transport, { timeout: 30_000 });
     } catch (error) {
       await client.close().catch(() => undefined);
       throw error;

@@ -1,6 +1,7 @@
 import {
   ApiError,
   type BotTranscriptView,
+  type BotRecipe,
   type BotView,
   type CreateBotInput,
   type DuplicateBotInput,
@@ -68,10 +69,10 @@ export class BotService {
       )
     );
 
-  create = (input: CreateBotInput) =>
+  create = (input: CreateBotInput, recipe?: BotRecipe) =>
     serviceEffect(async () => {
       const scope = "bot:create";
-      const requestHash = hashRequest(input);
+      const requestHash = hashRequest(recipe ? { ...input, recipe } : input);
       const previous = await this.prisma.idempotencyRecord.findUnique({
         where: { scope_key: { scope, key: input.clientRequestId } },
       });
@@ -105,6 +106,7 @@ export class BotService {
               title: input.title?.trim() ?? "",
               description: input.description?.trim() ?? "",
               instructions: input.instructions?.trim() ?? "",
+              templateRecipe: recipe ? toJson(recipe) : undefined,
               icon: avatar.shape,
               color: avatar.color,
               namedBy: input.name?.trim() ? "user" : "app",
@@ -115,6 +117,8 @@ export class BotService {
               conversation: { create: { id: conversationId } },
             },
           });
+          const defaultPlugins = await tx.pluginInstallation.findMany({ where: { status: "installed", mode: { in: ["default", "required"] } }, select: { id: true } });
+          if (defaultPlugins.length) await tx.botPluginEnablement.createMany({ data: defaultPlugins.map((installation) => ({ botId, installationId: installation.id, enabled: true, skillsEnabled: true })) });
           await tx.channel.create({
             data: {
               id: dmChannelId,
@@ -527,6 +531,9 @@ export class BotService {
     if (!bot?.conversation) {
       throw new ApiError(500, "bot_incomplete", "Created bot conversation is missing");
     }
+    await this.agentData.projectBot(bot.id);
+    const store = await this.computerFetch(COMPUTER_API_PATHS.agentStore(bot.id), { method: "PUT", body: JSON.stringify({ createdAt: bot.createdAt.getTime() }), signal: AbortSignal.timeout(15_000) });
+    if (!store.ok) throw new ApiError(503, "agent_store_unavailable", await store.text());
     return toBotView(bot);
   }
 }

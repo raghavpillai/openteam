@@ -11,6 +11,7 @@ export interface HostShellInput {
 }
 
 export type HostJobPayload =
+  | { kind: "await-shell"; input: ShellAwaitRequest; terminalDir: string }
   | { kind: "read"; input: HostReadInput }
   | { kind: "shell"; input: HostShellInput; terminalDir: string };
 
@@ -34,3 +35,4 @@ export type HostUtilityRequest = HostJobRequest | HostJobCancel | HostUtilityShu
 export type HostJobResponse =
   | { type: "result"; id: string; ok: true; value: unknown }
   | { type: "result"; id: string; ok: false; error: string };
+import type { ShellAwaitRequest } from "@openteam/contracts/service-protocol";

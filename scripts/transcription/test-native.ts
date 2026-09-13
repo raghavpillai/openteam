@@ -46,7 +46,14 @@ export async function testNativeVoiceNote(input: {
     "--bundle-output",
     bundle,
   ]);
-  let result: { error?: string; reports?: string[]; text?: string } | undefined;
+  let result:
+    | {
+        error?: string;
+        reports?: string[];
+        text?: string;
+        deliveries?: Array<{ botId: string; clientId: string; text: string }>;
+      }
+    | undefined;
   const coordinator = Bun.serve({
     hostname: "127.0.0.1",
     port: 0,
@@ -63,6 +70,20 @@ export async function testNativeVoiceNote(input: {
         return new Response(Bun.file(input.audio), { headers: { "content-type": "audio/wav" } });
       if (path === "/qa-report" && request.method === "POST") {
         result = await request.json();
+        return new Response("ok");
+      }
+      if (path === "/qa-capture" && request.method === "POST") {
+        const { name } = await request.json();
+        if (!device || !["recording", "draft", "thread-recording"].includes(name))
+          return new Response(null, { status: 400 });
+        await run([
+          "xcrun",
+          "simctl",
+          "io",
+          device,
+          "screenshot",
+          join(input.directory, `native-${name}.png`),
+        ]);
         return new Response("ok");
       }
       if (path.endsWith(".bundle"))
@@ -84,6 +105,18 @@ export async function testNativeVoiceNote(input: {
     ]);
     await run(["xcrun", "simctl", "boot", device]);
     await run(["xcrun", "simctl", "bootstatus", device, "-b"]);
+    await run([
+      "xcrun",
+      "simctl",
+      "spawn",
+      device,
+      "defaults",
+      "write",
+      "com.apple.keyboard.preferences",
+      "DidShowContinuousPathIntroduction",
+      "-bool",
+      "true",
+    ]);
     await run(["xcrun", "simctl", "install", device, input.appPath]);
     const bundleId = await run([
       "/usr/libexec/PlistBuddy",

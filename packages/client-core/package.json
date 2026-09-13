@@ -9,6 +9,7 @@
     "./auth": "./src/auth.ts",
     "./client": "./src/client.ts",
     "./events": "./src/events.ts",
+    "./external-draft": "./src/external-draft.ts",
     "./http": "./src/http.ts",
     "./plugin-marketplace": "./src/plugin-marketplace.ts",
     "./screen": "./src/screen.ts",

@@ -229,6 +229,9 @@ export const messageDisplayProjection = (message: ChannelMessageView): MessageDi
   const attachments = messageAssets(message);
   const stagedAttachments = messageStagedAttachments(message);
   const richMessage =
+    metadata.type === "review-action" ||
+    metadata.type === "user-form" ||
+    metadata.type === "external-draft" ||
     metadata.type === "widget" ||
     metadata.type === "secret-request" ||
     metadata.type === "computer-handoff" ||

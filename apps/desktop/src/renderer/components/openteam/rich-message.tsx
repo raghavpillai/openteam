@@ -1,3 +1,6 @@
+import { ReviewActionCard } from "./review-action-card";
+import { parseExternalDraft } from "@openteam/contracts/external-draft";
+import { ExternalDraftCard } from "./external-draft-card";
 import type {
   ChannelMessageView,
   RichMessageComputerHandoff as ComputerHandoff,
@@ -23,6 +26,8 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { api } from "../../client/openteam-api";
 import { cn } from "../../lib/cn";
 import { openComputerHandoff } from "../../lib/computer-handoff";
+import { parseUserForm } from "@openteam/contracts/review-cards";
+import { UserFormCard } from "./user-form-card";
 
 const editableTarget = (target: EventTarget | null) =>
   (typeof HTMLInputElement !== "undefined" && target instanceof HTMLInputElement) ||
@@ -516,6 +521,13 @@ function ComputerHandoffCard({
 
 export function RichMessage({ message }: { message: ChannelMessageView }) {
   const metadata = record(message.metadata);
+  if (metadata.type === "review-action" && metadata.review && typeof metadata.review === "object") return <ReviewActionCard message={message} />;
+  if (metadata.type === "external-draft") {
+    try { return <ExternalDraftCard draft={parseExternalDraft(metadata.draft)} message={message} />; } catch { return null; }
+  }
+  if (metadata.type === "user-form") {
+    try { return <UserFormCard form={parseUserForm(metadata.form)} message={message} />; } catch { return null; }
+  }
   if (metadata.type === "widget") {
     const widget = widgetFrom(metadata.widget);
     return widget ? <WidgetCard message={message} metadata={metadata} widget={widget} /> : null;

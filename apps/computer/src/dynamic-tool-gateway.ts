@@ -1,4 +1,5 @@
 import type { CallDynamicToolInput, GetDynamicToolsInput } from "@openteam/contracts";
+import { compileToolSearchPattern } from "@openteam/shell-jobs";
 
 export type DynamicNamespaceStatus = "ready" | "needsAuth" | "error" | "loading";
 
@@ -40,10 +41,10 @@ const descriptionSummary = (description: string): string =>
 export const dynamicToolKey = (namespace: string, toolName: string): string =>
   `${namespace}/${toolName}`;
 
-const searchPattern = (source: string | undefined): RegExp | null => {
+const searchPattern = (source: string | undefined): { test(text: string): boolean } | null => {
   if (!source) return null;
   try {
-    return new RegExp(source, "i");
+    return compileToolSearchPattern(source);
   } catch (error) {
     throw new Error(
       `Invalid tool search pattern: ${error instanceof Error ? error.message : String(error)}`

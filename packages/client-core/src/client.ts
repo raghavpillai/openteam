@@ -1,3 +1,14 @@
+import type { WebSearchSettingsInput, WebSearchSettingsView } from "@openteam/contracts/web-search";
+import type {
+  PluginComposerView,
+  PluginTestInput,
+  PluginConfigurationInput,
+  PluginConfigurationView,
+  PluginManagementView,
+  PluginPackageView,
+  PluginSkillInput,
+  PluginDraftView,
+} from "@openteam/contracts/plugin-management";
 import type {
   AddCustomMcpInput,
   ApprovalDecision,
@@ -152,6 +163,13 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
         body: audio,
         signal,
       }),
+    webSearchSettings: () =>
+      transport.request<WebSearchSettingsView>("/api/v0/server-settings/web-search"),
+    updateWebSearchSettings: (input: WebSearchSettingsInput) =>
+      transport.request<WebSearchSettingsView>("/api/v0/server-settings/web-search", {
+        method: "PATCH",
+        body: JSON.stringify(input),
+      }),
     serverSettings: (providerId?: string) => {
       const query = providerId
         ? `?${new URLSearchParams({ provider: providerId }).toString()}`
@@ -201,6 +219,94 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
         method: "PATCH",
         body: JSON.stringify({ activeAgentId }),
       }),
+    pluginComposer: (botId: string) =>
+      transport.request<PluginComposerView>(
+        `/api/v0/plugins/composer?${new URLSearchParams({ botId })}`
+      ),
+    testPluginConnection: (id: string, input: PluginTestInput) =>
+      transport.request<{ result: unknown }>(
+        `/api/v0/plugin-connections/${encodeURIComponent(id)}/test`,
+        { method: "POST", body: JSON.stringify(input) }
+      ),
+    pluginManagement: () => transport.request<PluginManagementView>("/api/v0/plugin-management"),
+    pluginConfiguration: (id: string) =>
+      transport.request<PluginConfigurationView>(
+        `/api/v0/plugin-connections/${encodeURIComponent(id)}/configuration`
+      ),
+    savePluginConfiguration: (id: string, input: PluginConfigurationInput) =>
+      transport.request(`/api/v0/plugin-connections/${encodeURIComponent(id)}/configuration`, {
+        method: "PUT",
+        body: JSON.stringify(input),
+      }),
+    importPluginFiles: (files: Record<string, string>) =>
+      transport.request<PluginDraftView>("/api/v0/plugin-drafts/import", {
+        method: "POST",
+        body: JSON.stringify({ files }),
+      }),
+    importPluginArchive: (bytes: Uint8Array) =>
+      transport.request<PluginDraftView>("/api/v0/plugin-drafts/archive", {
+        method: "POST",
+        body: bytes as unknown as BodyInit,
+        headers: { "content-type": "application/zip" },
+      }),
+    importPluginUrl: (url: string) =>
+      transport.request<PluginDraftView>("/api/v0/plugin-drafts/url", {
+        method: "POST",
+        body: JSON.stringify({ url }),
+      }),
+    savePluginDraft: (id: string, definition: unknown) =>
+      transport.request<PluginDraftView>(`/api/v0/plugin-drafts/${encodeURIComponent(id)}`, {
+        method: "PUT",
+        body: JSON.stringify({ definition }),
+      }),
+    deletePluginDraft: (id: string) =>
+      transport.request(`/api/v0/plugin-drafts/${encodeURIComponent(id)}`, { method: "DELETE" }),
+    installPluginDraft: (id: string) =>
+      transport.request(`/api/v0/plugin-drafts/${encodeURIComponent(id)}/install`, {
+        method: "POST",
+      }),
+    exportPlugin: (id: string, draft = false) =>
+      transport.request<{ filename: string; base64: string }>(
+        `/api/v0/${draft ? "plugin-drafts" : "plugins"}/${encodeURIComponent(id)}/export`
+      ),
+    addPluginSource: (url: string, name?: string) =>
+      transport.request("/api/v0/plugin-sources", {
+        method: "POST",
+        body: JSON.stringify({ url, name }),
+      }),
+    updatePluginSource: (id: string, url: string, name?: string) =>
+      transport.request(`/api/v0/plugin-sources/${encodeURIComponent(id)}`, {
+        method: "PUT",
+        body: JSON.stringify({ url, name }),
+      }),
+    refreshPluginSource: (id: string) =>
+      transport.request(`/api/v0/plugin-sources/${encodeURIComponent(id)}/refresh`, {
+        method: "POST",
+      }),
+    removePluginSource: (id: string) =>
+      transport.request(`/api/v0/plugin-sources/${encodeURIComponent(id)}`, { method: "DELETE" }),
+    pluginPackage: (key: string) =>
+      transport.request<PluginPackageView>(`/api/v0/plugins/${encodeURIComponent(key)}/package`),
+    updatePlugin: (key: string, digest: string) =>
+      transport.request(`/api/v0/plugins/${encodeURIComponent(key)}/update`, {
+        method: "POST",
+        body: JSON.stringify({ digest }),
+      }),
+    rollbackPlugin: (key: string) =>
+      transport.request(`/api/v0/plugins/${encodeURIComponent(key)}/rollback`, { method: "POST" }),
+    setPluginMode: (key: string, mode: "optional" | "default" | "required" | "disabled") =>
+      transport.request(`/api/v0/plugins/${encodeURIComponent(key)}/mode`, {
+        method: "POST",
+        body: JSON.stringify({ mode }),
+      }),
+    syncPluginSkills: () => transport.request("/api/v0/plugins/sync", { method: "POST" }),
+    savePluginSkill: (id: string | null, input: PluginSkillInput) =>
+      transport.request<{ id: string }>(
+        `/api/v0/plugin-skills${id ? `/${encodeURIComponent(id)}` : ""}`,
+        { method: id ? "PUT" : "POST", body: JSON.stringify(input) }
+      ),
+    deletePluginSkill: (id: string) =>
+      transport.request(`/api/v0/plugin-skills/${encodeURIComponent(id)}`, { method: "DELETE" }),
     pluginSettings: () => transport.request<PluginSettingsView>("/api/v0/plugins"),
     pluginConnectionStatuses: (connectionIds: readonly string[]) => {
       const params = new URLSearchParams();
@@ -225,7 +331,7 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
         { signal: query.signal }
       );
     },
-    installPlugin: (pluginKey: string, values?: Record<string, string>) =>
+    installPlugin: (pluginKey: string, values?: Record<string, string | number | boolean>) =>
       transport.request("/api/v0/plugins/install", {
         method: "POST",
         body: JSON.stringify({ pluginKey, values }),
@@ -541,6 +647,21 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
           body: JSON.stringify({ value, clientId: createId() }),
         }
       ),
+    mutateReviewAction: (messageId: string, action: "approve" | "cancel" | "refresh" | "import" | "unpublish", clientId?: string) =>
+      transport.request<RichMessageMutationView & { botId?: string }>(`/api/v0/channel-messages/${encodeURIComponent(messageId)}/review-action`, { method: "POST", body: JSON.stringify({ action, clientId }) }),
+    reviewRecipe: (messageId: string) => transport.request<import("@openteam/contracts").BotRecipe>(`/api/v0/channel-messages/${encodeURIComponent(messageId)}/review-action/recipe`),
+    mutateExternalDraft: (messageId: string, action: "save" | "send" | "cancel" | "refresh", edits?: Record<string, unknown>) =>
+      transport.request<RichMessageMutationView>(`/api/v0/channel-messages/${encodeURIComponent(messageId)}/external-draft`, { method: "POST", body: JSON.stringify({ action, edits }) }),
+    submitUserForm: (messageId: string, values: Record<string, string | boolean>, saveToVault = false) =>
+      transport.request<RichMessageMutationView>(`/api/v0/channel-messages/${encodeURIComponent(messageId)}/user-form`, {
+        method: "POST", body: JSON.stringify({ action: "submit", values, saveToVault }),
+      }),
+    dismissUserForm: (messageId: string) =>
+      transport.request<RichMessageMutationView>(`/api/v0/channel-messages/${encodeURIComponent(messageId)}/user-form`, {
+        method: "POST", body: JSON.stringify({ action: "dismiss" }),
+      }),
+    userFormPrefill: (messageId: string) =>
+      transport.request<Record<string, string>>(`/api/v0/channel-messages/${encodeURIComponent(messageId)}/user-form/prefill`, { method: "POST", body: "{}" }),
     mutateComputerHandoff: (messageId: string, action: ComputerHandoffMutationInput["action"]) =>
       transport.request<RichMessageMutationView>(
         `/api/v0/channel-messages/${encodeURIComponent(messageId)}/computer-handoff`,

@@ -1,8 +1,24 @@
 import { describe, expect, test } from "bun:test";
 import { pluginCatalog, validatePluginCatalog } from "../../src/plugins/catalog";
 import { boundPluginResult } from "../../src/services/plugin-service";
+import { catalogView } from "../../src/services/plugin/values";
 
 describe("plugin catalog", () => {
+  test("installed snapshots receive catalog artwork without adopting a newer definition", () => {
+    const current = pluginCatalog.find((plugin) => plugin.key === "gmail")!;
+    const pinned = {
+      ...current,
+      icon: undefined,
+      logoUrl: null,
+      binaryFiles: undefined,
+      version: "1.0.0",
+      description: "Pinned behavior",
+    };
+    const view = catalogView(pinned, true, current);
+    expect(view.logoUrl).toStartWith("data:image/png;base64,");
+    expect(view.version).toBe("1.0.0");
+    expect(view.description).toBe("Pinned behavior");
+  });
   test("ships normalized, unique plugin and connector identifiers", () => {
     expect(() => validatePluginCatalog(pluginCatalog)).not.toThrow();
     expect(new Set(pluginCatalog.map((plugin) => plugin.key)).size).toBe(pluginCatalog.length);
@@ -20,15 +36,11 @@ describe("plugin catalog", () => {
 
   test("curates popular provider-hosted MCP integrations", () => {
     const expected = {
-      gmail: "https://gmailmcp.googleapis.com/mcp/v1",
-      "google-calendar": "https://calendarmcp.googleapis.com/mcp/v1",
-      "google-drive": "https://drivemcp.googleapis.com/mcp/v1",
       github: "https://api.githubcopilot.com/mcp/",
       slack: "https://mcp.slack.com/mcp",
       notion: "https://mcp.notion.com/mcp",
       linear: "https://mcp.linear.app/mcp",
-      atlassian: "https://mcp.atlassian.com/v1/mcp/authv2",
-      asana: "https://mcp.asana.com/v2/mcp",
+      granola: "https://mcp.granola.ai/mcp",
     };
 
     for (const [key, endpoint] of Object.entries(expected)) {
@@ -44,6 +56,22 @@ describe("plugin catalog", () => {
     expect(githubSetup?.fields[0]?.secret).toBe(true);
   });
 
+  test("Google packages run on public APIs without a hosted MCP preview dependency", () => {
+    for (const key of ["gmail", "google-calendar", "google-drive"]) {
+      const plugin = pluginCatalog.find((candidate) => candidate.key === key)!;
+      expect(plugin.connections[0]).toMatchObject({
+        transport: "stdio",
+        auth: "oauth",
+        oauth: {
+          authorizationServer: { issuer: "https://accounts.google.com" },
+          accessTokenEnv: "GOOGLE_ACCESS_TOKEN",
+        },
+      });
+      expect(plugin.files?.["connector/server.mjs"]).toContain("googleapis.com");
+      expect(plugin.files?.["connector/server.mjs"]).not.toContain("gmailmcp.googleapis.com");
+    }
+  });
+
   test("provides a complete guided setup for every authenticated connector", () => {
     for (const plugin of pluginCatalog) {
       for (const connection of plugin.connections.filter(
@@ -57,7 +85,7 @@ describe("plugin catalog", () => {
       }
     }
 
-    for (const key of ["gmail", "google-calendar", "google-drive", "slack", "asana"]) {
+    for (const key of ["gmail", "google-calendar", "google-drive", "slack"]) {
       const setup = pluginCatalog.find((plugin) => plugin.key === key)?.setup;
       expect(setup?.kind).toBe("oauth_client");
       expect(setup?.fields).toEqual([
@@ -66,7 +94,7 @@ describe("plugin catalog", () => {
       ]);
     }
 
-    for (const key of ["notion", "linear", "atlassian"]) {
+    for (const key of ["notion", "linear", "granola"]) {
       expect(pluginCatalog.find((plugin) => plugin.key === key)?.setup).toMatchObject({
         kind: "oauth",
         fields: [],

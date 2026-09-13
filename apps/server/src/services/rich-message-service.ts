@@ -1,3 +1,5 @@
+import type { BotService } from "./bot-service";
+import { ReviewActionService } from "./review-action-service";
 import {
   ApiError,
   type ComputerHandoffMutationInput,
@@ -5,14 +7,21 @@ import {
   type SecretSubmissionInput,
   type WidgetDismissInput,
   type WidgetResponseInput,
+  parseUserForm,
+  parseUserFormReceipt,
+  formatUserFormReceipt,
+  type UserFormReceipt,
 } from "@openteam/contracts";
+import { createHash, randomUUID } from "node:crypto";
 import { Prisma, type PrismaClient } from "@openteam/db";
-import { type AgentMessaging, PRIORITY } from "@openteam/messaging";
+import { type AgentMessaging, type ToolContext, PRIORITY } from "@openteam/messaging";
 import { Effect } from "effect";
 import type { PluginService } from "./plugin-service";
 import type { ScreenService } from "./screen-service";
 import { appendEvent, metadataRecord, serviceEffect, toJson } from "./service-utils";
 import { toChannelMessageView as messageView } from "./view-mappers";
+
+import { ExternalDraftService } from "./external-draft-service";
 
 type Metadata = Record<string, unknown>;
 
@@ -94,12 +103,86 @@ export const dismissMoveOnWidgets = async (
   `);
 
 export class RichMessageService {
+  readonly reviewActions: ReviewActionService;
+  readonly externalDrafts: ExternalDraftService;
   constructor(
     private readonly prisma: PrismaClient,
     private readonly messaging: AgentMessaging,
     private readonly plugins: PluginService,
-    private readonly screens: ScreenService
-  ) {}
+    private readonly screens: ScreenService,
+    bots?: BotService
+  ) { this.externalDrafts = new ExternalDraftService(prisma, messaging, plugins); this.reviewActions = new ReviewActionService(prisma, messaging, bots); }
+
+  private recovering: Promise<void> | null = null;
+  recoverPendingReviews(): Promise<void> {
+    if (this.recovering) return this.recovering;
+    this.recovering = (async () => {
+      const messages = await this.prisma.channelMessage.findMany({ where: { channel: { archivedAt: null }, AND: [{ metadata: { path: ["cardState"], equals: "sending" } }, { OR: [{ metadata: { path: ["type"], equals: "external-draft" } }, { metadata: { path: ["type"], equals: "review-action" } }] }] }, orderBy: { sequence: "asc" }, take: 100 });
+      for (const message of messages) {
+        const service = metadataRecord(message.metadata).type === "external-draft" ? this.externalDrafts : this.reviewActions;
+        await Effect.runPromise(service.mutate(message.id, { action: "refresh" }));
+      }
+    })().finally(() => { this.recovering = null; });
+    return this.recovering;
+  }
+
+  async createUserForm(context: ToolContext, raw: unknown) {
+    const form = parseUserForm(raw);
+    const id = createHash("sha256").update(`${context.botId}:${context.callId}`).digest("hex");
+    const prepared = await this.screens.userFormAction(context.botId, id, "prepare", { form });
+    const result = await this.messaging.sendVisible(context, { type: "user-form", form: { ...parseUserForm(prepared), id }, end_turn: true });
+    return result.acknowledgement;
+  }
+
+  async recordFormRemap(botId: string, raw: unknown) {
+    const receipt = parseUserFormReceipt(raw);
+    return this.prisma.$transaction(async (tx) => {
+      const message = await tx.channelMessage.findFirst({ where: { senderBotId: botId, metadata: { path: ["form", "id"], equals: receipt.formId } } });
+      if (!message) throw new ApiError(404, "form_unavailable", "Form card not found");
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`rich-message:${message.id}`}))`;
+      const current = await tx.channelMessage.findUniqueOrThrow({ where: { id: message.id } });
+      const metadata = metadataRecord(current.metadata);
+      const outcomeId = createHash("sha256").update(JSON.stringify(receipt)).digest("hex");
+      if (metadata.outcomeId === outcomeId) return { messageId: message.id, outcomeId };
+      await tx.channelMessage.update({ where: { id: message.id }, data: { metadata: toJson({ ...metadata, formReceipt: receipt, outcomeId, outcomeText: formatUserFormReceipt(receipt), outcomeEchoed: false }) } });
+      await appendEvent(tx, "channel.message.updated", message.id, { channelId: message.channelId, messageId: message.id, reason: "form-remap" });
+      await this.messaging.scheduleTranscriptProjection(tx, [botId]);
+      return { messageId: message.id, outcomeId };
+    });
+  }
+
+  formPrefill = (messageId: string) => serviceEffect(async () => {
+    const message = await this.prisma.channelMessage.findUnique({ where: { id: messageId }, include: { channel: true } });
+    const metadata = metadataRecord(message?.metadata); const form = stringRecord(metadata.form);
+    if (!message?.senderBotId || message.channel.archivedAt || metadata.type !== "user-form" || !form || typeof form.id !== "string" || metadata.cardState === "submitted" || metadata.cardState === "dismissed") throw new ApiError(404, "form_unavailable", "Pending form not found");
+    return this.screens.userFormAction(message.senderBotId, form.id, "prefill", {});
+  });
+
+  submitUserForm = (messageId: string, raw: unknown) => serviceEffect(async (): Promise<RichMessageMutationView> => {
+    const input = stringRecord(raw);
+    if (!input || !["submit", "dismiss"].includes(String(input.action))) throw new ApiError(400, "form_action_invalid", "Choose submit or dismiss");
+    const message = await this.prisma.channelMessage.findUnique({ where: { id: messageId }, include: { channel: true } });
+    const metadata = metadataRecord(message?.metadata); const form = stringRecord(metadata.form);
+    if (!message?.senderBotId || message.channel.archivedAt || metadata.type !== "user-form" || !form || typeof form.id !== "string") throw new ApiError(404, "form_unavailable", "Form not found");
+    if (metadata.cardState === "submitted" || metadata.cardState === "dismissed") return { accepted: false, message: messageView(message), runId: null };
+    // The request values stay on the human-to-host path. No database, event,
+    // transcript, wake, log or returned message receives this object.
+    const receipt = parseUserFormReceipt(await this.screens.userFormAction(message.senderBotId, form.id, input.action as "submit" | "dismiss", { values: input.values, saveToVault: input.saveToVault === true }));
+    if (receipt.formId !== form.id) throw new ApiError(502, "form_receipt_mismatch", "The host returned a different form receipt");
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`rich-message:${messageId}`}))`;
+      const current = await tx.channelMessage.findUniqueOrThrow({ where: { id: messageId } });
+      const currentMetadata = metadataRecord(current.metadata);
+      if (currentMetadata.cardState === "submitted" || currentMetadata.cardState === "dismissed") return { accepted: false, message: messageView(current), runId: null };
+      const updated = await tx.channelMessage.update({ where: { id: messageId }, data: { metadata: toJson({
+        ...currentMetadata, cardState: receipt.status, formReceipt: receipt, outcomeId: randomUUID(), outcomeText: formatUserFormReceipt(receipt), outcomeEchoed: false,
+      }) } });
+      const wake = await this.messaging.enqueueWake(tx, { botId: message.senderBotId!, channelId: message.channelId, origin: "user", type: "form.response", content: `[SAND_HIDDEN_PROMPT]The user ${receipt.status} the form. Read its host-provided outcome context and continue.`, clientId: `form:${messageId}:response`, priority: PRIORITY.user, wrapUserContent: false });
+      await appendEvent(tx, "channel.message.updated", messageId, { channelId: message.channelId, messageId, reason: "form-response" });
+      await this.messaging.scheduleTranscriptProjection(tx, [message.senderBotId!]);
+      return { accepted: true, message: messageView(updated), runId: wake.run.id };
+    });
+  });
 
   respondToWidget = (messageId: string, input: WidgetResponseInput) =>
     serviceEffect(
@@ -144,7 +227,8 @@ export class RichMessageService {
                 ...metadata,
                 respondedValue: value,
                 respondedLabel: responseLabel(widget, value),
-                respondedValueEchoed: true,
+                respondedValueEchoed: false,
+                outcomeId: `${message.id}:response`, outcomeText: `The user answered ${JSON.stringify(message.content)}: ${JSON.stringify(responseLabel(widget, value))}`, outcomeEchoed: false,
                 widgetResponseClientId: input.clientId,
               }),
             },
@@ -252,6 +336,7 @@ export class RichMessageService {
             metadata: toJson({
               ...metadata,
               secretProvided: true,
+              outcomeId: `${message.id}:provided`, outcomeText: buildSecretProvidedAck(request.label), outcomeEchoed: false,
               secretSubmissionClientId: input.clientId,
             }),
           },
@@ -348,6 +433,7 @@ export class RichMessageService {
               metadata: toJson({
                 ...metadata,
                 computerHandoffState: finalState,
+                outcomeId: `${message.id}:${finalState}`, outcomeText: buildComputerHandoffResume(input.action), outcomeEchoed: false,
                 computerHandoffClientId: input.clientId,
               }),
             },

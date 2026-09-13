@@ -1,15 +1,8 @@
-export const BOT_AVATAR_SHAPES = [
-  "circle",
-  "blob",
-  "square",
-  "pill",
-  "triangle",
-  "hexagon",
-  "cloud",
-  "drop",
-] as const;
-
-export type BotAvatarShape = (typeof BOT_AVATAR_SHAPES)[number];
+import {
+  DEFAULT_ROBOT_AVATAR_SHAPE,
+  ROBOT_AVATAR_SHAPES,
+  type RobotAvatarShape,
+} from "./robot-avatar";
 
 /** Picker order: black followed by the ten automatically dealt colors. */
 export const BOT_AVATAR_COLORS = [
@@ -43,12 +36,12 @@ export const BOT_AVATAR_DEALT_COLORS = [
 ] as const satisfies readonly BotAvatarColor[];
 
 export const DEFAULT_BOT_AVATAR = {
-  shape: "cloud",
-  icon: "cloud",
+  shape: DEFAULT_ROBOT_AVATAR_SHAPE,
+  icon: DEFAULT_ROBOT_AVATAR_SHAPE,
   color: "#ff7a1a",
 } as const satisfies {
-  shape: BotAvatarShape;
-  icon: BotAvatarShape;
+  shape: RobotAvatarShape;
+  icon: RobotAvatarShape;
   color: BotAvatarColor;
 };
 
@@ -85,17 +78,17 @@ export const botAvatarColorForKey = (key: string): BotAvatarColor => {
   );
 };
 
-export const botAvatarShapeForKey = (key: string): BotAvatarShape => {
+export const botAvatarShapeForKey = (key: string): RobotAvatarShape => {
   let hash = hashBotAvatarKey(key) | 0;
   hash = Math.imul(hash ^ (hash >>> 16), 73_244_475);
   hash = Math.imul(hash ^ (hash >>> 13), 3_266_489_909);
   hash = (hash ^ (hash >>> 16)) >>> 0;
-  return BOT_AVATAR_SHAPES[hash % BOT_AVATAR_SHAPES.length] ?? BOT_AVATAR_SHAPES[0];
+  return ROBOT_AVATAR_SHAPES[hash % ROBOT_AVATAR_SHAPES.length] ?? ROBOT_AVATAR_SHAPES[0];
 };
 
-const knownShape = (value?: string | null): BotAvatarShape | undefined => {
+const knownShape = (value?: string | null): RobotAvatarShape | undefined => {
   const candidate = value?.trim().toLowerCase();
-  return BOT_AVATAR_SHAPES.find((shape) => shape === candidate);
+  return ROBOT_AVATAR_SHAPES.find((shape) => shape === candidate);
 };
 
 const knownColor = (value?: string | null): BotAvatarColor | undefined => {
@@ -111,11 +104,7 @@ export const resolveBotAvatarMark = ({
   agentId: string;
   avatarShape?: string | null;
   avatarColor?: string | null;
-}): { shape: BotAvatarShape; color: BotAvatarColor } => ({
+}): { shape: RobotAvatarShape; color: BotAvatarColor } => ({
   shape: knownShape(avatarShape) ?? botAvatarShapeForKey(agentId),
   color: knownColor(avatarColor) ?? botAvatarColorForKey(agentId),
 });
-
-/** Legacy or malformed stored values render as the product default. */
-export const normalizeBotAvatarShape = (icon?: string | null): BotAvatarShape =>
-  knownShape(icon) ?? DEFAULT_BOT_AVATAR.shape;

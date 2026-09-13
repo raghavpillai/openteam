@@ -10,8 +10,8 @@ import { Button } from "../ui/button";
 export const Conversation = ({ className, ...props }: ComponentProps<typeof StickToBottom>) => (
   <StickToBottom
     className={cn("relative min-h-0 flex-1 overflow-y-hidden", className)}
-    initial="smooth"
-    resize="smooth"
+    initial="instant"
+    resize="instant"
     role="log"
     {...props}
   />
@@ -19,13 +19,25 @@ export const Conversation = ({ className, ...props }: ComponentProps<typeof Stic
 
 export const ConversationContent = ({
   className,
+  children,
+  scrollClassName,
   ...props
-}: ComponentProps<typeof StickToBottom.Content>) => (
-  <StickToBottom.Content
-    className={cn("mx-auto flex w-full max-w-4xl flex-col gap-6 py-8", className)}
-    {...props}
-  />
-);
+}: ComponentProps<typeof StickToBottom.Content>) => {
+  const [viewportReady, setViewportReady] = useState(false);
+  // Descendant layout effects run before the scrollport's ref is attached.
+  // Mount the transcript in a second commit, still before the first paint, so
+  // its virtualizer can measure and position against the real scrollport.
+  useLayoutEffect(() => setViewportReady(true), []);
+  return (
+    <StickToBottom.Content
+      className={cn("mx-auto flex w-full max-w-4xl flex-col gap-6 py-8", className)}
+      scrollClassName={cn("overflow-y-auto", scrollClassName)}
+      {...props}
+    >
+      {viewportReady ? children : null}
+    </StickToBottom.Content>
+  );
+};
 
 export const ConversationTopDivider = () => {
   const { contentRef, scrollRef } = useStickToBottomContext();

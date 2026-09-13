@@ -42,9 +42,10 @@ describe("live Pi steering", () => {
       },
     ]);
 
-    internals.routeEvent(active, { type: "message_start", message: { role: "user" } });
-    expect(events).toEqual([]);
-    internals.routeEvent(active, { type: "message_start", message: { role: "user" } });
+    internals.routeEvent(active, { type: "message_end", message: { role: "user" } });
+    expect(events).toEqual([{ type: "prompt.delivered", turnId: "run-1" }]);
+    events.length = 0;
+    internals.routeEvent(active, { type: "message_end", message: { role: "user" } });
     expect(events).toEqual([
       {
         type: "input.delivered",

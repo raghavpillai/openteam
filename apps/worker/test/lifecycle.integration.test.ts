@@ -79,9 +79,9 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
         const body = (await request.json()) as { kind?: string };
         const text =
           body.kind === "extraction"
-            ? '{"facts":[]}'
+            ? "NONE"
             : body.kind === "episode"
-              ? '{"narrative":null}'
+              ? "NONE"
               : body.kind === "verification"
                 ? '{"approved":true}'
                 : '{"changes":[]}';
@@ -800,7 +800,11 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
     expect(
       groupSnapshot.channelRounds.find((round) => round.id === accepted.round.id)?.status
     ).toBe("completed");
-    expect(groupTurns.every((turn) => turn.instructions.includes(group.id))).toBe(true);
+    // Same-epoch directory edits arrive as instruction updates after the frozen
+    // system prefix. Check the context delivered to the model, not only that prefix.
+    expect(
+      groupTurns.every((turn) => `${turn.instructions}\n${turn.content}`.includes(group.id))
+    ).toBe(true);
     expect(
       groupTurns.every(
         (turn) =>

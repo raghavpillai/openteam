@@ -6,6 +6,9 @@ export interface MentionOption {
   icon?: string;
   hasAvatar?: boolean;
   updatedAt?: string;
+  trigger?: "@" | "/";
+  kind?: "bot" | "connection" | "skill";
+  status?: string;
 }
 
 export const mentionHandleFor = (label: string): string =>
@@ -29,9 +32,10 @@ export const insertPlainTextMention = (
   text: string,
   matchStart: number,
   matchText: string,
-  handle: string
+  handle: string,
+  trigger: "@" | "/" = "@"
 ): string => {
-  const mentionOffset = matchText.lastIndexOf("@");
+  const mentionOffset = matchText.lastIndexOf(trigger);
   const start = matchStart + Math.max(0, mentionOffset);
-  return `${text.slice(0, start)}@${handle} ${text.slice(matchStart + matchText.length)}`;
+  return `${text.slice(0, start)}${trigger}${handle} ${text.slice(matchStart + matchText.length)}`;
 };

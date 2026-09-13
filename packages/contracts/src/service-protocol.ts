@@ -25,7 +25,9 @@ export const COMPUTER_API_PATHS = {
 export const HOST_BRIDGE_PATHS = {
   health: "/health",
   shell: "/v1/shell",
+  awaitShell: "/v1/await-shell",
   read: "/v1/read",
+  transfer: "/v1/file-transfer",
   machines: "/v1/machines",
   autoReview: "/v1/auto-review",
   permissionUpdate: "/v1/permissions/update",
@@ -33,6 +35,30 @@ export const HOST_BRIDGE_PATHS = {
 
 export const HOST_INLINE_OUTPUT_MAX_BYTES = 100_000;
 export const HOST_READ_MAX_BYTES = 10 * 1024 * 1024;
+export const HOST_TRANSFER_MAX_BYTES = 256 * 1024 * 1024;
+
+export interface HostTransferRequest extends HostApprovalTokens {
+  direction: "read" | "write";
+  path: string;
+  machineId: string;
+  bytes?: number;
+}
+
+export function parseHostTransferRequest(value: unknown): HostTransferRequest {
+  if (!isRecord(value)) throw new Error("File transfer request is invalid");
+  if (value.direction !== "read" && value.direction !== "write") throw new Error("Invalid transfer direction");
+  const path = requiredString(value.path, "path").trim();
+  if (!path || path.includes("\0") || path.length > 4096) throw new Error("Invalid file path");
+  const machineId = requiredString(value.machineId, "machineId");
+  if (value.direction === "write" && (!Number.isSafeInteger(value.bytes) || Number(value.bytes) < 0 || Number(value.bytes) > HOST_TRANSFER_MAX_BYTES)) {
+    throw new Error(`File transfer supports at most ${HOST_TRANSFER_MAX_BYTES} bytes`);
+  }
+  return { direction: value.direction, path, machineId,
+    ...(value.direction === "write" ? { bytes: Number(value.bytes) } : {}),
+    ...(value.localApproval === "allow-once" || value.localApproval === "always" ? { localApproval: value.localApproval } : {}),
+    ...(value.autoReviewApproval === "allow-once" || value.autoReviewApproval === "always" ? { autoReviewApproval: value.autoReviewApproval } : {}),
+  };
+}
 
 export const imageMimeTypeForPath = (path: string): string | null => {
   const extension = /(?:^|\.)([^./]+)$/.exec(path.toLowerCase())?.[1];
@@ -70,6 +96,7 @@ export const parseComputerEvent = (value: unknown): ComputerEvent => {
         throw new Error("Computer runtime engine is invalid");
       break;
     case "turn.started":
+    case "prompt.delivered":
       requiredString(value.turnId, "turnId");
       break;
     case "input.delivered":
@@ -258,6 +285,77 @@ export interface HostShellRequest extends HostApprovalTokens {
   description?: string;
   machineId?: string;
 }
+
+export interface ShellAwaitRequest {
+  shell_id?: string;
+  block_until_ms?: number;
+  pattern?: string;
+}
+
+export interface HostAwaitShellRequest extends ShellAwaitRequest {
+  machineId?: string;
+}
+
+export interface ShellAwaitResponse {
+  status: "running" | "completed" | "failed" | "slept";
+  waited_ms: number;
+  shell_id?: string;
+  exit_code?: number | null;
+  output_path?: string;
+  output_length?: number;
+  elapsed_ms?: number;
+  pid?: number;
+  pattern_matched?: boolean;
+  regex_match?: string;
+  error?: string;
+}
+
+export const parseHostAwaitShellRequest = (value: unknown): HostAwaitShellRequest => {
+  if (!isRecord(value)) throw new Error("AwaitShell arguments must be an object");
+  for (const key of ["pattern", "machineId"] as const) {
+    if (value[key] !== undefined && typeof value[key] !== "string") {
+      throw new Error(`AwaitShell ${key} must be a string`);
+    }
+  }
+  if (
+    value.block_until_ms !== undefined &&
+    (typeof value.block_until_ms !== "number" ||
+      !Number.isFinite(value.block_until_ms) ||
+      value.block_until_ms > 7_140_000)
+  ) {
+    throw new Error("AwaitShell block_until_ms must be between 0 and 7140000");
+  }
+  const rawId = value.shell_id ?? value.task_id;
+  if (rawId !== undefined && typeof rawId !== "string" && !(typeof rawId === "number" && Number.isFinite(rawId))) throw new Error("AwaitShell shell_id must be a string or number");
+  const id = rawId === undefined ? "" : String(rawId).trim();
+  const shellId = id.toLowerCase() === "none" ? "" : id;
+  const blockMs = typeof value.block_until_ms === "number" && value.block_until_ms >= 0 ? Math.floor(value.block_until_ms) : 30_000;
+  return {
+    ...(shellId ? { shell_id: shellId } : {}),
+    ...(shellId && typeof value.pattern === "string" && value.pattern.trim() ? { pattern: value.pattern } : {}),
+    ...(typeof value.machineId === "string" ? { machineId: value.machineId } : {}),
+    block_until_ms: blockMs,
+  };
+};
+
+export const parseShellAwaitResponse = (value: unknown): ShellAwaitResponse => {
+  if (
+    !isRecord(value) ||
+    !["running", "completed", "failed", "slept"].includes(String(value.status)) ||
+    typeof value.waited_ms !== "number" ||
+    !Number.isFinite(value.waited_ms) ||
+    (value.status !== "slept" &&
+      (typeof value.shell_id !== "string" ||
+        typeof value.output_path !== "string" ||
+        typeof value.output_length !== "number" ||
+        typeof value.elapsed_ms !== "number" ||
+        (value.exit_code !== null && typeof value.exit_code !== "number"))) ||
+    (value.pattern_matched !== undefined && typeof value.pattern_matched !== "boolean")
+  ) {
+    throw new Error("Physical-host AwaitShell response is invalid");
+  }
+  return value as unknown as ShellAwaitResponse;
+};
 
 export interface HostPermissionUpdateRequest {
   machineId?: string;

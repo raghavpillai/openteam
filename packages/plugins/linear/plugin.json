@@ -1,0 +1,46 @@
+{
+  "key": "linear",
+  "version": "1.0.1",
+  "name": "Linear",
+  "description": "Find, create, and update issues, projects, and comments.",
+  "publisher": "Linear",
+  "category": "Productivity",
+  "featured": true,
+  "components": [
+    "mcp"
+  ],
+  "homepageUrl": "https://linear.app/docs/mcp",
+  "setup": {
+    "kind": "oauth",
+    "connectionKey": "linear",
+    "title": "Connect Linear",
+    "description": "Linear registers OpenTeam during OAuth, so there are no secrets to create.",
+    "documentationUrl": "https://linear.app/docs/mcp",
+    "steps": [
+      "Continue to Linear's authorization page.",
+      "Choose the workspace OpenTeam may access.",
+      "Return to OpenTeam after authorization completes."
+    ],
+    "fields": [],
+    "requiredScopes": []
+  },
+  "skills": [],
+  "connections": [
+    {
+      "key": "linear",
+      "name": "Linear",
+      "transport": "http",
+      "auth": "oauth",
+      "endpoint": "https://mcp.linear.app/mcp",
+      "tools": [],
+      "oauth": {
+        "clientType": "public",
+        "registration": "dynamic",
+        "tokenEndpointAuthMethod": "none",
+        "shareClientCredentials": false
+      }
+    }
+  ],
+  "schemaVersion": 1,
+  "icon": "assets/icon.png"
+}

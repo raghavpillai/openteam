@@ -1,3 +1,4 @@
+import { preparePromptSections } from "../src/prompt-sections";
 import { describe, expect, test } from "bun:test";
 import {
   AgentMessaging,
@@ -77,6 +78,7 @@ describe("bounded platform target context", () => {
       defaultTimeZone: "UTC",
       agentData: {
         root: "/agent-data",
+        preparePlatformSections: async (_bot: string, _context: string, epoch: number, live: Record<string, string>) => preparePromptSections({}, epoch, live),
         promptContext: async () => ({
           compactionEpoch: 0,
           profileSection: "You are Main.",

@@ -35,6 +35,7 @@ import {
 import { fromPrisma, type Job, type JobWithMetadata, PgBoss } from "pg-boss";
 import { pluginRuntimeContext } from "./plugins";
 import { Projection } from "./projection";
+import { memoryInferenceSettings } from "./memory-inference";
 import { enqueuePushNotification, PushNotificationDispatcher } from "./push-notifications";
 
 const LEASE_MS = 2 * 60_000;
@@ -320,7 +321,8 @@ export class WakeWorker {
     this.workspaceRoot = process.env.OPENTEAM_WORKSPACE_ROOT ?? "/workspace";
     this.agentData = new AgentDataStore(this.prisma, {
       memoryInference: async (request) => {
-        const inference = await this.agentData.loadInferenceSettings();
+        const inference = memoryInferenceSettings(await this.agentData.loadInferenceSettings());
+        const { signal, ...inferenceRequest } = request;
         const response = await fetch(`${this.computerUrl}${COMPUTER_API_PATHS.inference}`, {
           method: "POST",
           headers: {
@@ -328,11 +330,14 @@ export class WakeWorker {
             "content-type": "application/json",
           },
           body: JSON.stringify({
-            ...request,
+            ...inferenceRequest,
             model: formatPiModelRef(inference),
             reasoning: inference.reasoning,
           }),
-          signal: AbortSignal.timeout(request.timeoutMs),
+          signal: AbortSignal.any([
+            AbortSignal.timeout(request.timeoutMs),
+            ...(signal ? [signal] : []),
+          ]),
         });
         const body = (await response.json()) as { text?: unknown; error?: unknown };
         if (!response.ok || typeof body.text !== "string") {
@@ -1194,8 +1199,7 @@ export class WakeWorker {
     let completion: Extract<ComputerEvent, { type: "turn.completed" }> | null = null;
     try {
       await this.reconcileContextState(claimed);
-      const [platformPrompt, pluginContext, inference] = await Promise.all([
-        this.messaging.platformPrompt(claimed.botId, claimed.contextSessionId),
+      const [pluginContext, inference] = await Promise.all([
         subagentLoadsPluginContext(claimed.subagentType)
           ? pluginRuntimeContext(this.prisma, claimed.pluginBotId)
           : Promise.resolve({ dynamicNamespaces: [], skillInstructions: "" }),
@@ -1203,10 +1207,19 @@ export class WakeWorker {
       ]);
       // Plugin skills are global/read-only inputs. User workflows are rendered
       // later by platformInstructions and therefore win on conflict.
-      const instructions = `${pluginSkillPromptForRuntime(
+      const platformPrompt = await this.messaging.platformPrompt(claimed.botId, claimed.contextSessionId, pluginSkillPromptForRuntime(
         claimed.runtimeProfile,
         pluginContext.skillInstructions
-      )}${platformPrompt.instructions}`;
+      ));
+      // Replay failed user inputs whose durable-session delivery was never
+      // acknowledged. Runtime message IDs prevent duplication after a lost ack.
+      const missed = claimed.runtimeProfile === "agent" ? await this.prisma.inboxEvent.findMany({ where: { botId: claimed.botId, conversationId: claimed.conversationId, deliveryMode: "turn", runId: { not: claimed.runId }, run: { channelId: claimed.channelId, origin: "user", status: { in: ["failed", "interrupted"] }, inputDeliveredAt: null } }, orderBy: { createdAt: "asc" }, take: 20 }) : [];
+      const missedMessages = await Promise.all(missed.flatMap((event) => {
+        const payload = event.payload as { content?: string; clientId?: string; attachments?: unknown };
+        if (!payload.content || !payload.clientId) return [];
+        return [(async () => ({ id: `input:${payload.clientId}`, content: `[SAND_HIDDEN_PROMPT]Earlier user input whose delivery was interrupted:\n${payload.content}`, images: await this.messaging.assets.runtimeImages(assetRefs(payload.attachments)) }))()];
+      }));
+      const instructions = platformPrompt.instructions;
       const turnRequest = {
         runId: claimed.runId,
         botId: claimed.botId,
@@ -1214,13 +1227,21 @@ export class WakeWorker {
         screenBotId: claimed.screenBotId,
         conversationId: claimed.conversationId,
         sessionPath: claimed.sessionPath,
-        content: turnContentWithProfileUpdate(platformPrompt.agentProfileUpdate, claimed.content),
+        content: [
+          turnContentWithProfileUpdate(platformPrompt.agentProfileUpdate, claimed.content),
+          platformPrompt.instructionsUpdate,
+        ].filter(Boolean).join("\n\n"),
+        prependMessages: [...missedMessages, ...(platformPrompt.ambientContext ? [{
+          id: `${claimed.clientId}:ambient`,
+          content: `[SAND_HIDDEN_PROMPT]${platformPrompt.ambientContext}`,
+        }] : [])],
         images: claimed.images,
         clientMessageId: claimed.clientId,
         cwd: claimed.cwd,
         instructions,
         userInfo: platformPrompt.userInfo,
         userInfoEpoch: platformPrompt.userInfoEpoch ?? undefined,
+        connectorInstructions: pluginSkillPromptForRuntime(claimed.runtimeProfile, pluginContext.skillInstructions),
         agentProfileSnapshot: platformPrompt.agentProfileSnapshot ?? undefined,
         memorySnapshot: platformPrompt.memorySnapshot ?? undefined,
         todoUpdate: platformPrompt.todoUpdate,
@@ -1262,6 +1283,10 @@ export class WakeWorker {
         for (const line of lines) {
           if (!line.trim()) continue;
           const event = parseComputerEvent(JSON.parse(line));
+          if (event.type === "prompt.delivered") {
+            await this.prisma.run.updateMany({ where: { botId: claimed.botId, id: { in: [claimed.runId, ...missed.map((input) => input.runId)] }, inputDeliveredAt: null }, data: { inputDeliveredAt: new Date() } });
+            await this.messaging.acknowledgePlatformPrompt(claimed.botId, claimed.contextSessionId, platformPrompt);
+          }
           await this.projection.apply(claimed.runId, claimed.conversationId, claimed.botId, event);
           // Only approval and completion transitions can enqueue a push. Token
           // deltas are frequent and previously caused two empty outbox scans
@@ -1328,7 +1353,7 @@ export class WakeWorker {
         await this.messaging.scheduleTranscriptProjection(tx, [claimed.botId]);
         await this.completeSubagent(tx, claimed);
       });
-      await this.agentData.acknowledgeIdentityAnnouncement(claimed.botId, claimed.contextSessionId);
+      // Profile announcements are acknowledged by the delivered prompt receipt.
       await this.recordMemoryFromRun(claimed);
       await this.syncRoutineRunFile(claimed.botId, claimed.runId);
       if (claimed.deliveryId) {

@@ -16,6 +16,22 @@ try {
     outdir: directory,
     target: "browser",
     format: "esm",
+    // Vite normally resolves worker URLs. Thread fixtures never open PDF previews.
+    plugins: [
+      {
+        name: "fixture-worker-urls",
+        setup(build) {
+          build.onResolve({ filter: /\?url$/ }, (args) => ({
+            path: args.path,
+            namespace: "fixture-url",
+          }));
+          build.onLoad({ filter: /.*/, namespace: "fixture-url" }, () => ({
+            contents: 'export default "";',
+            loader: "js",
+          }));
+        },
+      },
+    ],
     define: {
       "process.env.NODE_ENV": '"development"',
       "import.meta.env.VITE_OPENTEAM_API_URL": '"http://localhost:8787"',

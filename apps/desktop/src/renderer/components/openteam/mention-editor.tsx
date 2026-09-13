@@ -24,6 +24,7 @@ const serializeNode = (node: Node, output: MentionSegment[]) => {
       id: node.dataset.mentionId,
       label: node.dataset.mentionLabel ?? node.textContent?.replace(/^@/, "") ?? "",
       handle: node.dataset.mentionHandle ?? "",
+      trigger: node.dataset.mentionTrigger === "/" ? "/" : "@",
     });
     return;
   }
@@ -56,11 +57,12 @@ const currentMentionQuery = (editor: HTMLDivElement) => {
     return null;
   }
   const prefix = range.startContainer.textContent?.slice(0, range.startOffset) ?? "";
-  const match = prefix.match(/(?:^|\s)@([\p{L}\p{N}._-]*)$/u);
+  const match = prefix.match(/(?:^|\s)([@/])([\p{L}\p{N}:._-]*)$/u);
   if (!match) return null;
   return {
-    query: (match[1] ?? "").toLocaleLowerCase("en-US"),
-    startOffset: range.startOffset - (match[1]?.length ?? 0) - 1,
+    trigger: match[1] as "@" | "/",
+    query: (match[2] ?? "").toLocaleLowerCase("en-US"),
+    startOffset: range.startOffset - (match[2]?.length ?? 0) - 1,
     range: range.cloneRange(),
   };
 };
@@ -90,6 +92,7 @@ export function MentionEditor({
   onPaste?: (event: ClipboardEvent<HTMLDivElement>) => void;
   onSubmit: () => void;
 }) {
+  const [trigger, setTrigger] = useState<"@" | "/">("@");
   const [query, setQuery] = useState<string | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
   const [pickerPosition, setPickerPosition] = useState({ left: 8, top: 8 });
@@ -111,9 +114,9 @@ export function MentionEditor({
   const filtered = useMemo(() => {
     if (query === null) return [];
     return searchableOptions
-      .filter((option) => option.label.includes(query) || option.handle.includes(query))
+      .filter((entry) => (entry.option.trigger ?? "@") === trigger && (entry.label.includes(query) || entry.handle.includes(query)))
       .map(({ option }) => option);
-  }, [query, searchableOptions]);
+  }, [query, searchableOptions, trigger]);
   const estimateOptionSize = useCallback(() => 28, []);
   const optionKey = useCallback(
     (index: number) => filtered[index]?.id ?? `missing:${index}`,
@@ -157,6 +160,7 @@ export function MentionEditor({
     if (queryRef.current !== mention.query) setActiveIndex(0);
     queryRef.current = mention.query;
     setQuery(mention.query);
+    setTrigger(mention.trigger);
   }, [editorRef]);
 
   useLayoutEffect(() => {
@@ -194,6 +198,7 @@ export function MentionEditor({
       token.dataset.mentionId = option.id;
       token.dataset.mentionLabel = option.label;
       token.dataset.mentionHandle = option.handle;
+      token.dataset.mentionTrigger = option.trigger ?? "@";
       token.className =
         "mx-1 -mb-[2px] -mt-[3px] inline-flex items-center gap-1 rounded bg-[#e9e9e9] py-0.5 pl-1 pr-1.5 align-baseline text-[14px] font-medium leading-5 text-foreground dark:bg-[#464646]";
       const dot = document.createElement("span");
@@ -401,16 +406,16 @@ export function MentionEditor({
                             else optionAvatarById.current.delete(option.id);
                           }}
                         >
-                          {option.id === "__everyone__" ? (
+                          {option.id === "__everyone__" || option.kind === "connection" || option.kind === "skill" ? (
                             <span className="grid size-4 place-items-center rounded-full bg-[#e9e9e9] text-[11px] font-semibold leading-none text-[#737373] dark:bg-[#464646] dark:text-[#a8a8a8]">
-                              @
+                              {option.trigger ?? "@"}
                             </span>
                           ) : (
                             <BotAvatar
                               bot={{
                                 id: option.id,
                                 color: option.color ?? "#878787",
-                                icon: option.icon ?? "circle",
+                                icon: option.icon ?? "helmet",
                                 hasAvatar: option.hasAvatar,
                                 updatedAt: option.updatedAt,
                               }}
@@ -420,7 +425,7 @@ export function MentionEditor({
                         </span>
                         <span className="min-w-0 flex-1 truncate">{option.label}</span>
                         <span className="shrink-0 text-[14px] text-[#737373] dark:text-[#a8a8a8]">
-                          Bot
+                          {option.kind === "skill" ? "Skill" : option.kind === "connection" ? option.status ?? "Connection" : "Bot"}
                         </span>
                       </button>
                     </li>

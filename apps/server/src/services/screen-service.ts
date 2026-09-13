@@ -48,6 +48,15 @@ export class ScreenService {
     private readonly computerFetch: ComputerFetch
   ) {}
 
+  async userFormAction(botId: string, formId: string, action: "prepare" | "prefill" | "submit" | "dismiss", input: unknown) {
+    await this.requireActiveBot(botId);
+    const response = await this.computerFetch(`/v1/user-forms/${encodeURIComponent(botId)}/${encodeURIComponent(formId)}/${action}`, {
+      method: "POST", body: JSON.stringify(input), signal: AbortSignal.timeout(60_000),
+    });
+    if (!response.ok) throw new ApiError(409, "form_host_unavailable", "The form could not be processed on the computer. No values were put in the conversation. Check the browser and retry.");
+    return response.json();
+  }
+
   status = (botId: string) =>
     Effect.tryPromise({
       try: async () => {

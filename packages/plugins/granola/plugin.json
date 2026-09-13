@@ -1,0 +1,60 @@
+{
+  "schemaVersion": 1,
+  "key": "granola",
+  "version": "1.0.0",
+  "name": "Granola",
+  "description": "Bring meeting notes, decisions, and action items into your work.",
+  "publisher": "OpenTeam",
+  "category": "Productivity",
+  "featured": true,
+  "components": ["mcp", "skills"],
+  "icon": "assets/icon.png",
+  "homepageUrl": "https://www.granola.ai",
+  "setup": {
+    "kind": "oauth",
+    "connectionKey": "granola",
+    "title": "Connect Granola",
+    "description": "Sign in with your Granola account. No API key or developer application is needed.",
+    "documentationUrl": "https://docs.granola.ai/help-center/sharing/integrations/mcp",
+    "steps": [
+      "Check your account email and active workspace in Granola.",
+      "Continue to Granola, sign in with that account, and review the requested access.",
+      "Return to OpenTeam after authorization. Granola uses your active workspace; available notes and tools depend on your plan and workspace settings."
+    ],
+    "fields": [],
+    "requiredScopes": ["mcp"]
+  },
+  "skills": [
+    {
+      "name": "granola-context",
+      "description": "Find meeting discussions, decisions, and relevant upcoming conversations with links to the evidence.",
+      "path": "skills/granola-context"
+    },
+    {
+      "name": "granola-prep",
+      "description": "Prepare a meeting brief from previous discussions, open commitments, and recent developments.",
+      "path": "skills/granola-prep"
+    },
+    {
+      "name": "granola-review",
+      "description": "Compare an implementation, document, or plan with the requirements and decisions recorded in meetings.",
+      "path": "skills/granola-review"
+    }
+  ],
+  "connections": [
+    {
+      "key": "granola",
+      "name": "Granola",
+      "transport": "http",
+      "auth": "oauth",
+      "endpoint": "https://mcp.granola.ai/mcp",
+      "tools": [],
+      "oauth": {
+        "clientType": "public",
+        "registration": "dynamic",
+        "tokenEndpointAuthMethod": "none",
+        "shareClientCredentials": false
+      }
+    }
+  ]
+}

@@ -1,7 +1,9 @@
 import { spawn, type ChildProcessByStdio } from "node:child_process";
+import { randomInt } from "node:crypto";
+import { ShellJobRegistry, createShellEnvironmentCapture, loadShellEnvironment, SHELL_ENVIRONMENT_CAPTURE } from "@openteam/shell-jobs";
 import { createWriteStream, type WriteStream } from "node:fs";
 import { access, mkdir, readFile, stat } from "node:fs/promises";
-import { extname, isAbsolute, resolve } from "node:path";
+import { dirname, extname, isAbsolute, resolve } from "node:path";
 import type { Readable } from "node:stream";
 import {
   HOST_INLINE_OUTPUT_MAX_BYTES,
@@ -121,6 +123,7 @@ interface ActiveHostExecution {
 }
 
 const shellCapacity = new ShellCapacity();
+const shellJobs = new ShellJobRegistry();
 const activeHostExecutions = new Set<ActiveHostExecution>();
 
 export const hostShellCapacitySnapshot = () => shellCapacity.snapshot();
@@ -487,7 +490,7 @@ export const executeShell = async (
   let terminateUntrackedChild: (() => Promise<void>) | undefined;
   try {
     if (signal?.aborted) throw new Error("Host shell was cancelled");
-    const shellId = crypto.randomUUID();
+    const shellId = String(randomInt(100000, 2147483647));
     const outputPath = resolve(terminalDir, `${shellId}.log`);
     outputFile = createWriteStream(outputPath, { flags: "wx", mode: 0o600 });
     const startedAt = Date.now();
@@ -497,14 +500,24 @@ export const executeShell = async (
       throw new Error("ExternalShell command metadata exceeds the terminal log limit");
     }
     const commandLogBudget = MAX_SHELL_LOG_BYTES - logHeaderBytes - SHELL_LOG_FOOTER_RESERVE_BYTES;
-    const child = spawn(input.command, [], {
+    const savedEnvironment = await loadShellEnvironment(terminalDir, "host", process.env);
+    const environmentCapture = createShellEnvironmentCapture(dirname(savedEnvironment.path));
+    const child = spawn("/bin/bash", ["--noprofile", "--norc", "-c", `${SHELL_ENVIRONMENT_CAPTURE}\n${input.command}`], {
       cwd: workingDirectory,
       detached: process.platform !== "win32",
-      env: process.env,
-      shell: true,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
+      env: { ...savedEnvironment.environment, PWD: workingDirectory },
+      stdio: ["ignore", "pipe", "pipe", environmentCapture.fd],
+    }) as HostChildProcess;
+    environmentCapture.closeParent();
     const maxRuntimeMs = Math.max(1, executionOptions.maxRuntimeMs ?? MAX_SHELL_RUNTIME_MS);
+    const job = shellJobs.start({
+      id: shellId,
+      scope: resolve(terminalDir),
+      outputPath,
+      outputOffset: logHeaderBytes,
+      startedAt,
+      pid: child.pid,
+    });
     const terminationGraceMs = Math.max(
       0,
       executionOptions.terminationGraceMs ?? SHELL_TERMINATION_GRACE_MS
@@ -548,7 +561,13 @@ export const executeShell = async (
       const remainingLogBytes = commandLogBudget - logBytes;
       const piece = chunk.subarray(0, Math.max(0, remainingLogBytes));
       logBytes += piece.length;
-      if (piece.length > 0 && !outputFile?.write(piece) && !pausedForBackpressure) {
+      if (
+        piece.length > 0 &&
+        !outputFile?.write(piece, (error) => {
+          if (!error) job.outputWritten(piece.length);
+        }) &&
+        !pausedForBackpressure
+      ) {
         pausedForBackpressure = true;
         child.stdout.pause();
         child.stderr.pause();
@@ -565,6 +584,8 @@ export const executeShell = async (
       if (settled) return;
       settled = true;
       childClosed = true;
+      try { await environmentCapture.persist(savedEnvironment.path); }
+      catch (error) { processError = error instanceof Error ? error : new Error("Could not persist shell environment"); stopReason = "output_stream_error"; }
       tree.rootClosed();
       if (runtimeTimer) clearTimeout(runtimeTimer);
       signal?.removeEventListener("abort", abort);
@@ -601,6 +622,7 @@ export const executeShell = async (
         );
         outputFile.off("error", onOutputError);
       }
+      job.finish(exitCode, stopReason ? (processError?.message ?? status) : undefined);
       resolveCompletion({ exitCode, reason: stopReason, error: processError });
     };
 
@@ -695,6 +717,8 @@ export const executeShell = async (
 };
 
 export const executeHostJob = (payload: HostJobPayload, signal?: AbortSignal) => {
+  if (payload.kind === "await-shell")
+    return shellJobs.await(payload.input, resolve(payload.terminalDir), signal);
   if (payload.kind === "read") return executeRead(payload.input, signal);
   return executeShell(payload.input, payload.terminalDir, signal);
 };

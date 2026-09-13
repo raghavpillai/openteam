@@ -1,4 +1,5 @@
 import * as Haptics from "../../src/haptics";
+import { usePluginMentions } from "../../src/hooks/use-plugin-mentions";
 import type { BotView, ChannelMessageView } from "@openteam/contracts";
 import { addSidebarUnread } from "@openteam/contracts/client-preferences";
 import { mentionHandleFor } from "@openteam/product-core/mentions";
@@ -251,9 +252,11 @@ export default function ConversationScreen() {
     const exchangeMessages = selectA2AExchangeMessages(mainMessages, a2aPeerId);
     return exchangeMessages.length > 0 ? { source: bot, peer, messages: exchangeMessages } : null;
   }, [a2aPeerId, bot, botById, mainMessages]);
+  const pluginMentions = usePluginMentions(botId ?? channel?.members[0]?.botId);
   const mentionOptions = useMemo(() => {
-    if (channel?.kind !== "group") return [];
+    if (channel?.kind !== "group") return pluginMentions;
     return [
+      ...pluginMentions,
       { id: "everyone", label: "Everyone", handle: "everyone" },
       ...channel.members.flatMap((member) => {
         const memberBot = botById.get(member.botId);
@@ -268,7 +271,7 @@ export default function ConversationScreen() {
           : [];
       }),
     ];
-  }, [botById, channel]);
+  }, [botById, channel, pluginMentions]);
   const enteringMessageKeys = useMemo(() => {
     const known = knownChannelId.current === channelId ? knownMessageKeys.current : null;
     return enteringAppendedMessageKeys(mainMessages, known, messageRenderKey);
@@ -837,7 +840,7 @@ export default function ConversationScreen() {
             style={styles.composerOverlay}
           >
             <Composer
-              transcriptionConfigured={snapshot?.runtime.transcription === "configured"}
+              transcriptionConfigured={snapshot?.runtime.transcription === "configured" && !activeThread}
               onTranscribe={transcribeAudio}
               draftKey={draftKey}
               botName={name}
@@ -867,6 +870,8 @@ export default function ConversationScreen() {
           </View>
           {activeThread ? (
             <ThreadSheet
+              transcriptionConfigured={snapshot?.runtime.transcription === "configured"}
+              onTranscribe={transcribeAudio}
               assetUrl={assetUrl}
               botById={botById}
               botName={name}

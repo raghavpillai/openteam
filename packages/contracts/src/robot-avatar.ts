@@ -1,6 +1,4 @@
-import type { BotAvatarShape as LegacyBotAvatarShape } from "./bot-avatar";
-
-/** Robot identities shared by clients; the legacy silhouette IDs remain readable. */
+/** Robot identities shared by profile storage, clients, and artwork. */
 export const ROBOT_AVATAR_SHAPES = [
   "classic",
   "goggles",
@@ -17,26 +15,11 @@ export const ROBOT_AVATAR_SHAPES = [
 ] as const;
 export type RobotAvatarShape = (typeof ROBOT_AVATAR_SHAPES)[number];
 
-// Existing saved avatars keep a stable identity without rewriting bot profiles.
-const LEGACY_ROBOTS: Record<LegacyBotAvatarShape, RobotAvatarShape> = {
-  circle: "helmet",
-  blob: "goggles",
-  square: "tv-head",
-  pill: "terminal",
-  triangle: "classic",
-  hexagon: "hex-visor",
-  cloud: "chip",
-  drop: "pod",
-};
+export const DEFAULT_ROBOT_AVATAR_SHAPE = "chip" satisfies RobotAvatarShape;
+
 export const normalizeRobotAvatarShape = (icon?: string | null): RobotAvatarShape => {
   const value = icon?.trim().toLowerCase() ?? "";
-  return (
-    ROBOT_AVATAR_SHAPES.find((shape) => shape === value) ??
-    (Object.hasOwn(LEGACY_ROBOTS, value)
-      ? LEGACY_ROBOTS[value as LegacyBotAvatarShape]
-      : undefined) ??
-    "chip"
-  );
+  return ROBOT_AVATAR_SHAPES.find((shape) => shape === value) ?? DEFAULT_ROBOT_AVATAR_SHAPE;
 };
 export const ROBOT_AVATAR_LABELS = {
   classic: "Classic",

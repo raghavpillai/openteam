@@ -79,7 +79,9 @@ for (const directories of clientSourceDirectories.values()) {
 }
 
 const neutralPackageImports = new Map<string, ReadonlySet<string>>([
-  ["contracts", new Set()],
+  ["contracts", new Set(["@openteam/plugin-sdk"])],
+  ["plugin-sdk", new Set()],
+  ["plugins", new Set(["@openteam/plugin-sdk"])],
   ["client-core", new Set(["@openteam/contracts"])],
   ["product-core", new Set(["@openteam/contracts"])],
   ["design-tokens", new Set(["@openteam/contracts"])],

@@ -256,6 +256,7 @@ model Bot {
   title            String       @default("")
   description      String       @default("")
   instructions     String       @default("")
+  templateRecipe   Json?
   icon             String       @default("●")
   color            String       @default("#4f7cff")
   namedBy          String       @default("user")
@@ -723,6 +724,7 @@ model ContextPromptSnapshot {
   memoryHasFacts        Boolean        @default(false)
   skillEpoch            Int            @default(-1)
   skillRender           String         @default("")
+  promptSections        Json           @default("{}")
   createdAt              DateTime       @default(now())
   updatedAt              DateTime       @updatedAt
 }
@@ -741,6 +743,7 @@ model AgentPromptSnapshot {
   memoryHasFacts        Boolean  @default(false)
   skillEpoch            Int      @default(-1)
   skillRender           String   @default("")
+  promptSections        Json     @default("{}")
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
 }
@@ -801,6 +804,7 @@ model Run {
   deliveryId     String?      @unique @db.Uuid
   delivery       ChannelDelivery? @relation(fields: [deliveryId], references: [id], onDelete: SetNull)
   error          Json?
+  inputDeliveredAt DateTime?
   startedAt      DateTime?
   completedAt    DateTime?
   messages       Message[]    @relation("RunMessages")
@@ -963,6 +967,12 @@ model PluginInstallation {
   description String              @default("")
   publisher   String
   manifest    Json
+  previousManifest Json?
+  sourceId    String?
+  sourceDigest String?
+  mode        String              @default("optional")
+  skillSyncStatus String          @default("pending")
+  skillSyncError String?
   status      PluginInstallStatus @default(installed)
   installedAt DateTime            @default(now())
   updatedAt   DateTime            @updatedAt
@@ -988,6 +998,7 @@ model PluginConnection {
   instructions  String                 @default("")
   configuration Json                   @default("{}")
   credentials   Json                   @default("{}")
+  runtimeGeneration Int                @default(0)
   toolSnapshot  Json                   @default("[]")
   connectedAt   DateTime?
   lastCheckedAt DateTime?
@@ -1037,6 +1048,7 @@ model PluginToolPolicy {
   bot          Bot?               @relation(fields: [botId], references: [id], onDelete: Cascade)
   toolName     String
   decision     PluginToolDecision
+  enabled      Boolean            @default(true)
   createdAt    DateTime           @default(now())
   updatedAt    DateTime           @updatedAt
 
@@ -1176,4 +1188,46 @@ model Verification {
 
   @@index([identifier])
   @@map("verification")
+}
+
+// Sources and drafts are owned by this installation, without a hosted registry dependency.
+model PluginSource {
+  id         String   @id @default(uuid()) @db.Uuid
+  name       String
+  url        String   @unique
+  manifest   Json     @default("{}")
+  status     String   @default("pending")
+  error      String?
+  refreshedAt DateTime?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model PluginDraft {
+  id         String   @id @default(uuid()) @db.Uuid
+  name       String
+  definition Json
+  warnings   Json     @default("[]")
+  sourceUrl  String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model PluginPrivateSkill {
+  id         String   @id @default(uuid()) @db.Uuid
+  name       String   @unique
+  description String @default("")
+  body       String
+  files      Json     @default("{}")
+  enabledBotIds Json @default("[]")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+// Singleton configuration owned by the server, separate from agent-visible state.
+model WebSearchSettings {
+  id              String   @id @default("global")
+  provider        String?
+  apiKey          String?
+  updatedAt       DateTime @updatedAt
 }

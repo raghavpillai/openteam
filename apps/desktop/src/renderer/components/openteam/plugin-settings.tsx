@@ -7,11 +7,6 @@ import type {
   PluginSettingsView,
 } from "@openteam/contracts";
 import {
-  PLUGIN_MARKETPLACE_CATEGORIES,
-  type PluginMarketplaceCategory,
-  pluginMatchesMarketplaceCategory,
-} from "@openteam/client-core/plugin-marketplace";
-import {
   executePluginAccessTransition,
   planPluginConnectionGrant,
   planPluginSkillAccess,
@@ -27,6 +22,8 @@ import {
   KeyRound,
   LoaderCircle,
   Plus,
+  Plug,
+  Link,
   Search,
   X,
 } from "lucide-react";
@@ -50,7 +47,18 @@ const PluginAuthSelect = lazy(() =>
   loadPluginSettingsDetail().then((module) => ({ default: module.PluginAuthSelect }))
 );
 
-type MarketplacePage = "marketplace" | "installed" | "detail" | "custom";
+const PluginWorkspace = lazy(() => import("./plugins/plugin-workspace"));
+import { PluginMark } from "./plugins/plugin-mark";
+import { PluginAccountRow, AddPluginAccount } from "./plugins/plugin-accounts";
+import { MarketplaceView, InstalledPluginsView } from "./plugins/marketplace-browse";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from "../ui/dropdown-menu";
+
+type MarketplacePage = "marketplace" | "installed" | "detail" | "custom" | "manage";
 
 const primaryButton =
   "inline-flex h-[26px] shrink-0 items-center justify-center gap-1.5 rounded-full bg-black px-3 text-[13px] font-medium text-white outline-none transition-opacity hover:opacity-80 disabled:cursor-wait disabled:opacity-45 dark:bg-white dark:text-black";
@@ -58,329 +66,6 @@ const secondaryButton =
   "inline-flex h-[26px] shrink-0 items-center justify-center gap-1.5 rounded-full bg-black/[0.055] px-3 text-[13px] text-foreground outline-none transition-colors hover:bg-black/[0.09] disabled:cursor-wait disabled:opacity-45 dark:bg-[#222222] dark:hover:bg-[#2b2b2b]";
 
 const errorMessage = (cause: unknown) => clientErrorMessage(cause, "Plugin operation failed");
-
-function PluginMark({
-  logoUrl,
-  name,
-  size = "md",
-}: {
-  logoUrl?: string | null;
-  name: string;
-  size?: "sm" | "md" | "lg";
-}) {
-  const google = name.startsWith("Google") || name === "Gmail";
-  return (
-    <span
-      className={cn(
-        "relative grid shrink-0 place-items-center overflow-hidden rounded-[11px] bg-black/[0.055] font-medium dark:bg-[#373737]",
-        size === "sm" && "size-8 text-[12px]",
-        size === "md" && "size-10 text-[14px]",
-        size === "lg" && "size-12 rounded-[13px] text-[16px]"
-      )}
-    >
-      <span
-        className={cn(google && "font-bold")}
-        style={
-          google
-            ? {
-                background:
-                  "conic-gradient(from -45deg,#4285f4 0 25%,#34a853 0 43%,#fbbc05 0 68%,#ea4335 0 84%,#4285f4 0)",
-                backgroundClip: "text",
-                color: "transparent",
-              }
-            : undefined
-        }
-      >
-        {name.slice(0, 1).toUpperCase()}
-      </span>
-      {logoUrl ? (
-        <img
-          alt=""
-          className="absolute size-[72%] bg-inherit object-contain"
-          onError={(event) => {
-            event.currentTarget.style.display = "none";
-          }}
-          src={logoUrl}
-        />
-      ) : null}
-    </span>
-  );
-}
-
-function SearchField({ query, onChange }: { query: string; onChange: (value: string) => void }) {
-  return (
-    <label className="relative block">
-      <Search
-        className="pointer-events-none absolute left-3 top-1/2 size-[14px] -translate-y-1/2 text-foreground-tertiary"
-        strokeWidth={2}
-      />
-      <input
-        aria-label="Search plugins"
-        className="h-8 w-full rounded-[8px] border-[0.5px] border-black/[0.055] bg-black/[0.045] pl-[31px] pr-3 text-[14px] outline-none placeholder:text-foreground-tertiary focus:border-black/10 dark:border-white/[0.07] dark:bg-[#292929]"
-        onChange={(event) => onChange(event.target.value)}
-        placeholder="Search plugins"
-        value={query}
-      />
-    </label>
-  );
-}
-
-function InstallAction({
-  busy,
-  plugin,
-  onInstall,
-}: {
-  busy: string | null;
-  plugin: PluginCatalogItemView;
-  onInstall: (plugin: PluginCatalogItemView) => void;
-}) {
-  if (plugin.installed) {
-    return (
-      <span className="inline-flex h-[26px] shrink-0 items-center gap-1 px-1 text-[13px] text-[#00a86b]">
-        <Check className="size-3.5" strokeWidth={2.2} /> Added
-      </span>
-    );
-  }
-  return (
-    <button
-      className={secondaryButton}
-      disabled={busy === plugin.key}
-      onClick={(event) => {
-        event.stopPropagation();
-        onInstall(plugin);
-      }}
-      type="button"
-    >
-      {busy === plugin.key ? <LoaderCircle className="size-3 animate-spin" /> : null}
-      Add
-    </button>
-  );
-}
-
-function CompactPluginRow({
-  busy,
-  plugin,
-  onInstall,
-  onOpen,
-}: {
-  busy: string | null;
-  plugin: PluginCatalogItemView;
-  onInstall: (plugin: PluginCatalogItemView) => void;
-  onOpen: (plugin: PluginCatalogItemView) => void;
-}) {
-  return (
-    <div className="group flex min-w-0 items-center rounded-[9px] px-2 transition-colors hover:bg-black/[0.025] focus-within:bg-black/[0.04] dark:hover:bg-white/[0.035]">
-      <button
-        className="flex min-w-0 flex-1 items-center gap-3 py-3 text-left outline-none"
-        onClick={() => onOpen(plugin)}
-        type="button"
-      >
-        <PluginMark logoUrl={plugin.logoUrl} name={plugin.name} />
-        <span className="min-w-0 flex-1">
-          <span className="flex items-center gap-1.5 text-[13px] font-medium leading-[18px]">
-            <span className="truncate">{plugin.name}</span>
-            {plugin.featured ? (
-              <span className="rounded-full bg-black/[0.055] px-1.5 py-0.5 text-[8px] font-normal uppercase tracking-[0.04em] text-foreground-tertiary dark:bg-white/[0.08]">
-                Featured
-              </span>
-            ) : null}
-          </span>
-          <span className="block truncate text-[13px] leading-[18px] text-foreground-secondary">
-            {plugin.description}
-          </span>
-        </span>
-      </button>
-      <InstallAction busy={busy} onInstall={onInstall} plugin={plugin} />
-    </div>
-  );
-}
-
-function FilteredPluginRow({
-  busy,
-  plugin,
-  onInstall,
-  onOpen,
-}: {
-  busy: string | null;
-  plugin: PluginCatalogItemView;
-  onInstall: (plugin: PluginCatalogItemView) => void;
-  onOpen: (plugin: PluginCatalogItemView) => void;
-}) {
-  return (
-    <div className="group flex w-full items-center rounded-[10px] px-2 transition-colors hover:bg-black/[0.025] focus-within:bg-black/[0.04] dark:hover:bg-white/[0.035]">
-      <button
-        className="flex min-w-0 flex-1 items-center gap-3 py-3 text-left outline-none"
-        onClick={() => onOpen(plugin)}
-        type="button"
-      >
-        <PluginMark logoUrl={plugin.logoUrl} name={plugin.name} />
-        <span className="min-w-0 flex-1">
-          <span className="flex items-center gap-1.5 text-[13px] font-medium leading-[18px]">
-            <span>{plugin.name}</span>
-          </span>
-          <span className="block truncate text-[13px] leading-[18px] text-foreground-secondary">
-            {plugin.description}
-          </span>
-        </span>
-      </button>
-      <InstallAction busy={busy} onInstall={onInstall} plugin={plugin} />
-    </div>
-  );
-}
-
-function SectionHeading({ children }: { children: React.ReactNode }) {
-  return <div className="px-2 text-[13px] leading-[18px] text-foreground-tertiary">{children}</div>;
-}
-
-function MarketplaceHome({
-  busy,
-  data,
-  onInstall,
-  onOpen,
-}: {
-  busy: string | null;
-  data: PluginSettingsView;
-  onInstall: (plugin: PluginCatalogItemView) => void;
-  onOpen: (plugin: PluginCatalogItemView) => void;
-}) {
-  const featured = data.catalog.filter((plugin) => plugin.featured);
-  const rest = data.catalog.filter((plugin) => !plugin.featured);
-  const groups = [...new Set(rest.map((plugin) => plugin.category))];
-  return (
-    <div className="space-y-6 pb-8 pt-1">
-      {featured.length ? (
-        <section>
-          <div className="mb-2 flex items-center justify-between">
-            <SectionHeading>Featured</SectionHeading>
-            <span className="px-2 text-[10.5px] text-foreground-tertiary">View all</span>
-          </div>
-          <div className="grid grid-cols-2 gap-x-4 max-sm:grid-cols-1">
-            {featured.map((plugin) => (
-              <CompactPluginRow
-                busy={busy}
-                key={plugin.key}
-                onInstall={onInstall}
-                onOpen={onOpen}
-                plugin={plugin}
-              />
-            ))}
-          </div>
-        </section>
-      ) : null}
-      {groups.map((group) => (
-        <section key={group}>
-          <div className="mb-2 flex items-center justify-between">
-            <SectionHeading>{group}</SectionHeading>
-            <span className="px-2 text-[10.5px] text-foreground-tertiary">View all</span>
-          </div>
-          <div className="grid grid-cols-2 gap-x-4 max-sm:grid-cols-1">
-            {rest
-              .filter((plugin) => plugin.category === group)
-              .map((plugin) => (
-                <CompactPluginRow
-                  busy={busy}
-                  key={plugin.key}
-                  onInstall={onInstall}
-                  onOpen={onOpen}
-                  plugin={plugin}
-                />
-              ))}
-          </div>
-        </section>
-      ))}
-    </div>
-  );
-}
-
-function MarketplaceView({
-  busy,
-  data,
-  onInstall,
-  onOpen,
-  onShowInstalled,
-}: {
-  busy: string | null;
-  data: PluginSettingsView;
-  onInstall: (plugin: PluginCatalogItemView) => void;
-  onOpen: (plugin: PluginCatalogItemView) => void;
-  onShowInstalled: () => void;
-}) {
-  const [query, setQuery] = useState("");
-  const [category, setCategory] = useState<PluginMarketplaceCategory>("All");
-  const normalized = query.trim().toLowerCase();
-  const filtered = data.catalog.filter((plugin) => {
-    return (
-      pluginMatchesMarketplaceCategory(plugin, category) &&
-      `${plugin.name} ${plugin.description} ${plugin.publisher}`.toLowerCase().includes(normalized)
-    );
-  });
-  const groupedHome = category === "All" && !normalized;
-  return (
-    <div className="px-8 pb-5 pt-[14px]">
-      {data.installs.length ? (
-        <button
-          className="mb-3 flex h-8 items-center gap-2 rounded-[8px] px-1 text-left outline-none transition-colors hover:bg-black/[0.025] dark:hover:bg-white/[0.035]"
-          onClick={onShowInstalled}
-          type="button"
-        >
-          <span className="flex -space-x-1">
-            {data.installs.slice(0, 3).map((plugin) => (
-              <span className="rounded-[7px] ring-2 ring-background" key={plugin.id}>
-                <PluginMark name={plugin.name} size="sm" />
-              </span>
-            ))}
-          </span>
-          <span className="text-[11.5px] text-foreground-secondary">
-            {data.installs.length} installed
-          </span>
-          <ChevronRight className="size-3.5 text-foreground-tertiary" />
-        </button>
-      ) : null}
-      <SearchField onChange={setQuery} query={query} />
-      <div className="mt-3 flex max-h-[94px] flex-wrap gap-2 overflow-y-auto">
-        {PLUGIN_MARKETPLACE_CATEGORIES.map((item) => (
-          <button
-            className={cn(
-              "h-[26px] rounded-[6px] border-[0.5px] px-2 text-[13px] leading-[18px] outline-none transition-colors",
-              item === category
-                ? "border-black/10 bg-black/[0.075] text-foreground dark:border-[#353535] dark:bg-[#282828]"
-                : "border-black/[0.07] bg-background text-foreground-secondary hover:bg-black/[0.035] dark:border-white/[0.09] dark:hover:bg-white/[0.05]"
-            )}
-            key={item}
-            onClick={() => setCategory(item)}
-            type="button"
-          >
-            {item}
-          </button>
-        ))}
-      </div>
-      <div className="bot-scrollbar mt-6 h-[468px] overflow-y-auto pr-1">
-        {groupedHome ? (
-          <MarketplaceHome busy={busy} data={data} onInstall={onInstall} onOpen={onOpen} />
-        ) : filtered.length ? (
-          <section>
-            <SectionHeading>{normalized ? "Results" : category}</SectionHeading>
-            <div className="mt-2 space-y-0.5">
-              {filtered.map((plugin) => (
-                <FilteredPluginRow
-                  busy={busy}
-                  key={plugin.key}
-                  onInstall={onInstall}
-                  onOpen={onOpen}
-                  plugin={plugin}
-                />
-              ))}
-            </div>
-          </section>
-        ) : (
-          <div className="grid h-40 place-items-center text-[11.5px] text-foreground-tertiary">
-            No plugins found.
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
 
 const installFor = (data: PluginSettingsView, pluginKey: string) =>
   data.installs.find((plugin) => plugin.pluginKey === pluginKey);
@@ -414,120 +99,6 @@ const catalogPluginForInstall = (install: PluginInstallView): PluginCatalogItemV
   setup: null,
 });
 
-function InstalledRow({
-  busy,
-  install,
-  onOpen,
-}: {
-  busy: string | null;
-  install: PluginInstallView;
-  onOpen: () => void;
-}) {
-  const needsAuth = install.connections.find((connection) => connection.status === "needs_auth");
-  return (
-    <div className="flex w-full items-center rounded-[10px] px-2 transition-colors hover:bg-black/[0.025] dark:hover:bg-white/[0.035]">
-      <button
-        className="flex min-w-0 flex-1 items-center gap-3 py-2.5 text-left outline-none"
-        onClick={onOpen}
-        type="button"
-      >
-        <PluginMark name={install.name} />
-        <span className="min-w-0 flex-1">
-          <span className="block text-[12px] font-medium">{install.name}</span>
-          <span className="mt-0.5 block text-[11px] text-foreground-secondary">
-            {install.connections.length
-              ? `${install.connections.length} connector${install.connections.length === 1 ? "" : "s"}`
-              : install.hasSkills
-                ? "Plugin skill"
-                : "Installed"}
-          </span>
-        </span>
-      </button>
-      {needsAuth ? (
-        <button
-          className={secondaryButton}
-          disabled={busy === needsAuth.id}
-          onClick={onOpen}
-          type="button"
-        >
-          {busy === needsAuth.id ? <LoaderCircle className="size-3 animate-spin" /> : null}
-          Set up
-        </button>
-      ) : null}
-    </div>
-  );
-}
-
-function InstalledView({
-  busy,
-  data,
-  onCustom,
-  onBack,
-  onOpen,
-}: {
-  busy: string | null;
-  data: PluginSettingsView;
-  onCustom: () => void;
-  onBack: () => void;
-  onOpen: (plugin: PluginCatalogItemView) => void;
-}) {
-  const [query, setQuery] = useState("");
-  const installs = data.installs.filter((plugin) =>
-    `${plugin.name} ${plugin.description}`.toLowerCase().includes(query.trim().toLowerCase())
-  );
-  return (
-    <div className="px-8 pb-6">
-      <button
-        className="mb-5 inline-flex items-center gap-1 text-[11px] text-foreground-secondary hover:text-foreground"
-        onClick={onBack}
-        type="button"
-      >
-        <ChevronLeft className="size-3.5" /> Back to Marketplace
-      </button>
-      <SearchField onChange={setQuery} query={query} />
-      <div className="bot-scrollbar mt-7 h-[514px] overflow-y-auto pr-1">
-        <section>
-          <SectionHeading>Installed</SectionHeading>
-          <div className="mt-2 max-w-[390px] space-y-0.5">
-            {installs.length ? (
-              installs.map((install) => {
-                const plugin =
-                  data.catalog.find((candidate) => candidate.key === install.pluginKey) ??
-                  catalogPluginForInstall(install);
-                return (
-                  <InstalledRow
-                    busy={busy}
-                    install={install}
-                    key={install.id}
-                    onOpen={() => onOpen(plugin)}
-                  />
-                );
-              })
-            ) : (
-              <div className="px-2 py-3 text-[11px] text-foreground-tertiary">
-                No installed plugins.
-              </div>
-            )}
-          </div>
-        </section>
-        <section className="mt-8">
-          <SectionHeading>Private</SectionHeading>
-          <p className="mt-2 px-2 text-[11px] text-foreground-secondary">
-            No private skills yet. Ask your Bot to create one for you.
-          </p>
-          <button
-            className="mt-2 inline-flex h-7 items-center gap-1.5 rounded-[7px] px-2 text-[11px] text-foreground-secondary hover:bg-black/[0.035] dark:hover:bg-white/[0.05]"
-            onClick={onCustom}
-            type="button"
-          >
-            <Plus className="size-3.5" /> Add custom MCP
-          </button>
-        </section>
-      </div>
-    </div>
-  );
-}
-
 function CustomMcpView({
   busy,
   onBack,
@@ -540,6 +111,7 @@ function CustomMcpView({
     url?: string;
     command?: string;
     args?: string[];
+    cwd?: string;
     env?: Record<string, string>;
     headers?: Record<string, string>;
     auth: "none" | "token" | "oauth";
@@ -549,7 +121,8 @@ function CustomMcpView({
   const [transport, setTransport] = useState<"http" | "stdio">("http");
   const [name, setName] = useState("");
   const [location, setLocation] = useState("");
-  const [args, setArgs] = useState("");
+  const [args, setArgs] = useState("[]");
+  const [cwd, setCwd] = useState("");
   const [configuration, setConfiguration] = useState("");
   const [auth, setAuth] = useState<"none" | "token" | "oauth">("none");
   const [alias, setAlias] = useState("default");
@@ -569,8 +142,21 @@ function CustomMcpView({
       return null;
     }
   })();
+  const parsedArgs = (() => {
+    try {
+      const value: unknown = JSON.parse(args);
+      return Array.isArray(value) && value.every((entry) => typeof entry === "string")
+        ? (value as string[])
+        : null;
+    } catch {
+      return null;
+    }
+  })();
   const valid =
-    name.trim().length >= 2 && location.trim().length > 0 && parsedConfiguration !== null;
+    name.trim().length >= 2 &&
+    location.trim().length > 0 &&
+    parsedConfiguration !== null &&
+    (transport !== "stdio" || parsedArgs !== null);
   return (
     <form
       className="mx-auto w-full max-w-[560px] px-8 pb-8"
@@ -583,10 +169,8 @@ function CustomMcpView({
             ? { url: location.trim() }
             : {
                 command: location.trim(),
-                args: args
-                  .split(/\s+/)
-                  .map((item) => item.trim())
-                  .filter(Boolean),
+                args: parsedArgs ?? [],
+                cwd: cwd.trim() || undefined,
               }),
           ...(transport === "stdio"
             ? { env: parsedConfiguration ?? undefined }
@@ -648,12 +232,21 @@ function CustomMcpView({
         {transport === "stdio" ? (
           <>
             <label className="block text-[11px] text-foreground-secondary">
-              Arguments
+              Arguments (JSON array)
               <input
                 className={cn(field, "mt-1.5 font-mono")}
                 onChange={(e) => setArgs(e.target.value)}
-                placeholder="-y @modelcontextprotocol/server-filesystem /workspace"
+                placeholder={'["-y", "@modelcontextprotocol/server-filesystem", "/workspace"]'}
                 value={args}
+              />
+            </label>
+            <label className="block text-[11px] text-foreground-secondary">
+              Working directory on Bot computer
+              <input
+                className={cn(field, "mt-1.5 font-mono")}
+                value={cwd}
+                onChange={(event) => setCwd(event.target.value)}
+                placeholder="/workspace"
               />
             </label>
             <label className="block text-[11px] text-foreground-secondary">
@@ -728,7 +321,7 @@ function DetailBlock({
   count,
   label,
   onOpenChange,
-  open = true,
+  open = false,
 }: {
   children: React.ReactNode;
   count: number;
@@ -1068,7 +661,7 @@ function ConnectionSettingsRow({
             onClick={onAuthenticate}
             type="button"
           >
-            {connection.authorizationUrl ? "Reopen" : "Authenticate"}
+            Authenticate
           </button>
         ) : null}
         <button className={secondaryButton} disabled={busy} onClick={onRestart} type="button">
@@ -1212,7 +805,7 @@ function PluginDetail({
   busy: string | null;
   data: PluginSettingsView;
   plugin: PluginCatalogItemView;
-  onAddAccount: (connection: PluginConnectionView) => void;
+  onAddAccount: (connection: PluginConnectionView, alias: string) => void;
   onGrant: (
     connection: PluginConnectionView,
     bot: PluginBotAccessItemView,
@@ -1236,6 +829,7 @@ function PluginDetail({
 }) {
   const [setupValues, setSetupValues] = useState<Record<string, string>>({});
   const [shared, setShared] = useState(false);
+  const [setupAccountId, setSetupAccountId] = useState<string | null>(null);
   const [botAccessExpanded, setBotAccessExpanded] = useState(false);
   const [botAccessQuery, setBotAccessQuery] = useState("");
   const [botAccessOffset, setBotAccessOffset] = useState(0);
@@ -1246,10 +840,9 @@ function PluginDetail({
   const connections = install?.connections ?? [];
   const hasBotAccess = Boolean(install && (install.connections.length || install.hasSkills));
   const botAccessScope = install ? `${accessEpoch}:${install.id}` : "";
-  const needsAuth = connections.find((connection) => connection.status === "needs_auth");
-  const setupConnection = plugin.setup?.connectionKey
-    ? connections.find((connection) => connection.connectorKey === plugin.setup?.connectionKey)
-    : connections[0];
+  const setupConnection =
+    connections.find((c) => c.id === setupAccountId && c.status !== "ready") ??
+    connections.find((c) => c.status !== "ready" && !c.configured);
   const recentActivity = data.activity
     .filter((entry) => entry.pluginKey === plugin.key)
     .slice(0, 8);
@@ -1317,24 +910,27 @@ function PluginDetail({
     }
   };
   return (
-    <div className="bot-scrollbar h-[624px] overflow-y-auto px-8 pb-8">
-      <div className="flex items-start gap-3 pt-1">
+    <div className="bot-scrollbar min-h-0 flex-1 overflow-y-auto px-8 pb-8 max-sm:px-5">
+      <div className="flex items-center gap-3 pt-1">
         <PluginMark logoUrl={plugin.logoUrl} name={plugin.name} size="lg" />
         <div className="min-w-0 flex-1 pt-1">
           <div className="flex items-center gap-1.5 text-[14px] font-medium">{plugin.name}</div>
-          <div className="mt-0.5 text-[11px] text-foreground-secondary">{plugin.publisher}</div>
-          {plugin.sourceUrl || plugin.homepageUrl ? (
-            <a
-              className="mt-1 inline-flex items-center gap-1 text-[10.5px] text-foreground-secondary hover:text-foreground"
-              href={plugin.sourceUrl ?? plugin.homepageUrl ?? undefined}
-              rel="noreferrer"
-              target="_blank"
-            >
-              View Source <ExternalLink className="size-2.5" />
-            </a>
-          ) : null}
+          <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[12px] text-foreground-secondary">
+            <span>{plugin.publisher}</span>
+            {plugin.sourceUrl || plugin.homepageUrl ? (
+              <a
+                className="inline-flex items-center gap-1 hover:text-foreground"
+                href={plugin.sourceUrl ?? plugin.homepageUrl ?? undefined}
+                rel="noreferrer"
+                target="_blank"
+              >
+                {plugin.sourceUrl ? "View Source" : "Website"} <ExternalLink className="size-2.5" />
+              </a>
+            ) : null}
+          </div>
         </div>
         <button className={secondaryButton} onClick={() => void sharePlugin()} type="button">
+          <Link className="size-3" />
           {shared ? "Copied" : "Share"}
         </button>
         {!install ? (
@@ -1349,30 +945,20 @@ function PluginDetail({
             {busy === plugin.key ? <LoaderCircle className="size-3 animate-spin" /> : null}
             Add
           </button>
-        ) : needsAuth ? (
-          <span className="inline-flex h-7 items-center gap-1.5 rounded-full bg-amber-500/10 px-3 text-[10.5px] text-amber-700 dark:text-amber-300">
-            Setup required
-          </span>
         ) : (
-          <span className="inline-flex h-7 items-center gap-1 text-[11.5px] text-[#00a86b]">
-            <Check className="size-3.5" /> Added
-          </span>
+          <button
+            className={secondaryButton}
+            disabled={busy === plugin.key}
+            onClick={() => onRemove(plugin)}
+            type="button"
+          >
+            Uninstall
+          </button>
         )}
       </div>
       <p className="mt-4 max-w-[720px] text-[12px] leading-[18px] text-foreground-secondary">
         {plugin.description}
       </p>
-
-      {setupConnection && plugin.setup ? (
-        <PluginSetupCard
-          busy={busy === setupConnection.id}
-          connection={setupConnection}
-          onAuthenticate={() => onAuthenticate(setupConnection)}
-          onConfigureOAuth={(input) => onConfigureOAuth(setupConnection, input)}
-          onConfigureToken={(token) => onConfigureToken(setupConnection, token)}
-          plugin={plugin}
-        />
-      ) : null}
 
       {!install && plugin.setupFields.length ? (
         <div className="mt-5 grid grid-cols-2 gap-2 rounded-[10px] bg-black/[0.035] p-3 dark:bg-white/[0.045] max-sm:grid-cols-1">
@@ -1392,83 +978,89 @@ function PluginDetail({
         </div>
       ) : null}
 
-      {plugin.connections.length ? (
-        <DetailBlock count={connections.length || plugin.connections.length} label="Connectors">
-          {(connections.length ? connections : plugin.connections).map((connection) => {
-            const live = "id" in connection ? (connection as PluginConnectionView) : null;
-            return (
-              <div
-                className="flex min-h-9 items-center gap-3 border-t border-black/[0.055] px-3 first:border-t-0 dark:border-white/[0.065]"
-                key={
-                  live ? live.id : (connection as PluginCatalogItemView["connections"][number]).key
-                }
-              >
-                <span className="min-w-0 flex-1 truncate text-[11.5px]">
-                  {live
-                    ? `${live.name}${live.alias === "default" ? "" : ` · ${live.alias}`}`
-                    : connection.name}
-                </span>
-                {live ? (
-                  <>
-                    <span className="text-[10.5px] capitalize text-foreground-tertiary">
-                      {live.status === "needs_auth" ? "Needs authentication" : live.status}
-                    </span>
-                    <button
-                      className={secondaryButton}
-                      onClick={() => onToggle(live)}
-                      type="button"
-                    >
-                      {live.status === "ready" ? "Disconnect" : "Connect"}
-                    </button>
-                    <button
-                      className="text-[10.5px] text-foreground-tertiary hover:text-foreground"
-                      onClick={() => onAddAccount(live)}
-                      type="button"
-                    >
-                      Add account
-                    </button>
-                  </>
-                ) : (
-                  <span className="text-[10.5px] text-foreground-tertiary">Connector</span>
-                )}
-              </div>
-            );
-          })}
-        </DetailBlock>
-      ) : null}
-
       {connections.length ? (
-        <DetailBlock count={connections.length} label="Accounts" open={false}>
-          {connections.map((connection) => (
-            <ConnectionSettingsRow
-              busy={busy === connection.id}
-              connection={connection}
-              key={connection.id}
-              onAuthenticate={() => onAuthenticate(connection)}
-              onConfigureOAuth={(input) => onConfigureOAuth(connection, input)}
-              onConfigureToken={(token) => onConfigureToken(connection, token)}
-              onInstructions={(instructions) => onInstructions(connection, instructions)}
-              onRemove={() => onRemoveAccount(connection)}
-              onRename={(alias) => onRename(connection, alias)}
-              onRestart={() => onRestart(connection)}
+        <section className="mt-8">
+          <h3 className="mb-1.5 px-3 text-[12px] text-foreground-secondary">Accounts</h3>
+          <div className="overflow-hidden rounded-[13px] bg-black/[0.045] dark:bg-white/[0.06]">
+            {connections.map((connection) => (
+              <PluginAccountRow
+                key={connection.id}
+                connection={connection}
+                busy={busy === connection.id}
+                onRename={(alias) => onRename(connection, alias)}
+                onConnect={() => {
+                  if (!connection.configured && plugin.setup) setSetupAccountId(connection.id);
+                  else if (connection.auth === "oauth" && connection.status === "needs_auth")
+                    onAuthenticate(connection);
+                  else onRestart(connection);
+                }}
+              >
+                <ConnectionSettingsRow
+                  busy={busy === connection.id}
+                  connection={connection}
+                  onAuthenticate={() => onAuthenticate(connection)}
+                  onConfigureOAuth={(input) => onConfigureOAuth(connection, input)}
+                  onConfigureToken={(token) => onConfigureToken(connection, token)}
+                  onInstructions={(instructions) => onInstructions(connection, instructions)}
+                  onRemove={() => onRemoveAccount(connection)}
+                  onRename={(alias) => onRename(connection, alias)}
+                  onRestart={() => onRestart(connection)}
+                />
+                {connection.status === "ready" && (
+                  <button
+                    type="button"
+                    className="my-2 text-[12px] text-foreground-secondary hover:text-foreground"
+                    onClick={() => onToggle(connection)}
+                  >
+                    Disconnect
+                  </button>
+                )}
+              </PluginAccountRow>
+            ))}
+            <AddPluginAccount connections={connections} busy={Boolean(busy)} onAdd={onAddAccount} />
+          </div>
+          {setupConnection && plugin.setup ? (
+            <PluginSetupCard
+              key={setupConnection.id}
+              busy={busy === setupConnection.id}
+              connection={setupConnection}
+              onAuthenticate={() => onAuthenticate(setupConnection)}
+              onConfigureOAuth={(input) => onConfigureOAuth(setupConnection, input)}
+              onConfigureToken={(token) => onConfigureToken(setupConnection, token)}
+              plugin={plugin}
             />
+          ) : null}
+        </section>
+      ) : null}
+      {plugin.connections.length ? (
+        <DetailBlock count={plugin.connections.length} label="Connectors">
+          {plugin.connections.map((connection) => (
+            <div
+              key={connection.key}
+              className="flex min-h-10 items-center gap-2 border-t border-black/[0.055] px-3 text-[13px] first:border-t-0 dark:border-white/[0.065]"
+            >
+              <span>{connection.name}</span>
+              <span className="text-[12px] text-foreground-secondary">Connector</span>
+            </div>
           ))}
         </DetailBlock>
       ) : null}
 
       {plugin.skills.length ? (
         <DetailBlock count={plugin.skills.length} label="Skills">
-          {plugin.skills.map((skill) => (
-            <div
-              className="flex min-h-9 items-center gap-3 border-t border-black/[0.055] px-3 first:border-t-0 dark:border-white/[0.065]"
-              key={skill.name}
-            >
-              <span className="shrink-0 text-[11.5px]">{skill.name}</span>
-              <span className="min-w-0 flex-1 truncate text-[10.5px] text-foreground-secondary">
-                {skill.description}
-              </span>
-            </div>
-          ))}
+          {[...plugin.skills]
+            .sort((a, b) => a.name.localeCompare(b.name))
+            .map((skill) => (
+              <div
+                className="flex min-h-9 items-center gap-3 border-t border-black/[0.055] px-3 first:border-t-0 dark:border-white/[0.065]"
+                key={skill.name}
+              >
+                <span className="shrink-0 text-[11.5px]">{skill.name}</span>
+                <span className="min-w-0 flex-1 truncate text-[10.5px] text-foreground-secondary">
+                  {skill.description}
+                </span>
+              </div>
+            ))}
         </DetailBlock>
       ) : null}
 
@@ -1666,16 +1258,6 @@ function PluginDetail({
           ))}
         </DetailBlock>
       ) : null}
-
-      {install ? (
-        <button
-          className="mt-8 px-1 text-[11px] text-red-600 hover:underline dark:text-red-400"
-          onClick={() => onRemove(plugin)}
-          type="button"
-        >
-          Remove plugin
-        </button>
-      ) : null}
     </div>
   );
 }
@@ -1690,6 +1272,13 @@ export function PluginDialog({
   target?: { pluginId: string; nonce: number } | null;
 }) {
   const [page, setPage] = useState<MarketplacePage>("marketplace");
+  const [managementSection, setManagementSection] = useState<
+    "installed" | "private" | "sources" | "develop"
+  >("installed");
+  const openManagement = (section: typeof managementSection = "installed") => {
+    setManagementSection(section);
+    setPage("manage");
+  };
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [data, setData] = useState<PluginSettingsView | null>(null);
   const [settingsEpoch, setSettingsEpoch] = useState(0);
@@ -1753,6 +1342,7 @@ export function PluginDialog({
       try {
         await action();
         await refresh();
+        window.dispatchEvent(new Event("openteam:plugins-changed"));
         return true;
       } catch (cause) {
         setError(errorMessage(cause));
@@ -1765,6 +1355,8 @@ export function PluginDialog({
   );
 
   const selected = useMemo(() => {
+    const pinned = data?.installs.find((plugin) => plugin.pluginKey === selectedKey)?.catalog;
+    if (pinned) return pinned;
     const catalogPlugin = data?.catalog.find((plugin) => plugin.key === selectedKey);
     if (catalogPlugin) return catalogPlugin;
     const install = data?.installs.find((plugin) => plugin.pluginKey === selectedKey);
@@ -1779,7 +1371,9 @@ export function PluginDialog({
   };
   useEffect(() => {
     if (!open || !target || !data) return;
-    const plugin = data.catalog.find((candidate) => candidate.key === target.pluginId);
+    const plugin =
+      data.installs.find((candidate) => candidate.pluginKey === target.pluginId)?.catalog ??
+      data.catalog.find((candidate) => candidate.key === target.pluginId);
     if (plugin) {
       setSelectedKey(plugin.key);
       setPage("detail");
@@ -1792,10 +1386,6 @@ export function PluginDialog({
     setError(`Plugin “${target.pluginId}” is not available in this catalog.`);
   }, [data, open, target]);
   const authenticateConnection = (connection: PluginConnectionView) => {
-    if (connection.authorizationUrl) {
-      window.open(connection.authorizationUrl, "_blank", "noopener,noreferrer");
-      return;
-    }
     void mutate(connection.id, async () => {
       const result = await api.authenticatePlugin(connection.id);
       window.open(result.authorizationUrl, "_blank", "noopener,noreferrer");
@@ -1819,21 +1409,30 @@ export function PluginDialog({
       ? selected.name
       : page === "custom"
         ? "Add custom MCP"
-        : "Plugins";
+        : page === "manage"
+          ? "Manage plugins"
+          : "Marketplace";
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>
       <DialogContent
-        className="h-[min(700px,calc(100vh-96px))] w-[min(1000px,calc(100vw-40px))] max-w-none gap-0 overflow-hidden rounded-[13px] border-black/10 bg-background p-0 text-foreground shadow-[0_24px_72px_rgba(0,0,0,0.24)] dark:border-[#303030]"
+        className="flex h-[min(700px,calc(100vh-80px))] w-[min(800px,calc(100vw-40px))] flex-col max-w-none gap-0 overflow-hidden rounded-[13px] border-black/10 bg-background p-0 text-foreground shadow-[0_24px_72px_rgba(0,0,0,0.24)] dark:border-[#303030]"
         onOpenAutoFocus={(event) => event.preventDefault()}
+        onEscapeKeyDown={(event) => {
+          if (
+            event.target instanceof Element &&
+            event.target.closest("[data-plugin-account-editor]")
+          )
+            event.preventDefault();
+        }}
         showCloseButton={false}
-        surface={page === "detail" ? "transparent" : "modal"}
+        surface="modal"
       >
         <DialogTitle className="sr-only">{title}</DialogTitle>
         <DialogDescription className="sr-only">
           Browse, install, connect, and configure OpenTeam plugins.
         </DialogDescription>
         <header className="relative flex h-[66px] shrink-0 items-center px-8">
-          {page === "detail" || page === "custom" ? (
+          {page === "detail" || page === "custom" || page === "manage" ? (
             <button
               aria-label="Back to Marketplace"
               className="absolute left-3.5 grid size-8 place-items-center rounded-full text-foreground-secondary outline-none hover:bg-black/[0.04] dark:hover:bg-white/[0.06]"
@@ -1843,10 +1442,46 @@ export function PluginDialog({
               <ChevronLeft className="size-4" />
             </button>
           ) : null}
-          {page === "detail" || page === "custom" ? (
+          {page === "detail" || page === "custom" || page === "manage" ? (
             <div className="w-full text-center text-[12px] font-medium">{title}</div>
           ) : (
-            <div className="text-[14px] font-medium">Plugins</div>
+            <div className="flex w-full items-center justify-between pr-8">
+              <div className="text-[16px] font-semibold">Marketplace</div>
+              <div className="flex items-center gap-2">
+                <span className={primaryButton}>
+                  <Plug className="size-3.5" />
+                  Plugins
+                </span>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button type="button" className={secondaryButton} aria-label="Manage plugins">
+                      Manage
+                      <ChevronDown className="size-3" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem onSelect={() => setPage("installed")}>
+                      Your plugins
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => openManagement("installed")}>
+                      Accounts and settings
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => openManagement("private")}>
+                      Private skills
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => openManagement("sources")}>
+                      Plugin sources
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => openManagement("develop")}>
+                      Develop plugins
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => setPage("custom")}>
+                      Add custom MCP
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            </div>
           )}
           <button
             aria-label="Close plugins"
@@ -1857,6 +1492,7 @@ export function PluginDialog({
             <X className="size-4" strokeWidth={1.7} />
           </button>
         </header>
+
         {error ? (
           <div className="mx-8 mb-3 rounded-[8px] bg-red-500/10 px-3 py-2 text-[11px] text-red-700 dark:text-red-300">
             {error}
@@ -1866,6 +1502,31 @@ export function PluginDialog({
           <div className="grid flex-1 place-items-center">
             <LoaderCircle className="size-5 animate-spin text-foreground-tertiary" />
           </div>
+        ) : page === "installed" ? (
+          <InstalledPluginsView
+            data={data}
+            busy={busy}
+            onOpen={openDetail}
+            onBack={() => setPage("marketplace")}
+            onManage={openManagement}
+            onRetry={(connection) =>
+              connection.auth === "oauth" && connection.status === "needs_auth"
+                ? authenticateConnection(connection)
+                : void mutate(connection.id, () => api.restartPluginConnection(connection.id))
+            }
+            catalogFallback={catalogPluginForInstall}
+          />
+        ) : page === "manage" ? (
+          <Suspense fallback={<p className="p-8 text-sm">Loading plugin management…</p>}>
+            <PluginWorkspace
+              key={managementSection}
+              initialSection={managementSection}
+              settings={data}
+              refresh={refresh}
+              onOpen={openDetail}
+              initialPluginKey={selectedKey}
+            />
+          </Suspense>
         ) : page === "marketplace" ? (
           <MarketplaceView
             busy={busy}
@@ -1880,17 +1541,6 @@ export function PluginDialog({
             }}
             onOpen={openDetail}
             onShowInstalled={() => setPage("installed")}
-          />
-        ) : page === "installed" ? (
-          <InstalledView
-            busy={busy}
-            data={data}
-            onBack={() => setPage("marketplace")}
-            onCustom={() => {
-              void loadPluginSettingsDetail();
-              setPage("custom");
-            }}
-            onOpen={openDetail}
           />
         ) : page === "custom" ? (
           <CustomMcpView
@@ -1908,12 +1558,10 @@ export function PluginDialog({
             busy={busy}
             data={data}
             key={selected.key}
-            onAddAccount={(connection) => {
-              const alias = window.prompt(`Name the additional ${connection.name} account`, "work");
-              if (alias?.trim())
-                void mutate(`account:${connection.id}`, () =>
-                  api.addPluginAccount(connection.id, alias.trim())
-                );
+            onAddAccount={(connection, alias) => {
+              void mutate(`account:${connection.id}`, () =>
+                api.addPluginAccount(connection.id, alias)
+              );
             }}
             onGrant={(connection, bot, enabled) => {
               const transition = planPluginConnectionGrant(
@@ -1964,7 +1612,7 @@ export function PluginDialog({
             onRemove={(plugin) => {
               if (removeArmed !== plugin.key) {
                 setRemoveArmed(plugin.key);
-                setError(`Click “Remove plugin” again to remove ${plugin.name}.`);
+                setError(`Click “Uninstall” again to remove ${plugin.name} and its accounts.`);
                 return;
               }
               void mutate(plugin.key, () => api.uninstallPlugin(plugin.key)).then((removed) => {

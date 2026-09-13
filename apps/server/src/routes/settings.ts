@@ -6,6 +6,12 @@ import { dispatchRoutes, effectRoute } from "./dispatch";
 export async function settingsRoutes(context: RouteContext): Promise<Response | undefined> {
   const { app, request, path } = context;
 
+  if (path === "/api/server-settings/web-search") {
+    if (request.method === "GET") return json(await app.webSearchSettings.view());
+    if (request.method === "PATCH")
+      return json(await app.webSearchSettings.save(await request.json().catch(() => null)));
+  }
+
   if (request.method === "PATCH" && path === "/api/server-settings/inference") {
     return json(await run(app.updateInferenceSettings(await request.json().catch(() => null))));
   }

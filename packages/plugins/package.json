@@ -1,0 +1,27 @@
+{
+  "name": "@openteam/plugins",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "bun scripts/generate.ts && bun build src/index.ts --outdir dist --target bun",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "bun test --pass-with-no-tests"
+  },
+  "dependencies": {
+    "@huggingface/tokenizers": "0.2.0",
+    "@js-temporal/polyfill": "0.5.1",
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "@openteam/plugin-sdk": "workspace:*",
+    "fflate": "0.8.3",
+    "html-to-text": "9.0.5",
+    "xlsx": "file:../../vendor/sheetjs/xlsx-0.20.3.tgz"
+  },
+  "devDependencies": {
+    "@types/html-to-text": "9.0.4",
+    "postal-mime": "2.6.1"
+  }
+}

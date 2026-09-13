@@ -2,16 +2,16 @@ import { randomUUID } from "node:crypto";
 import type { BotCompactionArchiveStore } from "./archive";
 import {
   BOT_IMAGE_TRIGGER,
-  BOT_TURN_TRIGGER,
   botDurableBlocks,
   botMessageDigest,
   botSummaryMessage,
   botSummaryRetryDirective,
-  canonicalJson,
+  botSummaryErrorKind,
   closeBotPreservedTail,
   compactionEvent,
   countBotImages,
   countBotTurns,
+  estimateBotContextTokens,
   isSummary,
   messagesHavePrefixByValue,
   partitionForBotSummary,
@@ -20,6 +20,8 @@ import {
   replaceBotUserInfo,
   sha256,
   shouldStartBotSummary,
+  shouldPersistBotSummary,
+  shouldWaitForBotSummary,
 } from "./messages";
 import type {
   BotArchiveBlob,
@@ -30,7 +32,27 @@ import type {
   BotSummaryRequest,
   BotSummaryResult,
   BotSummaryUsage,
+  BotSummaryTool,
 } from "./types";
+
+const addSummaryUsage = (
+  previous: BotSummaryUsage | undefined,
+  current: BotSummaryUsage
+): BotSummaryUsage => {
+  const sumFields = (left: Record<string, unknown>, right: Record<string, unknown>, keys: string[]) => {
+    const sum = { ...left, ...right };
+    for (const key of keys) {
+      const a = left[key], b = right[key];
+      if (typeof a === "number" && Number.isFinite(a) && typeof b === "number" && Number.isFinite(b)) sum[key] = a + b;
+    }
+    return sum;
+  };
+  const result = sumFields(previous ?? {}, current, ["input", "output", "cacheRead", "cacheWrite", "totalTokens"]);
+  if (previous?.cost && typeof previous.cost === "object" && current.cost && typeof current.cost === "object") {
+    result.cost = sumFields(previous.cost as Record<string, unknown>, current.cost as Record<string, unknown>, ["input", "output", "cacheRead", "cacheWrite", "total"]);
+  }
+  return result as BotSummaryUsage;
+};
 
 export interface PendingSummary {
   contextSessionId: string;
@@ -41,6 +63,10 @@ export interface PendingSummary {
   durableBlocks: string[];
   prefixDigest: string;
   systemDigest: string;
+  modelKey: string;
+  maxTokens: number;
+  earlyThreshold?: number;
+  parked: boolean;
   tokensBefore: number | null;
   imageCount: number;
   turnCount: number;
@@ -58,7 +84,13 @@ export interface BotObservation {
   userInfoMessage?: BotMessage | null;
   usedTokens: number | null;
   maxTokens: number;
+  modelKey?: string;
+  earlyThreshold?: number;
+  tools?: readonly BotSummaryTool[];
+  /** Usage from the currently streaming request already describes this prefix. */
+  freshUsage?: boolean;
   projectRoot?: string;
+  isRootProject?: boolean;
   transcriptPath?: string;
   todoUpdate?: string;
   automationTrigger?: string;
@@ -85,6 +117,7 @@ export class BotCompactionCoordinator {
   private readonly forcedReasons = new Map<string, BotCompactionReason>();
   private readonly projectedEvents = new Map<string, BotCompactionEvent>();
   private readonly projectedCommits = new Set<string>();
+  private readonly inputLimitFailures = new Map<string, { modelKey: string; tokens: number }>();
   private readonly prepared = new Map<
     string,
     {
@@ -125,6 +158,7 @@ export class BotCompactionCoordinator {
 
   async remove(contextSessionId: string): Promise<void> {
     await this.failCompaction(contextSessionId);
+    this.inputLimitFailures.delete(contextSessionId);
     await this.store.remove(contextSessionId);
   }
 
@@ -152,6 +186,10 @@ export class BotCompactionCoordinator {
   async beginUserQuery(contextSessionId: string, resetSelfSummaryCount = true): Promise<void> {
     this.projectedEvents.delete(contextSessionId);
     this.projectedCommits.delete(contextSessionId);
+    // Claim unfinished work into this turn. A result completed while parked
+    // remains a stored adoption and uses the pressure captured at launch.
+    const pending = this.pending.get(contextSessionId);
+    if (pending && !pending.result) pending.parked = false;
     if (resetSelfSummaryCount) await this.store.beginUserQuery(contextSessionId);
   }
 
@@ -172,6 +210,89 @@ export class BotCompactionCoordinator {
     this.pending.delete(contextSessionId);
   }
 
+  /** Release turn ownership without cancelling inference or losing its result. */
+  parkBackground(contextSessionId: string): void {
+    const pending = this.pending.get(contextSessionId);
+    if (pending) pending.parked = true;
+  }
+
+  private matches(
+    pending: PendingSummary,
+    input: {
+      systemPrompt: string;
+      modelKey?: string;
+      maxTokens?: number;
+    },
+    current: readonly BotMessage[]
+  ): boolean {
+    return (
+      pending.systemDigest === sha256(input.systemPrompt) &&
+      messagesHavePrefixByValue(pending.capturedMessages, current)
+    );
+  }
+
+  private async usedTokens(
+    input: {
+      contextSessionId: string;
+      piMessages: readonly BotMessage[];
+      systemPrompt: string;
+      usedTokens: number | null;
+      tools?: readonly BotSummaryTool[];
+      freshUsage?: boolean;
+    },
+    current: readonly BotMessage[]
+  ): Promise<number> {
+    const latest = await this.store.latest(input.contextSessionId);
+    const hasFreshUsage =
+      input.freshUsage ||
+      !latest ||
+      input.piMessages.slice(latest.piBaseMessageCount).some((message) => {
+        const usage = message.usage as BotSummaryUsage | undefined;
+        return (
+          message.role === "assistant" &&
+          !["error", "aborted", "pending"].includes(String(message.stopReason)) &&
+          usage &&
+          [usage.input, usage.output, usage.cacheRead, usage.cacheWrite].some(
+            (tokens) => typeof tokens === "number" && tokens > 0
+          )
+        );
+      });
+    // Native Pi usage can still describe the raw pre-projection transcript.
+    // Until a new response measures the effective request, estimate that request.
+    return hasFreshUsage && input.usedTokens !== null && Number.isFinite(input.usedTokens)
+      ? input.usedTokens
+      : estimateBotContextTokens(input.systemPrompt, current, input.tools);
+  }
+
+  async shouldCompactAtTurnEnd(input: BotObservation): Promise<boolean> {
+    await this.observe(input);
+    const current = replaceBotUserInfo(
+      await this.contextMessages(input.contextSessionId, input.piMessages),
+      input.userInfoMessage ?? null
+    );
+    const usedTokens = await this.usedTokens(input, current);
+    const pending = this.pending.get(input.contextSessionId);
+    const imageCount = countBotImages(current);
+    const completed = Boolean(
+      pending?.result &&
+        this.matches(pending, input, current) &&
+        shouldPersistBotSummary(usedTokens, input.maxTokens, input.earlyThreshold)
+    );
+    if (!completed && !shouldWaitForBotSummary(usedTokens, input.maxTokens, imageCount))
+      return false;
+    this.forceReason(
+      input.contextSessionId,
+      imageCount >= BOT_IMAGE_TRIGGER
+        ? "approaching_image_limit"
+        : completed
+          ? pending?.parked
+            ? "pending_summary_adopted"
+            : "self_summary_completed"
+          : "significantly_over_token_limit"
+    );
+    return true;
+  }
+
   async contextMessages(
     contextSessionId: string,
     piMessages: readonly BotMessage[]
@@ -186,6 +307,9 @@ export class BotCompactionCoordinator {
     userInfoMessage?: BotMessage | null;
     usedTokens: number | null;
     maxTokens: number;
+    modelKey?: string;
+    earlyThreshold?: number;
+    tools?: readonly BotSummaryTool[];
   }): Promise<BotMessage[]> {
     const current = replaceBotUserInfo(
       await this.contextMessages(input.contextSessionId, input.piMessages),
@@ -193,29 +317,38 @@ export class BotCompactionCoordinator {
     );
     const pending = this.pending.get(input.contextSessionId);
     if (!pending?.result) return current;
-    if (
-      pending.systemDigest !== sha256(input.systemPrompt) ||
-      !messagesHavePrefixByValue(pending.capturedMessages, current)
-    ) {
+    if (!this.matches(pending, input, current)) {
       pending.controller?.abort();
       this.pending.delete(input.contextSessionId);
       return current;
     }
+    const usedTokens = await this.usedTokens(input, current);
+    const earlyThreshold = pending.earlyThreshold ?? input.earlyThreshold;
     const warrantsMidLoopPersist =
       countBotImages(current) >= BOT_IMAGE_TRIGGER ||
-      (input.usedTokens !== null && shouldStartBotSummary(input.usedTokens, input.maxTokens));
+      (pending.parked
+        ? shouldPersistBotSummary(usedTokens, input.maxTokens, earlyThreshold) ||
+          shouldStartBotSummary(pending.tokensBefore ?? 0, pending.maxTokens, earlyThreshold)
+        : shouldStartBotSummary(usedTokens, input.maxTokens, input.earlyThreshold));
     if (!warrantsMidLoopPersist) return current;
     pending.projectedMidLoop = true;
+    if (pending.parked) pending.reason = "pending_summary_adopted";
     const tail = closeBotPreservedTail(pending.capturedMessages.length, current);
     const completedAt = new Date().toISOString();
-    const tokensAfter = Math.ceil(
-      canonicalJson([
-        pending.partition.userInfoMessage,
+    const tokensAfter = estimateBotContextTokens(
+      input.systemPrompt,
+      [
+        ...(pending.partition.userInfoMessage ? [pending.partition.userInfoMessage] : []),
         pending.partition.lastUserMessage,
-        pending.result.text,
-        pending.durableBlocks,
-        tail,
-      ]).length / 4
+        botSummaryMessage(
+          pending.result.text,
+          (await this.store.manifest(input.contextSessionId)).selfSummaryCount + 1,
+          Date.parse(completedAt),
+          pending.durableBlocks
+        ),
+        ...tail,
+      ],
+      input.tools
     );
     const blob = await this.store.commit(input.contextSessionId, {
       id: pending.id,
@@ -239,6 +372,7 @@ export class BotCompactionCoordinator {
       completedAt,
     });
     this.pending.delete(input.contextSessionId);
+    this.inputLimitFailures.delete(input.contextSessionId);
     this.projectedEvents.set(input.contextSessionId, compactionEvent(input.contextSessionId, blob));
     this.projectedCommits.add(input.contextSessionId);
     return [
@@ -266,25 +400,24 @@ export class BotCompactionCoordinator {
     );
     const imageCount = countBotImages(messages);
     const turnCount = countBotTurns(messages);
+    const usedTokens = await this.usedTokens(input, messages);
     const reason: BotCompactionReason | null =
       imageCount >= BOT_IMAGE_TRIGGER
         ? "approaching_image_limit"
-        : turnCount >= BOT_TURN_TRIGGER ||
-            (input.usedTokens !== null && shouldStartBotSummary(input.usedTokens, input.maxTokens))
+        : shouldStartBotSummary(usedTokens, input.maxTokens, input.earlyThreshold)
           ? "approaching_token_limit"
           : null;
-    if (!reason) return;
     const existing = this.pending.get(input.contextSessionId);
     if (existing) {
-      if (
-        existing.systemDigest === sha256(input.systemPrompt) &&
-        messagesHavePrefixByValue(existing.capturedMessages, messages)
-      ) {
+      if (this.matches(existing, input, messages)) {
         return;
       }
       existing.controller?.abort();
       this.pending.delete(input.contextSessionId);
     }
+    if (!reason) return;
+    const failure = this.inputLimitFailures.get(input.contextSessionId);
+    if (failure?.modelKey === (input.modelKey ?? "") && usedTokens >= failure.tokens) return;
     const partition = partitionForBotSummary(messages);
     if (!partition) return;
     const controller = new AbortController();
@@ -297,12 +430,22 @@ export class BotCompactionCoordinator {
       durableBlocks: botDurableBlocks(partition.lastUserMessage, input),
       prefixDigest: botMessageDigest(messages),
       systemDigest: sha256(input.systemPrompt),
-      tokensBefore: input.usedTokens,
+      modelKey: input.modelKey ?? "",
+      maxTokens: input.maxTokens,
+      earlyThreshold: input.earlyThreshold,
+      parked: false,
+      tokensBefore: usedTokens,
       imageCount,
       turnCount,
       startedAt: new Date().toISOString(),
       controller,
-      promise: this.generate(partition, input.systemPrompt, input.infer, controller.signal),
+      promise: this.generate(
+        partition,
+        input.systemPrompt,
+        input.infer,
+        controller.signal,
+        input.tools
+      ),
       result: null,
       projectedMidLoop: false,
     };
@@ -318,8 +461,21 @@ export class BotCompactionCoordinator {
       .then((result) => {
         if (this.pending.get(input.contextSessionId) === pending) pending.result = result;
       })
-      .catch(() => {
+      .catch((error) => {
         if (this.pending.get(input.contextSessionId) === pending) {
+          if (
+            ["InputTokenLimitError", "OutputTokensLimitExceededError"].includes(
+              botSummaryErrorKind(error)
+            )
+          ) {
+            if (this.inputLimitFailures.size >= BotCompactionCoordinator.MAX_PENDING) {
+              this.inputLimitFailures.delete(this.inputLimitFailures.keys().next().value!);
+            }
+            this.inputLimitFailures.set(input.contextSessionId, {
+              modelKey: pending.modelKey,
+              tokens: usedTokens,
+            });
+          }
           this.pending.delete(input.contextSessionId);
         }
       });
@@ -329,47 +485,47 @@ export class BotCompactionCoordinator {
     partition: BotPartition,
     systemPrompt: string,
     infer: BotObservation["infer"],
-    signal: AbortSignal
+    signal: AbortSignal,
+    tools?: readonly BotSummaryTool[]
   ): Promise<BotSummaryResult> {
     let lastError: unknown;
-    let reduceInputs = false;
+    let messages = structuredClone(partition.messagesToSummarize);
+    const capturedTools = tools ? structuredClone(tools) : undefined;
     let shorter = false;
+    let usage: BotSummaryUsage | undefined;
     for (let attempt = 0; attempt < 3; attempt += 1) {
       if (signal.aborted) throw new DOMException("Compaction aborted", "AbortError");
       try {
-        const retryPartition =
-          !reduceInputs || partition.messagesToSummarize.length <= 8
-            ? partition
-            : {
-                ...partition,
-                messagesToSummarize: reduceBotSummaryInputMessages(partition.messagesToSummarize),
-              };
         const result = await infer(
           {
             systemPrompt,
-            userInfoMessage: retryPartition.userInfoMessage,
-            messagesToSummarize: retryPartition.messagesToSummarize,
+            userInfoMessage: structuredClone(partition.userInfoMessage),
+            messagesToSummarize: structuredClone(messages),
             shorter,
+            tools: capturedTools,
           },
           signal
         );
+        if (signal.aborted) throw new DOMException("Compaction aborted", "AbortError");
+        // The reference accounts for every successful response, even if its
+        // text is empty. Failed requests with no reported usage remain unknown.
+        if (result.usage) usage = addSummaryUsage(usage, result.usage);
         if (!result.text.trim()) {
           lastError = new Error("Self-summary returned no content");
           if (attempt === 2) break;
-          // Empty output is its own Bot retry path: immediate, full input, and
-          // no shorter-output request. It never passes through the error classifier.
-          reduceInputs = false;
-          shorter = false;
+          // Empty output retries immediately with the CURRENT input/instruction.
           continue;
         }
-        return { ...result, text: result.text.trim() };
+        return { ...result, ...(usage ? { usage } : {}) };
       } catch (error) {
         lastError = error;
         if (signal.aborted) throw new DOMException("Compaction aborted", "AbortError");
-        const directive = botSummaryRetryDirective(error);
+        // The active generic factory enables this; the shared helper's default
+        // alone does not describe the wired SelfSummarizer configuration.
+        const directive = botSummaryRetryDirective(error, { retryNoSummaryResponse: true });
         if (!directive.retry || attempt === 2) break;
-        reduceInputs = directive.reduceInputs;
-        shorter = directive.shorter;
+        if (directive.reduceInputs) messages = reduceBotSummaryInputMessages(messages);
+        shorter ||= directive.shorter;
         if (!directive.delay) continue;
         await new Promise<void>((resolveDelay, rejectDelay) => {
           const onAbort = () => {
@@ -386,34 +542,57 @@ export class BotCompactionCoordinator {
         });
       }
     }
-    throw lastError instanceof Error ? lastError : new Error(String(lastError));
+    throw lastError ?? new Error("Self-summary failed without an error");
   }
 
   async beforePiCompaction(input: {
     contextSessionId: string;
     piMessages: readonly BotMessage[];
+    readPiMessages?: () => readonly BotMessage[];
     reason: "manual" | "threshold" | "overflow";
     firstKeptEntryId: string;
     tokensBefore: number;
+    maxTokens?: number;
+    modelKey?: string;
+    earlyThreshold?: number;
+    tools?: readonly BotSummaryTool[];
     systemPrompt: string;
     userInfoMessage?: BotMessage | null;
     projectRoot?: string;
+    isRootProject?: boolean;
     transcriptPath?: string;
     todoUpdate?: string;
     automationTrigger?: string;
     infer: BotObservation["infer"];
     signal: AbortSignal;
   }): Promise<BotPreparedCompaction | null> {
+    if (input.signal.aborted) throw new DOMException("Compaction aborted", "AbortError");
     const current = replaceBotUserInfo(
       await this.contextMessages(input.contextSessionId, input.piMessages),
       input.userInfoMessage ?? null
     );
+    if (input.reason === "overflow") {
+      const latest = await this.store.latest(input.contextSessionId);
+      if (
+        latest &&
+        input.piMessages.findLastIndex((message) => message.role === "assistant") <
+          latest.piBaseMessageCount
+      ) {
+        return null;
+      }
+    }
+    if (input.reason === "threshold" && input.maxTokens !== undefined) {
+      // Pi's automatic threshold callback fires at turn end. Ordinary pressure
+      // may adopt a finished candidate, but must not wait for speculative work.
+      const persist = await this.shouldCompactAtTurnEnd({
+        ...input,
+        usedTokens: input.tokensBefore,
+        maxTokens: input.maxTokens,
+      });
+      if (!persist) return null;
+    }
     let pending = this.pending.get(input.contextSessionId);
-    if (
-      !pending ||
-      pending.systemDigest !== sha256(input.systemPrompt) ||
-      !messagesHavePrefixByValue(pending.capturedMessages, current)
-    ) {
+    if (!pending || !this.matches(pending, input, current)) {
       if (pending) {
         pending.controller?.abort();
         this.pending.delete(input.contextSessionId);
@@ -424,6 +603,7 @@ export class BotCompactionCoordinator {
       const reason: BotCompactionReason =
         forced ??
         (input.reason === "overflow" ? "fallback_on_limit_error" : "approaching_token_limit");
+      const controller = new AbortController();
       pending = {
         contextSessionId: input.contextSessionId,
         id: randomUUID(),
@@ -433,12 +613,22 @@ export class BotCompactionCoordinator {
         durableBlocks: botDurableBlocks(partition.lastUserMessage, input),
         prefixDigest: botMessageDigest(current),
         systemDigest: sha256(input.systemPrompt),
+        modelKey: input.modelKey ?? "",
+        maxTokens: input.maxTokens ?? 0,
+        earlyThreshold: input.earlyThreshold,
+        parked: false,
         tokensBefore: input.tokensBefore,
         imageCount: countBotImages(current),
         turnCount: countBotTurns(current),
         startedAt: new Date().toISOString(),
-        controller: null,
-        promise: this.generate(partition, input.systemPrompt, input.infer, input.signal),
+        controller,
+        promise: this.generate(
+          partition,
+          input.systemPrompt,
+          input.infer,
+          AbortSignal.any([input.signal, controller.signal]),
+          input.tools
+        ),
         result: null,
         projectedMidLoop: false,
       };
@@ -447,13 +637,20 @@ export class BotCompactionCoordinator {
     const forcedReason = this.forcedReasons.get(input.contextSessionId);
     if (forcedReason) pending.reason = forcedReason;
     else if (input.reason === "overflow") pending.reason = "fallback_on_limit_error";
+    else if (pending.parked) pending.reason = "pending_summary_adopted";
     else if (input.reason === "threshold" && !pending.projectedMidLoop) {
       pending.reason = "self_summary_completed";
     }
-    const result = await pending.promise;
+    const result = await this.waitForPending(
+      pending,
+      pending.controller ? AbortSignal.any([input.signal, pending.controller.signal]) : input.signal
+    );
     pending.result = result;
     const refreshed = replaceBotUserInfo(
-      await this.contextMessages(input.contextSessionId, input.piMessages),
+      await this.contextMessages(
+        input.contextSessionId,
+        input.readPiMessages?.() ?? input.piMessages
+      ),
       input.userInfoMessage ?? null
     );
     if (!messagesHavePrefixByValue(pending.capturedMessages, refreshed)) {
@@ -462,14 +659,20 @@ export class BotCompactionCoordinator {
     }
     const tail = closeBotPreservedTail(pending.capturedMessages.length, refreshed);
     const completedAt = new Date().toISOString();
-    const tokensAfter = Math.ceil(
-      canonicalJson([
-        pending.partition.userInfoMessage,
+    const tokensAfter = estimateBotContextTokens(
+      input.systemPrompt,
+      [
+        ...(pending.partition.userInfoMessage ? [pending.partition.userInfoMessage] : []),
         pending.partition.lastUserMessage,
-        result.text,
-        pending.durableBlocks,
-        tail,
-      ]).length / 4
+        botSummaryMessage(
+          result.text,
+          (await this.store.manifest(input.contextSessionId)).selfSummaryCount + 1,
+          Date.parse(completedAt),
+          pending.durableBlocks
+        ),
+        ...tail,
+      ],
+      input.tools
     );
     await this.store.stage(input.contextSessionId, {
       id: pending.id,
@@ -527,7 +730,28 @@ export class BotCompactionCoordinator {
     );
     this.prepared.delete(input.contextSessionId);
     this.pending.delete(input.contextSessionId);
+    this.inputLimitFailures.delete(input.contextSessionId);
     return compactionEvent(input.contextSessionId, blob);
+  }
+
+  private async waitForPending(
+    pending: PendingSummary,
+    signal: AbortSignal
+  ): Promise<BotSummaryResult> {
+    if (signal.aborted) {
+      void pending.promise.catch(() => undefined);
+      throw new DOMException("Compaction aborted", "AbortError");
+    }
+    let abort!: () => void;
+    const aborted = new Promise<never>((_resolve, reject) => {
+      abort = () => reject(new DOMException("Compaction aborted", "AbortError"));
+      signal.addEventListener("abort", abort, { once: true });
+    });
+    try {
+      return await Promise.race([pending.promise, aborted]);
+    } finally {
+      signal.removeEventListener("abort", abort);
+    }
   }
 }
 

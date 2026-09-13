@@ -63,6 +63,8 @@ const threadTimestamp = (createdAt: string) => {
 };
 
 export function ThreadSheet({
+  transcriptionConfigured,
+  onTranscribe,
   assetUrl,
   botById,
   botName,
@@ -92,6 +94,8 @@ export function ThreadSheet({
   thread,
   uploadCapabilities,
 }: {
+  transcriptionConfigured: boolean;
+  onTranscribe: (uri: string, signal: AbortSignal) => Promise<{ text: string }>;
   assetUrl: (asset: Pick<AssetRef, "assetId" | "fileName">, download?: boolean) => string | null;
   botById: ReadonlyMap<string, BotView>;
   botName: string;
@@ -393,6 +397,8 @@ export function ThreadSheet({
           />
           {thread ? (
             <Composer
+              transcriptionConfigured={transcriptionConfigured}
+              onTranscribe={onTranscribe}
               assetUrl={assetUrl}
               botName={botName}
               draftKey={`${draftKey}:thread:${thread.root.id}`}

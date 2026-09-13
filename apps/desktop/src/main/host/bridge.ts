@@ -3,14 +3,17 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { hostname } from "node:os";
 import {
   HOST_BRIDGE_PATHS,
+  parseHostAwaitShellRequest,
   parseHostAutoReviewRequest,
   parseHostPermissionUpdateRequest,
   parseHostReadRequest,
   parseHostShellRequest,
+  parseHostTransferRequest,
   type HostApprovalRequest,
   type HostApprovalTokens,
 } from "@openteam/contracts/service-protocol";
 import { listenForHostBridge } from "./bridge-listener";
+import { HostFileTransfers } from "./file-transfer";
 import type { HostJobPayload } from "./job-protocol";
 import {
   type AutoReviewMode,
@@ -75,18 +78,20 @@ const localApprovalDecision = (
     return input.localApproval as LocalPromptDecision;
   }
   const shell = action.surface === "hostShell";
+  const write = action.surface === "hostWrite";
   throw new HostApprovalRequired({
     gate: "local",
     requestMethod: "openteam/localTool",
     details: {
       type: "localTool",
       gate: "local",
-      action: shell ? "runCommand" : "readFile",
-      toolName: shell ? "Shell" : "Read",
+      action: shell ? "runCommand" : write ? "writeFile" : "readFile",
+      toolName: action.toolName ?? (shell ? "Shell" : write ? "CopyFromBox" : "Read"),
       machineId,
       machineLabel,
       effect: shell
         ? "Allow OpenTeam and all Bots to run commands on your local computer?"
+        : write ? "Allow OpenTeam and all Bots to write files on your local computer?"
         : "Allow OpenTeam and all Bots to read files on your local computer?",
       summary: action.summary,
       arguments: {
@@ -141,14 +146,15 @@ const autoReviewApprovalDecision = (
         : `Allow this exact ${action.surface} action: ${action.summary}`);
   const shell = action.surface === "hostShell";
   const read = action.surface === "hostRead";
+  const write = action.surface === "hostWrite";
   throw new HostApprovalRequired({
     gate: "auto-review",
     requestMethod: "openteam/autoReview",
     details: {
       type: "autoReview",
       gate: "auto-review",
-      action: shell ? "runCommand" : read ? "readFile" : "runTask",
-      toolName: shell ? "Shell" : read ? "Read" : "Task",
+      action: shell ? "runCommand" : write ? "writeFile" : read ? "readFile" : "runTask",
+      toolName: action.toolName ?? (shell ? "Shell" : write ? "CopyFromBox" : read ? "Read" : "Task"),
       machineId,
       machineLabel,
       effect: "Auto Review requires your approval before this action can run.",
@@ -158,11 +164,11 @@ const autoReviewApprovalDecision = (
       arguments: {
         ...(shell
           ? { command: action.command, working_directory: action.target }
-          : read
+          : read || write
             ? { path: action.target }
             : {}),
         ...(action.arguments ?? {}),
-        ...(shell || read ? { machineId } : {}),
+        ...(shell || read || write ? { machineId } : {}),
       },
       supportsAlwaysAllow: true,
     },
@@ -214,6 +220,7 @@ export const startHostBridge = (options: {
     const machineLabel = await currentMachineLabel();
     return authorizeAutoReviewAction(action, dependencies(input, machineLabel));
   };
+  const transfers = new HostFileTransfers();
   const server = createServer(async (request, response) => {
     if (request.url === HOST_BRIDGE_PATHS.health && request.method === "GET") {
       return json(response, 200, { status: "ready" });
@@ -227,6 +234,24 @@ export const startHostBridge = (options: {
     response.once("close", cancelOnDisconnect);
 
     try {
+      if (request.method === "POST" && request.url === HOST_BRIDGE_PATHS.transfer) {
+        const input = parseHostTransferRequest(await body(request));
+        assertMachine(input.machineId);
+        const write = input.direction === "write";
+        const permission = await authorize({
+          surface: write ? "hostWrite" : "hostRead",
+          toolName: write ? "CopyFromBox" : "CopyToBox",
+          summary: `${write ? "Write a file to" : "Copy a file from"} your local computer`,
+          target: input.path, arguments: { path: input.path, bytes: input.bytes },
+        }, input);
+        if (!permission.allowed) return json(response, 403, { error: permission.reason });
+        return json(response, 200, await transfers.prepare(input));
+      }
+      if (request.url?.startsWith(`${HOST_BRIDGE_PATHS.transfer}/`)) {
+        if ((await options.permissionSettings.read()).localToolPermission === "never") return json(response, 403, { error: "Local computer tools are disabled" });
+        await transfers.transfer(request.url.slice(HOST_BRIDGE_PATHS.transfer.length + 1), request, response);
+        return;
+      }
       if (request.method === "POST" && request.url === HOST_BRIDGE_PATHS.machines) {
         const settings = await options.permissionSettings.read();
         return json(response, 200, {
@@ -342,6 +367,26 @@ export const startHostBridge = (options: {
           200,
           await options.runJob(
             { kind: "shell", input, terminalDir: options.terminalDir },
+            controller.signal
+          )
+        );
+      }
+      if (request.method === "POST" && request.url === HOST_BRIDGE_PATHS.awaitShell) {
+        const input = parseHostAwaitShellRequest(await body(request));
+        assertMachine(input.machineId);
+        if ((await options.permissionSettings.read()).localToolPermission === "never") {
+          return json(response, 403, {
+            error:
+              "Local computer tools are disabled. Do not retry this action on the user's computer.",
+          });
+        }
+        // A random job handle only observes a previously authorized command. It
+        // cannot launch a process or read an arbitrary path, so do not re-prompt.
+        return json(
+          response,
+          200,
+          await options.runJob(
+            { kind: "await-shell", input, terminalDir: options.terminalDir },
             controller.signal
           )
         );

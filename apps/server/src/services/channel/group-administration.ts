@@ -11,14 +11,13 @@ import { COMPUTER_API_PATHS } from "@openteam/contracts/service-protocol";
 import type { PrismaClient } from "@openteam/db";
 import { type AgentDataStore, type AgentMessaging, GROUP_MAX_MEMBERS } from "@openteam/messaging";
 import { lstat, mkdir, readdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
-import { extname, join, relative, resolve, sep } from "node:path";
+import { extname, join, relative, sep } from "node:path";
 import { provisionDirectories } from "../provision-directories";
 import {
   appendEvent,
   type ComputerFetch,
   hashRequest,
   serviceEffect,
-  slugify,
   toJson,
 } from "../service-utils";
 import { serialize, toChannelView } from "../view-mappers";
@@ -65,14 +64,8 @@ export class GroupAdministration {
         );
       }
       const channelId = crypto.randomUUID();
-      const directory = resolve(
-        this.workspaceRoot,
-        "projects",
-        `${slugify(input.name)}-${channelId.slice(0, 8)}`
-      );
-      if (!directory.startsWith(`${this.workspaceRoot}${sep}`)) {
-        throw new ApiError(400, "invalid_workspace", "Generated project path escaped root");
-      }
+      // Rooms share the same starting directory as direct turns and subagents.
+      const directory = this.workspaceRoot;
       const activeBots = await this.prisma.bot.count({
         where: {
           id: { in: botIds },
@@ -85,6 +78,7 @@ export class GroupAdministration {
       }
       await provisionDirectories(this.computerFetch, [directory]);
       const channel = await this.prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('root-file:groups'))`;
         const bots = await tx.bot.findMany({
           where: {
             id: { in: botIds },
@@ -155,6 +149,7 @@ export class GroupAdministration {
         throw new ApiError(409, "request_in_progress", "Visibility is already being updated");
       }
       return this.prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('root-file:groups'))`;
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`channel:${channelId}`}))`;
         const channel = await tx.channel.findFirst({
           where: { id: channelId, kind: "group", archivedAt: null },
@@ -195,6 +190,7 @@ export class GroupAdministration {
   deleteGroup = (channelId: string) =>
     serviceEffect(async (): Promise<{ deleted: true; channelId: string }> => {
       const { activeRunIds, memberIds } = await this.prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('root-file:groups'))`;
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`channel:${channelId}`}))`;
         const channel = await tx.channel.findFirst({
           where: { id: channelId, kind: "group", archivedAt: null },
@@ -279,6 +275,7 @@ export class GroupAdministration {
         return serialize((existing.response as { channel?: unknown }).channel);
       }
       const result = await this.prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('root-file:groups'))`;
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`channel:${channelId}`}))`;
         const channel = await tx.channel.findFirst({
           where: { id: channelId, kind: "group", archivedAt: null },
@@ -317,6 +314,7 @@ export class GroupAdministration {
           where: { scope_key: { scope, key: input.clientId } },
           data: { status: "completed", response: toJson(response) },
         });
+        if (changed && this.agentData) for (const botId of response.memberIds) await this.agentData.writeGroupFilesForBot(botId, tx);
         return response;
       });
       if (result.changed && this.agentData) {
@@ -366,6 +364,7 @@ export class GroupAdministration {
           .map((name) => rm(join(directory, name), { force: true }))
       );
       return this.prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('root-file:groups'))`;
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`channel:${channelId}`}))`;
         await tx.idempotencyRecord.create({
           data: {
@@ -447,6 +446,7 @@ export class GroupAdministration {
         throw new ApiError(409, "request_in_progress", "Membership is already being updated");
       }
       const result = await this.prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('root-file:groups'))`;
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`channel:${channelId}`}))`;
         const channel = await tx.channel.findFirst({
           where: { id: channelId, kind: "group", archivedAt: null },
@@ -494,6 +494,7 @@ export class GroupAdministration {
           where: { scope_key: { scope, key: input.clientId } },
           data: { status: "completed", response: toJson(updated) },
         });
+        if (this.agentData) for (const botId of botIds) await this.agentData.writeGroupFilesForBot(botId, tx);
         return {
           updated,
           affectedBotIds: [...new Set([...previous, ...botIds])],

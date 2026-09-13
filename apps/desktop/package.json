@@ -8,6 +8,7 @@
     "@dnd-kit/react": "^0.5.0",
     "@openteam/client-core": "workspace:*",
     "@openteam/contracts": "workspace:*",
+    "@openteam/shell-jobs": "workspace:*",
     "@openteam/design-tokens": "workspace:*",
     "@openteam/product-core": "workspace:*",
     "@shikijs/themes": "3.23.0",
@@ -41,7 +42,8 @@
     "use-stick-to-bottom": "1.1.6",
     "vite": "8.2.2",
     "wait-on": "9.1.0",
-    "xlsx": "file:../../vendor/sheetjs/xlsx-0.20.3.tgz"
+    "xlsx": "file:../../vendor/sheetjs/xlsx-0.20.3.tgz",
+    "@openteam/plugin-sdk": "workspace:*"
   },
   "build": {
     "appId": "dev.openteam.desktop",
@@ -116,7 +118,9 @@
     "dev": "concurrently -k --success first -n renderer,electron \"vite\" \"bun run scripts/dev-electron.ts\"",
     "start": "electron .",
     "typecheck": "bun run scripts/check-renderer-boundary.ts && tsc -p tsconfig.json",
-    "test": "bun test --pass-with-no-tests"
+    "test": "bun test --pass-with-no-tests",
+    "test:conversation-layout": "bun scripts/test-conversation-layout.ts",
+    "test:parity-review": "bun scripts/test-parity-review.ts"
   },
   "type": "module"
 }

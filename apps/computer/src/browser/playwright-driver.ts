@@ -1,5 +1,6 @@
 import childProcess from "node:child_process";
 import { existsSync } from "node:fs";
+import { delimiter, join } from "node:path";
 import type { BrowserType } from "playwright-core";
 
 export interface OutOfProcessPlaywright {
@@ -15,6 +16,7 @@ export const nodeBinary = (): string => {
     "/usr/bin/node",
     "/opt/homebrew/bin/node",
     "/usr/local/bin/node",
+    ...(process.env.PATH ?? "").split(delimiter).filter(Boolean).map((directory) => join(directory, "node")),
   ];
   const resolved = candidates.find((candidate): candidate is string =>
     Boolean(candidate && existsSync(candidate))

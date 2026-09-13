@@ -1,5 +1,8 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { discoverAllTools, scopedProcessEnvironment } from "@openteam/plugin-sdk";
+import { join } from "node:path";
+import { PluginPackageCache } from "./plugin-package-cache";
 
 export interface StdioMcpConfiguration {
   command: string;
@@ -41,10 +44,15 @@ const normalized = (value: unknown): StdioMcpConfiguration => {
 
 export class StdioMcpManager {
   private readonly clients = new Map<string, ManagedStdioClient>();
+  private readonly packages: PluginPackageCache;
+
+  constructor(cacheDirectory = join(process.env.OPENTEAM_AGENT_DATA_ROOT ?? "/agent-data", "plugin-runtimes")) {
+    this.packages = new PluginPackageCache(cacheDirectory);
+  }
 
   async discover(connectionId: string, input: unknown): Promise<unknown[]> {
-    const managed = await this.get(connectionId, normalized(input));
-    return (await managed.client.listTools({}, { timeout: 30_000 })).tools;
+    const managed = await this.get(connectionId, normalized(await this.packages.resolve(input)));
+    return discoverAllTools((cursor) => managed.client.listTools({ cursor }, { timeout: 30_000 }));
   }
 
   async call(
@@ -53,7 +61,7 @@ export class StdioMcpManager {
     toolName: string,
     args: unknown
   ): Promise<unknown> {
-    const managed = await this.get(connectionId, normalized(input));
+    const managed = await this.get(connectionId, normalized(await this.packages.resolve(input)));
     return managed.client.callTool(
       {
         name: toolName,
@@ -86,23 +94,27 @@ export class StdioMcpManager {
     const transport = new StdioClientTransport({
       command: configuration.command,
       args: configuration.args,
-      env: Object.fromEntries(
-        Object.entries({ ...process.env, ...configuration.env }).filter(
-          (entry): entry is [string, string] => typeof entry[1] === "string"
-        )
-      ),
+      env: scopedProcessEnvironment(process.env, configuration.env),
       cwd: configuration.cwd,
       stderr: "pipe",
     });
     const managed = { fingerprint, client, transport };
     transport.stderr?.on("data", (chunk) => {
-      const message = String(chunk).trim();
+      let message = String(chunk).trim();
+      for (const value of Object.values(configuration.env ?? {})) {
+        if (value.length >= 4) message = message.replaceAll(value, "[redacted]");
+      }
       if (message) console.error(`[stdio-mcp:${connectionId}] ${message.slice(0, 2_000)}`);
     });
     transport.onerror = () => {
       if (this.clients.get(connectionId) === managed) this.clients.delete(connectionId);
     };
-    await client.connect(transport);
+    try {
+      await client.connect(transport, { timeout: 30_000 });
+    } catch (error) {
+      await client.close().catch(() => undefined);
+      throw error;
+    }
     this.clients.set(connectionId, managed);
     return managed;
   }

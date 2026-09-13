@@ -47,6 +47,7 @@ describe("release Compose rendering", () => {
     expect(rendered).toContain("caddy:2.11.4-alpine@sha256:");
     expect(rendered).toContain("${OPENTEAM_VIEWER_BIND_HOST:-127.0.0.1}:6200-6299");
     expect(rendered).toContain("OPENTEAM_AUTH_URL: ${OPENTEAM_AUTH_URL");
+    expect(rendered).not.toContain("OPENTEAM_WEB_SEARCH_");
     expect(rendered).not.toContain("OPENTEAM_PI_PROVIDER");
     expect(rendered).not.toContain("OPENTEAM_PI_MODEL");
     expect(rendered).not.toContain("OPENTEAM_PI_THINKING");

@@ -1,0 +1,22 @@
+{
+  "key": "research-playbook",
+  "version": "1.0.1",
+  "name": "Research Playbook",
+  "description": "Research topics, compare sources, and write evidence-backed summaries.",
+  "publisher": "OpenTeam",
+  "category": "Research",
+  "featured": false,
+  "components": [
+    "skills"
+  ],
+  "connections": [],
+  "skills": [
+    {
+      "name": "source-led-research",
+      "description": "Research claims against primary sources and state uncertainty clearly.",
+      "path": "skills/source-led-research"
+    }
+  ],
+  "schemaVersion": 1,
+  "icon": "assets/icon.png"
+}

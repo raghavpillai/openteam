@@ -126,7 +126,7 @@ export const parseAutomationFile = async (
   const schedule =
     cronSchedule !== null
       ? normalizeRoutineSchedule(cronSchedule, installationZone, {
-          enforceMinimum: process.env.OPENTEAM_ENFORCE_AUTOMATION_MINIMUM === "true",
+          enforceMinimum: process.env.OPENTEAM_ENFORCE_AUTOMATION_MINIMUM !== "false",
         })
       : null;
   let triggerPresentation: Record<string, unknown> | null = null;

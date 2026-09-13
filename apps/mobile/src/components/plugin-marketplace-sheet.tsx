@@ -15,7 +15,6 @@ import { SymbolView } from "expo-symbols";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  Image,
   Linking,
   Pressable,
   ScrollView,
@@ -26,6 +25,7 @@ import {
 } from "react-native";
 import { useOpenTeam } from "../state/openteam-context";
 import { type Theme, useTheme } from "../theme";
+import { PluginMark } from "./plugins/plugin-mark";
 import { GlassSurface } from "./glass-surface";
 import { IconButton } from "./icon-button";
 import { PluginManagerSheet as InstalledPluginManager } from "./plugin-manager-sheet";
@@ -37,103 +37,6 @@ const emptySettings = (): PluginSettingsView => ({
   policies: [],
   activity: [],
 });
-
-function BundledGoogleMark({ name, size }: { name: string; size: number }) {
-  if (name === "Gmail") {
-    return (
-      <View accessibilityElementsHidden style={{ width: size, height: size }}>
-        <View
-          style={[
-            styles.gmailStroke,
-            styles.gmailLeft,
-            { backgroundColor: "#4285F4", height: size * 0.56 },
-          ]}
-        />
-        <View
-          style={[
-            styles.gmailStroke,
-            styles.gmailRight,
-            { backgroundColor: "#34A853", height: size * 0.56 },
-          ]}
-        />
-        <View
-          style={[
-            styles.gmailDiagonal,
-            styles.gmailDiagonalLeft,
-            { backgroundColor: "#EA4335", width: size * 0.47 },
-          ]}
-        />
-        <View
-          style={[
-            styles.gmailDiagonal,
-            styles.gmailDiagonalRight,
-            { backgroundColor: "#FBBC04", width: size * 0.47 },
-          ]}
-        />
-      </View>
-    );
-  }
-  if (name === "Google Calendar") {
-    return (
-      <View accessibilityElementsHidden style={styles.calendarPage}>
-        <View style={styles.calendarBinding} />
-        <Text style={styles.calendarDay}>31</Text>
-      </View>
-    );
-  }
-  return (
-    <View accessibilityElementsHidden style={{ width: size, height: size }}>
-      <View style={[styles.driveRail, styles.driveRailLeft]} />
-      <View style={[styles.driveRail, styles.driveRailRight]} />
-      <View style={styles.driveRailBottom} />
-    </View>
-  );
-}
-
-function PluginMark({
-  logoUrl,
-  name,
-  size = 34,
-  theme,
-}: {
-  logoUrl: string | null;
-  name: string;
-  size?: number;
-  theme: Theme;
-}) {
-  const [failed, setFailed] = useState(false);
-  const google = name === "Gmail" || name === "Google Calendar" || name === "Google Drive";
-  return (
-    <View
-      style={[
-        styles.mark,
-        {
-          width: size,
-          height: size,
-          borderRadius: Math.max(9, size * 0.24),
-          backgroundColor: google ? "#FFFFFF" : theme.surfacePressed,
-        },
-      ]}
-    >
-      {logoUrl && !failed ? (
-        <Image
-          onError={() => setFailed(true)}
-          resizeMode="contain"
-          source={{ uri: logoUrl }}
-          style={{ width: size * 0.8, height: size * 0.8 }}
-        />
-      ) : google ? (
-        <BundledGoogleMark name={name} size={size} />
-      ) : (
-        <SymbolView
-          name="puzzlepiece.extension.fill"
-          size={size * 0.55}
-          tintColor={theme.textMuted}
-        />
-      )}
-    </View>
-  );
-}
 
 function MarketplaceRow({
   busy,
@@ -158,7 +61,7 @@ function MarketplaceRow({
   const primary = actionLabel === "Authorize";
   return (
     <View style={styles.pluginRow}>
-      <PluginMark logoUrl={plugin.logoUrl} name={plugin.name} theme={theme} />
+      <PluginMark logoUrl={plugin.logoUrl} />
       <View style={styles.pluginCopy}>
         <Text numberOfLines={1} style={[styles.pluginName, { color: theme.text }]}>
           {plugin.name}
@@ -377,12 +280,7 @@ export function PluginMarketplaceSheet({
             style={[styles.installedPill, { borderColor: theme.border }]}
           >
             {firstInstall ? (
-              <PluginMark
-                logoUrl={firstCatalog?.logoUrl ?? null}
-                name={firstInstall.name}
-                size={22}
-                theme={theme}
-              />
+              <PluginMark logoUrl={firstCatalog?.logoUrl ?? null} size={22} />
             ) : (
               <SymbolView name="puzzlepiece.extension.fill" size={16} tintColor={theme.textMuted} />
             )}
@@ -601,65 +499,6 @@ export function PluginMarketplaceSheet({
 
 const styles = StyleSheet.create({
   screen: { flex: 1, paddingHorizontal: 14 },
-  gmailStroke: {
-    position: "absolute",
-    top: "25%",
-    width: 4,
-    borderRadius: 2,
-  },
-  gmailLeft: { left: "16%" },
-  gmailRight: { right: "16%" },
-  gmailDiagonal: {
-    position: "absolute",
-    top: "25%",
-    height: 4,
-    borderRadius: 2,
-  },
-  gmailDiagonalLeft: { left: "16%", transform: [{ rotate: "34deg" }] },
-  gmailDiagonalRight: { right: "16%", transform: [{ rotate: "-34deg" }] },
-  calendarPage: {
-    width: 25,
-    height: 25,
-    borderRadius: 4,
-    borderWidth: 3,
-    borderColor: "#4285F4",
-    backgroundColor: "#FFFFFF",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  calendarBinding: {
-    position: "absolute",
-    left: -3,
-    right: -3,
-    top: -3,
-    height: 7,
-    borderTopLeftRadius: 4,
-    borderTopRightRadius: 4,
-    backgroundColor: "#4285F4",
-  },
-  calendarDay: { marginTop: 3, color: "#4285F4", fontSize: 11, fontWeight: "800" },
-  driveRail: {
-    position: "absolute",
-    top: 5,
-    width: 6,
-    height: 23,
-    borderRadius: 2,
-  },
-  driveRailLeft: { left: 8, backgroundColor: "#34A853", transform: [{ rotate: "30deg" }] },
-  driveRailRight: {
-    right: 8,
-    backgroundColor: "#FBBC04",
-    transform: [{ rotate: "-30deg" }],
-  },
-  driveRailBottom: {
-    position: "absolute",
-    left: 7,
-    bottom: 6,
-    width: 20,
-    height: 6,
-    borderRadius: 2,
-    backgroundColor: "#4285F4",
-  },
   header: { height: 69, flexDirection: "row", alignItems: "center", gap: 10 },
   headerTitle: { flex: 1, fontSize: 16, lineHeight: 21, fontWeight: "600" },
   installedPill: {

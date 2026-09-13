@@ -1,6 +1,6 @@
 /** Disposable PostgreSQL + real app server + native Chromium capture + configured STT service.
  * macOS example: bun scripts/transcription/test-e2e.ts --api-key-file ~/.local/share/openteam/transcription/api-key
- * Does not modify the installed server, access the physical microphone, or send chat messages.
+ * Sends synthetic messages only to disposable QA bots; never accesses the physical microphone.
  */
 import { strict as assert } from "node:assert";
 import { randomBytes, randomUUID } from "node:crypto";
@@ -60,6 +60,7 @@ const env: Record<string, string | undefined> = {
   OPENTEAM_WORKSPACE_ROOT: join(directory, "workspace"),
   OPENTEAM_ASSET_ROOT: join(directory, "assets"),
   OPENTEAM_COMPUTER_URL: computer.url.origin,
+  OPENTEAM_SERVER_URL: baseUrl,
 };
 const run = async (command: string[], options: { env?: typeof env; input?: string } = {}) => {
   const child = Bun.spawn(command, {
@@ -350,24 +351,28 @@ try {
       QA_OWNER_PASSWORD: ownerPassword,
     },
   });
-  record(
-    "native Chromium capture and real UI",
-    JSON.parse(await readFile(join(browserDirectory, "results.json"), "utf8"))
-  );
+  const desktopResult = JSON.parse(await readFile(join(browserDirectory, "results.json"), "utf8"));
+  record("native Chromium capture and real UI", desktopResult);
+  const deliveries = [...desktopResult.deliveries];
   const iosApp = argument("--ios-app");
-  if (iosApp)
-    record(
-      "iPhone native upload and permission handling",
-      await testNativeVoiceNote({
-        appPath: resolve(iosApp),
-        repository,
-        directory,
-        audio: fixture,
-        serverUrl: baseUrl,
-        username: "voice.qa",
-        password: ownerPassword,
-      })
-    );
+  if (iosApp) {
+    const nativeResult = await testNativeVoiceNote({
+      appPath: resolve(iosApp),
+      repository,
+      directory,
+      audio: fixture,
+      serverUrl: baseUrl,
+      username: "voice.qa",
+      password: ownerPassword,
+    });
+    record("iPhone native upload and permission handling", nativeResult);
+    deliveries.push(...(nativeResult.deliveries ?? []));
+  }
+  await writeFile(join(directory, "delivery-expectations.json"), JSON.stringify(deliveries));
+  record(
+    "actual worker and Pi receive the submitted transcript",
+    await run([process.execPath, "scripts/transcription/verify-agent-delivery.ts", directory])
+  );
   assert.equal((await readdir(join(directory, "assets")).catch(() => [])).length, 0);
   record("voice-note transcription creates no stored chat attachments");
   passed = true;
@@ -394,6 +399,7 @@ try {
     "browser/profile",
     "postgres",
     "postgres-password",
+    "qa-pi",
   ])
     await rm(join(directory, path), { recursive: true, force: true });
   await writeFile(

@@ -3,6 +3,8 @@ export type BotCompactionReason =
   | "approaching_image_limit"
   | "fallback_on_limit_error"
   | "input_token_limit_error"
+  | "pending_summary_adopted"
+  | "significantly_over_token_limit"
   | "self_summary_completed";
 
 export interface BotMessage {
@@ -111,4 +113,12 @@ export interface BotSummaryRequest {
   userInfoMessage: BotMessage | null;
   messagesToSummarize: BotMessage[];
   shorter: boolean;
+  tools?: readonly BotSummaryTool[];
+}
+
+export interface BotSummaryTool {
+  name: string;
+  description: string;
+  parameters: unknown;
+  constrainedSampling?: unknown;
 }

@@ -14,6 +14,9 @@ test("plugin install, connection, grant, policy, discovery, call, and removal li
   const conversationId = crypto.randomUUID();
   const secondBotId = crypto.randomUUID();
   const runId = crypto.randomUUID();
+  const channelId = crypto.randomUUID();
+  const wakes: Array<Record<string, any>> = [];
+  let failApprovedCall = false;
   try {
     await prisma.$executeRawUnsafe('TRUNCATE TABLE "PluginInstallation", "Bot", "Event" CASCADE');
     await prisma.bot.create({
@@ -36,11 +39,13 @@ test("plugin install, connection, grant, policy, discovery, call, and removal li
         conversation: { create: { id: crypto.randomUUID() } },
       },
     });
+    await prisma.channel.create({ data: { id: channelId, kind: "bot_dm", name: "Plugin test" } });
     await prisma.run.create({
       data: {
         id: runId,
         botId,
         conversationId,
+        channelId,
         userMessageId: crypto.randomUUID(),
         status: "running",
       },
@@ -110,12 +115,21 @@ test("plugin install, connection, grant, policy, discovery, call, and removal li
     const approval = await prisma.approval.findFirstOrThrow({
       where: { upstreamRequestId: "plugin:plugin-call-note-1" },
     });
+    expect(await prisma.event.count({ where: { topic: "plugin.approval.requested", entityId: approval.id } })).toBe(1);
+    // The assistant may end its turn while the user reviews the approval.
+    await prisma.run.update({ where: { id: runId }, data: { status: "completed" } });
     const runs = new RunService(
       prisma,
       async () => {
         throw new Error("Plugin approvals must not call the computer runtime");
       },
-      (callId, decision) => service.resolveInvocation(callId, decision),
+      async (callId, decision) => {
+        if (failApprovedCall) {
+          await prisma.pluginInvocation.update({ where: { callId }, data: { status: "failed", error: "Synthetic provider disconnect", completedAt: new Date() } });
+          throw new Error("Synthetic provider disconnect");
+        }
+        return service.resolveInvocation(callId, decision);
+      },
       (details, decision) => service.resolveAction(details, decision),
       (connectionId, approvedBotId, toolName) =>
         Effect.runPromise(
@@ -124,7 +138,8 @@ test("plugin install, connection, grant, policy, discovery, call, and removal li
             toolName,
             decision: "allow",
           })
-        )
+        ),
+      { enqueueWake: async (_tx, input) => { wakes.push(input); return {} as never; } }
     );
     expect(await Effect.runPromise(runs.resolveApproval(approval.id, "accept"))).toMatchObject({
       status: "accepted",
@@ -138,6 +153,12 @@ test("plugin install, connection, grant, policy, discovery, call, and removal li
         where: { connectionId: connection.id, botId, toolName: "remember_note" },
       })
     ).toBeNull();
+    expect(wakes).toHaveLength(1);
+    expect(wakes[0]).toMatchObject({ botId, channelId, origin: "handoff_resume", clientId: `plugin-approval:${approval.id}`, wrapUserContent: false });
+    expect(wakes[0]!.content).toContain('"remembered":true');
+    expect(wakes[0]!.content).toContain("not a request to repeat it");
+    await Effect.runPromise(runs.resolveApproval(approval.id, "accept"));
+    expect(wakes).toHaveLength(1);
     await expect(
       service.invoke({
         connectionId: connection.id,
@@ -170,6 +191,15 @@ test("plugin install, connection, grant, policy, discovery, call, and removal li
       })
     ).toEqual({ remembered: true });
     expect((await Effect.runPromise(service.settings())).activity.length).toBeGreaterThan(0);
+    await Effect.runPromise(service.setPolicy(connection.id, { botId, toolName: "remember_note", decision: "prompt" }));
+    await expect(service.invoke({ connectionId: connection.id, botId, runId, callId: "plugin-failed-approval", toolName: "remember_note", arguments: { note: "failure fixture" } })).rejects.toMatchObject({ code: "plugin_approval_required" });
+    const failureApproval = await prisma.approval.findUniqueOrThrow({ where: { upstreamRequestId: "plugin:plugin-failed-approval" } });
+    failApprovedCall = true;
+    expect(await Effect.runPromise(runs.resolveApproval(failureApproval.id, "accept"))).toMatchObject({ status: "accepted", result: { status: "failed" } });
+    expect(wakes.at(-1)!.content).toContain("outcome is uncertain");
+    const wakeCount = wakes.length;
+    await Effect.runPromise(runs.resolveApproval(failureApproval.id, "accept"));
+    expect(wakes).toHaveLength(wakeCount);
 
     await Effect.runPromise(service.install("research-playbook"));
     expect(await service.skillInstructions(botId)).toBe("");

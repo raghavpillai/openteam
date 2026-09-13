@@ -8,6 +8,7 @@ export interface HostAction {
   surface:
     | "hostShell"
     | "hostRead"
+    | "hostWrite"
     | "mcp"
     | "computer"
     | "automationWrite"
@@ -17,6 +18,7 @@ export interface HostAction {
   target: string;
   command?: string;
   arguments?: Record<string, unknown>;
+  toolName?: string;
 }
 
 export interface AutoReviewResult {

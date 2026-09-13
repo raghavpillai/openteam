@@ -427,6 +427,16 @@ const server = Bun.serve({
         return json(result);
       }
 
+      const formMatch = url.pathname.match(/^\/v1\/user-forms\/([^/]+)\/([^/]+)\/(prepare|submit|dismiss|prefill)$/);
+      if (request.method === "POST" && formMatch) {
+        const [, botId, formId, action] = formMatch;
+        const input = await request.json() as { form?: unknown; values?: unknown; saveToVault?: boolean };
+        if (action === "prepare") return json(await runtime.userForms.prepare(botId!, formId!, input.form));
+        if (action === "prefill") return json(await runtime.userForms.prefill(botId!, formId!));
+        if (action === "dismiss") return json(await runtime.userForms.dismiss(botId!, formId!));
+        return json(await runtime.userForms.submit(botId!, formId!, input.values, input.saveToVault === true));
+      }
+
       const screenMatch = url.pathname.match(/^\/v1\/screens\/([^/]+)$/);
       if (request.method === "GET" && screenMatch?.[1]) {
         const cwd = safePath(url.searchParams.get("cwd") ?? workspaceRoot);
@@ -563,6 +573,7 @@ const server = Bun.serve({
           timeoutMs: Math.max(1_000, Math.min(body.timeoutMs, 90_000)),
           model: body.model,
           reasoning: body.reasoning,
+          signal: request.signal,
         });
         return json({ text });
       }

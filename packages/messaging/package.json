@@ -17,6 +17,8 @@
     "chokidar": "5.0.0",
     "cron-parser": "5.10.0",
     "pg-boss": "12.28.0",
-    "yaml": "2.9.0"
+    "yaml": "2.9.0",
+    "@openteam/plugin-sdk": "workspace:*",
+    "re2js": "2.8.6"
   }
 }

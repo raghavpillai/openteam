@@ -16,7 +16,12 @@
     "./routine-types": "./src/routine-types.ts",
     "./service-protocol": "./src/service-protocol.ts",
     "./version-compatibility": "./src/version-compatibility.ts",
-    "./robot-avatar": "./src/robot-avatar.ts"
+    "./robot-avatar": "./src/robot-avatar.ts",
+    "./plugin-management": "./src/plugin-management.ts",
+    "./review-cards": "./src/review-cards.ts",
+    "./external-draft": "./src/external-draft.ts",
+    "./bot-recipe": "./src/bot-recipe.ts",
+    "./web-search": "./src/web-search.ts"
   },
   "scripts": {
     "build": "bun build src/index.ts --outdir dist --target bun",
@@ -25,7 +30,8 @@
   },
   "dependencies": {
     "effect": "3.22.1",
-    "semver": "7.8.5"
+    "semver": "7.8.5",
+    "@openteam/plugin-sdk": "workspace:*"
   },
   "devDependencies": {
     "@types/semver": "7.7.1"

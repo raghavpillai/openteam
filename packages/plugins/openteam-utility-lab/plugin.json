@@ -1,0 +1,86 @@
+{
+  "key": "openteam-utility-lab",
+  "version": "1.0.1",
+  "name": "Utility Lab",
+  "description": "Try plugin tools with simple calculations, notes, and sample data.",
+  "publisher": "OpenTeam",
+  "category": "Developer Tools",
+  "featured": false,
+  "components": [
+    "mcp"
+  ],
+  "skills": [],
+  "connections": [
+    {
+      "key": "utility",
+      "name": "Utility Lab",
+      "transport": "builtin",
+      "auth": "none",
+      "endpoint": "openteam://utility-lab",
+      "tools": [
+        {
+          "name": "echo",
+          "description": "Echo text through the complete plugin tool pipeline.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "text": {
+                "type": "string",
+                "maxLength": 10000
+              }
+            },
+            "required": [
+              "text"
+            ],
+            "additionalProperties": false
+          },
+          "risk": "read",
+          "defaultDecision": "allow"
+        },
+        {
+          "name": "add",
+          "description": "Add two finite numbers.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "a": {
+                "type": "number"
+              },
+              "b": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "a",
+              "b"
+            ],
+            "additionalProperties": false
+          },
+          "risk": "read",
+          "defaultDecision": "allow"
+        },
+        {
+          "name": "remember_note",
+          "description": "Record a short test note in the plugin activity log.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "note": {
+                "type": "string",
+                "maxLength": 2000
+              }
+            },
+            "required": [
+              "note"
+            ],
+            "additionalProperties": false
+          },
+          "risk": "write",
+          "defaultDecision": "prompt"
+        }
+      ]
+    }
+  ],
+  "schemaVersion": 1,
+  "icon": "assets/icon.png"
+}

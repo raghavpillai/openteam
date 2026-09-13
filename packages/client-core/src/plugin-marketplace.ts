@@ -7,11 +7,11 @@ export const PLUGIN_MARKETPLACE_CATEGORIES = [
   "Agent Orchestration",
   "Canvas",
   "Customer Support",
-  "Data Analytics",
+  "Data & Analytics",
   "Design",
-  "Documents And Files",
-  "Finance And Legal",
-  "Inbox And Collaboration",
+  "Documents and Files",
+  "Finance and Legal",
+  "Inbox and Collaboration",
   "Infrastructure",
   "MCP",
   "Payments",
@@ -23,20 +23,22 @@ export const PLUGIN_MARKETPLACE_CATEGORIES = [
 
 export type PluginMarketplaceCategory = (typeof PLUGIN_MARKETPLACE_CATEGORIES)[number];
 
-const PLUGIN_MARKETPLACE_CATEGORY_ALIASES: Partial<Record<PluginMarketplaceCategory, string>> = {
-  "Documents And Files": "Documents & Files",
-  "Inbox And Collaboration": "Inbox & Collaboration",
-};
+const normalizedCategory = (value: string) =>
+  value
+    .toLowerCase()
+    .replace(/\s*(?:&|\band\b)\s*/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 
 type MarketplacePlugin = Pick<PluginCatalogItemView, "category" | "components" | "featured">;
 
 export const pluginMatchesMarketplaceCategory = (
   plugin: MarketplacePlugin,
-  category: PluginMarketplaceCategory
+  category: string
 ): boolean => {
   if (category === "All") return true;
   if (category === "Featured") return plugin.featured;
   if (category === "Team plugins") return !plugin.featured;
   if (category === "MCP") return plugin.components.includes("mcp");
-  return plugin.category === (PLUGIN_MARKETPLACE_CATEGORY_ALIASES[category] ?? category);
+  return normalizedCategory(plugin.category) === normalizedCategory(category);
 };

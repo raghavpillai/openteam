@@ -1,0 +1,409 @@
+{
+  "referenceSha256": "56b7bf316d5c84daab56bb91196186256c7aa0170bc261e079e4a0e194a656c2",
+  "cases": [
+    {
+      "name": "proposal order: update then create",
+      "files": {
+        "log/2026-08.md": "- (2026-08-01) Alpha.\n"
+      },
+      "changes": [
+        {
+          "action": "update",
+          "id": "f4d562f159800785",
+          "content": "Beta.",
+          "kind": "log",
+          "sourceEvidenceIds": [
+            "e1"
+          ]
+        },
+        {
+          "action": "create",
+          "content": "Gamma.",
+          "kind": "log",
+          "sourceEvidenceIds": [
+            "e1"
+          ]
+        }
+      ],
+      "now": 1789214400000,
+      "expected": {
+        "snapshot": [
+          {
+            "id": "f4d562f159800785",
+            "content": "Alpha.",
+            "createdAt": 1785542400000,
+            "kind": "log",
+            "origin": "legacy"
+          }
+        ],
+        "outcome": "committed",
+        "facts": [
+          {
+            "id": "7ad96a677a35651e",
+            "content": "Beta.",
+            "createdAt": 1789171200000,
+            "kind": "log",
+            "origin": "synthesized"
+          },
+          {
+            "id": "6aead18bb5ba074d",
+            "content": "Gamma.",
+            "createdAt": 1789171200000,
+            "kind": "log",
+            "origin": "synthesized"
+          }
+        ]
+      }
+    },
+    {
+      "name": "same-date snapshot order across files",
+      "files": {
+        "profile.md": "- (2026-09-01) Profile.\n",
+        "log/2026-08.md": "- (2026-09-01) Older file first.\n- (2026-09-01) Older file second.\n",
+        "log/2026-09.md": "- (2026-09-01) Newer file.\n"
+      },
+      "changes": [],
+      "now": 1789214400000,
+      "expected": {
+        "snapshot": [
+          {
+            "id": "0a21925091f619e8",
+            "content": "Profile.",
+            "createdAt": 1788220800000,
+            "kind": "profile",
+            "origin": "legacy"
+          },
+          {
+            "id": "b173492ff1c32b5f",
+            "content": "Newer file.",
+            "createdAt": 1788220800000,
+            "kind": "log",
+            "origin": "legacy"
+          },
+          {
+            "id": "b2b06b21bb957b5e",
+            "content": "Older file second.",
+            "createdAt": 1788220800000,
+            "kind": "log",
+            "origin": "legacy"
+          },
+          {
+            "id": "845e77c8b4775728",
+            "content": "Older file first.",
+            "createdAt": 1788220800000,
+            "kind": "log",
+            "origin": "legacy"
+          }
+        ],
+        "outcome": "committed",
+        "facts": [
+          {
+            "id": "0a21925091f619e8",
+            "content": "Profile.",
+            "createdAt": 1788220800000,
+            "kind": "profile",
+            "origin": "legacy"
+          },
+          {
+            "id": "845e77c8b4775728",
+            "content": "Older file first.",
+            "createdAt": 1788220800000,
+            "kind": "log",
+            "origin": "legacy"
+          },
+          {
+            "id": "b2b06b21bb957b5e",
+            "content": "Older file second.",
+            "createdAt": 1788220800000,
+            "kind": "log",
+            "origin": "legacy"
+          },
+          {
+            "id": "b173492ff1c32b5f",
+            "content": "Newer file.",
+            "createdAt": 1788220800000,
+            "kind": "log",
+            "origin": "legacy"
+          }
+        ]
+      }
+    },
+    {
+      "name": "duplicate text removal selects current occurrence",
+      "files": {
+        "profile.md": "- (2026-08-01) Duplicate.\n",
+        "log/2026-09.md": "- (2026-09-01) Duplicate.\n"
+      },
+      "changes": [
+        {
+          "action": "remove",
+          "id": "3f7ecf381d17c3d4",
+          "sourceEvidenceIds": [
+            "e1"
+          ]
+        }
+      ],
+      "now": 1789214400000,
+      "expected": {
+        "snapshot": [
+          {
+            "id": "3f7ecf381d17c3d4",
+            "content": "Duplicate.",
+            "createdAt": 1785542400000,
+            "kind": "profile",
+            "origin": "legacy"
+          }
+        ],
+        "outcome": "committed",
+        "facts": [
+          {
+            "id": "3f7ecf381d17c3d4",
+            "content": "Duplicate.",
+            "createdAt": 1785542400000,
+            "kind": "profile",
+            "origin": "legacy"
+          }
+        ]
+      }
+    },
+    {
+      "name": "duplicate text update selects current occurrence",
+      "files": {
+        "profile.md": "- (2026-08-01) Duplicate.\n",
+        "log/2026-09.md": "- (2026-09-01) Duplicate.\n"
+      },
+      "changes": [
+        {
+          "action": "update",
+          "id": "3f7ecf381d17c3d4",
+          "content": "Replacement.",
+          "kind": "log",
+          "sourceEvidenceIds": [
+            "e1"
+          ]
+        }
+      ],
+      "now": 1789214400000,
+      "expected": {
+        "snapshot": [
+          {
+            "id": "3f7ecf381d17c3d4",
+            "content": "Duplicate.",
+            "createdAt": 1785542400000,
+            "kind": "profile",
+            "origin": "legacy"
+          }
+        ],
+        "outcome": "committed",
+        "facts": [
+          {
+            "id": "3f7ecf381d17c3d4",
+            "content": "Duplicate.",
+            "createdAt": 1785542400000,
+            "kind": "profile",
+            "origin": "legacy"
+          },
+          {
+            "id": "f62dcbcc4ebfefd2",
+            "content": "Replacement.",
+            "createdAt": 1789171200000,
+            "kind": "log",
+            "origin": "synthesized"
+          }
+        ]
+      }
+    },
+    {
+      "name": "explicit origin protects update",
+      "files": {
+        "profile.md": "- (2026-08-01) Alpha.\n"
+      },
+      "explicit": [
+        "Alpha."
+      ],
+      "changes": [
+        {
+          "action": "update",
+          "id": "f4d562f159800785",
+          "content": "Beta.",
+          "kind": "log",
+          "sourceEvidenceIds": [
+            "e1"
+          ]
+        }
+      ],
+      "now": 1789214400000,
+      "expected": {
+        "snapshot": [
+          {
+            "id": "f4d562f159800785",
+            "content": "Alpha.",
+            "createdAt": 1785542400000,
+            "kind": "profile",
+            "origin": "explicit"
+          }
+        ],
+        "outcome": "invalid",
+        "facts": [
+          {
+            "id": "f4d562f159800785",
+            "content": "Alpha.",
+            "createdAt": 1785542400000,
+            "kind": "profile",
+            "origin": "explicit"
+          }
+        ]
+      }
+    },
+    {
+      "name": "tombstoned update does not reserve target",
+      "files": {
+        "profile.md": "- (2026-08-01) Alpha.\n"
+      },
+      "tombstones": [
+        "Blocked."
+      ],
+      "changes": [
+        {
+          "action": "update",
+          "id": "f4d562f159800785",
+          "content": "Blocked.",
+          "kind": "log",
+          "sourceEvidenceIds": [
+            "e1"
+          ]
+        },
+        {
+          "action": "update",
+          "id": "f4d562f159800785",
+          "content": "Beta.",
+          "kind": "log",
+          "sourceEvidenceIds": [
+            "e1"
+          ]
+        }
+      ],
+      "now": 1789214400000,
+      "expected": {
+        "snapshot": [
+          {
+            "id": "f4d562f159800785",
+            "content": "Alpha.",
+            "createdAt": 1785542400000,
+            "kind": "profile",
+            "origin": "legacy"
+          }
+        ],
+        "outcome": "committed",
+        "facts": [
+          {
+            "id": "7ad96a677a35651e",
+            "content": "Beta.",
+            "createdAt": 1789171200000,
+            "kind": "log",
+            "origin": "synthesized"
+          }
+        ]
+      }
+    },
+    {
+      "name": "stale Markdown is rejected",
+      "files": {
+        "profile.md": "- (2026-08-01) Alpha.\n"
+      },
+      "concurrent": "- (2026-09-12) Concurrent change.\n",
+      "changes": [
+        {
+          "action": "remove",
+          "id": "f4d562f159800785",
+          "sourceEvidenceIds": [
+            "e1"
+          ]
+        }
+      ],
+      "now": 1789214400000,
+      "expected": {
+        "snapshot": [
+          {
+            "id": "f4d562f159800785",
+            "content": "Alpha.",
+            "createdAt": 1785542400000,
+            "kind": "profile",
+            "origin": "legacy"
+          }
+        ],
+        "outcome": "stale",
+        "facts": [
+          {
+            "id": "f4d562f159800785",
+            "content": "Alpha.",
+            "createdAt": 1785542400000,
+            "kind": "profile",
+            "origin": "legacy"
+          },
+          {
+            "id": "82605c1839dbaf04",
+            "content": "Concurrent change.",
+            "createdAt": 1789171200000,
+            "kind": "profile",
+            "origin": "legacy"
+          }
+        ]
+      }
+    },
+    {
+      "name": "update then recreate old content",
+      "files": {
+        "profile.md": "- (2026-08-01) Alpha.\n"
+      },
+      "changes": [
+        {
+          "action": "update",
+          "id": "f4d562f159800785",
+          "content": "Beta.",
+          "kind": "log",
+          "sourceEvidenceIds": [
+            "e1"
+          ]
+        },
+        {
+          "action": "create",
+          "content": "Alpha.",
+          "kind": "log",
+          "sourceEvidenceIds": [
+            "e1"
+          ]
+        }
+      ],
+      "now": 1789214400000,
+      "expected": {
+        "snapshot": [
+          {
+            "id": "f4d562f159800785",
+            "content": "Alpha.",
+            "createdAt": 1785542400000,
+            "kind": "profile",
+            "origin": "legacy"
+          }
+        ],
+        "outcome": "committed",
+        "facts": [
+          {
+            "id": "7ad96a677a35651e",
+            "content": "Beta.",
+            "createdAt": 1789171200000,
+            "kind": "log",
+            "origin": "synthesized"
+          },
+          {
+            "id": "f4d562f159800785",
+            "content": "Alpha.",
+            "createdAt": 1789171200000,
+            "kind": "log",
+            "origin": "synthesized"
+          }
+        ]
+      }
+    }
+  ]
+}

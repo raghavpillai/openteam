@@ -23,6 +23,13 @@ describe("plugin marketplace categories", () => {
     expect(pluginMatchesMarketplaceCategory(plugin, "Team plugins")).toBe(false);
     expect(pluginMatchesMarketplaceCategory(plugin, "MCP")).toBe(true);
     expect(pluginMatchesMarketplaceCategory(plugin, "Documents And Files")).toBe(true);
+    expect(pluginMatchesMarketplaceCategory(plugin, "Documents and Files")).toBe(true);
+    expect(
+      pluginMatchesMarketplaceCategory(
+        { ...plugin, category: "Data Analytics" },
+        "Data & Analytics"
+      )
+    ).toBe(true);
     expect(
       pluginMatchesMarketplaceCategory(
         { ...plugin, category: "Inbox & Collaboration" },

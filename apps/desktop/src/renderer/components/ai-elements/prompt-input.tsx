@@ -16,6 +16,7 @@ import { createPortal } from "react-dom";
 import { cn } from "../../lib/cn";
 import { useVoiceNote } from "../../hooks/use-voice-note";
 import { useVoiceShortcuts } from "../../hooks/use-voice-shortcuts";
+import { insertVoiceTranscript, voiceInsertionRange } from "../../lib/voice-insertion";
 import { fileDragContainsFiles } from "../../lib/file-drop";
 import type { MentionOption } from "../../lib/mentions";
 import { ImageAttachment } from "../openteam/image-attachment";
@@ -150,6 +151,7 @@ export function PromptInput({
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const submitInFlight = useRef(false);
   const [staging, setStaging] = useState(false);
   const [retainedReply, setRetainedReply] = useState(reply);
   const [autoExpanded, setAutoExpanded] = useState(false);
@@ -159,23 +161,24 @@ export function PromptInput({
   const [voiceReadyToSend, setVoiceReadyToSend] = useState(false);
   const trailingRef = useRef<HTMLDivElement>(null);
   const [trailingWidth, setTrailingWidth] = useState(28);
+  const voiceBookmark = useRef<Range | null>(null);
   const voice = useVoiceNote(transcriptionConfigured, (text) => {
     const editor = textareaRef.current;
     if (!editor) return;
-    // Append a text node so existing mention tokens retain their identity and markup.
-    editor.append(document.createTextNode(`${editor.textContent?.trim() ? " " : ""}${text}`));
-    editor.dispatchEvent(new Event("input", { bubbles: true }));
-    editor.focus();
+    insertVoiceTranscript(editor, voiceBookmark.current, text);
+    voiceBookmark.current = null;
     setVoiceReadyToSend(sendAfterVoice.current && Boolean(text.trim()));
     sendAfterVoice.current = false;
   });
   const startVoice = () => {
+    if (textareaRef.current) voiceBookmark.current = voiceInsertionRange(textareaRef.current);
     sendAfterVoice.current = false;
     setVoiceReadyToSend(false);
     voice.start();
     textareaRef.current?.focus();
   };
   const cancelVoice = () => {
+    voiceBookmark.current = null;
     sendAfterVoice.current = false;
     setVoiceReadyToSend(false);
     voice.cancel();
@@ -185,6 +188,18 @@ export function PromptInput({
     voice.stop();
     textareaRef.current?.focus();
   };
+  useEffect(() => {
+    const editor = textareaRef.current;
+    if (!editor) return;
+    const remember = () => {
+      if (voiceBookmark.current) voiceBookmark.current = voiceInsertionRange(editor);
+    };
+    for (const event of ["pointerup", "keyup", "input"]) editor.addEventListener(event, remember);
+    return () => {
+      for (const event of ["pointerup", "keyup", "input"])
+        editor.removeEventListener(event, remember);
+    };
+  }, []);
   const sendVoice = () => {
     if (voice.state === "requesting") {
       cancelVoice();
@@ -496,7 +511,8 @@ export function PromptInput({
   const submit = async (event?: FormEvent) => {
     event?.preventDefault();
     const content = value.trim();
-    if ((!content && attachments.length === 0) || blocked) return;
+    if ((!content && attachments.length === 0) || blocked || submitInFlight.current) return;
+    submitInFlight.current = true;
     const pendingAttachments = attachmentsRef.current;
     let recoverableAttachments = pendingAttachments;
     const pendingRichText = richText;
@@ -561,6 +577,7 @@ export function PromptInput({
         error instanceof Error ? `Could not send file: ${error.message}` : "Could not send file."
       );
     } finally {
+      submitInFlight.current = false;
       setSubmitting(false);
     }
   };
@@ -936,6 +953,7 @@ export function PromptInput({
                       className={cn(SECONDARY_ACTION_CLASS, "disabled:opacity-40")}
                       disabled={!voice.available || blocked}
                       onClick={startVoice}
+                      onMouseDown={(event) => event.preventDefault()}
                       size="icon"
                       type="button"
                       variant="ghost"
@@ -961,6 +979,7 @@ export function PromptInput({
                     className="relative size-7 rounded-full bg-[#070707] text-[#fcfcfc] shadow-none transition-opacity hover:bg-[#070707] hover:opacity-90 disabled:bg-[#070707] disabled:opacity-40 dark:bg-[#fafafa] dark:text-[#141414] dark:hover:bg-[#fafafa]"
                     disabled={blocked || (!hasPayload && !voice.available)}
                     onClick={!hasPayload ? startVoice : undefined}
+                    onMouseDown={!hasPayload ? (event) => event.preventDefault() : undefined}
                     size="icon"
                     type={hasPayload ? "submit" : "button"}
                   >

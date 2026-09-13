@@ -1,4 +1,5 @@
 import type { PluginDynamicNamespace } from "@openteam/contracts";
+import { connectionNamespace, effectiveToolPolicy } from "@openteam/plugin-sdk";
 import type { PrismaClient } from "@openteam/db";
 
 type JsonObject = Record<string, unknown>;
@@ -29,11 +30,12 @@ export const pluginRuntimeContext = async (
           status: { in: ["ready", "needs_auth", "error"] },
           installation: {
             status: "installed",
+            mode: { not: "disabled" },
             enablements: { some: { botId, enabled: true } },
           },
         },
       },
-      include: { connection: { include: { installation: true } } },
+      include: { connection: { include: { installation: true, policies: { where: { OR: [{ botId: null }, { botId }] } } } } },
       orderBy: { connection: { createdAt: "asc" } },
     }),
     prisma.botPluginEnablement.findMany({
@@ -48,13 +50,13 @@ export const pluginRuntimeContext = async (
   ]);
 
   const dynamicNamespaces: PluginDynamicNamespace[] = grants.map(({ connection }) => ({
-    name: namespaceName(connection.installation.pluginKey, connection.alias),
-    description: `${connection.installation.name}: ${connection.name}`,
+    name: connectionNamespace(connection.id),
+    description: `${connection.installation.name}: ${connection.name} (${connection.alias})${connection.instructions ? `\n${connection.instructions}` : ""}`,
     namespaceStatus: runtimeStatus(connection.status),
     tools: Array.isArray(connection.toolSnapshot)
       ? connection.toolSnapshot.flatMap((candidate) => {
           const tool = objectValue(candidate);
-          if (typeof tool.name !== "string") return [];
+          if (typeof tool.name !== "string" || !effectiveToolPolicy(connection.policies, tool.name, botId, "prompt").enabled) return [];
           return [
             {
               connectionId: connection.id,
@@ -76,11 +78,13 @@ export const pluginRuntimeContext = async (
           if (typeof skill.name !== "string" || typeof skill.body !== "string") return [];
           const description =
             typeof skill.description === "string" ? `${skill.description}\n\n` : "";
-          return [`### ${installation.name}: ${skill.name}\n${description}${skill.body}`];
+          return [`### ${installation.name}: ${skill.name}\n${description}${skill.body}\n\nSupporting files: find pluginId ${JSON.stringify(installation.pluginKey)} and skill ${JSON.stringify(skill.name)} in ${process.env.OPENTEAM_AGENT_DATA_ROOT ?? "/agent-data"}/plugin-skills/cache.json. Resolve relative file links from that SKILL.md directory.`];
         })
       : [];
   });
 
+  const privateSkills = await prisma.pluginPrivateSkill.findMany({ where: { enabledBotIds: { array_contains: [botId] } } });
+  skills.push(...privateSkills.map((skill) => `### Private skill: ${skill.name}\n${skill.description}\n\n${skill.body}\n\nSupporting files: find pluginId ${JSON.stringify(`private-${skill.id}`)} in ${process.env.OPENTEAM_AGENT_DATA_ROOT ?? "/agent-data"}/plugin-skills/cache.json and resolve links from its SKILL.md directory.`));
   return {
     dynamicNamespaces,
     skillInstructions: skills.length

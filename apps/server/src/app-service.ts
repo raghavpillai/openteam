@@ -28,6 +28,7 @@ import { RunService } from "./services/run-service";
 import { ScreenService } from "./services/screen-service";
 import { SearchService } from "./services/search-service";
 import { forwardServiceMethod, serviceEffect } from "./services/service-utils";
+import { WebSearchSettingsService } from "./services/web-search-settings";
 import { SettingsService } from "./services/settings-service";
 import { SnapshotService } from "./services/snapshot-service";
 import { recover } from "./services/startup-recovery";
@@ -41,6 +42,7 @@ const ASSET_ID = /^[a-f0-9]{64}$/;
 
 export class AppService {
   readonly transcription: TranscriptionService;
+  readonly webSearchSettings: WebSearchSettingsService;
   private readonly settings: SettingsService;
 
   readonly prisma: PrismaClient;
@@ -70,6 +72,7 @@ export class AppService {
   readonly notifications: NotificationService;
   readonly eventWakeup: EventWakeup;
   private queueReady = false;
+  private reviewRecoveryTimer: ReturnType<typeof setInterval> | null = null;
   private approvalExpiryTimer: ReturnType<typeof setInterval> | null = null;
   private eventPruneTimer: ReturnType<typeof setInterval> | null = null;
   private assetCleanupTimer: ReturnType<typeof setInterval> | null = null;
@@ -79,6 +82,7 @@ export class AppService {
   ) {
     const databaseUrl = process.env.DATABASE_URL;
     this.prisma = createPrismaClient(databaseUrl);
+    this.webSearchSettings = new WebSearchSettingsService(this.prisma);
     this.boss = new PgBoss(databaseUrl ?? "");
     this.eventWakeup = new EventWakeup(databaseUrl ?? "");
     this.computerUrl = process.env.OPENTEAM_COMPUTER_URL ?? "http://127.0.0.1:8790";
@@ -141,7 +145,8 @@ export class AppService {
       this.prisma,
       this.messaging,
       this.plugins,
-      this.screens
+      this.screens,
+      this.bots
     );
     this.autoReview = new AutoReviewService(
       (path, init) => this.computerFetch(path, init),
@@ -155,7 +160,8 @@ export class AppService {
       (connectionId, botId, toolName) =>
         Effect.runPromise(
           this.plugins.setPolicy(connectionId, { botId, toolName, decision: "allow" })
-        )
+        ),
+      this.messaging
     );
     this.todos = new TodoService(this.prisma);
     this.administration = new AdministrationService(
@@ -199,7 +205,8 @@ export class AppService {
       this.todos,
       this.subagents,
       this.administration,
-      this.plugins
+      this.plugins,
+      this.richMessages
     );
     this.boss.on("error", (error) => console.error("pg-boss", error));
 
@@ -227,6 +234,9 @@ export class AppService {
       await this.boss.createQueue("maintenance");
       this.queueReady = true;
       await this.recover();
+      await this.richMessages.recoverPendingReviews();
+      this.reviewRecoveryTimer = setInterval(() => { void this.richMessages.recoverPendingReviews().catch((error) => console.error("review recovery", error)); }, 30_000);
+      this.reviewRecoveryTimer.unref?.();
       this.approvalExpiryTimer = setInterval(() => {
         void this.expirePendingApprovals().catch((error) =>
           console.error("approval expiry", error)
@@ -285,6 +295,7 @@ export class AppService {
 
   close = () =>
     Effect.promise(async () => {
+      if (this.reviewRecoveryTimer) { clearInterval(this.reviewRecoveryTimer); this.reviewRecoveryTimer = null; }
       if (this.approvalExpiryTimer) {
         clearInterval(this.approvalExpiryTimer);
         this.approvalExpiryTimer = null;
@@ -448,6 +459,11 @@ export class AppService {
   reactToMessage = forwardServiceMethod(() => this.channels.reactToMessage);
 
   respondToWidget = forwardServiceMethod(() => this.richMessages.respondToWidget);
+  mutateReviewAction = forwardServiceMethod(() => this.richMessages.reviewActions.mutate);
+  reviewRecipe = (id: string, publicOnly = false) => this.richMessages.reviewActions.recipe(id, publicOnly);
+  mutateExternalDraft = forwardServiceMethod(() => this.richMessages.externalDrafts.mutate);
+  submitUserForm = forwardServiceMethod(() => this.richMessages.submitUserForm);
+  userFormPrefill = forwardServiceMethod(() => this.richMessages.formPrefill);
 
   dismissWidget = forwardServiceMethod(() => this.richMessages.dismissWidget);
 

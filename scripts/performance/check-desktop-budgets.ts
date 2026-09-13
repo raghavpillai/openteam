@@ -106,13 +106,11 @@ const startupCssBytes = result.renderer.startup.files
 // stylesheet to 177,306 bytes. Keep less than 0.4% headroom and stay below
 // 178 KB rather than moving established navigation behind first-open boundaries.
 atMost("startup CSS bytes", startupCssBytes, 178_000);
-// Durable recovery, viewport-aware history, scroll restoration, thread
-// retention, and configurable-server onboarding bring the complete renderer to
-// 15,580,624 bytes. Keep less than 0.009% headroom while the compressed,
-// startup, and nested Shiki/Mermaid ceilings continue to guard delivery and
-// first interaction.
-atMost("renderer bytes", result.renderer.bytes, 15_582_000);
-atMost("renderer gzip bytes", result.renderer.gzipBytes, 3_800_000);
+// Package management/archive parsing and reviewed forms, drafts and recipes bring
+// the measured total to 15,777,719 / 3,840,729 gzip. Keep <0.25% headroom;
+// entry/startup and each lazy boundary retain their independent limits.
+atMost("renderer bytes", result.renderer.bytes, 15_800_000);
+atMost("renderer gzip bytes", result.renderer.gzipBytes, 3_850_000);
 atMost("build-analysis metadata bytes", result.renderer.buildMetadata.bytes, 256_000);
 atMost("Electron runtime bytes", result.electron.bytes, 2_300_000);
 const electronFileBudget = (path: string, maximum: number) => {
@@ -123,7 +121,9 @@ const electronFileBudget = (path: string, maximum: number) => {
 electronFileBudget("main.js", 175_000);
 electronFileBudget("chunks/main.js", 600_000);
 electronFileBudget("preload.cjs", 10_000);
-electronFileBudget("host-utility.js", 40_000);
+// AwaitShell adds the bounded RE2 engine and durable job/environment receipts.
+// Measured unminified utility: 280,140 bytes; retain the total Electron ceiling.
+electronFileBudget("host-utility.js", 285_000);
 electronFileBudget("openteam-cli.js", 1_600_000);
 if (result.renderer.violations.sourceMaps.length > 0) {
   failures.push(
@@ -158,6 +158,8 @@ const lazyBudgets: Record<string, number> = {
   newBot: 20_000,
   pluginSettings: 50_000,
   pluginSettingsDetail: 30_000,
+  pluginManagement: 38_000,
+  skillImport: 100_000,
   search: 100_000,
   groupAvatarEditor: 10_000,
   settingsInitial: 40_000,
@@ -167,6 +169,7 @@ const lazyBudgets: Record<string, number> = {
   settingsGeneralBot: 30_000,
   settingsComputer: 30_000,
   settingsServer: 35_000,
+  settingsWebSearch: 12_000,
   settingsUpdates: 10_000,
 };
 if (!result.renderer.lazyClosures) {

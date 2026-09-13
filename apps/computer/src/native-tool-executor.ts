@@ -1,13 +1,22 @@
 import { spawn } from "node:child_process";
+import { randomInt } from "node:crypto";
 import { createWriteStream } from "node:fs";
 import { access, mkdir, readFile, realpath, stat } from "node:fs/promises";
-import { basename, extname, isAbsolute, relative, resolve, sep } from "node:path";
+import { dirname, basename, extname, isAbsolute, relative, resolve, sep } from "node:path";
 import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
-import type { ReadToolInput, ShellToolInput, TaskInput } from "@openteam/contracts";
+import type {
+  AwaitShellInput,
+  ReadToolInput,
+  ShellToolInput,
+  TaskInput,
+} from "@openteam/contracts";
+import { ShellJobRegistry, validateShellWait, renderShellAwaitResult, type ShellCompletion } from "@openteam/shell-jobs";
+import { createShellEnvironmentCapture, loadShellEnvironment, SHELL_ENVIRONMENT_CAPTURE } from "@openteam/shell-jobs";
 import {
   HOST_BRIDGE_PATHS,
   HOST_INLINE_OUTPUT_MAX_BYTES,
   HOST_READ_MAX_BYTES,
+  HOST_TRANSFER_MAX_BYTES,
   type HostApprovalRequest,
   type HostApprovalTokens,
   type HostAutoReviewRequest,
@@ -20,13 +29,16 @@ import {
   parseHostMachinesResponse,
   parseHostReadResponse,
   parseHostShellResponse,
+  parseShellAwaitResponse,
 } from "@openteam/contracts/service-protocol";
 import { agentProcessIdentity, sanitizedAgentEnvironment } from "./agent-process";
+import { agentFileIO } from "./agent-file-io";
 
 const DEFAULT_BLOCK_MS = 30_000;
 const PROTECTED_AGENT_DATA_TREES = new Set([
   "agents",
   "managed-skills",
+  "plugin-skills",
   "plugins",
   "projects",
   "user-memory",
@@ -56,6 +68,7 @@ const textResult = (
 });
 
 export type { HostApprovalRequest, HostApprovalTokens, HostMachine };
+export interface CopyFileInput { computer_path?: string; box_path?: string; machineId: string }
 
 export class HostApprovalRequiredError extends Error {
   constructor(readonly approval: HostApprovalRequest) {
@@ -65,6 +78,7 @@ export class HostApprovalRequiredError extends Error {
 }
 
 export class NativeToolExecutor {
+  private readonly shellJobs: ShellJobRegistry;
   private readonly terminalDir: string;
   private readonly hostBridgeUrl: string;
   private readonly controlToken: string;
@@ -75,8 +89,10 @@ export class NativeToolExecutor {
     controlToken: string;
     hostBridgeUrl?: string;
     agentDataCanonicalRoot?: string;
+    onShellComplete?: (job: ShellCompletion) => Promise<void>;
   }) {
     this.terminalDir = resolve(options.agentDir, "terminals");
+    this.shellJobs = new ShellJobRegistry({ directory: this.terminalDir, onComplete: options.onShellComplete });
     this.controlToken = options.controlToken;
     this.hostBridgeUrl =
       options.hostBridgeUrl ??
@@ -93,52 +109,96 @@ export class NativeToolExecutor {
     input: ShellToolInput,
     cwd: string,
     signal?: AbortSignal,
-    environment?: NodeJS.ProcessEnv
+    environment?: NodeJS.ProcessEnv,
+    scope = "",
+    routing: { channelId?: string } = {}
   ): Promise<AgentToolResult<Record<string, unknown>>> {
+    signal?.throwIfAborted();
     const workingDirectory = localPath(input.working_directory ?? cwd, cwd);
     const directory = await stat(workingDirectory);
     if (!directory.isDirectory()) throw new Error(`Not a directory: ${workingDirectory}`);
     await mkdir(this.terminalDir, { recursive: true });
+    const savedEnvironment = await loadShellEnvironment(this.terminalDir, scope, environment ?? process.env, environment);
 
-    const shellId = crypto.randomUUID();
+    const shellId = String(randomInt(100000, 2147483647));
     const outputPath = resolve(this.terminalDir, `${shellId}.log`);
     const outputFile = createWriteStream(outputPath, {
       flags: "wx",
       mode: 0o600,
     });
     const startedAt = Date.now();
-    outputFile.write(
-      `command: ${input.command}\nworking_directory: ${workingDirectory}\nstarted_at: ${new Date(startedAt).toISOString()}\n\n`
-    );
+    const header = `command: ${input.command}\nworking_directory: ${workingDirectory}\nstarted_at: ${new Date(startedAt).toISOString()}\n\n`;
+    outputFile.write(header);
 
-    const child = spawn("/bin/bash", ["--noprofile", "--norc", "-c", input.command], {
+    const environmentCapture = createShellEnvironmentCapture(dirname(savedEnvironment.path));
+    const child = spawn("/bin/bash", ["--noprofile", "--norc", "-c", `${SHELL_ENVIRONMENT_CAPTURE}\n${input.command}`], {
       cwd: workingDirectory,
-      env: sanitizedShellEnvironment(environment ?? process.env, workingDirectory),
+      env: sanitizedShellEnvironment(savedEnvironment.environment, workingDirectory),
       ...agentProcessIdentity(),
-      stdio: ["ignore", "pipe", "pipe"],
+      stdio: ["ignore", "pipe", "pipe", environmentCapture.fd],
     });
+    environmentCapture.closeParent();
     const chunks: Buffer[] = [];
+    const job = this.shellJobs.start({
+      id: shellId,
+      scope,
+      outputPath,
+      outputOffset: Buffer.byteLength(header),
+      startedAt,
+      pid: child.pid,
+      channelId: routing.channelId,
+    });
     let bytes = 0;
     const collect = (chunk: Buffer) => {
-      outputFile.write(chunk);
+      outputFile.write(chunk, (error) => {
+        if (!error) job.outputWritten(chunk.length);
+      });
       if (bytes < HOST_INLINE_OUTPUT_MAX_BYTES) {
         const remaining = HOST_INLINE_OUTPUT_MAX_BYTES - bytes;
         chunks.push(chunk.subarray(0, remaining));
         bytes += Math.min(chunk.length, remaining);
       }
     };
-    child.stdout.on("data", collect);
-    child.stderr.on("data", collect);
+    child.stdout!.on("data", collect);
+    child.stderr!.on("data", collect);
 
     const abort = () => child.kill("SIGTERM");
     signal?.addEventListener("abort", abort, { once: true });
-    const completion = new Promise<number | null>((resolveCompletion, reject) => {
-      child.once("error", reject);
+    if (signal?.aborted) abort();
+    let processError: Error | undefined;
+    const completion = new Promise<number | null>((resolveCompletion) => {
+      let closed = false;
+      let settled = false;
+      let exitCode: number | null = null;
+      const finish = async () => {
+        if (settled) return;
+        settled = true;
+        {
+          try { await environmentCapture.persist(savedEnvironment.path); }
+          catch (error) { processError = error instanceof Error ? error : new Error("Could not persist shell environment"); }
+        }
+        job.finish(exitCode, processError?.message);
+        resolveCompletion(exitCode);
+      };
+      child.once("error", (error) => {
+        processError = error;
+      });
+      outputFile.on("error", (error) => {
+        processError = error;
+        child.kill("SIGTERM");
+        if (closed) finish();
+      });
       child.once("close", (code) => {
+        closed = true;
+        exitCode = code;
+        if (outputFile.destroyed) {
+          finish();
+          return;
+        }
         const elapsedMs = Date.now() - startedAt;
         outputFile.end(
           `\n\nstatus: completed\nexit_code: ${code ?? "null"}\nelapsed_ms: ${elapsedMs}\n`,
-          () => resolveCompletion(code)
+          finish
         );
       });
     });
@@ -155,6 +215,7 @@ export class NativeToolExecutor {
     signal?.removeEventListener("abort", abort);
 
     if (!completed.done) {
+      this.shellJobs.markBackground(shellId);
       void completion.catch(() => undefined);
       return textResult(
         JSON.stringify({
@@ -168,6 +229,7 @@ export class NativeToolExecutor {
       );
     }
 
+    if (processError) throw processError;
     const output = bounded(Buffer.concat(chunks).toString("utf8"));
     return textResult(
       output || `(command completed with exit code ${completed.exitCode ?? "null"})`,
@@ -179,6 +241,23 @@ export class NativeToolExecutor {
         elapsedMs: Date.now() - startedAt,
       }
     );
+  }
+
+  async awaitShell(input: AwaitShellInput, signal?: AbortSignal, scope = "") {
+    const result = await this.shellJobs.await(input, scope, signal);
+    return textResult(renderShellAwaitResult(result), { ...result });
+  }
+
+  async externalAwaitShell(input: AwaitShellInput, signal?: AbortSignal) {
+    const blockMs = validateShellWait(input);
+    const result = await this.hostFetch(
+      HOST_BRIDGE_PATHS.awaitShell,
+      input,
+      signal,
+      parseShellAwaitResponse,
+      Math.max(120_000, blockMs + 60_000)
+    );
+    return textResult(renderShellAwaitResult(result), { ...result });
   }
 
   async read(input: ReadToolInput, cwd: string): Promise<AgentToolResult<Record<string, unknown>>> {
@@ -242,6 +321,48 @@ export class NativeToolExecutor {
     });
   }
 
+  async copyFile(direction: "toBox" | "fromBox", input: CopyFileInput, cwd: string, signal?: AbortSignal, approvals: HostApprovalTokens = {}) {
+    const toBox = direction === "toBox";
+    const boxPath = localPath(input.box_path ?? `uploads/${basename(input.computer_path!)}`, cwd);
+    const computerPath = input.computer_path ?? basename(boxPath);
+    // Use the agent UID for actual I/O and retain the extra protected-data fence.
+    if (!toBox) await this.assertProtectedReadPath(await realpath(boxPath));
+    const bytes = toBox ? undefined : await agentFileIO("read", boxPath, signal);
+    const permit = await this.hostFetch<{ transferId: string; path: string }>(HOST_BRIDGE_PATHS.transfer, {
+      direction: toBox ? "read" : "write", path: computerPath, machineId: input.machineId,
+      ...(bytes ? { bytes: bytes.length } : {}), ...approvals,
+    }, signal);
+    const timeout = AbortSignal.timeout(600_000);
+    const response = await fetch(`${this.hostBridgeUrl}${HOST_BRIDGE_PATHS.transfer}/${encodeURIComponent(permit.transferId)}`, {
+      method: toBox ? "GET" : "PUT", headers: { authorization: `Bearer ${this.controlToken}`, "content-type": "application/octet-stream" },
+      ...(bytes ? { body: new Uint8Array(bytes) } : {}), signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({})) as { error?: string };
+      throw new Error(error.error ?? `File transfer failed (${response.status})`);
+    }
+    let size = bytes?.length ?? 0;
+    if (toBox) {
+      const chunks: Uint8Array[] = [];
+      if (!response.body) throw new Error("File transfer returned no body");
+      const reader = response.body.getReader();
+      try {
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          size += value.length;
+          if (size > HOST_TRANSFER_MAX_BYTES) { await reader.cancel(); throw new Error("File exceeds the 256 MiB transfer limit"); }
+          chunks.push(value);
+        }
+      } finally { reader.releaseLock(); }
+      await agentFileIO("write", boxPath, signal, Buffer.concat(chunks));
+    }
+    return textResult(toBox
+      ? `Copied ${permit.path} from ${input.machineId} into your box at ${boxPath} (${size} bytes). Open it with Shell.`
+      : `Copied ${boxPath} from your box to ${input.machineId} at ${permit.path} (${size} bytes).`,
+    { box_path: boxPath, computer_path: permit.path, bytes: size, machineId: input.machineId });
+  }
+
   async autoReviewTask(
     input: TaskInput,
     signal?: AbortSignal,
@@ -286,7 +407,15 @@ export class NativeToolExecutor {
     await access(path);
     const canonical = await realpath(path);
     await this.assertProtectedReadPath(canonical);
-    await this.assertAgentReadable(canonical);
+    // The supervisor keeps terminal logs beside its private Pi credentials. Only
+    // expose canonical numeric/legacy UUID log paths, never adjacent files or symlink escapes.
+    const terminalRoot = await realpath(this.terminalDir).catch(() => undefined);
+    const terminalLog =
+      terminalRoot !== undefined &&
+      /^(?:[0-9]+|[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\.log$/i.test(
+        relative(terminalRoot, canonical)
+      );
+    if (!terminalLog) await this.assertAgentReadable(canonical);
     const metadata = await stat(canonical);
     if (!metadata.isFile()) throw new Error(`Not a file: ${path}`);
     if (metadata.size > HOST_READ_MAX_BYTES) {
@@ -387,9 +516,10 @@ export class NativeToolExecutor {
     path: string,
     body: unknown,
     signal?: AbortSignal,
-    parse?: (value: unknown) => T
+    parse?: (value: unknown) => T,
+    timeoutMs = 120_000
   ): Promise<T> {
-    const timeout = AbortSignal.timeout(120_000);
+    const timeout = AbortSignal.timeout(Math.ceil(timeoutMs));
     const response = await fetch(`${this.hostBridgeUrl}${path}`, {
       method: "POST",
       headers: {

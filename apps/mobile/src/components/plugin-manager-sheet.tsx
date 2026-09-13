@@ -1,4 +1,6 @@
 import * as Haptics from "../haptics";
+import { PluginMark } from "./plugins/plugin-mark";
+import { PluginWorkspace } from "./plugin-workspace";
 import type {
   PluginBotAccessItemView,
   PluginBotAccessView,
@@ -19,6 +21,7 @@ import { clientErrorMessage } from "@openteam/product-core/redaction";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  AppState,
   Alert,
   Linking,
   Modal,
@@ -68,6 +71,8 @@ export function PluginManagerSheet({
     setPluginGrant,
     uninstallPlugin,
   } = useOpenTeam();
+  const [managementOpen, setManagementOpen] = useState(false);
+  const [managementConnectionId, setManagementConnectionId] = useState<string>();
   const [data, setData] = useState<PluginSettingsView>(emptySettings);
   const [loading, setLoading] = useState(false);
   const [mutationKey, setMutationKey] = useState<string | null>(null);
@@ -103,6 +108,21 @@ export function PluginManagerSheet({
   useEffect(() => {
     if (!visible) return;
     void refresh();
+  }, [refresh, visible]);
+
+  useEffect(() => {
+    if (!visible) return;
+    const refreshWhenActive = () => {
+      if (AppState.currentState === "active") void refresh();
+    };
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") void refresh();
+    });
+    const timer = setInterval(refreshWhenActive, 5_000);
+    return () => {
+      subscription.remove();
+      clearInterval(timer);
+    };
   }, [refresh, visible]);
 
   const mutate = useCallback(
@@ -276,6 +296,11 @@ export function PluginManagerSheet({
   };
 
   const connectionAction = (connection: PluginConnectionView) => {
+    if (connection.auth === "token" || !connection.configured) {
+      setManagementConnectionId(connection.id);
+      setManagementOpen(true);
+      return;
+    }
     const key = `connection:${connection.id}`;
     if (connection.status === "ready") {
       void mutate(key, () => disconnectPlugin(connection.id));
@@ -295,6 +320,33 @@ export function PluginManagerSheet({
     void mutate(key, () => connectPlugin(connection.id));
   };
 
+  if (managementOpen)
+    return (
+      <Modal
+        visible={visible}
+        animationType="slide"
+        onRequestClose={() => setManagementOpen(false)}
+      >
+        <SafeAreaView style={{ flex: 1, backgroundColor: theme.background }}>
+          <View style={[styles.header, { borderBottomColor: theme.separator }]}>
+            <Pressable accessibilityRole="button" onPress={() => setManagementOpen(false)}>
+              <Text style={{ color: theme.accent }}>Back to plugins</Text>
+            </Pressable>
+            <Text style={{ color: theme.text, fontWeight: "600" }}>Manage plugins</Text>
+            <Pressable accessibilityRole="button" onPress={onClose}>
+              <Text style={{ color: theme.accent }}>Done</Text>
+            </Pressable>
+          </View>
+          <ScrollView contentContainerStyle={{ padding: 20 }} keyboardShouldPersistTaps="handled">
+            <PluginWorkspace
+              settings={data}
+              refresh={refresh}
+              initialConnectionId={managementConnectionId}
+            />
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
+    );
   return (
     <Modal
       animationType="slide"
@@ -328,6 +380,15 @@ export function PluginManagerSheet({
           </Pressable>
         </View>
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => setManagementOpen(true)}
+            style={{ paddingVertical: 12 }}
+          >
+            <Text style={{ color: theme.accent, fontWeight: "600" }}>
+              Manage accounts, private skills, sources, and packages
+            </Text>
+          </Pressable>
           <Text style={[styles.intro, { color: theme.textMuted }]}>
             Install tools, authorize accounts, and choose which Bots can use each plugin.
           </Text>
@@ -349,6 +410,13 @@ export function PluginManagerSheet({
                   ]}
                 >
                   <View style={styles.titleLine}>
+                    <PluginMark
+                      logoUrl={
+                        install.catalog?.logoUrl ??
+                        data.catalog.find((p) => p.key === install.pluginKey)?.logoUrl
+                      }
+                      size={40}
+                    />
                     <View style={styles.flex}>
                       <Text style={[styles.title, { color: theme.text }]}>{install.name}</Text>
                       <Text style={[styles.publisher, { color: theme.textMuted }]}>
@@ -600,6 +668,7 @@ export function PluginManagerSheet({
                   { backgroundColor: theme.surfaceElevated, borderColor: theme.border },
                 ]}
               >
+                <PluginMark logoUrl={plugin.logoUrl} size={40} />
                 <View style={styles.flex}>
                   <Text style={[styles.title, { color: theme.text }]}>{plugin.name}</Text>
                   <Text numberOfLines={2} style={[styles.description, { color: theme.textMuted }]}>

@@ -45,6 +45,7 @@ import {
 } from "../drafts";
 import { metrics, useTheme } from "../theme";
 import { useVoiceInput } from "../use-voice-input";
+import { insertVoiceTranscript, type VoiceSelection } from "../voice-insertion";
 import { GlassSurface } from "./glass-surface";
 import { IconButton } from "./icon-button";
 
@@ -80,8 +81,6 @@ interface PendingAttachment {
   error: string | null;
   recoveryOwned?: boolean;
 }
-
-const VOICE_LEVEL_KEYS = Array.from({ length: 12 }, (_, index) => `voice-level-${index}`);
 
 const attachmentId = () =>
   globalThis.crypto?.randomUUID?.() ??
@@ -163,6 +162,7 @@ export function Composer({
   const [text, setText] = useState("");
   const [inputHeight, setInputHeight] = useState(22);
   const [sending, setSending] = useState(false);
+  const sendInFlight = useRef(false);
   const [picking, setPicking] = useState(false);
   const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
@@ -189,6 +189,9 @@ export function Composer({
   const latestText = useRef(text);
   const latestAttachments = useRef<PendingAttachment[]>([]);
   const sendAfterVoice = useRef(false);
+  const inputSelection = useRef<VoiceSelection | null>(null);
+  const voiceSelection = useRef<VoiceSelection | null>(null);
+  const [restoredSelection, setRestoredSelection] = useState<VoiceSelection | undefined>();
   latestReplyEditVersion.current = replyEditVersion;
   const readyAssets = useMemo(
     () =>
@@ -203,8 +206,14 @@ export function Composer({
   latestAttachments.current = attachments;
   const voice = useVoiceInput(
     (transcript) => {
-      const existing = latestText.current.trimEnd();
-      const nextText = existing ? `${existing} ${transcript}` : transcript;
+      const inserted = insertVoiceTranscript(
+        latestText.current,
+        transcript,
+        voiceSelection.current
+      );
+      const nextText = inserted.text;
+      inputSelection.current = inserted.selection;
+      setRestoredSelection(inserted.selection);
       updateText(nextText);
       if (sendAfterVoice.current) {
         sendAfterVoice.current = false;
@@ -217,21 +226,38 @@ export function Composer({
   useEffect(() => () => voice.cancel(), [draftKey]);
   const voiceActive =
     voice.state === "requesting" || voice.state === "recording" || voice.state === "processing";
+  const startVoice = () => {
+    voiceSelection.current = inputSelection.current ? { ...inputSelection.current } : null;
+    sendAfterVoice.current = false;
+    voice.start();
+    textInputRef.current?.focus();
+  };
   useEffect(() => {
     if (voice.state === "idle" || voice.state === "error") {
       sendAfterVoice.current = false;
     }
   }, [voice.state]);
-  const mentionMatch = text.match(/(?:^|\s)@([\p{L}\p{N}_-]*)$/u);
-  const mentionQuery = mentionMatch?.[1]?.toLocaleLowerCase("en-US") ?? null;
+  const mentionMatch = text.match(/(?:^|\s)([@/])([\p{L}\p{N}:._-]*)$/u);
+  const mentionQuery = mentionMatch?.[2]?.toLocaleLowerCase("en-US") ?? null;
   const visibleMentions =
-    mentionQuery === null ? [] : filterMentionOptions(mentionOptions, mentionQuery).slice(0, 4);
+    mentionQuery === null
+      ? []
+      : filterMentionOptions(
+          mentionOptions.filter((option) => (option.trigger ?? "@") === mentionMatch?.[1]),
+          mentionQuery
+        ).slice(0, 4);
 
   const chooseMention = (option: MentionOption) => {
     if (!mentionMatch || mentionQuery === null) return;
     void Haptics.selectionAsync();
     updateText(
-      insertPlainTextMention(text, mentionMatch.index ?? 0, mentionMatch[0], option.handle)
+      insertPlainTextMention(
+        text,
+        mentionMatch.index ?? 0,
+        mentionMatch[0],
+        option.handle,
+        option.trigger
+      )
     );
     requestAnimationFrame(() => textInputRef.current?.focus());
   };
@@ -708,6 +734,7 @@ export function Composer({
   };
 
   const updateText = (value: string) => {
+    latestText.current = value;
     draftHydrationGuardRef.current.markEdited("text");
     setText(value);
     consumeEmptyRecovery(value, latestAttachments.current.length);
@@ -742,7 +769,8 @@ export function Composer({
   }, [replyProgress, replyTarget]);
 
   const submitPayload = async (content: string, pending: PendingAttachment[]) => {
-    if ((!content && pending.length === 0) || sending) return;
+    if ((!content && pending.length === 0) || sendInFlight.current) return;
+    sendInFlight.current = true;
     setSending(true);
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     for (const controller of uploadControllers.current.values()) controller.abort();
@@ -751,6 +779,9 @@ export function Composer({
     // Clear on the tap, not after the journal fsync. The captured payload is
     // restored below if staging or durable persistence fails.
     setText("");
+    latestText.current = "";
+    inputSelection.current = null;
+    setRestoredSelection(undefined);
     latestAttachments.current = [];
     setAttachments([]);
     setAttachmentError(null);
@@ -791,11 +822,13 @@ export function Composer({
       Keyboard.dismiss();
     } catch (cause) {
       setText(content);
+      latestText.current = content;
       latestAttachments.current = recoverable;
       setAttachments(recoverable);
       setAttachmentError(clientErrorMessage(cause, "The message could not be sent."));
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     } finally {
+      sendInFlight.current = false;
       setSending(false);
     }
   };
@@ -869,11 +902,11 @@ export function Composer({
         </View>
       </Modal>
       <IconButton
-        label="Add attachment"
-        name="plus"
+        label={voiceActive ? "Cancel voice note" : "Add attachment"}
+        name={voiceActive ? "xmark" : "plus"}
         disabled={sending || picking}
         haptic="light"
-        onPress={showAttachmentMenu}
+        onPress={voiceActive ? voice.cancel : showAttachmentMenu}
         size={38}
         symbolSize={20}
         tone="surface"
@@ -1018,10 +1051,18 @@ export function Composer({
         ) : null}
         {voice.canRetry ? (
           <View style={{ flexDirection: "row", gap: 16, paddingHorizontal: 12 }}>
-            <Pressable accessibilityRole="button" onPress={voice.retry}>
+            <Pressable
+              accessibilityLabel="Retry transcription"
+              accessibilityRole="button"
+              onPress={voice.retry}
+            >
               <Text style={{ color: theme.accent }}>Retry transcription</Text>
             </Pressable>
-            <Pressable accessibilityRole="button" onPress={voice.cancel}>
+            <Pressable
+              accessibilityLabel="Discard recording"
+              accessibilityRole="button"
+              onPress={voice.cancel}
+            >
               <Text style={{ color: theme.textMuted }}>Discard recording</Text>
             </Pressable>
           </View>
@@ -1043,10 +1084,14 @@ export function Composer({
                   pressed && { backgroundColor: theme.surfacePressed },
                 ]}
               >
-                <Text style={[styles.mentionHandle, { color: theme.text }]}>@{option.handle}</Text>
+                <Text style={[styles.mentionHandle, { color: theme.text }]}>
+                  {option.trigger ?? "@"}
+                  {option.handle}
+                </Text>
                 {option.label.toLocaleLowerCase("en-US") !== option.handle ? (
                   <Text numberOfLines={1} style={[styles.mentionLabel, { color: theme.textMuted }]}>
                     {option.label}
+                    {option.status ? ` · ${option.status}` : ""}
                   </Text>
                 ) : null}
               </Pressable>
@@ -1054,127 +1099,110 @@ export function Composer({
           </View>
         ) : null}
 
-        {voiceActive ? (
-          <View accessibilityLabel="Voice input" style={styles.voiceRow}>
-            <IconButton
-              label="Cancel voice input"
-              name="xmark"
-              onPress={voice.cancel}
-              size={34}
-              symbolSize={14}
-              tone={theme.dark ? "dark" : "subtle"}
-            />
-            <View style={styles.voiceStatus}>
-              <Text style={[styles.voiceLabel, { color: theme.text }]}>
-                {voice.state === "requesting"
-                  ? "Requesting microphone…"
-                  : voice.state === "processing"
-                    ? "Processing…"
-                    : "Listening…"}
-              </Text>
-              <Text style={[styles.voiceTimer, { color: theme.textMuted }]}>
-                {recordingTime(voice.elapsedMs)}
-              </Text>
+        <View style={styles.inputRow}>
+          <TextInput
+            accessibilityLabel={inputPlaceholder}
+            blurOnSubmit={false}
+            keyboardAppearance={theme.dark ? "dark" : "light"}
+            multiline
+            onChangeText={updateText}
+            onSelectionChange={(event) => {
+              inputSelection.current = event.nativeEvent.selection;
+              if (voiceActive) voiceSelection.current = event.nativeEvent.selection;
+              setRestoredSelection(undefined);
+            }}
+            selection={restoredSelection}
+            onContentSizeChange={(event) =>
+              updateMeasuredHeight(event.nativeEvent.contentSize.height)
+            }
+            placeholder={inputPlaceholder}
+            placeholderTextColor={theme.textFaint}
+            ref={textInputRef}
+            returnKeyType="default"
+            scrollEnabled={inputHeight >= 102}
+            selectionColor={theme.accent}
+            style={[
+              styles.input,
+              {
+                color: theme.text,
+                height: inputHeight,
+                marginTop: verticalPadding,
+                marginBottom: verticalPadding,
+              },
+            ]}
+            value={text}
+          />
+          {voiceActive ? (
+            <>
               {voice.state === "recording" ? (
-                <View style={styles.waveform}>
-                  {VOICE_LEVEL_KEYS.map((key, index) => (
-                    <View
-                      key={key}
-                      style={[
-                        styles.waveformBar,
-                        {
-                          backgroundColor: theme.textMuted,
-                          height: 4 + (voice.levels[index] ?? 0.08) * 16,
-                        },
-                      ]}
-                    />
-                  ))}
-                </View>
-              ) : (
-                <ActivityIndicator color={theme.textMuted} size="small" />
-              )}
-            </View>
-            {voice.state === "recording" ? (
-              <>
-                <IconButton
-                  label="Stop recording"
-                  name="stop.fill"
+                <Pressable
+                  accessibilityLabel="Stop recording"
+                  accessibilityRole="button"
+                  accessibilityHint="Stops recording and returns the transcript for review"
+                  hitSlop={8}
                   onPress={voice.stop}
-                  size={34}
-                  symbolSize={12}
-                  tone={theme.dark ? "dark" : "subtle"}
-                />
+                  style={[
+                    styles.voicePill,
+                    { backgroundColor: theme.dark ? "#442526" : "#f9eaea" },
+                  ]}
+                >
+                  <View style={styles.voiceStop} />
+                  <Text style={styles.voiceTimer}>{recordingTime(voice.elapsedMs)}</Text>
+                </Pressable>
+              ) : (
+                <View
+                  accessibilityLabel={
+                    voice.state === "requesting"
+                      ? "Requesting microphone"
+                      : "Transcribing voice note"
+                  }
+                  style={styles.voiceProcessing}
+                >
+                  <ActivityIndicator color={theme.textMuted} size="small" />
+                </View>
+              )}
+              {voice.state === "recording" ? (
                 <IconButton
                   label="Transcribe and send"
                   name="arrow.up"
-                  haptic="none"
+                  size={34}
+                  symbolSize={17}
+                  tone="dark"
                   onPress={() => {
                     sendAfterVoice.current = true;
                     voice.stop();
                   }}
-                  size={34}
-                  symbolSize={17}
-                  tone="dark"
                 />
-              </>
-            ) : null}
-          </View>
-        ) : (
-          <View style={styles.inputRow}>
-            <TextInput
-              accessibilityLabel={inputPlaceholder}
-              blurOnSubmit={false}
-              keyboardAppearance={theme.dark ? "dark" : "light"}
-              multiline
-              onChangeText={updateText}
-              onContentSizeChange={(event) =>
-                updateMeasuredHeight(event.nativeEvent.contentSize.height)
+              ) : null}
+            </>
+          ) : (
+            <IconButton
+              label={
+                voice.available
+                  ? "Start voice input"
+                  : "Set up transcription in Server settings to use voice notes"
               }
-              placeholder={inputPlaceholder}
-              placeholderTextColor={theme.textFaint}
-              ref={textInputRef}
-              returnKeyType="default"
-              scrollEnabled={inputHeight >= 102}
-              selectionColor={theme.accent}
-              style={[
-                styles.input,
-                {
-                  color: theme.text,
-                  height: inputHeight,
-                  marginTop: verticalPadding,
-                  marginBottom: verticalPadding,
-                },
-              ]}
-              value={text}
+              name="mic.fill"
+              disabled={!voice.available || sending}
+              onPress={startVoice}
+              size={34}
+              symbolSize={16}
+              tone={theme.dark ? "dark" : "subtle"}
             />
-            {hasPayload ? (
-              <IconButton
-                label="Send message"
-                name="arrow.up"
-                disabled={sending}
-                haptic="none"
-                onPress={() => void submit()}
-                size={34}
-                symbolSize={17}
-                tone="dark"
-              />
-            ) : (
-              <IconButton
-                label={
-                  voice.available
-                    ? "Start voice input"
-                    : "Set up transcription in Server settings to use voice notes"
-                }
-                name="mic.fill"
-                disabled={!voice.available || sending}
-                onPress={voice.start}
-                size={34}
-                symbolSize={16}
-                tone={theme.dark ? "dark" : "subtle"}
-              />
-            )}
-          </View>
-        )}
+          )}
+          {hasPayload && !voiceActive ? (
+            <IconButton
+              label="Send message"
+              name="arrow.up"
+              disabled={sending}
+              haptic="none"
+              onPress={() => void submit()}
+              size={34}
+              symbolSize={17}
+              tone="dark"
+            />
+          ) : null}
+        </View>
       </GlassSurface>
     </View>
   );
@@ -1328,25 +1356,24 @@ const styles = StyleSheet.create({
     paddingLeft: 10,
     paddingRight: 2,
   },
-  voiceRow: {
-    minHeight: 44,
+  voicePill: {
+    height: 28,
+    marginBottom: 8,
+    borderRadius: 16,
+    paddingHorizontal: 10,
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 2,
-    gap: 2,
+    gap: 6,
   },
-  voiceStatus: {
-    flex: 1,
-    minWidth: 0,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 7,
-    paddingHorizontal: 5,
+  voiceStop: { width: 9, height: 9, borderRadius: 2, backgroundColor: "#c93636" },
+  voiceTimer: {
+    color: "#c93636",
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: "600",
+    fontVariant: ["tabular-nums"],
   },
-  voiceLabel: { fontSize: 13, lineHeight: 17, fontWeight: "600" },
-  voiceTimer: { fontSize: 12, lineHeight: 16, fontVariant: ["tabular-nums"] },
-  waveform: { flex: 1, height: 24, flexDirection: "row", alignItems: "center", gap: 2 },
-  waveformBar: { flex: 1, maxWidth: 3, minHeight: 4, borderRadius: 2 },
+  voiceProcessing: { width: 34, height: 44, alignItems: "center", justifyContent: "center" },
   input: {
     flex: 1,
     minHeight: 22,

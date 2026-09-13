@@ -1,4 +1,5 @@
-import { AdminBroadcastInput, DynamicToolCallRequest } from "@openteam/contracts";
+import { automationWebhookBinding, receiveAutomationWebhook } from "./automation-webhooks";
+import { AdminBroadcastInput, DynamicToolCallRequest, ShellCompletionInput } from "@openteam/contracts";
 import { Effect } from "effect";
 import { timingSafeEqual } from "node:crypto";
 import { AppService } from "./app-service";
@@ -67,6 +68,14 @@ const server = Bun.serve({
     const url = new URL(request.url);
     const path = url.pathname.replace(/^\/api\/v0(?=\/|$)/, "/api");
     try {
+      const automationHook = path.match(/^\/api\/automation-hooks\/([a-zA-Z0-9_-]{1,100})$/);
+      if (automationHook && request.method === "POST") {
+        const binding = await automationWebhookBinding(automationHook[1]!);
+        if (!binding) return json({ error: "Webhook not found" }, 404);
+        return await receiveAutomationWebhook(request, binding, process.env[binding.secretEnv] ?? "", (owner, event) => app.routines.dispatchEvent(owner, event));
+      }
+      const publicTemplate = path.match(/^\/api\/templates\/([a-f0-9-]{36})$/i);
+      if (request.method === "GET" && publicTemplate?.[1]) return json(await app.reviewRecipe(publicTemplate[1], true));
       if (request.method === "GET" && path === "/api/auth/config") {
         return json({ mode: authMode });
       }
@@ -127,6 +136,16 @@ const server = Bun.serve({
           await run(app.handleDynamicTool(await parseBody(request, DynamicToolCallRequest)))
         );
       }
+      if (request.method === "POST" && path === "/api/internal/automation-events") {
+        if (!authorizedInternal(request)) return json({ error: { code: "unauthorized", message: "Unauthorized" } }, 401);
+        const input = await request.json() as { owner?: { kind: "bot" | "group"; id: string }; event?: unknown };
+        if (!input.owner || !["bot", "group"].includes(input.owner.kind) || typeof input.owner.id !== "string" || !/^[a-f0-9-]{36}$/i.test(input.owner.id)) return json({ error: { code: "invalid_owner", message: "A valid event owner is required" } }, 400);
+        return json({ executions: await app.routines.dispatchEvent(input.owner, input.event) });
+      }
+      if (request.method === "POST" && path === "/api/internal/shell-completions") {
+        if (!authorizedInternal(request)) return json({ error: { code: "unauthorized", message: "Unauthorized" } }, 401);
+        return json(await app.messaging.completeShell(await parseBody(request, ShellCompletionInput)));
+      }
       if (request.method === "POST" && path === "/api/internal/permissions/auto-review") {
         if (!authorizedInternal(request)) {
           return json({ error: { code: "unauthorized", message: "Unauthorized" } }, 401);
@@ -138,6 +157,13 @@ const server = Bun.serve({
           return json({ error: { code: "unauthorized", message: "Unauthorized" } }, 401);
         }
         return json(await run(app.broadcast(await parseBody(request, AdminBroadcastInput))));
+      }
+      if (path === "/api/internal/server-settings/web-search/credentials") {
+        if (!authorizedInternal(request))
+          return json({ error: { code: "unauthorized", message: "Unauthorized" } }, 401);
+        if (request.method !== "GET")
+          return json({ error: { code: "method_not_allowed", message: "Method not allowed" } }, 405);
+        return json(await app.webSearchSettings.credentials());
       }
       if (request.method === "PATCH" && path === "/api/internal/server-settings/inference") {
         if (!authorizedInternal(request)) {

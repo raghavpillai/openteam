@@ -98,7 +98,15 @@ test("profile, first-fact memory, and skills freeze independently per context ep
       "A later global fact waits for the next compaction epoch."
     );
 
-    await store.acknowledgeIdentityAnnouncement(botId, homeContextId);
+    const receipt = frozenHome.identityReceipt!;
+    const restarted = new AgentDataStore(prisma, { root, workspaceRoot: workspace });
+    await restarted.acknowledgeIdentityAnnouncement(botId, homeContextId, receipt);
+    // A delayed acknowledgement cannot overwrite a newer identity announcement.
+    const snapshot = await prisma.contextPromptSnapshot.findUniqueOrThrow({ where: { contextSessionId: homeContextId } });
+    await prisma.contextPromptSnapshot.update({ where: { contextSessionId: homeContextId }, data: { announcedName: "Newer delivered name" } });
+    await restarted.acknowledgeIdentityAnnouncement(botId, homeContextId, receipt);
+    expect((await prisma.contextPromptSnapshot.findUniqueOrThrow({ where: { contextSessionId: homeContextId } })).announcedName).toBe("Newer delivered name");
+    await prisma.contextPromptSnapshot.update({ where: { contextSessionId: homeContextId }, data: { announcedName: snapshot.announcedName } });
     expect((await store.promptContext(botId, homeContextId)).identityAnnouncement).toBe("");
     expect((await store.promptContext(botId, groupContextId)).identityAnnouncement).toContain(
       "Snapshot Renamed"

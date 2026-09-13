@@ -136,7 +136,7 @@ describe("shared desktop and iOS product policy", () => {
             name: "New Bot",
             description: "A team Bot for file-backed agent parity work.",
             color: "#925df2",
-            icon: "circle",
+            icon: "helmet",
           },
         },
       })

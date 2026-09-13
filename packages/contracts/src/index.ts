@@ -1,5 +1,6 @@
 import { Schema } from "effect";
 import cursorToolsDocument from "./cursor-tools.json";
+export * from "./review-cards";
 import nativeToolsDocument from "./native-tools.json";
 import type { ClientCapabilities } from "./capabilities";
 import { PI_REASONING_LEVELS, type RuntimeEngine } from "./inference";
@@ -387,6 +388,7 @@ export type StopSubagentInput = typeof StopSubagentInput.Type;
 export const CreateAgentInput = Schema.Struct({
   name: Schema.String.pipe(Schema.minLength(1)),
   description: Schema.optional(Schema.String),
+  section_id: Schema.optional(Schema.String.pipe(Schema.minLength(1))),
 });
 export type CreateAgentInput = typeof CreateAgentInput.Type;
 
@@ -440,7 +442,11 @@ export const SendToAgentInput = Schema.Struct({
 export type SendToAgentInput = typeof SendToAgentInput.Type;
 
 export const AgentSendToUserInput = Schema.Struct({
-  type: Schema.Literal("text", "attachment", "widget", "secret-request", "computer-handoff"),
+  type: Schema.Literal("text", "attachment", "widget", "secret-request", "computer-handoff", "user-form", "external-draft", "review-action"),
+  form: Schema.optional(Schema.Unknown),
+  draft: Schema.optional(Schema.Unknown),
+  review: Schema.optional(Schema.Unknown),
+  end_turn: Schema.optional(Schema.Boolean),
   content: Schema.optional(Schema.String),
   url: Schema.optional(Schema.String),
   alt: Schema.optional(Schema.String),
@@ -595,6 +601,14 @@ export const ShellToolInput = Schema.Struct({
 });
 export type ShellToolInput = typeof ShellToolInput.Type;
 
+export const AwaitShellInput = Schema.Struct({
+  shell_id: Schema.optional(Schema.String.pipe(Schema.minLength(1))),
+  block_until_ms: Schema.optional(Schema.Number.pipe(Schema.between(0, 7_140_000))),
+  pattern: Schema.optional(Schema.String.pipe(Schema.maxLength(4_096))),
+  machineId: Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(200))),
+});
+export type AwaitShellInput = typeof AwaitShellInput.Type;
+
 export const ReadToolInput = Schema.Struct({
   path: Schema.String,
   offset: Schema.optional(Schema.Number.pipe(Schema.int())),
@@ -637,7 +651,7 @@ export type PluginDynamicNamespace = typeof PluginDynamicNamespace.Type;
 
 export const InstallPluginInput = Schema.Struct({
   pluginKey: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(160)),
-  values: Schema.optional(Schema.Record({ key: Schema.String, value: Schema.String })),
+  values: Schema.optional(Schema.Record({ key: Schema.String, value: Schema.Union(Schema.String, Schema.Number, Schema.Boolean) })),
 });
 export type InstallPluginInput = typeof InstallPluginInput.Type;
 
@@ -646,6 +660,7 @@ export const AddCustomMcpInput = Schema.Struct({
   url: Schema.optional(Schema.String.pipe(Schema.minLength(8), Schema.maxLength(2_000))),
   command: Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(500))),
   args: Schema.optional(Schema.Array(Schema.String.pipe(Schema.maxLength(2_000)))),
+  cwd: Schema.optional(Schema.String.pipe(Schema.maxLength(2000))),
   env: Schema.optional(Schema.Record({ key: Schema.String, value: Schema.String })),
   headers: Schema.optional(Schema.Record({ key: Schema.String, value: Schema.String })),
   auth: Schema.optional(Schema.Literal("none", "token", "oauth")),
@@ -694,6 +709,7 @@ export const SetPluginToolPolicyInput = Schema.Struct({
   botId: Schema.NullOr(Schema.String),
   toolName: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(200)),
   decision: Schema.Literal("deny", "prompt", "allow"),
+  enabled: Schema.optional(Schema.Boolean),
 });
 export type SetPluginToolPolicyInput = typeof SetPluginToolPolicyInput.Type;
 
@@ -717,32 +733,9 @@ export interface PluginCatalogSkillView {
   description: string;
 }
 
-export interface PluginCatalogSetupFieldView {
-  key: string;
-  label: string;
-  required: boolean;
-  secret: boolean;
-}
-
-export interface PluginSetupFieldView {
-  key: "token" | "clientId" | "clientSecret" | "scope";
-  label: string;
-  placeholder: string;
-  required: boolean;
-  secret: boolean;
-  helpText: string | null;
-}
-
-export interface PluginSetupView {
-  kind: "none" | "token" | "oauth" | "oauth_client";
-  connectionKey: string | null;
-  title: string;
-  description: string;
-  documentationUrl: string | null;
-  steps: string[];
-  fields: PluginSetupFieldView[];
-  requiredScopes: string[];
-}
+export type { PluginField as PluginCatalogSetupFieldView, PluginField as PluginSetupFieldView, PluginSetup as PluginSetupView } from "@openteam/plugin-sdk";
+import type { PluginField as PluginCatalogSetupFieldView, PluginField as PluginSetupFieldView, PluginSetup as PluginSetupView } from "@openteam/plugin-sdk";
+export * from "./plugin-management";
 
 export interface PluginCatalogItemView {
   key: string;
@@ -785,6 +778,8 @@ export interface PluginConnectionView {
 }
 
 export interface PluginInstallView {
+  catalog?: PluginCatalogItemView;
+  packageDigest?: string;
   id: string;
   pluginKey: string;
   version: string;
@@ -817,6 +812,7 @@ export interface PluginSettingsView {
     botId: string | null;
     toolName: string;
     decision: "deny" | "prompt" | "allow";
+    enabled?: boolean;
   }>;
   activity: PluginActivityView[];
 }
@@ -1076,6 +1072,7 @@ export const STOP_SUBAGENT_TOOL = cursorTool("StopSubagent");
 export const TASK_TOOL = cursorTool("Task");
 export const TODO_WRITE_TOOL = cursorTool("TodoWrite");
 export const UPDATE_AGENT_TOOL = cursorTool("UpdateAgent");
+export const AWAIT_SHELL_TOOL = cursorTool("AwaitShell");
 export const UPDATE_CHANNEL_TOOL = cursorTool("UpdateChannel");
 
 export const RequestBoxHelpInput = Schema.Struct({
@@ -1114,6 +1111,9 @@ export const UpdateStateInput = Schema.Struct({
   project: Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(80))),
   id: Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(120))),
   name: Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(120))),
+  title: Schema.optional(Schema.String.pipe(Schema.maxLength(120))),
+  avatar_shape: Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(80))),
+  avatar_color: Schema.optional(Schema.String.pipe(Schema.pattern(/^#[0-9a-fA-F]{6}$/))),
   description: Schema.optional(Schema.String.pipe(Schema.maxLength(2_000))),
   prompt: Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(50_000))),
   schedule: Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(500))),
@@ -1308,10 +1308,12 @@ export const ComputerTurnRequest = Schema.Struct({
   sessionPath: Schema.NullOr(Schema.String),
   content: Schema.String,
   clientMessageId: Schema.String,
+  prependMessages: Schema.optional(Schema.Array(Schema.Struct({ id: Schema.String, content: Schema.String, images: Schema.optional(Schema.Array(RuntimeInlineImage)) }))),
   cwd: Schema.String,
   instructions: Schema.String,
   userInfo: Schema.optional(Schema.NullOr(Schema.String)),
   userInfoEpoch: Schema.optional(Schema.Number),
+  connectorInstructions: Schema.optional(Schema.String),
   agentProfileSnapshot: Schema.optional(Schema.Unknown),
   memorySnapshot: Schema.optional(Schema.Unknown),
   todoUpdate: Schema.optional(Schema.NullOr(Schema.String)),
@@ -1338,6 +1340,18 @@ export const ComputerSteerRequest = Schema.Struct({
 });
 export type ComputerSteerRequest = typeof ComputerSteerRequest.Type;
 
+export const ShellCompletionInput = Schema.Struct({
+  machineId: Schema.optional(Schema.String),
+  hostShellId: Schema.optional(Schema.String),
+  id: Schema.String.pipe(Schema.pattern(/^[a-zA-Z0-9_-]+$/)),
+  scope: Schema.String,
+  outputPath: Schema.String.pipe(Schema.maxLength(4000)),
+  exitCode: Schema.NullOr(Schema.Number),
+  error: Schema.optional(Schema.String.pipe(Schema.maxLength(4000))),
+  channelId: Schema.optional(Schema.String),
+});
+export type ShellCompletionInput = typeof ShellCompletionInput.Type;
+
 export const ComputerApprovalResolution = Schema.Struct({
   approvalId: Schema.String,
   decision: ApprovalDecision,
@@ -1355,6 +1369,7 @@ export type ComputerEvent =
       model: string;
     }
   | { type: "turn.started"; turnId: string }
+  | { type: "prompt.delivered"; turnId: string }
   | {
       type: "input.delivered";
       turnId: string;
@@ -1807,3 +1822,7 @@ export class ApiError extends Error {
     this.name = "ApiError";
   }
 }
+export * from './external-draft';
+export * from './bot-recipe';
+
+export * from "./web-search";

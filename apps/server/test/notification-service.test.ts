@@ -114,7 +114,7 @@ describe("NotificationService", () => {
     let update: unknown = null;
     let lockCount = 0;
     const tx = {
-      $queryRaw: async () => {
+      $executeRaw: async () => {
         lockCount += 1;
         return 1;
       },
@@ -170,7 +170,7 @@ describe("NotificationService", () => {
       },
     };
     const tx = {
-      $queryRaw: async () => [],
+      $executeRaw: async () => 0,
       pushDevice,
     };
     const prisma = {

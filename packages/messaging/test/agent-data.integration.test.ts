@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { access, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createPrismaClient } from "@openteam/db";
@@ -25,11 +25,14 @@ test("plugin and managed skill caches use the Bot filesystem contract", async ()
         name: "Research Playbook",
         version: "1.0.0",
         publisher: "OpenTeam",
+        files: { "skills/research/references/check.md": "Supporting reference" },
+        binaryFiles: { "skills/research/reference.bin": Buffer.from([0, 255, 128, 1]).toString("base64") },
         skills: [
           {
             name: "Source-led research",
             description: "Verify changing claims against primary sources.",
             body: "Separate sourced facts from inference.",
+            path: "skills/research",
           },
         ],
       },
@@ -38,7 +41,8 @@ test("plugin and managed skill caches use the Bot filesystem contract", async ()
       await readFile(join(root, "managed-skills", "cache.json"), "utf8")
     ) as { fetchedAt: number; skills: unknown[] };
     expect(managed.fetchedAt).toBeNumber();
-    expect(managed.skills).toEqual([]);
+    expect(managed.skills).toHaveLength(20);
+    expect(managed.skills).toEqual(expect.arrayContaining([expect.objectContaining({ id: "code-changes" }), expect.objectContaining({ id: "in-chat-forms" })]));
 
     const plugin = JSON.parse(
       await readFile(join(root, "plugin-skills", "cache.json"), "utf8")
@@ -50,8 +54,11 @@ test("plugin and managed skill caches use the Bot filesystem contract", async ()
     expect(plugin.currentUserId).toBe("openteam");
     expect(plugin.authBlocked).toEqual([]);
     expect(plugin.skills).toHaveLength(1);
+    expect((await stat(join(root, "plugin-skills", "cache.json"))).mode & 0o444).toBe(0o444);
     expect(plugin.skills[0]?.id).toBe("research-playbook-source-led-research");
     expect(plugin.skills[0]?.filePath.startsWith(plugin.skills[0]?.installPath ?? "!")).toBe(true);
+    expect(await readFile(join(plugin.skills[0]!.installPath, "skills/research/references/check.md"), "utf8")).toBe("Supporting reference");
+    expect(await readFile(join(plugin.skills[0]!.installPath, "skills/research/reference.bin"))).toEqual(Buffer.from([0, 255, 128, 1]));
     expect(
       parseSkillFile(await readFile(plugin.skills[0]!.filePath, "utf8"), "plugin skill")
     ).toMatchObject({
@@ -77,17 +84,15 @@ test("turn memory extracts, summarizes episodes, and synthesizes dreaming eviden
   const memoryInference = async (request: MemoryInferenceRequest) => {
     requests.push(request);
     if (request.kind === "extraction") {
-      return JSON.stringify({
-        facts: [{ content: "Prefers lifecycle tests.", kind: "profile" }],
-      });
+      return "profile: Prefers lifecycle tests.";
     }
     if (request.kind === "episode") {
-      return JSON.stringify({ narrative: "Validated memory behavior over six turns." });
+      return "Validated memory behavior over six turns.";
     }
     if (request.kind === "synthesis") {
       synthesisAttempts += 1;
       const prompt = JSON.parse(request.prompt) as {
-        evidence: Array<{ id: string }>;
+        newEvidence: Array<{ id: string }>;
       };
       if (synthesisAttempts === 1) {
         return JSON.stringify({
@@ -106,7 +111,7 @@ test("turn memory extracts, summarizes episodes, and synthesizes dreaming eviden
             action: "create",
             content: "Dreaming captured a verified preference.",
             kind: "log",
-            sourceEvidenceIds: [prompt.evidence[0]?.id],
+            sourceEvidenceIds: [prompt.newEvidence[0]?.id],
           },
         ],
       });

@@ -207,6 +207,9 @@ export class AdministrationService {
   }
 
   async createAgent(parentBotId: string, callId: string, input: CreateAgentInput) {
+    if (input.section_id && !(await this.agentData.listSections()).some((section) => section.id === input.section_id)) {
+      throw new ApiError(404, "section_not_found", `No sidebar section found with id ${input.section_id}`);
+    }
     const bot = await Effect.runPromise(
       this.bots.create({
         clientRequestId: `agent-tool:${parentBotId}:${callId}`,
@@ -215,6 +218,7 @@ export class AdministrationService {
         instructions: input.description,
       })
     );
+    if (input.section_id) await this.agentData.assignAgentSection(bot.id, input.section_id);
     return `Created agent "${bot.name}" (id: ${bot.id}). Message it with SendToAgent using that id.`;
   }
 
@@ -389,6 +393,7 @@ export class AdministrationService {
 
   async updateChannel(parentBotId: string, callId: string, input: UpdateChannelInput) {
     const result = await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('root-file:groups'))`;
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`channel:${input.channel_id}`}))`;
       const channel = await tx.channel.findFirst({
         where: {
@@ -464,6 +469,7 @@ export class AdministrationService {
         where: { id: { in: memberIds } },
         select: { id: true, name: true },
       });
+      for (const botId of memberIds) await this.agentData.writeGroupFilesForBot(botId, tx);
       const namesById = new Map(members.map((member) => [member.id, member.name]));
       return {
         acknowledgement: `Updated channel "${channel.name}" (id: ${channel.id}). Members: ${memberIds.map((id) => namesById.get(id) ?? id).join(", ")}.`,

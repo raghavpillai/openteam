@@ -7,6 +7,7 @@ import {
   renderSubagentRevivalPrompt,
   subagentSpecializationInstructions,
 } from "../src/index";
+import { PLATFORM_BASE_SYSTEM_PROMPT } from "../src/platform-system-prompt";
 
 describe("main-agent graphical delegation instructions", () => {
   test("routes browser and desktop work to their specialized subagents", () => {
@@ -65,6 +66,8 @@ describe("main-agent graphical delegation instructions", () => {
       expect(prompt.instructions).toContain(`running as the ${subagentType} subagent`);
       expect(prompt.instructions).toContain("Only that final assistant message is relayed");
       expect(prompt.instructions).not.toContain("Parent profile");
+      expect(prompt.instructions).not.toContain(PLATFORM_BASE_SYSTEM_PROMPT);
+      expect(prompt.instructions).not.toContain("SendToUser is your only voice");
       if (subagentType === "computerUse" || subagentType === "browserUse") {
         expect(prompt.instructions).not.toContain("Your current timezone is");
       } else {

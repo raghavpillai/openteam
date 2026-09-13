@@ -27,6 +27,7 @@ import type { PluginService } from "./plugin-service";
 import { serviceEffect } from "./service-utils";
 import type { SubagentService } from "./subagent/service";
 import type { TodoService } from "./todo-service";
+import type { RichMessageService } from "./rich-message-service";
 
 export class InternalToolService {
   constructor(
@@ -37,7 +38,8 @@ export class InternalToolService {
     private readonly todos: TodoService,
     private readonly subagents: SubagentService,
     private readonly administration: AdministrationService,
-    private readonly plugins: PluginService
+    private readonly plugins: PluginService,
+    private readonly richMessages?: RichMessageService
   ) {}
 
   execute = (request: DynamicToolCallRequest) =>
@@ -80,7 +82,35 @@ export class InternalToolService {
         where: { childBotId: request.botId },
         select: { id: true, parentBotId: true, subagentType: true },
       });
+      if (request.tool === "AcknowledgeCardOutcomes") {
+        await this.messaging.acknowledgeCardOutcomes(request.botId, (request.arguments as { receipts: Array<{ messageId: string; outcomeId: string }> }).receipts);
+        return { acknowledged: true };
+      }
+      if (request.tool === "RecordUserFormRemap" && !childIdentity && this.richMessages) {
+        return this.richMessages.recordFormRemap(request.botId, request.arguments as import("@openteam/contracts").UserFormReceipt);
+      }
+      if (["RefreshPromptContext", "AcknowledgePromptContext"].includes(request.tool)) {
+        const args = request.arguments as { contextSessionId?: string; epoch?: number; connectorInstructions?: string; acknowledgement?: unknown };
+        const session = await this.prisma.contextSession.findFirst({ where: { id: args.contextSessionId, botId: request.botId } });
+        if (!session || !args.contextSessionId) throw new ApiError(403, "context_unavailable", "Context does not belong to this bot");
+        if (request.tool === "AcknowledgePromptContext") {
+          await this.messaging.acknowledgePlatformPrompt(request.botId, session.id, {
+            acknowledgement: args.acknowledgement,
+          } as Parameters<AgentMessaging["acknowledgePlatformPrompt"]>[2]);
+          return { acknowledged: true };
+        }
+        if (!Number.isSafeInteger(args.epoch) || args.epoch! < session.compactionEpoch || args.epoch! > session.compactionEpoch + 1) {
+          throw new ApiError(409, "context_epoch_invalid", "Context epoch is not the current or next summary");
+        }
+        await this.prisma.contextSession.updateMany({ where: { id: session.id, compactionEpoch: { lt: args.epoch! } }, data: { compactionEpoch: args.epoch } });
+        return this.messaging.platformPrompt(request.botId, session.id, args.connectorInstructions ?? "");
+      }
       const parentOnlyTools = new Set([
+        "DraftExternalMessage", "SendFeedback", "create_bot_share_json",
+        "request_user_form",
+        "remap_user_form_targets",
+        "RecallMemory",
+        "ListSections",
         "Task",
         "CheckSubagent",
         "MessageSubagent",
@@ -108,6 +138,24 @@ export class InternalToolService {
       ]);
       if (childIdentity && parentOnlyTools.has(request.tool)) {
         throw new ApiError(403, "subagent_tool_forbidden", "This tool is parent-agent only");
+      }
+      if (request.tool === "RecallMemory") return this.messaging.agentData.recallMemory(request.botId, request.arguments);
+      if (request.tool === "SendFeedback" || request.tool === "create_bot_share_json") {
+        if (!this.richMessages) throw new Error("Review service unavailable");
+        return this.richMessages.reviewActions.stage(context, request.tool, request.arguments);
+      }
+      if (request.tool === "DraftExternalMessage") {
+        if (!this.richMessages) throw new Error("Draft service unavailable");
+        return this.richMessages.externalDrafts.create(context, request.arguments);
+      }
+      if (request.tool === "request_user_form") {
+        if (!this.richMessages) throw new Error("User form service is unavailable");
+        return this.richMessages.createUserForm(context, request.arguments);
+      }
+      if (request.tool === "ListSections") {
+        const sections = await this.messaging.agentData.listSections();
+        return sections.length ? sections.map((section) => `- ${section.name} (id: ${section.id})`).join("\n")
+          : "If there are no custom sections, CreateAgent should omit section_id.";
       }
       if (request.tool === "SearchPlugins") {
         const input =
@@ -172,6 +220,7 @@ export class InternalToolService {
           callId: request.callId,
           toolName: input.toolName,
           arguments: input.arguments ?? {},
+          mcpDetails: input.mcpDetails,
         });
       }
       if (request.tool === "update_state") {

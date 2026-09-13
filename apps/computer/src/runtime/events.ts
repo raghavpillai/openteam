@@ -1,12 +1,6 @@
 import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import { existsSync } from "node:fs";
 import type { BotAgentStore } from "../bot-agent-store";
-import type {
-  BotCompactionCoordinator,
-  BotMessage,
-  BotSummaryRequest,
-  BotSummaryResult,
-} from "../bot-compaction";
 import { safeToolResult, textFromContent, thinkingFromContent, toolItem } from "./content";
 import type { ActiveTurn } from "./types";
 
@@ -58,33 +52,11 @@ export function startReasoning(active: ActiveTurn, itemId: string): void {
 
 export function routeEvent(
   botStore: BotAgentStore | undefined,
-  compaction: BotCompactionCoordinator,
-  inferCompaction: (
-    active: ActiveTurn,
-    request: BotSummaryRequest,
-    signal: AbortSignal
-  ) => Promise<BotSummaryResult>,
   active: ActiveTurn,
   event: AgentSessionEvent
 ): void {
   if (event.type === "message_start") {
     const message = event.message as { role?: string };
-    if (message.role === "user") {
-      if (!active.initialUserStarted) {
-        active.initialUserStarted = true;
-        return;
-      }
-      const steer = active.pendingSteers.shift();
-      if (steer) {
-        active.queue.push({
-          type: "input.delivered",
-          turnId: active.turnId,
-          inboxId: steer.inboxId,
-          clientMessageId: steer.clientMessageId,
-        });
-      }
-      return;
-    }
     if (message.role === "assistant") {
       active.assistantOrdinal += 1;
       active.currentAssistantId = `assistant:${active.runId}:${active.assistantOrdinal}`;
@@ -114,6 +86,25 @@ export function routeEvent(
       stopReason?: string;
       errorMessage?: string;
     };
+    if (message.role === "user") {
+      if (!active.initialUserStarted) {
+        if (active.initialUserClientId) active.session?.sessionManager.appendCustomEntry("openteam-input-receipt", { messageId: `input:${active.initialUserClientId}` });
+        active.initialUserStarted = true;
+        active.queue.push({ type: "prompt.delivered", turnId: active.turnId });
+        return;
+      }
+      const steer = active.pendingSteers.shift();
+      if (steer) {
+        active.session?.sessionManager?.appendCustomEntry("openteam-input-receipt", { messageId: `input:${steer.clientMessageId}` });
+        active.queue.push({
+          type: "input.delivered",
+          turnId: active.turnId,
+          inboxId: steer.inboxId,
+          clientMessageId: steer.clientMessageId,
+        });
+      }
+      return;
+    }
     if (message.role !== "assistant") return;
     active.lastStopReason = message.stopReason ?? null;
     active.lastErrorMessage = message.errorMessage ?? null;
@@ -159,25 +150,6 @@ export function routeEvent(
         message: message.errorMessage,
         retrying: false,
       });
-    }
-    const usage = active.session?.getContextUsage();
-    if (active.session && usage?.tokens !== null && usage) {
-      void compaction
-        .observe({
-          contextSessionId: active.contextSessionId,
-          piMessages: active.session.messages as BotMessage[],
-          systemPrompt: active.instructions,
-          userInfoMessage: active.userInfoMessage,
-          usedTokens: usage.tokens,
-          maxTokens: usage.contextWindow,
-          projectRoot: active.cwd,
-          transcriptPath: active.sessionPath ?? undefined,
-          infer: (prompt, signal) => inferCompaction(active, prompt, signal),
-        })
-        // Observation is best-effort and runs after the completed assistant
-        // message. Persist-boundary compaction revalidates synchronously, so
-        // a corrupt/missing archive will still fail closed before adoption.
-        .catch(() => undefined);
     }
     return;
   }

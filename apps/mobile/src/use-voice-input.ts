@@ -43,6 +43,7 @@ export const useVoiceInput = (
   const generation = useRef(0);
   const busy = useRef(false);
   const recording = useRef(false);
+  const requesting = useRef(false);
   const pending = useRef<VoiceRecording | null>(null);
   const abort = useRef<AbortController | null>(null);
   const stopRef = useRef<() => void>(() => undefined);
@@ -57,7 +58,8 @@ export const useVoiceInput = (
   const cleanup = () => {
     generation.current++;
     abort.current?.abort();
-    cancelVoiceRecording();
+    if (recording.current || requesting.current) cancelVoiceRecording();
+    requesting.current = false;
     recording.current = false;
     busy.current = false;
     startedAt.current = 0;
@@ -75,12 +77,16 @@ export const useVoiceInput = (
       setLevels((current) => [...current.slice(1), Math.max(0.08, Math.min(1, level))]);
     });
     const errorSubscription = addSpeechErrorListener((event) => {
+      if (!recording.current && !requesting.current) return;
       cleanup();
       setError(event.message);
       setState("error");
     });
     const appState = AppState.addEventListener("change", (next) => {
-      if (next !== "active" && recording.current) cancel();
+      // A permission sheet makes iOS inactive. Only actual backgrounding cancels
+      // a pending permission request; active recordings also stop on interruption.
+      if ((next !== "active" && recording.current) || (next === "background" && requesting.current))
+        cancel();
     });
     return () => {
       levelSubscription?.remove();
@@ -135,6 +141,7 @@ export const useVoiceInput = (
     cleanup();
     const session = generation.current;
     busy.current = true;
+    requesting.current = true;
     setState("requesting");
     setError(null);
     setElapsedMs(0);
@@ -142,12 +149,18 @@ export const useVoiceInput = (
     try {
       await startVoiceRecording();
       if (session !== generation.current) return;
+      if (AppState.currentState === "background") {
+        cancel();
+        return;
+      }
+      requesting.current = false;
       startedAt.current = Date.now();
       recording.current = true;
       busy.current = false;
       setState("recording");
     } catch (cause) {
       if (session !== generation.current) return;
+      requesting.current = false;
       busy.current = false;
       setState("error");
       setError(cause instanceof Error ? cause.message : "Could not start the microphone.");

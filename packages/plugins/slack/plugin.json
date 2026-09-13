@@ -1,0 +1,95 @@
+{
+  "key": "slack",
+  "version": "1.0.3",
+  "name": "Slack",
+  "description": "Search channels, read threads, send messages, and work with canvases.",
+  "publisher": "Slack",
+  "category": "Inbox & Collaboration",
+  "featured": true,
+  "components": [
+    "mcp"
+  ],
+  "homepageUrl": "https://docs.slack.dev/ai/slack-mcp-server",
+  "setup": {
+    "kind": "oauth_client",
+    "connectionKey": "slack",
+    "title": "Connect Slack",
+    "description": "Register an internal or Marketplace Slack app, then authorize a workspace.",
+    "documentationUrl": "https://docs.slack.dev/ai/slack-mcp-server",
+    "steps": [
+      "Create an internal Slack app in your workspace. In Create New App, choose From a manifest; the package includes a reusable Slack app manifest.",
+      "Replace the manifest redirect URL with this account's exact OpenTeam callback URL. Its user-token scopes cover the tools in Slack's MCP server; remove scopes and disable tools you do not need.",
+      "In the Slack app dashboard, open Agents and turn on Enable Slack MCP Server. This separate switch is required even after OAuth succeeds.",
+      "Create the app, then copy its client ID and client secret from Basic Information into this form. Save and authorize, choose your workspace, and allow the requested access.",
+      "Run a small read test before granting the account to a Bot. Keep the app internal; unlisted distributed apps cannot use Slack MCP."
+    ],
+    "fields": [
+      {
+        "key": "clientId",
+        "label": "OAuth client ID",
+        "placeholder": "Paste the client ID",
+        "required": true,
+        "secret": false,
+        "helpText": null
+      },
+      {
+        "key": "clientSecret",
+        "label": "OAuth client secret",
+        "placeholder": "Paste the client secret",
+        "required": true,
+        "secret": true,
+        "helpText": "Stored by your self-hosted OpenTeam server and never returned to the desktop app."
+      }
+    ],
+    "requiredScopes": [
+      "search:read.public",
+      "search:read.private",
+      "search:read.mpim",
+      "search:read.im",
+      "search:read.files",
+      "search:read.users",
+      "files:read",
+      "files:write",
+      "emoji:read",
+      "channels:history",
+      "groups:history",
+      "mpim:history",
+      "im:history",
+      "channels:read",
+      "groups:read",
+      "mpim:read",
+      "im:read",
+      "users:read",
+      "users:read.email",
+      "chat:write",
+      "channels:write",
+      "groups:write",
+      "im:write",
+      "mpim:write",
+      "reactions:write",
+      "canvases:read",
+      "canvases:write",
+      "lists:read",
+      "lists:write"
+    ]
+  },
+  "skills": [],
+  "connections": [
+    {
+      "key": "slack",
+      "name": "Slack",
+      "transport": "http",
+      "auth": "oauth",
+      "endpoint": "https://mcp.slack.com/mcp",
+      "tools": [],
+      "oauth": {
+        "clientType": "confidential",
+        "registration": "manual",
+        "tokenEndpointAuthMethod": "client_secret_post",
+        "shareClientCredentials": true
+      }
+    }
+  ],
+  "schemaVersion": 1,
+  "icon": "assets/icon.png"
+}

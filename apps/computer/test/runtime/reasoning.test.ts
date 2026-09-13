@@ -131,22 +131,24 @@ describe("Codex reasoning request semantics", () => {
         reasoning: "off",
       })
     ).rejects.toThrow("Offline request captured");
-    await inferCompaction(
-      modelRuntime,
-      () => model,
-      () => [],
-      {
-        reasoning: "off",
-        modelRef: { providerId: model.provider, modelId: model.id },
-      } as ActiveTurn,
-      {
-        systemPrompt: "Offline test",
-        userInfoMessage: null,
-        messagesToSummarize: [],
-        shorter: false,
-      },
-      new AbortController().signal
-    );
+    await expect(
+      inferCompaction(
+        modelRuntime,
+        () => model,
+        () => [],
+        {
+          reasoning: "off",
+          modelRef: { providerId: model.provider, modelId: model.id },
+        } as ActiveTurn,
+        {
+          systemPrompt: "Offline test",
+          userInfoMessage: null,
+          messagesToSummarize: [],
+          shorter: false,
+        },
+        new AbortController().signal
+      )
+    ).rejects.toThrow("Offline request captured");
     expect(capture.requests).toHaveLength(2);
     for (const request of capture.requests)
       expect(request).toMatchObject({ reasoning: { effort: "none" } });

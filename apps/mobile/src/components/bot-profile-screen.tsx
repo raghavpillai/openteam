@@ -2,9 +2,9 @@ import type { BotView, RoutineView } from "@openteam/contracts";
 import * as Haptics from "../haptics";
 import { BOT_AVATAR_DEALT_COLORS, DEFAULT_BOT_AVATAR } from "@openteam/contracts/bot-avatar";
 import {
-  ROBOT_AVATAR_SHAPES as BOT_AVATAR_SHAPES,
-  type RobotAvatarShape as BotAvatarShape,
-  normalizeRobotAvatarShape as normalizeBotAvatarShape,
+  ROBOT_AVATAR_SHAPES,
+  type RobotAvatarShape,
+  normalizeRobotAvatarShape,
 } from "@openteam/contracts/robot-avatar";
 import { routineScheduleSummary as routineSummary } from "@openteam/product-core/routines";
 import { SymbolView } from "expo-symbols";
@@ -36,7 +36,7 @@ interface BotProfileScreenProps {
   onOpenInstructions: () => void;
   onOpenRoutine: (routine: RoutineView) => void;
   onSaveIdentity: (name: string, title: string) => Promise<void>;
-  onUpdateAvatar: (icon: BotAvatarShape, color: string) => Promise<void>;
+  onUpdateAvatar: (icon: RobotAvatarShape, color: string) => Promise<void>;
 }
 
 function SelectionRing({ selected, children }: { selected: boolean; children: React.ReactNode }) {
@@ -120,14 +120,14 @@ export function BotProfileScreen({
   const panel = theme.dark ? "#1e1e1e" : theme.surfaceElevated;
   const [name, setName] = useState(bot.name);
   const [title, setTitle] = useState(bot.title);
-  const [shape, setShape] = useState<BotAvatarShape>(normalizeBotAvatarShape(bot.icon));
+  const [shape, setShape] = useState<RobotAvatarShape>(normalizeRobotAvatarShape(bot.icon));
   const [color, setColor] = useState(bot.color);
   const [avatarSaving, setAvatarSaving] = useState(false);
 
   useEffect(() => {
     setName(bot.name);
     setTitle(bot.title);
-    setShape(normalizeBotAvatarShape(bot.icon));
+    setShape(normalizeRobotAvatarShape(bot.icon));
     setColor(bot.color);
   }, [bot.color, bot.icon, bot.name, bot.title]);
 
@@ -144,7 +144,7 @@ export function BotProfileScreen({
     });
   };
 
-  const commitAvatar = async (nextShape: BotAvatarShape, nextColor: string) => {
+  const commitAvatar = async (nextShape: RobotAvatarShape, nextColor: string) => {
     if (avatarSaving || (!bot.hasAvatar && nextShape === shape && nextColor === color)) return;
     void Haptics.selectionAsync();
     const previousShape = shape;
@@ -219,7 +219,7 @@ export function BotProfileScreen({
         </View>
         <View style={[styles.panelDivider, { backgroundColor: theme.separator }]} />
         <View style={styles.shapeRow}>
-          {BOT_AVATAR_SHAPES.map((candidate) => (
+          {ROBOT_AVATAR_SHAPES.map((candidate) => (
             <Pressable
               accessibilityLabel={`Use ${candidate} shape`}
               accessibilityRole="radio"
@@ -239,12 +239,7 @@ export function BotProfileScreen({
         <Pressable
           accessibilityRole="button"
           disabled={avatarSaving}
-          onPress={() =>
-            void commitAvatar(
-              normalizeBotAvatarShape(DEFAULT_BOT_AVATAR.shape),
-              DEFAULT_BOT_AVATAR.color
-            )
-          }
+          onPress={() => void commitAvatar(DEFAULT_BOT_AVATAR.shape, DEFAULT_BOT_AVATAR.color)}
           style={({ pressed }) => [styles.resetRow, pressed && styles.pressed]}
         >
           <Text style={[styles.resetText, { color: theme.accent }]}>Reset to default</Text>

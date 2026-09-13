@@ -425,6 +425,8 @@ describe("API contracts", () => {
     expect(NATIVE_TOOLS.map((tool) => tool.name)).toEqual([
       "SendToUser",
       "ReactToMessage",
+      "RecallMemory",
+      "ListSections",
       "update_state",
       "ExternalShell",
       "ExternalRead",
@@ -435,7 +437,7 @@ describe("API contracts", () => {
       "GetDynamicTools",
       "CallDynamicTool",
     ]);
-    expect(NATIVE_TOOLS).toHaveLength(11);
+    expect(NATIVE_TOOLS).toHaveLength(13);
     expect(
       NATIVE_TOOLS.map(({ name, description, inputSchema }) => ({
         name,
@@ -488,7 +490,7 @@ describe("API contracts", () => {
       required: string[];
     };
     expect(sha256(JSON.stringify(sendToUserSchema))).toBe(
-      "928e132cecf120a2f1db55417fa1f47e537cdfce978dc74fa8b99d70c21e082d"
+      "986e304b0febf839a143e6cdd9338bad217993bfde44606ad0f5ef0e3133fe2b"
     );
     expect(sha256(JSON.stringify(reactToMessageSchema))).toBe(
       "4d3fca3dcb7ae3691ae2c44d0777d80e9d51ce82be88260aab067bfca71ebfe6"
@@ -507,6 +509,7 @@ describe("API contracts", () => {
       "type",
       "url",
       "widget",
+      "end_turn",
     ]);
     expect(sendToUserSchema.required).toEqual(["type"]);
     expect(Object.keys(reactToMessageSchema.properties)).toEqual(["emoji", "message_address"]);
@@ -520,8 +523,9 @@ describe("API contracts", () => {
     expect(sendToAgentSchema.required).toEqual(["target_id", "message"]);
   });
 
-  test("declares only the approved thirteen-tool Cursor-compatible subset", () => {
+  test("declares the supported Cursor-compatible subset including AwaitShell", () => {
     expect(CURSOR_TOOL_NAMES).toEqual([
+      "AwaitShell",
       "CheckSubagent",
       "CreateAgent",
       "CreateChannel",
@@ -535,6 +539,7 @@ describe("API contracts", () => {
       "TodoWrite",
       "UpdateAgent",
       "UpdateChannel",
+      "CopyToBox", "CopyFromBox", "WebSearch", "WebFetch", "request_user_form", "remap_user_form_targets", "DraftExternalMessage", "SendFeedback", "create_bot_share_json",
     ]);
     expect(CURSOR_TOOLS).toEqual(cursorToolsDocument.cursor);
     const taskTool = CURSOR_TOOLS.find((tool) => tool.tool === "Task");

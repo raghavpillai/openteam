@@ -11,15 +11,21 @@ COPY apps/server/package.json apps/server/package.json
 COPY apps/worker/package.json apps/worker/package.json
 COPY packages/client-core/package.json packages/client-core/package.json
 COPY packages/contracts/package.json packages/contracts/package.json
+COPY packages/shell-jobs/package.json packages/shell-jobs/package.json
 COPY packages/db/package.json packages/db/package.json
 COPY packages/design-tokens/package.json packages/design-tokens/package.json
 COPY packages/messaging/package.json packages/messaging/package.json
 COPY packages/product-core/package.json packages/product-core/package.json
+COPY packages/plugin-sdk/package.json packages/plugin-sdk/package.json
+COPY packages/plugins/package.json packages/plugins/package.json
 COPY patches ./patches
 COPY vendor/sheetjs/xlsx-0.20.3.tgz vendor/sheetjs/xlsx-0.20.3.tgz
 RUN bun install --frozen-lockfile --production --filter @openteam/computer
 COPY apps/computer ./apps/computer
 COPY packages/contracts ./packages/contracts
+COPY packages/shell-jobs ./packages/shell-jobs
+COPY packages/plugin-sdk ./packages/plugin-sdk
+COPY packages/plugins ./packages/plugins
 RUN bun --filter @openteam/computer build
 
 FROM debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171 AS desktop-assets
@@ -45,6 +51,7 @@ FROM oven/bun:1.3.8-slim@sha256:68fc2eac7f5dcfc2f69a81d1db02786ab08772eda2e4404e
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
     ca-certificates \
+    antiword \
     chromium \
     curl \
     dbus-x11 \
@@ -65,6 +72,8 @@ RUN apt-get update \
     python3-pip \
     ripgrep \
     thunar \
+    tesseract-ocr \
+    tesseract-ocr-eng \
     tini \
     unzip \
     websockify \

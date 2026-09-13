@@ -34,7 +34,7 @@ const snapshot = (): ClientSnapshot => ({
       title: "",
       description: "",
       instructions: "",
-      icon: "circle",
+      icon: "helmet",
       color: "blue",
       hasAvatar: false,
       notificationsEnabled: true,

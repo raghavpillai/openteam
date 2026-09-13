@@ -1,15 +1,12 @@
 import type { BotView, ChannelView } from "@openteam/contracts";
+import { DEFAULT_BOT_AVATAR } from "@openteam/contracts/bot-avatar";
+import { type BotAvatarMode, normalizeRobotAvatarShape } from "@openteam/contracts/robot-avatar";
 import { Avatar as AvatarPrimitive } from "radix-ui";
 import { memo } from "react";
 import { API_BASE } from "../../client/http";
 import { useAuthenticatedResource } from "../../hooks/use-authenticated-resource";
 import { cn } from "../../lib/cn";
-import {
-  type BotAvatarMode,
-  BotAvatarGlyph,
-  DEFAULT_BOT_AVATAR,
-  normalizeBotAvatarShape,
-} from "./avatar-picker-icons";
+import { BotAvatarGlyph } from "./avatar-picker-icons";
 
 import { AvatarChannelContext, useBotAvatarMode } from "./bot-avatar-activity";
 
@@ -55,7 +52,7 @@ export const BotAvatar = memo(function BotAvatar({
           mode={mode ?? activityMode}
           className="size-full"
           color={bot?.color ?? DEFAULT_BOT_AVATAR.color}
-          shape={normalizeBotAvatarShape(bot?.icon)}
+          shape={normalizeRobotAvatarShape(bot?.icon)}
         />
       </AvatarPrimitive.Fallback>
     </AvatarPrimitive.Root>

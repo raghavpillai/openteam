@@ -36,7 +36,7 @@ test("interval and weekday routines can be created, test-run, and dispatched whe
       action: "create",
       name: "Every minute",
       prompt: "Confirm the interval routine ran.",
-      schedule: "@every 1m",
+      schedule: "@every 5m",
       source: "ui",
     });
     const weekdays = await service.mutateOwner(owner, randomUUID(), null, {
@@ -55,7 +55,7 @@ test("interval and weekday routines can be created, test-run, and dispatched whe
     expect(stored).toHaveLength(2);
     expect(stored.find(({ id }) => id === interval.id)).toMatchObject({
       scheduleKind: "interval",
-      intervalSeconds: 60,
+      intervalSeconds: 300,
       enabled: true,
     });
     expect(stored.find(({ id }) => id === weekdays.id)).toMatchObject({

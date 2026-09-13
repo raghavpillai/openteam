@@ -6,6 +6,7 @@ import type {
   PluginInstallView,
   PluginSettingsView,
 } from "@openteam/contracts";
+import { createHash } from "node:crypto";
 import {
   ApiError,
   PLUGIN_BOT_ACCESS_PAGE_SIZE,
@@ -14,10 +15,12 @@ import {
   PLUGIN_CONNECTION_STATUS_MAX_IDS,
 } from "@openteam/contracts";
 import type { Prisma, PrismaClient } from "@openteam/db";
+import { connectionNamespace, effectiveToolPolicy } from "@openteam/plugin-sdk";
 import type { PluginDefinition } from "../../plugins/catalog";
 import { serviceEffect } from "../service-utils";
 import {
   catalogView,
+  canonicalJson,
   connectionConfigured,
   connectionView,
   definitionFromManifest,
@@ -59,6 +62,16 @@ export class PluginQueries {
         catalog: catalog.map((plugin) => catalogView(plugin, installedKeys.has(plugin.key))),
         installs: installs.map(
           (install): PluginInstallView => ({
+            packageDigest: createHash("sha256")
+              .update(canonicalJson(install.manifest))
+              .digest("hex"),
+            catalog: definitionFromManifest(install.manifest)
+              ? catalogView(
+                  definitionFromManifest(install.manifest)!,
+                  true,
+                  catalog.find((plugin) => plugin.key === install.pluginKey)
+                )
+              : undefined,
             id: install.id,
             pluginKey: install.pluginKey,
             version: install.version,
@@ -74,12 +87,13 @@ export class PluginQueries {
           })
         ),
         botCount,
-        policies: policies.map(({ id, connectionId, botId, toolName, decision }) => ({
+        policies: policies.map(({ id, connectionId, botId, toolName, decision, enabled }) => ({
           id,
           connectionId,
           botId,
           toolName,
           decision,
+          enabled,
         })),
         activity: activity.map(
           (entry): PluginActivityView => ({
@@ -334,24 +348,37 @@ export class PluginQueries {
           status: { in: ["ready", "needs_auth", "error"] },
           installation: {
             status: "installed",
+            mode: { not: "disabled" },
             enablements: { some: { botId, enabled: true } },
           },
         },
       },
-      include: { connection: { include: { installation: true } } },
+      include: {
+        connection: {
+          include: {
+            installation: true,
+            policies: { where: { OR: [{ botId: null }, { botId }] } },
+          },
+        },
+      },
       orderBy: { connection: { createdAt: "asc" } },
     });
     return grants.map(({ connection }) => ({
-      name: namespaceName(connection.installation.pluginKey, connection.alias),
+      name: connectionNamespace(connection.id),
       description: `${connection.installation.name}: ${connection.name}${connection.instructions ? `\nSaved instructions: ${connection.instructions}` : ""}`,
       namespaceStatus: statusForRuntime(connection.status),
-      tools: toolSnapshot(connection.toolSnapshot).map((tool) => ({
-        connectionId: connection.id,
-        name: tool.name,
-        description: tool.description,
-        inputSchema: { ...tool.inputSchema },
-        source: `${connection.installation.pluginKey}/${connection.connectorKey}`,
-      })),
+      tools: toolSnapshot(connection.toolSnapshot)
+        .filter(
+          (tool) =>
+            effectiveToolPolicy(connection.policies, tool.name, botId, tool.defaultDecision).enabled
+        )
+        .map((tool) => ({
+          connectionId: connection.id,
+          name: tool.name,
+          description: tool.description,
+          inputSchema: { ...tool.inputSchema },
+          source: `${connection.installation.pluginKey}/${connection.connectorKey}`,
+        })),
     }));
   };
 
@@ -368,9 +395,68 @@ export class PluginQueries {
     const sections = enablements.flatMap(({ installation }) => {
       const plugin = definitionFromManifest(installation.manifest);
       return (plugin?.skills ?? []).map(
-        (skill) => `### ${plugin?.name}: ${skill.name}\n${skill.description}\n\n${skill.body}`
+        (skill) =>
+          `### ${plugin?.name}: ${skill.name}\n${skill.description}\n\n${skill.body}\n\nSupporting files: find pluginId ${JSON.stringify(installation.pluginKey)} and skill ${JSON.stringify(skill.name)} in ${process.env.OPENTEAM_AGENT_DATA_ROOT ?? "/agent-data"}/plugin-skills/cache.json. Resolve relative file links from that SKILL.md directory.`
       );
     });
+    const privateSkills = await this.prisma.pluginPrivateSkill.findMany({
+      where: { enabledBotIds: { array_contains: [botId] } },
+    });
+    sections.push(
+      ...privateSkills.map(
+        (skill) =>
+          `### Private skill: ${skill.name}\n${skill.description}\n\n${skill.body}\n\nSupporting files: find pluginId ${JSON.stringify(`private-${skill.id}`)} in ${process.env.OPENTEAM_AGENT_DATA_ROOT ?? "/agent-data"}/plugin-skills/cache.json and resolve links from its SKILL.md directory.`
+      )
+    );
     return sections.length ? `\n\n## Installed plugin skills\n\n${sections.join("\n\n")}` : "";
   };
+
+  composer = (botId: string) =>
+    serviceEffect(async () => {
+      const [namespaces, enablements, privateSkills] = await Promise.all([
+        this.dynamicNamespaces(botId),
+        this.prisma.botPluginEnablement.findMany({
+          where: {
+            botId,
+            enabled: true,
+            skillsEnabled: true,
+            installation: { status: "installed", mode: { not: "disabled" } },
+          },
+          include: { installation: true },
+        }),
+        this.prisma.pluginPrivateSkill.findMany({
+          where: { enabledBotIds: { array_contains: [botId] } },
+        }),
+      ]);
+      return {
+        items: [
+          ...namespaces.map((namespace) => ({
+            id: namespace.name,
+            label: namespace.description.split("\n")[0]!,
+            handle: namespace.name,
+            trigger: "@" as const,
+            kind: "connection" as const,
+            status: namespace.namespaceStatus,
+          })),
+          ...enablements.flatMap(({ installation }) =>
+            (definitionFromManifest(installation.manifest)?.skills ?? []).map((skill) => ({
+              id: `${installation.id}:${skill.name}`,
+              label: skill.name,
+              handle: `${installation.pluginKey}:${skill.name.toLowerCase().replace(/[^a-z0-9.-]+/g, "-")}`,
+              trigger: "/" as const,
+              kind: "skill" as const,
+              status: installation.skillSyncStatus,
+            }))
+          ),
+          ...privateSkills.map((skill) => ({
+            id: skill.id,
+            label: skill.name,
+            handle: `private:${skill.name.toLowerCase().replace(/[^a-z0-9.-]+/g, "-")}`,
+            trigger: "/" as const,
+            kind: "skill" as const,
+            status: "ready",
+          })),
+        ],
+      };
+    });
 }

@@ -1,8 +1,15 @@
+import { cancelPendingPluginWork } from "./pending-work";
 import { ApiError } from "@openteam/contracts";
+import {
+  fieldsForConnector,
+  substituteConfiguration,
+  validateValues,
+  type ConfigValue,
+} from "@openteam/plugin-sdk";
 import type { PrismaClient } from "@openteam/db";
 import type { PluginDefinition } from "../../plugins/catalog";
 import { appendEvent, serviceEffect, toJson } from "../service-utils";
-import { hasPlaceholder, manifestJson, substituteValues } from "./values";
+import { hasPlaceholder, manifestJson } from "./values";
 
 export class PluginInstallations {
   constructor(
@@ -11,7 +18,7 @@ export class PluginInstallations {
     private readonly syncFileCaches: () => Promise<void>,
     private readonly stopRuntime: (connectionId: string, transport: string) => Promise<void>
   ) {}
-  install = (pluginKey: string, values: Record<string, string> = {}) =>
+  install = (pluginKey: string, values: Record<string, ConfigValue> = {}) =>
     serviceEffect(async () => {
       const plugin = await this.definition(pluginKey);
       if (!plugin) throw new ApiError(404, "plugin_not_found", "Plugin not found");
@@ -46,9 +53,51 @@ export class PluginInstallations {
           });
         }
         for (const connector of plugin.connections) {
-          const endpoint = substituteValues(connector.endpoint, values) as string;
-          const configuration = substituteValues(connector.configuration ?? {}, values);
-          const missingSetup = hasPlaceholder(endpoint) || hasPlaceholder(configuration);
+          const fields = fieldsForConnector(plugin, connector.key);
+          const setupValues = validateValues(
+            fields,
+            Object.fromEntries(
+              Object.entries({
+                ...Object.fromEntries(
+                  fields
+                    .filter((field) => field.default !== undefined)
+                    .map((field) => [field.key, field.default])
+                ),
+                ...values,
+              }).filter(([key]) => fields.some((field) => field.key === key))
+            ),
+            false
+          );
+          const publicValues = Object.fromEntries(
+            Object.entries(setupValues).filter(
+              ([key]) => !fields.some((field) => field.key === key && field.secret)
+            )
+          );
+          const secretValues = Object.fromEntries(
+            Object.entries(setupValues).filter(([key]) =>
+              fields.some((field) => field.key === key && field.secret)
+            )
+          );
+          const endpoint = connector.endpoint;
+          const setup =
+            connector.setup ??
+            (plugin.setup?.connectionKey === connector.key ? plugin.setup : null);
+          const configuration = {
+            ...(setup?.requiredScopes.length ? { scope: setup.requiredScopes.join(" ") } : {}),
+            ...(connector.oauth?.tokenEndpointAuthMethod
+              ? { tokenEndpointAuthMethod: connector.oauth.tokenEndpointAuthMethod }
+              : {}),
+            ...connector.configuration,
+            values: publicValues,
+          };
+          const missingSetup =
+            hasPlaceholder(substituteConfiguration(endpoint, setupValues)) ||
+            hasPlaceholder(substituteConfiguration(configuration, setupValues)) ||
+            fields.some(
+              (field) =>
+                field.required &&
+                (setupValues[field.key] === undefined || setupValues[field.key] === "")
+            );
           const connection = await tx.pluginConnection.create({
             data: {
               installationId: created.id,
@@ -58,7 +107,11 @@ export class PluginInstallations {
               authType: connector.auth,
               endpoint,
               configuration: toJson(configuration),
-              status: connector.auth === "none" && !missingSetup ? "disconnected" : "needs_auth",
+              credentials: toJson({
+                values: secretValues,
+                ...(secretValues.token ? { bearerToken: secretValues.token } : {}),
+              }),
+              status: connector.auth === "none" ? "disconnected" : "needs_auth",
               statusMessage: missingSetup
                 ? "Plugin setup values are required."
                 : connector.auth === "none"
@@ -99,6 +152,7 @@ export class PluginInstallations {
     url?: string;
     command?: string;
     args?: readonly string[];
+    cwd?: string;
     env?: Record<string, string>;
     headers?: Record<string, string>;
     auth?: "none" | "token" | "oauth";
@@ -122,7 +176,11 @@ export class PluginInstallations {
         } catch {
           throw new ApiError(400, "mcp_url_invalid", "MCP URL is invalid");
         }
-        if (!["https:", "http:"].includes(endpoint.protocol)) {
+        if (
+          !["https:", "http:"].includes(endpoint.protocol) ||
+          endpoint.username ||
+          endpoint.password
+        ) {
           throw new ApiError(400, "mcp_url_invalid", "MCP URL must use HTTP or HTTPS");
         }
       }
@@ -130,8 +188,8 @@ export class PluginInstallations {
       const alias = input.alias?.trim() || "default";
       const configuration = {
         ...(command
-          ? { command, args: [...(input.args ?? [])], env: { ...(input.env ?? {}) } }
-          : { headers: { ...(input.headers ?? {}) } }),
+          ? { command, args: [...(input.args ?? [])], ...(input.cwd ? { cwd: input.cwd } : {}) }
+          : {}),
       };
       const pluginKey = `custom-mcp-${crypto.randomUUID()}`;
       const installation = await this.prisma.$transaction(async (tx) => {
@@ -145,6 +203,9 @@ export class PluginInstallations {
               : `Custom MCP server at ${endpoint?.origin ?? "remote endpoint"}`,
             publisher: "Local",
             manifest: toJson({
+              description: "Custom MCP server",
+              category: "MCP",
+              featured: false,
               key: pluginKey,
               version: "0.0.0",
               name,
@@ -156,7 +217,8 @@ export class PluginInstallations {
                   name,
                   transport,
                   auth: authType,
-                  endpoint: endpoint?.toString(),
+                  endpoint: endpoint?.toString() ?? "",
+                  tools: [],
                   configuration,
                 },
               ],
@@ -174,6 +236,7 @@ export class PluginInstallations {
             authType,
             endpoint: endpoint?.toString(),
             configuration: toJson(configuration),
+            credentials: toJson({ headers: input.headers ?? {}, env: input.env ?? {} }),
             status: authType === "oauth" ? "needs_auth" : "disconnected",
             statusMessage: authType === "oauth" ? "Authentication has not been configured." : null,
           },
@@ -209,6 +272,12 @@ export class PluginInstallations {
         include: { connections: { select: { id: true, transport: true } } },
       });
       if (!installation) throw new ApiError(404, "plugin_not_installed", "Plugin not installed");
+      if (installation.mode === "required")
+        throw new ApiError(
+          403,
+          "plugin_required",
+          "Change the workspace installation policy before removing this required plugin"
+        );
       await Promise.all(
         installation.connections.map((connection) =>
           this.stopRuntime(connection.id, connection.transport)
@@ -222,6 +291,10 @@ export class PluginInstallations {
             metadata: { pluginKey },
           },
         });
+        await cancelPendingPluginWork(
+          tx,
+          installation.connections.map((connection) => connection.id)
+        );
         await tx.pluginInstallation.delete({ where: { id: installation.id } });
         await appendEvent(tx, "plugin.uninstalled", installation.id, { pluginKey });
       });

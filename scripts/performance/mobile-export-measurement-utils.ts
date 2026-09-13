@@ -11,10 +11,13 @@ export const MOBILE_EXPORT_BUDGETS = {
   // imports omit the library's XML/CSS parsers and filters (saving 92 KB exact).
   // Measured exports: 4,749,837 B exact / 3,875,148 B source-mapped, roughly
   // 102 KB / 84 KB above the prior history-engine baseline. Keep <0.4% headroom.
-  exactBundleBytes: 4_765_000,
-  mappedBundleBytes: 3_890_000,
+  // Native plugin management plus a shared standards-compliant SKILL.md parser.
+  // Hermes includes the parser in its single bundle: 5,100,031 B exact /
+  // 4,159,808 B mapped. Keep <0.4% headroom; desktop defers it until import.
+  exactBundleBytes: 5_115_000,
+  mappedBundleBytes: 4_175_000,
   metroModules: 2_250,
-  sourceFiles: 1_850,
+  sourceFiles: 1_885,
 } as const;
 
 export interface PackageRetention {

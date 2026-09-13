@@ -1,3 +1,5 @@
+export { parseAutomationEvent, matchesAutomationEvent, type AutomationEvent } from "./automation-events";
+import { join } from "node:path";
 import {
   type AdminBroadcastInput,
   type AgentImageInput,
@@ -9,6 +11,7 @@ import {
   type ReactToMessageInput,
   type RuntimeInlineImage,
   type SendToAgentInput,
+  type ShellCompletionInput,
   type SubagentType,
   TODO_MAX_ITEMS,
   type TranscriptEventView,
@@ -27,7 +30,12 @@ import {
   rotateGroupResponders,
 } from "./group-routing";
 import { appendRoutineRunLedger } from "./routines";
+import {
+  renderPlatformBaseSystemPrompt,
+  renderPlatformRuntimeInstructions,
+} from "./platform-system-prompt";
 import { resolveTimeZone, timestampUserTurn } from "./timestamps";
+import type { PromptSectionReceipt } from "./prompt-sections";
 
 export type { BotFileTarget } from "./agent-data";
 export { AgentDataStore, renderAgentProfileUpdate } from "./agent-data";
@@ -74,6 +82,14 @@ export interface PlatformPrompt {
   todoUpdate: string | null;
   agentProfileSnapshot: AgentPromptContext["profileSnapshot"] | null;
   memorySnapshot: AgentPromptContext["memorySnapshot"];
+  instructionsUpdate?: string | null;
+  ambientContext?: string | null;
+  acknowledgement?: {
+    sections: PromptSectionReceipt[];
+    identity?: AgentPromptContext["identityReceipt"];
+    dismissedMessageIds: string[];
+    outcomeIds?: Array<{ messageId: string; outcomeId: string }>;
+  };
 }
 
 export const renderAgentSkillsUserInfo = (skillRender: string): string =>
@@ -596,6 +612,9 @@ export const validateSendToUserInput = (value: unknown): void => {
     throw new ApiError(400, "invalid_send_to_user", "SendToUser input must be an object");
   }
   const input = value as Record<string, unknown>;
+  if (input.end_turn !== undefined && typeof input.end_turn !== "boolean") {
+    throw new ApiError(400, "invalid_end_turn", "end_turn must be a boolean; nothing was sent");
+  }
   const type = input.type;
   if (!["text", "attachment", "widget", "secret-request"].includes(String(type))) {
     throw new ApiError(400, "unsupported_message_type", "Unsupported SendToUser message type");
@@ -608,7 +627,7 @@ export const validateSendToUserInput = (value: unknown): void => {
   };
   const allowed = fieldsByType[String(type)];
   const invalid = Object.keys(input).filter(
-    (key) => input[key] !== undefined && !allowed?.has(key)
+    (key) => input[key] !== undefined && key !== "end_turn" && !allowed?.has(key)
   );
   if (invalid.length > 0) {
     throw new ApiError(
@@ -712,6 +731,32 @@ export class AgentMessaging {
       );
     }
     return attachments;
+  }
+
+  async completeShell(input: ShellCompletionInput) {
+    return this.prisma.$transaction(async (tx) => {
+      const clientId = `shell-completion:${input.scope}:${input.id}`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${clientId}))`;
+      if (await tx.inboxEvent.findUnique({ where: { idempotencyKey: clientId } })) return { delivered: true, duplicate: true };
+      const bot = await tx.bot.findUnique({ where: { id: input.scope }, include: { subagentIdentity: true } });
+      if (!bot || bot.status !== "active" || bot.subagentIdentity) return { delivered: false, ignored: true };
+      const channel = input.channelId
+        ? await tx.channel.findFirst({ where: { id: input.channelId, archivedAt: null, members: { some: { botId: bot.id } } } })
+        : await tx.channel.findUnique({ where: { directKey: `bot:${bot.id}` } });
+      if (!channel || channel.archivedAt) return { delivered: false, ignored: true };
+      await this.enqueueWake(tx, {
+        botId: bot.id, channelId: channel.id, origin: "background_revival", type: "shell.completed",
+        clientId, priority: 50, wrapUserContent: false,
+        content: [
+          "[SAND_HIDDEN_PROMPT][A background shell command completed]",
+          `Shell ${input.hostShellId ?? input.id} exited with code ${input.exitCode ?? "unknown"}.`,
+          `Output file: ${JSON.stringify(input.outputPath)}. ${input.machineId ? `This is on the user’s computer; use Read or AwaitShell with machineId ${JSON.stringify(input.machineId)}.` : "Read it if the result is needed."}`,
+          input.error ? `Completion diagnostic: ${input.error}` : "",
+          SUBAGENT_REVIVAL_INSTRUCTION,
+        ].filter(Boolean).join("\n\n"),
+      });
+      return { delivered: true };
+    });
   }
 
   async enqueueWake(tx: Prisma.TransactionClient, input: WakeInput) {
@@ -1879,7 +1924,7 @@ export class AgentMessaging {
     return { targetDmChannelId };
   }
 
-  async platformPrompt(botId: string, contextSessionId?: string): Promise<PlatformPrompt> {
+  async platformPrompt(botId: string, contextSessionId?: string, connectorInstructions = ""): Promise<PlatformPrompt> {
     const bot = await this.prisma.bot.findUniqueOrThrow({
       where: { id: botId },
       include: {
@@ -1985,7 +2030,7 @@ export class AgentMessaging {
           FROM "ChannelMessage" AS message
           WHERE message."senderBotId" = ${botId}::uuid
             AND message."sender" = 'agent'::"ChannelMessageSender"
-            AND message."metadata"->>'type' IN ('widget', 'secret-request')
+            AND message."metadata"->>'type' IN ('widget', 'secret-request', 'computer-handoff', 'user-form', 'external-draft', 'review-action')
             AND (
               (
                 message."metadata"->>'type' = 'widget'
@@ -1996,9 +2041,14 @@ export class AgentMessaging {
                 message."metadata"->>'type' = 'secret-request'
                 AND coalesce((message."metadata"->>'secretProvided')::boolean, false) = false
               )
+              OR (message."metadata" ? 'outcomeId' AND coalesce((message."metadata"->>'outcomeEchoed')::boolean, false) = false)
+              OR (
+                message."metadata"->>'type' IN ('user-form', 'external-draft', 'review-action')
+                AND (message."metadata"->>'cardState' = 'pending' OR coalesce((message."metadata"->>'outcomeEchoed')::boolean, false) = false)
+              )
             )
-          ORDER BY message."sequence" DESC
-          LIMIT 20
+          ORDER BY (message."metadata" ? 'outcomeId') DESC, message."sequence" ASC
+          LIMIT 50
         `
         ),
       ]
@@ -2013,12 +2063,17 @@ export class AgentMessaging {
         message.metadata && typeof message.metadata === "object" && !Array.isArray(message.metadata)
           ? (message.metadata as Record<string, unknown>)
           : {};
+      if (metadata.outcomeEchoed === true) return [];
+      if (typeof metadata.outcomeId === "string" && typeof metadata.outcomeText === "string") return [`[Card outcome ${metadata.outcomeId}]\n${metadata.outcomeText}`];
       if (metadata.type === "widget") {
         if (metadata.widgetDismissed === true) {
           dismissedWidgetPrompts.push(message.content);
           return [];
         }
         return [`The user has not answered your question yet: ${JSON.stringify(message.content)}.`];
+      }
+      if (metadata.type === "user-form" || metadata.type === "external-draft" || metadata.type === "review-action") {
+        return [typeof metadata.outcomeText === "string" ? `[Card outcome ${String(metadata.outcomeId)}]\n${metadata.outcomeText}` : `The user has not completed the ${metadata.type === "user-form" ? "form" : "message draft"} yet: ${JSON.stringify(message.content)}. Wait for their response.`];
       }
       return [
         `The user has not provided the requested credential yet: ${JSON.stringify(message.content)}.`,
@@ -2031,13 +2086,6 @@ export class AgentMessaging {
           : {};
       return metadata.type === "widget" && metadata.widgetDismissed === true ? [message.id] : [];
     });
-    if (dismissedIds.length > 0) {
-      await this.prisma.$executeRaw(Prisma.sql`
-        UPDATE "ChannelMessage"
-        SET "metadata" = "metadata" || '{"widgetDismissedEchoed":true}'::jsonb
-        WHERE "id" IN (${Prisma.join(dismissedIds.map((id) => Prisma.sql`${id}::uuid`))})
-      `);
-    }
     const projectContext = projectMemberships.map(
       ({ project }) =>
         `- ${project.name} (${project.slug}): ${project.workingDirectory}${project.description ? ` — ${project.description}` : ""}`
@@ -2046,10 +2094,20 @@ export class AgentMessaging {
       (routine) =>
         `- ${routine.name} (${routine.slug}): ${routine.enabled ? "active" : "paused"}; ${routine.scheduleText}; next ${routine.nextRunAt?.toISOString() ?? "none"}`
     );
+    const frozen = await this.agentData.preparePlatformSections(botId, contextSessionId, agentPrompt.compactionEpoch, {
+      agent_instructions: bot.instructions ? `Additional durable instructions:\n${bot.instructions}` : "",
+      memory: agentPrompt.liveMemoryRender ?? agentPrompt.memoryRender,
+      automations: routineContext.length ? `Scheduled routines:\n${routineContext.join("\n")}` : "You have no scheduled routines.",
+      agent_directory: targets.length
+        ? `Recent and related SendToAgent targets (bounded catalog):\n${targets.join("\n")}\nUse ListAgents or ListGroups for an exact id/name lookup or to discover targets omitted from this catalog.`
+        : "No peer or group targets are currently available.",
+      mcp_instructions: connectorInstructions,
+    });
     const instructions = [
+      frozen.sections.mcp_instructions,
+      renderPlatformBaseSystemPrompt({ feedback: process.env.OPENTEAM_FEEDBACK_ALLOW_AGENT === "true" }),
       agentPrompt.profileSection,
-      bot.instructions ? `Additional durable instructions:\n${bot.instructions}` : "",
-      "SendToUser is your only user-visible voice. Plain assistant text is internal and never appears in OpenTeam chat.",
+      frozen.sections.agent_instructions,
       "Use GetDynamicTools with namespace cursor to discover SendToAgent, ListAgents/ListGroups, TodoWrite, Task/CheckSubagent/MessageSubagent/StopSubagent, CreateAgent/UpdateAgent, and CreateChannel/UpdateChannel. Invoke discovered tools with CallDynamicTool.",
       A2A_PLATFORM_INSTRUCTIONS,
       MAIN_AGENT_GRAPHICAL_DELEGATION_INSTRUCTIONS,
@@ -2059,27 +2117,25 @@ export class AgentMessaging {
         : "The durable task queue is empty.",
       "In a room wake, speak only when you add something useful. Finishing without SendToUser is a valid silent turn.",
       "Use update_state for durable memory, scheduled routines, skills, profile, settings, connector disconnects, projects, and avatars. It is a write API. The current durable state relevant to you is supplied below on every turn.",
-      `Your authoritative, hand-editable durable state is ${this.agentData.root}/agents/${botId}. It contains profile.json, settings.json, an optional canonical avatar.<png|jpg|jpeg|webp|gif|svg> file, Markdown memory, and automation definitions. Saved skills are global to every agent under ${this.agentData.root}/workflows/<slug>/SKILL.md. Global user memory uses independent writer shards under ${this.agentData.root}/user-memory/by-agent. Project memory is under ${this.agentData.root}/projects/<project>/memory/by-agent/${botId}. Valid edits are imported before each turn. Files are the source of truth; deleting a fact line, avatar file, workflow folder, or automation folder deletes that state instead of regenerating it from PostgreSQL.`,
+      renderPlatformRuntimeInstructions({
+        agentDataRoot: this.agentData.root,
+        botId,
+        workingDirectory: bot.defaultDirectory,
+        timeZone: this.defaultTimeZone,
+      }),
       `Your effective settings are hiddenFromSidebar=${bot.hiddenFromSidebar} and notifyOnAgentUpdates=${bot.notificationsEnabled}. Memory dreaming is a host-level experiment, not an agent setting.`,
-      `The computer filesystem is shared. Every agent, room, routine, A2A wake, and subagent starts in ${bot.defaultDirectory}. This shared folder is organizational, not a security boundary.`,
-      `Safe peer-readable transcript mirrors live under /home/box/agent-data/agent-transcripts/<bot-id>/<bot-id>.jsonl. Read one only when a task-relevant reason requires it. They are redacted reference projections, not private model context or raw Pi session history.`,
-      targets.length > 0
-        ? `Recent and related SendToAgent targets (bounded catalog):\n${targets.join("\n")}\nUse ListAgents or ListGroups for an exact id/name lookup or to discover targets omitted from this catalog.`
-        : "No peer or group targets are currently available.",
-      agentPrompt.memoryRender
-        ? `Durable memory. Later sections have higher instructional precedence (own > project > user):\n${agentPrompt.memoryRender}`
+      `Safe peer-readable transcript mirrors live under ${join(this.agentData.root, "agent-transcripts")}/<bot-id>/<bot-id>.jsonl. Read one only when a task-relevant reason requires it. They are redacted reference projections, not private model context or raw Pi session history.`,
+      frozen.sections.agent_directory,
+      frozen.sections.memory
+        ? `Durable memory. Later sections have higher instructional precedence (own > project > user):\n${frozen.sections.memory}`
         : "Durable memory is currently empty.",
       projectContext.length > 0
         ? `Joined projects:\n${projectContext.join("\n")}`
         : "You have not joined any durable projects.",
-      routineContext.length > 0
-        ? `Scheduled routines:\n${routineContext.join("\n")}`
-        : "You have no scheduled routines.",
+      frozen.sections.automations,
       disconnected.length > 0
         ? `Disconnected connector platforms: ${disconnected.map(({ platform }) => platform).join(", ")}`
         : "No connector platform is marked disconnected.",
-      dismissedWidgetPrompts.length > 0 ? buildDismissedQuestionsNote(dismissedWidgetPrompts) : "",
-      richMessagePrompts.length > 0 ? richMessagePrompts.join("\n") : "",
       agentPrompt.warnings.length > 0
         ? `Agent-data filesystem warnings. Invalid settings/skill/automation edits were preserved and fallback values may be active; fix them before relying on those edits:\n${agentPrompt.warnings.map((warning) => `- ${warning}`).join("\n")}`
         : "",
@@ -2089,6 +2145,15 @@ export class AgentMessaging {
     const userInfo = renderAgentSkillsUserInfo(agentPrompt.skillRender);
     return {
       instructions,
+      instructionsUpdate: frozen.update,
+      ambientContext: [
+        dismissedWidgetPrompts.length > 0 ? buildDismissedQuestionsNote(dismissedWidgetPrompts) : "",
+        ...richMessagePrompts,
+      ].filter(Boolean).join("\n\n") || null,
+      acknowledgement: { identity: agentPrompt.identityReceipt, sections: frozen.receipts, dismissedMessageIds: dismissedIds, outcomeIds: pendingRichMessages.flatMap((message) => {
+        const metadata = message.metadata as Record<string, unknown>;
+        return typeof metadata.outcomeId === "string" && typeof metadata.outcomeText === "string" ? [{ messageId: message.id, outcomeId: metadata.outcomeId }] : [];
+      }) },
       agentProfileUpdate: agentPrompt.identityAnnouncement || null,
       userInfo,
       userInfoEpoch: agentPrompt.compactionEpoch,
@@ -2096,6 +2161,31 @@ export class AgentMessaging {
       agentProfileSnapshot: agentPrompt.profileSnapshot,
       memorySnapshot: agentPrompt.memorySnapshot,
     };
+  }
+
+  async acknowledgePlatformPrompt(botId: string, contextSessionId: string | undefined, prompt: PlatformPrompt) {
+    const acknowledgement = prompt.acknowledgement;
+    if (!acknowledgement) return;
+    await this.agentData.acknowledgePlatformSections(botId, contextSessionId, acknowledgement.sections);
+    if (acknowledgement.dismissedMessageIds.length) {
+      await this.prisma.$executeRaw(Prisma.sql`
+        UPDATE "ChannelMessage"
+        SET "metadata" = "metadata" || '{"widgetDismissedEchoed":true}'::jsonb
+        WHERE "senderBotId" = ${botId}::uuid
+          AND "id" IN (${Prisma.join(acknowledgement.dismissedMessageIds.map((id) => Prisma.sql`${id}::uuid`))})
+      `);
+    }
+    if (acknowledgement.identity) await this.agentData.acknowledgeIdentityAnnouncement(botId, contextSessionId, acknowledgement.identity);
+    await this.acknowledgeCardOutcomes(botId, acknowledgement.outcomeIds ?? []);
+  }
+
+  async acknowledgeCardOutcomes(botId: string, receipts: Array<{ messageId: string; outcomeId: string }>) {
+    for (const receipt of receipts) {
+      await this.prisma.$executeRaw(Prisma.sql`
+        UPDATE "ChannelMessage" SET "metadata" = "metadata" || '{"outcomeEchoed":true,"respondedValueEchoed":true}'::jsonb
+        WHERE "senderBotId" = ${botId}::uuid AND "id" = ${receipt.messageId}::uuid AND "metadata"->>'outcomeId' = ${receipt.outcomeId}
+      `);
+    }
   }
 
   async platformInstructions(botId: string, contextSessionId?: string): Promise<string> {
@@ -2518,7 +2608,8 @@ export class AgentMessaging {
           : null;
       if (
         awaitingMetadata &&
-        ["widget", "secret-request", "computer-handoff"].includes(String(awaitingMetadata.type)) &&
+        ["widget", "secret-request", "computer-handoff", "user-form"].includes(String(awaitingMetadata.type)) &&
+        !["submitted", "dismissed", "sent", "failed", "unknown", "draft-created"].includes(String(awaitingMetadata.cardState)) &&
         typeof awaitingMetadata.respondedValue !== "string" &&
         awaitingMetadata.widgetDismissed !== true &&
         awaitingMetadata.secretProvided !== true &&
@@ -2610,6 +2701,9 @@ export class AgentMessaging {
   }
 
   private visibleContent(input: AgentSendToUserInput): string {
+    if (input.type === "review-action") return input.content ?? "Review request";
+    if (input.type === "user-form") return String((input.form as { title: string }).title);
+    if (input.type === "external-draft") return String((input.draft as { subject?: string; target?: string }).subject ?? (input.draft as { target?: string }).target ?? "Review message draft");
     if (input.type === "text") {
       if (!input.content?.trim()) throw new Error("content is required when type is text");
       return input.content;

@@ -69,10 +69,10 @@ describe("routine schedules", () => {
     expect(next).toEqual(new Date("2026-08-28T08:30:00Z"));
   });
 
-  test("accepts interval and weekday routines but rejects event integrations", () => {
-    expect(normalizeRoutineMutationTrigger({ schedule: "@every 1m" }, "UTC")).toMatchObject({
-      trigger: { type: "cron", schedule: "@every 1m" },
-      schedule: { scheduleKind: "interval", intervalSeconds: 60 },
+  test("accepts interval, weekday, event, and mixed listeners", () => {
+    expect(normalizeRoutineMutationTrigger({ schedule: "@every 5m" }, "UTC")).toMatchObject({
+      trigger: { type: "cron", schedule: "@every 5m" },
+      schedule: { scheduleKind: "interval", intervalSeconds: 300 },
     });
     const weekday = normalizeRoutineMutationTrigger(
       {
@@ -98,10 +98,8 @@ describe("routine schedules", () => {
     expect(
       nextRoutineTriggerRun(weekday.trigger, weekday.schedule, new Date("2026-09-02T14:59:00Z"))
     ).toEqual(new Date("2026-09-02T15:00:00Z"));
-    expect(() => normalizeRoutineMutationTrigger({ trigger: { type: "webhook" } }, "UTC")).toThrow(
-      "only support time-based schedules"
-    );
-    expect(() =>
+    expect(normalizeRoutineMutationTrigger({ trigger: { type: "webhook" } }, "UTC")).toMatchObject({ schedule: { scheduleKind: "event" } });
+    expect(
       normalizeRoutineMutationTrigger(
         {
           trigger: {
@@ -114,7 +112,7 @@ describe("routine schedules", () => {
         },
         "UTC"
       )
-    ).toThrow("only support time-based schedules");
+    ).toMatchObject({ schedule: { scheduleKind: "cron" }, trigger: { type: "group" } });
   });
 
   test("matches Bot wall-clock behavior through DST gaps and folds", () => {

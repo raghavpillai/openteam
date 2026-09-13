@@ -59,6 +59,50 @@ const bridge = async (review: "allow" | "block" = "allow") => {
 };
 
 describe("host bridge durable approval protocol", () => {
+  test("awaits an authorized background command without another approval and checks host identity", async () => {
+    const { root, permissionSettings, post } = await bridge();
+    const started = await post("/v1/shell", {
+      command: `"${process.execPath}" -e "console.log('host-ready'); setTimeout(() => process.exit(3), 200)"`,
+      working_directory: root,
+      machineId: "machine-1",
+      localApproval: "allow-once",
+      block_until_ms: 0,
+    });
+    expect(started.status).toBe(200);
+    const { shell_id, output_path } = (await started.json()) as {
+      shell_id: string;
+      output_path: string;
+    };
+    const ready = await post("/v1/await-shell", {
+      shell_id,
+      machineId: "machine-1",
+      pattern: "^host-ready$",
+      block_until_ms: 1_000,
+    });
+    expect(ready.status).toBe(200);
+    expect(await ready.json()).toMatchObject({
+      status: "running",
+      pattern_matched: true,
+      output_path,
+    });
+    const done = await post("/v1/await-shell", {
+      shell_id,
+      machineId: "machine-1",
+      block_until_ms: 1_000,
+    });
+    expect(await done.json()).toMatchObject({ status: "completed", exit_code: 3, output_path });
+    expect((await permissionSettings.read()).localToolPermission).toBe("ask");
+    expect((await post("/v1/await-shell", { shell_id, machineId: "wrong" })).status).toBe(400);
+    expect(
+      (await post("/v1/await-shell", { shell_id: "../unknown", block_until_ms: 0 })).status
+    ).toBe(400);
+    await permissionSettings.update({ localToolPermission: "never" });
+    expect(
+      (await post("/v1/await-shell", { shell_id, machineId: "machine-1", block_until_ms: 0 }))
+        .status
+    ).toBe(403);
+  });
+
   test("does not spawn before one-shot local approval and asks again afterward", async () => {
     const { root, permissionSettings, post } = await bridge();
     const marker = join(root, "allowed.txt");

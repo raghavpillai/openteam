@@ -59,7 +59,7 @@ describe("mobile virtual-list UI parity", () => {
     expect(route).toContain("Delete Bot");
     expect(route).toContain("Turn Off Notifications");
     expect(route).toContain("New Routine");
-    expect(profile).toContain("BOT_AVATAR_SHAPES.map");
+    expect(profile).toContain("ROBOT_AVATAR_SHAPES.map");
     expect(profile).toContain("Reset to default");
     expect(profile).toContain("How this Bot&apos;s mark looks everywhere");
     expect(profile).toContain("routineSummary(routine)");

@@ -14,6 +14,7 @@ export * from "./auth";
 export * from "./async";
 export * from "./client";
 export * from "./events";
+export * from "./external-draft";
 export * from "./http";
 export * from "./plugin-marketplace";
 export * from "./screen";

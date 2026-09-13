@@ -689,7 +689,7 @@ test("live filesystem watchers, snapshots, namespaces, and deletion authority ag
       jsonFile({
         name: "Disk-owned routine",
         prompt: "Validate the disk-owned routine.",
-        schedule: "@every 30s",
+        schedule: "@every 5m",
         enabled: false,
         provenance: "user",
         lastRunAt,
@@ -718,7 +718,7 @@ test("live filesystem watchers, snapshots, namespaces, and deletion authority ag
     expect(routine).toMatchObject({
       enabled: false,
       provenance: "user",
-      intervalSeconds: 30,
+      intervalSeconds: 300,
     });
     expect(routine?.lastRunAt?.getTime()).toBe(lastRunAt);
 
@@ -875,8 +875,8 @@ test("live filesystem watchers, snapshots, namespaces, and deletion authority ag
       version: 1,
       inference: {
         providerId: "openai-codex",
-        modelId: "gpt-5.5",
-        reasoning: "high",
+        modelId: "gpt-5.6-sol",
+        reasoning: "medium",
       },
       mcpBoxServers: [],
       autoUpdateWhenIdleOptIn: false,

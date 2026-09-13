@@ -25,8 +25,8 @@ curl -fsSL https://openteam.so/install | sh
   yes/no question.
 - **Shared workspace.** Every bot, room, routine, and subagent starts in `/workspace`. One bot's
   files are visible to the others immediately.
-- **Routines.** A saved instruction on a schedule (cron, interval, or preset, up to 8 per routine).
-  Runs in the bot's home conversation with full context and keeps a run history.
+- **Routines.** A saved instruction on a schedule (cron, interval, or preset, up to 8 per routine)
+  or a configured event webhook. Runs with full context and keeps a run history.
 - **Teams.** Rooms of you plus up to six bots, replying in ordered rounds. Bots DM each other,
   create teammates, and launch subagents for parallel work: plain execution, computer use, browser
   use, or video review.
@@ -72,10 +72,16 @@ the physical host; keep it running when work needs that bridge.
 4. Events stream back through the worker into PostgreSQL, and the server pushes them to every
    connected app. iPhone gets a push notification when you are away.
 
-Bots see eight built-in tools: `SendToUser`, `ReactToMessage`, `update_state`, `Shell`, `Read`,
-`Screenshot`, `GetDynamicTools`, and `CallDynamicTool`. Everything else (the `Computer` tool,
-messaging other bots, subagents, plugins) is discovered and called through the last two. On-disk
+Bots use built-in tools including `SendToUser`, `ReactToMessage`, `RecallMemory`, `ListSections`,
+`update_state`, `Shell`, `Read`, and `Screenshot`. `GetDynamicTools` and `CallDynamicTool` expose
+additional capabilities including computer use, messaging other bots, subagents and plugins. On-disk
 bot state and tool names use OpenTeam's portable layout, so bot files stay readable across hosts.
+
+The harness also supports shell completion waits, memory recall, binary host transfers, web
+search/fetch, reviewed forms and external drafts, and bot template sharing. Configure search with
+[Exa, Tavily, Brave, or Bing via SerpApi](docs/web-search.md). See
+[platform prompt and tool compatibility](docs/platform-system-prompt.md) for the implemented
+non-cloud behavior, deployment settings, and verification limits.
 
 State lives in PostgreSQL plus five other Docker volumes: computer home (Pi sessions, credentials,
 browser profiles), agent data, assets, workspace, and the snapshot store. A restart resumes
@@ -136,6 +142,8 @@ to your PATH); add the directory to `PATH` if your shell does not already includ
 | Per-bot files on the computer | Profile, memory, routines, skills, avatar | The apps, the bot itself via `update_state`, or edit the files by hand |
 
 Every setting, file, and environment variable: **[docs/settings.md](docs/settings.md)**.
+
+Plugin setup, multiple accounts, and package development: **[docs/plugins.md](docs/plugins.md)**.
 
 ## Develop from source
 

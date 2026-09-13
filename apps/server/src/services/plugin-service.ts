@@ -1,4 +1,5 @@
-import type { ConfigurePluginConnectionInput } from "@openteam/contracts";
+import { cancelPendingPluginWork } from "./plugin/pending-work";
+import type { ConfigurePluginConnectionInput, PluginTestInput } from "@openteam/contracts";
 import { ApiError } from "@openteam/contracts";
 import type { Prisma, PrismaClient } from "@openteam/db";
 import type { AgentDataStore } from "@openteam/messaging";
@@ -6,6 +7,9 @@ import { Effect } from "effect";
 import type { PluginDefinition, PluginToolDefinition } from "../plugins/catalog";
 import { McpHttpClientManager } from "../plugins/mcp-client-manager";
 import { OpenTeamMarketplaceSource } from "../plugins/openteam-marketplace";
+import { PluginManagement } from "./plugin/management";
+import { PluginConfiguration } from "./plugin/configuration";
+import { fieldsForConnector, validateValues, type ConfigValue } from "@openteam/plugin-sdk";
 import { PluginAccess } from "./plugin/access";
 import { PluginConnectors } from "./plugin/connectors";
 import { PluginInstallations } from "./plugin/installations";
@@ -13,6 +17,12 @@ import { PluginInvocations } from "./plugin/invocations";
 import { PluginQueries } from "./plugin/queries";
 import { PluginTransport } from "./plugin/transport";
 import {
+  connectionConfigured,
+  runtimeConfiguration,
+  runtimeEndpoint,
+  redactConnectionSecrets,
+  canonicalJson,
+  hasPlaceholder,
   definitionFromManifest,
   jsonObject,
   redact,
@@ -20,6 +30,7 @@ import {
   stringRecord,
   toolSnapshot,
   validAlias,
+  validateJsonSchema,
 } from "./plugin/values";
 import { appendEvent, forwardServiceMethod, serviceEffect, toJson } from "./service-utils";
 
@@ -29,6 +40,8 @@ export class PluginService {
   private readonly connectors: PluginConnectors;
 
   private readonly access: PluginAccess;
+  readonly configuration: PluginConfiguration;
+  readonly management: PluginManagement;
 
   private readonly installations: PluginInstallations;
 
@@ -37,6 +50,9 @@ export class PluginService {
   private readonly queries: PluginQueries;
 
   private readonly http = new McpHttpClientManager();
+  private healthTimer?: ReturnType<typeof setInterval>;
+  private healthCheckRunning = false;
+
   private readonly marketplace = new OpenTeamMarketplaceSource();
   private readonly publicUrl =
     process.env.OPENTEAM_PUBLIC_URL ?? `http://127.0.0.1:${process.env.OPENTEAM_PORT ?? "8787"}`;
@@ -49,6 +65,13 @@ export class PluginService {
       "syncPluginSkillCache" | "writeConnectorSecret"
     >
   ) {
+    this.management = new PluginManagement(
+      prisma,
+      () => this.marketplace.plugins(),
+      (key) => Effect.runPromise(this.install(key)),
+      () => this.syncFileCaches(),
+      (id, transport) => this.stopRuntime(id, transport)
+    );
     this.queries = new PluginQueries(
       prisma,
       () => this.catalog(),
@@ -66,6 +89,14 @@ export class PluginService {
     );
 
     this.access = new PluginAccess(prisma);
+    this.configuration = new PluginConfiguration(prisma, this.publicUrl, (id, transport) =>
+      this.stopRuntime(id, transport)
+    );
+    this.http.onToolsChanged = async (id, tools) => {
+      const connection = await this.connectionOrThrow(id);
+      if (connection.status === "ready")
+        await this.markReady(connection, tools, "connection.tools_changed");
+    };
 
     this.connectors = new PluginConnectors(
       prisma,
@@ -76,6 +107,12 @@ export class PluginService {
     );
 
     this.invocations = new PluginInvocations(prisma, (...args) => this.executeInvocation(...args));
+    if (computerFetch) {
+      this.healthTimer = setInterval(() => {
+        void this.refreshLocalConnections();
+      }, 15_000);
+      this.healthTimer.unref();
+    }
   }
 
   storeConnectorSecret = forwardServiceMethod(() => this.connectors.storeConnectorSecret);
@@ -88,31 +125,70 @@ export class PluginService {
       where: { status: "installed" },
       orderBy: { installedAt: "asc" },
     });
-    await this.agentData.syncPluginSkillCache(
-      installations.flatMap((installation) => {
-        const plugin = definitionFromManifest(installation.manifest);
-        if (!plugin) return [];
-        return [
-          {
-            id: plugin.key,
-            name: plugin.name,
-            version: plugin.version,
-            publisher: plugin.publisher,
-            skills: plugin.skills,
-          },
-        ];
-      })
-    );
+    try {
+      const privateSkills = await this.prisma.pluginPrivateSkill.findMany();
+      await this.agentData.syncPluginSkillCache([
+        ...installations.flatMap((installation) => {
+          const plugin = definitionFromManifest(installation.manifest);
+          if (!plugin) return [];
+          return [
+            {
+              id: plugin.key,
+              name: plugin.name,
+              version: plugin.version,
+              publisher: plugin.publisher,
+              skills: plugin.skills,
+              files: plugin.files,
+              binaryFiles: plugin.binaryFiles,
+            },
+          ];
+        }),
+        ...privateSkills.map((skill) => ({
+          id: `private-${skill.id}`,
+          name: skill.name,
+          version: skill.updatedAt.toISOString(),
+          publisher: "Private",
+          skills: [
+            {
+              name: skill.name,
+              description: skill.description,
+              body: skill.body,
+              path: "skills/private",
+            },
+          ],
+          files: Object.fromEntries(
+            Object.entries(stringRecord(skill.files)).map(([path, content]) => [
+              `skills/private/${path}`,
+              content,
+            ])
+          ),
+        })),
+      ]);
+      await this.prisma.pluginInstallation.updateMany({
+        where: { id: { in: installations.map((entry) => entry.id) } },
+        data: { skillSyncStatus: "ready", skillSyncError: null },
+      });
+    } catch (error) {
+      await this.prisma.pluginInstallation.updateMany({
+        where: { id: { in: installations.map((entry) => entry.id) } },
+        data: {
+          skillSyncStatus: "error",
+          skillSyncError:
+            error instanceof Error ? error.message.slice(0, 2000) : "Skill sync failed",
+        },
+      });
+    }
   };
 
   private catalog = async (): Promise<PluginDefinition[]> => {
-    return this.marketplace.plugins();
+    return this.management.catalog();
   };
 
   private definition = async (pluginKey: string): Promise<PluginDefinition | undefined> =>
     (await this.catalog()).find((plugin) => plugin.key === pluginKey);
 
   settings = forwardServiceMethod(() => this.queries.settings);
+  composer = forwardServiceMethod(() => this.queries.composer);
 
   pollConnectionStatuses = forwardServiceMethod(() => this.queries.pollConnectionStatuses);
 
@@ -232,74 +308,129 @@ export class PluginService {
     throw new ApiError(400, "plugin_action_unknown", `Unknown plugin action ${action}`);
   };
 
-  install = (pluginKey: string, values: Record<string, string> = {}) =>
+  install = (pluginKey: string, values: Record<string, ConfigValue> = {}) =>
     this.installations.install(pluginKey, values);
 
   addCustomMcp = forwardServiceMethod(() => this.installations.addCustomMcp);
 
   uninstall = forwardServiceMethod(() => this.installations.uninstall);
 
-  configure = (connectionId: string, input: ConfigurePluginConnectionInput) =>
+  testTool = (connectionId: string, input: PluginTestInput) =>
     serviceEffect(async () => {
-      const connection = await this.prisma.pluginConnection.findUnique({
-        where: { id: connectionId },
+      const connection = await this.connectionOrThrow(connectionId);
+      if (connection.status !== "ready" || connection.installation.status !== "installed")
+        throw new ApiError(
+          409,
+          "plugin_connection_not_ready",
+          "Connect this account before testing tools"
+        );
+      const tool = toolSnapshot(connection.toolSnapshot).find(
+        (entry) => entry.name === input.toolName
+      );
+      if (!tool) throw new ApiError(404, "plugin_tool_not_found", "Tool not found");
+      const policy = await this.prisma.pluginToolPolicy.findFirst({
+        where: { connectionId, botId: null, toolName: tool.name },
       });
-      if (!connection) throw new ApiError(404, "connection_not_found", "Connection not found");
-      await this.stopRuntime(connectionId, connection.transport);
-      const configuration = jsonObject(connection.configuration);
-      const credentials = jsonObject(connection.credentials);
-      const nextConfiguration = {
-        ...configuration,
-        ...(input.headers ? { headers: input.headers } : {}),
-        ...(input.clientId ? { clientId: input.clientId } : {}),
-        ...(input.clientSecret !== undefined ? { clientSecret: input.clientSecret } : {}),
-        ...(input.scope !== undefined ? { scope: input.scope } : {}),
-      };
-      const nextCredentials = {
-        ...credentials,
-        ...(input.token ? { bearerToken: input.token } : {}),
-      };
-      await this.http.close(connectionId);
-      const updated = await this.prisma.pluginConnection.update({
-        where: { id: connectionId },
+      if (policy?.enabled === false || policy?.decision === "deny")
+        throw new ApiError(
+          403,
+          "plugin_tool_denied",
+          "Enable this tool and allow testing before running it"
+        );
+      if (tool.risk !== "read" && input.confirmSideEffect !== true)
+        throw new ApiError(
+          409,
+          "plugin_test_confirmation_required",
+          "Review and confirm this tool's possible side effects before testing"
+        );
+      validateJsonSchema(tool.inputSchema, input.arguments);
+      const result = await this.transport.testConnection(connection, tool.name, input.arguments);
+      await this.prisma.pluginActivity.create({
         data: {
-          configuration: toJson(nextConfiguration),
-          credentials: toJson(nextCredentials),
-          status: "disconnected",
-          statusMessage: null,
+          installationId: connection.installationId,
+          connectionId,
+          kind: "tool.tested",
+          summary: `Tested ${tool.name} from plugin settings`,
         },
       });
-      return { id: updated.id, configured: true };
+      return { result };
+    });
+
+  configure = (connectionId: string, input: ConfigurePluginConnectionInput) =>
+    this.configuration.save(connectionId, {
+      values: {
+        ...(input.clientId !== undefined ? { clientId: input.clientId } : {}),
+        ...(input.scope !== undefined ? { scope: input.scope } : {}),
+      },
+      secrets: {
+        ...(input.token ? { token: { action: "replace" as const, value: input.token } } : {}),
+        ...(input.clientSecret !== undefined
+          ? {
+              clientSecret: input.clientSecret
+                ? { action: "replace" as const, value: input.clientSecret }
+                : { action: "clear" as const },
+            }
+          : {}),
+      },
+      ...(input.headers ? { headers: input.headers } : {}),
     });
 
   authenticate = (connectionId: string, force = false) =>
     serviceEffect(async () => {
       const connection = await this.connectionOrThrow(connectionId);
-      if (connection.transport !== "http" || connection.authType !== "oauth") {
+      this.assertAvailable(connection);
+      this.validateConfiguration(connection);
+      if (!["http", "stdio"].includes(connection.transport) || connection.authType !== "oauth") {
         throw new ApiError(409, "plugin_oauth_unsupported", "This connection does not use OAuth");
       }
       const current = jsonObject(connection.credentials);
-      const oauth = force ? {} : jsonObject(current.oauth);
+      const previousOAuth = jsonObject(current.oauth);
+      const oauth =
+        !force && previousOAuth.clientInformation
+          ? { clientInformation: previousOAuth.clientInformation }
+          : {};
       const state = crypto.randomUUID();
-      const next = { ...current, oauth: { ...oauth, state } };
-      await this.prisma.pluginConnection.update({
-        where: { id: connectionId },
+      const next = {
+        ...current,
+        oauth: {
+          ...oauth,
+          state,
+          stateCreatedAt: Date.now(),
+          stateGeneration: connection.runtimeGeneration + 1,
+        },
+      };
+      const started = await this.prisma.pluginConnection.updateMany({
+        where: { id: connectionId, runtimeGeneration: connection.runtimeGeneration },
         data: {
           credentials: toJson(next),
+          runtimeGeneration: { increment: 1 },
           status: "needs_auth",
           statusMessage: "Waiting for authorization in your browser.",
           lastCheckedAt: new Date(),
         },
       });
+      if (!started.count)
+        throw new ApiError(
+          409,
+          "plugin_oauth_session_changed",
+          "Connection changed; try authorization again"
+        );
       const refreshed = await this.connectionOrThrow(connectionId);
-      const options = this.httpOptions(refreshed);
       let result: { authorizationUrl: string };
       try {
-        result = await this.http.beginOAuth(connectionId, options);
+        result =
+          refreshed.transport === "stdio"
+            ? await this.transport.beginStdioOAuth(refreshed)
+            : await this.http.beginOAuth(connectionId, this.httpOptions(refreshed));
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        await this.prisma.pluginConnection.update({
-          where: { id: connectionId },
+        const message = String(
+          redactConnectionSecrets(
+            error instanceof Error ? error.message : String(error),
+            connection
+          )
+        );
+        await this.prisma.pluginConnection.updateMany({
+          where: { id: connectionId, runtimeGeneration: refreshed.runtimeGeneration },
           data: {
             status: "needs_auth",
             statusMessage: message.includes("dynamic client registration")
@@ -307,7 +438,7 @@ export class PluginService {
               : message,
           },
         });
-        throw error;
+        throw new ApiError(409, "plugin_oauth_failed", message);
       }
       await this.prisma.pluginActivity.create({
         data: {
@@ -323,39 +454,118 @@ export class PluginService {
   finishAuthentication = (connectionId: string, code: string, state: string) =>
     serviceEffect(async () => {
       const connection = await this.connectionOrThrow(connectionId);
+      this.assertAvailable(connection);
       const oauth = jsonObject(jsonObject(connection.credentials).oauth);
-      if (!oauth.state || oauth.state !== state) {
+      if (
+        !oauth.state ||
+        oauth.state !== state ||
+        oauth.stateGeneration !== connection.runtimeGeneration ||
+        (typeof oauth.stateCreatedAt === "number" &&
+          Date.now() - oauth.stateCreatedAt > 15 * 60_000)
+      ) {
         throw new ApiError(400, "plugin_oauth_state_invalid", "OAuth state did not match");
       }
-      const tools = await this.http.finishOAuth(connectionId, this.httpOptions(connection), code);
+      let tools: PluginToolDefinition[];
+      try {
+        tools =
+          connection.transport === "stdio"
+            ? await this.transport.finishStdioOAuth(connection, code)
+            : await this.http.finishOAuth(connectionId, this.httpOptions(connection), code);
+      } catch (error) {
+        const latest = await this.connectionOrThrow(connectionId);
+        const authorized = Boolean(jsonObject(jsonObject(latest.credentials).oauth).tokens);
+        const detail = String(
+          redactConnectionSecrets(error instanceof Error ? error.message : String(error), latest)
+        ).slice(0, 1500);
+        await this.prisma.pluginConnection.updateMany({
+          where: { id: connectionId, runtimeGeneration: connection.runtimeGeneration },
+          data: {
+            status: authorized ? "error" : "needs_auth",
+            statusMessage: authorized
+              ? `Authorization succeeded, but tool discovery failed: ${detail}`
+              : `Authorization failed: ${detail}`,
+          },
+        });
+        throw error;
+      }
       await this.markReady(connection, tools, "connection.oauth_completed");
       return { connectionId, status: "ready", toolCount: tools.length };
+    });
+
+  cancelAuthentication = (connectionId: string, state: string) =>
+    serviceEffect(async () => {
+      const connection = await this.connectionOrThrow(connectionId);
+      const credentials = jsonObject(connection.credentials);
+      const oauth = jsonObject(credentials.oauth);
+      if (!state || oauth.state !== state || oauth.stateGeneration !== connection.runtimeGeneration)
+        throw new ApiError(400, "plugin_oauth_state_invalid", "OAuth state did not match");
+      delete oauth.state;
+      delete oauth.stateCreatedAt;
+      delete oauth.stateGeneration;
+      delete oauth.authorizationUrl;
+      delete oauth.codeVerifier;
+      const cancelled = await this.prisma.pluginConnection.updateMany({
+        where: { id: connectionId, runtimeGeneration: connection.runtimeGeneration },
+        data: {
+          runtimeGeneration: { increment: 1 },
+          credentials: toJson({ ...credentials, oauth }),
+          status: "needs_auth",
+          statusMessage: "Authorization was cancelled. You can try again when ready.",
+        },
+      });
+      if (!cancelled.count)
+        throw new ApiError(
+          409,
+          "plugin_oauth_session_changed",
+          "A newer authorization attempt replaced this session"
+        );
+      return { cancelled: true };
     });
 
   connect = (connectionId: string) =>
     serviceEffect(async () => {
       const connection = await this.connectionOrThrow(connectionId);
+      this.assertAvailable(connection);
+      this.validateConfiguration(connection);
       if (connection.authType === "oauth") {
         const oauth = jsonObject(jsonObject(connection.credentials).oauth);
         if (!oauth.tokens) return Effect.runPromise(this.authenticate(connectionId));
       }
-      if (
-        connection.authType === "token" &&
-        !jsonObject(connection.credentials).bearerToken &&
-        Object.keys(stringRecord(jsonObject(connection.configuration).headers)).length === 0
-      ) {
+      if (connection.authType === "token" && !connectionConfigured(connection)) {
         await this.prisma.pluginConnection.update({
           where: { id: connectionId },
           data: { status: "needs_auth", statusMessage: "Add a token or request headers first." },
         });
         throw new ApiError(409, "plugin_token_required", "This connector needs a token or headers");
       }
+
       let tools = toolSnapshot(connection.toolSnapshot);
-      if (connection.transport === "http") {
-        if (!connection.endpoint) throw new Error("Connection endpoint is missing");
-        tools = await this.http.discover(connectionId, this.httpOptions(connection));
-      } else if (connection.transport === "stdio") {
-        tools = await this.discoverStdio(connection);
+      try {
+        if (connection.transport === "http") {
+          if (!connection.endpoint) throw new Error("Connection endpoint is missing");
+          tools = await this.http.discover(connectionId, this.httpOptions(connection));
+        } else if (connection.transport === "stdio") {
+          tools = await this.discoverStdio(connection);
+        }
+      } catch (error) {
+        const raw = error instanceof Error ? error.message : String(error);
+        const message = String(redactConnectionSecrets(raw, connection)).slice(0, 1500);
+        const authFailure =
+          connection.authType !== "none" &&
+          /401|403|unauthoriz|invalid.token|invalid.grant/i.test(message);
+        await this.prisma.pluginConnection.updateMany({
+          where: { id: connectionId, runtimeGeneration: connection.runtimeGeneration },
+          data: {
+            status: authFailure ? "needs_auth" : "error",
+            statusMessage: `${authFailure ? "Authentication failed" : connection.transport === "stdio" ? "Local runtime unavailable" : "Tool discovery failed"}: ${message}`,
+            lastCheckedAt: new Date(),
+          },
+        });
+        throw new ApiError(
+          authFailure ? 401 : 503,
+          authFailure ? "plugin_auth_failed" : "plugin_runtime_failed",
+          message
+        );
       }
       const updated = await this.markReady(connection, tools);
       return { id: updated.id, status: updated.status, toolCount: tools.length };
@@ -367,10 +577,16 @@ export class PluginService {
         where: { id: connectionId },
       });
       if (!connection) throw new ApiError(404, "connection_not_found", "Connection not found");
+      await this.stopRuntime(connectionId, connection.transport);
       await this.prisma.$transaction(async (tx) => {
         await tx.pluginConnection.update({
           where: { id: connectionId },
-          data: { status: "disconnected", statusMessage: null, connectedAt: null },
+          data: {
+            status: "disconnected",
+            statusMessage: null,
+            connectedAt: null,
+            runtimeGeneration: { increment: 1 },
+          },
         });
         await tx.pluginActivity.create({
           data: {
@@ -397,6 +613,7 @@ export class PluginService {
       }
       const source = await this.prisma.pluginConnection.findUnique({
         where: { id: connectionId },
+        include: { installation: true },
       });
       if (!source) throw new ApiError(404, "connection_not_found", "Connection not found");
       const duplicate = await this.prisma.pluginConnection.findUnique({
@@ -411,6 +628,14 @@ export class PluginService {
       if (duplicate) {
         throw new ApiError(409, "connection_alias_exists", "That account alias already exists");
       }
+      const connectorDefinition = definitionFromManifest(
+        source.installation.manifest
+      )?.connections.find((entry) => entry.key === source.connectorKey);
+      const sharedClient =
+        connectorDefinition?.oauth?.shareClientCredentials === true
+          ? (jsonObject(source.credentials).clientSecret ??
+            jsonObject(source.configuration).clientSecret)
+          : undefined;
       const account = await this.prisma.$transaction(async (tx) => {
         const created = await tx.pluginConnection.create({
           data: {
@@ -421,7 +646,15 @@ export class PluginService {
             transport: source.transport,
             authType: source.authType,
             endpoint: source.endpoint,
-            configuration: toJson(jsonObject(source.configuration)),
+            configuration: toJson({
+              ...connectorDefinition?.configuration,
+              ...Object.fromEntries(
+                Object.entries(jsonObject(source.configuration)).filter(
+                  ([key]) => !["headers", "env", "clientSecret", "values"].includes(key)
+                )
+              ),
+            }),
+            credentials: toJson(sharedClient ? { clientSecret: sharedClient } : {}),
             status: source.authType === "none" ? "disconnected" : "needs_auth",
             statusMessage:
               source.authType === "none" ? null : "Authentication has not been configured.",
@@ -474,6 +707,7 @@ export class PluginService {
   removeAccount = (connectionId: string) =>
     serviceEffect(async () => {
       const connection = await this.connectionOrThrow(connectionId);
+      await this.prisma.$transaction((tx) => cancelPendingPluginWork(tx, [connectionId]));
       const siblings = await this.prisma.pluginConnection.count({
         where: {
           installationId: connection.installationId,
@@ -487,12 +721,21 @@ export class PluginService {
           data: {
             alias: "default",
             credentials: toJson({}),
+            configuration: toJson(
+              Object.fromEntries(
+                Object.entries(jsonObject(connection.configuration)).filter(
+                  ([key]) => !["env", "headers", "clientSecret", "values"].includes(key)
+                )
+              )
+            ),
             status: connection.authType === "none" ? "disconnected" : "needs_auth",
+            runtimeGeneration: { increment: 1 },
             statusMessage:
               connection.authType === "none" ? null : "Authentication has not been configured.",
             connectedAt: null,
           },
         });
+        await this.prisma.botPluginConnectionGrant.deleteMany({ where: { connectionId } });
         return { removed: true, reset: true };
       }
       await this.stopRuntime(connectionId, connection.transport);
@@ -537,7 +780,10 @@ export class PluginService {
 
   dynamicNamespaces = forwardServiceMethod(() => this.queries.dynamicNamespaces);
 
-  invoke = forwardServiceMethod(() => this.invocations.invoke);
+  invoke = (request: Parameters<PluginInvocations["invoke"]>[0]) => this.invocations.invoke(request);
+
+  /** Only human review-card endpoints call this; never exposed through PluginCall. */
+  invokeReviewed = (request: Parameters<PluginInvocations["invoke"]>[0]) => this.invocations.invoke(request, true);
 
   resolveInvocation = forwardServiceMethod(() => this.invocations.resolveInvocation);
 
@@ -548,6 +794,7 @@ export class PluginService {
   skillInstructions = forwardServiceMethod(() => this.queries.skillInstructions);
 
   close = async (): Promise<void> => {
+    clearInterval(this.healthTimer);
     await this.http.closeAll();
   };
 
@@ -576,16 +823,35 @@ export class PluginService {
       id: string;
       installationId: string;
       name: string;
+      runtimeGeneration: number;
       installation: { pluginKey: string };
     },
     tools: PluginToolDefinition[],
     activityKind = "connection.ready"
   ) {
     return this.prisma.$transaction(async (tx) => {
-      await tx.pluginToolPolicy.deleteMany({ where: { connectionId: connection.id, botId: null } });
-      if (tools.length) {
+      await tx.$queryRaw`SELECT id FROM "PluginConnection" WHERE id = ${connection.id}::uuid FOR UPDATE`;
+      const current = await tx.pluginConnection.findUnique({
+        where: { id: connection.id },
+        include: { installation: true },
+      });
+      if (!current || current.runtimeGeneration !== connection.runtimeGeneration)
+        throw new ApiError(
+          409,
+          "plugin_connection_changed",
+          "Connection setup changed while connecting. Try again with the current settings."
+        );
+      this.assertAvailable(current);
+      const saved = await tx.pluginToolPolicy.findMany({
+        where: { connectionId: connection.id, botId: null },
+        select: { toolName: true },
+      });
+      const newTools = tools.filter(
+        (tool) => !saved.some((policy) => policy.toolName === tool.name)
+      );
+      if (newTools.length) {
         await tx.pluginToolPolicy.createMany({
-          data: tools.map((candidate) => ({
+          data: newTools.map((candidate) => ({
             connectionId: connection.id,
             toolName: candidate.name,
             decision: candidate.defaultDecision,
@@ -617,6 +883,106 @@ export class PluginService {
       });
       return value;
     });
+  }
+
+  private assertAvailable(connection: { installation: { mode: string; status: string } }) {
+    if (
+      connection.installation.mode === "disabled" ||
+      connection.installation.status !== "installed"
+    )
+      throw new ApiError(403, "plugin_disabled", "This plugin is disabled by workspace policy");
+  }
+
+  private validateConfiguration(connection: {
+    connectorKey: string;
+    endpoint: string | null;
+    configuration: Prisma.JsonValue;
+    credentials: Prisma.JsonValue;
+    installation: { manifest: Prisma.JsonValue };
+  }) {
+    const plugin = definitionFromManifest(connection.installation.manifest);
+    const config = runtimeConfiguration(connection);
+    const credentials = jsonObject(connection.credentials);
+    if (plugin) {
+      const values = {
+        ...jsonObject(config.values),
+        ...jsonObject(credentials.values),
+        ...(credentials.bearerToken ? { token: credentials.bearerToken } : {}),
+        ...(config.clientId ? { clientId: config.clientId } : {}),
+        ...(config.clientSecret ? { clientSecret: config.clientSecret } : {}),
+        ...(config.scope ? { scope: config.scope } : {}),
+      };
+      const fields = fieldsForConnector(plugin, connection.connectorKey);
+      try {
+        validateValues(
+          fields,
+          Object.fromEntries(
+            Object.entries(values).filter(([key]) => fields.some((field) => field.key === key))
+          )
+        );
+      } catch (error) {
+        throw new ApiError(
+          409,
+          "plugin_configuration_required",
+          error instanceof Error ? error.message : "Complete connection setup"
+        );
+      }
+    }
+    if (hasPlaceholder(config) || hasPlaceholder(runtimeEndpoint(connection)))
+      throw new ApiError(
+        409,
+        "plugin_configuration_required",
+        "Complete the connection setup fields first"
+      );
+  }
+
+  private async refreshLocalConnections(): Promise<void> {
+    if (this.healthCheckRunning) return;
+    this.healthCheckRunning = true;
+    try {
+      const connections = await this.prisma.pluginConnection.findMany({
+        where: {
+          transport: "stdio",
+          installation: { status: "installed", mode: { not: "disabled" } },
+          OR: [
+            { status: "ready" },
+            { status: "error", statusMessage: { startsWith: "Local runtime unavailable:" } },
+          ],
+        },
+        include: { installation: true },
+      });
+      for (const connection of connections) {
+        try {
+          const tools = await this.discoverStdio(connection);
+          const current = await this.connectionOrThrow(connection.id);
+          if (current.updatedAt.getTime() !== connection.updatedAt.getTime()) continue;
+          if (
+            current.status !== "ready" ||
+            canonicalJson(tools) !== canonicalJson(current.toolSnapshot)
+          )
+            await this.markReady(current, tools, "connection.tools_changed");
+        } catch (error) {
+          const message = String(
+            redactConnectionSecrets(
+              error instanceof Error ? error.message : String(error),
+              connection
+            )
+          );
+          await this.prisma.pluginConnection.updateMany({
+            where: { id: connection.id, updatedAt: connection.updatedAt },
+            data: {
+              status: "error",
+              statusMessage: `Local runtime unavailable: ${message.slice(0, 1500)}`,
+              lastCheckedAt: new Date(),
+            },
+          });
+        }
+      }
+    } catch {
+      /* A transient database outage is retried on the next health check. */
+    } finally {
+      this.healthCheckRunning = false;
+    }
   }
 
   private async discoverStdio(connection: {

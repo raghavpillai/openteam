@@ -18,15 +18,21 @@ describe("tool schema extraction parity", () => {
     const unused = async (): Promise<never> => {
       throw new Error("catalog construction must not execute a tool");
     };
-    const catalog = dynamicCatalog(unused, unused, unused, {
-      runtimeProfile: "agent",
-      pluginNamespaces: [],
-    } as unknown as ActiveTurn).map((namespace) => ({
+    const catalog = dynamicCatalog(
+      unused,
+      unused,
+      unused,
+      {
+        runtimeProfile: "agent",
+        pluginNamespaces: [],
+      } as unknown as ActiveTurn,
+      unused
+    ).map((namespace) => ({
       ...namespace,
       tools: namespace.tools.map(({ execute, decodeArguments, ...tool }) => tool),
     }));
     expect(digest(catalog)).toBe(
-      "4be3ad704092cc60e6d810c1003719fa2ad3d6bf670fb66e45fb5c7988c8ba6b"
+      "b0431bb61cb442db5a961f69c84f084dd49d3a937b274504547bc50eacf0b26d"
     );
   });
 

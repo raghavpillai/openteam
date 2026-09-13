@@ -1,0 +1,86 @@
+{
+  "key": "google-calendar",
+  "version": "1.2.1",
+  "name": "Google Calendar",
+  "description": "Search events and schedule meetings.",
+  "publisher": "OpenTeam",
+  "category": "Scheduling",
+  "featured": true,
+  "components": [
+    "mcp"
+  ],
+  "homepageUrl": "https://developers.google.com/workspace/calendar/api/guides/overview",
+  "setup": {
+    "kind": "oauth_client",
+    "connectionKey": "calendar",
+    "title": "Connect Google Calendar",
+    "description": "Enable the Google Calendar API and configure a Google OAuth web client, then sign in. No Developer Preview enrollment is required.",
+    "documentationUrl": "https://developers.google.com/workspace/guides/create-credentials",
+    "steps": [
+      "Create or select a Google Cloud project and enable the Google Calendar API.",
+      "Configure an External OAuth consent screen and add your Google accounts as test users while the app is in Testing.",
+      "Create a Web application OAuth client and register the callback URL shown below for each OpenTeam account.",
+      "Save the client ID and secret here, then choose the Google account to authorize."
+    ],
+    "fields": [
+      {
+        "key": "clientId",
+        "label": "OAuth client ID",
+        "placeholder": "Paste the client ID",
+        "required": true,
+        "secret": false,
+        "helpText": null
+      },
+      {
+        "key": "clientSecret",
+        "label": "OAuth client secret",
+        "placeholder": "Paste the client secret",
+        "required": true,
+        "secret": true,
+        "helpText": "Stored by your self-hosted OpenTeam server and never returned to the desktop app."
+      }
+    ],
+    "requiredScopes": [
+      "https://www.googleapis.com/auth/calendar.calendarlist.readonly",
+      "https://www.googleapis.com/auth/calendar.events.freebusy",
+      "https://www.googleapis.com/auth/calendar.events.readonly",
+      "https://www.googleapis.com/auth/calendar.events"
+    ],
+    "dashboardUrl": "https://console.cloud.google.com/auth/clients"
+  },
+  "skills": [],
+  "connections": [
+    {
+      "key": "calendar",
+      "name": "Google Calendar",
+      "transport": "stdio",
+      "auth": "oauth",
+      "endpoint": "",
+      "tools": [],
+      "oauth": {
+        "clientType": "confidential",
+        "registration": "manual",
+        "tokenEndpointAuthMethod": "client_secret_post",
+        "shareClientCredentials": true,
+        "authorizationServer": {
+          "issuer": "https://accounts.google.com",
+          "authorizationUrl": "https://accounts.google.com/o/oauth2/v2/auth",
+          "tokenUrl": "https://oauth2.googleapis.com/token"
+        },
+        "accessTokenEnv": "GOOGLE_ACCESS_TOKEN"
+      },
+      "configuration": {
+        "oauthAuthorizationParameters": {
+          "access_type": "offline",
+          "prompt": "consent select_account"
+        },
+        "command": "bun",
+        "args": [
+          "${PLUGIN_ROOT}/connector/server.mjs"
+        ]
+      }
+    }
+  ],
+  "schemaVersion": 1,
+  "icon": "assets/icon.png"
+}

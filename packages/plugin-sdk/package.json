@@ -1,0 +1,25 @@
+{
+  "name": "@openteam/plugin-sdk",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./archive": "./src/archive.ts",
+    "./json-schema": "./src/json-schema.ts",
+    "./skill-markdown": "./src/skill-markdown.ts",
+    "./templates": "./src/templates.ts"
+  },
+  "scripts": {
+    "build": "bun build src/index.ts --outdir dist --target browser",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "ajv": "8.20.0",
+    "ajv-formats": "3.0.1",
+    "fflate": "0.8.3",
+    "yaml": "2.9.0"
+  },
+  "sideEffects": false
+}

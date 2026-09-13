@@ -1,8 +1,7 @@
 diff --git a/dist/core/agent-session.js b/dist/core/agent-session.js
-index f4fd9f37d9826a3e791f25c9ec748645a33d5616..1b8ae72153364bac1df3a4e0db79614cffb53264 100644
 --- a/dist/core/agent-session.js
 +++ b/dist/core/agent-session.js
-@@ -94,7 +94,7 @@ export class AgentSession {
+@@ -94,7 +94,7 @@
      // Compaction state
      _compactionAbortController = undefined;
      _autoCompactionAbortController = undefined;
@@ -11,7 +10,7 @@ index f4fd9f37d9826a3e791f25c9ec748645a33d5616..1b8ae72153364bac1df3a4e0db79614c
      // Branch summarization state
      _branchSummaryAbortController = undefined;
      // Retry state
-@@ -344,7 +344,7 @@ export class AgentSession {
+@@ -344,7 +344,7 @@
          // When a user message starts, check if it's from either queue and remove it BEFORE emitting
          // This ensures the UI sees the updated queue state
          if (event.type === "message_start" && event.message.role === "user") {
@@ -20,7 +19,16 @@ index f4fd9f37d9826a3e791f25c9ec748645a33d5616..1b8ae72153364bac1df3a4e0db79614c
              const messageText = contentText(event.message.content, "");
              if (messageText) {
                  // Check steering queue first
-@@ -386,7 +386,7 @@ export class AgentSession {
+@@ -365,8 +365,6 @@
+         }
+         // Emit to extensions first
+         await this._emitExtensionEvent(event);
+-        // Notify all listeners
+-        this._emit(event.type === "agent_end" ? { ...event, willRetry: this._willRetryAfterAgentEnd(event) } : event);
+         // Handle session persistence
+         if (event.type === "message_end") {
+             // Check if this is a custom message from extensions
+@@ -386,7 +384,7 @@
                  this._lastAssistantMessage = event.message;
                  const assistantMsg = event.message;
                  if (assistantMsg.stopReason !== "error" && assistantMsg.stopReason !== "length") {
@@ -29,7 +37,16 @@ index f4fd9f37d9826a3e791f25c9ec748645a33d5616..1b8ae72153364bac1df3a4e0db79614c
                  }
                  // Reset retry counter immediately on successful assistant response
                  // This prevents accumulation across multiple LLM calls within a turn
-@@ -1590,35 +1590,16 @@ export class AgentSession {
+@@ -400,6 +398,8 @@
+                 }
+             }
+         }
++        // Delivery listeners acknowledge only after the session append succeeds.
++        this._emit(event.type === "agent_end" ? { ...event, willRetry: this._willRetryAfterAgentEnd(event) } : event);
+     };
+     _willRetryAfterAgentEnd(event) {
+         const settings = this.settingsManager.getRetrySettings();
+@@ -1590,35 +1590,16 @@
              if (!willRetry) {
                  return await this._runAutoCompaction("overflow", false);
              }
@@ -57,16 +74,16 @@ index f4fd9f37d9826a3e791f25c9ec748645a33d5616..1b8ae72153364bac1df3a4e0db79614c
 -            // Case 1: remove the failed or truncated message from agent state, compact, and
 -            // retry once. The message remains in session history but is excluded from retry context.
 -            this._overflowRecoveryAttempted = true;
-+            // The runtime runs at most five model attempts for one overflowing step. The first
-+            // overflow therefore leaves four post-compaction retries. A fifth overflow
-+            // still compacts the captured state, then terminates without a sixth request.
-+            const willRetryAfterCompaction = this._overflowRecoveryAttempts < 4;
-+            this._overflowRecoveryAttempts += 1;
 -            const messages = this.agent.state.messages;
 -            if (messages.length > 0 && messages[messages.length - 1].role === "assistant") {
 -                this.agent.state.messages = messages.slice(0, -1);
 -            }
 -            return await this._runAutoCompaction("overflow", willRetry);
++            // The runtime runs at most five model attempts for one overflowing step. The first
++            // overflow therefore leaves four post-compaction retries. A fifth overflow
++            // still compacts the captured state, then terminates without a sixth request.
++            const willRetryAfterCompaction = this._overflowRecoveryAttempts < 4;
++            this._overflowRecoveryAttempts += 1;
 +            const shouldContinue = await this._runAutoCompaction("overflow", willRetryAfterCompaction);
 +            if (!willRetryAfterCompaction) {
 +                throw new Error("summarization-retries");
@@ -75,3 +92,50 @@ index f4fd9f37d9826a3e791f25c9ec748645a33d5616..1b8ae72153364bac1df3a4e0db79614c
          }
          // Case 3: threshold compaction without retry.
          // For error messages or all-zero usage messages, estimate from the last valid response.
+diff --git a/dist/core/session-manager.js b/dist/core/session-manager.js
+--- a/dist/core/session-manager.js
++++ b/dist/core/session-manager.js
+@@ -1,6 +1,6 @@
+ import { uuidv7 } from "@earendil-works/pi-ai";
+ import { randomUUID } from "crypto";
+-import { appendFileSync, closeSync, createReadStream, existsSync, mkdirSync, openSync, readdirSync, readSync, statSync, writeFileSync, } from "fs";
++import { appendFileSync, closeSync, fsyncSync, createReadStream, existsSync, mkdirSync, openSync, readdirSync, readSync, statSync, writeFileSync, } from "fs";
+ import { readdir, stat } from "fs/promises";
+ import { join, resolve } from "path";
+ import { createInterface } from "readline";
+@@ -724,23 +724,13 @@
+     _persist(entry) {
+         if (!this.persist || !this.sessionFile)
+             return;
+-        const hasAssistant = this.fileEntries.some((e) => e.type === "message" && e.message.role === "assistant");
+-        if (!hasAssistant) {
+-            if (this.flushed) {
+-                appendFileSync(this.sessionFile, `${JSON.stringify(entry)}\n`);
+-            }
+-            else {
+-                // Mark as not flushed so when assistant arrives, all entries get written
+-                this.flushed = false;
+-            }
+-            return;
+-        }
+         if (!this.flushed) {
+             const fd = openSync(this.sessionFile, "wx");
+             try {
+                 for (const e of this.fileEntries) {
+                     writeFileSync(fd, `${JSON.stringify(e)}\n`);
+                 }
++                fsyncSync(fd);
+             }
+             finally {
+                 closeSync(fd);
+@@ -748,7 +738,9 @@
+             this.flushed = true;
+         }
+         else {
+-            appendFileSync(this.sessionFile, `${JSON.stringify(entry)}\n`);
++            const fd = openSync(this.sessionFile, "a");
++            try { writeFileSync(fd, `${JSON.stringify(entry)}\n`); fsyncSync(fd); }
++            finally { closeSync(fd); }
+         }
+     }
+     _appendEntry(entry) {

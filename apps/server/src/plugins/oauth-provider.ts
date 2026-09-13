@@ -7,10 +7,13 @@ import type {
 
 export interface StoredOAuthState {
   state?: string;
+  stateCreatedAt?: number;
+  stateGeneration?: number;
   authorizationUrl?: string;
   codeVerifier?: string;
   clientInformation?: OAuthClientInformationMixed;
   tokens?: OAuthTokens;
+  tokensExpireAt?: number;
 }
 
 export interface OAuthProviderOptions {
@@ -19,6 +22,8 @@ export interface OAuthProviderOptions {
   initial: StoredOAuthState;
   clientInformation?: OAuthClientInformationMixed;
   save: (state: StoredOAuthState) => Promise<void>;
+  tokenEndpointAuthMethod?: "none" | "client_secret_post" | "client_secret_basic";
+  authorizationParameters?: Record<string, string>;
 }
 
 /** Persists the SDK's OAuth session in the owning PluginConnection record. */
@@ -36,7 +41,9 @@ export class OpenTeamOAuthProvider implements OAuthClientProvider {
   get clientMetadata(): OAuthClientMetadata {
     return {
       redirect_uris: [this.options.redirectUrl],
-      token_endpoint_auth_method: "none",
+      token_endpoint_auth_method:
+        this.options.tokenEndpointAuthMethod ??
+        (this.options.clientInformation?.client_secret ? "client_secret_post" : "none"),
       grant_types: ["authorization_code", "refresh_token"],
       response_types: ["code"],
       client_name: "OpenTeam",
@@ -51,7 +58,18 @@ export class OpenTeamOAuthProvider implements OAuthClientProvider {
   }
 
   clientInformation(): OAuthClientInformationMixed | undefined {
-    return this.value.clientInformation ?? this.options.clientInformation;
+    const client = this.options.clientInformation ?? this.value.clientInformation;
+    return client
+      ? {
+          ...client,
+          token_endpoint_auth_method:
+            this.options.tokenEndpointAuthMethod ??
+            ("token_endpoint_auth_method" in client &&
+            typeof client.token_endpoint_auth_method === "string"
+              ? client.token_endpoint_auth_method
+              : this.clientMetadata.token_endpoint_auth_method),
+        }
+      : undefined;
   }
 
   async saveClientInformation(clientInformation: OAuthClientInformationMixed): Promise<void> {
@@ -63,10 +81,26 @@ export class OpenTeamOAuthProvider implements OAuthClientProvider {
   }
 
   async saveTokens(tokens: OAuthTokens): Promise<void> {
-    await this.update({ tokens, authorizationUrl: undefined });
+    await this.update({
+      tokens,
+      tokensExpireAt:
+        tokens.expires_in === undefined ? undefined : Date.now() + tokens.expires_in * 1_000,
+      authorizationUrl: undefined,
+      state: undefined,
+      stateCreatedAt: undefined,
+      stateGeneration: undefined,
+      codeVerifier: undefined,
+    });
   }
 
   async redirectToAuthorization(authorizationUrl: URL): Promise<void> {
+    // Discovery can advertise a superset of the permissions this connection uses.
+    if (this.options.scope) authorizationUrl.searchParams.set("scope", this.options.scope);
+    // Provider extensions must never replace state, PKCE, client ID, or callback URL.
+    for (const key of ["access_type", "prompt"]) {
+      const value = this.options.authorizationParameters?.[key];
+      if (value) authorizationUrl.searchParams.set(key, value);
+    }
     await this.update({ authorizationUrl: authorizationUrl.toString() });
   }
 
@@ -81,11 +115,15 @@ export class OpenTeamOAuthProvider implements OAuthClientProvider {
 
   async invalidateCredentials(scope: "all" | "client" | "tokens" | "verifier"): Promise<void> {
     if (scope === "all") {
-      await this.replace({ state: this.value.state });
+      await this.replace({
+        state: this.value.state,
+        stateCreatedAt: this.value.stateCreatedAt,
+        stateGeneration: this.value.stateGeneration,
+      });
       return;
     }
     if (scope === "client") await this.update({ clientInformation: undefined });
-    if (scope === "tokens") await this.update({ tokens: undefined });
+    if (scope === "tokens") await this.update({ tokens: undefined, tokensExpireAt: undefined });
     if (scope === "verifier") await this.update({ codeVerifier: undefined });
   }
 

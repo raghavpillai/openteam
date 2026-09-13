@@ -32,6 +32,124 @@ const runtimeWithResult = (result: unknown) => {
 };
 
 describe("memory inference", () => {
+  test("caller cancellation cancels the underlying provider completion", async () => {
+    const runtime = runtimeWithResult(null);
+    const controller = new AbortController();
+    let providerCanceled = false;
+    const internals = runtime as unknown as {
+      modelRuntime: { completeSimple: (...arguments_: unknown[]) => Promise<unknown> };
+    };
+    internals.modelRuntime.completeSimple = async (_model, _context, options) => {
+      const { signal } = options as { signal: AbortSignal };
+      return new Promise((_, reject) => {
+        signal.addEventListener(
+          "abort",
+          () => {
+            providerCanceled = true;
+            reject(new Error("Provider canceled"));
+          },
+          { once: true }
+        );
+        controller.abort();
+      });
+    };
+    await expect(runtime.infer({ ...inferenceRequest, signal: controller.signal })).rejects.toThrow(
+      "Memory inference canceled"
+    );
+    expect(providerCanceled).toBe(true);
+  });
+
+  test("an actual HTTP disconnect reaches the provider through the request signal", async () => {
+    const runtime = runtimeWithResult(null);
+    const controller = new AbortController();
+    let entered!: () => void;
+    let canceled!: () => void;
+    const providerEntered = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const providerCanceled = new Promise<void>((resolve) => {
+      canceled = resolve;
+    });
+    const internals = runtime as unknown as {
+      modelRuntime: { completeSimple: (...arguments_: unknown[]) => Promise<unknown> };
+    };
+    internals.modelRuntime.completeSimple = async (_model, _context, options) => {
+      const { signal } = options as { signal: AbortSignal };
+      return new Promise((_, reject) => {
+        signal.addEventListener(
+          "abort",
+          () => {
+            canceled();
+            reject(new Error("Provider canceled"));
+          },
+          { once: true }
+        );
+        entered();
+      });
+    };
+    const server = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      async fetch(request) {
+        try {
+          return new Response(await runtime.infer({ ...inferenceRequest, signal: request.signal }));
+        } catch {
+          return new Response("Canceled", { status: 499 });
+        }
+      },
+    });
+    try {
+      const request = fetch(`http://127.0.0.1:${server.port}/`, {
+        signal: controller.signal,
+      }).catch((error) => error);
+      await providerEntered;
+      controller.abort();
+      await providerCanceled;
+      expect(await request).toBeInstanceOf(Error);
+    } finally {
+      controller.abort();
+      await server.stop(true);
+    }
+  });
+
+  test("an already canceled request never starts inference", async () => {
+    const runtime = runtimeWithResult(null);
+    const controller = new AbortController();
+    controller.abort();
+    const internals = runtime as unknown as { start: () => Promise<void> };
+    internals.start = async () => {
+      throw new Error("must not start a canceled request");
+    };
+    await expect(runtime.infer({ ...inferenceRequest, signal: controller.signal })).rejects.toThrow(
+      "Memory inference canceled"
+    );
+  });
+
+  test("an inference deadline cancels the provider and preserves the timeout error", async () => {
+    const runtime = runtimeWithResult(null);
+    let providerCanceled = false;
+    const internals = runtime as unknown as {
+      modelRuntime: { completeSimple: (...arguments_: unknown[]) => Promise<unknown> };
+    };
+    internals.modelRuntime.completeSimple = async (_model, _context, options) => {
+      const { signal } = options as { signal: AbortSignal };
+      return new Promise((_, reject) =>
+        signal.addEventListener(
+          "abort",
+          () => {
+            providerCanceled = true;
+            reject(new Error("Provider deadline"));
+          },
+          { once: true }
+        )
+      );
+    };
+    await expect(runtime.infer({ ...inferenceRequest, timeoutMs: 5 })).rejects.toThrow(
+      "Memory inference timed out"
+    );
+    expect(providerCanceled).toBe(true);
+  });
+
   test("returns assistant text from a successful direct Pi completion", async () => {
     const runtime = runtimeWithResult({
       stopReason: "stop",

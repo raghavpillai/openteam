@@ -1,0 +1,50 @@
+{
+  "display_information": {
+    "name": "OpenTeam",
+    "description": "Connect a self-hosted OpenTeam deployment to Slack.",
+    "background_color": "#26394d"
+  },
+  "oauth_config": {
+    "redirect_urls": [
+      "https://YOUR-OPENTEAM-SERVER/api/v0/plugin-oauth/callback?connectionId=YOUR-CONNECTION-ID"
+    ],
+    "scopes": {
+      "user": [
+        "search:read.public",
+        "search:read.private",
+        "search:read.mpim",
+        "search:read.im",
+        "search:read.files",
+        "search:read.users",
+        "files:read",
+        "files:write",
+        "emoji:read",
+        "channels:history",
+        "groups:history",
+        "mpim:history",
+        "im:history",
+        "channels:read",
+        "groups:read",
+        "mpim:read",
+        "im:read",
+        "users:read",
+        "users:read.email",
+        "chat:write",
+        "channels:write",
+        "groups:write",
+        "im:write",
+        "mpim:write",
+        "reactions:write",
+        "canvases:read",
+        "canvases:write",
+        "lists:read",
+        "lists:write"
+      ]
+    }
+  },
+  "settings": {
+    "org_deploy_enabled": false,
+    "socket_mode_enabled": false,
+    "token_rotation_enabled": true
+  }
+}

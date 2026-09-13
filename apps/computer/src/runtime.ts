@@ -31,7 +31,6 @@ import { mkdir, readdir, rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import type { BotAgentStore } from "./bot-agent-store";
 import {
-  BOT_IMAGE_TRIGGER,
   BotCompactionArchiveStore,
   BotCompactionCoordinator,
   type BotMessage,
@@ -39,17 +38,16 @@ import {
   type BotSummaryRequest,
   type BotSummaryResult,
   botUserInfoMessage,
-  countBotImages,
-  replaceBotUserInfo,
 } from "./bot-compaction";
 import { ComputerEventQueue } from "./computer-event-queue";
 import { InferenceProviderService } from "./inference-providers";
 import { requireInferenceModel } from "./inference-models";
 import { decodeInlineImages, loadAttachmentImages } from "./runtime/attachments";
-import { compactionExtension, inferCompaction } from "./runtime/compaction";
+import { compactionExtension, compactionObservation, inferCompaction } from "./runtime/compaction";
 import { textFromContent } from "./runtime/content";
 import { attachSession, routeEvent } from "./runtime/events";
 import { inferenceReasoningOptions, reasoningExtension } from "./runtime/reasoning";
+import { enrichUserInfo } from "./runtime/prompt-context";
 import { assertSessionPath } from "./runtime/session-path";
 import { RuntimeTools } from "./runtime/tools";
 import type { ActiveTurn, RuntimeImage, TurnStatus } from "./runtime/types";
@@ -65,6 +63,7 @@ export const isDeliveryOwed = (
 
 export class ComputerRuntime {
   private readonly tools: RuntimeTools;
+  get userForms() { return this.tools.userForms; }
 
   private readonly activeByRun = new Map<string, ActiveTurn>();
   private readonly activeByContext = new Map<string, ActiveTurn>();
@@ -229,6 +228,7 @@ export class ComputerRuntime {
       reasoning: request.reasoning,
       cwd: request.cwd,
       instructions: request.instructions,
+      connectorInstructions: request.connectorInstructions,
       userInfoMessage: request.userInfo
         ? botUserInfoMessage(request.userInfo, request.userInfoEpoch ?? 0)
         : null,
@@ -252,6 +252,7 @@ export class ComputerRuntime {
       sentMessageCount: 0,
       toolActivityAfterLastSend: false,
       initialUserStarted: false,
+      initialUserClientId: request.clientMessageId,
       pendingSteers: [],
       acceptedSteerIds: new Set(),
       discoveredDynamicTools: new Set(),
@@ -315,14 +316,37 @@ export class ComputerRuntime {
       }
       assertSessionPath(this.sessionsDir, openedSessionPath);
       active.session = session;
+      this.bindTurnStop(active, session);
       active.sessionPath = openedSessionPath;
+      if (request.userInfo) active.userInfoMessage = botUserInfoMessage(enrichUserInfo(request.userInfo, {
+        cwd: active.cwd,
+        transcriptPath: openedSessionPath,
+        namespaces: this.tools.contextCatalog(active),
+      }), request.userInfoEpoch ?? 0);
       active.unsubscribe = session.subscribe((event) => this.routeEvent(active, event));
+      const recordedInputIds = new Set(session.sessionManager.getEntries().flatMap((entry) => entry.type === "custom" && entry.customType === "openteam-input-receipt" && typeof (entry.data as { messageId?: unknown })?.messageId === "string" ? [(entry.data as { messageId: string }).messageId] : []));
+      for (const message of request.prependMessages ?? []) {
+        if (recordedInputIds.has(message.id)) continue;
+        const present = session.messages.some((entry) =>
+          entry.role === "custom" &&
+          (entry.details as { messageId?: string } | undefined)?.messageId === message.id
+        );
+        if (!present) await session.sendCustomMessage({
+          customType: "openteam-ambient",
+          content: message.images?.length ? [{ type: "text", text: message.content }, ...decodeInlineImages(message.images)] : message.content,
+          display: false,
+          details: { messageId: message.id, origin: "host" },
+        }, { triggerTurn: false });
+        if (message.id.startsWith("input:")) session.sessionManager.appendCustomEntry("openteam-input-receipt", { messageId: message.id });
+      }
+      await this.tools.recoverFormOutcomes(active);
       await this.compactionArchive.enforceSizeLimit(active.contextSessionId, active.sessionPath);
       if (sessionPath) attachSession(active);
       queue.push(contextState);
       queue.push({ type: "turn.started", turnId: active.turnId });
       const images = [...uploadedImages, ...attachments.images].slice(0, 16);
-      void this.execute(active, request.content, images);
+      const content = recordedInputIds.has(`input:${request.clientMessageId}`) ? "[SAND_HIDDEN_PROMPT]Resume work on the previously recorded user input. Its original content is already in the session; avoid repeating completed actions." : request.content;
+      void this.execute(active, content, images);
       return queue;
     } catch (error) {
       this.cleanup(active);
@@ -412,9 +436,23 @@ export class ComputerRuntime {
     }
   }
 
+  private bindTurnStop(active: ActiveTurn, session: AgentSession): void {
+    const previousStop = session.agent.shouldStopAfterTurn;
+    session.agent.shouldStopAfterTurn = (context, signal) => {
+      if (active.endTurnRequested) {
+        // Pi's post-run loop otherwise drains queued steering even after its
+        // inner loop stops. Leave these inputs unacknowledged in the durable
+        // server inbox so they are promoted into a separate user turn.
+        session.clearQueue();
+        return true;
+      }
+      return previousStop?.(context, signal) || false;
+    };
+  }
+
   async steer(runId: string, request: ComputerSteerRequest): Promise<void> {
     const active = this.activeByRun.get(runId);
-    if (!active?.session || !active.session.isStreaming) {
+    if (!active?.session || !active.session.isStreaming || active.endTurnRequested) {
       throw new Error("Run is not actively processing a Pi turn");
     }
     if (active.acceptedSteerIds.has(request.inboxId)) return;
@@ -449,7 +487,9 @@ export class ComputerRuntime {
     timeoutMs: number;
     model: string;
     reasoning: PiReasoningLevel;
+    signal?: AbortSignal;
   }): Promise<string> {
+    if (request.signal?.aborted) throw new Error("Memory inference canceled");
     await this.start();
     const modelRef = this.parseRuntimeModelRef(request.model);
     const modelRuntime = this.requireModelRuntime();
@@ -458,6 +498,9 @@ export class ComputerRuntime {
     }
     const model = this.resolveModel(modelRef);
     const controller = new AbortController();
+    const signal = request.signal
+      ? AbortSignal.any([controller.signal, request.signal])
+      : controller.signal;
     let timedOut = false;
     const timer = setTimeout(() => {
       timedOut = true;
@@ -465,6 +508,7 @@ export class ComputerRuntime {
     }, request.timeoutMs);
     timer.unref();
     try {
+      signal.throwIfAborted();
       const result = await modelRuntime.completeSimple(
         model,
         {
@@ -479,10 +523,11 @@ export class ComputerRuntime {
           tools: [],
         },
         {
-          signal: controller.signal,
+          signal,
           ...inferenceReasoningOptions(model, request.reasoning),
         }
       );
+      signal.throwIfAborted();
       if (result.stopReason === "error" || result.stopReason === "aborted") {
         throw new Error(result.errorMessage || `Memory inference ${result.stopReason}`);
       }
@@ -491,6 +536,7 @@ export class ComputerRuntime {
       return assistantText;
     } catch (error) {
       if (timedOut) throw new Error("Memory inference timed out", { cause: error });
+      if (request.signal?.aborted) throw new Error("Memory inference canceled", { cause: error });
       throw error;
     } finally {
       clearTimeout(timer);
@@ -608,7 +654,23 @@ export class ComputerRuntime {
       this.compaction,
       (...args) => this.inferCompaction(...args),
       sessionManager,
-      active
+      active,
+      async (epoch) => {
+        if (active.subagentType) return;
+        const refreshed = await this.tools.refreshPrompt(active, epoch);
+        active.instructions = refreshed.instructions;
+        if (active.session) active.session.agent.state.systemPrompt = refreshed.instructions;
+        active.userInfoMessage = refreshed.userInfo ? botUserInfoMessage(enrichUserInfo(refreshed.userInfo, {
+          cwd: active.cwd, transcriptPath: active.sessionPath ?? "", namespaces: this.tools.contextCatalog(active),
+        }), refreshed.userInfoEpoch) : null;
+        const note = [refreshed.ambientContext, refreshed.instructionsUpdate].filter(Boolean).join("\n\n");
+        if (note && active.session) await active.session.sendCustomMessage({
+          customType: "openteam-context-refresh", content: `[SAND_HIDDEN_PROMPT]${note}`, display: false,
+          details: { epoch, origin: "host" },
+        }, { triggerTurn: false });
+        await this.tools.acknowledgePrompt(active, refreshed.acknowledgement);
+      },
+      (messages) => this.tools.acknowledgeToolOutcomes(active, messages)
     );
   }
 
@@ -643,7 +705,7 @@ export class ComputerRuntime {
       if (!session) throw new Error("Pi session is not attached");
       await this.compaction.beginUserQuery(active.contextSessionId, active.resetSelfSummaryCount);
       await active.session?.prompt(content, { source: "rpc", images });
-      if (isDeliveryOwed(active.requestSource)) {
+      if (isDeliveryOwed(active.requestSource) && !active.endTurnRequested) {
         if (active.sentMessageCount === 0) {
           await session.prompt(REPLY_NUDGE_PROMPT, {
             source: "rpc",
@@ -656,25 +718,12 @@ export class ComputerRuntime {
           });
         }
       }
-      const completedContext = replaceBotUserInfo(
-        await this.compaction.contextMessages(
-          active.contextSessionId,
-          session.messages as BotMessage[]
-        ),
-        active.userInfoMessage
-      );
-      const imagePersist = countBotImages(completedContext) >= BOT_IMAGE_TRIGGER;
-      const projectedReason = this.compaction.projectedReason(active.contextSessionId);
-      const projectedCommit = this.compaction.consumeProjectedCommit(active.contextSessionId);
-      if (!projectedCommit && (imagePersist || projectedReason) && completedContext.length >= 3) {
-        const forcedReason = imagePersist ? "approaching_image_limit" : projectedReason;
-        if (!forcedReason) throw new Error("Missing forced compaction reason");
-        this.compaction.forceReason(active.contextSessionId, forcedReason);
-        try {
-          await session.compact();
-        } finally {
-          this.compaction.clearForcedReason(active.contextSessionId);
-        }
+      if (active.lastStopReason !== "aborted" && active.lastStopReason !== "error") {
+        const shouldPersist = await this.compaction.shouldCompactAtTurnEnd({
+          ...compactionObservation(active),
+          infer: (request, signal) => this.inferCompaction(active, request, signal),
+        });
+        if (shouldPersist) await session.compact();
       }
       if (active.lastStopReason === "aborted") status = "interrupted";
       else if (active.lastStopReason === "error") {
@@ -693,7 +742,7 @@ export class ComputerRuntime {
         retrying: false,
       });
     } finally {
-      this.compaction.discardBackground(active.contextSessionId);
+      this.compaction.parkBackground(active.contextSessionId);
       attachSession(active);
       if (this.botStore) {
         await this.botStore
@@ -729,8 +778,6 @@ export class ComputerRuntime {
   private routeEvent(active: ActiveTurn, event: AgentSessionEvent): void {
     return routeEvent(
       this.botStore,
-      this.compaction,
-      (...args) => this.inferCompaction(...args),
       active,
       event
     );

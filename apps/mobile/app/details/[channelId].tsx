@@ -1,6 +1,6 @@
-import * as Haptics from "../../src/haptics";
 import type { BotView, RoutineView } from "@openteam/contracts";
-import type { RobotAvatarShape as BotAvatarShape } from "@openteam/contracts/robot-avatar";
+import * as Haptics from "../../src/haptics";
+import type { RobotAvatarShape } from "@openteam/contracts/robot-avatar";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
 import { GROUP_MEMBER_LIMIT, toggleBoundedSelection } from "@openteam/product-core/selection";
 import { router, useLocalSearchParams, usePathname } from "expo-router";
@@ -617,7 +617,7 @@ export default function ConversationDetailsScreen() {
               throw cause;
             }
           }}
-          onUpdateAvatar={async (icon: BotAvatarShape, color: string) => {
+          onUpdateAvatar={async (icon: RobotAvatarShape, color: string) => {
             setError(null);
             try {
               await updateBot(bot.id, { icon, color });

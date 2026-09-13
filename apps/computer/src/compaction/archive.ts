@@ -38,6 +38,8 @@ export const COMPACTION_REASONS = new Set<string>([
   "fallback_on_limit_error",
   "input_token_limit_error",
   "self_summary_completed",
+  "pending_summary_adopted",
+  "significantly_over_token_limit",
   // Read-only compatibility for archives produced before source validation
   // established that the 1,000-turn gate uses approaching_token_limit.
   "turn_limit",

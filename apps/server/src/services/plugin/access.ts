@@ -9,10 +9,11 @@ export class PluginAccess {
   setGrant = (connectionId: string, botId: string, enabled: boolean) =>
     serviceEffect(async () => {
       const [connection, bot] = await Promise.all([
-        this.prisma.pluginConnection.findUnique({ where: { id: connectionId } }),
+        this.prisma.pluginConnection.findUnique({ where: { id: connectionId }, include: { installation: true } }),
         this.prisma.bot.findUnique({ where: { id: botId } }),
       ]);
       if (!connection) throw new ApiError(404, "connection_not_found", "Connection not found");
+      if (enabled && connection.installation.mode === "disabled") throw new ApiError(403, "plugin_disabled", "This plugin is disabled by workspace policy");
       if (!bot || bot.status === "archived") {
         throw new ApiError(404, "bot_not_found", "Bot not found");
       }
@@ -55,6 +56,8 @@ export class PluginAccess {
       if (!bot || bot.status === "archived") {
         throw new ApiError(404, "bot_not_found", "Bot not found");
       }
+      if (installation.mode === "disabled") throw new ApiError(403, "plugin_disabled", "This plugin is disabled by workspace policy");
+      if (installation.mode === "required" && (!enabled || !skillsEnabled)) throw new ApiError(403, "plugin_required", "This plugin is required by workspace policy");
       await this.prisma.$transaction(async (tx) => {
         await tx.botPluginEnablement.upsert({
           where: { botId_installationId: { botId, installationId: installation.id } },
@@ -92,13 +95,14 @@ export class PluginAccess {
         if (!bot) throw new ApiError(404, "bot_not_found", "Bot not found");
       }
       const policy = await this.prisma.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT id FROM "PluginConnection" WHERE id = ${connectionId}::uuid FOR UPDATE`;
         const existing = await tx.pluginToolPolicy.findFirst({
-          where: { connectionId, botId: input.botId, toolName: input.toolName },
+          where: { connectionId, botId: input.botId ?? null, toolName: input.toolName },
         });
         const value = existing
           ? await tx.pluginToolPolicy.update({
               where: { id: existing.id },
-              data: { decision: input.decision },
+              data: { decision: input.decision, ...(input.enabled !== undefined ? { enabled: input.enabled } : {}) },
             })
           : await tx.pluginToolPolicy.create({
               data: { connectionId, ...input },

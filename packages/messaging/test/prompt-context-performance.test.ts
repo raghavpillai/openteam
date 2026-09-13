@@ -60,10 +60,11 @@ const promptStore = (snapshotValue: ReturnType<typeof snapshot>) => {
 };
 
 describe("prompt-context frozen epoch fast path", () => {
-  test("performs zero live memory and skill queries for an authoritative frozen epoch", async () => {
+  test("reads live memory for change notices while retaining frozen skill and memory prefixes", async () => {
     const fixture = promptStore(snapshot());
     const context = await fixture.store.promptContext("bot-1");
-    expect(fixture.calls).toEqual({ memory: 0, skills: 0 });
+    expect(fixture.calls).toEqual({ memory: 1, skills: 0 });
+    expect(context.liveMemoryRender).toBe("Live memory");
     expect(context.memoryRender).toBe("Frozen memory");
     expect(context.skillRender).toBe("Frozen skills");
   });

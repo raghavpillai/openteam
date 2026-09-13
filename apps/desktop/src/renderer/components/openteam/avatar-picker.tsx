@@ -1,19 +1,17 @@
-import { resolveBotAvatarMark } from "@openteam/contracts/bot-avatar";
+import { BOT_AVATAR_COLORS, resolveBotAvatarMark } from "@openteam/contracts/bot-avatar";
+import {
+  ROBOT_AVATAR_LABELS,
+  ROBOT_AVATAR_SHAPES,
+  type RobotAvatarShape,
+  normalizeRobotAvatarShape,
+} from "@openteam/contracts/robot-avatar";
 import { Pipette } from "lucide-react";
 import { Popover as PopoverPrimitive } from "radix-ui";
 import { useState } from "react";
 import { useBotAvatarMode } from "./bot-avatar-activity";
 import { cn } from "../../lib/cn";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
-import {
-  BOT_AVATAR_COLORS,
-  BOT_AVATAR_SHAPE_LABELS,
-  BOT_AVATAR_SHAPES,
-  BotAvatarGlyph,
-  type BotAvatarShape,
-  botAvatarSwatchBackground,
-  normalizeBotAvatarShape,
-} from "./avatar-picker-icons";
+import { BotAvatarGlyph, botAvatarSwatchBackground } from "./avatar-picker-icons";
 
 function PickerShape({
   color,
@@ -22,7 +20,7 @@ function PickerShape({
 }: {
   color: string;
   selected: boolean;
-  shape: BotAvatarShape;
+  shape: RobotAvatarShape;
 }) {
   return (
     <span className="relative grid size-9 place-items-center">
@@ -66,7 +64,7 @@ export function AvatarPicker({
   const [open, setOpen] = useState(false);
   const activityMode = useBotAvatarMode(botId);
   const previewMode = activityMode === "still" ? "idle" : activityMode;
-  const selectedShape = normalizeBotAvatarShape(icon);
+  const selectedShape = normalizeRobotAvatarShape(icon);
 
   return (
     <PopoverPrimitive.Root onOpenChange={setOpen} open={open}>
@@ -135,7 +133,7 @@ export function AvatarPicker({
               className="px-1.5 py-1 text-[13px] leading-[18px] text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:underline"
               onClick={() => {
                 const dealt = resolveBotAvatarMark({ agentId: botId });
-                onChange({ icon: normalizeBotAvatarShape(dealt.shape), color: dealt.color });
+                onChange({ icon: dealt.shape, color: dealt.color });
               }}
               type="button"
             >
@@ -145,11 +143,11 @@ export function AvatarPicker({
 
           <div className="px-5 pb-5 pt-[19px]">
             <div className="grid grid-cols-[repeat(4,44px)] justify-center gap-x-3 gap-y-3">
-              {BOT_AVATAR_SHAPES.map((shape) => {
+              {ROBOT_AVATAR_SHAPES.map((shape) => {
                 const selected = selectedShape === shape;
                 return (
                   <button
-                    aria-label={`${BOT_AVATAR_SHAPE_LABELS[shape]} bot avatar`}
+                    aria-label={`${ROBOT_AVATAR_LABELS[shape]} bot avatar`}
                     aria-pressed={selected}
                     className="group grid size-11 place-items-center outline-none"
                     key={shape}

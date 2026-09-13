@@ -1,6 +1,7 @@
 import { ApiError } from "@openteam/contracts";
+import { effectiveToolPolicy } from "@openteam/plugin-sdk";
 import type { PrismaClient } from "@openteam/db";
-import { toJson } from "../service-utils";
+import { appendEvent, toJson } from "../service-utils";
 import type { PluginTransport } from "./transport";
 import { canonicalJson, jsonObject, redact, toolSnapshot, validateJsonSchema } from "./values";
 
@@ -16,7 +17,8 @@ export class PluginInvocations {
     callId: string;
     toolName: string;
     arguments: unknown;
-  }): Promise<unknown> => {
+    mcpDetails?: unknown;
+  }, reviewedByUser = false): Promise<unknown> => {
     const connection = await this.prisma.pluginConnection.findUnique({
       where: { id: request.connectionId },
       include: {
@@ -25,7 +27,7 @@ export class PluginInvocations {
         policies: { where: { OR: [{ botId: request.botId }, { botId: null }] } },
       },
     });
-    if (!connection || connection.installation.status !== "installed") {
+    if (!connection || (connection.installation.status !== "installed" || connection.installation.mode === "disabled")) {
       throw new ApiError(404, "plugin_connection_unavailable", "Plugin connection is unavailable");
     }
     if (connection.status !== "ready") {
@@ -38,14 +40,9 @@ export class PluginInvocations {
       (candidate) => candidate.name === request.toolName
     );
     if (!tool) throw new ApiError(404, "plugin_tool_not_found", "Plugin tool not found");
-    const policy =
-      connection.policies.find(
-        (candidate) => candidate.botId === request.botId && candidate.toolName === request.toolName
-      ) ??
-      connection.policies.find(
-        (candidate) => candidate.botId === null && candidate.toolName === request.toolName
-      );
-    const decision = policy?.decision ?? tool.defaultDecision;
+    const policy = effectiveToolPolicy(connection.policies, request.toolName, request.botId, tool.defaultDecision);
+    const configuredDecision = policy.enabled ? policy.decision : "deny";
+    const decision = reviewedByUser && configuredDecision === "prompt" ? "allow" : configuredDecision;
     validateJsonSchema(tool.inputSchema, request.arguments);
 
     const previous = await this.prisma.pluginInvocation.findUnique({
@@ -109,7 +106,7 @@ export class PluginInvocations {
           },
         });
         if (decision === "prompt") {
-          await tx.approval.create({
+          const approval = await tx.approval.create({
             data: {
               runId: request.runId,
               upstreamRequestId: `plugin:${request.callId}`,
@@ -123,11 +120,16 @@ export class PluginInvocations {
                 botId: request.botId,
                 toolName: request.toolName,
                 arguments: redact(request.arguments),
+                mcpDetails: redact(request.mcpDetails ?? null),
                 supportsAlwaysAllow: true,
                 effect:
                   "Allow once runs this exact call without changing policy. Always allow also saves an allow policy for this bot, connection, and tool.",
               }),
             },
+          });
+          await appendEvent(tx, "plugin.approval.requested", approval.id, {
+            approvalId: approval.id, runId: request.runId, botId: request.botId,
+            connectionId: request.connectionId, toolName: request.toolName,
           });
         }
       });

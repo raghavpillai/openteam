@@ -175,6 +175,7 @@ interface OpenTeamState {
   deleteRoutine: (routine: RoutineView) => Promise<void>;
   runRoutineNow: (routineId: string) => Promise<RoutineExecutionView>;
   routineExecutions: (routineId: string, limit?: number) => Promise<RoutineExecutionView[]>;
+  pluginOperation: <T>(operation: (api: MobileClient) => Promise<T>) => Promise<T>;
   pluginSettings: () => Promise<PluginSettingsView>;
   pluginBotAccess: (
     pluginKey: string,
@@ -240,6 +241,11 @@ interface OpenTeamState {
   respondToWidget: (messageId: string, value: string) => Promise<boolean>;
   dismissWidget: (messageId: string) => Promise<boolean>;
   submitSecret: (messageId: string, value: string) => Promise<boolean>;
+  mutateReviewAction: (messageId: string, action: "approve" | "cancel" | "refresh" | "import" | "unpublish", clientId?: string) => Promise<{ botId?: string } | undefined>;
+  mutateExternalDraft: (messageId: string, action: "save" | "send" | "cancel" | "refresh", edits?: Record<string, unknown>) => Promise<boolean>;
+  submitUserForm: (messageId: string, values: Record<string, string | boolean>, saveToVault?: boolean) => Promise<boolean>;
+  dismissUserForm: (messageId: string) => Promise<boolean>;
+  userFormPrefill: (messageId: string) => Promise<Record<string, string>>;
   mutateComputerHandoff: (
     messageId: string,
     action: "start" | "complete" | "skip" | "dismiss"
@@ -1791,6 +1797,18 @@ export function OpenTeamProvider({ children }: { children: React.ReactNode }) {
     [client, operationIsCurrent]
   );
 
+  const pluginOperation = useCallback(
+    async <T,>(operation: (api: MobileClient) => Promise<T>): Promise<T> => {
+      if (!client) throw new Error("Connect to your server to manage plugins.");
+      const epoch = connectionEpochRef.current;
+      const result = await operation(client);
+      if (!operationIsCurrent(client, epoch))
+        throw new Error("The server changed while managing plugins.");
+      return result;
+    },
+    [client, operationIsCurrent]
+  );
+
   const pluginSettings = useCallback(async () => {
     if (!client) return { catalog: [], installs: [], botCount: 0, policies: [], activity: [] };
     const operationClient = client;
@@ -2097,6 +2115,33 @@ export function OpenTeamProvider({ children }: { children: React.ReactNode }) {
     [acceptRichMessageMutation, client]
   );
 
+  const mutateReviewAction = useCallback(async (messageId: string, action: "approve" | "cancel" | "refresh" | "import" | "unpublish", clientId?: string) => {
+    if (!client) return;
+    const operationClient = client; const epoch = connectionEpochRef.current;
+    const result = await client.mutateReviewAction(messageId, action, clientId);
+    if (!acceptRichMessageMutation(result.message, operationClient, epoch)) return;
+    return { botId: result.botId };
+  }, [acceptRichMessageMutation, client]);
+  const mutateExternalDraft = useCallback(async (messageId: string, action: "save" | "send" | "cancel" | "refresh", edits?: Record<string, unknown>) => {
+    if (!client) return false;
+    const operationClient = client; const epoch = connectionEpochRef.current;
+    const result = await client.mutateExternalDraft(messageId, action, edits);
+    return acceptRichMessageMutation(result.message, operationClient, epoch);
+  }, [acceptRichMessageMutation, client]);
+  const submitUserForm = useCallback(async (messageId: string, values: Record<string, string | boolean>, saveToVault = false) => {
+    if (!client) return false;
+    const operationClient = client; const epoch = connectionEpochRef.current;
+    const result = await client.submitUserForm(messageId, values, saveToVault);
+    return acceptRichMessageMutation(result.message, operationClient, epoch);
+  }, [acceptRichMessageMutation, client]);
+  const dismissUserForm = useCallback(async (messageId: string) => {
+    if (!client) return false;
+    const operationClient = client; const epoch = connectionEpochRef.current;
+    const result = await client.dismissUserForm(messageId);
+    return acceptRichMessageMutation(result.message, operationClient, epoch);
+  }, [acceptRichMessageMutation, client]);
+  const userFormPrefill = useCallback(async (messageId: string) => client ? client.userFormPrefill(messageId) : {}, [client]);
+
   const mutateComputerHandoff = useCallback(
     async (messageId: string, action: "start" | "complete" | "skip" | "dismiss") => {
       if (!client) return false;
@@ -2303,6 +2348,7 @@ export function OpenTeamProvider({ children }: { children: React.ReactNode }) {
       deleteRoutine,
       runRoutineNow,
       routineExecutions,
+      pluginOperation,
       pluginSettings,
       pluginBotAccess,
       installPlugin,
@@ -2336,6 +2382,7 @@ export function OpenTeamProvider({ children }: { children: React.ReactNode }) {
       respondToWidget,
       dismissWidget,
       submitSecret,
+      mutateReviewAction, mutateExternalDraft, submitUserForm, dismissUserForm, userFormPrefill,
       mutateComputerHandoff,
       resolveApproval,
       cancelRun,
@@ -2373,6 +2420,7 @@ export function OpenTeamProvider({ children }: { children: React.ReactNode }) {
       respondToWidget,
       dismissWidget,
       submitSecret,
+      mutateReviewAction, mutateExternalDraft, submitUserForm, dismissUserForm, userFormPrefill,
       mutateComputerHandoff,
       renameChannel,
       refresh,
@@ -2386,6 +2434,7 @@ export function OpenTeamProvider({ children }: { children: React.ReactNode }) {
       deleteRoutine,
       runRoutineNow,
       routineExecutions,
+      pluginOperation,
       pluginSettings,
       pluginBotAccess,
       installPlugin,

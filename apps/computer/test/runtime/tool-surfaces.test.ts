@@ -92,6 +92,14 @@ const subagentDynamicToolNames = (namespace: string) => {
 };
 
 describe("specialized subagent tool surfaces", () => {
+  test("image generation is removed while unconfigured search remains discoverable", () => {
+    for (const names of [dynamicToolNames("cursor"), subagentDynamicToolNames("cursor")]) {
+      expect(names).not.toContain("GenerateImage");
+      expect(names).toContain("WebSearch");
+      expect(names).toContain("WebFetch");
+    }
+  });
+
   test("uses Bot's exact delivery nudges only for user-facing wake sources", () => {
     expect(REPLY_NUDGE_PROMPT).toContain("ack ≠ delivery");
     expect(REPLY_NUDGE_PROMPT).toEndWith("they just keep seeing silence.");
@@ -145,7 +153,7 @@ describe("specialized subagent tool surfaces", () => {
     expect(names).toContain("Read");
     expect(names).toContain("GetDynamicTools");
     expect(names).toContain("CallDynamicTool");
-    expect(subagentDynamicToolNames("cursor")).toEqual(["TodoWrite"]);
+    expect(subagentDynamicToolNames("cursor")).toEqual(["WebFetch", "WebSearch", "AwaitShell", "TodoWrite"]);
   });
 
   test("graphical workers receive compact box-scoped Shell and Read guidance", () => {

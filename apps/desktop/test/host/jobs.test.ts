@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   executeRead,
+  executeHostJob,
   executeShell,
   hostShellCapacitySnapshot,
   MAX_INLINE_BYTES,
@@ -61,6 +62,32 @@ const readPids = async (marker: string) =>
 
 afterEach(async () => {
   await terminateHostChildren();
+});
+
+test("host AwaitShell cancellation stops the wait without terminating the command", async () => {
+  const root = await mkdtemp(join(tmpdir(), "host-await-cancel-"));
+  try {
+    const shell = await executeShell(
+      {
+        command: `${shellQuote(process.execPath)} -e ${shellQuote("setTimeout(() => {}, 200)")}`,
+        block_until_ms: 0,
+        working_directory: root,
+      },
+      root
+    );
+    const payload = {
+      kind: "await-shell" as const,
+      input: { shell_id: shell.shell_id, block_until_ms: 60_000 },
+      terminalDir: root,
+    };
+    const controller = new AbortController();
+    const pending = executeHostJob(payload, controller.signal);
+    controller.abort(new Error("stop waiting"));
+    await expect(pending).rejects.toThrow("stop waiting");
+    expect(await executeHostJob(payload)).toMatchObject({ status: "completed", exit_code: 0 });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 describe("host file text projection", () => {

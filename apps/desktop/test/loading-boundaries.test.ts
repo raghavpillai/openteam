@@ -282,6 +282,7 @@ describe("desktop loading and packaging boundaries", () => {
       "settingsGeneralBot",
       "settingsComputer",
       "settingsServer",
+      "settingsWebSearch",
       "settingsUpdates",
     ]) {
       expect(measure).toContain(`${boundary}:`);

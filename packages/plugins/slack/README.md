@@ -1,0 +1,15 @@
+# Slack
+
+This package connects to Slack's official MCP server using a Slack application owned by your deployment. Internal apps can use it without a Marketplace listing. Unlisted distributed apps cannot use Slack MCP.
+
+1. Install Slack in OpenTeam and open its account under **Plugins → Manage plugins → Installed**. Copy the displayed OAuth callback URL.
+2. Open [Your Apps](https://api.slack.com/apps), select **Create New App → From a manifest**, and paste [slack-app-manifest.json](slack-app-manifest.json). Replace its example redirect URL with the exact OpenTeam callback URL. Choose your workspace, review, and create the app.
+3. In the Slack app dashboard, open **Agents** and turn on **Enable Slack MCP Server**. OAuth can succeed while discovery fails if this switch is off.
+4. From **Basic Information**, copy the client ID and client secret into OpenTeam. Choose **Save and authorize**, select the workspace, and approve access.
+5. Run a small read test, such as searching for your own user or listing your channels. Check the actual tool result before granting Bot access.
+
+The manifest requests the user-token scopes in [Slack's MCP tool reference](https://docs.slack.dev/ai/slack-mcp-server/#oauth-scopes-needed-on-user-token-for-different-tools), including search, files, channel history, users, messages, canvases, and lists. You may remove capabilities you do not need: reduce scopes in both Slack and OpenTeam, reauthorize, and disable the corresponding tools. Workspace policy or Slack plan restrictions can still limit individual tools.
+
+For multiple accounts or workspaces, add an OpenTeam account, register its callback URL in the Slack app, and authorize it separately. An internal app belongs to its workspace; a different workspace may require its own internal app credentials.
+
+Use the [plugin guide](../../../docs/plugins.md) for account management, secrets, development, and troubleshooting. No Slack CLI is required.

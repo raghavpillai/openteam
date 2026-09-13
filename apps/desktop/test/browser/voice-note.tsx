@@ -4,6 +4,7 @@ import { PromptInput } from "../../src/renderer/components/ai-elements/prompt-in
 import { api } from "../../src/renderer/client/openteam-api";
 import { TranscriptionSettingsPanel } from "../../src/renderer/components/openteam/settings/transcription";
 import { defaultTranscriptionSettings } from "@openteam/contracts/transcription";
+import { ThreadTray } from "../../src/renderer/components/openteam/thread-tray";
 
 const renderErrors: string[] = [];
 const root = createRoot(document.getElementById("root")!, {
@@ -128,12 +129,57 @@ async function run() {
   assert(editor.querySelector("span") === mention, "Transcription replaced mention token");
   assert(stoppedTracks === 1, "Microphone track not released after stop");
   button("Send message")!.click();
+  button("Send message")?.click();
   await pause();
   assert(
     transcripts.length === 1 && transcripts[0]!.includes("Ship it tomorrow."),
     "Submitted content missed transcript"
   );
   reports.push("record, append with mentions, stop microphone, and submit");
+
+  editor.textContent = "Send OLD tomorrow.";
+  editor.dispatchEvent(new Event("input", { bubbles: true }));
+  await pause();
+  editor.focus();
+  const selected = document.createRange();
+  selected.setStart(editor.firstChild!, 5);
+  selected.setEnd(editor.firstChild!, 8);
+  window.getSelection()!.removeAllRanges();
+  window.getSelection()!.addRange(selected);
+  upload = async () => ({ text: "Raghav $1,203.05" });
+  await record();
+  assert(
+    editor.textContent === "Send Raghav $1,203.05 tomorrow.",
+    "Voice did not replace the saved selection exactly"
+  );
+  assert(window.getSelection()?.isCollapsed, "Caret was not restored after insertion");
+  button("Send message")!.click();
+  await pause();
+  reports.push(
+    "dictation replaces the bookmarked selection and preserves names, numbers, and suffix"
+  );
+
+  editor.innerHTML =
+    '<span data-mention-id="bot-1" data-mention-label="Helper" data-mention-handle="helper" contenteditable="false">@Helper</span> tail';
+  editor.dispatchEvent(new Event("input", { bubbles: true }));
+  await pause();
+  editor.focus();
+  const middle = document.createRange();
+  middle.setStart(editor.lastChild!, 0);
+  middle.collapse(true);
+  window.getSelection()!.removeAllRanges();
+  window.getSelection()!.addRange(middle);
+  const keptMention = editor.firstChild;
+  upload = async () => ({ text: "review" });
+  await record();
+  assert(
+    editor.textContent === "@Helper review tail",
+    "Insertion next to mention moved to the end"
+  );
+  assert(editor.firstChild === keptMention, "Cursor insertion replaced a mention token");
+  button("Send message")!.click();
+  await pause();
+  reports.push("dictation at the cursor preserves adjacent mention identity");
 
   upload = async () => {
     throw new Error("Provider offline");
@@ -307,6 +353,84 @@ async function run() {
     "Late permission result leaked microphone after navigation"
   );
   reports.push("navigation releases a late microphone permission result");
+  const threadProps = {
+    botById: new Map(),
+    mentionOptions: [],
+    open: true,
+    replies: [],
+    deliveries: [],
+    recoveries: [],
+    root: {
+      id: "voice-thread",
+      channelId: "voice-channel",
+      clientId: "voice-root",
+      sender: "user",
+      senderBotId: null,
+      content: "Thread root",
+      metadata: {},
+      sequence: "1",
+      createdAt: new Date().toISOString(),
+    } as any,
+    onClose: () => undefined,
+    onCancelSend: async () => null,
+    onDeleteSend: async () => undefined,
+    onResendSend: async () => undefined,
+    onAcknowledgeRecovery: async () => undefined,
+    onStage: async () => {
+      throw new Error("Voice cannot attach files");
+    },
+    onSubmit: async (text: string) => {
+      transcripts.push(text);
+    },
+  };
+  root.render(<ThreadTray {...threadProps} transcriptionConfigured={false} />);
+  await pause(100);
+  assert(
+    button("Set up transcription in Server settings to use voice notes")?.disabled,
+    "Unconfigured thread mic was enabled"
+  );
+  root.render(<ThreadTray {...threadProps} transcriptionConfigured />);
+  await pause(100);
+  media = async () =>
+    ({
+      getTracks: () => [
+        Object.assign(new EventTarget(), {
+          stop() {
+            stoppedTracks++;
+          },
+        }),
+      ],
+    }) as unknown as MediaStream;
+  upload = async () => ({ text: "Voice reply in this thread." });
+  const threadSendCount = transcripts.length;
+  await record();
+  button("Send message")!.click();
+  await pause(100);
+  assert(
+    transcripts.length === threadSendCount + 1 &&
+      transcripts.at(-1) === "Voice reply in this thread.",
+    "Thread dictation was disabled or lost its content"
+  );
+  reports.push("actual thread composer respects setup and submits its voice reply exactly once");
+  upload = async (_audio, nextSignal) => {
+    signal = nextSignal;
+    return new Promise((resolve) => {
+      resolveUpload = resolve;
+    });
+  };
+  button("Record voice note")!.click();
+  await pause(600);
+  button("Transcribe and send")!.click();
+  await pause(80);
+  root.render(<ThreadTray {...threadProps} open={false} transcriptionConfigured />);
+  await pause();
+  resolveUpload!({ text: "Closed thread must not send." });
+  await pause();
+  assert(
+    signal?.aborted && transcripts.length === threadSendCount + 1,
+    "Closing an animating thread allowed a late voice send"
+  );
+  reports.push("closing a thread aborts transcription before its exit animation finishes");
   let savedInput: Record<string, unknown> | undefined;
   api.transcriptionSettings = async () => ({
     ...defaultTranscriptionSettings(),

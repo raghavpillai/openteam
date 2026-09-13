@@ -45,12 +45,12 @@ describe("robot avatar chat activity", () => {
       expect(mode("one", "group", status)).toBe("<span>idle</span>");
     }
   });
-  test("retains new robot choices and consistently maps saved legacy icons", () => {
+  test("retains robot choices and defaults unknown icons", () => {
     expect(normalizeRobotAvatarShape("periscope")).toBe("periscope");
     expect(normalizeRobotAvatarShape(" DUAL-SCREEN ")).toBe("dual-screen");
-    expect(normalizeRobotAvatarShape("triangle")).toBe("classic");
-    expect(normalizeRobotAvatarShape("hexagon")).toBe("hex-visor");
-    expect(normalizeRobotAvatarShape("cloud")).toBe("chip");
+    expect(normalizeRobotAvatarShape("classic")).toBe("classic");
+    expect(normalizeRobotAvatarShape("hex-visor")).toBe("hex-visor");
+    expect(normalizeRobotAvatarShape("unknown")).toBe("chip");
     expect(normalizeRobotAvatarShape(null)).toBe("chip");
   });
 });

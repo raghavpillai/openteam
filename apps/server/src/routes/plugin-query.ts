@@ -1,3 +1,4 @@
+import { pluginManagementRoutes } from "./plugin-management";
 import {
   ApiError,
   PLUGIN_BOT_ACCESS_PAGE_SIZE,
@@ -11,6 +12,8 @@ import { dispatchRoutes, effectRoute } from "./dispatch";
 import { boundedQueryInteger } from "./input";
 
 export async function pluginQueryRoutes(context: RouteContext): Promise<Response | undefined> {
+  const managed = await pluginManagementRoutes(context);
+  if (managed) return managed;
   const { app, request, url, path } = context;
 
   if (request.method === "GET" && path === "/api/plugin-connections/status") {

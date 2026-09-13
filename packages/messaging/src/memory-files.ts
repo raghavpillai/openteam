@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { Dirent } from "node:fs";
-import { mkdir, readdir, rm, stat } from "node:fs/promises";
+import { mkdir, readFile, readdir, rm, stat } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
 import { atomicWrite, listFiles, readText } from "./file-state";
 
@@ -77,10 +77,8 @@ export const normalizeMemoryContent = (value: string): string =>
 export const boundMemoryEvidenceText = (value: string): string => {
   const normalized = value.trim();
   if (normalized.length <= MAX_MEMORY_EVIDENCE_SIDE_CHARS) return normalized;
-  const available = MAX_MEMORY_EVIDENCE_SIDE_CHARS - MEMORY_EVIDENCE_OMISSION.length;
-  const head = Math.ceil(available / 2);
-  const tail = Math.floor(available / 2);
-  return `${normalized.slice(0, head)}${MEMORY_EVIDENCE_OMISSION}${normalized.slice(-tail)}`;
+  const half = Math.floor(MAX_MEMORY_EVIDENCE_SIDE_CHARS / 2);
+  return `${normalized.slice(0, half)}${MEMORY_EVIDENCE_OMISSION}${normalized.slice(-half)}`;
 };
 
 export const memoryLogicalId = (content: string): string =>
@@ -309,7 +307,9 @@ export const consumeEvidence = async (
     if (!filename?.[1]) continue;
     const path = join(directory, name);
     try {
-      const text = await readText(path, 20_000);
+      // Bound decoded evidence, not UTF-8/JSON bytes: a valid 8k-character side
+      // can exceed 20k bytes. The source store also parses before bounding.
+      const text = await readFile(path, "utf8");
       const value = text ? (JSON.parse(text) as Record<string, unknown>) : null;
       if (
         !value ||
@@ -332,7 +332,9 @@ export const consumeEvidence = async (
       await rm(path, { force: true });
     }
   }
-  return entries.sort((a, b) => a.occurredAt - b.occurredAt).slice(-12);
+  // The scheduler selects the newest 12 after merging RAM and disk, then clears
+  // every consumed spool ID. Truncating here would replay older files later.
+  return entries.sort((a, b) => a.occurredAt - b.occurredAt);
 };
 
 export const clearSpooledEvidence = async (
@@ -366,36 +368,57 @@ const synthesisFiles = async (
   return files;
 };
 
-export const memorySynthesisFingerprint = async (memoryRoot: string): Promise<string> => {
+const fingerprintSynthesisFiles = (files: Array<{ sourcePath: string; raw: string }>): string => {
   const hash = createHash("sha256");
-  for (const file of await synthesisFiles(memoryRoot)) {
+  for (const file of files) {
     hash.update(file.sourcePath).update("\0").update(file.raw).update("\0");
   }
   return hash.digest("hex");
 };
 
+interface SynthesisFileFact extends MemoryFileFact {
+  origin: MemoryOrigin;
+}
+
+/** Facts and fingerprint must describe the same captured file contents. */
+const readSynthesisState = async (memoryRoot: string) => {
+  const files = await synthesisFiles(memoryRoot);
+  const facts: SynthesisFileFact[] = [];
+  for (const file of files) {
+    for (const fact of parseMemoryMarkdown(file.raw, file.sourcePath === "profile.md")) {
+      facts.push({
+        ...fact,
+        sourcePath: file.sourcePath,
+        // Ordering spans files, including the profile, in the synthesis snapshot.
+        sourceOrdinal: facts.length,
+        origin: await memoryOrigin(memoryRoot, fact.logicalId),
+      });
+    }
+  }
+  return { files, facts, fingerprint: fingerprintSynthesisFiles(files) };
+};
+
+export const memorySynthesisFingerprint = async (memoryRoot: string): Promise<string> =>
+  fingerprintSynthesisFiles(await synthesisFiles(memoryRoot));
+
 export const prepareMemorySynthesis = async (
   memoryRoot: string
 ): Promise<MemorySynthesisSnapshot> => {
-  const facts = await readMemoryTree(memoryRoot);
-  const withOrigins = await Promise.all(
-    facts.map(async (fact) => ({
-      fact,
-      origin: await memoryOrigin(memoryRoot, fact.logicalId),
-    }))
-  );
-  withOrigins.sort((left, right) => {
+  const state = await readSynthesisState(memoryRoot);
+  const sorted = [...state.facts].sort((left, right) => {
     if (left.origin === "explicit" && right.origin !== "explicit") return -1;
     if (right.origin === "explicit" && left.origin !== "explicit") return 1;
-    const leftProfile = left.fact.sourcePath === "profile.md";
-    const rightProfile = right.fact.sourcePath === "profile.md";
+    const leftProfile = left.sourcePath === "profile.md";
+    const rightProfile = right.sourcePath === "profile.md";
     if (leftProfile !== rightProfile) return leftProfile ? -1 : 1;
-    const date = right.fact.createdAt.getTime() - left.fact.createdAt.getTime();
-    return date || right.fact.sourceOrdinal - left.fact.sourceOrdinal;
+    return (
+      right.createdAt.getTime() - left.createdAt.getTime() ||
+      right.sourceOrdinal - left.sourceOrdinal
+    );
   });
   const seen = new Set<string>();
   const memories: MemorySynthesisSnapshotFact[] = [];
-  for (const { fact, origin } of withOrigins) {
+  for (const fact of sorted) {
     if (seen.has(fact.logicalId)) continue;
     seen.add(fact.logicalId);
     memories.push({
@@ -403,26 +426,11 @@ export const prepareMemorySynthesis = async (
       content: fact.content,
       createdAt: fact.createdAt.getTime(),
       kind: fact.sourcePath === "profile.md" ? "profile" : "log",
-      origin,
+      origin: fact.origin,
     });
     if (memories.length >= MAX_SYNTHESIS_MEMORIES) break;
   }
-  return { fingerprint: await memorySynthesisFingerprint(memoryRoot), memories };
-};
-
-const removeFirstMemoryById = async (memoryRoot: string, logicalId: string): Promise<boolean> => {
-  for (const { sourcePath, raw } of await synthesisFiles(memoryRoot)) {
-    const lines = raw.split(/\r?\n/);
-    const index = lines.findIndex((line) => {
-      const match = line.match(MEMORY_LINE);
-      return Boolean(match?.[2] && memoryLogicalId(match[2]) === logicalId);
-    });
-    if (index < 0) continue;
-    lines.splice(index, 1);
-    await atomicWrite(join(memoryRoot, sourcePath), lines.join("\n"));
-    return true;
-  }
-  return false;
+  return { fingerprint: state.fingerprint, memories };
 };
 
 export const markTemporalMemoryReview = async (
@@ -446,71 +454,94 @@ export const isTemporalMemoryReviewDue = async (
   return !Number.isFinite(timestamp) || timestamp <= now;
 };
 
+/** The caller holds the bot-file mutation lock throughout validation and commit. */
 export const applyMemorySynthesis = async (
   memoryRoot: string,
   snapshot: MemorySynthesisSnapshot,
   changes: readonly MemorySynthesisChange[],
   now = new Date()
 ): Promise<"committed" | "stale" | "invalid"> => {
-  if ((await memorySynthesisFingerprint(memoryRoot)) !== snapshot.fingerprint) return "stale";
+  const state = await readSynthesisState(memoryRoot);
+  if (state.fingerprint !== snapshot.fingerprint) return "stale";
   if (changes.length > MAX_SYNTHESIS_CHANGES) return "invalid";
 
-  const snapshotById = new Map(snapshot.memories.map((memory) => [memory.id, memory]));
-  const current = await readMemoryTree(memoryRoot);
-  const currentById = new Map<string, MemoryFileFact>();
-  for (const fact of current)
-    if (!currentById.has(fact.logicalId)) currentById.set(fact.logicalId, fact);
-  const occupied = new Set(current.map((fact) => fact.logicalId));
+  const allowedIds = new Set(snapshot.memories.map((memory) => memory.id));
+  // The reference mutates the last file occurrence when hand-edited duplicates
+  // have the same logical ID. Keep its path and line, rather than searching again.
+  const currentById = new Map(state.facts.map((fact) => [fact.logicalId, fact]));
+  const key = (content: string) => normalizeMemoryContent(content).toLowerCase();
+  const finalKeys = new Map(state.facts.map((fact) => [key(fact.content), fact.logicalId]));
   const touched = new Set<string>();
-  const removals: Array<{
-    id: string;
-    replacement?: { content: string; kind: "profile" | "log" };
-  }> = [];
-  const creations: Array<{ content: string; kind: "profile" | "log" }> = [];
+  const removals: SynthesisFileFact[] = [];
+  const additions: Array<{ content: string; kind: "profile" | "log" }> = [];
 
   for (const change of changes) {
     if (change.action === "create") {
       const content = normalizeMemoryContent(change.content);
       if (!content) return "invalid";
-      const id = memoryLogicalId(content);
       if (await isMemoryTombstoned(memoryRoot, content)) continue;
-      if (occupied.has(id)) continue;
-      occupied.add(id);
-      creations.push({ content, kind: change.kind });
+      if (finalKeys.has(key(content))) continue;
+      finalKeys.set(key(content), memoryLogicalId(content));
+      additions.push({ content, kind: change.kind });
       continue;
     }
 
-    if (touched.has(change.id)) return "invalid";
-    touched.add(change.id);
-    const before = snapshotById.get(change.id);
+    if (!allowedIds.has(change.id) || touched.has(change.id)) return "invalid";
     const existing = currentById.get(change.id);
-    if (!before || !existing || before.origin === "explicit") return "invalid";
+    // Read current origins, not the earlier model snapshot: an explicit re-save
+    // changes metadata without changing the Markdown fingerprint.
+    if (!existing || existing.origin === "explicit") return "invalid";
     if (change.action === "remove") {
-      occupied.delete(change.id);
-      removals.push({ id: change.id });
+      touched.add(change.id);
+      finalKeys.delete(key(existing.content));
+      removals.push(existing);
       continue;
     }
     const content = normalizeMemoryContent(change.content);
     if (!content) return "invalid";
     if (await isMemoryTombstoned(memoryRoot, content)) continue;
-    occupied.delete(change.id);
-    const replacementId = memoryLogicalId(content);
-    if (occupied.has(replacementId)) return "invalid";
-    occupied.add(replacementId);
-    removals.push({ id: change.id, replacement: { content, kind: change.kind } });
+    const conflict = finalKeys.get(key(content));
+    if (conflict !== undefined && conflict !== existing.logicalId) return "invalid";
+    touched.add(change.id);
+    finalKeys.delete(key(existing.content));
+    finalKeys.set(key(content), memoryLogicalId(content));
+    removals.push(existing);
+    additions.push({ content, kind: change.kind });
   }
 
+  // Stage the entire proposal before writing. This preserves proposal order and
+  // replaces each affected file once, without exposing intermediate removals.
+  const rawByPath = new Map(state.files.map((file) => [file.sourcePath, file.raw]));
+  const removalsByPath = new Map<string, SynthesisFileFact[]>();
   for (const removal of removals) {
-    await removeFirstMemoryById(memoryRoot, removal.id);
-    await clearMemoryOrigin(memoryRoot, removal.id);
+    const group = removalsByPath.get(removal.sourcePath) ?? [];
+    group.push(removal);
+    removalsByPath.set(removal.sourcePath, group);
   }
-  for (const addition of [
-    ...creations,
-    ...removals.flatMap((entry) => (entry.replacement ? [entry.replacement] : [])),
-  ]) {
-    const written = await appendMemoryFact(memoryRoot, addition.content, addition.kind, now);
-    await clearMemoryOrigin(memoryRoot, written.logicalId);
-    await markMemoryOrigin(memoryRoot, written.logicalId, "synthesized");
+  const touchedPaths = new Set<string>();
+  for (const [sourcePath, group] of removalsByPath) {
+    const lines = (rawByPath.get(sourcePath) ?? "").split("\n");
+    for (const fact of group.sort((left, right) => right.sourceLine - left.sourceLine)) {
+      lines.splice(fact.sourceLine - 1, 1);
+    }
+    rawByPath.set(sourcePath, lines.join("\n"));
+    touchedPaths.add(sourcePath);
+  }
+  for (const addition of additions) {
+    const sourcePath =
+      addition.kind === "profile" ? "profile.md" : `log/${now.toISOString().slice(0, 7)}.md`;
+    const raw = rawByPath.get(sourcePath) ?? "";
+    const base = raw || (addition.kind === "profile" ? MEMORY_PROFILE_HEADER : MEMORY_LOG_HEADER);
+    const separator = base.endsWith("\n") || !base ? "" : "\n";
+    rawByPath.set(sourcePath, `${base}${separator}${memoryLine(now, addition.content)}\n`);
+    touchedPaths.add(sourcePath);
+  }
+  for (const sourcePath of [...touchedPaths].sort()) {
+    await atomicWrite(join(memoryRoot, sourcePath), rawByPath.get(sourcePath) ?? "");
+  }
+  for (const removal of removals) await clearMemoryOrigin(memoryRoot, removal.logicalId);
+  for (const addition of additions) {
+    await markMemoryOrigin(memoryRoot, memoryLogicalId(addition.content), "synthesized");
   }
   await markTemporalMemoryReview(memoryRoot, now.getTime());
   return "committed";

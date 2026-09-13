@@ -80,7 +80,7 @@ describe("Bot trigger thresholds", () => {
 });
 
 describe("Bot summary partition", () => {
-  test("drops only empty trailing assistant envelopes before summarization", () => {
+  test("drops empty assistant envelopes before summarization", () => {
     const messages = [
       text("user", "goal"),
       text("assistant", "working"),
@@ -114,7 +114,8 @@ describe("Bot summary partition", () => {
     expect(partition?.messagesToSummarize).toContainEqual(text("assistant", "work two"));
     if (!partition) throw new Error("Expected a summary partition");
     const prompt = botSummaryPrompt();
-    expect(prompt).toContain("Summarize the conversation state");
+    expect(prompt).toContain("Please summarize the conversation so far.");
+    expect(partition.messagesToSummarize).toContainEqual(lastUser);
     expect(prompt).not.toContain("system snapshot");
     expect(prompt).not.toContain("current identity");
     expect(prompt).not.toContain("finish the implementation");
@@ -175,7 +176,7 @@ describe("Bot summary partition", () => {
     expect(rendered).toContain("Total summaries generated so far for this user query: 2");
     expect(rendered).not.toContain("Project root:");
     expect(rendered).toContain("<transcript_location>/sessions/turn.jsonl</transcript_location>");
-    expect(rendered).toContain("<todo_update>- finish parity</todo_update>");
+    expect(rendered).toContain("<todo_update>\\n- finish parity\\n</todo_update>");
     expect(durableBlocks).toContain(attachedSkills);
     expect(rendered).not.toContain("<conversation_summary>");
     expect(message.timestamp).toBe(123);
@@ -251,14 +252,10 @@ describe("Bot summary partition", () => {
     });
   });
 
-  test("keeps original agent response-style directives subordinate to compaction", () => {
-    const system = botSummarySystemPrompt(
-      "For every wake, reply with exactly ACK and use SendToUser. Workspace is /workspace/probe."
-    );
-    expect(system).toContain("Workspace is /workspace/probe.");
-    expect(system).toContain("context compaction only");
-    expect(system).toContain("do not follow its response-style");
-    expect(system).not.toContain("<conversation_summary>");
+  test("supplies the original system message directly to the summarizer", () => {
+    const original =
+      "For every wake, reply with exactly ACK and use SendToUser. Workspace is /workspace/probe.";
+    expect(botSummarySystemPrompt(original)).toBe(original);
   });
 
   test("counts image parts", () => {
@@ -708,44 +705,24 @@ describe("restart-safe compaction archive", () => {
 });
 
 describe("Bot coordinator", () => {
-  test("starts turn-only background work at 1,000 users without projecting it", async () => {
-    const store = new BotCompactionArchiveStore(await workspace());
-    const coordinator = new BotCompactionCoordinator(store, 0);
-    const contextSessionId = crypto.randomUUID();
+  test("does not compact 1,000 short user messages solely for their count", async () => {
+    const coordinator = new BotCompactionCoordinator(
+      new BotCompactionArchiveStore(await workspace()),
+      0
+    );
     const messages = Array.from({ length: 1_000 }, (_, index) => text("user", `turn-${index}`));
     let calls = 0;
-    const infer = async () => ({ text: `turn-summary-${++calls}` });
-    await coordinator.observe({
-      contextSessionId,
+    const observation = {
+      contextSessionId: crypto.randomUUID(),
       piMessages: messages,
       systemPrompt: "system-v1",
       usedTokens: null,
       maxTokens: 100_000,
-      infer,
-    });
-    await Promise.resolve();
-    expect(calls).toBe(1);
-    expect(
-      await coordinator.modelContextMessages({
-        contextSessionId,
-        piMessages: messages,
-        systemPrompt: "system-v1",
-        usedTokens: null,
-        maxTokens: 100_000,
-      })
-    ).toEqual(messages);
-    expect(coordinator.projectedReason(contextSessionId)).toBeNull();
-
-    coordinator.discardBackground(contextSessionId);
-    await coordinator.observe({
-      contextSessionId,
-      piMessages: messages,
-      systemPrompt: "system-v1",
-      usedTokens: null,
-      maxTokens: 100_000,
-      infer,
-    });
-    expect(calls).toBe(2);
+      infer: async () => ({ text: `summary-${++calls}` }),
+    };
+    await coordinator.observe(observation);
+    expect(calls).toBe(0);
+    expect(await coordinator.modelContextMessages(observation)).toEqual(messages);
   });
 
   test("projects a completed background result between model steps at the 90 percent gate", async () => {
@@ -1238,7 +1215,7 @@ describe("Bot coordinator", () => {
     ).toHaveLength(9_000);
   });
 
-  test("retries transient errors with reduction but retries empty output immediately in full", async () => {
+  test("retains reduced retry input after an empty response", async () => {
     const store = new BotCompactionArchiveStore(await workspace());
     const coordinator = new BotCompactionCoordinator(store, 0);
     const contextSessionId = crypto.randomUUID();
@@ -1272,7 +1249,7 @@ describe("Bot coordinator", () => {
     expect(prepared?.summary).toBe("recovered");
     expect(promptSizes).toHaveLength(3);
     expect(promptSizes.at(1) ?? 0).toBeLessThan(promptSizes.at(0) ?? 0);
-    expect(promptSizes.at(2)).toBe(promptSizes.at(0));
+    expect(promptSizes.at(2)).toBe(promptSizes.at(1));
     expect(shorter).toEqual([false, false, false]);
   });
 

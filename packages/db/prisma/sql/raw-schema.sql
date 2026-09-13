@@ -282,3 +282,30 @@ CREATE TRIGGER "ChannelMessage_search_refresh" AFTER INSERT OR DELETE OR UPDATE 
 DROP TRIGGER IF EXISTS openteam_event_notify ON "Event";
 CREATE TRIGGER openteam_event_notify AFTER INSERT ON "Event"
   FOR EACH ROW EXECUTE FUNCTION openteam_notify_event();
+
+-- A NULL botId is the connection-wide policy. PostgreSQL's ordinary compound
+-- unique constraint does not deduplicate NULL values. Preserve the strictest
+-- existing preference while repairing rows written by older installations.
+WITH policy_preferences AS (
+  SELECT "connectionId", "toolName", bool_and(enabled) AS enabled,
+    CASE WHEN bool_or(decision = 'deny') THEN 'deny'
+         WHEN bool_or(decision = 'prompt') THEN 'prompt' ELSE 'allow' END AS decision
+  FROM "PluginToolPolicy" WHERE "botId" IS NULL GROUP BY "connectionId", "toolName"
+)
+UPDATE "PluginToolPolicy" p SET enabled = preferences.enabled,
+  decision = preferences.decision::"PluginToolDecision"
+FROM policy_preferences preferences
+WHERE p."botId" IS NULL AND p."connectionId" = preferences."connectionId" AND p."toolName" = preferences."toolName";
+DELETE FROM "PluginToolPolicy" older USING "PluginToolPolicy" newer
+WHERE older."botId" IS NULL AND newer."botId" IS NULL
+  AND older."connectionId" = newer."connectionId" AND older."toolName" = newer."toolName" AND older.id > newer.id;
+CREATE UNIQUE INDEX IF NOT EXISTS "PluginToolPolicy_global_unique"
+ON "PluginToolPolicy" ("connectionId", "toolName") WHERE "botId" IS NULL;
+
+-- Web search settings are a single server-owned row.
+ALTER TABLE "WebSearchSettings" DROP CONSTRAINT IF EXISTS "WebSearchSettings_valid";
+ALTER TABLE "WebSearchSettings" ADD CONSTRAINT "WebSearchSettings_valid" CHECK (
+  "id" = 'global' AND
+  ("provider" IS NULL OR "provider" IN ('exa', 'tavily', 'brave', 'bing-serpapi')) AND
+  ("provider" IS NOT NULL OR "apiKey" IS NULL)
+);

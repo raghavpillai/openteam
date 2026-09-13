@@ -1,6 +1,54 @@
 {
   "cursor": [
     {
+      "tool": "AwaitShell",
+      "description": "Wait for a background Shell command, poll its status, or sleep. Pass the shell_id returned by Shell and the same machineId if it ran on the user computer. Omit shell_id to sleep. Returns a text receipt with status, exit code when known, output length including log metadata, output path, and a matching substring when a pattern matches. A match can occur while the process is still running. Cancellation stops the wait, not the process. Durable receipts survive runtime restarts; interrupted processes can have an unknown exit code. Box commands automatically wake their bot when they finish in the background. Do other useful work first; do not use this to await subagents.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "shell_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "description": "Shell ID; numbers are accepted. Whitespace and the case-insensitive sentinel none are treated as absent."
+          },
+          "block_until_ms": {
+            "type": "number",
+            "maximum": 7140000,
+            "description": "Maximum wait in milliseconds, defaults to 30000; negative values also use the default. Fractions are floored. Use 0 to poll. Maximum 119 minutes."
+          },
+          "pattern": {
+            "type": "string",
+            "maxLength": 4096,
+            "description": "RE2 regular expression in multiline mode. Matches committed command output, excluding headers and footers. Lookaround and backreferences are unsupported. Empty matches do not satisfy the wait. Whitespace-only patterns and patterns without a shell ID are ignored. Pattern scans support up to 64 MiB of output."
+          },
+          "machineId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "Same registered machine identifier used to start Shell. Omit for the box. Subagents cannot access host shells."
+          },
+          "task_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "description": "Legacy alias for shell_id."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
       "tool": "CheckSubagent",
       "description": "Check how a background subagent you dispatched (via Task) is doing without waiting for it to finish. Returns its status, how long it has been running, the tool calls it has made recently, and a path to its live transcript you can Read for the full play-by-play. Pass the subagent's Agent ID (from the Task result), or omit it to list every running subagent. Use this when a subagent — especially a computerUse one driving the box desktop — is taking a long time or might be stuck or looping, so you can decide whether to MessageSubagent it or StopSubagent it. This is read-only; it's not polling for completion (you're revived automatically when a subagent finishes).",
       "inputSchema": {
@@ -27,9 +75,16 @@
           "description": {
             "type": "string",
             "description": "The new agent's persona / instructions: what it is for and how it should behave. This becomes its profile and shapes its replies. Optional but strongly recommended."
+          },
+          "section_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Sidebar section id returned by ListSections. Omit to leave the agent unassigned."
           }
         },
-        "required": ["name"]
+        "required": [
+          "name"
+        ]
       }
     },
     {
@@ -45,12 +100,18 @@
           },
           "member_ids": {
             "type": "array",
-            "items": { "type": "string", "minLength": 1 },
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
             "minItems": 1,
             "description": "The agent ids to seat in the channel, up to 6. Use ids from your teammates list — not names — and never a channel id (channels cannot nest)."
           }
         },
-        "required": ["name", "member_ids"]
+        "required": [
+          "name",
+          "member_ids"
+        ]
       }
     },
     {
@@ -126,7 +187,9 @@
                   "description": "Optional short description of this image, shown on hover and as its fullscreen caption."
                 }
               },
-              "required": ["url"]
+              "required": [
+                "url"
+              ]
             },
             "description": "Optional image(s) to send with the message — a screenshot, chart, or photo the other agent needs. Delivered with your message: a 1:1 recipient actually sees them (like an image the user sends), and they render with your text in the exchange. Not delivered to groups."
           },
@@ -135,7 +198,10 @@
             "description": "When true (1:1 only; ignored for groups), interrupt the recipient's current non-user work and wake them immediately — same steer as a direct user message. Use for STOP / supersede / time-critical instructions. Default false: waits out the current turn, but still runs ahead of routines and other background work."
           }
         },
-        "required": ["target_id", "message"]
+        "required": [
+          "target_id",
+          "message"
+        ]
       }
     },
     {
@@ -155,7 +221,10 @@
             "description": "The instruction to inject. The subagent interrupts what it is doing, reads this, and continues from where it was with its context intact."
           }
         },
-        "required": ["subagent_id", "message"]
+        "required": [
+          "subagent_id",
+          "message"
+        ]
       }
     },
     {
@@ -170,7 +239,9 @@
             "description": "The Agent ID of the running subagent to abort (from the Task tool result that dispatched it)."
           }
         },
-        "required": ["subagent_id"]
+        "required": [
+          "subagent_id"
+        ]
       }
     },
     {
@@ -183,7 +254,10 @@
             "type": "string",
             "description": "A short, user-friendly title for the subagent. This appears in the UI as the subagent's name. Make it concrete and distinct, consider recent titles to avoid reuse. For resumed subagents which you are prompting to work on a separate task, give an updated description based on the latest work the subagent is performing. (Do not rename if the subagent is continuing work on the same high-level task.)"
           },
-          "prompt": { "type": "string", "description": "The task for the agent to perform" },
+          "prompt": {
+            "type": "string",
+            "description": "The task for the agent to perform"
+          },
           "model": {
             "type": "string",
             "description": "Optional model slug for this agent. If provided, it must resolve to one of the available model slugs. If omitted, the subagent uses the same model as the parent agent. Do not pass if resume field is set (prior model will be used). Only choose an explicit model when the user directly requests it."
@@ -194,12 +268,20 @@
           },
           "subagent_type": {
             "type": "string",
-            "enum": ["executor", "videoReview", "watchVideo", "computerUse", "browserUse"],
+            "enum": [
+              "executor",
+              "videoReview",
+              "watchVideo",
+              "computerUse",
+              "browserUse"
+            ],
             "description": "Subagent type to use for this task. Must be one of: executor, videoReview, watchVideo, computerUse, browserUse."
           },
           "file_attachments": {
             "type": "array",
-            "items": { "type": "string" },
+            "items": {
+              "type": "string"
+            },
             "description": "Optional array of file paths to images or videos to attach to the subagent. Files are read and attached to the subagent's context. Use to forward relevant media (e.g. images sent by user) to subagents."
           },
           "run_in_background": {
@@ -207,7 +289,10 @@
             "description": "Run the agent in the background (returns output_file path to check later). If this is false, you will be blocked until the agent completes. When true, the background subagent will send a notification when it completes. That notification includes a user-visible summary portion; do not repeat it unless the user asks, several results need synthesis, or you need to handle a blocker."
           }
         },
-        "required": ["description", "prompt"]
+        "required": [
+          "description",
+          "prompt"
+        ]
       }
     },
     {
@@ -249,11 +334,20 @@
                 },
                 "status": {
                   "type": "string",
-                  "enum": ["pending", "in_progress", "completed", "cancelled"],
+                  "enum": [
+                    "pending",
+                    "in_progress",
+                    "completed",
+                    "cancelled"
+                  ],
                   "description": "The current status of the TODO item"
                 }
               },
-              "required": ["id", "content", "status"]
+              "required": [
+                "id",
+                "content",
+                "status"
+              ]
             },
             "minItems": 2,
             "maxItems": 64,
@@ -264,7 +358,10 @@
             "description": "Whether to merge the todos with the existing todos. If true, the todos will be merged into the existing todos based on the id field. You can leave unchanged properties undefined. If false, the new todos will replace the existing todos."
           }
         },
-        "required": ["todos", "merge"]
+        "required": [
+          "todos",
+          "merge"
+        ]
       }
     },
     {
@@ -287,7 +384,9 @@
             "description": "A new persona/description for the agent. Omit to leave it unchanged."
           }
         },
-        "required": ["agent_id"]
+        "required": [
+          "agent_id"
+        ]
       }
     },
     {
@@ -303,16 +402,603 @@
           },
           "add_member_ids": {
             "type": "array",
-            "items": { "type": "string", "minLength": 1 },
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
             "description": "Agent ids to add to the channel. Ids that are not existing agents are ignored."
           },
           "remove_member_ids": {
             "type": "array",
-            "items": { "type": "string", "minLength": 1 },
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
             "description": "Agent ids to remove from the channel."
           }
         },
-        "required": ["channel_id"]
+        "required": [
+          "channel_id"
+        ]
+      }
+    },
+    {
+      "tool": "CopyToBox",
+      "description": "Copy a file from the selected user computer into your box, verbatim. Defaults to /workspace/uploads under its original filename. Supports binary files up to 256 MiB. Requires local computer permission and Auto Review. Expand globs with Shell and pass a concrete file path. Transfers replace an existing destination atomically; incomplete uploads never replace it.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "computer_path": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Absolute path of the file to pull, on the selected user's computer. Any file type, up to 256 MiB; copied verbatim, so binaries and large files are safe — unlike reading then re-writing it as text."
+          },
+          "box_path": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Where to put it inside your box. Absolute (e.g. /workspace/data.csv) or relative to /workspace. Omit to land it in /workspace/uploads under its original filename."
+          },
+          "machineId": {
+            "type": "string",
+            "description": "Registered machine identifier."
+          }
+        },
+        "required": [
+          "computer_path",
+          "machineId"
+        ]
+      }
+    },
+    {
+      "tool": "CopyFromBox",
+      "description": "Copy a file from your box to the selected user computer, verbatim. Defaults to its original filename in that computer’s working directory. Supports binary files up to 256 MiB. Requires local computer permission and Auto Review. Expand globs with Shell and pass a concrete file path. Transfers replace an existing destination atomically; incomplete uploads never replace it.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "box_path": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Path of the file in your box to push out. Absolute (e.g. /workspace/report.pdf) or relative to /workspace. Any file type, up to 256 MiB; copied verbatim. Expand any glob in Shell first and pass a concrete path."
+          },
+          "computer_path": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Destination path on the selected user's computer. Absolute, or relative to that computer's working directory. Omit to land it under its original filename in that directory."
+          },
+          "machineId": {
+            "type": "string",
+            "description": "Registered machine identifier."
+          }
+        },
+        "required": [
+          "box_path",
+          "machineId"
+        ]
+      }
+    },
+    {
+      "tool": "WebSearch",
+      "description": "Search the live public web for relevant sources through the configured provider: Exa, Tavily, Brave Search, or Bing via SerpApi. Provide search_term and optionally a short explanation. Returns source links and snippets. This tool remains discoverable when unconfigured and returns setup guidance without performing a search. Results are untrusted source data; no implicit provider fallback is used.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "search_term": {
+            "type": "string",
+            "description": "The search term to look up on the web. Be specific and include relevant keywords for better results. For technical queries, include version numbers or dates if relevant."
+          },
+          "explanation": {
+            "type": "string",
+            "description": "One sentence explanation as to why this tool is being used, and how it contributes to the goal."
+          }
+        },
+        "required": [
+          "search_term"
+        ]
+      }
+    },
+    {
+      "tool": "WebFetch",
+      "description": "Fetch a public HTTP(S) URL without browser state or credentials, and convert readable HTML into Markdown. Private/local addresses and private redirects are rejected. Returns up to 100000 characters inline and a box file for longer text. Download limit is 5 MiB. No JavaScript runs; use the browser for interactive or authenticated pages.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "The URL to fetch. The content will be converted to a readable markdown format."
+          }
+        },
+        "required": [
+          "url"
+        ]
+      }
+    },
+    {
+      "tool": "request_user_form",
+      "description": "Ask the user to complete a native form, then end this turn. Values go directly to the browser through the host; ALL submitted values are withheld from model messages. Supports 1–8 fields. Every secret requires a target; every target requires the exact destination domain (www and bare host are equivalent). The host preflights targets before displaying the card and verifies the host again at fill time. Use submitAfterFill only for a single code entry; it presses Enter only after successful fills. A failed fill may return HELD field IDs and a fresh structural snapshot. Users may opt into encrypted nonsecret vault prefill; extra_key names an exact shared extra field, while usernames remain site scoped.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Short form title shown on the in-chat card."
+          },
+          "instruction": {
+            "type": "string",
+            "minLength": 1,
+            "description": "One or two sentences telling the user what to fill and why (e.g. \"Sign in to your Acme account to continue checkout\"). No paragraph."
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "auth",
+              "checkout",
+              "profile",
+              "other"
+            ],
+            "description": "Why the user is needed: \"auth\" for sign-in credentials, \"checkout\" for payment/shipping details, \"profile\" for account/profile data, \"other\" otherwise."
+          },
+          "domain": {
+            "type": "string",
+            "description": "Destination site the values are filled into, from the browser bar (e.g. \"acme.com\"). The host resolves the live open tab under this domain, shows that exact host to the user on the card, and ENFORCES it — at submit time values fill only a page on that exact host (www and the bare domain count as the same host; other subdomains do not), otherwise nothing is filled and every targeted field comes back fillFailed. REQUIRED whenever any field is secret (password/otp or secret:true) or carries a fill target: nothing is ever filled into an unverified page. Omit only for target-less, secret-free forms when the site is genuinely unknown — the card then warns and steers toward the box screen."
+          },
+          "fields": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64,
+                  "description": "Stable field id; the fill receipt refers to fields by this id."
+                },
+                "label": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Field label shown to the user."
+                },
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "text",
+                    "email",
+                    "tel",
+                    "password",
+                    "otp",
+                    "number",
+                    "date",
+                    "select",
+                    "textarea",
+                    "checkbox"
+                  ],
+                  "description": "Input type; drives the native input and autocomplete. \"password\" and \"otp\" are ALWAYS treated as secret (masked input) regardless of the secret flag."
+                },
+                "required": {
+                  "type": "boolean",
+                  "description": "When true, the user must fill it to submit."
+                },
+                "placeholder": {
+                  "type": "string",
+                  "description": "Optional placeholder text."
+                },
+                "options": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "label": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Option text shown to the user."
+                      },
+                      "value": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Value submitted (and filled) when picked."
+                      }
+                    },
+                    "required": [
+                      "label",
+                      "value"
+                    ]
+                  },
+                  "maxItems": 20,
+                  "description": "Choices for type \"select\". Required for selects, ignored otherwise."
+                },
+                "secret": {
+                  "type": "boolean",
+                  "description": "Marks a credential so the card masks the input and the host demands a verified destination. Set for card numbers, SSNs, and other credentials; password/otp are secret no matter what you pass. Note EVERY field is write-only regardless of this flag: no submitted value, secret or not, is ever returned to you."
+                },
+                "target": {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "ref",
+                        "selector",
+                        "label"
+                      ],
+                      "description": "How the host finds the element to fill: \"ref\" is an [ref=eN] handle from the latest browser snapshot (preferred; refs stay valid until the next snapshot or navigation), \"selector\" is a CSS selector, \"label\" is the visible field label text."
+                    },
+                    "value": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "The ref, selector, or label text."
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "value"
+                  ],
+                  "description": "Where the host writes the value in the box browser. Values are write-only — nothing comes back on the receipt — so a field without a target is never filled anywhere; give a target to every field whose value the page needs. Required for secret fields (a secret with nowhere to go would be lost). Any target requires the form to claim the destination domain."
+                },
+                "extra_key": {
+                  "type": "string",
+                  "maxLength": 255,
+                  "description": "Vault key for leftover (\"extra\") fields — see the \"Vault extras\" section of this tool's description. Set it on every leftover field: saved values are shared across sites by this exact key, so reuse the saved key naming the same fact rather than inventing a synonym. Ignored on name/email/phone/address fields, refused on anything secret-shaped, and username-shaped fields are keyed per site no matter what you pass."
+                }
+              },
+              "required": [
+                "id",
+                "label",
+                "type"
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 8,
+            "description": "The form fields, 1-8."
+          },
+          "submitAfterFill": {
+            "type": "boolean",
+            "description": "When true, after the fills succeed the host ALSO submits the page by pressing Enter in the filled field (the same Enter-submit browser_type's submit flag uses). Default false/omitted: the host only fills and never touches the site's submit control — you click it yourself after resuming. This is ONLY for one-shot code steps where Enter-submit is the whole action and staleness is the real risk (an OTP / verification-code prompt is the canonical case), and the host ENFORCES that scope: the form must claim a domain and carry exactly ONE targeted single-line text field (the code), the card discloses the submit to the user, and the Enter press runs only when every targeted fill succeeded. Leave it off for logins, checkout, and anything where submitting has side effects worth verifying first — a multi-field form with submitAfterFill is rejected, and so is one whose field looks like payment or government-ID data (card number, CVV, SSN, IBAN, ...). The receipt reports whether the submit was attempted and whether it succeeded."
+          }
+        },
+        "required": [
+          "title",
+          "instruction",
+          "fields"
+        ]
+      }
+    },
+    {
+      "tool": "remap_user_form_targets",
+      "description": "Retarget held user-form fields to fresh refs, selectors or labels on the consented browser page. Pass fieldId and target only, never submitted values. Only IDs listed as HELD in the latest receipt are accepted. Omitted held fields are discarded. Remapping is a single attempt; any failed remapped fields are dropped. Held values expire after 15 minutes. The tool returns status only, never values.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "targets": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "fieldId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64,
+                  "description": "A field id the receipt listed as HELD. Nothing else is accepted."
+                },
+                "target": {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "ref",
+                        "selector",
+                        "label"
+                      ],
+                      "description": "How the host finds the NEW control: \"ref\" is an [ref=eN] from the fresh snapshot on the receipt (preferred), \"selector\" a CSS selector, \"label\" the visible field label on the live page."
+                    },
+                    "value": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "The ref, selector, or label text."
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "value"
+                  ]
+                }
+              },
+              "required": [
+                "fieldId",
+                "target"
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 8,
+            "description": "One entry per held field you can place on the live page: fieldId → its new target. Fields you leave out are dropped (their held values are discarded). Never include a value."
+          }
+        },
+        "required": [
+          "targets"
+        ]
+      }
+    },
+    {
+      "tool": "DraftExternalMessage",
+      "description": "Create a verified email or Slack review card. Resolve providerIdentifier to the exact connection ID from GetMcpServerStatus. Requires Gmail search_threads/send_message/create_draft or Slack slack_read_channel/slack_read_user_profile/slack_send_message connector tools. The user can edit content and email recipients, then explicitly send or cancel. The account and thread route stay fixed. Creating this card never sends a message. Delivery is durable; unknown results are never automatically retried.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "platform": {
+            "type": "string",
+            "enum": [
+              "email",
+              "slack"
+            ],
+            "description": "Which platform this draft is for. email requires providerIdentifier, from, to, subject, and body (plus replyToMessageId when replying within an existing email thread). slack requires providerIdentifier, target, channelId, and body (plus threadTs when replying in a thread)."
+          },
+          "providerIdentifier": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The installed MCP server identifier that will carry the send, exactly as GetMcpServerStatus lists it for the account you mean. This picks both the connector and the account, and the user cannot change it on the card, so resolve it first."
+          },
+          "body": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The message body, written in the user's voice. Required for both platforms."
+          },
+          "from": {
+            "type": "string",
+            "description": "Required when platform is email. The exact email address the chosen account sends from, shown on the card's From row — a plain address like ariel@acme.com, never a display name and never guessed. If you don't already know it, read it from the mailbox first: call the Gmail connector's search_threads with query \"in:sent\" and use a returned message's sender field."
+          },
+          "to": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Required when platform is email. The recipient(s), each a plain email address (\"user@example.com\" — the \"Name <user@example.com>\" form is not accepted)."
+          },
+          "cc": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Optional, email only. Cc recipient(s), each a plain email address."
+          },
+          "subject": {
+            "type": "string",
+            "description": "Required when platform is email. The subject line."
+          },
+          "replyToMessageId": {
+            "type": "string",
+            "description": "Optional, email only. The provider's id of the message being replied to; this is the ONLY reply key the send uses, so set it whenever the draft replies within an existing thread and omit it for a fresh email."
+          },
+          "target": {
+            "type": "string",
+            "description": "Required when platform is slack. Where the message goes, as the user reads it: a channel (\"#general\") or a person (\"Ariel Chen\")."
+          },
+          "channelId": {
+            "type": "string",
+            "description": "Required when platform is slack. The channel or DM conversation id the send is addressed to (e.g. C0123456789), resolved with the connector's search tools — never guessed."
+          },
+          "threadTs": {
+            "type": "string",
+            "description": "Optional, slack only. The parent message's ts when this draft replies in a thread; omit for a new message."
+          }
+        },
+        "required": [
+          "platform",
+          "providerIdentifier",
+          "body"
+        ]
+      }
+    },
+    {
+      "tool": "SendFeedback",
+      "description": "Stage the user’s explicit product feedback and reply preference for review. Nothing is sent until the user approves the exact text. Only the configured OpenTeam support destination receives it. Privacy settings can disable agent feedback. Five-minute rate limit; never retry an uncertain delivery automatically. Do not include code, credentials or connector content unless the user dictated it as feedback.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000,
+            "description": "The user's feedback, in their own words."
+          },
+          "wantsResponse": {
+            "type": "boolean",
+            "description": "Whether the user explicitly asked for a human reply. Ask unless already stated; never guess. Requires a configured support reply address."
+          }
+        },
+        "required": [
+          "message",
+          "wantsResponse"
+        ]
+      }
+    },
+    {
+      "tool": "create_bot_share_json",
+      "description": "Stage a versioned, unpublished bot recipe for the user to review. Direct chat only. Include reusable profile/log memories, skill prose, generalized routine prose, and installed marketplace plugin IDs. Exclude secrets, private user details, note and episode lines, full SKILL.md or automation.json copies. gettingStarted.skill must name an included skill. Team is private to this OpenTeam installation; public sharing requires deployment support. The user publishes the card explicitly. Imported routines remain proposed setup instructions until configured.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "profile": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "description": {
+                "type": "string",
+                "minLength": 1
+              },
+              "avatarColor": {
+                "type": "string",
+                "enum": [
+                  "black",
+                  "brown",
+                  "red",
+                  "orange",
+                  "yellow",
+                  "green",
+                  "cyan",
+                  "blue",
+                  "violet",
+                  "magenta",
+                  "gray"
+                ]
+              },
+              "avatarShape": {
+                "type": "string",
+                "enum": [
+                  "blob",
+                  "pebble",
+                  "bean",
+                  "egg",
+                  "squircle",
+                  "tablet",
+                  "capsule",
+                  "cylinder",
+                  "hex",
+                  "gem",
+                  "crystal",
+                  "wedge",
+                  "shield",
+                  "dome",
+                  "arch",
+                  "cloud",
+                  "teardrop",
+                  "leaf"
+                ]
+              }
+            },
+            "required": [
+              "name",
+              "description"
+            ]
+          },
+          "memory": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "profile",
+                    "log"
+                  ]
+                },
+                "createdAt": {
+                  "type": "string"
+                },
+                "content": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "content"
+              ]
+            }
+          },
+          "skills": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "description": {
+                  "type": "string"
+                },
+                "content": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "name",
+                "content"
+              ]
+            }
+          },
+          "routines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "slug": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "name": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "content": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "slug",
+                "description",
+                "content"
+              ]
+            }
+          },
+          "plugins": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "pluginId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "name": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "pluginId"
+              ]
+            }
+          },
+          "gettingStarted": {
+            "type": "object",
+            "properties": {
+              "skill": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "skill"
+            ]
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "public",
+              "team"
+            ]
+          }
+        },
+        "required": [
+          "profile",
+          "memory",
+          "skills",
+          "routines",
+          "plugins"
+        ]
       }
     }
   ]

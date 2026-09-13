@@ -68,7 +68,7 @@ test("automation parsing applies schedule fallback and validates incompatible gr
         name: "Fallback",
         prompt: "Use the cron fallback.",
         trigger: { type: "not-supported" },
-        schedule: "@every 30s",
+        schedule: "@every 5m",
       })
     );
     const fallback = await parseAutomationFile(
@@ -76,8 +76,8 @@ test("automation parsing applies schedule fallback and validates incompatible gr
       await readFile(automationPath, "utf8"),
       "UTC"
     );
-    expect(fallback.trigger).toEqual({ type: "cron", schedule: "@every 30s" });
-    expect(fallback.schedule?.intervalSeconds).toBe(30);
+    expect(fallback.trigger).toEqual({ type: "cron", schedule: "@every 5m" });
+    expect(fallback.schedule?.intervalSeconds).toBe(300);
     expect(fallback.enabled).toBe(true);
     expect(fallback.provenance).toBe("untrusted");
 

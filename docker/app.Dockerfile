@@ -12,10 +12,13 @@ COPY apps/server/package.json apps/server/package.json
 COPY apps/worker/package.json apps/worker/package.json
 COPY packages/client-core/package.json packages/client-core/package.json
 COPY packages/contracts/package.json packages/contracts/package.json
+COPY packages/shell-jobs/package.json packages/shell-jobs/package.json
 COPY packages/db/package.json packages/db/package.json
 COPY packages/design-tokens/package.json packages/design-tokens/package.json
 COPY packages/messaging/package.json packages/messaging/package.json
 COPY packages/product-core/package.json packages/product-core/package.json
+COPY packages/plugin-sdk/package.json packages/plugin-sdk/package.json
+COPY packages/plugins/package.json packages/plugins/package.json
 COPY patches ./patches
 COPY vendor/sheetjs/xlsx-0.20.3.tgz vendor/sheetjs/xlsx-0.20.3.tgz
 
@@ -23,6 +26,8 @@ RUN bun install --frozen-lockfile --production --filter @openteam/server --filte
 COPY apps/server ./apps/server
 COPY apps/worker ./apps/worker
 COPY packages/contracts ./packages/contracts
+COPY packages/plugin-sdk ./packages/plugin-sdk
+COPY packages/plugins ./packages/plugins
 COPY packages/db ./packages/db
 COPY packages/messaging ./packages/messaging
 RUN bun --filter @openteam/db db:generate
@@ -42,10 +47,13 @@ COPY apps/server/package.json apps/server/package.json
 COPY apps/worker/package.json apps/worker/package.json
 COPY packages/client-core/package.json packages/client-core/package.json
 COPY packages/contracts/package.json packages/contracts/package.json
+COPY packages/shell-jobs/package.json packages/shell-jobs/package.json
 COPY packages/db/package.json packages/db/package.json
 COPY packages/design-tokens/package.json packages/design-tokens/package.json
 COPY packages/messaging/package.json packages/messaging/package.json
 COPY packages/product-core/package.json packages/product-core/package.json
+COPY packages/plugin-sdk/package.json packages/plugin-sdk/package.json
+COPY packages/plugins/package.json packages/plugins/package.json
 COPY patches ./patches
 COPY vendor/sheetjs/xlsx-0.20.3.tgz vendor/sheetjs/xlsx-0.20.3.tgz
 RUN bun install --frozen-lockfile --production --filter @openteam/db \

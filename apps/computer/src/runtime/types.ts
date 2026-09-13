@@ -27,6 +27,12 @@ export interface ActiveTurn {
   cwd: string;
   instructions: string;
   userInfoMessage: BotMessage | null;
+  isRootProject?: boolean;
+  compactionEarlyThreshold?: number;
+  compactionUsageSignature?: string;
+  compactionRequestMessages?: BotMessage[];
+  /** Canonical persisted history; Pi may remove retry failures only from memory. */
+  compactionReadPiMessages?: () => BotMessage[];
   todoUpdate: string | null;
   automationTrigger: string | null;
   resetSelfSummaryCount: boolean;
@@ -47,6 +53,7 @@ export interface ActiveTurn {
   sentMessageCount: number;
   toolActivityAfterLastSend: boolean;
   initialUserStarted: boolean;
+  initialUserClientId?: string;
   pendingSteers: Array<{
     inboxId: string;
     clientMessageId: string;
@@ -56,6 +63,10 @@ export interface ActiveTurn {
   discoveredDynamicTools: Set<string>;
   pluginNamespaces: readonly PluginDynamicNamespace[];
   attachmentTempDirectories: string[];
+  lastPromptFingerprint?: string;
+  connectorInstructions?: string;
+  endTurnRequested?: boolean;
+  acknowledgedCardOutcomes?: Set<string>;
 }
 
 export interface RuntimeDynamicTool extends DynamicToolDefinition {
@@ -63,7 +74,8 @@ export interface RuntimeDynamicTool extends DynamicToolDefinition {
     active: ActiveTurn,
     callId: string,
     args: unknown,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    mcpDetails?: unknown
   ) => Promise<AgentToolResult<Record<string, unknown>>>;
 }
 

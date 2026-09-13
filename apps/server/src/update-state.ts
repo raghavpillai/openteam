@@ -237,11 +237,11 @@ export class DurableStateService {
     input: UpdateStateInput
   ): Promise<Record<string, unknown>> {
     if (input.action !== "set") return stateError(input.target, input.action);
-    if (input.name === undefined && input.description === undefined) {
+    if ([input.name, input.description, input.title, input.avatar_shape, input.avatar_color].every((value) => value === undefined)) {
       throw new ApiError(
         400,
         "state_field_required",
-        "profile set requires name and/or description"
+        "profile set requires name, description, title, avatar_shape, or avatar_color"
       );
     }
     const name =
@@ -251,8 +251,8 @@ export class DurableStateService {
       const previous = await tx.bot.findUniqueOrThrow({ where: { id: botId } });
       const updated = await tx.bot.update({
         where: { id: botId },
-        data: { name, description },
-        select: { id: true, name: true, description: true },
+        data: { name, description, title: input.title, icon: input.avatar_shape, color: input.avatar_color },
+        select: { id: true, name: true, description: true, title: true, icon: true, color: true },
       });
       if (name) {
         await tx.channel.updateMany({
@@ -274,6 +274,9 @@ export class DurableStateService {
       action: "set",
       name: bot.name,
       description: bot.description,
+      title: bot.title,
+      avatar_shape: bot.icon,
+      avatar_color: bot.color,
       updated: true,
     };
   }

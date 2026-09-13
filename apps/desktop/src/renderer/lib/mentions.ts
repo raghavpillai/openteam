@@ -5,7 +5,7 @@ export {
 
 export type MentionSegment =
   | { type: "text"; text: string }
-  | { type: "mention"; id: string; label: string; handle: string };
+  | { type: "mention"; id: string; label: string; handle: string; trigger?: "@" | "/" };
 
 export const moveMentionSelection = (current: number, count: number, direction: -1 | 1): number =>
   count > 0 ? (current + direction + count) % count : 0;
@@ -17,7 +17,7 @@ export const shouldRefreshMentionPickerOnKeyUp = (key: string, pickerOpen: boole
 
 export const mentionPlainText = (segments: readonly MentionSegment[]): string =>
   segments
-    .map((segment) => (segment.type === "text" ? segment.text : `@${segment.handle}`))
+    .map((segment) => (segment.type === "text" ? segment.text : `${segment.trigger ?? "@"}${segment.handle}`))
     .join("");
 
 export const mentionRichText = (segments: readonly MentionSegment[]): string => {
@@ -38,7 +38,7 @@ export const mentionRichText = (segments: readonly MentionSegment[]): string => 
     if (segment.type === "mention") {
       // Bot renders mention atoms in the composer, but persists only their
       // flattened @handle text in ProseMirror richText.
-      pushText(`@${segment.handle}`);
+      pushText(`${segment.trigger ?? "@"}${segment.handle}`);
       continue;
     }
     const pieces = segment.text.split("\n");

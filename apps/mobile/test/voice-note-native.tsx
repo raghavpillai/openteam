@@ -10,6 +10,7 @@ import { useVoiceInput } from "../src/use-voice-input";
 import { Composer } from "../src/components/composer";
 import { AppearanceProvider } from "../src/appearance";
 import { SafeAreaProvider } from "react-native-safe-area-context";
+import { VoiceComposerQA } from "./voice-composer-native";
 
 const origin = new URL(NativeModules.SourceCode.getConstants().scriptURL).origin;
 const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -20,6 +21,9 @@ function QA() {
   const [text, setText] = useState("Testing native voice notes…");
   const [configured, setConfigured] = useState(false);
   const [finished, setFinished] = useState(false);
+  const [composerQA, setComposerQA] = useState<React.ComponentProps<typeof VoiceComposerQA> | null>(
+    null
+  );
   const voice = useVoiceInput(
     () => undefined,
     configured,
@@ -73,6 +77,22 @@ function QA() {
         );
         const transcriptionMs = Date.now() - start;
         reports.push("real Expo native WAV upload → authenticated server → Parakeet");
+        const composer = await new Promise<{
+          reports: string[];
+          deliveries: Array<{ botId: string; clientId: string; text: string }>;
+        }>((resolve, reject) => {
+          setComposerQA({
+            serverUrl: config.serverUrl,
+            token,
+            origin,
+            onDone: (result) => {
+              setComposerQA(null);
+              if (result instanceof Error) reject(result);
+              else resolve(result);
+            },
+          });
+        });
+        reports.push(...composer.reports);
         // Revoke the real session: NSURLSession can retain the valid login
         // cookie, so replacing only the Authorization header is not a logout.
         await auth.signOut(token);
@@ -114,7 +134,12 @@ function QA() {
         file!.delete();
         assert(!file!.exists, "Temporary recording was not deleted");
         reports.push("native upload cancellation and temporary-file removal");
-        const report = { reports, text: result.text, transcriptionMs };
+        const report = {
+          reports,
+          text: result.text,
+          transcriptionMs,
+          deliveries: composer.deliveries,
+        };
         setText(JSON.stringify(report, null, 2));
         setFinished(true);
         await pause(250);
@@ -142,6 +167,7 @@ function QA() {
       <View style={{ flex: 1 }}>
         <Text style={{ color: "black", fontSize: 13 }}>{text}</Text>
       </View>
+      {composerQA ? <VoiceComposerQA {...composerQA} /> : null}
       {finished ? (
         <Composer
           draftKey="voice-note-native-qa"

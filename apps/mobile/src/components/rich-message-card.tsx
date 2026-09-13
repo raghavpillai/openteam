@@ -1,3 +1,6 @@
+import { MobileReviewActionCard } from "./review-action-card";
+import { parseExternalDraft } from "@openteam/contracts/external-draft";
+import { MobileExternalDraftCard } from "./external-draft-card";
 import * as Haptics from "../haptics";
 import type {
   ChannelMessageView,
@@ -20,6 +23,8 @@ import { useEffect, useMemo, useState } from "react";
 import { Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { useTheme } from "../theme";
 import { BotMark } from "./bot-mark";
+import { parseUserForm } from "@openteam/contracts/review-cards";
+import { MobileUserFormCard } from "./user-form-card";
 
 const actionFailed = (message: string) => {
   void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
@@ -51,6 +56,13 @@ export function MobileRichMessageCard({
   const [local, setLocal] = useState(metadata);
   useEffect(() => setLocal(record(message.metadata)), [message.metadata]);
   const cardStyle = [styles.card, { backgroundColor: theme.assistantBubble }];
+  if (metadata.type === "review-action" && metadata.review && typeof metadata.review === "object") return <MobileReviewActionCard message={message} readOnly={readOnly} />;
+  if (metadata.type === "external-draft") {
+    try { return <MobileExternalDraftCard draft={parseExternalDraft(metadata.draft)} message={message} readOnly={readOnly} />; } catch { return null; }
+  }
+  if (metadata.type === "user-form") {
+    try { return <MobileUserFormCard form={parseUserForm(metadata.form)} message={message} readOnly={readOnly} />; } catch { return null; }
+  }
 
   if (projection?.kind === "cloud-agent") {
     return (

@@ -857,9 +857,7 @@ textarea,
   line-height: 1.35;
 }
 
-.bot-markdown
-  [data-streamdown="code-block"][data-language=""]
-  [data-streamdown="code-block-body"] {
+.bot-markdown [data-streamdown="code-block"][data-language=""] [data-streamdown="code-block-body"] {
   border-color: transparent;
   background: #e7e7e7;
   color: #666;
@@ -1646,7 +1644,11 @@ textarea,
 }
 .auth-welcome-layer {
   display: flex;
+  flex-direction: column;
   justify-content: center;
+}
+.auth-welcome-layer > button {
+  align-self: center;
 }
 .auth-endpoint-card,
 .auth-credentials-card {

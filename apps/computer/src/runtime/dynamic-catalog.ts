@@ -1,5 +1,7 @@
 import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
 import {
+  AWAIT_SHELL_TOOL,
+  AwaitShellInput,
   CHECK_SUBAGENT_TOOL,
   CheckSubagentInput,
   CREATE_AGENT_TOOL,
@@ -28,6 +30,7 @@ import {
   UpdateChannelInput,
 } from "@openteam/contracts";
 import { Schema } from "effect";
+import { parseHostAwaitShellRequest } from "@openteam/contracts/service-protocol";
 import type { DynamicNamespaceDefinition } from "../dynamic-tool-gateway";
 import { objectToolSchema } from "../tool-schema";
 import type { ActiveTurn, RuntimeDynamicTool, RuntimeDynamicToolCaller } from "./types";
@@ -137,7 +140,9 @@ export function dynamicCatalog(
     args: TaskInput,
     signal?: AbortSignal
   ) => Promise<AgentToolResult<Record<string, unknown>>>,
-  active: ActiveTurn
+  active: ActiveTurn,
+  executeAwaitShell: RuntimeDynamicTool["execute"],
+  additionalTools: RuntimeDynamicTool[] = []
 ): Array<DynamicNamespaceDefinition<RuntimeDynamicTool>> {
   const controlPlaneTool = <A, I>(
     tool: { name: string; description: string; inputSchema: Readonly<Record<string, unknown>> },
@@ -152,6 +157,15 @@ export function dynamicCatalog(
       callControlPlaneTool(turn, callId, tool.name, args, signal),
   });
   const cursorTools: RuntimeDynamicTool[] = [
+    ...additionalTools,
+    {
+      name: AWAIT_SHELL_TOOL.name,
+      description: AWAIT_SHELL_TOOL.description,
+      inputSchema: AWAIT_SHELL_TOOL.inputSchema,
+      source: "first-party",
+      decodeArguments: (args) => Schema.decodeUnknownSync(AwaitShellInput)(parseHostAwaitShellRequest(args)),
+      execute: executeAwaitShell,
+    },
     {
       name: TODO_WRITE_TOOL.name,
       description: TODO_WRITE_TOOL.description,
@@ -266,7 +280,7 @@ export function dynamicCatalog(
         inputSchema: tool.inputSchema,
         source: tool.source,
         decodeArguments: (args: unknown) => args,
-        execute: (turn: ActiveTurn, callId: string, args: unknown, signal?: AbortSignal) =>
+        execute: (turn: ActiveTurn, callId: string, args: unknown, signal?: AbortSignal, mcpDetails?: unknown) =>
           callControlPlaneTool(
             turn,
             callId,
@@ -275,6 +289,7 @@ export function dynamicCatalog(
               connectionId: tool.connectionId,
               toolName: tool.name,
               arguments: args,
+              mcpDetails,
             },
             signal
           ),
@@ -284,7 +299,7 @@ export function dynamicCatalog(
     {
       name: "cursor",
       description:
-        "OpenTeam's supported A2A messaging, TodoWrite, bounded agent and group directory lookup, read-only plugin management, subagent orchestration, agent administration, and channel administration tools.",
+        "OpenTeam's supported A2A messaging, AwaitShell, TodoWrite, bounded agent and group directory lookup, plugin management, subagent orchestration, agent administration, and channel administration tools.",
       kind: "first-party",
       namespaceStatus: "ready",
       tools: cursorTools,

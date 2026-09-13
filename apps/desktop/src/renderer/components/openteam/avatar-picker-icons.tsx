@@ -1,7 +1,4 @@
-import {
-  type BotAvatarShape as LegacyBotAvatarShape,
-  DEFAULT_BOT_AVATAR,
-} from "@openteam/contracts/bot-avatar";
+import { DEFAULT_BOT_AVATAR } from "@openteam/contracts/bot-avatar";
 import {
   createElement,
   memo,
@@ -14,7 +11,6 @@ import {
   type SVGProps,
 } from "react";
 import {
-  ROBOT_AVATAR_LABELS,
   ROBOT_AVATAR_SHAPES,
   normalizeRobotAvatarShape,
   type RobotAvatarShape,
@@ -30,17 +26,6 @@ import {
 import "@openteam/design-tokens/robot-avatar.css";
 import { createRobotAvatarMotion } from "../../lib/robot-avatar-motion";
 
-export {
-  BOT_AVATAR_COLORS,
-  type BotAvatarColor,
-  DEFAULT_BOT_AVATAR,
-} from "@openteam/contracts/bot-avatar";
-export const BOT_AVATAR_SHAPES = ROBOT_AVATAR_SHAPES;
-export const BOT_AVATAR_SHAPE_LABELS = ROBOT_AVATAR_LABELS;
-export const normalizeBotAvatarShape = normalizeRobotAvatarShape;
-export type BotAvatarShape = RobotAvatarShape | LegacyBotAvatarShape;
-export type { BotAvatarMode } from "@openteam/contracts/robot-avatar";
-
 export function botAvatarSwatchBackground(color: string): string {
   return `linear-gradient(45deg, color-mix(in srgb, ${color}, black 9%), color-mix(in srgb, ${color}, white 11%))`;
 }
@@ -53,7 +38,7 @@ const artwork = Object.fromEntries(
 );
 
 export type BotAvatarGlyphProps = Omit<SVGProps<SVGSVGElement>, "color"> & {
-  shape?: BotAvatarShape;
+  shape?: RobotAvatarShape;
   color?: string;
   eyeColor?: string;
   outlineColor?: string;

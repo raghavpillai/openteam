@@ -3,6 +3,8 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Browser, BrowserContext, ElementHandle, Frame, Locator, Page } from "playwright-core";
 import { outOfProcessPlaywright } from "./playwright-driver";
+import { normalizeFormDomain, type UserForm, type UserFormField } from "@openteam/contracts";
+import type { FormPageBinding } from "../user-form-host";
 
 type JsonObject = Record<string, unknown>;
 
@@ -88,19 +90,130 @@ export class BrowserUseSession {
     private readonly artifactDirectory: string
   ) {}
 
-  static async connect(endpoint: string, artifactDirectory: string): Promise<BrowserUseSession> {
+  static async connect(endpoint: string, artifactDirectory: string, adoptExisting = false): Promise<BrowserUseSession> {
     const driver = await outOfProcessPlaywright();
     const browser = await driver.playwright.chromium.connectOverCDP(endpoint);
     const context = browser.contexts()[0];
     if (!context) throw new Error("Chromium did not provide a default browser context");
     const session = new BrowserUseSession(browser, context, artifactDirectory);
-    session.trackPage(await context.newPage());
+    if (adoptExisting) for (const page of context.pages()) session.trackPage(page);
+    else session.trackPage(await context.newPage());
     await session.ensurePage();
     return session;
   }
 
   get connected(): boolean {
     return this.browser.isConnected();
+  }
+
+  private readonly formPageIds = new WeakMap<Page, string>();
+  private async formPageId(page: Page): Promise<string> {
+    const known = this.formPageIds.get(page); if (known) return known;
+    const cdp = await this.context.newCDPSession(page);
+    try {
+      const { targetInfo } = await cdp.send("Target.getTargetInfo");
+      this.formPageIds.set(page, targetInfo.targetId); return targetInfo.targetId;
+    } finally { await cdp.detach(); }
+  }
+
+  async formPages(domain: string): Promise<FormPageBinding[]> {
+    const pages: FormPageBinding[] = [];
+    for (const page of this.leasedPages()) {
+      try { if (normalizeFormDomain(page.url()) === domain) pages.push({ pageId: await this.formPageId(page), domain }); } catch { /* Non-web tab. */ }
+    }
+    return pages;
+  }
+
+  private async formPage(binding: FormPageBinding): Promise<Page> {
+    for (const page of this.leasedPages()) if (await this.formPageId(page) === binding.pageId) {
+      if (normalizeFormDomain(page.url()) !== binding.domain) throw new Error("The form page changed domain");
+      return page;
+    }
+    throw new Error("The form tab is no longer available");
+  }
+
+  private async formHandle(page: Page, field: UserFormField): Promise<ElementHandle<HTMLElement>> {
+    const target = field.target; if (!target) throw new Error("No fill target");
+    let handle: ElementHandle<HTMLElement> | null = null;
+    if (target.kind === "ref") handle = await this.requireRef(page, target.value.replace(/^\[?ref=|\]$/g, ""));
+    else {
+      const matches: ElementHandle<HTMLElement>[] = [];
+      for (const frame of page.frames()) {
+        if (!sameOriginFrame(page.url(), frame.url())) continue;
+        const locator = target.kind === "selector" ? frame.locator(target.value) : frame.getByLabel(target.value, { exact: true });
+        const count = await locator.count();
+        if (count > 1) throw new Error("The fill target is ambiguous");
+        if (count === 1) { const candidate = await locator.elementHandle(); if (candidate) matches.push(candidate as ElementHandle<HTMLElement>); }
+      }
+      if (matches.length !== 1) throw new Error("The fill target is missing or ambiguous");
+      handle = matches[0]!;
+    }
+    const frame = await handle.ownerFrame();
+    if (!frame || !sameOriginFrame(page.url(), frame.url())) throw new Error("Cross-origin form target refused");
+    return handle;
+  }
+
+  async prepareForm(binding: FormPageBinding, form: UserForm): Promise<string[]> {
+    const page = await this.formPage(binding); const reachable: string[] = [];
+    for (const field of form.fields) if (field.target) {
+      try {
+        const handle = await this.formHandle(page, field);
+        if (await handle.evaluate((node) => node.isConnected && !node.hasAttribute("disabled") && node.getAttribute("type") !== "hidden" && (node.matches("input,textarea,select") || node.isContentEditable))) reachable.push(field.id);
+      } catch { /* Only a structurally reachable field is requested from the user. */ }
+    }
+    return reachable;
+  }
+
+  async fillForm(binding: FormPageBinding, field: UserFormField, value: string | boolean): Promise<boolean> {
+    const page = await this.formPage(binding); const handle = await this.formHandle(page, field);
+    // The domain check and assignment run together in the element's document.
+    // No tool text, screenshot, trace, or error includes the submitted value.
+    return handle.evaluate((node, input) => {
+      let host = window.location.hostname.toLowerCase().replace(/^www\./, "");
+      if (!host && ["about:blank", "about:srcdoc"].includes(window.location.href)) { try { host = window.top!.location.hostname.toLowerCase().replace(/^www\./, ""); } catch { return false; } }
+      if (host !== input.domain || !node.isConnected || node.hasAttribute("disabled") || node.hasAttribute("readonly") || node.getAttribute("type") === "hidden") return false;
+      if (input.type === "checkbox") { if (!(node instanceof HTMLInputElement) || node.type !== "checkbox" || typeof input.value !== "boolean") return false; node.checked = input.value; }
+      else if (node instanceof HTMLInputElement || node instanceof HTMLTextAreaElement || node instanceof HTMLSelectElement) {
+        if (typeof input.value !== "string" || (node instanceof HTMLInputElement && ["file", "button", "submit", "reset", "image", "radio", "checkbox"].includes(node.type))) return false;
+        if (node instanceof HTMLSelectElement && ![...node.options].some((option) => option.value === input.value)) return false;
+        const prototype = node instanceof HTMLInputElement ? HTMLInputElement.prototype : node instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLSelectElement.prototype;
+        Object.getOwnPropertyDescriptor(prototype, "value")!.set!.call(node, input.value);
+      } else if (node.isContentEditable && typeof input.value === "string") node.textContent = input.value;
+      else return false;
+      node.dispatchEvent(new Event("input", { bubbles: true })); node.dispatchEvent(new Event("change", { bubbles: true }));
+      return true;
+    }, { domain: binding.domain, type: field.type, value });
+  }
+
+  async formCanSave(binding: FormPageBinding, field: UserFormField): Promise<boolean> {
+    const handle = await this.formHandle(await this.formPage(binding), field);
+    return handle.evaluate((node) => {
+      const attributes = ["type", "autocomplete", "name", "id", "aria-label"].map((key) => node.getAttribute(key) ?? "").join(" ");
+      return node.isConnected && !/password|one-time|cc-|card|cvv|cvc|ssn|secret|token|passcode|credential|api.?key/i.test(attributes);
+    });
+  }
+
+  async submitForm(binding: FormPageBinding, field: UserFormField): Promise<boolean> {
+    const page = await this.formPage(binding); const handle = await this.formHandle(page, field);
+    if (!(await handle.evaluate((node, domain) => node.isConnected && location.hostname.toLowerCase().replace(/^www\./, "") === domain, binding.domain))) return false;
+    await handle.press("Enter"); return true;
+  }
+
+  async formSnapshot(binding: FormPageBinding): Promise<string> {
+    const page = await this.formPage(binding); await this.clearRefs(page);
+    const refs = new Map<string, ElementHandle<HTMLElement>>();
+    const lines = [`Form page: ${binding.domain}`];
+    const handles = await page.$$("input:not([type=hidden]),textarea,select,button");
+    for (const handle of handles.slice(0, 100)) {
+      const ref = `e${refs.size + 1}`;
+      refs.set(ref, handle as ElementHandle<HTMLElement>);
+      const details = await handle.evaluate((node) => ({
+        tag: node.tagName.toLowerCase(), type: node.getAttribute("type"),
+        name: node.getAttribute("aria-label") || [...((node as HTMLInputElement).labels ?? [])].map((label) => label.textContent ?? "").join(" ") || node.getAttribute("placeholder") || node.getAttribute("name") || node.getAttribute("id") || "",
+      })).catch(() => null);
+      if (details) lines.push(`[ref=${ref}] ${details.tag} ${details.type ?? ""} ${details.name}`);
+    }
+    this.refs.set(this.idFor(page), refs); return lines.join("\n");
   }
 
   async execute(toolName: string, raw: unknown): Promise<AgentToolResult<Record<string, unknown>>> {

@@ -405,6 +405,8 @@ const readLazyClosures = async () => {
       routineEditor: ["src/renderer/components/openteam/routine-panel.tsx"],
       newBot: ["src/renderer/components/openteam/new-bot-screen.tsx"],
       pluginSettings: ["src/renderer/components/openteam/plugin-settings.tsx"],
+      pluginManagement: ["src/renderer/components/openteam/plugins/plugin-workspace.tsx"],
+      skillImport: ["src/renderer/components/openteam/plugins/skill-import.ts"],
       pluginSettingsDetail: ["src/renderer/components/openteam/plugin-settings-detail.tsx"],
       search: ["src/renderer/components/openteam/search-dialog.tsx"],
       groupAvatarEditor: ["src/renderer/components/openteam/group-avatar-editor.tsx"],
@@ -419,6 +421,7 @@ const readLazyClosures = async () => {
       settingsGeneralBot: ["src/renderer/components/openteam/settings/general-bot.tsx"],
       settingsComputer: ["src/renderer/components/openteam/settings/computer.tsx"],
       settingsServer: ["src/renderer/components/openteam/settings/server.tsx"],
+      settingsWebSearch: ["src/renderer/components/openteam/settings/web-search.tsx"],
       settingsUpdates: ["src/renderer/components/openteam/settings/updates.tsx"],
     };
     const closures = Object.fromEntries(

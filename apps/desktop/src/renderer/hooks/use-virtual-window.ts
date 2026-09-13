@@ -12,7 +12,19 @@ import {
   computeVirtualRangeFromLayout,
   isVirtualScopeVisible,
   scrollTopForAnchoredItem,
+  type VirtualLayout,
 } from "../lib/virtual-window";
+import {
+  createVirtualMeasurements,
+  setVirtualMeasurement,
+  setVirtualMeasurementWidth,
+  type VirtualMeasurements,
+} from "../lib/virtual-measurements";
+
+export type InitialVirtualScroll =
+  | "end"
+  | { index: number; viewportOffset: number }
+  | { index: number; align: "center" };
 
 export interface VirtualItem {
   index: number;
@@ -33,6 +45,10 @@ export function useVirtualWindow({
   initialViewportSize = 0,
   scopeRef,
   suspendOutsideViewport = false,
+  initialScroll,
+  followEnd,
+  measurementCache,
+  getMeasurementVersion = getKey,
 }: {
   count: number;
   estimateSize: (index: number) => number;
@@ -47,8 +63,23 @@ export function useVirtualWindow({
   scopeRef?: RefObject<HTMLElement | null>;
   /** Mount no items while this scope is outside the scrollport plus overscan. */
   suspendOutsideViewport?: boolean;
+  /** Position after measuring the initial window, before publishing its viewport. */
+  initialScroll?: InitialVirtualScroll;
+  /** Keep logical end alignment through measurements while the reader follows latest. */
+  followEnd?: () => boolean;
+  measurementCache?: VirtualMeasurements;
+  getMeasurementVersion?: (index: number) => string | number;
 }) {
-  const measuredSizes = useRef(new Map<string, number>());
+  const [measurements] = useState(() => measurementCache ?? createVirtualMeasurements());
+  const measurementVersionRef = useRef(getMeasurementVersion);
+  measurementVersionRef.current = getMeasurementVersion;
+  const initialTarget = useRef(initialScroll);
+  const initializing = useRef(initialScroll !== undefined);
+  const [scrollInitialized, setScrollInitialized] = useState(initialScroll === undefined);
+  const checkedNodes = useRef(new WeakSet<Element>());
+  const latestLayout = useRef<VirtualLayout | null>(null);
+  const readingAnchor = useRef<{ index: number; key: string; viewportOffset: number } | null>(null);
+  const resizeAnchor = useRef<typeof readingAnchor.current>(null);
   const observedNodes = useRef(new Map<Element, { index: number; key: string }>());
   const observedNodeByKey = useRef(new Map<string, HTMLElement>());
   const observerRef = useRef<ResizeObserver | null>(null);
@@ -70,6 +101,7 @@ export function useVirtualWindow({
   }, [scopeRef, scrollRef]);
 
   const updateViewport = useCallback(() => {
+    if (initializing.current || resizeAnchor.current) return;
     const element = scrollRef.current;
     if (!element) return;
     const next = {
@@ -77,6 +109,28 @@ export function useVirtualWindow({
       size: element.clientHeight,
       resolved: true,
     };
+    // Remember the logical row before a width change invalidates its geometry.
+    // These are layout-array reads; scrolling does not measure every DOM row.
+    const currentLayout = latestLayout.current;
+    if (
+      initialTarget.current !== undefined &&
+      currentLayout &&
+      measurements.width === (scopeRef?.current?.clientWidth ?? element.clientWidth)
+    ) {
+      let first: { index: number; key: string; viewportOffset: number } | null = null;
+      for (const { index, key } of observedNodes.current.values()) {
+        const start = currentLayout.offsets[index] ?? 0;
+        const end = start + (currentLayout.sizes[index] ?? 0);
+        if (
+          end > next.offset &&
+          start < next.offset + next.size &&
+          (!first || index < first.index)
+        ) {
+          first = { index, key, viewportOffset: start - next.offset };
+        }
+      }
+      if (first) readingAnchor.current = first;
+    }
     setViewport((current) =>
       current.offset === next.offset &&
       current.size === next.size &&
@@ -84,7 +138,7 @@ export function useVirtualWindow({
         ? current
         : next
     );
-  }, [scopeOrigin, scrollRef]);
+  }, [measurements, scopeOrigin, scopeRef, scrollRef]);
 
   useEffect(() => {
     const element = scrollRef.current;
@@ -109,13 +163,6 @@ export function useVirtualWindow({
     };
   }, [scopeRef, scrollRef, updateViewport]);
 
-  // A preceding group can expand, collapse, or be remeasured without changing
-  // the scrollport's own box. Refresh nested coordinates after each commit;
-  // the equality guard above prevents a render loop.
-  useLayoutEffect(() => {
-    if (scopeRef) updateViewport();
-  });
-
   useEffect(() => {
     const observer = new ResizeObserver((entries) => {
       let changed = false;
@@ -123,9 +170,13 @@ export function useVirtualWindow({
         const metadata = observedNodes.current.get(entry.target);
         if (!metadata) continue;
         const next = Math.max(1, entry.borderBoxSize[0]?.blockSize ?? entry.contentRect.height);
-        if (Math.abs((measuredSizes.current.get(metadata.key) ?? 0) - next) < 0.5) continue;
-        measuredSizes.current.set(metadata.key, next);
-        changed = true;
+        changed =
+          setVirtualMeasurement(
+            measurements,
+            metadata.key,
+            measurementVersionRef.current(metadata.index),
+            next
+          ) || changed;
       }
       if (!changed || revisionFrame.current !== null) return;
       revisionFrame.current = window.requestAnimationFrame(() => {
@@ -145,31 +196,57 @@ export function useVirtualWindow({
     };
   }, []);
 
+  const measuredSizeAt = useCallback(
+    (index: number) => {
+      const cached = measurements.rows.get(getKey(index));
+      return cached?.version === getMeasurementVersion(index) ? cached.size : estimateSize(index);
+    },
+    [estimateSize, getKey, getMeasurementVersion, measurements]
+  );
+
   const layout = useMemo(() => {
     void sizeRevision;
-    return computeVirtualLayout(
-      count,
-      (index) => measuredSizes.current.get(getKey(index)) ?? estimateSize(index)
-    );
-  }, [count, estimateSize, getKey, sizeRevision]);
+    return computeVirtualLayout(count, measuredSizeAt);
+  }, [count, measuredSizeAt, sizeRevision]);
+  latestLayout.current = layout;
 
   useEffect(() => {
-    if (measuredSizes.current.size === 0) return;
+    if (measurements.rows.size === 0) return;
     const currentKeys = new Set(Array.from({ length: count }, (_, index) => getKey(index)));
-    for (const key of measuredSizes.current.keys()) {
-      if (!currentKeys.has(key)) measuredSizes.current.delete(key);
+    for (const key of measurements.rows.keys()) {
+      if (!currentKeys.has(key)) measurements.rows.delete(key);
     }
-  }, [count, getKey]);
+  }, [count, getKey, measurements]);
+  const retainedResizeAnchor = resizeAnchor.current;
+  const resizeIndex = retainedResizeAnchor
+    ? getKey(retainedResizeAnchor.index) === retainedResizeAnchor.key
+      ? retainedResizeAnchor.index
+      : Array.from({ length: count }, (_, index) => getKey(index)).indexOf(retainedResizeAnchor.key)
+    : -1;
+  const resizeTarget =
+    resizeIndex >= 0 && retainedResizeAnchor
+      ? { index: resizeIndex, viewportOffset: retainedResizeAnchor.viewportOffset }
+      : undefined;
+  const target = initializing.current ? initialTarget.current : resizeTarget;
+  const rangeOffset =
+    target === "end" || (!target && !initializing.current && followEnd?.())
+      ? Number.POSITIVE_INFINITY
+      : target
+        ? (layout.offsets[target.index] ?? 0) -
+          ("viewportOffset" in target
+            ? target.viewportOffset
+            : (viewport.size - measuredSizeAt(target.index)) / 2)
+        : viewport.offset;
   const range = useMemo(
     () =>
       computeVirtualRangeFromLayout({
         ...layout,
-        scrollOffset: viewport.offset,
+        scrollOffset: rangeOffset,
         viewportSize: viewport.size,
         overscan,
         maxItems,
       }),
-    [layout, maxItems, overscan, viewport]
+    [layout, maxItems, overscan, rangeOffset, viewport.size]
   );
   const rangeRef = useRef(range);
   rangeRef.current = range;
@@ -224,10 +301,10 @@ export function useVirtualWindow({
         index,
         key,
         start: range.offsets[index] ?? 0,
-        size: measuredSizes.current.get(key) ?? estimateSize(index),
+        size: measuredSizeAt(index),
       };
     });
-  }, [estimateSize, getKey, indexes, range.offsets, sizeRevision]);
+  }, [measuredSizeAt, getKey, indexes, range.offsets, sizeRevision]);
 
   const measureElement = useCallback((index: number, key: string, node: HTMLElement | null) => {
     const previousForKey = observedNodeByKey.current.get(key);
@@ -258,7 +335,7 @@ export function useVirtualWindow({
       const currentRange = rangeRef.current;
       if (!element || index < 0 || index >= count) return;
       const start = currentRange.offsets[index] ?? 0;
-      const size = measuredSizes.current.get(getKey(index)) ?? estimateSize(index);
+      const size = measuredSizeAt(index);
       const align = options.align ?? "center";
       const top =
         align === "start"
@@ -271,8 +348,72 @@ export function useVirtualWindow({
         behavior: options.behavior ?? "auto",
       });
     },
-    [count, estimateSize, getKey, scopeOrigin, scrollRef]
+    [count, measuredSizeAt, scopeOrigin, scrollRef]
   );
+
+  // Initial geometry is synchronous and bounded by the mounted virtual window.
+  // Do not let a default scrollTop=0 replace the intended end/message range
+  // while those rows are being measured. Later new rows and width changes use
+  // the same path; ResizeObserver handles changes inside already-mounted rows.
+  useLayoutEffect(() => {
+    const element = scrollRef.current;
+    if (!element) return;
+    if (initialTarget.current !== undefined && count > 0 && element.clientHeight > 0) {
+      const initialViewportChanged = initializing.current && viewport.size !== element.clientHeight;
+      if (initialViewportChanged) {
+        setViewport((current) => ({ ...current, size: element.clientHeight }));
+      }
+      const width = scopeRef?.current?.clientWidth ?? element.clientWidth;
+      if (measurements.width !== width && !initializing.current && !followEnd?.()) {
+        resizeAnchor.current ??= readingAnchor.current;
+      }
+      let changed = setVirtualMeasurementWidth(measurements, width);
+      if (changed) checkedNodes.current = new WeakSet();
+      for (const [node, metadata] of observedNodes.current) {
+        const version = getMeasurementVersion(metadata.index);
+        if (
+          !initializing.current &&
+          checkedNodes.current.has(node) &&
+          measurements.rows.get(metadata.key)?.version === version
+        )
+          continue;
+        checkedNodes.current.add(node);
+        changed =
+          setVirtualMeasurement(
+            measurements,
+            metadata.key,
+            version,
+            Math.max(1, node.getBoundingClientRect().height)
+          ) || changed;
+      }
+      if (changed) {
+        setSizeRevision((value) => value + 1);
+        return;
+      }
+      if (initialViewportChanged) return;
+      const initial = initialTarget.current;
+      if (resizeTarget) {
+        scrollIndexToViewportOffset(resizeTarget.index, resizeTarget.viewportOffset);
+      } else if (initializing.current && initial !== "end") {
+        if ("viewportOffset" in initial) {
+          scrollIndexToViewportOffset(initial.index, initial.viewportOffset);
+        } else {
+          scrollToIndex(initial.index, { align: "center" });
+        }
+      } else if ((initializing.current && initial === "end") || followEnd?.()) {
+        // Layout corrections never animate or traverse intermediate windows.
+        const bottom = Math.max(0, element.scrollHeight - element.clientHeight);
+        if (Math.abs(element.scrollTop - bottom) > 1) element.scrollTop = bottom;
+      }
+      if (initializing.current) {
+        initializing.current = false;
+        setScrollInitialized(true);
+      }
+      resizeAnchor.current = null;
+    }
+    // Preceding groups can move a nested scope without resizing the scrollport.
+    if (scopeRef || initialTarget.current !== undefined) updateViewport();
+  });
 
   const scrollIndexToViewportOffset = useCallback(
     (index: number, viewportOffset: number) => {
@@ -302,16 +443,17 @@ export function useVirtualWindow({
     if (!element) return;
     followedActiveItem.current = activeKey;
     const start = scopeOrigin() + (range.offsets[activeIndex] ?? 0);
-    const size = measuredSizes.current.get(getKey(activeIndex)) ?? estimateSize(activeIndex);
+    const size = measuredSizeAt(activeIndex);
     const end = start + size;
     if (start < element.scrollTop) element.scrollTop = start;
     else if (end > element.scrollTop + element.clientHeight) {
       element.scrollTop = Math.max(0, end - element.clientHeight);
     }
-  }, [activeIndex, count, estimateSize, getKey, range.offsets, scopeOrigin, scrollRef]);
+  }, [activeIndex, count, measuredSizeAt, getKey, range.offsets, scopeOrigin, scrollRef]);
 
   return {
     measureElement,
+    scrollInitialized,
     scrollIndexToViewportOffset,
     scrollToIndex,
     totalSize: range.totalSize,

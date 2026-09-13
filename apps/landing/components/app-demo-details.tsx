@@ -18,7 +18,6 @@ import {
   MonitorUp,
   Pencil,
   Plus,
-  RotateCcw,
 } from "lucide-react";
 import { BotAvatar } from "./bot-avatar";
 import { DesktopPlusIcon, DesktopMicIcon } from "./desktop-demo-controls";
@@ -30,9 +29,43 @@ type HandoffState = "requested" | "active" | "completed" | "skipped" | "dismisse
 // Presentational states mirror ComputerHandoffCard and BotScreen. The Linux
 // frame is captured from the real computer image with a local sample website.
 export function ComputerDemo() {
+  const showcase = useRef<HTMLDivElement>(null);
   const [state, setState] = useState<HandoffState>("requested");
   const active = state === "active";
   const resolved = state !== "active" && state !== "requested";
+  useEffect(() => {
+    if (!resolved || !showcase.current) return;
+    const preference = window.matchMedia("(prefers-reduced-motion: reduce)");
+    let inView = false;
+    let remaining = 6000;
+    let began = 0;
+    let timer: number | undefined;
+    const stop = () => {
+      if (timer === undefined) return;
+      window.clearTimeout(timer);
+      timer = undefined;
+      remaining = Math.max(0, remaining - (performance.now() - began));
+    };
+    const sync = () => {
+      stop();
+      if (!inView || document.hidden || preference.matches) return;
+      began = performance.now();
+      timer = window.setTimeout(() => setState("requested"), remaining);
+    };
+    const observer = new IntersectionObserver(([entry]) => {
+      inView = Boolean(entry?.isIntersecting && entry.intersectionRatio >= 0.3);
+      sync();
+    }, { threshold: 0.3 });
+    observer.observe(showcase.current);
+    preference.addEventListener("change", sync);
+    document.addEventListener("visibilitychange", sync);
+    return () => {
+      stop();
+      observer.disconnect();
+      preference.removeEventListener("change", sync);
+      document.removeEventListener("visibilitychange", sync);
+    };
+  }, [resolved]);
   useEffect(() => {
     if (!active) return;
     const close = (event: KeyboardEvent) => {
@@ -44,7 +77,7 @@ export function ComputerDemo() {
     return () => window.removeEventListener("keydown", close);
   }, [active]);
   return (
-    <div className="dc-demo">
+    <div className="dc-demo" ref={showcase}>
       <div className="dc-window" aria-label="Desktop computer handoff demo">
         {active ? (
           <div
@@ -103,7 +136,7 @@ export function ComputerDemo() {
               />
               <strong>Research</strong>
             </header>
-            <div className="dc-chat-content" role="log" aria-label="Sample handoff messages">
+            <div className="dc-chat-content" role="log" aria-live={resolved ? "polite" : "off"} aria-label="Sample handoff messages">
               <p className="dc-chat-date">Today 8:04 AM</p>
               <div className="dc-user-bubble">
                 Check the vendor dashboard and save a usage report.
@@ -154,10 +187,6 @@ export function ComputerDemo() {
       </div>
       <div className="dc-demo-caption">
         <span>{state === "requested" ? "Try Take over to open the screen." : "Desktop handoff · Sample sign-in"}</span>
-        <Button variant="ghost" onClick={() => setState("requested")}>
-          <RotateCcw size={12} />
-          Replay demo
-        </Button>
       </div>
     </div>
   );

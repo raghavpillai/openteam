@@ -109,13 +109,6 @@
   font-size: 11px;
   color: #71796b;
 }
-.dc-demo-caption button {
-  font: inherit;
-  height: 28px;
-  gap: 6px;
-  padding: 0 5px;
-  color: inherit;
-}
 .dc-chat {
   display: flex;
   flex-direction: column;

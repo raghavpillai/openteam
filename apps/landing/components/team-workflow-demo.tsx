@@ -55,9 +55,8 @@ const files = {
 
 type SampleFile = keyof typeof files;
 
-// Deliberate pauses make the shared-file handoff readable. It runs once, then
-// stays on the finished conversation until the visitor chooses Replay.
-const stageDurations = [1800, 1100, 2100] as const;
+// Hold the finished conversation long enough to read before the next loop.
+const stageDurations = [1800, 1100, 2100, 6000] as const;
 const stageDescriptions = [
   "Research is reviewing the customer feedback.",
   "Research saved the brief to the shared workspace.",
@@ -121,15 +120,14 @@ function FileAttachment({
 export function TeamWorkflowDemo() {
   const [preview, setPreview] = useState<SampleFile | null>(null);
   const [stage, setStage] = useState(0);
-  const [replayCount, setReplayCount] = useState(0);
+  const [fileFocused, setFileFocused] = useState(false);
   const [motionAllowed, setMotionAllowed] = useState(false);
   const [visible, setVisible] = useState(false);
   const showcase = useRef<HTMLElement>(null);
   const started = useRef(false);
-  const remaining = useRef<number | null>(null);
-  const playbackRun = useRef(0);
+  const remaining = useRef<{ stage: number; duration: number } | null>(null);
   const document = preview ? files[preview] : null;
-  const playing = motionAllowed && visible && preview === null;
+  const playing = motionAllowed && visible && preview === null && !fileFocused;
   const shownStage = stage;
 
   useEffect(() => {
@@ -165,34 +163,36 @@ export function TeamWorkflowDemo() {
   }, []);
 
   useEffect(() => {
-    if (!playing || stage >= stageDurations.length) return;
-    const duration = remaining.current ?? stageDurations[stage];
+    if (!playing) return;
+    const duration = remaining.current?.stage === stage
+      ? remaining.current.duration
+      : stageDurations[stage];
     const began = performance.now();
     let advanced = false;
     const timeout = window.setTimeout(() => {
       advanced = true;
       remaining.current = null;
-      setStage((current) => current + 1);
+      setStage((current) => (current + 1) % stageDurations.length);
     }, duration);
     return () => {
       window.clearTimeout(timeout);
-      // A restarted run owns its own timing; an old cleanup must not give it
-      // the previous stage's partially elapsed duration.
-      if (!advanced && playbackRun.current === replayCount) {
-        remaining.current = Math.max(0, duration - (performance.now() - began));
+      if (!advanced) {
+        remaining.current = { stage, duration: Math.max(0, duration - (performance.now() - began)) };
       }
     };
-  }, [playing, stage, replayCount]);
-
-  const replay = () => {
-    playbackRun.current += 1;
-    remaining.current = null;
-    setReplayCount(playbackRun.current);
-    setStage(0);
-  };
+  }, [playing, stage]);
 
   return (
-    <figure className="twd-showcase" ref={showcase} data-playing={playing} data-motion-enabled={motionAllowed}>
+    <figure
+      className="twd-showcase"
+      ref={showcase}
+      data-playing={playing}
+      data-motion-enabled={motionAllowed}
+      onFocusCapture={() => setFileFocused(true)}
+      onBlurCapture={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) setFileFocused(false);
+      }}
+    >
       <div className="twd-app">
         <section className="twd-chat" aria-label="Signup improvements sample group conversation">
           <header className="twd-header">
@@ -287,12 +287,7 @@ export function TeamWorkflowDemo() {
       </div>
       <figcaption>
         <span>Sample group conversation · Open a file to inspect the handoff.</span>
-        {motionAllowed && (
-          <button type="button" className="twd-playback" onClick={replay} aria-label="Replay team handoff">
-            Replay
-          </button>
-        )}
-        <span className="twd-announcement" aria-live={replayCount > 0 ? "polite" : "off"}>{stageDescriptions[shownStage]}</span>
+        <span className="twd-announcement" aria-live="off">{stageDescriptions[shownStage]}</span>
       </figcaption>
 
       <Dialog.Root open={preview !== null} onOpenChange={(open) => !open && setPreview(null)}>

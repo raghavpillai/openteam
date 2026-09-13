@@ -105,7 +105,6 @@
   .ot-grid-signal-a { left: calc(50% - 100px); }
   .ot-grid-signal-b { left: calc(50% + 100px); }
   .landing .pd-scenario { height: 42px; font-size: 12px; }
-  .landing .pd-replay { height: 34px; font-size: 12px; }
   .landing .pl-views { grid-template-columns: 1fr; margin-bottom: 16px; }
   .pl-selection { width: 100%; height: calc(100% / 3); transform: translateY(calc(var(--selection) * 100%)); }
   .pl-description { min-height: 48px; }
@@ -135,13 +134,10 @@
   }
   .landing .ot-site-header .ot-mobile-menu nav a,
   .landing .pd-scenario,
-  .landing .pd-replay,
-  .landing .twd-playback,
   .landing .pl-view,
   .landing .pl-expand,
   .landing .ot-worker-tab,
   .landing .dt-file-open,
-  .landing .dc-demo-caption button,
   .landing .dc-handoff-actions button,
   .landing .dr-actions button:not(.dr-switch),
   .landing .dr-triggers > button,

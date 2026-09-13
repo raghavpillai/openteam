@@ -884,10 +884,6 @@ button.dt-icon-button:hover {
   flex: 0 0 auto;
   font-variant-numeric: tabular-nums;
 }
-.pd-showcase .pd-replay {
-  min-width: 98px;
-  justify-content: flex-end;
-}
 
 @keyframes dt-message-arrive {
   from { opacity: 0; transform: translateY(7px); }
@@ -929,9 +925,6 @@ button.dt-icon-button:hover {
     padding-inline: 4px;
     font-size: 12px;
   }
-  .pd-showcase .pd-replay {
-    min-width: 80px;
-  }
 }
 .dt-composer-plus {
   margin-left: 4px;
@@ -968,9 +961,6 @@ button.dt-icon-button:hover {
 .dt-result[data-revealed="false"] .dt-file {
   opacity: 0;
   transform: translateY(5px);
-}
-.pd-showcase .pd-replay {
-  min-width: 54px;
 }
 @media (prefers-reduced-motion: reduce) {
   .dt-message[data-revealed],

@@ -110,6 +110,7 @@ const examples = [
 
 const DEMO_STAGE_ENDS = [1100, 2500, 3900, 5300];
 const DEMO_DURATION = DEMO_STAGE_ENDS[DEMO_STAGE_ENDS.length - 1];
+const DEMO_CYCLE_DURATION = DEMO_DURATION + 6000;
 
 function sampleFileContent(scenario: (typeof examples)[number]) {
   const table = [
@@ -155,7 +156,8 @@ export function ProductDemo() {
   const [visible, setVisible] = useState(false);
   const [documentVisible, setDocumentVisible] = useState(false);
   const [reducedMotion, setReducedMotion] = useState(false);
-  const [replayCount, setReplayCount] = useState(0);
+  const [runId, setRunId] = useState(0);
+  const [resultFocused, setResultFocused] = useState(false);
   const [compact, setCompact] = useState(false);
   const [details, setDetails] = useState(true);
   const [search, setSearch] = useState("");
@@ -164,7 +166,7 @@ export function ProductDemo() {
   const fileBytes = new TextEncoder().encode(sampleFileContent(scenario)).byteLength;
   const fileSize = fileBytes < 1024 ? `${fileBytes} B` : `${(fileBytes / 1024).toFixed(1)} KB`;
   const done = stage >= 4;
-  const active = visible && documentVisible && preview === null;
+  const active = visible && documentVisible && preview === null && !resultFocused;
   const avatarMode = !active || reducedMotion ? "still" : done ? "idle" : "thinking";
 
   useEffect(() => {
@@ -196,8 +198,12 @@ export function ProductDemo() {
     if (!progress.current) return;
     // One compositor animation keeps the underline moving through every step.
     const animation = progress.current.animate(
-      [{ transform: "scaleX(0)" }, { transform: "scaleX(1)" }],
-      { duration: DEMO_DURATION, easing: "linear", fill: "forwards" },
+      [
+        { transform: "scaleX(0)", offset: 0 },
+        { transform: "scaleX(1)", offset: DEMO_DURATION / DEMO_CYCLE_DURATION },
+        { transform: "scaleX(1)", offset: 1 },
+      ],
+      { duration: DEMO_CYCLE_DURATION, easing: "linear", iterations: Infinity },
     );
     animation.pause();
     playback.current = animation;
@@ -205,16 +211,14 @@ export function ProductDemo() {
       animation.cancel();
       playback.current = null;
     };
-  }, [replayCount]);
+  }, [runId]);
 
   useEffect(() => {
     const animation = playback.current;
     if (!animation) return;
     if (reducedMotion) {
-      animation.finish();
-      return;
-    }
-    if (Number(animation.currentTime) >= DEMO_DURATION) {
+      animation.pause();
+      animation.currentTime = DEMO_DURATION;
       setStage(4);
       return;
     }
@@ -224,26 +228,30 @@ export function ProductDemo() {
     let frame = 0;
     let previousStage = -1;
     const updateStage = () => {
-      const elapsed = Number(animation.currentTime ?? 0);
+      const currentTime = Number(animation.currentTime ?? 0);
+      const elapsed = currentTime % DEMO_CYCLE_DURATION;
       const nextStage = DEMO_STAGE_ENDS.filter((end) => elapsed >= end).length;
       if (nextStage !== previousStage) {
+        // Only the visitor's chosen run should announce updates.
+        if (currentTime >= DEMO_CYCLE_DURATION) setManualRun(false);
         setStage(nextStage);
         previousStage = nextStage;
       }
-      if (elapsed < DEMO_DURATION) frame = requestAnimationFrame(updateStage);
+      frame = requestAnimationFrame(updateStage);
     };
     frame = requestAnimationFrame(updateStage);
     return () => {
       cancelAnimationFrame(frame);
       animation.pause();
     };
-  }, [active, reducedMotion, replayCount]);
+  }, [active, reducedMotion, runId]);
 
-  const choose = useCallback((index: number, startReplay = true) => {
+  const choose = useCallback((index: number) => {
     setManualRun(true);
     setSelected(index);
-    setStage(startReplay && !reducedMotion ? 0 : 4);
-    setReplayCount((count) => count + 1);
+    setStage(reducedMotion ? 4 : 0);
+    setRunId((count) => count + 1);
+    setResultFocused(false);
     setPreview(null);
   }, [reducedMotion]);
   useEffect(() => {
@@ -255,12 +263,11 @@ export function ProductDemo() {
       if (task !== "research" && task !== "operations" && task !== "engineering") return;
       const id = task === "engineering" ? "code" : task;
       const index = examples.findIndex((example) => example.id === id);
-      if (index >= 0) choose(index, true);
+      if (index >= 0) choose(index);
     };
     window.addEventListener(DEMO_TASK_EVENT, selectTask);
     return () => window.removeEventListener(DEMO_TASK_EVENT, selectTask);
   }, [choose]);
-  const replay = () => choose(selected);
   const download = () => {
     const text = sampleFileContent(scenario);
     const url = URL.createObjectURL(
@@ -273,7 +280,7 @@ export function ProductDemo() {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
   // Presentational adapter of desktop Sidebar, DesktopHeader, MessageContent,
-  // PromptInput and Inspector. Only sample data and replay belong to the landing.
+  // PromptInput and Inspector. Only sample data and playback belong to the landing.
   return (
     <div
       className="pd-showcase"
@@ -305,17 +312,12 @@ export function ProductDemo() {
               {item.label}
               {selected === i && (
                 <span className="pd-task-progress" aria-hidden="true">
-                  <span key={replayCount} ref={progress} />
+                  <span key={runId} ref={progress} />
                 </span>
               )}
             </Button>
           ))}
         </div>
-        {!reducedMotion && (
-          <Button variant="ghost" className="pd-replay" onClick={replay} aria-label="Replay demo">
-            Replay
-          </Button>
-        )}
       </div>
       <div className="pd-playback-progress" aria-live={manualRun ? "polite" : "off"}>
         <span className={`pd-playback-dot ${done ? "is-complete" : ""}`} aria-hidden="true" />
@@ -418,7 +420,7 @@ export function ProductDemo() {
           </header>
           <div
             className="dt-transcript"
-            key={`${scenario.id}-${replayCount}`}
+            key={`${scenario.id}-${runId}`}
             role="log"
             aria-label="Sample messages"
             aria-live={manualRun ? "polite" : "off"}
@@ -438,7 +440,16 @@ export function ProductDemo() {
               )}
             </div>
             <div className="dt-response-slot">
-              <div className="dt-message dt-result" data-revealed={done} aria-hidden={!done} inert={!done}>
+              <div
+                className="dt-message dt-result"
+                data-revealed={done}
+                aria-hidden={!done}
+                inert={!done}
+                onFocusCapture={() => setResultFocused(true)}
+                onBlurCapture={(event) => {
+                  if (!event.currentTarget.contains(event.relatedTarget)) setResultFocused(false);
+                }}
+              >
                 <div className="dt-bubble">{scenario.reply}</div>
                 <article className="dt-file">
                   <button

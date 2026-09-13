@@ -364,7 +364,7 @@ export default function Home() {
                 {
                   icon: Server,
                   title: "Deploy with Docker.",
-                  text: "Run OpenTeam with Docker Compose on a VPS, home server, or spare Mac.",
+                  text: "Run OpenTeam with Docker Compose on a VPS, home server, or spare machine.",
                 },
                 {
                   icon: LockKeyhole,

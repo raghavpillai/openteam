@@ -1,4 +1,5 @@
-import { ArrowDown, ArrowUpRight, Check, Server, Smartphone, Terminal } from "lucide-react";
+import { ArrowDown, ArrowUpRight, Check, Server, Terminal } from "lucide-react";
+import Image from "next/image";
 import type { Metadata } from "next";
 import { CopyCommand } from "@/components/copy-command";
 import { DownloadOptions } from "@/components/download-options";
@@ -59,7 +60,7 @@ export default function DownloadPage() {
         <section id="server" className="dl-step ot-bot-section">
           <div className="dl-step-heading">
             <h2>Install the server.</h2>
-            <p>Use a VPS, home server, or spare computer. This is where your agents run.</p>
+            <p>Run guided setup on a VPS, home server, or spare machine. Create your account and connect a model.</p>
           </div>
           <div className="dl-step-content">
             <div className="dl-terminal">
@@ -85,7 +86,7 @@ export default function DownloadPage() {
                 </div>
               </div>
               <p className="dl-terminal-note">
-                <Server size={15} /> Runs on your machine. Connect your own inference provider.
+                <Server size={15} /> Setup gives you the server URL to connect your apps.
               </p>
             </div>
             <div className="dl-requirements">
@@ -100,11 +101,7 @@ export default function DownloadPage() {
             </div>
             <p className="dl-setup-note">
               Requires a running Docker Engine and Compose. Use Docker Engine on Linux or Docker
-              Desktop on macOS and Windows. Downloads the CLI, verifies its SHA-256 checksum, and
-              starts guided setup. No Node.js or Bun required.
-            </p>
-            <p className="dl-version-note">
-              Set <code>OPENTEAM_VERSION</code> to install a specific release.
+              Desktop on macOS and Windows. No Node.js or Bun required.
             </p>
             <div className="dl-source-links">
               <a href="/install/source" className="ot-text-link">
@@ -121,7 +118,7 @@ export default function DownloadPage() {
         <section id="desktop" className="dl-step ot-bot-section">
           <div className="dl-step-heading">
             <h2>Download the app.</h2>
-            <p>Connect to your server, create an agent, and send your first task.</p>
+            <p>Enter the server URL from setup, sign in, and create your first agent.</p>
           </div>
           <div className="dl-step-content">
             <DownloadOptions />
@@ -131,15 +128,15 @@ export default function DownloadPage() {
 
         <section className="dl-step dl-mobile-step ot-bot-section">
           <div className="dl-step-heading">
-            <h2>Check in from your phone.</h2>
-            <p>Use the same agents and conversations when you are away from your desk.</p>
+            <h2>Build the iPhone companion.</h2>
+            <p>Connect to the same server and continue your conversations from your phone.</p>
           </div>
           <div className="dl-phone-card">
             <div className="dl-phone-icon">
-              <Smartphone size={27} />
+              <Image src="/openteam-app-icon.png" alt="OpenTeam app icon" width={52} height={52} unoptimized />
             </div>
             <div>
-              <h3>Build the iPhone app from source.</h3>
+              <h3>Available from source.</h3>
               <p>
                 App Store and TestFlight builds are not available yet. The iPhone app is included in
                 the repository.

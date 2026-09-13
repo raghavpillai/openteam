@@ -46,11 +46,11 @@ const questions = [
   ],
   [
     "Which model providers can I connect?",
-    "Connect a ChatGPT Plus/Pro or Claude Pro/Max account, use an OpenAI or Anthropic API key, or configure an OpenAI-, Anthropic-, or Google-compatible endpoint. Usage limits and model access depend on your provider and plan.",
+    "Connect a ChatGPT Plus/Pro or Claude Pro/Max account, use an OpenAI or Anthropic API key, or configure an OpenAI-, Anthropic-, or Google-compatible endpoint. Claude sign-in uses paid extra usage. Model access and other usage limits depend on your provider and plan.",
   ],
   [
     "How do plugins work?",
-    "Plugins add app connections, reusable skills, or both. Install a bundled package or import your own, connect any required accounts, and choose which agents can use them. Tool policies let you allow a call, require approval, or deny it. You can also add a compatible MCP server and create private skills in the app.",
+    "Plugins connect workers to apps and tools. Install a connector from the catalog, connect accounts, and choose which workers may use each connection. Allow individual tools, require approval, or deny them. Add a custom MCP server for internal tools, and save reusable instructions as skills.",
   ],
   [
     "Can I watch or stop an agent?",
@@ -131,7 +131,7 @@ export default function Home() {
           </div>
           <div className="ot-demo-caption">
             <span>
-              <Monitor size={14} /> Chat, task progress, and generated files.
+              <Monitor size={14} /> Choose a task. Open its screen or generated file.
             </span>
             <span>Interactive product recreation · Sample tasks and data</span>
           </div>
@@ -158,7 +158,7 @@ export default function Home() {
             <GithubMark />
             <span>
               <strong>Open source</strong>
-              <small>Inspect the runtime and apps</small>
+              <small>Read the code. Make it your own.</small>
             </span>
             <ArrowUpRight size={15} />
           </a>
@@ -173,8 +173,8 @@ export default function Home() {
               </h2>
             </div>
             <p>
-              Explore sample tasks and the files they produce. Open a demo to follow the worker
-              through the task and inspect the result.
+              Get a sourced recommendation, a daily report, or a tested code change.
+              Open a demo to see the work and its files.
             </p>
           </div>
           <div className="ot-jobs">
@@ -196,7 +196,7 @@ export default function Home() {
                 shape: "pod" as const,
                 color: "#925df2",
                 name: "Operations",
-                title: "Monitor dashboards",
+                title: "Check dashboards",
                 result: "A daily report showing what changed.",
                 icon: Globe2,
                 tags: "BROWSER + ROUTINES",
@@ -268,10 +268,10 @@ export default function Home() {
               <li>
                 <span>03</span>
                 <div>
-                  <h3>Bring the team into a group.</h3>
+                  <h3>Let workers hand off tasks.</h3>
                   <p>
-                    Workers can pass tasks to each other and build on the files their teammates
-                    create.
+                    Put workers in a group chat to share context, delegate subtasks, and build
+                    on each other&apos;s files.
                   </p>
                 </div>
               </li>
@@ -290,14 +290,14 @@ export default function Home() {
               </h2>
             </div>
             <p>
-              Connect GitHub, Notion, Slack, and Linear. Choose which accounts each agent can use,
-              and which tools need your approval.
+              Give workers access to GitHub, Notion, Slack, and Linear. Plugins connect your
+              accounts and add reusable skills. You choose which workers can use them.
             </p>
           </div>
           <PluginsDemo />
           <div className="ot-plugin-points">
             <article>
-              <h3>Control agent access.</h3>
+              <h3>Choose who can use each app.</h3>
               <p>
                 Connect multiple accounts. Give Engineering access to GitHub and Research access to
                 Notion. Allow individual tools, require approval, or deny them.
@@ -306,15 +306,15 @@ export default function Home() {
             <article>
               <h3>Save your team&apos;s instructions.</h3>
               <p>
-                Save instructions and supporting files as a skill. Reuse your research playbook,
-                report format, or review checklist across the agents you choose.
+                Ask a worker to save your research playbook, report format, or review checklist
+                as a skill. The team can reuse it on future tasks.
               </p>
             </article>
             <article>
-              <h3>Build your own plugins.</h3>
+              <h3>Connect your own tools.</h3>
               <p>
-                Add an MCP server or package tools and skills together. Import a folder or ZIP, edit
-                and test in the app, then export the package to share it.
+                Add a remote MCP server or run a local one on the team&apos;s computer.
+                Give workers tools for your internal systems and choose who can use them.
               </p>
             </article>
           </div>
@@ -322,7 +322,7 @@ export default function Home() {
             className="ot-text-link ot-plugins-source"
             href={`${GITHUB}/blob/main/apps/server/src/plugins/catalog.ts`}
           >
-            Browse bundled plugins <ArrowUpRight size={16} />
+            View the plugin catalog source <ArrowUpRight size={16} />
           </a>
           <SectionBot bot="operations" side="right" />
         </section>
@@ -338,7 +338,7 @@ export default function Home() {
                 <span>and a schedule.</span>
               </h2>
             </div>
-            <p>Explore the tools your workers use and the controls you have over their work.</p>
+            <p>Watch the screen, edit saved memory, or schedule recurring work. Try each below.</p>
           </div>
           <WorkerCapabilities />
           <SectionBot bot="operations" />
@@ -350,9 +350,9 @@ export default function Home() {
           <div className="ot-ownership">
             <div>
               <h2>
-                Run OpenTeam
+                Your compute.
                 <br />
-                <span>on your server.</span>
+                <span>Your workspace.</span>
               </h2>
               <a href={GITHUB} className="ot-text-link">
                 <GithubMark /> View source on GitHub <ArrowUpRight size={16} />
@@ -361,14 +361,14 @@ export default function Home() {
             <div className="ot-ownership-facts">
               {[
                 {
-                  icon: Server,
-                  title: "Deploy with Docker.",
-                  text: "Run OpenTeam with Docker Compose on a VPS, home server, or spare machine.",
-                },
-                {
                   icon: LockKeyhole,
                   title: "Workspace stored on your server.",
                   text: "Chats, memory, files, and browser profiles live on your server. Model requests go to the provider you choose.",
+                },
+                {
+                  icon: Server,
+                  title: "Run on the machine you choose.",
+                  text: "Use Docker Compose on a VPS, home server, or spare machine. You control where OpenTeam runs.",
                 },
                 {
                   icon: Terminal,

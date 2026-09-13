@@ -1,9 +1,10 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Check,
+  ChevronDown,
   ChevronLeft,
   ChevronsRight,
   CirclePlus,
@@ -15,6 +16,7 @@ import {
   Minimize2,
   Monitor,
   MonitorUp,
+  Pencil,
   Plus,
   RotateCcw,
 } from "lucide-react";
@@ -28,7 +30,7 @@ type HandoffState = "requested" | "active" | "completed" | "skipped" | "dismisse
 // Presentational states mirror ComputerHandoffCard and BotScreen. The Linux
 // frame is captured from the real computer image with a local sample website.
 export function ComputerDemo() {
-  const [state, setState] = useState<HandoffState>("active");
+  const [state, setState] = useState<HandoffState>("requested");
   const active = state === "active";
   const resolved = state !== "active" && state !== "requested";
   useEffect(() => {
@@ -151,7 +153,7 @@ export function ComputerDemo() {
         )}
       </div>
       <div className="dc-demo-caption">
-        <span>Desktop handoff · Sample sign-in</span>
+        <span>{state === "requested" ? "Try Take over to open the screen." : "Desktop handoff · Sample sign-in"}</span>
         <Button variant="ghost" onClick={() => setState("requested")}>
           <RotateCcw size={12} />
           Replay demo
@@ -166,6 +168,7 @@ export function RoutineDemo() {
   const [running, setRunning] = useState(false);
   const [hasRun, setHasRun] = useState(false);
   const [deleted, setDeleted] = useState(false);
+  const [resultOpen, setResultOpen] = useState(false);
   const [schedules, setSchedules] = useState(["Every day at 8:00 AM"]);
   useEffect(() => {
     if (!running) return;
@@ -191,6 +194,7 @@ export function RoutineDemo() {
                 setDeleted(false);
                 setRunning(false);
                 setHasRun(false);
+                setResultOpen(false);
                 setSchedules(["Every day at 8:00 AM"]);
                 setEnabled(true);
               }}
@@ -215,6 +219,7 @@ export function RoutineDemo() {
               <Button variant="secondary" className="dr-delete" onClick={() => {
                 setRunning(false);
                 setHasRun(false);
+                setResultOpen(false);
                 setDeleted(true);
               }}>
                 Delete
@@ -299,28 +304,87 @@ export function RoutineDemo() {
           </>
         )}
       </section>
-      <p className="dr-caption">Sample routine · no task is scheduled</p>
+      {hasRun && !deleted && (
+        <div className="dr-sample-result">
+          <p role="status">
+            {running ? <LoaderCircle size={14} /> : <Check size={14} />}
+            {running ? "Updating sample report…" : "Sample run complete"}
+          </p>
+          <button type="button" aria-expanded={resultOpen} aria-controls="routine-sample-result"
+            onClick={() => setResultOpen(!resultOpen)}>
+            <FileText size={16} /> <span>dashboard-changes.csv</span><ChevronDown size={16} />
+          </button>
+          <div id="routine-sample-result" className="dr-result-body" data-open={resultOpen}
+            inert={!resultOpen} aria-hidden={!resultOpen}>
+            <div>
+              <table>
+                <caption>Sample changes since yesterday</caption>
+                <thead><tr><th>Service</th><th>Uptime</th><th>Usage</th></tr></thead>
+                <tbody>
+                  <tr><td>API</td><td>99.99%</td><td>+12%</td></tr>
+                  <tr><td>Database</td><td>100%</td><td>+3%</td></tr>
+                  <tr><td>Storage</td><td>100%</td><td>+2%</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+      <p className="dr-caption">Try Test run to see a sample report. No task is scheduled.</p>
     </div>
   );
 }
 
-export function MemoryDemo() {
-  return (
-    <figure className="dm-file">
-      <figcaption>
-        <FileText size={15} />
-        memory/profile.md
-      </figcaption>
-      <pre>
-        <code>{`# About the user
+const SAMPLE_MEMORY = `# About the user
 
 - (2026-09-12) Keep the recommendation to one page.
 - (2026-09-12) Link to original sources.
 - (2026-09-12) Save reports in /workspace/reports.
-- (2026-09-12) Track vendor pricing changes.`}</code>
-      </pre>
-      <p>Sample memory file</p>
+- (2026-09-12) Track vendor pricing changes.`;
+
+export function MemoryDemo() {
+  const editor = useRef<HTMLTextAreaElement>(null);
+  const editButton = useRef<HTMLButtonElement>(null);
+  const [memory, setMemory] = useState(SAMPLE_MEMORY);
+  const [draft, setDraft] = useState(SAMPLE_MEMORY);
+  const [editing, setEditing] = useState(false);
+  const [saved, setSaved] = useState(0);
+  const closeEditor = () => {
+    setEditing(false);
+    requestAnimationFrame(() => editButton.current?.focus({ preventScroll: true }));
+  };
+  return (
+    <div className="dm-memory-demo">
+    <figure className="dm-file" data-updated={saved > 0 || undefined}>
+      <figcaption>
+        <FileText size={15} />
+        memory/profile.md
+      </figcaption>
+      {editing ? (
+        <textarea ref={editor} aria-label="Edit sample memory" value={draft} spellCheck={false}
+          onChange={(event) => setDraft(event.target.value)} />
+      ) : <pre key={saved}><code>{memory}</code></pre>}
+      <p>Sample file · Changes stay in this demo.</p>
     </figure>
+    <div className="dm-memory-controls">
+      <span role="status">{editing ? "Edit a preference, then save." : saved ? "Sample memory updated." : "Your notes are editable."}</span>
+      <div>
+        {editing ? <>
+          <Button variant="ghost" onClick={closeEditor}>Cancel</Button>
+          <Button onClick={() => { setMemory(draft); setSaved((count) => count + 1); closeEditor(); }}>
+            <Check size={14} /> Save memory
+          </Button>
+        </> : (
+          <Button ref={editButton} variant="outline" onClick={() => {
+            setDraft(memory); setEditing(true);
+            requestAnimationFrame(() => editor.current?.focus({ preventScroll: true }));
+          }}>
+            <Pencil size={14} /> Edit sample memory
+          </Button>
+        )}
+      </div>
+    </div>
+    </div>
   );
 }
 
@@ -361,7 +425,7 @@ export function MobileDemo() {
                 </span>
               </div>
             </div>
-            <div className="dm-bubble dm-user">Check their pricing again on October 1 at 9 AM.</div>
+            <div className="dm-bubble dm-user">Check their pricing every Monday at 9 AM.</div>
             <div className="dm-bubble">Scheduled. I’ll update the comparison.</div>
           </div>
           <div className="dm-composer-row">

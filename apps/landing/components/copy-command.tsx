@@ -41,7 +41,7 @@ export function CopyCommand({ command, label }: { command: string; label?: strin
         aria-label={copied ? "Copied" : (label ?? `Copy ${command}`)}
       >
         {copied ? <Check /> : <Copy />}
-        <span className="hidden sm:inline">{copied ? "Copied" : "Copy"}</span>
+        <span>{copied ? "Copied" : "Copy"}</span>
       </Button>
     </div>
   );

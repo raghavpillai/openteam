@@ -12,7 +12,7 @@ const capabilities = [
     icon: Monitor,
     heading: "Watch the screen. Take control when needed.",
     description:
-      "Your workers use Chromium, a terminal, and a shared filesystem. Each worker has its own screen on the team's computer.",
+      "Each worker has its own Linux desktop, with a browser and terminal. They share files in one workspace on your server.",
     detail:
       "Watch the live screen, take over to sign in or complete a step, then return control to the worker.",
     demo: ComputerDemo,
@@ -21,11 +21,11 @@ const capabilities = [
     id: "memory",
     label: "Memory",
     icon: HardDrive,
-    heading: "Keep instructions and context between tasks.",
+    heading: "Keep your instructions between tasks.",
     description:
-      "Each worker keeps an ongoing conversation and saved notes. Shared memory and project files give the team context it can reuse.",
+      "Workers save notes about your preferences and projects, then reuse them in later conversations. Shared memory keeps the team informed.",
     detail:
-      "Memory is stored in editable Markdown files on your server. Read the notes, correct them, or add instructions yourself.",
+      "The notes are Markdown files on your server. Read, correct, or edit them yourself. Try changing this sample file.",
     demo: MemoryDemo,
   },
   {
@@ -60,11 +60,20 @@ export function WorkerCapabilities() {
     const element = stage.current;
     const panel = element?.querySelector<HTMLElement>(`[data-capability="${selected}"]`);
     if (!element || !panel) return;
-    const resize = () => {
-      const floor = matchMedia("(min-width: 851px)").matches ? 650 : 0;
-      element.style.height = `${Math.max(floor, panel.offsetHeight)}px`;
+    const panelHeight = () => {
+      const floor = matchMedia("(min-width: 851px)").matches ? 500 : 0;
+      return `${Math.max(floor, panel.offsetHeight)}px`;
     };
-    resize();
+    // Animate tab changes once. In-panel transitions already animate their own
+    // height, so track those directly instead of trailing them with a second ease.
+    element.style.transition = "";
+    element.style.height = panelHeight();
+    const resize = () => {
+      const height = panelHeight();
+      if (element.style.height === height) return;
+      element.style.transition = "none";
+      element.style.height = height;
+    };
     const observer = new ResizeObserver(resize);
     observer.observe(panel);
     return () => observer.disconnect();

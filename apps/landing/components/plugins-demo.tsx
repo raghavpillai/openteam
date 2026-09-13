@@ -26,15 +26,15 @@ const views = [
   },
   {
     id: "skills",
-    label: "Add private skills",
+    label: "Reusable skills",
     icon: BookOpen,
     src: "/screenshots/plugins-skills.png",
-    alt: "OpenTeam's actual Private skills editor with research instructions and agent access settings",
-    description: "Save your team's instructions as a skill and enable it for selected agents.",
+    alt: "Desktop app preview of reusable research instructions in the private skills editor",
+    description: "Save your team's instructions and supporting files as a reusable skill.",
   },
 ] as const;
 
-// Native 3× PNG captures of the shipping desktop components with local sample
+// Native 3× PNG captures of desktop preview components with local sample
 // data. The 1000 × 700 image dimensions below preserve their logical UI size.
 // View selection and image enlargement belong to the landing page, outside the app.
 export function PluginsDemo() {
@@ -86,7 +86,7 @@ export function PluginsDemo() {
           </Button>
         </figcaption>
       </figure>
-      <p className="pl-disclosure">Actual desktop app · Sample accounts and settings</p>
+      <p className="pl-disclosure">Desktop app preview · Sample accounts and settings</p>
       <Dialog.Root open={expanded} onOpenChange={setExpanded}>
         <Dialog.Portal>
           <Dialog.Backdrop className="pl-lightbox-backdrop" />

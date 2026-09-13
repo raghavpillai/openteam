@@ -292,7 +292,7 @@ export function TeamWorkflowDemo() {
             Replay
           </button>
         )}
-        <span className="twd-announcement" role="status" aria-live="polite">{stageDescriptions[shownStage]}</span>
+        <span className="twd-announcement" aria-live={replayCount > 0 ? "polite" : "off"}>{stageDescriptions[shownStage]}</span>
       </figcaption>
 
       <Dialog.Root open={preview !== null} onOpenChange={(open) => !open && setPreview(null)}>

@@ -1,15 +1,47 @@
 "use client";
 
 import { ArrowUpRight } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { GithubMark, Wordmark } from "./brand";
 import { Button } from "./ui/button";
 import "./site-header.css";
 
 const GITHUB = "https://github.com/raghavpillai/openteam";
+const links = [
+  ["Use cases", "use-cases"],
+  ["How it works", "how-it-works"],
+  ["Plugins", "plugins"],
+  ["Workspace", "capabilities"],
+  ["Open source", "open-source"],
+];
 
 export function SiteHeader({ home = false }: { home?: boolean }) {
   const menu = useRef<HTMLDetailsElement>(null);
+  const [current, setCurrent] = useState("");
+  useEffect(() => {
+    if (!home) return;
+    const sections = links.map(([, id]) => document.getElementById(id));
+    let frame = 0;
+    const update = () => {
+      frame = 0;
+      const readingLine = Math.max(100, window.innerHeight * 0.25);
+      const section = sections.find((element) => {
+        if (!element) return false;
+        const bounds = element.getBoundingClientRect();
+        return bounds.top <= readingLine && bounds.bottom > readingLine;
+      });
+      setCurrent(section?.id ?? "");
+    };
+    const schedule = () => { if (!frame) frame = requestAnimationFrame(update); };
+    update();
+    window.addEventListener("scroll", schedule, { passive: true });
+    window.addEventListener("resize", schedule);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("scroll", schedule);
+      window.removeEventListener("resize", schedule);
+    };
+  }, [home]);
   useEffect(() => {
     const dismissOutside = (event: PointerEvent) => {
       if (menu.current?.open && !menu.current.contains(event.target as Node)) {
@@ -20,12 +52,6 @@ export function SiteHeader({ home = false }: { home?: boolean }) {
     return () => document.removeEventListener("pointerdown", dismissOutside);
   }, []);
   const prefix = home ? "" : "/";
-  const links = [
-    ["How it works", "how-it-works"],
-    ["Use cases", "use-cases"],
-    ["Plugins", "plugins"],
-    ["Open source", "open-source"],
-  ];
   return (
     <header className="ot-header ot-site-header">
       <div className="ot-container ot-nav">
@@ -34,7 +60,7 @@ export function SiteHeader({ home = false }: { home?: boolean }) {
         </a>
         <nav aria-label="Main navigation" className="ot-nav-links">
           {links.map(([label, id]) => (
-            <a href={`${prefix}#${id}`} key={id}>
+            <a href={`${prefix}#${id}`} key={id} aria-current={current === id ? "location" : undefined}>
               {label}
             </a>
           ))}
@@ -63,7 +89,7 @@ export function SiteHeader({ home = false }: { home?: boolean }) {
             if ((event.target as HTMLElement).closest("a") && menu.current) menu.current.open = false;
           }}>
             {links.map(([label, id]) => (
-              <a href={`${prefix}#${id}`} key={id}>
+              <a href={`${prefix}#${id}`} key={id} aria-current={current === id ? "location" : undefined}>
                 {label}
               </a>
             ))}

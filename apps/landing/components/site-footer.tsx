@@ -8,7 +8,7 @@ export function SiteFooter({ home = false }: { home?: boolean }) {
     <footer className="ot-footer ot-container">
       <div className="ot-footer-top">
         <a href={home ? "#top" : "/"} className="ot-wordmark" aria-label="OpenTeam home">
-          <Wordmark size={36} textSize={24} />
+          <Wordmark size={36} textSize={24} animated />
         </a>
         <p>Your AI team, running on your server.</p>
         <nav aria-label="Footer navigation">
@@ -19,7 +19,7 @@ export function SiteFooter({ home = false }: { home?: boolean }) {
         </nav>
       </div>
       <div className="ot-footer-bottom">
-        <span>Source code available on GitHub.</span>
+        <a href={`${GITHUB}/blob/main/docs/deployment.md`}>Deployment guide</a>
         <a href="#top">
           Back to top <ArrowUpRight size={14} />
         </a>

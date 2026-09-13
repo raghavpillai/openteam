@@ -89,6 +89,7 @@ export const detectTarget = async (): Promise<DesktopTargetId | null> => {
 };
 
 const formatSize = (bytes: number) => `${Math.max(1, Math.round(bytes / 1024 / 1024))} MB`;
+const DESKTOP_SOURCE_URL = "https://github.com/raghavpillai/openteam#develop-from-source";
 
 export function DownloadOptions() {
   const [recommended, setRecommended] = useState<DesktopTargetId | null>(null);
@@ -105,7 +106,10 @@ export function DownloadOptions() {
       .catch(() => setReleaseState({ state: "unavailable" }));
   }, []);
 
-  const suggested = desktopTargets.find((item) => item.id === recommended);
+  const suggested = desktopTargets.find((item) => item.id === recommended &&
+    releaseState.state === "ready" && releaseState.release.downloads[item.id]);
+  const missingBuilds = releaseState.state === "ready" &&
+    desktopTargets.some((target) => !releaseState.release.downloads[target.id]);
 
   return (
     <div className="dl-options">
@@ -124,7 +128,7 @@ export function DownloadOptions() {
           const Icon = iconFor(target.id);
           const asset =
             releaseState.state === "ready" ? releaseState.release.downloads[target.id] : null;
-          const isRecommended = recommended === target.id;
+          const isRecommended = recommended === target.id && !!asset;
           return (
             <article className="dl-build" data-recommended={isRecommended} key={target.id}>
               <div className="dl-build-heading">
@@ -141,6 +145,8 @@ export function DownloadOptions() {
                 <span>
                   {asset
                     ? formatSize(asset.size)
+                    : releaseState.state === "ready"
+                      ? "No installer in this release"
                     : target.id.startsWith("mac")
                       ? ".dmg"
                       : target.id.startsWith("windows")
@@ -157,6 +163,12 @@ export function DownloadOptions() {
                 >
                   <Download size={16} /> Download
                 </Button>
+              ) : releaseState.state === "ready" ? (
+                <Button className="dl-download-button dl-source-button"
+                  render={<a href={DESKTOP_SOURCE_URL} />} nativeButton={false}
+                  aria-label={`Build ${target.label} ${target.detail} from source`}>
+                  <Terminal size={16} /> Build from source
+                </Button>
               ) : (
                 <Button className="dl-download-button" disabled>
                   {releaseState.state === "loading" ? "Checking…" : "Not available"}
@@ -166,6 +178,12 @@ export function DownloadOptions() {
           );
         })}
       </div>
+      {missingBuilds && (
+        <p className="dl-build-fallback">
+          A build missing for your platform? Check <a href={RELEASES_URL}>all releases</a> or
+          {" "}<a href={DESKTOP_SOURCE_URL}>build the desktop app from source</a>.
+        </p>
+      )}
       {releaseState.state === "unavailable" ? (
         <div className="dl-release-error" role="status">
           <Package size={17} aria-hidden="true" />

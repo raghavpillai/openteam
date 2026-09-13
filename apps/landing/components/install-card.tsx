@@ -5,7 +5,7 @@ import "./install-card.css";
 const steps = [
   ["Install the server", "Run guided setup on the machine that will host your agents."],
   ["Connect your model", "Sign in, add an API key, or connect a compatible endpoint."],
-  ["Create your first agent", "Connect the desktop app to your server, then create an agent."],
+  ["Create your first agent", "Enter your server URL in the desktop app, sign in, and create an agent."],
 ] as const;
 
 export function InstallCard() {

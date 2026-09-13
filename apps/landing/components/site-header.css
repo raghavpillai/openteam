@@ -15,6 +15,14 @@
   gap: 24px;
   font-size: 14px;
 }
+.landing .ot-site-header .ot-nav-links a {
+  padding-block: 8px;
+  transition: color 180ms;
+}
+.landing .ot-site-header a[aria-current="location"] {
+  color: #111;
+}
+.landing .ot-site-header .ot-nav-links a[aria-current="location"]::after { transform: scaleX(1); }
 .landing .ot-site-header .ot-nav-actions {
   gap: 24px;
 }
@@ -70,6 +78,10 @@
   }
   .landing .ot-site-header .ot-mobile-menu nav a {
     padding: 10px;
+  }
+  .landing .ot-site-header .ot-mobile-menu nav a[aria-current="location"] {
+    background: #ededed;
+    border-radius: 4px;
   }
 }
 @media (max-width: 700px) {

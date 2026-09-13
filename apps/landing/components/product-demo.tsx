@@ -214,7 +214,11 @@ export function ProductDemo() {
       animation.finish();
       return;
     }
-    if (!active || Number(animation.currentTime) >= DEMO_DURATION) return;
+    if (Number(animation.currentTime) >= DEMO_DURATION) {
+      setStage(4);
+      return;
+    }
+    if (!active) return;
 
     animation.play();
     let frame = 0;

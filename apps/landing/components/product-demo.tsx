@@ -203,7 +203,7 @@ export function ProductDemo() {
         { transform: "scaleX(1)", offset: DEMO_DURATION / DEMO_CYCLE_DURATION },
         { transform: "scaleX(1)", offset: 1 },
       ],
-      { duration: DEMO_CYCLE_DURATION, easing: "linear", iterations: Infinity },
+      { duration: DEMO_CYCLE_DURATION, easing: "linear", fill: "forwards" },
     );
     animation.pause();
     playback.current = animation;
@@ -224,16 +224,29 @@ export function ProductDemo() {
     }
     if (!active) return;
 
+    const nextTask = () => {
+      setManualRun(false);
+      setSelected((index) => (index + 1) % examples.length);
+      setStage(0);
+      setRunId((id) => id + 1);
+    };
+    // A finished timeline may resume after the page or a preview was hidden.
+    if (Number(animation.currentTime) >= DEMO_CYCLE_DURATION) {
+      nextTask();
+      return;
+    }
+
     animation.play();
     let frame = 0;
     let previousStage = -1;
     const updateStage = () => {
-      const currentTime = Number(animation.currentTime ?? 0);
-      const elapsed = currentTime % DEMO_CYCLE_DURATION;
+      const elapsed = Number(animation.currentTime ?? 0);
+      if (elapsed >= DEMO_CYCLE_DURATION) {
+        nextTask();
+        return;
+      }
       const nextStage = DEMO_STAGE_ENDS.filter((end) => elapsed >= end).length;
       if (nextStage !== previousStage) {
-        // Only the visitor's chosen run should announce updates.
-        if (currentTime >= DEMO_CYCLE_DURATION) setManualRun(false);
         setStage(nextStage);
         previousStage = nextStage;
       }

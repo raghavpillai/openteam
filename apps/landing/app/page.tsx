@@ -2,7 +2,6 @@ import Image from "next/image";
 import {
   ArrowDown,
   ArrowUpRight,
-  Check,
   FileText,
   GitBranch,
   Globe2,
@@ -17,7 +16,7 @@ import { GithubMark } from "@/components/brand";
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
 import { LandingEffects } from "@/components/landing-effects";
-import { InstallCommand } from "@/components/install-command";
+import { InstallCard } from "@/components/install-card";
 import { PluginsDemo } from "@/components/plugins-demo";
 import { ProductDemo } from "@/components/product-demo";
 import { DemoTaskLink } from "@/components/demo-task-link";
@@ -464,45 +463,7 @@ export default function Home() {
               Read the install scripts <ArrowUpRight size={14} />
             </a>
           </div>
-          <div className="ot-setup">
-            <div className="ot-terminal-heading">
-              <Terminal size={16} />
-              <span>Run on your server</span>
-              <span>~/</span>
-            </div>
-            <div className="ot-setup-command">
-              <InstallCommand />
-            </div>
-            <ol>
-              <li>
-                <span>01</span>
-                <div>
-                  <strong>Install the server</strong>
-                  <p>Run guided setup on the machine that will host your agents.</p>
-                </div>
-                <Check size={16} />
-              </li>
-              <li>
-                <span>02</span>
-                <div>
-                  <strong>Connect your model</strong>
-                  <p>
-                    Sign in to a supported account, add an API key, or use a compatible endpoint.
-                  </p>
-                </div>
-              </li>
-              <li>
-                <span>03</span>
-                <div>
-                  <strong>Create your first agent</strong>
-                  <p>Connect the desktop app to your server and send your first task.</p>
-                </div>
-              </li>
-            </ol>
-            <p className="ot-setup-note">
-              <Server size={14} /> Docker Compose 2.20+ · 8 GB RAM recommended
-            </p>
-          </div>
+          <InstallCard />
           <SectionBot bot="research" />
         </section>
       </main>

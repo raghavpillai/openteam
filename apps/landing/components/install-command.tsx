@@ -1,15 +1,15 @@
 "use client";
 
-import { Check, Copy } from "lucide-react";
-import { useEffect, useState } from "react";
+import { Check, Copy, Terminal } from "lucide-react";
+import { Fragment, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 import { copyText } from "@/lib/copy-text";
 
-export const INSTALL_COMMAND = "curl -fsSL https://openteam.so/install | sh";
+const COMMAND_PARTS = ["curl -fsSL", "https://openteam.so/install", "| sh"];
+export const INSTALL_COMMAND = COMMAND_PARTS.join(" ");
 
-export function InstallCommand({ size = "lg" }: { size?: "lg" | "md" }) {
+export function InstallCommand() {
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
@@ -28,32 +28,33 @@ export function InstallCommand({ size = "lg" }: { size?: "lg" | "md" }) {
     }
   };
 
-  const large = size === "lg";
   return (
-    <div
-      className={`inline-flex max-w-full items-center gap-2.5 rounded-xl border border-line-strong bg-surface pl-3.5 shadow-card sm:gap-3 sm:pl-4 ${
-        large ? "h-13 pr-1.5 text-[13px] sm:text-[15px]" : "h-11 pr-1 text-[13.5px]"
-      }`}
-    >
-      <span aria-hidden="true" className="font-mono text-ink-3 select-none">
-        $
-      </span>
-      <code className="truncate font-mono text-ink">{INSTALL_COMMAND}</code>
-      <Button
-        type="button"
-        variant="secondary"
-        size="sm"
-        onClick={copy}
-        aria-live="polite"
-        aria-label={copied ? "Copied" : "Copy install command"}
-        className={cn(
-          large ? "h-10 min-w-10 px-2.5 text-[13px] sm:px-3" : "h-8 px-2.5 text-[12.5px]",
-          copied ? "bg-live-soft text-[#0b7a4b] hover:bg-live-soft" : "text-ink-2 hover:text-ink"
-        )}
-      >
-        {copied ? <Check /> : <Copy />}
-        <span className={large ? "hidden sm:inline" : ""}>{copied ? "Copied" : "Copy"}</span>
-      </Button>
+    <div className="ot-install-terminal">
+      <div className="ot-install-command-toolbar">
+        <span className="ot-install-platform"><Terminal size={17} aria-hidden="true" /> macOS &amp; Linux</span>
+        <Button
+          type="button"
+          variant="secondary"
+          onClick={copy}
+          aria-live="polite"
+          aria-label={copied ? "Copied" : "Copy install command"}
+          data-copied={copied ? "" : undefined}
+          className="ot-install-copy"
+        >
+          {copied ? <Check /> : <Copy />}
+          <span>{copied ? "Copied" : "Copy"}</span>
+        </Button>
+      </div>
+      <div className="ot-install-code">
+        <span aria-hidden="true" className="ot-install-prompt">$</span>
+        <code>
+          {COMMAND_PARTS.map((part, index) => (
+            <Fragment key={part}>
+              {index > 0 ? " " : null}<span>{part}</span>
+            </Fragment>
+          ))}
+        </code>
+      </div>
     </div>
   );
 }

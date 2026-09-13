@@ -114,9 +114,9 @@ export default function Home() {
             </div>
             <div className="ot-hero-description">
               <p>
-                Digital workers that run on your compute and work in your apps. They have their own
-                computer and shared workspace, remember your instructions, and delegate work to each
-                other.
+                Digital workers that run on <strong>your compute</strong> and work in your apps. They
+                have their <strong>own computer and shared workspace</strong>, remember your
+                instructions, and <strong>delegate work</strong> to each other.
               </p>
               <div className="ot-hero-actions">
                 <GetStarted />
@@ -124,7 +124,6 @@ export default function Home() {
                   Try the demo <ArrowDown size={15} />
                 </a>
               </div>
-              <p className="ot-hero-note">Docker required · Bring your own inference</p>
             </div>
           </div>
           <div id="product" tabIndex={-1} className="ot-product-anchor">

@@ -156,6 +156,10 @@
   font-size: 19px;
   line-height: 1.6;
 }
+.ot-hero-description strong {
+  color: #222;
+  font-weight: 600;
+}
 .ot-hero-actions {
   margin-top: 26px;
   display: flex;
@@ -171,11 +175,6 @@
 }
 .ot-text-link:hover {
   color: var(--ot-green);
-}
-.ot-hero-note {
-  margin-top: 15px;
-  font-size: 12px;
-  color: #767676;
 }
 .ot-product-anchor {
   scroll-margin-top: 24px;
@@ -2404,10 +2403,6 @@
     padding-inline: 16px;
     font-size: 13px;
   }
-  .ot-hero-note {
-    font-size: 11px;
-    margin-top: 12px;
-  }
   .pd-showcase {
     padding: 0 6px 6px;
     border-radius: 8px;
@@ -3463,9 +3458,6 @@
   }
   .ot-hero-actions {
     margin-top: 20px;
-  }
-  .ot-hero-note {
-    margin-top: 12px;
   }
 }
 /* Keep capability-led copy readable across screen sizes. */

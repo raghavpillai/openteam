@@ -1,0 +1,60 @@
+/* Personality for decorative bots; task avatars keep the shared activity modes. */
+@media (prefers-reduced-motion: no-preference) {
+  .landing .robot-avatar[data-avatar-ambient][data-avatar-mode="idle"] .robot-avatar-body {
+    animation: ot-bot-curious 3.2s ease-in-out infinite;
+  }
+  .landing .robot-avatar[data-avatar-ambient][data-avatar-mode="idle"] [data-p="eyes"] {
+    animation-name: ot-bot-glance;
+    animation-delay: calc(-1 * var(--robot-delay));
+  }
+  .landing .robot-avatar[data-avatar-ambient][data-avatar-mode="thinking"] .robot-avatar-body {
+    animation: ot-bot-ponder 2.8s ease-in-out infinite;
+  }
+  .landing .robot-avatar[data-avatar-ambient][data-avatar-mode="thinking"] [data-p="eyes"] {
+    animation-delay: calc(-1 * var(--robot-delay));
+  }
+  .landing .robot-avatar[data-avatar-expression="talking"] [data-p="mouth"],
+  .landing .robot-avatar[data-avatar-expression="talking"] [data-p="bar"] {
+    animation: ot-bot-speech 700ms ease-in-out 4;
+  }
+  .landing .robot-avatar[data-avatar-expression="talking"] [data-p="bar"]:nth-child(2) {
+    animation-name: ot-bot-speech-reply;
+  }
+  .landing .robot-avatar[data-avatar-expression="talking"] [data-p="bar"]:nth-child(3) {
+    animation-direction: reverse;
+  }
+}
+
+@keyframes ot-bot-curious {
+  0%, 100% { transform: translateY(0) rotate(0); }
+  24% { transform: translateY(-2px) rotate(-3deg); }
+  52% { transform: translateY(-3px) rotate(2deg); }
+  78% { transform: translateY(-1px) rotate(0); }
+}
+@keyframes ot-bot-glance {
+  0%, 100% { transform: none; }
+  12%, 26% { transform: translate(var(--gaze-x, 3px), -1px); }
+  35%, 42% { transform: none; }
+  38% { transform: scaleY(.08); }
+  56%, 72% { transform: translate(calc(-1 * var(--gaze-x, 3px)), 1px); }
+  84%, 91% { transform: none; }
+  87% { transform: scaleY(.08); }
+}
+@keyframes ot-bot-ponder {
+  0%, 100% { transform: translateY(-2px) rotate(-4deg); }
+  50% { transform: translateY(-4px) rotate(4deg); }
+}
+@keyframes ot-bot-speech {
+  0%, 100% { transform: none; }
+  18% { transform: scale(.85, 1.9); }
+  36% { transform: scale(1.05, .65); }
+  58% { transform: scale(.9, 1.6); }
+  78% { transform: scale(1.05, .8); }
+}
+@keyframes ot-bot-speech-reply {
+  0%, 100% { transform: none; }
+  18% { transform: scale(1.05, .7); }
+  36% { transform: scale(.85, 2.1); }
+  58% { transform: scale(1.05, .85); }
+  78% { transform: scale(.9, 1.7); }
+}

@@ -217,7 +217,7 @@ export default function Home() {
             ].map((job) => (
               <article key={job.number} className="ot-job">
                 <div className="ot-job-top">
-                  <BotAvatar shape={job.shape} color={job.color} size={32} mode="idle" />
+                  <BotAvatar shape={job.shape} color={job.color} size={32} ambient />
                   <span>{job.name}</span>
                   <span className="ot-job-number">{job.number}</span>
                 </div>

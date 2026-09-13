@@ -26,7 +26,7 @@ export function SectionBot({
         shape={identity.shape}
         color={identity.color}
         size={64}
-        mode="idle"
+        ambient
         blinkDelay={identity.delay}
       />
     </span>

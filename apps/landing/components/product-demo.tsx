@@ -108,6 +108,9 @@ const examples = [
   },
 ];
 
+const DEMO_STAGE_ENDS = [1100, 2500, 3900, 5300];
+const DEMO_DURATION = DEMO_STAGE_ENDS[DEMO_STAGE_ENDS.length - 1];
+
 function sampleFileContent(scenario: (typeof examples)[number]) {
   const table = [
     "| Provider | Annual price | SSO | Verdict |",
@@ -144,6 +147,8 @@ function TrafficLights() {
 
 export function ProductDemo() {
   const showcase = useRef<HTMLDivElement>(null);
+  const progress = useRef<HTMLSpanElement>(null);
+  const playback = useRef<Animation | null>(null);
   const [selected, setSelected] = useState(0);
   const [stage, setStage] = useState(0);
   const [manualRun, setManualRun] = useState(false);
@@ -188,13 +193,47 @@ export function ProductDemo() {
   }, []);
 
   useEffect(() => {
-    if (!active || reducedMotion || done) return;
-    // One deliberate run, then leave the finished work available to inspect.
-    const timer = window.setTimeout(() => {
-      setStage((current) => current + 1);
-    }, stage === 0 ? 1100 : 1400);
-    return () => window.clearTimeout(timer);
-  }, [stage, done, active, reducedMotion, replayCount]);
+    if (!progress.current) return;
+    // One compositor animation keeps the underline moving through every step.
+    const animation = progress.current.animate(
+      [{ transform: "scaleX(0)" }, { transform: "scaleX(1)" }],
+      { duration: DEMO_DURATION, easing: "linear", fill: "forwards" },
+    );
+    animation.pause();
+    playback.current = animation;
+    return () => {
+      animation.cancel();
+      playback.current = null;
+    };
+  }, [replayCount]);
+
+  useEffect(() => {
+    const animation = playback.current;
+    if (!animation) return;
+    if (reducedMotion) {
+      animation.finish();
+      return;
+    }
+    if (!active || Number(animation.currentTime) >= DEMO_DURATION) return;
+
+    animation.play();
+    let frame = 0;
+    let previousStage = -1;
+    const updateStage = () => {
+      const elapsed = Number(animation.currentTime ?? 0);
+      const nextStage = DEMO_STAGE_ENDS.filter((end) => elapsed >= end).length;
+      if (nextStage !== previousStage) {
+        setStage(nextStage);
+        previousStage = nextStage;
+      }
+      if (elapsed < DEMO_DURATION) frame = requestAnimationFrame(updateStage);
+    };
+    frame = requestAnimationFrame(updateStage);
+    return () => {
+      cancelAnimationFrame(frame);
+      animation.pause();
+    };
+  }, [active, reducedMotion, replayCount]);
 
   const choose = useCallback((index: number, startReplay = true) => {
     setManualRun(true);
@@ -262,7 +301,7 @@ export function ProductDemo() {
               {item.label}
               {selected === i && (
                 <span className="pd-task-progress" aria-hidden="true">
-                  <span style={{ transform: `scaleX(${done ? 1 : (stage + 0.35) / 4})` }} />
+                  <span key={replayCount} ref={progress} />
                 </span>
               )}
             </Button>

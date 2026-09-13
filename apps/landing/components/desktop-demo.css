@@ -849,7 +849,7 @@ button.dt-icon-button:hover {
   height: 100%;
   background: #171717;
   transform-origin: left;
-  transition: transform 1.1s linear;
+  transform: scaleX(0);
 }
 .pd-playback-progress {
   display: flex;
@@ -920,9 +920,6 @@ button.dt-icon-button:hover {
   .pd-showcase .dt-file:hover {
     box-shadow: 0 3px 12px #0000000a;
   }
-}
-.pd-showcase[data-demo-motion="false"] .pd-task-progress > span {
-  transition: none;
 }
 .pd-showcase[data-demo-motion="false"] .dt-thinking > span {
   animation: none;

@@ -1,6 +1,6 @@
 import { ArrowDown, ArrowUpRight, Check, Server, Terminal } from "lucide-react";
 import Image from "next/image";
-import type { Metadata } from "next";
+import { pageMetadata } from "@/lib/page-metadata";
 import { CopyCommand } from "@/components/copy-command";
 import { DownloadOptions } from "@/components/download-options";
 import { SiteHeader } from "@/components/site-header";
@@ -17,12 +17,12 @@ const GITHUB = "https://github.com/raghavpillai/openteam";
 const INSTALL_COMMAND = "curl -fsSL https://openteam.so/install | sh";
 const WINDOWS_INSTALL_COMMAND = "irm https://openteam.so/install.ps1 | iex";
 
-export const metadata: Metadata = {
+export const metadata = pageMetadata({
   title: "Download OpenTeam",
   description:
     "Install the OpenTeam server and download the desktop app for macOS, Windows, or Linux.",
-  alternates: { canonical: "/download" },
-};
+  path: "/download",
+});
 
 export default function DownloadPage() {
   return (

@@ -1,15 +1,15 @@
 import { ArrowLeft, ExternalLink } from "lucide-react";
-import type { Metadata } from "next";
+import { pageMetadata } from "@/lib/page-metadata";
 import Link from "next/link";
 import { Wordmark } from "@/components/brand";
 import { Button } from "@/components/ui/button";
 import { installScript, powerShellInstallScript } from "@/lib/install-script";
 
-export const metadata: Metadata = {
+export const metadata = pageMetadata({
   title: "Review the OpenTeam installer",
   description: "Read the exact macOS, Linux, and Windows bootstrap scripts before running them.",
-  alternates: { canonical: "/install/source" },
-};
+  path: "/install/source",
+});
 
 const ScriptSource = ({
   title,

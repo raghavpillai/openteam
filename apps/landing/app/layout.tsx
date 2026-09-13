@@ -3,34 +3,19 @@ import "./globals.css";
 import { Geist } from "next/font/google";
 import { Toaster } from "sonner";
 import { cn } from "@/lib/utils";
+import { pageMetadata, SITE_DESCRIPTION, SITE_TITLE, SITE_URL } from "@/lib/page-metadata";
 
 const geist = Geist({ subsets: ["latin"], variable: "--font-sans" });
 
-const title = "OpenTeam | Run your own AI team";
-const description =
-  "Digital workers that run on your compute and work in your apps. They have their own computer and shared workspace, remember your instructions, and delegate work to each other.";
-
 export const metadata: Metadata = {
-  metadataBase: new URL("https://openteam.so"),
-  title,
-  description,
-  alternates: { canonical: "/" },
+  metadataBase: new URL(SITE_URL),
+  ...pageMetadata({ title: SITE_TITLE, description: SITE_DESCRIPTION, path: "/" }),
   icons: {
-    icon: [{ url: "/favicon.svg?v=2", type: "image/svg+xml", sizes: "any" }],
-  },
-  openGraph: {
-    title,
-    description,
-    type: "website",
-    url: "/",
-    siteName: "OpenTeam",
-    images: [{ url: "/og.png", width: 1200, height: 630, alt: "OpenTeam" }],
-  },
-  twitter: {
-    card: "summary_large_image",
-    title,
-    description,
-    images: ["/og.png"],
+    icon: [
+      { url: "/favicon-32.png?v=1", type: "image/png", sizes: "32x32" },
+      { url: "/favicon.svg?v=2", type: "image/svg+xml", sizes: "any" },
+    ],
+    apple: [{ url: "/apple-touch-icon.png?v=1", type: "image/png", sizes: "180x180" }],
   },
 };
 

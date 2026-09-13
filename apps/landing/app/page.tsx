@@ -168,7 +168,6 @@ export default function Home() {
         <section id="use-cases" className="ot-use-cases ot-section ot-container ot-bot-section">
           <div className="ot-section-heading">
             <div>
-              <p className="ot-eyebrow">EXAMPLE TASKS</p>
               <h2>
                 Delegate research,
                 <br />
@@ -242,7 +241,6 @@ export default function Home() {
         >
           <div className="ot-section-heading">
             <div>
-              <p className="ot-eyebrow">HOW IT WORKS</p>
               <h2>
                 How your AI team
                 <br />
@@ -287,7 +285,6 @@ export default function Home() {
         <section id="plugins" className="ot-section ot-container ot-plugins ot-bot-section">
           <div className="ot-section-heading">
             <div>
-              <p className="ot-eyebrow">PLUGINS</p>
               <h2>
                 Connect your apps.
                 <br />
@@ -337,7 +334,6 @@ export default function Home() {
         >
           <div className="ot-section-heading">
             <div>
-              <p className="ot-eyebrow">THE WORKSPACE</p>
               <h2>
                 A computer, memory,
                 <br />
@@ -355,7 +351,6 @@ export default function Home() {
         >
           <div className="ot-ownership">
             <div>
-              <p className="ot-eyebrow">OPEN SOURCE + SELF-HOSTED</p>
               <h2>
                 Run OpenTeam
                 <br />
@@ -433,7 +428,6 @@ export default function Home() {
         </section>
         <section id="faq" className="ot-section ot-container ot-faq ot-bot-section">
           <div>
-            <p className="ot-eyebrow">FAQ</p>
             <h2>
               Setup, models,
               <br />
@@ -455,7 +449,6 @@ export default function Home() {
         </section>
         <section id="get-started" className="ot-start ot-container ot-bot-section">
           <div>
-            <p className="ot-eyebrow">GET STARTED</p>
             <h2>
               Install OpenTeam.
               <br />

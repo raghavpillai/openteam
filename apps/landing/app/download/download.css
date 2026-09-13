@@ -8,12 +8,8 @@
   gap: 70px;
   padding: 76px 0 68px;
 }
-.dl-hero .ot-eyebrow,
-.dl-step-heading .ot-eyebrow {
-  color: #707070;
-}
 .ot-download .dl-hero h1 {
-  margin-top: 20px;
+  margin-top: 0;
   font-size: clamp(52px, 5.3vw, 76px);
   font-weight: 400;
   line-height: 1.06;
@@ -52,7 +48,7 @@
   scroll-margin-top: 32px;
 }
 .ot-download .dl-step h2 {
-  margin-top: 17px;
+  margin-top: 0;
   font-size: 29px;
   line-height: 1.15;
   letter-spacing: -1px;
@@ -403,9 +399,6 @@
   }
   .dl-step-heading > p {
     max-width: 470px;
-  }
-  .dl-step-heading h2 {
-    margin-top: 12px;
   }
   .dl-release-meta {
     flex-wrap: wrap;

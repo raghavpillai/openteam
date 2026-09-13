@@ -997,10 +997,7 @@
   gap: 35px;
   margin-bottom: 45px;
 }
-.ot-section-heading .ot-eyebrow,
-.ot-card-copy .ot-eyebrow,
-.ot-ownership .ot-eyebrow,
-.ot-faq .ot-eyebrow {
+.ot-card-copy .ot-eyebrow {
   color: #7e7e7e;
 }
 .landing h2 {
@@ -1008,7 +1005,7 @@
   font-weight: 400;
   line-height: 1.08;
   letter-spacing: -2.4px;
-  margin: 20px 0 0;
+  margin: 0;
 }
 .landing h2 span {
   color: #7e7e7e;
@@ -1750,7 +1747,7 @@
 .ot-ownership h2 {
   font-size: 64px;
   line-height: 1.05;
-  margin-top: 23px;
+  margin-top: 0;
 }
 .ot-ownership .ot-text-link {
   margin-top: 35px;
@@ -1793,13 +1790,9 @@
   gap: 55px;
   align-items: center;
 }
-.ot-start .ot-eyebrow {
-  color: #959595;
-  font-size: 10px;
-}
 .ot-start h2 {
   font-size: 60px;
-  margin-top: 18px;
+  margin-top: 0;
 }
 .ot-start > div > p:not(:first-child) {
   font-size: 15px;
@@ -2631,7 +2624,6 @@
     font-size: 40px;
     line-height: 1.12;
     letter-spacing: -1.8px;
-    margin-top: 15px;
   }
   .ot-section-heading > p {
     font-size: 14px;

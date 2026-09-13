@@ -34,7 +34,6 @@ export default function DownloadPage() {
       <main id="main" className="ot-container">
         <section className="dl-hero ot-bot-section">
           <div>
-            <p className="ot-eyebrow">GET OPENTEAM</p>
             <h1>
               <span className="ot-title-line"><span>Install the server. </span></span>
               <span className="ot-title-line"><span>Connect the app.</span></span>
@@ -59,7 +58,6 @@ export default function DownloadPage() {
 
         <section id="server" className="dl-step ot-bot-section">
           <div className="dl-step-heading">
-            <span className="ot-eyebrow">01 / SERVER</span>
             <h2>Install the server.</h2>
             <p>Use a VPS, home server, or spare computer. This is where your agents run.</p>
           </div>
@@ -122,7 +120,6 @@ export default function DownloadPage() {
 
         <section id="desktop" className="dl-step ot-bot-section">
           <div className="dl-step-heading">
-            <span className="ot-eyebrow">02 / DESKTOP</span>
             <h2>Download the app.</h2>
             <p>Connect to your server, create an agent, and send your first task.</p>
           </div>
@@ -134,7 +131,6 @@ export default function DownloadPage() {
 
         <section className="dl-step dl-mobile-step ot-bot-section">
           <div className="dl-step-heading">
-            <span className="ot-eyebrow">03 / IPHONE</span>
             <h2>Check in from your phone.</h2>
             <p>Use the same agents and conversations when you are away from your desk.</p>
           </div>

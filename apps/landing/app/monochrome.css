@@ -45,9 +45,6 @@
 .landing .ot-brand {
   color: #111;
 }
-.landing .ot-provider-logo img {
-  filter: grayscale(1);
-}
 .ot-bot-section {
   position: relative;
 }
@@ -224,14 +221,6 @@
 .landing .ot-providers {
   padding-block: 42px;
 }
-.landing .ot-provider-logo {
-  opacity: 0.7;
-  transition: opacity 200ms, transform 200ms;
-}
-.landing .ot-provider-logo:hover {
-  opacity: 1;
-  transform: translateY(-2px);
-}
 .landing .ot-section-heading {
   position: relative;
 }
@@ -401,11 +390,10 @@
 }
 .landing .ot-faq-trigger {
   color: #222;
-  transition: color 180ms, padding-left 180ms;
+  transition: color 180ms;
 }
 .landing .ot-faq-trigger:hover {
   color: #000;
-  padding-left: 6px;
 }
 .landing .ot-faq-answer,
 .landing .ot-footer,
@@ -454,7 +442,6 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .landing .ot-button:hover,
-  .landing .ot-provider-logo:hover,
   .landing .ot-button:hover > svg,
   .landing .ot-text-link[href="#product"]:hover > svg,
   .landing .ot-text-link:hover > svg { transform: none; }

@@ -150,6 +150,8 @@ export function ProductDemo() {
   const showcase = useRef<HTMLDivElement>(null);
   const progress = useRef<HTMLSpanElement>(null);
   const playback = useRef<Animation | null>(null);
+  const readingTimer = useRef<number | null>(null);
+  const pointerHeld = useRef(false);
   const [selected, setSelected] = useState(0);
   const [stage, setStage] = useState(0);
   const [manualRun, setManualRun] = useState(false);
@@ -158,6 +160,7 @@ export function ProductDemo() {
   const [reducedMotion, setReducedMotion] = useState(false);
   const [runId, setRunId] = useState(0);
   const [resultFocused, setResultFocused] = useState(false);
+  const [reading, setReading] = useState(false);
   const [compact, setCompact] = useState(false);
   const [details, setDetails] = useState(true);
   const [search, setSearch] = useState("");
@@ -166,8 +169,41 @@ export function ProductDemo() {
   const fileBytes = new TextEncoder().encode(sampleFileContent(scenario)).byteLength;
   const fileSize = fileBytes < 1024 ? `${fileBytes} B` : `${(fileBytes / 1024).toFixed(1)} KB`;
   const done = stage >= 4;
-  const active = visible && documentVisible && preview === null && !resultFocused;
+  const active = visible && documentVisible && preview === null && !resultFocused && !reading;
   const avatarMode = !active || reducedMotion ? "still" : done ? "idle" : "thinking";
+
+  const resumeAfterReading = useCallback(() => {
+    if (readingTimer.current !== null) window.clearTimeout(readingTimer.current);
+    readingTimer.current = window.setTimeout(() => {
+      readingTimer.current = null;
+      setReading(false);
+    }, 6000);
+  }, []);
+
+  const holdForReading = useCallback(() => {
+    playback.current?.pause();
+    setReading(true);
+    if (readingTimer.current !== null) window.clearTimeout(readingTimer.current);
+    readingTimer.current = null;
+    if (!pointerHeld.current) resumeAfterReading();
+  }, [resumeAfterReading]);
+
+  useEffect(() => {
+    const releasePointer = () => {
+      if (!pointerHeld.current) return;
+      pointerHeld.current = false;
+      resumeAfterReading();
+    };
+    window.addEventListener("pointerup", releasePointer);
+    window.addEventListener("pointercancel", releasePointer);
+    window.addEventListener("blur", releasePointer);
+    return () => {
+      window.removeEventListener("pointerup", releasePointer);
+      window.removeEventListener("pointercancel", releasePointer);
+      window.removeEventListener("blur", releasePointer);
+      if (readingTimer.current !== null) window.clearTimeout(readingTimer.current);
+    };
+  }, [resumeAfterReading]);
 
   useEffect(() => {
     const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -240,6 +276,7 @@ export function ProductDemo() {
     let frame = 0;
     let previousStage = -1;
     const updateStage = () => {
+      if (pointerHeld.current || readingTimer.current !== null) return;
       const elapsed = Number(animation.currentTime ?? 0);
       if (elapsed >= DEMO_CYCLE_DURATION) {
         nextTask();
@@ -260,6 +297,10 @@ export function ProductDemo() {
   }, [active, reducedMotion, runId]);
 
   const choose = useCallback((index: number) => {
+    if (readingTimer.current !== null) window.clearTimeout(readingTimer.current);
+    readingTimer.current = null;
+    pointerHeld.current = false;
+    setReading(false);
     setManualRun(true);
     setSelected(index);
     setStage(reducedMotion ? 4 : 0);
@@ -437,6 +478,13 @@ export function ProductDemo() {
             role="log"
             aria-label="Sample messages"
             aria-live={manualRun ? "polite" : "off"}
+            onScroll={holdForReading}
+            onWheel={holdForReading}
+            onPointerDown={(event) => {
+              if (event.button !== 0) return;
+              pointerHeld.current = true;
+              holdForReading();
+            }}
           >
             <p className="dt-date">Today 8:00 AM</p>
             <div className="dt-message dt-message-user">

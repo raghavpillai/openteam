@@ -13,6 +13,13 @@
   "dependencies": {
     "@earendil-works/pi-ai": "0.84.3",
     "@earendil-works/pi-coding-agent": "0.84.3",
+    "@jimp/core": "1.6.0",
+    "@jimp/js-bmp": "1.6.0",
+    "@jimp/js-gif": "1.6.0",
+    "@jimp/js-jpeg": "1.6.0",
+    "@jimp/js-png": "1.6.0",
+    "@jimp/js-tiff": "1.6.0",
+    "@jimp/plugin-resize": "1.6.0",
     "@modelcontextprotocol/sdk": "1.30.0",
     "@mozilla/readability": "0.6.0",
     "@openteam/contracts": "workspace:*",

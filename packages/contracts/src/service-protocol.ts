@@ -34,7 +34,6 @@ export const HOST_BRIDGE_PATHS = {
 } as const;
 
 export const HOST_INLINE_OUTPUT_MAX_BYTES = 100_000;
-export const HOST_READ_MAX_BYTES = 10 * 1024 * 1024;
 export const HOST_TRANSFER_MAX_BYTES = 256 * 1024 * 1024;
 
 export interface HostTransferRequest extends HostApprovalTokens {
@@ -377,6 +376,11 @@ export interface HostReadResponse {
   mimeType?: string;
   path: string;
   lines?: number;
+  totalLines?: number;
+  offset?: number;
+  fileSize?: number;
+  isEmpty?: boolean;
+  exceededLimit?: boolean;
 }
 
 export interface HostShellResponse {

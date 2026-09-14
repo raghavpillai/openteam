@@ -22,9 +22,11 @@ describe("binary assets", () => {
     expect(() => requireAssetBody(null)).toThrow(ApiError);
   });
 
-  test("uses the regular limit unless the MIME type or extension identifies video", () => {
+  test("uses the native video extension map without trusting a MIME override", () => {
     expect(assetUploadByteLimit("image/png", "image.png")).toBe(25 * 1024 * 1024);
-    expect(assetUploadByteLimit("video/mp4", "attachment.bin")).toBe(200 * 1024 * 1024);
+    expect(assetUploadByteLimit("video/mp4", "attachment.bin")).toBe(25 * 1024 * 1024);
+    expect(assetUploadByteLimit("video/x-matroska", "clip.mkv")).toBe(25 * 1024 * 1024);
+    expect(assetUploadByteLimit("application/octet-stream", "clip.ogv")).toBe(200 * 1024 * 1024);
     expect(assetUploadByteLimit("application/octet-stream", "clip.MOV")).toBe(200 * 1024 * 1024);
   });
 

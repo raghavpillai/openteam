@@ -1,5 +1,6 @@
 import type { DurableStagedAttachment } from "@openteam/product-core/durable-delivery";
 import { attachmentAssetKind } from "@openteam/product-core/attachments";
+import { attachmentSizeRejection, attachmentRejectionMessage } from "@openteam/contracts/media-input";
 import * as FileSystem from "expo-file-system/legacy";
 
 const directory = FileSystem.documentDirectory
@@ -37,15 +38,9 @@ export const stageMobileDeliveryAttachment = async (
   try {
     await FileSystem.copyAsync({ from: source.uri, to: temporary });
     const info = await FileSystem.getInfoAsync(temporary);
-    const byteSize =
-      typeof source.byteSize === "number" && source.byteSize > 0
-        ? source.byteSize
-        : info.exists && "size" in info && typeof info.size === "number"
-          ? info.size
-          : 0;
-    if (byteSize < 1 || byteSize > 200 * 1024 * 1024) {
-      throw new Error("Attachment size is invalid.");
-    }
+    const byteSize = info.exists && "size" in info && typeof info.size === "number" ? info.size : 0;
+    const rejection = attachmentSizeRejection(source.fileName, byteSize);
+    if (rejection) throw new Error(attachmentRejectionMessage(source.fileName, rejection));
     await FileSystem.moveAsync({ from: temporary, to: target });
     const mimeType = source.mimeType?.trim() || "application/octet-stream";
     return {

@@ -1,7 +1,6 @@
 import { ApiError } from "@openteam/contracts";
-import { REGULAR_ASSET_LIMIT, VIDEO_ASSET_LIMIT } from "@openteam/messaging";
-
-const VIDEO_EXTENSIONS = new Set(["avi", "m4v", "mkv", "mov", "mp4", "mpeg", "mpg", "webm"]);
+import { attachmentLimitForName } from "@openteam/contracts/media-input";
+import { VIDEO_ASSET_LIMIT } from "@openteam/messaging";
 
 export const MAX_ASSET_BYTES = VIDEO_ASSET_LIMIT;
 
@@ -15,12 +14,8 @@ export const decodeFileNameHeader = (value: string | null): string | null => {
   }
 };
 
-export const assetUploadByteLimit = (contentType: string, fileName: string | null): number => {
-  const extension = fileName?.split(".").pop()?.toLowerCase() ?? "";
-  return contentType.toLowerCase().startsWith("video/") || VIDEO_EXTENSIONS.has(extension)
-    ? VIDEO_ASSET_LIMIT
-    : REGULAR_ASSET_LIMIT;
-};
+export const assetUploadByteLimit = (_contentType: string, fileName: string | null): number =>
+  attachmentLimitForName(fileName ?? "");
 
 export const isAssetUploadEnvelope = (
   contentType: string,

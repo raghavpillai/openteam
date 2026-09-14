@@ -1,3 +1,4 @@
+import { renderReadText } from "@openteam/contracts/read-output";
 import { spawn, type ChildProcessByStdio } from "node:child_process";
 import { randomInt } from "node:crypto";
 import { ShellJobRegistry, createShellEnvironmentCapture, loadShellEnvironment, SHELL_ENVIRONMENT_CAPTURE } from "@openteam/shell-jobs";
@@ -7,12 +8,10 @@ import { dirname, extname, isAbsolute, resolve } from "node:path";
 import type { Readable } from "node:stream";
 import {
   HOST_INLINE_OUTPUT_MAX_BYTES,
-  HOST_READ_MAX_BYTES,
   imageMimeTypeForPath,
 } from "@openteam/contracts/service-protocol";
 import type { HostJobPayload, HostReadInput, HostShellInput } from "./job-protocol";
 
-export const MAX_READ_BYTES = HOST_READ_MAX_BYTES;
 export const MAX_INLINE_BYTES = HOST_INLINE_OUTPUT_MAX_BYTES;
 export const MAX_PDF_TEXT_BYTES = 10 * 1024 * 1024;
 export const MAX_SHELL_LOG_BYTES = 64 * 1024 * 1024;
@@ -128,14 +127,6 @@ const activeHostExecutions = new Set<ActiveHostExecution>();
 
 export const hostShellCapacitySnapshot = () => shellCapacity.snapshot();
 
-const lineCount = (value: string) => {
-  let count = 1;
-  for (let index = 0; index < value.length; index += 1) {
-    if (value.charCodeAt(index) === 10) count += 1;
-  }
-  return count;
-};
-
 /**
  * Produces Read-compatible numbered output without allocating an array or a numbered
  * copy of every line. A 10 MiB one-character-per-line file stays O(input + output)
@@ -146,73 +137,10 @@ export const numberText = (
   requestedOffset: unknown,
   requestedLimit: unknown
 ): { text: string; lines: number } => {
-  const totalLines = lineCount(raw);
-  const offset =
-    typeof requestedOffset === "number" && Number.isInteger(requestedOffset)
-      ? requestedOffset
-      : undefined;
-  const limit =
-    typeof requestedLimit === "number" && Number.isInteger(requestedLimit) && requestedLimit > 0
-      ? requestedLimit
-      : undefined;
-  const unclampedStart =
-    offset === undefined
-      ? 0
-      : offset < 0
-        ? Math.max(0, totalLines + offset)
-        : Math.max(0, offset - 1);
-  const start = Math.min(totalLines, unclampedStart);
-  const end = limit === undefined ? totalLines : Math.min(totalLines, start + limit);
-  const output: string[] = [];
-  let outputLength = 0;
-  let lineStart = 0;
-  let lineIndex = 0;
-  let truncated = false;
-
-  const appendLine = (contentStart: number, contentEnd: number) => {
-    if (lineIndex < start || lineIndex >= end || truncated) return;
-    if (output.length > 0) {
-      if (outputLength >= MAX_INLINE_BYTES) {
-        truncated = true;
-        return;
-      }
-      output.push("\n");
-      outputLength += 1;
-    }
-    const prefix = `${lineIndex + 1}: `;
-    const remaining = MAX_INLINE_BYTES - outputLength;
-    if (prefix.length >= remaining) {
-      output.push(prefix.slice(0, Math.max(0, remaining)));
-      outputLength = MAX_INLINE_BYTES;
-      truncated = true;
-      return;
-    }
-    output.push(prefix);
-    outputLength += prefix.length;
-    const contentLength = contentEnd - contentStart;
-    const contentRemaining = MAX_INLINE_BYTES - outputLength;
-    const take = Math.min(contentLength, contentRemaining);
-    if (take > 0) {
-      output.push(raw.slice(contentStart, contentStart + take));
-      outputLength += take;
-    }
-    if (take < contentLength) truncated = true;
-  };
-
-  for (let index = 0; index <= raw.length && lineIndex < end; index += 1) {
-    if (index !== raw.length && raw.charCodeAt(index) !== 10) continue;
-    const contentEnd = index > lineStart && raw.charCodeAt(index - 1) === 13 ? index - 1 : index;
-    appendLine(lineStart, contentEnd);
-    lineIndex += 1;
-    lineStart = index + 1;
-  }
-
-  if (!truncated && end > start && outputLength >= MAX_INLINE_BYTES) truncated = true;
-  const selectedLines = end - start;
-  return {
-    text: `${output.join("")}${truncated || lineIndex < end ? "\n… truncated" : ""}`,
-    lines: selectedLines,
-  };
+  const offset = typeof requestedOffset === "number" && Number.isInteger(requestedOffset) ? requestedOffset : undefined;
+  const limit = typeof requestedLimit === "number" && Number.isInteger(requestedLimit) && requestedLimit > 0 ? requestedLimit : undefined;
+  const { text, lines } = renderReadText(raw, offset, limit);
+  return { text, lines };
 };
 
 const processTreeAlive = (pid: number) => {
@@ -401,7 +329,6 @@ export const executeRead = async (input: HostReadInput, signal?: AbortSignal) =>
   await access(path);
   const metadata = await stat(path);
   if (!metadata.isFile()) throw new Error("ExternalRead path is not a file");
-  if (metadata.size > MAX_READ_BYTES) throw new Error("ExternalRead file exceeds 10 MiB");
   const mimeType = imageMimeTypeForPath(path);
   if (mimeType) {
     const data = await readFile(path);
@@ -420,7 +347,7 @@ export const executeRead = async (input: HostReadInput, signal?: AbortSignal) =>
     raw = await readFile(path, "utf8");
   }
   signal?.throwIfAborted();
-  return { kind: "text" as const, path, ...numberText(raw, input.offset, input.limit) };
+  return { kind: "text" as const, path, ...renderReadText(raw, typeof input.offset === "number" ? input.offset : undefined, typeof input.limit === "number" ? input.limit : undefined, metadata.size) };
 };
 
 const finishOutputFile = (stream: WriteStream, suffix: string) =>

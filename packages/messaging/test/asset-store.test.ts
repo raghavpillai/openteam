@@ -51,6 +51,26 @@ afterEach(async () => {
 });
 
 describe("content-addressed attachment store", () => {
+  test("applies filename limits to bytes, streams, and renamed persisted references", async () => {
+    const root = await temporaryRoot();
+    const store = new AssetStore({ root: join(root, "assets"), allowedFileRoots: [root] });
+    const bytes = Buffer.alloc(26_214_401, 0x61);
+    const equal = await store.ingestBytes({ fileName: "equal.txt", bytes: bytes.subarray(0, 26_214_400) });
+    expect(equal.byteSize).toBe(26_214_400);
+    for (const fileName of ["over.txt", "over.mkv", "over.avi", "over.mp4.txt"]) {
+      await expect(store.ingestBytes({ fileName, mimeType: "video/mp4", bytes }))
+        .rejects.toMatchObject({ code: "asset_too_large" });
+    }
+    await expect(store.ingestStream({ fileName: "over.mkv", mimeType: "video/mp4", stream: chunkedStream(bytes, 65_536) }))
+      .rejects.toMatchObject({ code: "asset_too_large" });
+    const video = await store.ingestBytes({ fileName: "allowed.MOV", bytes });
+    expect(video.byteSize).toBe(bytes.length);
+    await expect(store.normalizeRefs([{ ...video, fileName: "renamed.txt", byteSize: 1 }]))
+      .rejects.toMatchObject({ code: "asset_too_large" });
+    expect(await store.normalizeRefs([{ ...video, fileName: "renamed.webm" }])).toHaveLength(1);
+    expect((await readdir(join(root, "assets"))).filter(name => name.includes(".tmp"))).toEqual([]);
+  });
+
   test("ingests real Bun HTTP request streams and cleans failed staging", async () => {
     const root = await temporaryRoot();
     const assetRoot = join(root, "assets");

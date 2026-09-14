@@ -1,3 +1,5 @@
+import { attachmentTextPreview, ATTACHMENT_CODE_PREVIEW_CHAR_LIMIT } from "@openteam/product-core/attachments";
+import { CLIENT_CAPABILITIES } from "@openteam/contracts/capabilities";
 import type { AssetRef } from "@openteam/contracts";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
 import {
@@ -325,8 +327,7 @@ function LoadedDocumentPreview({
     void (async () => {
       const response = await fetch(url, { signal: controller.signal });
       if (!response.ok) throw new Error(`File request failed (${response.status})`);
-      const maximum =
-        kind === "docx" ? 16 * 1024 * 1024 : kind === "table" ? 12 * 1024 * 1024 : 1024 * 1024;
+      const maximum = CLIENT_CAPABILITIES.uploads.maxRegularBytes;
       const loaded = await readBoundedResponse(
         response,
         maximum,
@@ -341,7 +342,7 @@ function LoadedDocumentPreview({
       }
       const decoded = new TextDecoder("utf-8", { fatal: false }).decode(buffer);
       const value =
-        kind === "json"
+        kind === "json" && decoded.length <= ATTACHMENT_CODE_PREVIEW_CHAR_LIMIT
           ? (() => {
               try {
                 return JSON.stringify(JSON.parse(decoded), null, 2);
@@ -351,7 +352,8 @@ function LoadedDocumentPreview({
             })()
           : decoded;
       if (controller.signal.aborted) return;
-      setState({ kind: "text", value, truncated: loaded.truncated });
+      const preview = attachmentTextPreview(value);
+      setState({ kind: "text", value: preview.content, truncated: loaded.truncated || preview.truncated });
     })().catch((cause) => {
       if (controller.signal.aborted) return;
       setState({ kind: "error", message: clientErrorMessage(cause, "Preview unavailable") });

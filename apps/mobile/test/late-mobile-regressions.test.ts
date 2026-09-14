@@ -170,7 +170,7 @@ describe("late native iOS regression guards", () => {
     expect(preview).toContain("openPreview(localFile.uri)");
     expect(preview).toContain('presentationStyle="overFullScreen"');
     expect(preview).toContain("<MobileMarkdown");
-    expect(preview).toContain("forceRich={documentPreview.content.length <= 128_000}");
+    expect(preview).toContain("forceRich={documentPreview.content.length <= ATTACHMENT_CODE_PREVIEW_CHAR_LIMIT}");
     expect(preview).toContain("Share.share({ title: asset.fileName, url: documentPreview.uri })");
     expect(bubble).toContain("accessible={attachmentCount === 0}");
     expect(bubble).toContain("(files.length > 0 || stagedFiles.length > 0) && renderedContent");

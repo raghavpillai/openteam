@@ -65,7 +65,7 @@ test("message entrance and acknowledgement motion match OpenTeam", async () => {
   expect(durableSends).toContain("commitStagedAttachments:");
   expect(durableSends).toContain("ATTACHMENT_COMMIT_TIMEOUT_MS = 120_000");
   expect(durableSends).toContain('code: "attachment_commit_timeout"');
-  expect(promptInput).toContain("staged = await mapWithConcurrency(selected");
+  expect(promptInput).toContain("await mapWithConcurrency(selected");
   expect(promptInput).toContain("recoveryOwned: true");
   expect(chatPane).toContain("stagedImageAttachments");
   expect(chatPane).toContain("stagedFileAttachments");

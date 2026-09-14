@@ -1,3 +1,5 @@
+import { renderReadText } from "@openteam/contracts/read-output";
+import { boundToolImage } from "./runtime/image-input";
 import { spawn } from "node:child_process";
 import { randomInt } from "node:crypto";
 import { createWriteStream } from "node:fs";
@@ -15,7 +17,6 @@ import { createShellEnvironmentCapture, loadShellEnvironment, SHELL_ENVIRONMENT_
 import {
   HOST_BRIDGE_PATHS,
   HOST_INLINE_OUTPUT_MAX_BYTES,
-  HOST_READ_MAX_BYTES,
   HOST_TRANSFER_MAX_BYTES,
   type HostApprovalRequest,
   type HostApprovalTokens,
@@ -297,7 +298,7 @@ export class NativeToolExecutor {
       return {
         content: [
           { type: "text", text: `Host file: ${response.path}` },
-          { type: "image", data: response.data, mimeType: response.mimeType },
+          await boundToolImage(Buffer.from(response.data, "base64"), response.mimeType),
         ],
         details: { path: response.path, host: true },
       };
@@ -305,6 +306,11 @@ export class NativeToolExecutor {
     return textResult(response.text ?? "", {
       path: response.path,
       lines: response.lines ?? null,
+      totalLines: response.totalLines,
+      offset: response.offset,
+      fileSize: response.fileSize,
+      isEmpty: response.isEmpty,
+      exceededLimit: response.exceededLimit,
       host: true,
     });
   }
@@ -418,16 +424,14 @@ export class NativeToolExecutor {
     if (!terminalLog) await this.assertAgentReadable(canonical);
     const metadata = await stat(canonical);
     if (!metadata.isFile()) throw new Error(`Not a file: ${path}`);
-    if (metadata.size > HOST_READ_MAX_BYTES) {
-      throw new Error(`File exceeds the ${HOST_READ_MAX_BYTES} byte read limit`);
-    }
+
     const mimeType = imageMimeTypeForPath(canonical);
     if (mimeType) {
       const data = await readFile(canonical);
       return {
         content: [
           { type: "text", text: `Image file: ${canonical}` },
-          { type: "image", data: data.toString("base64"), mimeType },
+          await boundToolImage(data, mimeType),
         ],
         details: { path: canonical, bytes: data.length, mimeType },
       };
@@ -437,22 +441,8 @@ export class NativeToolExecutor {
       extname(canonical).toLowerCase() === ".pdf"
         ? await this.pdfText(canonical)
         : await readFile(canonical, "utf8");
-    const lines = raw.split(/\r?\n/);
-    const start =
-      offset === undefined
-        ? 0
-        : offset < 0
-          ? Math.max(0, lines.length + offset)
-          : Math.max(0, offset - 1);
-    const end = limit === undefined ? lines.length : Math.min(lines.length, start + limit);
-    const selected = lines.slice(start, end).map((line, index) => `${start + index + 1}: ${line}`);
-    return textResult(bounded(selected.join("\n")), {
-      path: canonical,
-      totalLines: lines.length,
-      offset: start + 1,
-      lines: selected.length,
-      truncated: end < lines.length,
-    });
+    const { text, ...details } = renderReadText(raw, offset, limit, metadata.size);
+    return textResult(text, { path: canonical, ...details });
   }
 
   private async assertProtectedReadPath(path: string): Promise<void> {

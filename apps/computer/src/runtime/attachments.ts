@@ -1,3 +1,4 @@
+import { MAX_INLINE_IMAGE_BYTES } from "@openteam/contracts/media-input";
 import type { RuntimeInlineImage } from "@openteam/contracts";
 import { chown, mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -5,12 +6,12 @@ import { extname, isAbsolute, join, resolve } from "node:path";
 import { agentProcessIdentity, sanitizedAgentEnvironment } from "../agent-process";
 import type { RuntimeImage } from "./types";
 
-export const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
+export const MAX_IMAGE_BYTES = MAX_INLINE_IMAGE_BYTES;
 
 export const INLINE_IMAGE_PREFIX = /^data:(image\/(?:gif|jpeg|png|webp));base64,/i;
 
 export const decodeInlineImages = (inputs: readonly RuntimeInlineImage[]): RuntimeImage[] =>
-  inputs.slice(0, 8).map((input, index) => {
+  inputs.map((input, index) => {
     const prefix = INLINE_IMAGE_PREFIX.exec(input.url);
     if (!prefix?.[1]) throw new Error(`Uploaded image ${index + 1} is not a supported data URL`);
     const encoded = input.url.slice(prefix[0].length);
@@ -24,7 +25,7 @@ export const decodeInlineImages = (inputs: readonly RuntimeInlineImage[]): Runti
     }
     const data = Buffer.from(encoded, "base64");
     if (data.byteLength > MAX_IMAGE_BYTES) {
-      throw new Error(`Uploaded image ${index + 1} exceeds 20 MB`);
+      throw new Error(`Uploaded image ${index + 1} exceeds 25 MB`);
     }
     return {
       type: "image",

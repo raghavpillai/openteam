@@ -1,4 +1,5 @@
 import type { AssetKind, AssetRef } from "@openteam/contracts";
+import { attachmentTextPreview, ATTACHMENT_CODE_PREVIEW_CHAR_LIMIT } from "@openteam/product-core/attachments";
 import { openTeamNativeAvailable, openPreview } from "@openteam/mobile-native";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
 import { Directory, File, Paths } from "expo-file-system";
@@ -38,6 +39,7 @@ export function AttachmentPreview({ asset, url }: { asset: AssetRef; url: string
   const [documentPreview, setDocumentPreview] = useState<{
     content: string;
     uri: string;
+    truncated: boolean;
   } | null>(null);
   const controller = useRef<AbortController | null>(null);
 
@@ -80,7 +82,7 @@ export function AttachmentPreview({ asset, url }: { asset: AssetRef; url: string
       if (nextController.signal.aborted) return;
       setState("opening");
       if (asset.kind === "text" || /\.(?:md|markdown|txt)$/i.test(asset.fileName)) {
-        setDocumentPreview({ content: await localFile.text(), uri: localFile.uri });
+        setDocumentPreview({ ...attachmentTextPreview(await localFile.text()), uri: localFile.uri });
       } else {
         const opened = await openPreview(localFile.uri);
         if (!opened) await Linking.openURL(url);
@@ -214,11 +216,12 @@ export function AttachmentPreview({ asset, url }: { asset: AssetRef; url: string
               keyboardDismissMode="interactive"
               showsVerticalScrollIndicator
             >
+              {documentPreview?.truncated ? <Text style={{color:theme.textMuted}}>Showing the start of this file</Text> : null}
               {documentPreview ? (
                 <MobileMarkdown
                   color={theme.text}
                   content={documentPreview.content}
-                  forceRich={documentPreview.content.length <= 128_000}
+                  forceRich={documentPreview.content.length <= ATTACHMENT_CODE_PREVIEW_CHAR_LIMIT}
                 />
               ) : null}
             </ScrollView>

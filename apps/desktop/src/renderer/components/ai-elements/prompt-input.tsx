@@ -4,8 +4,7 @@ import { MAX_PARALLEL_UPLOADS, mapWithConcurrency } from "@openteam/client-core"
 import type { AssetRef, ClientCapabilities } from "@openteam/contracts";
 import { CLIENT_CAPABILITIES } from "@openteam/contracts/capabilities";
 import {
-  attachmentOverflowMessage,
-  firstOversizedAttachment,
+  selectAttachments,
   remainingAttachmentCapacity,
 } from "@openteam/product-core/attachments";
 import type { DurableStagedAttachment } from "@openteam/product-core/durable-delivery";
@@ -356,47 +355,35 @@ export function PromptInput({
         return;
       }
 
-      const selected = files.slice(0, remaining);
-      const tooLarge = firstOversizedAttachment(
-        selected.map((file) => ({ fileName: file.name, mimeType: file.type, byteSize: file.size })),
+      const selection = selectAttachments(
+        files.map((file) => ({ file, fileName: file.name, byteSize: file.size })),
+        attachmentsRef.current.length,
         uploadCapabilities
       );
-      if (tooLarge) {
-        setAttachmentError(
-          `${tooLarge.candidate.fileName} is larger than ${Math.floor(tooLarge.limit / 1024 / 1024)} MB.`
-        );
-        return;
-      }
-      if (selected.length === 0) {
-        setAttachmentError("Choose at least one file.");
-        return;
-      }
-      if (files.length > selected.length) {
-        setAttachmentError(attachmentOverflowMessage(remaining));
-      }
+      setAttachmentError(selection.notice);
+      const selected = selection.accepted.map(({ file }) => file);
+      if (selected.length === 0) return;
 
       try {
         setStaging(true);
-        const stagedSoFar: DurableStagedAttachment[] = [];
-        let staged: DurableStagedAttachment[];
-        try {
-          staged = await mapWithConcurrency(selected, MAX_PARALLEL_UPLOADS, async (file) => {
-            const retained = await onStage(file, file.name);
-            stagedSoFar.push(retained);
-            return retained;
-          });
-        } catch (cause) {
-          await onDiscardStages?.(stagedSoFar).catch(() => undefined);
-          throw cause;
-        }
+        const retained = await mapWithConcurrency(selected, MAX_PARALLEL_UPLOADS, async (file) => {
+          try {
+            return { file, staged: await onStage(file, file.name) };
+          } catch {
+            if (mounted.current) setAttachmentError(`"${file.name}" couldn't be attached. Try again.`);
+            return null;
+          }
+        });
+        const successful = retained.filter((item) => item !== null);
+        const staged = successful.map((item) => item.staged);
         if (!mounted.current) {
           await onDiscardStages?.(staged).catch(() => undefined);
           return;
         }
-        const loaded = selected.map((file, index) => {
+        const loaded = successful.map(({ file, staged }) => {
           const previewUrl = file.type.startsWith("image/") ? URL.createObjectURL(file) : undefined;
           if (previewUrl) previewUrls.current.add(previewUrl);
-          return { id: crypto.randomUUID(), file, previewUrl, staged: staged[index] };
+          return { id: crypto.randomUUID(), file, previewUrl, staged };
         });
         const nextRemaining = remainingAttachmentCapacity(
           attachmentsRef.current.length,

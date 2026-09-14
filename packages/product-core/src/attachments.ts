@@ -1,4 +1,5 @@
 import type { AssetKind, AssetRef, ClientCapabilities } from "@openteam/contracts";
+import { attachmentLimitForName, attachmentSizeRejection, attachmentRejectionMessage, videoMimeForName } from "@openteam/contracts/media-input";
 
 export type AttachmentPreviewKind =
   | "video"
@@ -16,6 +17,13 @@ export interface AttachmentCandidate {
   mimeType?: string | null;
   byteSize?: number | null;
 }
+
+export const ATTACHMENT_TEXT_PREVIEW_CHAR_LIMIT = 1_500_000;
+export const ATTACHMENT_CODE_PREVIEW_CHAR_LIMIT = 200_000;
+export const attachmentTextPreview = (text: string) => ({
+  content: text.slice(0, ATTACHMENT_TEXT_PREVIEW_CHAR_LIMIT),
+  truncated: text.length > ATTACHMENT_TEXT_PREVIEW_CHAR_LIMIT,
+});
 
 const extensionFor = (fileName: string): string =>
   fileName.toLowerCase().match(/\.([a-z0-9]{1,12})$/)?.[1] ?? "";
@@ -38,14 +46,36 @@ export const attachmentAssetKind = (
 export const attachmentIsVideo = (
   candidate: Pick<AttachmentCandidate, "fileName" | "mimeType">
 ): boolean =>
-  candidate.mimeType?.toLowerCase().startsWith("video/") === true ||
-  /\.(?:avi|m4v|mkv|mov|mp4|mpeg|mpg|webm)$/i.test(candidate.fileName);
+  videoMimeForName(candidate.fileName) !== undefined;
 
 export const attachmentByteLimit = (
   candidate: Pick<AttachmentCandidate, "fileName" | "mimeType">,
   capabilities: ClientCapabilities["uploads"]
 ): number =>
-  attachmentIsVideo(candidate) ? capabilities.maxVideoBytes : capabilities.maxRegularBytes;
+  attachmentLimitForName(candidate.fileName, capabilities);
+
+/** Select remaining slots before validation, matching the native picker. */
+export const selectAttachments = <T extends AttachmentCandidate>(
+  candidates: readonly T[],
+  currentCount: number,
+  capabilities: ClientCapabilities["uploads"]
+): { accepted: T[]; notice: string | null } => {
+  const remaining = remainingAttachmentCapacity(currentCount, capabilities);
+  const selected = candidates.slice(0, remaining);
+  const accepted: T[] = [];
+  const failures: string[] = [];
+  for (const candidate of selected) {
+    const reason = attachmentSizeRejection(candidate.fileName, candidate.byteSize, capabilities);
+    if (reason) failures.push(attachmentRejectionMessage(candidate.fileName, reason, capabilities));
+    else accepted.push(candidate);
+  }
+  return {
+    accepted,
+    notice: failures.length ? failures.join("\n") : candidates.length > remaining
+      ? attachmentOverflowMessage(remaining)
+      : null,
+  };
+};
 
 export const firstOversizedAttachment = <T extends AttachmentCandidate>(
   candidates: readonly T[],

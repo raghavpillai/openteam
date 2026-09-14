@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { ComputerRuntime, decodeInlineImages } from "../../src/runtime";
 
-const INLINE_PNG = "data:image/png;base64,AQID";
+const PNG_BYTES = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4AWP4////fwAJ+wP92PZgeAAAAABJRU5ErkJggg==";
+const INLINE_PNG = `data:image/png;base64,${PNG_BYTES}`;
 
 describe("live Pi steering", () => {
   test("deduplicates accepted inputs and acknowledges them when Pi inserts the user message", async () => {
@@ -77,7 +78,7 @@ describe("live Pi steering", () => {
 
   test("decodes inline uploads and sends them as structured Pi image content", async () => {
     expect(decodeInlineImages([{ url: INLINE_PNG }])).toEqual([
-      { type: "image", data: "AQID", mimeType: "image/png" },
+      { type: "image", data: PNG_BYTES, mimeType: "image/png" },
     ]);
     expect(() => decodeInlineImages([{ url: "data:image/png;base64,not-base64" }])).toThrow(
       "invalid base64 data"
@@ -113,7 +114,7 @@ describe("live Pi steering", () => {
         options: {
           source: "rpc",
           streamingBehavior: "steer",
-          images: [{ type: "image", data: "AQID", mimeType: "image/png" }],
+          images: [{ type: "image", data: PNG_BYTES, mimeType: "image/png" }],
         },
       },
     ]);

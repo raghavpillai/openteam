@@ -1,3 +1,4 @@
+import { attachmentSizeRejection, attachmentRejectionMessage } from "@openteam/contracts/media-input";
 import { MAX_PARALLEL_UPLOADS, mapWithConcurrency } from "@openteam/client-core";
 import { attachmentAssetKind } from "@openteam/product-core/attachments";
 import {
@@ -102,9 +103,8 @@ export const stageDesktopDeliveryFile = async (
   file: Blob,
   fileName = file instanceof File ? file.name : "attachment"
 ): Promise<DurableStagedAttachment> => {
-  if (file.size < 1 || file.size > 200 * 1024 * 1024) {
-    throw new Error("Attachment size is invalid.");
-  }
+  const rejection = attachmentSizeRejection(fileName, file.size);
+  if (rejection) throw new Error(attachmentRejectionMessage(fileName, rejection));
   const normalizedName = fileName.trim();
   if (!normalizedName || normalizedName.length > 255) {
     throw new Error("Attachment name is invalid.");

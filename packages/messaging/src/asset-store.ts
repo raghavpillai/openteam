@@ -1,3 +1,4 @@
+import { attachmentLimitForName, attachmentRejectionMessage, videoMimeForName } from "@openteam/contracts/media-input";
 import { createHash, randomUUID } from "node:crypto";
 import { lookup } from "node:dns/promises";
 import { createReadStream } from "node:fs";
@@ -15,7 +16,6 @@ export const MAX_MESSAGE_ASSETS = CLIENT_CAPABILITIES.uploads.maxAttachmentsPerM
 const REMOTE_READ_CHUNK = 1024 * 1024;
 export const MAX_VERIFIED_ASSET_CACHE_ENTRIES = 1_024;
 const ASSET_ID = /^[a-f0-9]{64}$/;
-const VIDEO_EXTENSIONS = new Set(["avi", "m4v", "mkv", "mov", "mp4", "mpeg", "mpg", "webm"]);
 const DATA_IMAGE = /^data:image\/(gif|jpeg|png|webp);base64,([A-Za-z0-9+/]*={0,2})$/i;
 const ASSET_KINDS = new Set<AssetKind>(["image", "video", "audio", "pdf", "text", "file"]);
 
@@ -106,12 +106,7 @@ const safeFileName = (value: string): string => {
   return normalized;
 };
 
-const videoLike = (fileName: string, declaredMime?: string): boolean => {
-  const extension = fileName.split(".").pop()?.toLowerCase() ?? "";
-  return (
-    VIDEO_EXTENSIONS.has(extension) || declaredMime?.toLowerCase().startsWith("video/") === true
-  );
-};
+const videoLike = (fileName: string, _declaredMime?: string): boolean => videoMimeForName(fileName) !== undefined;
 
 const jpegDimensions = (bytes: Uint8Array): { width: number; height: number } | null => {
   let offset = 2;
@@ -367,7 +362,7 @@ export class AssetStore {
     alt?: string;
   }): Promise<AssetRef> {
     const fileName = safeFileName(input.fileName);
-    const maximum = videoLike(fileName, input.mimeType) ? VIDEO_ASSET_LIMIT : REGULAR_ASSET_LIMIT;
+    const maximum = attachmentLimitForName(fileName);
     if (input.bytes.byteLength === 0) {
       throw new ApiError(400, "empty_asset", "Attachment is empty");
     }
@@ -375,7 +370,7 @@ export class AssetStore {
       throw new ApiError(
         413,
         "asset_too_large",
-        `Attachment exceeds the ${Math.round(maximum / 1024 / 1024)} MB limit`
+        attachmentRejectionMessage(fileName, "too-large")
       );
     }
     const assetId = createHash("sha256").update(input.bytes).digest("hex");
@@ -424,8 +419,8 @@ export class AssetStore {
     signal?: AbortSignal;
   }): Promise<AssetRef> {
     const fileName = safeFileName(input.fileName);
-    const maximum = videoLike(fileName, input.mimeType) ? VIDEO_ASSET_LIMIT : REGULAR_ASSET_LIMIT;
-    const staged = await this.stageStream(input.stream, maximum, input.signal);
+    const maximum = attachmentLimitForName(fileName);
+    const staged = await this.stageStream(input.stream, maximum, input.signal, fileName);
     try {
       const detected = await classifyStaged(
         staged.path,
@@ -523,7 +518,7 @@ export class AssetStore {
       const info = await stat(source);
       if (!info.isFile()) throw new ApiError(400, "invalid_asset_path", "Attachment is not a file");
       const fileName = input.fileName ?? basename(source);
-      const maximum = videoLike(fileName, input.mimeType) ? VIDEO_ASSET_LIMIT : REGULAR_ASSET_LIMIT;
+      const maximum = attachmentLimitForName(fileName);
       if (info.size > maximum)
         throw new ApiError(413, "asset_too_large", "Attachment exceeds its size limit");
       return this.ingestStream({
@@ -600,9 +595,13 @@ export class AssetStore {
     return Promise.all(
       refs.map(async (ref) => {
         const metadata = await this.metadata(ref.assetId);
+        const fileName = safeFileName(ref.fileName);
+        if (metadata.byteSize > attachmentLimitForName(fileName)) {
+          throw new ApiError(413, "asset_too_large", attachmentRejectionMessage(fileName, "too-large"));
+        }
         return {
           assetId: metadata.assetId,
-          fileName: safeFileName(ref.fileName),
+          fileName,
           mimeType: metadata.mimeType,
           byteSize: metadata.byteSize,
           kind: metadata.kind,
@@ -743,7 +742,8 @@ export class AssetStore {
   private async stageStream(
     source: AssetByteSource,
     maximum: number,
-    signal?: AbortSignal
+    signal: AbortSignal | undefined,
+    fileName: string
   ): Promise<StagedAsset> {
     await mkdir(this.root, { recursive: true, mode: 0o700 });
     const path = join(this.root, `.asset-upload-${randomUUID()}.tmp`);
@@ -764,7 +764,7 @@ export class AssetStore {
         throw new ApiError(
           413,
           "asset_too_large",
-          `Attachment exceeds the ${Math.round(maximum / 1024 / 1024)} MB limit`
+          attachmentRejectionMessage(fileName, "too-large")
         );
       }
       if (chunk.byteLength === 0) return;

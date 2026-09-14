@@ -1,3 +1,4 @@
+import { prepareUserImages } from "./runtime/image-input";
 import { clampThinkingLevel } from "@earendil-works/pi-ai";
 import {
   type AgentSession,
@@ -305,7 +306,7 @@ export class ComputerRuntime {
         : null;
       const contextState = await this.contextState(active.contextSessionId);
       await this.compactionArchive.enforceSizeLimit(active.contextSessionId, sessionPath);
-      const uploadedImages = decodeInlineImages(request.images ?? []);
+      const uploaded = await prepareUserImages(decodeInlineImages(request.images ?? []));
       const attachments = await loadAttachmentImages(request.cwd, request.fileAttachments ?? []);
       active.attachmentTempDirectories = attachments.tempDirectories;
       const session = await this.createSession({ ...request, sessionPath }, active);
@@ -331,9 +332,11 @@ export class ComputerRuntime {
           entry.role === "custom" &&
           (entry.details as { messageId?: string } | undefined)?.messageId === message.id
         );
+        const ambient = await prepareUserImages(decodeInlineImages(message.images ?? []));
+        const ambientText = [message.content, ambient.notice].filter(Boolean).join("\n");
         if (!present) await session.sendCustomMessage({
           customType: "openteam-ambient",
-          content: message.images?.length ? [{ type: "text", text: message.content }, ...decodeInlineImages(message.images)] : message.content,
+          content: ambient.images.length ? [{ type: "text", text: ambientText }, ...ambient.images] : ambientText,
           display: false,
           details: { messageId: message.id, origin: "host" },
         }, { triggerTurn: false });
@@ -344,9 +347,9 @@ export class ComputerRuntime {
       if (sessionPath) attachSession(active);
       queue.push(contextState);
       queue.push({ type: "turn.started", turnId: active.turnId });
-      const images = [...uploadedImages, ...attachments.images].slice(0, 16);
+      const images = [...uploaded.images, ...attachments.images];
       const content = recordedInputIds.has(`input:${request.clientMessageId}`) ? "[SAND_HIDDEN_PROMPT]Resume work on the previously recorded user input. Its original content is already in the session; avoid repeating completed actions." : request.content;
-      void this.execute(active, content, images);
+      void this.execute(active, [content, uploaded.notice].filter(Boolean).join("\n"), images);
       return queue;
     } catch (error) {
       this.cleanup(active);
@@ -464,8 +467,9 @@ export class ComputerRuntime {
     active.acceptedSteerIds.add(request.inboxId);
     active.pendingSteers.push(pending);
     try {
-      const images = decodeInlineImages(request.images ?? []);
-      await active.session.prompt(request.content, {
+      const prepared = await prepareUserImages(decodeInlineImages(request.images ?? []));
+      const images = prepared.images;
+      await active.session.prompt([request.content, prepared.notice].filter(Boolean).join("\n"), {
         source: "rpc",
         streamingBehavior: "steer",
         ...(images.length ? { images } : {}),

@@ -3,10 +3,7 @@ import type { AssetRef, ClientCapabilities } from "@openteam/contracts";
 import { CLIENT_CAPABILITIES } from "@openteam/contracts/capabilities";
 import { isCameraAvailable } from "@openteam/mobile-native";
 import {
-  attachmentByteLimit,
-  attachmentOverflowMessage,
-  firstOversizedAttachment,
-  formatAttachmentBytes,
+  selectAttachments,
   remainingAttachmentCapacity,
 } from "@openteam/product-core/attachments";
 import type { DurableStagedAttachment } from "@openteam/product-core/durable-delivery";
@@ -28,6 +25,7 @@ import {
   Image,
   Keyboard,
   Modal,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -165,6 +163,7 @@ export function Composer({
   const sendInFlight = useRef(false);
   const [picking, setPicking] = useState(false);
   const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
+  const afterAttachmentMenuDismiss = useRef<(() => void) | null>(null);
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [draftReady, setDraftReady] = useState(false);
@@ -509,7 +508,9 @@ export function Composer({
 
   const stageAttachments = (sources: AttachmentSource[]) => {
     if (sources.length === 0) return;
-    const staged = sources.map(
+    const selection = selectAttachments(sources, latestAttachments.current.length, uploadCapabilities);
+    if (selection.notice) setAttachmentError(selection.notice);
+    const staged = selection.accepted.map(
       (source): PendingAttachment => ({
         id: attachmentId(),
         state: "uploading",
@@ -521,9 +522,9 @@ export function Composer({
       })
     );
     draftHydrationGuardRef.current.markEdited("attachments");
-    setAttachments((current) =>
-      [...current, ...staged].slice(0, uploadCapabilities.maxAttachmentsPerMessage)
-    );
+    const next = [...latestAttachments.current, ...staged];
+    latestAttachments.current = next;
+    setAttachments(next);
     void mapWithConcurrency(staged, MAX_PARALLEL_UPLOADS, uploadAttachment);
   };
 
@@ -543,6 +544,7 @@ export function Composer({
     }
     draftHydrationGuardRef.current.markEdited("attachments");
     const next = latestAttachments.current.filter(({ id }) => id !== attachment.id);
+    latestAttachments.current = next;
     setAttachments(next);
     consumeEmptyRecovery(latestText.current, next.length);
   };
@@ -576,23 +578,6 @@ export function Composer({
         shouldDownloadFromNetwork: true,
       });
       if (result.canceled) return;
-      const tooLarge = firstOversizedAttachment(
-        result.assets.map((asset) => {
-          const fileName = asset.fileName ?? "photo.jpg";
-          return {
-            fileName,
-            mimeType: normalizedImageMime(asset.mimeType, fileName),
-            byteSize: asset.fileSize,
-          };
-        }),
-        uploadCapabilities
-      );
-      if (tooLarge) {
-        reportAttachmentError(
-          `${tooLarge.candidate.fileName || "That image"} is larger than ${formatAttachmentBytes(tooLarge.limit)}.`
-        );
-        return;
-      }
       if (result.assets.length === 0) {
         reportAttachmentError("The selected image could not be read.");
         return;
@@ -634,23 +619,8 @@ export function Composer({
         copyToCacheDirectory: true,
       });
       if (result.canceled) return;
-      const selected = result.assets.slice(0, remaining);
-      const tooLarge = firstOversizedAttachment(
-        selected.map((asset) => ({
-          fileName: asset.name,
-          mimeType: asset.mimeType,
-          byteSize: asset.size,
-        })),
-        uploadCapabilities
-      );
-      if (tooLarge) {
-        reportAttachmentError(
-          `${tooLarge.candidate.fileName} is larger than ${formatAttachmentBytes(tooLarge.limit)}.`
-        );
-        return;
-      }
       stageAttachments(
-        selected.map((asset) => ({
+        result.assets.map((asset) => ({
           uri: asset.uri,
           fileName: asset.name,
           mimeType: asset.mimeType ?? undefined,
@@ -661,12 +631,6 @@ export function Composer({
             : ("file" as const),
         }))
       );
-      if (result.assets.length > remaining) {
-        reportAttachmentError(
-          attachmentOverflowMessage(remaining),
-          Haptics.NotificationFeedbackType.Warning
-        );
-      }
     } catch (cause) {
       reportAttachmentError(clientErrorMessage(cause, "The file could not be read."));
     } finally {
@@ -705,13 +669,6 @@ export function Composer({
       if (!asset) return;
       const fileName = asset.fileName ?? `camera-${Date.now()}.jpg`;
       const mimeType = normalizedImageMime(asset.mimeType, fileName);
-      const limit = attachmentByteLimit({ fileName, mimeType }, uploadCapabilities);
-      if (typeof asset.fileSize === "number" && asset.fileSize > limit) {
-        reportAttachmentError(
-          `${asset.fileName ?? "That photo"} is larger than ${formatAttachmentBytes(limit)}.`
-        );
-        return;
-      }
       stageAttachments([
         {
           uri: asset.uri,
@@ -731,6 +688,20 @@ export function Composer({
 
   const showAttachmentMenu = () => {
     setAttachmentMenuOpen(true);
+  };
+
+  const finishAttachmentMenuDismiss = () => {
+    const action = afterAttachmentMenuDismiss.current;
+    afterAttachmentMenuDismiss.current = null;
+    if (mounted.current) action?.();
+  };
+
+  const chooseAttachmentAction = (action: () => void) => {
+    afterAttachmentMenuDismiss.current = action;
+    setAttachmentMenuOpen(false);
+    // UIKit cannot present a picker from a controller that is still dismissing.
+    // React Native's onDismiss callback is iOS-only.
+    if (Platform.OS !== "ios") finishAttachmentMenuDismiss();
   };
 
   const updateText = (value: string) => {
@@ -843,6 +814,7 @@ export function Composer({
       <Modal
         animationType="fade"
         onRequestClose={() => setAttachmentMenuOpen(false)}
+        onDismiss={finishAttachmentMenuDismiss}
         statusBarTranslucent
         transparent
         visible={attachmentMenuOpen}
@@ -861,8 +833,7 @@ export function Composer({
               accessibilityLabel="Attach Image"
               accessibilityRole="button"
               onPress={() => {
-                setAttachmentMenuOpen(false);
-                void pickFromLibrary();
+                chooseAttachmentAction(() => void pickFromLibrary());
               }}
               style={({ pressed }) => [styles.attachmentMenuItem, pressed && styles.menuPressed]}
             >
@@ -874,8 +845,7 @@ export function Composer({
               accessibilityRole="button"
               disabled={isCameraAvailable() === false}
               onPress={() => {
-                setAttachmentMenuOpen(false);
-                void takePhoto();
+                chooseAttachmentAction(() => void takePhoto());
               }}
               style={({ pressed }) => [
                 styles.attachmentMenuItem,
@@ -890,8 +860,7 @@ export function Composer({
               accessibilityLabel="Choose File"
               accessibilityRole="button"
               onPress={() => {
-                setAttachmentMenuOpen(false);
-                void pickFiles();
+                chooseAttachmentAction(() => void pickFiles());
               }}
               style={({ pressed }) => [styles.attachmentMenuItem, pressed && styles.menuPressed]}
             >

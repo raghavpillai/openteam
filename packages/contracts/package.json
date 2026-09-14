@@ -7,6 +7,8 @@
     ".": "./src/index.ts",
     "./bot-avatar": "./src/bot-avatar.ts",
     "./capabilities": "./src/capabilities.ts",
+    "./media-input": "./src/media-input.ts",
+    "./read-output": "./src/read-output.ts",
     "./client-preferences": "./src/client-preferences.ts",
     "./event-protocol": "./src/event-protocol.ts",
     "./inference": "./src/inference.ts",

@@ -1,3 +1,4 @@
+import { readLimitNotice } from "@openteam/contracts/read-output";
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -101,7 +102,7 @@ describe("host file text projection", () => {
       text: "2: beta\n3: gamma",
       lines: 2,
     });
-    expect(numberText("alpha", 99, undefined)).toEqual({ text: "", lines: 0 });
+    expect(() => numberText("alpha", 99, undefined)).toThrow("Offset 99 is beyond file length (1 lines)");
   });
 
   test("bounds output without allocating a numbered copy of every input line", () => {
@@ -112,7 +113,7 @@ describe("host file text projection", () => {
 
     expect(result.lines).toBe(5_000_001);
     expect(result.text.length).toBeLessThanOrEqual(MAX_INLINE_BYTES + "\n… truncated".length);
-    expect(result.text.endsWith("… truncated")).toBe(true);
+    expect(result.text).toBe(readLimitNotice(input.length));
     // This is recorded as a regression signal, not a hard wall-clock assertion for CI hosts.
     console.info(`numbered 5,000,001 lines in ${elapsedMs.toFixed(1)} ms`);
   });

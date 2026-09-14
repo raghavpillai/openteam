@@ -1,4 +1,5 @@
 import { Schema } from "effect";
+import { MAX_INLINE_IMAGE_URL_LENGTH } from "./media-input";
 import cursorToolsDocument from "./cursor-tools.json";
 export * from "./review-cards";
 import nativeToolsDocument from "./native-tools.json";
@@ -231,7 +232,7 @@ export type PushNotificationPayload = AgentNotificationPayload | BadgeSyncNotifi
 /** Transient multimodal payload used only between trusted OpenTeam services. */
 export const RuntimeInlineImage = Schema.Struct({
   url: Schema.String.pipe(
-    Schema.maxLength(28_000_000),
+    Schema.maxLength(MAX_INLINE_IMAGE_URL_LENGTH),
     Schema.pattern(
       /^(?:data:image\/(?:gif|jpeg|png|webp);base64,|\/api\/v0\/assets\/[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$)/i
     )
@@ -265,10 +266,10 @@ export const UploadAssetInput = Schema.Struct({
 export type UploadAssetInput = typeof UploadAssetInput.Type;
 
 export const SendMessageInput = Schema.Struct({
-  content: Schema.String.pipe(Schema.maxLength(200_000)),
+  content: Schema.String,
   clientId: Schema.String.pipe(Schema.minLength(8), Schema.maxLength(120)),
   replyToMessageId: Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(120))),
-  richText: Schema.optional(Schema.String.pipe(Schema.maxLength(400_000))),
+  richText: Schema.optional(Schema.String),
   isFork: Schema.optional(Schema.Boolean),
   attachments: Schema.optional(Schema.Array(AssetRef).pipe(Schema.maxItems(6))),
   timeZone: Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(100))),
@@ -1335,7 +1336,7 @@ export type ComputerTurnRequest = typeof ComputerTurnRequest.Type;
 export const ComputerSteerRequest = Schema.Struct({
   inboxId: Schema.String,
   clientMessageId: Schema.String,
-  content: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(200_000)),
+  content: Schema.String.pipe(Schema.minLength(1)),
   images: Schema.optional(Schema.Array(RuntimeInlineImage).pipe(Schema.maxItems(6))),
 });
 export type ComputerSteerRequest = typeof ComputerSteerRequest.Type;

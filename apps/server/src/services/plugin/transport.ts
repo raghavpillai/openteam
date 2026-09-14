@@ -375,6 +375,8 @@ export class PluginTransport {
         }
         // Never send client secrets, refresh tokens, or setup values to the child process.
         return {
+          runtime: configuration.runtime,
+          provider: configuration.provider,
           command: configuration.command,
           args: configuration.args,
           cwd: configuration.cwd,
@@ -407,6 +409,9 @@ export class PluginTransport {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
+      // Native authorization waits for the user's 1Password prompt; the generic RPC budget is 10s.
+      ...(jsonObject(jsonObject(body).configuration).runtime === "desktop"
+        ? { signal: AbortSignal.timeout(180_000) } : {}),
     });
     const value = await response.json().catch(() => ({}));
     if (!response.ok) {

@@ -23,11 +23,10 @@ import {
   LoaderCircle,
   Plus,
   Plug,
-  Link,
   Search,
   X,
 } from "lucide-react";
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useId, useMemo, useState } from "react";
 import { api } from "../../client/openteam-api";
 import { cn } from "../../lib/cn";
 import {
@@ -49,6 +48,7 @@ const PluginAuthSelect = lazy(() =>
 
 const PluginWorkspace = lazy(() => import("./plugins/plugin-workspace"));
 import { PluginMark } from "./plugins/plugin-mark";
+import { PluginCopyButton } from "./plugins/plugin-copy-button";
 import { PluginAccountRow, AddPluginAccount } from "./plugins/plugin-accounts";
 import { MarketplaceView, InstalledPluginsView } from "./plugins/marketplace-browse";
 import {
@@ -61,9 +61,9 @@ import {
 type MarketplacePage = "marketplace" | "installed" | "detail" | "custom" | "manage";
 
 const primaryButton =
-  "inline-flex h-[26px] shrink-0 items-center justify-center gap-1.5 rounded-full bg-black px-3 text-[13px] font-medium text-white outline-none transition-opacity hover:opacity-80 disabled:cursor-wait disabled:opacity-45 dark:bg-white dark:text-black";
+  "inline-flex h-[26px] shrink-0 items-center justify-center gap-1.5 cursor-pointer rounded-full bg-black px-3 text-[13px] font-medium text-white outline-none transition-opacity duration-120 ease-out hover:opacity-80 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-45 dark:bg-white dark:text-black";
 const secondaryButton =
-  "inline-flex h-[26px] shrink-0 items-center justify-center gap-1.5 rounded-full bg-black/[0.055] px-3 text-[13px] text-foreground outline-none transition-colors hover:bg-black/[0.09] disabled:cursor-wait disabled:opacity-45 dark:bg-[#222222] dark:hover:bg-[#2b2b2b]";
+  "inline-flex h-[26px] shrink-0 items-center justify-center gap-1.5 cursor-pointer rounded-full bg-[#77777717] px-3 text-[13px] text-foreground outline-none transition-colors duration-120 ease-out hover:bg-[#7777772b] focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-45";
 
 const errorMessage = (cause: unknown) => clientErrorMessage(cause, "Plugin operation failed");
 
@@ -329,6 +329,8 @@ function DetailBlock({
   onOpenChange?: (open: boolean) => void;
   open?: boolean;
 }) {
+  const [expanded, setExpanded] = useState(open);
+  const contentId = useId();
   const singular =
     label === "Connectors"
       ? "connector"
@@ -343,21 +345,31 @@ function DetailBlock({
               : "event";
   return (
     <section className="mt-6">
-      <div className="mb-1.5 px-3 text-[10.5px] text-foreground-tertiary">{label}</div>
-      <details
-        className="group overflow-hidden rounded-[13px] bg-black/[0.045] dark:bg-white/[0.06]"
-        onToggle={(event) => onOpenChange?.(event.currentTarget.open)}
-        open={open}
-      >
-        <summary className="flex h-9 cursor-pointer list-none items-center px-3 text-[11.5px] outline-none [&::-webkit-details-marker]:hidden">
+      <h3 className="mb-2 px-3.5 text-[13px] font-normal text-foreground-tertiary">{label}</h3>
+      <div className="overflow-hidden rounded-[14px] bg-black/[0.08] dark:bg-white/[0.08]">
+        <button
+          aria-expanded={expanded}
+          aria-controls={expanded ? contentId : undefined}
+          className="flex min-h-[42px] w-full cursor-pointer items-center rounded-[14px] px-3.5 py-3 text-left text-[13px] leading-[18px] outline-none transition-colors duration-120 ease-out hover:bg-black/[0.08] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500 aria-expanded:rounded-b-none dark:hover:bg-white/[0.08]"
+          onClick={() => {
+            setExpanded(!expanded);
+            onOpenChange?.(!expanded);
+          }}
+          type="button"
+        >
           <span className="flex-1">
             {count} {singular}
             {count === 1 ? "" : "s"}
           </span>
-          <ChevronDown className="size-3.5 text-foreground-tertiary transition-transform group-open:rotate-180" />
-        </summary>
-        <div className="border-t border-black/[0.06] dark:border-white/[0.07]">{children}</div>
-      </details>
+          <ChevronDown
+            className={cn(
+              "size-3.5 text-foreground-tertiary transition-transform duration-120 ease-out",
+              expanded && "rotate-180"
+            )}
+          />
+        </button>
+        {expanded && <div id={contentId}>{children}</div>}
+      </div>
     </section>
   );
 }
@@ -376,8 +388,9 @@ function SquareToggle({
   return (
     <button
       aria-label={label}
+      aria-pressed={checked}
       className={cn(
-        "grid size-5 place-items-center rounded-[6px] border outline-none transition-colors",
+        "grid size-5 cursor-pointer place-items-center rounded-[6px] border outline-none transition-colors duration-120 ease-out focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:cursor-wait",
         checked
           ? "border-black bg-black text-white dark:border-white dark:bg-white dark:text-black"
           : "border-black/15 bg-background dark:border-white/20"
@@ -449,7 +462,7 @@ function PluginSetupCard({
         ? connection.configured
           ? "Authorize account"
           : "Save credentials and continue"
-        : "Continue to authorization";
+        : setup.kind === "none" ? "Connect" : "Continue to authorization";
 
   return (
     <section
@@ -828,7 +841,6 @@ function PluginDetail({
   onToggle: (connection: PluginConnectionView) => void;
 }) {
   const [setupValues, setSetupValues] = useState<Record<string, string>>({});
-  const [shared, setShared] = useState(false);
   const [setupAccountId, setSetupAccountId] = useState<string | null>(null);
   const [botAccessExpanded, setBotAccessExpanded] = useState(false);
   const [botAccessQuery, setBotAccessQuery] = useState("");
@@ -842,7 +854,7 @@ function PluginDetail({
   const botAccessScope = install ? `${accessEpoch}:${install.id}` : "";
   const setupConnection =
     connections.find((c) => c.id === setupAccountId && c.status !== "ready") ??
-    connections.find((c) => c.status !== "ready" && !c.configured);
+    connections.find((c) => c.status !== "ready" && (!c.configured || plugin.setup?.kind === "none"));
   const recentActivity = data.activity
     .filter((entry) => entry.pluginKey === plugin.key)
     .slice(0, 8);
@@ -892,29 +904,15 @@ function PluginDetail({
     [botAccess]
   );
   const visibleBots = botAccessWindow.items;
-  const shareUrl =
-    plugin.sourceUrl ??
-    plugin.homepageUrl ??
-    `openteam://app/v1/plugin/add?id=${encodeURIComponent(plugin.key)}`;
-  const sharePlugin = async () => {
-    try {
-      if (navigator.share) {
-        await navigator.share({ title: plugin.name, text: plugin.description, url: shareUrl });
-      } else {
-        await navigator.clipboard.writeText(shareUrl);
-      }
-      setShared(true);
-      window.setTimeout(() => setShared(false), 1_500);
-    } catch {
-      // Cancelling the system share sheet leaves the detail view unchanged.
-    }
-  };
   return (
     <div className="bot-scrollbar min-h-0 flex-1 overflow-y-auto px-8 pb-8 max-sm:px-5">
-      <div className="flex items-center gap-3 pt-1">
+      <div className="group/plugin-heading flex items-center gap-3 pt-1">
         <PluginMark logoUrl={plugin.logoUrl} name={plugin.name} size="lg" />
         <div className="min-w-0 flex-1 pt-1">
-          <div className="flex items-center gap-1.5 text-[14px] font-medium">{plugin.name}</div>
+          <div className="flex items-center gap-1.5 text-[14px] font-medium">
+            {plugin.name}
+            <PluginCopyButton pluginKey={plugin.key} compact />
+          </div>
           <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[12px] text-foreground-secondary">
             <span>{plugin.publisher}</span>
             {plugin.sourceUrl || plugin.homepageUrl ? (
@@ -929,16 +927,14 @@ function PluginDetail({
             ) : null}
           </div>
         </div>
-        <button className={secondaryButton} onClick={() => void sharePlugin()} type="button">
-          <Link className="size-3" />
-          {shared ? "Copied" : "Share"}
-        </button>
+        <PluginCopyButton pluginKey={plugin.key} />
         {!install ? (
           <button
-            className={primaryButton}
-            disabled={plugin.setupFields.some(
-              (field) => field.required && !setupValues[field.key]?.trim()
-            )}
+            className={cn(primaryButton, "h-9 px-4")}
+            disabled={
+              busy === plugin.key ||
+              plugin.setupFields.some((field) => field.required && !setupValues[field.key]?.trim())
+            }
             onClick={() => onInstall(plugin, setupValues)}
             type="button"
           >
@@ -947,7 +943,7 @@ function PluginDetail({
           </button>
         ) : (
           <button
-            className={secondaryButton}
+            className={cn(secondaryButton, "h-9 px-4")}
             disabled={busy === plugin.key}
             onClick={() => onRemove(plugin)}
             type="button"
@@ -980,14 +976,15 @@ function PluginDetail({
 
       {connections.length ? (
         <section className="mt-8">
-          <h3 className="mb-1.5 px-3 text-[12px] text-foreground-secondary">Accounts</h3>
-          <div className="overflow-hidden rounded-[13px] bg-black/[0.045] dark:bg-white/[0.06]">
+          <h3 className="mb-1.5 px-3.5 text-[13px] text-foreground-tertiary">Accounts</h3>
+          <div className="overflow-hidden rounded-[14px] bg-black/[0.08] dark:bg-white/[0.08]">
             {connections.map((connection) => (
               <PluginAccountRow
                 key={connection.id}
                 connection={connection}
                 busy={busy === connection.id}
                 onRename={(alias) => onRename(connection, alias)}
+                onRemove={() => onRemoveAccount(connection)}
                 onConnect={() => {
                   if (!connection.configured && plugin.setup) setSetupAccountId(connection.id);
                   else if (connection.auth === "oauth" && connection.status === "needs_auth")
@@ -1037,7 +1034,7 @@ function PluginDetail({
           {plugin.connections.map((connection) => (
             <div
               key={connection.key}
-              className="flex min-h-10 items-center gap-2 border-t border-black/[0.055] px-3 text-[13px] first:border-t-0 dark:border-white/[0.065]"
+              className="flex min-h-[42px] items-center justify-between gap-2 border-t border-black/[0.055] px-3.5 text-[13px] first:border-t-0 dark:border-white/[0.065]"
             >
               <span>{connection.name}</span>
               <span className="text-[12px] text-foreground-secondary">Connector</span>
@@ -1052,11 +1049,14 @@ function PluginDetail({
             .sort((a, b) => a.name.localeCompare(b.name))
             .map((skill) => (
               <div
-                className="flex min-h-9 items-center gap-3 border-t border-black/[0.055] px-3 first:border-t-0 dark:border-white/[0.065]"
+                className="flex min-h-[42px] items-center gap-2 border-t border-black/[0.055] px-3.5 first:border-t-0 dark:border-white/[0.065]"
                 key={skill.name}
               >
-                <span className="shrink-0 text-[11.5px]">{skill.name}</span>
-                <span className="min-w-0 flex-1 truncate text-[10.5px] text-foreground-secondary">
+                <span className="shrink-0 text-[13px]">{skill.name}</span>
+                <span
+                  className="min-w-0 flex-1 truncate text-[13px] text-foreground-tertiary"
+                  title={skill.description}
+                >
                   {skill.description}
                 </span>
               </div>
@@ -1097,7 +1097,7 @@ function PluginDetail({
                   key={connection.id}
                 >
                   <span className="min-w-[145px] flex-1 truncate text-[11.5px]">
-                    {connection.name}
+                    {connection.name} · {connection.alias}
                   </span>
                   <div className="flex flex-wrap justify-end gap-3">
                     {visibleBots.map((bot) => {
@@ -1112,7 +1112,7 @@ function PluginDetail({
                           <SquareToggle
                             busy={busy === key}
                             checked={checked}
-                            label={`${checked ? "Revoke" : "Grant"} ${connection.name} for ${bot.name}`}
+                            label={`${checked ? "Revoke" : "Grant"} ${connection.name} ${connection.alias} account for ${bot.name}`}
                             onClick={() => onGrant(connection, bot, !checked)}
                           />
                         </div>
@@ -1221,7 +1221,14 @@ function PluginDetail({
                   className="flex min-h-10 items-center gap-3 border-t border-black/[0.055] px-3 first:border-t-0 dark:border-white/[0.065]"
                   key={key}
                 >
-                  <span className="min-w-0 flex-1 truncate text-[11.5px]">{tool.name}</span>
+                  <span className="min-w-0 flex-1 text-[11.5px]">
+                    <span className="block truncate">{tool.name}</span>
+                    {connections.length > 1 && (
+                      <span className="block truncate text-[10.5px] text-foreground-tertiary">
+                        {connection.name} · {connection.alias}
+                      </span>
+                    )}
+                  </span>
                   <Suspense
                     fallback={
                       <span className="inline-flex h-7 items-center rounded-[7px] border border-black/[0.07] bg-background px-2 text-[10.5px] capitalize text-foreground-secondary dark:border-white/[0.09]">
@@ -1231,7 +1238,7 @@ function PluginDetail({
                   >
                     <PluginPolicySelect
                       disabled={busy === key}
-                      label={`Policy for ${tool.name}`}
+                      label={`Policy for ${tool.name} on ${connection.name} ${connection.alias} account`}
                       onChange={(value) => onPolicy(connection.id, tool.name, value)}
                       value={policy?.decision ?? tool.defaultDecision}
                     />
@@ -1284,7 +1291,6 @@ export function PluginDialog({
   const [settingsEpoch, setSettingsEpoch] = useState(0);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [removeArmed, setRemoveArmed] = useState<string | null>(null);
 
   const refresh = useMemo(
     () =>
@@ -1332,7 +1338,6 @@ export function PluginDialog({
     setPage("marketplace");
     setSelectedKey(null);
     setError(null);
-    setRemoveArmed(null);
   }, [open]);
 
   const mutate = useCallback(
@@ -1362,12 +1367,18 @@ export function PluginDialog({
     const install = data?.installs.find((plugin) => plugin.pluginKey === selectedKey);
     return install ? catalogPluginForInstall(install) : null;
   }, [data, selectedKey]);
+  useEffect(() => {
+    // A custom package can disappear from the catalog when it is uninstalled.
+    if (data && page === "detail" && selectedKey && !selected) {
+      setPage("marketplace");
+      setSelectedKey(null);
+    }
+  }, [data, page, selected, selectedKey]);
   const openDetail = (plugin: PluginCatalogItemView) => {
     void loadPluginSettingsDetail();
     setSelectedKey(plugin.key);
     setPage("detail");
     setError(null);
-    setRemoveArmed(null);
   };
   useEffect(() => {
     if (!open || !target || !data) return;
@@ -1378,7 +1389,6 @@ export function PluginDialog({
       setSelectedKey(plugin.key);
       setPage("detail");
       setError(null);
-      setRemoveArmed(null);
       return;
     }
     setPage("marketplace");
@@ -1387,6 +1397,7 @@ export function PluginDialog({
   }, [data, open, target]);
   const authenticateConnection = (connection: PluginConnectionView) => {
     void mutate(connection.id, async () => {
+      if (connection.auth !== "oauth") return api.connectPlugin(connection.id);
       const result = await api.authenticatePlugin(connection.id);
       window.open(result.authorizationUrl, "_blank", "noopener,noreferrer");
       return result;
@@ -1417,13 +1428,6 @@ export function PluginDialog({
       <DialogContent
         className="flex h-[min(700px,calc(100vh-80px))] w-[min(800px,calc(100vw-40px))] flex-col max-w-none gap-0 overflow-hidden rounded-[13px] border-black/10 bg-background p-0 text-foreground shadow-[0_24px_72px_rgba(0,0,0,0.24)] dark:border-[#303030]"
         onOpenAutoFocus={(event) => event.preventDefault()}
-        onEscapeKeyDown={(event) => {
-          if (
-            event.target instanceof Element &&
-            event.target.closest("[data-plugin-account-editor]")
-          )
-            event.preventDefault();
-        }}
         showCloseButton={false}
         surface="modal"
       >
@@ -1435,7 +1439,7 @@ export function PluginDialog({
           {page === "detail" || page === "custom" || page === "manage" ? (
             <button
               aria-label="Back to Marketplace"
-              className="absolute left-3.5 grid size-8 place-items-center rounded-full text-foreground-secondary outline-none hover:bg-black/[0.04] dark:hover:bg-white/[0.06]"
+              className="absolute left-3.5 grid size-8 place-items-center cursor-pointer rounded-full text-foreground-secondary outline-none transition-colors duration-120 ease-out hover:bg-foreground/[0.08] focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
               onClick={() => setPage(page === "custom" ? "installed" : "marketplace")}
               type="button"
             >
@@ -1485,7 +1489,7 @@ export function PluginDialog({
           )}
           <button
             aria-label="Close plugins"
-            className="absolute right-3.5 grid size-8 place-items-center rounded-full text-foreground-tertiary outline-none transition-colors hover:bg-black/[0.04] hover:text-foreground dark:hover:bg-white/[0.06]"
+            className="absolute right-3.5 grid size-8 place-items-center cursor-pointer rounded-full text-foreground-tertiary outline-none transition-colors duration-120 ease-out hover:bg-foreground/[0.08] hover:text-foreground focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
             onClick={() => onOpenChange(false)}
             type="button"
           >
@@ -1498,6 +1502,23 @@ export function PluginDialog({
             {error}
           </div>
         ) : null}
+        {data && (
+          <MarketplaceView
+            hidden={page !== "marketplace"}
+            busy={busy}
+            data={data}
+            onInstall={(plugin) => {
+              if (plugin.setup || plugin.setupFields.length) {
+                openDetail(plugin);
+                void mutate(plugin.key, () => api.installPlugin(plugin.key));
+              } else {
+                void mutate(plugin.key, () => api.installPlugin(plugin.key));
+              }
+            }}
+            onOpen={openDetail}
+            onShowInstalled={() => setPage("installed")}
+          />
+        )}
         {!data ? (
           <div className="grid flex-1 place-items-center">
             <LoaderCircle className="size-5 animate-spin text-foreground-tertiary" />
@@ -1527,22 +1548,7 @@ export function PluginDialog({
               initialPluginKey={selectedKey}
             />
           </Suspense>
-        ) : page === "marketplace" ? (
-          <MarketplaceView
-            busy={busy}
-            data={data}
-            onInstall={(plugin) => {
-              if (plugin.setup || plugin.setupFields.length) {
-                openDetail(plugin);
-                void mutate(plugin.key, () => api.installPlugin(plugin.key));
-              } else {
-                void mutate(plugin.key, () => api.installPlugin(plugin.key));
-              }
-            }}
-            onOpen={openDetail}
-            onShowInstalled={() => setPage("installed")}
-          />
-        ) : page === "custom" ? (
+        ) : page === "marketplace" ? null : page === "custom" ? (
           <CustomMcpView
             busy={busy === "custom-mcp"}
             onBack={() => setPage("installed")}
@@ -1609,19 +1615,7 @@ export function PluginDialog({
             onRename={(connection, alias) =>
               void mutate(connection.id, () => api.renamePluginAccount(connection.id, alias))
             }
-            onRemove={(plugin) => {
-              if (removeArmed !== plugin.key) {
-                setRemoveArmed(plugin.key);
-                setError(`Click “Uninstall” again to remove ${plugin.name} and its accounts.`);
-                return;
-              }
-              void mutate(plugin.key, () => api.uninstallPlugin(plugin.key)).then((removed) => {
-                if (!removed) return;
-                setPage("marketplace");
-                setSelectedKey(null);
-                setRemoveArmed(null);
-              });
-            }}
+            onRemove={(plugin) => void mutate(plugin.key, () => api.uninstallPlugin(plugin.key))}
             onSkill={(pluginKey, bot, enabled) => {
               const transition = planPluginSkillAccess(pluginKey, bot, enabled);
               void mutate(`skill:${pluginKey}:${bot.id}`, () =>

@@ -4,6 +4,7 @@
   "author": "OpenTeam contributors",
   "main": "dist-electron/main.js",
   "devDependencies": {
+    "@modelcontextprotocol/sdk": "1.30.0",
     "@dnd-kit/dom": "^0.5.0",
     "@dnd-kit/react": "^0.5.0",
     "@openteam/client-core": "workspace:*",

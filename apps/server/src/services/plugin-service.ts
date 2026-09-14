@@ -9,7 +9,12 @@ import { McpHttpClientManager } from "../plugins/mcp-client-manager";
 import { OpenTeamMarketplaceSource } from "../plugins/openteam-marketplace";
 import { PluginManagement } from "./plugin/management";
 import { PluginConfiguration } from "./plugin/configuration";
-import { fieldsForConnector, validateValues, type ConfigValue } from "@openteam/plugin-sdk";
+import {
+  desktopMcpProvider,
+  fieldsForConnector,
+  validateValues,
+  type ConfigValue,
+} from "@openteam/plugin-sdk";
 import { PluginAccess } from "./plugin/access";
 import { PluginConnectors } from "./plugin/connectors";
 import { PluginInstallations } from "./plugin/installations";
@@ -288,6 +293,11 @@ export class PluginService {
       return Effect.runPromise(this.uninstall(connection.installation.pluginKey));
     }
     if (action === "AuthenticateMcpServer") {
+      const connection = await this.connectionOrThrow(connectionId);
+      if (desktopMcpProvider(runtimeConfiguration(connection)))
+        return Effect.runPromise(
+          args.forceReauth === true ? this.restart(connectionId) : this.connect(connectionId)
+        );
       return Effect.runPromise(this.authenticate(connectionId, args.forceReauth === true));
     }
     if (action === "RestartMcpServers") return Effect.runPromise(this.restart(connectionId));
@@ -952,6 +962,9 @@ export class PluginService {
         include: { installation: true },
       });
       for (const connection of connections) {
+        // Native discovery authenticates and may open a consent prompt. A background
+        // health check must not request access after the user locks the provider.
+        if (jsonObject(connection.configuration).runtime === "desktop") continue;
         try {
           const tools = await this.discoverStdio(connection);
           const current = await this.connectionOrThrow(connection.id);

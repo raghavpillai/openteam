@@ -72,6 +72,7 @@ export interface PluginConfigurationView {
   namespace: string;
   endpoint: string | null;
   command: string | null;
+  runtime?: "computer" | "desktop";
   args: string[];
   cwd: string | null;
   values: Record<string, ConfigValue>;

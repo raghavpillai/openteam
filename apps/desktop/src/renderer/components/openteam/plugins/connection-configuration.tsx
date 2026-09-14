@@ -63,7 +63,7 @@ export function ConnectionConfiguration({
       secrets,
       ...(connection.transport === "http"
         ? { endpoint }
-        : connection.transport === "stdio"
+        : connection.transport === "stdio" && config?.runtime !== "desktop"
           ? { command, args: JSON.parse(args), cwd }
           : {}),
       ...(headers.trim() ? { headers: JSON.parse(headers) } : {}),
@@ -94,7 +94,9 @@ export function ConnectionConfiguration({
           {connection.name} · {connection.alias}
         </h3>
         <p className="text-sm text-foreground-secondary">
-          {connection.transport === "stdio"
+          {config.runtime === "desktop"
+            ? "Runs on your local computer through OpenTeam desktop"
+            : connection.transport === "stdio"
             ? "Runs on your Bot computer"
             : "Connects to the configured server"}{" "}
           · {connection.status.replaceAll("_", " ")}
@@ -239,7 +241,7 @@ export function ConnectionConfiguration({
           )}
         </PluginField>
       ))}
-      <details className="rounded-xl border border-black/10 p-3 dark:border-white/10">
+      {config.runtime !== "desktop" && <details className="rounded-xl border border-black/10 p-3 dark:border-white/10">
         <summary className="cursor-pointer text-sm font-medium">Server settings</summary>
         <div className="mt-4 grid gap-4">
           {connection.transport === "http" && (
@@ -326,7 +328,7 @@ export function ConnectionConfiguration({
             Stable tool namespace: {config.namespace}
           </p>
         </div>
-      </details>
+      </details>}
       <div className="flex flex-wrap gap-2">
         <PluginButton
           disabled={operation.busy}

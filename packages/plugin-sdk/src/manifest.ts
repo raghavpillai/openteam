@@ -1,4 +1,5 @@
 import { isSecretKey } from "./configuration";
+import { desktopMcpProvider } from "./desktop-runtime";
 import { PLUGIN_ICON_MAX_BASE64_LENGTH } from "./icons";
 import type { PluginDefinition, PluginField } from "./types";
 
@@ -132,6 +133,9 @@ export function parsePluginDefinition(value: unknown): PluginDefinition {
       throw new Error("Unknown builtin connector");
     if (connector.transport === "stdio" && typeof connector.configuration?.command !== "string")
       throw new Error("Local MCP connector must declare a command");
+    const desktopProvider = desktopMcpProvider(connector.configuration);
+    if (desktopProvider && (connector.transport !== "stdio" || connector.auth !== "none"))
+      throw new Error("Desktop MCP providers use stdio and authenticate in their desktop app");
     if (connector.transport === "stdio" && connector.auth === "oauth") {
       const oauth = connector.oauth;
       if (!oauth?.authorizationServer || oauth.registration !== "manual")

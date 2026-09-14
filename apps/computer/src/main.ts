@@ -21,6 +21,8 @@ import { BoxStoreSync } from "./box-store-sync";
 import { computerEventStream } from "./computer-event-stream";
 import { BotAgentStore } from "./bot-agent-store";
 import { StdioMcpManager } from "./mcp-manager";
+import { McpRuntimeRouter } from "./mcp-runtime-router";
+import { DesktopMcpClient } from "./desktop-mcp-client";
 import { resolveWorkspacePath } from "./paths";
 import { ComputerRuntime } from "./runtime";
 import { ScreenBroker } from "./screen-broker";
@@ -44,7 +46,7 @@ const runtime = new ComputerRuntime(screens, agentStores, ({ botId }) =>
     chrome: true,
   })
 );
-const stdioMcp = new StdioMcpManager();
+const stdioMcp = new McpRuntimeRouter(new StdioMcpManager(), new DesktopMcpClient(controlToken));
 
 const json = (value: unknown, status = 200, headers: Record<string, string> = {}) =>
   Response.json(value, {

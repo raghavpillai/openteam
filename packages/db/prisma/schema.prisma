@@ -563,6 +563,7 @@ model Channel {
   runs        Run[]
   routines    Routine[]
   readState   ChannelReadState?
+  notifications ChannelNotification[]
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
 
@@ -573,8 +574,24 @@ model ChannelReadState {
   channelId        String   @id @db.Uuid
   channel          Channel  @relation(fields: [channelId], references: [id], onDelete: Cascade)
   lastReadSequence BigInt   @default(0)
+  lastReadNotificationSequence BigInt @default(0)
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
+}
+
+model ChannelNotification {
+  sequence BigInt @id @default(autoincrement())
+  key String @unique
+  channelId String @db.Uuid
+  channel Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  botId String @db.Uuid
+  kind String
+  messageSequence BigInt?
+  payload Json
+  revoked Boolean @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([channelId, sequence])
 }
 
 model ChannelMember {

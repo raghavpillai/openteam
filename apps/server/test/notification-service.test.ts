@@ -215,6 +215,7 @@ describe("NotificationService", () => {
     let lastReadSequence = 8n;
     const events: unknown[] = [];
     const tx = {
+      channelNotification: { findFirst: async () => null },
       channel: {
         findUnique: async () => ({ id: "00000000-0000-0000-0000-000000000001" }),
         findMany: async () => [
@@ -240,13 +241,15 @@ describe("NotificationService", () => {
         ],
       },
       $executeRaw: async (_strings: TemplateStringsArray, _channelId: string, target: bigint) => {
-        if (target > lastReadSequence) lastReadSequence = target;
+        if (_strings.join("").includes("INSERT") && target > lastReadSequence)
+          lastReadSequence = target;
         return 1;
       },
-      $queryRaw: async () => [{ count: 1n }],
+      $queryRaw: async (query: { sql: string }) =>
+        query.sql.includes("notificationCursor") ? [] : [{ count: 1n }],
       channelReadState: {
-        findUnique: async () => ({ lastReadSequence }),
-        findUniqueOrThrow: async () => ({ lastReadSequence }),
+        findUnique: async () => ({ lastReadSequence, lastReadNotificationSequence: 0n }),
+        findUniqueOrThrow: async () => ({ lastReadSequence, lastReadNotificationSequence: 0n }),
       },
       event: {
         create: async ({ data }: { data: unknown }) => {
@@ -267,6 +270,7 @@ describe("NotificationService", () => {
     ).resolves.toEqual({
       channelId: "00000000-0000-0000-0000-000000000001",
       lastReadSequence: "10",
+      lastReadNotificationSequence: "0",
       unreadCount: 1,
     });
     await Effect.runPromise(service.markChannelRead("00000000-0000-0000-0000-000000000001", "9"));

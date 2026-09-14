@@ -5,7 +5,11 @@ import {
   type RegisterPushDeviceInput,
 } from "@openteam/contracts";
 import type { Prisma, PrismaClient } from "@openteam/db";
-import { unreadBadgeCount, unreadChannelCount } from "@openteam/messaging";
+import {
+  unreadBadgeCount,
+  unreadChannelCount,
+  channelNotificationStates,
+} from "@openteam/messaging";
 import { appendEvent, serviceEffect } from "./service-utils";
 
 const PUSH_DELIVERY_LOCK_TIMEOUT_MS = 20_000;
@@ -123,79 +127,121 @@ export class NotificationService {
       return { ok: true };
     });
 
-  markChannelRead = (channelId: string, throughSequence?: string) =>
+  markChannelRead = (
+    channelId: string,
+    throughSequence?: string,
+    throughNotificationSequence?: string
+  ) =>
     serviceEffect(async () =>
-      this.prisma.$transaction(async (tx) => {
-        const channel = await tx.channel.findUnique({
-          where: { id: channelId },
-          select: { id: true },
-        });
-        if (!channel) throw new ApiError(404, "channel_not_found", "Channel not found");
-        const latest = await tx.channelMessage.findFirst({
-          where: { channelId },
-          orderBy: { sequence: "desc" },
-          select: { sequence: true },
-        });
-        const latestSequence = latest?.sequence ?? 0n;
-        let requested = latestSequence;
-        if (throughSequence !== undefined) {
-          if (!/^\d+$/.test(throughSequence)) {
-            throw new ApiError(400, "invalid_sequence", "throughSequence must be an integer");
+      this.prisma.$transaction(
+        async (tx) => {
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(${PUSH_DELIVERY_ADVISORY_LOCK.namespace}, ${PUSH_DELIVERY_ADVISORY_LOCK.key})`;
+          await tx.$executeRaw`SELECT 1 FROM "Channel" WHERE id = ${channelId}::uuid FOR NO KEY UPDATE`;
+          const channel = await tx.channel.findUnique({
+            where: { id: channelId },
+            select: { id: true },
+          });
+          if (!channel) throw new ApiError(404, "channel_not_found", "Channel not found");
+          const latest = await tx.channelMessage.findFirst({
+            where: { channelId },
+            orderBy: { sequence: "desc" },
+            select: { sequence: true },
+          });
+          const latestSequence = latest?.sequence ?? 0n;
+          let requested = latestSequence;
+          if (throughSequence !== undefined) {
+            if (!/^\d+$/.test(throughSequence)) {
+              throw new ApiError(400, "invalid_sequence", "throughSequence must be an integer");
+            }
+            requested = BigInt(throughSequence);
           }
-          requested = BigInt(throughSequence);
-        }
-        const target = requested > latestSequence ? latestSequence : requested;
-        const previousState = await tx.channelReadState.findUnique({ where: { channelId } });
-        await tx.$executeRaw`
-            INSERT INTO "ChannelReadState" ("channelId", "lastReadSequence", "createdAt", "updatedAt")
-            VALUES (${channelId}::uuid, ${target}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+          const target = requested > latestSequence ? latestSequence : requested;
+          if (
+            throughNotificationSequence !== undefined &&
+            !/^\d+$/.test(throughNotificationSequence)
+          ) {
+            throw new ApiError(
+              400,
+              "invalid_sequence",
+              "throughNotificationSequence must be an integer"
+            );
+          }
+          const latestNotification = await tx.channelNotification.findFirst({
+            where: { channelId },
+            orderBy: { sequence: "desc" },
+            select: { sequence: true },
+          });
+          const notificationEnd = latestNotification?.sequence ?? 0n;
+          // Older clients cannot acknowledge reaction activity they have never seen.
+          const requestedNotification = BigInt(throughNotificationSequence ?? "0");
+          const notificationTarget =
+            requestedNotification < notificationEnd ? requestedNotification : notificationEnd;
+          const previousState = await tx.channelReadState.findUnique({ where: { channelId } });
+          await tx.$executeRaw`
+            INSERT INTO "ChannelReadState" ("channelId", "lastReadSequence", "lastReadNotificationSequence", "createdAt", "updatedAt")
+            VALUES (${channelId}::uuid, ${target}, ${notificationTarget}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             ON CONFLICT ("channelId") DO UPDATE SET
               "lastReadSequence" = GREATEST(
                 "ChannelReadState"."lastReadSequence",
                 EXCLUDED."lastReadSequence"
               ),
+              "lastReadNotificationSequence" = GREATEST("ChannelReadState"."lastReadNotificationSequence", EXCLUDED."lastReadNotificationSequence"),
               "updatedAt" = CASE
                 WHEN EXCLUDED."lastReadSequence" > "ChannelReadState"."lastReadSequence"
+                  OR EXCLUDED."lastReadNotificationSequence" > "ChannelReadState"."lastReadNotificationSequence"
                 THEN CURRENT_TIMESTAMP
                 ELSE "ChannelReadState"."updatedAt"
               END
           `;
-        const state = await tx.channelReadState.findUniqueOrThrow({ where: { channelId } });
-        const unreadCount = await unreadChannelCount(tx, channelId, state.lastReadSequence);
-        if (!previousState || state.lastReadSequence > previousState.lastReadSequence) {
-          await appendEvent(tx, "channel.read", channelId, {
+          const state = await tx.channelReadState.findUniqueOrThrow({ where: { channelId } });
+          const activityState = (await channelNotificationStates(tx, [channelId])).get(channelId);
+          const unreadCount =
+            (await unreadChannelCount(tx, channelId, state.lastReadSequence)) +
+            (activityState?.activityUnreadCount ?? 0);
+          const readState = {
             channelId,
             lastReadSequence: state.lastReadSequence.toString(),
-            unreadCount,
-          });
-          const [badgeCount, devices] = await Promise.all([
-            unreadBadgeCount(tx),
-            tx.pushDevice.findMany({
-              where: deliverablePushDeviceWhere(this.authMode),
-              select: { id: true },
-            }),
-          ]);
-          if (devices.length > 0) {
-            await tx.outboxDelivery.createMany({
-              data: devices.map((device) => ({
-                deliveryKey: `notification:badge:${channelId}:${state.lastReadSequence}:${device.id}`,
-                topic: "push.notification",
-                target: device.id,
-                payload: {
-                  schemaVersion: 1,
-                  kind: "badge-sync",
-                  badgeCount,
-                },
-              })),
-              skipDuplicates: true,
+            lastReadNotificationSequence: state.lastReadNotificationSequence.toString(),
+          };
+          if (
+            !previousState ||
+            state.lastReadSequence > previousState.lastReadSequence ||
+            state.lastReadNotificationSequence > previousState.lastReadNotificationSequence
+          ) {
+            await appendEvent(tx, "channel.read", channelId, {
+              ...readState,
+              unreadCount,
             });
+            const [badgeCount, devices] = await Promise.all([
+              unreadBadgeCount(tx),
+              tx.pushDevice.findMany({
+                where: deliverablePushDeviceWhere(this.authMode),
+                select: { id: true },
+              }),
+            ]);
+            if (devices.length > 0) {
+              await tx.outboxDelivery.createMany({
+                data: devices.map((device) => ({
+                  deliveryKey: `notification:badge:${channelId}:${state.lastReadSequence}:${state.lastReadNotificationSequence}:${device.id}`,
+                  topic: "push.notification",
+                  target: device.id,
+                  payload: {
+                    schemaVersion: 1,
+                    kind: "badge-sync",
+                    badgeCount,
+                    readState,
+                  },
+                })),
+                skipDuplicates: true,
+              });
+            }
           }
-        }
-        return {
-          channelId,
-          lastReadSequence: state.lastReadSequence.toString(),
-          unreadCount,
-        };
-      })
+          return {
+            ...readState,
+            unreadCount,
+          };
+        },
+        { maxWait: PUSH_DELIVERY_LOCK_TIMEOUT_MS, timeout: PUSH_DELIVERY_LOCK_TIMEOUT_MS }
+      )
     );
 }

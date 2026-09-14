@@ -529,6 +529,17 @@ describe("snapshot pagination", () => {
         approval: { findMany: async () => [] },
         $queryRaw: async (query: RawQuery) => {
           const sql = rawSql(query);
+          if (sql.includes('"notificationCursor"'))
+            return [
+              {
+                channelId,
+                lastReadSequence: 40n,
+                lastReadNotificationSequence: 0n,
+                notificationCursor: 0n,
+                notifications: [],
+                activityUnreadCount: 0n,
+              },
+            ];
           if (sql.includes("CROSS JOIN LATERAL")) {
             latestQuery = query;
             return [latestMessage];

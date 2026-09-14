@@ -1,5 +1,7 @@
 export { parseAutomationEvent, matchesAutomationEvent, type AutomationEvent } from "./automation-events";
 import { join } from "node:path";
+import { publishChannelNotification, publishMessageNotification } from "./notifications";
+export { publishChannelNotification, publishMessageNotification, channelNotificationStates } from "./notifications";
 import {
   type AdminBroadcastInput,
   type AgentImageInput,
@@ -2480,6 +2482,18 @@ export class AgentMessaging {
         where: { id: message.id },
         data: { metadata: json(metadata) },
       });
+      const notificationKey = `reaction:${message.id}:${context.botId}:${input.emoji}`;
+      if (removed) {
+        await tx.channelNotification.updateMany({ where: { key: { startsWith: `${notificationKey}:` } }, data: { revoked: true } });
+      } else {
+        const bot = await tx.bot.findUniqueOrThrow({ where: { id: context.botId } });
+        await publishChannelNotification(tx, `${notificationKey}:${context.callId}`, {
+          schemaVersion: 1, kind: "reaction", botId: context.botId, channelId: message.channelId,
+          runId: context.runId, messageSequence: message.sequence.toString(),
+          title: bot.name, body: `Reacted ${input.emoji} to ${message.content ? `“${message.content}”` : "your message"}`,
+          deepLink: `openteam:///chat/${message.channelId}`,
+        });
+      }
       const result = {
         reacted: !removed,
         removed,
@@ -2657,6 +2671,7 @@ export class AgentMessaging {
           }),
         },
       });
+      await publishMessageNotification(tx, message);
       await this.scheduleTranscriptProjection(
         tx,
         channel.members.map((member) => member.botId)

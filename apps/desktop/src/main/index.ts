@@ -14,6 +14,7 @@ import {
   ipcMain,
   Menu,
   Notification,
+  nativeImage,
   nativeTheme,
   net,
   protocol,
@@ -39,6 +40,7 @@ import {
   type DesktopAgentNotificationState,
   DesktopNotificationManager,
   type DesktopNotificationSnapshot,
+  parseNotificationChannels,
 } from "./notifications";
 import {
   type AutoReviewRuleKind,
@@ -60,6 +62,8 @@ let permissionSettings: PermissionSettingsStore | null = null;
 let desktopNotifications: DesktopNotificationManager | null = null;
 let durableSendJournals: DurableSendJournalStore | null = null;
 const activeNotifications = new Set<Notification>();
+const activityNotifications = new Map<string, Notification>();
+let isQuitting = false;
 const localMachine = { machineId: "this-computer", label: hostname() } as const;
 const windowBackground = () => (nativeTheme.shouldUseDarkColors ? "#080808" : "#fbfbfb");
 const releasePage = "https://github.com/raghavpillai/openteam/releases/latest";
@@ -728,8 +732,11 @@ const desktopAgentState = (value: unknown): DesktopAgentNotificationState | null
 
 const desktopNotificationSnapshot = (value: unknown): DesktopNotificationSnapshot | null => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const candidate = value as { cursor?: unknown; agents?: unknown };
+  const candidate = value as { cursor?: unknown; agents?: unknown; channels?: unknown };
   const agents = candidate.agents;
+  const channels =
+    candidate.channels === undefined ? undefined : parseNotificationChannels(candidate.channels);
+  if (channels === null) return null;
   if (
     candidate.cursor !== undefined &&
     (typeof candidate.cursor !== "string" || !/^\d+$/.test(candidate.cursor))
@@ -739,7 +746,11 @@ const desktopNotificationSnapshot = (value: unknown): DesktopNotificationSnapsho
   if (!Array.isArray(agents) || agents.length > 10_000) return null;
   const parsed = agents.map(desktopAgentState);
   return parsed.every((agent): agent is DesktopAgentNotificationState => Boolean(agent))
-    ? { agents: parsed, ...(candidate.cursor ? { cursor: candidate.cursor } : {}) }
+    ? {
+        agents: parsed,
+        ...(candidate.cursor ? { cursor: candidate.cursor } : {}),
+        ...(channels !== undefined ? { channels } : {}),
+      }
     : null;
 };
 
@@ -909,6 +920,12 @@ const createWindow = async () => {
   });
 
   mainWindow.once("ready-to-show", () => mainWindow?.show());
+  mainWindow.on("close", (event) => {
+    if (process.platform === "darwin" && !isQuitting) {
+      event.preventDefault();
+      mainWindow?.hide();
+    }
+  });
   mainWindow.once("closed", () => {
     mainWindow = null;
   });
@@ -1017,16 +1034,31 @@ if (!hasSingleInstanceLock) {
         isFocused: () => mainWindow?.isFocused() ?? false,
         isSupported: () => Notification.isSupported(),
         setBadge: (label) => app.dock?.setBadge(label),
+        dismiss: (id) => {
+          activityNotifications.get(id)?.close();
+          activityNotifications.delete(id);
+        },
         deliver: (notificationEvent) => {
           const debugNotifications = process.env.OPENTEAM_NOTIFICATION_DEBUG === "1";
           const notification = new Notification({
+            id: notificationEvent.notificationId,
+            groupId: notificationEvent.channelId,
             title: notificationEvent.title,
             body: notificationEvent.body,
+            icon: notificationEvent.sender?.avatarDataUrl
+              ? nativeImage.createFromDataURL(notificationEvent.sender.avatarDataUrl)
+              : undefined,
             silent: notificationEvent.sound === null,
             urgency: notificationEvent.urgency,
           });
           activeNotifications.add(notification);
-          const release = () => activeNotifications.delete(notification);
+          if (notificationEvent.notificationId)
+            activityNotifications.set(notificationEvent.notificationId, notification);
+          const release = () => {
+            activeNotifications.delete(notification);
+            if (notificationEvent.notificationId)
+              activityNotifications.delete(notificationEvent.notificationId);
+          };
           notification.once("close", release);
           notification.once("show", () => {
             if (debugNotifications) {
@@ -1133,6 +1165,7 @@ if (!hasSingleInstanceLock) {
 
       app.on("activate", () => {
         if (BrowserWindow.getAllWindows().length === 0) void createWindow();
+        else focusMainWindow();
       });
     })
     .catch((error) => {
@@ -1142,6 +1175,7 @@ if (!hasSingleInstanceLock) {
 }
 
 app.on("before-quit", () => {
+  isQuitting = true;
   if (desktopUpdateTimer) clearInterval(desktopUpdateTimer);
   desktopUpdateTimer = null;
   desktopNotifications?.clear();

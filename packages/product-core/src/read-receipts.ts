@@ -11,7 +11,12 @@ export const readReceiptTarget = (latest: string | null, requested?: string): st
 };
 
 export interface ReadReceiptRequest {
-  send: (channelId: string, throughSequence?: string) => Promise<MarkChannelReadView>;
+  send: (
+    channelId: string,
+    throughSequence?: string,
+    throughNotificationSequence?: string
+  ) => Promise<MarkChannelReadView>;
+  throughNotificationSequence?: string;
   isCurrent?: () => boolean;
   onAcknowledged?: (result: MarkChannelReadView) => void | Promise<void>;
   onError?: (cause: unknown) => void;
@@ -20,7 +25,11 @@ export interface ReadReceiptRequest {
 /** One serial, monotonic read watermark per channel; rendering and visibility stay in the apps. */
 export const createReadReceiptController = () => {
   const acknowledged = new Map<string, bigint>();
-  const pending = new Map<string, { sequence: string | undefined }>();
+  const acknowledgedNotifications = new Map<string, bigint>();
+  const pending = new Map<
+    string,
+    { sequence: string | undefined; notificationSequence?: string }
+  >();
   const running = new Map<string, Promise<void>>();
   let generation = 0;
 
@@ -28,9 +37,12 @@ export const createReadReceiptController = () => {
     hasState: (channelId: string): boolean => acknowledged.has(channelId) || pending.has(channelId),
     acknowledgedThrough: (channelId: string): string | null =>
       acknowledged.get(channelId)?.toString() ?? null,
+    acknowledgedNotificationThrough: (channelId: string): string | null =>
+      acknowledgedNotifications.get(channelId)?.toString() ?? null,
     clear: () => {
       generation += 1;
       acknowledged.clear();
+      acknowledgedNotifications.clear();
       pending.clear();
       running.clear();
     },
@@ -40,17 +52,37 @@ export const createReadReceiptController = () => {
       options: ReadReceiptRequest
     ): Promise<void> => {
       const target = numericSequence(throughSequence);
+      const notificationTarget = numericSequence(options.throughNotificationSequence) ?? 0n;
       if (throughSequence !== undefined && target === null) return Promise.resolve();
-      if (target !== null && target <= (acknowledged.get(channelId) ?? -1n))
+      if (
+        target !== null &&
+        target <= (acknowledged.get(channelId) ?? -1n) &&
+        notificationTarget <= (acknowledgedNotifications.get(channelId) ?? 0n)
+      )
         return Promise.resolve();
       const previous = pending.get(channelId);
       const previousSequence = numericSequence(previous?.sequence);
       if (
         !previous ||
         throughSequence === undefined ||
-        (previous.sequence !== undefined && target !== null && target > (previousSequence ?? -1n))
+        (previous.sequence !== undefined &&
+          target !== null &&
+          target > (previousSequence ?? -1n)) ||
+        notificationTarget > (numericSequence(previous?.notificationSequence) ?? 0n)
       ) {
-        pending.set(channelId, { sequence: throughSequence });
+        const previousNotification = numericSequence(previous?.notificationSequence) ?? 0n;
+        pending.set(channelId, {
+          sequence:
+            previous &&
+            (previous.sequence === undefined ||
+              (previousSequence !== null && target !== null && previousSequence > target))
+              ? previous.sequence
+              : throughSequence,
+          notificationSequence: (previousNotification > notificationTarget
+            ? previousNotification
+            : notificationTarget
+          ).toString(),
+        });
       }
       const existing = running.get(channelId);
       if (existing) return existing;
@@ -64,18 +96,31 @@ export const createReadReceiptController = () => {
             const next = pending.get(channelId);
             if (!next) break;
             const before = acknowledged.get(channelId) ?? -1n;
-            const result = await options.send(channelId, next.sequence);
+            const result = await options.send(channelId, next.sequence, next.notificationSequence);
             if (!isCurrent()) return;
             const confirmed = numericSequence(result.lastReadSequence);
+            const confirmedNotification =
+              numericSequence(result.lastReadNotificationSequence) ?? 0n;
+            acknowledgedNotifications.set(
+              channelId,
+              confirmedNotification > (acknowledgedNotifications.get(channelId) ?? 0n)
+                ? confirmedNotification
+                : (acknowledgedNotifications.get(channelId) ?? 0n)
+            );
             if (confirmed !== null)
               acknowledged.set(channelId, confirmed > before ? confirmed : before);
             const queued = pending.get(channelId);
             const queuedSequence = numericSequence(queued?.sequence);
             const requested = numericSequence(next.sequence);
-            const accepted = requested === null || (confirmed !== null && confirmed >= requested);
+            const accepted =
+              (requested === null || (confirmed !== null && confirmed >= requested)) &&
+              confirmedNotification >= (numericSequence(next.notificationSequence) ?? 0n);
             if (
               (queued === next && accepted) ||
-              (confirmed !== null && queuedSequence !== null && queuedSequence <= confirmed)
+              (confirmed !== null &&
+                queuedSequence !== null &&
+                queuedSequence <= confirmed &&
+                confirmedNotification >= (numericSequence(queued?.notificationSequence) ?? 0n))
             ) {
               pending.delete(channelId);
             }

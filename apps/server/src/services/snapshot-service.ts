@@ -1,3 +1,4 @@
+import { channelNotificationStates } from "@openteam/messaging";
 import {
   ApiError,
   type ChannelClientState,
@@ -155,7 +156,14 @@ export class SnapshotService {
             bot.channelMemberships.some((membership) => membership.channel.kind === "bot_dm")
           )
           .map(toBotView),
-        channels: channelViews(channels, unreadCounts),
+        channels: channelViews(
+          channels,
+          unreadCounts,
+          await channelNotificationStates(
+            this.prisma,
+            channels.map((channel) => channel.id)
+          )
+        ),
         channelMessages: messageViews(channelMessages),
         channelRounds: roundViews(channelRounds),
         messages: messages.map((message) => ({
@@ -243,7 +251,14 @@ export class SnapshotService {
           bot.channelMemberships.some((membership) => membership.channel.kind === "bot_dm")
         )
         .map(toBotView),
-      channels: channelViews(channels, unreadCounts),
+      channels: channelViews(
+        channels,
+        unreadCounts,
+        await channelNotificationStates(
+          this.prisma,
+          channels.map((channel) => channel.id)
+        )
+      ),
       channelMessages: messageViews(channelMessages),
       channelRounds: roundViews(channelRounds),
       runs: runViews(runs),
@@ -354,7 +369,14 @@ export class SnapshotService {
           bot.channelMemberships.some((membership) => membership.channel.kind === "bot_dm")
         )
         .map(toBotView),
-      channels: channelViews(channels, unreadCounts),
+      channels: channelViews(
+        channels,
+        unreadCounts,
+        await channelNotificationStates(
+          this.prisma,
+          channels.map((channel) => channel.id)
+        )
+      ),
       latestMessages: messageViews(latestMessages),
       activeRuns: runViews(activeRuns),
       pendingApprovals: approvalViews(approvals, activeRuns, subagentAttempts),

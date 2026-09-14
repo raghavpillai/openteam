@@ -1,4 +1,4 @@
-import type { Snapshot } from "@openteam/contracts";
+import type { Snapshot, ChannelNotificationState } from "@openteam/contracts";
 import { resolve } from "node:path";
 import { toChannelMessageView } from "../view-mappers";
 
@@ -25,7 +25,11 @@ export function channelViews<
     createdAt: Date;
     updatedAt: Date;
   }>,
->(channels: T, unreadCounts: ReadonlyMap<string, number>) {
+>(
+  channels: T,
+  unreadCounts: ReadonlyMap<string, number>,
+  notificationStates?: ReadonlyMap<string, ChannelNotificationState>
+) {
   return channels.map((channel) => ({
     id: channel.id,
     kind: channel.kind as Snapshot["channels"][number]["kind"],
@@ -36,7 +40,10 @@ export function channelViews<
     workingDirectory: channel.workingDirectory,
     hiddenFromSidebar: channel.hiddenFromSidebar,
     members: channel.members.map((member) => ({ botId: member.botId, ordinal: member.ordinal })),
-    unreadCount: unreadCounts.get(channel.id) ?? 0,
+    unreadCount:
+      (unreadCounts.get(channel.id) ?? 0) +
+      (notificationStates?.get(channel.id)?.activityUnreadCount ?? 0),
+    notificationState: notificationStates?.get(channel.id),
     createdAt: channel.createdAt.toISOString(),
     updatedAt: channel.updatedAt.toISOString(),
   }));

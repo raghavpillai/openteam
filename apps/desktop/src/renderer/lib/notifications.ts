@@ -1,3 +1,4 @@
+import { notificationAvatarDataUrl } from "./notification-avatar";
 import type { ClientSnapshot, RunView } from "@openteam/contracts";
 import {
   notificationApprovalReason,
@@ -5,6 +6,7 @@ import {
   notificationMessagePreview,
 } from "@openteam/contracts/notification-content";
 import { isActiveRunStatus } from "@openteam/product-core/statuses";
+import type { ChannelNotificationState } from "@openteam/contracts/notification-content";
 
 export interface AgentNotificationEvent {
   botId: string;
@@ -31,7 +33,11 @@ export const desktopNotificationSnapshot = (
   snapshot: ClientSnapshot,
   unreadIds: ReadonlySet<string>,
   visibleChannelId: string | null = null
-): { cursor: string; agents: DesktopAgentNotificationState[] } => {
+): {
+  cursor: string;
+  agents: DesktopAgentNotificationState[];
+  channels?: Array<ChannelNotificationState & { unreadCount: number }>;
+} => {
   const activeRuns = activeRunsByBot(snapshot);
   const latestByChannel = new Map<
     string,
@@ -50,6 +56,25 @@ export const desktopNotificationSnapshot = (
   const botById = new Map(snapshot.bots.map((bot) => [bot.id, bot] as const));
   return {
     cursor: snapshot.cursor,
+    ...(snapshot.channels.some((channel) => channel.notificationState)
+      ? {
+          channels: snapshot.channels.flatMap((channel) =>
+            channel.notificationState &&
+            !channel.hiddenFromSidebar &&
+            channel.members.some((member) => !botById.get(member.botId)?.hiddenFromSidebar)
+              ? [
+                  {
+                    ...channel.notificationState,
+                    notifications: channel.notificationState.notifications.map((alert) => ({
+                      ...alert,
+                    })),
+                    unreadCount: channel.unreadCount ?? 0,
+                  },
+                ]
+              : []
+          ),
+        }
+      : {}),
     agents: snapshot.channels.flatMap((channel) => {
       if (channel.kind !== "bot_dm") return [];
       const bot = botById.get(channel.members[0]?.botId ?? "");
@@ -93,13 +118,37 @@ export interface DesktopNotificationSyncTarget {
  * the large derived roster out of a React render binding prevents unrelated
  * event-handler closures from retaining an old copy of it.
  */
+const pendingAvatarSync = new WeakMap<DesktopNotificationSyncTarget, object>();
+
 export const syncDesktopNotificationSnapshot = (
   target: DesktopNotificationSyncTarget | undefined,
   snapshot: ClientSnapshot | null,
   unreadIds: ReadonlySet<string>
 ): boolean => {
-  if (!target || !snapshot) return false;
-  target.sync(desktopNotificationSnapshot(snapshot, unreadIds));
+  if (!target) return false;
+  if (!snapshot) {
+    pendingAvatarSync.delete(target);
+    return false;
+  }
+  const projection = desktopNotificationSnapshot(snapshot, unreadIds);
+  const generation = {};
+  pendingAvatarSync.set(target, generation);
+  const alerts = projection.channels?.flatMap((channel) => channel.notifications) ?? [];
+  if (typeof Image === "undefined" || !alerts.some((alert) => alert.sender)) {
+    target.sync(projection);
+  } else {
+    void Promise.all(
+      alerts.map(async (alert) => {
+        if (alert.sender)
+          alert.sender = {
+            ...alert.sender,
+            avatarDataUrl: await notificationAvatarDataUrl(alert.sender),
+          };
+      })
+    ).then(() => {
+      if (pendingAvatarSync.get(target) === generation) target.sync(projection);
+    });
+  }
   return true;
 };
 

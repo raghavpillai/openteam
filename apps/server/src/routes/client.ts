@@ -100,7 +100,12 @@ const routes = [
     "POST",
     /^\/api\/channels\/([^/]+)\/read$/,
     MarkChannelReadInput,
-    ({ app }, id, input) => app.markChannelRead(decodeURIComponent(id), input.throughSequence)
+    ({ app }, id, input) =>
+      app.markChannelRead(
+        decodeURIComponent(id),
+        input.throughSequence,
+        input.throughNotificationSequence
+      )
   ),
   effectRoute("GET", "/api/client-runtime", ({ app }) => app.clientRuntime()),
   effectRoute("GET", "/api/bots", ({ app, url }, id) =>

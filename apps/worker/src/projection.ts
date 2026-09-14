@@ -1,12 +1,10 @@
 import {
   agentNotificationPresentation,
   type ComputerEvent,
-  notificationMessageInputReason,
-  notificationMessagePreview,
 } from "@openteam/contracts";
 import type { Prisma, PrismaClient, RunItemKind, RunItemStatus } from "@openteam/db";
-import type { AgentDataStore } from "@openteam/messaging";
-import { approvalReason, enqueuePushNotification } from "./push-notifications";
+import { type AgentDataStore, publishChannelNotification, publishMessageNotification } from "@openteam/messaging";
+import { approvalReason } from "./push-notifications";
 
 const json = (value: unknown): Prisma.InputJsonValue =>
   JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
@@ -377,7 +375,7 @@ export class Projection {
                 botName: target.bot.name,
                 body: approvalReason(event.details),
               });
-              await enqueuePushNotification(tx, `notification:needs-input:${event.approvalId}`, {
+              await publishChannelNotification(tx, `notification:needs-input:${event.approvalId}`, {
                 schemaVersion: 1,
                 kind: "agent-needs-input",
                 botId: target.bot.id,
@@ -521,32 +519,9 @@ export class Projection {
                 senderBotId: target.bot.id,
               },
               orderBy: { sequence: "desc" },
-              select: { content: true, metadata: true },
             });
             if (lastMessage) {
-              const inputReason = notificationMessageInputReason(lastMessage);
-              const kind = inputReason ? "agent-needs-input" : "agent-done";
-              const presentation = agentNotificationPresentation({
-                kind,
-                botName: target.bot.name,
-                body: inputReason ?? notificationMessagePreview(lastMessage),
-              });
-              await enqueuePushNotification(
-                tx,
-                inputReason
-                  ? `notification:needs-input:message:${runId}`
-                  : `notification:done:${runId}`,
-                {
-                  schemaVersion: 1,
-                  kind,
-                  botId: target.bot.id,
-                  channelId: target.channel.id,
-                  runId,
-                  title: presentation.title,
-                  body: presentation.body,
-                  deepLink: `openteam:///chat/${target.channel.id}`,
-                }
-              );
+              await publishMessageNotification(tx, lastMessage);
             }
           }
         });

@@ -15,6 +15,10 @@
 		BB2F792D24A3F905000567C9 /* Expo.plist in Resources */ = {isa = PBXBuildFile; fileRef = BB2F792C24A3F905000567C9 /* Expo.plist */; };
 		C6CF8AC6FA8CD9DB7E5B6086 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = D1F981763DD734A12B0C72BF /* PrivacyInfo.xcprivacy */; };
 		F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11748412D0307B40044C1D9 /* AppDelegate.swift */; };
+		E0FB64B2970C4298B54F54C6 /* OpenTeamNotificationService.appex in Copy Files */ = {isa = PBXBuildFile; fileRef = 68955895B27345298F00B867 /* OpenTeamNotificationService.appex */; };
+		F8C6B67A8D2F4A718888A228 /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5452EA3815E446048A954A41 /* NotificationService.swift */; };
+		D5C30C0EBD7E4B68ACFF6428 /* RobotNotificationAvatar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28EADE3ECE13430C9CB3BD2C /* RobotNotificationAvatar.swift */; };
+		749F39A5C4C543A8AAFBC540 /* RobotArtwork.json in Resources */ = {isa = PBXBuildFile; fileRef = 1E5CD33AEC264B32B30F1BDD /* RobotArtwork.json */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -32,6 +36,10 @@
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
 		F11748412D0307B40044C1D9 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = OpenTeam/AppDelegate.swift; sourceTree = "<group>"; };
 		F11748442D0722820044C1D9 /* OpenTeam-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = "OpenTeam-Bridging-Header.h"; path = "OpenTeam/OpenTeam-Bridging-Header.h"; sourceTree = "<group>"; };
+		68955895B27345298F00B867 /* OpenTeamNotificationService.appex */ = {isa = PBXFileReference; name = "OpenTeamNotificationService.appex"; path = "OpenTeamNotificationService.appex"; sourceTree = BUILT_PRODUCTS_DIR; fileEncoding = undefined; lastKnownFileType = undefined; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; };
+		5452EA3815E446048A954A41 /* NotificationService.swift */ = {isa = PBXFileReference; name = "NotificationService.swift"; path = "../notification-service/NotificationService.swift"; sourceTree = "<group>"; fileEncoding = 4; lastKnownFileType = sourcecode.swift; explicitFileType = undefined; includeInIndex = 0; };
+		28EADE3ECE13430C9CB3BD2C /* RobotNotificationAvatar.swift */ = {isa = PBXFileReference; name = "RobotNotificationAvatar.swift"; path = "../notification-service/RobotNotificationAvatar.swift"; sourceTree = "<group>"; fileEncoding = 4; lastKnownFileType = sourcecode.swift; explicitFileType = undefined; includeInIndex = 0; };
+		1E5CD33AEC264B32B30F1BDD /* RobotArtwork.json */ = {isa = PBXFileReference; name = "RobotArtwork.json"; path = "../notification-service/RobotArtwork.json"; sourceTree = "<group>"; fileEncoding = undefined; lastKnownFileType = unknown; explicitFileType = undefined; includeInIndex = 0; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -40,6 +48,13 @@
 			buildActionMask = 2147483647;
 			files = (
 				6FC54B2DEF2C23A52E4E82E2 /* libPods-OpenTeam.a in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B8F720D9AA354AE3AC0AED0C /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -112,6 +127,7 @@
 			isa = PBXGroup;
 			children = (
 				13B07F961A680F5B00A75B9A /* OpenTeam.app */,
+				68955895B27345298F00B867 /* OpenTeamNotificationService.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -150,6 +166,7 @@
 				00DD1BFF1BD5951E006B06BC /* Bundle React Native code and images */,
 				800E24972A6A228C8D4807E9 /* [CP] Copy Pods Resources */,
 				31988FEB9CD43EC054D1CBAB /* [CP] Embed Pods Frameworks */,
+				32B947D040264BFA8AAD6A36 /* Copy Files */,
 			);
 			buildRules = (
 			);
@@ -159,6 +176,23 @@
 			productName = OpenTeam;
 			productReference = 13B07F961A680F5B00A75B9A /* OpenTeam.app */;
 			productType = "com.apple.product-type.application";
+		};
+		78FC294CD7B04A3184CE00EB /* "OpenTeamNotificationService" */ = {
+			isa = PBXNativeTarget;
+			name = "OpenTeamNotificationService";
+			productName = "OpenTeamNotificationService";
+			productReference = 68955895B27345298F00B867;
+			productType = "com.apple.product-type.app-extension";
+			buildConfigurationList = D304CCC7FEA540A1B0567E43;
+			buildPhases = (
+				312138005DB342D282E1C9D7 /* Sources */,
+				E33AB5FABBC644F49E821192 /* Resources */,
+				B8F720D9AA354AE3AC0AED0C /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
 		};
 /* End PBXNativeTarget section */
 
@@ -187,6 +221,7 @@
 			projectRoot = "";
 			targets = (
 				13B07F861A680F5B00A75B9A /* OpenTeam */,
+				78FC294CD7B04A3184CE00EB /* "OpenTeamNotificationService" */,
 			);
 		};
 /* End PBXProject section */
@@ -201,6 +236,14 @@
 				13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */,
 				3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */,
 				C6CF8AC6FA8CD9DB7E5B6086 /* PrivacyInfo.xcprivacy in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E33AB5FABBC644F49E821192 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				749F39A5C4C543A8AAFBC540 /* RobotArtwork.json in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -345,6 +388,15 @@
 			files = (
 				F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */,
 				4C5D94C32F0FFFB2EEE02F12 /* ExpoModulesProvider.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		312138005DB342D282E1C9D7 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				F8C6B67A8D2F4A718888A228 /* NotificationService.swift in Sources */,
+				D5C30C0EBD7E4B68ACFF6428 /* RobotNotificationAvatar.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -555,6 +607,50 @@
 			};
 			name = Release;
 		};
+		72CF97EEEF064CA0AD373C23 /* Debug */ = {
+			name = Debug;
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				INFOPLIST_FILE = "../notification-service/Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks";
+				PRODUCT_NAME = "OpenTeamNotificationService";
+				SKIP_INSTALL = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = "dev.openbot.mobile.notifications";
+				CODE_SIGN_ENTITLEMENTS = "../notification-service/NotificationService.entitlements";
+				IPHONEOS_DEPLOYMENT_TARGET = 16.4;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				CURRENT_PROJECT_VERSION = 4;
+				MARKETING_VERSION = 0.0.1;
+				CODE_SIGN_STYLE = Automatic;
+			};
+		};
+		7E3D9D350D844F06BF267E67 /* Release */ = {
+			name = Release;
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				INFOPLIST_FILE = "../notification-service/Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks";
+				PRODUCT_NAME = "OpenTeamNotificationService";
+				SKIP_INSTALL = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = "dev.openbot.mobile.notifications";
+				CODE_SIGN_ENTITLEMENTS = "../notification-service/NotificationService.entitlements";
+				IPHONEOS_DEPLOYMENT_TARGET = 16.4;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				CURRENT_PROJECT_VERSION = 4;
+				MARKETING_VERSION = 0.0.1;
+				CODE_SIGN_STYLE = Automatic;
+			};
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -576,7 +672,30 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		D304CCC7FEA540A1B0567E43 /* Build configuration list for PBXNativeTarget "OpenTeamNotificationService" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				72CF97EEEF064CA0AD373C23 /* Debug */,
+				7E3D9D350D844F06BF267E67 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 /* End XCConfigurationList section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		32B947D040264BFA8AAD6A36 /* Copy Files */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				E0FB64B2970C4298B54F54C6 /* OpenTeamNotificationService.appex in Copy Files */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			name = "Copy Files";
+			dstPath = "";
+			dstSubfolderSpec = 13;
+		};
+/* End PBXCopyFilesBuildPhase section */
 	};
 	rootObject = 83CBB9F71A601CBA00E9B192 /* Project object */;
 }

@@ -30,8 +30,9 @@
     },
     "plugins": [
       "expo-router",
+      "./plugins/with-communication-notifications.cjs",
       "expo-font",
-      "expo-notifications",
+      ["expo-notifications", { "enableBackgroundRemoteNotifications": true }],
       [
         "expo-image-picker",
         {

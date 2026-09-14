@@ -187,3 +187,72 @@ describe("OpenTeam-compatible notification transitions", () => {
     ]);
   });
 });
+
+test("a read arriving while an icon renders supersedes the pending alert snapshot", async () => {
+  const previousImage = globalThis.Image;
+  let failImage: (() => void) | undefined;
+  globalThis.Image = class {
+    onerror?: () => void;
+    set src(_value: string) {
+      failImage = () => this.onerror?.();
+    }
+  } as unknown as typeof Image;
+  try {
+    const activity = {
+      channelId: "channel",
+      lastReadSequence: "0",
+      lastReadNotificationSequence: "0",
+      notificationCursor: "1",
+      activityUnreadCount: 0,
+      notifications: [
+        {
+          channelId: "channel",
+          botId: "bot",
+          notificationSequence: "1",
+          messageSequence: "1",
+          kind: "message",
+          title: "Probe",
+          body: "Hello",
+          sender: { name: "Probe", icon: "pod", color: "#fa0123" },
+        },
+      ],
+    };
+    const snapshot = {
+      ...base,
+      cursor: "1",
+      channels: [
+        {
+          id: "channel",
+          kind: "bot_dm",
+          members: [{ botId: "bot" }],
+          unreadCount: 1,
+          notificationState: activity,
+        },
+      ],
+    } as unknown as ClientSnapshot;
+    const published: ReturnType<typeof desktopNotificationSnapshot>[] = [];
+    const target = {
+      sync: (state: ReturnType<typeof desktopNotificationSnapshot>) => published.push(state),
+    };
+    syncDesktopNotificationSnapshot(target, snapshot, new Set(["channel"]));
+    expect(published).toHaveLength(0);
+    const read = {
+      ...snapshot,
+      cursor: "2",
+      channels: [
+        {
+          ...snapshot.channels[0],
+          unreadCount: 0,
+          notificationState: { ...activity, lastReadSequence: "1", notifications: [] },
+        },
+      ],
+    } as ClientSnapshot;
+    syncDesktopNotificationSnapshot(target, read, new Set());
+    failImage?.();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(published.map((state) => state.cursor)).toEqual(["2"]);
+    expect(activity.notifications[0]?.sender).not.toHaveProperty("avatarDataUrl");
+  } finally {
+    globalThis.Image = previousImage;
+  }
+});

@@ -111,6 +111,7 @@ import {
   type NotificationPermissionState,
   notificationPermissionState,
   setNotificationBadge,
+  synchronizeNotificationReads,
   synchronizePushRegistration,
   unregisterPushInstallation,
 } from "../notifications";
@@ -982,6 +983,11 @@ export function OpenTeamProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!connectionLoaded || !client) return;
+    void synchronizeNotificationReads(
+      snapshot.channels.flatMap((channel) =>
+        channel.notificationState ? [channel.notificationState] : []
+      )
+    ).catch(() => undefined);
     const count = snapshot.channels.reduce(
       (total, channel) => total + Math.max(0, Math.floor(channel.unreadCount ?? 0)),
       0
@@ -1056,6 +1062,13 @@ export function OpenTeamProvider({ children }: { children: React.ReactNode }) {
 
     const appStateSubscription = AppState.addEventListener("change", (state) => {
       if (state === "active") {
+        lastBadgeCountRef.current = null;
+        void setNotificationBadge(
+          snapshotRef.current.channels.reduce(
+            (total, channel) => total + Math.max(0, channel.unreadCount ?? 0),
+            0
+          )
+        ).catch(() => undefined);
         liveSync.setActive(true, true);
         return;
       }
@@ -1326,13 +1339,20 @@ export function OpenTeamProvider({ children }: { children: React.ReactNode }) {
       const current = snapshotRef.current;
       const channel = current.channels.find((candidate) => candidate.id === channelId);
       const latestValue = latestNumericSequence(current.channelMessages, channelId);
-      if (!latestValue) return;
-      const target = readReceiptTarget(latestValue, throughSequence);
+      const target = readReceiptTarget(latestValue ?? "0", throughSequence);
       if (target === null) return;
       if ((channel?.unreadCount ?? 0) <= 0 && !readReceipts.current.hasState(channelId)) return;
       const acknowledged = readReceipts.current.acknowledgedThrough(channelId);
-      if (acknowledged !== null && BigInt(target) <= BigInt(acknowledged)) return;
-      if (BigInt(target) >= BigInt(latestValue)) {
+      const notificationCursor = channel?.notificationState?.notificationCursor ?? "0";
+      const acknowledgedActivity =
+        readReceipts.current.acknowledgedNotificationThrough(channelId) ?? "0";
+      if (
+        acknowledged !== null &&
+        BigInt(target) <= BigInt(acknowledged) &&
+        BigInt(notificationCursor) <= BigInt(acknowledgedActivity)
+      )
+        return;
+      if (BigInt(target) >= BigInt(latestValue ?? "0")) {
         acceptRemoteSnapshot({
           ...current,
           channels: current.channels.map((candidate) =>
@@ -1344,7 +1364,8 @@ export function OpenTeamProvider({ children }: { children: React.ReactNode }) {
       const operationClient = client;
       const epoch = connectionEpochRef.current;
       await readReceipts.current.request(channelId, target, {
-        send: (id, sequence) => operationClient.markChannelRead(id, sequence),
+        throughNotificationSequence: notificationCursor,
+        send: (id, sequence, activity) => operationClient.markChannelRead(id, sequence, activity),
         isCurrent: () => operationIsCurrent(operationClient, epoch),
         onAcknowledged: (result) => {
           const next = snapshotRef.current;
@@ -1353,7 +1374,19 @@ export function OpenTeamProvider({ children }: { children: React.ReactNode }) {
               ...next,
               channels: next.channels.map((candidate) =>
                 candidate.id === channelId
-                  ? { ...candidate, unreadCount: result.unreadCount }
+                  ? {
+                      ...candidate,
+                      unreadCount: result.unreadCount,
+                      notificationState: candidate.notificationState
+                        ? {
+                            ...candidate.notificationState,
+                            lastReadSequence: result.lastReadSequence,
+                            lastReadNotificationSequence:
+                              result.lastReadNotificationSequence ??
+                              candidate.notificationState.lastReadNotificationSequence,
+                          }
+                        : undefined,
+                    }
                   : candidate
               ),
             },

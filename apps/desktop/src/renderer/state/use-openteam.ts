@@ -909,7 +909,12 @@ export function useOpenTeam() {
     });
     const syncStreamVisibility = (synchronize = false) => {
       const visible = document.visibilityState === "visible";
-      liveSync.setActive(visible, visible && synchronize);
+      // Native alerts and remote-read dismissal depend on live state even when
+      // the macOS window is hidden or minimized. Browser tabs may still suspend.
+      liveSync.setActive(
+        visible || Boolean(window.openteam?.notifications),
+        visible && synchronize
+      );
     };
     syncStreamVisibility();
     const syncAfterVisibilityChange = () => syncStreamVisibility(true);

@@ -5,6 +5,8 @@ import {
   PUSH_DELIVERY_ADVISORY_LOCK,
   type PushNotificationPayload,
   truncateNotificationText,
+  isAgentNotificationKind,
+  notificationIsRead,
 } from "@openteam/contracts";
 import { Prisma, type PrismaClient } from "@openteam/db";
 import { unreadBadgeCount as countUnreadMessages } from "@openteam/messaging";
@@ -158,6 +160,8 @@ export const expoPushMessage = (
       to: pushToken,
       badge: Math.max(0, Math.floor(badgeCount)),
       data: deliveredPayload,
+      _contentAvailable: true,
+      priority: "normal",
     };
   }
   const policy = agentNotificationDeliveryPolicy(payload.kind);
@@ -168,6 +172,10 @@ export const expoPushMessage = (
     sound: policy.sound ?? undefined,
     badge: Math.max(0, Math.floor(badgeCount)),
     data: deliveredPayload,
+    _contentAvailable: true,
+    mutableContent: true,
+    threadId: payload.channelId,
+    ttl: 3600,
   };
 };
 
@@ -235,7 +243,7 @@ export class PushNotificationDispatcher {
         if (
           !device ||
           payload.schemaVersion !== 1 ||
-          !["agent-needs-input", "agent-done", "badge-sync"].includes(payload.kind)
+          !(payload.kind === "badge-sync" || isAgentNotificationKind(payload.kind))
         ) {
           return [];
         }
@@ -253,17 +261,15 @@ export class PushNotificationDispatcher {
       if (sendable.length === 0) continue;
 
       try {
-        const currentBadgeCount = await unreadBadgeCount(
-          this.prisma as unknown as Prisma.TransactionClient
-        );
         await this.prisma.$transaction(
           async (tx) => {
             await tx.$queryRaw`
               SELECT pg_advisory_xact_lock(
                 ${PUSH_DELIVERY_ADVISORY_LOCK.namespace},
                 ${PUSH_DELIVERY_ADVISORY_LOCK.key}
-              )
+              )::text
             `;
+            const currentBadgeCount = await unreadBadgeCount(tx);
             const deviceIds = sendable.map(({ delivery }) => delivery.target);
             await tx.$queryRaw(
               Prisma.sql`
@@ -278,11 +284,16 @@ export class PushNotificationDispatcher {
             const finalDeviceById = new Map(
               finalDevices.map((device) => [device.id, device] as const)
             );
-            const attempted = sendable.flatMap((item) => {
+            const allowed = await Promise.all(
+              sendable.map((item) => this.notificationIsDeliverable(tx, item.payload))
+            );
+            const attempted = sendable.flatMap((item, index) => {
               const device = finalDeviceById.get(item.delivery.target);
-              return device ? [{ ...item, device }] : [];
+              return device && allowed[index] ? [{ ...item, device }] : [];
             });
-            const retired = sendable.filter((item) => !finalDeviceById.has(item.delivery.target));
+            const retired = sendable.filter(
+              (item, index) => !finalDeviceById.has(item.delivery.target) || !allowed[index]
+            );
             if (retired.length > 0) {
               await tx.outboxDelivery.updateMany({
                 where: { id: { in: retired.map(({ delivery }) => delivery.id) } },
@@ -365,6 +376,52 @@ export class PushNotificationDispatcher {
         }
       }
     }
+  }
+
+  private async notificationIsDeliverable(
+    tx: Prisma.TransactionClient,
+    payload: PushNotificationPayload
+  ): Promise<boolean> {
+    if (payload.kind === "badge-sync") return true;
+    const [state, bot, channel] = await Promise.all([
+      tx.channelReadState.findUnique({ where: { channelId: payload.channelId } }),
+      tx.bot.findUnique({ where: { id: payload.botId } }),
+      tx.channel.findUnique({ where: { id: payload.channelId } }),
+    ]);
+    if (
+      !bot?.notificationsEnabled ||
+      bot.hiddenFromSidebar ||
+      !channel ||
+      channel.archivedAt ||
+      channel.hiddenFromSidebar
+    )
+      return false;
+    if (payload.approvalId) {
+      const approval = await tx.approval.findUnique({ where: { id: payload.approvalId } });
+      if (approval?.status !== "pending") return false;
+    }
+    if (payload.notificationSequence) {
+      const activity = await tx.channelNotification.findUnique({
+        where: { sequence: BigInt(payload.notificationSequence) },
+      });
+      if (!activity || activity.revoked) return false;
+      return (
+        !state ||
+        !notificationIsRead(
+          { ...payload, notificationSequence: payload.notificationSequence },
+          {
+            lastReadSequence: state.lastReadSequence.toString(),
+            lastReadNotificationSequence: state.lastReadNotificationSequence.toString(),
+          }
+        )
+      );
+    }
+    // Drain old queued completion payloads safely during a rolling upgrade.
+    const message = await tx.channelMessage.findFirst({
+      where: { channelId: payload.channelId, sourceRunId: payload.runId, sender: "agent" },
+      orderBy: { sequence: "desc" },
+    });
+    return !message || !state || message.sequence > state.lastReadSequence;
   }
 
   private async drainReceipts(): Promise<void> {

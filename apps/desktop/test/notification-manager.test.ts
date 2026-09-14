@@ -21,6 +21,92 @@ const agent = (
 });
 
 describe("DesktopNotificationManager", () => {
+  test("delivers individual messages and reactions, clears remote reads, and preserves newer alerts", () => {
+    const delivered: string[] = [];
+    const dismissed: string[] = [];
+    const manager = new DesktopNotificationManager({
+      isFocused: () => true,
+      isSupported: () => true,
+      deliver: (event) => delivered.push(event.notificationId!),
+      dismiss: (id) => dismissed.push(id),
+      setBadge: () => {},
+    });
+    manager.setVisibleChannel("another-channel");
+    const channel = {
+      channelId: "chat",
+      lastReadSequence: "0",
+      lastReadNotificationSequence: "0",
+      notificationCursor: "0",
+      notifications: [],
+      unreadCount: 0,
+      activityUnreadCount: 0,
+    };
+    const message = {
+      channelId: "chat",
+      botId: "bot",
+      kind: "message" as const,
+      notificationSequence: "1",
+      messageSequence: "20",
+      title: "Bot",
+      body: "Hello",
+    };
+    manager.sync({ agents: [], channels: [channel] });
+    manager.sync({
+      agents: [],
+      channels: [{ ...channel, notificationCursor: "1", notifications: [message], unreadCount: 1 }],
+    });
+    manager.sync({
+      agents: [],
+      channels: [{ ...channel, lastReadSequence: "20", notificationCursor: "1" }],
+    });
+    const reaction = {
+      ...message,
+      kind: "reaction" as const,
+      notificationSequence: "2",
+      messageSequence: "3",
+      body: "Reacted 👍",
+    };
+    manager.sync({
+      agents: [],
+      channels: [
+        {
+          ...channel,
+          lastReadSequence: "20",
+          notificationCursor: "2",
+          notifications: [reaction],
+          unreadCount: 1,
+        },
+      ],
+    });
+    expect(delivered).toEqual(["chat:1", "chat:2"]);
+    expect(dismissed).toEqual(["chat:1"]);
+    manager.sync({
+      agents: [],
+      channels: [
+        {
+          ...channel,
+          lastReadSequence: "20",
+          lastReadNotificationSequence: "2",
+          notificationCursor: "2",
+          notifications: [reaction],
+        },
+      ],
+    });
+    expect(dismissed).toEqual(["chat:1", "chat:2"]);
+    const alreadyRead = { ...message, notificationSequence: "3" };
+    manager.sync({
+      agents: [],
+      channels: [
+        {
+          ...channel,
+          lastReadSequence: "20",
+          notificationCursor: "3",
+          notifications: [alreadyRead],
+        },
+      ],
+    });
+    expect(delivered).toHaveLength(2);
+  });
   test("seeds silently, gives needs-input precedence, and delivers a later done message", () => {
     const delivered: Array<{ kind: string; title: string; body: string; sound: string | null }> =
       [];
@@ -50,7 +136,7 @@ describe("DesktopNotificationManager", () => {
     expect(delivered).toEqual([
       {
         kind: "agent-needs-input",
-        title: "Probe needs you",
+        title: "Probe",
         body: "Approve the command",
         sound: "default",
       },

@@ -244,8 +244,8 @@ describe("mobile virtual-list UI parity", () => {
     expect(composer).toContain("left: 8");
     expect(composer).toContain("bottom: 22");
     expect(composer).toContain("width: 228");
-    expect(composer).toContain("paddingRight: 29");
-    expect(composer).toContain("gap: 9");
+    expect(composer).toContain("paddingHorizontal: keyboardVisible ? 18 : 30");
+    expect(composer).toContain("gap: 10");
     expect(profile).toContain("size={98}");
     // Twelve robots occupy two rows; the card must grow without clipping Reset.
     expect(profile).not.toContain("characterCard: { height:");
@@ -294,7 +294,7 @@ describe("mobile virtual-list UI parity", () => {
     expect(route).not.toContain("styles.jumpLabel");
     expect(route).toContain("styles.composerOverlay");
     expect(route).toContain("paddingBottom: composerHeight + 8");
-    expect(route).toContain("bottom: composerHeight + 10");
+    expect(route).toContain("bottom: composerHeight + 12");
   });
 
   test("A2A exchanges push a dedicated read-only native transcript over its source", async () => {

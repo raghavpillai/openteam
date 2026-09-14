@@ -1,4 +1,11 @@
+import { crossesUnreadBoundary, unreadChatMessageCount } from "../../src/chat-unread-boundary";
+import { useChatUnreadBoundary } from "../../src/hooks/use-chat-unread-boundary";
+import { ConversationMessageFrame } from "../../src/components/conversation-message-frame";
 import * as Haptics from "../../src/haptics";
+import { useChatKeyboard } from "../../src/hooks/use-chat-keyboard";
+import { ChatChromeFade } from "../../src/components/chat-chrome-fade";
+import { useMessageFocus } from "../../src/hooks/use-message-focus";
+import { useChatScroll } from "../../src/hooks/use-chat-scroll";
 import { usePluginMentions } from "../../src/hooks/use-plugin-mentions";
 import type { BotView, ChannelMessageView } from "@openteam/contracts";
 import { addSidebarUnread } from "@openteam/contracts/client-preferences";
@@ -31,7 +38,7 @@ import {
   View,
   type ViewToken,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { getAuthAccountIdForServer, getAuthTokenForServer } from "../../src/auth";
 import {
   enteringAppendedMessageKeys,
@@ -57,7 +64,7 @@ import { MOBILE_VIRTUAL_LIST_TUNING } from "../../src/list-scale";
 import { setActiveNotificationChannel } from "../../src/notifications";
 import { routineRoute } from "../../src/routine-route";
 import { useOpenTeam } from "../../src/state/openteam-context";
-import { useTheme } from "../../src/theme";
+import { chatGlassTint, useChatTheme } from "../../src/chat-appearance";
 
 const metadataFor = messageMetadata;
 type ConversationTimelineEntry = ChannelMessageView | A2AActivityEntry<ChannelMessageView>;
@@ -77,7 +84,7 @@ function A2AActivityRow({
   peer?: BotView;
   peerName: string;
 }) {
-  const theme = useTheme();
+  const theme = useChatTheme();
   const name = peer?.name ?? peerName;
   return (
     <Pressable
@@ -110,7 +117,10 @@ function A2AActivityRow({
 }
 
 export default function ConversationScreen() {
-  const theme = useTheme();
+  const theme = useChatTheme();
+  const insets = useSafeAreaInsets();
+  const keyboardVisible = useChatKeyboard();
+  const composerBottomInset = keyboardVisible ? 18 : Math.max(12, insets.bottom - 2);
   const { channelId, messageId } = useLocalSearchParams<{
     channelId: string;
     messageId?: string;
@@ -153,7 +163,6 @@ export default function ConversationScreen() {
   const [composerRecovery, setComposerRecovery] = useState<ComposerRecovery | null>(null);
   const presentedRecoveryNonces = useRef(new Set<string>());
   const [visibleReadSequence, setVisibleReadSequence] = useState<string | null>(null);
-  const [atLiveEdge, setAtLiveEdge] = useState(!messageId);
   const [threadRootId, setThreadRootId] = useState<string | null>(null);
   const [a2aPeerId, setA2APeerId] = useState<string | null>(null);
   const [composerHeight, setComposerHeight] = useState(50);
@@ -163,8 +172,6 @@ export default function ConversationScreen() {
   const jumpingToLatest = useRef(false);
   const historyViewportRef = useRef({ channelId, setHistoryViewport, threadRootId });
   historyViewportRef.current = { channelId, setHistoryViewport, threadRootId };
-  const didPlaceInitialScroll = useRef(false);
-  const targetScrollRetries = useRef(0);
   const knownMessageKeys = useRef<Set<string> | null>(null);
   const knownChannelId = useRef(channelId);
   const channel = snapshot.channels.find((candidate) => candidate.id === channelId);
@@ -238,6 +245,29 @@ export default function ConversationScreen() {
     return root ? { root, replies: [] } : null;
   }, [byId, threadRootId, threads]);
   const channelHistory = historyState[channelId];
+  const unreadBoundary = useChatUnreadBoundary(
+    channelId,
+    messages,
+    // Activity notifications (e.g. reactions) do not mark a new chat message.
+    unreadChatMessageCount(channel),
+    channelHistory
+  );
+  const chatScroll = useChatScroll(
+    listRef,
+    (next) => {
+      atLiveEdgeRef.current = next;
+      const viewport = historyViewportRef.current;
+      if (!viewport.threadRootId)
+        viewport.setHistoryViewport(viewport.channelId, visibleMessageIds.current, next);
+    },
+    channelHistory?.hasNewer
+  );
+  const {
+    following: atLiveEdge,
+    setFollowing: updateLiveEdge,
+    reset: resetScroll,
+    correctAfterLayout,
+  } = chatScroll;
   const activeThreadHasMore = activeThread
     ? mayHaveEarlierThreadReplies(
         activeThread.root.sequence,
@@ -308,6 +338,8 @@ export default function ConversationScreen() {
     itemVisiblePercentThreshold: 10,
     minimumViewTime: 100,
   }).current;
+  const messageFocus = useMessageFocus(listRef, messageId, targetIndex);
+  const focusVisibleIds = messageFocus.onVisibleMessageIds;
   const onViewableItemsChanged = useRef(
     ({ viewableItems }: { viewableItems: ViewToken<ConversationTimelineEntry>[] }) => {
       const highest = highestVisibleSequence(
@@ -325,6 +357,7 @@ export default function ConversationScreen() {
             : [item.id]
       );
       visibleMessageIds.current = ids;
+      focusVisibleIds(ids);
       const viewport = historyViewportRef.current;
       if (!viewport.threadRootId)
         viewport.setHistoryViewport(viewport.channelId, ids, atLiveEdgeRef.current);
@@ -435,14 +468,6 @@ export default function ConversationScreen() {
     [channelId]
   );
 
-  const updateLiveEdge = useCallback((next: boolean) => {
-    atLiveEdgeRef.current = next;
-    setAtLiveEdge((current) => (current === next ? current : next));
-    const viewport = historyViewportRef.current;
-    if (!viewport.threadRootId)
-      viewport.setHistoryViewport(viewport.channelId, visibleMessageIds.current, next);
-  }, []);
-
   useEffect(() => {
     if (!threadRootId)
       setHistoryViewport(channelId, visibleMessageIds.current, atLiveEdgeRef.current);
@@ -450,14 +475,12 @@ export default function ConversationScreen() {
 
   useEffect(() => {
     knownChannelId.current = channelId;
-    didPlaceInitialScroll.current = false;
-    targetScrollRetries.current = 0;
     jumpingToLatest.current = false;
     visibleMessageIds.current = [];
     setVisibleReadSequence(null);
     setA2APeerId(null);
-    updateLiveEdge(!messageId);
-  }, [channelId, messageId, updateLiveEdge]);
+    resetScroll(!messageId);
+  }, [channelId, messageId, resetScroll]);
 
   useEffect(() => {
     if (focusedThreadRootId) setThreadRootId(focusedThreadRootId);
@@ -470,37 +493,10 @@ export default function ConversationScreen() {
     if (peerId && botById.has(peerId)) setA2APeerId(peerId);
   }, [botById, byId, messageId]);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: Footer changes can precede the native content-size event.
   useEffect(() => {
-    if (!messageId || targetIndex < 0 || didPlaceInitialScroll.current) return;
-    const frame = requestAnimationFrame(() => {
-      didPlaceInitialScroll.current = true;
-      listRef.current?.scrollToIndex({
-        index: targetIndex,
-        animated: false,
-        viewPosition: 0.5,
-      });
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [messageId, targetIndex]);
-
-  // biome-ignore lint/correctness/useExhaustiveDependencies: Run and timeline changes deliberately retrigger live-edge correction after native layout changes.
-  useEffect(() => {
-    if (messageId || !didPlaceInitialScroll.current || !atLiveEdgeRef.current) return;
-    // FlatList's maintained position can briefly win over onContentSizeChange
-    // when a group round appends messages while its working footer is removed.
-    // Reassert the live edge after both React and the native list settle so the
-    // completed exchange cannot be left rendered beyond the visible viewport.
-    const frame = requestAnimationFrame(() => {
-      listRef.current?.scrollToEnd({ animated: false });
-    });
-    const settled = setTimeout(() => {
-      listRef.current?.scrollToEnd({ animated: false });
-    }, 120);
-    return () => {
-      cancelAnimationFrame(frame);
-      clearTimeout(settled);
-    };
-  }, [activeRun?.id, approvals.length, messageId, timeline.length]);
+    correctAfterLayout();
+  }, [activeRun?.id, approvals.length, timeline.length, composerHeight, correctAfterLayout]);
 
   useFocusEffect(
     useCallback(() => {
@@ -520,7 +516,7 @@ export default function ConversationScreen() {
   }, [channelId, isFocused, markChannelRead, unreadCount, visibleReadSequence]);
 
   return (
-    <SafeAreaView style={[styles.safe, { backgroundColor: theme.background }]}>
+    <View style={[styles.safe, { backgroundColor: theme.background }]}>
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : undefined}
         keyboardVerticalOffset={0}
@@ -528,14 +524,18 @@ export default function ConversationScreen() {
       >
         {/* Absolute overlays must be inside the keyboard-resized content area. */}
         <View testID="chat-keyboard-content" style={styles.flex}>
-          <View style={styles.header}>
+          <ChatChromeFade
+            edge="top"
+            style={{ bottom: undefined, height: insets.top + 104, zIndex: 2 }}
+          />
+          <View style={[styles.header, { top: insets.top + 6 }]}>
             <IconButton
               label="Back"
               name="chevron.left"
               onPress={() => (router.canGoBack() ? router.back() : router.replace("/"))}
-              size={38}
-              symbolSize={18}
-              tone="surface"
+              size={44}
+              symbolSize={20}
+              tone="glass"
             />
             <Pressable
               accessibilityLabel={`${name} conversation details`}
@@ -543,26 +543,28 @@ export default function ConversationScreen() {
               onPress={() =>
                 router.push({ pathname: "/details/[channelId]", params: { channelId } })
               }
-              style={({ pressed }) => pressed && styles.identityPressed}
+              style={({ pressed }) => [styles.identityButton, pressed && styles.identityPressed]}
             >
               <GlassSurface
                 fallbackColor={theme.surfaceElevated}
                 interactive
-                style={[
-                  styles.identity,
-                  {
-                    borderColor: theme.border,
-                    shadowColor: theme.dark ? "#000" : "#77776F",
-                  },
-                ]}
+                variant="clear"
+                tintColor={theme.dark ? chatGlassTint : undefined}
+                style={styles.identity}
               >
-                <BotAvatar bot={bot} color={bot?.color ?? "#858580"} size={27} />
+                <View style={styles.headerAvatar}>
+                  <BotAvatar bot={bot} color={bot?.color ?? "#858580"} size={27} />
+                  {activeRun ? (
+                    <View style={[styles.activityDot, { borderColor: theme.background }]} />
+                  ) : null}
+                </View>
                 <Text numberOfLines={1} style={[styles.title, { color: theme.text }]}>
                   {name}
                 </Text>
               </GlassSurface>
             </Pressable>
             <IconButton
+              style={styles.headerTrailingAction}
               label="Open shared computer"
               name="desktopcomputer"
               disabled={!botId}
@@ -570,10 +572,9 @@ export default function ConversationScreen() {
                 if (!botId) return;
                 router.push({ pathname: "/computer/[botId]", params: { botId } });
               }}
-              size={38}
-              symbolSize={18}
-              style={styles.headerTrailingAction}
-              tone="surface"
+              size={44}
+              symbolSize={20}
+              tone="glass"
             />
           </View>
 
@@ -586,7 +587,7 @@ export default function ConversationScreen() {
               contentContainerStyle={[
                 styles.messages,
                 timeline.length === 0 && styles.emptyMessages,
-                { paddingBottom: composerHeight + 8 },
+                { paddingTop: insets.top + 66, paddingBottom: composerHeight + 8 },
               ]}
               ListEmptyComponent={
                 bot?.onboardingStatus === "completed" && !channelHistory?.loading ? (
@@ -597,51 +598,28 @@ export default function ConversationScreen() {
               }
               keyboardDismissMode="interactive"
               keyboardShouldPersistTaps="handled"
-              maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
-              onContentSizeChange={() => {
-                if (!didPlaceInitialScroll.current) {
-                  if (messageId && targetIndex < 0) return;
-                  didPlaceInitialScroll.current = true;
-                  if (messageId) {
-                    listRef.current?.scrollToIndex({
-                      index: targetIndex,
-                      animated: false,
-                      viewPosition: 0.5,
-                    });
-                  } else {
-                    listRef.current?.scrollToEnd({ animated: false });
-                  }
-                  return;
-                }
-                if (atLiveEdgeRef.current) listRef.current?.scrollToEnd({ animated: false });
+              maintainVisibleContentPosition={atLiveEdge ? undefined : { minIndexForVisible: 0 }}
+              onContentSizeChange={chatScroll.onContentSizeChange}
+              onLayout={chatScroll.onLayout}
+              onScrollBeginDrag={() => {
+                messageFocus.cancel();
+                chatScroll.onScrollBeginDrag();
               }}
+              onScrollEndDrag={chatScroll.onScrollEndDrag}
+              onMomentumScrollBegin={chatScroll.onMomentumScrollBegin}
+              onMomentumScrollEnd={chatScroll.onMomentumScrollEnd}
               onScroll={(event) => {
-                const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
                 if (jumpingToLatest.current) return;
-                const nearEnd = isNearLiveEdge(
-                  contentOffset.y,
-                  layoutMeasurement.height,
-                  contentSize.height
-                );
-                updateLiveEdge(nearEnd && !channelHistory?.hasNewer);
-                if (nearEnd && channelHistory?.hasNewer && !threadRootId)
+                chatScroll.onScroll(event);
+                const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+                if (
+                  channelHistory?.hasNewer &&
+                  !threadRootId &&
+                  isNearLiveEdge(contentOffset.y, layoutMeasurement.height, contentSize.height)
+                )
                   void loadLaterMessages(channelId);
               }}
-              onScrollToIndexFailed={({ index, averageItemLength }) => {
-                listRef.current?.scrollToOffset({
-                  animated: false,
-                  offset: Math.max(0, averageItemLength * index),
-                });
-                if (targetScrollRetries.current >= 2) return;
-                targetScrollRetries.current += 1;
-                setTimeout(() => {
-                  listRef.current?.scrollToIndex({
-                    index,
-                    animated: false,
-                    viewPosition: 0.5,
-                  });
-                }, 80);
-              }}
+              onScrollToIndexFailed={messageFocus.onScrollToIndexFailed}
               onViewableItemsChanged={onViewableItemsChanged}
               onEndReached={() => {
                 if (channelHistory?.hasNewer && !threadRootId) void loadLaterMessages(channelId);
@@ -649,7 +627,21 @@ export default function ConversationScreen() {
               onEndReachedThreshold={0.5}
               scrollEventThrottle={32}
               viewabilityConfig={viewabilityConfig}
-              renderItem={({ item }) => {
+              renderItem={({ item, index }) => {
+                const first = isA2AActivity(item) ? item.entries[0]! : item;
+                const last = isA2AActivity(item) ? item.entries.at(-1)! : item;
+                const previous = timeline[index - 1];
+                const previousMessage =
+                  previous && (isA2AActivity(previous) ? previous.entries.at(-1) : previous);
+                const frameProps = {
+                  createdAt: first.createdAt,
+                  previousCreatedAt: previousMessage?.createdAt,
+                  isNew: crossesUnreadBoundary(
+                    previousMessage?.sequence,
+                    last.sequence,
+                    unreadBoundary
+                  ),
+                };
                 if (isA2AActivity(item)) {
                   const peer = item.peerId ? botById.get(item.peerId) : undefined;
                   const group = item.peerId ? channelById.get(item.peerId) : undefined;
@@ -663,12 +655,14 @@ export default function ConversationScreen() {
                           })
                       : undefined;
                   return (
-                    <A2AActivityRow
-                      count={item.entries.length}
-                      onOpen={onOpen}
-                      peer={peer}
-                      peerName={item.peerName ?? group?.name ?? "another agent"}
-                    />
+                    <ConversationMessageFrame {...frameProps}>
+                      <A2AActivityRow
+                        count={item.entries.length}
+                        onOpen={onOpen}
+                        peer={peer}
+                        peerName={item.peerName ?? group?.name ?? "another agent"}
+                      />
+                    </ConversationMessageFrame>
                   );
                 }
                 const metadata = metadataFor(item);
@@ -701,56 +695,58 @@ export default function ConversationScreen() {
                     )
                   : false;
                 return (
-                  <MessageBubble
-                    animateEntrance={enteringMessageKeys.has(renderKey)}
-                    message={item}
-                    pending={deliveryState === "pending" || deliveryState === "queued"}
-                    showSpeakerName={Boolean(groupSpeaker)}
-                    speakerName={groupSpeaker?.name}
-                    deliveryState={
-                      deliveryState === "pending" ||
-                      deliveryState === "queued" ||
-                      deliveryState === "accepted" ||
-                      deliveryState === "failed"
-                        ? deliveryState
-                        : undefined
-                    }
-                    deliveryNonce={typeof deliveryNonce === "string" ? deliveryNonce : undefined}
-                    deliveryComposedAtMs={
-                      typeof deliveryComposedAtMs === "number" ? deliveryComposedAtMs : null
-                    }
-                    deliveryQueuedAtMs={
-                      typeof deliveryQueuedAtMs === "number" ? deliveryQueuedAtMs : null
-                    }
-                    deliveryAcceptedAtMs={
-                      typeof deliveryAcceptedAtMs === "number" ? deliveryAcceptedAtMs : null
-                    }
-                    deliveryTransportDown={clientDelivery?.transportDown === true}
-                    onResendFailed={(nonce) => void resendFailed(nonce)}
-                    onDeleteFailed={(nonce) => void deleteFailed(nonce)}
-                    onCancelQueued={(nonce) => void recoverCancelledMessage(nonce)}
-                    peerBot={peerBot}
-                    replyPreview={replyPreview}
-                    assetUrl={assetUrl}
-                    onReply={() => selectReply({ id: item.id, content: item.content })}
-                    onStartThread={() => setThreadRootId(item.id)}
-                    onMarkUnread={() => void markConversationUnread()}
-                    onReport={() =>
-                      Alert.alert(
-                        "Report message",
-                        "Message reporting is not available on this self-hosted server."
-                      )
-                    }
-                    onReact={(emoji) => void handleReaction(item.id, emoji)}
-                    onWidgetResponse={(value) => respondToWidget(item.id, value)}
-                    onWidgetDismiss={() => dismissWidget(item.id)}
-                    onSecretSubmit={(value) => submitSecret(item.id, value)}
-                    onComputerHandoff={(action) => mutateComputerHandoff(item.id, action)}
-                    onOpenThread={thread ? () => setThreadRootId(item.id) : undefined}
-                    onOpenRoutine={openRoutine}
-                    threadReplyCount={thread?.replies.length ?? 0}
-                    threadReplyCountIsPartial={threadReplyCountIsPartial}
-                  />
+                  <ConversationMessageFrame {...frameProps}>
+                    <MessageBubble
+                      animateEntrance={enteringMessageKeys.has(renderKey)}
+                      message={item}
+                      pending={deliveryState === "pending" || deliveryState === "queued"}
+                      showSpeakerName={Boolean(groupSpeaker)}
+                      speakerName={groupSpeaker?.name}
+                      deliveryState={
+                        deliveryState === "pending" ||
+                        deliveryState === "queued" ||
+                        deliveryState === "accepted" ||
+                        deliveryState === "failed"
+                          ? deliveryState
+                          : undefined
+                      }
+                      deliveryNonce={typeof deliveryNonce === "string" ? deliveryNonce : undefined}
+                      deliveryComposedAtMs={
+                        typeof deliveryComposedAtMs === "number" ? deliveryComposedAtMs : null
+                      }
+                      deliveryQueuedAtMs={
+                        typeof deliveryQueuedAtMs === "number" ? deliveryQueuedAtMs : null
+                      }
+                      deliveryAcceptedAtMs={
+                        typeof deliveryAcceptedAtMs === "number" ? deliveryAcceptedAtMs : null
+                      }
+                      deliveryTransportDown={clientDelivery?.transportDown === true}
+                      onResendFailed={(nonce) => void resendFailed(nonce)}
+                      onDeleteFailed={(nonce) => void deleteFailed(nonce)}
+                      onCancelQueued={(nonce) => void recoverCancelledMessage(nonce)}
+                      peerBot={peerBot}
+                      replyPreview={replyPreview}
+                      assetUrl={assetUrl}
+                      onReply={() => selectReply({ id: item.id, content: item.content })}
+                      onStartThread={() => setThreadRootId(item.id)}
+                      onMarkUnread={() => void markConversationUnread()}
+                      onReport={() =>
+                        Alert.alert(
+                          "Report message",
+                          "Message reporting is not available on this self-hosted server."
+                        )
+                      }
+                      onReact={(emoji) => void handleReaction(item.id, emoji)}
+                      onWidgetResponse={(value) => respondToWidget(item.id, value)}
+                      onWidgetDismiss={() => dismissWidget(item.id)}
+                      onSecretSubmit={(value) => submitSecret(item.id, value)}
+                      onComputerHandoff={(action) => mutateComputerHandoff(item.id, action)}
+                      onOpenThread={thread ? () => setThreadRootId(item.id) : undefined}
+                      onOpenRoutine={openRoutine}
+                      threadReplyCount={thread?.replies.length ?? 0}
+                      threadReplyCountIsPartial={threadReplyCountIsPartial}
+                    />
+                  </ConversationMessageFrame>
                 );
               }}
               ListHeaderComponent={
@@ -759,7 +755,10 @@ export default function ConversationScreen() {
                 ) : historyState[channelId]?.hasMore ? (
                   <Pressable
                     accessibilityRole="button"
-                    onPress={() => void loadEarlierMessages(channelId)}
+                    onPress={() => {
+                      updateLiveEdge(false);
+                      void loadEarlierMessages(channelId);
+                    }}
                     style={({ pressed }) => [styles.historyAction, pressed && { opacity: 0.65 }]}
                   >
                     <Text style={[styles.historyLabel, { color: theme.textMuted }]}>
@@ -777,9 +776,14 @@ export default function ConversationScreen() {
                       onResolve={(decision) => resolveApproval(approval.id, decision)}
                     />
                   ))}
-                  {activeRun && approvals.length === 0 ? (
-                    <WorkingIndicator name={name} onStop={() => void cancelRun(activeRun.id)} />
-                  ) : null}
+                  <WorkingIndicator
+                    key={channelId}
+                    visible={Boolean(activeRun) && approvals.length === 0}
+                    name={name}
+                    bot={activeRun ? (botById.get(activeRun.botId) ?? bot) : bot}
+                    active={isFocused}
+                    onStop={activeRun ? () => void cancelRun(activeRun.id) : undefined}
+                  />
                 </View>
               }
             />
@@ -793,9 +797,10 @@ export default function ConversationScreen() {
                 accessibilityRole="button"
                 hitSlop={4}
                 onPress={() => {
+                  messageFocus.cancel();
                   updateLiveEdge(true);
                   if (!channelHistory?.hasNewer) {
-                    listRef.current?.scrollToEnd({ animated: true });
+                    correctAfterLayout();
                     return;
                   }
                   jumpingToLatest.current = true;
@@ -804,20 +809,22 @@ export default function ConversationScreen() {
                       if (historyViewportRef.current.channelId !== channelId) return;
                       jumpingToLatest.current = false;
                       updateLiveEdge(true);
-                      listRef.current?.scrollToEnd({ animated: true });
+                      correctAfterLayout();
                     });
                   });
                 }}
                 style={({ pressed }) => [
                   styles.jumpButton,
-                  { bottom: composerHeight + 10 },
+                  { bottom: composerHeight + 12, right: keyboardVisible ? 18 : 30 },
                   pressed && styles.jumpButtonPressed,
                 ]}
               >
                 <GlassSurface
                   fallbackColor={theme.surfaceElevated}
                   interactive
-                  style={[styles.jumpSurface, { borderColor: theme.border }]}
+                  variant="clear"
+                  tintColor={theme.dark ? chatGlassTint : undefined}
+                  style={styles.jumpSurface}
                 >
                   <SymbolView
                     name="chevron.down"
@@ -837,10 +844,14 @@ export default function ConversationScreen() {
                 current === measuredHeight ? current : measuredHeight
               );
             }}
-            style={styles.composerOverlay}
+            style={[styles.composerOverlay, { paddingBottom: composerBottomInset }]}
           >
+            <ChatChromeFade edge="bottom" />
             <Composer
-              transcriptionConfigured={snapshot?.runtime.transcription === "configured" && !activeThread}
+              keyboardVisible={keyboardVisible}
+              transcriptionConfigured={
+                snapshot?.runtime.transcription === "configured" && !activeThread
+              }
               onTranscribe={transcribeAudio}
               draftKey={draftKey}
               botName={name}
@@ -857,11 +868,15 @@ export default function ConversationScreen() {
               assetUrl={assetUrl}
               onUpload={uploadAsset}
               onSend={async (content, attachments, stagedAttachments, consumedDraft) => {
+                messageFocus.cancel();
+                updateLiveEdge(true);
                 await sendMessage(channelId, content, attachments, replyTarget?.id, {
                   consumedDraft,
                   stagedAttachments,
                 });
                 setReplyTarget(null);
+                if (channelHistory?.hasNewer) await jumpToLatestMessages(channelId);
+                correctAfterLayout();
               }}
               onStage={stageMobileDeliveryAttachment}
               onDiscardStages={discardMobileDeliveryAttachments}
@@ -926,7 +941,7 @@ export default function ConversationScreen() {
           ) : null}
         </View>
       </KeyboardAvoidingView>
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -939,39 +954,49 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    zIndex: 2,
+    zIndex: 3,
   },
   header: {
-    height: 42,
-    paddingHorizontal: 14,
+    position: "absolute",
+    left: 0,
+    right: 0,
+    zIndex: 3,
+    minHeight: 44,
+    paddingHorizontal: 18,
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    gap: 8,
   },
   headerTrailingAction: { marginLeft: "auto" },
+  identityButton: { flexShrink: 1, minWidth: 0, minHeight: 44, justifyContent: "center" },
+  headerAvatar: { width: 27, height: 27 },
+  activityDot: {
+    position: "absolute",
+    width: 11,
+    height: 11,
+    borderRadius: 6,
+    borderWidth: 1,
+    backgroundColor: "#35a96b",
+    right: 0,
+    bottom: 0,
+  },
   identity: {
-    maxWidth: 220,
-    minHeight: 40,
-    borderRadius: 20,
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingLeft: 6,
-    paddingRight: 12,
+    maxWidth: "100%",
+    minHeight: 44,
+    borderRadius: 22,
+    paddingLeft: 10,
+    paddingRight: 14,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 7,
-    shadowOpacity: 0.08,
-    shadowRadius: 7,
-    shadowOffset: { width: 0, height: 2 },
+    gap: 8,
   },
   identityPressed: { opacity: 0.78, transform: [{ scale: 0.98 }] },
-  title: { fontSize: 15, lineHeight: 19, fontWeight: "600" },
+  title: { flexShrink: 1, fontSize: 17, lineHeight: 22, fontWeight: "600" },
   messages: {
     flexGrow: 1,
     justifyContent: "flex-end",
-    paddingHorizontal: 14,
-    paddingTop: 22,
-    paddingBottom: 58,
+    paddingHorizontal: 16,
   },
   emptyMessages: { justifyContent: "center", alignItems: "center" },
   emptyMessageLabel: { fontSize: 15, lineHeight: 20 },
@@ -1002,7 +1027,6 @@ const styles = StyleSheet.create({
   a2aPeerName: { flexShrink: 1, fontSize: 12, lineHeight: 16, fontWeight: "600" },
   jumpButton: {
     position: "absolute",
-    right: 18,
     borderRadius: 18,
     shadowColor: "#000",
     shadowOpacity: 0.12,
@@ -1011,10 +1035,9 @@ const styles = StyleSheet.create({
   },
   jumpButtonPressed: { opacity: 0.78, transform: [{ scale: 0.98 }] },
   jumpSurface: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    borderWidth: StyleSheet.hairlineWidth,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     alignItems: "center",
     justifyContent: "center",
   },

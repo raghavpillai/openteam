@@ -36,6 +36,59 @@ export const isNearLiveEdge = (
   threshold = 72
 ): boolean => contentHeight - Math.max(0, offsetY) - viewportHeight <= threshold;
 
+/** Layout and programmatic scroll events must never be mistaken for a reader's drag. */
+export class ChatScrollState {
+  following = true;
+  contentHeight = 0;
+  viewportHeight = 0;
+  private userScrolling = false;
+  private userMomentumPending = false;
+
+  get canCorrect(): boolean {
+    return this.following && !this.userScrolling;
+  }
+
+  get bottomOffset(): number {
+    // Includes content-container padding, unlike FlatList.scrollToEnd's row estimate.
+    return Math.max(0, this.contentHeight - this.viewportHeight);
+  }
+
+  reset(following: boolean): void {
+    this.setFollowing(following);
+  }
+
+  setFollowing(following: boolean): void {
+    this.following = following;
+    this.userScrolling = false;
+    this.userMomentumPending = false;
+  }
+
+  beginDrag(): void {
+    this.userScrolling = true;
+    this.userMomentumPending = true;
+    this.following = false;
+  }
+
+  endDrag(): void {
+    this.userScrolling = false;
+  }
+
+  beginMomentum(): void {
+    this.userScrolling = this.userMomentumPending;
+  }
+
+  endMomentum(): void {
+    this.userScrolling = false;
+    this.userMomentumPending = false;
+  }
+
+  observeScroll(offset: number, viewport: number, content: number, hasNewer: boolean): void {
+    if (this.userScrolling) {
+      this.following = !hasNewer && isNearLiveEdge(offset, viewport, content);
+    }
+  }
+}
+
 export const enteringAppendedMessageKeys = <T>(
   messages: readonly T[],
   knownKeys: ReadonlySet<string> | null,

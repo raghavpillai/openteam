@@ -2,10 +2,7 @@ import { MAX_PARALLEL_UPLOADS, mapWithConcurrency } from "@openteam/client-core/
 import type { AssetRef, ClientCapabilities } from "@openteam/contracts";
 import { CLIENT_CAPABILITIES } from "@openteam/contracts/capabilities";
 import { isCameraAvailable } from "@openteam/mobile-native";
-import {
-  selectAttachments,
-  remainingAttachmentCapacity,
-} from "@openteam/product-core/attachments";
+import { selectAttachments, remainingAttachmentCapacity } from "@openteam/product-core/attachments";
 import type { DurableStagedAttachment } from "@openteam/product-core/durable-delivery";
 import {
   filterMentionOptions,
@@ -23,7 +20,6 @@ import {
   Animated,
   AppState,
   Image,
-  Keyboard,
   Modal,
   Platform,
   Pressable,
@@ -33,6 +29,7 @@ import {
   View,
 } from "react-native";
 import { authHeadersForUrl } from "../auth";
+import { composerInputHeight } from "../composer-layout";
 import { DraftHydrationGuard } from "../draft-hydration";
 import {
   type ConversationDraft,
@@ -41,7 +38,8 @@ import {
   newConversationDraftId,
   saveConversationDraft,
 } from "../drafts";
-import { metrics, useTheme } from "../theme";
+import { metrics } from "../theme";
+import { chatGlassTint, useChatTheme } from "../chat-appearance";
 import { useVoiceInput } from "../use-voice-input";
 import { insertVoiceTranscript, type VoiceSelection } from "../voice-insertion";
 import { GlassSurface } from "./glass-surface";
@@ -122,8 +120,10 @@ export function Composer({
   uploadCapabilities = CLIENT_CAPABILITIES.uploads,
   transcriptionConfigured = false,
   onTranscribe,
+  keyboardVisible = false,
 }: {
   draftKey: string;
+  keyboardVisible?: boolean;
   transcriptionConfigured?: boolean;
   onTranscribe?: (uri: string, signal: AbortSignal) => Promise<{ text: string }>;
   botName: string;
@@ -155,8 +155,8 @@ export function Composer({
   assetUrl: (asset: Pick<AssetRef, "assetId" | "fileName">) => string | null;
   uploadCapabilities?: ClientCapabilities["uploads"];
 }) {
-  const theme = useTheme();
-  const inputPlaceholder = placeholder ?? `Message ${botName}`;
+  const theme = useChatTheme();
+  const inputPlaceholder = placeholder ?? `Ask ${botName}`;
   const [text, setText] = useState("");
   const [inputHeight, setInputHeight] = useState(22);
   const [sending, setSending] = useState(false);
@@ -508,7 +508,11 @@ export function Composer({
 
   const stageAttachments = (sources: AttachmentSource[]) => {
     if (sources.length === 0) return;
-    const selection = selectAttachments(sources, latestAttachments.current.length, uploadCapabilities);
+    const selection = selectAttachments(
+      sources,
+      latestAttachments.current.length,
+      uploadCapabilities
+    );
     if (selection.notice) setAttachmentError(selection.notice);
     const staged = selection.accepted.map(
       (source): PendingAttachment => ({
@@ -712,21 +716,19 @@ export function Composer({
     // iOS does not always emit a fresh content-size event for explicit newlines
     // inserted through dictation, hardware keyboards, or accessibility input.
     // Keep an exact line-count fallback so no entered line can be clipped.
-    const explicitLineHeight = Math.max(22, value.split("\n").length * 22);
-    setInputHeight(Math.min(102, explicitLineHeight));
+    setInputHeight(composerInputHeight(value));
   };
 
   const updateMeasuredHeight = (measuredHeight: number) => {
-    if (text.length === 0) {
+    const value = latestText.current;
+    if (value.length === 0) {
       inputBaseline.current = measuredHeight;
       setInputHeight(22);
       return;
     }
 
     const baseline = inputBaseline.current ?? measuredHeight;
-    const wrappedHeight = Math.max(22, measuredHeight - baseline + 22);
-    const explicitLineHeight = Math.max(22, text.split("\n").length * 22);
-    setInputHeight(Math.min(102, Math.max(wrappedHeight, explicitLineHeight)));
+    setInputHeight(composerInputHeight(value, measuredHeight, baseline));
   };
 
   useEffect(() => {
@@ -790,7 +792,6 @@ export function Composer({
         setRecoveryNonce(null);
       }
       setDraftId(newConversationDraftId());
-      Keyboard.dismiss();
     } catch (cause) {
       setText(content);
       latestText.current = content;
@@ -807,10 +808,11 @@ export function Composer({
   const submit = () => submitPayload(text.trim(), latestAttachments.current);
 
   const replyHeight = replyProgress.interpolate({ inputRange: [0, 1], outputRange: [0, 36] });
-  const verticalPadding = inputHeight > 32 ? 8 : 11;
+  const visibleInputHeight = composerInputHeight(text, inputHeight, 22);
+  const verticalPadding = visibleInputHeight > 32 ? 7 : 11;
 
   return (
-    <View style={styles.outer}>
+    <View style={[styles.outer, { paddingHorizontal: keyboardVisible ? 18 : 30 }]}>
       <Modal
         animationType="fade"
         onRequestClose={() => setAttachmentMenuOpen(false)}
@@ -867,6 +869,19 @@ export function Composer({
               <SymbolView name="folder" size={18} tintColor={theme.text} />
               <Text style={[styles.attachmentMenuLabel, { color: theme.text }]}>Choose File</Text>
             </Pressable>
+            {voice.available ? (
+              <Pressable
+                accessibilityLabel="Record voice note"
+                accessibilityRole="button"
+                onPress={() => {
+                  chooseAttachmentAction(startVoice);
+                }}
+                style={({ pressed }) => [styles.attachmentMenuItem, pressed && styles.menuPressed]}
+              >
+                <SymbolView name="mic.fill" size={18} tintColor={theme.text} />
+                <Text style={[styles.attachmentMenuLabel, { color: theme.text }]}>Voice note</Text>
+              </Pressable>
+            ) : null}
           </GlassSurface>
         </View>
       </Modal>
@@ -876,303 +891,345 @@ export function Composer({
         disabled={sending || picking}
         haptic="light"
         onPress={voiceActive ? voice.cancel : showAttachmentMenu}
-        size={38}
-        symbolSize={20}
-        tone="surface"
+        size={44}
+        symbolSize={22}
+        tone="glass"
       />
-      <GlassSurface
-        fallbackColor={theme.field}
-        interactive
+      {/* Keep the shadow outside the clipped glass, fixed to the composer while history scrolls. */}
+      <View
         style={[
-          styles.composer,
+          styles.composerShadow,
           {
-            borderColor: theme.border,
-            shadowColor: theme.dark ? "#000" : "#6A6A65",
+            boxShadow: [
+              {
+                offsetX: 0,
+                offsetY: 8,
+                blurRadius: 16,
+                color: theme.dark ? "rgba(0,0,0,0.3)" : "rgba(0,0,0,0.12)",
+              },
+            ],
           },
         ]}
       >
-        <Animated.View
-          pointerEvents={replyTarget ? "auto" : "none"}
-          style={[
-            styles.replyTray,
-            {
-              height: replyHeight,
-              opacity: replyProgress,
-              transform: [
-                {
-                  scale: replyProgress.interpolate({ inputRange: [0, 1], outputRange: [0.98, 1] }),
-                },
-              ],
-            },
-          ]}
+        <GlassSurface
+          fallbackColor={theme.field}
+          interactive
+          variant="clear"
+          tintColor={theme.dark ? chatGlassTint : undefined}
+          style={styles.composer}
         >
-          <View style={[styles.replyInner, { backgroundColor: theme.surface }]}>
-            <SymbolView name="arrowshape.turn.up.left" size={14} tintColor={theme.textMuted} />
-            <Text numberOfLines={1} style={[styles.replyCopy, { color: theme.textMuted }]}>
-              {replyTarget?.content ?? ""}
-            </Text>
-            <Pressable
-              accessibilityLabel="Cancel reply"
-              accessibilityRole="button"
-              hitSlop={8}
-              onPress={() => {
-                draftHydrationGuardRef.current.markEdited("reply");
-                onClearReply();
-              }}
-              style={({ pressed }) => [
-                styles.close,
-                pressed && { backgroundColor: theme.surfacePressed },
-              ]}
-            >
-              <SymbolView name="xmark" size={14} tintColor={theme.textMuted} weight="semibold" />
-            </Pressable>
-          </View>
-        </Animated.View>
-
-        {attachments.length > 0 ? (
-          <View
-            accessibilityLabel={`${attachments.length} attached files`}
-            style={styles.attachmentRail}
+          <Animated.View
+            pointerEvents={replyTarget ? "auto" : "none"}
+            style={[
+              styles.replyTray,
+              {
+                height: replyHeight,
+                opacity: replyProgress,
+                transform: [
+                  {
+                    scale: replyProgress.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [0.98, 1],
+                    }),
+                  },
+                ],
+              },
+            ]}
           >
-            {attachments.map((attachment) => {
-              const url = attachment.asset ? assetUrl(attachment.asset) : attachment.source?.uri;
-              const fileName = attachment.asset?.fileName ?? attachment.source?.fileName ?? "File";
-              const isImage =
-                attachment.asset?.kind === "image" || attachment.source?.previewKind === "image";
-              return (
-                <View key={attachment.id} style={styles.attachmentPreviewWrap}>
-                  {isImage && url ? (
-                    <Image
-                      source={{
-                        uri: url,
-                        ...(attachment.asset ? { headers: authHeadersForUrl(url) } : {}),
-                      }}
-                      style={[styles.imagePreview, { backgroundColor: theme.surfacePressed }]}
-                    />
-                  ) : (
-                    <View
-                      style={[
-                        styles.filePreview,
-                        { backgroundColor: theme.surface, borderColor: theme.border },
-                      ]}
-                    >
-                      <SymbolView name="doc.fill" size={20} tintColor={theme.textMuted} />
-                      <Text numberOfLines={1} style={[styles.fileName, { color: theme.textMuted }]}>
-                        {fileName}
-                      </Text>
-                    </View>
-                  )}
-                  {attachment.state !== "ready" ? (
-                    <View style={styles.uploadOverlay}>
-                      {attachment.state === "uploading" ? (
-                        <>
-                          <Text style={styles.uploadPercent}>
-                            {Math.max(1, Math.round(attachment.progress * 100))}%
-                          </Text>
-                          <View style={styles.progressTrack}>
-                            <View
-                              style={[
-                                styles.progressFill,
-                                { width: `${Math.max(4, attachment.progress * 100)}%` },
-                              ]}
-                            />
-                          </View>
-                        </>
-                      ) : (
-                        <Pressable
-                          accessibilityLabel={`Retry upload ${fileName}`}
-                          accessibilityRole="button"
-                          onPress={() => void uploadAttachment(attachment)}
-                          style={styles.retryUpload}
-                        >
-                          <SymbolView name="arrow.clockwise" size={14} tintColor="#FFFFFF" />
-                          <Text style={styles.retryUploadLabel}>Retry</Text>
-                        </Pressable>
-                      )}
-                    </View>
-                  ) : null}
-                  <Pressable
-                    accessibilityLabel={
-                      attachment.state === "uploading"
-                        ? `Cancel upload ${fileName}`
-                        : `Remove ${fileName}`
-                    }
-                    accessibilityRole="button"
-                    hitSlop={5}
-                    onPress={() => removeAttachment(attachment)}
-                    style={styles.removeImage}
-                  >
-                    <SymbolView name="xmark" size={10} tintColor="#FFFFFF" weight="bold" />
-                  </Pressable>
-                </View>
-              );
-            })}
-          </View>
-        ) : null}
-
-        {attachmentError || voice.error ? (
-          <Text
-            accessibilityLiveRegion="polite"
-            style={[styles.attachmentError, { color: theme.danger }]}
-          >
-            {attachmentError ?? voice.error}
-          </Text>
-        ) : null}
-        {voice.canRetry ? (
-          <View style={{ flexDirection: "row", gap: 16, paddingHorizontal: 12 }}>
-            <Pressable
-              accessibilityLabel="Retry transcription"
-              accessibilityRole="button"
-              onPress={voice.retry}
-            >
-              <Text style={{ color: theme.accent }}>Retry transcription</Text>
-            </Pressable>
-            <Pressable
-              accessibilityLabel="Discard recording"
-              accessibilityRole="button"
-              onPress={voice.cancel}
-            >
-              <Text style={{ color: theme.textMuted }}>Discard recording</Text>
-            </Pressable>
-          </View>
-        ) : null}
-
-        {visibleMentions.length > 0 ? (
-          <View
-            accessibilityLabel="Mention suggestions"
-            style={[styles.mentionList, { borderTopColor: theme.separator }]}
-          >
-            {visibleMentions.map((option) => (
+            <View style={[styles.replyInner, { backgroundColor: theme.surface }]}>
+              <SymbolView name="arrowshape.turn.up.left" size={14} tintColor={theme.textMuted} />
+              <Text numberOfLines={1} style={[styles.replyCopy, { color: theme.textMuted }]}>
+                {replyTarget?.content ?? ""}
+              </Text>
               <Pressable
-                accessibilityLabel={`Mention ${option.label}`}
+                accessibilityLabel="Cancel reply"
                 accessibilityRole="button"
-                key={option.id}
-                onPress={() => chooseMention(option)}
+                hitSlop={8}
+                onPress={() => {
+                  draftHydrationGuardRef.current.markEdited("reply");
+                  onClearReply();
+                }}
                 style={({ pressed }) => [
-                  styles.mention,
+                  styles.close,
                   pressed && { backgroundColor: theme.surfacePressed },
                 ]}
               >
-                <Text style={[styles.mentionHandle, { color: theme.text }]}>
-                  {option.trigger ?? "@"}
-                  {option.handle}
-                </Text>
-                {option.label.toLocaleLowerCase("en-US") !== option.handle ? (
-                  <Text numberOfLines={1} style={[styles.mentionLabel, { color: theme.textMuted }]}>
-                    {option.label}
-                    {option.status ? ` · ${option.status}` : ""}
-                  </Text>
-                ) : null}
+                <SymbolView name="xmark" size={14} tintColor={theme.textMuted} weight="semibold" />
               </Pressable>
-            ))}
-          </View>
-        ) : null}
+            </View>
+          </Animated.View>
 
-        <View style={styles.inputRow}>
-          <TextInput
-            accessibilityLabel={inputPlaceholder}
-            blurOnSubmit={false}
-            keyboardAppearance={theme.dark ? "dark" : "light"}
-            multiline
-            onChangeText={updateText}
-            onSelectionChange={(event) => {
-              inputSelection.current = event.nativeEvent.selection;
-              if (voiceActive) voiceSelection.current = event.nativeEvent.selection;
-              setRestoredSelection(undefined);
-            }}
-            selection={restoredSelection}
-            onContentSizeChange={(event) =>
-              updateMeasuredHeight(event.nativeEvent.contentSize.height)
-            }
-            placeholder={inputPlaceholder}
-            placeholderTextColor={theme.textFaint}
-            ref={textInputRef}
-            returnKeyType="default"
-            scrollEnabled={inputHeight >= 102}
-            selectionColor={theme.accent}
-            style={[
-              styles.input,
-              {
-                color: theme.text,
-                height: inputHeight,
-                marginTop: verticalPadding,
-                marginBottom: verticalPadding,
-              },
-            ]}
-            value={text}
-          />
-          {voiceActive ? (
-            <>
-              {voice.state === "recording" ? (
+          {attachments.length > 0 ? (
+            <View
+              accessibilityLabel={`${attachments.length} attached files`}
+              style={styles.attachmentRail}
+            >
+              {attachments.map((attachment) => {
+                const url = attachment.asset ? assetUrl(attachment.asset) : attachment.source?.uri;
+                const fileName =
+                  attachment.asset?.fileName ?? attachment.source?.fileName ?? "File";
+                const isImage =
+                  attachment.asset?.kind === "image" || attachment.source?.previewKind === "image";
+                return (
+                  <View key={attachment.id} style={styles.attachmentPreviewWrap}>
+                    {isImage && url ? (
+                      <Image
+                        source={{
+                          uri: url,
+                          ...(attachment.asset ? { headers: authHeadersForUrl(url) } : {}),
+                        }}
+                        style={[styles.imagePreview, { backgroundColor: theme.surfacePressed }]}
+                      />
+                    ) : (
+                      <View
+                        style={[
+                          styles.filePreview,
+                          { backgroundColor: theme.surface, borderColor: theme.border },
+                        ]}
+                      >
+                        <SymbolView name="doc.fill" size={20} tintColor={theme.textMuted} />
+                        <Text
+                          numberOfLines={1}
+                          style={[styles.fileName, { color: theme.textMuted }]}
+                        >
+                          {fileName}
+                        </Text>
+                      </View>
+                    )}
+                    {attachment.state !== "ready" ? (
+                      <View style={styles.uploadOverlay}>
+                        {attachment.state === "uploading" ? (
+                          <>
+                            <Text style={styles.uploadPercent}>
+                              {Math.max(1, Math.round(attachment.progress * 100))}%
+                            </Text>
+                            <View style={styles.progressTrack}>
+                              <View
+                                style={[
+                                  styles.progressFill,
+                                  { width: `${Math.max(4, attachment.progress * 100)}%` },
+                                ]}
+                              />
+                            </View>
+                          </>
+                        ) : (
+                          <Pressable
+                            accessibilityLabel={`Retry upload ${fileName}`}
+                            accessibilityRole="button"
+                            onPress={() => void uploadAttachment(attachment)}
+                            style={styles.retryUpload}
+                          >
+                            <SymbolView name="arrow.clockwise" size={14} tintColor="#FFFFFF" />
+                            <Text style={styles.retryUploadLabel}>Retry</Text>
+                          </Pressable>
+                        )}
+                      </View>
+                    ) : null}
+                    <Pressable
+                      accessibilityLabel={
+                        attachment.state === "uploading"
+                          ? `Cancel upload ${fileName}`
+                          : `Remove ${fileName}`
+                      }
+                      accessibilityRole="button"
+                      hitSlop={5}
+                      onPress={() => removeAttachment(attachment)}
+                      style={styles.removeImage}
+                    >
+                      <SymbolView name="xmark" size={10} tintColor="#FFFFFF" weight="bold" />
+                    </Pressable>
+                  </View>
+                );
+              })}
+            </View>
+          ) : null}
+
+          {attachmentError || voice.error ? (
+            <Text
+              accessibilityLiveRegion="polite"
+              style={[styles.attachmentError, { color: theme.danger }]}
+            >
+              {attachmentError ?? voice.error}
+            </Text>
+          ) : null}
+          {voice.canRetry ? (
+            <View style={{ flexDirection: "row", gap: 16, paddingHorizontal: 12 }}>
+              <Pressable
+                accessibilityLabel="Retry transcription"
+                accessibilityRole="button"
+                onPress={voice.retry}
+              >
+                <Text style={{ color: theme.accent }}>Retry transcription</Text>
+              </Pressable>
+              <Pressable
+                accessibilityLabel="Discard recording"
+                accessibilityRole="button"
+                onPress={voice.cancel}
+              >
+                <Text style={{ color: theme.textMuted }}>Discard recording</Text>
+              </Pressable>
+            </View>
+          ) : null}
+
+          {visibleMentions.length > 0 ? (
+            <View
+              accessibilityLabel="Mention suggestions"
+              style={[styles.mentionList, { borderTopColor: theme.separator }]}
+            >
+              {visibleMentions.map((option) => (
                 <Pressable
-                  accessibilityLabel="Stop recording"
+                  accessibilityLabel={`Mention ${option.label}`}
                   accessibilityRole="button"
-                  accessibilityHint="Stops recording and returns the transcript for review"
-                  hitSlop={8}
-                  onPress={voice.stop}
-                  style={[
-                    styles.voicePill,
-                    { backgroundColor: theme.dark ? "#442526" : "#f9eaea" },
+                  key={option.id}
+                  onPress={() => chooseMention(option)}
+                  style={({ pressed }) => [
+                    styles.mention,
+                    pressed && { backgroundColor: theme.surfacePressed },
                   ]}
                 >
-                  <View style={styles.voiceStop} />
-                  <Text style={styles.voiceTimer}>{recordingTime(voice.elapsedMs)}</Text>
+                  <Text style={[styles.mentionHandle, { color: theme.text }]}>
+                    {option.trigger ?? "@"}
+                    {option.handle}
+                  </Text>
+                  {option.label.toLocaleLowerCase("en-US") !== option.handle ? (
+                    <Text
+                      numberOfLines={1}
+                      style={[styles.mentionLabel, { color: theme.textMuted }]}
+                    >
+                      {option.label}
+                      {option.status ? ` · ${option.status}` : ""}
+                    </Text>
+                  ) : null}
                 </Pressable>
-              ) : (
-                <View
-                  accessibilityLabel={
-                    voice.state === "requesting"
-                      ? "Requesting microphone"
-                      : "Transcribing voice note"
-                  }
-                  style={styles.voiceProcessing}
-                >
-                  <ActivityIndicator color={theme.textMuted} size="small" />
-                </View>
-              )}
-              {voice.state === "recording" ? (
-                <IconButton
-                  label="Transcribe and send"
-                  name="arrow.up"
-                  size={34}
-                  symbolSize={17}
-                  tone="dark"
-                  onPress={() => {
-                    sendAfterVoice.current = true;
-                    voice.stop();
-                  }}
-                />
-              ) : null}
-            </>
-          ) : (
-            <IconButton
-              label={
-                voice.available
-                  ? "Start voice input"
-                  : "Set up transcription in Server settings to use voice notes"
-              }
-              name="mic.fill"
-              disabled={!voice.available || sending}
-              onPress={startVoice}
-              size={34}
-              symbolSize={16}
-              tone={theme.dark ? "dark" : "subtle"}
-            />
-          )}
-          {hasPayload && !voiceActive ? (
-            <IconButton
-              label="Send message"
-              name="arrow.up"
-              disabled={sending}
-              haptic="none"
-              onPress={() => void submit()}
-              size={34}
-              symbolSize={17}
-              tone="dark"
-            />
+              ))}
+            </View>
           ) : null}
-        </View>
-      </GlassSurface>
+
+          <View style={styles.inputRow}>
+            <View style={styles.inputWrap}>
+              <TextInput
+                accessibilityLabel={inputPlaceholder}
+                blurOnSubmit={false}
+                keyboardAppearance={theme.dark ? "dark" : "light"}
+                multiline
+                onChangeText={updateText}
+                onSelectionChange={(event) => {
+                  inputSelection.current = event.nativeEvent.selection;
+                  if (voiceActive) voiceSelection.current = event.nativeEvent.selection;
+                  setRestoredSelection(undefined);
+                }}
+                selection={restoredSelection}
+                onContentSizeChange={(event) =>
+                  updateMeasuredHeight(event.nativeEvent.contentSize.height)
+                }
+                ref={textInputRef}
+                returnKeyType="default"
+                scrollEnabled={visibleInputHeight >= 102}
+                selectionColor={theme.accent}
+                style={[
+                  styles.input,
+                  {
+                    color: theme.text,
+                    height: visibleInputHeight,
+                    marginTop: verticalPadding - 1,
+                    marginBottom: verticalPadding + 1,
+                  },
+                ]}
+                value={text}
+              />
+              {!text ? (
+                <Text
+                  accessibilityElementsHidden
+                  importantForAccessibility="no"
+                  numberOfLines={1}
+                  ellipsizeMode="tail"
+                  pointerEvents="none"
+                  style={[
+                    styles.input,
+                    styles.placeholder,
+                    { color: theme.textFaint, top: verticalPadding - 1 },
+                  ]}
+                >
+                  {inputPlaceholder}
+                </Text>
+              ) : null}
+            </View>
+            {voiceActive ? (
+              <>
+                {voice.state === "recording" ? (
+                  <Pressable
+                    accessibilityLabel="Stop recording"
+                    accessibilityRole="button"
+                    accessibilityHint="Stops recording and returns the transcript for review"
+                    hitSlop={8}
+                    onPress={voice.stop}
+                    style={[
+                      styles.voicePill,
+                      { backgroundColor: theme.dark ? "#442526" : "#f9eaea" },
+                    ]}
+                  >
+                    <View style={styles.voiceStop} />
+                    <Text style={styles.voiceTimer}>{recordingTime(voice.elapsedMs)}</Text>
+                  </Pressable>
+                ) : (
+                  <View
+                    accessibilityLabel={
+                      voice.state === "requesting"
+                        ? "Requesting microphone"
+                        : "Transcribing voice note"
+                    }
+                    style={styles.voiceProcessing}
+                  >
+                    <ActivityIndicator color={theme.textMuted} size="small" />
+                  </View>
+                )}
+                {voice.state === "recording" ? (
+                  <IconButton
+                    label="Transcribe and send"
+                    name="arrow.up"
+                    size={36}
+                    visualHeight={28}
+                    symbolSize={17}
+                    tone="dark"
+                    onPress={() => {
+                      sendAfterVoice.current = true;
+                      voice.stop();
+                    }}
+                  />
+                ) : null}
+              </>
+            ) : !hasPayload ? (
+              <IconButton
+                label={
+                  voice.available
+                    ? "Start voice input"
+                    : "Set up transcription in Server settings to use voice notes"
+                }
+                name="mic.fill"
+                disabled={!voice.available || sending}
+                onPress={startVoice}
+                size={36}
+                visualHeight={28}
+                symbolSize={16}
+                tone="muted"
+              />
+            ) : null}
+            {hasPayload && !voiceActive ? (
+              <IconButton
+                label="Send message"
+                name="arrow.up"
+                disabled={sending}
+                haptic="none"
+                onPress={() => void submit()}
+                size={36}
+                visualHeight={28}
+                symbolSize={17}
+                tone="dark"
+              />
+            ) : null}
+          </View>
+        </GlassSurface>
+      </View>
     </View>
   );
 }
@@ -1204,24 +1261,18 @@ const styles = StyleSheet.create({
   menuPressed: { backgroundColor: "rgba(255,255,255,0.08)" },
   disabledMenuItem: { opacity: 0.35 },
   outer: {
-    paddingLeft: 24,
-    paddingRight: 29,
     paddingTop: 4,
-    paddingBottom: 2,
+    paddingBottom: 0,
     flexDirection: "row",
     alignItems: "flex-end",
-    gap: 9,
+    gap: 10,
   },
+  composerShadow: { flex: 1, borderRadius: 22 },
   composer: {
-    flex: 1,
     minHeight: metrics.composerMinHeight,
     maxHeight: metrics.composerMaxHeight,
     borderRadius: 22,
-    borderWidth: StyleSheet.hairlineWidth,
     overflow: "hidden",
-    shadowOpacity: 0.09,
-    shadowRadius: 9,
-    shadowOffset: { width: 0, height: 3 },
   },
   replyTray: { overflow: "hidden" },
   replyInner: {
@@ -1322,7 +1373,7 @@ const styles = StyleSheet.create({
     minHeight: 44,
     flexDirection: "row",
     alignItems: "flex-end",
-    paddingLeft: 10,
+    paddingLeft: 12,
     paddingRight: 2,
   },
   voicePill: {
@@ -1343,13 +1394,14 @@ const styles = StyleSheet.create({
     fontVariant: ["tabular-nums"],
   },
   voiceProcessing: { width: 34, height: 44, alignItems: "center", justifyContent: "center" },
+  inputWrap: { flex: 1 },
+  placeholder: { position: "absolute", left: 0, right: 0, height: 22 },
   input: {
-    flex: 1,
     minHeight: 22,
     maxHeight: 102,
     paddingHorizontal: 4,
     paddingVertical: 0,
-    fontSize: 16,
+    fontSize: 17,
     lineHeight: 22,
     letterSpacing: -0.12,
   },

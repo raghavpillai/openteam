@@ -1,5 +1,6 @@
 import type { AssetRef, BotView, ChannelMessageView } from "@openteam/contracts";
 import {
+  channelNameChangedEventFor,
   routineChangedActionLabel,
   routineChangedEventFor,
 } from "@openteam/product-core/channel-events";
@@ -35,7 +36,7 @@ import {
   boundedMobileAccessibilitySummary,
   messageNeedsAdvancedMobileMarkdown,
 } from "../mobile-markdown-core";
-import { useTheme } from "../theme";
+import { useChatTheme } from "../chat-appearance";
 import { AttachmentPreview } from "./attachment-preview";
 import { ImageViewer, type ImageViewerItem } from "./image-viewer";
 import { MobileMarkdown, messageNeedsMobileMarkdown } from "./mobile-markdown";
@@ -52,7 +53,7 @@ function ReactionPill({
   onPress: () => void;
   readOnly: boolean;
 }) {
-  const theme = useTheme();
+  const theme = useChatTheme();
   const scale = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     Animated.spring(scale, {
@@ -156,10 +157,11 @@ export function MessageBubble({
   speakerName?: string;
   showSpeakerName?: boolean;
 }) {
-  const theme = useTheme();
+  const theme = useChatTheme();
   const [actionsOpen, setActionsOpen] = useState(false);
   const [viewerItem, setViewerItem] = useState<ImageViewerItem | null>(null);
   const routineEvent = useMemo(() => routineChangedEventFor(message), [message]);
+  const nameChangeEvent = useMemo(() => channelNameChangedEventFor(message), [message]);
   const projectedA2AContext = useMemo(() => a2aProjectionFor(message), [message]);
   const a2aContext = hideA2ALabel ? null : projectedA2AContext;
   const isUser = alignRight ?? (message.sender === "user" && !projectedA2AContext);
@@ -351,18 +353,30 @@ export function MessageBubble({
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setActionsOpen(true);
   };
-  const renderedContent = displayContent ? (
-    messageNeedsMobileMarkdown(displayContent) ? (
-      <MobileMarkdown color={isUser ? theme.userText : theme.text} content={displayContent} />
+  const renderedText = displayContent.trimEnd();
+  const renderedContent = renderedText ? (
+    messageNeedsMobileMarkdown(renderedText) ? (
+      <MobileMarkdown color={isUser ? theme.userText : theme.text} content={renderedText} />
     ) : (
       <Text selectable style={[styles.content, { color: isUser ? theme.userText : theme.text }]}>
-        {displayContent}
+        {renderedText}
       </Text>
     )
   ) : null;
   const advancedMarkdown = Boolean(
     displayContent && messageNeedsAdvancedMobileMarkdown(displayContent)
   );
+
+  if (nameChangeEvent) {
+    return (
+      <View accessible accessibilityRole="text" style={styles.nameChangeEvent}>
+        <SymbolView name="pencil" size={13} tintColor={theme.textMuted} weight="regular" />
+        <Text style={[styles.nameChangeEventText, { color: theme.textMuted }]}>
+          Renamed to {nameChangeEvent.to}
+        </Text>
+      </View>
+    );
+  }
 
   if (routineEvent) {
     const opensRoutine = Boolean(onOpenRoutine) && routineEvent.action !== "deleted";
@@ -927,6 +941,15 @@ export function MessageBubble({
 }
 
 const styles = StyleSheet.create({
+  nameChangeEvent: {
+    alignSelf: "center",
+    flexDirection: "row",
+    alignItems: "center",
+    minHeight: 24,
+    marginVertical: 7,
+    gap: 6,
+  },
+  nameChangeEventText: { flexShrink: 1, fontSize: 14, lineHeight: 18 },
   routineEventWrap: { alignSelf: "stretch", alignItems: "center", marginVertical: 3 },
   routineEvent: {
     minHeight: 30,
@@ -939,7 +962,7 @@ const styles = StyleSheet.create({
     gap: 5,
   },
   routineEventText: { flexShrink: 1, fontSize: 12, lineHeight: 18, fontWeight: "400" },
-  messageWrap: { maxWidth: "89%", marginVertical: 3 },
+  messageWrap: { maxWidth: "89%", marginVertical: 7 },
   // Rich cards contain percentage-width children. Give their wrapping message an
   // explicit width so Yoga does not resolve the circular percentage against the
   // card's min-content width (which can collapse short widget labels vertically).
@@ -960,12 +983,12 @@ const styles = StyleSheet.create({
   },
   swipeThreadIndicatorLeft: { left: 17 },
   swipeThreadIndicatorRight: { left: -31 },
-  bubble: { borderRadius: 21, paddingHorizontal: 15, paddingVertical: 10 },
+  bubble: { borderRadius: 24, paddingHorizontal: 14, paddingVertical: 9 },
   advancedMarkdownBubble: { width: "100%" },
   richActionTarget: { width: "100%", maxWidth: 520 },
   bubbleWithAttachments: { paddingHorizontal: 6, paddingBottom: 6 },
   attachmentOnlyBubble: { paddingTop: 6 },
-  content: { fontSize: 16, lineHeight: 22, letterSpacing: -0.15 },
+  content: { fontSize: 17, lineHeight: 22 },
   imageGallery: {
     width: 228,
     flexDirection: "row",

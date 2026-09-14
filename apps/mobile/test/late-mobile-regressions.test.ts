@@ -10,13 +10,15 @@ describe("late native iOS regression guards", () => {
       source("src/components/message-bubble.tsx"),
     ]);
 
-    expect(sheet).toContain("}, [threadRootId]);");
+    expect(sheet).toContain("}, [threadRootId, targetMessageId, resetScroll]);");
     expect(sheet).toContain("setReplyTarget(null)");
     expect(sheet).toContain("onViewableItemsChanged={onViewableItemsChanged}");
     expect(sheet).toContain("onVisibleSequenceRef.current(highest)");
     expect(sheet).toContain("targetMessageId");
-    expect(sheet).toContain("scrollToEnd({ animated: true })");
-    expect(sheet).toContain("maintainVisibleContentPosition={{ minIndexForVisible: 0 }}");
+    expect(sheet).toMatch(/useChatScroll\(\s*listRef/);
+    expect(sheet).toMatch(
+      /maintainVisibleContentPosition=\{\s*chatScroll.following \? undefined : \{ minIndexForVisible: 0 \}\s*\}/
+    );
     expect(sheet).toContain("Load earlier thread replies");
     expect(sheet).toContain("replyTarget?.id ?? thread.root.id");
     expect(route).toContain("onVisibleSequence={recordVisibleSequence}");
@@ -127,14 +129,18 @@ describe("late native iOS regression guards", () => {
     ]);
 
     expect(composer).toContain("void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);");
-    expect(composer).toContain('label="Add attachment"');
+    expect(composer).toContain('label={voiceActive ? "Cancel voice note" : "Add attachment"}');
     expect(composer).toContain('haptic="light"');
     expect(composer).toContain('accessibilityLabel="Attach Image"');
     expect(composer).toContain('accessibilityLabel="Take Photo"');
     expect(composer).toContain('accessibilityLabel="Choose File"');
     expect(composer).not.toContain("ActionSheetIOS.showActionSheetWithOptions");
     expect(composer).toMatch(/label="Send message"[\s\S]*?haptic="none"/);
-    expect(composer).toMatch(/label="Transcribe and send"[\s\S]*?haptic="none"/);
+    const transcribeButton = composer.match(
+      /<IconButton\s+label="Transcribe and send"[\s\S]*?\/>/
+    )?.[0];
+    expect(transcribeButton).toBeDefined();
+    expect(transcribeButton).not.toMatch(/haptic="(?:light|selection)"/);
     expect(iconButton).toContain('haptic = "none"');
     expect(iconButton).toContain('haptic?: "selection" | "light" | "none"');
     expect(iconButton).toContain('if (haptic === "light")');
@@ -155,7 +161,7 @@ describe("late native iOS regression guards", () => {
     ]);
 
     expect(composer).toContain('"Start voice input"');
-    expect(composer).toContain('label="Stop recording"');
+    expect(composer).toContain('accessibilityLabel="Stop recording"');
     expect(composer).toContain('label="Transcribe and send"');
     expect(composer).toContain("Retry upload");
     expect(composer).toContain("Cancel upload");

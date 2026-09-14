@@ -2,23 +2,26 @@ import { normalizeRobotAvatarShape } from "@openteam/contracts/robot-avatar";
 import {
   ROBOT_AVATAR_ARTWORK,
   ROBOT_AVATAR_VIEW_BOX,
-  robotAvatarFaceColor,
   type RobotAvatarNode,
+  robotAvatarFaceColor,
 } from "@openteam/design-tokens/robot-avatar-artwork";
-import { memo } from "react";
-// Import primitives directly so Metro omits the XML/CSS parsers and filter components.
-import Svg from "react-native-svg/src/elements/Svg";
+import { memo, type ReactNode } from "react";
 import Circle from "react-native-svg/src/elements/Circle";
 import G from "react-native-svg/src/elements/G";
 import Line from "react-native-svg/src/elements/Line";
 import Polygon from "react-native-svg/src/elements/Polygon";
 import Rect from "react-native-svg/src/elements/Rect";
+// Import primitives directly so Metro omits the XML/CSS parsers and filter components.
+import Svg from "react-native-svg/src/elements/Svg";
+
+type PartRenderer = (node: RobotAvatarNode, content: ReactNode, index: number) => ReactNode;
 
 function renderNode(
   node: RobotAvatarNode,
   key: number,
   color: string,
-  faceColor: string
+  faceColor: string,
+  renderPart?: PartRenderer
 ): React.ReactNode {
   const { style, ...attributes } = node.attributes;
   const props = Object.fromEntries(
@@ -37,23 +40,46 @@ function renderNode(
   if (typeof style === "object" && style.transform?.includes("perspective")) {
     props.transform = "translate(52 0) scale(0.9703 1) translate(-50 0)";
   }
-  const children = node.children?.map((child, index) => renderNode(child, index, color, faceColor));
+  const children = node.children?.map((child, index) =>
+    renderNode(child, index, color, faceColor, renderPart)
+  );
+  const wrap = (content: ReactNode) => (renderPart ? renderPart(node, content, key) : content);
   switch (node.tag) {
     case "g":
-      return (
+      return wrap(
         <G {...props} key={key}>
           {children}
         </G>
       );
     case "rect":
-      return <Rect {...props} key={key} />;
+      return wrap(<Rect {...props} key={key} />);
     case "circle":
-      return <Circle {...props} key={key} />;
+      return wrap(<Circle {...props} key={key} />);
     case "line":
-      return <Line {...props} key={key} />;
+      return wrap(<Line {...props} key={key} />);
     case "polygon":
-      return <Polygon {...props} key={key} />;
+      return wrap(<Polygon {...props} key={key} />);
   }
+}
+
+export function RobotArtwork({
+  color,
+  icon,
+  faceColor,
+  renderPart,
+}: {
+  color: string;
+  icon?: string;
+  faceColor?: string;
+  renderPart?: PartRenderer;
+}) {
+  return (
+    <>
+      {ROBOT_AVATAR_ARTWORK[normalizeRobotAvatarShape(icon)].map((node, index) =>
+        renderNode(node, index, color, faceColor ?? robotAvatarFaceColor(color), renderPart)
+      )}
+    </>
+  );
 }
 
 export const BotMark = memo(function BotMark({
@@ -67,7 +93,6 @@ export const BotMark = memo(function BotMark({
   icon?: string;
   size?: number;
 }) {
-  const shape = normalizeRobotAvatarShape(icon);
   return (
     <Svg
       accessibilityIgnoresInvertColors
@@ -77,9 +102,7 @@ export const BotMark = memo(function BotMark({
       height={size}
       viewBox={ROBOT_AVATAR_VIEW_BOX}
     >
-      {ROBOT_AVATAR_ARTWORK[shape].map((node, index) =>
-        renderNode(node, index, color, faceColor ?? robotAvatarFaceColor(color))
-      )}
+      <RobotArtwork color={color} faceColor={faceColor} icon={icon} />
     </Svg>
   );
 });

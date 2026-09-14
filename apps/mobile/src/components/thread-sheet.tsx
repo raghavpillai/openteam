@@ -25,8 +25,12 @@ import {
   View,
   type ViewToken,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
-import { highestVisibleSequence, isNearLiveEdge } from "../chat-viewport";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { highestVisibleSequence } from "../chat-viewport";
+import { ChatChromeFade } from "./chat-chrome-fade";
+import { useChatKeyboard } from "../hooks/use-chat-keyboard";
+import { useMessageFocus } from "../hooks/use-message-focus";
+import { useChatScroll } from "../hooks/use-chat-scroll";
 import { MOBILE_VIRTUAL_LIST_TUNING } from "../list-scale";
 import {
   discardMobileDeliveryAttachments,
@@ -137,17 +141,31 @@ export function ThreadSheet({
   uploadCapabilities: ClientCapabilities["uploads"];
 }) {
   const theme = useTheme();
+  const insets = useSafeAreaInsets();
+  const keyboardVisible = useChatKeyboard();
+  const [composerHeight, setComposerHeight] = useState(80);
   const [replyTarget, setReplyTarget] = useState<ReplyTarget | null>(null);
   const [replyEditVersion, setReplyEditVersion] = useState(0);
   const [composerRecovery, setComposerRecovery] = useState<ComposerRecovery | null>(null);
   const presentedRecoveryNonces = useRef(new Set<string>());
   const listRef = useRef<FlatList<ChannelMessageView>>(null);
   const atLiveEdgeRef = useRef(true);
-  const placedThreadIdRef = useRef<string | null>(null);
-  const targetScrollRetries = useRef(0);
   const onVisibleSequenceRef = useRef(onVisibleSequence);
+  const visibleMessageIds = useRef<readonly string[]>([]);
   const historyViewportRef = useRef({ onVisibleMessageIds, historyHasNewer });
   historyViewportRef.current = { onVisibleMessageIds, historyHasNewer };
+  const chatScroll = useChatScroll(
+    listRef,
+    (next) => {
+      atLiveEdgeRef.current = next;
+      historyViewportRef.current.onVisibleMessageIds(
+        visibleMessageIds.current,
+        next && !historyViewportRef.current.historyHasNewer
+      );
+    },
+    historyHasNewer
+  );
+  const { reset: resetScroll, setFollowing, correctAfterLayout } = chatScroll;
   const messages = useMemo(() => (thread ? [thread.root, ...thread.replies] : []), [thread]);
   const byId = useMemo(() => new Map(messages.map((message) => [message.id, message])), [messages]);
   const threadRootId = thread?.root.id ?? null;
@@ -155,14 +173,20 @@ export function ThreadSheet({
   const targetIndex = targetMessageId
     ? messages.findIndex((message) => message.id === targetMessageId)
     : -1;
+  const messageFocus = useMessageFocus(listRef, targetMessageId, targetIndex);
+  const focusVisibleIds = messageFocus.onVisibleMessageIds;
   const onViewableItemsChanged = useRef(
     ({ viewableItems }: { viewableItems: ViewToken<ChannelMessageView>[] }) => {
       const highest = highestVisibleSequence(
         viewableItems.map(({ isViewable, item }) => ({ isViewable, item }))
       );
       if (highest) onVisibleSequenceRef.current(highest);
+      visibleMessageIds.current = viewableItems
+        .filter(({ isViewable }) => isViewable)
+        .map(({ item }) => item.id);
+      focusVisibleIds(visibleMessageIds.current);
       historyViewportRef.current.onVisibleMessageIds(
-        viewableItems.filter(({ isViewable }) => isViewable).map(({ item }) => item.id),
+        visibleMessageIds.current,
         atLiveEdgeRef.current && !historyViewportRef.current.historyHasNewer
       );
     }
@@ -177,10 +201,9 @@ export function ThreadSheet({
     setReplyTarget(null);
     setComposerRecovery(null);
     setReplyEditVersion((current) => current + 1);
-    atLiveEdgeRef.current = true;
-    placedThreadIdRef.current = null;
-    targetScrollRetries.current = 0;
-  }, [threadRootId]);
+    visibleMessageIds.current = [];
+    resetScroll(!targetMessageId);
+  }, [threadRootId, targetMessageId, resetScroll]);
 
   useEffect(() => {
     if (composerRecovery) return;
@@ -239,209 +262,209 @@ export function ThreadSheet({
       presentationStyle="fullScreen"
       visible={Boolean(thread)}
     >
-      <SafeAreaView
-        accessibilityViewIsModal
-        style={[styles.safe, { backgroundColor: theme.background }]}
-      >
+      <View accessibilityViewIsModal style={[styles.safe, { backgroundColor: theme.background }]}>
         <KeyboardAvoidingView
           behavior={Platform.OS === "ios" ? "padding" : undefined}
           keyboardVerticalOffset={0}
           style={styles.safe}
         >
-          <View style={styles.header}>
-            <IconButton
-              label="Close thread"
-              name="chevron.left"
-              onPress={onClose}
-              size={40}
-              symbolSize={18}
-              tone="surface"
+          <View style={styles.safe}>
+            <ChatChromeFade
+              edge="top"
+              style={{ bottom: undefined, height: insets.top + 104, zIndex: 2 }}
             />
-          </View>
-          <FlatList
-            {...MOBILE_VIRTUAL_LIST_TUNING}
-            ref={listRef}
-            contentContainerStyle={styles.messages}
-            data={messages}
-            keyExtractor={messageRenderKey}
-            keyboardDismissMode="interactive"
-            keyboardShouldPersistTaps="handled"
-            maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
-            onContentSizeChange={() => {
-              if (!threadRootId) return;
-              if (placedThreadIdRef.current !== threadRootId) {
-                placedThreadIdRef.current = threadRootId;
-                if (targetIndex >= 0) {
-                  listRef.current?.scrollToIndex({
-                    animated: false,
-                    index: targetIndex,
-                    viewPosition: 0.5,
-                  });
-                } else {
-                  listRef.current?.scrollToEnd({ animated: false });
-                }
-                return;
+            <View style={[styles.header, { top: insets.top + 6 }]}>
+              <IconButton
+                label="Close thread"
+                name="chevron.left"
+                onPress={onClose}
+                size={44}
+                symbolSize={20}
+                tone="glass"
+              />
+            </View>
+            <FlatList
+              {...MOBILE_VIRTUAL_LIST_TUNING}
+              ref={listRef}
+              contentContainerStyle={[
+                styles.messages,
+                { paddingTop: insets.top + 66, paddingBottom: composerHeight + 8 },
+              ]}
+              data={messages}
+              keyExtractor={messageRenderKey}
+              keyboardDismissMode="interactive"
+              keyboardShouldPersistTaps="handled"
+              maintainVisibleContentPosition={
+                chatScroll.following ? undefined : { minIndexForVisible: 0 }
               }
-              if (atLiveEdgeRef.current) listRef.current?.scrollToEnd({ animated: true });
-            }}
-            onScroll={(event) => {
-              const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
-              atLiveEdgeRef.current =
-                !historyHasNewer &&
-                isNearLiveEdge(contentOffset.y, layoutMeasurement.height, contentSize.height);
-            }}
-            onScrollToIndexFailed={({ index, averageItemLength }) => {
-              listRef.current?.scrollToOffset({
-                animated: false,
-                offset: Math.max(0, averageItemLength * index),
-              });
-              if (targetScrollRetries.current >= 2) return;
-              targetScrollRetries.current += 1;
-              requestAnimationFrame(() => {
-                listRef.current?.scrollToIndex({
-                  animated: false,
-                  index,
-                  viewPosition: 0.5,
-                });
-              });
-            }}
-            onViewableItemsChanged={onViewableItemsChanged}
-            onEndReached={() => {
-              if (historyHasNewer) void onLoadLater();
-            }}
-            onEndReachedThreshold={0.5}
-            scrollEventThrottle={32}
-            ListHeaderComponent={
-              <View>
-                {historyLoading ? (
-                  <ActivityIndicator color={theme.textMuted} style={styles.historyAction} />
-                ) : historyHasMore ? (
-                  <Pressable
-                    accessibilityLabel="Load earlier thread replies"
-                    accessibilityRole="button"
-                    onPress={() => {
-                      atLiveEdgeRef.current = false;
-                      void onLoadEarlier();
-                    }}
-                    style={({ pressed }) => [styles.historyAction, pressed && styles.pressed]}
-                  >
-                    <Text style={[styles.historyLabel, { color: theme.textMuted }]}>
-                      Load earlier thread replies
+              onLayout={chatScroll.onLayout}
+              onContentSizeChange={chatScroll.onContentSizeChange}
+              onScroll={chatScroll.onScroll}
+              onScrollBeginDrag={() => {
+                messageFocus.cancel();
+                chatScroll.onScrollBeginDrag();
+              }}
+              onScrollEndDrag={chatScroll.onScrollEndDrag}
+              onMomentumScrollBegin={chatScroll.onMomentumScrollBegin}
+              onMomentumScrollEnd={chatScroll.onMomentumScrollEnd}
+              onScrollToIndexFailed={messageFocus.onScrollToIndexFailed}
+              onViewableItemsChanged={onViewableItemsChanged}
+              onEndReached={() => {
+                if (historyHasNewer) void onLoadLater();
+              }}
+              onEndReachedThreshold={0.5}
+              scrollEventThrottle={32}
+              ListHeaderComponent={
+                <View>
+                  {historyLoading ? (
+                    <ActivityIndicator color={theme.textMuted} style={styles.historyAction} />
+                  ) : historyHasMore ? (
+                    <Pressable
+                      accessibilityLabel="Load earlier thread replies"
+                      accessibilityRole="button"
+                      onPress={() => {
+                        setFollowing(false);
+                        void onLoadEarlier();
+                      }}
+                      style={({ pressed }) => [styles.historyAction, pressed && styles.pressed]}
+                    >
+                      <Text style={[styles.historyLabel, { color: theme.textMuted }]}>
+                        Load earlier thread replies
+                      </Text>
+                    </Pressable>
+                  ) : null}
+                  {timestampLabel ? (
+                    <Text style={[styles.timestamp, { color: theme.textFaint }]}>
+                      {timestampLabel}
                     </Text>
-                  </Pressable>
-                ) : null}
-                {timestampLabel ? (
-                  <Text style={[styles.timestamp, { color: theme.textFaint }]}>
-                    {timestampLabel}
-                  </Text>
-                ) : null}
-              </View>
-            }
-            renderItem={({ item }) => {
-              const metadata = messageMetadata(item);
-              const clientDelivery = clientDeliveryFor(item);
-              const deliveryState = clientDelivery?.state;
-              const deliveryNonce = clientDelivery?.nonce;
-              const peer = metadata.fromAgent ?? metadata.toAgent;
-              const peerId =
-                peer && typeof peer === "object" && !Array.isArray(peer)
-                  ? (peer as Record<string, unknown>).id
-                  : null;
-              return (
-                <MessageBubble
-                  animateEntrance={false}
+                  ) : null}
+                </View>
+              }
+              renderItem={({ item }) => {
+                const metadata = messageMetadata(item);
+                const clientDelivery = clientDeliveryFor(item);
+                const deliveryState = clientDelivery?.state;
+                const deliveryNonce = clientDelivery?.nonce;
+                const peer = metadata.fromAgent ?? metadata.toAgent;
+                const peerId =
+                  peer && typeof peer === "object" && !Array.isArray(peer)
+                    ? (peer as Record<string, unknown>).id
+                    : null;
+                return (
+                  <MessageBubble
+                    animateEntrance={false}
+                    assetUrl={assetUrl}
+                    message={item}
+                    pending={deliveryState === "pending" || deliveryState === "queued"}
+                    deliveryState={
+                      deliveryState === "pending" ||
+                      deliveryState === "queued" ||
+                      deliveryState === "accepted" ||
+                      deliveryState === "failed"
+                        ? deliveryState
+                        : undefined
+                    }
+                    deliveryNonce={typeof deliveryNonce === "string" ? deliveryNonce : undefined}
+                    deliveryComposedAtMs={
+                      typeof clientDelivery?.composedAtMs === "number"
+                        ? clientDelivery.composedAtMs
+                        : null
+                    }
+                    deliveryQueuedAtMs={
+                      typeof clientDelivery?.queuedAtMs === "number"
+                        ? clientDelivery.queuedAtMs
+                        : null
+                    }
+                    deliveryAcceptedAtMs={
+                      typeof clientDelivery?.acceptedAtMs === "number"
+                        ? clientDelivery.acceptedAtMs
+                        : null
+                    }
+                    deliveryTransportDown={clientDelivery?.transportDown === true}
+                    onResendFailed={(nonce) => void onResendFailed(nonce)}
+                    onDeleteFailed={(nonce) => void onDeleteFailed(nonce)}
+                    onCancelQueued={(nonce) => void recoverCancelledMessage(nonce)}
+                    onReact={(emoji) => void onReact(item.id, emoji)}
+                    onReply={() => {
+                      setReplyTarget({ id: item.id, content: item.content });
+                      setReplyEditVersion((current) => current + 1);
+                    }}
+                    onSecretSubmit={(value) => onSecretSubmit(item.id, value)}
+                    onComputerHandoff={(action) => onComputerHandoff(item.id, action)}
+                    onWidgetDismiss={() => onWidgetDismiss(item.id)}
+                    onWidgetResponse={(value) => onWidgetResponse(item.id, value)}
+                    peerBot={typeof peerId === "string" ? botById.get(peerId) : undefined}
+                  />
+                );
+              }}
+            />
+            {thread ? (
+              <View
+                onLayout={(event) => setComposerHeight(Math.ceil(event.nativeEvent.layout.height))}
+                style={[
+                  styles.composerOverlay,
+                  { paddingBottom: keyboardVisible ? 18 : Math.max(12, insets.bottom - 2) },
+                ]}
+              >
+                <ChatChromeFade edge="bottom" />
+                <Composer
+                  keyboardVisible={keyboardVisible}
+                  transcriptionConfigured={transcriptionConfigured}
+                  onTranscribe={onTranscribe}
                   assetUrl={assetUrl}
-                  message={item}
-                  pending={deliveryState === "pending" || deliveryState === "queued"}
-                  deliveryState={
-                    deliveryState === "pending" ||
-                    deliveryState === "queued" ||
-                    deliveryState === "accepted" ||
-                    deliveryState === "failed"
-                      ? deliveryState
-                      : undefined
-                  }
-                  deliveryNonce={typeof deliveryNonce === "string" ? deliveryNonce : undefined}
-                  deliveryComposedAtMs={
-                    typeof clientDelivery?.composedAtMs === "number"
-                      ? clientDelivery.composedAtMs
-                      : null
-                  }
-                  deliveryQueuedAtMs={
-                    typeof clientDelivery?.queuedAtMs === "number"
-                      ? clientDelivery.queuedAtMs
-                      : null
-                  }
-                  deliveryAcceptedAtMs={
-                    typeof clientDelivery?.acceptedAtMs === "number"
-                      ? clientDelivery.acceptedAtMs
-                      : null
-                  }
-                  deliveryTransportDown={clientDelivery?.transportDown === true}
-                  onResendFailed={(nonce) => void onResendFailed(nonce)}
-                  onDeleteFailed={(nonce) => void onDeleteFailed(nonce)}
-                  onCancelQueued={(nonce) => void recoverCancelledMessage(nonce)}
-                  onReact={(emoji) => void onReact(item.id, emoji)}
-                  onReply={() => {
-                    setReplyTarget({ id: item.id, content: item.content });
+                  botName={botName}
+                  draftKey={`${draftKey}:thread:${thread.root.id}`}
+                  mentionOptions={mentionOptions}
+                  placeholder={`Reply ${botName}`}
+                  recovery={composerRecovery}
+                  onRecoveryApplied={(id) => {
+                    setComposerRecovery((current) => (current?.id === id ? null : current));
+                  }}
+                  onRecoveryConsumed={onAcknowledgeRecovery}
+                  onClearReply={() => {
+                    setReplyTarget(null);
                     setReplyEditVersion((current) => current + 1);
                   }}
-                  onSecretSubmit={(value) => onSecretSubmit(item.id, value)}
-                  onComputerHandoff={(action) => onComputerHandoff(item.id, action)}
-                  onWidgetDismiss={() => onWidgetDismiss(item.id)}
-                  onWidgetResponse={(value) => onWidgetResponse(item.id, value)}
-                  peerBot={typeof peerId === "string" ? botById.get(peerId) : undefined}
+                  onRestoreReply={setReplyTarget}
+                  onSend={async (content, attachments, stagedAttachments, consumedDraft) => {
+                    const replyTo = replyTarget?.id ?? thread.root.id;
+                    messageFocus.cancel();
+                    setFollowing(true);
+                    await onSend(content, attachments, stagedAttachments, replyTo, consumedDraft);
+                    setReplyTarget(null);
+                    if (historyHasNewer) await onLoadLater();
+                    correctAfterLayout();
+                  }}
+                  onStage={stageMobileDeliveryAttachment}
+                  onDiscardStages={discardMobileDeliveryAttachments}
+                  onUpload={onUpload}
+                  replyEditVersion={replyEditVersion}
+                  replyTarget={replyTarget}
+                  uploadCapabilities={uploadCapabilities}
                 />
-              );
-            }}
-          />
-          {thread ? (
-            <Composer
-              transcriptionConfigured={transcriptionConfigured}
-              onTranscribe={onTranscribe}
-              assetUrl={assetUrl}
-              botName={botName}
-              draftKey={`${draftKey}:thread:${thread.root.id}`}
-              mentionOptions={mentionOptions}
-              placeholder={`Reply ${botName}`}
-              recovery={composerRecovery}
-              onRecoveryApplied={(id) => {
-                setComposerRecovery((current) => (current?.id === id ? null : current));
-              }}
-              onRecoveryConsumed={onAcknowledgeRecovery}
-              onClearReply={() => {
-                setReplyTarget(null);
-                setReplyEditVersion((current) => current + 1);
-              }}
-              onRestoreReply={setReplyTarget}
-              onSend={async (content, attachments, stagedAttachments, consumedDraft) => {
-                const replyTo = replyTarget?.id ?? thread.root.id;
-                await onSend(content, attachments, stagedAttachments, replyTo, consumedDraft);
-                setReplyTarget(null);
-              }}
-              onStage={stageMobileDeliveryAttachment}
-              onDiscardStages={discardMobileDeliveryAttachments}
-              onUpload={onUpload}
-              replyEditVersion={replyEditVersion}
-              replyTarget={replyTarget}
-              uploadCapabilities={uploadCapabilities}
-            />
-          ) : null}
+              </View>
+            ) : null}
+          </View>
         </KeyboardAvoidingView>
-      </SafeAreaView>
+      </View>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
   safe: { flex: 1 },
+  composerOverlay: { position: "absolute", left: 0, right: 0, bottom: 0, zIndex: 3 },
   header: {
-    height: 42,
-    paddingHorizontal: 16,
+    position: "absolute",
+    left: 0,
+    right: 0,
+    zIndex: 3,
+    minHeight: 44,
+    paddingHorizontal: 18,
     flexDirection: "row",
     alignItems: "center",
   },
-  messages: { flexGrow: 1, justifyContent: "flex-end", paddingHorizontal: 14, paddingVertical: 10 },
+  messages: { flexGrow: 1, justifyContent: "flex-end", paddingHorizontal: 16 },
   historyAction: { minHeight: 44, alignItems: "center", justifyContent: "center" },
   historyLabel: { fontSize: 13, lineHeight: 18, fontWeight: "500" },
   timestamp: {

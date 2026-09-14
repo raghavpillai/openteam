@@ -1,5 +1,4 @@
 import { expect, mock, test } from "bun:test";
-import { fileURLToPath } from "node:url";
 import {
   copyFile,
   mkdir,
@@ -14,6 +13,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 async function checkStaging() {
   const cases: Array<() => Promise<void>> = [];
@@ -105,17 +105,21 @@ if (process.env.OPENTEAM_INPUT_STAGE_PROBE === "1") {
 } else {
   test("iOS staging validates copied bytes, exact limits, and failure cleanup", async () => {
     // Separate process prevents Expo bridge mocks leaking into cache/draft tests.
-    const child = Bun.spawn([process.execPath, "run", fileURLToPath(import.meta.url)], {
-      env: { ...process.env, OPENTEAM_INPUT_STAGE_PROBE: "1" },
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-    const [code, stdout, stderr] = await Promise.all([
-      child.exited,
-      new Response(child.stdout).text(),
-      new Response(child.stderr).text(),
-    ]);
-    expect({ code, stderr }).toEqual({ code: 0, stderr: "" });
-    expect(JSON.parse(stdout)).toEqual({ passed: 3 });
+    const output = await mkdtemp(join(tmpdir(), "openteam-ios-stage-result-"));
+    const resultPath = join(output, "result.json");
+    try {
+      const child = Bun.spawn([process.execPath, "run", fileURLToPath(import.meta.url)], {
+        env: { ...process.env, OPENTEAM_INPUT_STAGE_PROBE: "1" },
+        // A regular file avoids losing the short-lived child's output when Bun
+        // closes a subprocess pipe before the test runner drains it on macOS.
+        stdout: Bun.file(resultPath),
+        stderr: "pipe",
+      });
+      const [code, stderr] = await Promise.all([child.exited, new Response(child.stderr).text()]);
+      expect({ code, stderr }).toEqual({ code: 0, stderr: "" });
+      expect(JSON.parse(await readFile(resultPath, "utf8"))).toEqual({ passed: 3 });
+    } finally {
+      await rm(output, { recursive: true, force: true });
+    }
   });
 }

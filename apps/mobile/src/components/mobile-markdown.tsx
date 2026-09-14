@@ -8,7 +8,7 @@ import {
   parseMobileMarkdown,
   shouldRenderRichMobileMarkdown,
 } from "../mobile-markdown-core";
-import { useTheme } from "../theme";
+import { useChatTheme } from "../chat-appearance";
 import AdvancedMarkdown from "./advanced-markdown.dom";
 
 export { messageNeedsMobileMarkdown } from "../mobile-markdown-core";
@@ -83,7 +83,7 @@ export function MobileMarkdown({
   color: string;
   forceRich?: boolean;
 }) {
-  const theme = useTheme();
+  const theme = useChatTheme();
   const rich = forceRich || shouldRenderRichMobileMarkdown(content);
   const advanced = rich && messageNeedsAdvancedMobileMarkdown(content);
   const domAdvanced = advanced && messageNeedsDomMobileMarkdown(content);
@@ -246,14 +246,13 @@ const styles = StyleSheet.create({
   root: { gap: 8 },
   plainPreview: { gap: 8 },
   previewNotice: { fontSize: 12, lineHeight: 17, fontWeight: "600" },
-  bodyText: { fontSize: 16, lineHeight: 22, letterSpacing: -0.15 },
+  bodyText: { fontSize: 17, lineHeight: 22 },
   strong: { fontWeight: "700" },
   emphasis: { fontStyle: "italic" },
   strike: { textDecorationLine: "line-through" },
   inlineCode: {
     fontFamily: "Menlo",
-    fontSize: 13,
-    backgroundColor: "rgba(127,127,127,0.16)",
+    fontSize: 14,
   },
   link: { textDecorationLine: "underline" },
   heading: { fontWeight: "700" },

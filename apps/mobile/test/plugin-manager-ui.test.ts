@@ -11,7 +11,7 @@ describe("mobile plugin manager scale and access wiring", () => {
 
     expect(sharedMarketplace).toContain('"Team plugins"');
     expect(sharedMarketplace).toContain('"Agent Orchestration"');
-    expect(sharedMarketplace).toContain('"Documents And Files"');
+    expect(sharedMarketplace).toContain('"Documents and Files"');
     expect(marketplace).toContain("PLUGIN_MARKETPLACE_CATEGORIES.map");
     expect(marketplace).toContain("pluginMatchesMarketplaceCategory(plugin, category)");
     expect(marketplace).toContain('accessibilityLabel="Search plugins"');
@@ -19,9 +19,7 @@ describe("mobile plugin manager scale and access wiring", () => {
     expect(marketplace).toContain("data.installs.length} installed");
     expect(marketplace).toContain("<GlassSurface");
     expect(marketplace).toContain("featured.slice(0, 4)");
-    expect(marketplace).toContain("BundledGoogleMark");
-    expect(marketplace).toContain('name === "Google Calendar"');
-    expect(marketplace).toContain('name === "Google Drive"');
+    expect(marketplace).toContain('<PluginMark logoUrl={plugin.logoUrl} />');
   });
 
   test("uses the shared server page boundary with searchable, abortable paging", async () => {

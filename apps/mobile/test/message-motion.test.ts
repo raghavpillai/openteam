@@ -46,12 +46,12 @@ test("iOS message motion preserves OpenTeam entrance and acknowledgement semanti
   expect(bubble).not.toContain("failedHighlight");
   expect(bubble).not.toContain("rgba(255,192,0");
   expect(bubble).toContain("sentOfflineVisibility");
-  expect(bubble).toContain('messageWrap: { maxWidth: "89%", marginVertical: 3 }');
+  expect(bubble).toContain('messageWrap: { maxWidth: "89%", marginVertical: 7 }');
   expect(bubble).toContain(
-    "bubble: { borderRadius: 21, paddingHorizontal: 15, paddingVertical: 10 }"
+    "bubble: { borderRadius: 24, paddingHorizontal: 14, paddingVertical: 9 }"
   );
-  expect(bubble).toContain("content: { fontSize: 16, lineHeight: 22, letterSpacing: -0.15 }");
-  expect(route).toContain("paddingHorizontal: 14");
+  expect(bubble).toContain("content: { fontSize: 17, lineHeight: 22 }");
+  expect(route).toContain("paddingHorizontal: 16");
   expect(theme).toContain('from "@openteam/design-tokens/mobile-theme"');
   expect(themeTokens).toContain('userBubble: "#0A0A0A"');
   expect(themeTokens).toContain('assistantBubble: "#F1F1EF"');
@@ -76,5 +76,5 @@ test("right-swiping a message reveals the native thread affordance and opens its
   expect(thread).toContain("threadTimestamp(thread.root.createdAt)");
   expect(thread).toContain("placeholder={`Reply ${botName}`}");
   expect(thread).not.toContain(">Replies<");
-  expect(composer).toContain("const inputPlaceholder = placeholder ?? `Message ${botName}`");
+  expect(composer).toContain("const inputPlaceholder = placeholder ?? `Ask ${botName}`");
 });

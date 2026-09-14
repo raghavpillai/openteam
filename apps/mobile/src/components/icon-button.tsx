@@ -1,6 +1,7 @@
-import * as Haptics from "../haptics";
 import { SymbolView, type SymbolViewProps } from "expo-symbols";
 import { Pressable, type StyleProp, StyleSheet, View, type ViewStyle } from "react-native";
+import { chatGlassTint, useChatTheme } from "../chat-appearance";
+import * as Haptics from "../haptics";
 import { useTheme } from "../theme";
 import { GlassSurface } from "./glass-surface";
 
@@ -11,6 +12,7 @@ export function IconButton({
   filled = false,
   tone,
   size = 38,
+  visualHeight = size,
   symbolSize = 20,
   disabled = false,
   haptic = "none",
@@ -20,24 +22,39 @@ export function IconButton({
   label: string;
   onPress?: () => void;
   filled?: boolean;
-  tone?: "subtle" | "surface" | "dark" | "ghost";
+  tone?: "subtle" | "surface" | "glass" | "dark" | "ghost" | "muted";
   size?: number;
+  visualHeight?: number;
   symbolSize?: number;
   disabled?: boolean;
   haptic?: "selection" | "light" | "none";
   style?: StyleProp<ViewStyle>;
 }) {
   const theme = useTheme();
+  const chatTheme = useChatTheme();
   const resolvedTone = tone ?? (filled ? "dark" : "subtle");
   const fill =
     resolvedTone === "dark"
-      ? theme.text
-      : resolvedTone === "surface"
-        ? theme.surfaceElevated
-        : resolvedTone === "subtle"
-          ? theme.surface
-          : "transparent";
-  const tint = resolvedTone === "dark" ? theme.background : theme.textMuted;
+      ? theme.dark
+        ? "#FFFFFF"
+        : theme.text
+      : resolvedTone === "muted"
+        ? "rgba(118,118,128,0.24)"
+        : resolvedTone === "surface" || resolvedTone === "glass"
+          ? theme.surfaceElevated
+          : resolvedTone === "subtle"
+            ? theme.surface
+            : "transparent";
+  const tint =
+    resolvedTone === "dark"
+      ? theme.dark
+        ? "#000000"
+        : theme.background
+      : resolvedTone === "glass"
+        ? chatTheme.text
+        : resolvedTone === "muted"
+          ? chatTheme.textMuted
+          : theme.textMuted;
   return (
     <Pressable
       accessibilityLabel={label}
@@ -55,22 +72,25 @@ export function IconButton({
       }}
       style={({ pressed }) => [
         styles.hit,
-        { width: Math.max(44, size), height: Math.max(44, size) },
+        { width: Math.max(44, size), height: Math.max(44, visualHeight) },
         style,
         pressed && styles.pressed,
         disabled && styles.disabled,
       ]}
     >
-      {resolvedTone === "surface" || resolvedTone === "subtle" ? (
+      {resolvedTone === "surface" || resolvedTone === "subtle" || resolvedTone === "glass" ? (
         <GlassSurface
           fallbackColor={fill}
           interactive
+          variant={resolvedTone === "glass" ? "clear" : "regular"}
+          tintColor={resolvedTone === "glass" && theme.dark ? chatGlassTint : undefined}
           style={[
             styles.circle,
             {
               width: size,
-              height: size,
-              borderRadius: size / 2,
+              height: visualHeight,
+              borderRadius: Math.min(size, visualHeight) / 2,
+              borderWidth: resolvedTone === "glass" ? 0 : StyleSheet.hairlineWidth,
               borderColor: theme.border,
               shadowColor: theme.dark ? "#000" : "#77776F",
               shadowOpacity: resolvedTone === "surface" ? (theme.dark ? 0.22 : 0.08) : 0,
@@ -85,10 +105,11 @@ export function IconButton({
             styles.circle,
             {
               width: size,
-              height: size,
-              borderRadius: size / 2,
+              height: visualHeight,
+              borderRadius: Math.min(size, visualHeight) / 2,
               backgroundColor: fill,
-              borderColor: resolvedTone === "ghost" ? "transparent" : theme.border,
+              borderColor:
+                resolvedTone === "ghost" || resolvedTone === "muted" ? "transparent" : theme.border,
             },
           ]}
         >

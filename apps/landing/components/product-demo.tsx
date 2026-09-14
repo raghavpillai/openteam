@@ -110,7 +110,9 @@ const examples = [
 
 const DEMO_STAGE_ENDS = [1100, 2500, 3900, 5300];
 const DEMO_DURATION = DEMO_STAGE_ENDS[DEMO_STAGE_ENDS.length - 1];
-const DEMO_CYCLE_DURATION = DEMO_DURATION + 6000;
+// The result finishes its 220ms entrance before the next task takes over.
+const DEMO_CYCLE_DURATION = DEMO_DURATION + 400;
+const READING_RESUME_DELAY = 500;
 
 function sampleFileContent(scenario: (typeof examples)[number]) {
   const table = [
@@ -177,7 +179,7 @@ export function ProductDemo() {
     readingTimer.current = window.setTimeout(() => {
       readingTimer.current = null;
       setReading(false);
-    }, 6000);
+    }, READING_RESUME_DELAY);
   }, []);
 
   const holdForReading = useCallback(() => {
@@ -231,11 +233,10 @@ export function ProductDemo() {
 
   useEffect(() => {
     if (!progress.current) return;
-    // One compositor animation keeps the underline moving through every step.
+    // Fill continuously until the tab switches, including the result entrance.
     const animation = progress.current.animate(
       [
         { transform: "scaleX(0)", offset: 0 },
-        { transform: "scaleX(1)", offset: DEMO_DURATION / DEMO_CYCLE_DURATION },
         { transform: "scaleX(1)", offset: 1 },
       ],
       { duration: DEMO_CYCLE_DURATION, easing: "linear", fill: "forwards" },
@@ -253,7 +254,7 @@ export function ProductDemo() {
     if (!animation) return;
     if (reducedMotion) {
       animation.pause();
-      animation.currentTime = DEMO_DURATION;
+      animation.currentTime = DEMO_CYCLE_DURATION;
       setStage(4);
       return;
     }

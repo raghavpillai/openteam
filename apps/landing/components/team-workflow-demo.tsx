@@ -2,7 +2,7 @@
 
 import { Dialog } from "@base-ui/react/dialog";
 import { ChevronsRight, FileText, Info, Settings, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { BotAvatar } from "./bot-avatar";
 import { DesktopMicIcon, DesktopPlusIcon } from "./desktop-demo-controls";
 import "./team-workflow-demo.css";
@@ -55,8 +55,8 @@ const files = {
 
 type SampleFile = keyof typeof files;
 
-// Hold the finished conversation long enough to read before the next loop.
-const stageDurations = [1800, 1100, 2100, 6000] as const;
+// The final reply finishes its 220ms entrance before the next loop.
+const stageDurations = [1800, 1100, 2100, 400] as const;
 const stageDescriptions = [
   "Research is reviewing the customer feedback.",
   "Research saved the brief to the shared workspace.",
@@ -121,14 +121,47 @@ export function TeamWorkflowDemo() {
   const [preview, setPreview] = useState<SampleFile | null>(null);
   const [stage, setStage] = useState(0);
   const [fileFocused, setFileFocused] = useState(false);
+  const [reading, setReading] = useState(false);
   const [motionAllowed, setMotionAllowed] = useState(false);
   const [visible, setVisible] = useState(false);
   const showcase = useRef<HTMLElement>(null);
   const started = useRef(false);
   const remaining = useRef<{ stage: number; duration: number } | null>(null);
+  const readingTimer = useRef<number | null>(null);
+  const pointerHeld = useRef(false);
   const document = preview ? files[preview] : null;
-  const playing = motionAllowed && visible && preview === null && !fileFocused;
+  const playing = motionAllowed && visible && preview === null;
   const shownStage = stage;
+
+  const resumeAfterReading = useCallback(() => {
+    if (readingTimer.current !== null) window.clearTimeout(readingTimer.current);
+    readingTimer.current = window.setTimeout(() => {
+      readingTimer.current = null;
+      setReading(false);
+    }, 500);
+  }, []);
+  const holdForReading = useCallback(() => {
+    setReading(true);
+    if (readingTimer.current !== null) window.clearTimeout(readingTimer.current);
+    readingTimer.current = null;
+    if (!pointerHeld.current) resumeAfterReading();
+  }, [resumeAfterReading]);
+  useEffect(() => {
+    const release = () => {
+      if (!pointerHeld.current) return;
+      pointerHeld.current = false;
+      resumeAfterReading();
+    };
+    window.addEventListener("pointerup", release);
+    window.addEventListener("pointercancel", release);
+    window.addEventListener("blur", release);
+    return () => {
+      window.removeEventListener("pointerup", release);
+      window.removeEventListener("pointercancel", release);
+      window.removeEventListener("blur", release);
+      if (readingTimer.current !== null) window.clearTimeout(readingTimer.current);
+    };
+  }, [resumeAfterReading]);
 
   useEffect(() => {
     const element = showcase.current;
@@ -170,6 +203,11 @@ export function TeamWorkflowDemo() {
     const began = performance.now();
     let advanced = false;
     const timeout = window.setTimeout(() => {
+      // Reading can hold the reset, without stopping a reply mid-animation.
+      if (stage === 3 && (reading || fileFocused || pointerHeld.current || readingTimer.current !== null)) {
+        remaining.current = { stage, duration: 0 };
+        return;
+      }
       advanced = true;
       remaining.current = null;
       setStage((current) => (current + 1) % stageDurations.length);
@@ -180,7 +218,7 @@ export function TeamWorkflowDemo() {
         remaining.current = { stage, duration: Math.max(0, duration - (performance.now() - began)) };
       }
     };
-  }, [playing, stage]);
+  }, [fileFocused, playing, reading, stage]);
 
   return (
     <figure
@@ -188,7 +226,8 @@ export function TeamWorkflowDemo() {
       ref={showcase}
       data-playing={playing}
       data-motion-enabled={motionAllowed}
-      onFocusCapture={() => setFileFocused(true)}
+      data-workflow-stage={stage}
+      onFocusCapture={(event) => setFileFocused(event.target.matches(":focus-visible"))}
       onBlurCapture={(event) => {
         if (!event.currentTarget.contains(event.relatedTarget)) setFileFocused(false);
       }}
@@ -203,7 +242,11 @@ export function TeamWorkflowDemo() {
             </span>
           </header>
 
-          <div className="twd-transcript">
+          <div className="twd-transcript" onScroll={holdForReading} onPointerDown={(event) => {
+            if (event.button !== 0) return;
+            pointerHeld.current = true;
+            holdForReading();
+          }}>
             <p className="twd-date">Today 9:41 AM</p>
             <div className="twd-message twd-user" aria-label="Message from you">
               <p className="twd-bubble">
@@ -290,7 +333,12 @@ export function TeamWorkflowDemo() {
         <span className="twd-announcement" aria-live="off">{stageDescriptions[shownStage]}</span>
       </figcaption>
 
-      <Dialog.Root open={preview !== null} onOpenChange={(open) => !open && setPreview(null)}>
+      <Dialog.Root open={preview !== null} onOpenChange={(open) => {
+        if (!open) {
+          setPreview(null);
+          holdForReading();
+        }
+      }}>
         <Dialog.Portal>
           <Dialog.Backdrop className="twd-preview-backdrop" />
           <Dialog.Popup className="twd-preview-dialog">

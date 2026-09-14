@@ -37,7 +37,8 @@ export function ComputerDemo() {
     if (!resolved || !showcase.current) return;
     const preference = window.matchMedia("(prefers-reduced-motion: reduce)");
     let inView = false;
-    let remaining = 6000;
+    const panel = showcase.current.closest<HTMLElement>("[role='tabpanel']");
+    let remaining = 400;
     let began = 0;
     let timer: number | undefined;
     const stop = () => {
@@ -48,7 +49,7 @@ export function ComputerDemo() {
     };
     const sync = () => {
       stop();
-      if (!inView || document.hidden || preference.matches) return;
+      if (!inView || document.hidden || preference.matches || panel?.hidden) return;
       began = performance.now();
       timer = window.setTimeout(() => setState("requested"), remaining);
     };
@@ -57,11 +58,15 @@ export function ComputerDemo() {
       sync();
     }, { threshold: 0.3 });
     observer.observe(showcase.current);
+    // Kept-mounted capability panels can intersect the viewport while hidden.
+    const panelObserver = new MutationObserver(sync);
+    if (panel) panelObserver.observe(panel, { attributes: true, attributeFilter: ["hidden"] });
     preference.addEventListener("change", sync);
     document.addEventListener("visibilitychange", sync);
     return () => {
       stop();
       observer.disconnect();
+      panelObserver.disconnect();
       preference.removeEventListener("change", sync);
       document.removeEventListener("visibilitychange", sync);
     };
@@ -77,7 +82,7 @@ export function ComputerDemo() {
     return () => window.removeEventListener("keydown", close);
   }, [active]);
   return (
-    <div className="dc-demo" ref={showcase}>
+    <div className="dc-demo" ref={showcase} data-handoff-state={state}>
       <div className="dc-window" aria-label="Desktop computer handoff demo">
         {active ? (
           <div

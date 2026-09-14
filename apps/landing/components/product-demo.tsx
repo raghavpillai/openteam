@@ -169,7 +169,7 @@ export function ProductDemo() {
   const fileBytes = new TextEncoder().encode(sampleFileContent(scenario)).byteLength;
   const fileSize = fileBytes < 1024 ? `${fileBytes} B` : `${(fileBytes / 1024).toFixed(1)} KB`;
   const done = stage >= 4;
-  const active = visible && documentVisible && preview === null && !resultFocused && !reading;
+  const active = visible && documentVisible && preview === null;
   const avatarMode = !active || reducedMotion ? "still" : done ? "idle" : "thinking";
 
   const resumeAfterReading = useCallback(() => {
@@ -181,7 +181,6 @@ export function ProductDemo() {
   }, []);
 
   const holdForReading = useCallback(() => {
-    playback.current?.pause();
     setReading(true);
     if (readingTimer.current !== null) window.clearTimeout(readingTimer.current);
     readingTimer.current = null;
@@ -266,9 +265,16 @@ export function ProductDemo() {
       setStage(0);
       setRunId((id) => id + 1);
     };
-    // A finished timeline may resume after the page or a preview was hidden.
-    if (Number(animation.currentTime) >= DEMO_CYCLE_DURATION) {
+    // Let the current task finish while someone reads or scrolls. Only hold the
+    // next conversation, which would otherwise replace their content.
+    const advanceWhenReady = () => {
+      setStage(4);
+      if (reading || resultFocused || pointerHeld.current || readingTimer.current !== null) return;
       nextTask();
+    };
+    // A finished timeline may resume after reading or a preview was closed.
+    if (Number(animation.currentTime) >= DEMO_CYCLE_DURATION) {
+      advanceWhenReady();
       return;
     }
 
@@ -276,10 +282,9 @@ export function ProductDemo() {
     let frame = 0;
     let previousStage = -1;
     const updateStage = () => {
-      if (pointerHeld.current || readingTimer.current !== null) return;
       const elapsed = Number(animation.currentTime ?? 0);
       if (elapsed >= DEMO_CYCLE_DURATION) {
-        nextTask();
+        advanceWhenReady();
         return;
       }
       const nextStage = DEMO_STAGE_ENDS.filter((end) => elapsed >= end).length;
@@ -294,7 +299,7 @@ export function ProductDemo() {
       cancelAnimationFrame(frame);
       animation.pause();
     };
-  }, [active, reducedMotion, runId]);
+  }, [active, reading, reducedMotion, resultFocused, runId]);
 
   const choose = useCallback((index: number) => {
     if (readingTimer.current !== null) window.clearTimeout(readingTimer.current);
@@ -343,7 +348,6 @@ export function ProductDemo() {
       data-demo-stage={stage}
       data-demo-running={active && !reducedMotion && !done}
       data-demo-motion={!reducedMotion}
-
     >
       <div className="pd-scenarios">
         <span className="pd-try-label">SAMPLE TASKS</span>
@@ -479,7 +483,6 @@ export function ProductDemo() {
             aria-label="Sample messages"
             aria-live={manualRun ? "polite" : "off"}
             onScroll={holdForReading}
-            onWheel={holdForReading}
             onPointerDown={(event) => {
               if (event.button !== 0) return;
               pointerHeld.current = true;
@@ -506,7 +509,11 @@ export function ProductDemo() {
                 data-revealed={done}
                 aria-hidden={!done}
                 inert={!done}
-                onFocusCapture={() => setResultFocused(true)}
+                onFocusCapture={(event) => {
+                  // Pointer focus (including focus restored after a preview)
+                  // must not lock the carousel until the next click elsewhere.
+                  setResultFocused(event.target.matches(":focus-visible"));
+                }}
                 onBlurCapture={(event) => {
                   if (!event.currentTarget.contains(event.relatedTarget)) setResultFocused(false);
                 }}
@@ -619,7 +626,10 @@ export function ProductDemo() {
       <Dialog.Root
         open={preview !== null}
         onOpenChange={(open) => {
-          if (!open) setPreview(null);
+          if (!open) {
+            setPreview(null);
+            holdForReading();
+          }
         }}
       >
         <Dialog.Portal>

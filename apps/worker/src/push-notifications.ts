@@ -17,6 +17,8 @@ const EXPO_RECEIPTS_URL = "https://exp.host/--/api/v2/push/getReceipts";
 const MAX_ATTEMPTS = 5;
 const RECEIPT_DELAY_MS = 15 * 60_000;
 const PUSH_DELIVERY_TRANSACTION_TIMEOUT_MS = 20_000;
+// Longer than the final authorization transaction and bounded HTTP request.
+const PUSH_DELIVERY_LEASE_MS = 2 * 60_000;
 
 type ClaimedDelivery = {
   id: string;
@@ -96,13 +98,28 @@ export const claimOutboxDeliveries = async (
   limit: number
 ): Promise<ClaimedDelivery[]> =>
   client.$queryRaw<ClaimedDelivery[]>(Prisma.sql`
-    WITH candidates AS (
+    WITH exhausted AS (
+      UPDATE "OutboxDelivery"
+      SET "status" = 'failed',
+          "error" = '{"message":"Push delivery worker lease expired after the final attempt"}'::jsonb,
+          "updatedAt" = (CURRENT_TIMESTAMP AT TIME ZONE 'UTC')
+      WHERE "topic" = ${topic}
+        AND "status" = 'delivering'
+        AND "attempts" >= ${MAX_ATTEMPTS}
+        AND "updatedAt" <= (CURRENT_TIMESTAMP AT TIME ZONE 'UTC')
+          - ${PUSH_DELIVERY_LEASE_MS} * interval '1 millisecond'
+    ), candidates AS (
       SELECT delivery."id"
       FROM "OutboxDelivery" AS delivery
       WHERE delivery."topic" = ${topic}
-        AND delivery."status" IN ('pending', 'failed')
         AND delivery."attempts" < ${MAX_ATTEMPTS}
-        AND delivery."availableAt" <= CURRENT_TIMESTAMP
+        AND (
+          (delivery."status" IN ('pending', 'failed')
+            AND delivery."availableAt" <= (CURRENT_TIMESTAMP AT TIME ZONE 'UTC'))
+          OR (delivery."status" = 'delivering'
+            AND delivery."updatedAt" <= (CURRENT_TIMESTAMP AT TIME ZONE 'UTC')
+              - ${PUSH_DELIVERY_LEASE_MS} * interval '1 millisecond')
+        )
       ORDER BY delivery."createdAt" ASC
       FOR UPDATE SKIP LOCKED
       LIMIT ${Math.max(1, Math.min(1_000, Math.floor(limit)))}
@@ -111,7 +128,7 @@ export const claimOutboxDeliveries = async (
     SET "status" = 'delivering',
         "attempts" = delivery."attempts" + 1,
         "error" = NULL,
-        "updatedAt" = CURRENT_TIMESTAMP
+        "updatedAt" = (CURRENT_TIMESTAMP AT TIME ZONE 'UTC')
     FROM candidates
     WHERE delivery."id" = candidates."id"
     RETURNING
@@ -210,6 +227,11 @@ export const expoPushMessage = (
     _contentAvailable: true,
     mutableContent: true,
     threadId: payload.channelId,
+    // A retry replaces this one activity, while different messages/reactions
+    // remain distinct. UUID + ':' + a bigint stays under APNs' 64-byte limit.
+    ...(payload.notificationSequence
+      ? { collapseId: `${payload.channelId}:${payload.notificationSequence}` }
+      : {}),
     ttl: 3600,
   };
 };
@@ -386,7 +408,11 @@ export class PushNotificationDispatcher {
                   deliveryKey: `${item.delivery.deliveryKey}:receipt`,
                   topic: "push.receipt",
                   target: item.device.id,
-                  payload: json({ ticketId: ticket.id }),
+                  payload: json({
+                    ticketId: ticket.id,
+                    pushToken: item.device.pushToken,
+                    registrationSeenAt: item.device.lastSeenAt.toISOString(),
+                  }),
                   availableAt: new Date(Date.now() + RECEIPT_DELAY_MS),
                 },
                 skipDuplicates: true,
@@ -486,7 +512,11 @@ export class PushNotificationDispatcher {
         const receipts = body.data ?? {};
         await this.prisma.$transaction(async (tx) => {
           for (const delivery of deliveries) {
-            const payload = delivery.payload as { ticketId?: unknown };
+            const payload = delivery.payload as {
+              ticketId?: unknown;
+              pushToken?: unknown;
+              registrationSeenAt?: unknown;
+            };
             const ticketId = typeof payload.ticketId === "string" ? payload.ticketId : "";
             const receipt = receipts[ticketId];
             if (!receipt) {
@@ -501,9 +531,24 @@ export class PushNotificationDispatcher {
               continue;
             }
             const deviceError = receipt.details?.error === "DeviceNotRegistered";
-            if (deviceError) {
+            const registrationSeenAt =
+              typeof payload.registrationSeenAt === "string"
+                ? new Date(payload.registrationSeenAt)
+                : null;
+            if (
+              deviceError &&
+              typeof payload.pushToken === "string" &&
+              registrationSeenAt &&
+              Number.isFinite(registrationSeenAt.getTime())
+            ) {
               await tx.pushDevice.updateMany({
-                where: { id: delivery.target },
+                // A late receipt belongs to the registration used for that send.
+                // Legacy receipts lack that identity and cannot safely retire it.
+                where: {
+                  id: delivery.target,
+                  pushToken: payload.pushToken,
+                  lastSeenAt: registrationSeenAt,
+                },
                 data: { enabled: false },
               });
             }

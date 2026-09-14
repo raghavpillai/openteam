@@ -265,6 +265,7 @@ describe("push notification content", () => {
       authRequired: true,
       authSession: { expiresAt: new Date("2099-01-01T00:00:00.000Z") },
       pushToken: "ExpoPushToken[locked-device]",
+      lastSeenAt: new Date("2026-01-01T00:00:00Z"),
     };
     const tx = {
       $queryRaw: async () => {
@@ -397,6 +398,8 @@ describe("push notification content", () => {
         badgeCount: 99,
       };
       const message = expoPushMessage("ExpoPushToken[" + "x".repeat(40) + "]", payload);
+      if (!("title" in message) || !("body" in message))
+        throw new Error("Expected a visible alert");
       expect(Buffer.byteLength(JSON.stringify(message))).toBeLessThan(4096);
       expect(message.data).not.toHaveProperty("sender.avatarDataUrl");
       expect(message.data).toMatchObject({ title: message.title, body: message.body });
@@ -407,6 +410,45 @@ describe("push notification content", () => {
       }
       expect(payload.body).toBe(text);
     }
+  });
+
+  test("retries replace only the same activity and keep distinct messages and reactions", () => {
+    const payload = {
+      schemaVersion: 1 as const,
+      kind: "message" as const,
+      botId: crypto.randomUUID(),
+      channelId: crypto.randomUUID(),
+      runId: crypto.randomUUID(),
+      title: "Bot",
+      body: "Hello",
+      badgeCount: 1,
+      deepLink: "openteam:///chat/test",
+      notificationSequence: "9223372036854775806",
+      messageSequence: "20",
+    };
+    const first = expoPushMessage("ExpoPushToken[test]", payload);
+    const retry = expoPushMessage("ExpoPushToken[test]", payload);
+    const reaction = expoPushMessage("ExpoPushToken[test]", {
+      ...payload,
+      kind: "reaction",
+      notificationSequence: "9223372036854775807",
+    });
+    if (!("collapseId" in first) || !("collapseId" in retry) || !("collapseId" in reaction))
+      throw new Error("Expected activity retry identifiers");
+    expect(first).toHaveProperty(
+      "collapseId",
+      `${payload.channelId}:${payload.notificationSequence}`
+    );
+    expect(retry).toHaveProperty("collapseId", first.collapseId);
+    expect(reaction.collapseId).not.toBe(first.collapseId);
+    expect(Buffer.byteLength(first.collapseId!)).toBeLessThanOrEqual(64);
+    expect(
+      expoPushMessage("ExpoPushToken[test]", {
+        schemaVersion: 1,
+        kind: "badge-sync",
+        badgeCount: 0,
+      })
+    ).not.toHaveProperty("collapseId");
   });
 
   test("uses exact badge counts and the shared per-type sound policy", () => {

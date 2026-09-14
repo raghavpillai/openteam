@@ -11,6 +11,18 @@ the live activity projection, including when its macOS window is minimized or
 closed into the background. Quitting desktop stops desktop alerts. Each client
 suppresses alerts for its visible conversation; other conversations can alert.
 
+Outbox claims have a two-minute lease so a worker crash cannot strand a delivery.
+Expired final attempts become failed jobs. Claim and retry schedules use UTC even
+when PostgreSQL's session time zone differs. Each alert uses a collapse identifier
+for its individual activity: retrying that activity replaces its existing entry;
+different messages and reactions are not collapsed together. Read synchronization
+pushes have no shared collapse identifier because they carry individual channel reads.
+
+Push receipts are tied to the exact token and registration timestamp used to send
+the alert. A late `DeviceNotRegistered` error cannot disable a replacement token or
+a subsequently renewed registration. Legacy receipts without that identity record
+their error but do not disable a potentially newer registration.
+
 Read receipts carry both a message sequence and a notification sequence. Reactions
 use the latter because a new reaction can refer to a message read days earlier.
 Both cursors advance monotonically. Clients acknowledge the activity they have
@@ -94,6 +106,9 @@ bun apps/mobile/notification-service/generate-notification-artwork.ts
 Desktop renders those same shapes into PNG icons before handing alerts to Electron,
 and supplies the conversation group and durable notification ID. The OS controls
 the final desktop placement; the iOS communication layout is platform specific.
+Electron 43.4.1 implements the macOS `icon` option as a notification image attachment,
+not an Apple communication sender avatar. The iOS avatar treatment in the reference
+image comes from the communication extension; macOS does not have identical placement.
 The ID includes the message/activity read identity. On macOS startup, surviving
 Notification Center entries are restored and reconciled against the first server
 snapshot, even if they fall outside its bounded notification history. Removal uses
@@ -127,3 +142,44 @@ capability for both `dev.openbot.mobile` and `dev.openbot.mobile.notifications`.
   two-device acceptance test are still required before declaring the installed
   setup ready. Even then, immediate iOS background clearing is subject to Apple's
   delivery policy described above.
+
+### Research and release checks later on September 14
+
+The follow-up audit passed **80 focused tests** and worker typechecking. Added database
+cases exercise token replacement, same-token renewal, late legacy receipts, expired
+worker claims, exhausted retries, and UTC scheduling with PostgreSQL sessions in UTC,
+America/New_York, and Asia/Tokyo. Payload tests verify that retries share an activity
+collapse ID, distinct activities keep distinct IDs, and IDs fit APNs' 64-byte limit.
+
+Expo reports build **0.0.1 (7)** finished. Inspection of the saved distribution IPA
+confirmed valid app and extension signatures, production `aps-environment` on the
+host, Communication Notifications in both provisioning profiles and signed
+entitlements, `INSendMessageIntent` activity declarations, the embedded service
+extension, `remote-notification` background mode, and native/JavaScript read-sync
+code. The provisioning profiles expire on September 2, 2027. Expo has a push key
+configured for the host app, matching the binary's Apple signing team. The extension
+does not need its own push key. These
+checks establish binary/configuration readiness, not successful delivery to a phone.
+
+The local server and worker still use `openteam-memory-*:20260913.2`; its database
+does not yet have `ChannelNotification` and has zero registered push devices. No
+physical iPhone or local Apple signing identity is available for the final
+two-device test. This feature branch remains separate from `main`.
+
+The reviewed primary sources support the design and its limits:
+
+- [Apple background updates](https://developer.apple.com/documentation/usernotifications/pushing-background-updates-to-your-app):
+  background execution is not guaranteed, updates may be throttled, and an older
+  held update can be discarded. A missed channel-read push is repaired by the
+  app's next foreground synchronization; clearing while suspended is best effort.
+- [Expo delivery and receipts](https://docs.expo.dev/push-notifications/sending-notifications/):
+  tickets/receipts report provider acceptance, not proof that a user saw an alert;
+  invalid tokens must be retired, payloads are limited to 4 KiB, and `collapseId`
+  replaces matching iOS notifications. The legacy `_contentAvailable` spelling
+  remains supported by Expo.
+- [Apple communication notifications](https://developer.apple.com/documentation/usernotifications/implementing-communication-notifications):
+  sender avatars require the communication capability, intent declarations, and
+  notification content updated from the donated communication intent.
+- [Electron's macOS notification implementation at 43.4.1](https://github.com/electron/electron/blob/v43.4.1/shell/browser/notifications/mac/cocoa_notification.mm):
+  notification icons become image attachments. Native placement and authorization
+  remain OS-controlled; read cleanup uses delivered notification identifiers.

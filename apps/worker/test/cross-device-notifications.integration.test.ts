@@ -10,7 +10,7 @@ import {
 import { Effect } from "effect";
 import { NotificationService } from "../../server/src/services/notification-service";
 import { DesktopNotificationManager } from "../../desktop/src/main/notifications";
-import { PushNotificationDispatcher } from "../src/push-notifications";
+import { PushNotificationDispatcher, claimOutboxDeliveries } from "../src/push-notifications";
 
 const databaseUrl = process.env.OPENTEAM_TEST_DATABASE_URL;
 
@@ -21,7 +21,12 @@ test.skipIf(!databaseUrl)(
     const previousAuth = process.env.OPENTEAM_AUTH_MODE;
     process.env.OPENTEAM_AUTH_MODE = "disabled";
     const bot = await prisma.bot.create({
-      data: { name: "Notification QA", icon: "pod", color: "#ff6600", defaultDirectory: "/tmp/notification-qa" },
+      data: {
+        name: "Notification QA",
+        icon: "pod",
+        color: "#ff6600",
+        defaultDirectory: "/tmp/notification-qa",
+      },
     });
     const channel = await prisma.channel.create({
       data: {
@@ -249,6 +254,176 @@ test.skipIf(!databaseUrl)(
       await prisma.$disconnect();
       if (previousAuth === undefined) delete process.env.OPENTEAM_AUTH_MODE;
       else process.env.OPENTEAM_AUTH_MODE = previousAuth;
+    }
+  },
+  30_000
+);
+
+test.skipIf(!databaseUrl)(
+  "late push receipts cannot disable a replacement or renewed device registration",
+  async () => {
+    const prisma = createPrismaClient(databaseUrl!);
+    const service = new NotificationService(prisma, "disabled");
+    try {
+      for (const scenario of ["rotated", "renewed", "current", "legacy"] as const) {
+        const installationId = crypto.randomUUID();
+        const token = `ExpoPushToken[${installationId}]`;
+        const device = await prisma.pushDevice.create({
+          data: {
+            installationId,
+            platform: "ios",
+            pushToken: token,
+            authRequired: false,
+            lastSeenAt: new Date("2026-01-01T00:00:00Z"),
+          },
+        });
+        try {
+          const ticketId = crypto.randomUUID();
+          const dispatcher = new PushNotificationDispatcher(
+            prisma,
+            (async (url, init) => {
+              if (String(url).endsWith("/getReceipts")) {
+                expect(JSON.parse(String(init?.body))).toEqual({ ids: [ticketId] });
+                return Response.json({
+                  data: {
+                    [ticketId]: { status: "error", details: { error: "DeviceNotRegistered" } },
+                  },
+                });
+              }
+              expect(JSON.parse(String(init?.body))[0].to).toBe(token);
+              return Response.json({ data: [{ status: "ok", id: ticketId }] });
+            }) as typeof fetch,
+            null,
+            "disabled"
+          );
+          await prisma.outboxDelivery.create({
+            data: {
+              deliveryKey: `receipt-qa:${installationId}`,
+              availableAt: new Date(0),
+              topic: "push.notification",
+              target: device.id,
+              payload: { schemaVersion: 1, kind: "badge-sync", badgeCount: 0 },
+            },
+          });
+          await dispatcher.drain();
+          expect(
+            await prisma.outboxDelivery.findMany({
+              where: { target: device.id, status: "failed" },
+              select: { error: true },
+            })
+          ).toEqual([]);
+          const receipt = await prisma.outboxDelivery.findFirstOrThrow({
+            where: { target: device.id, topic: "push.receipt" },
+          });
+          if (scenario === "rotated" || scenario === "renewed") {
+            await Effect.runPromise(
+              service.register(
+                {
+                  installationId,
+                  platform: "ios",
+                  pushToken:
+                    scenario === "rotated" ? `ExpoPushToken[new-${installationId}]` : token,
+                },
+                { mode: "disabled" }
+              )
+            );
+          }
+          await prisma.outboxDelivery.update({
+            where: { id: receipt.id },
+            data: {
+              availableAt: new Date(0),
+              ...(scenario === "legacy" ? { payload: { ticketId } } : {}),
+            },
+          });
+          await dispatcher.drain();
+          const current = await prisma.pushDevice.findUniqueOrThrow({ where: { id: device.id } });
+          expect({ scenario, enabled: current.enabled }).toEqual({
+            scenario,
+            enabled: scenario !== "current",
+          });
+          expect(
+            (await prisma.outboxDelivery.findUniqueOrThrow({ where: { id: receipt.id } })).error
+          ).toMatchObject({ details: { error: "DeviceNotRegistered" } });
+        } finally {
+          await prisma.outboxDelivery.deleteMany({ where: { target: device.id } });
+          await prisma.pushDevice.delete({ where: { id: device.id } });
+        }
+      }
+    } finally {
+      await prisma.$disconnect();
+    }
+  },
+  30_000
+);
+
+test.skipIf(!databaseUrl)(
+  "expired worker claims recover without stealing active work or changing UTC schedules",
+  async () => {
+    const prisma = createPrismaClient(databaseUrl!);
+    try {
+      for (const zone of ["UTC", "America/New_York", "Asia/Tokyo"]) {
+        const topic = `notification-lease-qa:${crypto.randomUUID()}`;
+        try {
+          await prisma.$transaction(async (tx) => {
+            await tx.$queryRaw`SELECT set_config('TimeZone', ${zone}, true)`;
+            const now = Date.now();
+            await tx.outboxDelivery.createMany({
+              data: [
+                {
+                  key: "abandoned",
+                  status: "delivering" as const,
+                  attempts: 1,
+                  age: 180_000,
+                  due: -60_000,
+                },
+                { key: "active", status: "delivering" as const, attempts: 1, age: 0, due: -60_000 },
+                {
+                  key: "exhausted",
+                  status: "delivering" as const,
+                  attempts: 5,
+                  age: 180_000,
+                  due: -60_000,
+                },
+                { key: "ready", status: "pending" as const, attempts: 0, age: 0, due: -60_000 },
+                { key: "future", status: "pending" as const, attempts: 0, age: 0, due: 60_000 },
+              ].map((item) => ({
+                deliveryKey: `${topic}:${item.key}`,
+                topic,
+                target: "lease-qa",
+                payload: {},
+                status: item.status,
+                attempts: item.attempts,
+                updatedAt: new Date(now - item.age),
+                availableAt: new Date(now + item.due),
+              })),
+            });
+            const claimed = await claimOutboxDeliveries(tx, topic, 100);
+            expect(claimed.map((item) => item.deliveryKey).sort()).toEqual([
+              `${topic}:abandoned`,
+              `${topic}:ready`,
+            ]);
+            expect(claimed.find((item) => item.deliveryKey.endsWith(":abandoned"))?.attempts).toBe(
+              2
+            );
+            expect(await claimOutboxDeliveries(tx, topic, 100)).toEqual([]);
+            const exhausted = await tx.outboxDelivery.findUniqueOrThrow({
+              where: { deliveryKey: `${topic}:exhausted` },
+            });
+            expect(exhausted.status).toBe("failed");
+            expect(exhausted.error).toMatchObject({
+              message: expect.stringContaining("lease expired"),
+            });
+            const ready = await tx.outboxDelivery.findUniqueOrThrow({
+              where: { deliveryKey: `${topic}:ready` },
+            });
+            expect(Math.abs(ready.updatedAt.getTime() - now)).toBeLessThan(5_000);
+          });
+        } finally {
+          await prisma.outboxDelivery.deleteMany({ where: { topic } });
+        }
+      }
+    } finally {
+      await prisma.$disconnect();
     }
   },
   30_000

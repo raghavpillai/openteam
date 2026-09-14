@@ -22,6 +22,11 @@ resolved-approval alerts are skipped. Every delivered alert includes the sequenc
 needed for selective removal. Read synchronization updates badges and clears only
 covered alerts on the other device.
 
+Mobile previews also have an encoded byte budget, including JSON escaping, so
+long joined emoji and combining characters cannot exceed APNs' 4 KiB limit.
+The visible alert and custom data use the same bounded text. Renderer-only avatar
+PNGs are never included in the push payload.
+
 iOS performs removal in a native Expo app delegate subscriber, including when the
 system wakes the app for a background notification. Read cursors persist locally
 and tolerate reordered pushes. The app also reconciles on foreground sync. Apple
@@ -89,6 +94,10 @@ bun apps/mobile/notification-service/generate-notification-artwork.ts
 Desktop renders those same shapes into PNG icons before handing alerts to Electron,
 and supplies the conversation group and durable notification ID. The OS controls
 the final desktop placement; the iOS communication layout is platform specific.
+The ID includes the message/activity read identity. On macOS startup, surviving
+Notification Center entries are restored and reconciled against the first server
+snapshot, even if they fall outside its bounded notification history. Removal uses
+the OS identifier and does not depend on an in-memory notification handle.
 
 Validation includes the production iOS Release simulator build, an isolated
 XCTest app exercising the production extension entry point and displaying its
@@ -97,3 +106,24 @@ cross-device integration test. `simctl push` checks plain delivery but does not
 invoke notification service extensions; it cannot validate remote avatar decoration. Simulator pushes do not validate Expo/APNs production credentials or delivery
 to a physical iPhone. Signing the new binary must provision the communication
 capability for both `dev.openbot.mobile` and `dev.openbot.mobile.notifications`.
+
+### Revalidation on September 14, 2026
+
+- 77 focused tests passed against an isolated PostgreSQL database, including two
+  push destinations, partial reads, reactions to older messages, stale queued
+  alert cancellation, desktop history restoration, and encoded payload limits.
+  The Expo transport was recorded locally; these were not real APNs sends.
+- A separate iOS XCTest host compiled the production communication extension and
+  native read reconciler. Notification Center delivery, partial message removal,
+  reaction removal, preservation of a newer unread message, reordered reads,
+  and persisted cleanup after process relaunch all passed.
+- Actual macOS delivery remains unverified: the isolated ad-hoc Electron test app
+  received `Notifications are not allowed for this application`. No valid Apple
+  signing identity was available locally. Desktop manager tests and typechecking
+  passed; that is not evidence of OS delivery.
+- The inspected local deployment was still running older server/worker images
+  and had zero registered push devices. No physical iPhone was connected.
+  The new binaries, schema/server/worker rollout, token registration, and a real
+  two-device acceptance test are still required before declaring the installed
+  setup ready. Even then, immediate iOS background clearing is subject to Apple's
+  delivery policy described above.

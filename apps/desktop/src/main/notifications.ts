@@ -110,6 +110,35 @@ export { truncateNotificationText };
 const byBotId = (snapshot: DesktopNotificationSnapshot) =>
   new Map(snapshot.agents.map((agent) => [agent.botId, agent] as const));
 
+type DeliveredActivity = Pick<
+  ChannelNotificationView,
+  "channelId" | "notificationSequence" | "messageSequence" | "kind"
+>;
+
+// Carry the read identity in Notification Center so cleanup survives an app restart.
+export const desktopActivityNotificationId = (notification: DeliveredActivity): string =>
+  `openteam:${notification.channelId}:${notification.notificationSequence}:${
+    notification.kind === "reaction" ? "activity" : (notification.messageSequence ?? "activity")
+  }`;
+
+export const parseDesktopActivityNotificationId = (id: string): DeliveredActivity | null => {
+  const match = /^openteam:([^:]+):(\d{1,20}):(activity|\d{1,20})$/.exec(id);
+  if (match) {
+    return {
+      channelId: match[1]!,
+      notificationSequence: match[2]!,
+      kind: match[3] === "activity" ? "reaction" : "message",
+      ...(match[3] === "activity" ? {} : { messageSequence: match[3]! }),
+    };
+  }
+  // Older builds stored only the activity sequence. An explicit activity read
+  // can safely clear these; never infer that an absent history row is read.
+  const legacy = /^([^:]+):(\d{1,20})$/.exec(id);
+  return legacy
+    ? { channelId: legacy[1]!, notificationSequence: legacy[2]!, kind: "reaction" }
+    : null;
+};
+
 export class DesktopNotificationManager {
   private previous: DesktopNotificationSnapshot | null = null;
   private readonly accountedMessageByBot = new Map<string, string>();
@@ -120,12 +149,19 @@ export class DesktopNotificationManager {
   private visibleChannelId: string | null = null;
   private lastBadge = "";
   private activityCursors = new Map<string, bigint>();
-  private deliveredActivity = new Map<string, ChannelNotificationView>();
+  private deliveredActivity = new Map<string, DeliveredActivity>();
 
   constructor(
     private readonly adapter: DesktopNotificationAdapter,
     private readonly now: () => number = Date.now
   ) {}
+
+  restoreDeliveredActivity(ids: string[]): void {
+    for (const id of ids) {
+      const notification = parseDesktopActivityNotificationId(id);
+      if (notification) this.deliveredActivity.set(id, notification);
+    }
+  }
 
   private updateBadge(): void {
     const visibleUnread = this.visibleChannelId
@@ -275,7 +311,7 @@ export class DesktopNotificationManager {
           !this.adapter.isSupported()
         )
           continue;
-        const id = `${channel.channelId}:${notification.notificationSequence}`;
+        const id = desktopActivityNotificationId(notification);
         this.deliveredActivity.set(id, notification);
         const presentation = agentNotificationPresentation({
           kind: notification.kind,

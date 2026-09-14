@@ -375,6 +375,40 @@ describe("push notification content", () => {
     expect(result.endsWith("…")).toBe(true);
   });
 
+  test("keeps Unicode alerts within the APNs byte limit without splitting graphemes", () => {
+    for (const text of ["👨‍👩‍👧‍👦".repeat(140), '\\"'.repeat(1000), "a" + "\u0301".repeat(5000)]) {
+      const payload = {
+        schemaVersion: 1 as const,
+        kind: "message" as const,
+        botId: "b".repeat(36),
+        channelId: "c".repeat(36),
+        runId: "r".repeat(36),
+        notificationSequence: "9223372036854775807",
+        messageSequence: "9223372036854775807",
+        title: text,
+        body: text,
+        sender: {
+          name: text,
+          icon: "classic",
+          color: "#ffffff",
+          avatarDataUrl: "x".repeat(100_000),
+        },
+        deepLink: "openteam:///chat/" + "c".repeat(36),
+        badgeCount: 99,
+      };
+      const message = expoPushMessage("ExpoPushToken[" + "x".repeat(40) + "]", payload);
+      expect(Buffer.byteLength(JSON.stringify(message))).toBeLessThan(4096);
+      expect(message.data).not.toHaveProperty("sender.avatarDataUrl");
+      expect(message.data).toMatchObject({ title: message.title, body: message.body });
+      expect(message.title).not.toContain("\ufffd");
+      expect(message.body).not.toContain("\ufffd");
+      if (text.startsWith("👨")) {
+        expect(message.body).toMatch(/^(👨‍👩‍👧‍👦)+…$/u);
+      }
+      expect(payload.body).toBe(text);
+    }
+  });
+
   test("uses exact badge counts and the shared per-type sound policy", () => {
     const message = expoPushMessage("ExpoPushToken[token]", {
       schemaVersion: 1,
@@ -387,7 +421,13 @@ describe("push notification content", () => {
       deepLink: "openteam:///chat/channel",
       badgeCount: 4,
     });
-    expect(message).toMatchObject({ badge: 4, sound: undefined, mutableContent: true, threadId: "channel", data: { badgeCount: 4 } });
+    expect(message).toMatchObject({
+      badge: 4,
+      sound: undefined,
+      mutableContent: true,
+      threadId: "channel",
+      data: { badgeCount: 4 },
+    });
     expect(
       expoPushMessage("ExpoPushToken[token]", {
         schemaVersion: 1,

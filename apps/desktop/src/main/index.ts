@@ -41,6 +41,7 @@ import {
   DesktopNotificationManager,
   type DesktopNotificationSnapshot,
   parseNotificationChannels,
+  parseDesktopActivityNotificationId,
 } from "./notifications";
 import {
   type AutoReviewRuleKind,
@@ -1035,6 +1036,7 @@ if (!hasSingleInstanceLock) {
         isSupported: () => Notification.isSupported(),
         setBadge: (label) => app.dock?.setBadge(label),
         dismiss: (id) => {
+          if (process.platform === "darwin") Notification.remove(id);
           activityNotifications.get(id)?.close();
           activityNotifications.delete(id);
         },
@@ -1083,6 +1085,30 @@ if (!hasSingleInstanceLock) {
           notification.show();
         },
       });
+      if (process.platform === "darwin" && Notification.isSupported()) {
+        try {
+          const history = await Notification.getHistory();
+          desktopNotifications.restoreDeliveredActivity(
+            history.map((notification) => notification.id)
+          );
+          for (const notification of history) {
+            const activity = parseDesktopActivityNotificationId(notification.id);
+            if (!activity) continue;
+            activeNotifications.add(notification);
+            activityNotifications.set(notification.id, notification);
+            notification.once("close", () => {
+              activeNotifications.delete(notification);
+              activityNotifications.delete(notification.id);
+            });
+            notification.on("click", () => {
+              focusMainWindow();
+              mainWindow?.webContents.send("openteam:notification-click", activity.channelId);
+            });
+          }
+        } catch (error) {
+          console.warn("OpenTeam notification history could not be restored", error);
+        }
+      }
       const [, authStorage] = await Promise.all([createWindow(), authStorageWarmup]);
       if (authStorage.persistence === "memory") {
         console.warn(

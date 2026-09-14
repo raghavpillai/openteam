@@ -8,6 +8,7 @@ import {
   isAgentNotificationKind,
   notificationIsRead,
 } from "@openteam/contracts";
+import { notificationGraphemes } from "@openteam/contracts/notification-content";
 import { Prisma, type PrismaClient } from "@openteam/db";
 import { unreadBadgeCount as countUnreadMessages } from "@openteam/messaging";
 
@@ -149,26 +150,60 @@ export const enqueuePushNotification = async (
   });
 };
 
+// APNs limits the complete encoded payload to 4 KiB. Text appears in both the
+// alert and custom data (the sender name a third time), so grapheme count alone
+// is insufficient. Reserve space for the routing metadata and Expo's envelope.
+const pushText = (value: string, byteBudget: number): string => {
+  const text = truncateNotificationText(value);
+  const bytes = (part: string) => Buffer.byteLength(JSON.stringify(part), "utf8") - 2;
+  if (bytes(text) <= byteBudget) return text;
+  let prefix = "";
+  let size = 0;
+  for (const grapheme of notificationGraphemes(text)) {
+    const next = bytes(grapheme);
+    if (size + next > byteBudget - 3) break;
+    prefix += grapheme;
+    size += next;
+  }
+  return `${prefix}…`;
+};
+
 export const expoPushMessage = (
   pushToken: string,
   payload: PushNotificationPayload,
   badgeCount = payload.badgeCount
 ) => {
-  const deliveredPayload: PushNotificationPayload = { ...payload, badgeCount };
   if (payload.kind === "badge-sync") {
     return {
       to: pushToken,
       badge: Math.max(0, Math.floor(badgeCount)),
-      data: deliveredPayload,
+      data: { ...payload, badgeCount },
       _contentAvailable: true,
       priority: "normal",
     };
   }
+  const title = pushText(payload.title, 256);
+  const body = pushText(payload.body, 768);
+  const deliveredPayload: AgentNotificationPayload = {
+    ...payload,
+    title,
+    body,
+    badgeCount,
+    ...(payload.sender
+      ? {
+          sender: {
+            name: pushText(payload.sender.name, 256),
+            icon: payload.sender.icon,
+            color: payload.sender.color,
+          },
+        }
+      : {}),
+  };
   const policy = agentNotificationDeliveryPolicy(payload.kind);
   return {
     to: pushToken,
-    title: payload.title,
-    body: truncateNotificationBody(payload.body),
+    title,
+    body,
     sound: policy.sound ?? undefined,
     badge: Math.max(0, Math.floor(badgeCount)),
     data: deliveredPayload,

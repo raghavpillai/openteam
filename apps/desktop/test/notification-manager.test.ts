@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   type DesktopAgentNotificationState,
   DesktopNotificationManager,
+  desktopActivityNotificationId,
 } from "../src/main/notifications";
 
 const agent = (
@@ -78,8 +79,8 @@ describe("DesktopNotificationManager", () => {
         },
       ],
     });
-    expect(delivered).toEqual(["chat:1", "chat:2"]);
-    expect(dismissed).toEqual(["chat:1"]);
+    expect(delivered).toEqual(["openteam:chat:1:20", "openteam:chat:2:activity"]);
+    expect(dismissed).toEqual(["openteam:chat:1:20"]);
     manager.sync({
       agents: [],
       channels: [
@@ -92,7 +93,7 @@ describe("DesktopNotificationManager", () => {
         },
       ],
     });
-    expect(dismissed).toEqual(["chat:1", "chat:2"]);
+    expect(dismissed).toEqual(["openteam:chat:1:20", "openteam:chat:2:activity"]);
     const alreadyRead = { ...message, notificationSequence: "3" };
     manager.sync({
       agents: [],
@@ -107,6 +108,60 @@ describe("DesktopNotificationManager", () => {
     });
     expect(delivered).toHaveLength(2);
   });
+  test("restores notification history after restart and clears only acknowledged messages and reactions", () => {
+    const dismissed: string[] = [];
+    const delivered: string[] = [];
+    const manager = new DesktopNotificationManager({
+      isFocused: () => false,
+      isSupported: () => true,
+      deliver: (event) => delivered.push(event.notificationId!),
+      dismiss: (id) => dismissed.push(id),
+      setBadge: () => {},
+    });
+    const message = {
+      channelId: "chat",
+      notificationSequence: "11",
+      messageSequence: "9007199254740993",
+      kind: "message" as const,
+    };
+    const oldId = desktopActivityNotificationId(message);
+    const newId = desktopActivityNotificationId({
+      ...message,
+      notificationSequence: "12",
+      messageSequence: "9007199254740994",
+    });
+    const reactionId = desktopActivityNotificationId({
+      ...message,
+      notificationSequence: "13",
+      kind: "reaction",
+    });
+    manager.restoreDeliveredActivity([
+      oldId,
+      newId,
+      reactionId,
+      "chat:10",
+      "unrelated",
+      "openteam:chat:invalid:4",
+    ]);
+    const channel = {
+      channelId: "chat",
+      lastReadSequence: "9007199254740993",
+      lastReadNotificationSequence: "11",
+      notificationCursor: "13",
+      notifications: [],
+      unreadCount: 2,
+      activityUnreadCount: 1,
+    };
+    manager.sync({ agents: [], channels: [channel] });
+    expect(dismissed).toEqual([oldId, "chat:10"]);
+    expect(delivered).toEqual([]);
+    // Bounded snapshot history being empty must not remove the newer unread alerts.
+    manager.sync({ agents: [], channels: [{ ...channel, lastReadNotificationSequence: "13" }] });
+    expect(dismissed).toEqual([oldId, "chat:10", reactionId]);
+    manager.clear();
+    expect(dismissed).toEqual([oldId, "chat:10", reactionId, newId]);
+  });
+
   test("seeds silently, gives needs-input precedence, and delivers a later done message", () => {
     const delivered: Array<{ kind: string; title: string; body: string; sound: string | null }> =
       [];

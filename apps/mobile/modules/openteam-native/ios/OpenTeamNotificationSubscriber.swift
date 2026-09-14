@@ -1,5 +1,5 @@
 import UserNotifications
-#if canImport(UIKit)
+#if canImport(ExpoModulesCore) && canImport(UIKit)
 import ExpoModulesCore
 import UIKit
 #endif
@@ -61,7 +61,7 @@ enum OpenTeamNotificationReads {
   }
 }
 
-#if canImport(UIKit)
+#if canImport(ExpoModulesCore) && canImport(UIKit)
 public class OpenTeamNotificationSubscriber: ExpoAppDelegateSubscriber {
   public func application(
     _ application: UIApplication,

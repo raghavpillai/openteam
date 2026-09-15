@@ -20,6 +20,7 @@
       "dependencies": {
         "semver": "7.8.5",
         "sigstore": "5.0.0",
+        "string-width": "7.2.0",
       },
       "devDependencies": {
         "@openteam/product-core": "workspace:*",

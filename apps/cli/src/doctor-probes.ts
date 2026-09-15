@@ -167,7 +167,7 @@ for (const [label, query, healthy, problem] of [
   finally { await sql.close({ timeout: 1 }); }
 }
 await check("Computer API", async () => {
-  const url = new URL("/health", process.env.OPENTEAM_COMPUTER_URL ?? "http://127.0.0.1:8790");
+  const url = new URL("/health/authenticated", process.env.OPENTEAM_COMPUTER_URL ?? "http://127.0.0.1:8790");
   const response = await fetch(url, { signal: AbortSignal.timeout(4000), headers: { authorization: "Bearer " + process.env.OPENTEAM_CONTROL_TOKEN } });
   const body = await response.json();
   if (!response.ok || body?.status !== "ready") throw new Error("Computer readiness failed (HTTP " + response.status + ")");
@@ -183,8 +183,9 @@ const checks = [];
 let heartbeat;
 try {
   heartbeat = JSON.parse(readFileSync("/tmp/openteam-worker-heartbeat.json", "utf8"));
+  if (!heartbeat || typeof heartbeat !== "object") throw new Error("Worker heartbeat is stale or invalid");
   const age = Date.now() - heartbeat.updatedAt;
-  if (!Number.isFinite(age) || age < -5000 || age > 20000 || typeof heartbeat.instance !== "string") throw new Error("Worker heartbeat is stale or invalid");
+  if (!Number.isFinite(age) || age < -5000 || age > 20000 || typeof heartbeat.updatedAt !== "number" || typeof heartbeat.instance !== "string" || !heartbeat.instance) throw new Error("Worker heartbeat is stale or invalid");
   checks.push({ level: "pass", label: "Worker heartbeat", detail: "Event loop heartbeat " + Math.max(0, Math.floor(age / 1000)) + "s ago" });
 } catch (error) {
   checks.push({ level: "fail", label: "Worker heartbeat", detail: error.code === "ENOENT" ? "No worker heartbeat; update older images with openteam update --force" : error.message });
@@ -192,17 +193,24 @@ try {
 if (heartbeat && checks[0].level === "pass") {
   try {
     const body = await new Promise((resolve, reject) => {
+      let timer;
+      const done = (error, value) => { clearTimeout(timer); error ? reject(error) : resolve(value); };
       const req = request({ socketPath: "/tmp/openteam-worker-doctor.sock", method: "POST", path: "/queue" }, res => {
         let text = "";
         res.on("data", chunk => { text += chunk; if (text.length > 8192) req.destroy(new Error("Invalid queue test response")); });
-        res.on("end", () => { try { resolve(JSON.parse(text)); } catch { reject(new Error("Invalid queue test response")); } });
+        res.on("error", () => done(new Error("Worker queue response was interrupted")));
+        res.on("end", () => { try {
+          const body = JSON.parse(text);
+          if (res.statusCode !== 200) throw new Error(body?.error || "Worker queue test failed (HTTP " + res.statusCode + ")");
+          done(null, body);
+        } catch (error) { done(error); } });
       });
-      const timer = setTimeout(() => req.destroy(new Error("Worker queue test timed out after 10s")), 10000);
-      req.on("close", () => clearTimeout(timer));
-      req.on("error", reject);
+      timer = setTimeout(() => { done(new Error("Worker queue test timed out after 10s")); req.destroy(); }, 10000);
+      req.on("error", done);
       req.end();
     });
-    if (body.ok !== true || body.instance !== heartbeat.instance || typeof body.consumer !== "string" || !Number.isFinite(body.durationMs)) throw new Error(body.error || "Worker did not confirm queue processing");
+    if (!body || typeof body !== "object") throw new Error("Invalid queue test response");
+    if (body.ok !== true || body.instance !== heartbeat.instance || body.consumer !== heartbeat.instance || !Number.isFinite(body.durationMs) || body.durationMs < 0) throw new Error(body.error || "Worker did not confirm queue processing");
     checks.push({ level: "pass", label: "Queue round trip", detail: "Diagnostic job enqueued, consumed, and acknowledged in " + (body.durationMs / 1000).toFixed(1) + "s" });
   } catch (error) { checks.push({ level: "fail", label: "Queue round trip", detail: error.message }); }
 } else checks.push({ level: "warn", label: "Queue round trip", detail: "Not tested; resolve the worker heartbeat first" });
@@ -267,7 +275,12 @@ export const runServiceProbe = (
   );
   try {
     if (result.status !== 0) throw new Error(failure(result));
-    const checks: unknown = JSON.parse(result.stdout);
+    let checks: unknown;
+    try {
+      checks = JSON.parse(result.stdout);
+    } catch {
+      throw new Error("The service returned an invalid diagnostic response.");
+    }
     if (
       !Array.isArray(checks) ||
       checks.length !== labels.length ||
@@ -279,7 +292,7 @@ export const runServiceProbe = (
           typeof c.detail !== "string"
       )
     )
-      throw new Error("Probe returned an invalid result");
+      throw new Error("The service returned an invalid diagnostic response.");
     return checks.map((c, i) => ({
       level: c.level,
       label: labels[i]!,
@@ -290,6 +303,12 @@ export const runServiceProbe = (
       level: "fail",
       label,
       detail: error instanceof Error ? error.message : "Probe failed",
+      ...(error instanceof Error &&
+      error.message === "The service returned an invalid diagnostic response."
+        ? {
+            action: `Inspect openteam logs ${service} for diagnostic errors. Run openteam status and check that the running services match the installed release.`,
+          }
+        : {}),
     }));
   }
 };

@@ -5,7 +5,7 @@ describe("CLI arguments", () => {
   test("defaults to help", () => {
     expect(parseArguments([])).toMatchObject({ command: "help", helpTopic: "global" });
     expect(parseArguments(["provider"])).toMatchObject({ command: "help", helpTopic: "provider" });
-    expect(parseArguments(["model"])).toMatchObject({ command: "help", helpTopic: "model" });
+    expect(parseArguments(["model"])).toMatchObject({ command: "model" });
     expect(parseArguments(["account"])).toMatchObject({ command: "help", helpTopic: "account" });
   });
 
@@ -15,6 +15,23 @@ describe("CLI arguments", () => {
       advanced: true,
       directory: "/tmp/openteam",
     });
+  });
+
+  test("bare model opens the editor, supports installation selection, and retains contextual help", () => {
+    expect(parseArguments(["model", "--dir", "/tmp/model-test"])).toMatchObject({
+      command: "model",
+      directory: "/tmp/model-test",
+    });
+    expect(parseArguments(["model", "--help"])).toMatchObject({
+      command: "help",
+      helpTopic: "model",
+    });
+    expect(parseArguments(["help", "model"])).toMatchObject({
+      command: "help",
+      helpTopic: "model",
+    });
+    expect(() => parseArguments(["model", "lsit"])).toThrow('Did you mean "list"');
+    expect(() => parseArguments(["model", "--thinking", "high"])).toThrow();
   });
 
   test("supports operational logs, provider repair, and contextual help", () => {

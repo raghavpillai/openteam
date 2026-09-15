@@ -5,7 +5,7 @@ describe("CLI help", () => {
   test("keeps global help concise and grouped", () => {
     const help = helpFor("global");
     expect(help).toContain("provider      Manage AI accounts and connections");
-    expect(help).toContain("model         View or change the AI model");
+    expect(help).toContain("model         Choose inference and transcription models");
     expect(help).not.toContain("provider login [provider]");
     expect(help).not.toContain("--compose-url");
     expect(help).not.toContain("--password");

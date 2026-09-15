@@ -123,7 +123,13 @@ export class AppService {
       this.prisma,
       this.workspaceRoot,
       this.computerUrl,
-      () => this.queueReady,
+      async () => {
+        if (!this.queueReady) return false;
+        const result = await this.boss.getDb().executeSql(
+          "SELECT count(*)::int AS count FROM pgboss.queue WHERE name IN ('bot-wake','bot-provision','transcript-project','outbox-delivery','maintenance')"
+        );
+        return result.rows[0]?.count === 5;
+      },
       2_500,
       () => this.agentData.loadInferenceSettings(),
       () => this.transcription.store.status()

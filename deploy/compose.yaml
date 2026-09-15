@@ -242,6 +242,12 @@ services:
         condition: service_completed_successfully
       computer:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "/app/healthcheck.js"]
+      interval: 30s
+      timeout: 12s
+      start_period: 45s
+      retries: 3
     restart: unless-stopped
     volumes:
       - openteam_agent_data:/home/box/agent-data

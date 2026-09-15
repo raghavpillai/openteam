@@ -191,6 +191,26 @@ export class TranscriptionStore {
     return { ...rest, apiKey: encryptedApiKey ? this.decrypt(encryptedApiKey) : null };
   }
 
+  /** Resolve credentials for model discovery without persisting the draft or enabling audio. */
+  async discoveryCredentials(input: unknown): Promise<{ baseUrl: string; apiKey: string | null }> {
+    if (!input || typeof input !== "object" || Array.isArray(input))
+      throw invalid("Transcription settings are required.");
+    const parsed = parseTranscriptionSettings({ ...input, enabled: false });
+    if (!parsed.baseUrl) throw invalid("Enter a transcription base URL before browsing models.");
+    const previous = await this.read();
+    const sameEndpoint =
+      previous.provider === parsed.provider && previous.baseUrl === parsed.baseUrl;
+    const apiKey =
+      parsed.apiKey === undefined
+        ? sameEndpoint && previous.encryptedApiKey
+          ? this.decrypt(previous.encryptedApiKey)
+          : null
+        : parsed.apiKey;
+    if (parsed.provider === "openai" && !apiKey)
+      throw invalid("Enter an OpenAI API key before browsing transcription models.");
+    return { baseUrl: parsed.baseUrl, apiKey };
+  }
+
   save(input: unknown): Promise<TranscriptionSettingsView> {
     const parsed = parseTranscriptionSettings(input);
     const operation = this.pendingWrite

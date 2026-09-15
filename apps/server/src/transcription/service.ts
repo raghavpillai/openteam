@@ -1,3 +1,4 @@
+import { isTranscriptionModel } from "@openteam/contracts/model-kind";
 import { ApiError } from "@openteam/contracts";
 import {
   MAX_VOICE_NOTE_BYTES,
@@ -95,6 +96,59 @@ export class TranscriptionService {
     readonly store: TranscriptionStore,
     private readonly fetchImpl: typeof fetch = fetch
   ) {}
+
+  async models(input: unknown): Promise<{ models: string[] }> {
+    const settings = await this.store.discoveryCredentials(input);
+    try {
+      const response = await this.fetchImpl(`${settings.baseUrl}/models`, {
+        headers: settings.apiKey ? { authorization: `Bearer ${settings.apiKey}` } : {},
+        redirect: "error",
+        signal: AbortSignal.timeout(8_000),
+      });
+      if (!response.ok) {
+        await response.body?.cancel();
+        if (response.status === 404 || response.status === 405)
+          throw new ApiError(
+            422,
+            "model_discovery_unavailable",
+            "This provider does not offer model discovery. Enter its transcription model ID manually."
+          );
+        throw providerFailure(response.status);
+      }
+      const body = JSON.parse(new TextDecoder().decode(await boundedBytes(response, 1024 * 1024)));
+      if (
+        !Array.isArray(body?.data) ||
+        body.data.some(
+          (m: unknown) =>
+            !m ||
+            typeof m !== "object" ||
+            typeof (m as { id?: unknown }).id !== "string" ||
+            !(m as { id: string }).id ||
+            (m as { id: string }).id.length > 256 ||
+            /[\p{Cc}\p{Cf}]/u.test((m as { id: string }).id)
+        )
+      )
+        throw new Error("Invalid catalog");
+      return {
+        models: [
+          ...new Set<string>(
+            body.data
+              .filter((m: Record<string, unknown>) =>
+                isTranscriptionModel(m, settings.baseUrl !== "https://api.openai.com/v1")
+              )
+              .map((m: { id: string }) => m.id)
+          ),
+        ].sort(),
+      };
+    } catch (error) {
+      if (error instanceof ApiError && error.code !== "invalid_transcription_response") throw error;
+      throw new ApiError(
+        502,
+        "model_discovery_failed",
+        "Could not load transcription models. Check the base URL, credentials and connection, or enter a model ID manually."
+      );
+    }
+  }
 
   async check(): Promise<TranscriptionCheck> {
     const status = await this.store.status();

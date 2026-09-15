@@ -1,48 +1,44 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { chmod, rename, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
+import { hostname } from "node:os";
 import type { PgBoss } from "pg-boss";
+import { WorkerDependencyError } from "./readiness";
 
 export const DOCTOR_QUEUE = "openteam-doctor";
 export const DOCTOR_SOCKET = "/tmp/openteam-worker-doctor.sock";
 export const DOCTOR_HEARTBEAT = "/tmp/openteam-worker-heartbeat.json";
 
-// Shares the running worker's queue connection and event loop. The socket is
-// private to its OS user and is never exposed as a public HTTP endpoint.
+// Each replica must consume its own probe. Reuse its queue across process restarts,
+// and share concurrent Docker/doctor probes so they cannot make each other fail.
 export const startWorkerDiagnostics = async (
-  boss: Pick<PgBoss, "createQueue" | "work" | "send" | "getJobById" | "deleteJob">,
-  paths = { socket: DOCTOR_SOCKET, heartbeat: DOCTOR_HEARTBEAT }
+  boss: Pick<
+    PgBoss,
+    "createQueue" | "work" | "send" | "getJobById" | "deleteJob" | "offWork" | "deleteQueue"
+  >,
+  paths = { socket: DOCTOR_SOCKET, heartbeat: DOCTOR_HEARTBEAT },
+  dependencies: () => Promise<void> = async () => {}
 ): Promise<() => Promise<void>> => {
   const instance = randomUUID();
+  const queue = `${DOCTOR_QUEUE}-${createHash("sha256").update(`${hostname()}:${paths.socket}`).digest("hex").slice(0, 16)}`;
   const startedAt = Date.now();
   const heartbeat = async () => {
     await writeFile(
       `${paths.heartbeat}.tmp`,
-      JSON.stringify({ instance, pid: process.pid, startedAt, updatedAt: Date.now() }),
+      JSON.stringify({ instance, queue, pid: process.pid, startedAt, updatedAt: Date.now() }),
       { mode: 0o600 }
     );
     await rename(`${paths.heartbeat}.tmp`, paths.heartbeat);
   };
-  await boss.createQueue(DOCTOR_QUEUE);
+  await boss.createQueue(queue);
   await boss.work<{ nonce: string }>(
-    DOCTOR_QUEUE,
+    queue,
     { batchSize: 1, pollingIntervalSeconds: 0.5 },
     async ([job]) => ({ nonce: job?.data.nonce, instance })
   );
-  let active = false;
-  const server = createServer(async (request, response) => {
-    response.setHeader("content-type", "application/json");
-    if (request.method !== "POST" || request.url !== "/queue") {
-      response.writeHead(404).end();
-      return;
-    }
-    if (active) {
-      response
-        .writeHead(409)
-        .end(JSON.stringify({ ok: false, error: "Another queue test is running; retry doctor" }));
-      return;
-    }
-    active = true;
+
+  let dependencyInFlight: Promise<void> | null = null;
+  const queueTest = async () => {
     let id: string | null = null;
     const started = Date.now();
     const bounded = async <T>(
@@ -64,46 +60,54 @@ export const startWorkerDiagnostics = async (
         clearTimeout(timer!);
       }
     };
+    let stage = "Worker dependency checks failed";
     try {
+      dependencyInFlight ??= Promise.resolve()
+        .then(dependencies)
+        .finally(() => {
+          dependencyInFlight = null;
+        });
+      await bounded(dependencyInFlight);
+      stage = "Queue round trip failed or timed out; inspect openteam logs worker";
       const nonce = randomUUID();
       id = await bounded(
-        boss.send(
-          DOCTOR_QUEUE,
-          { nonce },
-          { retryLimit: 0, expireInSeconds: 10, retentionSeconds: 60 }
-        )
+        boss.send(queue, { nonce }, { retryLimit: 0, expireInSeconds: 10, retentionSeconds: 60 })
       );
       if (!id) throw new Error("Could not enqueue the diagnostic job");
       while (Date.now() - started < 8_000) {
-        const job = await bounded(boss.getJobById(DOCTOR_QUEUE, id));
+        const job = await bounded(boss.getJobById(queue, id));
         const output = job?.output as { nonce?: string; instance?: string } | undefined;
-        if (job?.state === "completed" && output?.nonce === nonce) {
-          response.end(
-            JSON.stringify({
-              ok: true,
-              instance,
-              consumer: output.instance,
-              durationMs: Date.now() - started,
-            })
-          );
-          return;
-        }
-        if (job?.state === "failed") throw new Error("The diagnostic queue job failed");
+        if (job?.state === "completed" && output?.nonce === nonce && output.instance === instance)
+          return {
+            ok: true,
+            instance,
+            consumer: output.instance,
+            durationMs: Date.now() - started,
+          };
+        if (job?.state === "failed" || job?.state === "completed")
+          throw new Error("Diagnostic job failed or was consumed by another instance");
         await new Promise((resolve) => setTimeout(resolve, 100));
       }
       throw new Error("No worker consumed the diagnostic job within 8s");
-    } catch {
-      response.writeHead(503).end(
-        JSON.stringify({
-          ok: false,
-          error: "Queue round trip failed or timed out; inspect openteam logs worker",
-        })
-      );
+    } catch (error) {
+      // Dependency exception text can contain connection credentials. Keep it private.
+      return { ok: false, error: error instanceof WorkerDependencyError ? error.message : stage };
     } finally {
-      // Retention also bounds leftovers if the process or database is unavailable.
-      if (id) await bounded(boss.deleteJob(DOCTOR_QUEUE, id), 1_000).catch(() => undefined);
-      active = false;
+      if (id) await bounded(boss.deleteJob(queue, id), 1_000).catch(() => undefined);
     }
+  };
+  let inFlight: ReturnType<typeof queueTest> | null = null;
+  const server = createServer(async (request, response) => {
+    response.setHeader("content-type", "application/json");
+    if (request.method !== "POST" || request.url !== "/queue") {
+      response.writeHead(404).end();
+      return;
+    }
+    inFlight ??= queueTest().finally(() => {
+      inFlight = null;
+    });
+    const result = await inFlight;
+    response.writeHead(result.ok ? 200 : 503).end(JSON.stringify(result));
   });
   await rm(paths.socket, { force: true });
   await new Promise<void>((resolve, reject) => {
@@ -115,14 +119,12 @@ export const startWorkerDiagnostics = async (
   });
   await chmod(paths.socket, 0o600);
   await heartbeat();
-  let writing = false;
+  let writing: Promise<void> | null = null;
   const timer = setInterval(() => {
-    if (writing) return;
-    writing = true;
-    void heartbeat()
+    writing ??= heartbeat()
       .catch(() => undefined)
       .finally(() => {
-        writing = false;
+        writing = null;
       });
   }, 5_000);
   timer.unref();
@@ -130,6 +132,19 @@ export const startWorkerDiagnostics = async (
     clearInterval(timer);
     server.closeAllConnections();
     await new Promise<void>((resolve) => server.close(() => resolve()));
+    await inFlight;
+    await writing;
+    // Use bounded cleanup too: shutdown must still finish if PostgreSQL is down.
+    await Promise.race([
+      boss
+        .offWork(queue)
+        .then(() => boss.deleteQueue(queue))
+        .catch(() => undefined),
+      new Promise((resolve) => {
+        const timer = setTimeout(resolve, 1_000);
+        timer.unref();
+      }),
+    ]);
     await rm(paths.heartbeat, { force: true });
     await rm(paths.socket, { force: true });
   };

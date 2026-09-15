@@ -1,0 +1,298 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`status and health reports healthy: All containers healthy: healthy 1`] = `
+"
+  ╭──────────────────────────────────────────────────────────────────────────────────────╮
+  │ OPENTEAM / status                                                                    │
+  │ RUNNING                                                                              │
+  ╰──────────────────────────────────────────────────────────────────────────────────────╯
+
+  4/4 containers running · 4 passing Docker health checks
+
+  CONTAINERS ────────────────────────────────────────────────────────────────────────────
+  ✓ postgres                Running · healthy
+  ✓ server                  Running · healthy
+  ✓ worker                  Running · healthy
+  ✓ computer                Running · healthy
+
+  READINESS ─────────────────────────────────────────────────────────────────────────────
+  ✓ Server                  Ready · responding with the installed release
+    Checked at              http://127.0.0.1:8787/api/v0/health
+    AI credentials          Configured · model request not tested
+
+  CONNECTION ────────────────────────────────────────────────────────────────────────────
+    Server                  http://127.0.0.1:8787
+    Access                  This machine only
+    Version                 1.2.3
+    Compose project         friend-team
+    Installation            /tmp/status-preview/installation's space
+
+  NEXT ──────────────────────────────────────────────────────────────────────────────────
+  For deeper database, queue, storage, and model checks:
+  openteam doctor --dir '/tmp/status-preview/installation'\\''s space'
+"
+`;
+
+exports[`status and health reports live-ready: Live dependencies healthy: live-ready 1`] = `
+"
+  ╭──────────────────────────────────────────────────────────────────────────────────────╮
+  │ OPENTEAM / status                                                                    │
+  │ RUNNING                                                                              │
+  ╰──────────────────────────────────────────────────────────────────────────────────────╯
+
+  4/4 containers running · 4 passing Docker health checks
+
+  CONTAINERS ────────────────────────────────────────────────────────────────────────────
+  ✓ postgres                Running · healthy
+  ✓ server                  Running · healthy
+  ✓ worker                  Running · healthy
+  ✓ computer                Running · healthy
+
+  READINESS ─────────────────────────────────────────────────────────────────────────────
+  ✓ Server                  Ready · responding with the installed release
+    Checked at              http://127.0.0.1:8787/api/v0/health
+  ✓ Database                Ready
+  ✓ Queue database          Ready
+  ✓ Computer API            Ready
+    AI credentials          Configured · model request not tested
+
+  CONNECTION ────────────────────────────────────────────────────────────────────────────
+    Server                  http://127.0.0.1:8787
+    Access                  This machine only
+    Version                 1.2.3
+    Compose project         friend-team
+    Installation            /tmp/status-preview/installation's space
+
+  NEXT ──────────────────────────────────────────────────────────────────────────────────
+  For deeper database, queue, storage, and model checks:
+  openteam doctor --dir '/tmp/status-preview/installation'\\''s space'
+"
+`;
+
+exports[`status and health reports database-unavailable: Database is unreachable: database-unavailable 1`] = `
+"
+  ╭──────────────────────────────────────────────────────────────────────────────────────╮
+  │ OPENTEAM / status                                                                    │
+  │ NEEDS ATTENTION                                                                      │
+  ╰──────────────────────────────────────────────────────────────────────────────────────╯
+
+  4/4 containers running · 4 passing Docker health checks
+
+  NEXT STEPS ────────────────────────────────────────────────────────────────────────────
+  The server cannot use its database or job queues. Inspect database logs, then run
+  openteam doctor --dir '/tmp/status-preview/installation'\\''s space' to check schema
+  setup and queue processing.
+  openteam logs postgres --dir '/tmp/status-preview/installation'\\''s space'
+
+  CONTAINERS ────────────────────────────────────────────────────────────────────────────
+  ✓ postgres                Running · healthy
+  ✓ server                  Running · healthy
+  ✓ worker                  Running · healthy
+  ✓ computer                Running · healthy
+
+  READINESS ─────────────────────────────────────────────────────────────────────────────
+  ✗ Server                  HTTP 503 · database: unavailable
+    Checked at              http://127.0.0.1:8787/api/v0/health
+  ✗ Database                unavailable
+  ✓ Queue database          Ready
+  ✓ Computer API            Ready
+
+  CONNECTION ────────────────────────────────────────────────────────────────────────────
+    Server                  http://127.0.0.1:8787
+    Access                  This machine only
+    Version                 1.2.3
+    Compose project         friend-team
+    Installation            /tmp/status-preview/installation's space
+"
+`;
+
+exports[`status and health reports not-installed: OpenTeam not installed: not-installed 1`] = `
+"
+  ╭──────────────────────────────────────────────────────────────────────────────────────╮
+  │ OPENTEAM / status                                                                    │
+  │ NOT INSTALLED                                                                        │
+  ╰──────────────────────────────────────────────────────────────────────────────────────╯
+
+  OpenTeam has not been installed in this directory.
+
+  NEXT STEPS ────────────────────────────────────────────────────────────────────────────
+  Install OpenTeam, or use --dir to select an existing installation.
+  openteam install --dir '/tmp/status-preview/installation'\\''s space'
+
+  CHECK BLOCKED ─────────────────────────────────────────────────────────────────────────
+  ✗ Installation            OpenTeam has not been installed in this directory.
+
+  CONTAINERS ────────────────────────────────────────────────────────────────────────────
+  Not checked. Resolve the issue above, then run status again.
+
+  READINESS ─────────────────────────────────────────────────────────────────────────────
+  – Server                  Not checked
+
+  CONNECTION ────────────────────────────────────────────────────────────────────────────
+    Server                  Not checked
+    Access                  Not checked
+    Version                 Unknown
+    Installation            /tmp/status-preview/installation's space
+"
+`;
+
+exports[`status and health reports invalid-json: Docker returns malformed container output: invalid-json 1`] = `
+"
+  ╭──────────────────────────────────────────────────────────────────────────────────────╮
+  │ OPENTEAM / status                                                                    │
+  │ STATUS UNKNOWN                                                                       │
+  ╰──────────────────────────────────────────────────────────────────────────────────────╯
+
+  OpenTeam could not read its container states.
+
+  NEXT STEPS ────────────────────────────────────────────────────────────────────────────
+  Run docker info to check the engine, then openteam doctor --dir
+  '/tmp/status-preview/installation'\\''s space' to inspect Compose and configuration
+  errors.
+  openteam status --dir '/tmp/status-preview/installation'\\''s space'
+
+  CHECK BLOCKED ─────────────────────────────────────────────────────────────────────────
+  ✗ Containers              OpenTeam could not read its container states.
+  Could not inspect OpenTeam services: Docker Compose returned invalid service state.
+
+  CONTAINERS ────────────────────────────────────────────────────────────────────────────
+  Not checked. Resolve the issue above, then run status again.
+
+  READINESS ─────────────────────────────────────────────────────────────────────────────
+  – Server                  Not checked
+
+  CONNECTION ────────────────────────────────────────────────────────────────────────────
+    Server                  http://127.0.0.1:8787
+    Access                  This machine only
+    Version                 1.2.3
+    Compose project         friend-team
+    Installation            /tmp/status-preview/installation's space
+"
+`;
+
+exports[`status and health reports stopped: All containers stopped cleanly: stopped 1`] = `
+"
+  ╭──────────────────────────────────────────────────────────────────────────────────────╮
+  │ OPENTEAM / status                                                                    │
+  │ STOPPED                                                                              │
+  ╰──────────────────────────────────────────────────────────────────────────────────────╯
+
+  0/4 containers running · 0 passing Docker health checks
+
+  NEXT STEPS ────────────────────────────────────────────────────────────────────────────
+  Start the missing or stopped services, then check status again:
+  openteam start --dir '/tmp/status-preview/installation'\\''s space'
+
+  CONTAINERS ────────────────────────────────────────────────────────────────────────────
+  ! postgres                Stopped · exit 0
+  ! server                  Stopped · exit 0
+  ! worker                  Stopped · exit 0
+  ! computer                Stopped · exit 0
+
+  READINESS ─────────────────────────────────────────────────────────────────────────────
+  ✗ Server                  HTTP 503
+    Checked at              http://127.0.0.1:8787/api/v0/health
+
+  CONNECTION ────────────────────────────────────────────────────────────────────────────
+    Server                  http://127.0.0.1:8787
+    Access                  This machine only
+    Version                 1.2.3
+    Compose project         friend-team
+    Installation            /tmp/status-preview/installation's space
+"
+`;
+
+exports[`status and health reports starting: Container health checks starting: starting 1`] = `
+"
+  ╭────────────────────────────────────╮
+  │ OPENTEAM / status                  │
+  │ STARTING                           │
+  ╰────────────────────────────────────╯
+
+  4/4 containers running · 3 passing
+  Docker health checks
+
+  NEXT STEPS ──────────────────────────
+  Setup or health checks are still in
+  progress. Wait a moment and check
+  again. If this persists, run openteam
+  doctor --dir
+  '/tmp/status-preview/installation'\\''s
+  space'.
+  openteam status --dir
+  '/tmp/status-preview/installation'\\''s
+  space'
+
+  CONTAINERS ──────────────────────────
+  ✓ postgres
+      Running · healthy
+  ✓ server
+      Running · healthy
+  ! worker
+      Running · health check starting
+  ✓ computer
+      Running · healthy
+
+  READINESS ───────────────────────────
+  ✓ Server
+      Ready · responding with the
+      installed release
+    Checked at
+      http://127.0.0.1:8787/api/v0/healt
+      h
+    AI credentials
+      Configured · model request not
+      tested
+
+  CONNECTION ──────────────────────────
+    Server
+      http://127.0.0.1:8787
+    Access
+      This machine only
+    Version
+      1.2.3
+    Compose project
+      friend-team
+    Installation
+      /tmp/status-preview/installation's
+      space
+"
+`;
+
+exports[`status and health reports job-failed: Database migration failed: job-failed 1`] = `
+"
+  ╭──────────────────────────────────────────────────────────────────────────────────────╮
+  │ OPENTEAM / status                                                                    │
+  │ NEEDS ATTENTION                                                                      │
+  ╰──────────────────────────────────────────────────────────────────────────────────────╯
+
+  4/4 containers running · 4 passing Docker health checks
+
+  NEXT STEPS ────────────────────────────────────────────────────────────────────────────
+  Inspect migrate logs to find why it is not ready. For a deeper diagnosis, run openteam
+  doctor --dir '/tmp/status-preview/installation'\\''s space'.
+  openteam logs migrate --dir '/tmp/status-preview/installation'\\''s space'
+
+  CONTAINERS ────────────────────────────────────────────────────────────────────────────
+  ✓ postgres                Running · healthy
+  ✓ server                  Running · healthy
+  ✓ worker                  Running · healthy
+  ✓ computer                Running · healthy
+
+  SETUP JOBS ────────────────────────────────────────────────────────────────────────────
+  ✗ migrate                 Stopped · exit 1
+  Setup jobs finish and stop normally; exit 0 means success.
+
+  READINESS ─────────────────────────────────────────────────────────────────────────────
+  ✓ Server                  Ready · responding with the installed release
+    Checked at              http://127.0.0.1:8787/api/v0/health
+    AI credentials          Configured · model request not tested
+
+  CONNECTION ────────────────────────────────────────────────────────────────────────────
+    Server                  http://127.0.0.1:8787
+    Access                  This machine only
+    Version                 1.2.3
+    Compose project         friend-team
+    Installation            /tmp/status-preview/installation's space
+"
+`;

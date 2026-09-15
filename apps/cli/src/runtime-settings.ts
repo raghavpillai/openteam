@@ -27,7 +27,10 @@ const request = async (paths: InstallationPaths, url: URL, init: RequestInit = {
       authorization: `Bearer ${controlToken(paths)}`,
       ...init.headers,
     },
-    signal: init.signal ?? AbortSignal.timeout(10_000),
+    redirect: "error",
+    signal: init.signal
+      ? AbortSignal.any([init.signal, AbortSignal.timeout(10_000)])
+      : AbortSignal.timeout(10_000),
   }).catch((error) => {
     throw new CliError(
       `Could not reach runtime settings: ${error instanceof Error ? error.message : String(error)}`
@@ -73,4 +76,16 @@ export const writeRuntimeInferenceSettings = async (
     body: JSON.stringify(settings),
   });
   return body as unknown as RuntimeInferenceSettings;
+};
+
+/** Authenticated settings transport shared by the interactive model editor. */
+export const runtimeSettingsRequest = async <T>(
+  paths: InstallationPaths,
+  suffix = "",
+  init: RequestInit = {},
+  providerId?: string
+): Promise<T> => {
+  const url = internalSettingsUrl(paths, suffix);
+  if (providerId) url.searchParams.set("provider", providerId);
+  return (await request(paths, url, init)) as unknown as T;
 };

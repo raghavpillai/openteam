@@ -8,7 +8,7 @@ const retiredCodexModels = new Map([
   ["gpt-5.4-mini", "gpt-5.6-luna"],
 ]);
 
-const replacementFor = (providerId: string, modelId: string): string | undefined =>
+export const replacementFor = (providerId: string, modelId: string): string | undefined =>
   providerId === "openai-codex" ? retiredCodexModels.get(modelId) : undefined;
 
 export const availableInferenceModels = (runtime: ModelRuntime, providerId?: string) =>

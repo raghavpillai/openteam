@@ -81,6 +81,7 @@ CMD ["bun", "main.js"]
 FROM node:22-bookworm-slim@sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5 AS worker
 WORKDIR /app
 COPY --from=build /app/apps/worker/dist/main.js ./main.js
+COPY --from=build /app/apps/worker/dist/healthcheck.js ./healthcheck.js
 ENV NODE_ENV=production
 USER 1000:1000
 CMD ["node", "main.js"]

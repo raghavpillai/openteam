@@ -44,6 +44,8 @@ export interface InferenceProviderView {
   authSource: string | null;
   custom: boolean;
   modelCount: number;
+  modelStatus?: "ready" | "disconnected" | "unavailable";
+  modelMessage?: string;
 }
 
 export interface InferenceModelView {

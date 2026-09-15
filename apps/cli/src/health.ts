@@ -9,6 +9,7 @@ export interface HealthResult {
   inference?: string;
   version?: string;
   connectionFailed?: boolean;
+  components?: Partial<Record<"database" | "queue" | "computer", string>>;
 }
 
 export const healthUrl = (paths: InstallationPaths): string => {
@@ -28,15 +29,35 @@ export const checkHealth = async (
     const response = await fetch(url, { signal: AbortSignal.timeout(3_000) });
     const body = (await response.json().catch(() => null)) as {
       status?: unknown;
-      runtime?: { inference?: unknown };
+      runtime?: { inference?: unknown; database?: unknown; queue?: unknown; computer?: unknown };
       release?: { releaseVersion?: unknown };
     } | null;
-    if (!response.ok) return { ok: false, url, detail: `HTTP ${response.status}` };
+    const components = Object.fromEntries(
+      ["database", "queue", "computer"].flatMap((name) => {
+        const value = body?.runtime?.[name as "database" | "queue" | "computer"];
+        return typeof value === "string" ? [[name, value]] : [];
+      })
+    );
+    const unavailable = Object.entries(components)
+      .filter(([, value]) => value !== "ready")
+      .map(([name, value]) => `${name}: ${value}`);
+    if (!response.ok || unavailable.length)
+      return {
+        ok: false,
+        url,
+        components,
+        detail: `${!response.ok ? `HTTP ${response.status}` : "Dependencies are not ready"}${unavailable.length ? ` · ${unavailable.join(", ")}` : ""}`,
+      };
     const status = typeof body?.status === "string" ? body.status : null;
     const version =
       typeof body?.release?.releaseVersion === "string" ? body.release.releaseVersion : undefined;
     if (status !== "ready") {
-      return { ok: false, url, detail: status ? `runtime is ${status}` : "readiness is unknown" };
+      return {
+        ok: false,
+        url,
+        components,
+        detail: status ? `runtime is ${status}` : "readiness is unknown",
+      };
     }
     return withExpectedVersion(
       {
@@ -46,6 +67,7 @@ export const checkHealth = async (
         inference:
           typeof body?.runtime?.inference === "string" ? body.runtime.inference : undefined,
         version,
+        components,
       },
       expectedVersion
     );
@@ -71,8 +93,8 @@ export const withExpectedVersion = (
 ): HealthResult => {
   if (!result.ok || !expectedVersion || result.version === expectedVersion) return result;
   return {
+    ...result,
     ok: false,
-    url: result.url,
     detail: result.version
       ? `expected release ${expectedVersion}, but ${result.version} is responding`
       : `release ${expectedVersion} was not reported`,

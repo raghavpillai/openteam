@@ -28,7 +28,7 @@ import {
   ComposeProject,
   dockerDaemon,
   dockerVersion,
-  findCompose,
+  probeCompose,
   MINIMUM_COMPOSE_VERSION,
 } from "./docker";
 import { checkHealth, withExpectedVersion, type HealthResult } from "./health";
@@ -42,7 +42,8 @@ import {
   WORKER_PROBE,
   STORAGE_PROBE,
 } from "./doctor-probes";
-import { renderDoctor } from "./doctor-ui";
+import { renderDoctor, renderCompactDoctor } from "./doctor-ui";
+import { commandDiagnostic, dockerFailureCheck } from "./docker-diagnostics";
 import { firstUnavailablePort, viewerPorts } from "./ports";
 import type { CommandRunner } from "./process";
 import { inspectPublicReadiness } from "./public-readiness";
@@ -57,6 +58,8 @@ export interface DoctorCheck {
   level: CheckLevel;
   label: string;
   detail: string;
+  diagnostic?: string;
+  action?: string;
 }
 
 export interface DoctorResult {
@@ -65,6 +68,7 @@ export interface DoctorResult {
   checks: readonly DoctorCheck[];
   elapsedMs?: number;
   commandDirectory?: string;
+  platform?: NodeJS.Platform;
 }
 
 const nearestExistingDirectory = (path: string): string => {
@@ -138,37 +142,61 @@ export const runDoctor = async (
   }
 
   const docker = dockerVersion(runner);
-  checks.push({
-    level: docker.status === 0 ? "pass" : "fail",
-    label: "Docker CLI",
-    detail: docker.status === 0 ? docker.stdout.trim() : "not found",
-  });
+  checks.push(
+    docker.status === 0
+      ? {
+          level: "pass",
+          label: "Docker CLI",
+          detail: docker.stdout.trim(),
+        }
+      : dockerFailureCheck("cli", docker)
+  );
   let daemonReady = false;
   if (docker.status === 0) {
     const daemon = dockerDaemon(runner);
     daemonReady = daemon.status === 0;
-    checks.push({
-      level: daemon.status === 0 ? "pass" : "fail",
-      label: "Docker daemon",
-      detail: daemon.status === 0 ? `server ${daemon.stdout.trim()}` : "not reachable",
-    });
+    checks.push(
+      daemonReady
+        ? {
+            level: "pass",
+            label: "Docker daemon",
+            detail: `server ${daemon.stdout.trim()}`,
+          }
+        : dockerFailureCheck("daemon", daemon)
+    );
   }
-  const compose = findCompose(runner);
-  checks.push({
-    level: compose?.supported ? "pass" : "fail",
-    label: "Docker Compose",
-    detail: compose
-      ? `${compose.version}${compose.supported ? "" : `; OpenTeam requires ${MINIMUM_COMPOSE_VERSION}+`}`
-      : "not found",
-  });
+  const composeProbe = docker.status === 0 ? probeCompose(runner) : null;
+  const compose = composeProbe?.command;
+  checks.push(
+    docker.status !== 0
+      ? {
+          level: "warn",
+          label: "Docker Compose",
+          detail: "Not tested; make the Docker command available first.",
+        }
+      : {
+          level: compose?.supported ? "pass" : "fail",
+          label: "Docker Compose",
+          detail: compose
+            ? `${compose.version}${compose.supported ? "" : `; OpenTeam requires ${MINIMUM_COMPOSE_VERSION}+`}`
+            : "Neither the Docker Compose plugin nor the standalone command could run.",
+          ...(!compose
+            ? {
+                diagnostic: composeProbe!.failures
+                  .map(({ command, result }) => commandDiagnostic(command, result))
+                  .join("\n"),
+              }
+            : {}),
+        }
+  );
 
   if (!installed) {
     checks.push({
       level: [paths.manifest, paths.environment, paths.compose].some(existsSync) ? "fail" : "warn",
       label: "Installation",
       detail: [paths.manifest, paths.environment, paths.compose].some(existsSync)
-        ? `Installation is incomplete at ${paths.directory}; run openteam install`
-        : `OpenTeam is not installed at ${paths.directory}; run openteam install`,
+        ? `Installation files are missing at ${paths.directory}; setup is incomplete.`
+        : `First-time setup: the OpenTeam server has not been configured at ${paths.directory} yet.`,
     });
     const checkInstallPorts = options.checkInstallPorts ?? true;
     const unavailablePort = checkInstallPorts
@@ -194,7 +222,14 @@ export const runDoctor = async (
         label: "Installation",
         detail: `Invalid installation manifest at ${paths.manifest}; repair it before starting OpenTeam`,
       });
-      return { ok: false, installed, checks, elapsedMs: Date.now() - started, commandDirectory };
+      return {
+        ok: false,
+        installed,
+        checks,
+        elapsedMs: Date.now() - started,
+        commandDirectory,
+        platform: process.platform,
+      };
     }
     checks.push({
       level: manifest ? "pass" : "fail",
@@ -484,6 +519,7 @@ export const runDoctor = async (
     checks,
     elapsedMs: Date.now() - started,
     commandDirectory,
+    platform: process.platform,
   };
 };
 
@@ -500,19 +536,10 @@ export const printDoctor = (
     );
     return;
   }
-  const marks: Record<CheckLevel, string> = { pass: "✓", warn: "!", fail: "✗" };
-  const included = result.checks.filter((check) => !options.omitLabels?.includes(check.label));
-  const visible = included.filter((check) => check.level !== "pass");
-  for (const check of visible) {
-    console.log(`${marks[check.level]} ${check.label}: ${redactSensitiveText(check.detail)}`);
-  }
-  const warnings = visible.filter((check) => check.level === "warn").length;
-  const failures = visible.filter((check) => check.level === "fail").length;
   console.log(
-    failures > 0
-      ? `✗ ${failures} blocking ${failures === 1 ? "problem" : "problems"} found.`
-      : warnings > 0
-        ? `✓ Checks passed with ${warnings} ${warnings === 1 ? "warning" : "warnings"}.`
-        : "✓ All checks passed."
+    renderCompactDoctor({
+      ...result,
+      checks: result.checks.filter((check) => !options.omitLabels?.includes(check.label)),
+    })
   );
 };

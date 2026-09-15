@@ -1,4 +1,5 @@
 import { stripVTControlCharacters } from "node:util";
+import stringWidth from "string-width";
 import { redactSensitiveText } from "@openteam/product-core/redaction";
 import { colorEnabled } from "./ui";
 
@@ -9,6 +10,8 @@ export interface TerminalOptions {
 }
 const codes = { info: 36, success: 32, warning: 33, error: 31, muted: 90 };
 const marks = { info: "◇", success: "✓", warning: "!", error: "✗", muted: "·" };
+const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+export const terminalTextWidth = (text: string): number => stringWidth(text);
 
 export const cleanTerminalText = (text: string): string =>
   stripVTControlCharacters(redactSensitiveText(text)).replace(/[\x00-\x1f\x7f-\x9f]/g, " ");
@@ -17,9 +20,19 @@ export const wrapTerminalText = (text: string, width: number): string[] => {
   const limit = Math.max(1, width);
   const lines: string[] = [];
   let rest = cleanTerminalText(text).trim();
-  while (rest.length > limit) {
-    const space = rest.lastIndexOf(" ", limit);
-    const split = space > limit / 2 ? space : limit;
+  while (terminalTextWidth(rest) > limit) {
+    let fitted = 0;
+    let cells = 0;
+    for (const { segment, index } of graphemes.segment(rest)) {
+      const next = terminalTextWidth(segment);
+      if (cells + next > limit) break;
+      cells += next;
+      fitted = index + segment.length;
+    }
+    // Never split a combining sequence, surrogate pair, or emoji in half.
+    if (!fitted) fitted = graphemes.segment(rest)[Symbol.iterator]().next().value!.segment.length;
+    const space = rest.lastIndexOf(" ", fitted);
+    const split = space > 0 ? space : fitted;
     lines.push(rest.slice(0, split));
     rest = rest.slice(split).trimStart();
   }
@@ -42,15 +55,20 @@ export class TerminalReport {
   }
 
   paint(text: string, tone: TerminalTone | "bold" = "muted"): string {
-    const safe = cleanTerminalText(text);
-    return this.color ? `\x1b[${tone === "bold" ? 1 : codes[tone]}m${safe}\x1b[0m` : safe;
+    return this.paintClean(cleanTerminalText(text), tone);
+  }
+
+  // Wrapped lines are already sanitized. Redacting a split credential marker again
+  // can expand the line past the terminal width and obscure adjacent diagnostics.
+  private paintClean(text: string, tone: TerminalTone | "bold" = "muted"): string {
+    return this.color ? `\x1b[${tone === "bold" ? 1 : codes[tone]}m${text}\x1b[0m` : text;
   }
 
   header(command: string, status?: string, tone: TerminalTone = "info"): this {
     const frame = (text: string, style: TerminalTone | "bold") => {
       for (const line of wrapTerminalText(text, this.width - 6)) {
         this.lines.push(
-          `  ${this.paint("│", "info")} ${this.paint(line, style)}${" ".repeat(this.width - 6 - line.length)} ${this.paint("│", "info")}`
+          `  ${this.paint("│", "info")} ${this.paintClean(line, style)}${" ".repeat(this.width - 6 - terminalTextWidth(line))} ${this.paint("│", "info")}`
         );
       }
     };
@@ -65,7 +83,7 @@ export class TerminalReport {
     if (this.lines.at(-1) !== "") this.lines.push("");
     for (const line of wrapTerminalText(title.toUpperCase(), this.width - 4)) {
       this.lines.push(
-        `  ${this.paint(line, "bold")} ${this.paint("─".repeat(Math.max(0, this.width - line.length - 4)))}`
+        `  ${this.paintClean(line, "bold")} ${this.paint("─".repeat(Math.max(0, this.width - terminalTextWidth(line) - 4)))}`
       );
     }
     return this;
@@ -73,7 +91,7 @@ export class TerminalReport {
 
   text(text: string, tone: TerminalTone = "muted", indent = 2): this {
     for (const line of wrapTerminalText(text, this.width - indent))
-      this.lines.push(" ".repeat(indent) + this.paint(line, tone));
+      this.lines.push(" ".repeat(indent) + this.paintClean(line, tone));
     return this;
   }
 
@@ -87,21 +105,29 @@ export class TerminalReport {
     const prefix = options.mark ? `  ${this.paint(options.mark, tone)} ` : "    ";
     const safeLabel = cleanTerminalText(label);
     const labelTone = options.active ? "info" : "bold";
-    if (this.width >= 76 && safeLabel.length <= labelWidth && labelWidth <= this.width / 2) {
+    if (
+      this.width >= 76 &&
+      terminalTextWidth(safeLabel) <= labelWidth &&
+      labelWidth <= this.width / 2
+    ) {
       const indent = labelWidth + 6;
       const parts = wrapTerminalText(value, this.width - indent);
       this.lines.push(
         prefix +
-          this.paint(safeLabel.padEnd(labelWidth), labelTone) +
+          this.paintClean(
+            safeLabel + " ".repeat(labelWidth - terminalTextWidth(safeLabel)),
+            labelTone
+          ) +
           "  " +
-          this.paint(parts[0]!, tone)
+          this.paintClean(parts[0]!, tone)
       );
       for (const part of parts.slice(1))
-        this.lines.push(" ".repeat(indent) + this.paint(part, tone));
+        this.lines.push(" ".repeat(indent) + this.paintClean(part, tone));
     } else {
       const labels = wrapTerminalText(safeLabel, this.width - 4);
-      this.lines.push(prefix + this.paint(labels[0]!, labelTone));
-      for (const line of labels.slice(1)) this.lines.push("    " + this.paint(line, labelTone));
+      this.lines.push(prefix + this.paintClean(labels[0]!, labelTone));
+      for (const line of labels.slice(1))
+        this.lines.push("    " + this.paintClean(line, labelTone));
       this.text(value, tone, 6);
     }
     return this;
@@ -109,8 +135,8 @@ export class TerminalReport {
 
   notice(text: string, tone: TerminalTone = "info"): this {
     const lines = wrapTerminalText(text, this.width - 4);
-    this.lines.push(`  ${this.paint(marks[tone], tone)} ${this.paint(lines[0]!, tone)}`);
-    for (const line of lines.slice(1)) this.lines.push("    " + this.paint(line, tone));
+    this.lines.push(`  ${this.paint(marks[tone], tone)} ${this.paintClean(lines[0]!, tone)}`);
+    for (const line of lines.slice(1)) this.lines.push("    " + this.paintClean(line, tone));
     return this;
   }
 

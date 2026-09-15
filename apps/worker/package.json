@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "bun build src/main.ts --outdir dist --target node --format esm --external pg-native",
+    "build": "bun build src/main.ts src/healthcheck.ts --outdir dist --target node --format esm --external pg-native",
     "dev": "bun --watch src/main.ts",
     "start": "node dist/main.js",
     "typecheck": "tsc -p tsconfig.json",

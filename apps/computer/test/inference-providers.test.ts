@@ -19,7 +19,7 @@ describe("inference provider service", () => {
     const runtime = {
       getProviders: () => [
         {
-          id: "test-provider",
+          id: "anthropic",
           name: "Test Provider",
           auth: {
             apiKey: {
@@ -37,7 +37,7 @@ describe("inference provider service", () => {
         },
       ],
       getProvider: (id: string) =>
-        id === "test-provider"
+        id === "anthropic"
           ? {
               id,
               name: "Test Provider",
@@ -45,10 +45,10 @@ describe("inference provider service", () => {
             }
           : undefined,
       getModels: (providerId?: string) =>
-        !providerId || providerId === "test-provider"
+        !providerId || providerId === "anthropic"
           ? [
               {
-                provider: "test-provider",
+                provider: "anthropic",
                 id: "test-model",
                 name: "Test Model",
                 reasoning: true,
@@ -58,7 +58,7 @@ describe("inference provider service", () => {
             ]
           : [],
       getModel: (providerId: string, modelId: string) =>
-        providerId === "test-provider" && modelId === "test-model" ? {} : undefined,
+        providerId === "anthropic" && modelId === "test-model" ? {} : undefined,
       checkAuth: async () =>
         connected ? { type: "api_key" as const, source: "stored credential" } : undefined,
       login: async (_providerId: string, _type: string, interaction: AuthInteraction) => {
@@ -73,19 +73,15 @@ describe("inference provider service", () => {
     } as unknown as ModelRuntime;
     const service = new InferenceProviderService(() => runtime, "/does/not/exist/models.json");
 
-    const catalog = await service.catalog("test-provider");
+    const catalog = await service.catalog("anthropic");
     expect(catalog.providers[0]).toMatchObject({
-      id: "test-provider",
+      id: "anthropic",
       connected: false,
-      modelCount: 1,
+      modelCount: 0,
     });
-    expect(catalog.models[0]).toMatchObject({
-      providerId: "test-provider",
-      modelId: "test-model",
-      reasoning: true,
-    });
+    expect(catalog.models).toEqual([]);
 
-    const started = service.startAuthSession("test-provider", "api_key");
+    const started = service.startAuthSession("anthropic", "api_key");
     const waiting = await eventually(
       () => service.authSession(started.id),
       (session) => session.status === "waiting"
@@ -101,7 +97,7 @@ describe("inference provider service", () => {
     expect(submittedSecret).toBe("super-secret-value");
     expect(JSON.stringify(complete)).not.toContain("super-secret-value");
 
-    const expiring = service.startAuthSession("test-provider", "api_key");
+    const expiring = service.startAuthSession("anthropic", "api_key");
     await eventually(
       () => service.authSession(expiring.id),
       (session) => session.status === "waiting"

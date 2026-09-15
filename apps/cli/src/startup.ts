@@ -1,6 +1,7 @@
 import type { ComposeProject } from "./docker";
 import type { InstallationPaths } from "./config";
 import { CliError } from "./errors";
+import { commandDiagnostic } from "./docker-diagnostics";
 import { type HealthResult, waitForHealth } from "./health";
 
 export const SETUP_JOBS_NOTE =
@@ -17,7 +18,7 @@ export const readServiceStates = (project: ComposeProject): ServiceState[] => {
   const result = project.run(["ps", "--all", "--format", "json"], { timeoutMs: 5_000 });
   if (result.status !== 0) {
     throw new CliError(
-      `Could not inspect OpenTeam services: ${result.stderr.trim() || result.error?.message || "Docker Compose service inspection failed"}`
+      `Could not inspect OpenTeam services: ${commandDiagnostic("Docker Compose ps", result)}`
     );
   }
   let services: ServiceState[];
@@ -38,7 +39,10 @@ export const readServiceStates = (project: ComposeProject): ServiceState[] => {
           !("Service" in row) ||
           typeof row.Service !== "string" ||
           !("State" in row) ||
-          typeof row.State !== "string"
+          typeof row.State !== "string" ||
+          ("Health" in row && typeof row.Health !== "string") ||
+          ("ExitCode" in row &&
+            (typeof row.ExitCode !== "number" || !Number.isInteger(row.ExitCode)))
       )
     )
       throw new Error("invalid service state");

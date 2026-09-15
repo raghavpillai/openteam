@@ -135,6 +135,26 @@ describe("CLI presentation", () => {
     expect(text).toContain("Connected · OAuth");
     expect(text).toContain("API key");
   });
+  test("model list explains failed discovery without hiding other providers' models", () => {
+    const text = renderModelCatalog(
+      models,
+      selected,
+      paths,
+      undefined,
+      { width: 90, color: false },
+      [
+        {
+          ...providers[1]!,
+          modelStatus: "unavailable",
+          modelMessage: "Reconnect Anthropic to load chat models.",
+        },
+      ]
+    );
+    expect(text).toContain("accessible chat models");
+    expect(text).toContain("Reconnect Anthropic");
+    expect(text).toContain("openai-codex");
+    expect(text).toContain("openteam provider list");
+  });
   test("shows stopped, missing, unhealthy and failed-initialization states accurately", () => {
     expect(
       renderStatus({ ...status, services: [], health: { ok: false, detail: "unreachable" } })

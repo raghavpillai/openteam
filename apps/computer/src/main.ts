@@ -25,12 +25,14 @@ import { resolveWorkspacePath } from "./paths";
 import { ComputerRuntime } from "./runtime";
 import { ScreenBroker } from "./screen-broker";
 import { TranscriptMirror } from "./transcript-mirror";
+import { checkAgentWorkspace, ComputerReadiness } from "./readiness";
 
 const port = Number(process.env.OPENTEAM_COMPUTER_PORT ?? 8790);
 const controlToken = process.env.OPENTEAM_CONTROL_TOKEN ?? "local-compose-only-change-me";
 const workspaceRoot = resolve(process.env.OPENTEAM_WORKSPACE_ROOT ?? "/workspace");
 const screens = new ScreenBroker();
 const agentStores = new BotAgentStore();
+const readiness = new ComputerReadiness(() => checkAgentWorkspace(workspaceRoot));
 const boxStore = new BoxStoreSync({
   hasLiveAgentHandle: (agentId) => agentStores.hasLiveHandle(agentId),
 });
@@ -153,12 +155,22 @@ const server = Bun.serve({
   idleTimeout: 255,
   async fetch(request) {
     const url = new URL(request.url);
-    if (url.pathname === "/health") {
+    if (url.pathname === "/health" || url.pathname === "/health/authenticated") {
+      if (url.pathname === "/health/authenticated" && !authorized(request))
+        return json({ error: "unauthorized" }, 401);
       try {
-        const inference = await runtime.inferenceDiagnostics(
-          url.searchParams.get("model") ?? undefined
+        const [inference, agentReady] = await Promise.all([
+          runtime.inferenceDiagnostics(url.searchParams.get("model") ?? undefined),
+          readiness.check(),
+        ]);
+        return json(
+          {
+            status: agentReady ? "ready" : "degraded",
+            inference,
+            agentExecution: agentReady ? "ready" : "unavailable",
+          },
+          agentReady ? 200 : 503
         );
-        return json({ status: "ready", inference });
       } catch (error) {
         return json(
           {

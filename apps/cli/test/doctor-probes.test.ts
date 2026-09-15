@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -151,6 +152,64 @@ describe("doctor service probes", () => {
       expect(checks[0]).toMatchObject({ level: "fail", label: "Worker heartbeat" });
       expect(checks[1]).toMatchObject({ level: "warn", label: "Queue round trip" });
     } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+});
+
+describe.skipIf(process.platform === "win32")("actual worker diagnostic socket probe", () => {
+  test.each([
+    "healthy",
+    "foreign",
+    "false-200",
+    "false-503",
+    "invalid",
+    "hung",
+  ])("handles %s responses", async (mode) => {
+    const directory = mkdtempSync(join(tmpdir(), "ot-socket-"));
+    const heartbeat = join(directory, "h");
+    const socket = join(directory, "s");
+    writeFileSync(heartbeat, JSON.stringify({ instance: "self", updatedAt: Date.now() }));
+    const server = createServer((_request, response) => {
+      if (mode === "hung") return;
+      response
+        .writeHead(mode === "false-503" ? 503 : 200)
+        .end(
+          mode === "invalid"
+            ? "null"
+            : JSON.stringify({
+                ok: mode !== "false-200",
+                instance: "self",
+                consumer: mode === "foreign" ? "other" : "self",
+                durationMs: 1,
+              })
+        );
+    });
+    try {
+      await new Promise<void>((resolve) => server.listen(socket, resolve));
+      const script = WORKER_PROBE.replaceAll(
+        '"/tmp/openteam-worker-heartbeat.json"',
+        JSON.stringify(heartbeat)
+      )
+        .replaceAll('"/tmp/openteam-worker-doctor.sock"', JSON.stringify(socket))
+        .replace("}, 10000)", "}, 150)");
+      const child = Bun.spawn(["node", "-e", `(async () => {${script}})()`], {
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const watchdog = setTimeout(() => child.kill("SIGKILL"), 2_000);
+      try {
+        const checks = JSON.parse(await new Response(child.stdout).text());
+        expect(await child.exited).toBe(0);
+        expect(checks[0].level).toBe("pass");
+        expect(checks[1].level).toBe(mode === "healthy" ? "pass" : "fail");
+        if (mode === "hung") expect(checks[1].detail).toContain("timed out");
+      } finally {
+        clearTimeout(watchdog);
+      }
+    } finally {
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
       rmSync(directory, { recursive: true, force: true });
     }
   });

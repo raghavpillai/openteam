@@ -1,12 +1,12 @@
 import type { InstallationPaths } from "./config";
 import { defaultInstallDirectory } from "./config";
 import type { ProviderRow, ModelRow } from "./providers";
-import type { ServiceState } from "./startup";
+export { renderStatus } from "./status-ui";
 import type { PersistedUpdateState } from "./update-safety";
 import { TerminalReport, type TerminalOptions, type TerminalTone } from "./terminal";
 
 export const installationCommand = (paths: InstallationPaths, command: string): string =>
-  `openteam ${command}${paths.directory === defaultInstallDirectory() ? "" : ` --dir '${paths.directory.replace(/'/g, "'\\''")}'`}`;
+  `openteam ${command}${paths.directory === defaultInstallDirectory() ? "" : ` --dir '${paths.directory.replace(/'/g, process.platform === "win32" ? "''" : "'\\''")}'`}`;
 
 export const renderSummary = (
   command: string,
@@ -60,7 +60,7 @@ export const renderProviderCatalog = (
             .join(" / ") || "Ambient credentials";
       view.row(
         provider.id,
-        `${provider.name} · ${provider.models} models · ${auth}${provider.custom ? " · custom" : ""}${active ? " · selected" : ""}`,
+        `${provider.name} · ${provider.models} chat models · ${auth}${provider.custom ? " · custom" : ""}${active ? " · selected" : ""}`,
         {
           mark: active ? "●" : provider.configured ? "✓" : "·",
           tone: provider.configured ? "success" : "muted",
@@ -68,6 +68,11 @@ export const renderProviderCatalog = (
           labelWidth: 28,
         }
       );
+      if (provider.modelMessage)
+        view.notice(
+          provider.modelMessage,
+          provider.modelStatus === "unavailable" ? "warning" : "muted"
+        );
     }
   }
   if (!providers.length) view.notice("No providers are available.", "warning");
@@ -86,12 +91,13 @@ export const renderModelCatalog = (
   selected: { providerId: string; modelId: string; reasoning: string },
   paths: InstallationPaths,
   providerId?: string,
-  options: TerminalOptions = {}
+  options: TerminalOptions = {},
+  registry: readonly ProviderRow[] = []
 ): string => {
   const activeModel = `${selected.providerId}/${selected.modelId}`;
   const view = new TerminalReport(options).header(
     "models",
-    `${models.length} models${providerId ? ` · ${providerId}` : ""}`
+    `${models.length} accessible chat models${providerId ? ` · ${providerId}` : ""}`
   );
   view.lines.push("");
   view.row("Selected", activeModel, { mark: "●", tone: "info", active: true });
@@ -127,88 +133,23 @@ export const renderModelCatalog = (
       );
     }
   }
+  for (const provider of registry.filter(
+    (p) => (!providerId || p.id === providerId) && p.modelStatus === "unavailable"
+  ))
+    view.notice(
+      `${provider.name}: ${provider.modelMessage ?? "Model discovery is unavailable. Reconnect the provider and retry."}`,
+      "warning"
+    );
   if (!models.length)
-    view.notice(`No models found${providerId ? ` for ${providerId}` : ""}.`, "warning");
+    view.notice(
+      `No models found${providerId ? ` for ${providerId}` : ""}. Connect a provider or check model discovery.`,
+      "warning"
+    );
+  view.text(installationCommand(paths, "provider list"), "info");
   view
     .section("Switch model")
     .text(installationCommand(paths, `model use ${providerId || "<provider>"} <model>`), "info")
     .text("Add --thinking medium to choose a thinking level.");
-  view.lines.push("");
-  return view.toString();
-};
-
-export const renderStatus = (
-  input: {
-    version: string;
-    directory: string;
-    connection: string;
-    server: string;
-    services: readonly ServiceState[];
-    expected: readonly string[];
-    health: { ok: boolean; detail: string; inference?: string };
-    next: string;
-  },
-  options: TerminalOptions = {}
-): string => {
-  const stopped = !input.services.some(
-    (s) => input.expected.includes(s.Service) && s.State === "running"
-  );
-  const missing = input.expected.some((name) => {
-    const instances = input.services.filter((s) => s.Service === name);
-    return !instances.length || instances.some((s) => s.State !== "running");
-  });
-  const unhealthy = input.services.some(
-    (s) => input.expected.includes(s.Service) && s.Health && s.Health !== "healthy"
-  );
-  const jobs = input.services.filter((s) => s.Service === "migrate" || s.Service.endsWith("-init"));
-  const unfinished = jobs.filter((s) => s.State !== "exited" || s.ExitCode !== 0);
-  const ready = !stopped && !missing && !unhealthy && !unfinished.length && input.health.ok;
-  const view = new TerminalReport(options).header(
-    "status",
-    stopped ? "STOPPED" : ready ? "RUNNING" : "NEEDS ATTENTION",
-    ready ? "success" : "warning"
-  );
-  view
-    .section("Connection")
-    .row("Server", input.server, { tone: "info" })
-    .row("Access", input.connection)
-    .row("Version", input.version)
-    .row("Installation", input.directory);
-  view.section("Services");
-  for (const name of input.expected) {
-    const services = input.services.filter((s) => s.Service === name);
-    if (!services.length) {
-      view.row(name, "Not created", { mark: "!", tone: "warning" });
-      continue;
-    }
-    for (const service of services) {
-      const ok = service.State === "running" && (!service.Health || service.Health === "healthy");
-      view.row(name, `${service.State}${service.Health ? ` · ${service.Health}` : ""}`, {
-        mark: ok ? "✓" : "!",
-        tone: ok ? "success" : "warning",
-      });
-    }
-  }
-  if (jobs.length) {
-    view.row(
-      "Initialization",
-      unfinished.length
-        ? `Needs attention: ${unfinished.map((s) => s.Service).join(", ")}`
-        : `${jobs.length} setup jobs completed`,
-      { mark: unfinished.length ? "!" : "✓", tone: unfinished.length ? "warning" : "muted" }
-    );
-  }
-  view.section("Readiness").row("Server", input.health.detail, {
-    mark: input.health.ok ? "✓" : "✗",
-    tone: input.health.ok ? "success" : "error",
-  });
-  if (input.health.inference)
-    view.row(
-      "AI credentials",
-      input.health.inference === "ready" ? "Configured" : input.health.inference,
-      { tone: input.health.inference === "ready" ? "success" : "warning" }
-    );
-  view.section("Next").text(input.next, "info");
   view.lines.push("");
   return view.toString();
 };

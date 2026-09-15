@@ -38,7 +38,9 @@ export const composeProcessEnvironment = (
   return environment;
 };
 
-export const findCompose = (runner: CommandRunner): ComposeCommand | null => {
+export const probeCompose = (
+  runner: CommandRunner
+): { command: ComposeCommand | null; failures: Array<{ command: string; result: RunResult }> } => {
   const command = (executable: string, prefix: readonly string[], version: string) => {
     const parsed = semver.coerce(version);
     return {
@@ -50,14 +52,23 @@ export const findCompose = (runner: CommandRunner): ComposeCommand | null => {
   };
   const plugin = runner.run("docker", ["compose", "version"]);
   if (plugin.status === 0) {
-    return command("docker", ["compose"], plugin.stdout.trim());
+    return { command: command("docker", ["compose"], plugin.stdout.trim()), failures: [] };
   }
   const standalone = runner.run("docker-compose", ["version"]);
   if (standalone.status === 0) {
-    return command("docker-compose", [], standalone.stdout.trim());
+    return { command: command("docker-compose", [], standalone.stdout.trim()), failures: [] };
   }
-  return null;
+  return {
+    command: null,
+    failures: [
+      { command: "docker compose version", result: plugin },
+      { command: "docker-compose version", result: standalone },
+    ],
+  };
 };
+
+export const findCompose = (runner: CommandRunner): ComposeCommand | null =>
+  probeCompose(runner).command;
 
 export class ComposeProject {
   constructor(

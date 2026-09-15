@@ -1,4 +1,4 @@
-import { installationCommand, renderStatus, renderSummary } from "./command-ui";
+import { installationCommand, renderSummary } from "./command-ui";
 import { printMessage, TerminalReport } from "./terminal";
 import { readFileSync, rmSync } from "node:fs";
 import { randomUUID } from "node:crypto";
@@ -29,13 +29,10 @@ import { checkHealth, type HealthResult, withExpectedVersion } from "./health";
 import type { CommandRunner } from "./process";
 import { downloadRelease, latestReleaseVersion } from "./release";
 import { setupCommand, type SetupPrompter } from "./setup";
-import { ACCESS_MODES, accessLabel, type AccessMode } from "./setup-values";
+export { statusCommand } from "./status";
 import {
   assertServerReachable,
   inspectStartupState,
-  expectedServices,
-  readServiceStates,
-  summarizeStartupState,
   SETUP_JOBS_NOTE,
   waitForStartup,
 } from "./startup";
@@ -207,7 +204,10 @@ export const installCommand = async (
     checkInstallPorts: options.noSetup,
   });
   printDoctor(diagnosis, { compact: true });
-  if (!diagnosis.ok) throw new CliError("Fix the doctor failures above, then run install again.");
+  if (!diagnosis.ok)
+    throw new CliError(
+      "Installation paused. Follow the next steps above to resolve the failed checks."
+    );
 
   const version = normalizeVersion(options.version || CLI_VERSION);
   const repository = normalizeRepository(options.repository || DEFAULT_REPOSITORY);
@@ -273,70 +273,6 @@ export const doctorCommand = async (
   });
   printDoctor(diagnosis);
   if (!diagnosis.ok) throw new CliError("Doctor checks failed.", 2, true);
-};
-
-export const statusCommand = async (
-  paths: InstallationPaths,
-  runner: CommandRunner
-): Promise<void> => {
-  const manifest = requireInstallation(paths);
-  const environment = parseEnvironment(readFileSync(paths.environment, "utf8"));
-  const accessMode = environment.get("OPENTEAM_ACCESS_MODE") || "local";
-  const publicUrl = environment.get("OPENTEAM_PUBLIC_URL") || "not configured";
-  const connection = ACCESS_MODES.includes(accessMode as AccessMode)
-    ? accessLabel(accessMode as AccessMode)
-    : accessMode;
-  const project = requireComposeProject(paths, runner, manifestProjectName(manifest));
-  const services = readServiceStates(project);
-  const state = summarizeStartupState(services, environment);
-  const probe = await checkHealth(paths);
-  let health = withExpectedVersion(probe, manifest.version);
-  let failure: CliError | undefined;
-  let ownershipFailure = false;
-  try {
-    assertOwnServer(
-      runner,
-      probe,
-      new Set(services.filter((s) => s.State === "running").map((s) => s.Service)),
-      environment
-    );
-  } catch (error) {
-    ownershipFailure = true;
-    failure = new CliError(
-      error instanceof Error ? error.message : String(error),
-      error instanceof CliError ? error.exitCode : 2,
-      true
-    );
-    health = { ...health, ok: false, detail: failure.message };
-  }
-  if (!health.ok && !failure)
-    failure = new CliError(`OpenTeam is not healthy at ${health.url}: ${health.detail}`, 2, true);
-  if (state.notReady.length && !failure)
-    failure = new CliError(
-      `OpenTeam services need attention: ${state.notReady.join(", ")}`,
-      2,
-      true
-    );
-  console.log(
-    renderStatus({
-      version: manifest.version,
-      directory: paths.directory,
-      connection,
-      server: publicUrl,
-      services,
-      expected: expectedServices(environment),
-      health,
-      next: installationCommand(
-        paths,
-        !manifest.ownerUsername?.trim()
-          ? "setup"
-          : state.stopped && !ownershipFailure
-            ? "start"
-            : "doctor"
-      ),
-    })
-  );
-  if (failure) throw failure;
 };
 
 export const stopCommand = (paths: InstallationPaths, runner: CommandRunner): void => {

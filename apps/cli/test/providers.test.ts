@@ -127,6 +127,34 @@ const fixture = () => {
 };
 
 describe("provider management", () => {
+  test("adds a keyless endpoint without an initial model or a secret prompt", async () => {
+    const runner = new ProviderRunner();
+    const options = parseArguments([
+      "provider",
+      "add",
+      "acme",
+      "--name",
+      "Local",
+      "--base-url",
+      "http://localhost:11434",
+      "--api",
+      "openai-completions",
+      "--no-auth",
+    ]);
+    const prompter = new SecretPrompter("");
+    prompter.secret = async () => {
+      throw new Error("Must not prompt for a key");
+    };
+    await providerAddCommand(fixture(), runner, options, prompter);
+    const add = runner.calls.find((call) => call.args.includes("add-custom"));
+    expect(JSON.parse(add?.options?.input ?? "{}")).toMatchObject({
+      id: "acme",
+      noAuth: true,
+      createOnly: true,
+    });
+    expect(JSON.parse(add?.options?.input ?? "{}").model).toBeUndefined();
+    expect(runner.calls.some((call) => call.args.includes("login"))).toBe(false);
+  });
   test("does not accept a zero exit code without saved provider authentication", async () => {
     const runner = new ProviderRunner();
     runner.failLogin = true;

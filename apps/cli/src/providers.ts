@@ -24,6 +24,8 @@ export type ProviderRow = {
   authSource: string | null;
   models: number;
   custom: boolean;
+  modelStatus?: "ready" | "disconnected" | "unavailable";
+  modelMessage?: string;
 };
 
 export type ModelRow = {
@@ -98,8 +100,13 @@ export const modelListCommand = (
 ): void => {
   const project = projectFor(paths, runner);
   const selected = currentSelection(project);
-  const models = jsonCommand<ModelRow[]>(project, ["models", ...(providerId ? [providerId] : [])]);
-  console.log(renderModelCatalog(models, selected, paths, providerId));
+  const catalog = jsonCommand<{ providers: ProviderRow[]; models: ModelRow[] }>(project, [
+    "catalog",
+    ...(providerId ? [providerId] : []),
+  ]);
+  console.log(
+    renderModelCatalog(catalog.models, selected, paths, providerId, {}, catalog.providers)
+  );
 };
 
 const chooseAuthType = async (
@@ -214,19 +221,22 @@ export const providerAddCommand = async (
     baseUrl: options.baseUrl,
     api: options.apiProtocol,
     model: options.modelId,
+    noAuth: options.noAuth === true,
+    createOnly: true,
     reasoning: options.reasoning === true,
     ...(options.contextWindow ? { contextWindow: Number(options.contextWindow) } : {}),
     ...(options.maxTokens ? { maxTokens: Number(options.maxTokens) } : {}),
   };
   project.runOrThrow(authCommand(["add-custom"]), { input: JSON.stringify(input) });
-  await providerLoginCommand(
-    paths,
-    runner,
-    { providerId: options.providerId, authType: "api_key" },
-    suppliedPrompter
-  );
+  if (!options.noAuth)
+    await providerLoginCommand(
+      paths,
+      runner,
+      { providerId: options.providerId, authType: "api_key" },
+      suppliedPrompter
+    );
   printMessage(
-    `Use it with: ${installationCommand(paths, `model use ${options.providerId} ${options.modelId}`)}`
+    `Browse its chat models: ${installationCommand(paths, `model list ${options.providerId}`)}`
   );
 };
 

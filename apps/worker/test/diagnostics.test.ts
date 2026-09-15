@@ -25,7 +25,10 @@ const post = (socketPath: string, path = "/queue", method = "POST") =>
     req.end();
   });
 
-const fixture = async (mode: "ready" | "failed" | "hung" = "ready") => {
+const fixture = async (
+  mode: "ready" | "failed" | "hung" | "foreign" | "dependencies" | "dependencies-hung" = "ready",
+  queueLatencyMs = 0
+) => {
   const directory = await mkdtemp(join(tmpdir(), "ot-doc-"));
   cleanups.push(() => rm(directory, { recursive: true, force: true }));
   const paths = { socket: join(directory, "s"), heartbeat: join(directory, "h") };
@@ -33,6 +36,7 @@ const fixture = async (mode: "ready" | "failed" | "hung" = "ready") => {
   let data: any;
   const deleted: string[] = [];
   const queues: string[] = [];
+  let dependencyCalls = 0;
   const boss = {
     createQueue: async (name: string) => {
       queues.push(name);
@@ -44,17 +48,31 @@ const fixture = async (mode: "ready" | "failed" | "hung" = "ready") => {
       data = input;
       return "test-job";
     },
-    getJobById: async () =>
-      mode === "hung"
+    getJobById: async () => {
+      if (queueLatencyMs) await Bun.sleep(queueLatencyMs);
+      return mode === "hung"
         ? new Promise(() => undefined)
-        : { state: mode === "failed" ? "failed" : "completed", output: await consume([{ data }]) },
+        : {
+            state: mode === "failed" ? "failed" : "completed",
+            output: {
+              ...(await consume([{ data }])),
+              ...(mode === "foreign" ? { instance: "another-worker" } : {}),
+            },
+          };
+    },
     deleteJob: async (_name: string, id: string) => {
       deleted.push(id);
     },
+    offWork: async () => {},
+    deleteQueue: async () => {},
   } as unknown as PgBoss;
-  const stop = await startWorkerDiagnostics(boss, paths);
+  const stop = await startWorkerDiagnostics(boss, paths, async () => {
+    dependencyCalls++;
+    if (mode === "dependencies-hung") return new Promise(() => {});
+    if (mode === "dependencies") throw new Error("secret database connection string");
+  });
   cleanups.push(stop);
-  return { paths, deleted, queues };
+  return { paths, deleted, queues, dependencyCalls: () => dependencyCalls };
 };
 
 describe("worker diagnostics", () => {
@@ -72,7 +90,8 @@ describe("worker diagnostics", () => {
       instance: heartbeat.instance,
       consumer: heartbeat.instance,
     });
-    expect(queues).toEqual([DOCTOR_QUEUE]);
+    expect(queues).toHaveLength(1);
+    expect(queues[0]).toStartWith(`${DOCTOR_QUEUE}-`);
     expect(deleted).toEqual(["test-job"]);
   });
   test("rejects unrelated requests without enqueuing work", async () => {
@@ -86,14 +105,43 @@ describe("worker diagnostics", () => {
     expect(await post(paths.socket)).toMatchObject({ status: 503, body: { ok: false } });
     expect(deleted).toEqual(["test-job"]);
   });
-  test("times out a stuck database query and refuses overlapping diagnostic jobs", async () => {
+  test.each([
+    "foreign",
+    "dependencies",
+  ] as const)("rejects %s failures without a false healthy result", async (mode) => {
+    const { paths } = await fixture(mode);
+    const result = await post(paths.socket);
+    expect(result.status).toBe(503);
+    expect(result.body.ok).toBe(false);
+    expect(JSON.stringify(result)).not.toContain("secret database connection string");
+  });
+  test("times out a stuck database query and shares concurrent diagnostic requests", async () => {
     const { paths, deleted } = await fixture("hung");
     const started = Date.now();
     const first = post(paths.socket);
     await new Promise((resolve) => setTimeout(resolve, 30));
-    expect((await post(paths.socket)).status).toBe(409);
-    expect(await first).toMatchObject({ status: 503, body: { ok: false } });
+    const second = post(paths.socket);
+    const responses = await Promise.all([first, second]);
+    expect(responses[0]).toMatchObject({ status: 503, body: { ok: false } });
+    expect(responses[1]).toEqual(responses[0]);
     expect(Date.now() - started).toBeLessThan(9500);
     expect(deleted).toEqual(["test-job"]);
   }, 12_000);
 });
+
+test("replicas use separate diagnostic queues and simultaneous healthy checks share one job", async () => {
+  const first = await fixture("ready", 50);
+  const second = await fixture();
+  expect(first.queues[0]).not.toBe(second.queues[0]);
+  const responses = await Promise.all(Array.from({ length: 10 }, () => post(first.paths.socket)));
+  expect(responses.every((result) => result.status === 200 && result.body.ok)).toBe(true);
+  expect(first.deleted).toEqual(["test-job"]);
+  expect(second.deleted).toEqual([]);
+});
+
+test("successive timeout responses do not accumulate stuck dependency queries", async () => {
+  const f = await fixture("dependencies-hung");
+  for (let i = 0; i < 2; i++) expect((await post(f.paths.socket)).status).toBe(503);
+  expect(f.dependencyCalls()).toBe(1);
+  expect(f.deleted).toEqual([]);
+}, 20_000);

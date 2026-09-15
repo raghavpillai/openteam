@@ -1,4 +1,4 @@
-import { emitKeypressEvents } from "node:readline";
+import { runInteractiveSession } from "./interactive-session";
 import { API_PORT } from "./constants";
 import type { DetectedLogin, ReusableProvider } from "./detected-logins";
 import { CliError } from "./errors";
@@ -39,8 +39,6 @@ import {
   validateTimeZone,
 } from "./setup-values";
 import {
-  clampViewport,
-  colorEnabled,
   type MessageTone,
   renderSetupSession,
   SELECTABLE_ROW_KINDS,
@@ -1032,89 +1030,19 @@ export const createSetupSession = (input: SetupSessionInput): SetupSession => {
   return { state, view, rows, problems, configuration, handle };
 };
 
-const HIDE_CURSOR = "\u001b[?25l";
-const SHOW_CURSOR = "\u001b[?25h";
-const CLEAR_LINE = "\u001b[2K";
-
-/**
- * Drive a setup session on the current terminal. Resolves with the configuration
- * once the user applies it, `null` when they cancel, and rejects on Ctrl-C.
- */
-export const runSetupSession = (input: SetupSessionInput): Promise<SetupConfiguration | null> =>
-  new Promise((resolve, reject) => {
-    const session = createSetupSession(input);
-    const stdin = process.stdin;
-    const stdout = process.stdout;
-    const wasRaw = stdin.isRaw;
-    const styled = colorEnabled();
-    let rendered = 0;
-    let offset = 0;
-
-    const paint = (lines: readonly string[]) => {
-      const chunks: string[] = [];
-      if (rendered > 0) chunks.push(`\r${rendered > 1 ? `\u001b[${rendered - 1}A` : ""}`);
-      const total = Math.max(rendered, lines.length);
-      for (let index = 0; index < total; index += 1) {
-        chunks.push(`${CLEAR_LINE}${lines[index] ?? ""}${index < total - 1 ? "\n" : ""}`);
-      }
-      const target = Math.max(lines.length, 1) - 1;
-      const climb = total - 1 - target;
-      if (climb > 0) chunks.push(`\r\u001b[${climb}A`);
-      stdout.write(chunks.join(""));
-      rendered = lines.length;
-    };
-
-    const frame = (): string[] => {
-      const columns = stdout.columns;
-      const rows = typeof stdout.rows === "number" && stdout.rows > 0 ? stdout.rows : 24;
-      const view = renderSetupSession({ ...session.view(), width: columns, color: styled });
-      const bodyLimit = Math.max(6, rows - view.header.length - view.footer.length - 1);
-      const clamped = clampViewport(view.body, view.cursorLine, bodyLimit, offset, styled);
-      offset = clamped.offset;
-      return [...view.header, ...clamped.lines, ...view.footer];
-    };
-
-    const render = () => paint(frame());
-    const onResize = () => {
-      // Old lines rewrap unpredictably at a new width, so start from a clean screen.
-      stdout.write("\u001b[2J\u001b[H");
-      rendered = 0;
-      render();
-    };
-    const finish = () => {
-      stdin.off("keypress", onKeypress);
-      stdout.off("resize", onResize);
-      if (stdin.setRawMode) stdin.setRawMode(Boolean(wasRaw));
-      // readline resumes stdin for any later prompt; pausing prevents a finished
-      // session from keeping Node or Bun alive.
-      stdin.pause();
-      paint([]);
-      stdout.write(SHOW_CURSOR);
-    };
-    const onKeypress = (character = "", key: SessionKey = {}) => {
-      let outcome: SessionOutcome;
-      try {
-        outcome = session.handle(character, key);
-      } catch (error) {
-        finish();
-        reject(error);
-        return;
-      }
-      if (outcome.type === "continue") {
-        render();
-        return;
-      }
-      finish();
-      if (outcome.type === "complete") resolve(outcome.configuration);
-      else if (outcome.type === "cancel") resolve(null);
-      else reject(new CliError("Setup cancelled."));
-    };
-
-    emitKeypressEvents(stdin);
-    stdin.on("keypress", onKeypress);
-    stdout.on("resize", onResize);
-    if (stdin.setRawMode) stdin.setRawMode(true);
-    stdin.resume();
-    stdout.write(HIDE_CURSOR);
-    render();
-  });
+/** Drive setup using the shared terminal editor. */
+export const runSetupSession = (input: SetupSessionInput): Promise<SetupConfiguration | null> => {
+  const session = createSetupSession(input);
+  return runInteractiveSession(
+    {
+      frame: (width, color) => renderSetupSession({ ...session.view(), width, color }),
+      handle: (character, key) => {
+        const outcome = session.handle(character, key);
+        return outcome.type === "complete"
+          ? { type: "complete", value: outcome.configuration }
+          : outcome;
+      },
+    },
+    "Setup cancelled."
+  );
+};

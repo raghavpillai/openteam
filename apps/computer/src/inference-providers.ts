@@ -1,16 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
 import type { AuthEvent, AuthPrompt, AuthType } from "@earendil-works/pi-ai";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import {
-  type InferenceModelView,
   type InferenceProviderAuthSessionView,
-  type InferenceProviderView,
   normalizeInferenceProviderId,
   type ServerInferenceSettings,
 } from "@openteam/contracts";
-import { availableInferenceModels, requireInferenceModel } from "./inference-models";
+import { ChatProviderRegistry } from "./chat-provider-registry";
 
 interface AuthSessionState extends InferenceProviderAuthSessionView {
   controller: AbortController;
@@ -40,72 +36,31 @@ export class InferenceProviderService {
 
   constructor(
     private readonly runtime: () => ModelRuntime,
-    private readonly modelsPath: string
-  ) {}
+    private readonly modelsPath: string,
+    fetchImpl: typeof fetch = fetch
+  ) {
+    this.registry = new ChatProviderRegistry(this.runtime, this.modelsPath, fetchImpl);
+  }
 
-  async catalog(providerId?: string): Promise<{
-    providers: InferenceProviderView[];
-    models: InferenceModelView[];
-    modelProviderId: string;
-  }> {
-    const runtime = this.runtime();
-    const customIds = await this.customProviderIds();
-    const providers = await Promise.all(
-      runtime.getProviders().map(async (provider): Promise<InferenceProviderView> => {
-        const authentication = await runtime.checkAuth(provider.id).catch(() => undefined);
-        return {
-          id: provider.id,
-          name: provider.name,
-          authMethods: [
-            ...(provider.auth.oauth
-              ? [
-                  {
-                    type: "oauth" as const,
-                    label: provider.auth.oauth.name,
-                    subscription: Boolean(provider.auth.oauth.isSubscription),
-                  },
-                ]
-              : []),
-            ...(provider.auth.apiKey?.login
-              ? [
-                  {
-                    type: "api_key" as const,
-                    label: provider.auth.apiKey.name,
-                    subscription: false,
-                  },
-                ]
-              : []),
-          ],
-          connected: Boolean(authentication),
-          authType: authentication?.type ?? null,
-          authSource: authentication?.source ?? null,
-          custom: customIds.has(provider.id),
-          modelCount: availableInferenceModels(runtime, provider.id).length,
-        };
-      })
-    );
-    const requestedProvider = normalizeInferenceProviderId(
-      providerId ?? providers[0]?.id ?? "openai-codex"
-    );
-    const models = availableInferenceModels(runtime, requestedProvider).map(
-      (model): InferenceModelView => ({
+  private readonly registry: ChatProviderRegistry;
+
+  async catalog(providerId?: string) {
+    const catalog = await this.registry.catalog(providerId);
+    return {
+      ...catalog,
+      models: catalog.models.map((model) => ({
         providerId: model.provider,
         modelId: model.id,
         name: model.name,
-        reasoning: Boolean(model.reasoning),
+        reasoning: model.reasoning,
         contextWindow: model.contextWindow,
         maxTokens: model.maxTokens,
-      })
-    );
-    return { providers, models, modelProviderId: requestedProvider };
+      })),
+    };
   }
 
   async verify(settings: ServerInferenceSettings): Promise<void> {
-    const runtime = this.runtime();
-    requireInferenceModel(runtime, settings);
-    if (!(await runtime.checkAuth(settings.providerId))) {
-      throw new Error(`Inference provider ${settings.providerId} is not connected`);
-    }
+    await this.registry.verify(settings);
   }
 
   async disconnect(providerId: string): Promise<void> {
@@ -281,22 +236,6 @@ export class InferenceProviderService {
       const age = now - session.createdAt;
       if (!terminalStatus(session.status) && age > 15 * 60_000) this.cancelSession(session);
       if (terminalStatus(session.status) && age > 30 * 60_000) this.sessions.delete(id);
-    }
-  }
-
-  private async customProviderIds(): Promise<Set<string>> {
-    if (!existsSync(this.modelsPath)) return new Set();
-    try {
-      const document = JSON.parse(await readFile(this.modelsPath, "utf8")) as {
-        providers?: unknown;
-      };
-      return document.providers &&
-        typeof document.providers === "object" &&
-        !Array.isArray(document.providers)
-        ? new Set(Object.keys(document.providers))
-        : new Set();
-    } catch {
-      return new Set();
     }
   }
 }

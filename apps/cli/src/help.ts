@@ -22,7 +22,8 @@ Getting started:
   setup         Finish setup or change accounts and settings
 
 Your installation:
-  status        Show whether OpenTeam is running
+  status        Show container health and server readiness
+  health        Alias for status
   doctor        Check for installation problems
   update        Install the latest OpenTeam release
   start         Start OpenTeam after account setup
@@ -32,7 +33,7 @@ Your installation:
 
 Models and accounts:
   provider      Manage AI accounts and connections
-  model         View or change the AI model
+  model         Choose inference and transcription models
   account       Change your username or password
 
 Global options:
@@ -86,7 +87,7 @@ ${helpHint}`,
 
   status: `${heading(
     "openteam status [options]",
-    "Show the installed version, connection address, services, and overall health."
+    "Show container states, Docker health checks, and server readiness.\nAlias: openteam health [options]. Both commands produce the same report.\nRead-only: does not start containers or send an AI request.\nExits 0 when services are ready; exits 2 when stopped, starting, unhealthy, or unable to check.\nUse openteam doctor for deeper database, queue, storage, and model checks."
   )}
 
 Options:
@@ -190,17 +191,18 @@ ${helpHint}`,
 
   "provider-add": `${heading(
     "openteam provider add <id> [options]",
-    "Connect an OpenAI-, Anthropic-, or Google-compatible provider."
+    "Add a custom chat endpoint, then authenticate and discover its models."
   )}
 
 Required options:
   --name <name>          Provider display name
   --base-url <url>      Provider API endpoint
   --api <format>        API format supported by the provider
-  --model <id>          Initial model id
 
 Additional options:
 ${directoryOption}
+  --model <id>          Optional model metadata; discovery still checks access
+  --no-auth             Link an endpoint that needs no credentials
   --context-window <n>  Model context size
   --max-tokens <n>      Model maximum output tokens
   --reasoning           Mark the model as able to think through complex tasks
@@ -218,19 +220,24 @@ ${directoryOption}
 ${helpHint}`,
 
   model: `${heading(
-    "openteam model <command> [options]",
-    "View available AI models or choose the model OpenTeam uses."
+    "openteam model [command] [options]",
+    "Open the interactive model editor. Use left/right to switch between Inference and Transcription.\nUse up/down to move, Enter to choose or edit, and Save to apply each tab.\nEsc goes back or asks to discard unsaved changes."
   )}
 
 Commands:
   list [provider]         Show available models
   use <provider> <model>  Choose the active model
 
-Run "openteam model <command> --help" for command options.`,
+Options:
+${directoryOption}
+${helpHint}
+
+Bare \`openteam model\` requires an interactive terminal.
+Run "openteam model <command> --help" for scripting options.`,
 
   "model-list": `${heading(
     "openteam model list [provider] [options]",
-    "List models with context and capability information."
+    "List accessible chat models from connected providers, grouped by provider."
   )}
 
 Options:

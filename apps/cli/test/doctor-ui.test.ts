@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { doctorNextSteps, renderDoctor } from "../src/doctor-ui";
+import { doctorNextSteps, renderCompactDoctor, renderDoctor } from "../src/doctor-ui";
 import type { DoctorResult } from "../src/doctor";
 
 const fixture: DoctorResult = {
@@ -65,5 +65,96 @@ describe("doctor dashboard", () => {
   test("recovery commands retain a custom installation path with shell-safe quoting", () => {
     const steps = doctorNextSteps({ ...fixture, commandDirectory: "/tmp/team's $HOME" });
     expect(steps[0]).toContain("openteam start --dir '/tmp/team'\\''s $HOME'");
+    const health = doctorNextSteps({
+      ...fixture,
+      commandDirectory: "/tmp/team",
+      checks: [{ label: "OpenTeam health", level: "fail", detail: "Connection refused" }],
+    });
+    expect(health[0]).toContain("openteam status --dir '/tmp/team'");
+    expect(health[0]).toContain("openteam logs --dir '/tmp/team'");
+  });
+  test.each([
+    ["Platform", "x64 or arm64"],
+    ["Memory", "8 GiB"],
+    ["Disk", "Free space"],
+    ["Installation directory", "writable directory"],
+    ["Local ports", "reported port"],
+    ["Secrets", "owner-only"],
+    ["Secret values", "backup"],
+    ["Compose configuration", "configuration files"],
+    ["Network exposure", "openteam setup"],
+    ["Public DNS", "public hostname"],
+    ["TLS certificate", "openteam logs caddy"],
+    ["Public endpoint", "reverse proxy"],
+    ["Database", "openteam logs postgres"],
+    ["Worker heartbeat", "openteam logs worker"],
+    ["Bot workspace storage", "writable"],
+    ["server container", "openteam logs server"],
+  ])("gives a specific recovery action for %s in both reports", (label, action) => {
+    const result: DoctorResult = {
+      ...fixture,
+      checks: [{ label, level: "fail", detail: "fixture failure" }],
+    };
+    for (const render of [renderDoctor, renderCompactDoctor])
+      expect(render(result, { color: false }).replace(/\s+/g, " ")).toContain(action);
+  });
+  test("resolves Docker before recommending dependent setup and service actions", () => {
+    const result: DoctorResult = {
+      ...fixture,
+      checks: [
+        ...fixture.checks,
+        { label: "Owner account", level: "fail", detail: "missing" },
+        {
+          label: "Docker daemon",
+          level: "fail",
+          detail: "unreachable",
+          action: "Open Docker Desktop and run docker info.",
+        },
+      ],
+    };
+    const steps = doctorNextSteps(result);
+    expect(steps[0]).toContain("Open Docker Desktop");
+    expect(steps.join(" ")).not.toContain("openteam start");
+    expect(steps.join(" ")).not.toContain("openteam setup");
+    expect(steps.join(" ")).not.toContain("openteam provider list");
+  });
+  test("first-time installation does not tell the user to restart an installation already in progress", () => {
+    const result: DoctorResult = {
+      ok: true,
+      installed: false,
+      checks: [
+        {
+          label: "Installation",
+          level: "warn",
+          detail: "First-time setup: the server has not been configured yet.",
+        },
+        {
+          label: "Local ports",
+          level: "warn",
+          detail: "defaults will be checked after guided setup chooses the access mode",
+        },
+      ],
+    };
+    expect(renderCompactDoctor(result)).not.toContain("openteam install");
+    expect(doctorNextSteps(result)).toEqual(["Run openteam install to complete the installation."]);
+  });
+  test("advice to choose a new directory does not reuse the current broken directory", () => {
+    const steps = doctorNextSteps({
+      ok: false,
+      installed: false,
+      commandDirectory: "/tmp/broken",
+      checks: [{ label: "Installation directory", level: "fail", detail: "not writable" }],
+    });
+    expect(steps[0]).toContain("openteam install --dir <path>");
+    expect(steps[0]).not.toContain("--dir '/tmp/broken'");
+    expect(steps.at(-1)).toContain("openteam install --dir '/tmp/broken'");
+  });
+  test("quota failures recommend checking quota instead of reconnecting a provider", () => {
+    const steps = doctorNextSteps({
+      ...fixture,
+      checks: [{ label: "AI connection", level: "fail", detail: "HTTP 429: quota exceeded" }],
+    });
+    expect(steps[0]).toContain("quota or billing");
+    expect(steps[0]).not.toContain("openteam setup");
   });
 });

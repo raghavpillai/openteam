@@ -19,7 +19,12 @@ import {
   defaultAuthOption,
   selectedAuthOption,
 } from "./provider-auth-prompt";
-import { availableInferenceModels, requireInferenceModel } from "./inference-models";
+import {
+  CHAT_PROVIDERS,
+  ChatProviderRegistry,
+  KEYLESS_API_KEY,
+  modelsEndpoint,
+} from "./chat-provider-registry";
 
 const agentDir = resolve(process.env.OPENTEAM_PI_AGENT_DIR ?? "/home/box/.pi/agent");
 const authPath = join(agentDir, "auth.json");
@@ -44,6 +49,7 @@ const usage = () => {
   openteam-pi-auth providers
   openteam-pi-auth selection
   openteam-pi-auth models [provider]
+  openteam-pi-auth catalog [provider]
   openteam-pi-auth login <provider> <oauth|api_key>
   openteam-pi-auth import <provider>   # reads OAuth tokens JSON from stdin
   openteam-pi-auth logout <provider>
@@ -207,7 +213,8 @@ type CustomProviderInput = {
   name: string;
   baseUrl: string;
   api: "openai-completions" | "openai-responses" | "anthropic-messages" | "google-generative-ai";
-  model: string;
+  model?: string;
+  noAuth?: boolean;
   reasoning?: boolean;
   contextWindow?: number;
   maxTokens?: number;
@@ -226,6 +233,7 @@ const customProviderInput = (value: unknown): CustomProviderInput => {
   if (!["https:", "http:"].includes(endpoint.protocol)) {
     throw new Error("Custom provider URL must use HTTP or HTTPS");
   }
+  modelsEndpoint(endpoint.toString(), input.api === "anthropic-messages");
   const supportedApis = [
     "openai-completions",
     "openai-responses",
@@ -233,6 +241,10 @@ const customProviderInput = (value: unknown): CustomProviderInput => {
     "google-generative-ai",
   ] as const;
   const api = String(input.api ?? "") as CustomProviderInput["api"];
+  if (api.startsWith("openai-") && (!endpoint.pathname || endpoint.pathname === "/"))
+    endpoint.pathname = "/v1";
+  if (input.noAuth === true && !api.startsWith("openai-"))
+    throw new Error("--no-auth is supported for OpenAI-compatible chat endpoints.");
   if (!supportedApis.includes(api)) throw new Error(`Unsupported Pi API protocol: ${api}`);
   const positiveInteger = (field: "contextWindow" | "maxTokens", fallback: number) => {
     const number = input[field] === undefined ? fallback : Number(input[field]);
@@ -244,7 +256,8 @@ const customProviderInput = (value: unknown): CustomProviderInput => {
     name,
     baseUrl: endpoint.toString().replace(/\/$/, ""),
     api,
-    model: normalizeInferenceModelId(String(input.model ?? "")),
+    model: input.model ? normalizeInferenceModelId(String(input.model)) : undefined,
+    noAuth: input.noAuth === true,
     reasoning: input.reasoning === true,
     contextWindow: positiveInteger("contextWindow", 128_000),
     maxTokens: positiveInteger("maxTokens", 16_384),
@@ -262,7 +275,10 @@ const addCustomProvider = async (): Promise<void> => {
       ? (document.providers as Record<string, unknown>)
       : {};
   const runtime = await createRuntime();
-  if (runtime.getProvider(input.id) && !(input.id in configuredProviders)) {
+  if (
+    CHAT_PROVIDERS.has(input.id) ||
+    (runtime.getProvider(input.id) && !(input.id in configuredProviders))
+  ) {
     throw new Error(`Custom providers cannot replace built-in provider ${input.id}`);
   }
   if (input.createOnly && input.id in configuredProviders) {
@@ -273,15 +289,21 @@ const addCustomProvider = async (): Promise<void> => {
     name: input.name,
     baseUrl: input.baseUrl,
     api: input.api,
-    models: [
-      {
-        id: input.model,
-        name: input.model,
-        reasoning: input.reasoning,
-        contextWindow: input.contextWindow,
-        maxTokens: input.maxTokens,
-      },
-    ],
+    ...(input.noAuth
+      ? // The OpenAI SDK requires a nonempty placeholder even for servers with no auth.
+        { apiKey: KEYLESS_API_KEY }
+      : {}),
+    models: input.model
+      ? [
+          {
+            id: input.model,
+            name: input.model,
+            reasoning: input.reasoning,
+            contextWindow: input.contextWindow,
+            maxTokens: input.maxTokens,
+          },
+        ]
+      : [],
   };
   await writeModelsDocument({ ...document, providers });
   console.log(`Added custom provider ${input.name} (${input.id}).`);
@@ -332,49 +354,20 @@ const main = async (): Promise<void> => {
     return;
   }
   const runtime = await createRuntime();
-  if (command === "providers") {
-    const document = await readModelsDocument();
-    const customProviderIds = new Set(
-      document.providers &&
-        typeof document.providers === "object" &&
-        !Array.isArray(document.providers)
-        ? Object.keys(document.providers)
-        : []
-    );
-    const rows = await Promise.all(
-      runtime.getProviders().map(async (provider) => {
-        const status = await runtime.checkAuth(provider.id).catch(() => undefined);
-        return {
-          id: provider.id,
-          name: provider.name,
-          authMethods: [
-            ...(provider.auth.oauth
-              ? [
-                  {
-                    type: "oauth",
-                    label: provider.auth.oauth.name,
-                    subscription: Boolean(provider.auth.oauth.isSubscription),
-                  },
-                ]
-              : []),
-            ...(provider.auth.apiKey?.login
-              ? [{ type: "api_key", label: provider.auth.apiKey.name, subscription: false }]
-              : []),
-          ],
-          configured: Boolean(status),
-          authType: status?.type ?? null,
-          authSource: status?.source ?? null,
-          models: availableInferenceModels(runtime, provider.id).length,
-          custom: customProviderIds.has(provider.id),
-        };
-      })
-    );
-    await writeJson(rows);
-    return;
-  }
-  if (command === "models") {
+  const registry = new ChatProviderRegistry(() => runtime, modelsPath);
+  if (command === "providers" || command === "models" || command === "catalog") {
     const providerId = rawProvider ? normalizeInferenceProviderId(rawProvider) : undefined;
-    const models = availableInferenceModels(runtime, providerId).map((model) => ({
+    const catalog = await registry.catalog(providerId);
+    if (providerId && !catalog.providers.some((p) => p.id === providerId))
+      throw new Error(
+        `Provider ${providerId} is not in your registry. Connect Anthropic or OpenAI, or add a custom endpoint with openteam provider add.`
+      );
+    const providers = catalog.providers.map(({ connected, modelCount, ...provider }) => ({
+      ...provider,
+      configured: connected,
+      models: modelCount,
+    }));
+    const models = catalog.models.map((model) => ({
       providerId: model.provider,
       modelId: model.id,
       name: model.name,
@@ -383,7 +376,9 @@ const main = async (): Promise<void> => {
       contextWindow: model.contextWindow,
       maxTokens: model.maxTokens,
     }));
-    await writeJson(models);
+    if (command === "providers") await writeJson(providers);
+    else if (command === "models") await writeJson(models);
+    else await writeJson({ providers, models });
     return;
   }
   if (!rawProvider) throw new Error(`${command} requires a provider`);
@@ -403,10 +398,7 @@ const main = async (): Promise<void> => {
   if (command === "verify") {
     if (!rawArgument) throw new Error("verify requires a model");
     const ref = piModelRef(providerId, rawArgument);
-    requireInferenceModel(runtime, ref);
-    if (!(await runtime.checkAuth(providerId))) {
-      throw new Error(`Inference provider ${providerId} is not authenticated`);
-    }
+    await registry.verify({ ...ref, reasoning: "off" });
     console.log(`${formatPiModelRef(ref)} is ready.`);
     return;
   }

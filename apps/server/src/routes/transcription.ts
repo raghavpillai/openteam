@@ -12,6 +12,9 @@ export async function transcriptionRoutes({
     if (request.method === "PUT")
       return json(await app.transcription.store.save(await request.json().catch(() => null)));
   }
+  if (path === "/api/server-settings/transcription/models" && request.method === "POST") {
+    return json(await app.transcription.models(await request.json().catch(() => null)));
+  }
   if (path === "/api/server-settings/transcription/check" && request.method === "POST") {
     return json(await app.transcription.check());
   }

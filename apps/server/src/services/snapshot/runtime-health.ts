@@ -7,7 +7,7 @@ export class RuntimeHealth {
   constructor(
     private readonly prisma: PrismaClient,
     private readonly computerUrl: string,
-    private readonly isQueueReady: () => boolean,
+    private readonly isQueueReady: () => boolean | Promise<boolean>,
     private readonly runtimeProbeTimeoutMs: number,
     private readonly inferenceSettings?: () => Promise<ServerInferenceSettings>,
     private readonly transcriptionStatus?: () => Promise<"configured" | "missing" | "invalid">
@@ -15,15 +15,56 @@ export class RuntimeHealth {
   private runtimeCache: { expiresAt: number; value: Snapshot["runtime"] } | null = null;
 
   private runtimeInFlight: Promise<Snapshot["runtime"]> | null = null;
+  private readonly pending = new Map<string, Promise<unknown>>();
+
+  // A timeout ends the response, not necessarily the underlying database query.
+  // Reuse unfinished operations so an outage cannot build an unbounded backlog.
+  private once<T>(key: string, operation: () => Promise<T>): Promise<T> {
+    const existing = this.pending.get(key);
+    if (existing) return existing as Promise<T>;
+    const promise = Promise.resolve()
+      .then(operation)
+      .finally(() => this.pending.delete(key));
+    this.pending.set(key, promise);
+    return promise;
+  }
 
   async runtimeStatus(): Promise<Snapshot["runtime"]> {
+    const bounded = async <T>(operation: Promise<T>, fallback: T): Promise<T> => {
+      let timer: ReturnType<typeof setTimeout>;
+      try {
+        return await Promise.race([
+          operation.catch(() => fallback),
+          new Promise<T>((resolve) => {
+            timer = setTimeout(() => resolve(fallback), this.runtimeProbeTimeoutMs);
+          }),
+        ]);
+      } finally {
+        clearTimeout(timer!);
+      }
+    };
+    const databaseProbe = bounded(
+      this.once("database", async () => {
+        await this.prisma.$queryRaw`SELECT 1 FROM "Bot" LIMIT 0`;
+        return "ready" as const;
+      }),
+      "unavailable" as "ready" | "unavailable"
+    );
+    const queueProbe = bounded(
+      this.once("queue", async () => this.isQueueReady()),
+      false
+    );
+    const transcriptionProbe = bounded(
+      this.once("transcription", async () => this.transcriptionStatus?.() ?? "missing"),
+      "invalid" as "configured" | "missing" | "invalid"
+    );
     let computer: Snapshot["runtime"]["computer"] = "unavailable";
     let inference: Snapshot["runtime"]["inference"] = "unavailable";
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | null = null;
     try {
       const result = await Promise.race([
-        this.probeRuntimeStatus(controller.signal),
+        this.once("computer", () => this.probeRuntimeStatus(controller.signal)),
         new Promise<never>((_resolve, reject) => {
           timer = setTimeout(() => {
             controller.abort();
@@ -40,14 +81,18 @@ export class RuntimeHealth {
       if (timer) clearTimeout(timer);
       controller.abort();
     }
+    const [database, queueReady, transcription] = await Promise.all([
+      databaseProbe,
+      queueProbe,
+      transcriptionProbe,
+    ]);
     return {
-      server: computer === "ready" ? "ready" : "degraded",
-      database: "ready",
-      queue: this.isQueueReady() ? "ready" : "unavailable",
+      server: computer === "ready" && database === "ready" && queueReady ? "ready" : "degraded",
+      database,
+      queue: queueReady ? "ready" : "unavailable",
       computer,
       inference,
-      transcription:
-        (await this.transcriptionStatus?.().catch(() => "invalid" as const)) ?? "missing",
+      transcription,
     };
   }
 
@@ -56,11 +101,16 @@ export class RuntimeHealth {
     inference: Snapshot["runtime"]["inference"];
   }> {
     const configuredInference = await this.inferenceSettings?.();
-    const healthUrl = new URL("/health", this.computerUrl);
+    const healthUrl = new URL("/health/authenticated", this.computerUrl);
     if (configuredInference) {
       healthUrl.searchParams.set("model", formatPiModelRef(configuredInference));
     }
-    const response = await fetch(healthUrl, { signal });
+    const response = await fetch(healthUrl, {
+      signal,
+      headers: {
+        authorization: `Bearer ${process.env.OPENTEAM_CONTROL_TOKEN ?? "local-compose-only-change-me"}`,
+      },
+    });
     const body = (await response.json()) as {
       status?: string;
       inference?: { ready?: boolean; authenticated?: boolean };

@@ -16,6 +16,31 @@ afterEach(() => {
 });
 
 describe("installation health URL", () => {
+  test.each([
+    200, 503,
+  ])("rejects unavailable dependencies even if the API says ready (HTTP %s)", async (httpStatus) => {
+    const directory = mkdtempSync(join(tmpdir(), "openteam-cli-health-"));
+    temporaryDirectories.push(directory);
+    const paths = installationPaths(directory);
+    const server = Bun.serve({
+      port: 0,
+      fetch: () =>
+        Response.json(
+          {
+            status: "ready",
+            runtime: { database: "unavailable", queue: "unavailable", computer: "ready" },
+          },
+          { status: httpStatus }
+        ),
+    });
+    servers.push(server);
+    writeFileAtomic(paths.environment, `OPENTEAM_API_PORT=${server.port}\n`);
+    const result = await checkHealth(paths);
+    expect(result.ok).toBe(false);
+    expect(result.detail).toContain("database: unavailable");
+    expect(result.detail).toContain("queue: unavailable");
+    expect(result.components?.computer).toBe("ready");
+  });
   test("uses loopback to inspect a service bound to every interface", () => {
     const directory = mkdtempSync(join(tmpdir(), "openteam-cli-health-"));
     temporaryDirectories.push(directory);

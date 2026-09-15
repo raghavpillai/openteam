@@ -285,3 +285,148 @@ describe("voice-note provider requests", () => {
     expect((await service.check()).level).toBe("fail");
   });
 });
+
+describe("transcription model discovery", () => {
+  test("OpenAI's mixed catalog shows only transcription models", async () => {
+    const config = await store();
+    const service = new TranscriptionService(
+      config,
+      fakeFetch(() =>
+        Response.json({
+          data: [
+            { id: "gpt-5" },
+            { id: "gpt-4o-transcribe" },
+            { id: "whisper-1" },
+            { id: "text-embedding-3-small" },
+            { id: "gpt-4o-mini-tts" },
+            { id: "gpt-realtime" },
+            { id: "opaque", task: "transcription" },
+            { id: "opaque-chat", task: "chat" },
+          ],
+        })
+      )
+    );
+    expect(
+      await service.models({
+        ...settings,
+        provider: "openai",
+        baseUrl: "https://api.openai.com/v1",
+        apiKey: "synthetic-key",
+      })
+    ).toEqual({ models: ["gpt-4o-transcribe", "opaque", "whisper-1"] });
+  });
+  test("uses draft settings without enabling transcription or modifying its file", async () => {
+    const config = await store();
+    await config.save({ ...settings, enabled: false, apiKey: "saved-private-key" });
+    const before = await readFile(config.path, "utf8");
+    const service = new TranscriptionService(
+      config,
+      fakeFetch((url, init) => {
+        expect(url).toBe(`${settings.baseUrl}/models`);
+        expect(init.body).toBeUndefined();
+        expect(init.redirect).toBe("error");
+        expect(new Headers(init.headers).get("authorization")).toBe("Bearer saved-private-key");
+        return Response.json({
+          data: [{ id: "speech-small" }, { id: "speech-large" }, { id: "speech-small" }],
+        });
+      })
+    );
+    expect(await service.models({ ...settings, model: "", enabled: false })).toEqual({
+      models: ["speech-large", "speech-small"],
+    });
+    expect(await readFile(config.path, "utf8")).toBe(before);
+    expect((await config.view()).enabled).toBe(false);
+  });
+  test("never transfers a stored key to another endpoint; explicit draft keys do not persist", async () => {
+    const config = await store();
+    await config.save({ ...settings, apiKey: "saved-private-key" });
+    const authorizations: Array<string | null> = [];
+    const service = new TranscriptionService(
+      config,
+      fakeFetch((_url, init) => {
+        authorizations.push(new Headers(init.headers).get("authorization"));
+        return Response.json({ data: [] });
+      })
+    );
+    await service.models({ ...settings, baseUrl: "http://different.test/v1" });
+    await service.models({
+      ...settings,
+      baseUrl: "http://different.test/v1",
+      apiKey: "draft-private-key",
+    });
+    await service.models({ ...settings, apiKey: null });
+    expect(authorizations).toEqual([null, "Bearer draft-private-key", null]);
+    expect((await config.credentials()).apiKey).toBe("saved-private-key");
+  });
+  test("requires a key for OpenAI discovery and rejects embedded credentials", async () => {
+    const config = await store();
+    await expect(config.discoveryCredentials({ ...settings, provider: "openai" })).rejects.toThrow(
+      "API key"
+    );
+    await expect(
+      config.discoveryCredentials({ ...settings, baseUrl: "https://user:secret@audio.test/v1" })
+    ).rejects.toThrow();
+  });
+  test.each([
+    404, 405,
+  ])("HTTP %i offers manual model entry without echoing provider bodies", async (status) => {
+    const config = await store();
+    const service = new TranscriptionService(
+      config,
+      fakeFetch(() => new Response("sensitive upstream body", { status }))
+    );
+    await expect(service.models(settings)).rejects.toMatchObject({
+      code: "model_discovery_unavailable",
+      message:
+        "This provider does not offer model discovery. Enter its transcription model ID manually.",
+    });
+  });
+  test.each([
+    401, 429, 500,
+  ])("HTTP %i is a recoverable, redacted discovery failure", async (status) => {
+    const config = await store();
+    const service = new TranscriptionService(
+      config,
+      fakeFetch(() => new Response("synthetic-secret", { status }))
+    );
+    try {
+      await service.models(settings);
+      throw new Error("Unexpected success");
+    } catch (error) {
+      expect(String(error)).not.toContain("synthetic-secret");
+      expect(error).toMatchObject({ code: "transcription_provider_error" });
+    }
+  });
+  test.each([
+    null,
+    {},
+    { data: [{ id: 42 }] },
+    { data: [{ id: "bad\u001b[31m" }] },
+    { data: [{ id: "x".repeat(257) }] },
+  ])("rejects malformed catalog %j", async (body) => {
+    const config = await store();
+    const service = new TranscriptionService(
+      config,
+      fakeFetch(() => Response.json(body))
+    );
+    await expect(service.models(settings)).rejects.toMatchObject({
+      code: "model_discovery_failed",
+    });
+  });
+  test("bounds discovery responses and redacts transport errors", async () => {
+    const config = await store();
+    for (const fetcher of [
+      fakeFetch(() => new Response("x".repeat(1024 * 1024 + 1))),
+      fakeFetch(() => {
+        throw new Error("synthetic-private-key");
+      }),
+    ]) {
+      const service = new TranscriptionService(config, fetcher);
+      await expect(service.models(settings)).rejects.toMatchObject({
+        code: "model_discovery_failed",
+        message:
+          "Could not load transcription models. Check the base URL, credentials and connection, or enter a model ID manually.",
+      });
+    }
+  });
+});

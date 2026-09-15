@@ -14,6 +14,7 @@ export type CommandName =
   | "provider-logout"
   | "provider-add"
   | "provider-remove"
+  | "model"
   | "model-list"
   | "model-use"
   | "account-update"
@@ -56,6 +57,7 @@ export interface CliOptions {
   contextWindow?: string;
   maxTokens?: string;
   reasoning?: boolean;
+  noAuth?: boolean;
 }
 
 const commands = new Set<CommandName>([
@@ -72,6 +74,7 @@ const commands = new Set<CommandName>([
   "provider-logout",
   "provider-add",
   "provider-remove",
+  "model",
   "model-list",
   "model-use",
   "account-update",
@@ -121,8 +124,10 @@ const commandFlags: Record<CommandName, ReadonlySet<string>> = {
     "--context-window",
     "--max-tokens",
     "--reasoning",
+    "--no-auth",
   ]),
   "provider-remove": new Set(),
+  model: new Set(),
   "model-list": new Set(),
   "model-use": new Set(["--thinking"]),
   "account-update": new Set(["--username", "--password"]),
@@ -175,7 +180,8 @@ const emptyOptions = (command: CliOptions["command"], helpTopic?: HelpTopic): Cl
 });
 
 const helpTopicFromArguments = (parts: readonly string[]): HelpTopic => {
-  const [topic, action, ...extra] = parts;
+  const [rawTopic, action, ...extra] = parts;
+  const topic = rawTopic === "health" ? "status" : rawTopic;
   if (!topic || topic === "--help" || topic === "-h") return "global";
   if (extra.length > 0) throw new CliError(`Unknown help topic: ${parts.join(" ")}`);
   if (topic === "provider") {
@@ -250,7 +256,6 @@ export const parseArguments = (argv: readonly string[]): CliOptions => {
   const providerAction = rawCommand === "provider" ? rawRest[0] : undefined;
   const modelAction = rawCommand === "model" ? rawRest[0] : undefined;
   if (rawCommand === "provider" && !providerAction) return emptyOptions("help", "provider");
-  if (rawCommand === "model" && !modelAction) return emptyOptions("help", "model");
   if (rawCommand === "account" && rawRest.length === 0) return emptyOptions("help", "account");
   const nestedProviderList = rawCommand === "provider" && providerAction === "list";
   const nestedProviderLogin = rawCommand === "provider" && providerAction === "login";
@@ -259,6 +264,17 @@ export const parseArguments = (argv: readonly string[]): CliOptions => {
   const nestedProviderRemove = rawCommand === "provider" && providerAction === "remove";
   const nestedModelList = rawCommand === "model" && modelAction === "list";
   const nestedModelUse = rawCommand === "model" && modelAction === "use";
+  if (
+    rawCommand === "model" &&
+    modelAction &&
+    !modelAction.startsWith("-") &&
+    !["list", "use"].includes(modelAction)
+  ) {
+    const suggestion = closest(modelAction, ["list", "use"]);
+    throw new CliError(
+      `Unknown model command: ${modelAction}.${suggestion ? ` Did you mean "${suggestion}"?` : ""}`
+    );
+  }
   const command = nestedAccountUpdate
     ? "account-update"
     : nestedProviderList
@@ -275,7 +291,9 @@ export const parseArguments = (argv: readonly string[]): CliOptions => {
                 ? "model-list"
                 : nestedModelUse
                   ? "model-use"
-                  : rawCommand;
+                  : rawCommand === "health"
+                    ? "status"
+                    : rawCommand;
   let rest =
     nestedAccountUpdate ||
     nestedProviderList ||
@@ -326,6 +344,7 @@ export const parseArguments = (argv: readonly string[]): CliOptions => {
       "install",
       "setup",
       "status",
+      "health",
       "doctor",
       "update",
       "start",
@@ -426,6 +445,10 @@ export const parseArguments = (argv: readonly string[]): CliOptions => {
       options.password = true;
       continue;
     }
+    if (flag === "--no-auth") {
+      options.noAuth = true;
+      continue;
+    }
     if (flag === "--reasoning") {
       options.reasoning = true;
       continue;
@@ -453,8 +476,8 @@ export const parseArguments = (argv: readonly string[]): CliOptions => {
     options.authType = normalized;
   }
   if (options.command === "provider-add") {
-    if (!options.providerName || !options.baseUrl || !options.apiProtocol || !options.modelId) {
-      throw new CliError("provider add requires --name, --base-url, --api, and --model");
+    if (!options.providerName || !options.baseUrl || !options.apiProtocol) {
+      throw new CliError("provider add requires --name, --base-url, and --api");
     }
     if (
       ![

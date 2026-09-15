@@ -179,7 +179,8 @@ const server = Bun.serve({
       }
       if (
         path === "/api/internal/server-settings/transcription" ||
-        path === "/api/internal/server-settings/transcription/check"
+        path === "/api/internal/server-settings/transcription/check" ||
+        path === "/api/internal/server-settings/transcription/models"
       ) {
         if (!authorizedInternal(request))
           return json({ error: { code: "unauthorized", message: "Unauthorized" } }, 401);

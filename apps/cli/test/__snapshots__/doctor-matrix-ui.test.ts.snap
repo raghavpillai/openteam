@@ -1,0 +1,294 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`doctor UI scenario matrix docker-missing has a stable 80-column terminal layout 1`] = `
+"
+  ╭────────────────────────────────────────────────────────────────────────────╮
+  │ OPENTEAM  /  doctor                                                        │
+  │ NEEDS ATTENTION                                                            │
+  ╰────────────────────────────────────────────────────────────────────────────╯
+  5 passed   1 warning   1 failed   1 not checked
+  Completed in 0.4s
+
+  NEXT STEPS
+  1. Install Docker Desktop from https://docs.docker.com/desktop/, then open a
+     new terminal and run docker --version. If Docker is already installed,
+     check that its command is on PATH and check the executable's permissions.
+  2. After resolving the failed checks, run openteam install again.
+
+  HOST & SETUP ────────────────────────────────────────────────────────────────
+  ✗ Docker CLI               The docker command was not found in this terminal.
+      Details: docker --version: spawnSync docker ENOENT
+  – Docker Compose           Not tested; make the Docker command available
+                             first.
+  ! Installation             First-time setup: the OpenTeam server has not been
+                             configured yet.
+  ✓ Platform                 darwin/arm64
+  ✓ Memory                   64.0 GiB total, 2.9 GiB currently available
+  ✓ Installation directory   /Users/example/.openteam is writable
+  ✓ Disk                     67.0 GiB available near /Users/example/.openteam
+  ✓ Local ports              8787 and 6200–6299 are available
+
+  Doctor finished with blocking problems. Exit code 2.
+"
+`;
+
+exports[`doctor UI scenario matrix docker-missing has a stable 80-column terminal layout 2`] = `
+"  – Docker Compose: Not tested; make the
+  Docker command available first.
+  ✗ Docker CLI: The docker command was
+    not found in this terminal.
+    Details: docker --version: spawnSync
+    docker ENOENT
+  ! Installation: First-time setup: the
+    OpenTeam server has not been
+    configured yet.
+  ✗ 1 blocking problem found.
+
+  NEXT STEPS ──────────────────────────
+  1. Install Docker Desktop from
+  https://docs.docker.com/desktop/, then
+  open a new terminal and run docker
+  --version. If Docker is already
+  installed, check that its command is
+  on PATH and check the executable's
+  permissions.
+  2. After resolving the failed checks,
+  run openteam install again."
+`;
+
+exports[`doctor UI scenario matrix docker-stopped has a stable 80-column terminal layout 1`] = `
+"
+  ╭────────────────────────────────────────────────────────────────────────────╮
+  │ OPENTEAM  /  doctor                                                        │
+  │ NEEDS ATTENTION                                                            │
+  ╰────────────────────────────────────────────────────────────────────────────╯
+  7 passed   1 warning   1 failed
+  Completed in 0.4s
+
+  NEXT STEPS
+  1. Start your Docker runtime. For Docker Desktop, run open -a Docker and
+     finish any first-run setup. Wait for the engine to be ready, then run
+     docker info. If it still fails, run docker context ls and check DOCKER_HOST
+     and DOCKER_CONTEXT point to the intended engine.
+  2. After resolving the failed checks, run openteam install again.
+
+  HOST & SETUP ────────────────────────────────────────────────────────────────
+  ✗ Docker daemon            Docker is installed, but OpenTeam could not connect
+                             to its engine.
+      Details: docker info --format '{{.ServerVersion}}': Cannot connect to the
+      Docker daemon at unix:///var/run/docker.sock. Is the docker daemon
+      running?
+  ! Installation             First-time setup: the OpenTeam server has not been
+                             configured yet.
+  ✓ Platform                 darwin/arm64
+  ✓ Memory                   64.0 GiB total, 2.9 GiB currently available
+  ✓ Installation directory   /Users/example/.openteam is writable
+  ✓ Disk                     67.0 GiB available near /Users/example/.openteam
+  ✓ Docker CLI               Docker version 28.2.2, build e6534b4
+  ✓ Docker Compose           Docker Compose version v5.1.3
+  ✓ Local ports              8787 and 6200–6299 are available
+
+  Doctor finished with blocking problems. Exit code 2.
+"
+`;
+
+exports[`doctor UI scenario matrix docker-stopped has a stable 80-column terminal layout 2`] = `
+"  ✗ Docker daemon: Docker is installed,
+    but OpenTeam could not connect to
+    its engine.
+    Details: docker info --format
+    '{{.ServerVersion}}': Cannot connect
+    to the Docker daemon at
+    unix:///var/run/docker.sock. Is the
+    docker daemon running?
+  ! Installation: First-time setup: the
+    OpenTeam server has not been
+    configured yet.
+  ✗ 1 blocking problem found.
+
+  NEXT STEPS ──────────────────────────
+  1. Start your Docker runtime. For
+  Docker Desktop, run open -a Docker and
+  finish any first-run setup. Wait for
+  the engine to be ready, then run
+  docker info. If it still fails, run
+  docker context ls and check
+  DOCKER_HOST and DOCKER_CONTEXT point
+  to the intended engine.
+  2. After resolving the failed checks,
+  run openteam install again."
+`;
+
+exports[`doctor UI scenario matrix services-stopped has a stable 80-column terminal layout 1`] = `
+"
+  ╭────────────────────────────────────────────────────────────────────────────╮
+  │ OPENTEAM  /  doctor                                                        │
+  │ NEEDS ATTENTION                                                            │
+  ╰────────────────────────────────────────────────────────────────────────────╯
+  14 passed   0 warnings   1 failed   1 not checked
+  Completed in 0.4s
+
+  NEXT STEPS
+  1. Run openteam start to start the missing services. If startup fails, inspect
+     openteam logs.
+  2. After completing these steps, run openteam doctor again.
+
+  HOST & SETUP ────────────────────────────────────────────────────────────────
+  ✓ Platform                 darwin/arm64
+  ✓ Memory                   64.0 GiB total, 2.9 GiB currently available
+  ✓ Installation directory   /Users/example/.openteam is writable
+  ✓ Disk                     67.0 GiB available near /Users/example/.openteam
+  ✓ Docker CLI               Docker version 28.2.2, build e6534b4
+  ✓ Docker daemon            server 28.2.2
+  ✓ Docker Compose           Docker Compose version v5.1.3
+  ✓ Installation             OpenTeam 1.2.3 at /Users/example/.openteam
+  ✓ Secrets                  configuration permissions are private
+  ✓ Secret values            database, control, authentication, and proxy
+                             secrets are configured
+  ✓ Owner account            configured for example
+  ✓ Network exposure         API and screen viewers are loopback-only
+
+  SERVICES ────────────────────────────────────────────────────────────────────
+  ✗ Compose services         not running: server, worker, computer
+  ✓ Database                 Connected to PostgreSQL
+  ✓ OpenTeam health          ready at http://127.0.0.1:8787/api/v0/health
+
+  AI CONNECTION ───────────────────────────────────────────────────────────────
+  – AI connection            Not tested; server is not running
+
+  Doctor finished with blocking problems. Exit code 2.
+"
+`;
+
+exports[`doctor UI scenario matrix services-stopped has a stable 80-column terminal layout 2`] = `
+"  ✗ Compose services: not running:
+    server, worker, computer
+  – AI connection: Not tested; server is
+  not running
+  ✗ 1 blocking problem found.
+
+  NEXT STEPS ──────────────────────────
+  1. Run openteam start to start the
+  missing services. If startup fails,
+  inspect openteam logs.
+  2. After completing these steps, run
+  openteam doctor again."
+`;
+
+exports[`doctor UI scenario matrix provider-quota has a stable 80-column terminal layout 1`] = `
+"
+  ╭────────────────────────────────────────────────────────────────────────────╮
+  │ OPENTEAM  /  doctor                                                        │
+  │ NEEDS ATTENTION                                                            │
+  ╰────────────────────────────────────────────────────────────────────────────╯
+  15 passed   0 warnings   1 failed
+  Completed in 0.4s
+
+  NEXT STEPS
+  1. Check the model provider's quota or billing, or wait for its rate limit to
+     reset. Use openteam model list to choose another available model if needed.
+  2. After completing these steps, run openteam doctor again.
+
+  HOST & SETUP ────────────────────────────────────────────────────────────────
+  ✓ Platform                 darwin/arm64
+  ✓ Memory                   64.0 GiB total, 2.9 GiB currently available
+  ✓ Installation directory   /Users/example/.openteam is writable
+  ✓ Disk                     67.0 GiB available near /Users/example/.openteam
+  ✓ Docker CLI               Docker version 28.2.2, build e6534b4
+  ✓ Docker daemon            server 28.2.2
+  ✓ Docker Compose           Docker Compose version v5.1.3
+  ✓ Installation             OpenTeam 1.2.3 at /Users/example/.openteam
+  ✓ Secrets                  configuration permissions are private
+  ✓ Secret values            database, control, authentication, and proxy
+                             secrets are configured
+  ✓ Owner account            configured for example
+  ✓ Network exposure         API and screen viewers are loopback-only
+
+  SERVICES ────────────────────────────────────────────────────────────────────
+  ✓ Compose services         postgres, server, worker, computer are running
+  ✓ Database                 Connected to PostgreSQL
+  ✓ OpenTeam health          ready at http://127.0.0.1:8787/api/v0/health
+
+  AI CONNECTION ───────────────────────────────────────────────────────────────
+  ✗ AI connection            example/model: HTTP 429: quota exceeded
+
+  Doctor finished with blocking problems. Exit code 2.
+"
+`;
+
+exports[`doctor UI scenario matrix provider-quota has a stable 80-column terminal layout 2`] = `
+"  ✗ AI connection: example/model: HTTP
+    429: quota exceeded
+  ✗ 1 blocking problem found.
+
+  NEXT STEPS ──────────────────────────
+  1. Check the model provider's quota or
+  billing, or wait for its rate limit to
+  reset. Use openteam model list to
+  choose another available model if
+  needed.
+  2. After completing these steps, run
+  openteam doctor again."
+`;
+
+exports[`doctor UI scenario matrix all-skipped has a stable 80-column terminal layout 1`] = `
+"
+  ╭────────────────────────────────────────────────────────────────────────────╮
+  │ OPENTEAM  /  doctor                                                        │
+  │ CHECKS INCOMPLETE                                                          │
+  ╰────────────────────────────────────────────────────────────────────────────╯
+  0 passed   0 warnings   0 failed   1 not checked
+  Completed in 0.4s
+
+  AI CONNECTION ───────────────────────────────────────────────────────────────
+  – AI connection            Not tested; server is not running
+
+  No blocking problems found. Some checks could not be completed; see the
+  reasons above.
+"
+`;
+
+exports[`doctor UI scenario matrix all-skipped has a stable 80-column terminal layout 2`] = `
+"  – AI connection: Not tested; server is
+  not running
+  ◇ No blocking problems found; 1 check
+    was not completed."
+`;
+
+exports[`doctor UI scenario matrix healthy has a stable 80-column terminal layout 1`] = `
+"
+  ╭────────────────────────────────────────────────────────────────────────────╮
+  │ OPENTEAM  /  doctor                                                        │
+  │ ALL SYSTEMS READY                                                          │
+  ╰────────────────────────────────────────────────────────────────────────────╯
+  16 passed   0 warnings   0 failed
+  Completed in 0.4s
+
+  HOST & SETUP ────────────────────────────────────────────────────────────────
+  ✓ Platform                 darwin/arm64
+  ✓ Memory                   64.0 GiB total, 2.9 GiB currently available
+  ✓ Installation directory   /Users/example/.openteam is writable
+  ✓ Disk                     67.0 GiB available near /Users/example/.openteam
+  ✓ Docker CLI               Docker version 28.2.2, build e6534b4
+  ✓ Docker daemon            server 28.2.2
+  ✓ Docker Compose           Docker Compose version v5.1.3
+  ✓ Installation             OpenTeam 1.2.3 at /Users/example/.openteam
+  ✓ Secrets                  configuration permissions are private
+  ✓ Secret values            database, control, authentication, and proxy
+                             secrets are configured
+  ✓ Owner account            configured for example
+  ✓ Network exposure         API and screen viewers are loopback-only
+
+  SERVICES ────────────────────────────────────────────────────────────────────
+  ✓ Compose services         postgres, server, worker, computer are running
+  ✓ Database                 Connected to PostgreSQL
+  ✓ OpenTeam health          ready at http://127.0.0.1:8787/api/v0/health
+
+  AI CONNECTION ───────────────────────────────────────────────────────────────
+  ✓ AI connection            example/model responded in 0.2s (thinking medium)
+
+  No blocking problems found. Doctor finished without starting services.
+"
+`;
+
+exports[`doctor UI scenario matrix healthy has a stable 80-column terminal layout 2`] = `"  ✓ All checks passed."`;

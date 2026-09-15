@@ -1,5 +1,96 @@
 # OpenTeam CLI
 
+## Status and health
+
+`openteam status` and `openteam health` are aliases. Both show the containers for the selected
+installation, Docker health checks, setup job results, and the local server's readiness and release.
+Use `--dir <path>` to check another installation. Commands shown in the report keep that directory.
+
+The report distinguishes **RUNNING**, **STARTING**, **STOPPED**, **NEEDS ATTENTION**,
+**STATUS UNKNOWN** (a check was blocked), and **NOT INSTALLED**. It shows missing services,
+unhealthy or restarting containers, failed replicas, and exit codes. Successful setup jobs are
+shown as completed. Containers without a Docker health check are labeled explicitly.
+
+Neither command changes configuration or starts services, and neither sends a model request.
+The services' bounded self-tests create and clean up diagnostic queue jobs and temporary workspace files. Exit code `0` means the required services
+and server are ready; `2` means they are not ready or could not be checked. Provider setup is shown
+separately and does not make healthy containers fail. Use `openteam doctor` for deeper diagnostics.
+The existing `status --json-progress` behavior for desktop-managed updates also works with `health`.
+
+```sh
+openteam status
+openteam health --dir /path/to/installation
+bun run test:status
+bun run preview:status --list
+bun run preview:status --scenario unhealthy --width 40
+bun run preview:status --scenario docker-stopped --no-color
+bun run preview:status --scenario all --output /tmp/openteam-status-reports
+bun run preview:status --gallery /tmp/openteam-status-gallery
+```
+
+Status tests cover 41 scenarios through the collector and both CLI entry points, including Docker
+and Compose failures, startup, stopped containers, missing services, failed jobs, and API errors.
+The CLI subprocess tests use isolated Docker stubs and local HTTP fixtures; they verify exit codes,
+alias parity, project selection, and that installation files stay unchanged. Subprocess and PTY
+tests run on macOS/Linux; the PTY tests require Python 3. Renderer checks cover six terminal widths,
+ANSI/no-color output, and saved snapshots. Preview scenarios use the same fixtures and renderer.
+Update intentional snapshot changes with `bun test ./test/status.test.ts --update-snapshots`.
+
+### What healthy means
+
+The worker now has a Docker health check in both production and development Compose files.
+It requires a fresh event-loop heartbeat, registered application queue consumers, working
+application/queue database access, an authenticated computer connection, accessible storage,
+and a diagnostic job consumed and acknowledged by that exact worker instance. Concurrent
+Docker and doctor probes share one check so they cannot cause false failures in each other.
+
+Server readiness verifies live database and queue queries and the authenticated computer API.
+Computer readiness launches a process as the agent user and verifies workspace file creation,
+readback, and deletion. Status displays separate database, queue database, and computer results.
+Doctor additionally tests model access, storage round trips, job backlog, leases, and configuration.
+
+These checks cover core service readiness. They do not guarantee every plugin, external provider,
+browser session, or user task will succeed. Doctor sends a small model request; health does not.
+Existing containers need images and Compose configuration from this change to show the new check.
+See [Health checks and chaos tests](../../docs/health-checks.md) for coverage and repeatable testing.
+
+## Testing doctor errors and terminal output
+
+Run the doctor regression suite from this directory:
+
+```sh
+bun run test:doctor
+```
+
+The suite covers missing Docker, Compose fallback and unsupported versions, stopped engines,
+socket permissions, remote DNS/SSH/TLS/API errors, broken configuration, service and migration
+failures, storage problems, health responses, and provider failures. Process tests run the real
+CLI against isolated fake Docker executables and local HTTP fixtures. They assert exit codes,
+recommended actions, and that installation files and service state are unchanged.
+
+UI tests render every scenario at 24, 40, 60, 76, 90, and 110 columns with and without ANSI colors.
+They check wrapping, Unicode paths, secret redaction, skipped-check summaries, and recovery
+ordering. Checked-in snapshots cover representative full and compact reports. On macOS/Linux
+with Python 3, additional tests use a real pseudo-terminal to check colors, progress-line cleanup,
+`NO_COLOR`, and `TERM=dumb` behavior. Windows recovery copy is covered by the portable renderer
+tests; the POSIX executable-permission and pseudo-terminal tests are skipped on Windows.
+
+Preview the same fixtures in your terminal without running any diagnostic probes:
+
+```sh
+bun run preview:doctor --list
+bun run preview:doctor --scenario docker-missing
+bun run preview:doctor --scenario docker-stopped --width 40 --compact
+bun run preview:doctor --scenario provider-quota --no-color
+bun run preview:doctor --scenario all --output /tmp/openteam-doctor-reports
+bun run preview:doctor --gallery /tmp/openteam-doctor-gallery
+```
+
+Open the generated gallery's `index.html` to switch between scenarios, widths, full/compact
+reports, and light/dark palettes. It displays the renderer's actual ANSI text; it has no live
+shell connection. Review deliberate layout changes before updating snapshots with
+`bun test ./test/doctor-matrix-ui.test.ts --update-snapshots`.
+
 Install and manage the self-hosted OpenTeam server stack. It requires a running Docker Engine for
 Linux containers, the Docker CLI, and Compose 2.20 or newer. The supported installer downloads a
 native CLI, so Node.js and Bun are not required.
@@ -25,7 +116,7 @@ openteam stop
 openteam start
 openteam logs
 openteam provider <list|login|logout|add|remove>
-openteam model <list|use>
+openteam model [list|use]
 openteam account update
 openteam uninstall
 ```
@@ -100,9 +191,57 @@ If input closes before sign-in finishes, retry the login in an interactive termi
 checks that the running server can use the sign-in before declaring authenticated setup ready.
 The setup header shows the CLI version; the installed server release is labeled separately.
 
-Use `openteam provider login [provider]` to configure OAuth/subscription or API-key authentication without repeating server setup. `provider list` shows the methods Pi supports, and `model list`/`model use` select a provider-qualified model. Anthropic offers Claude Pro/Max OAuth or an API key; OpenAI API access uses the `openai` provider, while ChatGPT/Codex OAuth uses `openai-codex`.
+Run `openteam model` to open the interactive model editor for an installed, running server. Left/Right
+switch between **Inference** and **Transcription**; Up/Down moves the highlight and Enter selects or
+edits a field. Each tab has its own **Save** action. Esc goes back and asks before discarding unsaved
+edits. Add `--dir /path/to/installation` to select another installation.
 
-Custom endpoints can use Pi's `openai-completions`, `openai-responses`, `anthropic-messages`, or `google-generative-ai` adapters. `provider add` prompts for the API key or password and passes it to the computer service over stdin; credentials are not written to `.env` or command arguments. `openteam logs`
+Inference starts with a provider, followed by its searchable chat model list and a thinking level.
+Selecting a disconnected provider opens sign-in and returns to the editor. Transcription offers
+OpenAI or an OpenAI-compatible audio endpoint, model browsing or manual model ID entry, language,
+and a masked API key. Browsing does not save or enable transcription. Model discovery filters out
+known chat, embedding, image, and speech-generation models. Saved keys stay on the server, blank key edits
+keep them, and changing endpoints never transfers a stored key. Use **Remove saved key** to clear it.
+**Test saved connection** checks the provider and model catalog; send a voice note to verify actual
+audio transcription. Transcription needs its own API credentials, separate from ChatGPT sign-in.
+
+`openteam model list` and `openteam model use <provider> <model>` remain available for scripts.
+To inspect UI states without changing server settings, run `bun run preview:model --gallery
+../../output/model-ui` from `apps/cli`, or run `bun run test:model` for keyboard, HTTP, and terminal tests.
+
+Use `openteam provider login [provider]` to configure OAuth/subscription or API-key authentication without repeating server setup. `provider list` shows Anthropic, the two OpenAI authentication modes, and custom endpoints you have added. Anthropic offers Claude Pro/Max OAuth or an API key; OpenAI API access uses `openai`, while ChatGPT/Codex OAuth uses `openai-codex` and its separate subscription catalog.
+
+`model list` lists chat models reported by connected providers, grouped by provider. Use `model list
+anthropic` to narrow it. Missing credentials, rejected requests, or unavailable discovery produce
+an actionable message and no selectable models for that provider. The bundled Pi catalog supplies
+model metadata; it does not grant access or supply a fallback list. Selection checks discovery again.
+
+Custom endpoints can use Pi's `openai-completions`, `openai-responses`, `anthropic-messages`, or `google-generative-ai` adapters. For example:
+
+```sh
+openteam provider add local --name "Local models" \
+  --base-url http://host.docker.internal:11434/v1 \
+  --api openai-completions --no-auth
+openteam model list local
+openteam model
+```
+
+Use an endpoint reachable from the **computer container**. Its `localhost` is the container itself.
+Omit `--no-auth` for authenticated endpoints: `provider add` prompts for the API key or password
+and passes it over stdin; credentials are not written to `.env` or command arguments. No initial
+`--model` is needed. That optional flag supplies model metadata, but does not bypass discovery or
+access checks. Existing provider IDs cannot be replaced with `provider add`; remove and re-add them
+after switching away from the provider.
+
+OpenAI-compatible discovery uses `<base-url>/models`; a host-only base URL gains `/v1`.
+Anthropic uses `/v1/models`, and Google-compatible endpoints use `/v1beta/models` when given that
+base URL. Discovery support is required for selectable chat models. Provider catalogs do not always
+declare model types: capability metadata takes priority, followed by known model families. Opaque
+IDs on a custom chat endpoint are treated as chat models. A listed model is not a guarantee of
+quota, billing, or tool support; `openteam doctor` tests a real inference request.
+See [provider discovery details](../../docs/model-providers.md).
+
+`openteam logs`
 shows the most recent 200 lines; add `--follow`, `--tail <lines>`, or `--service <name>` to narrow a
 diagnostic session. Existing-proxy mode keeps OpenTeam on loopback and prints the HTTP upstream; the
 external proxy must forward HTTPS and WebSocket upgrades to it and replace inbound

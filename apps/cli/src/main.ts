@@ -35,6 +35,7 @@ import {
   providerLogoutCommand,
   providerRemoveCommand,
 } from "./providers";
+import { modelCommand } from "./model-command";
 import { setupCommand } from "./setup";
 
 const main = async (): Promise<void> => {
@@ -95,6 +96,9 @@ const main = async (): Promise<void> => {
     case "provider-remove":
       if (!options.providerId) throw new CliError("Removing a provider requires its id");
       providerRemoveCommand(paths, runner, options.providerId);
+      break;
+    case "model":
+      await modelCommand(paths);
       break;
     case "model-list":
       modelListCommand(paths, runner, options.providerId);

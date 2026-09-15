@@ -82,7 +82,7 @@ export class SnapshotService {
     private readonly prisma: PrismaClient,
     private readonly workspaceRoot: string,
     private readonly computerUrl: string,
-    private readonly isQueueReady: () => boolean,
+    private readonly isQueueReady: () => boolean | Promise<boolean>,
     private readonly runtimeProbeTimeoutMs = 2_500,
     private readonly inferenceSettings?: () => Promise<ServerInferenceSettings>,
     transcriptionStatus?: () => Promise<"configured" | "missing" | "invalid">

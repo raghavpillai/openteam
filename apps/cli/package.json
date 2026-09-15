@@ -19,7 +19,13 @@
     "build": "bun build src/main.ts --outfile dist/openteam.js --target=node --format=esm --minify",
     "build:release": "bun run scripts/build-release-binaries.ts",
     "typecheck": "tsc -p tsconfig.json",
-    "test": "bun test"
+    "test": "bun test",
+    "test:doctor": "bun test ./test/doctor*.test.ts ./test/docker.test.ts",
+    "preview:doctor": "bun scripts/preview-doctor.ts",
+    "test:status": "bun test ./test/status*.test.ts ./test/command-ui.test.ts ./test/lifecycle.test.ts",
+    "preview:status": "bun scripts/preview-status.ts",
+    "preview:model": "bun scripts/preview-model.ts",
+    "test:model": "bun test ./test/model*.test.ts"
   },
   "engines": {
     "node": "^22.22.2 || ^24.15.0 || >=26"
@@ -30,7 +36,8 @@
   },
   "dependencies": {
     "semver": "7.8.5",
-    "sigstore": "5.0.0"
+    "sigstore": "5.0.0",
+    "string-width": "7.2.0"
   },
   "devDependencies": {
     "@openteam/product-core": "workspace:*",

@@ -24,6 +24,10 @@ const runtime = {
   getModel: (provider: string, id: string) =>
     models.find((model) => model.provider === provider && model.id === id),
   checkAuth: async () => ({ type: "oauth" }),
+  getAuth: async () => ({ auth: { apiKey: "synthetic" } }),
+  getProvider: (id: string) => ({ id, name: id, baseUrl: "https://api.openai.com/v1", auth: {} }),
+  registerProvider: () => {},
+  refresh: async () => ({ aborted: false, errors: new Map() }),
 } as unknown as ModelRuntime;
 
 describe("retired Codex models", () => {
@@ -61,7 +65,20 @@ describe("retired Codex models", () => {
   });
 
   test("keeps the UI catalog and provider model counts consistent", async () => {
-    const service = new InferenceProviderService(() => runtime, "/does/not/exist/models.json");
+    const service = new InferenceProviderService(
+      () => runtime,
+      "/does/not/exist/models.json",
+      (async (url: URL | string | Request) =>
+        Response.json(
+          String(url).includes("chatgpt.com")
+            ? {
+                models: models
+                  .filter((m) => m.provider === "openai-codex")
+                  .map((m) => ({ ...m, slug: m.id, visibility: "list" })),
+              }
+            : { data: models.filter((m) => m.provider === "openai") }
+        )) as typeof fetch
+    );
     const catalog = await service.catalog("openai-codex");
     expect(catalog.models.map((model) => model.modelId)).toEqual(["gpt-5.5", "gpt-5.6-sol"]);
     expect(catalog.providers.find((provider) => provider.id === "openai-codex")?.modelCount).toBe(

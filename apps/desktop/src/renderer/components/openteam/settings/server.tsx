@@ -386,7 +386,7 @@ export default function ServerSettings() {
               </SelectContent>
             </Select>
           }
-          description="Applied to new agent turns and server background inference."
+          description={provider?.modelMessage ?? "Accessible chat models from this connected provider. Applied to new agent turns and background inference."}
           title="Model"
         />
         <SettingsRow
@@ -422,7 +422,7 @@ export default function ServerSettings() {
           </div>
           <button
             className={actionButton}
-            disabled={!changed || !provider?.connected || !modelId || Boolean(busy)}
+            disabled={!changed || !provider?.connected || !selectedModel || Boolean(busy)}
             onClick={() => void save()}
             type="button"
           >

@@ -11,6 +11,8 @@ const client = createOpenTeamClient({
 });
 api.webSearchSettings = client.webSearchSettings;
 api.updateWebSearchSettings = client.updateWebSearchSettings;
+api.webFetchSettings = client.webFetchSettings;
+api.updateWebFetchSettings = client.updateWebFetchSettings;
 const root = createRoot(document.getElementById("root")!);
 const wait = (ms = 40) => new Promise((resolve) => setTimeout(resolve, ms));
 let checks = 0;
@@ -45,7 +47,12 @@ async function save() {
   assert(!saveButton().disabled, "changed settings can be saved");
   saveButton().click();
   await wait();
-  await until(() => !document.querySelector("fieldset")!.disabled && saveButton().disabled && Boolean(document.querySelector('[role="status"]')?.textContent?.startsWith("Saved.")));
+  await until(
+    () =>
+      !document.querySelector("fieldset")!.disabled &&
+      saveButton().disabled &&
+      Boolean(document.querySelector('[role="status"]')?.textContent?.startsWith("Saved."))
+  );
   assert(keyInput().value === "", "key input cleared after save");
 }
 
@@ -91,6 +98,41 @@ async function save() {
     !JSON.stringify(localStorage).includes("synthetic-ui-search-key"),
     "key absent from local storage"
   );
+  const fetchSelect = document.querySelector<HTMLSelectElement>('[aria-label="Fetch provider"]')!;
+  const fetchKey = document.querySelector<HTMLInputElement>('[aria-label="Fetch API key"]')!;
+  const fetchFieldset = fetchSelect.closest("fieldset")!;
+  const fetchButton = fetchFieldset.querySelector<HTMLButtonElement>("button")!;
+  await until(() => !fetchFieldset.disabled);
+  assert(
+    fetchSelect.options.length === 3 && fetchSelect.value === "builtin",
+    "fetch defaults to built-in and offers two extraction providers"
+  );
+  assert(fetchKey.disabled, "built-in fetch needs no key");
+  fetchSelect.value = "exa";
+  fetchSelect.dispatchEvent(new Event("change", { bubbles: true }));
+  await wait();
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(
+    fetchKey,
+    "synthetic-ui-fetch-key"
+  );
+  fetchKey.dispatchEvent(new Event("input", { bubbles: true }));
+  await wait();
+  fetchButton.click();
+  await wait();
+  await until(() => !fetchFieldset.disabled && fetchButton.disabled);
+  assert(fetchKey.value === "", "fetch key cleared after save");
+  assert((await client.webFetchSettings()).configured, "fetch setting persisted through API");
+  assert(
+    (await client.webSearchSettings()).provider === null,
+    "fetch configuration is independent of search"
+  );
+  fetchSelect.value = "builtin";
+  fetchSelect.dispatchEvent(new Event("change", { bubbles: true }));
+  await wait();
+  fetchButton.click();
+  await wait();
+  await until(() => !fetchFieldset.disabled && fetchButton.disabled);
+  assert(!(await client.webFetchSettings()).hasApiKey, "switching to built-in removes fetch key");
   (window as any).searchResults = { passed: checks, realServer: true, realDatabase: true };
 })().catch((error) => {
   (window as any).searchResults = { error: String(error), stack: error.stack };

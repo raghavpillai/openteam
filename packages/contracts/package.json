@@ -7,15 +7,17 @@
     ".": "./src/index.ts",
     "./bot-avatar": "./src/bot-avatar.ts",
     "./capabilities": "./src/capabilities.ts",
+    "./desktop-capabilities": "./src/desktop-capabilities.ts",
+    "./connector-transfers": "./src/connector-transfers.ts",
     "./media-input": "./src/media-input.ts",
     "./read-output": "./src/read-output.ts",
     "./client-preferences": "./src/client-preferences.ts",
     "./event-protocol": "./src/event-protocol.ts",
     "./inference": "./src/inference.ts",
     "./transcription": "./src/transcription.ts",
+    "./model-kind": "./src/model-kind.ts",
     "./notification-content": "./src/notification-content.ts",
     "./plugin-settings": "./src/plugin-settings.ts",
-    "./model-kind": "./src/model-kind.ts",
     "./routine-types": "./src/routine-types.ts",
     "./service-protocol": "./src/service-protocol.ts",
     "./version-compatibility": "./src/version-compatibility.ts",
@@ -24,7 +26,12 @@
     "./review-cards": "./src/review-cards.ts",
     "./external-draft": "./src/external-draft.ts",
     "./bot-recipe": "./src/bot-recipe.ts",
-    "./web-search": "./src/web-search.ts"
+    "./web-search": "./src/web-search.ts",
+    "./automation-webhooks": "./src/automation-webhooks.ts",
+    "./tool-contracts": "./src/tool-contracts.ts",
+    "./reference-parsers": "./src/reference-parsers.ts",
+    "./reference-formatters": "./src/reference-formatters.ts",
+    "./tool-results": "./src/tool-results.ts"
   },
   "scripts": {
     "build": "bun build src/index.ts --outdir dist --target bun",
@@ -34,7 +41,8 @@
   "dependencies": {
     "effect": "3.22.1",
     "semver": "7.8.5",
-    "@openteam/plugin-sdk": "workspace:*"
+    "@openteam/plugin-sdk": "workspace:*",
+    "zod": "3.25.76"
   },
   "devDependencies": {
     "@types/semver": "7.7.1"

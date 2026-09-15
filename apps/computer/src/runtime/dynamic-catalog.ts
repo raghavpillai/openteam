@@ -1,6 +1,11 @@
+import { withReferenceContract, FIRST_PARTY_NAMESPACE_DESCRIPTION } from "@openteam/contracts/tool-contracts";
+import pluginToolSchemas from "../plugin-tool-schemas.json";
 import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
 import {
   AWAIT_SHELL_TOOL,
+  AUTOMATION_PARENT_ONLY_TOOLS,
+  WAKE_PARENT_TOOL,
+  WakeParentInput,
   AwaitShellInput,
   CHECK_SUBAGENT_TOOL,
   CheckSubagentInput,
@@ -129,7 +134,7 @@ export const PLUGIN_MANAGEMENT_TOOLS = [
       ["connectionId", "instructions"]
     ),
   },
-] as const;
+].map(tool => ({ ...tool, inputSchema: pluginToolSchemas[tool.name as keyof typeof pluginToolSchemas] }));
 
 export function dynamicCatalog(
   callControlPlaneTool: RuntimeDynamicToolCaller,
@@ -158,6 +163,8 @@ export function dynamicCatalog(
   });
   const cursorTools: RuntimeDynamicTool[] = [
     ...additionalTools,
+    ...(active.requestSource === "automation" && active.runtimeProfile !== "subagent"
+      ? [controlPlaneTool(WAKE_PARENT_TOOL, WakeParentInput)] : []),
     {
       name: AWAIT_SHELL_TOOL.name,
       description: AWAIT_SHELL_TOOL.description,
@@ -184,16 +191,16 @@ export function dynamicCatalog(
           {
             name: "SearchPlugins",
             description:
-              "Search the bounded OpenTeam plugin catalog. This is read-only; installation always requires the user to act in the Plugins UI.",
-            inputSchema: objectToolSchema({ query: { type: "string", maxLength: 200 } }, ["query"]),
+              "Search the OpenTeam plugin catalog. Omit query to browse. InstallPlugin requests installation through a review card.",
+            inputSchema: pluginToolSchemas.SearchPlugins,
             source: "first-party" as const,
             decodeArguments: (args: unknown) => {
               const query =
                 args && typeof args === "object"
                   ? (args as Record<string, unknown>).query
                   : undefined;
-              if (typeof query !== "string") throw new Error("query is required");
-              return { query: query.slice(0, 200) };
+              if (query !== undefined && typeof query !== "string") throw new Error("query must be a string");
+              return { query: query ?? "" };
             },
             execute: (turn: ActiveTurn, callId: string, args: unknown, signal?: AbortSignal) =>
               callControlPlaneTool(turn, callId, "SearchPlugins", args, signal),
@@ -202,14 +209,12 @@ export function dynamicCatalog(
             name: "GetPlugin",
             description:
               "Inspect one catalog or installed plugin, its components, and non-secret connection summary. Read-only.",
-            inputSchema: objectToolSchema({ pluginKey: { type: "string", maxLength: 200 } }, [
-              "pluginKey",
-            ]),
+            inputSchema: pluginToolSchemas.GetPlugin,
             source: "first-party" as const,
             decodeArguments: (args: unknown) => {
               const pluginKey =
                 args && typeof args === "object"
-                  ? (args as Record<string, unknown>).pluginKey
+                  ? ((args as Record<string, unknown>).plugin_id ?? (args as Record<string, unknown>).pluginKey)
                   : undefined;
               if (typeof pluginKey !== "string") throw new Error("pluginKey is required");
               return { pluginKey: pluginKey.slice(0, 200) };
@@ -221,17 +226,17 @@ export function dynamicCatalog(
             name: "GetMcpServerStatus",
             description:
               "Read current MCP connection health, account aliases, tool counts, and bot-grant counts without exposing credentials.",
-            inputSchema: objectToolSchema({ connectionId: { type: "string" } }),
+            inputSchema: pluginToolSchemas.GetMcpServerStatus,
             source: "first-party" as const,
             decodeArguments: (args: unknown) => {
               const connectionId =
                 args && typeof args === "object"
-                  ? (args as Record<string, unknown>).connectionId
+                  ? ((args as Record<string, unknown>).server_id ?? (args as Record<string, unknown>).connectionId)
                   : undefined;
               if (connectionId !== undefined && typeof connectionId !== "string") {
                 throw new Error("connectionId must be a string");
               }
-              return connectionId ? { connectionId } : {};
+              return connectionId ? { server_id: connectionId } : {};
             },
             execute: (turn: ActiveTurn, callId: string, args: unknown, signal?: AbortSignal) =>
               callControlPlaneTool(turn, callId, "GetMcpServerStatus", args, signal),
@@ -299,10 +304,12 @@ export function dynamicCatalog(
     {
       name: "cursor",
       description:
-        "OpenTeam's supported A2A messaging, AwaitShell, TodoWrite, bounded agent and group directory lookup, plugin management, subagent orchestration, agent administration, and channel administration tools.",
+        FIRST_PARTY_NAMESPACE_DESCRIPTION,
       kind: "first-party",
       namespaceStatus: "ready",
-      tools: cursorTools,
+      tools: (active.requestSource === "automation"
+        ? cursorTools.filter((tool) => !AUTOMATION_PARENT_ONLY_TOOLS.has(tool.name))
+        : cursorTools).map(withReferenceContract),
     },
     ...pluginNamespaces,
   ];

@@ -487,87 +487,14 @@ export const reduceBotSummaryInputMessages = (messages: readonly BotMessage[]): 
     if (!only || isTool(only)) return copy;
     if (typeof only.content === "string" && only.content.length >= 2) {
       only.content = only.content.slice(Math.floor(only.content.length / 2));
-    } else if (
-      Array.isArray(only.content) &&
-      only.content.length === 1 &&
-      only.content[0]?.type === "text" &&
-      typeof only.content[0].text === "string"
-    ) {
-      // Pi represents text as parts, including single-message retry inputs.
-      const part = only.content[0];
-      part.text = part.text.slice(Math.floor(part.text.length / 2));
     }
     return copy;
   }
-  const callIndex = new Map<string, number>();
-  const resultIndices = new Map<string, number[]>();
-  messages.forEach((message, index) => {
-    for (const id of toolCallIds(message)) callIndex.set(id, index);
-    for (const id of toolResultIds(message)) {
-      const indices = resultIndices.get(id) ?? [];
-      indices.push(index);
-      resultIndices.set(id, indices);
-    }
-  });
-
   let start = Math.floor(messages.length / 2);
   while (start < messages.length && isTool(messages[start]!)) start += 1;
-  const selected = new Set(messages.map((_message, index) => index).slice(start));
-  // Pi providers require paired tool histories. Close the retained suffix over
-  // owners/results; the reference's ordinary-message selection stays unchanged.
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (const index of [...selected]) {
-      const message = messages[index];
-      if (!message) continue;
-      for (const id of toolCallIds(message)) {
-        for (const resultIndex of resultIndices.get(id) ?? []) {
-          if (selected.has(resultIndex)) continue;
-          selected.add(resultIndex);
-          changed = true;
-        }
-      }
-      for (const id of toolResultIds(message)) {
-        const owner = callIndex.get(id);
-        if (owner === undefined || selected.has(owner)) continue;
-        selected.add(owner);
-        changed = true;
-      }
-    }
-  }
-
-  // A single assistant message can contain several calls. If even one call has
-  // no result, retaining that message would leave an invalid provider history.
-  // Removing the owner must also remove results belonging to its other calls.
-  changed = true;
-  while (changed) {
-    changed = false;
-    for (const index of [...selected]) {
-      const message = messages[index];
-      if (!message) {
-        selected.delete(index);
-        changed = true;
-        continue;
-      }
-      const calls = toolCallIds(message);
-      if (calls.some((id) => (resultIndices.get(id)?.length ?? 0) === 0)) {
-        selected.delete(index);
-        changed = true;
-        continue;
-      }
-      const results = toolResultIds(message);
-      if (results.some((id) => !selected.has(callIndex.get(id) ?? -1))) {
-        selected.delete(index);
-        changed = true;
-      }
-    }
-  }
-
-  return messages.flatMap((message, index) => {
-    if (!selected.has(index)) return [];
-    return [structuredClone(message)];
-  });
+  // Match the generic reducer before provider serialization. Pi's serializer
+  // completes unfinished tool calls; archive-adoption tail closure is separate.
+  return structuredClone(messages.slice(start));
 };
 
 export const noSummaryRetry = (): BotSummaryRetryDirective => ({

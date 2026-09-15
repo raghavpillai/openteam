@@ -119,10 +119,10 @@ test("restart recovers an in-flight terminal and retries completion delivery onc
   const outputPath = join(root, "700.log");
   await writeFile(outputPath, "header\nready\n");
   const original = new ShellJobRegistry({ directory: root });
-  const job = original.start({ id: "700", scope: "bot", outputPath, outputOffset: 7, startedAt: Date.now() });
+  const job = original.start({ id: "700", scope: "bot", automationRunId: "automation-run", outputPath, outputOffset: 7, startedAt: Date.now() });
   job.outputWritten(6); original.markBackground("700");
   let attempts = 0;
-  const recovered = new ShellJobRegistry({ directory: root, onComplete: async () => { if (++attempts === 1) throw new Error("offline"); } });
+  const recovered = new ShellJobRegistry({ directory: root, onComplete: async (receipt) => { expect(receipt.automationRunId).toBe("automation-run"); if (++attempts === 1) throw new Error("offline"); } });
   try {
     await writeFile(outputPath, "header\nready\n\n\nstatus: completed\nexit_code: 3\nelapsed_ms: 100\n");
     expect(await recovered.await({ shell_id: "700", block_until_ms: 0 }, "bot")).toMatchObject({ status: "completed", exit_code: 3 });

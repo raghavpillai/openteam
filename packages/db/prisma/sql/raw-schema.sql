@@ -309,3 +309,9 @@ ALTER TABLE "WebSearchSettings" ADD CONSTRAINT "WebSearchSettings_valid" CHECK (
   ("provider" IS NULL OR "provider" IN ('exa', 'tavily', 'brave', 'bing-serpapi')) AND
   ("provider" IS NOT NULL OR "apiKey" IS NULL)
 );
+
+ALTER TABLE "WebFetchSettings" DROP CONSTRAINT IF EXISTS "WebFetchSettings_valid";
+ALTER TABLE "WebFetchSettings" ADD CONSTRAINT "WebFetchSettings_valid" CHECK (
+  "id" = 'global' AND "provider" IN ('builtin', 'exa', 'tavily') AND
+  ("provider" <> 'builtin' OR "apiKey" IS NULL)
+);

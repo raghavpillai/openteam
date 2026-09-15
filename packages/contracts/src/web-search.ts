@@ -22,3 +22,22 @@ export interface WebSearchSettingsInput {
   /** Omit to retain a key for the same provider; null removes it. */
   apiKey?: string | null;
 }
+
+export const FETCH_PROVIDERS = {
+  builtin: "Built-in HTTP fetch (no key)",
+  exa: "Exa Contents",
+  tavily: "Tavily Extract",
+} as const;
+export type FetchProvider = keyof typeof FETCH_PROVIDERS;
+export function isFetchProvider(value: unknown): value is FetchProvider {
+  return typeof value === "string" && Object.hasOwn(FETCH_PROVIDERS, value);
+}
+export interface WebFetchSettingsView {
+  provider: FetchProvider;
+  hasApiKey: boolean;
+  configured: boolean;
+}
+export interface WebFetchSettingsInput {
+  provider: FetchProvider;
+  apiKey?: string | null;
+}

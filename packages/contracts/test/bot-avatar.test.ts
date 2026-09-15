@@ -44,7 +44,7 @@ describe("bot avatar dealing", () => {
     expect(colors.has("#242424")).toBe(false);
   });
 
-  test("preserves known explicit fields and hashes missing or unknown fields", () => {
+  test("preserves explicit colors and known shapes; hashes missing or invalid fields", () => {
     const agentId = "bot-example";
 
     expect(
@@ -68,12 +68,20 @@ describe("bot avatar dealing", () => {
       resolveBotAvatarMark({
         agentId,
         avatarShape: "legacy-symbol",
-        avatarColor: "#123456",
+        avatarColor: "not-a-color",
       })
     ).toEqual({
       shape: botAvatarShapeForKey(agentId),
       color: botAvatarColorForKey(agentId),
     });
+  });
+
+  test("preserves custom six-digit picker colors instead of silently assigning another color", () => {
+    for (const avatarColor of ["#93643A", "#FF6600", "#000000", "#FFFFFF"]) {
+      expect(
+        resolveBotAvatarMark({ agentId: "picker-test", avatarShape: "chip", avatarColor }).color
+      ).toBe(avatarColor.toLowerCase());
+    }
   });
 
   test("preserves every picker choice when resolving a saved bot profile", () => {

@@ -212,7 +212,7 @@ test("source-verified Bot A2A errors, group rows, and channel updates run end to
     expect(interruptedWake.content).toContain(
       "It interrupted your previous non-user work. Drop conflicting in-flight work and follow it now."
     );
-    await app.prisma.botRunLease.delete({ where: { botId: peer.id } });
+    await app.prisma.botRunLease.deleteMany({ where: { botId: peer.id } });
 
     const userRun = await leaseRun({
       botId: outsider.id,
@@ -232,7 +232,7 @@ test("source-verified Bot A2A errors, group rows, and channel updates run end to
       "Handle it ahead of other non-user work. Your user can already see it in this chat."
     );
     expect(
-      await app.prisma.botRunLease.findUniqueOrThrow({ where: { botId: outsider.id } })
+      await app.prisma.botRunLease.findUniqueOrThrow({ where: { botId_scope: { botId: outsider.id, scope: "foreground" } } })
     ).toMatchObject({ runId: userRun.id });
 
     await expect(

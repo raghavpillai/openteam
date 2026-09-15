@@ -222,6 +222,10 @@ export class ScreenBroker {
     return environment(this.home, session);
   }
 
+  async withAgentBrowserInput<T>(botId: string, cwd: string, operation: (signal?: AbortSignal) => Promise<T>): Promise<T> {
+    return this.withInput(await this.readySession(botId, cwd), "agent", operation);
+  }
+
   async browserEndpointForAgent(botId: string, cwd: string): Promise<string> {
     const session = await this.readySession(botId, cwd);
     this.assertAgentControl(session);

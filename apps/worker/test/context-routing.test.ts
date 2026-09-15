@@ -8,19 +8,27 @@ import {
 } from "../src/worker";
 
 describe("OpenTeam-style runtime context routing", () => {
-  test("uses the member home context for groups, DM, A2A, routines, bootstrap, and subagents", () => {
+  test("isolates each room for groups, DM, A2A, bootstrap, and events", () => {
     const conversationId = crypto.randomUUID();
     const groupId = crypto.randomUUID();
     expect(contextScopeForRun("group", groupId, conversationId)).toEqual({
-      scope: "home",
-      scopeId: conversationId,
+      scope: "channel",
+      scopeId: groupId,
     });
-    for (const origin of ["user", "agent", "routine", "bootstrap", "event"] as const) {
+    for (const origin of ["user", "agent", "bootstrap", "event"] as const) {
       expect(contextScopeForRun(origin, groupId, conversationId)).toEqual({
-        scope: "home",
-        scopeId: conversationId,
+        scope: "channel",
+        scopeId: groupId,
       });
     }
+  });
+
+  test("isolates automation runs while continuations reuse the automation context", () => {
+    const conversation = crypto.randomUUID(), first = crypto.randomUUID(), second = crypto.randomUUID();
+    expect(contextScopeForRun("routine", null, conversation, first)).toEqual({ scope: "automation", scopeId: first });
+    expect(contextScopeForRun("routine", null, conversation, second).scopeId).not.toBe(first);
+    expect(() => contextScopeForRun("routine", null, conversation)).toThrow("own context run ID");
+    expect(contextScopeForRun("background_revival", null, conversation, first).scopeId).toBe(conversation);
   });
 
   test("does not let a malformed group channel change the member home context", () => {

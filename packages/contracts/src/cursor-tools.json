@@ -50,7 +50,7 @@
     },
     {
       "tool": "CheckSubagent",
-      "description": "Check how a background subagent you dispatched (via Task) is doing without waiting for it to finish. Returns its status, how long it has been running, the tool calls it has made recently, and a path to its live transcript you can Read for the full play-by-play. Pass the subagent's Agent ID (from the Task result), or omit it to list every running subagent. Use this when a subagent — especially a computerUse one driving the box desktop — is taking a long time or might be stuck or looping, so you can decide whether to MessageSubagent it or StopSubagent it. This is read-only; it's not polling for completion (you're revived automatically when a subagent finishes).",
+      "description": "Check how a background subagent you dispatched (via Task) is doing without waiting for it to finish. Returns its status, how long it has been running, the tool calls it has made recently, and a path to its live transcript you can Read for the full play-by-play. Pass the subagent's Agent ID (from the Task result), or omit it to list every running subagent. Use this when a subagent \u2014 especially a computerUse one driving the box desktop \u2014 is taking a long time or might be stuck or looping, so you can decide whether to MessageSubagent it or StopSubagent it. This is read-only; it's not polling for completion (you're revived automatically when a subagent finishes).",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -63,7 +63,7 @@
     },
     {
       "tool": "CreateAgent",
-      "description": "Create a new agent (a new teammate assistant) for your user, with a name and an optional persona/description. Returns the new agent's id so you can immediately message it with SendToAgent. Use this to spin up a focused teammate for a job. You have no tool to delete an agent, so only create one when it is genuinely useful; the user can delete an agent themselves from the sidebar (right-click the agent → \"Delete\").",
+      "description": "Create a new agent (a new teammate assistant) for your user, with a name and an optional persona/description. Returns the new agent's id so you can immediately message it with SendToAgent. Use this to spin up a focused teammate for a job. You have no tool to delete an agent, so only create one when it is genuinely useful; the user can delete an agent themselves from the sidebar (right-click the agent \u2192 \"Delete\").",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -89,7 +89,7 @@
     },
     {
       "tool": "CreateChannel",
-      "description": "Create a channel — a named group chat of one or more of your user's agents — and get its id back. Post into it afterwards with SendToAgent using that id; every member sees the post and can reply into the channel. You have no tool to delete a channel, so only create one the user actually needs; the user can delete it from the sidebar. Creating a channel is a real side effect the user sees in their sidebar — do it when the user asked for a room or a task genuinely needs a standing group, never speculatively. Include your own id in member_ids if you should take part: membership is what lets you post into a channel and change it with UpdateChannel later.",
+      "description": "Create a channel \u2014 a named group chat of one or more of your user's agents \u2014 and get its id back. Post into it afterwards with SendToAgent using that id; every member sees the post and can reply into the channel. You have no tool to delete a channel, so only create one the user actually needs; the user can delete it from the sidebar. Creating a channel is a real side effect the user sees in their sidebar \u2014 do it when the user asked for a room or a task genuinely needs a standing group, never speculatively. Include your own id in member_ids if you should take part: membership is what lets you post into a channel and change it with UpdateChannel later.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -105,7 +105,7 @@
               "minLength": 1
             },
             "minItems": 1,
-            "description": "The agent ids to seat in the channel, up to 6. Use ids from your teammates list — not names — and never a channel id (channels cannot nest)."
+            "description": "The agent ids to seat in the channel, up to 6. Use ids from your teammates list \u2014 not names \u2014 and never a channel id (channels cannot nest)."
           }
         },
         "required": [
@@ -158,14 +158,14 @@
     },
     {
       "tool": "SendToAgent",
-      "description": "Send a message to ANOTHER of your user's agents, OR post into a GROUP chat you belong to, by its id (not the user — SendToUser is how you reach the user). This is FIRE-AND-FORGET and asynchronous, like texting: it delivers your message, wakes that agent (or the group's members), and returns immediately with a delivery acknowledgement. Peer messages run ahead of routines and other background work; pass priority=true on a 1:1 send to interrupt the recipient's current non-user turn (STOP / supersede), like a direct user message (ignored for groups). It does NOT return their reply, and you must not wait or poll for one in this turn — send it and move on. Any reply arrives later as its own message that wakes you on a fresh turn. Get agent ids from your teammates list or ListAgents, and group ids from ListGroups. To include image(s) — a screenshot, chart, or photo the other agent needs — pass images: [{\"url\":\"file:///absolute/path/to/shot.png\",\"alt\":\"...\"}] (file:// or https://). A 1:1 recipient actually sees them, like an image the user sends; never paste an image as a markdown ![](...) in the message text. Group posts are text-only today, so send images to an agent directly. Use it deliberately and sparingly — waking another agent or a whole group is a real side effect, so treat it like messaging on the user's behalf. Message someone or post to a group only when it truly serves the user's goal, not because one was mentioned or complained about, and don't spam a group. Never relay the user's private or unfiltered words (especially a complaint or criticism) verbatim; if relaying is warranted, paraphrase the actionable point diplomatically, not their tone. If you're unsure the user wants this sent, handle it yourself or ask first. Keep the message purposeful, professional, and minimal. One clearly relevant recipient can be normal work; messaging SEVERAL agents about the same effort (or posting it to a group) is a fan-out that wakes every recipient, and their replies land back in the user's chats and rooms — so fan out only when the user explicitly asked you to contact those agents. Otherwise propose it first with a question widget and wait for a yes, and never fan out \"meanwhile\" while you're waiting on the user for data or a decision.",
+      "description": "Send a message to ANOTHER of your user's agents, OR post into a GROUP chat you belong to, by its id (not the user \u2014 SendToUser is how you reach the user). This is FIRE-AND-FORGET and asynchronous, like texting: it delivers your message, wakes that agent (or the group's members), and returns immediately with a delivery acknowledgement. Peer messages run ahead of routines and other background work; pass priority=true on a 1:1 send to interrupt the recipient's current non-user turn (STOP / supersede), like a direct user message (ignored for groups). It does NOT return their reply, and you must not wait or poll for one in this turn \u2014 send it and move on. Any reply arrives later as its own message that wakes you on a fresh turn. Get agent ids from your teammates list or ListAgents, and group ids from ListGroups. To include image(s) \u2014 a screenshot, chart, or photo the other agent needs \u2014 pass images: [{\"url\":\"file:///absolute/path/to/shot.png\",\"alt\":\"...\"}] (file:// or https://). A 1:1 recipient actually sees them, like an image the user sends; never paste an image as a markdown ![](...) in the message text. Group posts are text-only today, so send images to an agent directly. Use it deliberately and sparingly \u2014 waking another agent or a whole group is a real side effect, so treat it like messaging on the user's behalf. Message someone or post to a group only when it truly serves the user's goal, not because one was mentioned or complained about, and don't spam a group. Never relay the user's private or unfiltered words (especially a complaint or criticism) verbatim; if relaying is warranted, paraphrase the actionable point diplomatically, not their tone. If you're unsure the user wants this sent, handle it yourself or ask first. Keep the message purposeful, professional, and minimal. One clearly relevant recipient can be normal work; messaging SEVERAL agents about the same effort (or posting it to a group) is a fan-out that wakes every recipient, and their replies land back in the user's chats and rooms \u2014 so fan out only when the user explicitly asked you to contact those agents. Otherwise propose it first with a question widget and wait for a yes, and never fan out \"meanwhile\" while you're waiting on the user for data or a decision.",
       "inputSchema": {
         "type": "object",
         "properties": {
           "target_id": {
             "type": "string",
             "minLength": 1,
-            "description": "The id of the target — either another agent or a GROUP you belong to. Use an id from your teammates list, ListAgents, or ListGroups — not a name."
+            "description": "The id of the target \u2014 either another agent or a GROUP you belong to. Use an id from your teammates list, ListAgents, or ListGroups \u2014 not a name."
           },
           "message": {
             "type": "string",
@@ -191,11 +191,11 @@
                 "url"
               ]
             },
-            "description": "Optional image(s) to send with the message — a screenshot, chart, or photo the other agent needs. Delivered with your message: a 1:1 recipient actually sees them (like an image the user sends), and they render with your text in the exchange. Not delivered to groups."
+            "description": "Optional image(s) to send with the message \u2014 a screenshot, chart, or photo the other agent needs. Delivered with your message: a 1:1 recipient actually sees them (like an image the user sends), and they render with your text in the exchange. Not delivered to groups."
           },
           "priority": {
             "type": "boolean",
-            "description": "When true (1:1 only; ignored for groups), interrupt the recipient's current non-user work and wake them immediately — same steer as a direct user message. Use for STOP / supersede / time-critical instructions. Default false: waits out the current turn, but still runs ahead of routines and other background work."
+            "description": "When true (1:1 only; ignored for groups), interrupt the recipient's current non-user work and wake them immediately \u2014 same steer as a direct user message. Use for STOP / supersede / time-critical instructions. Default false: waits out the current turn, but still runs ahead of routines and other background work."
           }
         },
         "required": [
@@ -206,7 +206,7 @@
     },
     {
       "tool": "MessageSubagent",
-      "description": "Force a message into a running background subagent to course-correct it without aborting it. The subagent interrupts its current step, reads your message, and continues from where it was (its context is preserved — it does not start over). Use this to unstick or redirect a subagent that is looping, stuck, or heading the wrong way — for example to tell a computerUse subagent to try a different element, that the user just signed in so it can proceed, or to wrap up and report what it has. Pass the subagent's Agent ID (from the Task result). You're still revived with its result when it finishes; to follow up AFTER a subagent has already finished, use Task with the resume parameter instead.",
+      "description": "Force a message into a running background subagent to course-correct it without aborting it. The subagent interrupts its current step, reads your message, and continues from where it was (its context is preserved \u2014 it does not start over). Use this to unstick or redirect a subagent that is looping, stuck, or heading the wrong way \u2014 for example to tell a computerUse subagent to try a different element, that the user just signed in so it can proceed, or to wrap up and report what it has. Pass the subagent's Agent ID (from the Task result). You're still revived with its result when it finishes; to follow up AFTER a subagent has already finished, use Task with the resume parameter instead.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -229,7 +229,7 @@
     },
     {
       "tool": "StopSubagent",
-      "description": "Abort a running background subagent you dispatched (via Task). Use this to kill a subagent that is wedged, looping with no progress, or no longer needed — for example a computerUse subagent stuck on the box desktop. This tears the subagent down and frees its box desktop window; it does not come back, and you are not separately revived for it (this tool's result is the confirmation). If you instead want it to change course and keep going, use MessageSubagent. Pass the subagent's Agent ID (from the Task result).",
+      "description": "Abort a running background subagent you dispatched (via Task). Use this to kill a subagent that is wedged, looping with no progress, or no longer needed \u2014 for example a computerUse subagent stuck on the box desktop. This tears the subagent down and frees its box desktop window; it does not come back, and you are not separately revived for it (this tool's result is the confirmation). If you instead want it to change course and keep going, use MessageSubagent. Pass the subagent's Agent ID (from the Task result).",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -301,19 +301,38 @@
       "inputSchema": {
         "type": "object",
         "properties": {
-          "reason": {
+          "instruction": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 1000,
-            "description": "A concise explanation of the human-only step that is blocking progress."
+            "description": "A short instruction shown over the box and in chat, addressed to the user (e.g. \"Sign in to your Google account\", \"Approve the 2FA prompt\"). Keep it to one line; no explanatory paragraph."
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "auth",
+              "captcha",
+              "payment",
+              "other"
+            ],
+            "description": "Why the user is needed: \"auth\" for any sign-in step (login, SSO, passkey, 2FA), \"captcha\" for a puzzle or image captcha (a press-and-hold button is a mouse hold the subagent does itself), \"payment\", or \"other\"."
+          },
+          "domain": {
+            "type": "string",
+            "description": "Destination app/site the user is trying to access (e.g. \"salesforce.com\", \"google.com\"). On a normal login page this is the browser-bar host. On an SSO/IdP page (Okta, Google accounts, Azure AD, \u2026) this is the *destination* app that started SSO \u2014 NOT the IdP host (put that in idp_domain). Omit when unknown or the step is not on a website."
+          },
+          "idp_domain": {
+            "type": "string",
+            "description": "When the browser is on an SSO/IdP page, the IdP host from the URL bar (e.g. \"anysphere.okta.com\", \"accounts.google.com\", \"login.microsoftonline.com\"). Omit on a direct app login with no separate IdP."
           }
         },
-        "additionalProperties": false
+        "required": [
+          "instruction"
+        ]
       }
     },
     {
       "tool": "TodoWrite",
-      "description": "Your task queue: the durable list of everything the user has asked for, across all your parallel streams of work.\n\nWhen to use:\n- The moment a request arrives, record it as a todo before dispatching or starting it.\n- Update statuses in real time: in_progress when its work starts, completed the moment its result is delivered to the user, cancelled when the user drops it or changes their mind.\n- On every wake (a user message or a finished background task), reconcile the list first: what's running, what landed, what to dispatch next.\n\nStates and parallelism:\n- pending: not yet started. in_progress: actively being worked, by you or a background worker. completed: result delivered to the user. cancelled: no longer needed.\n- SEVERAL todos are normally in_progress at once — one per independent stream running in parallel (each dispatched worker, plus at most one thing you are doing inline). Never serialize independent streams just to keep a single one in_progress.\n- Keep the list current rather than perfect: cancel stale items instead of leaving them pending, and prune long-finished ones when the list gets noisy.\n\nSkip it for purely conversational replies and trivial one-step lookups you answer inline immediately.",
+      "description": "Your task queue: the durable list of everything the user has asked for, across all your parallel streams of work.\n\nWhen to use:\n- The moment a request arrives, record it as a todo before dispatching or starting it.\n- Update statuses in real time: in_progress when its work starts, completed the moment its result is delivered to the user, cancelled when the user drops it or changes their mind.\n- On every wake (a user message or a finished background task), reconcile the list first: what's running, what landed, what to dispatch next.\n\nStates and parallelism:\n- pending: not yet started. in_progress: actively being worked, by you or a background worker. completed: result delivered to the user. cancelled: no longer needed.\n- SEVERAL todos are normally in_progress at once \u2014 one per independent stream running in parallel (each dispatched worker, plus at most one thing you are doing inline). Never serialize independent streams just to keep a single one in_progress.\n- Keep the list current rather than perfect: cancel stale items instead of leaving them pending, and prune long-finished ones when the list gets noisy.\n\nSkip it for purely conversational replies and trivial one-step lookups you answer inline immediately.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -324,12 +343,10 @@
               "properties": {
                 "id": {
                   "type": "string",
-                  "maxLength": 120,
                   "description": "Unique identifier for the TODO item"
                 },
                 "content": {
                   "type": "string",
-                  "maxLength": 1000,
                   "description": "The description/content of the todo item"
                 },
                 "status": {
@@ -350,7 +367,6 @@
               ]
             },
             "minItems": 2,
-            "maxItems": 64,
             "description": "Array of TODO items to update or create"
           },
           "merge": {
@@ -391,7 +407,7 @@
     },
     {
       "tool": "UpdateChannel",
-      "description": "Add and/or remove member agents of an existing channel (a group chat) by its id. Only the ids you pass change; the rest of the roster stays exactly as it was, and a channel holds at most 6 members. A channel always keeps at least one member — a removal that would empty it is refused. Members you add see the channel in their next channel turn; removed members simply stop receiving its posts. You can only change channels you are currently a member of; any other channel is reported as not found.",
+      "description": "Add and/or remove member agents of an existing channel (a group chat) by its id. Only the ids you pass change; the rest of the roster stays exactly as it was, and a channel holds at most 6 members. A channel always keeps at least one member \u2014 a removal that would empty it is refused. Members you add see the channel in their next channel turn; removed members simply stop receiving its posts. You can only change channels you are currently a member of; any other channel is reported as not found.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -431,7 +447,7 @@
           "computer_path": {
             "type": "string",
             "minLength": 1,
-            "description": "Absolute path of the file to pull, on the selected user's computer. Any file type, up to 256 MiB; copied verbatim, so binaries and large files are safe — unlike reading then re-writing it as text."
+            "description": "Absolute path of the file to pull, on the selected user's computer. Any file type, up to 256 MiB; copied verbatim, so binaries and large files are safe \u2014 unlike reading then re-writing it as text."
           },
           "box_path": {
             "type": "string",
@@ -451,7 +467,7 @@
     },
     {
       "tool": "CopyFromBox",
-      "description": "Copy a file from your box to the selected user computer, verbatim. Defaults to its original filename in that computer’s working directory. Supports binary files up to 256 MiB. Requires local computer permission and Auto Review. Expand globs with Shell and pass a concrete file path. Transfers replace an existing destination atomically; incomplete uploads never replace it.",
+      "description": "Copy a file from your box to the selected user computer, verbatim. Defaults to its original filename in that computer\u2019s working directory. Supports binary files up to 256 MiB. Requires local computer permission and Auto Review. Expand globs with Shell and pass a concrete file path. Transfers replace an existing destination atomically; incomplete uploads never replace it.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -498,7 +514,7 @@
     },
     {
       "tool": "WebFetch",
-      "description": "Fetch a public HTTP(S) URL without browser state or credentials, and convert readable HTML into Markdown. Private/local addresses and private redirects are rejected. Returns up to 100000 characters inline and a box file for longer text. Download limit is 5 MiB. No JavaScript runs; use the browser for interactive or authenticated pages.",
+      "description": "Fetch a public HTTP(S) URL using the configured provider: built-in HTTP (no key), Exa Contents, or Tavily Extract. Returns source text/Markdown, a source URL, and a box file for content over 100000 characters. Private/local URLs and embedded URL credentials are rejected. Built-in HTTP pins redirects to public IPs and does not run JavaScript; remote extraction uses the provider\u2019s crawler. No authenticated browser state is used. Responses are limited to 5 MiB. Report missing keys and extraction failures accurately; there is no silent provider fallback.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -514,7 +530,7 @@
     },
     {
       "tool": "request_user_form",
-      "description": "Ask the user to complete a native form, then end this turn. Values go directly to the browser through the host; ALL submitted values are withheld from model messages. Supports 1–8 fields. Every secret requires a target; every target requires the exact destination domain (www and bare host are equivalent). The host preflights targets before displaying the card and verifies the host again at fill time. Use submitAfterFill only for a single code entry; it presses Enter only after successful fills. A failed fill may return HELD field IDs and a fresh structural snapshot. Users may opt into encrypted nonsecret vault prefill; extra_key names an exact shared extra field, while usernames remain site scoped.",
+      "description": "Ask the user to complete a native form, then end this turn. Values go directly to the browser through the host; ALL submitted values are withheld from model messages. Supports 1\u20138 fields. Every secret requires a target; every target requires the exact destination domain (www and bare host are equivalent). The host preflights targets before displaying the card and verifies the host again at fill time. Use submitAfterFill only for a single code entry; it presses Enter only after successful fills. A failed fill may return HELD field IDs and a fresh structural snapshot. Users may opt into encrypted nonsecret vault prefill; extra_key names an exact shared extra field, while usernames remain site scoped.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -540,7 +556,7 @@
           },
           "domain": {
             "type": "string",
-            "description": "Destination site the values are filled into, from the browser bar (e.g. \"acme.com\"). The host resolves the live open tab under this domain, shows that exact host to the user on the card, and ENFORCES it — at submit time values fill only a page on that exact host (www and the bare domain count as the same host; other subdomains do not), otherwise nothing is filled and every targeted field comes back fillFailed. REQUIRED whenever any field is secret (password/otp or secret:true) or carries a fill target: nothing is ever filled into an unverified page. Omit only for target-less, secret-free forms when the site is genuinely unknown — the card then warns and steers toward the box screen."
+            "description": "Destination site the values are filled into, from the browser bar (e.g. \"acme.com\"). The host resolves the live open tab under this domain, shows that exact host to the user on the card, and ENFORCES it \u2014 at submit time values fill only a page on that exact host (www and the bare domain count as the same host; other subdomains do not), otherwise nothing is filled and every targeted field comes back fillFailed. REQUIRED whenever any field is secret (password/otp or secret:true) or carries a fill target: nothing is ever filled into an unverified page. Omit only for target-less, secret-free forms when the site is genuinely unknown \u2014 the card then warns and steers toward the box screen."
           },
           "fields": {
             "type": "array",
@@ -632,12 +648,12 @@
                     "kind",
                     "value"
                   ],
-                  "description": "Where the host writes the value in the box browser. Values are write-only — nothing comes back on the receipt — so a field without a target is never filled anywhere; give a target to every field whose value the page needs. Required for secret fields (a secret with nowhere to go would be lost). Any target requires the form to claim the destination domain."
+                  "description": "Where the host writes the value in the box browser. Values are write-only \u2014 nothing comes back on the receipt \u2014 so a field without a target is never filled anywhere; give a target to every field whose value the page needs. Required for secret fields (a secret with nowhere to go would be lost). Any target requires the form to claim the destination domain."
                 },
                 "extra_key": {
                   "type": "string",
                   "maxLength": 255,
-                  "description": "Vault key for leftover (\"extra\") fields — see the \"Vault extras\" section of this tool's description. Set it on every leftover field: saved values are shared across sites by this exact key, so reuse the saved key naming the same fact rather than inventing a synonym. Ignored on name/email/phone/address fields, refused on anything secret-shaped, and username-shaped fields are keyed per site no matter what you pass."
+                  "description": "Vault key for leftover (\"extra\") fields \u2014 see the \"Vault extras\" section of this tool's description. Set it on every leftover field: saved values are shared across sites by this exact key, so reuse the saved key naming the same fact rather than inventing a synonym. Ignored on name/email/phone/address fields, refused on anything secret-shaped, and username-shaped fields are keyed per site no matter what you pass."
                 }
               },
               "required": [
@@ -652,7 +668,7 @@
           },
           "submitAfterFill": {
             "type": "boolean",
-            "description": "When true, after the fills succeed the host ALSO submits the page by pressing Enter in the filled field (the same Enter-submit browser_type's submit flag uses). Default false/omitted: the host only fills and never touches the site's submit control — you click it yourself after resuming. This is ONLY for one-shot code steps where Enter-submit is the whole action and staleness is the real risk (an OTP / verification-code prompt is the canonical case), and the host ENFORCES that scope: the form must claim a domain and carry exactly ONE targeted single-line text field (the code), the card discloses the submit to the user, and the Enter press runs only when every targeted fill succeeded. Leave it off for logins, checkout, and anything where submitting has side effects worth verifying first — a multi-field form with submitAfterFill is rejected, and so is one whose field looks like payment or government-ID data (card number, CVV, SSN, IBAN, ...). The receipt reports whether the submit was attempted and whether it succeeded."
+            "description": "When true, after the fills succeed the host ALSO submits the page by pressing Enter in the filled field (the same Enter-submit browser_type's submit flag uses). Default false/omitted: the host only fills and never touches the site's submit control \u2014 you click it yourself after resuming. This is ONLY for one-shot code steps where Enter-submit is the whole action and staleness is the real risk (an OTP / verification-code prompt is the canonical case), and the host ENFORCES that scope: the form must claim a domain and carry exactly ONE targeted single-line text field (the code), the card discloses the submit to the user, and the Enter press runs only when every targeted fill succeeded. Leave it off for logins, checkout, and anything where submitting has side effects worth verifying first \u2014 a multi-field form with submitAfterFill is rejected, and so is one whose field looks like payment or government-ID data (card number, CVV, SSN, IBAN, ...). The receipt reports whether the submit was attempted and whether it succeeded."
           }
         },
         "required": [
@@ -710,7 +726,7 @@
             },
             "minItems": 1,
             "maxItems": 8,
-            "description": "One entry per held field you can place on the live page: fieldId → its new target. Fields you leave out are dropped (their held values are discarded). Never include a value."
+            "description": "One entry per held field you can place on the live page: fieldId \u2192 its new target. Fields you leave out are dropped (their held values are discarded). Never include a value."
           }
         },
         "required": [
@@ -744,7 +760,7 @@
           },
           "from": {
             "type": "string",
-            "description": "Required when platform is email. The exact email address the chosen account sends from, shown on the card's From row — a plain address like ariel@acme.com, never a display name and never guessed. If you don't already know it, read it from the mailbox first: call the Gmail connector's search_threads with query \"in:sent\" and use a returned message's sender field."
+            "description": "Required when platform is email. The exact email address the chosen account sends from, shown on the card's From row \u2014 a plain address like ariel@acme.com, never a display name and never guessed. If you don't already know it, read it from the mailbox first: call the Gmail connector's search_threads with query \"in:sent\" and use a returned message's sender field."
           },
           "to": {
             "type": "array",
@@ -752,7 +768,7 @@
               "type": "string",
               "minLength": 1
             },
-            "description": "Required when platform is email. The recipient(s), each a plain email address (\"user@example.com\" — the \"Name <user@example.com>\" form is not accepted)."
+            "description": "Required when platform is email. The recipient(s), each a plain email address (\"user@example.com\" \u2014 the \"Name <user@example.com>\" form is not accepted)."
           },
           "cc": {
             "type": "array",
@@ -776,7 +792,7 @@
           },
           "channelId": {
             "type": "string",
-            "description": "Required when platform is slack. The channel or DM conversation id the send is addressed to (e.g. C0123456789), resolved with the connector's search tools — never guessed."
+            "description": "Required when platform is slack. The channel or DM conversation id the send is addressed to (e.g. C0123456789), resolved with the connector's search tools \u2014 never guessed."
           },
           "threadTs": {
             "type": "string",
@@ -792,7 +808,7 @@
     },
     {
       "tool": "SendFeedback",
-      "description": "Stage the user’s explicit product feedback and reply preference for review. Nothing is sent until the user approves the exact text. Only the configured OpenTeam support destination receives it. Privacy settings can disable agent feedback. Five-minute rate limit; never retry an uncertain delivery automatically. Do not include code, credentials or connector content unless the user dictated it as feedback.",
+      "description": "Stage the user\u2019s explicit product feedback and reply preference for review. Nothing is sent until the user approves the exact text. Only the configured OpenTeam support destination receives it. Privacy settings can disable agent feedback. Five-minute rate limit; never retry an uncertain delivery automatically. Do not include code, credentials or connector content unless the user dictated it as feedback.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -999,6 +1015,25 @@
           "routines",
           "plugins"
         ]
+      }
+    },
+    {
+      "tool": "WakeParent",
+      "description": "Hand the complete outcome, question, or blocker from this automation to its parent agent, then immediately end this turn. Available only during an automation. The parent handles user-visible communication, messages to other agents, decisions, and review cards. Include everything the parent needs in message; no text after this call is delivered. If the saved instruction requires notifying the user, call this even on success. Otherwise finish with a concise final assistant result to save it silently for the parent at its next natural boundary. Retries do not create duplicate wakes.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200000,
+            "description": "Complete result or handoff, including what the parent should communicate or do."
+          }
+        },
+        "required": [
+          "message"
+        ],
+        "additionalProperties": false
       }
     }
   ]

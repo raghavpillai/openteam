@@ -1,4 +1,5 @@
 import { parseSkillMarkdown } from "./skill-markdown";
+import { parsePluginRuntimeComponents } from "./runtime-components";
 import { objectValue, parsePluginDefinition, safePackagePath } from "./manifest";
 import { isSecretKey } from "./configuration";
 import type {
@@ -62,13 +63,10 @@ export function importPackage(files: Record<string, string>): PackagePreview {
       ...definition.files,
       ...Object.fromEntries(Object.entries(files).filter(([path]) => path !== manifestPath)),
     };
-    return { definition: parsePluginDefinition(definition), warnings: [], format: "openteam" };
+    return { definition: parsePluginDefinition(definition), warnings: parsePluginRuntimeComponents(definition.files).warnings, format: "openteam" };
   }
-  const warnings = ["rules", "agents", "commands", "hooks"]
-    .filter(
-      (kind) => manifest[kind] || Object.keys(files).some((path) => path.startsWith(`${kind}/`))
-    )
-    .map((kind) => `${kind} are retained as package files but are not executed by OpenBot.`);
+  const runtimeComponents = parsePluginRuntimeComponents(files);
+  const warnings = runtimeComponents.warnings;
   const variableSchema = objectValue(manifest.variables);
   const required = Array.isArray(variableSchema.required) ? variableSchema.required : [];
   const setupFields: PluginField[] = Object.entries(objectValue(variableSchema.properties)).map(
@@ -169,13 +167,13 @@ export function importPackage(files: Record<string, string>): PackagePreview {
     publisher: author.name ?? "Unknown author",
     category: "Productivity",
     featured: false,
-    components: [...(connections.length ? ["mcp"] : []), ...(skills.length ? ["skills"] : [])],
+    components: [...(connections.length ? ["mcp"] : []), ...(skills.length ? ["skills"] : []), ...(["rules", "commands", "agents", "hooks"] as const).filter(kind => runtimeComponents[kind].length)],
     connections,
     skills,
     setupFields,
     sourceUrl: manifest.repository ?? null,
     homepageUrl: manifest.homepage ?? null,
-    files: Object.fromEntries(Object.entries(files).filter(([path]) => path !== manifestPath)),
+    files,
   });
   return {
     definition,

@@ -34,7 +34,7 @@ export async function loadShellEnvironment(
   return { path, environment };
 }
 
-export async function persistShellEnvironment(path: string, chunks: readonly Buffer[]) {
+export async function persistShellEnvironment(path: string, chunks: readonly Buffer[], excludedKeys: readonly string[] = []) {
   if (!chunks.length) return;
   const environment = Object.fromEntries(
     Buffer.concat(chunks)
@@ -45,6 +45,7 @@ export async function persistShellEnvironment(path: string, chunks: readonly Buf
         return equals > 0 ? [[entry.slice(0, equals), entry.slice(equals + 1)]] : [];
       })
   );
+  for (const key of excludedKeys) delete environment[key];
   const temporary = `${path}.${randomUUID()}.tmp`;
   await writeFile(temporary, JSON.stringify(environment), { mode: 0o600 });
   await rename(temporary, path);
@@ -63,12 +64,12 @@ export function createShellEnvironmentCapture(directory: string) {
         closeSync(fd);
       }
     },
-    async persist(destination: string) {
+    async persist(destination: string, excludedKeys: readonly string[] = []) {
       try {
         if ((await stat(path)).size > 4 * 1024 * 1024)
           throw new Error("Exported shell environment exceeds 4 MiB");
         const bytes = await readFile(path);
-        if (bytes.length) await persistShellEnvironment(destination, [bytes]);
+        if (bytes.length) await persistShellEnvironment(destination, [bytes], excludedKeys);
       } finally {
         await rm(path, { force: true });
       }

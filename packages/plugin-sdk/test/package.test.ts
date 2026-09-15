@@ -122,7 +122,7 @@ describe("portable plugin packages", () => {
       })
     ).toThrow("Secret defaults");
   });
-  test("reports unsupported Cursor components while retaining their files", () => {
+  test("retains Cursor hook configuration for runtime execution", () => {
     const { "plugin.json": manifest, ...rest } = files;
     const preview = importPackage({
       ...rest,
@@ -133,9 +133,8 @@ describe("portable plugin packages", () => {
       "hooks/hooks.json": "{}",
     });
     expect(preview.format).toBe("cursor-plugin");
-    expect(preview.warnings).toContain(
-      "hooks are retained as package files but are not executed by OpenBot."
-    );
+    expect(preview.warnings).toEqual([]);
+    expect(preview.definition.files?.["hooks/hooks.json"]).toBe("{}");
   });
 });
 

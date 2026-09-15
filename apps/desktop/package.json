@@ -6,11 +6,13 @@
   "devDependencies": {
     "@dnd-kit/dom": "^0.5.0",
     "@dnd-kit/react": "^0.5.0",
+    "@modelcontextprotocol/sdk": "1.30.0",
     "@openteam/client-core": "workspace:*",
     "@openteam/contracts": "workspace:*",
-    "@openteam/shell-jobs": "workspace:*",
     "@openteam/design-tokens": "workspace:*",
+    "@openteam/plugin-sdk": "workspace:*",
     "@openteam/product-core": "workspace:*",
+    "@openteam/shell-jobs": "workspace:*",
     "@shikijs/themes": "3.23.0",
     "@streamdown/cjk": "1.0.3",
     "@streamdown/math": "1.0.2",
@@ -20,6 +22,7 @@
     "@types/react": "19.2.8",
     "@types/react-dom": "19.2.3",
     "@vitejs/plugin-react": "6.1.0",
+    "bplist-parser": "0.3.2",
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",
     "concurrently": "10.0.5",
@@ -28,6 +31,7 @@
     "electron-updater": "^6.8.9",
     "emojibase-data": "^17.0.0",
     "katex": "0.16.47",
+    "libphonenumber-js": "1.13.13",
     "lucide-react": "1.34.0",
     "mammoth": "1.12.0",
     "pdfjs-dist": "5.4.296",
@@ -39,11 +43,11 @@
     "streamdown": "2.6.0",
     "tailwind-merge": "3.6.0",
     "tailwindcss": "4.3.3",
+    "tldts": "7.4.13",
     "use-stick-to-bottom": "1.1.6",
     "vite": "8.2.2",
     "wait-on": "9.1.0",
-    "xlsx": "file:../../vendor/sheetjs/xlsx-0.20.3.tgz",
-    "@openteam/plugin-sdk": "workspace:*"
+    "xlsx": "file:../../vendor/sheetjs/xlsx-0.20.3.tgz"
   },
   "build": {
     "appId": "dev.openteam.desktop",
@@ -68,7 +72,9 @@
       "identity": "-",
       "hardenedRuntime": false,
       "extendInfo": {
-        "NSMicrophoneUsageDescription": "OpenTeam uses the microphone when you record a voice note or test your input. Only voice notes are sent to your server for transcription."
+        "NSMicrophoneUsageDescription": "OpenTeam uses the microphone when you record a voice note or test your input. Only voice notes are sent to your server for transcription.",
+        "NSContactsUsageDescription": "OpenTeam searches Contacts when you allow a bot to find a person.",
+        "NSAppleEventsUsageDescription": "OpenTeam reads and sends Messages only after you approve the requested access or message."
       },
       "category": "public.app-category.productivity",
       "target": [
@@ -120,7 +126,8 @@
     "typecheck": "bun run scripts/check-renderer-boundary.ts && tsc -p tsconfig.json",
     "test": "bun test --pass-with-no-tests",
     "test:conversation-layout": "bun scripts/test-conversation-layout.ts",
-    "test:parity-review": "bun scripts/test-parity-review.ts"
+    "test:parity-review": "bun scripts/test-parity-review.ts",
+    "test:native:e2e": "bun test/host/fixtures/capability-integration.ts"
   },
   "type": "module"
 }

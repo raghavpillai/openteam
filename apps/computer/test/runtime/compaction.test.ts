@@ -81,6 +81,55 @@ for (const stopReason of ["error", "length", "aborted"] as const) {
   }
 }
 
+test("actual SDK distinguishes empty completions from streams without a finish reason", async () => {
+  for (const hasFinishReason of [true, false]) {
+    let fetchCalls = 0;
+    const completion = await streamSimple(
+      model,
+      { messages: [{ role: "user", content: "Summarize", timestamp: 1 }] },
+      {
+        apiKey: "synthetic-fixture",
+        maxRetries: 0,
+        fetch: (async () => {
+          fetchCalls += 1;
+          const chunk = {
+            id: "fixture",
+            object: "chat.completion.chunk",
+            created: 1,
+            model: model.id,
+            choices: hasFinishReason
+              ? [{ index: 0, delta: { role: "assistant", content: "" }, finish_reason: "stop" }]
+              : [],
+            usage: { prompt_tokens: 100, completion_tokens: 10, total_tokens: 110 },
+          };
+          return new Response(`data: ${JSON.stringify(chunk)}\n\ndata: [DONE]\n\n`, {
+            headers: { "content-type": "text/event-stream" },
+          });
+        }) as unknown as typeof fetch,
+      }
+    ).result();
+    expect(fetchCalls).toBe(1);
+    expect(completion.content).toEqual([]);
+    expect(completion.usage.totalTokens).toBe(110);
+    expect(completion.stopReason).toBe(hasFinishReason ? "stop" : "error");
+    const inference = inferCompaction(
+      { completeSimple: async () => completion } as unknown as ModelRuntime,
+      () => model,
+      () => [],
+      { modelRef, reasoning: "off" } as ActiveTurn,
+      request,
+      new AbortController().signal
+    );
+    if (hasFinishReason) {
+      // An empty successful completion reaches the immediate retry path with usage.
+      await expect(inference).resolves.toMatchObject({ text: "", usage: { totalTokens: 110 } });
+    } else {
+      // Pi exposes a failed assistant, not Grok's missing-assistant envelope.
+      await expect(inference).rejects.toThrow("Stream ended without finish_reason");
+    }
+  }
+});
+
 test("summary requests retain original system authority, transform Pi custom messages, and never execute tools", async () => {
   let captured: any;
   let executed = false;

@@ -1,3 +1,4 @@
+import { describeOutputLocation } from "@openteam/contracts/reference-formatters";
 import { SearchProviderClient } from "./search-provider";
 import { lookup } from "node:dns/promises";
 // The explicit entry avoids Bun's incomplete built-in `undici` shim.
@@ -5,7 +6,9 @@ import { Client } from "undici/index.js";
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { gunzipSync, inflateSync, brotliDecompressSync } from "node:zlib";
-import ipaddr from "ipaddr.js";
+import { publicWebUrl, isPublicAddress } from "./public-web-url";
+export { publicWebUrl, isPublicAddress } from "./public-web-url";
+import { FetchProviderClient } from "./fetch-provider";
 import { parseHTML } from "linkedom";
 import { Readability } from "@mozilla/readability";
 import TurndownService from "turndown";
@@ -14,30 +17,6 @@ import { agentFileIO } from "./agent-file-io";
 const MAX_DOWNLOAD = 5 * 1024 * 1024;
 export const WEB_INLINE_CHARACTERS = 100_000;
 
-export function isPublicAddress(value: string): boolean {
-  try {
-    return ipaddr.process(value).range() === "unicast";
-  } catch {
-    return false;
-  }
-}
-
-export function publicWebUrl(value: string): URL {
-  const url = new URL(value);
-  if (!["http:", "https:"].includes(url.protocol) || url.username || url.password)
-    throw new Error("WebFetch requires an unauthenticated HTTP(S) URL");
-  const host = url.hostname.replace(/^\[|\]$/g, "");
-  if (
-    !host ||
-    host === "localhost" ||
-    host.endsWith(".localhost") ||
-    host.endsWith(".local") ||
-    (ipaddr.isValid(host) && !isPublicAddress(host))
-  )
-    throw new Error("Private and local network destinations are not allowed");
-  return url;
-}
-
 /** Resolve, validate, and pin the socket address on every redirect. No cookies,
  * credentials, proxy environment, browser state, scripts or subresources. */
 export async function publicWebGet(
@@ -45,6 +24,7 @@ export async function publicWebGet(
   signal?: AbortSignal,
   redirects = 0
 ): Promise<{ url: string; bytes: Buffer; contentType: string }> {
+  signal?.throwIfAborted();
   if (redirects > 5) throw new Error("Too many redirects");
   const url = publicWebUrl(value);
   const hostname = url.hostname.replace(/^\[|\]$/g, "");
@@ -144,31 +124,59 @@ export function webMarkdown(html: string, url: string): string {
 }
 
 export class WebTools {
-  constructor(private readonly searchProvider = new SearchProviderClient()) {}
+  constructor(
+    private readonly searchProvider = new SearchProviderClient(),
+    private readonly fetchProvider = new FetchProviderClient()
+  ) {}
 
   async fetch(url: string, cwd: string, signal?: AbortSignal) {
-    const result = await publicWebGet(url, signal);
-    if (!/^(?:text\/|application\/(?:json|xml|xhtml\+xml))/i.test(result.contentType))
-      throw new Error(
-        `WebFetch received ${result.contentType || "an unknown binary content type"}; download this file with Shell instead`
-      );
-    const content = /html/i.test(result.contentType)
-      ? webMarkdown(result.bytes.toString("utf8"), result.url)
-      : result.bytes.toString("utf8");
-    let text = `# Content from ${result.url}\n\n${content}`;
+    try { return await this.fetchContent(url, cwd, signal); }
+    catch (error) { if (signal?.aborted) throw error; return { content: [{ type: "text" as const, text: `Error fetching URL ${url}: ${error instanceof Error ? error.message : String(error)}` }], details: { url, error: true, configured: undefined } }; }
+  }
+  private async fetchContent(url: string, cwd: string, signal?: AbortSignal) {
+    const provided = await this.fetchProvider.fetch(url, signal);
+    if (!provided.configured)
+      return {
+        content: [{ type: "text" as const, text: provided.message }],
+        details: { configured: false, provider: provided.provider, url },
+      };
+    let content: string;
+    let resultUrl: string;
+    if (provided.provider === "builtin") {
+      const result = await publicWebGet(url, signal);
+      if (!/^(?:text\/|application\/(?:json|xml|xhtml\+xml))/i.test(result.contentType))
+        throw new Error(
+          `WebFetch received ${result.contentType || "an unknown binary content type"}; download this file with Shell instead`
+        );
+      content = /html/i.test(result.contentType)
+        ? webMarkdown(result.bytes.toString("utf8"), result.url)
+        : result.bytes.toString("utf8");
+      resultUrl = result.url;
+    } else {
+      content = provided.text;
+      resultUrl = provided.url;
+    }
+    let text = `# Content from ${resultUrl}\n\n${content}`;
     let outputPath: string | undefined;
     if (text.length > WEB_INLINE_CHARACTERS) {
       outputPath = resolve(cwd, ".openteam", "web", `${randomUUID()}.md`);
       await agentFileIO("write", outputPath, signal, Buffer.from(text));
-      text = `${text.slice(0, WEB_INLINE_CHARACTERS)}\n\n[Content truncated. Full content: ${outputPath}]`;
+      text = describeOutputLocation({ filePath: outputPath, sizeBytes: Buffer.byteLength(text), lineCount: text.split("\n").length }, {});
     }
     return {
       content: [{ type: "text" as const, text }],
-      details: { url: result.url, outputPath, characters: content.length },
+      details: {
+        configured: true,
+        provider: provided.provider,
+        url: resultUrl,
+        outputPath,
+        characters: content.length,
+      },
     };
   }
 
-  search(searchTerm: string, signal?: AbortSignal) {
-    return this.searchProvider.search(searchTerm, signal);
+  async search(searchTerm: string, signal?: AbortSignal) {
+    try { return await this.searchProvider.search(searchTerm, signal); }
+    catch (error) { if (signal?.aborted) throw error; return { content: [{ type: "text" as const, text: `Error: ${error instanceof Error ? error.message : String(error)}` }], details: { error: true } }; }
   }
 }

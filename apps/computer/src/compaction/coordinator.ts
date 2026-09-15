@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { BotNoSummaryResponseError } from "./response";
 import type { BotCompactionArchiveStore } from "./archive";
 import {
   BOT_IMAGE_TRIGGER,
@@ -39,17 +40,44 @@ const addSummaryUsage = (
   previous: BotSummaryUsage | undefined,
   current: BotSummaryUsage
 ): BotSummaryUsage => {
-  const sumFields = (left: Record<string, unknown>, right: Record<string, unknown>, keys: string[]) => {
+  const sumFields = (
+    left: Record<string, unknown>,
+    right: Record<string, unknown>,
+    keys: string[]
+  ) => {
     const sum = { ...left, ...right };
     for (const key of keys) {
-      const a = left[key], b = right[key];
-      if (typeof a === "number" && Number.isFinite(a) && typeof b === "number" && Number.isFinite(b)) sum[key] = a + b;
+      const a = left[key],
+        b = right[key];
+      if (
+        typeof a === "number" &&
+        Number.isFinite(a) &&
+        typeof b === "number" &&
+        Number.isFinite(b)
+      )
+        sum[key] = a + b;
     }
     return sum;
   };
-  const result = sumFields(previous ?? {}, current, ["input", "output", "cacheRead", "cacheWrite", "totalTokens"]);
-  if (previous?.cost && typeof previous.cost === "object" && current.cost && typeof current.cost === "object") {
-    result.cost = sumFields(previous.cost as Record<string, unknown>, current.cost as Record<string, unknown>, ["input", "output", "cacheRead", "cacheWrite", "total"]);
+  const result = sumFields(previous ?? {}, current, [
+    "input",
+    "output",
+    "cacheRead",
+    "cacheWrite",
+    "reasoning",
+    "totalTokens",
+  ]);
+  if (
+    previous?.cost &&
+    typeof previous.cost === "object" &&
+    current.cost &&
+    typeof current.cost === "object"
+  ) {
+    result.cost = sumFields(
+      previous.cost as Record<string, unknown>,
+      current.cost as Record<string, unknown>,
+      ["input", "output", "cacheRead", "cacheWrite", "total"]
+    );
   }
   return result as BotSummaryUsage;
 };
@@ -401,10 +429,19 @@ export class BotCompactionCoordinator {
     const imageCount = countBotImages(messages);
     const turnCount = countBotTurns(messages);
     const usedTokens = await this.usedTokens(input, messages);
+    // The active generic orchestrator ORs its background gate with the
+    // self-summary gate, which floors 90% of the window. Persistence keeps
+    // the background arithmetic, so a fractional window can launch one token
+    // before it becomes eligible for mid-loop adoption.
+    const reachesSelfSummaryLimit =
+      Number.isFinite(input.maxTokens) &&
+      input.maxTokens > 0 &&
+      usedTokens >= Math.floor(input.maxTokens * 0.9);
     const reason: BotCompactionReason | null =
       imageCount >= BOT_IMAGE_TRIGGER
         ? "approaching_image_limit"
-        : shouldStartBotSummary(usedTokens, input.maxTokens, input.earlyThreshold)
+        : shouldStartBotSummary(usedTokens, input.maxTokens, input.earlyThreshold) ||
+            reachesSelfSummaryLimit
           ? "approaching_token_limit"
           : null;
     const existing = this.pending.get(input.contextSessionId);
@@ -511,7 +548,7 @@ export class BotCompactionCoordinator {
         // text is empty. Failed requests with no reported usage remain unknown.
         if (result.usage) usage = addSummaryUsage(usage, result.usage);
         if (!result.text.trim()) {
-          lastError = new Error("Self-summary returned no content");
+          lastError = new Error("[self-summary] all retries exhausted without valid content");
           if (attempt === 2) break;
           // Empty output retries immediately with the CURRENT input/instruction.
           continue;
@@ -520,6 +557,10 @@ export class BotCompactionCoordinator {
       } catch (error) {
         lastError = error;
         if (signal.aborted) throw new DOMException("Compaction aborted", "AbortError");
+        // This typed failure came from a completed, non-error envelope. Its
+        // usage was reported before the missing-assistant validation failed.
+        if (error instanceof BotNoSummaryResponseError && error.usage)
+          usage = addSummaryUsage(usage, error.usage);
         // The active generic factory enables this; the shared helper's default
         // alone does not describe the wired SelfSummarizer configuration.
         const directive = botSummaryRetryDirective(error, { retryNoSummaryResponse: true });
@@ -597,6 +638,11 @@ export class BotCompactionCoordinator {
         pending.controller?.abort();
         this.pending.delete(input.contextSessionId);
       }
+      // Pi keeps the system prompt separately. Explicit generation has the same
+      // minimum input contract as the generic SelfSummarizer, before filtering.
+      const messageCount = 1 + current.filter((message) => message.role !== "system").length;
+      if (messageCount < 3)
+        throw new Error(`Self-summary requires at least 3 messages, got ${messageCount}`);
       const partition = partitionForBotSummary(current);
       if (!partition) return null;
       const forced = this.forcedReasons.get(input.contextSessionId);

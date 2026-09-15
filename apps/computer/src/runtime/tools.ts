@@ -1,7 +1,20 @@
+import { describeOutputLocation, buildUserFormRemapReceipt } from "@openteam/contracts/reference-formatters";
+import { renderDesktopResult, renderControlResult } from "@openteam/contracts/tool-results";
+import { describeUploadFileOutcome, describeDownloadFileOutcome, formatCookieOriginApprovalOutcome } from "@openteam/contracts/reference-formatters";
+import { parseReferenceArguments } from "@openteam/contracts/reference-parsers";
 import { HostShellCompletions } from "../host-shell-completions";
+import { expandPluginAgent } from "./plugin-components";
+import { CONNECTOR_TRANSFER_TOOLS, CONNECTOR_TRANSFER_MAX_BYTES, parseConnectorTransfer } from "@openteam/contracts/connector-transfers";
+import { createHash } from "node:crypto";
+import { DESKTOP_CAPABILITY_TOOLS } from "@openteam/contracts/desktop-capabilities";
+import { agentFileIO } from "../agent-file-io";
+import { boundToolImage } from "./image-input";
+import { redactSecrets } from "@openteam/shell-jobs";
+import { validateProcessSecretName } from "@openteam/contracts";
 import { type AgentToolResult, defineTool } from "@earendil-works/pi-coding-agent";
 import {
   AwaitShellInput,
+  AUTOMATION_PARENT_ONLY_TOOLS,
   type ApprovalDecision,
   CALL_DYNAMIC_TOOL_TOOL,
   CallDynamicToolInput,
@@ -33,12 +46,13 @@ import {
 } from "@openteam/contracts";
 import { Schema } from "effect";
 import { parseHostAwaitShellRequest } from "@openteam/contracts/service-protocol";
-import { mkdir, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, writeFile, realpath } from "node:fs/promises";
+import { join, basename, resolve, dirname, sep } from "node:path";
 import { Type } from "typebox";
 import { BROWSER_USE_TOOLS, BrowserUseSession } from "../browser/use";
 import {
   discoverDynamicTools,
+  renderDynamicDiscovery,
   type DynamicNamespaceDefinition,
   resolveDynamicTool,
 } from "../dynamic-tool-gateway";
@@ -52,24 +66,16 @@ import type { ScreenBroker } from "../screen-broker";
 import { dynamicCatalog } from "./dynamic-catalog";
 import { WebTools } from "../web-tools";
 import { SearchProviderClient } from "../search-provider";
-import { serverSearchConfiguration } from "../search-settings";
+import { FetchProviderClient } from "../fetch-provider";
+import { serverSearchConfiguration, serverFetchConfiguration } from "../search-settings";
 import { UserFormHost, type FormBrowser, type FormPageBinding } from "../user-form-host";
 import type { ActiveTurn, RuntimeDynamicTool } from "./types";
-
-export const OPENTEAM_DYNAMIC_DISCOVERY_DESCRIPTION =
-  "Discover and inspect tools available through OpenTeam dynamic namespaces. Search by namespace, exact tool name, or bounded regular-expression pattern. Catalog searches abbreviate long descriptions; exact lookups return complete public schemas. Always discover a tool before calling it with CallDynamicTool. The cursor namespace includes shell waits, tasks, web search and fetch, host file transfers, reviewed forms and external messages, bot recipes, feedback, agent and group lookup, plugin management, subagents, and agent and channel administration. Availability reflects this deployment and the current agent's permissions.";
-
-export const OPENTEAM_DYNAMIC_CALL_DESCRIPTION =
-  "Invoke one previously discovered tool from an authorized OpenTeam dynamic namespace. The gateway rechecks availability, validates nested arguments against the current schema, and reauthorizes the call at execution time.";
 
 export const GRAPHICAL_WORKER_SHELL_DESCRIPTION =
   "Executes a command in this worker's box with an optional foreground timeout. Use Shell for terminal operations and bulk file processing; use Read for reading, searching, or inspecting files. Run independent commands in parallel and chain dependent commands with &&. If shell text search is necessary, use rg rather than grep or find.";
 
 export const GRAPHICAL_WORKER_READ_DESCRIPTION =
   "Reads a file on the box, the same filesystem Shell acts on. Text files include line numbers and support offset/limit paging. Image files are returned inline, and PDF files are converted to text.";
-
-export const HOST_ROUTING_DESCRIPTION =
-  "By default this operates in the agent's isolated box. To target a user's connected computer, first call ListMachines and pass its exact machineId. Local-computer access is permission-gated and the requested command or file is shown to the user.";
 
 export const SUBAGENT_PRIVATE_NATIVE_TOOLS: ReadonlySet<string> = new Set([
   "RecallMemory",
@@ -85,6 +91,25 @@ export const LEGACY_EXTERNAL_NATIVE_TOOLS: ReadonlySet<string> = new Set([
 ]);
 
 export class RuntimeTools {
+  private readonly turnSecrets = new WeakMap<ActiveTurn, Record<string, string>>();
+
+  private async processSecrets(active: ActiveTurn, signal?: AbortSignal): Promise<Record<string, string>> {
+    const response = await fetch(`${this.serverUrl}/api/v0/internal/tools/call`, {
+      method: "POST", headers: { authorization: `Bearer ${this.controlToken}`, "content-type": "application/json" },
+      body: JSON.stringify({ runId: active.runId, botId: active.botId, conversationId: active.conversationId,
+        channelId: active.channelId, deliveryId: active.deliveryId, callId: `${active.runId}:process-secrets`, tool: "ReadProcessSecrets", arguments: {} }),
+      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(30_000)]) : AbortSignal.timeout(30_000),
+    });
+    if (!response.ok) throw new Error("Process credential configuration could not be loaded");
+    const result = await response.json() as { environment?: Record<string, unknown> };
+    if (!result.environment || typeof result.environment !== "object" || Array.isArray(result.environment)) throw new Error("Invalid process credential configuration");
+    const environment = Object.fromEntries(Object.entries(result.environment).map(([key, value]) => {
+      if (typeof value !== "string") throw new Error("Invalid process credential configuration");
+      return [validateProcessSecretName(key), value];
+    }));
+    this.turnSecrets.set(active, environment);
+    return environment;
+  }
   cancelApprovals(runId: string): void {
     for (const pending of this.pendingApprovals.values()) {
       if (pending.runId === runId) {
@@ -99,7 +124,10 @@ export class RuntimeTools {
     private readonly agentDir: string,
     private readonly workspaceRoot: string
   ) {
-    this.webTools = new WebTools(new SearchProviderClient(serverSearchConfiguration(serverUrl, controlToken)));
+    this.webTools = new WebTools(
+      new SearchProviderClient(serverSearchConfiguration(serverUrl, controlToken)),
+      new FetchProviderClient(serverFetchConfiguration(serverUrl, controlToken))
+    );
     this.userForms = new UserFormHost(join(agentDir, "private-user-forms"), (botId) => this.formBrowser(botId));
     const deliverShellCompletion = async (completion: import("@openteam/contracts").ShellCompletionInput) => {
       if (!completion.scope) return;
@@ -171,6 +199,7 @@ export class RuntimeTools {
     });
   }
 
+  private readonly privateBrowserValues = new Map<string, Set<string>>();
   private readonly browserUseSessions = new Map<string, BrowserUseSession>();
 
   private readonly pendingApprovals = new Map<
@@ -192,20 +221,12 @@ export class RuntimeTools {
       tool: (typeof NATIVE_TOOLS)[number],
       description: string = tool.description
     ) => {
-      const visibleDescription =
-        !active.subagentType && (tool.name === SHELL_TOOL.name || tool.name === READ_TOOL.name)
-          ? `${HOST_ROUTING_DESCRIPTION}\n\n${description}`
-          : description;
+      const visibleDescription = description;
       return defineTool({
         name: tool.name,
         label: tool.name,
-        description:
-          tool.name === GET_DYNAMIC_TOOLS_TOOL.name
-            ? OPENTEAM_DYNAMIC_DISCOVERY_DESCRIPTION
-            : tool.name === CALL_DYNAMIC_TOOL_TOOL.name
-              ? OPENTEAM_DYNAMIC_CALL_DESCRIPTION
-              : visibleDescription,
-        parameters: Type.Unsafe<Record<string, unknown>>(tool.inputSchema),
+        description: visibleDescription,
+        parameters: Type.Unsafe<Record<string, unknown>>(tool.name === "Task" && active.pluginRuntimePackages?.some(pkg => pkg.agents.length) ? { ...tool.inputSchema, properties: { ...(tool.inputSchema as any).properties, plugin_agent: { type: "string", description: "Installed plugin agent template, plugin:agent" } } } : tool.inputSchema),
         executionMode: (["Read", "Shell", "Screenshot", "GetDynamicTools", "CallDynamicTool", "RecallMemory", "ListSections"].includes(tool.name) ? "parallel" : "sequential") as "parallel" | "sequential",
         execute: (callId: string, args: unknown, signal?: AbortSignal) =>
           this.executeOpenTeamTool(active, callId, tool.name, args, signal),
@@ -251,7 +272,9 @@ export class RuntimeTools {
     }
     const availableNativeTools = NATIVE_TOOLS.filter(
       (tool) =>
+        (!active.readOnly || ["Read", "RecallMemory", "GetDynamicTools", "CallDynamicTool", "ListSections"].includes(tool.name)) &&
         !LEGACY_EXTERNAL_NATIVE_TOOLS.has(tool.name) &&
+        (active.requestSource !== "automation" || !AUTOMATION_PARENT_ONLY_TOOLS.has(tool.name)) &&
         (!active.subagentType || !SUBAGENT_PRIVATE_NATIVE_TOOLS.has(tool.name))
     );
     return availableNativeTools.map((tool) => native(tool));
@@ -264,7 +287,29 @@ export class RuntimeTools {
     args: unknown,
     signal?: AbortSignal
   ): Promise<AgentToolResult<Record<string, unknown>>> {
+    if (tool === "Task") args = expandPluginAgent(active.pluginRuntimePackages ?? [], args as Record<string, unknown>);
+    if (active.readOnly && !["Read", "RecallMemory", "GetDynamicTools", "CallDynamicTool", "ListSections"].includes(tool)) throw new Error("This plugin agent is read-only");
+    if (active.readOnly && tool === "Read" && (args as Record<string, unknown>).machineId) throw new Error("Read-only agents cannot access the user's computer");
     if (active.endTurnRequested) throw new Error("The turn has ended after delivery; wait for the next user message.");
+    if (active.requestSource === "automation" && AUTOMATION_PARENT_ONLY_TOOLS.has(tool)) {
+      throw new Error("Use WakeParent to hand this communication to the parent agent");
+    }
+    if (tool === SEND_TO_USER_TOOL.name && (args as Record<string, unknown>)?.type === "credential-request") {
+      if (active.runtimeProfile === "subagent" || active.requestSource === "automation") throw new Error("Saved-login approval must be requested by the parent bot");
+      const credential = (args as { credential?: Record<string, unknown> }).credential;
+      if (!credential || credential.kind !== "browser-login" || ["credential_id", "connection_id", "catalog_revision", "site", "purpose"].some(key => typeof credential[key] !== "string" || !credential[key])) throw new Error("Invalid credential-request");
+      const {browser, binding} = await this.privateLoginBinding(active, credential.site as string);
+      try {
+        const values = await this.nativeToolExecutor.desktopCapability("UseSavedCredential", active.screenBotId, { ...credential, site: binding.origin }, signal);
+        signal?.throwIfAborted();
+        this.rememberBrowserValues(active.screenBotId, [values.password, values.username]);
+        const filled = await this.screens.withAgentBrowserInput(active.screenBotId, active.cwd, async (leaseSignal) => {
+          signal?.throwIfAborted(); leaseSignal?.throwIfAborted();
+          return browser.fillSavedLogin(binding, values as { origin: string; password: string; username?: string });
+        });
+        return { content: [{ type: "text", text: filled ? "Approved login filled on the bound page. Continue in the browser to submit; values were kept private." : "The approved login document or fields changed. Inspect the page before requesting further help." }], details: { filled, origin: binding.origin } };
+      } finally { await browser.releaseLoginBinding(binding); }
+    }
     if (tool === SHELL_TOOL.name) {
       const shellInput = Schema.decodeUnknownSync(ShellToolInput)(args);
       assertGraphicalShellBoundary(shellInput.command, active.subagentType);
@@ -275,7 +320,7 @@ export class RuntimeTools {
         return this.executeHostTool(active, callId, tool, signal, async (approvals) => {
           const result = await this.nativeToolExecutor.externalShell(shellInput, signal, approvals);
           if (result.details.status === "running" && typeof result.details.shell_id === "string" && typeof result.details.output_path === "string") {
-            await this.hostShellCompletions.register({ botId: active.botId, channelId: active.channelId ?? undefined, machineId: shellInput.machineId!, shellId: result.details.shell_id, outputPath: result.details.output_path });
+            await this.hostShellCompletions.register({ botId: active.botId, channelId: active.channelId ?? undefined, ...(active.requestSource === "automation" ? { automationRunId: active.runId } : {}), machineId: shellInput.machineId!, shellId: result.details.shell_id, outputPath: result.details.output_path });
           }
           return result;
         });
@@ -284,13 +329,14 @@ export class RuntimeTools {
         active.subagentType === "computerUse"
           ? await this.screens.commandEnvironment(active.screenBotId, active.cwd)
           : undefined;
+      const secretEnvironment = await this.processSecrets(active, signal);
       return this.nativeToolExecutor.shell(
         shellInput,
         active.cwd,
         signal,
         environment,
         active.botId,
-        { channelId: active.channelId }
+        { channelId: active.channelId, secretEnvironment, secrets: Object.values(secretEnvironment), ...(active.requestSource === "automation" ? { automationRunId: active.runId } : {}) }
       );
     }
     if (tool === READ_TOOL.name) {
@@ -303,7 +349,9 @@ export class RuntimeTools {
           this.nativeToolExecutor.externalRead(readInput, signal, approvals)
         );
       }
-      return this.nativeToolExecutor.read(readInput, active.cwd);
+      const secrets = Object.values(await this.processSecrets(active, signal));
+      const result = await this.nativeToolExecutor.read(readInput, active.cwd);
+      return { ...result, content: result.content.map(part => part.type === "text" ? { ...part, text: redactSecrets(part.text, secrets) } : part) };
     }
     if (tool === EXTERNAL_SHELL_TOOL.name) {
       const input = Schema.decodeUnknownSync(ShellToolInput)(args);
@@ -338,7 +386,7 @@ export class RuntimeTools {
         content: [
           {
             type: "text" as const,
-            text: `Current OpenTeam screen (1280x800). Saved to ${path}`,
+            text: `Screenshot captured from the box desktop.\nScreenshot saved to ${path} — attach this file:// path with SendToUser to show the user the box.`,
           },
           {
             type: "image" as const,
@@ -414,6 +462,11 @@ export class RuntimeTools {
     }
   }
 
+  async approvePluginHook(active: ActiveTurn, callId: string, reason: string, input: Record<string, unknown>): Promise<boolean> {
+    const decision = await this.requestHostApproval(active, callId, new HostApprovalRequiredError({ gate: "auto-review", requestMethod: "openteam/autoReview", details: { type: "autoReview", gate: "auto-review", action: "mcp", toolName: String(input.tool_name ?? "plugin hook"), summary: reason, reason: "An installed plugin requires review", arguments: input, supportsAlwaysAllow: false } }), active.pluginAbortController?.signal);
+    return decision === "accept";
+  }
+
   private requestHostApproval(
     active: ActiveTurn,
     callId: string,
@@ -460,7 +513,7 @@ export class RuntimeTools {
       content: [
         {
           type: "text" as const,
-          text: `Computer completed ${actions.length} action${actions.length === 1 ? "" : "s"}. Final screenshot: ${path}`,
+          text: `Computer action ran on the box desktop.\nScreenshot of the resulting screen saved to ${path} — include this file:// path in your report to the parent if it should be shown to the user.`,
         },
         {
           type: "image" as const,
@@ -492,7 +545,13 @@ export class RuntimeTools {
       this.browserUseSessions.set(active.botId, browser);
       this.browserSessionScreens.set(active.botId, active.screenBotId);
     }
-    return browser.execute(toolName, args);
+    browser.registerPrivateValues([...(this.privateBrowserValues.get(active.screenBotId) ?? [])]);
+    const result = await browser.execute(toolName, args);
+    if (["browser_navigate", "browser_snapshot", "browser_tabs"].includes(toolName) && active.requestSource !== "automation") {
+      const filled = await this.automaticLogin(active, browser);
+      if (filled) return browser.execute("browser_snapshot", {});
+    }
+    return result;
   }
 
   private async formBrowser(botId: string): Promise<FormBrowser> {
@@ -524,6 +583,115 @@ export class RuntimeTools {
     };
   }
 
+  private rememberBrowserValues(screenBotId: string, values: unknown[]) {
+    const saved = this.privateBrowserValues.get(screenBotId) ?? new Set<string>();
+    for (const value of values) if (typeof value === "string" && value) saved.add(value);
+    this.privateBrowserValues.set(screenBotId, saved);
+    for (const [id, session] of this.browserUseSessions) if (id === screenBotId || this.browserSessionScreens.get(id) === screenBotId) session.registerPrivateValues([...saved]);
+  }
+  private async privateLoginBinding(active: ActiveTurn, site: string) {
+    await this.privateBrowser(active);
+    const matches: Array<{browser: BrowserUseSession; binding: Awaited<ReturnType<BrowserUseSession["loginBinding"]>>}> = [];
+    for (const [id, browser] of this.browserUseSessions) if (browser.connected && (id === active.screenBotId || this.browserSessionScreens.get(id) === active.screenBotId)) {
+      try { const binding = await browser.loginBinding(site); if (!matches.some(match => match.binding.pageId === binding.pageId)) matches.push({browser, binding}); else await browser.releaseLoginBinding(binding); } catch { /* Other tab lease or no eligible login. */ }
+    }
+    if (matches.length !== 1) { await Promise.all(matches.map(match => match.browser.releaseLoginBinding(match.binding))); throw new Error("Open one unambiguous login page for this site before requesting a saved credential"); }
+    return matches[0]!;
+  }
+  private async automaticLogin(active: ActiveTurn, browser: BrowserUseSession): Promise<boolean> {
+    const site = await browser.currentLoginSite(); if (!site) return false;
+    let binding: Awaited<ReturnType<BrowserUseSession["loginBinding"]>> | undefined;
+    try {
+      binding = await browser.loginBinding(site);
+      const values = await this.nativeToolExecutor.desktopCapability("AutomaticSavedCredential", active.screenBotId, {site});
+      if (values.skipped || typeof values.password !== "string") return false;
+      this.rememberBrowserValues(active.screenBotId, [values.password, values.username]);
+      const bound = binding;
+      return await this.screens.withAgentBrowserInput(active.screenBotId, active.cwd, async signal => { signal?.throwIfAborted(); return browser.fillSavedLogin(bound, values as {origin:string;password:string;username?:string}); });
+    } catch { return false; } finally { if (binding) await browser.releaseLoginBinding(binding); }
+  }
+
+  private async privateBrowser(active: ActiveTurn): Promise<BrowserUseSession> {
+    await this.screens.browserEndpointForAgent(active.screenBotId, active.cwd);
+    await this.formBrowser(active.screenBotId);
+    const browser = [...this.browserUseSessions.entries()].find(([id, session]) => session.connected && (id === active.screenBotId || this.browserSessionScreens.get(id) === active.screenBotId))?.[1];
+    if (!browser) throw new Error("The bot browser is unavailable");
+    return browser;
+  }
+
+  private async desktopTool(active: ActiveTurn, name: string, args: unknown, signal?: AbortSignal, callId?: string): Promise<AgentToolResult<Record<string, unknown>>> {
+    const output = await this.nativeToolExecutor.desktopCapability(name, active.botId, args, signal, callId);
+    if (name === "request_cookie_origin_approval" && output.kind === "collected") {
+      signal?.throwIfAborted();
+      const browser = await this.privateBrowser(active);
+      this.rememberBrowserValues(active.screenBotId, output.cookies.map((cookie: any) => cookie.value));
+      const imported = await this.screens.withAgentBrowserInput(active.screenBotId, active.cwd, async leaseSignal => { signal?.throwIfAborted(); leaseSignal?.throwIfAborted(); return browser.importPrivateCookies(output.cookies); });
+      return { content: [{ type: "text", text: formatCookieOriginApprovalOutcome({ ...output, kind: "completed", injected: imported, decision: output.decision ?? "approve_once" }) }], details: { imported } };
+    }
+    if (name === "FetchIMessageAttachment") {
+      if (typeof output.bytesBase64 !== "string" || typeof output.filename !== "string") throw new Error("Invalid attachment response");
+      const bytes = Buffer.from(output.bytesBase64, "base64"); if (bytes.length > 100 * 1024 * 1024) throw new Error("Attachment exceeds 100 MiB");
+      const path = join(active.cwd, "downloads", "messages", `${crypto.randomUUID()}-${basename(output.filename).replace(/[^a-zA-Z0-9._-]/g, "_")}`);
+      await agentFileIO("write", path, signal, bytes);
+      const content: AgentToolResult<Record<string, unknown>>["content"] = [{ type: "text", text: ["image/png", "image/jpeg", "image/webp", "image/gif"].includes(output.mime) ? `${output.filename} (${output.mime})` : `${output.filename} (${output.mime}) is on your box at ${path}. Open it with Read.` }];
+      if (["image/png", "image/jpeg", "image/webp", "image/gif"].includes(output.mime)) {
+        const image = await boundToolImage(bytes, output.mime); content.push(image);
+      }
+      return { content, details: { path, sizeBytes: bytes.length } };
+    }
+    return { content: [{ type: "text", text: renderDesktopResult(name, output, args as Record<string, any>) }], details: {} };
+  }
+
+  private async privateControl(active: ActiveTurn, callId: string, tool: string, args: unknown, signal?: AbortSignal): Promise<Record<string, any>> {
+    const response = await fetch(`${this.serverUrl}/api/v0/internal/tools/call`, {
+      method: "POST", headers: { authorization: `Bearer ${this.controlToken}`, "content-type": "application/json" },
+      body: JSON.stringify({ runId: active.runId, botId: active.botId, conversationId: active.conversationId,
+        channelId: active.channelId, deliveryId: active.deliveryId, callId, tool, arguments: args }),
+      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(240_000)]) : AbortSignal.timeout(240_000),
+    });
+    if (!response.ok) { const body = await response.json().catch(() => ({})) as any; throw new Error(body.error?.message ?? `Private transfer service failed (${response.status})`); }
+    return response.json() as Promise<Record<string, any>>;
+  }
+
+  private async transferPath(active: ActiveTurn, path: string, write: boolean): Promise<string> {
+    const roots = [await realpath(this.workspaceRoot), await realpath(active.cwd)];
+    const target = resolve(path);
+    if (!roots.some(root => target.startsWith(root + sep))) throw new Error("File transfer path must be inside the workspace or this bot's directory");
+    let existing = write ? dirname(target) : target;
+    for (;;) { try { existing = await realpath(existing); break; } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT" || !write) throw error; const parent=dirname(existing); if(parent===existing)throw error;existing=parent; } }
+    if (!roots.some(root => existing === root || existing.startsWith(root + sep))) throw new Error("File transfer symlink escapes the allowed directory");
+    return target;
+  }
+
+  private async connectorTransfer(active: ActiveTurn, callId: string, tool: string, input: Record<string, any>, signal?: AbortSignal): Promise<AgentToolResult<Record<string, unknown>>> {
+    let bytes: Buffer | undefined;
+    if (tool === "upload_file") {
+      bytes = await agentFileIO("read", await this.transferPath(active, input.sourcePath, false), signal);
+      if (bytes.length > CONNECTOR_TRANSFER_MAX_BYTES) throw new Error("File transfer exceeds 64 MiB");
+    }
+    const staged = { tool, input, ...(bytes ? { sha256: createHash("sha256").update(bytes).digest("hex"), sizeBytes: bytes.length } : {}) };
+    const prepared = await this.privateControl(active, callId, "PrepareConnectorTransfer", staged, signal);
+    if (tool === "upload_file" && prepared.status === "completed") return { content: [{ type: "text", text: describeUploadFileOutcome({ kind: "uploaded", ...prepared.result }, input)! }], details: { ...prepared.result } };
+    let reviewed = false;
+    if (prepared.decision === "prompt") {
+      const decision = await this.requestHostApproval(active, callId, new HostApprovalRequiredError({ gate: "auto-review", requestMethod: "openteam/autoReview", details: {
+        type: "autoReview", gate: "auto-review", action: "mcp", toolName: tool, summary: `${tool === "upload_file" ? "Upload to" : "Download from"} ${prepared.connectionName}`,
+        reason: "This connected account requires approval for file transfers", arguments: { ...input, connection: prepared.connectionId, sha256: staged.sha256, sizeBytes: staged.sizeBytes }, supportsAlwaysAllow: false,
+      } }), signal);
+      if (decision !== "accept") throw new Error("File transfer declined. Do not retry unless asked.");
+      reviewed = true;
+    }
+    const output = await this.privateControl(active, callId, "ExecuteConnectorTransfer", { ...staged, input: { ...input, connection: prepared.connectionId }, reviewed, ...(bytes ? { bytesBase64: bytes.toString("base64") } : {}) }, signal);
+    if (tool === "download_file") {
+      if (typeof output.bytesBase64 !== "string") throw new Error("File service returned no download bytes");
+      const data = Buffer.from(output.bytesBase64, "base64"); if (data.length > CONNECTOR_TRANSFER_MAX_BYTES) throw new Error("Download exceeds 64 MiB");
+      const filename = basename(String(output.name)).replace(/[\\/\0]/g, "_");
+      const path = await this.transferPath(active, input.destination.path ?? join(active.cwd, "downloads", filename === "." || filename === ".." ? "download" : filename), true);
+      await agentFileIO("write", path, signal, data); output.boxPath = path; delete output.bytesBase64;
+    }
+    return { content: [{ type: "text", text: tool === "upload_file" ? describeUploadFileOutcome({ kind: "uploaded", ...output }, input)! : describeDownloadFileOutcome({ kind: "downloaded", ...output }, input)! }], details: { ...output } };
+  }
+
   private async callControlPlaneTool(
     active: ActiveTurn,
     callId: string,
@@ -531,7 +699,7 @@ export class RuntimeTools {
     args: unknown,
     signal?: AbortSignal
   ): Promise<AgentToolResult<Record<string, unknown>>> {
-    const timeout = AbortSignal.timeout(tool === "Task" ? 24 * 60 * 60_000 : ["request_user_form", "DraftExternalMessage"].includes(tool) ? 120_000 : 30_000);
+    const timeout = AbortSignal.timeout(tool === "Task" ? 24 * 60 * 60_000 : ["SendToUser", "ReviewedExternalFileDelivery"].includes(tool) ? 5 * 60_000 : ["request_user_form", "DraftExternalMessage"].includes(tool) ? 120_000 : 30_000);
     const requestSignal = signal ? AbortSignal.any([signal, timeout]) : timeout;
     const response = await fetch(`${this.serverUrl}/api/v0/internal/tools/call`, {
       method: "POST",
@@ -553,14 +721,26 @@ export class RuntimeTools {
     });
     const body = (await response.json()) as unknown;
     if (!response.ok) {
+      const failure=(body as {error?:{code?:string;message?:string;details?:unknown}})?.error;
+      if(tool==="SendToUser"&&failure?.code==="external_file_review_required") {
+        const decision=await this.requestHostApproval(active,callId,new HostApprovalRequiredError({gate:"auto-review",requestMethod:"openteam/autoReview",details:{type:"autoReview",gate:"auto-review",action:"mcp",toolName:"SendToUser",summary:"Deliver these files to the connected channel",reason:failure.message??"Account policy requires review",arguments:failure.details,supportsAlwaysAllow:false}}),signal??AbortSignal.timeout(15*60_000));
+        if(decision!=="accept")throw new Error("File delivery declined. Do not retry unless asked.");
+        return this.callControlPlaneTool(active,callId,"ReviewedExternalFileDelivery",args,signal);
+      }
       const message =
         body && typeof body === "object" && "error" in body
           ? JSON.stringify((body as { error: unknown }).error)
           : `OpenTeam tool host rejected the call (${response.status})`;
       throw new Error(message);
     }
+    if (tool === "Task" && body && typeof body === "object" &&
+      (body as Record<string, unknown>).foregroundPending === true) {
+      return this.callControlPlaneTool(active, callId, tool, args, requestSignal);
+    }
+    if (tool === "WakeParent" && body && typeof body === "object" &&
+      (body as Record<string, unknown>).woken === true) active.endTurnRequested = true;
     if (
-      ([SEND_TO_USER_TOOL.name, REQUEST_BOX_HELP_TOOL.name, "request_user_form", "DraftExternalMessage", "SendFeedback", "create_bot_share_json"].includes(tool)) &&
+      ([SEND_TO_USER_TOOL.name, "ReviewedExternalFileDelivery", REQUEST_BOX_HELP_TOOL.name, "request_user_form", "DraftExternalMessage", "SendFeedback", "create_bot_share_json"].includes(tool)) &&
       body &&
       typeof body === "object" &&
       !Array.isArray(body) &&
@@ -575,10 +755,10 @@ export class RuntimeTools {
       content: [
         {
           type: "text" as const,
-          text: typeof body === "string" ? body : JSON.stringify(body),
+          text: renderControlResult(tool, body, args as Record<string, any>),
         },
       ],
-      details: { tool },
+      details: { tool, ...(tool === "TodoWrite" && body && typeof body === "object" && "todos" in body ? {todos: body.todos} : {}) },
       ...(active.endTurnRequested ? { terminate: true } : {}),
     };
   }
@@ -611,7 +791,7 @@ export class RuntimeTools {
     const text = result.content.find((part) => part.type === "text")?.text;
     if (typeof text !== "string") return result;
     try {
-      const body = JSON.parse(text) as { todos?: unknown };
+      const body = (Array.isArray(result.details.todos) ? result.details : JSON.parse(text)) as { todos?: unknown };
       if (!Array.isArray(body.todos)) return result;
       const lines = body.todos.flatMap((candidate) => {
         if (!candidate || typeof candidate !== "object") return [];
@@ -652,6 +832,14 @@ export class RuntimeTools {
         return this.nativeToolExecutor.awaitShell(input, signal, turn.botId);
       },
       [
+        ...(active.runtimeProfile === "subagent" || active.requestSource === "automation" ? [] : CONNECTOR_TRANSFER_TOOLS.map((definition): RuntimeDynamicTool => ({
+          ...definition, source: "first-party", decodeArguments: args => parseConnectorTransfer(definition.name, args),
+          execute: (turn, callId, args, signal) => this.connectorTransfer(turn, callId, definition.name, args as Record<string, any>, signal),
+        }))),
+        ...(active.runtimeProfile === "subagent" || active.requestSource === "automation" ? [] : DESKTOP_CAPABILITY_TOOLS.map((definition): RuntimeDynamicTool => ({
+          ...definition, source: "first-party", decodeArguments: args => parseReferenceArguments(definition.name, args),
+          execute: (turn, callId, args, signal) => this.desktopTool(turn, definition.name, args, signal, callId),
+        }))),
         ...(active.runtimeProfile === "subagent" ? [] : ["DraftExternalMessage", "SendFeedback", "create_bot_share_json"].map((name): RuntimeDynamicTool => {
           const definition = CURSOR_TOOLS.find((tool) => tool.tool === name)!;
           return { name, description: definition.description, inputSchema: definition.inputSchema, source: "first-party", decodeArguments: name === "DraftExternalMessage" ? parseExternalDraft : (input) => input,
@@ -663,12 +851,18 @@ export class RuntimeTools {
             decodeArguments: name === "request_user_form" ? parseUserForm : (args) => ({ targets: parseFormRemap(args) }),
             execute: async (turn, callId, args, signal) => {
               if (name === "request_user_form") return this.callControlPlaneTool(turn, callId, name, args, signal);
-              const receipt = await this.userForms.remap(turn.botId, args, callId);
+              const receipt = await this.userForms.remap(turn.botId, args, callId).catch(error => {
+                if (error instanceof Error && error.message === "No held form fields remain for this bot") return null;
+                throw error;
+              });
+              if (!receipt) return {content:[{type:"text",text:buildUserFormRemapReceipt({kind:"no_hold"})}],details:{}};
               const recorded = await this.callControlPlaneTool(turn, callId, "RecordUserFormRemap", receipt, signal);
               await this.userForms.acknowledgeRemap(turn.botId, receipt.formId);
               const text = recorded.content.find((part) => part.type === "text");
               const cardOutcome = text?.type === "text" ? JSON.parse(text.text) : undefined;
-              return { content: [{ type: "text", text: formatUserFormReceipt(receipt) }], details: { formReceipt: receipt, cardOutcome } };
+              const selected = new Set((args as any).targets.map((target: any) => target.fieldId));
+              const output = receipt.interrupted ? formatUserFormReceipt(receipt) : buildUserFormRemapReceipt({kind:"remapped",outcomes:receipt.fields.filter(field=>selected.has(field.id)).map(field=>({id:field.id,filled:field.status==="filled"})),notRemappedFieldIds:receipt.fields.filter(field=>!selected.has(field.id)).map(field=>field.id)});
+              return { content: [{ type: "text", text: output }], details: { formReceipt: receipt, cardOutcome } };
             },
           };
         })),
@@ -704,19 +898,28 @@ export class RuntimeTools {
     );
   }
 
-  private getDynamicTools(
+  private async getDynamicTools(
     active: ActiveTurn,
     input: GetDynamicToolsInput
-  ): AgentToolResult<Record<string, unknown>> {
+  ): Promise<AgentToolResult<Record<string, unknown>>> {
     const result = discoverDynamicTools(
       this.dynamicCatalog(active),
       active.discoveredDynamicTools,
       input
     );
-    return {
-      content: [{ type: "text", text: JSON.stringify(result) }],
-      details: { namespaceCount: result.namespaces.length },
-    };
+    const form = result.namespaces.flatMap(namespace => namespace.tools).find(tool => tool.name === "request_user_form");
+    if (form && input.namespace && !input.pattern) {
+      const keys = await this.userForms.savedExtraKeys();
+      form.description += "\n\nVault extras: reuse the exact saved extra_key for the same nonsecret fact across forms; never put a value in the key.\n" +
+        (keys.length ? "Saved extra keys:\n" + keys.map(key => `- ${JSON.stringify(key)}`).join("\n") : "No saved extra keys yet.");
+    }
+    const text = JSON.stringify(renderDynamicDiscovery(result, input), null, 2);
+    if (!input.toolName && Buffer.byteLength(text) > 12_000) {
+      const outputPath = join(active.cwd, ".openteam", "dynamic-tools", `${crypto.randomUUID()}.json`);
+      await agentFileIO("write", outputPath, undefined, Buffer.from(text));
+      return { content: [{type:"text",text:describeOutputLocation({filePath:outputPath,sizeBytes:Buffer.byteLength(text),lineCount:text.split("\n").length}, {})}], details: {namespaceCount:result.namespaces.length,outputPath} };
+    }
+    return { content: [{type:"text",text}], details: {namespaceCount:result.namespaces.length} };
   }
 
   private async callDynamicTool(
@@ -725,6 +928,7 @@ export class RuntimeTools {
     input: CallDynamicToolInput,
     signal?: AbortSignal
   ): Promise<AgentToolResult<Record<string, unknown>>> {
+    if (active.readOnly && (input.namespace !== "cursor" || !["WebSearch", "WebFetch", "SearchPlugins", "GetPlugin", "GetMcpServerStatus", "ListAgents", "ListGroups"].includes(input.toolName))) throw new Error("This tool is unavailable to a read-only plugin agent");
     const resolved = resolveDynamicTool(
       this.dynamicCatalog(active),
       active.discoveredDynamicTools,
@@ -736,9 +940,9 @@ export class RuntimeTools {
       return resolved.tool.execute(active, callId, resolved.arguments, signal, input.mcpDetails);
     };
     if (input.namespace === "cursor" && ["AwaitShell", "WebFetch", "WebSearch", "ListAgents", "ListGroups", "CheckSubagent", "SearchPlugins", "GetPlugin", "GetMcpServerStatus"].includes(input.toolName)) return invoke();
-    const previous = this.mutationTails.get(active.botId) ?? Promise.resolve();
+    const previous = this.mutationTails.get(active.contextSessionId) ?? Promise.resolve();
     const result = previous.catch(() => {}).then(invoke);
-    this.mutationTails.set(active.botId, result);
-    try { return await result; } finally { if (this.mutationTails.get(active.botId) === result) this.mutationTails.delete(active.botId); }
+    this.mutationTails.set(active.contextSessionId, result);
+    try { return await result; } finally { if (this.mutationTails.get(active.contextSessionId) === result) this.mutationTails.delete(active.contextSessionId); }
   }
 }

@@ -7,6 +7,7 @@ import type { PrismaClient } from "@openteam/db";
 import {
   applySecretEdits,
   connectionNamespace,
+  desktopMcpProvider,
   fieldsForConnector,
   isSecretKey,
   validateValues,
@@ -74,6 +75,7 @@ export class PluginConfiguration {
         namespace: connectionNamespace(id),
         endpoint: connection.endpoint,
         command: typeof config.command === "string" ? config.command : null,
+        runtime: desktopMcpProvider(config) ? "desktop" : "computer",
         args: stringArray(config.args),
         cwd: typeof config.cwd === "string" ? config.cwd : null,
         fields,
@@ -177,6 +179,7 @@ export class PluginConfiguration {
         }
       }
       let endpoint = connection.endpoint;
+      desktopMcpProvider({ ...config, env: { ...jsonObject(config.env), ...jsonObject(credentials.env) } });
       if (input.endpoint !== undefined) {
         const url = new URL(input.endpoint);
         if (!["http:", "https:"].includes(url.protocol) || url.username || url.password)

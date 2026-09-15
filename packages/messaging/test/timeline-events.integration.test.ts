@@ -157,7 +157,7 @@ test("timeline mutations persist events and only tap an active idle Bot", async 
     expect(await prisma.channelMessage.count({ where: { channelId, sender: "system" } })).toBe(2);
     expect(wakeJobs).toHaveLength(1);
 
-    await prisma.botRunLease.delete({ where: { botId } });
+    await prisma.botRunLease.deleteMany({ where: { botId } });
     await prisma.run.update({ where: { id: runningRun.id }, data: { status: "completed" } });
     await store.writeActiveAgentId(randomUUID());
 

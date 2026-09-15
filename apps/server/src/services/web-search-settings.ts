@@ -11,6 +11,19 @@ const invalid = (message: string) => new ApiError(400, "invalid_web_search_setti
 const settingsId = "global";
 type StoredSettings = { provider: string | null; apiKey: string | null };
 
+export function validateWebApiKey(value: unknown, kind: "search" | "fetch" = "search"): void {
+  if (
+    value !== undefined &&
+    value !== null &&
+    (typeof value !== "string" ||
+      !value.trim() ||
+      value.length > 20_000 ||
+      /[\x00-\x1f\x7f]/.test(value) ||
+      /\s/.test(value.trim()))
+  )
+    throw new ApiError(400, `invalid_web_${kind}_settings`, "The API key is invalid.");
+}
+
 export function parseWebSearchSettings(input: unknown): WebSearchSettingsInput {
   if (!input || typeof input !== "object" || Array.isArray(input))
     throw invalid("Web search settings are required.");
@@ -19,16 +32,7 @@ export function parseWebSearchSettings(input: unknown): WebSearchSettingsInput {
     throw invalid("Unknown web search setting.");
   if (value.provider !== null && !isSearchProvider(value.provider))
     throw invalid("Choose Exa, Tavily, Brave Search, or Bing via SerpApi.");
-  if (
-    value.apiKey !== undefined &&
-    value.apiKey !== null &&
-    (typeof value.apiKey !== "string" ||
-      !value.apiKey.trim() ||
-      value.apiKey.length > 20_000 ||
-      /[\x00-\x1f\x7f]/.test(value.apiKey) ||
-      /\s/.test(value.apiKey.trim()))
-  )
-    throw invalid("The search API key is invalid.");
+  validateWebApiKey(value.apiKey);
   if (value.provider === null && typeof value.apiKey === "string")
     throw invalid("Select a provider before saving an API key.");
   return {

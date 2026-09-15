@@ -21,6 +21,25 @@ export const BOT_AVATAR_COLORS = [
 
 export type BotAvatarColor = (typeof BOT_AVATAR_COLORS)[number];
 
+/** Captured model-tool spellings, in the same order as the native picker. */
+export const BOT_AVATAR_COLOR_NAMES = [
+  "black",
+  "brown",
+  "red",
+  "orange",
+  "yellow",
+  "green",
+  "cyan",
+  "blue",
+  "violet",
+  "magenta",
+  "gray",
+] as const;
+export const resolveBotAvatarColorName = (value: string): string => {
+  const index = BOT_AVATAR_COLOR_NAMES.findIndex((name) => name === value);
+  return index < 0 ? value : BOT_AVATAR_COLORS[index]!;
+};
+
 /** Fresh bots may receive every picker color except black. */
 export const BOT_AVATAR_DEALT_COLORS = [
   "#a47952",
@@ -91,9 +110,9 @@ const knownShape = (value?: string | null): RobotAvatarShape | undefined => {
   return ROBOT_AVATAR_SHAPES.find((shape) => shape === candidate);
 };
 
-const knownColor = (value?: string | null): BotAvatarColor | undefined => {
+const knownColor = (value?: string | null): string | undefined => {
   const candidate = value?.trim().toLowerCase();
-  return BOT_AVATAR_COLORS.find((color) => color === candidate);
+  return candidate && /^#[0-9a-f]{6}$/.test(candidate) ? candidate : undefined;
 };
 
 export const resolveBotAvatarMark = ({
@@ -104,7 +123,7 @@ export const resolveBotAvatarMark = ({
   agentId: string;
   avatarShape?: string | null;
   avatarColor?: string | null;
-}): { shape: RobotAvatarShape; color: BotAvatarColor } => ({
+}): { shape: RobotAvatarShape; color: string } => ({
   shape: knownShape(avatarShape) ?? botAvatarShapeForKey(agentId),
   color: knownColor(avatarColor) ?? botAvatarColorForKey(agentId),
 });

@@ -31,6 +31,7 @@ import {
   PRIORITY,
   RoutineService,
   renderSubagentRevivalPrompt,
+  automationContinuationRoute,
 } from "@openteam/messaging";
 import { fromPrisma, type Job, type JobWithMetadata, PgBoss } from "pg-boss";
 import { pluginRuntimeContext } from "./plugins";
@@ -118,6 +119,7 @@ interface Claimed {
   runId: string;
   botId: string;
   contextSessionId: string;
+  memoryConversationId?: string;
   screenBotId: string;
   pluginBotId: string;
   conversationId: string;
@@ -134,15 +136,23 @@ interface Claimed {
   origin: RunOrigin;
   runtimeProfile: "agent" | "subagent";
   subagentType: SubagentType | null;
+  readOnly: boolean;
   model: string | null;
   fileAttachments: string[];
 }
 
 export const contextScopeForRun = (
-  _origin: RunOrigin,
-  _channelId: string | null,
-  conversationId: string
-): { scope: "home"; scopeId: string } => ({ scope: "home", scopeId: conversationId });
+  origin: RunOrigin,
+  channelId: string | null,
+  conversationId: string,
+  automationRunId?: string
+): { scope: "home" | "channel" | "automation"; scopeId: string } => {
+  if (origin === "routine") {
+    if (!automationRunId) throw new Error("An automation requires its own context run ID");
+    return { scope: "automation", scopeId: automationRunId };
+  }
+  return channelId ? { scope: "channel", scopeId: channelId } : { scope: "home", scopeId: conversationId };
+};
 
 const REQUEST_SOURCE_BY_ORIGIN = {
   user: "turn",
@@ -292,6 +302,8 @@ export const terminalGroupRoutineExecutionStatus = (
 };
 
 export class WakeWorker {
+  private readonly concurrentAutomations = new Set<Promise<void>>();
+  private stopping = false;
   readonly prisma: PrismaClient;
   readonly boss: PgBoss;
   readonly projection: Projection;
@@ -426,14 +438,16 @@ export class WakeWorker {
   }
 
   async stop(): Promise<void> {
+    this.stopping = true;
     if (this.routineTimer) clearInterval(this.routineTimer);
     this.routineTimer = null;
     if (this.agentStoreTimer) clearInterval(this.agentStoreTimer);
     this.agentStoreTimer = null;
     if (this.pushNotificationTimer) clearInterval(this.pushNotificationTimer);
     this.pushNotificationTimer = null;
-    await this.agentData.stopMemoryLifecycle();
     await this.boss.stop({ graceful: true });
+    await Promise.allSettled([...this.concurrentAutomations]);
+    await this.agentData.stopMemoryLifecycle();
     await this.prisma.$disconnect();
   }
 
@@ -674,8 +688,8 @@ export class WakeWorker {
         await tx.botRunLease.deleteMany({
           where: { botId: event.botId, expiresAt: { lt: new Date() } },
         });
-        const lease = await tx.botRunLease.findUnique({
-          where: { botId: event.botId },
+        const lease = await tx.botRunLease.findFirst({
+          where: { botId: event.botId, scope: "foreground" },
         });
         if (!lease) {
           await this.messaging.promoteOrphanedSteers(
@@ -965,6 +979,7 @@ export class WakeWorker {
                 tx,
                 {
                   ...subagent,
+                  parentRunId: attempt.parentRunId,
                   parentChannelId: attempt.parentChannelId,
                   description: attempt.description,
                   currentRunId: attempt.childRunId,
@@ -999,10 +1014,18 @@ export class WakeWorker {
 
   private async handle(job: Job<WakeData>): Promise<void> {
     const botId = job.data.botId;
-    while (true) {
+    while (!this.stopping) {
       const claimed = await this.claim(botId);
       if (!claimed) return;
-      await this.execute(claimed);
+      if (claimed.origin === "routine") {
+        const task = this.execute(claimed).catch(() => {
+          console.warn("Automation execution failed; durable recovery will reconcile its run", { runId: claimed.runId });
+        }).finally(() => {
+          this.concurrentAutomations.delete(task);
+          if (!this.stopping) void this.handle(job).catch(() => { if (!this.stopping) console.warn("Automation queue resume failed", { botId }); });
+        });
+        this.concurrentAutomations.add(task);
+      } else await this.execute(claimed);
     }
   }
 
@@ -1014,11 +1037,12 @@ export class WakeWorker {
         await tx.botRunLease.deleteMany({
           where: { botId, expiresAt: { lt: new Date() } },
         });
-        const existingLease = await tx.botRunLease.findUnique({
-          where: { botId },
-        });
-        if (existingLease) return null;
-        await this.messaging.promoteOrphanedSteers(tx, botId, "orphaned_active_turn");
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`bot-run-claim:${botId}`}))`;
+        const existingLeases = await tx.botRunLease.findMany({ where: { botId } });
+        const foregroundBusy = existingLeases.some(lease => lease.scope === "foreground");
+        const automations = existingLeases.filter(lease => lease.scope.startsWith("automation:"));
+        if (foregroundBusy && automations.length >= 4) return null;
+        if (!foregroundBusy) await this.messaging.promoteOrphanedSteers(tx, botId, "orphaned_active_turn");
         await tx.inboxEvent.updateMany({
           where: {
             botId,
@@ -1028,13 +1052,14 @@ export class WakeWorker {
           },
           data: { status: "pending", claimedAt: null },
         });
-        const inbox = await tx.inboxEvent.findFirst({
+        const candidates = await tx.inboxEvent.findMany({
           where: {
             botId,
             deliveryMode: "turn",
             status: "pending",
             availableAt: { lte: new Date() },
             bot: { status: "active" },
+            ...(foregroundBusy ? { run: { origin: "routine" as const } } : automations.length >= 4 ? { run: { origin: { not: "routine" as const } } } : {}),
           },
           orderBy: [{ priority: "desc" }, { createdAt: "asc" }],
           include: {
@@ -1043,6 +1068,11 @@ export class WakeWorker {
             run: { include: { channel: true } },
           },
         });
+        const inbox = candidates.find(candidate => {
+          if (candidate.run.origin !== "routine") return !foregroundBusy;
+          const payload = candidate.payload as { automationContextRunId?: string };
+          return !automations.some(lease => lease.scope === `automation:${payload.automationContextRunId ?? candidate.runId}`);
+        });
         if (!inbox) return null;
         const payload = inbox.payload as {
           content?: string;
@@ -1050,6 +1080,7 @@ export class WakeWorker {
           clientId?: string;
           channelId?: string;
           automationTrigger?: unknown;
+          automationContextRunId?: string;
         };
         if (!payload.content || !payload.clientId) {
           await tx.inboxEvent.update({
@@ -1061,6 +1092,7 @@ export class WakeWorker {
         const lease = await tx.botRunLease.createMany({
           data: {
             botId,
+            scope: inbox.run.origin === "routine" ? `automation:${payload.automationContextRunId ?? inbox.runId}` : "foreground",
             runId: inbox.runId,
             ownerId,
             expiresAt: new Date(Date.now() + LEASE_MS),
@@ -1131,7 +1163,8 @@ export class WakeWorker {
         const contextAddress = contextScopeForRun(
           inbox.run.origin,
           inbox.run.channelId,
-          inbox.conversationId
+          inbox.conversationId,
+          payload.automationContextRunId ?? inbox.runId
         );
         const contextSession = await tx.contextSession.upsert({
           where: {
@@ -1155,7 +1188,10 @@ export class WakeWorker {
           },
           update: {},
         });
+        const memoryContext = inbox.bot.subagentIdentity ? null : await this.agentData.resolveMemoryConversation(botId, inbox.run.channelId, tx);
+        if (memoryContext) await tx.run.update({ where: { id: inbox.runId }, data: { memoryConversationId: memoryContext.id } });
         return {
+          memoryConversationId: memoryContext?.id,
           inboxId: inbox.id,
           inboxType: inbox.type,
           runId: inbox.runId,
@@ -1178,6 +1214,7 @@ export class WakeWorker {
           runtimeProfile: inbox.bot.subagentIdentity ? "subagent" : "agent",
           subagentType:
             (inbox.bot.subagentIdentity?.subagentType as SubagentType | undefined) ?? null,
+          readOnly: inbox.bot.subagentIdentity?.readOnly ?? false,
           model: inbox.bot.subagentIdentity?.model ?? null,
           fileAttachments: Array.isArray(inbox.bot.subagentIdentity?.fileAttachments)
             ? inbox.bot.subagentIdentity.fileAttachments.filter(
@@ -1202,7 +1239,7 @@ export class WakeWorker {
       const [pluginContext, inference] = await Promise.all([
         subagentLoadsPluginContext(claimed.subagentType)
           ? pluginRuntimeContext(this.prisma, claimed.pluginBotId)
-          : Promise.resolve({ dynamicNamespaces: [], skillInstructions: "" }),
+          : Promise.resolve({ dynamicNamespaces: [], skillInstructions: "", pluginRuntimePackages: [] }),
         this.agentData.loadInferenceSettings(),
       ]);
       // Plugin skills are global/read-only inputs. User workflows are rendered
@@ -1210,10 +1247,10 @@ export class WakeWorker {
       const platformPrompt = await this.messaging.platformPrompt(claimed.botId, claimed.contextSessionId, pluginSkillPromptForRuntime(
         claimed.runtimeProfile,
         pluginContext.skillInstructions
-      ));
+      ), claimed.memoryConversationId);
       // Replay failed user inputs whose durable-session delivery was never
       // acknowledged. Runtime message IDs prevent duplication after a lost ack.
-      const missed = claimed.runtimeProfile === "agent" ? await this.prisma.inboxEvent.findMany({ where: { botId: claimed.botId, conversationId: claimed.conversationId, deliveryMode: "turn", runId: { not: claimed.runId }, run: { channelId: claimed.channelId, origin: "user", status: { in: ["failed", "interrupted"] }, inputDeliveredAt: null } }, orderBy: { createdAt: "asc" }, take: 20 }) : [];
+      const missed = claimed.runtimeProfile === "agent" && claimed.origin !== "routine" ? await this.prisma.inboxEvent.findMany({ where: { botId: claimed.botId, conversationId: claimed.conversationId, deliveryMode: "turn", runId: { not: claimed.runId }, run: { channelId: claimed.channelId, origin: "user", status: { in: ["failed", "interrupted"] }, inputDeliveredAt: null } }, orderBy: { createdAt: "asc" }, take: 20 }) : [];
       const missedMessages = await Promise.all(missed.flatMap((event) => {
         const payload = event.payload as { content?: string; clientId?: string; attachments?: unknown };
         if (!payload.content || !payload.clientId) return [];
@@ -1256,10 +1293,12 @@ export class WakeWorker {
         deliveryId: claimed.deliveryId,
         runtimeProfile: claimed.runtimeProfile,
         subagentType: claimed.subagentType ?? undefined,
+        readOnly: claimed.readOnly,
         model: claimed.model ?? formatPiModelRef(inference),
         reasoning: inference.reasoning,
         fileAttachments: claimed.fileAttachments,
         dynamicNamespaces: pluginContext.dynamicNamespaces,
+        pluginRuntimePackages: pluginContext.pluginRuntimePackages,
       } satisfies ComputerTurnRequest;
       const response = await fetch(`${this.computerUrl}${COMPUTER_API_PATHS.turns}`, {
         method: "POST",
@@ -1675,6 +1714,7 @@ export class WakeWorker {
     });
     if (!exchange) return;
     await this.agentData.recordTurnMemory(claimed.botId, {
+      memoryConversationId: claimed.memoryConversationId,
       user: exchange.user,
       assistant: exchange.assistant,
       hidden: !["user", "group"].includes(claimed.origin),
@@ -1739,6 +1779,7 @@ export class WakeWorker {
         tx,
         {
           ...subagent,
+          parentRunId: attempt.parentRunId,
           parentChannelId: attempt.parentChannelId,
           description: attempt.description,
           currentRunId: attempt.childRunId,
@@ -1796,6 +1837,7 @@ export class WakeWorker {
         tx,
         {
           ...subagent,
+          parentRunId: attempt.parentRunId,
           parentChannelId: attempt.parentChannelId,
           description: attempt.description,
           currentRunId: attempt.childRunId,
@@ -1811,6 +1853,7 @@ export class WakeWorker {
     subagent: {
       id: string;
       parentBotId: string;
+      parentRunId: string;
       parentChannelId: string;
       description: string;
       subagentType: string;
@@ -1824,10 +1867,13 @@ export class WakeWorker {
       where: { id: subagent.parentBotId },
     });
     if (!parent || !["active", "provisioning"].includes(parent.status)) return;
+    // Delegated work belongs to the automation that launched it. Resume that
+    // context unless it already handed responsibility to the main agent.
+    const route = await automationContinuationRoute(tx, subagent.parentBotId, subagent.parentRunId);
     await this.messaging.enqueueWake(tx, {
       botId: subagent.parentBotId,
       channelId: subagent.parentChannelId,
-      origin: "background_revival",
+      ...route,
       type: `subagent.${status}`,
       content: renderSubagentRevivalPrompt({
         title: subagent.description,

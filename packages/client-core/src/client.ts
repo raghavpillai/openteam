@@ -1,3 +1,5 @@
+import type {AutomationWebhookInput,AutomationWebhookView} from "@openteam/contracts/automation-webhooks";
+import type { WebFetchSettingsInput, WebFetchSettingsView } from "@openteam/contracts/web-search";
 import type { WebSearchSettingsInput, WebSearchSettingsView } from "@openteam/contracts/web-search";
 import type {
   PluginComposerView,
@@ -15,6 +17,7 @@ import type {
   AssetRef,
   BotTranscriptView,
   BotView,
+  BotMemoryList,
   ChannelClientState,
   ChannelHistoryPage,
   ChannelMessageContextOptions,
@@ -139,6 +142,9 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
 
   return {
     baseUrl: transport.baseUrl,
+    botMemories: (botId: string) => transport.request<BotMemoryList>(`/api/v0/bots/${encodeURIComponent(botId)}/memories`),
+    deleteBotMemory: (botId: string, memoryId: string) => transport.request<BotMemoryList>(`/api/v0/bots/${encodeURIComponent(botId)}/memories/${encodeURIComponent(memoryId)}`, { method: "DELETE" }),
+    clearBotMemories: (botId: string) => transport.request<BotMemoryList>(`/api/v0/bots/${encodeURIComponent(botId)}/memories`, { method: "DELETE" }),
     systemVersion: () => transport.request<SystemVersionView>("/api/v0/system/version"),
     snapshot: () =>
       transport
@@ -163,6 +169,12 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
         body: audio,
         signal,
       }),
+    automationWebhooks: () => transport.request<AutomationWebhookView[]>("/api/v0/server-settings/automation-webhooks"),
+    saveAutomationWebhook: (input: AutomationWebhookInput) => transport.request<AutomationWebhookView>("/api/v0/server-settings/automation-webhooks",{method:"POST",body:JSON.stringify(input)}),
+    removeAutomationWebhook: (id: string) => transport.request<{removed:boolean;notice:string|null}>(`/api/v0/server-settings/automation-webhooks/${encodeURIComponent(id)}`,{method:"DELETE"}),
+    connectAutomationWebhook: (id: string) => transport.request<AutomationWebhookView>(`/api/v0/server-settings/automation-webhooks/${encodeURIComponent(id)}/connect`,{method:"POST"}),
+    webFetchSettings: () => transport.request<WebFetchSettingsView>("/api/v0/server-settings/web-fetch"),
+    updateWebFetchSettings: (input: WebFetchSettingsInput) => transport.request<WebFetchSettingsView>("/api/v0/server-settings/web-fetch", {method: "PATCH", body: JSON.stringify(input)}),
     webSearchSettings: () =>
       transport.request<WebSearchSettingsView>("/api/v0/server-settings/web-search"),
     updateWebSearchSettings: (input: WebSearchSettingsInput) =>

@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { createPrismaClient } from "@openteam/db";
 import { Effect } from "effect";
 import { PluginService } from "../../src/services/plugin-service";
+import { renderControlResult } from "@openteam/contracts/tool-results";
 import { RunService } from "../../src/services/run-service";
 
 const databaseUrl = process.env.OPENTEAM_TEST_DATABASE_URL;
@@ -69,6 +70,7 @@ test("plugin install, connection, grant, policy, discovery, call, and removal li
       callId: "plugin-call-echo-1",
       toolName: "echo",
       arguments: { text: "through the gateway" },
+      allowReviewUI: false,
     });
     expect(result).toEqual({ text: "through the gateway" });
     expect(
@@ -82,6 +84,12 @@ test("plugin install, connection, grant, policy, discovery, call, and removal li
       })
     ).toEqual({ text: "through the gateway" });
 
+    await expect(service.invoke({
+      connectionId: connection.id, botId, runId, callId: "automation-needs-review",
+      toolName: "remember_note", arguments: { note: "needs parent review" }, allowReviewUI: false,
+    })).rejects.toMatchObject({ code: "automation_parent_review_required" });
+    expect(await prisma.approval.count({ where: { runId } })).toBe(0);
+    expect(await prisma.pluginInvocation.findUnique({ where: { callId: "automation-needs-review" } })).toBeNull();
     await expect(
       service.invoke({
         connectionId: connection.id,
@@ -229,6 +237,12 @@ test("plugin install, connection, grant, policy, discovery, call, and removal li
     expect((await Effect.runPromise(service.settings())).installs[0]?.pluginKey).toBe(
       "research-playbook"
     );
+    const replay = await service.requestAction({runId,botId,callId:"plugin-action-install-1",action:"InstallPlugin",arguments:{plugin_id:"research-playbook"}});
+    expect(replay).toMatchObject({status:"accepted",completed:true,actionResult:{installed:true},detail:{installed:true}});
+    expect(renderControlResult("InstallPlugin", replay, {plugin_id:"research-playbook"})).toStartWith("Installed ");
+    expect(renderControlResult("InstallPlugin", replay, {plugin_id:"research-playbook"})).toContain("(plugin research-playbook).");
+    const savedApproval = await prisma.approval.findUniqueOrThrow({where:{id:actionApproval.id}});
+    expect(savedApproval.details).toMatchObject({actionResult:{installed:true}});
     await Effect.runPromise(service.uninstall("research-playbook"));
   } finally {
     await prisma.$disconnect();

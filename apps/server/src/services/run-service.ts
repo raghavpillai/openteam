@@ -6,7 +6,7 @@ import {
 import { COMPUTER_API_PATHS } from "@openteam/contracts/service-protocol";
 import type { ApprovalStatus, PrismaClient } from "@openteam/db";
 import type { AgentMessaging } from "@openteam/messaging";
-import { appendEvent, type ComputerFetch, serviceEffect } from "./service-utils";
+import { appendEvent, type ComputerFetch, serviceEffect, toJson } from "./service-utils";
 
 export class RunService {
   constructor(
@@ -189,7 +189,7 @@ export class RunService {
         await this.prisma.$transaction(async (tx) => {
           await tx.approval.update({
             where: { id: approvalId },
-            data: { status, decision, resolvedAt: new Date() },
+            data: { status, decision, resolvedAt: new Date(), details: toJson({ ...(approval.details as Record<string, unknown>), actionResult: result ?? null }) },
           });
           await appendEvent(tx, "plugin.action.resolved", approvalId, {
             approvalId,

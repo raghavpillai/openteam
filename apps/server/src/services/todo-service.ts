@@ -1,4 +1,4 @@
-import { ApiError, TODO_MAX_ITEMS, type TodoWriteInput } from "@openteam/contracts";
+import { type TodoWriteInput } from "@openteam/contracts";
 import type { PrismaClient } from "@openteam/db";
 import { appendEvent } from "./service-utils";
 
@@ -25,7 +25,7 @@ export class TodoService {
           data: incoming.map((todo, position) => ({ botId, position, ...todo })),
         });
       } else {
-        const [matching, last, existingCount] = await Promise.all([
+        const [matching, last] = await Promise.all([
           tx.todoItem.findMany({
             where: { botId, id: { in: incomingIds } },
             select: { id: true, position: true },
@@ -35,17 +35,8 @@ export class TodoService {
             orderBy: { position: "desc" },
             select: { position: true },
           }),
-          tx.todoItem.count({ where: { botId } }),
         ]);
         const positions = new Map(matching.map((todo) => [todo.id, todo.position]));
-        const newCount = incoming.length - positions.size;
-        if (newCount > Math.max(0, TODO_MAX_ITEMS - existingCount)) {
-          throw new ApiError(
-            400,
-            "todo_limit_exceeded",
-            `A task queue can contain at most ${TODO_MAX_ITEMS} items`
-          );
-        }
         let nextPosition = (last?.position ?? -1) + 1;
         const merged = incoming.map((todo) => ({
           botId,
@@ -64,7 +55,6 @@ export class TodoService {
       return tx.todoItem.findMany({
         where: { botId },
         orderBy: { position: "asc" },
-        take: TODO_MAX_ITEMS,
       });
     });
     return {

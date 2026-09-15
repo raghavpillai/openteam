@@ -94,12 +94,12 @@ test("host AwaitShell cancellation stops the wait without terminating the comman
 describe("host file text projection", () => {
   test("preserves line numbering, offsets, limits, CRLF, and trailing lines", () => {
     expect(numberText("alpha\r\nbeta\ngamma\n", undefined, undefined)).toEqual({
-      text: "1: alpha\n2: beta\n3: gamma\n4: ",
+      text: "     1|alpha\n     2|beta\n     3|gamma\n     4|",
       lines: 4,
     });
-    expect(numberText("alpha\nbeta\ngamma", 2, 1)).toEqual({ text: "2: beta", lines: 1 });
+    expect(numberText("alpha\nbeta\ngamma", 2, 1)).toEqual({ text: "... 1 lines not shown ...\n     2|beta\n... 1 lines not shown ...", lines: 1 });
     expect(numberText("alpha\nbeta\ngamma", -2, undefined)).toEqual({
-      text: "2: beta\n3: gamma",
+      text: "... 1 lines not shown ...\n     2|beta\n     3|gamma",
       lines: 2,
     });
     expect(() => numberText("alpha", 99, undefined)).toThrow("Offset 99 is beyond file length (1 lines)");

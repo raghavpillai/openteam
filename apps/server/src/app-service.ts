@@ -1,3 +1,4 @@
+import { AutomationWebhooksService } from "./services/automation-webhooks";
 import { ApiError, type UploadAssetInput } from "@openteam/contracts";
 import { createPrismaClient, Prisma, type PrismaClient } from "@openteam/db";
 import {
@@ -28,6 +29,7 @@ import { RunService } from "./services/run-service";
 import { ScreenService } from "./services/screen-service";
 import { SearchService } from "./services/search-service";
 import { forwardServiceMethod, serviceEffect } from "./services/service-utils";
+import { WebFetchSettingsService } from "./services/web-fetch-settings";
 import { WebSearchSettingsService } from "./services/web-search-settings";
 import { SettingsService } from "./services/settings-service";
 import { SnapshotService } from "./services/snapshot-service";
@@ -43,6 +45,8 @@ const ASSET_ID = /^[a-f0-9]{64}$/;
 export class AppService {
   readonly transcription: TranscriptionService;
   readonly webSearchSettings: WebSearchSettingsService;
+  readonly automationWebhooks: AutomationWebhooksService;
+  readonly webFetchSettings: WebFetchSettingsService;
   private readonly settings: SettingsService;
 
   readonly prisma: PrismaClient;
@@ -83,6 +87,7 @@ export class AppService {
     const databaseUrl = process.env.DATABASE_URL;
     this.prisma = createPrismaClient(databaseUrl);
     this.webSearchSettings = new WebSearchSettingsService(this.prisma);
+    this.webFetchSettings = new WebFetchSettingsService(this.prisma);
     this.boss = new PgBoss(databaseUrl ?? "");
     this.eventWakeup = new EventWakeup(databaseUrl ?? "");
     this.computerUrl = process.env.OPENTEAM_COMPUTER_URL ?? "http://127.0.0.1:8790";
@@ -187,6 +192,7 @@ export class AppService {
       this.agentData
     );
     this.routines = new RoutineService(this.prisma, this.messaging, this.agentData);
+    this.automationWebhooks = new AutomationWebhooksService(this.prisma,(owner,event)=>this.routines.dispatchEvent(owner,event));
     this.durableState = new DurableStateService(
       this.prisma,
       this.workspaceRoot,
@@ -227,6 +233,7 @@ export class AppService {
       await this.eventWakeup.start();
       await this.snapshots.pruneEvents();
       this.eventPruneTimer = setInterval(() => {
+        void this.automationWebhooks.renew().catch(() => console.warn("Automation subscription renewal failed"));
         void this.snapshots.pruneEvents().catch((error) => console.error("event retention", error));
       }, 5 * 60_000);
       this.eventPruneTimer.unref?.();
@@ -347,6 +354,9 @@ export class AppService {
     serviceEffect(() => this.messaging.broadcast(input));
 
   listBots = (includeHidden = false) => this.bots.list(includeHidden);
+  listBotMemories = (botId: string) => serviceEffect(() => this.agentData.listBotMemories(botId));
+  deleteBotMemories = (botId: string, memoryId?: string) =>
+    serviceEffect(() => this.agentData.deleteBotMemories(botId, memoryId));
 
   updateBot = forwardServiceMethod(() => this.bots.update);
 

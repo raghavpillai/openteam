@@ -90,6 +90,12 @@ async function performAction(
       if (position.length > 0) await run("xdotool", position, { env, signal });
       return;
     case "click":
+      if (input.holdDurationMs !== undefined) {
+        await run("xdotool", [...position, "mousedown", button], { env, signal });
+        try { await delay(input.holdDurationMs, undefined, { signal }); }
+        finally { await run("xdotool", ["mouseup", button], { env }); }
+        return;
+      }
       await run(
         "xdotool",
         [

@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "key": "1password",
+  "version": "1.0.0",
+  "name": "1Password",
+  "description": "Create and manage 1Password Developer Environments, inspect variable names, and mount local .env files. Requires the 1Password desktop app on macOS or Linux with MCP Server enabled.",
+  "publisher": "OpenTeam",
+  "category": "Developer Tools",
+  "featured": true,
+  "icon": "assets/icon.png",
+  "homepageUrl": "https://www.1password.dev/environments/mcp-server",
+  "components": ["mcp", "skills"],
+  "setup": {
+    "kind": "none",
+    "connectionKey": "1password",
+    "title": "Connect 1Password on your computer",
+    "description": "OpenTeam desktop connects directly to your installed 1Password app. No API key, hosted connector, or terminal setup is needed. Stored secret values stay in 1Password.",
+    "documentationUrl": "https://www.1password.dev/environments/mcp-server",
+    "fields": [],
+    "requiredScopes": [],
+    "steps": [
+      "Install or update 1Password on macOS or Linux, then unlock it.",
+      "In 1Password, open Settings → Developer and select Integrate with MCP clients. Complete any macOS setup prompt. You can also check Developer → MCP Server in the main window. Older versions additionally require Settings → Labs → MCP Server; its absence from Labs is normal in current versions. If Developer has no MCP option, check with 1Password or your administrator.",
+      "Keep OpenTeam desktop open on the same computer as 1Password. Select Connect here, then approve the authorization prompt in 1Password.",
+      "Grant the connection to the Bots that should use it. 1Password prompts again for access to individual environments, and authorization ends when 1Password locks."
+    ]
+  },
+  "connections": [{
+    "key": "1password",
+    "name": "1Password",
+    "transport": "stdio",
+    "auth": "none",
+    "endpoint": "stdio://1password-mcp",
+    "configuration": { "runtime": "desktop", "provider": "1password", "command": "1password-mcp" },
+    "tools": []
+  }],
+  "skills": [{
+    "name": "1password-environments",
+    "description": "Manage developer environments through the local 1Password MCP server, verify mounts, and keep stored secret values out of conversation.",
+    "path": "skills/1password-environments"
+  }]
+}

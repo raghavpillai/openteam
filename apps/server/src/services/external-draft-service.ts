@@ -120,7 +120,7 @@ export class ExternalDraftService {
     }
     return { identity: `${workspace} (${email})`, destination: header[1]!, thread };
   }
-  async create(context: ToolContext, raw: unknown) {
+  async create(context: ToolContext, raw: unknown): Promise<string | Record<string, unknown>> {
     const draft = parseExternalDraft(raw);
     const verification = await this.verify(
       context.botId,
@@ -134,7 +134,7 @@ export class ExternalDraftService {
       draft: { ...draft, verification, runId: context.runId },
       end_turn: false,
     });
-    return result.acknowledgement;
+    return typeof result.acknowledgement === "string" ? result.acknowledgement : { ...result.acknowledgement, target: verification.destination };
   }
   mutate = (messageId: string, raw: unknown) =>
     serviceEffect(async () => {

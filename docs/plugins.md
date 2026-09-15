@@ -11,11 +11,18 @@ This guide covers [using plugins](#using-plugins), [provider setup](#provider-se
 | Skills | Instructions in `SKILL.md`, with optional supporting files | Available to the Bots that have the skills enabled |
 | Remote MCP | Connections to MCP servers over HTTP(S) | The OpenTeam server connects to a provider-operated or deployment-operated endpoint |
 | Packaged MCP | An MCP executable and its supporting files | A process on the Bot computer, communicating over standard input/output |
+| Desktop MCP | A supported native provider, currently 1Password | The user's local computer through the authenticated OpenTeam desktop bridge |
 | Hybrid | Skills and MCP connections in one package | Skills guide the Bot; connections provide tools |
 
-The **Develop** screen has templates for all four types. Its hybrid template starts with skills and a packaged MCP server; a package can also combine skills with HTTP connections. A package may contain several skills and connections.
+The **Develop** screen has templates for skills, remote MCP, packaged MCP, and hybrid packages. Its hybrid template starts with skills and a packaged MCP server; a package can also combine skills with HTTP connections. Desktop MCP uses an explicitly supported native adapter. A package may contain several skills and connections.
 
 The bundled Utility Lab uses an internal connector for testing. The `builtin` transport is reserved for supported OpenTeam functionality; new integrations should use HTTP or packaged MCP.
+
+The repository currently bundles **1Password, GitHub, Gmail, Google Calendar, Google Drive, Granola, Linear, Notion, and Slack**, plus **Utility Lab** (sample tools) and **Research Playbook** (a sample research skill). Each lives in its own folder under `packages/plugins/`. Inclusion in the catalog does not mean the provider account has been authorized or every tool has been tested.
+
+### Shared workspace catalogs
+
+“Team plugins” in the reference app describes distribution through the signed-in team's shared marketplace. It is not a separate execution or authentication mode, and does not imply that every listed package is private or authored by that team. A team catalog can distribute existing public integrations, custom MCP servers, and reusable skills. In OpenTeam, **Manage → Sources** supplies shared catalogs and the installation policy controls whether a package is Optional, Default, Required, or Disabled. Each connection still needs its own setup and Bot grants. See the [reference marketplace documentation](https://cursor.com/docs/plugins).
 
 ## Using plugins
 
@@ -63,6 +70,8 @@ Gmail, Google Calendar, and Google Drive are separate plugins. Authorizing one d
 
 ### Bot access and tool approvals
 
+The plugin detail page identifies each account in **Bot access** and **Tool policies**. Grants and policies apply to that account; renaming it preserves both settings.
+
 Installation, account access, and permission to run a tool are separate controls:
 
 | Control | Effect |
@@ -93,7 +102,7 @@ Credentials and OAuth sessions live in the deployment's database, separately fro
 - **Remove account** removes that connection and its associated local access settings. Other accounts remain separate.
 - **Apply reviewed update** installs an available package version after showing its changes. Compatible accounts and preferences are retained; changed connectors may need setup again, and removed connectors lose their accounts.
 - **Restore previous package** returns to the retained previous package definition. It is not a database restore for account records removed by an update.
-- **Uninstall** removes the installed package. Export the package first if you want to keep its definition and files.
+- **Uninstall** removes the installed package and its accounts with one click. Catalog plugins stay open on their detail page with an **Add** button. Export the package first if you want to keep its definition and files.
 
 Draft edits and source refreshes do not silently replace an installed package. Installations retain a versioned snapshot until an update is applied.
 
@@ -210,6 +219,21 @@ The bundled Notion plugin uses [Notion's hosted MCP service](https://developers.
 5. Use **Add account** and repeat authorization for another identity/workspace. A successful connection does not grant access to pages the user cannot access or remove provider plan restrictions on individual tools.
 
 Notion 1.1.0 is a hybrid package with 14 OpenTeam-authored skills for search, finding content, page/task/database creation, database queries, knowledge capture, meeting preparation, research, implementation planning, and task workflows. Review them under **Bot access and plugin details → Skills**. Enable skills for the intended Bot and grant the Notion account separately. The workflow inventory matches the inspected Notion package in Grok Bot; the instructions are independently authored and the official Notion service supplies the tools. See the [package README](../packages/plugins/notion/README.md) for provenance.
+
+### 1Password setup
+
+The [1Password package](../packages/plugins/1password/README.md) uses the official **local Environments MCP server**. It includes environment management, variable-name inspection, and local `.env` mounts. It does not retrieve vault passwords or stored secret values.
+
+1. Update and unlock **1Password** on macOS or Linux.
+2. Open **Settings → Developer** and select **Integrate with MCP clients**. Complete any macOS setup/administrator prompt. The main window also has **Developer → MCP Server** with the enable checkbox. Older versions additionally require **Settings → Labs → MCP Server**; [1Password removed the Labs entry in 8.12.34](https://releases.1password.com/mac/stable/), so its absence alone does not indicate missing account access. If Developer has no MCP option, check with 1Password or your administrator; Business administrators can control **Policies → Agentic permissions → Local MCP server**.
+3. Keep **OpenTeam desktop** open on the same computer. Add **1Password** from the Marketplace, select **Connect**, and approve 1Password's own prompt. No API token, developer application registration, or terminal configuration is needed.
+4. Grant the connection and skill to the intended Bots. For a test, open the connection's **Test a tool** controls, run `authenticate` with `{}`, and use the returned account ID with `list_environments`. A first operation on an environment may require another prompt in 1Password.
+
+Connect performs authentication before reporting readiness. Background health checks do not open native authorization prompts. Locking 1Password ends its authorization; unlock and reconnect from the UI if a later call requires it. Multiple OpenTeam aliases have isolated MCP processes and Bot grants, but the accounts visible to each process are chosen in 1Password; an alias does not pin a particular 1Password account.
+
+If the provider says the desktop app is not running despite it being open, check for an unfinished macOS setup prompt: the first-time MCP command installation can leave the local service unavailable until that prompt completes. The enable checkbox and successful tool discovery alone do not prove authorization works.
+
+The OpenTeam server and Bot computer reach the native provider through the existing authenticated desktop bridge. Browser-only deployments need that desktop connection configured. Local `.env` mounts are FIFOs on the user's computer; they are not mounted into Bot containers. Run consuming applications on that same computer. Windows is unsupported. The reference Cursor package also has a shell-validation hook; this OpenTeam package supplies the MCP and a workflow skill, not that Cursor hook. [Official MCP setup and tool reference](https://www.1password.dev/environments/mcp-server).
 
 ### Granola setup
 
@@ -446,4 +470,10 @@ For source distribution, **Sources** accepts a catalog document containing a `pl
 
 ### Import compatibility
 
-The importer accepts OpenTeam `plugin.json` packages and supported agent/Cursor-style packages, including `.cursor-plugin/plugin.json`. It imports supported skills, MCP declarations, and configuration variables. The preview reports unsupported hooks, rules, commands, and agents; retaining their files does not execute those features. Review the warnings and validate the imported package before installing it.
+The importer accepts OpenTeam `plugin.json` packages and supported agent/Cursor-style packages, including `.cursor-plugin/plugin.json`. It imports supported skills, MCP declarations, and configuration variables. Enabled packages now execute agent lifecycle hooks and load rules, commands and agent templates. In Bot access, **Instructions and hooks** controls these components along with skills. Disabled packages and bots without that enablement contribute no runtime components. Package cache revisions pin the installed files used for a turn.
+
+Command hooks run as the bot computer's unprivileged execution identity with sanitized environment variables, JSON stdin/stdout, a timeout and a 64 KiB output limit. Exit 2 or an explicit deny blocks a pre-action hook; ask uses the existing review flow; other command failures follow the documented fail-open hook behavior and produce a diagnostic. Prompt hooks use the configured inference provider, with an optional provider-qualified model override. Tool hooks, prompt submission, session lifecycle, compaction observation, response/thought observations and bounded stop follow-ups are supported. Background subagent completion is observed on its separate run; it is not a synchronous parent `subagentStop` callback.
+
+Rules support always-on, glob and explicit `@plugin:rule` selection. Commands expand `/plugin:command` with `$ARGUMENTS`. Agent templates use Task's `plugin_agent: "plugin:agent"`, with prompt, model, foreground/background defaults and `readonly`. Read-only templates have a restricted tool surface and cannot execute command hooks. Explicit arbitrary tool allow/deny lists are rejected with a preview warning rather than silently ignored. IDE-only Tab/workspace hooks are reported as unsupported. Review import warnings; installed command hooks are executable code inside the bot computer, not merely Markdown.
+
+The parser follows the published [Cursor hook contract](https://cursor.com/docs/hooks). Runtime lifecycle, model names and available tools are adapted to OpenTeam; this does not reproduce Cursor's editor or cloud-agent infrastructure.

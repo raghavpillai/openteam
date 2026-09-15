@@ -326,8 +326,11 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
     );
     expect(await app.prisma.bot.findUniqueOrThrow({ where: { id: bot.id } })).toMatchObject({
       runtimeEngine: "pi",
-      inferenceProvider: "openai-codex",
-      inferenceModel: "fake",
+      // Room sessions record their own model and tape; they do not repoint the
+      // legacy bot home session or turn a root default into a bot override.
+      inferenceProvider: null,
+      inferenceModel: null,
+      runtimeSessionPath: null,
     });
     expect(
       await app.prisma.contextSession.findUniqueOrThrow({
@@ -815,14 +818,14 @@ test("durable bot mailboxes preserve Pi sessions, agent DMs, and ordered group r
     ).toBe(true);
     expect(
       groupTurns.every(
-        (turn) => turn.sessionPath === `/var/lib/openteam/pi/${turn.contextSessionId}.jsonl`
+        (turn, index) => turn.sessionPath === (groupTurns.findIndex((candidate) => candidate.contextSessionId === turn.contextSessionId) === index ? null : `/var/lib/openteam/pi/${turn.contextSessionId}.jsonl`)
       )
     ).toBe(true);
     expect(new Set(groupTurns.map((turn) => turn.contextSessionId)).size).toBe(3);
     expect(
       groupTurns.every(
         (turn) =>
-          turn.contextSessionId ===
+          turn.contextSessionId !==
           seenTurns.find(
             (candidate) => candidate.botId === turn.botId && candidate.channelId !== group.id
           )?.contextSessionId

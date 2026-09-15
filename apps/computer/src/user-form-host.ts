@@ -73,7 +73,7 @@ export function formVaultKey(field: UserFormField, domain?: string): string | nu
         ? "name:last"
         : "name:full";
   }
-  return field.extra_key ? `extra:${field.extra_key}` : null;
+  return `extra:${field.extra_key || field.label.trim().toLowerCase().replace(/\s+/g, " ")}`;
 }
 
 /** Only this host store sees submitted values. Encrypted state and its key are
@@ -209,6 +209,11 @@ export class UserFormHost {
         })
       );
     });
+  }
+
+  async savedExtraKeys(): Promise<string[]> {
+    // Keys only: values and credential-provider identifiers never reach tools.
+    return this.state(async state => [...new Set(state.vault.filter(entry => entry.key.startsWith("extra:")).map(entry => entry.key.slice(6)))].sort());
   }
 
   async submit(botId: string, formId: string, rawValues: unknown, saveToVault = false) {

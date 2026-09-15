@@ -70,9 +70,11 @@ const server = Bun.serve({
     try {
       const automationHook = path.match(/^\/api\/automation-hooks\/([a-zA-Z0-9_-]{1,100})$/);
       if (automationHook && request.method === "POST") {
+        const native=await app.automationWebhooks.receive(automationHook[1]!,request);
+        if(native)return native;
         const binding = await automationWebhookBinding(automationHook[1]!);
         if (!binding) return json({ error: "Webhook not found" }, 404);
-        return await receiveAutomationWebhook(request, binding, process.env[binding.secretEnv] ?? "", (owner, event) => app.routines.dispatchEvent(owner, event));
+        return await receiveAutomationWebhook(request, binding, (binding.secretEnv ? process.env[binding.secretEnv] : "") ?? "", (owner, event) => app.routines.dispatchEvent(owner, event));
       }
       const publicTemplate = path.match(/^\/api\/templates\/([a-f0-9-]{36})$/i);
       if (request.method === "GET" && publicTemplate?.[1]) return json(await app.reviewRecipe(publicTemplate[1], true));
@@ -158,12 +160,12 @@ const server = Bun.serve({
         }
         return json(await run(app.broadcast(await parseBody(request, AdminBroadcastInput))));
       }
-      if (path === "/api/internal/server-settings/web-search/credentials") {
+      if (path === "/api/internal/server-settings/web-search/credentials" || path === "/api/internal/server-settings/web-fetch/credentials") {
         if (!authorizedInternal(request))
           return json({ error: { code: "unauthorized", message: "Unauthorized" } }, 401);
         if (request.method !== "GET")
           return json({ error: { code: "method_not_allowed", message: "Method not allowed" } }, 405);
-        return json(await app.webSearchSettings.credentials());
+        return json(await (path.includes("/web-fetch/") ? app.webFetchSettings : app.webSearchSettings).credentials());
       }
       if (request.method === "PATCH" && path === "/api/internal/server-settings/inference") {
         if (!authorizedInternal(request)) {

@@ -1,4 +1,5 @@
 export { BotCompactionArchiveStore } from "./compaction/archive";
+export { BotNoSummaryResponseError, botSummaryResponse } from "./compaction/response";
 export {
   BotCompactionCoordinator,
   isContextLimitError,

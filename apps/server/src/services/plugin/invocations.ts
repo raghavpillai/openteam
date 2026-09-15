@@ -18,6 +18,7 @@ export class PluginInvocations {
     toolName: string;
     arguments: unknown;
     mcpDetails?: unknown;
+    allowReviewUI?: boolean;
   }, reviewedByUser = false): Promise<unknown> => {
     const connection = await this.prisma.pluginConnection.findUnique({
       where: { id: request.connectionId },
@@ -51,6 +52,9 @@ export class PluginInvocations {
     if (previous?.status === "completed") return previous.result;
     if (previous) {
       throw new ApiError(409, "plugin_call_replayed", `Plugin call is already ${previous.status}`);
+    }
+    if (decision === "prompt" && request.allowReviewUI === false) {
+      throw new ApiError(409, "automation_parent_review_required", "This connector action needs parent review. Report the verified account, action and arguments to your parent. An automation should hand this off with WakeParent; a delegated worker should include it in its final report.");
     }
     if (decision === "prompt") {
       const pendingApprovals = await this.prisma.approval.findMany({

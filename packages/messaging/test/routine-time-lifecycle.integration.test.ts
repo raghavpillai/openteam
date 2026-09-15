@@ -10,15 +10,18 @@ test("interval and weekday routines can be created, test-run, and dispatched whe
 
   const prisma = createPrismaClient(databaseUrl);
   const channelId = randomUUID();
+  const botId=randomUUID();const conversationId=randomUUID();const wakes: any[]=[];
   const owner = { kind: "group" as const, id: channelId };
   const service = new RoutineService(
     prisma,
     {
       defaultTimeZone: "America/New_York",
-      enqueueWake: async () => {
-        throw new Error("group routine test unexpectedly queued a bot wake");
+      enqueueWake: async (tx,input) => {
+        wakes.push(input);
+        const run=await tx.run.create({data:{botId:input.botId,conversationId,channelId,origin:"routine",userMessageId:randomUUID()}});
+        return {run} as never;
       },
-      createGroupRound: async () => ({ id: randomUUID(), status: "completed" }),
+      createGroupRound: async () => { throw new Error("Group routines must use an isolated automation, not a group round"); },
       advanceRound: async () => {},
     },
     undefined,
@@ -32,6 +35,7 @@ test("interval and weekday routines can be created, test-run, and dispatched whe
       data: { id: channelId, kind: "group", name: "Routine time lifecycle test" },
     });
 
+    await prisma.bot.create({data:{id:botId,name:"Routine executor fixture",defaultDirectory:"/tmp/routine-test",status:"active",conversation:{create:{id:conversationId}},channelMemberships:{create:{channelId,ordinal:0}}}});
     const interval = await service.mutateOwner(owner, randomUUID(), null, {
       action: "create",
       name: "Every minute",
@@ -73,7 +77,9 @@ test("interval and weekday routines can be created, test-run, and dispatched whe
         new Date("2026-09-02T12:00:00.000Z")
       );
       executionIds.push(execution.id);
-      expect(execution).toMatchObject({ kind: "test", status: "completed" });
+      expect(execution).toMatchObject({ kind: "test", status: "queued" });
+      await prisma.run.update({where:{id:execution.runId!},data:{status:"completed",completedAt:new Date()}});
+      await prisma.routineExecution.update({where:{id:execution.id},data:{status:"completed",completedAt:new Date()}});
     }
 
     const dispatchAt = new Date("2026-09-02T12:01:00.000Z");
@@ -95,9 +101,13 @@ test("interval and weekday routines can be created, test-run, and dispatched whe
           .map(({ kind, status }) => ({ kind, status }))
       ).toEqual([
         { kind: "test", status: "completed" },
-        { kind: "scheduled", status: "completed" },
+        { kind: "scheduled", status: "queued" },
       ]);
     }
+    expect(wakes).toHaveLength(4);
+    expect(wakes.every(wake=>wake.botId===botId&&wake.channelId===channelId&&wake.origin==="routine")).toBe(true);
+    expect(await prisma.channelMessage.count({where:{channelId}})).toBe(0);
+    expect(await prisma.routine.count({where:{id:{in:routineIds},executorBotId:botId}})).toBe(2);
     expect(
       await prisma.routine.count({
         where: { id: { in: routineIds }, nextRunAt: { gt: dispatchAt } },
@@ -107,6 +117,7 @@ test("interval and weekday routines can be created, test-run, and dispatched whe
     await prisma.event.deleteMany({
       where: { entityId: { in: [...routineIds, ...executionIds] } },
     });
+    await prisma.bot.deleteMany({where:{id:botId}});
     await prisma.channel.deleteMany({ where: { id: channelId } });
     await prisma.$disconnect();
   }

@@ -321,6 +321,7 @@ describe("local computer approval broker", () => {
   test("routes Shell by machineId while keeping omitted machineId in the box", async () => {
     const calls: string[] = [];
     const runtime = runtimeTools() as unknown as {
+      processSecrets: () => Promise<Record<string, string>>;
       nativeToolExecutor: {
         shell: (...args: unknown[]) => Promise<unknown>;
         externalShell: (...args: unknown[]) => Promise<unknown>;
@@ -333,6 +334,7 @@ describe("local computer approval broker", () => {
         signal?: AbortSignal
       ): Promise<unknown>;
     };
+    runtime.processSecrets = async () => ({});
     runtime.nativeToolExecutor.shell = async () => {
       calls.push("box");
       return { content: [{ type: "text", text: "box" }], details: {} };

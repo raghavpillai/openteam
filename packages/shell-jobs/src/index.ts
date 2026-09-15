@@ -5,6 +5,7 @@ import { RE2JS } from "re2js";
 import { parseHostAwaitShellRequest } from "@openteam/contracts/service-protocol";
 import type { ShellAwaitRequest, ShellAwaitResponse } from "@openteam/contracts/service-protocol";
 export { createShellEnvironmentCapture, loadShellEnvironment, persistShellEnvironment, SHELL_ENVIRONMENT_CAPTURE } from "./environment";
+export { SecretRedactor, redactSecrets } from "./redaction";
 
 const MAX_PATTERN_BYTES = 64 * 1024 * 1024;
 const MAX_COMPLETED_JOBS = 256;
@@ -24,11 +25,13 @@ interface Job {
   background?: boolean;
   notified?: boolean;
   channelId?: string;
+  automationRunId?: string;
 }
 
 export interface ShellCompletion {
   id: string; scope: string; outputPath: string; exitCode: number | null; error?: string;
   channelId?: string;
+  automationRunId?: string;
 }
 
 export function validateShellWait(input: ShellAwaitRequest): number {
@@ -155,7 +158,7 @@ export class ShellJobRegistry {
       try {
         await this.refresh(job);
         if (!job.outcome) continue;
-        await this.options.onComplete({ id: job.id, scope: job.scope, outputPath: job.outputPath, channelId: job.channelId, ...job.outcome });
+        await this.options.onComplete({ id: job.id, scope: job.scope, outputPath: job.outputPath, channelId: job.channelId, ...(job.automationRunId ? { automationRunId: job.automationRunId } : {}), ...job.outcome });
         job.notified = true;
         this.persist(job);
       } catch { /* Retry after restart or a transient control-plane outage. */ }
@@ -309,5 +312,5 @@ export function renderShellAwaitResult(result: ShellAwaitResponse): string {
   const status = result.status === "running"
     ? `Task still running after ${result.waited_ms}ms.`
     : `Task completed in ${result.elapsed_ms}ms with exit code: ${result.exit_code ?? "unknown"}.`;
-  return [status, result.error, `Output file: ${result.output_path}`, `Output length: ${result.output_length}`, result.regex_match ? `Pattern matched: ${result.regex_match}` : ""].filter(Boolean).join("\n");
+  return [status, result.error, `output_file_path: ${result.output_path}`, `output_length: ${result.output_length}`, result.regex_match ? `Pattern matched: ${result.regex_match}` : ""].filter(Boolean).join("\n");
 }

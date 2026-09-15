@@ -144,18 +144,18 @@ describe("GrokBot input parity at the runtime boundary", () => {
     await writeFile(over, `BEGIN\n${"a".repeat(100_001)}\nEND`);
     const success = await executor.read({ path: equal }, root);
     expect(success.details).toMatchObject({ exceededLimit: false });
-    expect(success.content[0]).toEqual({ type: "text", text: `1: ${"a".repeat(100_000)}` });
+    expect(success.content[0]).toEqual({ type: "text", text: `     1|${"a".repeat(100_000)}` });
     const failure = await executor.read({ path: over }, root);
     expect(failure.details).toMatchObject({ exceededLimit: true });
     expect(JSON.stringify(failure.content)).toContain("Please use offset and limit parameters");
     expect(JSON.stringify(failure.content)).not.toContain("aaaa");
     expect((await executor.read({ path: over, offset: 1, limit: 1 }, root)).content[0]).toEqual({
       type: "text",
-      text: "1: BEGIN",
+      text: "     1|BEGIN\n... 2 lines not shown ...",
     });
     expect((await executor.read({ path: over, offset: -1, limit: 1 }, root)).content[0]).toEqual({
       type: "text",
-      text: "3: END",
+      text: "... 2 lines not shown ...\n     3|END",
     });
   });
 
@@ -166,7 +166,7 @@ describe("GrokBot input parity at the runtime boundary", () => {
     const executor = new NativeToolExecutor({ agentDir: root, controlToken: "test-token" });
     expect((await executor.read({ path: file, offset: 1, limit: 1 }, root)).content[0]).toEqual({
       type: "text",
-      text: "1: BEGIN",
+      text: "     1|BEGIN\n... 1 lines not shown ...",
     });
   });
 

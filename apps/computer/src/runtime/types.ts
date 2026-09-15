@@ -13,6 +13,10 @@ import type { DynamicToolDefinition } from "../dynamic-tool-gateway";
 export type TurnStatus = "completed" | "failed" | "interrupted";
 
 export interface ActiveTurn {
+  pluginRuntimePackages?: readonly import("@openteam/plugin-sdk").PluginRuntimePackage[];
+  pluginAbortController?: AbortController;
+  closePluginSession?: () => Promise<void>;
+  readOnly?: boolean;
   runId: string;
   botId: string;
   contextSessionId: string;

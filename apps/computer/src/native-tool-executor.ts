@@ -1,3 +1,4 @@
+import { formatBytes2 } from "@openteam/contracts/reference-formatters";
 import { renderReadText } from "@openteam/contracts/read-output";
 import { boundToolImage } from "./runtime/image-input";
 import { spawn } from "node:child_process";
@@ -12,7 +13,7 @@ import type {
   ShellToolInput,
   TaskInput,
 } from "@openteam/contracts";
-import { ShellJobRegistry, validateShellWait, renderShellAwaitResult, type ShellCompletion } from "@openteam/shell-jobs";
+import { ShellJobRegistry, SecretRedactor, redactSecrets, validateShellWait, renderShellAwaitResult, type ShellCompletion } from "@openteam/shell-jobs";
 import { createShellEnvironmentCapture, loadShellEnvironment, SHELL_ENVIRONMENT_CAPTURE } from "@openteam/shell-jobs";
 import {
   HOST_BRIDGE_PATHS,
@@ -79,6 +80,10 @@ export class HostApprovalRequiredError extends Error {
 }
 
 export class NativeToolExecutor {
+  /** Private supervisor transport. Never return this envelope from a model tool. */
+  desktopCapability(tool: string, botId: string, args: unknown, signal?: AbortSignal, callId?: string): Promise<Record<string, any>> {
+    return this.hostFetch(HOST_BRIDGE_PATHS.capabilities, { tool, botId, arguments: args, callId }, signal, undefined, 15 * 60_000);
+  }
   private readonly shellJobs: ShellJobRegistry;
   private readonly terminalDir: string;
   private readonly hostBridgeUrl: string;
@@ -112,7 +117,7 @@ export class NativeToolExecutor {
     signal?: AbortSignal,
     environment?: NodeJS.ProcessEnv,
     scope = "",
-    routing: { channelId?: string } = {}
+    routing: { channelId?: string; automationRunId?: string; secrets?: string[]; secretEnvironment?: Record<string, string> } = {}
   ): Promise<AgentToolResult<Record<string, unknown>>> {
     signal?.throwIfAborted();
     const workingDirectory = localPath(input.working_directory ?? cwd, cwd);
@@ -128,13 +133,13 @@ export class NativeToolExecutor {
       mode: 0o600,
     });
     const startedAt = Date.now();
-    const header = `command: ${input.command}\nworking_directory: ${workingDirectory}\nstarted_at: ${new Date(startedAt).toISOString()}\n\n`;
+    const header = redactSecrets(`command: ${input.command}\nworking_directory: ${workingDirectory}\nstarted_at: ${new Date(startedAt).toISOString()}\n\n`, routing.secrets ?? []);
     outputFile.write(header);
 
     const environmentCapture = createShellEnvironmentCapture(dirname(savedEnvironment.path));
     const child = spawn("/bin/bash", ["--noprofile", "--norc", "-c", `${SHELL_ENVIRONMENT_CAPTURE}\n${input.command}`], {
       cwd: workingDirectory,
-      env: sanitizedShellEnvironment(savedEnvironment.environment, workingDirectory),
+      env: { ...sanitizedShellEnvironment(savedEnvironment.environment, workingDirectory), ...routing.secretEnvironment },
       ...agentProcessIdentity(),
       stdio: ["ignore", "pipe", "pipe", environmentCapture.fd],
     });
@@ -148,6 +153,7 @@ export class NativeToolExecutor {
       startedAt,
       pid: child.pid,
       channelId: routing.channelId,
+      automationRunId: routing.automationRunId,
     });
     let bytes = 0;
     const collect = (chunk: Buffer) => {
@@ -160,8 +166,12 @@ export class NativeToolExecutor {
         bytes += Math.min(chunk.length, remaining);
       }
     };
-    child.stdout!.on("data", collect);
-    child.stderr!.on("data", collect);
+    const stdoutRedactor = new SecretRedactor(routing.secrets ?? []);
+    const stderrRedactor = new SecretRedactor(routing.secrets ?? []);
+    child.stdout!.on("data", chunk => collect(stdoutRedactor.write(chunk)));
+    child.stderr!.on("data", chunk => collect(stderrRedactor.write(chunk)));
+    child.stdout!.once("end", () => collect(stdoutRedactor.end()));
+    child.stderr!.once("end", () => collect(stderrRedactor.end()));
 
     const abort = () => child.kill("SIGTERM");
     signal?.addEventListener("abort", abort, { once: true });
@@ -175,7 +185,7 @@ export class NativeToolExecutor {
         if (settled) return;
         settled = true;
         {
-          try { await environmentCapture.persist(savedEnvironment.path); }
+          try { await environmentCapture.persist(savedEnvironment.path, Object.keys(routing.secretEnvironment ?? {})); }
           catch (error) { processError = error instanceof Error ? error : new Error("Could not persist shell environment"); }
         }
         job.finish(exitCode, processError?.message);
@@ -219,13 +229,7 @@ export class NativeToolExecutor {
       this.shellJobs.markBackground(shellId);
       void completion.catch(() => undefined);
       return textResult(
-        JSON.stringify({
-          shell_id: shellId,
-          status: "running",
-          output: bounded(Buffer.concat(chunks).toString("utf8")),
-          output_path: outputPath,
-          elapsed_ms: Date.now() - startedAt,
-        }),
+        `Background command started successfully.\nShell ID: ${shellId}\nPID: ${child.pid}\nCommand: ${redactSecrets(input.command, routing.secrets ?? [])}\nOutput will be written to ${outputPath}. Don't mention Shell ID to the user.`,
         { shellId, status: "running", outputPath }
       );
     }
@@ -233,7 +237,7 @@ export class NativeToolExecutor {
     if (processError) throw processError;
     const output = bounded(Buffer.concat(chunks).toString("utf8"));
     return textResult(
-      output || `(command completed with exit code ${completed.exitCode ?? "null"})`,
+      `Exit code: ${completed.exitCode ?? "null"}\n\nCommand output:\n\n\`\`\`\n${output}\n\`\`\`\n\nCommand completed in ${Date.now() - startedAt} ms.\n\nShell state (cwd, env vars) persists for subsequent calls.`,
       {
         shellId,
         status: "completed",
@@ -262,7 +266,11 @@ export class NativeToolExecutor {
   }
 
   async read(input: ReadToolInput, cwd: string): Promise<AgentToolResult<Record<string, unknown>>> {
-    return this.readLocal(localPath(input.path, cwd), input.offset, input.limit);
+    try { return await this.readLocal(localPath(input.path, cwd), input.offset, input.limit); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return { ...textResult("Error: File not found"), isError: true } as AgentToolResult<Record<string, unknown>>;
+      throw error;
+    }
   }
 
   async externalShell(
@@ -322,7 +330,7 @@ export class NativeToolExecutor {
       signal,
       parseHostMachinesResponse
     );
-    return textResult(JSON.stringify(response), {
+    return textResult(JSON.stringify({ machines: response.machines.map(({ machineId, label }) => ({ machineId, label, connected: true })) }, null, 2), {
       machines: response.machines,
     });
   }
@@ -364,8 +372,8 @@ export class NativeToolExecutor {
       await agentFileIO("write", boxPath, signal, Buffer.concat(chunks));
     }
     return textResult(toBox
-      ? `Copied ${permit.path} from ${input.machineId} into your box at ${boxPath} (${size} bytes). Open it with Shell.`
-      : `Copied ${boxPath} from your box to ${input.machineId} at ${permit.path} (${size} bytes).`,
+      ? `Copied ${permit.path} from ${input.machineId} into your box at ${boxPath} (${formatBytes2(size)}). Open it with Shell.`
+      : `Copied ${boxPath} from your box to ${input.machineId} at ${permit.path} (${formatBytes2(size)}). The user can open it there with Shell using that computer's machineId.`,
     { box_path: boxPath, computer_path: permit.path, bytes: size, machineId: input.machineId });
   }
 

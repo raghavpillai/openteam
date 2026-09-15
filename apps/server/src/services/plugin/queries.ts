@@ -1,3 +1,4 @@
+import { rankPluginsLexically } from "@openteam/contracts/reference-formatters";
 import type {
   PluginActivityView,
   PluginBotAccessView,
@@ -80,7 +81,7 @@ export class PluginQueries {
             publisher: install.publisher,
             status: install.status,
             installedAt: install.installedAt.toISOString(),
-            hasSkills: (definitionFromManifest(install.manifest)?.skills.length ?? 0) > 0,
+            hasSkills: Boolean(definitionFromManifest(install.manifest)?.components.some(kind=>kind!=="mcp")),
             connections: install.connections.map((connection) =>
               connectionView(this.publicUrl, install.pluginKey, connection)
             ),
@@ -240,20 +241,17 @@ export class PluginQueries {
       )
     );
     return {
-      plugins: (await this.catalog())
-        .filter((plugin) =>
-          `${plugin.name} ${plugin.description} ${plugin.publisher} ${plugin.category}`
-            .toLowerCase()
-            .includes(query)
-        )
-        .slice(0, 20)
+      plugins: (rankPluginsLexically((await this.catalog()).map(plugin => ({ ...plugin, displayName: plugin.name })), query) as PluginDefinition[])
         .map((plugin) => ({
           key: plugin.key,
+          plugin_id: plugin.key,
           name: plugin.name,
           description: plugin.description,
           category: plugin.category,
           installed: installed.has(plugin.key),
           components: plugin.components,
+          connectorCount: plugin.connections.length,
+          skills: plugin.skills.map(({ name, description }) => ({ name, description })),
         })),
     };
   };
@@ -273,12 +271,15 @@ export class PluginQueries {
       plugin: plugin
         ? {
             key: plugin.key,
+            plugin_id: plugin.key,
             version: plugin.version,
             name: plugin.name,
             description: plugin.description,
             publisher: plugin.publisher,
             category: plugin.category,
             components: plugin.components,
+            skills: plugin.skills.map(({ name, description }) => ({ name, description })),
+            connectorCount: plugin.connections.length,
             homepageUrl: plugin.homepageUrl ?? null,
             sourceUrl: plugin.sourceUrl ?? null,
             sourceRevision: plugin.sourceRevision ?? null,
@@ -294,6 +295,7 @@ export class PluginQueries {
           }
         : {
             key: installation?.pluginKey,
+            plugin_id: installation?.pluginKey,
             version: installation?.version,
             name: installation?.name,
             description: installation?.description,
@@ -304,6 +306,12 @@ export class PluginQueries {
       connections:
         installation?.connections.map((connection) => ({
           id: connection.id,
+          server_id: connectionNamespace(connection.id),
+          name: connection.name,
+          pluginKey: installation.pluginKey,
+          toolCount: toolSnapshot(connection.toolSnapshot).length,
+          customInstructions: connection.instructions ?? "",
+          statusMessage: connection.statusMessage,
           alias: connection.alias,
           status: connection.status,
           transport: connection.transport,
@@ -326,6 +334,10 @@ export class PluginQueries {
       .then((connections) =>
         connections.map((connection) => ({
           id: connection.id,
+          server_id: connectionNamespace(connection.id),
+          account_label: connection.alias,
+          transport: connection.transport,
+          customInstructions: connection.instructions ?? "",
           pluginKey: connection.installation.pluginKey,
           pluginName: connection.installation.name,
           name: connection.name,

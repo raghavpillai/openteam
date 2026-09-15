@@ -1,5 +1,8 @@
 import type { PluginDynamicNamespace } from "@openteam/contracts";
-import { connectionNamespace, effectiveToolPolicy } from "@openteam/plugin-sdk";
+import { connectionNamespace, effectiveToolPolicy, parsePluginRuntimeComponents, type PluginRuntimePackage } from "@openteam/plugin-sdk";
+import { readFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { join } from "node:path";
 import type { PrismaClient } from "@openteam/db";
 
 type JsonObject = Record<string, unknown>;
@@ -20,7 +23,7 @@ const namespaceName = (pluginKey: string, alias: string): string =>
 export const pluginRuntimeContext = async (
   prisma: PrismaClient,
   botId: string
-): Promise<{ dynamicNamespaces: PluginDynamicNamespace[]; skillInstructions: string }> => {
+): Promise<{ dynamicNamespaces: PluginDynamicNamespace[]; skillInstructions: string; pluginRuntimePackages: PluginRuntimePackage[] }> => {
   const [grants, enablements] = await Promise.all([
     prisma.botPluginConnectionGrant.findMany({
       where: {
@@ -43,7 +46,7 @@ export const pluginRuntimeContext = async (
         botId,
         enabled: true,
         skillsEnabled: true,
-        installation: { status: "installed" },
+        installation: { status: "installed", mode: { not: "disabled" } },
       },
       include: { installation: true },
     }),
@@ -85,8 +88,22 @@ export const pluginRuntimeContext = async (
 
   const privateSkills = await prisma.pluginPrivateSkill.findMany({ where: { enabledBotIds: { array_contains: [botId] } } });
   skills.push(...privateSkills.map((skill) => `### Private skill: ${skill.name}\n${skill.description}\n\n${skill.body}\n\nSupporting files: find pluginId ${JSON.stringify(`private-${skill.id}`)} in ${process.env.OPENTEAM_AGENT_DATA_ROOT ?? "/agent-data"}/plugin-skills/cache.json and resolve links from its SKILL.md directory.`));
+  const root = process.env.OPENTEAM_AGENT_DATA_ROOT ?? "/agent-data";
+  const cache = await readFile(join(root, "plugin-skills/cache.json"), "utf8").then(text => JSON.parse(text)).catch(() => ({}));
+  const pluginRuntimePackages: PluginRuntimePackage[] = [];
+  for (const { installation } of enablements) {
+    const manifest = objectValue(installation.manifest);
+    const files = objectValue(manifest.files) as Record<string, string>;
+    const components = parsePluginRuntimeComponents(files);
+    if (![components.hooks, components.rules, components.commands, components.agents].some(items => items.length)) continue;
+    const revision = createHash("sha256").update(JSON.stringify({ version: manifest.version ?? "0", skills: manifest.skills, files: manifest.files, binaryFiles: manifest.binaryFiles })).digest("hex").slice(0, 16);
+    const installed = (cache.packages ?? []).find((entry: any) => entry.pluginId === installation.pluginKey && entry.pluginVersion === installation.version && entry.revision === revision);
+    if (!installed?.installPath) throw new Error(`Plugin runtime cache is unavailable for ${installation.pluginKey}; reinstall or refresh the plugin`);
+    pluginRuntimePackages.push({ ...components, key: installation.pluginKey, installPath: installed.installPath });
+  }
   return {
     dynamicNamespaces,
+    pluginRuntimePackages,
     skillInstructions: skills.length
       ? `\n\n## Installed plugin skills\n\n${skills.join("\n\n")}`
       : "",

@@ -5,6 +5,8 @@ import { join } from "node:path";
 import {
   BotCompactionArchiveStore,
   BotCompactionCoordinator,
+  BotNoSummaryResponseError,
+  botSummaryResponse,
   type BotMessage,
   type BotObservation,
   botBackgroundThreshold,
@@ -62,6 +64,31 @@ const setup = async () => {
   coordinators.push({ coordinator, contextSessionId: observation.contextSessionId });
   return { store, coordinator, observation };
 };
+
+test("launch uses the self-summary floor without changing the background persistence gate", async () => {
+  const { coordinator, observation, store } = await setup();
+  let calls = 0;
+  const input = {
+    ...observation,
+    maxTokens: 100_003,
+    usedTokens: 90_001,
+    infer: async () => {
+      calls++;
+      return { text: "Keep blue" };
+    },
+  };
+  await coordinator.observe(input);
+  expect(calls).toBe(0);
+  input.usedTokens = 90_002;
+  await coordinator.observe(input);
+  await settle();
+  expect(calls).toBe(1);
+  await coordinator.modelContextMessages(input);
+  expect((await store.manifest(input.contextSessionId)).epoch).toBe(0);
+  input.usedTokens = 90_003;
+  await coordinator.modelContextMessages(input);
+  expect((await store.manifest(input.contextSessionId)).epoch).toBe(1);
+});
 
 test("generation sees the latest correction and skips old summary carriers when preserving a request", () => {
   const messages = [
@@ -274,7 +301,75 @@ test("ordinary four-message retry inputs reduce progressively", () => {
     reduceBotSummaryInputMessages([
       { role: "user", content: [{ type: "text", text: "abcdefgh" }] },
     ])[0]?.content
-  ).toEqual([{ type: "text", text: "efgh" }]);
+  ).toEqual([{ type: "text", text: "abcdefgh" }]);
+});
+
+test("explicit short-history compaction rejects before inference or archive writes", async () => {
+  const { coordinator, observation, store } = await setup();
+  for (const piMessages of [[], [{ role: "user", content: "abcdefgh" }]]) {
+    let calls = 0;
+    await expect(
+      coordinator.beforePiCompaction({
+        ...observation,
+        piMessages,
+        reason: "manual",
+        firstKeptEntryId: "fixture",
+        tokensBefore: 90_000,
+        signal: new AbortController().signal,
+        infer: async () => {
+          calls++;
+          return { text: "must not run" };
+        },
+      })
+    ).rejects.toThrow(`Self-summary requires at least 3 messages, got ${piMessages.length + 1}`);
+    expect(calls).toBe(0);
+    expect((await store.manifest(observation.contextSessionId)).epoch).toBe(0);
+    expect(await store.stagedId(observation.contextSessionId)).toBeNull();
+  }
+});
+
+test("reported missing-assistant usage is counted while provider-error usage is excluded", async () => {
+  const { coordinator, observation } = await setup();
+  let calls = 0;
+  const usage = { input: 100, output: 10, reasoning: 4, totalTokens: 110 };
+  const prepared = await coordinator.beforePiCompaction({
+    ...observation,
+    reason: "manual",
+    firstKeptEntryId: "fixture",
+    tokensBefore: 90_000,
+    signal: new AbortController().signal,
+    infer: async () => {
+      calls++;
+      if (calls === 1) return botSummaryResponse({ messages: [], usage });
+      if (calls === 2)
+        return botSummaryResponse({ messages: [], usage, error: new Error("Transient fixture") });
+      return botSummaryResponse({ messages: [{ role: "assistant", content: "Keep blue" }], usage });
+    },
+  });
+  expect(calls).toBe(3);
+  expect(prepared?.usage).toEqual({ input: 200, output: 20, reasoning: 8, totalTokens: 220 });
+  expect(() =>
+    botSummaryResponse({ messages: [{ role: "user", content: "Wrong role" }], usage })
+  ).toThrow(BotNoSummaryResponseError);
+});
+
+test("three empty completions preserve the reference exhaustion error", async () => {
+  const { coordinator, observation } = await setup();
+  let calls = 0;
+  await expect(
+    coordinator.beforePiCompaction({
+      ...observation,
+      reason: "manual",
+      firstKeptEntryId: "fixture",
+      tokensBefore: 90_000,
+      signal: new AbortController().signal,
+      infer: async () => {
+        calls++;
+        return { text: "" };
+      },
+    })
+  ).rejects.toThrow("[self-summary] all retries exhausted without valid content");
+  expect(calls).toBe(3);
 });
 
 test("tool-heavy reduction drops tool exchanges at the quarter boundary", () => {
@@ -311,12 +406,16 @@ test("the generic caller retries missing assistant responses with the active fac
   const { coordinator, observation } = await setup();
   let calls = 0;
   const result = await coordinator.beforePiCompaction({
-    ...observation, reason: "manual", firstKeptEntryId: "last", tokensBefore: 91_000,
+    ...observation,
+    reason: "manual",
+    firstKeptEntryId: "last",
+    tokensBefore: 91_000,
     signal: new AbortController().signal,
     infer: async () => {
-      if (++calls === 1) throw Object.assign(new Error("No assistant response received"), {
-        name: "NoSummaryResponseError",
-      });
+      if (++calls === 1)
+        throw Object.assign(new Error("No assistant response received"), {
+          name: "NoSummaryResponseError",
+        });
       return { text: "Ready" };
     },
   });
@@ -328,21 +427,36 @@ test("successful empty attempts contribute to total summary usage and cost", asy
   const { coordinator, observation } = await setup();
   let calls = 0;
   const result = await coordinator.beforePiCompaction({
-    ...observation, reason: "manual", firstKeptEntryId: "last", tokensBefore: 91_000,
+    ...observation,
+    reason: "manual",
+    firstKeptEntryId: "last",
+    tokensBefore: 91_000,
     signal: new AbortController().signal,
     infer: async () => {
       calls++;
       if (calls === 2) throw Object.assign(new Error("provider failure"), { name: "Unavailable" });
       return {
         text: calls === 1 ? "" : "Ready",
-        usage: { input: 100, output: 10, cacheRead: 20, cacheWrite: 5, totalTokens: 135,
-          cost: { input: 0.1, output: 0.2, cacheRead: 0.01, cacheWrite: 0.02, total: 0.33 } },
+        usage: {
+          input: 100,
+          output: 10,
+          cacheRead: 20,
+          cacheWrite: 5,
+          totalTokens: 135,
+          cost: { input: 0.1, output: 0.2, cacheRead: 0.01, cacheWrite: 0.02, total: 0.33 },
+        },
       };
     },
   });
   expect(calls).toBe(3);
-  expect(result?.usage).toEqual({ input: 200, output: 20, cacheRead: 40, cacheWrite: 10, totalTokens: 270,
-    cost: { input: 0.2, output: 0.4, cacheRead: 0.02, cacheWrite: 0.04, total: 0.66 } });
+  expect(result?.usage).toEqual({
+    input: 200,
+    output: 20,
+    cacheRead: 40,
+    cacheWrite: 10,
+    totalTokens: 270,
+    cost: { input: 0.2, output: 0.4, cacheRead: 0.02, cacheWrite: 0.04, total: 0.66 },
+  });
 });
 
 test("an unfinished summary survives a turn and is adopted once with the appended request", async () => {

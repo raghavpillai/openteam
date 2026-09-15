@@ -189,6 +189,7 @@ enum MemoryScope {
   agent
   user
   project
+  conversation
 }
 
 enum MemoryTier {
@@ -281,7 +282,7 @@ model Bot {
   messages         Message[]
   runs             Run[]
   inboxEvents      InboxEvent[]
-  lease            BotRunLease?
+  lease            BotRunLease[]
   channelMemberships ChannelMember[]
   sentChannelMessages ChannelMessage[] @relation("ChannelMessageSenderBot")
   initiatedRounds  ChannelRound[]      @relation("ChannelRoundInitiator")
@@ -303,6 +304,8 @@ model Bot {
   pluginActivities PluginActivity[]
   pluginInvocations PluginInvocation[]
   contextSessions ContextSession[]
+  memoryConversations MemoryConversation[]
+  processSecrets ProcessSecret[]
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt
 
@@ -340,6 +343,7 @@ model Subagent {
   model            String?
   fileAttachments  Json           @default("[]")
   runInBackground  Boolean        @default(true)
+  readOnly         Boolean        @default(false)
   status           SubagentStatus @default(provisioning)
   result           String?
   error            Json?
@@ -388,6 +392,8 @@ model MemoryFact {
   scope          MemoryScope
   tier           MemoryTier  @default(log)
   projectSlug    String?
+  memoryConversationId String? @db.Uuid
+  memoryConversation MemoryConversation? @relation(fields: [memoryConversationId], references: [id], onDelete: Cascade)
   fact           String
   factHash       String
   logicalId      String      @default("")
@@ -405,6 +411,28 @@ model MemoryFact {
   @@index([namespace, logicalId, createdAt])
   @@index([namespace, tier, updatedAt])
   @@index([writtenByBotId, updatedAt])
+  @@index([memoryConversationId, tier, createdAt])
+}
+
+// Audience partitions preserve the audience at capture time. Membership changes
+// create a new partition rather than exposing older room facts to new members.
+model MemoryConversation {
+  id          String @id @default(uuid()) @db.Uuid
+  botId       String @db.Uuid
+  bot         Bot @relation(fields: [botId], references: [id], onDelete: Cascade)
+  address     String
+  audienceKey String
+  userScope   String
+  defaultScope String
+  teamShared  Boolean @default(false)
+  episodeTurns Json @default("[]")
+  facts       MemoryFact[]
+  runs        Run[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([botId, address, audienceKey])
+  @@index([botId, audienceKey])
 }
 
 model SavedSkill {
@@ -428,6 +456,7 @@ model Routine {
   botId           String?             @db.Uuid
   bot             Bot?                @relation(fields: [botId], references: [id], onDelete: Cascade)
   channelId       String?             @db.Uuid
+  executorBotId   String?             @db.Uuid
   channel         Channel?            @relation(fields: [channelId], references: [id], onDelete: Cascade)
   slug            String
   name            String
@@ -722,6 +751,7 @@ model ContextPromptSnapshot {
   memoryEpoch           Int            @default(-1)
   memoryRender          String         @default("")
   memoryHasFacts        Boolean        @default(false)
+  memoryAudienceKey     String         @default("")
   skillEpoch            Int            @default(-1)
   skillRender           String         @default("")
   promptSections        Json           @default("{}")
@@ -741,6 +771,7 @@ model AgentPromptSnapshot {
   memoryEpoch           Int      @default(-1)
   memoryRender          String   @default("")
   memoryHasFacts        Boolean  @default(false)
+  memoryAudienceKey     String   @default("")
   skillEpoch            Int      @default(-1)
   skillRender           String   @default("")
   promptSections        Json     @default("{}")
@@ -793,6 +824,8 @@ model Run {
   bot            Bot          @relation(fields: [botId], references: [id], onDelete: Cascade)
   conversationId String       @db.Uuid
   conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  memoryConversationId String? @db.Uuid
+  memoryConversation MemoryConversation? @relation(fields: [memoryConversationId], references: [id], onDelete: SetNull)
   userMessageId  String       @unique @db.Uuid
   status         RunStatus    @default(queued)
   runtimeTurnId  String?
@@ -814,6 +847,7 @@ model Run {
   inboxEvents    InboxEvent[]
   lease          BotRunLease?
   routineExecution RoutineExecution?
+  automationResult AutomationResult?
   pluginInvocations PluginInvocation[]
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
@@ -821,6 +855,17 @@ model Run {
   @@index([botId, status])
   @@index([conversationId, createdAt])
   @@index([channelId, createdAt])
+}
+
+model AutomationResult {
+  runId          String   @id @db.Uuid
+  run            Run      @relation(fields: [runId], references: [id], onDelete: Cascade)
+  message        String
+  wakeRunId      String?  @unique @db.Uuid
+  acknowledgedAt DateTime?
+  createdAt      DateTime @default(now())
+
+  @@index([acknowledgedAt, createdAt])
 }
 
 model InboxEvent {
@@ -850,7 +895,8 @@ model InboxEvent {
 }
 
 model BotRunLease {
-  botId      String   @id @db.Uuid
+  botId      String   @db.Uuid
+  scope      String   @default("foreground")
   bot        Bot      @relation(fields: [botId], references: [id], onDelete: Cascade)
   runId      String   @unique @db.Uuid
   run        Run      @relation(fields: [runId], references: [id], onDelete: Cascade)
@@ -859,6 +905,8 @@ model BotRunLease {
   heartbeatAt DateTime @default(now())
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
+
+  @@id([botId, scope])
 }
 
 model OutboxDelivery {
@@ -1074,6 +1122,19 @@ model PluginActivity {
   @@index([botId, createdAt])
 }
 
+model ConnectorFileTransfer {
+  callId       String @id
+  runId        String @db.Uuid
+  botId        String @db.Uuid
+  connectionId String @db.Uuid
+  tool         String
+  fingerprint  String
+  status       String
+  result       Json?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
 model PluginInvocation {
   id           String                 @id @default(uuid()) @db.Uuid
   callId       String                 @unique
@@ -1125,6 +1186,16 @@ model SearchDocument {
 
 // Better Auth owns these four tables. OpenTeam deliberately provisions only
 // one credential account through the server CLI command.
+model ProcessSecret {
+  ownerKey String
+  name String
+  botId String? @db.Uuid
+  bot Bot? @relation(fields: [botId], references: [id], onDelete: Cascade)
+  value String
+  updatedAt DateTime @updatedAt
+  @@id([ownerKey, name])
+}
+
 model User {
   id            String    @id
   name          String
@@ -1230,4 +1301,31 @@ model WebSearchSettings {
   provider        String?
   apiKey          String?
   updatedAt       DateTime @updatedAt
+}
+
+model WebFetchSettings {
+  id        String   @id @default("global")
+  provider  String   @default("builtin")
+  apiKey    String?
+  updatedAt DateTime @updatedAt
+}
+
+model AutomationWebhook {
+  externalAppKey String? @unique
+  id String @id @default(uuid()) @db.Uuid
+  source String
+  ownerKind String
+  ownerId String @db.Uuid
+  configuration Json @default("{}")
+  signingSecret String
+  apiToken String?
+  callbackUrl String
+  enabled Boolean @default(true)
+  status String @default("pending")
+  remoteId String?
+  expiresAt DateTime?
+  statusMessage String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([ownerKind,ownerId])
 }

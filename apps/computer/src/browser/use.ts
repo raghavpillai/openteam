@@ -1,3 +1,4 @@
+import { resolveReferenceSelectOptions } from "./reference-select";
 import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -5,8 +6,22 @@ import type { Browser, BrowserContext, ElementHandle, Frame, Locator, Page } fro
 import { outOfProcessPlaywright } from "./playwright-driver";
 import { normalizeFormDomain, type UserForm, type UserFormField } from "@openteam/contracts";
 import type { FormPageBinding } from "../user-form-host";
+import { redactSecrets } from "@openteam/shell-jobs";
 
 type JsonObject = Record<string, unknown>;
+export interface LoginPageBinding {
+  pageId: string;
+  origin: string;
+  document: ElementHandle<HTMLElement>;
+  password: ElementHandle<HTMLInputElement> | null;
+  username: ElementHandle<HTMLInputElement> | null;
+}
+export function secureLoginOrigin(site: string): string {
+  const url = new URL(site);
+  const loopback = url.hostname === "localhost" || url.hostname === "[::1]" || /^127\.\d+\.\d+\.\d+$/.test(url.hostname);
+  if (url.username || url.password || (url.protocol !== "https:" && !(url.protocol === "http:" && loopback))) throw new Error("Saved logins require HTTPS or a loopback origin");
+  return url.origin;
+}
 
 const textResult = (
   text: string,
@@ -30,6 +45,9 @@ export const assertAllowedCdpMethod = (method: string): void => {
     /^Storage\./,
     /^Target\./,
     /^Security\./,
+    /^SystemInfo\./,
+    /^Tethering\./,
+    /^Cast\./,
     /^Network\.(?:clearBrowserCache|clearBrowserCookies|deleteCookies|getAllCookies|getCookies|setCookie|setCookies|setExtraHTTPHeaders)$/,
     /^Emulation\.setGeolocationOverride$/,
     /^Page\.setDownloadBehavior$/,
@@ -104,6 +122,71 @@ export class BrowserUseSession {
 
   get connected(): boolean {
     return this.browser.isConnected();
+  }
+
+  private readonly privateValues = new Set<string>();
+  registerPrivateValues(values: string[]) { for (const value of values) if (value) this.privateValues.add(value); }
+  async currentLoginSite(): Promise<string | null> {
+    try { return secureLoginOrigin((await this.ensurePage()).url()); } catch { return null; }
+  }
+  async loginBinding(site: string): Promise<LoginPageBinding> {
+    const origin = secureLoginOrigin(site);
+    const candidates = this.leasedPages().filter(page => { try { return new URL(page.url()).origin === origin; } catch { return false; } });
+    if (candidates.length !== 1) throw new Error("Open exactly one browser tab for the requested login site before using its saved credential");
+    const page = candidates[0]!;
+    const document = await page.$("html") as ElementHandle<HTMLElement> | null;
+    const visible = async (selector: string) => {
+      const handles = await page.$$(selector) as ElementHandle<HTMLInputElement>[];
+      const result: ElementHandle<HTMLInputElement>[] = [];
+      for (const handle of handles) if (await handle.evaluate(e => e.isConnected && !e.disabled && !e.readOnly && !!e.getClientRects().length)) result.push(handle); else await handle.dispose();
+      return result;
+    };
+    const passwords = await visible('input[type="password"]');
+    const users = await visible('input[autocomplete="username"],input[type="email"],input[name="username"],input[name="email"],input[id="username"]');
+    if (!document || passwords.length > 1 || users.length > 1 || (!passwords.length && !users.length)) {
+      await document?.dispose(); await Promise.all([...passwords,...users].map(h => h.dispose()));
+      throw new Error("The page has no unambiguous login fields");
+    }
+    if (passwords[0] && await passwords[0].evaluate(field => Boolean(field.value))) {
+      await document.dispose(); await Promise.all([...passwords,...users].map(handle=>handle.dispose()));
+      throw new Error("The login password field is already filled");
+    }
+    return { pageId: await this.formPageId(page), origin, document, password: passwords[0] ?? null, username: users[0] ?? null };
+  }
+  async releaseLoginBinding(binding: LoginPageBinding) {
+    await Promise.all([binding.document,binding.password,binding.username].map(handle => handle?.dispose().catch(() => {})));
+  }
+  async fillSavedLogin(binding: LoginPageBinding, credential: { origin: string; username?: string; password: string }): Promise<boolean> {
+    if (credential.origin !== binding.origin) throw new Error("Credential origin mismatch");
+    this.registerPrivateValues([credential.password, credential.username ?? ""]);
+    try {
+      // Element handles bind review to this exact document and these exact fields.
+      // A reload, replacement field, redirect or changed form refuses the fill.
+      return await binding.document.evaluate((root, { origin, username, password, userField, passwordField }) => {
+        if (root !== document.documentElement || !root.isConnected || location.origin !== origin) return false;
+        const eligible = (e: HTMLInputElement | null) => !e || (e.isConnected && e.ownerDocument === document && !e.disabled && !e.readOnly && !!e.getClientRects().length);
+        if (!eligible(userField) || !eligible(passwordField) || passwordField?.value || (userField?.value && userField.value !== username)) return false;
+        if (!passwordField && (!userField || username === undefined)) return false;
+        if (passwordField && userField && passwordField.form !== userField.form) return false;
+        const fill = (node: HTMLInputElement, value: string) => {
+          node.dataset.openteamPrivate = "true";
+          node.style.setProperty("-webkit-text-security", "disc", "important");
+          Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(node, value);
+          node.dispatchEvent(new Event("input", { bubbles: true })); node.dispatchEvent(new Event("change", { bubbles: true }));
+        };
+        if (userField && username !== undefined) fill(userField, username);
+        if (!root.isConnected || location.origin !== origin || !eligible(passwordField)) return false;
+        if (passwordField) fill(passwordField, password);
+        return true;
+      }, { ...credential, userField: binding.username, passwordField: binding.password });
+    } catch { return false; }
+  }
+
+  async importPrivateCookies(cookies: Array<Record<string, unknown>>): Promise<number> {
+    this.registerPrivateValues(cookies.flatMap(cookie => typeof cookie.value === "string" ? [cookie.value] : []));
+    const page = await this.ensurePage(); const cdp = await this.context.newCDPSession(page);
+    try { await cdp.send("Network.setCookies", { cookies: cookies as never }); return cookies.length; }
+    finally { await cdp.detach(); }
   }
 
   private readonly formPageIds = new WeakMap<Page, string>();
@@ -217,6 +300,18 @@ export class BrowserUseSession {
   }
 
   async execute(toolName: string, raw: unknown): Promise<AgentToolResult<Record<string, unknown>>> {
+    try {
+      const result = await this.executeRaw(toolName, raw);
+      if (!this.privateValues.size) return result;
+      return { ...result,
+        content: result.content.map(part => part.type === "text" ? {...part, text: redactSecrets(part.text, [...this.privateValues])} : part),
+        details: JSON.parse(redactSecrets(JSON.stringify(result.details ?? {}), [...this.privateValues])),
+      };
+    } catch (error) {
+      throw new Error(redactSecrets(error instanceof Error ? error.message : String(error), [...this.privateValues]));
+    }
+  }
+  private async executeRaw(toolName: string, raw: unknown): Promise<AgentToolResult<Record<string, unknown>>> {
     const args = (raw && typeof raw === "object" ? raw : {}) as JsonObject;
     switch (toolName) {
       case "browser_navigate":
@@ -327,9 +422,10 @@ export class BrowserUseSession {
   private async pageState(
     page: Page,
     summary: string,
-    fullPage = false
+    fullPage = false,
+    data?: string
   ): Promise<AgentToolResult<Record<string, unknown>>> {
-    const image = Buffer.from(await page.screenshot({ fullPage, type: "png" }));
+    const image = Buffer.from(await page.screenshot({ fullPage, type: "png", mask: [page.locator('[data-openteam-private="true"]')] }));
     await mkdir(this.artifactDirectory, { recursive: true });
     const path = join(
       this.artifactDirectory,
@@ -342,7 +438,7 @@ export class BrowserUseSession {
       content: [
         {
           type: "text",
-          text: `${summary}\nviewId: ${pageViewId}\nurl: ${page.url()}${title ? `\ntitle: ${title}` : ""}\nscreenshot: ${path}`,
+          text: redactSecrets([summary === "Took a screenshot" ? `Saved a screenshot to ${path}` : summary, `Current page: ${title} (${page.url()})`, ...(data ? [data] : [])].join("\n\n"), [...this.privateValues]),
         },
         { type: "image", data: image.toString("base64"), mimeType: "image/png" },
       ],
@@ -402,7 +498,7 @@ export class BrowserUseSession {
       }
     }
     this.refs.set(pageViewId, refs);
-    const result = await this.pageState(page, lines.join("\n"));
+    const result = await this.pageState(page, `Captured page snapshot (${refs.size} interactive refs)`, false, lines.join("\n"));
     result.details = { ...result.details, refs: refs.size };
     return result;
   }
@@ -513,41 +609,34 @@ export class BrowserUseSession {
     const modifiers = Array.isArray(args.modifiers)
       ? args.modifiers.map((value) => (value === "ControlOrMeta" ? "Control" : value))
       : [];
-    if (typeof args.holdDurationMs === "number" && args.holdDurationMs > 0) {
-      await handle.scrollIntoViewIfNeeded();
-      const box = await handle.boundingBox();
-      if (!box) throw new Error("Referenced element has no visible bounding box");
-      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-      await page.mouse.down({ button: (args.button as "left" | "right" | "middle") ?? "left" });
-      await page.waitForTimeout(args.holdDurationMs);
-      await page.mouse.up({ button: (args.button as "left" | "right" | "middle") ?? "left" });
-    } else {
-      const box = await handle.boundingBox();
-      await handle.click({
-        button: (args.button as "left" | "right" | "middle") ?? "left",
-        clickCount: args.doubleClick === true ? 2 : 1,
-        modifiers: modifiers as Array<"Alt" | "Control" | "Meta" | "Shift">,
-        ...((typeof args.offsetX === "number" || typeof args.offsetY === "number") && box
-          ? {
-              position: {
-                x: box.width / 2 + (typeof args.offsetX === "number" ? args.offsetX : 0),
-                y: box.height / 2 + (typeof args.offsetY === "number" ? args.offsetY : 0),
-              },
-            }
-          : {}),
-      });
-    }
-    return this.pageState(page, "Clicked the referenced element");
+    const hold = args.holdDurationMs;
+    if (hold !== undefined && (typeof hold !== "number" || !Number.isInteger(hold) || hold < 1 || hold > 30_000)) throw new Error("holdDurationMs must be 1–30000");
+    const box = await handle.boundingBox();
+    await handle.click({
+      button: (args.button as "left" | "right" | "middle") ?? "left",
+      clickCount: args.doubleClick === true ? 2 : 1,
+      modifiers: modifiers as Array<"Alt" | "Control" | "Meta" | "Shift">,
+      ...(typeof hold === "number" ? {delay:hold,timeout:30_000 + hold} : {}),
+      ...((typeof args.offsetX === "number" || typeof args.offsetY === "number") && box ? {
+        position: {x:box.width / 2 + (typeof args.offsetX === "number" ? args.offsetX : 0),y:box.height / 2 + (typeof args.offsetY === "number" ? args.offsetY : 0)}
+      } : {}),
+    });
+    return this.pageState(page, `Clicked ${args.element ?? args.ref}`);
   }
 
   private async mouseClick(args: JsonObject) {
     const page = await this.ensurePage(this.viewId(args));
     if (typeof args.x !== "number" || typeof args.y !== "number")
       throw new Error("x and y are required");
-    await page.mouse.click(args.x, args.y, {
-      button: (args.button as "left" | "right" | "middle") ?? "left",
-    });
-    return this.pageState(page, `Clicked viewport coordinates ${args.x},${args.y}`);
+    const button = (args.button as "left" | "right" | "middle") ?? "left";
+    if (typeof args.holdDurationMs === "number") {
+      if (!Number.isInteger(args.holdDurationMs) || args.holdDurationMs < 1 || args.holdDurationMs > 30_000) throw new Error("holdDurationMs must be 1–30000");
+      await page.mouse.move(args.x, args.y);
+      await page.mouse.down({ button });
+      try { await page.waitForTimeout(args.holdDurationMs); }
+      finally { await page.mouse.up({ button }); }
+    } else await page.mouse.click(args.x, args.y, { button });
+    return this.pageState(page, `Clicked at (${args.x}, ${args.y})`);
   }
 
   private async type(args: JsonObject) {
@@ -557,7 +646,7 @@ export class BrowserUseSession {
     if (args.clear === true) await handle.fill("");
     await handle.type(args.text, args.slowly === true ? { delay: 40 } : undefined);
     if (args.submit === true) await handle.press("Enter");
-    return this.pageState(page, "Typed into the referenced element");
+    return this.pageState(page, `Typed into ${args.element ?? args.ref}`);
   }
 
   private async fill(args: JsonObject) {
@@ -565,7 +654,7 @@ export class BrowserUseSession {
     const handle = await this.requireRef(page, args.ref);
     if (typeof args.value !== "string") throw new Error("value is required");
     await handle.fill(args.value);
-    return this.pageState(page, "Filled the referenced element");
+    return this.pageState(page, `Filled ${args.element ?? args.ref}`);
   }
 
   private async selectOption(args: JsonObject) {
@@ -574,11 +663,10 @@ export class BrowserUseSession {
     if (!Array.isArray(args.values) || args.values.some((value) => typeof value !== "string")) {
       throw new Error("values must be an array of strings");
     }
-    let selected = await handle.selectOption(args.values as string[]).catch(() => []);
-    if (selected.length === 0) {
-      selected = await handle.selectOption((args.values as string[]).map((label) => ({ label })));
-    }
-    return this.pageState(page, `Selected options: ${selected.join(", ")}`);
+    const resolved = await handle.evaluate(resolveReferenceSelectOptions, args.values) as {kind:string;values?:string[];fuzzy?:boolean;optionCount?:number};
+    if (resolved.kind === "unmatched") throw new Error(`None of the ${resolved.optionCount} options matched the requested value, by value or by visible label. Take a fresh browser_snapshot to read the control, and pass an option value or label the page actually offers.`);
+    const selected = resolved.kind === "matched" ? await handle.selectOption(resolved.values!) : await handle.selectOption(args.values as string[]).catch(() => handle.selectOption((args.values as string[]).map(label => ({label}))));
+    return this.pageState(page, `Selected ${JSON.stringify(selected)} in ${args.element ?? args.ref}${resolved.fuzzy ? " (matched the requested value to the page's option by its visible label)" : ""}`);
   }
 
   private async pressKey(args: JsonObject) {
@@ -598,27 +686,20 @@ export class BrowserUseSession {
     const page = await this.ensurePage(this.viewId(args));
     if (typeof args.ref === "string") {
       await (await this.requireRef(page, args.ref)).scrollIntoViewIfNeeded();
+      return this.pageState(page, `Scrolled ${args.element ?? args.ref} into view`);
     }
-    const amount = typeof args.amount === "number" ? args.amount : 300;
-    const direction = typeof args.direction === "string" ? args.direction : "down";
-    const deltaX =
-      typeof args.deltaX === "number"
-        ? args.deltaX
-        : direction === "left"
-          ? -amount
-          : direction === "right"
-            ? amount
-            : 0;
-    const deltaY =
-      typeof args.deltaY === "number"
-        ? args.deltaY
-        : direction === "up"
-          ? -amount
-          : direction === "down"
-            ? amount
-            : 0;
-    if (deltaX !== 0 || deltaY !== 0) await page.mouse.wheel(deltaX, deltaY);
-    return this.pageState(page, `Scrolled by ${deltaX},${deltaY}`);
+    const amount = typeof args.amount === "number" && args.amount > 0 ? args.amount : 300;
+    let deltaX = typeof args.deltaX === "number" ? args.deltaX : 0;
+    let deltaY = typeof args.deltaY === "number" ? args.deltaY : 0;
+    if (deltaX === 0 && deltaY === 0) {
+      const direction = args.direction ?? "down";
+      if (direction === "up") deltaY = -amount;
+      else if (direction === "down") deltaY = amount;
+      else if (direction === "left") deltaX = -amount;
+      else deltaX = amount;
+    }
+    await page.mouse.wheel(deltaX, deltaY);
+    return this.pageState(page, `Scrolled by (${deltaX}, ${deltaY})`);
   }
 
   private async drag(args: JsonObject) {
@@ -643,16 +724,14 @@ export class BrowserUseSession {
     await page.mouse.down();
     await page.mouse.move(targetX, targetY, { steps: 8 });
     await page.mouse.up();
-    return this.pageState(page, "Dragged the referenced element");
+    return this.pageState(page, `Dragged ${args.sourceRef} to (${Math.round(targetX)}, ${Math.round(targetY)})`);
   }
 
   private async boundingBox(args: JsonObject) {
     const page = await this.ensurePage(this.viewId(args));
     const box = await (await this.requireRef(page, args.ref)).boundingBox();
-    return textResult(boundedJson({ viewId: this.idFor(page), ref: args.ref, box }), {
-      viewId: this.idFor(page),
-      box,
-    });
+    if (!box) throw new Error("The element has no visible bounding box.");
+    return this.pageState(page, `Bounding box for ${args.element ?? args.ref}`, false, JSON.stringify(Object.fromEntries(Object.entries(box).map(([key, value]) => [key, Math.round(value)]))));
   }
 
   private async highlight(args: JsonObject) {
@@ -665,8 +744,8 @@ export class BrowserUseSession {
       element.style.outlineOffset = "2px";
       return value;
     });
-    const result = await this.pageState(page, "Highlighted the referenced element");
     const duration = typeof args.durationMs === "number" ? args.durationMs : 2_000;
+    const result = await this.pageState(page, `Highlighted ${args.element ?? args.ref} for ${duration}ms`);
     setTimeout(() => {
       void handle
         .evaluate((node, value) => {
@@ -682,10 +761,13 @@ export class BrowserUseSession {
     const page = await this.ensurePage(this.viewId(args));
     if (typeof args.method !== "string") throw new Error("method is required");
     assertAllowedCdpMethod(args.method);
+    if (this.privateValues.size && !/^(?:Performance\.getMetrics|DOM\.getBoxModel|Page\.getLayoutMetrics)$/.test(args.method)) {
+      throw new Error("This browser contains private login data. Use the page interaction tools; arbitrary CDP inspection is unavailable for this session.");
+    }
     const session = await this.context.newCDPSession(page);
     try {
       const result = await session.send(args.method as never, (args.params ?? {}) as never);
-      const state = await this.pageState(page, `CDP ${args.method}\n${boundedJson(result)}`);
+      const state = await this.pageState(page, `Ran CDP ${args.method}`, false, boundedJson(result));
       state.details = {
         viewId: this.idFor(page),
         method: args.method,
@@ -730,12 +812,13 @@ export class BrowserUseSession {
         url: page.url(),
       }))
     );
-    return textResult(boundedJson({ tabs: entries }), { tabs: entries.length });
+    if (action === "list") return textResult(`Listed ${entries.length} tab(s)\n\n${JSON.stringify(entries.map(({ index, url, title }) => ({ index, url, title })), null, 1)}`, { tabs: entries.length });
+    return this.pageState(await this.ensurePage(), action === "new" ? "Opened a new tab" : action === "select" ? `Selected tab ${args.index}` : "Closed a tab");
   }
 
   private async takeScreenshot(args: JsonObject) {
     const page = await this.ensurePage(this.viewId(args));
-    return this.pageState(page, "Captured browser screenshot", args.fullPage === true);
+    return this.pageState(page, "Took a screenshot", args.fullPage === true);
   }
 }
 export { BROWSER_USE_TOOLS, type BrowserUseToolDefinition } from "./tool-definitions";

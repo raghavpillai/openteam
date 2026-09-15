@@ -10,7 +10,8 @@ describe("OpenTeam marketplace", () => {
     const source = new OpenTeamMarketplaceSource(undefined, bundledOpenTeamMarketplace);
     const plugins = await source.plugins();
 
-    expect(plugins).toHaveLength(9);
+    expect(plugins.length).toBeGreaterThanOrEqual(12);
+    expect(plugins.map((plugin) => plugin.key)).toContain("onedrive");
     expect(plugins.map((plugin) => plugin.key)).toContain("gmail");
     expect(plugins.map((plugin) => plugin.key)).toContain("github");
     expect(plugins.map((plugin) => plugin.key)).toContain("slack");

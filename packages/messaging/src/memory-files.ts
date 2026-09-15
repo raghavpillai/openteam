@@ -162,7 +162,7 @@ export const readMemoryTree = async (root: string): Promise<MemoryFileFact[]> =>
   const facts: MemoryFileFact[] = [];
   for (const sourcePath of await markdownFiles(root)) {
     if (sourcePath !== "profile.md" && !/^log\/[^/]+\.md$/.test(sourcePath)) continue;
-    const text = await readText(join(root, sourcePath), 2_000_000);
+    const text = await readText(join(root, sourcePath), Number.MAX_SAFE_INTEGER);
     if (text === null) continue;
     for (const fact of parseMemoryMarkdown(text, sourcePath === "profile.md")) {
       facts.push({ ...fact, sourcePath });
@@ -176,7 +176,7 @@ export const appendMemoryFact = async (
   content: string,
   tier: "profile" | "log" | "note",
   at = new Date()
-): Promise<{ added: boolean; sourcePath: string; logicalId: string }> => {
+): Promise<{ added: boolean; sourcePath: string; logicalId: string; content: string }> => {
   const normalized = normalizeMemoryContent(
     tier === "note" && !content.startsWith("[note] ") ? `[note] ${content}` : content
   );
@@ -184,11 +184,11 @@ export const appendMemoryFact = async (
   const logicalId = memoryLogicalId(normalized);
   const existing = await readMemoryTree(root);
   if (existing.some((fact) => fact.logicalId === logicalId)) {
-    return { added: false, sourcePath: "", logicalId };
+    return { added: false, sourcePath: "", logicalId, content: normalized };
   }
   const sourcePath = tier === "profile" ? "profile.md" : `log/${at.toISOString().slice(0, 7)}.md`;
   const path = join(root, sourcePath);
-  const current = (await readText(path, 2_000_000)) ?? "";
+  const current = (await readText(path, Number.MAX_SAFE_INTEGER)) ?? "";
   const prefix =
     current.length === 0
       ? tier === "profile"
@@ -197,7 +197,7 @@ export const appendMemoryFact = async (
       : current;
   const separator = prefix.endsWith("\n") ? "" : "\n";
   await atomicWrite(path, `${prefix}${separator}${memoryLine(at, normalized)}\n`);
-  return { added: true, sourcePath, logicalId };
+  return { added: true, sourcePath, logicalId, content: normalized };
 };
 
 export const forgetMemoryFact = async (
@@ -208,7 +208,7 @@ export const forgetMemoryFact = async (
   for (const sourcePath of await markdownFiles(root)) {
     if (sourcePath !== "profile.md" && !/^log\/[^/]+\.md$/.test(sourcePath)) continue;
     const path = join(root, sourcePath);
-    const current = await readText(path, 2_000_000);
+    const current = await readText(path, Number.MAX_SAFE_INTEGER);
     if (current === null) continue;
     const lines = current.split(/\r?\n/);
     const target = lines.findIndex((line) => {
@@ -221,6 +221,25 @@ export const forgetMemoryFact = async (
     return { forgotten: true, logicalId };
   }
   return { forgotten: false, logicalId };
+};
+
+/** Remove every indexed fact selected by the owner, preserving unrelated Markdown. */
+export const removeMemoryFacts = async (
+  root: string,
+  logicalId?: string
+): Promise<MemoryFileFact[]> => {
+  const facts = (await readMemoryTree(root)).filter((fact) => !logicalId || fact.logicalId === logicalId);
+  const paths = new Set(facts.map((fact) => fact.sourcePath));
+  for (const sourcePath of paths) {
+    const path = join(root, sourcePath);
+    const text = await readText(path, Number.MAX_SAFE_INTEGER);
+    if (text === null) continue;
+    const selected = new Set(parseMemoryMarkdown(text, sourcePath === "profile.md")
+      .filter((fact) => !logicalId || fact.logicalId === logicalId)
+      .map((fact) => fact.sourceLine));
+    await atomicWrite(path, text.split(/\r?\n/).filter((_, index) => !selected.has(index + 1)).join("\n"));
+  }
+  return facts;
 };
 
 export const ensureDreamingLayout = async (memoryRoot: string): Promise<void> => {
@@ -354,7 +373,7 @@ const synthesisFiles = async (
   const files = [
     {
       sourcePath: "profile.md",
-      raw: (await readText(join(memoryRoot, "profile.md"), 2_000_000)) ?? "",
+      raw: (await readText(join(memoryRoot, "profile.md"), Number.MAX_SAFE_INTEGER)) ?? "",
     },
   ];
   for (const name of await listFiles(join(memoryRoot, "log"))) {
@@ -362,7 +381,7 @@ const synthesisFiles = async (
     const sourcePath = `log/${name}`;
     files.push({
       sourcePath,
-      raw: (await readText(join(memoryRoot, sourcePath), 2_000_000)) ?? "",
+      raw: (await readText(join(memoryRoot, sourcePath), Number.MAX_SAFE_INTEGER)) ?? "",
     });
   }
   return files;

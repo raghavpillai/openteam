@@ -89,7 +89,7 @@ for (const provider of Object.keys(SEARCH_PROVIDERS) as SearchProvider[]) {
         { title: "Reference", url: "https://example.com/reference", description: "An extract." },
       ],
     });
-    expect(result.content[0]!.text).toContain("[Reference](https://example.com/reference)");
+    expect(result.content[0]!.text).toBe("Title: Reference\nURL: https://example.com/reference\nContent: An extract.\n---\n");
     expect(JSON.stringify(result)).not.toContain(key);
   });
 }
@@ -136,7 +136,7 @@ test("search distinguishes empty results, rejects unusable URLs, deduplicates an
           : { results: [] };
     const client = new SearchProviderClient(() => ({ provider, apiKey: key }), (async () =>
       Response.json(body)) as SearchFetch);
-    expect((await client.search("nothing")).content[0]!.text).toBe("No search results found.");
+    expect((await client.search("nothing")).content[0]!.text).toBe("");
   }
   const results = [
     { url: "javascript:alert(1)" },
@@ -150,7 +150,7 @@ test("search distinguishes empty results, rejects unusable URLs, deduplicates an
   const result = await client.search("reference");
   expect(result.details.results).toHaveLength(10);
   expect(result.details.results[0]?.description.length).toBe(2000);
-  expect(result.content[0]!.text).toContain("\\[link\\]");
+  expect(result.content[0]!.text).toContain("Title: [link]");
 });
 
 test("Brave query limits and cancellation stop before sending a request", async () => {

@@ -374,7 +374,7 @@ test("live filesystem watchers, snapshots, namespaces, and deletion authority ag
         },
       })
     ).toBe(6);
-    await prisma.botRunLease.delete({ where: { botId: firstBotId } });
+    await prisma.botRunLease.deleteMany({ where: { botId: firstBotId } });
     await prisma.run.update({ where: { id: runningRun.id }, data: { status: "completed" } });
     timelineSessionActive = false;
     await routineService.mutate(firstBotId, randomUUID(), null, {

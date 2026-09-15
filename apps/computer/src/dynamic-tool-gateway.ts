@@ -1,5 +1,6 @@
 import type { CallDynamicToolInput, GetDynamicToolsInput } from "@openteam/contracts";
 import { compileToolSearchPattern } from "@openteam/shell-jobs";
+import { parseArgumentsLeniently } from "./dynamic-tool-argument-repair.js";
 
 export type DynamicNamespaceStatus = "ready" | "needsAuth" | "error" | "loading";
 
@@ -35,14 +36,18 @@ export interface DynamicNamespaceView {
   tools: DynamicToolView[];
 }
 
-const descriptionSummary = (description: string): string =>
-  description.length > 200 ? `${description.slice(0, 200)}... [truncated]` : description;
+const descriptionSummary = (description: string): string => {
+  const clean = description.replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim();
+  const suffix = "... [truncated]";
+  return clean.length > 200 ? clean.slice(0, 200 - suffix.length) + suffix : clean;
+};
 
 export const dynamicToolKey = (namespace: string, toolName: string): string =>
   `${namespace}/${toolName}`;
 
 const searchPattern = (source: string | undefined): { test(text: string): boolean } | null => {
   if (!source) return null;
+  if (source.length > 256) throw new Error("Tool search pattern must be at most 256 characters");
   try {
     return compileToolSearchPattern(source);
   } catch (error) {
@@ -65,8 +70,8 @@ export const discoverDynamicTools = (
     throw new Error("toolName requires namespace");
   }
 
-  const pattern = searchPattern(input.pattern);
-  const fullLookup = Boolean(input.namespace && !input.pattern);
+  const pattern = searchPattern(input.toolName ? undefined : input.pattern);
+  const fullLookup = Boolean(input.namespace && (!input.pattern || input.toolName));
   const namespaces = catalog
     .filter((namespace) => !input.namespace || namespace.name === input.namespace)
     .map((namespace): DynamicNamespaceView | null => {
@@ -75,7 +80,7 @@ export const discoverDynamicTools = (
         .filter((tool) => !input.toolName || tool.name === input.toolName)
         .filter((tool) => !pattern || namespaceMatches || pattern.test(tool.name))
         .map((tool) => {
-          discoveredTools.add(dynamicToolKey(namespace.name, tool.name));
+          if (fullLookup) discoveredTools.add(dynamicToolKey(namespace.name, tool.name));
           return {
             name: tool.name,
             description: fullLookup ? tool.description : descriptionSummary(tool.description),
@@ -103,6 +108,23 @@ export const discoverDynamicTools = (
 
   return { namespaces };
 };
+
+/** Model-facing reference envelope; internal discovery views remain useful to the UI. */
+export function renderDynamicDiscovery(result: { namespaces: DynamicNamespaceView[] }, input: GetDynamicToolsInput): unknown {
+  const tool = (t: DynamicToolView, full: boolean) => ({ tool: t.name, description: t.description, ...(full ? { inputSchema: t.inputSchema } : {}) });
+  const namespace = (n: DynamicNamespaceView, full: boolean) => ({ namespace: n.name, ...(n.namespaceStatus === "ready" ? {} : { namespaceStatus: n.namespaceStatus }), namespaceDescription: n.description, tools: n.tools.map(t => tool(t, full)) });
+  if (input.toolName) return tool(result.namespaces[0]!.tools[0]!, true);
+  if (input.pattern) {
+    const pattern = searchPattern(input.pattern)!;
+    const matches = result.namespaces.flatMap(n => [
+      ...(pattern.test(n.name) ? [{ namespace: n.name, description: n.description }] : []),
+      ...n.tools.map(t => ({ namespace: n.name, tool: t.name, description: t.description, ...(n.namespaceStatus === "ready" || pattern.test(n.name) ? {} : { namespaceStatus: n.namespaceStatus }) }))
+    ]).sort((a, b) => a.namespace.localeCompare(b.namespace) || ((a as any).tool ?? "").localeCompare((b as any).tool ?? ""));
+    return { mode: "search", pattern: input.pattern, matches };
+  }
+  if (input.namespace) return { mode: "namespace", ...namespace(result.namespaces[0]!, true) };
+  return { mode: "catalog", namespaces: [...result.namespaces].sort((a,b)=>a.name.localeCompare(b.name)).map(n => namespace(n, false)) };
+}
 
 /**
  * Re-resolve and validate every invocation. A prior discovery receipt is only
@@ -137,6 +159,17 @@ export const resolveDynamicTool = <Tool extends DynamicToolDefinition>(
   return {
     namespace,
     tool,
-    arguments: tool.decodeArguments(input.arguments ?? {}),
+    arguments: tool.decodeArguments(decodeDynamicArguments(input.arguments)),
   };
 };
+
+export function decodeDynamicArguments(input: unknown): Record<string, unknown> {
+  if (input === undefined) return {};
+  if (typeof input === "string") {
+    const repaired = parseArgumentsLeniently(input);
+    if (!repaired) throw new Error("Tool arguments are invalid or have more than one possible interpretation");
+    return repaired.args;
+  }
+  if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("Tool arguments must be an object");
+  return input as Record<string, unknown>;
+}

@@ -73,7 +73,7 @@ function requestFor(
   }
 }
 
-async function boundedJson(response: Response): Promise<Record<string, unknown>> {
+export async function boundedJson(response: Response): Promise<Record<string, unknown>> {
   if (!response.body) throw new Error("Search provider returned an empty response");
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
@@ -179,7 +179,7 @@ export class SearchProviderClient {
         content: [
           {
             type: "text" as const,
-            text: `${text} Configure the key privately; never ask the user to paste it into chat. No search was performed. WebFetch is available for known public URLs.`,
+            text: `${text} Configure the key privately; never ask the user to paste it into chat. No search was performed. WebFetch can read known public URLs; its built-in provider needs no key.`,
           },
         ],
         details: { configured: false, provider: provider ?? null, results: [] as SearchResult[] },
@@ -220,21 +220,11 @@ export class SearchProviderClient {
       url: redact(result.url),
       description: redact(result.description),
     }));
-    const title = (value: string) => value.replace(/[\[\]\\]/g, "\\$&").replace(/[\r\n]+/g, " ");
-    const link = (value: string) =>
-      value.replace(/[()]/g, (char) => (char === "(" ? "%28" : "%29"));
     return {
       content: [
         {
           type: "text" as const,
-          text: results.length
-            ? results
-                .map(
-                  (result) =>
-                    `### [${title(result.title)}](${link(result.url)})\n${result.description}`
-                )
-                .join("\n\n")
-            : "No search results found.",
+          text: results.map(result => `Title: ${result.title}${result.url ? `\nURL: ${result.url}` : ""}\nContent: ${result.description}\n---\n`).join("\n"),
         },
       ],
       details: { configured: true, provider, query, results },

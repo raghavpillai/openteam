@@ -1,4 +1,5 @@
 import type { OAuthClientInformationMixed } from "@modelcontextprotocol/sdk/shared/auth.js";
+import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
 import { ApiError } from "@openteam/contracts";
 import type { Prisma, PrismaClient } from "@openteam/db";
 import type { PluginToolDefinition } from "../../plugins/catalog";
@@ -375,6 +376,8 @@ export class PluginTransport {
         }
         // Never send client secrets, refresh tokens, or setup values to the child process.
         return {
+          runtime: configuration.runtime,
+          provider: configuration.provider,
           command: configuration.command,
           args: configuration.args,
           cwd: configuration.cwd,
@@ -385,6 +388,37 @@ export class PluginTransport {
       },
       { maxWait: 40_000, timeout: 40_000 }
     );
+  }
+
+  /** Used only by the private binary-transfer service, never exposed as a tool result. */
+  async providerAccessToken(connectionId: string): Promise<string> {
+    const current=await this.prisma.pluginConnection.findUniqueOrThrow({where:{id:connectionId}});
+    if(current.status!=="ready")throw new Error("Connection is no longer ready");
+    if(current.transport==="stdio")return this.fileAccessToken(current);
+    const token=current.authType==="oauth"?await this.prisma.$transaction(async tx=>{
+      await tx.$queryRaw`SELECT id FROM "PluginConnection" WHERE id = ${connectionId}::uuid FOR UPDATE`;
+      const latest=await tx.pluginConnection.findUniqueOrThrow({where:{id:connectionId}});
+      if(latest.status!=="ready")throw new Error("Connection is no longer ready");
+      const state=jsonObject(jsonObject(latest.credentials).oauth) as StoredOAuthState;
+      const provider=this.oauthProvider(latest,async oauth=>{await tx.pluginConnection.update({where:{id:connectionId},data:{credentials:toJson({...jsonObject(latest.credentials),oauth})}});});
+      if(!state.tokens?.access_token||state.tokensExpireAt!==undefined&&state.tokensExpireAt<Date.now()+60_000){
+        // Native delivery uses the same persisted SDK OAuth refresh path as MCP.
+        // Any interactive reauthorization stays pending in account settings.
+        const endpoint=runtimeEndpoint(latest);if(!endpoint)throw new Error("This OAuth connection has no endpoint");
+        if(await auth(provider,{serverUrl:endpoint,scope:provider.clientMetadata.scope})!=="AUTHORIZED")throw new Error("Reauthenticate this account in plugin settings before sending files");
+      }
+      return provider.tokens()?.access_token;
+    },{maxWait:40_000,timeout:40_000}):jsonObject(current.credentials).bearerToken;
+    if(typeof token!=="string"||!token)throw new Error("This connection has no native API access token; authenticate again");
+    return token;
+  }
+
+  async fileAccessToken(connection: { id: string; configuration: Prisma.JsonValue; credentials: Prisma.JsonValue }): Promise<string> {
+    const configuration = await this.stdioConfiguration(connection);
+    const env = configuration.env as Record<string, string>;
+    const token = env.GOOGLE_ACCESS_TOKEN ?? env.MICROSOFT_ACCESS_TOKEN;
+    if (!token) throw new Error("This account has no authenticated file-transfer token");
+    return token;
   }
 
   async stopRuntime(connectionId: string, transport: string): Promise<void> {
@@ -407,6 +441,9 @@ export class PluginTransport {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
+      // Native authorization waits for the user's 1Password prompt; the generic RPC budget is 10s.
+      ...(jsonObject(jsonObject(body).configuration).runtime === "desktop"
+        ? { signal: AbortSignal.timeout(180_000) } : {}),
     });
     const value = await response.json().catch(() => ({}));
     if (!response.ok) {

@@ -1,3 +1,4 @@
+import { referenceTool } from "@openteam/contracts/tool-contracts";
 import { objectToolSchema } from "../tool-schema";
 export interface BrowserUseToolDefinition {
   name: string;
@@ -197,4 +198,4 @@ export const BROWSER_USE_TOOLS: readonly BrowserUseToolDefinition[] = [
     description: "Take a viewport or full-page screenshot of the selected page.",
     inputSchema: objectToolSchema({ viewId, fullPage: { type: "boolean" } }),
   },
-] as const;
+].map(tool => referenceTool(tool.name));

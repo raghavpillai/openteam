@@ -47,16 +47,16 @@ const discover = (receipts: Set<string>, input: GetDynamicToolsInput = {}) =>
   discoverDynamicTools(catalog(), receipts, input);
 
 describe("OpenTeam dynamic tool gateway", () => {
-  test("catalog discovery returns schemas, truncates descriptions, and records receipts", () => {
+  test("catalog summaries are bounded and do not authorize invocation before schema lookup", () => {
     const receipts = new Set<string>();
     const result = discover(receipts);
 
     expect(result.namespaces).toHaveLength(1);
-    expect(result.namespaces[0]?.tools[0]?.description).toBe(`${"x".repeat(200)}... [truncated]`);
+    expect(result.namespaces[0]?.tools[0]?.description).toBe(`${"x".repeat(185)}... [truncated]`);
     expect(result.namespaces[0]?.tools[0]?.inputSchema).toEqual(
       catalog()[0]?.tools[0]?.inputSchema
     );
-    expect(receipts).toEqual(new Set(["openteam/Computer", "openteam/SendToAgent"]));
+    expect(receipts.size).toBe(0);
   });
 
   test("exact lookup returns the complete descriptor", () => {

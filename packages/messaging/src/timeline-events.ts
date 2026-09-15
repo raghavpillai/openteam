@@ -92,7 +92,7 @@ export const appendAgentTimelineEvent = async (
 
   const [bot, lease] = await Promise.all([
     tx.bot.findUnique({ where: { id: input.botId }, select: { status: true } }),
-    tx.botRunLease.findUnique({ where: { botId: input.botId }, select: { runId: true } }),
+    tx.botRunLease.findFirst({ where: { botId: input.botId, scope: "foreground" }, select: { runId: true } }),
   ]);
   if (bot?.status !== "active" || lease) return { appended: true, woke: false };
 

@@ -22,6 +22,7 @@ test("background subagent completion revives the parent with Bot's dedicated sou
 
   await worker.notifySubagentParent(
     {
+      run: { findFirst: async () => ({ origin: "user" }) },
       bot: {
         findUnique: async () => ({ id: "parent", status: "active" }),
       },
@@ -29,6 +30,7 @@ test("background subagent completion revives the parent with Bot's dedicated sou
     {
       id: "subagent-1",
       parentBotId: "parent",
+      parentRunId: "parent-run-1",
       parentChannelId: "channel-1",
       description: "Check release",
       subagentType: "executor",

@@ -13,6 +13,7 @@ interface Fixture {
   legacy: AgentDataStore;
   botId: string;
   root: string;
+  reports: () => Promise<unknown[]>;
 }
 
 async function withStore(
@@ -35,7 +36,7 @@ async function withStore(
     workspaceRoot: temporary,
     memoryDreamingEnabled: false,
   });
-  fixture = { store, legacy, botId, root: store.memoryDirectory(botId, "agent") };
+  fixture = { store, legacy, botId, root: store.memoryDirectory(botId, "agent"), reports: async()=> (await prisma.event.findMany({where:{topic:"memory.synthesis_report",entityId:botId},orderBy:{sequence:"asc"}})).map(event=>event.payload) };
   try {
     await prisma.bot.create({
       data: {
@@ -66,7 +67,7 @@ databaseTest(
         inputs.push(JSON.parse(request.prompt).newEvidence);
         return '{"changes":[]}';
       },
-      async ({ store, root }) => {
+      async ({ store, root, reports }) => {
         const spool = join(root, ".dreaming", "evidence");
         await mkdir(spool, { recursive: true });
         for (let index = 0; index < 20; index++) {
@@ -89,6 +90,9 @@ databaseTest(
           Array.from({ length: 12 }, (_, i) => i + 8)
         );
         expect(await readdir(spool)).toEqual([]);
+        const outcomes=await reports();
+        expect(outcomes).toEqual(expect.arrayContaining([expect.objectContaining({outcome:"evidence_dropped",evidenceCount:8,reason:"spool_overflow"}),expect.objectContaining({outcome:"unchanged",evidenceCount:12,changeCount:0})]));
+        expect(JSON.stringify(outcomes)).not.toContain("Acknowledged");
       }
     );
   }

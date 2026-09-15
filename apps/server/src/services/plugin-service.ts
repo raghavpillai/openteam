@@ -1,4 +1,6 @@
 import { cancelPendingPluginWork } from "./plugin/pending-work";
+import { pluginToolArguments } from "./plugin/tool-arguments";
+import { connectionNamespace } from "@openteam/plugin-sdk";
 import type { ConfigurePluginConnectionInput, PluginTestInput } from "@openteam/contracts";
 import { ApiError } from "@openteam/contracts";
 import type { Prisma, PrismaClient } from "@openteam/db";
@@ -9,7 +11,12 @@ import { McpHttpClientManager } from "../plugins/mcp-client-manager";
 import { OpenTeamMarketplaceSource } from "../plugins/openteam-marketplace";
 import { PluginManagement } from "./plugin/management";
 import { PluginConfiguration } from "./plugin/configuration";
-import { fieldsForConnector, validateValues, type ConfigValue } from "@openteam/plugin-sdk";
+import {
+  desktopMcpProvider,
+  fieldsForConnector,
+  validateValues,
+  type ConfigValue,
+} from "@openteam/plugin-sdk";
 import { PluginAccess } from "./plugin/access";
 import { PluginConnectors } from "./plugin/connectors";
 import { PluginInstallations } from "./plugin/installations";
@@ -33,8 +40,10 @@ import {
   validateJsonSchema,
 } from "./plugin/values";
 import { appendEvent, forwardServiceMethod, serviceEffect, toJson } from "./service-utils";
+import { ConnectorFileTransfers } from "./plugin/file-transfers";
 
 export class PluginService {
+  readonly fileTransfers: ConnectorFileTransfers;
   private readonly invocations: PluginInvocations;
 
   private readonly connectors: PluginConnectors;
@@ -80,6 +89,7 @@ export class PluginService {
     );
 
     this.transport = new PluginTransport(prisma, this.http, this.publicUrl, computerFetch);
+    this.fileTransfers = new ConnectorFileTransfers(prisma, connection => this.transport.fileAccessToken(connection));
 
     this.installations = new PluginInstallations(
       prisma,
@@ -103,7 +113,8 @@ export class PluginService {
       this.http,
       (id) => this.connect(id),
       (...args) => this.executeInvocation(...args),
-      agentData
+      agentData,
+      id => this.transport.providerAccessToken(id)
     );
 
     this.invocations = new PluginInvocations(prisma, (...args) => this.executeInvocation(...args));
@@ -206,11 +217,26 @@ export class PluginService {
     callId: string;
     action: string;
     arguments: unknown;
-  }): Promise<never> => {
+  }): Promise<unknown> => {
     const existing = await this.prisma.approval.findUnique({
       where: { upstreamRequestId: `plugin-action:${request.callId}` },
     });
+    if (existing && (existing.runId !== request.runId || jsonObject(existing.details).botId !== request.botId || jsonObject(existing.details).action !== request.action))
+      throw new ApiError(409, "plugin_action_mismatch", "This tool call belongs to another action");
+    if (existing && existing.status !== "pending") {
+      const details = jsonObject(existing.details);
+      const args = jsonObject(details.rawArguments);
+      // Preserve the reviewed outcome. Acceptance by itself is not proof of a successful action.
+      return {
+        status: existing.status,
+        completed: existing.status === "accepted" && details.actionResult != null,
+        actionResult: details.actionResult,
+        ...(existing.status === "accepted" ? await this.connectionStatuses() as object : {}),
+        ...(existing.status === "accepted" && request.action === "InstallPlugin" && typeof args.pluginKey === "string" ? { detail: await this.catalogDetail(args.pluginKey) } : {}),
+      };
+    }
     if (!existing) {
+      request = { ...request, arguments: await this.resolveToolArguments(request.action, request.arguments) };
       await this.prisma.approval.create({
         data: {
           runId: request.runId,
@@ -241,7 +267,7 @@ export class PluginService {
     if (decision !== "accept") return { status: decision === "decline" ? "declined" : "cancelled" };
     const details = jsonObject(detailsValue);
     const action = details.action;
-    const args = jsonObject(details.rawArguments);
+    const args = pluginToolArguments(String(action), details.rawArguments);
     if (typeof action !== "string") {
       throw new ApiError(409, "plugin_action_invalid", "Plugin action is missing its name");
     }
@@ -256,6 +282,9 @@ export class PluginService {
       return Effect.runPromise(this.uninstall(args.pluginKey));
     }
     if (action === "AddMcpServer") {
+      const oauth = args.auth && typeof args.auth === "object" ? jsonObject(args.auth) : undefined;
+      if (oauth && (!args.url || args.command || typeof oauth.CLIENT_ID !== "string" || !oauth.CLIENT_ID.trim()))
+        throw new ApiError(400, "mcp_oauth_invalid", "OAuth client settings require a remote URL and CLIENT_ID");
       return Effect.runPromise(
         this.addCustomMcp({
           name: typeof args.name === "string" ? args.name : "Custom MCP",
@@ -264,15 +293,25 @@ export class PluginService {
           args: stringArray(args.args),
           env: stringRecord(args.env),
           headers: stringRecord(args.headers),
-          auth:
+          auth: oauth ? "oauth" :
             args.auth === "oauth" || args.auth === "token" || args.auth === "none"
               ? args.auth
               : undefined,
+          ...(oauth ? { oauth: { clientId: String(oauth.CLIENT_ID), clientSecret: typeof oauth.CLIENT_SECRET === "string" ? oauth.CLIENT_SECRET : undefined, scopes: stringArray(oauth.scopes) } } : {}),
           alias: typeof args.accountLabel === "string" ? args.accountLabel : undefined,
+          reviewedRequestId: typeof args.createServerId === "string" ? args.createServerId : undefined,
         })
       );
     }
-    const connectionId = typeof args.connectionId === "string" ? args.connectionId : undefined;
+    if (action === "RestartMcpServers" && Array.isArray(args.connectionIds)) {
+      const results = [];
+      for (const id of args.connectionIds) {
+        try { results.push({ connectionId: id, result: await Effect.runPromise(this.restart(String(id))) }); }
+        catch (error) { results.push({ connectionId: id, error: error instanceof Error ? error.message : "Reconnect failed" }); }
+      }
+      return { servers: results };
+    }
+    let connectionId = typeof args.connectionId === "string" ? args.connectionId : undefined;
     if (!connectionId) {
       throw new ApiError(400, "connection_id_required", "connectionId is required");
     }
@@ -288,6 +327,15 @@ export class PluginService {
       return Effect.runPromise(this.uninstall(connection.installation.pluginKey));
     }
     if (action === "AuthenticateMcpServer") {
+      if (typeof args.createAccountLabel === "string") {
+        const created = await Effect.runPromise(this.addAccount(connectionId, args.createAccountLabel, typeof args.createAccountId === "string" ? args.createAccountId : undefined));
+        connectionId = created.id;
+      }
+      const connection = await this.connectionOrThrow(connectionId);
+      if (desktopMcpProvider(runtimeConfiguration(connection)))
+        return Effect.runPromise(
+          args.forceReauth === true ? this.restart(connectionId) : this.connect(connectionId)
+        );
       return Effect.runPromise(this.authenticate(connectionId, args.forceReauth === true));
     }
     if (action === "RestartMcpServers") return Effect.runPromise(this.restart(connectionId));
@@ -306,6 +354,37 @@ export class PluginService {
       );
     }
     throw new ApiError(400, "plugin_action_unknown", `Unknown plugin action ${action}`);
+  };
+
+  resolveToolArguments = async (action: string, value: unknown) => {
+    const args = pluginToolArguments(action, value);
+    for (const key of ["connectionIds", "createAccountLabel", "createAccountId", "createServerId"]) if (key in args)
+      throw new ApiError(400, "private_plugin_argument", `${key} is assigned by the approval service`);
+    if (action === "AddMcpServer") args.createServerId = crypto.randomUUID();
+    if (action === "RestartMcpServers" && !args.connectionId && !args.server_id) {
+      args.connectionIds = (await this.prisma.pluginConnection.findMany({
+        where: { installation: { status: "installed" } }, select: { id: true },
+      })).map(connection => connection.id);
+      return args;
+    }
+    if (!args.server_id) return args;
+    if (typeof args.server_id !== "string") throw new ApiError(400, "server_id_invalid", "server_id must be a string");
+    const connections = await this.prisma.pluginConnection.findMany({ include: { installation: true } });
+    const matches = connections.filter(c => c.id === args.server_id || connectionNamespace(c.id) === args.server_id || c.installation.pluginKey === args.server_id);
+    if (!matches.length) throw new ApiError(404, "connection_not_found", "Server not found; use GetMcpServerStatus");
+    const groups = new Set(matches.map(c => `${c.installationId}/${c.connectorKey}`));
+    if (groups.size !== 1) throw new ApiError(409, "account_ambiguous", "Use a server identifier from GetMcpServerStatus");
+    const source = matches[0]!;
+    const accounts = connections.filter(c => c.installationId === source.installationId && c.connectorKey === source.connectorKey);
+    const selected = typeof args.account_label === "string" ? accounts.filter(c => c.alias === args.account_label) : matches;
+    if (!selected.length && action === "AuthenticateMcpServer" && typeof args.account_label === "string") {
+      args.createAccountLabel = args.account_label;
+      args.createAccountId = crypto.randomUUID();
+    } else if (selected.length !== 1) throw new ApiError(409, "account_ambiguous", "Select one account_label from GetMcpServerStatus");
+    const id = (selected[0] ?? source).id;
+    if (args.connectionId && args.connectionId !== id) throw new ApiError(400, "account_ambiguous", "Conflicting connectionId and server_id");
+    args.connectionId = id;
+    return args;
   };
 
   install = (pluginKey: string, values: Record<string, ConfigValue> = {}) =>
@@ -601,7 +680,7 @@ export class PluginService {
       return { disconnected: true };
     });
 
-  addAccount = (connectionId: string, aliasValue: string) =>
+  addAccount = (connectionId: string, aliasValue: string, reviewedAccountId?: string) =>
     serviceEffect(async () => {
       const alias = aliasValue.trim();
       if (!/^[A-Za-z0-9][A-Za-z0-9 _.-]{0,78}[A-Za-z0-9]$/.test(alias)) {
@@ -616,6 +695,14 @@ export class PluginService {
         include: { installation: true },
       });
       if (!source) throw new ApiError(404, "connection_not_found", "Connection not found");
+      if (reviewedAccountId) {
+        const prior = await this.prisma.pluginConnection.findUnique({ where: { id: reviewedAccountId } });
+        if (prior) {
+          if (prior.installationId !== source.installationId || prior.connectorKey !== source.connectorKey || prior.alias !== alias)
+            throw new ApiError(409, "connection_review_changed", "The reviewed account changed; request a new approval");
+          return { id: prior.id, alias: prior.alias, status: prior.status };
+        }
+      }
       const duplicate = await this.prisma.pluginConnection.findUnique({
         where: {
           installationId_connectorKey_alias: {
@@ -639,6 +726,7 @@ export class PluginService {
       const account = await this.prisma.$transaction(async (tx) => {
         const created = await tx.pluginConnection.create({
           data: {
+            ...(reviewedAccountId ? { id: reviewedAccountId } : {}),
             installationId: source.installationId,
             connectorKey: source.connectorKey,
             name: source.name,
@@ -745,7 +833,7 @@ export class PluginService {
 
   setInstructions = (connectionId: string, instructionsValue: string) =>
     serviceEffect(async () => {
-      const instructions = instructionsValue.trim().slice(0, 500);
+      const instructions = instructionsValue.trim();
       const connection = await this.connectionOrThrow(connectionId);
       await this.prisma.pluginConnection.update({
         where: { id: connectionId },
@@ -952,6 +1040,9 @@ export class PluginService {
         include: { installation: true },
       });
       for (const connection of connections) {
+        // Native discovery authenticates and may open a consent prompt. A background
+        // health check must not request access after the user locks the provider.
+        if (jsonObject(connection.configuration).runtime === "desktop") continue;
         try {
           const tools = await this.discoverStdio(connection);
           const current = await this.connectionOrThrow(connection.id);

@@ -16,9 +16,9 @@ describe("native computer tools", () => {
     const executor = new NativeToolExecutor({ agentDir: root, controlToken: "test-token" });
 
     const middle = await executor.read({ path, offset: 2, limit: 1 }, root);
-    expect(middle.content[0]).toEqual({ type: "text", text: "2: beta" });
+    expect(middle.content[0]).toEqual({ type: "text", text: "... 1 lines not shown ...\n     2|beta\n... 2 lines not shown ..." });
     const last = await executor.read({ path, offset: -2, limit: 1 }, root);
-    expect(last.content[0]).toEqual({ type: "text", text: "3: gamma" });
+    expect(last.content[0]).toEqual({ type: "text", text: "... 2 lines not shown ...\n     3|gamma\n... 1 lines not shown ..." });
   });
 
   test("Read exposes supported agent files while fencing stores and host metadata", async () => {
@@ -40,10 +40,10 @@ describe("native computer tools", () => {
 
     expect(
       (await executor.read({ path: join(agentRoot, "profile.json") }, root)).content[0]
-    ).toEqual({ type: "text", text: '1: {"name":"Probe"}\n2: ' });
+    ).toEqual({ type: "text", text: '     1|{"name":"Probe"}\n     2|' });
     expect(
       (await executor.read({ path: join(sandRoot, "plugin-skills", "cache.json") }, root)).content[0]
-    ).toEqual({ type: "text", text: '1: {"skills":[]}\n2: ' });
+    ).toEqual({ type: "text", text: '     1|{"skills":[]}\n     2|' });
     await expect(executor.read({ path: join(agentRoot, "store.db") }, root)).rejects.toThrow(
       "Read does not expose live agent SQLite files"
     );
@@ -81,7 +81,8 @@ describe("native computer tools", () => {
       { command: "printf 'native-shell-ok'", working_directory: root, block_until_ms: 5_000 },
       root
     );
-    expect(result.content[0]).toEqual({ type: "text", text: "native-shell-ok" });
+    expect(result.content[0]).toMatchObject({ type: "text" });
+    expect((result.content[0] as any).text).toContain("```\nnative-shell-ok\n```");
     const outputPath = (result.details as { outputPath: string }).outputPath;
     expect(await readFile(outputPath, "utf8")).toContain("exit_code: 0");
   });

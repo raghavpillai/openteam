@@ -34,6 +34,7 @@ const RoutineEditor = lazy(() =>
 const RoutinesSummary = lazy(() =>
   import("./routine-summary").then((module) => ({ default: module.RoutinesSummary }))
 );
+const BotMemoryButton = lazy(() => import("./bot-memory").then((module) => ({ default: module.BotMemoryButton })));
 const GroupAvatarEditor = lazy(() =>
   import("./group-avatar-editor").then((module) => ({ default: module.GroupAvatarEditor }))
 );
@@ -503,6 +504,7 @@ export const Inspector = memo(function Inspector({
                 : `${bot.name}'s screen`}
             </div>
           </section>
+          <BotMemoryButton key={bot.id} bot={bot} active={active} />
           <RoutinesSummary
             active={active}
             ownerId={bot.id}

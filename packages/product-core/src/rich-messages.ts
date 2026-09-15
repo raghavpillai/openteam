@@ -48,12 +48,12 @@ export const parseRichMessageWidget = (value: unknown): RichMessageWidget | null
 export const parseRichMessageSecretRequest = (value: unknown): RichMessageSecretRequest | null => {
   const candidate = richMessageMetadata(value);
   return typeof candidate.label === "string" &&
-    typeof candidate.connector === "string" &&
-    typeof candidate.field === "string"
+    (typeof candidate.name === "string" || (typeof candidate.connector === "string" && typeof candidate.field === "string"))
     ? {
         label: candidate.label,
-        connector: candidate.connector,
-        field: candidate.field,
+        ...(typeof candidate.name === "string" ? { name: candidate.name, scope: candidate.scope === "personal" ? "personal" as const : "bot" as const } : {}),
+        ...(typeof candidate.connector === "string" ? { connector: candidate.connector } : {}),
+        ...(typeof candidate.field === "string" ? { field: candidate.field } : {}),
         ...(typeof candidate.description === "string"
           ? { description: candidate.description }
           : {}),

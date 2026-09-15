@@ -35,13 +35,15 @@ export const renderReadText = (
       units += i - lineStart + (line > start ? 1 : 0);
       if (units <= READ_CHAR_LIMIT) {
         const contentEnd = i > lineStart && raw.charCodeAt(i - 1) === 13 ? i - 1 : i;
-        output.push(`${line + 1}: ${raw.slice(lineStart, contentEnd)}`);
+        output.push(`${String(line + 1).padStart(6)}|${raw.slice(lineStart, contentEnd)}`);
       }
     }
     line++;
     lineStart = i + 1;
   }
   const exceededLimit = units > READ_CHAR_LIMIT;
+  if (start > 0) output.unshift(`... ${start} lines not shown ...`);
+  if (end < totalLines) output.push(`... ${totalLines - end} lines not shown ...`);
   return {
     text:
       raw.length === 0

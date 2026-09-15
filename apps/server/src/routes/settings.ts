@@ -6,10 +6,18 @@ import { dispatchRoutes, effectRoute } from "./dispatch";
 export async function settingsRoutes(context: RouteContext): Promise<Response | undefined> {
   const { app, request, path } = context;
 
-  if (path === "/api/server-settings/web-search") {
-    if (request.method === "GET") return json(await app.webSearchSettings.view());
+  if(path === "/api/server-settings/automation-webhooks") {
+    if(request.method === "GET")return json(await app.automationWebhooks.list());
+    if(request.method === "POST")return json(await app.automationWebhooks.save(await request.json()));
+  }
+  const webhook=path.match(/^\/api\/server-settings\/automation-webhooks\/([\da-f-]{36})(?:\/(connect))?$/i);
+  if(webhook?.[1] && request.method === "DELETE")return json(await app.automationWebhooks.remove(webhook[1]));
+  if(webhook?.[1] && webhook[2] && request.method === "POST")return json(await app.automationWebhooks.connect(webhook[1]));
+  if (path === "/api/server-settings/web-search" || path === "/api/server-settings/web-fetch") {
+    const settings = path.endsWith("web-fetch") ? app.webFetchSettings : app.webSearchSettings;
+    if (request.method === "GET") return json(await settings.view());
     if (request.method === "PATCH")
-      return json(await app.webSearchSettings.save(await request.json().catch(() => null)));
+      return json(await settings.save(await request.json().catch(() => null)));
   }
 
   if (request.method === "PATCH" && path === "/api/server-settings/inference") {

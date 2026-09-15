@@ -1,4 +1,6 @@
 export { parseAutomationEvent, matchesAutomationEvent, type AutomationEvent } from "./automation-events";
+export { wakeAutomationParent, saveSilentAutomationResult, automationContinuationRoute, automationContextRunId } from "./automation-results";
+import { AUTOMATION_RUN_INSTRUCTIONS, automationContinuationRoute } from "./automation-results";
 import { join } from "node:path";
 import {
   type AdminBroadcastInput,
@@ -89,6 +91,7 @@ export interface PlatformPrompt {
     identity?: AgentPromptContext["identityReceipt"];
     dismissedMessageIds: string[];
     outcomeIds?: Array<{ messageId: string; outcomeId: string }>;
+    automationResultRunIds?: string[];
   };
 }
 
@@ -578,6 +581,7 @@ export interface WakeInput {
   replyToMessageId?: string;
   isFork?: boolean;
   automationTrigger?: string;
+  automationContextRunId?: string;
   includeAttachmentPaths?: boolean;
 }
 
@@ -675,14 +679,14 @@ export const validateSendToUserInput = (value: unknown): void => {
         : null;
     if (
       !secret ||
-      [secret.label, secret.connector, secret.field].some(
-        (field) => typeof field !== "string" || !field.trim()
-      )
+      typeof secret.label !== "string" || !secret.label.trim() ||
+      (typeof secret.name !== "string" && [secret.connector, secret.field].some(field => typeof field !== "string" || !field.trim())) ||
+      (secret.name !== undefined && (secret.connector !== undefined || secret.field !== undefined))
     ) {
       throw new ApiError(
         400,
         "send_to_user_secret_required",
-        "label, connector, and field are required for type:secret-request"
+        "Provide a label and either name or connector + field for type:secret-request"
       );
     }
   }
@@ -744,8 +748,9 @@ export class AgentMessaging {
         ? await tx.channel.findFirst({ where: { id: input.channelId, archivedAt: null, members: { some: { botId: bot.id } } } })
         : await tx.channel.findUnique({ where: { directKey: `bot:${bot.id}` } });
       if (!channel || channel.archivedAt) return { delivered: false, ignored: true };
+      const route = input.automationRunId ? await automationContinuationRoute(tx, bot.id, input.automationRunId) : { origin: "background_revival" as const };
       await this.enqueueWake(tx, {
-        botId: bot.id, channelId: channel.id, origin: "background_revival", type: "shell.completed",
+        botId: bot.id, channelId: channel.id, ...route, type: "shell.completed",
         clientId, priority: 50, wrapUserContent: false,
         content: [
           "[SAND_HIDDEN_PROMPT][A background shell command completed]",
@@ -832,6 +837,7 @@ export class AgentMessaging {
           deliveryMode: "turn",
           timeZone: resolveTimeZone(input.timeZone ?? this.defaultTimeZone),
           automationTrigger: input.automationTrigger,
+          automationContextRunId: input.automationContextRunId,
         }),
         priority: input.priority,
         availableAt: input.availableAt,
@@ -985,14 +991,14 @@ export class AgentMessaging {
       where: { id: input.botId },
       include: {
         conversation: true,
-        lease: { include: { run: true } },
+        lease: { where: { scope: "foreground" }, include: { run: true }, take: 1 },
       },
     });
     if (!bot?.conversation || !["active", "provisioning"].includes(bot.status)) {
       throw new Error(`Runnable target bot ${input.botId} was not found`);
     }
 
-    const activeRun = bot.lease?.run;
+    const activeRun = bot.lease[0]?.run;
     const canSteer =
       activeRun?.origin === "user" &&
       activeRun.channelId === input.channelId &&
@@ -1924,7 +1930,9 @@ export class AgentMessaging {
     return { targetDmChannelId };
   }
 
-  async platformPrompt(botId: string, contextSessionId?: string, connectorInstructions = ""): Promise<PlatformPrompt> {
+  async platformPrompt(botId: string, contextSessionId?: string, connectorInstructions = "", memoryConversationId?: string): Promise<PlatformPrompt> {
+    const context = contextSessionId ? await this.prisma.contextSession.findFirst({ where: { id: contextSessionId, botId }, select: { scope: true } }) : null;
+    const automation = context?.scope === "automation";
     const bot = await this.prisma.bot.findUniqueOrThrow({
       where: { id: botId },
       include: {
@@ -1969,7 +1977,7 @@ export class AgentMessaging {
       };
     }
     const [agentPrompt, rootSettings] = await Promise.all([
-      this.agentData.promptContext(botId, contextSessionId),
+      this.agentData.promptContext(botId, contextSessionId, memoryConversationId),
       this.agentData.loadInferenceSettings(),
     ]);
     const projectMemberships = await this.prisma.projectMember.findMany({
@@ -2111,7 +2119,7 @@ export class AgentMessaging {
       "Use GetDynamicTools with namespace cursor to discover SendToAgent, ListAgents/ListGroups, TodoWrite, Task/CheckSubagent/MessageSubagent/StopSubagent, CreateAgent/UpdateAgent, and CreateChannel/UpdateChannel. Invoke discovered tools with CallDynamicTool.",
       A2A_PLATFORM_INSTRUCTIONS,
       MAIN_AGENT_GRAPHICAL_DELEGATION_INSTRUCTIONS,
-      `Available Task subagent types are executor, videoReview, watchVideo, computerUse, and browserUse. The available subagent model slug is ${formatPiModelRef(rootSettings)}; omit model unless the user explicitly asks for it.`,
+      `Available Task subagent types are executor, videoReview, watchVideo, computerUse, and browserUse. The default subagent model is ${formatPiModelRef(rootSettings)}. Set model to a provider-qualified model available on this server for independent selection. Set run_in_background:false to wait for the result; true launches a background task. Installed plugin agent templates are listed separately when available.`,
       todoContext.length > 0
         ? `Durable task queue (reconcile it with TodoWrite on each wake):\n${todoContext.join("\n")}`
         : "The durable task queue is empty.",
@@ -2143,14 +2151,19 @@ export class AgentMessaging {
       .filter(Boolean)
       .join("\n\n");
     const userInfo = renderAgentSkillsUserInfo(agentPrompt.skillRender);
+    const automationResults = !automation && memoryConversationId ? await this.prisma.automationResult.findMany({
+      where: { wakeRunId: null, acknowledgedAt: null, run: { botId, memoryConversationId } },
+      orderBy: { createdAt: "asc" }, take: 20,
+    }) : [];
     return {
-      instructions,
+      instructions: automation ? `${instructions}\n\n${AUTOMATION_RUN_INSTRUCTIONS}` : instructions,
       instructionsUpdate: frozen.update,
-      ambientContext: [
+      ambientContext: automation ? null : [
         dismissedWidgetPrompts.length > 0 ? buildDismissedQuestionsNote(dismissedWidgetPrompts) : "",
         ...richMessagePrompts,
+        ...automationResults.map((result) => `[Silent automation result ${result.runId}]\nThis result waited for your next natural boundary and has not been shown to the user. Use it as relevant to the current task; it is not a request for an unsolicited notification.\n${result.message}`),
       ].filter(Boolean).join("\n\n") || null,
-      acknowledgement: { identity: agentPrompt.identityReceipt, sections: frozen.receipts, dismissedMessageIds: dismissedIds, outcomeIds: pendingRichMessages.flatMap((message) => {
+      acknowledgement: { identity: agentPrompt.identityReceipt, sections: frozen.receipts, automationResultRunIds: automationResults.map((result) => result.runId), dismissedMessageIds: automation ? [] : dismissedIds, outcomeIds: (automation ? [] : pendingRichMessages).flatMap((message) => {
         const metadata = message.metadata as Record<string, unknown>;
         return typeof metadata.outcomeId === "string" && typeof metadata.outcomeText === "string" ? [{ messageId: message.id, outcomeId: metadata.outcomeId }] : [];
       }) },
@@ -2177,6 +2190,10 @@ export class AgentMessaging {
     }
     if (acknowledgement.identity) await this.agentData.acknowledgeIdentityAnnouncement(botId, contextSessionId, acknowledgement.identity);
     await this.acknowledgeCardOutcomes(botId, acknowledgement.outcomeIds ?? []);
+    if (acknowledgement.automationResultRunIds?.length) await this.prisma.automationResult.updateMany({
+      where: { runId: { in: acknowledgement.automationResultRunIds }, run: { botId }, wakeRunId: null, acknowledgedAt: null },
+      data: { acknowledgedAt: new Date() },
+    });
   }
 
   async acknowledgeCardOutcomes(botId: string, receipts: Array<{ messageId: string; outcomeId: string }>) {
@@ -2352,8 +2369,8 @@ export class AgentMessaging {
         };
       }
       const lease = input.priority
-        ? await tx.botRunLease.findUnique({
-            where: { botId: target.id },
+        ? await tx.botRunLease.findFirst({
+            where: { botId: target.id, scope: "foreground" },
             include: { run: true },
           })
         : null;

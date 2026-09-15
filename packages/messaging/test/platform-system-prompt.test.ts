@@ -40,6 +40,7 @@ const mainAgent = (id: string) => {
       }),
     },
     prisma: {
+      contextSession: { findFirst: async () => ({ scope: "home" }) },
       $queryRaw: async () => [],
       bot: {
         findUniqueOrThrow: async () => ({

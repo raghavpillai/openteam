@@ -93,6 +93,15 @@ export async function clientRoutes(context: RouteContext): Promise<Response | un
 }
 
 const routes = [
+  effectRoute("GET", /^\/api\/bots\/([^/]+)\/memories$/, ({ app }, id) =>
+    app.listBotMemories(decodeURIComponent(id))
+  ),
+  effectRoute("DELETE", /^\/api\/bots\/([^/]+)\/memories$/, ({ app }, id) =>
+    app.deleteBotMemories(decodeURIComponent(id))
+  ),
+  effectRoute("DELETE", /^\/api\/bots\/([^/]+)\/memories\/([^/]+)$/, ({ app }, id, memoryId) =>
+    app.deleteBotMemories(decodeURIComponent(id), decodeURIComponent(memoryId))
+  ),
   effectRoute("DELETE", /^\/api\/notification-devices\/([^/]+)$/, ({ app }, id) =>
     app.unregisterPushDevice(decodeURIComponent(id))
   ),

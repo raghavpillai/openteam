@@ -10,6 +10,7 @@ const snapshot = (overrides: Record<string, unknown> = {}) => ({
   announcedName: "Bot",
   announcedDescription: "Description",
   memoryEpoch: 7,
+  memoryAudienceKey: "native-agent-v1:",
   memoryRender: "Frozen memory",
   memoryHasFacts: true,
   skillEpoch: 7,

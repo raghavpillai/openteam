@@ -93,6 +93,7 @@ test("exports and unsets persist across shell calls and runtime restarts while c
 test("discovers and invokes AwaitShell locally across turns with bot scope", async () => {
   const { root } = await fixture();
   const runtime = new RuntimeTools({} as ScreenBroker, "http://unused.invalid", "test", root, root);
+  (runtime as any).processSecrets = async () => ({});
   const active = {
     runtimeProfile: "agent",
     botId: "bot-1",

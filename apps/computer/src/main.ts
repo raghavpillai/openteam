@@ -21,18 +21,20 @@ import { BoxStoreSync } from "./box-store-sync";
 import { computerEventStream } from "./computer-event-stream";
 import { BotAgentStore } from "./bot-agent-store";
 import { StdioMcpManager } from "./mcp-manager";
+import { McpRuntimeRouter } from "./mcp-runtime-router";
+import { DesktopMcpClient } from "./desktop-mcp-client";
 import { resolveWorkspacePath } from "./paths";
 import { ComputerRuntime } from "./runtime";
+import { checkAgentWorkspace, ComputerReadiness } from "./readiness";
 import { ScreenBroker } from "./screen-broker";
 import { TranscriptMirror } from "./transcript-mirror";
-import { checkAgentWorkspace, ComputerReadiness } from "./readiness";
 
 const port = Number(process.env.OPENTEAM_COMPUTER_PORT ?? 8790);
 const controlToken = process.env.OPENTEAM_CONTROL_TOKEN ?? "local-compose-only-change-me";
 const workspaceRoot = resolve(process.env.OPENTEAM_WORKSPACE_ROOT ?? "/workspace");
+const readiness = new ComputerReadiness(() => checkAgentWorkspace(workspaceRoot));
 const screens = new ScreenBroker();
 const agentStores = new BotAgentStore();
-const readiness = new ComputerReadiness(() => checkAgentWorkspace(workspaceRoot));
 const boxStore = new BoxStoreSync({
   hasLiveAgentHandle: (agentId) => agentStores.hasLiveHandle(agentId),
 });
@@ -46,7 +48,7 @@ const runtime = new ComputerRuntime(screens, agentStores, ({ botId }) =>
     chrome: true,
   })
 );
-const stdioMcp = new StdioMcpManager();
+const stdioMcp = new McpRuntimeRouter(new StdioMcpManager(), new DesktopMcpClient(controlToken));
 
 const json = (value: unknown, status = 200, headers: Record<string, string> = {}) =>
   Response.json(value, {

@@ -156,7 +156,9 @@ export class PluginInstallations {
     env?: Record<string, string>;
     headers?: Record<string, string>;
     auth?: "none" | "token" | "oauth";
+    oauth?: { clientId: string; clientSecret?: string; scopes: string[] };
     alias?: string;
+    reviewedRequestId?: string;
   }) =>
     serviceEffect(async () => {
       const name = input.name.trim();
@@ -187,12 +189,21 @@ export class PluginInstallations {
       const authType = input.auth ?? (Object.keys(input.headers ?? {}).length ? "token" : "none");
       const alias = input.alias?.trim() || "default";
       const configuration = {
+        ...(input.oauth ? { clientId: input.oauth.clientId, scope: input.oauth.scopes.join(" ") } : {}),
         ...(command
           ? { command, args: [...(input.args ?? [])], ...(input.cwd ? { cwd: input.cwd } : {}) }
           : {}),
       };
-      const pluginKey = `custom-mcp-${crypto.randomUUID()}`;
+      const pluginKey = `custom-mcp-${input.reviewedRequestId ?? crypto.randomUUID()}`;
       const installation = await this.prisma.$transaction(async (tx) => {
+        if (input.reviewedRequestId) {
+          const prior = await tx.pluginInstallation.findUnique({ where: { pluginKey }, include: { connections: true } });
+          if (prior) {
+            const connection = prior.connections.find((item) => item.connectorKey === "custom");
+            if (!connection) throw new ApiError(409, "reviewed_server_changed", "The reviewed server changed; request a new approval");
+            return { installation: prior, connection };
+          }
+        }
         const created = await tx.pluginInstallation.create({
           data: {
             pluginKey,
@@ -236,7 +247,7 @@ export class PluginInstallations {
             authType,
             endpoint: endpoint?.toString(),
             configuration: toJson(configuration),
-            credentials: toJson({ headers: input.headers ?? {}, env: input.env ?? {} }),
+            credentials: toJson({ headers: input.headers ?? {}, env: input.env ?? {}, ...(input.oauth?.clientSecret ? { clientSecret: input.oauth.clientSecret } : {}) }),
             status: authType === "oauth" ? "needs_auth" : "disconnected",
             statusMessage: authType === "oauth" ? "Authentication has not been configured." : null,
           },

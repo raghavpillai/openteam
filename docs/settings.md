@@ -8,7 +8,7 @@ need.
 | I want to change | Layer | Where |
 | --- | --- | --- |
 | How the server is reached, its port, time zone, or concurrency | [Installation](#1-installation-settings) | `openteam setup` writes `.env` |
-| Web search provider and API key | [Web search](web-search.md) | Desktop **Settings → Server → Web search**, stored in PostgreSQL |
+| Web search/fetch providers and API keys | [Web search](web-search.md) | Desktop **Settings → Server → Web search**, stored in PostgreSQL |
 | Which model provider, model, or reasoning effort bots use | [Model](#2-model-settings) | Desktop **Settings → Server**, or `openteam model use` |
 | A bot's name, avatar, description, or notifications | [Bot](#3-bot-settings) | The apps, or the bot's own files |
 | A routine's schedule | [Routines](#4-routines) | Routine editor in the apps |
@@ -56,7 +56,8 @@ prefix. Leave those alone. The owner password and inference-provider credentials
 
 Web search has separate settings in **Settings → Server → Web search**, stored in PostgreSQL
 with the API key stored directly. Supported providers are Exa, Tavily, Brave, and Bing via SerpApi.
-Changes apply to the next search without a restart. See [web search configuration](web-search.md).
+Web fetch has separate built-in HTTP, Exa Contents, and Tavily Extract options.
+Changes apply to the next search or fetch without a restart. See [web search configuration](web-search.md).
 
 Three values apply to every bot: the **provider**, the **model**, and the **reasoning effort**.
 They are runtime settings, not environment variables. Changes apply to the next turn of every bot

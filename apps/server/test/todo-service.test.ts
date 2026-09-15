@@ -137,7 +137,7 @@ describe("bounded set-based TodoWrite persistence", () => {
     expect(fixture.operations).toEqual({ deleteMany: 1, createMany: 1, upsert: 0 });
   });
 
-  test("rejects a merge that would grow the durable queue past its contract cap", async () => {
+  test("merges beyond the former 64-item cap while preserving existing positions", async () => {
     const fixture = todoFixture(
       Array.from({ length: 64 }, (_, index) => ({
         botId: "bot-1",
@@ -148,7 +148,7 @@ describe("bounded set-based TodoWrite persistence", () => {
       }))
     );
 
-    await expect(
+    await (
       fixture.service.write("bot-1", "call-3", {
         merge: true,
         todos: [
@@ -156,7 +156,9 @@ describe("bounded set-based TodoWrite persistence", () => {
           { id: "overflow", content: "Too many", status: "pending" },
         ],
       })
-    ).rejects.toThrow("at most 64 items");
-    expect(fixture.operations).toEqual({ deleteMany: 0, createMany: 0, upsert: 0 });
+    );
+    expect(fixture.operations).toEqual({ deleteMany: 1, createMany: 1, upsert: 0 });
+    expect(fixture.rows()).toHaveLength(65);
+    expect(fixture.rows().at(-1)).toMatchObject({ id: "overflow", position: 64 });
   });
 });

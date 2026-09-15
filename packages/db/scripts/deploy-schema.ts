@@ -9,6 +9,18 @@ const prepareSearchProjection = async (): Promise<boolean> => {
   const client = new Client({ connectionString });
   await client.connect();
   try {
+    // Expand the lease key without dropping rows. Legacy leases become the
+    // foreground lane; automation lanes can then coexist under one bot identity.
+    await client.query(`DO $$ BEGIN
+      IF to_regclass('"BotRunLease"') IS NOT NULL AND NOT EXISTS (
+        SELECT 1 FROM information_schema.columns WHERE table_schema=current_schema()
+        AND table_name='BotRunLease' AND column_name='scope'
+      ) THEN
+        ALTER TABLE "BotRunLease" ADD COLUMN "scope" TEXT NOT NULL DEFAULT 'foreground';
+        ALTER TABLE "BotRunLease" DROP CONSTRAINT "BotRunLease_pkey";
+        ALTER TABLE "BotRunLease" ADD PRIMARY KEY ("botId", "scope");
+      END IF;
+    END $$`);
     const result = await client.query<{ is_generated: string }>(`
       SELECT is_generated
       FROM information_schema.columns

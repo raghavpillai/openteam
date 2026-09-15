@@ -14,6 +14,8 @@ import {
 } from "@openteam/contracts/service-protocol";
 import { listenForHostBridge } from "./bridge-listener";
 import { HostFileTransfers } from "./file-transfer";
+import { HostMcpManager } from "./mcp";
+import type { HostCapabilities } from "./capabilities";
 import type { HostJobPayload } from "./job-protocol";
 import {
   type AutoReviewMode,
@@ -188,6 +190,8 @@ export const startHostBridge = (options: {
     rules: { allowInstructions: string[]; blockInstructions: string[] }
   ) => Promise<AutoReviewResult>;
   runJob: (payload: HostJobPayload, signal?: AbortSignal) => Promise<unknown>;
+  mcp?: HostMcpManager;
+  capabilities?: HostCapabilities;
 }): Promise<Server> => {
   const machineId = options.machineId ?? "this-computer";
   const defaultMachineLabel = options.machineLabel ?? hostname();
@@ -221,6 +225,7 @@ export const startHostBridge = (options: {
     return authorizeAutoReviewAction(action, dependencies(input, machineLabel));
   };
   const transfers = new HostFileTransfers();
+  const mcp = options.mcp ?? new HostMcpManager();
   const server = createServer(async (request, response) => {
     if (request.url === HOST_BRIDGE_PATHS.health && request.method === "GET") {
       return json(response, 200, { status: "ready" });
@@ -234,6 +239,13 @@ export const startHostBridge = (options: {
     response.once("close", cancelOnDisconnect);
 
     try {
+      if (request.method === "POST" && request.url === HOST_BRIDGE_PATHS.capabilities) {
+        if (!options.capabilities) return json(response, 503, { error: "Desktop capabilities are unavailable; update the connected desktop app" });
+        if ((await options.permissionSettings.read()).localToolPermission === "never") return json(response, 403, { error: "Local computer tools are disabled" });
+        return json(response, 200, await options.capabilities.handle(await body(request), controller.signal));
+      }
+      if (request.method === "POST" && request.url === HOST_BRIDGE_PATHS.mcp)
+        return json(response, 200, await mcp.handle(await body(request)));
       if (request.method === "POST" && request.url === HOST_BRIDGE_PATHS.transfer) {
         const input = parseHostTransferRequest(await body(request));
         assertMachine(input.machineId);
@@ -408,5 +420,6 @@ export const startHostBridge = (options: {
       response.off("close", cancelOnDisconnect);
     }
   });
+  server.once("close", () => { void mcp.closeAll(); });
   return listenForHostBridge(server, options.port);
 };

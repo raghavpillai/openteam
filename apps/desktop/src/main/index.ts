@@ -1,3 +1,4 @@
+import { SavedCredentials } from "./host/credentials";
 import { open, rename, unlink } from "node:fs/promises";
 import { hostname } from "node:os";
 import { extname, join } from "node:path";
@@ -32,6 +33,9 @@ import {
 import { discardDeliveryFiles, readDeliveryFile, stageDeliveryFile } from "./delivery-file-stage";
 import { DurableSendJournalStore } from "./durable-send-journal-store";
 import { startHostBridge } from "./host/bridge";
+import { HostCapabilities } from "./host/capabilities";
+import { CapabilitySettingsStore } from "./host/capability-settings";
+import { NativeActionReceipts } from "./host/action-receipts";
 import { isAddressInUseError } from "./host/bridge-listener";
 import { HostJobManager } from "./host/job-manager";
 import type { AutoReviewMode, AutoReviewResult, HostAction } from "./host/permissions";
@@ -800,6 +804,22 @@ const requirePermissionSettings = (event: Electron.IpcMainInvokeEvent) => {
   return permissionSettings;
 };
 
+const nativeSettings = () => new CapabilitySettingsStore(join(app.getPath("userData"), "native-capabilities.json"));
+let capabilitySettings: CapabilitySettingsStore | undefined;
+const sharedCapabilitySettings = () => capabilitySettings ??= nativeSettings();
+ipcMain.handle("openteam:capabilities:get", async (event) => {
+  requirePermissionSettings(event); return sharedCapabilitySettings().read();
+});
+ipcMain.handle("openteam:capabilities:logins", async (event) => {
+  requirePermissionSettings(event);
+  return new SavedCredentials(sharedCapabilitySettings(), async () => "deny").list({});
+});
+ipcMain.handle("openteam:capabilities:update", async (event, input: unknown) => {
+  requirePermissionSettings(event);
+  if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("Invalid native settings");
+  return sharedCapabilitySettings().update(input);
+});
+
 const permissionSettingsView = (settings: PermissionSettings) => ({
   ...settings,
   machine: {
@@ -1125,6 +1145,12 @@ if (!hasSingleInstanceLock) {
           machineLabel: localMachine.label,
           reviewAction,
           runJob: hostJobs.run,
+          capabilities: new HostCapabilities(sharedCapabilitySettings(), async (input) => {
+            const buttons = input.allowAlways ? ["Deny", "Approve once", "Always allow"] : ["Deny", "Approve once"];
+            const result = await dialog.showMessageBox({ type: "question", title: input.title, message: input.title,
+              detail: input.detail, buttons, defaultId: 0, cancelId: 0, noLink: true });
+            return result.response === 2 ? "always" : result.response === 1 ? "once" : "deny";
+          }, undefined, undefined, undefined, process.platform, new NativeActionReceipts(join(app.getPath("userData"), "native-action-receipts.json"))),
         });
       } catch (error) {
         if (!isAddressInUseError(error)) throw error;

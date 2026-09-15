@@ -6,6 +6,7 @@ import type { ShellAwaitResponse } from "@openteam/contracts/service-protocol";
 interface PendingHostShell {
   botId: string;
   channelId?: string;
+  automationRunId?: string;
   machineId: string;
   shellId: string;
   outputPath: string;
@@ -64,6 +65,7 @@ export class HostShellCompletions {
                     id: file.slice(0, -5),
                     scope: job.botId,
                     channelId: job.channelId,
+                    ...(job.automationRunId ? { automationRunId: job.automationRunId } : {}),
                     outputPath: receipt.output_path ?? job.outputPath,
                     exitCode: receipt.exit_code ?? null,
                     machineId: job.machineId,

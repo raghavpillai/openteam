@@ -15,6 +15,7 @@ import { Prisma, type PrismaClient } from "@openteam/db";
 import type { AgentDataStore, AgentMessaging, ToolContext } from "@openteam/messaging";
 import { Effect } from "effect";
 import { fromPrisma } from "pg-boss";
+import { setTimeout as delay } from "node:timers/promises";
 import type { RunService } from "../run-service";
 import { appendEvent, type ComputerFetch, hashRequest, toJson } from "../service-utils";
 
@@ -86,19 +87,7 @@ export class SubagentService {
     private readonly agentData: AgentDataStore
   ) {}
 
-  async task(context: ToolContext, input: TaskInput) {
-    const configuredModel = await this.agentData.loadInferenceSettings();
-    const model = formatPiModelRef(configuredModel);
-    if (
-      input.model &&
-      formatPiModelRef(parsePiModelRef(input.model, configuredModel.providerId)) !== model
-    ) {
-      throw new ApiError(
-        400,
-        "subagent_model_unavailable",
-        `This OpenTeam runtime currently offers ${model} to subagents`
-      );
-    }
+  async task(context: ToolContext, input: TaskInput, signal?: AbortSignal) {
     const nested = await this.prisma.subagent.findUnique({ where: { childBotId: context.botId } });
     if (nested) {
       throw new ApiError(403, "nested_subagent_forbidden", "Subagents cannot launch subagents");
@@ -161,7 +150,7 @@ export class SubagentService {
     if (!attempt) {
       throw new ApiError(409, "subagent_attempt_missing", "This Task attempt is unavailable");
     }
-    return this.taskResult(subagent, attempt);
+    return this.taskResult(subagent, attempt, signal);
   }
 
   private receiptSubagentId(response: Prisma.JsonValue | null | undefined): string | null {
@@ -398,7 +387,8 @@ export class SubagentService {
           subagentType: type,
           model: selectedModel,
           fileAttachments: (input.file_attachments ?? []) as Prisma.InputJsonValue,
-          runInBackground: true,
+          runInBackground: input.run_in_background ?? true,
+          readOnly: input.read_only ?? false,
           outputPath,
         },
       });
@@ -425,7 +415,7 @@ export class SubagentService {
           description: name,
           prompt: input.prompt,
           fileAttachments: (input.file_attachments ?? []) as Prisma.InputJsonValue,
-          runInBackground: true,
+          runInBackground: input.run_in_background ?? true,
           status: "provisioning",
         },
       });
@@ -508,7 +498,7 @@ export class SubagentService {
           description,
           prompt: input.prompt,
           fileAttachments: (input.file_attachments ?? []) as Prisma.InputJsonValue,
-          runInBackground: true,
+          runInBackground: input.run_in_background ?? true,
           status: "queued",
         },
       });
@@ -522,7 +512,7 @@ export class SubagentService {
           description,
           prompt: input.prompt,
           fileAttachments: (input.file_attachments ?? []) as Prisma.InputJsonValue,
-          runInBackground: true,
+          runInBackground: input.run_in_background ?? true,
           status: "queued",
           result: null,
           error: Prisma.DbNull,
@@ -613,6 +603,7 @@ export class SubagentService {
         0,
         Math.round((end.getTime() - (subagent.startedAt ?? subagent.createdAt).getTime()) / 1_000)
       ),
+      tool_call_count: subagent.currentRunId ? await this.prisma.runItem.count({ where: { runId: subagent.currentRunId, kind: { in: ["command", "file_change", "tool"] } } }) : 0,
       recent_tool_calls: recentToolCalls.map((item) => ({
         tool: item.title ?? item.kind,
         status: item.status,
@@ -624,10 +615,28 @@ export class SubagentService {
     };
   }
 
-  private taskResult(
+  private async taskResult(
     subagent: Awaited<ReturnType<SubagentService["owned"]>>,
-    _attempt: NonNullable<Awaited<ReturnType<SubagentService["attemptForCall"]>>>
+    attempt: NonNullable<Awaited<ReturnType<SubagentService["attemptForCall"]>>>,
+    signal?: AbortSignal
   ) {
-    return subagentBackgroundResult(subagent.id, subagent.outputPath);
+    if (attempt.runInBackground) return subagentBackgroundResult(subagent.id, subagent.outputPath);
+    // A bounded long poll fits behind HTTP idle timeouts. The runtime repeats
+    // the same idempotent Task request until this exact attempt settles.
+    const deadline = Date.now() + 20_000;
+    while (true) {
+      signal?.throwIfAborted();
+      const current = await this.prisma.subagentAttempt.findUniqueOrThrow({ where: { id: attempt.id } });
+      if (current.status === "completed") return `${current.result || "Subagent completed without a text report."}\n\nAgent ID: ${botSubagentId(subagent.id)}`;
+      if (current.status === "failed" || current.status === "stopped") {
+        return { subagent_id: botSubagentId(subagent.id), status: current.status, error: current.error, result: current.result };
+      }
+      const parent = await this.prisma.run.findUnique({ where: { id: attempt.parentRunId }, select: { status: true } });
+      if (!parent || !["running", "waiting_approval"].includes(parent.status)) {
+        throw new ApiError(409, "parent_not_running", "The foreground task's parent is no longer running");
+      }
+      if (Date.now() >= deadline) return { foregroundPending: true, subagent_id: botSubagentId(subagent.id), attempt_id: attempt.id };
+      await delay(250, undefined, { signal });
+    }
   }
 }

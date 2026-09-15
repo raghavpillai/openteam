@@ -1,3 +1,4 @@
+import { fenceToolResults } from "./untrusted-results";
 import type {
   ExtensionFactory,
   ModelRuntime,
@@ -14,7 +15,7 @@ import {
   type BotSummaryRequest,
   type BotSummaryResult,
   botSummarySystemPrompt,
-  botSummaryText,
+  botSummaryResponse,
   replaceBotUserInfo,
   canonicalJson,
   isValidBotEarlyThreshold,
@@ -294,7 +295,7 @@ export async function inferCompaction(
     model,
     {
       systemPrompt: botSummarySystemPrompt(request.systemPrompt),
-      messages: convertToLlm([
+      messages: convertToLlm(fenceToolResults([
         ...(request.userInfoMessage ? [request.userInfoMessage] : []),
         ...request.messagesToSummarize,
         {
@@ -302,7 +303,7 @@ export async function inferCompaction(
           content: [{ type: "text", text: botSummaryPrompt(request.shorter) }],
           timestamp: Date.now(),
         },
-      ] as never),
+      ] as never) as never),
       tools: (request.tools ?? modelVisibleSummaryTools(customTools(active))) as never,
     },
     {
@@ -315,21 +316,22 @@ export async function inferCompaction(
   // output. Never let failed prose satisfy the coordinator's success check.
   if (result.stopReason === "aborted")
     throw new DOMException(result.errorMessage ?? "Compaction aborted", "AbortError");
+  let responseError: Error | undefined;
   if (result.stopReason === "error" || result.stopReason === "length") {
-    const error = new Error(
+    responseError = new Error(
       result.errorMessage ??
         (result.stopReason === "length"
           ? "Summary exceeded the output token limit"
           : "Summary provider failed")
     );
-    if (result.stopReason === "length") error.name = "OutputTokensLimitExceededError";
-    throw error;
+    if (result.stopReason === "length") responseError.name = "OutputTokensLimitExceededError";
   }
   // The coordinator owns the special empty-output retry path.
-  return {
-    text: botSummaryText(result.content),
+  return botSummaryResponse({
+    messages: [result as unknown as BotMessage],
     usage: result.usage as never,
-  };
+    error: responseError,
+  });
 }
 
 function publishCompaction(active: ActiveTurn, adopted: BotCompactionEvent): void {

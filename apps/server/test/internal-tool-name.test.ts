@@ -22,7 +22,7 @@ const serviceFixture = (
   const deliveries: Array<{
     type?: string;
     content?: string;
-    computerHandoff?: { reason: string };
+    computerHandoff?: { reason: string; category?: string; domain?: string; idpDomain?: string };
   }> = [];
   const service = new InternalToolService(
     {
@@ -80,7 +80,7 @@ describe("InternalToolService user-delivery tool name", () => {
       {
         type: "computer-handoff",
         content: "Finish 2FA",
-        computerHandoff: { reason: "Finish 2FA" },
+        computerHandoff: { reason: "Finish 2FA", category: "other" },
       },
     ]);
   });

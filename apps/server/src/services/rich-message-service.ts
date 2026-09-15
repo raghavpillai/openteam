@@ -1,4 +1,5 @@
 import type { BotService } from "./bot-service";
+import { storeProcessSecret } from "./process-secrets";
 import { ReviewActionService } from "./review-action-service";
 import {
   ApiError,
@@ -306,26 +307,25 @@ export class RichMessageService {
           metadata.type !== "secret-request" ||
           !request ||
           typeof request.label !== "string" ||
-          typeof request.connector !== "string" ||
-          typeof request.field !== "string"
+          (typeof request.name !== "string" && (typeof request.connector !== "string" || typeof request.field !== "string"))
         ) {
           throw new ApiError(404, "secret_request_not_found", "Live secret request not found");
         }
         if (metadata.secretProvided === true) {
           return { accepted: false, message: messageView(message), runId: null };
         }
-        await this.plugins.storeConnectorSecret({
-          botId: message.senderBotId,
-          connector: request.connector,
-          field: request.field,
-          value,
-        });
+        const named = typeof request.name === "string";
+        if (named) await storeProcessSecret(tx, message.senderBotId, message.channelId, String(request.name), value, request.scope === "personal" ? "personal" : "bot");
+        else await this.plugins.storeConnectorSecret({ botId: message.senderBotId, connector: String(request.connector), field: String(request.field), value });
+        const acknowledgement = named
+          ? `[The user securely provided ${JSON.stringify(request.label)}. It is available to new box processes as process.env.${request.name}; its value never enters this conversation. Shell output containing it is redacted. Do not print it to verify it.]`
+          : buildSecretProvidedAck(request.label);
         const wake = await this.messaging.enqueueWake(tx, {
           botId: message.senderBotId,
           channelId: message.channelId,
           origin: "handoff_resume",
           type: "secret.provided",
-          content: buildSecretProvidedAck(request.label),
+          content: acknowledgement,
           clientId: `secret:${message.id}:provided`,
           priority: PRIORITY.user,
           wrapUserContent: false,
@@ -336,7 +336,7 @@ export class RichMessageService {
             metadata: toJson({
               ...metadata,
               secretProvided: true,
-              outcomeId: `${message.id}:provided`, outcomeText: buildSecretProvidedAck(request.label), outcomeEchoed: false,
+              outcomeId: `${message.id}:provided`, outcomeText: acknowledgement, outcomeEchoed: false,
               secretSubmissionClientId: input.clientId,
             }),
           },

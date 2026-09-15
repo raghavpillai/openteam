@@ -1,18 +1,20 @@
-import { isSearchProvider } from "@openteam/contracts/web-search";
+import type { FetchConfiguration } from "./fetch-provider";
+import { isSearchProvider, isFetchProvider } from "@openteam/contracts/web-search";
 import type { SearchConfiguration, SearchFetch } from "./search-provider";
 
 /** Read for each search so saved DB changes take effect without restarting workers. */
-export function serverSearchConfiguration(
+function serverWebConfiguration(
+  kind: "search" | "fetch",
   serverUrl: string,
   controlToken: string,
   request: SearchFetch = fetch
-): (signal?: AbortSignal) => Promise<SearchConfiguration> {
-  return async (signal) => {
+) {
+  return async (signal?: AbortSignal) => {
     signal?.throwIfAborted();
     try {
       const timeout = AbortSignal.timeout(10_000);
       const response = await request(
-        `${serverUrl.replace(/\/+$/, "")}/api/internal/server-settings/web-search/credentials`,
+        `${serverUrl.replace(/\/+$/, "")}/api/internal/server-settings/web-${kind}/credentials`,
         {
           headers: { authorization: `Bearer ${controlToken}` },
           redirect: "error",
@@ -29,7 +31,9 @@ export function serverSearchConfiguration(
         !value ||
         typeof value !== "object" ||
         Array.isArray(value) ||
-        (value.provider !== null && !isSearchProvider(value.provider)) ||
+        (kind === "fetch"
+          ? !isFetchProvider(value.provider)
+          : value.provider !== null && !isSearchProvider(value.provider)) ||
         (value.apiKey !== null &&
           (typeof value.apiKey !== "string" || !value.apiKey || value.apiKey.length > 20_000))
       )
@@ -40,8 +44,23 @@ export function serverSearchConfiguration(
       signal?.throwIfAborted();
       // Neither upstream errors nor response bodies may expose credentials.
       throw new Error(
-        "Web search settings could not be loaded. Check the server connection and saved key in Server settings."
+        `Web ${kind} settings could not be loaded. Check the server connection and saved key in Server settings.`
       );
     }
   };
+}
+
+export function serverSearchConfiguration(
+  serverUrl: string,
+  controlToken: string,
+  request: SearchFetch = fetch
+): (signal?: AbortSignal) => Promise<SearchConfiguration> {
+  return serverWebConfiguration("search", serverUrl, controlToken, request);
+}
+export function serverFetchConfiguration(
+  serverUrl: string,
+  controlToken: string,
+  request: SearchFetch = fetch
+): (signal?: AbortSignal) => Promise<FetchConfiguration> {
+  return serverWebConfiguration("fetch", serverUrl, controlToken, request);
 }

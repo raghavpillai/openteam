@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { relative, resolve, sep } from "node:path";
-import { ApiError, type UpdateStateInput } from "@openteam/contracts";
+import { ApiError, resolveBotAvatarColorName, type UpdateStateInput } from "@openteam/contracts";
 import type { Prisma, PrismaClient } from "@openteam/db";
 import {
   appendAgentTimelineEvent,
@@ -125,7 +125,7 @@ export class DurableStateService {
   ): Promise<Record<string, unknown>> {
     switch (input.target) {
       case "memory":
-        return this.memory(botId, input);
+        return this.memory(botId, input, runId);
       case "routine": {
         if (!["create", "update", "pause", "resume", "delete"].includes(input.action)) {
           return stateError(input.target, input.action);
@@ -156,11 +156,17 @@ export class DurableStateService {
     }
   }
 
-  private async memory(botId: string, input: UpdateStateInput): Promise<Record<string, unknown>> {
+  private async memory(botId: string, input: UpdateStateInput, runId: string | null): Promise<Record<string, unknown>> {
     if (input.action !== "write" && input.action !== "forget") {
       return stateError(input.target, input.action);
     }
     const fact = requiredText(input.fact, "fact", input.target, input.action);
+    const run = runId ? await this.prisma.run.findFirst({ where: { id: runId, botId }, select: { memoryConversationId: true, channelId: true } }) : null;
+    const memoryContext = run ? run.memoryConversationId
+      ? await this.agentData.getMemoryConversation(botId, run.memoryConversationId)
+      : await this.agentData.resolveMemoryConversation(botId, run.channelId)
+      : undefined;
+    const memoryConversationId = memoryContext?.id;
     const scope = input.scope ?? "agent";
     const project =
       scope === "project"
@@ -170,6 +176,7 @@ export class DurableStateService {
     if (input.action === "forget") {
       const removed = await this.agentData.forgetMemory(botId, {
         scope,
+        memoryConversationId,
         projectSlug: project,
         fact,
       });
@@ -177,15 +184,17 @@ export class DurableStateService {
         target: "memory",
         action: "forget",
         forgotten: removed.forgotten,
+        ...(memoryContext?.teamShared && scope === "agent" && removed.forgotten ? { announcement: "Tell the user you have forgotten this team-wide fact in your reply." } : {}),
         scope,
         project: project ?? null,
-        fact,
+        fact: removed.content,
       };
     }
 
     const tier = input.tier ?? "log";
     const saved = await this.agentData.writeMemory(botId, {
       scope,
+      memoryConversationId,
       projectSlug: project,
       tier,
       fact,
@@ -195,10 +204,11 @@ export class DurableStateService {
       action: "write",
       id: saved.logicalId,
       saved: saved.saved,
+      ...(memoryContext?.teamShared && scope === "agent" ? { announcement: "Tell the user you have saved this team-wide fact in your reply." } : {}),
       scope,
       tier,
       project: project ?? null,
-      fact,
+      fact: saved.content,
     };
   }
 
@@ -251,7 +261,7 @@ export class DurableStateService {
       const previous = await tx.bot.findUniqueOrThrow({ where: { id: botId } });
       const updated = await tx.bot.update({
         where: { id: botId },
-        data: { name, description, title: input.title, icon: input.avatar_shape, color: input.avatar_color },
+        data: { name, description, title: input.title, icon: input.avatar_shape, color: input.avatar_color === undefined ? undefined : resolveBotAvatarColorName(input.avatar_color) },
         select: { id: true, name: true, description: true, title: true, icon: true, color: true },
       });
       if (name) {

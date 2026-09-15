@@ -70,7 +70,7 @@ export interface PluginDefinition {
   publisher: string;
   category: string;
   featured: boolean;
-  components: Array<"skills" | "mcp">;
+  components: Array<"skills" | "mcp" | "rules" | "commands" | "agents" | "hooks">;
   connections: PluginConnectorDefinition[];
   skills: PluginSkillDefinition[];
   homepageUrl?: string | null;

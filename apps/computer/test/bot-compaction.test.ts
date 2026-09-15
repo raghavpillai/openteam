@@ -272,7 +272,7 @@ describe("Bot summary partition", () => {
     ).toBe(1);
   });
 
-  test("reduced retry input preserves prior summaries and complete tool exchanges", () => {
+  test("retry reduction keeps the reference suffix even for a delayed tool result", () => {
     const call: BotMessage = {
       role: "assistant",
       content: [{ type: "toolCall", id: "call-1", name: "Read", arguments: {} }],
@@ -297,12 +297,12 @@ describe("Bot summary partition", () => {
       text("assistant", "newest-2"),
       text("user", "newest-3"),
     ]);
-    expect(reduced).toContainEqual(call);
+    expect(reduced).not.toContainEqual(call);
     expect(reduced).toContainEqual(result);
     expect(reduced).toContainEqual(priorSummary);
   });
 
-  test("reduced retry input never leaves results from a partially complete multi-call message", () => {
+  test("retry reduction leaves unfinished retained calls for the provider serializer", () => {
     const multiCall: BotMessage = {
       role: "assistant",
       content: [
@@ -328,8 +328,8 @@ describe("Bot summary partition", () => {
       text("assistant", "newest-2"),
       text("user", "newest-3"),
     ]);
-    expect(reduced).not.toContainEqual(multiCall);
-    expect(reduced).not.toContainEqual(result);
+    expect(reduced).toContainEqual(multiCall);
+    expect(reduced).toContainEqual(result);
   });
 });
 
@@ -1278,7 +1278,7 @@ describe("Bot coordinator", () => {
           setTimeout(() => reject(new Error("empty output entered retry delay")), 1_000)
         ),
       ])
-    ).rejects.toThrow("Self-summary returned no content");
+    ).rejects.toThrow("[self-summary] all retries exhausted without valid content");
   });
 
   test("aborts immediately while waiting between summary retries", async () => {

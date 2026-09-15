@@ -22,8 +22,8 @@ const model: Model<"openai-completions"> = {
   cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 };
 
-for (const withSteer of [false, true])
-  test(`real Pi loop persists before acknowledgement, stops on end_turn, and recovers tape${withSteer ? " with queued steering" : ""}`, async () => {
+for (const { withSteer, handoff } of [{ withSteer: false, handoff: false }, { withSteer: true, handoff: false }, { withSteer: false, handoff: true }])
+  test(`real Pi loop persists before acknowledgement, stops on ${handoff ? "WakeParent" : "end_turn"}, and recovers tape${withSteer ? " with queued steering" : ""}`, async () => {
     const root = await mkdtemp(join(tmpdir(), "pi-parity-"));
     const requests: any[] = [];
     const sent: any[] = [];
@@ -39,7 +39,7 @@ for (const withSteer of [false, true])
           await new Promise<void>((resolve) => {
             releaseSend = resolve;
           });
-        return Response.json({ sent: true, message_id: `delivery-${sent.length}` });
+        return Response.json(handoff ? { woken: true, run_id: "parent-wake" } : { sent: true, message_id: `delivery-${sent.length}` });
       },
     });
     let session: AgentSession | undefined;
@@ -76,8 +76,11 @@ for (const withSteer of [false, true])
                           id: toolId,
                           type: "function",
                           function: {
-                            name: "SendToUser",
-                            arguments: JSON.stringify({
+                            name: handoff ? "CallDynamicTool" : "SendToUser",
+                            arguments: JSON.stringify(handoff ? {
+                              namespace: "cursor", toolName: "WakeParent",
+                              arguments: { message: "Fixture result: notify the user." },
+                            } : {
                               type: "text",
                               content: "Fixture result",
                               end_turn: true,
@@ -132,6 +135,7 @@ for (const withSteer of [false, true])
         channelId: crypto.randomUUID(),
         deliveryId: null,
         runtimeProfile: "agent",
+        requestSource: handoff ? "automation" : "turn",
         subagentType: null,
         pluginNamespaces: [],
         discoveredDynamicTools: new Set(),
@@ -145,6 +149,10 @@ for (const withSteer of [false, true])
         acceptedSteerIds: new Set(),
         queue: { push: (event: any) => acknowledged.push(event) },
       } as unknown as ActiveTurn;
+      if (handoff) {
+        const discover = toolHost.customTools(active).find((tool) => tool.name === "GetDynamicTools")!;
+        await discover.execute("discover-wake", { namespace: "cursor", toolName: "WakeParent" }, undefined, undefined, {} as never);
+      }
       const sessions = join(root, "sessions");
       await mkdir(sessions);
       const manager = SessionManager.create(root, sessions, { id: active.contextSessionId });
@@ -194,6 +202,12 @@ for (const withSteer of [false, true])
       expect(requests).toHaveLength(1);
       expect(sent).toHaveLength(1);
       expect(active.endTurnRequested).toBe(true);
+      if (handoff) {
+        expect(active.sentMessageCount).toBe(0);
+        expect(sent[0]).toMatchObject({ tool: "WakeParent", arguments: { message: "Fixture result: notify the user." } });
+        const shell = toolHost.customTools(active).find((tool) => tool.name === "Shell")!;
+        await expect(shell.execute("too-late", { command: "false" }, undefined, undefined, {} as never)).rejects.toThrow("turn has ended");
+      }
       const payload = requests[0];
       expect(payload.messages[0].content).toContain("System fixture: verified instructions");
       const messages = payload.messages.filter((message: any) => message.role === "user");
@@ -232,7 +246,7 @@ for (const withSteer of [false, true])
             (entry: any) => entry.type === "custom" && entry.customType === "openteam-input-receipt"
           )
       ).toHaveLength(1);
-      if (process.env.OPENTEAM_PARITY_ARTIFACT_DIR && !withSteer) {
+      if (process.env.OPENTEAM_PARITY_ARTIFACT_DIR && !withSteer && !handoff) {
         const { writeFile } = await import("node:fs/promises");
         await mkdir(process.env.OPENTEAM_PARITY_ARTIFACT_DIR, { recursive: true });
         await writeFile(

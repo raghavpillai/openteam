@@ -26,7 +26,7 @@ describe("message and Read boundaries", () => {
   test("Read applies the limit before line numbering and withholds oversized content", () => {
     const equal = renderReadText("a".repeat(100_000));
     expect(equal.exceededLimit).toBe(false);
-    expect(equal.text).toBe(`1: ${"a".repeat(100_000)}`);
+    expect(equal.text).toBe(`     1|${"a".repeat(100_000)}`);
     const over = renderReadText("a".repeat(100_001));
     expect(over.exceededLimit).toBe(true);
     expect(over.text).toBe(readLimitNotice(100_001));
@@ -34,8 +34,8 @@ describe("message and Read boundaries", () => {
   });
   test("paging reads a small selection even when the whole file exceeds the limit", () => {
     const raw = `BEGIN\n${"x".repeat(100_001)}\nEND`;
-    expect(renderReadText(raw, 1, 1).text).toBe("1: BEGIN");
-    expect(renderReadText(raw, -1, 1).text).toBe("3: END");
+    expect(renderReadText(raw, 1, 1).text).toBe("     1|BEGIN\n... 2 lines not shown ...");
+    expect(renderReadText(raw, -1, 1).text).toBe("... 2 lines not shown ...\n     3|END");
     expect(renderReadText(raw, 2, 1).exceededLimit).toBe(true);
     expect(() => renderReadText(raw, 99, 1)).toThrow("Offset 99 is beyond file length (3 lines)");
     expect(renderReadText("", 1, 3)).toMatchObject({

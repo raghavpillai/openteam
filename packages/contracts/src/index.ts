@@ -1,4 +1,7 @@
+import { withReferenceContract, referenceTool } from "./tool-contracts";
 import { Schema } from "effect";
+import { BOT_AVATAR_COLOR_NAMES } from "./bot-avatar";
+export { validateProcessSecretName } from "./process-secrets";
 import { MAX_INLINE_IMAGE_URL_LENGTH } from "./media-input";
 import cursorToolsDocument from "./cursor-tools.json";
 export * from "./review-cards";
@@ -15,6 +18,8 @@ export * from "./transcription";
 export * from "./notification-content";
 export * from "./plugin-settings";
 export * from "./routine-types";
+export * from "./memory-management";
+export * from "./automation-tools";
 
 export interface NativeToolDefinition {
   name: string;
@@ -25,12 +30,12 @@ export interface NativeToolDefinition {
 const observedNativeTools = nativeToolsDocument.native as NativeToolDefinition[];
 
 export const NATIVE_TOOLS = observedNativeTools.map((definition) => {
-  return {
+  return withReferenceContract({
     type: "function" as const,
     name: definition.name,
     description: definition.description,
     inputSchema: definition.parameters,
-  };
+  });
 });
 
 const nativeTool = <const Name extends string>(name: Name) => {
@@ -49,7 +54,7 @@ export interface CursorToolDefinition {
 }
 
 /** The explicitly supported Cursor-compatible subset; no other Cursor tools are exposed. */
-export const CURSOR_TOOLS = cursorToolsDocument.cursor as CursorToolDefinition[];
+export const CURSOR_TOOLS = (cursorToolsDocument.cursor as CursorToolDefinition[]).map(t => { const c = withReferenceContract({ ...t, name: t.tool }); return { ...t, description: c.description, inputSchema: c.inputSchema }; });
 export const CURSOR_TOOL_NAMES = CURSOR_TOOLS.map(({ tool }) => tool);
 
 const cursorTool = <const Name extends string>(name: Name) => {
@@ -204,15 +209,12 @@ export interface PushDeviceView {
 }
 
 export const MarkChannelReadInput = Schema.Struct({
-  throughNotificationSequence: Schema.optional(Schema.String.pipe(Schema.pattern(/^\d+$/))),
   throughSequence: Schema.optional(Schema.String.pipe(Schema.pattern(/^\d+$/))),
+  throughNotificationSequence: Schema.optional(Schema.String.pipe(Schema.pattern(/^\d+$/))),
 });
 export type MarkChannelReadInput = typeof MarkChannelReadInput.Type;
 
 export interface AgentNotificationPayload {
-  notificationSequence?: string;
-  messageSequence?: string;
-  sender?: import("./notification-content").NotificationSender;
   schemaVersion: 1;
   kind: AgentNotificationKind;
   botId: string;
@@ -223,13 +225,16 @@ export interface AgentNotificationPayload {
   body: string;
   deepLink: string;
   badgeCount: number;
+  notificationSequence?: string;
+  messageSequence?: string;
+  sender?: import("./notification-content").NotificationSender;
 }
 
 export interface BadgeSyncNotificationPayload {
-  readState?: NotificationReadState;
   schemaVersion: 1;
   kind: "badge-sync";
   badgeCount: number;
+  readState?: NotificationReadState;
 }
 
 export type PushNotificationPayload = AgentNotificationPayload | BadgeSyncNotificationPayload;
@@ -346,11 +351,11 @@ export const TODO_CONTENT_MAX_LENGTH = 1_000;
 export const TodoWriteInput = Schema.Struct({
   todos: Schema.Array(
     Schema.Struct({
-      id: Schema.String.pipe(Schema.maxLength(TODO_ID_MAX_LENGTH)),
-      content: Schema.String.pipe(Schema.maxLength(TODO_CONTENT_MAX_LENGTH)),
+      id: Schema.String,
+      content: Schema.String,
       status: TodoStatus,
     })
-  ).pipe(Schema.minItems(2), Schema.maxItems(TODO_MAX_ITEMS)),
+  ).pipe(Schema.minItems(2)),
   merge: Schema.Boolean,
 });
 export type TodoWriteInput = typeof TodoWriteInput.Type;
@@ -372,8 +377,14 @@ export const TaskInput = Schema.Struct({
   subagent_type: Schema.optional(SubagentType),
   file_attachments: Schema.optional(Schema.Array(Schema.String)),
   run_in_background: Schema.optional(Schema.Boolean),
+  read_only: Schema.optional(Schema.Boolean),
 });
 export type TaskInput = typeof TaskInput.Type;
+
+export const WakeParentInput = Schema.Struct({
+  message: Schema.String.pipe(Schema.minLength(1)),
+});
+export type WakeParentInput = typeof WakeParentInput.Type;
 
 export const CheckSubagentInput = Schema.Struct({
   subagent_id: Schema.optional(Schema.String),
@@ -448,7 +459,8 @@ export const SendToAgentInput = Schema.Struct({
 export type SendToAgentInput = typeof SendToAgentInput.Type;
 
 export const AgentSendToUserInput = Schema.Struct({
-  type: Schema.Literal("text", "attachment", "widget", "secret-request", "computer-handoff", "user-form", "external-draft", "review-action"),
+  type: Schema.Literal("text", "attachment", "widget", "secret-request", "credential-request", "computer-handoff", "user-form", "external-draft", "review-action"),
+  credential: Schema.optional(Schema.Struct({kind:Schema.Literal("browser-login"),credential_id:Schema.String,connection_id:Schema.String,catalog_revision:Schema.String,site:Schema.String,purpose:Schema.String})),
   form: Schema.optional(Schema.Unknown),
   draft: Schema.optional(Schema.Unknown),
   review: Schema.optional(Schema.Unknown),
@@ -487,14 +499,19 @@ export const AgentSendToUserInput = Schema.Struct({
   secret: Schema.optional(
     Schema.Struct({
       label: Schema.String,
-      connector: Schema.String,
-      field: Schema.String,
+      name: Schema.optional(Schema.String),
+      scope: Schema.optional(Schema.Literal("bot", "personal")),
+      connector: Schema.optional(Schema.String),
+      field: Schema.optional(Schema.String),
       description: Schema.optional(Schema.String),
     })
   ),
   computerHandoff: Schema.optional(
     Schema.Struct({
       reason: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(1_000)),
+      category: Schema.optional(Schema.String),
+      domain: Schema.optional(Schema.String),
+      idpDomain: Schema.optional(Schema.String),
     })
   ),
 });
@@ -520,12 +537,17 @@ export interface RichMessageWidget {
 export interface RichMessageSecretRequest {
   label: string;
   description?: string;
-  connector: string;
-  field: string;
+  name?: string;
+  scope?: "bot" | "personal";
+  connector?: string;
+  field?: string;
 }
 
 export interface RichMessageComputerHandoff {
   reason: string;
+  category?: string;
+  domain?: string;
+  idpDomain?: string;
 }
 
 export type RichMessageComputerHandoffState =
@@ -633,7 +655,7 @@ export type GetDynamicToolsInput = typeof GetDynamicToolsInput.Type;
 export const CallDynamicToolInput = Schema.Struct({
   namespace: Schema.String,
   toolName: Schema.String,
-  arguments: Schema.optional(Schema.Record({ key: Schema.String, value: Schema.Unknown })),
+  arguments: Schema.optional(Schema.Union(Schema.Record({ key: Schema.String, value: Schema.Unknown }), Schema.String)),
   mcpDetails: Schema.optional(Schema.Unknown),
 });
 export type CallDynamicToolInput = typeof CallDynamicToolInput.Type;
@@ -694,7 +716,7 @@ export const RenamePluginAccountInput = Schema.Struct({
 export type RenamePluginAccountInput = typeof RenamePluginAccountInput.Type;
 
 export const SetMcpInstructionsInput = Schema.Struct({
-  instructions: Schema.String.pipe(Schema.maxLength(500)),
+  instructions: Schema.String,
 });
 export type SetMcpInstructionsInput = typeof SetMcpInstructionsInput.Type;
 
@@ -752,7 +774,7 @@ export interface PluginCatalogItemView {
   category: string;
   featured: boolean;
   installed: boolean;
-  components: Array<"skills" | "mcp">;
+  components: Array<"skills" | "mcp" | "rules" | "commands" | "agents" | "hooks">;
   connections: PluginCatalogConnectionView[];
   skills: PluginCatalogSkillView[];
   homepageUrl: string | null;
@@ -916,15 +938,7 @@ const ComputerUseActionName = Schema.Literal(
   "scroll",
   "wait"
 );
-const ComputerUseModifier = Schema.Literal(
-  "shift",
-  "ctrl",
-  "alt",
-  "meta",
-  "ctrl+shift",
-  "ctrl+alt",
-  "meta+shift"
-);
+const ComputerUseModifier = Schema.String.pipe(Schema.filter(value => value.split("+").every(key => ["ctrl","alt","shift","meta","super"].includes(key.toLowerCase()))));
 const ComputerUsePoint = Schema.Struct({
   x: Schema.Number.pipe(Schema.int(), Schema.between(0, 1279)),
   y: Schema.Number.pipe(Schema.int(), Schema.between(0, 799)),
@@ -936,22 +950,17 @@ const ComputerUseActionFields = {
   x2: Schema.optional(Schema.Number.pipe(Schema.int(), Schema.between(0, 1279))),
   y2: Schema.optional(Schema.Number.pipe(Schema.int(), Schema.between(0, 799))),
   path: Schema.optional(
-    Schema.Array(ComputerUsePoint).pipe(Schema.minItems(2), Schema.maxItems(100))
+    Schema.Array(ComputerUsePoint)
   ),
-  text: Schema.optional(Schema.String.pipe(Schema.maxLength(10_000))),
-  key: Schema.optional(
-    Schema.String.pipe(
-      Schema.minLength(1),
-      Schema.maxLength(80),
-      Schema.pattern(/^[A-Za-z0-9_+-]+$/)
-    )
-  ),
+  text: Schema.optional(Schema.String),
+  key: Schema.optional(Schema.String),
   button: Schema.optional(Schema.Literal("left", "right", "middle")),
   count: Schema.optional(Schema.Number.pipe(Schema.int(), Schema.between(1, 3))),
   modifiers: Schema.optional(ComputerUseModifier),
   direction: Schema.optional(Schema.Literal("up", "down", "left", "right")),
-  amount: Schema.optional(Schema.Number.pipe(Schema.int(), Schema.between(1, 20))),
-  durationMs: Schema.optional(Schema.Number.pipe(Schema.int(), Schema.between(0, 10_000))),
+  amount: Schema.optional(Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(1))),
+  durationMs: Schema.optional(Schema.Number.pipe(Schema.int(), Schema.between(0, 30_000))),
+  holdDurationMs: Schema.optional(Schema.Number.pipe(Schema.int(), Schema.between(1, 30_000))),
 };
 
 const validComputerUseAction = (input: {
@@ -965,7 +974,11 @@ const validComputerUseAction = (input: {
   key?: string;
   direction?: "up" | "down" | "left" | "right";
   durationMs?: number;
+  holdDurationMs?: number;
+  count?: number;
+  modifiers?: string;
 }): boolean => {
+  if (input.holdDurationMs !== undefined && (input.action !== "click" || (input.count ?? 1) > 1 || input.modifiers !== undefined)) return false;
   const coordinatePair = (input.x === undefined) === (input.y === undefined);
   switch (input.action) {
     case "screenshot":
@@ -1010,7 +1023,7 @@ export const ComputerUseInput = Schema.Struct({
       })
     )
   ),
-  description: Schema.optional(Schema.String.pipe(Schema.maxLength(500))),
+  description: Schema.optional(Schema.String),
 }).pipe(
   Schema.filter(validComputerUseAction, {
     message: () => "Invalid fields for the selected Computer action",
@@ -1076,6 +1089,7 @@ export const MESSAGE_SUBAGENT_TOOL = cursorTool("MessageSubagent");
 export const REQUEST_BOX_HELP_TOOL = cursorTool("request_box_help");
 export const STOP_SUBAGENT_TOOL = cursorTool("StopSubagent");
 export const TASK_TOOL = cursorTool("Task");
+export const WAKE_PARENT_TOOL = cursorTool("WakeParent");
 export const TODO_WRITE_TOOL = cursorTool("TodoWrite");
 export const UPDATE_AGENT_TOOL = cursorTool("UpdateAgent");
 export const AWAIT_SHELL_TOOL = cursorTool("AwaitShell");
@@ -1083,6 +1097,9 @@ export const UPDATE_CHANNEL_TOOL = cursorTool("UpdateChannel");
 
 export const RequestBoxHelpInput = Schema.Struct({
   reason: Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(1_000))),
+  instruction: Schema.optional(Schema.String),
+  domain: Schema.optional(Schema.String),
+  idp_domain: Schema.optional(Schema.String),
 });
 export type RequestBoxHelpInput = typeof RequestBoxHelpInput.Type;
 
@@ -1117,9 +1134,9 @@ export const UpdateStateInput = Schema.Struct({
   project: Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(80))),
   id: Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(120))),
   name: Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(120))),
-  title: Schema.optional(Schema.String.pipe(Schema.maxLength(120))),
+  title: Schema.optional(Schema.String),
   avatar_shape: Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(80))),
-  avatar_color: Schema.optional(Schema.String.pipe(Schema.pattern(/^#[0-9a-fA-F]{6}$/))),
+  avatar_color: Schema.optional(Schema.Union(Schema.Literal(...BOT_AVATAR_COLOR_NAMES), Schema.String.pipe(Schema.pattern(/^#[0-9a-fA-F]{6}$/)))),
   description: Schema.optional(Schema.String.pipe(Schema.maxLength(2_000))),
   prompt: Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(50_000))),
   schedule: Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(500))),
@@ -1220,73 +1237,7 @@ export const COMPUTER_TOOL = {
   },
 } as const;
 
-const computerUseActionProperties = {
-  action: {
-    type: "string",
-    enum: ["screenshot", "click", "move", "drag", "type", "key", "scroll", "wait"],
-  },
-  x: { type: "integer", minimum: 0, maximum: 1279 },
-  y: { type: "integer", minimum: 0, maximum: 799 },
-  x2: { type: "integer", minimum: 0, maximum: 1279 },
-  y2: { type: "integer", minimum: 0, maximum: 799 },
-  path: {
-    type: "array",
-    minItems: 2,
-    maxItems: 100,
-    items: {
-      type: "object",
-      properties: {
-        x: { type: "integer", minimum: 0, maximum: 1279 },
-        y: { type: "integer", minimum: 0, maximum: 799 },
-      },
-      required: ["x", "y"],
-      additionalProperties: false,
-    },
-  },
-  text: { type: "string", maxLength: 10_000 },
-  key: {
-    type: "string",
-    minLength: 1,
-    maxLength: 80,
-    pattern: "^[A-Za-z0-9_+\\-]+$",
-  },
-  button: { type: "string", enum: ["left", "right", "middle"] },
-  count: { type: "integer", minimum: 1, maximum: 3 },
-  modifiers: {
-    type: "string",
-    enum: ["shift", "ctrl", "alt", "meta", "ctrl+shift", "ctrl+alt", "meta+shift"],
-  },
-  direction: { type: "string", enum: ["up", "down", "left", "right"] },
-  amount: { type: "integer", minimum: 1, maximum: 20 },
-  durationMs: { type: "integer", minimum: 0, maximum: 10_000 },
-} as const;
-
-export const COMPUTER_USE_TOOL = {
-  type: "function",
-  name: "Computer",
-  description:
-    "Control this worker's isolated 1280x800 desktop by screenshot, click, move, drag, type, key, scroll, and wait. Coordinates use pixels from the top-left. Every call returns one screenshot after all actions complete. Use then only for steps that need no intermediate visual verification.",
-  inputSchema: {
-    type: "object",
-    properties: {
-      ...computerUseActionProperties,
-      then: {
-        type: "array",
-        minItems: 1,
-        maxItems: 9,
-        items: {
-          type: "object",
-          properties: computerUseActionProperties,
-          required: ["action"],
-          additionalProperties: false,
-        },
-      },
-      description: { type: "string", maxLength: 500 },
-    },
-    required: ["action"],
-    additionalProperties: false,
-  },
-} as const;
+export const COMPUTER_USE_TOOL = { type: "function", ...referenceTool("Computer") };
 
 export const DynamicToolCallRequest = Schema.Struct({
   runId: Schema.String,
@@ -1330,11 +1281,13 @@ export const ComputerTurnRequest = Schema.Struct({
   deliveryId: Schema.NullOr(Schema.String),
   runtimeProfile: Schema.optional(Schema.Literal("agent", "subagent")),
   subagentType: Schema.optional(SubagentType),
+  readOnly: Schema.optional(Schema.Boolean),
   model: Schema.String,
   reasoning: Schema.Literal(...PI_REASONING_LEVELS),
   fileAttachments: Schema.optional(Schema.Array(Schema.String)),
   images: Schema.optional(Schema.Array(RuntimeInlineImage).pipe(Schema.maxItems(6))),
   dynamicNamespaces: Schema.optional(Schema.Array(PluginDynamicNamespace)),
+  pluginRuntimePackages: Schema.optional(Schema.Array(Schema.Unknown)),
 });
 export type ComputerTurnRequest = typeof ComputerTurnRequest.Type;
 
@@ -1347,6 +1300,7 @@ export const ComputerSteerRequest = Schema.Struct({
 export type ComputerSteerRequest = typeof ComputerSteerRequest.Type;
 
 export const ShellCompletionInput = Schema.Struct({
+  automationRunId: Schema.optional(Schema.String),
   machineId: Schema.optional(Schema.String),
   hostShellId: Schema.optional(Schema.String),
   id: Schema.String.pipe(Schema.pattern(/^[a-zA-Z0-9_-]+$/)),
@@ -1490,7 +1444,6 @@ export interface ChannelMemberView {
 }
 
 export interface ChannelView {
-  notificationState?: ChannelNotificationState;
   id: string;
   kind: ChannelKind;
   name: string;
@@ -1502,6 +1455,7 @@ export interface ChannelView {
   members: ChannelMemberView[];
   /** Number of unread user-visible agent messages, synchronized across clients. */
   unreadCount?: number;
+  notificationState?: ChannelNotificationState;
   createdAt: string;
   updatedAt: string;
 }
@@ -1790,9 +1744,9 @@ export interface ChannelClientState {
 }
 
 export interface MarkChannelReadView {
-  lastReadNotificationSequence?: string;
   channelId: string;
   lastReadSequence: string;
+  lastReadNotificationSequence?: string;
   unreadCount: number;
 }
 

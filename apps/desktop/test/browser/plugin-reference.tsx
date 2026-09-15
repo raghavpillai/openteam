@@ -16,6 +16,7 @@ import calendar from "../../../../packages/plugins/google-calendar/plugin.json";
 import drive from "../../../../packages/plugins/google-drive/plugin.json";
 import granola from "../../../../packages/plugins/granola/plugin.json";
 import utility from "../../../../packages/plugins/openteam-utility-lab/plugin.json";
+import onePassword from "../../../../packages/plugins/1password/plugin.json";
 import { createPluginTemplate, type PluginDefinition } from "@openteam/plugin-sdk";
 const packagedIcons = import.meta.glob("../../../../packages/plugins/*/assets/icon.png", {
   eager: true,
@@ -30,6 +31,15 @@ window.fetch = async () => {
   throw new Error("Network disabled in plugin capture fixture.");
 };
 window.open = () => null;
+if (new URLSearchParams(location.search).get("clipboard") === "denied") {
+  Object.defineProperty(navigator, "clipboard", {
+    value: {
+      writeText: async () => {
+        throw new Error("Fixture clipboard unavailable");
+      },
+    },
+  });
+}
 const [{ api }, { PluginDialog }, { TooltipProvider }] = await Promise.all([
   import("../../src/renderer/client/openteam-api"),
   import("../../src/renderer/components/openteam/plugin-settings"),
@@ -43,7 +53,19 @@ for (const key of Object.keys(api)) {
   }
 }
 const timestamp = "2026-09-12T12:00:00.000Z";
-const definitions = [gmail, calendar, drive, granola, notion, slack, linear, github, research, utility];
+const definitions = [
+  onePassword,
+  gmail,
+  calendar,
+  drive,
+  granola,
+  notion,
+  slack,
+  linear,
+  github,
+  research,
+  utility,
+];
 const catalog = definitions.map((entry) => ({
   ...entry,
   installed: entry.key === "gmail" || entry.key === "github",
@@ -196,6 +218,34 @@ const management = {
   skills: [skill],
 };
 api.pluginSettings = async () => structuredClone(settings);
+api.installPlugin = async (key) => {
+  const plugin = settings.catalog.find((item) => item.key === key)!;
+  plugin.installed = true;
+  settings.installs.push({
+    catalog: plugin, id: `sample-install-${key}`, pluginKey: key, version: plugin.version,
+    name: plugin.name, description: plugin.description, publisher: plugin.publisher,
+    status: "installed", installedAt: timestamp, hasSkills: plugin.skills.length > 0,
+    connections: plugin.connections.map((connector) => ({
+      ...connection, id: `sample-${key}-default`, pluginKey: key, connectorKey: connector.key,
+      name: connector.name, alias: "default", transport: connector.transport, auth: connector.auth,
+      status: "disconnected", statusMessage: null, configured: connector.auth === "none",
+      canAuthenticate: connector.auth === "oauth", tools: [],
+    })),
+  });
+  return { id: `sample-install-${key}`, status: "installed" };
+};
+api.connectPlugin = async (id) => {
+  const account = findAccount(id);
+  if (account.pluginKey !== "1password") throw new Error("This fixture only simulates native 1Password connection failures.");
+  account.status = "error";
+  account.statusMessage = "Unlock 1Password, enable Integrate with MCP clients in Settings → Developer, complete any macOS setup prompt, then retry and approve the connection.";
+  throw new Error(account.statusMessage);
+};
+api.uninstallPlugin = async (key) => {
+  settings.installs = settings.installs.filter((install) => install.pluginKey !== key);
+  const plugin = settings.catalog.find((item) => item.key === key);
+  if (plugin) plugin.installed = false;
+};
 api.pluginManagement = async () => structuredClone(management);
 api.pluginBotAccess = async () => ({
   pluginKey: "github",
@@ -224,6 +274,11 @@ const findAccount = (id: string) =>
 // These operations mutate only the synthetic in-memory fixture. They cannot reach a provider.
 api.renamePluginAccount = async (id, alias) => {
   findAccount(id).alias = alias;
+};
+api.removePluginAccount = async (id) => {
+  for (const install of settings.installs) {
+    install.connections = install.connections.filter((account) => account.id !== id);
+  }
 };
 api.addPluginAccount = async (id, alias) => {
   const source = findAccount(id);
@@ -254,6 +309,7 @@ api.pluginConfiguration = async (id) => {
     namespace: `${account.pluginKey}_${account.alias.replaceAll(" ", "_")}`,
     endpoint: definition.connections[0]!.endpoint,
     command: null,
+    runtime: account.pluginKey === "1password" ? "desktop" : "computer",
     args: [],
     cwd: null,
     values: {},
@@ -273,6 +329,9 @@ function Reference() {
   const [open, setOpen] = useState(true);
   return (
     <TooltipProvider>
+      <button type="button" onClick={() => setOpen(true)}>
+        Open plugins
+      </button>
       <PluginDialog open={open} onOpenChange={setOpen} />
     </TooltipProvider>
   );

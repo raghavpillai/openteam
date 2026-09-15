@@ -14,6 +14,8 @@ export function IconButton({
   size = 38,
   visualHeight = size,
   symbolSize = 20,
+  symbolWeight = "medium",
+  symbolOffsetX = 0,
   disabled = false,
   haptic = "none",
   style,
@@ -26,6 +28,8 @@ export function IconButton({
   size?: number;
   visualHeight?: number;
   symbolSize?: number;
+  symbolWeight?: SymbolViewProps["weight"];
+  symbolOffsetX?: number;
   disabled?: boolean;
   haptic?: "selection" | "light" | "none";
   style?: StyleProp<ViewStyle>;
@@ -97,7 +101,13 @@ export function IconButton({
             },
           ]}
         >
-          <SymbolView name={name} size={symbolSize} tintColor={tint} weight="medium" />
+          <SymbolView
+            name={name}
+            size={symbolSize}
+            tintColor={tint}
+            weight={symbolWeight}
+            style={{ transform: [{ translateX: symbolOffsetX }] }}
+          />
         </GlassSurface>
       ) : (
         <View
@@ -113,7 +123,13 @@ export function IconButton({
             },
           ]}
         >
-          <SymbolView name={name} size={symbolSize} tintColor={tint} weight="medium" />
+          <SymbolView
+            name={name}
+            size={symbolSize}
+            tintColor={tint}
+            weight={symbolWeight}
+            style={{ transform: [{ translateX: symbolOffsetX }] }}
+          />
         </View>
       )}
     </Pressable>

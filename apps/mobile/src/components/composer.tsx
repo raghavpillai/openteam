@@ -175,6 +175,8 @@ export function Composer({
   const textInputRef = useRef<TextInput>(null);
   const inputBaseline = useRef<number | null>(null);
   const replyProgress = useRef(new Animated.Value(replyTarget ? 1 : 0)).current;
+  const [displayedReply, setDisplayedReply] = useState(replyTarget);
+  const focusedReplyVersion = useRef(replyEditVersion);
   const latestDraft = useRef<ConversationDraft>({
     id: draftId,
     text: "",
@@ -732,14 +734,27 @@ export function Composer({
   };
 
   useEffect(() => {
-    Animated.spring(replyProgress, {
+    if (replyTarget) setDisplayedReply(replyTarget);
+    const animation = Animated.spring(replyProgress, {
       toValue: replyTarget ? 1 : 0,
       damping: 19,
       stiffness: 240,
       mass: 0.82,
       useNativeDriver: false,
-    }).start();
+    });
+    animation.start(({ finished }) => {
+      if (finished && !replyTarget) setDisplayedReply(null);
+    });
+    return () => animation.stop();
   }, [replyProgress, replyTarget]);
+
+  useEffect(() => {
+    if (focusedReplyVersion.current === replyEditVersion) return;
+    focusedReplyVersion.current = replyEditVersion;
+    if (!replyTarget) return;
+    const frame = requestAnimationFrame(() => textInputRef.current?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, [replyEditVersion, replyTarget]);
 
   const submitPayload = async (content: string, pending: PendingAttachment[]) => {
     if ((!content && pending.length === 0) || sendInFlight.current) return;
@@ -939,7 +954,7 @@ export function Composer({
             <View style={[styles.replyInner, { backgroundColor: theme.surface }]}>
               <SymbolView name="arrowshape.turn.up.left" size={14} tintColor={theme.textMuted} />
               <Text numberOfLines={1} style={[styles.replyCopy, { color: theme.textMuted }]}>
-                {replyTarget?.content ?? ""}
+                {displayedReply?.content ?? ""}
               </Text>
               <Pressable
                 accessibilityLabel="Cancel reply"

@@ -120,7 +120,7 @@ export default function ConversationScreen() {
   const theme = useChatTheme();
   const insets = useSafeAreaInsets();
   const keyboardVisible = useChatKeyboard();
-  const composerBottomInset = keyboardVisible ? 18 : Math.max(12, insets.bottom - 2);
+  const composerBottomInset = keyboardVisible ? 18 : Math.max(12, insets.bottom - 4);
   const { channelId, messageId } = useLocalSearchParams<{
     channelId: string;
     messageId?: string;
@@ -534,7 +534,9 @@ export default function ConversationScreen() {
               name="chevron.left"
               onPress={() => (router.canGoBack() ? router.back() : router.replace("/"))}
               size={44}
-              symbolSize={20}
+              symbolSize={18}
+              symbolWeight="regular"
+              symbolOffsetX={1}
               tone="glass"
             />
             <Pressable
@@ -566,14 +568,14 @@ export default function ConversationScreen() {
             <IconButton
               style={styles.headerTrailingAction}
               label="Open shared computer"
-              name="desktopcomputer"
+              name="display"
               disabled={!botId}
               onPress={() => {
                 if (!botId) return;
                 router.push({ pathname: "/computer/[botId]", params: { botId } });
               }}
               size={44}
-              symbolSize={20}
+              symbolSize={22}
               tone="glass"
             />
           </View>
@@ -587,7 +589,7 @@ export default function ConversationScreen() {
               contentContainerStyle={[
                 styles.messages,
                 timeline.length === 0 && styles.emptyMessages,
-                { paddingTop: insets.top + 66, paddingBottom: composerHeight + 8 },
+                { paddingTop: insets.top + 66, paddingBottom: composerHeight + 15 },
               ]}
               ListEmptyComponent={
                 bot?.onboardingStatus === "completed" && !channelHistory?.loading ? (
@@ -989,10 +991,10 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 8,
+    gap: 9,
   },
   identityPressed: { opacity: 0.78, transform: [{ scale: 0.98 }] },
-  title: { flexShrink: 1, fontSize: 17, lineHeight: 22, fontWeight: "600" },
+  title: { flexShrink: 1, fontSize: 17, lineHeight: 22, fontWeight: "500" },
   messages: {
     flexGrow: 1,
     justifyContent: "flex-end",

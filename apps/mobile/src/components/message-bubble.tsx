@@ -195,7 +195,7 @@ export function MessageBubble({
     `${attachmentCount} attached ${attachmentCount === 1 ? "file" : "files"}`;
   const deliveryActionsDisabled =
     pending || deliveryState === "queued" || deliveryState === "failed";
-  const swipeToThreadEnabled = Boolean(onStartThread) && !readOnly && !deliveryActionsDisabled;
+  const swipeToReplyEnabled = !readOnly && !deliveryActionsDisabled;
   const currentSentOfflineAtMs =
     deliveryState === "accepted" &&
     deliveryQueuedAtMs != null &&
@@ -237,7 +237,7 @@ export function MessageBubble({
   }, [currentSentOfflineAtMs, retainedSentOfflineAtMs, sentOfflineVisibility]);
 
   useEffect(() => {
-    if (!enters && !swipeToThreadEnabled) return;
+    if (!enters && !swipeToReplyEnabled) return;
     let cancelled = false;
     let animation: Animated.CompositeAnimation | null = null;
     const start = (reduced: boolean) => {
@@ -275,13 +275,13 @@ export function MessageBubble({
       subscription.remove();
       animation?.stop();
     };
-  }, [entranceOpacity, entranceTransform, enters, swipeToThreadEnabled]);
+  }, [entranceOpacity, entranceTransform, enters, swipeToReplyEnabled]);
 
   const swipeResponder = useMemo(
     () =>
       PanResponder.create({
         onMoveShouldSetPanResponderCapture: (_event, gesture) =>
-          swipeToThreadEnabled &&
+          swipeToReplyEnabled &&
           gesture.dx > 7 &&
           Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.2,
         onPanResponderGrant: () => {
@@ -298,25 +298,11 @@ export function MessageBubble({
         },
         onPanResponderRelease: (_event, gesture) => {
           const result = replySwipe.release(gesture.dx, gesture.vx);
-          if (result.open && onStartThread) {
+          if (result.open && swipeToReplyEnabled) {
             if (result.signal) {
               void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
             }
-            if (reduceMotion !== false) {
-              swipeOffset.setValue(0);
-              onStartThread();
-              return;
-            }
-            Animated.timing(swipeOffset, {
-              toValue: 78,
-              duration: 72,
-              easing: Easing.out(Easing.quad),
-              useNativeDriver: true,
-            }).start(({ finished }) => {
-              swipeOffset.setValue(0);
-              if (finished) onStartThread();
-            });
-            return;
+            onReply();
           }
           if (reduceMotion !== false) {
             swipeOffset.setValue(0);
@@ -346,7 +332,7 @@ export function MessageBubble({
         },
         onPanResponderTerminationRequest: () => false,
       }),
-    [onStartThread, reduceMotion, replySwipe, swipeOffset, swipeToThreadEnabled]
+    [onReply, reduceMotion, replySwipe, swipeOffset, swipeToReplyEnabled]
   );
 
   const openActions = () => {
@@ -422,12 +408,12 @@ export function MessageBubble({
         { opacity: deliveryOpacity },
       ]}
     >
-      {swipeToThreadEnabled ? (
+      {swipeToReplyEnabled ? (
         <Animated.View
           pointerEvents="none"
           style={[
-            styles.swipeThreadIndicator,
-            isUser ? styles.swipeThreadIndicatorRight : styles.swipeThreadIndicatorLeft,
+            styles.swipeReplyIndicator,
+            isUser ? styles.swipeReplyIndicatorRight : styles.swipeReplyIndicatorLeft,
             {
               opacity: swipeOffset.interpolate({
                 inputRange: [0, 20, 52],
@@ -976,7 +962,7 @@ const styles = StyleSheet.create({
   contentRight: { alignItems: "flex-end" },
   alignLeft: { alignSelf: "flex-start" },
   alignRight: { alignSelf: "flex-end" },
-  swipeThreadIndicator: {
+  swipeReplyIndicator: {
     position: "absolute",
     top: "50%",
     width: 24,
@@ -985,8 +971,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  swipeThreadIndicatorLeft: { left: 17 },
-  swipeThreadIndicatorRight: { left: -31 },
+  swipeReplyIndicatorLeft: { left: 17 },
+  swipeReplyIndicatorRight: { left: -31 },
   bubble: { borderRadius: 24, paddingHorizontal: 14, paddingVertical: 9 },
   advancedMarkdownBubble: { width: "100%" },
   richActionTarget: { width: "100%", maxWidth: 520 },

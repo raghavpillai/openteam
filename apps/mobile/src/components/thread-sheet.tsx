@@ -279,7 +279,9 @@ export function ThreadSheet({
                 name="chevron.left"
                 onPress={onClose}
                 size={44}
-                symbolSize={20}
+                symbolSize={18}
+                symbolWeight="regular"
+                symbolOffsetX={1}
                 tone="glass"
               />
             </View>
@@ -288,7 +290,7 @@ export function ThreadSheet({
               ref={listRef}
               contentContainerStyle={[
                 styles.messages,
-                { paddingTop: insets.top + 66, paddingBottom: composerHeight + 8 },
+                { paddingTop: insets.top + 66, paddingBottom: composerHeight + 15 },
               ]}
               data={messages}
               keyExtractor={messageRenderKey}
@@ -403,7 +405,7 @@ export function ThreadSheet({
                 onLayout={(event) => setComposerHeight(Math.ceil(event.nativeEvent.layout.height))}
                 style={[
                   styles.composerOverlay,
-                  { paddingBottom: keyboardVisible ? 18 : Math.max(12, insets.bottom - 2) },
+                  { paddingBottom: keyboardVisible ? 18 : Math.max(12, insets.bottom - 4) },
                 ]}
               >
                 <ChatChromeFade edge="bottom" />

@@ -57,7 +57,7 @@ test("iOS message motion preserves OpenTeam entrance and acknowledgement semanti
   expect(themeTokens).toContain('assistantBubble: "#F1F1EF"');
 });
 
-test("right-swiping a message reveals the native thread affordance and opens its thread", async () => {
+test("right-swiping replies in the composer while thread creation remains a separate action", async () => {
   const [bubble, route, thread, composer] = await Promise.all([
     source("src/components/message-bubble.tsx"),
     source("app/chat/[channelId].tsx"),
@@ -68,8 +68,14 @@ test("right-swiping a message reveals the native thread affordance and opens its
   expect(bubble).toContain("PanResponder.create");
   expect(bubble).toContain("onMoveShouldSetPanResponderCapture");
   expect(bubble).toContain("replySwipe.release(gesture.dx, gesture.vx)");
-  expect(bubble).toContain("swipeThreadIndicator");
-  expect(bubble).toContain("if (finished) onStartThread()");
+  expect(bubble).toContain("swipeReplyIndicator");
+  const swipeHandler = bubble.slice(
+    bubble.indexOf("const swipeResponder"),
+    bubble.indexOf("const openActions")
+  );
+  expect(swipeHandler).toContain("onReply()");
+  expect(swipeHandler).not.toContain("onStartThread");
+  expect(swipeHandler).toContain("Animated.spring(swipeOffset");
   expect(route).toContain("onStartThread={() => setThreadRootId(item.id)}");
   expect(thread).toContain('presentationStyle="fullScreen"');
   expect(thread).toContain('name="chevron.left"');
@@ -77,4 +83,6 @@ test("right-swiping a message reveals the native thread affordance and opens its
   expect(thread).toContain("placeholder={`Reply ${botName}`}");
   expect(thread).not.toContain(">Replies<");
   expect(composer).toContain("const inputPlaceholder = placeholder ?? `Ask ${botName}`");
+  expect(composer).toContain("focusedReplyVersion.current === replyEditVersion");
+  expect(composer).toContain("displayedReply?.content");
 });

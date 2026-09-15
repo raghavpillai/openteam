@@ -297,7 +297,7 @@ describe("mobile virtual-list UI parity", () => {
     expect(route).toContain('name="chevron.down"');
     expect(route).not.toContain("styles.jumpLabel");
     expect(route).toContain("styles.composerOverlay");
-    expect(route).toContain("paddingBottom: composerHeight + 8");
+    expect(route).toContain("paddingBottom: composerHeight + 15");
     expect(route).toContain("bottom: composerHeight + 12");
   });
 

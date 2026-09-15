@@ -80,7 +80,10 @@ export default function AdvancedMarkdown({
 }) {
   const root = useRef<HTMLDivElement>(null);
   const [renderError, setRenderError] = useState<string | null>(null);
-  const html = useMemo(() => sanitizedMarkdown(content), [content]);
+  // React rewrites innerHTML when this object changes, even if its string is the
+  // same. Preserve Mermaid's SVG across native prop updates and error renders.
+  // A theme change deliberately restores the source before rendering it again.
+  const markup = useMemo(() => ({ __html: sanitizedMarkdown(content) }), [content, dark]);
 
   useEffect(() => {
     const element = root.current;
@@ -98,10 +101,11 @@ export default function AdvancedMarkdown({
 
   useEffect(() => {
     const element = root.current;
-    if (!element || html.length === 0) return;
+    if (!element || markup.__html.length === 0) return;
+    let cancelled = false;
+    setRenderError(null);
     const diagrams = Array.from(element.querySelectorAll<HTMLElement>("code.language-mermaid"));
     if (diagrams.length === 0) return;
-    setRenderError(null);
     mermaid.initialize({
       startOnLoad: false,
       securityLevel: "strict",
@@ -116,9 +120,15 @@ export default function AdvancedMarkdown({
       pre.classList.add("mermaid-wrap");
     }
     void mermaid.run({ nodes: diagrams }).catch(() => {
-      setRenderError("This diagram could not be rendered. Its source is shown below.");
+      if (!cancelled) {
+        element.innerHTML = markup.__html;
+        setRenderError("This diagram could not be rendered. Its source is shown below.");
+      }
     });
-  }, [dark, html]);
+    return () => {
+      cancelled = true;
+    };
+  }, [dark, markup]);
 
   return (
     <main
@@ -133,7 +143,7 @@ export default function AdvancedMarkdown({
     >
       {renderError ? <div className="render-error">{renderError}</div> : null}
       {/* biome-ignore lint/security/noDangerouslySetInnerHtml: DOMPurify sanitizes marked output before it reaches this isolated DOM component. */}
-      <div className="markdown" dangerouslySetInnerHTML={{ __html: html }} ref={root} />
+      <div className="markdown" dangerouslySetInnerHTML={markup} ref={root} />
       <style>{`
         :root { color-scheme: ${dark ? "dark" : "light"}; }
         * { box-sizing: border-box; }

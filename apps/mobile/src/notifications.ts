@@ -4,6 +4,12 @@ import * as Notifications from "expo-notifications";
 import * as SecureStore from "expo-secure-store";
 import { Platform } from "react-native";
 import {
+  notificationIsRead,
+  type ChannelNotificationView,
+  type NotificationReadState,
+} from "@openteam/contracts/notification-content";
+import { reconcileNotificationReads } from "@openteam/mobile-native";
+import {
   channelIdFromNotificationData,
   foregroundNotificationBehavior,
 } from "./notification-policy";
@@ -11,6 +17,70 @@ import {
 const INSTALLATION_KEY = "openteam.push-installation-id";
 let activeChannelId: string | null = null;
 let installationIdInFlight: Promise<string> | null = null;
+const readStates = new Map<string, NotificationReadState>();
+const pendingReadStates = new Map<string, NotificationReadState>();
+let readSync: Promise<void> | null = null;
+
+export const synchronizeNotificationReads = async (
+  states: NotificationReadState[]
+): Promise<void> => {
+  for (const state of states) {
+    if (
+      ![state.lastReadSequence, state.lastReadNotificationSequence].every((value) =>
+        /^\d+$/.test(value)
+      )
+    )
+      continue;
+    const previous = readStates.get(state.channelId);
+    const next = {
+      channelId: state.channelId,
+      lastReadSequence:
+        (BigInt(state.lastReadSequence) > BigInt(previous?.lastReadSequence ?? "0")
+          ? state.lastReadSequence
+          : previous?.lastReadSequence) ?? "0",
+      lastReadNotificationSequence:
+        (BigInt(state.lastReadNotificationSequence) >
+        BigInt(previous?.lastReadNotificationSequence ?? "0")
+          ? state.lastReadNotificationSequence
+          : previous?.lastReadNotificationSequence) ?? "0",
+    };
+    if (
+      previous &&
+      previous.lastReadSequence === next.lastReadSequence &&
+      previous.lastReadNotificationSequence === next.lastReadNotificationSequence
+    )
+      continue;
+    readStates.set(state.channelId, next);
+    pendingReadStates.set(state.channelId, next);
+  }
+  if (readSync) return readSync;
+  if (!pendingReadStates.size) return;
+  readSync = Promise.resolve()
+    .then(async () => {
+      while (pendingReadStates.size) {
+        const changed = [...pendingReadStates.values()];
+        await reconcileNotificationReads(changed);
+        const presented = await Notifications.getPresentedNotificationsAsync();
+        await Promise.all(
+          presented.map((notification) => {
+            const data = notification.request.content.data as unknown as ChannelNotificationView;
+            const state = readStates.get(data.channelId);
+            return state && notificationIsRead(data, state)
+              ? Notifications.dismissNotificationAsync(notification.request.identifier)
+              : Promise.resolve();
+          })
+        );
+        for (const state of changed) {
+          if (pendingReadStates.get(state.channelId) === state)
+            pendingReadStates.delete(state.channelId);
+        }
+      }
+    })
+    .finally(() => {
+      readSync = null;
+    });
+  return readSync;
+};
 type PushOperationGuard = () => boolean;
 type PushOperationObserver = (operation: Promise<void>) => void;
 
@@ -27,6 +97,16 @@ const notificationChannelId = (notification: Notifications.Notification): string
 
 Notifications.setNotificationHandler({
   handleNotification: async (notification) => {
+    const data = notification.request.content.data;
+    if (data?.kind === "badge-sync" && data.readState) {
+      void synchronizeNotificationReads([data.readState as NotificationReadState]).catch(
+        () => undefined
+      );
+    }
+    const state = readStates.get(notificationChannelId(notification) ?? "");
+    if (state && notificationIsRead(data as unknown as ChannelNotificationView, state)) {
+      return foregroundNotificationBehavior(null, null, "badge-sync");
+    }
     return foregroundNotificationBehavior(
       notificationChannelId(notification),
       activeChannelId,

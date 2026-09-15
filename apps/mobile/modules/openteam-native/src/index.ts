@@ -32,12 +32,28 @@ declare class OpenTeamNativeModuleType extends NativeModule<OpenTeamNativeEvents
   cancelVoiceRecording(): void;
   isCameraAvailable(): boolean;
   openPreview(uri: string): Promise<boolean>;
+  reconcileNotificationReads(
+    states: Array<{
+      channelId: string;
+      lastReadSequence: string;
+      lastReadNotificationSequence: string;
+    }>
+  ): Promise<void>;
 }
 
 const nativeModule =
   requireOptionalNativeModule<OpenTeamNativeModuleType>("OpenTeamNative") ?? null;
 
 export const openTeamNativeAvailable = nativeModule !== null;
+export const reconcileNotificationReads = async (
+  states: Array<{
+    channelId: string;
+    lastReadSequence: string;
+    lastReadNotificationSequence: string;
+  }>
+): Promise<void> => {
+  await nativeModule?.reconcileNotificationReads?.(states);
+};
 
 export const voiceRecordingAvailable = typeof nativeModule?.startVoiceRecording === "function";
 export const startVoiceRecording = async () => {

@@ -16,6 +16,31 @@ const receipt = (sequence: string): MarkChannelReadView => ({
 });
 
 describe("shared desktop/native read receipts", () => {
+  test("acknowledges a new reaction even when the message read cursor is unchanged", async () => {
+    const controller = createReadReceiptController();
+    const sent: Array<[string | undefined, string | undefined]> = [];
+    const send = async (_channel: string, sequence?: string, activity?: string) => {
+      sent.push([sequence, activity]);
+      return { ...receipt(sequence!), lastReadNotificationSequence: activity };
+    };
+    await controller.request("chat", "9007199254740993", {
+      send,
+      throughNotificationSequence: "10",
+    });
+    await controller.request("chat", "9007199254740993", {
+      send,
+      throughNotificationSequence: "12",
+    });
+    await controller.request("chat", "9007199254740993", {
+      send,
+      throughNotificationSequence: "11",
+    });
+    expect(sent).toEqual([
+      ["9007199254740993", "10"],
+      ["9007199254740993", "12"],
+    ]);
+    expect(controller.acknowledgedNotificationThrough("chat")).toBe("12");
+  });
   test("clamps visible sequences without losing integer precision", () => {
     expect(readReceiptTarget("9007199254740993", "9007199254740994")).toBe("9007199254740993");
     expect(readReceiptTarget("20", "10")).toBe("10");

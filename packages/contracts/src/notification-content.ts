@@ -55,7 +55,57 @@ export const truncateNotificationText = (value: string, limit = 140): string => 
   return normalized;
 };
 
-export type AgentNotificationKind = "agent-needs-input" | "agent-done";
+export type AgentNotificationKind = "agent-needs-input" | "agent-done" | "message" | "reaction";
+
+export interface NotificationReadState {
+  channelId: string;
+  lastReadSequence: string;
+  lastReadNotificationSequence: string;
+}
+
+export interface ChannelNotificationView {
+  notificationSequence: string;
+  channelId: string;
+  botId: string;
+  kind: AgentNotificationKind;
+  messageSequence?: string;
+  title: string;
+  body: string;
+  sender?: NotificationSender;
+}
+
+/** Self-contained identity: extensions can draw the avatar without a network request. */
+export interface NotificationSender {
+  name: string;
+  icon: string;
+  color: string;
+  /** Desktop renderer-local PNG, never required in a push payload. */
+  avatarDataUrl?: string;
+}
+
+export interface ChannelNotificationState extends NotificationReadState {
+  notificationCursor: string;
+  notifications: ChannelNotificationView[];
+  activityUnreadCount: number;
+}
+
+export const notificationIsRead = (
+  notification: Pick<ChannelNotificationView, "kind" | "messageSequence" | "notificationSequence">,
+  state: Pick<NotificationReadState, "lastReadSequence" | "lastReadNotificationSequence">
+): boolean => {
+  const sequence = (value: string | undefined) =>
+    value && /^\d+$/.test(value) ? BigInt(value) : -1n;
+  if (notification.kind === "reaction" || !notification.messageSequence) {
+    return (
+      sequence(notification.notificationSequence) >= 0n &&
+      sequence(notification.notificationSequence) <= sequence(state.lastReadNotificationSequence)
+    );
+  }
+  return (
+    sequence(notification.messageSequence) >= 0n &&
+    sequence(notification.messageSequence) <= sequence(state.lastReadSequence)
+  );
+};
 
 export interface AgentNotificationPresentation {
   title: string;
@@ -66,8 +116,20 @@ export interface AgentNotificationPresentation {
 
 /** Shared presentation contract for native macOS and iOS notifications. */
 const agentNotificationTypeCatalog = {
+  message: {
+    title: (botName: string) => botName,
+    fallbackBody: "Sent you a message.",
+    sound: "default",
+    urgency: "normal",
+  },
+  reaction: {
+    title: (botName: string) => botName,
+    fallbackBody: "Reacted to your message.",
+    sound: "default",
+    urgency: "normal",
+  },
   "agent-needs-input": {
-    title: (botName: string) => `${botName} needs you`,
+    title: (botName: string) => botName,
     fallbackBody: "Waiting for your input.",
     sound: "default",
     urgency: "critical",
@@ -89,7 +151,7 @@ const agentNotificationTypeCatalog = {
 >;
 
 export const isAgentNotificationKind = (value: unknown): value is AgentNotificationKind =>
-  typeof value === "string" && value in agentNotificationTypeCatalog;
+  typeof value === "string" && Object.hasOwn(agentNotificationTypeCatalog, value);
 
 export const agentNotificationDeliveryPolicy = (
   kind: AgentNotificationKind
@@ -165,17 +227,31 @@ export const notificationMessagePreview = (message: {
   ) {
     return "Open OpenTeam to see what it did.";
   }
-  if (message.content?.trim()) return truncateNotificationText(message.content);
   const attachments = Array.isArray(metadata.attachments) ? metadata.attachments : [];
+  const fileName = attachments.length === 1 ? notificationMetadata(attachments[0]).fileName : null;
+  const withFile = (text: string) =>
+    truncateNotificationText(
+      typeof fileName === "string" && fileName.trim() && !text.includes(fileName)
+        ? `${text} 📎 ${fileName}`
+        : text
+    );
+  if (message.content?.trim()) return withFile(message.content);
   if (attachments.length > 0) {
     const imageCount = attachments.filter((attachment) => {
       const item = notificationMetadata(attachment);
       return item.kind === "image" || String(item.mimeType ?? "").startsWith("image/");
     }).length;
     if (imageCount === attachments.length) {
-      return imageCount === 1 ? "Sent an image." : `Sent ${imageCount} images.`;
+      return withFile(imageCount === 1 ? "Sent an image." : `Sent ${imageCount} images.`);
     }
-    return attachments.length === 1 ? "Sent an attachment." : `Sent ${attachments.length} files.`;
+    const archive = typeof fileName === "string" && /\.(zip|tar|gz|tgz|7z|rar)$/i.test(fileName);
+    return withFile(
+      attachments.length === 1
+        ? archive
+          ? "Sent 1 archive."
+          : "Sent an attachment."
+        : `Sent ${attachments.length} files.`
+    );
   }
   if (["sent_link", "link"].includes(type)) return "Sent a link.";
   if (

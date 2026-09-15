@@ -7,7 +7,7 @@ describe("authenticated account presentation", () => {
       accountPresentation(
         {
           id: "owner-1",
-          name: "raghav",
+          name: "Raghav Pillai",
           email: "raghav@openteam.invalid",
           username: "raghav",
           image: null,
@@ -16,7 +16,7 @@ describe("authenticated account presentation", () => {
       )
     ).toEqual({
       name: "raghav",
-      detail: "@raghav",
+      detail: "Username and password",
       initials: "RA",
       copyValue: "raghav",
     });
@@ -24,9 +24,9 @@ describe("authenticated account presentation", () => {
 
   test("describes deployments where authentication is disabled", () => {
     expect(accountPresentation(null, "disabled")).toEqual({
-      name: "OpenTeam owner",
-      detail: "Authentication disabled",
-      initials: "OB",
+      name: "Account",
+      detail: "No sign-in required",
+      initials: "OT",
       copyValue: null,
     });
   });

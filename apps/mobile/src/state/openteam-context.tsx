@@ -111,6 +111,7 @@ import {
   type NotificationPermissionState,
   notificationPermissionState,
   setNotificationBadge,
+  synchronizeNotificationReads,
   synchronizePushRegistration,
   unregisterPushInstallation,
 } from "../notifications";
@@ -241,9 +242,21 @@ interface OpenTeamState {
   respondToWidget: (messageId: string, value: string) => Promise<boolean>;
   dismissWidget: (messageId: string) => Promise<boolean>;
   submitSecret: (messageId: string, value: string) => Promise<boolean>;
-  mutateReviewAction: (messageId: string, action: "approve" | "cancel" | "refresh" | "import" | "unpublish", clientId?: string) => Promise<{ botId?: string } | undefined>;
-  mutateExternalDraft: (messageId: string, action: "save" | "send" | "cancel" | "refresh", edits?: Record<string, unknown>) => Promise<boolean>;
-  submitUserForm: (messageId: string, values: Record<string, string | boolean>, saveToVault?: boolean) => Promise<boolean>;
+  mutateReviewAction: (
+    messageId: string,
+    action: "approve" | "cancel" | "refresh" | "import" | "unpublish",
+    clientId?: string
+  ) => Promise<{ botId?: string } | undefined>;
+  mutateExternalDraft: (
+    messageId: string,
+    action: "save" | "send" | "cancel" | "refresh",
+    edits?: Record<string, unknown>
+  ) => Promise<boolean>;
+  submitUserForm: (
+    messageId: string,
+    values: Record<string, string | boolean>,
+    saveToVault?: boolean
+  ) => Promise<boolean>;
   dismissUserForm: (messageId: string) => Promise<boolean>;
   userFormPrefill: (messageId: string) => Promise<Record<string, string>>;
   mutateComputerHandoff: (
@@ -982,6 +995,11 @@ export function OpenTeamProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!connectionLoaded || !client) return;
+    void synchronizeNotificationReads(
+      snapshot.channels.flatMap((channel) =>
+        channel.notificationState ? [channel.notificationState] : []
+      )
+    ).catch(() => undefined);
     const count = snapshot.channels.reduce(
       (total, channel) => total + Math.max(0, Math.floor(channel.unreadCount ?? 0)),
       0
@@ -1056,6 +1074,13 @@ export function OpenTeamProvider({ children }: { children: React.ReactNode }) {
 
     const appStateSubscription = AppState.addEventListener("change", (state) => {
       if (state === "active") {
+        lastBadgeCountRef.current = null;
+        void setNotificationBadge(
+          snapshotRef.current.channels.reduce(
+            (total, channel) => total + Math.max(0, channel.unreadCount ?? 0),
+            0
+          )
+        ).catch(() => undefined);
         liveSync.setActive(true, true);
         return;
       }
@@ -1326,13 +1351,20 @@ export function OpenTeamProvider({ children }: { children: React.ReactNode }) {
       const current = snapshotRef.current;
       const channel = current.channels.find((candidate) => candidate.id === channelId);
       const latestValue = latestNumericSequence(current.channelMessages, channelId);
-      if (!latestValue) return;
-      const target = readReceiptTarget(latestValue, throughSequence);
+      const target = readReceiptTarget(latestValue ?? "0", throughSequence);
       if (target === null) return;
       if ((channel?.unreadCount ?? 0) <= 0 && !readReceipts.current.hasState(channelId)) return;
       const acknowledged = readReceipts.current.acknowledgedThrough(channelId);
-      if (acknowledged !== null && BigInt(target) <= BigInt(acknowledged)) return;
-      if (BigInt(target) >= BigInt(latestValue)) {
+      const notificationCursor = channel?.notificationState?.notificationCursor ?? "0";
+      const acknowledgedActivity =
+        readReceipts.current.acknowledgedNotificationThrough(channelId) ?? "0";
+      if (
+        acknowledged !== null &&
+        BigInt(target) <= BigInt(acknowledged) &&
+        BigInt(notificationCursor) <= BigInt(acknowledgedActivity)
+      )
+        return;
+      if (BigInt(target) >= BigInt(latestValue ?? "0")) {
         acceptRemoteSnapshot({
           ...current,
           channels: current.channels.map((candidate) =>
@@ -1344,7 +1376,8 @@ export function OpenTeamProvider({ children }: { children: React.ReactNode }) {
       const operationClient = client;
       const epoch = connectionEpochRef.current;
       await readReceipts.current.request(channelId, target, {
-        send: (id, sequence) => operationClient.markChannelRead(id, sequence),
+        throughNotificationSequence: notificationCursor,
+        send: (id, sequence, activity) => operationClient.markChannelRead(id, sequence, activity),
         isCurrent: () => operationIsCurrent(operationClient, epoch),
         onAcknowledged: (result) => {
           const next = snapshotRef.current;
@@ -1353,7 +1386,19 @@ export function OpenTeamProvider({ children }: { children: React.ReactNode }) {
               ...next,
               channels: next.channels.map((candidate) =>
                 candidate.id === channelId
-                  ? { ...candidate, unreadCount: result.unreadCount }
+                  ? {
+                      ...candidate,
+                      unreadCount: result.unreadCount,
+                      notificationState: candidate.notificationState
+                        ? {
+                            ...candidate.notificationState,
+                            lastReadSequence: result.lastReadSequence,
+                            lastReadNotificationSequence:
+                              result.lastReadNotificationSequence ??
+                              candidate.notificationState.lastReadNotificationSequence,
+                          }
+                        : undefined,
+                    }
                   : candidate
               ),
             },
@@ -2115,32 +2160,59 @@ export function OpenTeamProvider({ children }: { children: React.ReactNode }) {
     [acceptRichMessageMutation, client]
   );
 
-  const mutateReviewAction = useCallback(async (messageId: string, action: "approve" | "cancel" | "refresh" | "import" | "unpublish", clientId?: string) => {
-    if (!client) return;
-    const operationClient = client; const epoch = connectionEpochRef.current;
-    const result = await client.mutateReviewAction(messageId, action, clientId);
-    if (!acceptRichMessageMutation(result.message, operationClient, epoch)) return;
-    return { botId: result.botId };
-  }, [acceptRichMessageMutation, client]);
-  const mutateExternalDraft = useCallback(async (messageId: string, action: "save" | "send" | "cancel" | "refresh", edits?: Record<string, unknown>) => {
-    if (!client) return false;
-    const operationClient = client; const epoch = connectionEpochRef.current;
-    const result = await client.mutateExternalDraft(messageId, action, edits);
-    return acceptRichMessageMutation(result.message, operationClient, epoch);
-  }, [acceptRichMessageMutation, client]);
-  const submitUserForm = useCallback(async (messageId: string, values: Record<string, string | boolean>, saveToVault = false) => {
-    if (!client) return false;
-    const operationClient = client; const epoch = connectionEpochRef.current;
-    const result = await client.submitUserForm(messageId, values, saveToVault);
-    return acceptRichMessageMutation(result.message, operationClient, epoch);
-  }, [acceptRichMessageMutation, client]);
-  const dismissUserForm = useCallback(async (messageId: string) => {
-    if (!client) return false;
-    const operationClient = client; const epoch = connectionEpochRef.current;
-    const result = await client.dismissUserForm(messageId);
-    return acceptRichMessageMutation(result.message, operationClient, epoch);
-  }, [acceptRichMessageMutation, client]);
-  const userFormPrefill = useCallback(async (messageId: string) => client ? client.userFormPrefill(messageId) : {}, [client]);
+  const mutateReviewAction = useCallback(
+    async (
+      messageId: string,
+      action: "approve" | "cancel" | "refresh" | "import" | "unpublish",
+      clientId?: string
+    ) => {
+      if (!client) return;
+      const operationClient = client;
+      const epoch = connectionEpochRef.current;
+      const result = await client.mutateReviewAction(messageId, action, clientId);
+      if (!acceptRichMessageMutation(result.message, operationClient, epoch)) return;
+      return { botId: result.botId };
+    },
+    [acceptRichMessageMutation, client]
+  );
+  const mutateExternalDraft = useCallback(
+    async (
+      messageId: string,
+      action: "save" | "send" | "cancel" | "refresh",
+      edits?: Record<string, unknown>
+    ) => {
+      if (!client) return false;
+      const operationClient = client;
+      const epoch = connectionEpochRef.current;
+      const result = await client.mutateExternalDraft(messageId, action, edits);
+      return acceptRichMessageMutation(result.message, operationClient, epoch);
+    },
+    [acceptRichMessageMutation, client]
+  );
+  const submitUserForm = useCallback(
+    async (messageId: string, values: Record<string, string | boolean>, saveToVault = false) => {
+      if (!client) return false;
+      const operationClient = client;
+      const epoch = connectionEpochRef.current;
+      const result = await client.submitUserForm(messageId, values, saveToVault);
+      return acceptRichMessageMutation(result.message, operationClient, epoch);
+    },
+    [acceptRichMessageMutation, client]
+  );
+  const dismissUserForm = useCallback(
+    async (messageId: string) => {
+      if (!client) return false;
+      const operationClient = client;
+      const epoch = connectionEpochRef.current;
+      const result = await client.dismissUserForm(messageId);
+      return acceptRichMessageMutation(result.message, operationClient, epoch);
+    },
+    [acceptRichMessageMutation, client]
+  );
+  const userFormPrefill = useCallback(
+    async (messageId: string) => (client ? client.userFormPrefill(messageId) : {}),
+    [client]
+  );
 
   const mutateComputerHandoff = useCallback(
     async (messageId: string, action: "start" | "complete" | "skip" | "dismiss") => {
@@ -2382,7 +2454,11 @@ export function OpenTeamProvider({ children }: { children: React.ReactNode }) {
       respondToWidget,
       dismissWidget,
       submitSecret,
-      mutateReviewAction, mutateExternalDraft, submitUserForm, dismissUserForm, userFormPrefill,
+      mutateReviewAction,
+      mutateExternalDraft,
+      submitUserForm,
+      dismissUserForm,
+      userFormPrefill,
       mutateComputerHandoff,
       resolveApproval,
       cancelRun,
@@ -2420,7 +2496,11 @@ export function OpenTeamProvider({ children }: { children: React.ReactNode }) {
       respondToWidget,
       dismissWidget,
       submitSecret,
-      mutateReviewAction, mutateExternalDraft, submitUserForm, dismissUserForm, userFormPrefill,
+      mutateReviewAction,
+      mutateExternalDraft,
+      submitUserForm,
+      dismissUserForm,
+      userFormPrefill,
       mutateComputerHandoff,
       renameChannel,
       refresh,

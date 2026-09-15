@@ -11,6 +11,12 @@ import {
   Text,
   View,
 } from "react-native";
+import {
+  NativeSettingsList,
+  NativeToolbarButton,
+  type NativeSettingsSection,
+} from "./native-controls";
+import { accountInitials, accountName } from "../account-display";
 import type { AccentPreference, AppearancePreference } from "../appearance";
 import type { Theme } from "../theme";
 import { useTheme } from "../theme";
@@ -18,21 +24,8 @@ import { useTheme } from "../theme";
 type NotificationPermission = "loading" | "not_determined" | "granted" | "denied" | "unavailable";
 
 function CloseButton({ onPress }: { onPress: () => void }) {
-  const theme = useTheme();
   return (
-    <Pressable
-      accessibilityLabel="Close settings"
-      accessibilityRole="button"
-      hitSlop={8}
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.closeButton,
-        { backgroundColor: theme.surfacePressed, borderColor: theme.border },
-        pressed && styles.pressed,
-      ]}
-    >
-      <SymbolView name="xmark" size={20} tintColor={theme.text} weight="medium" />
-    </Pressable>
+    <NativeToolbarButton name="xmark" label="Close settings" onPress={onPress} symbolSize={17} />
   );
 }
 
@@ -105,15 +98,7 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   return <Text style={[styles.sectionLabel, { color: theme.textFaint }]}>{children}</Text>;
 }
 
-const initialsFor = (user: OpenTeamAuthUser | null): string => {
-  const source = user?.name || user?.email || "OpenTeam";
-  return source
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toLocaleUpperCase())
-    .join("");
-};
+const initialsFor = accountInitials;
 
 const appearanceName = (preference: AppearancePreference, accent: AccentPreference): string => {
   const mode = preference === "system" ? "System" : preference === "light" ? "Day" : "Night";
@@ -161,11 +146,130 @@ export function SettingsHome({
 }) {
   const theme = useTheme();
   const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "System";
-  const profileName = user?.name || user?.username || "OpenTeam owner";
-  const profileDetail =
-    user?.email || (authRequired ? "Signed in securely" : "Authentication disabled");
+  const profileName = accountName(user);
+  const profileDetail = user || authRequired ? "Username and password" : "No sign-in required";
   const notificationsOn = notificationPermission === "granted";
   const openHelp = () => void Linking.openURL("https://github.com/raghavpillai/openteam#readme");
+  if (NativeSettingsList) {
+    const sections: NativeSettingsSection[] = [
+      {
+        rows: [
+          {
+            id: "account",
+            title: profileName,
+            subtitle: profileDetail,
+            kind: "profile",
+            initials: accountInitials(user),
+          },
+        ],
+      },
+      {
+        rows: [
+          {
+            id: "plugins",
+            title: "Plugins",
+            subtitle: "Tools and skills for OpenTeam",
+            symbol: "puzzlepiece.extension",
+          },
+        ],
+      },
+      {
+        title: "Bot",
+        rows: [
+          {
+            id: "review",
+            title: "Auto-review Rules",
+            detail: "Desktop managed",
+            symbol: "checkmark.shield",
+          },
+          { id: "timezone", title: "Time Zone", detail: timeZone, symbol: "globe" },
+        ],
+      },
+      {
+        rows: [
+          {
+            id: "notifications",
+            title: "Notifications",
+            symbol: "bell",
+            kind: "toggle",
+            value: notificationsOn,
+            disabled:
+              notificationPermission === "loading" || notificationPermission === "unavailable",
+          },
+          {
+            id: "appearance",
+            title: "Appearance",
+            detail: appearanceName(appearance, accent),
+            symbol: "circle.lefthalf.filled",
+          },
+          { id: "language", title: "Language", detail: "System", symbol: "character.bubble" },
+          {
+            id: "haptics",
+            title: "App haptics",
+            symbol: "hand.tap",
+            kind: "toggle",
+            value: hapticsEnabled,
+            disabled: hapticsDisabled,
+          },
+        ],
+      },
+      {
+        rows: [
+          { id: "help", title: "Help Center", symbol: "questionmark.circle" },
+          { id: "feedback", title: "Send Feedback", symbol: "bubble.left" },
+        ],
+      },
+      ...(authRequired
+        ? [{ rows: [{ id: "signout", title: "Sign Out", destructive: true }] }]
+        : []),
+      { footer: `OpenTeam ${appVersion}`, rows: [] },
+    ];
+    return (
+      <NativeSettingsList
+        dark={theme.dark}
+        sections={sections}
+        style={{ flex: 1 }}
+        onAction={({ nativeEvent: { id, value } }) => {
+          switch (id) {
+            case "close":
+              onClose();
+              break;
+            case "account":
+              onAccount();
+              break;
+            case "plugins":
+              onPlugins();
+              break;
+            case "review":
+              onAutoReviewInfo();
+              break;
+            case "timezone":
+            case "language":
+              onSystemPreferenceInfo(id);
+              break;
+            case "notifications":
+              onNotifications();
+              break;
+            case "appearance":
+              onAppearance();
+              break;
+            case "haptics":
+              if (typeof value === "boolean") onToggleHaptics(value);
+              break;
+            case "help":
+              openHelp();
+              break;
+            case "feedback":
+              onFeedback();
+              break;
+            case "signout":
+              onSignOut();
+              break;
+          }
+        }}
+      />
+    );
+  }
   return (
     <ScrollView
       automaticallyAdjustKeyboardInsets
@@ -202,17 +306,6 @@ export function SettingsHome({
           </View>
           <Chevron theme={theme} />
         </Pressable>
-        <Row
-          last
-          onPress={onAccount}
-          title="Usage"
-          trailing={
-            <View style={styles.valueWithChevron}>
-              <Text style={[styles.value, { color: theme.textMuted }]}>—</Text>
-              <Chevron theme={theme} />
-            </View>
-          }
-        />
       </Card>
 
       <View style={styles.groupGap} />
@@ -229,41 +322,10 @@ export function SettingsHome({
       <SectionLabel>Bot</SectionLabel>
       <Card>
         <Row
-          description="Require approval for risky shell, MCP, and computer actions."
           first
-          title="Auto-review"
-          trailing={
-            <Switch
-              accessibilityLabel="Auto-review information"
-              onValueChange={onAutoReviewInfo}
-              style={styles.compactSwitch}
-              trackColor={{ false: theme.surfacePressed, true: "#30D158" }}
-              value
-            />
-          }
-        />
-        <Row
           onPress={onAutoReviewInfo}
           title="Auto-review Rules"
-          trailing={
-            <View style={styles.valueWithChevron}>
-              <Text style={[styles.value, { color: theme.textMuted }]}>Desktop managed</Text>
-              <Chevron theme={theme} />
-            </View>
-          }
-        />
-        <Row
-          description="Your Bot’s computer follows this device’s time zone."
-          title="Set Time Zone Automatically"
-          trailing={
-            <Switch
-              accessibilityLabel="Automatic time zone information"
-              onValueChange={() => onSystemPreferenceInfo("timezone")}
-              style={styles.compactSwitch}
-              trackColor={{ false: theme.surfacePressed, true: "#30D158" }}
-              value
-            />
-          }
+          description="Managed on your computer"
         />
         <Row
           last
@@ -338,9 +400,7 @@ export function SettingsHome({
 
       <View style={styles.groupGap} />
       <Card>
-        <Row first onPress={openHelp} title="Help Center" />
-        <Row onPress={openHelp} title="Privacy Policy" />
-        <Row last onPress={openHelp} title="Terms of Service" />
+        <Row first last onPress={openHelp} title="Help Center" />
       </Card>
 
       <View style={styles.groupGap} />
@@ -377,15 +437,6 @@ const styles = StyleSheet.create({
   scroll: { flex: 1 },
   content: { paddingHorizontal: 14, paddingBottom: 72 },
   header: { height: 84, justifyContent: "flex-start", paddingTop: 16 },
-  closeButton: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    borderWidth: StyleSheet.hairlineWidth,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  pressed: { opacity: 0.72, transform: [{ scale: 0.97 }] },
   card: {
     borderRadius: 18,
     borderWidth: StyleSheet.hairlineWidth,
@@ -413,7 +464,6 @@ const styles = StyleSheet.create({
   profileRow: {
     minHeight: 60,
     paddingHorizontal: 15,
-    borderBottomWidth: StyleSheet.hairlineWidth,
     flexDirection: "row",
     alignItems: "center",
     gap: 9,

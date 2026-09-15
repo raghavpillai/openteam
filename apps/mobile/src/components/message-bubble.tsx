@@ -583,6 +583,9 @@ export function MessageBubble({
                       setViewerItem({
                         caption: image.alt?.trim() || displayContent.trim() || image.fileName,
                         uri: url,
+                        fileName: image.fileName,
+                        assetId: image.assetId,
+                        byteSize: image.byteSize,
                       })
                     }
                     style={
@@ -604,6 +607,7 @@ export function MessageBubble({
                       setViewerItem({
                         caption: image.alt?.trim() || displayContent.trim() || image.fileName,
                         uri: image.previewUri ?? "",
+                        fileName: image.fileName,
                       })
                     }
                     style={

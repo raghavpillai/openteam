@@ -19,8 +19,9 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAppearance } from "../src/appearance";
+import { accountInitials, accountName } from "../src/account-display";
 import {
   authenticatedUserForServer,
   cachedAuthModeForServer,
@@ -28,7 +29,7 @@ import {
   signOut,
 } from "../src/auth";
 import { AppearanceSheet } from "../src/components/appearance-sheet";
-import { IconButton } from "../src/components/icon-button";
+import { NativeToolbarButton } from "../src/components/native-controls";
 import { PluginMarketplaceSheet as PluginManagerSheet } from "../src/components/plugin-marketplace-sheet";
 import { SettingsHome } from "../src/components/settings-home";
 import {
@@ -139,6 +140,7 @@ const HiddenBotRow = memo(function HiddenBotRow({
 });
 
 export default function SettingsScreen() {
+  const insets = useSafeAreaInsets();
   const theme = useTheme();
   const { accent, preference: appearance } = useAppearance();
   const {
@@ -321,34 +323,6 @@ export default function SettingsScreen() {
   );
   const accountParitySections = (
     <>
-      <Text style={[styles.botEyebrow, { color: theme.textMuted }]}>USAGE</Text>
-      <View
-        style={[
-          styles.infoCard,
-          { backgroundColor: theme.surfaceElevated, borderColor: theme.border },
-        ]}
-      >
-        <View style={styles.infoRow}>
-          <Text style={[styles.infoTitle, { color: theme.text }]}>Weekly usage</Text>
-          <Text style={[styles.infoValue, { color: theme.textMuted }]}>—</Text>
-        </View>
-        <View style={[styles.usageTrack, { backgroundColor: theme.surfacePressed }]} />
-        <Text style={[styles.infoDetail, { color: theme.textMuted }]}>
-          Not metered by self-hosted OpenTeam
-        </Text>
-        <View style={[styles.infoDivider, { backgroundColor: theme.separator }]} />
-        <View style={styles.infoRow}>
-          <Text style={[styles.infoTitle, { color: theme.text }]}>On-demand usage</Text>
-          <Text style={[styles.infoValue, { color: theme.textMuted }]}>Provider managed</Text>
-        </View>
-        <Text style={[styles.infoDetail, { color: theme.textMuted }]}>
-          Model, storage, and network charges are managed by your configured providers.
-        </Text>
-        <View style={[styles.planPill, { backgroundColor: theme.text }]}>
-          <Text style={[styles.planPillText, { color: theme.background }]}>Self-hosted</Text>
-        </View>
-      </View>
-
       <Text style={[styles.botEyebrow, { color: theme.textMuted }]}>ACCOUNT</Text>
       <View
         style={[
@@ -358,15 +332,19 @@ export default function SettingsScreen() {
       >
         <View style={styles.accountRow}>
           <View style={[styles.accountAvatar, { backgroundColor: theme.text }]}>
-            <Text style={[styles.accountInitials, { color: theme.background }]}>OB</Text>
+            <Text style={[styles.accountInitials, { color: theme.background }]}>
+              {accountInitials(authUser)}
+            </Text>
           </View>
           <View style={styles.accountCopy}>
-            <Text style={[styles.infoTitle, { color: theme.text }]}>OpenTeam owner</Text>
+            <Text style={[styles.infoTitle, { color: theme.text }]}>{accountName(authUser)}</Text>
             <Text style={[styles.infoDetail, { color: theme.textMuted }]}>
               {authMode === "disabled"
                 ? "Authentication disabled"
                 : authMode === "required"
-                  ? "Signed in securely"
+                  ? authUser?.username
+                    ? `@${authUser.username}`
+                    : "Username and password"
                   : "Checking authentication…"}
             </Text>
           </View>
@@ -437,325 +415,340 @@ export default function SettingsScreen() {
   );
 
   return (
-    <SafeAreaView
-      edges={[]}
-      style={[
-        styles.safe,
-        {
-          backgroundColor: theme.dark ? "#141414" : "#F6F6F4",
-          borderColor: theme.border,
-        },
-      ]}
-    >
-      {pluginsOpen ? (
-        <PluginManagerSheet onClose={() => setPluginsOpen(false)} visible />
-      ) : appearanceOpen ? (
-        <AppearanceSheet onClose={() => setAppearanceOpen(false)} />
-      ) : !advancedOpen ? (
-        <SettingsHome
-          accent={accent}
-          appVersion={appVersion}
-          appearance={appearance}
-          authRequired={authMode === "required"}
-          hapticsEnabled={haptics.enabled}
-          hapticsDisabled={!haptics.ready || haptics.saving}
-          onToggleHaptics={updateHaptics}
-          notificationPermission={notificationPermission}
-          onAccount={() => setAdvancedOpen(true)}
-          onAppearance={() => setAppearanceOpen(true)}
-          onAutoReviewInfo={() =>
-            Alert.alert(
-              "Managed by the desktop host",
-              "Auto-review protects actions on the computer that runs OpenTeam. Open Advanced to manage the connected server and per-Bot alerts; permission rules stay on that computer."
-            )
-          }
-          onClose={() => (router.canGoBack() ? router.back() : router.replace("/"))}
-          onFeedback={() =>
-            void Clipboard.setStringAsync(
-              `OpenTeam feedback\nVersion ${appVersion}\nServer ${connection.serverUrl}`
-            ).then(() =>
+    <View style={styles.backdrop}>
+      <Pressable
+        accessibilityLabel="Dismiss settings"
+        accessibilityRole="button"
+        onPress={() => router.back()}
+        style={StyleSheet.absoluteFill}
+      />
+      <SafeAreaView
+        edges={[]}
+        style={[
+          styles.safe,
+          { marginTop: insets.top + 66 },
+          {
+            backgroundColor: theme.dark ? "#141414" : "#FCFCFC",
+            borderColor: theme.border,
+          },
+        ]}
+      >
+        {pluginsOpen ? (
+          <PluginManagerSheet onClose={() => setPluginsOpen(false)} visible />
+        ) : appearanceOpen ? (
+          <AppearanceSheet onClose={() => setAppearanceOpen(false)} />
+        ) : !advancedOpen ? (
+          <SettingsHome
+            accent={accent}
+            appVersion={appVersion}
+            appearance={appearance}
+            authRequired={authMode === "required"}
+            hapticsEnabled={haptics.enabled}
+            hapticsDisabled={!haptics.ready || haptics.saving}
+            onToggleHaptics={updateHaptics}
+            notificationPermission={notificationPermission}
+            onAccount={() => setAdvancedOpen(true)}
+            onAppearance={() => setAppearanceOpen(true)}
+            onAutoReviewInfo={() =>
               Alert.alert(
-                "Feedback details copied",
-                "Paste them into your preferred support channel."
+                "Managed by the desktop host",
+                "Auto-review protects actions on the computer that runs OpenTeam. Open Advanced to manage the connected server and per-Bot alerts; permission rules stay on that computer."
               )
-            )
-          }
-          onNotifications={() => void action()}
-          onPlugins={() => setPluginsOpen(true)}
-          onSignOut={() =>
-            Alert.alert(
-              "Sign out of OpenTeam?",
-              "Your server endpoint stays saved on this device.",
-              [
-                { text: "Cancel", style: "cancel" },
-                { text: "Sign Out", style: "destructive", onPress: () => void signOut() },
-              ]
-            )
-          }
-          onSystemPreferenceInfo={(setting) => {
-            const copy = {
-              language: "OpenTeam currently follows this device’s system language.",
-              timezone:
-                "OpenTeam uses the time zone reported by this device for routine schedules.",
-            }[setting];
-            Alert.alert(setting === "timezone" ? "Time Zone" : "Language", copy);
-          }}
-          user={authUser}
-        />
-      ) : (
-        <>
-          <View style={styles.header}>
-            <IconButton
-              label="Back to settings"
-              name="chevron.left"
-              onPress={() => setAdvancedOpen(false)}
-              size={38}
-              symbolSize={18}
-              tone="surface"
-            />
-            <Text style={[styles.headerTitle, { color: theme.text }]}>Advanced</Text>
-            <View style={styles.headerSpacer} />
-          </View>
+            }
+            onClose={() => (router.canGoBack() ? router.back() : router.replace("/"))}
+            onFeedback={() =>
+              void Clipboard.setStringAsync(
+                `OpenTeam feedback\nVersion ${appVersion}\nServer ${connection.serverUrl}`
+              ).then(() =>
+                Alert.alert(
+                  "Feedback details copied",
+                  "Paste them into your preferred support channel."
+                )
+              )
+            }
+            onNotifications={() => void action()}
+            onPlugins={() => setPluginsOpen(true)}
+            onSignOut={() =>
+              Alert.alert(
+                "Sign out of OpenTeam?",
+                "Your server endpoint stays saved on this device.",
+                [
+                  { text: "Cancel", style: "cancel" },
+                  { text: "Sign Out", style: "destructive", onPress: () => void signOut() },
+                ]
+              )
+            }
+            onSystemPreferenceInfo={(setting) => {
+              const copy = {
+                language: "OpenTeam currently follows this device’s system language.",
+                timezone:
+                  "OpenTeam uses the time zone reported by this device for routine schedules.",
+              }[setting];
+              Alert.alert(setting === "timezone" ? "Time Zone" : "Language", copy);
+            }}
+            user={authUser}
+          />
+        ) : (
+          <>
+            <View style={styles.header}>
+              <NativeToolbarButton
+                label="Back to settings"
+                name="chevron.left"
+                onPress={() => setAdvancedOpen(false)}
+                symbolSize={18}
+              />
+              <Text style={[styles.headerTitle, { color: theme.text }]}>Advanced</Text>
+              <View style={styles.headerSpacer} />
+            </View>
 
-          <SectionList<BotView, BotSection>
-            sections={sections}
-            extraData={botQuery}
-            keyExtractor={(bot) => bot.id}
-            keyboardDismissMode="interactive"
-            keyboardShouldPersistTaps="handled"
-            renderItem={renderBot}
-            renderSectionHeader={({ section }) => (
-              <Text style={[styles.botEyebrow, { color: theme.textMuted }]}>{section.title}</Text>
-            )}
-            stickySectionHeadersEnabled={false}
-            {...MOBILE_VIRTUAL_LIST_TUNING}
-            contentContainerStyle={styles.content}
-            ListHeaderComponent={
-              <>
-                <Text style={[styles.eyebrow, { color: theme.textMuted }]}>OPENTEAM SERVER</Text>
-                <View
-                  style={[
-                    styles.connectionCard,
-                    { backgroundColor: theme.surfaceElevated, borderColor: theme.border },
-                  ]}
-                >
-                  <View style={styles.titleLine}>
-                    <Text style={[styles.title, { color: theme.text }]}>Private connection</Text>
-                    <Text
-                      style={[
-                        styles.status,
-                        { color: isFixture ? theme.textMuted : theme.success },
+            <SectionList<BotView, BotSection>
+              sections={sections}
+              extraData={botQuery}
+              keyExtractor={(bot) => bot.id}
+              keyboardDismissMode="interactive"
+              keyboardShouldPersistTaps="handled"
+              renderItem={renderBot}
+              renderSectionHeader={({ section }) => (
+                <Text style={[styles.botEyebrow, { color: theme.textMuted }]}>{section.title}</Text>
+              )}
+              stickySectionHeadersEnabled={false}
+              {...MOBILE_VIRTUAL_LIST_TUNING}
+              contentContainerStyle={styles.content}
+              ListHeaderComponent={
+                <>
+                  <Text style={[styles.eyebrow, { color: theme.textMuted }]}>OPENTEAM SERVER</Text>
+                  <View
+                    style={[
+                      styles.connectionCard,
+                      { backgroundColor: theme.surfaceElevated, borderColor: theme.border },
+                    ]}
+                  >
+                    <View style={styles.titleLine}>
+                      <Text style={[styles.title, { color: theme.text }]}>Private connection</Text>
+                      <Text
+                        style={[
+                          styles.status,
+                          { color: isFixture ? theme.textMuted : theme.success },
+                        ]}
+                      >
+                        {connectionLoaded
+                          ? isFixture
+                            ? "Preview data"
+                            : "Configured"
+                          : "Loading…"}
+                      </Text>
+                    </View>
+                    <Text style={[styles.description, { color: theme.textMuted }]}>
+                      Use the reachable HTTPS address for your OpenTeam server. Your signed-in
+                      session stays in this device’s secure storage.
+                    </Text>
+                    <View style={styles.fields}>
+                      <View style={styles.fieldGroup}>
+                        <Text style={[styles.fieldLabel, { color: theme.textMuted }]}>
+                          SERVER ENDPOINT
+                        </Text>
+                        <TextInput
+                          accessibilityHint="Enter the HTTP or HTTPS address this device can use to reach your self-hosted OpenTeam server"
+                          accessibilityLabel="Server endpoint"
+                          autoCapitalize="none"
+                          autoCorrect={false}
+                          keyboardAppearance={theme.dark ? "dark" : "light"}
+                          keyboardType="url"
+                          onChangeText={(value) => {
+                            setServerUrl(value);
+                            setConnectionError(null);
+                          }}
+                          placeholder="https://openteam.example.com"
+                          placeholderTextColor={theme.textFaint}
+                          style={[
+                            styles.field,
+                            {
+                              backgroundColor: theme.field,
+                              borderColor: theme.border,
+                              color: theme.text,
+                            },
+                          ]}
+                          value={serverUrl}
+                        />
+                      </View>
+                    </View>
+                    <Pressable
+                      accessibilityRole="button"
+                      disabled={!connectionLoaded || connectionSaving}
+                      onPress={() => void persistConnection()}
+                      style={({ pressed }) => [
+                        styles.action,
+                        { backgroundColor: theme.text },
+                        pressed && styles.pressed,
+                        (!connectionLoaded || connectionSaving) && styles.disabled,
                       ]}
                     >
-                      {connectionLoaded ? (isFixture ? "Preview data" : "Configured") : "Loading…"}
-                    </Text>
+                      {connectionSaving ? (
+                        <ActivityIndicator color={theme.background} size="small" />
+                      ) : (
+                        <Text style={[styles.actionText, { color: theme.background }]}>
+                          Save connection
+                        </Text>
+                      )}
+                    </Pressable>
                   </View>
-                  <Text style={[styles.description, { color: theme.textMuted }]}>
-                    Use the reachable HTTPS address for your OpenTeam server. Your signed-in session
-                    stays in this device’s secure storage.
+                  {connectionError ? (
+                    <Text style={[styles.error, { color: theme.danger }]}>{connectionError}</Text>
+                  ) : null}
+                  <Text style={[styles.connectionNote, { color: theme.textFaint }]}>
+                    HTTP is supported for local development only. Use HTTPS outside a trusted
+                    private network.
                   </Text>
-                  <View style={styles.fields}>
-                    <View style={styles.fieldGroup}>
-                      <Text style={[styles.fieldLabel, { color: theme.textMuted }]}>
-                        SERVER ENDPOINT
-                      </Text>
-                      <TextInput
-                        accessibilityHint="Enter the HTTP or HTTPS address this device can use to reach your self-hosted OpenTeam server"
-                        accessibilityLabel="Server endpoint"
-                        autoCapitalize="none"
-                        autoCorrect={false}
-                        keyboardAppearance={theme.dark ? "dark" : "light"}
-                        keyboardType="url"
-                        onChangeText={(value) => {
-                          setServerUrl(value);
-                          setConnectionError(null);
-                        }}
-                        placeholder="https://openteam.example.com"
-                        placeholderTextColor={theme.textFaint}
-                        style={[
-                          styles.field,
-                          {
-                            backgroundColor: theme.field,
-                            borderColor: theme.border,
-                            color: theme.text,
-                          },
-                        ]}
-                        value={serverUrl}
-                      />
-                    </View>
-                  </View>
-                  <Pressable
-                    accessibilityRole="button"
-                    disabled={!connectionLoaded || connectionSaving}
-                    onPress={() => void persistConnection()}
-                    style={({ pressed }) => [
-                      styles.action,
-                      { backgroundColor: theme.text },
-                      pressed && styles.pressed,
-                      (!connectionLoaded || connectionSaving) && styles.disabled,
-                    ]}
-                  >
-                    {connectionSaving ? (
-                      <ActivityIndicator color={theme.background} size="small" />
-                    ) : (
-                      <Text style={[styles.actionText, { color: theme.background }]}>
-                        Save connection
-                      </Text>
-                    )}
-                  </Pressable>
-                </View>
-                {connectionError ? (
-                  <Text style={[styles.error, { color: theme.danger }]}>{connectionError}</Text>
-                ) : null}
-                <Text style={[styles.connectionNote, { color: theme.textFaint }]}>
-                  HTTP is supported for local development only. Use HTTPS outside a trusted private
-                  network.
-                </Text>
 
-                <Text style={[styles.notificationEyebrow, { color: theme.textMuted }]}>
-                  NOTIFICATIONS
-                </Text>
-                <View
-                  style={[
-                    styles.card,
-                    { backgroundColor: theme.surfaceElevated, borderColor: theme.border },
-                  ]}
-                >
-                  <View style={styles.copy}>
-                    <View style={styles.titleLine}>
-                      <Text style={[styles.title, { color: theme.text }]}>Bot updates</Text>
-                      <Text style={[styles.status, { color: theme.textMuted }]}>
-                        {permissionCopy[notificationPermission]}
-                      </Text>
-                    </View>
-                    <Text style={[styles.description, { color: theme.textMuted }]}>
-                      Get a native alert when a Bot finishes or pauses for your approval. A Bot’s
-                      own notification switch still controls whether it can alert you.
-                    </Text>
-                  </View>
-                  <Pressable
-                    accessibilityRole="button"
-                    disabled={
-                      notificationPermission === "loading" ||
-                      notificationPermission === "unavailable"
-                    }
-                    onPress={() => void action()}
-                    style={({ pressed }) => [
-                      styles.action,
-                      { backgroundColor: theme.text },
-                      pressed && styles.pressed,
-                      (notificationPermission === "loading" ||
-                        notificationPermission === "unavailable") &&
-                        styles.disabled,
-                    ]}
-                  >
-                    <Text style={[styles.actionText, { color: theme.background }]}>
-                      {actionLabel}
-                    </Text>
-                  </Pressable>
-                </View>
-                {notificationError ? (
-                  <Text style={[styles.error, { color: theme.danger }]}>{notificationError}</Text>
-                ) : null}
-                <Text style={[styles.note, { color: theme.textFaint }]}>
-                  OpenTeam asks only when you enable alerts here. Delivery uses Apple Push
-                  Notification service through Expo’s push gateway.
-                </Text>
-
-                <Text style={[styles.botEyebrow, { color: theme.textMuted }]}>APPEARANCE</Text>
-                <Pressable
-                  accessibilityLabel="Appearance"
-                  accessibilityRole="button"
-                  onPress={() => setAppearanceOpen(true)}
-                  style={({ pressed }) => [
-                    styles.pluginEntry,
-                    { backgroundColor: theme.surfaceElevated, borderColor: theme.border },
-                    pressed && styles.pressed,
-                  ]}
-                >
-                  <View style={styles.pluginCopy}>
-                    <Text style={[styles.title, { color: theme.text }]}>Appearance</Text>
-                    <Text style={[styles.description, { color: theme.textMuted }]}>
-                      Theme and accent
-                    </Text>
-                  </View>
-                  <Text style={[styles.appearanceValue, { color: theme.textMuted }]}>
-                    {appearance === "system" ? "System" : appearance === "light" ? "Day" : "Night"}
+                  <Text style={[styles.notificationEyebrow, { color: theme.textMuted }]}>
+                    NOTIFICATIONS
                   </Text>
-                  <Text style={[styles.pluginChevron, { color: theme.textFaint }]}>›</Text>
-                </Pressable>
-
-                <Text style={[styles.botEyebrow, { color: theme.textMuted }]}>PLUGINS</Text>
-                <Pressable
-                  accessibilityHint="Install tools, authorize accounts, and manage Bot access"
-                  accessibilityRole="button"
-                  onPress={() => setPluginsOpen(true)}
-                  style={({ pressed }) => [
-                    styles.pluginEntry,
-                    { backgroundColor: theme.surfaceElevated, borderColor: theme.border },
-                    pressed && styles.pressed,
-                  ]}
-                >
-                  <View style={styles.pluginCopy}>
-                    <Text style={[styles.title, { color: theme.text }]}>Manage plugins</Text>
-                    <Text style={[styles.description, { color: theme.textMuted }]}>
-                      Install, connect, and choose Bot access
-                    </Text>
-                  </View>
-                  <Text style={[styles.pluginChevron, { color: theme.textFaint }]}>›</Text>
-                </Pressable>
-
-                {accountParitySections}
-
-                {totalBotCount > BOT_ROSTER_SEARCH_THRESHOLD ? (
-                  <TextInput
-                    accessibilityLabel="Search Bot settings"
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    clearButtonMode="while-editing"
-                    keyboardAppearance={theme.dark ? "dark" : "light"}
-                    maxLength={120}
-                    onChangeText={setBotQuery}
-                    placeholder="Search Bots"
-                    placeholderTextColor={theme.textFaint}
-                    returnKeyType="search"
+                  <View
                     style={[
-                      styles.botSearch,
-                      {
-                        backgroundColor: theme.field,
-                        borderColor: theme.border,
-                        color: theme.text,
-                      },
+                      styles.card,
+                      { backgroundColor: theme.surfaceElevated, borderColor: theme.border },
                     ]}
-                    value={botQuery}
-                  />
-                ) : null}
-                {noBotMatches ? (
-                  <Text style={[styles.noMatches, { color: theme.textMuted }]}>
-                    No Bots match this search.
+                  >
+                    <View style={styles.copy}>
+                      <View style={styles.titleLine}>
+                        <Text style={[styles.title, { color: theme.text }]}>Bot updates</Text>
+                        <Text style={[styles.status, { color: theme.textMuted }]}>
+                          {permissionCopy[notificationPermission]}
+                        </Text>
+                      </View>
+                      <Text style={[styles.description, { color: theme.textMuted }]}>
+                        Get a native alert when a Bot finishes or pauses for your approval. A Bot’s
+                        own notification switch still controls whether it can alert you.
+                      </Text>
+                    </View>
+                    <Pressable
+                      accessibilityRole="button"
+                      disabled={
+                        notificationPermission === "loading" ||
+                        notificationPermission === "unavailable"
+                      }
+                      onPress={() => void action()}
+                      style={({ pressed }) => [
+                        styles.action,
+                        { backgroundColor: theme.text },
+                        pressed && styles.pressed,
+                        (notificationPermission === "loading" ||
+                          notificationPermission === "unavailable") &&
+                          styles.disabled,
+                      ]}
+                    >
+                      <Text style={[styles.actionText, { color: theme.background }]}>
+                        {actionLabel}
+                      </Text>
+                    </Pressable>
+                  </View>
+                  {notificationError ? (
+                    <Text style={[styles.error, { color: theme.danger }]}>{notificationError}</Text>
+                  ) : null}
+                  <Text style={[styles.note, { color: theme.textFaint }]}>
+                    OpenTeam asks only when you enable alerts here. Delivery uses Apple Push
+                    Notification service through Expo’s push gateway.
                   </Text>
-                ) : null}
-              </>
-            }
-            ListFooterComponent={
-              hiddenError ? (
-                <Text style={[styles.error, { color: theme.danger }]}>{hiddenError}</Text>
-              ) : null
-            }
-          />
-        </>
-      )}
-    </SafeAreaView>
+
+                  <Text style={[styles.botEyebrow, { color: theme.textMuted }]}>APPEARANCE</Text>
+                  <Pressable
+                    accessibilityLabel="Appearance"
+                    accessibilityRole="button"
+                    onPress={() => setAppearanceOpen(true)}
+                    style={({ pressed }) => [
+                      styles.pluginEntry,
+                      { backgroundColor: theme.surfaceElevated, borderColor: theme.border },
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    <View style={styles.pluginCopy}>
+                      <Text style={[styles.title, { color: theme.text }]}>Appearance</Text>
+                      <Text style={[styles.description, { color: theme.textMuted }]}>
+                        Theme and accent
+                      </Text>
+                    </View>
+                    <Text style={[styles.appearanceValue, { color: theme.textMuted }]}>
+                      {appearance === "system"
+                        ? "System"
+                        : appearance === "light"
+                          ? "Day"
+                          : "Night"}
+                    </Text>
+                    <Text style={[styles.pluginChevron, { color: theme.textFaint }]}>›</Text>
+                  </Pressable>
+
+                  <Text style={[styles.botEyebrow, { color: theme.textMuted }]}>PLUGINS</Text>
+                  <Pressable
+                    accessibilityHint="Install tools, authorize accounts, and manage Bot access"
+                    accessibilityRole="button"
+                    onPress={() => setPluginsOpen(true)}
+                    style={({ pressed }) => [
+                      styles.pluginEntry,
+                      { backgroundColor: theme.surfaceElevated, borderColor: theme.border },
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    <View style={styles.pluginCopy}>
+                      <Text style={[styles.title, { color: theme.text }]}>Manage plugins</Text>
+                      <Text style={[styles.description, { color: theme.textMuted }]}>
+                        Install, connect, and choose Bot access
+                      </Text>
+                    </View>
+                    <Text style={[styles.pluginChevron, { color: theme.textFaint }]}>›</Text>
+                  </Pressable>
+
+                  {accountParitySections}
+
+                  {totalBotCount > BOT_ROSTER_SEARCH_THRESHOLD ? (
+                    <TextInput
+                      accessibilityLabel="Search Bot settings"
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      clearButtonMode="while-editing"
+                      keyboardAppearance={theme.dark ? "dark" : "light"}
+                      maxLength={120}
+                      onChangeText={setBotQuery}
+                      placeholder="Search Bots"
+                      placeholderTextColor={theme.textFaint}
+                      returnKeyType="search"
+                      style={[
+                        styles.botSearch,
+                        {
+                          backgroundColor: theme.field,
+                          borderColor: theme.border,
+                          color: theme.text,
+                        },
+                      ]}
+                      value={botQuery}
+                    />
+                  ) : null}
+                  {noBotMatches ? (
+                    <Text style={[styles.noMatches, { color: theme.textMuted }]}>
+                      No Bots match this search.
+                    </Text>
+                  ) : null}
+                </>
+              }
+              ListFooterComponent={
+                hiddenError ? (
+                  <Text style={[styles.error, { color: theme.danger }]}>{hiddenError}</Text>
+                ) : null
+              }
+            />
+          </>
+        )}
+      </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  backdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.20)" },
   safe: {
     flex: 1,
     marginHorizontal: 8,
-    marginTop: 117,
     marginBottom: 8,
-    borderRadius: 34,
+    borderRadius: 36,
     borderWidth: StyleSheet.hairlineWidth,
     overflow: "hidden",
   },
@@ -880,15 +873,6 @@ const styles = StyleSheet.create({
   infoTitle: { fontSize: 14, lineHeight: 18, fontWeight: "600" },
   infoValue: { fontSize: 12, lineHeight: 16, fontWeight: "500" },
   infoDetail: { fontSize: 12, lineHeight: 17 },
-  usageTrack: { height: 4, borderRadius: 2 },
-  infoDivider: { height: StyleSheet.hairlineWidth, marginVertical: 5 },
-  planPill: {
-    alignSelf: "flex-start",
-    borderRadius: 14,
-    paddingHorizontal: 11,
-    paddingVertical: 5,
-  },
-  planPillText: { fontSize: 11, lineHeight: 14, fontWeight: "600" },
   accountRow: { flexDirection: "row", alignItems: "center", gap: 12 },
   accountAvatar: {
     width: 42,

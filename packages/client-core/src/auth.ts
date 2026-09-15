@@ -43,13 +43,13 @@ export const parseAuthUser = (value: unknown): OpenTeamAuthUser | null => {
   const id = typeof value.id === "string" ? value.id : "";
   const name = typeof value.name === "string" ? value.name.trim() : "";
   const email = typeof value.email === "string" ? value.email.trim() : "";
-  if (!id || (!name && !email)) return null;
+  const username = typeof value.username === "string" ? value.username.trim() : "";
+  if (!id || (!name && !email && !username)) return null;
   return {
     id,
-    name: name || email,
+    name: name || username || email,
     email,
-    username:
-      typeof value.username === "string" && value.username.trim() ? value.username.trim() : null,
+    username: username || null,
     image: typeof value.image === "string" && value.image.trim() ? value.image.trim() : null,
   };
 };

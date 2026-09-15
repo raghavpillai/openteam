@@ -1,7 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import { searchFailureMessage } from "../src/search-error";
+import { networkFailureMessage } from "../src/network-error";
 
 describe("mobile search error copy", () => {
+  test("identifies network failures without replacing actionable server errors", () => {
+    expect(networkFailureMessage("Network request failed")).toContain("couldn't reach your server");
+    expect(networkFailureMessage("This bot has been deleted")).toBeNull();
+    expect(networkFailureMessage({ message: "unexpected data" })).toBeNull();
+  });
   test("turns native network failures into useful connection guidance", () => {
     expect(
       searchFailureMessage(

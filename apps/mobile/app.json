@@ -12,7 +12,9 @@
       "supportsTablet": false,
       "bundleIdentifier": "dev.openbot.mobile",
       "entitlements": {
-        "keychain-access-groups": ["$(AppIdentifierPrefix)$(PRODUCT_BUNDLE_IDENTIFIER)"]
+        "keychain-access-groups": [
+          "$(AppIdentifierPrefix)$(PRODUCT_BUNDLE_IDENTIFIER)"
+        ]
       },
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
@@ -23,15 +25,21 @@
         "NSLocalNetworkUsageDescription": "OpenTeam connects to the self-hosted server you choose on your local network.",
         "NSMicrophoneUsageDescription": "OpenTeam records voice notes when you choose the microphone and sends them to your server for transcription."
       },
-      "buildNumber": "4"
+      "buildNumber": "8"
     },
     "android": {
       "package": "dev.openteam.mobile"
     },
     "plugins": [
       "expo-router",
+      "./plugins/with-communication-notifications.cjs",
       "expo-font",
-      "expo-notifications",
+      [
+        "expo-notifications",
+        {
+          "enableBackgroundRemoteNotifications": true
+        }
+      ],
       [
         "expo-image-picker",
         {

@@ -7,6 +7,7 @@
     ".": "./src/index.ts",
     "./async": "./src/async.ts",
     "./auth": "./src/auth.ts",
+    "./account": "./src/account.ts",
     "./client": "./src/client.ts",
     "./events": "./src/events.ts",
     "./external-draft": "./src/external-draft.ts",

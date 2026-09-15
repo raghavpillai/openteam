@@ -1,7 +1,14 @@
 import { useId, useState } from "react";
 import { StyleSheet, View, type StyleProp, type ViewStyle } from "react-native";
-import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
+import Defs from "react-native-svg/src/elements/Defs";
+import Rect from "react-native-svg/src/elements/Rect";
+import Stop from "react-native-svg/src/elements/Stop";
+import Svg from "react-native-svg/src/elements/Svg";
 import { useTheme } from "../theme";
+
+// Load only the native primitive, using the library's published declaration types.
+const LinearGradient = require("react-native-svg/src/elements/LinearGradient")
+  .default as typeof import("react-native-svg").LinearGradient;
 
 /** Keeps the chrome legible while the conversation continues underneath it. */
 export function ChatChromeFade({

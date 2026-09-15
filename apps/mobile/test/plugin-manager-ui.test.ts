@@ -15,11 +15,13 @@ describe("mobile plugin manager scale and access wiring", () => {
     expect(marketplace).toContain("PLUGIN_MARKETPLACE_CATEGORIES.map");
     expect(marketplace).toContain("pluginMatchesMarketplaceCategory(plugin, category)");
     expect(marketplace).toContain('accessibilityLabel="Search plugins"');
-    expect(marketplace).toContain('label="Filter plugins"');
+    expect(marketplace).toContain("label={`Filter plugins: ${category}`}");
+    expect(marketplace).toContain("<NativeToolbarButton");
+    expect(marketplace).not.toContain("styles.filterMenu");
     expect(marketplace).toContain("data.installs.length} installed");
     expect(marketplace).toContain("<GlassSurface");
     expect(marketplace).toContain("featured.slice(0, 4)");
-    expect(marketplace).toContain('<PluginMark logoUrl={plugin.logoUrl} />');
+    expect(marketplace).toContain("<PluginMark logoUrl={plugin.logoUrl} />");
   });
 
   test("uses the shared server page boundary with searchable, abortable paging", async () => {
@@ -32,8 +34,8 @@ describe("mobile plugin manager scale and access wiring", () => {
     expect(manager).toContain("offset: accessOffset");
     expect(manager).toContain("signal: controller.signal");
     expect(manager).toContain("controller.abort()");
-    expect(manager).toContain('accessibilityLabel="Previous Bot access page"');
-    expect(manager).toContain('accessibilityLabel="Next Bot access page"');
+    expect(manager).toContain('label="Previous Bot access page"');
+    expect(manager).toContain('label="Next Bot access page"');
     expect(context).toContain("operationClient.pluginBotAccess(pluginKey, query)");
     expect(context).not.toContain("pluginBotAccess(pluginKey, { limit: 200 })");
   });

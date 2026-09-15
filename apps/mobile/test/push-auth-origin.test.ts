@@ -4,6 +4,13 @@ import { createOpenTeamClient } from "@openteam/client-core";
 const secureValues = new Map<string, string>();
 let delayedInstallationRead: { release: Promise<void>; started: () => void } | null = null;
 let delayedPushToken: { release: Promise<void>; started: () => void } | null = null;
+type Presented = { request: { identifier: string; content: { data: Record<string, unknown> } } };
+let presented: Presented[] = [];
+let dismissed: string[] = [];
+let nativeReadFailure = false;
+let notificationHandler: {
+  handleNotification: (notification: Presented) => Promise<{ shouldShowBanner: boolean }>;
+};
 
 mock.module("expo-secure-store", () => ({
   getItemAsync: async (key: string) => {
@@ -28,6 +35,11 @@ mock.module("expo-constants", () => ({
 }));
 
 mock.module("react-native", () => ({ Platform: { OS: "ios" } }));
+mock.module("@openteam/mobile-native", () => ({
+  reconcileNotificationReads: async () => {
+    if (nativeReadFailure) throw new Error("native unavailable");
+  },
+}));
 
 mock.module("expo-notifications", () => ({
   IosAuthorizationStatus: {
@@ -48,15 +60,20 @@ mock.module("expo-notifications", () => ({
   getPermissionsAsync: async () => ({ canAskAgain: true, granted: true }),
   requestPermissionsAsync: async () => ({ canAskAgain: true, granted: true }),
   setBadgeCountAsync: async () => true,
-  setNotificationHandler: () => undefined,
+  setNotificationHandler: (handler: typeof notificationHandler) => {
+    notificationHandler = handler;
+  },
+  getPresentedNotificationsAsync: async () => presented,
+  dismissNotificationAsync: async (id: string) => {
+    dismissed.push(id);
+  },
 }));
 
 const { getAuthTokenForServer, requireAuthenticationForServer, signIn, signOut } = await import(
   "../src/auth"
 );
-const { synchronizePushRegistration, unregisterPushInstallation } = await import(
-  "../src/notifications"
-);
+const { synchronizePushRegistration, unregisterPushInstallation, synchronizeNotificationReads } =
+  await import("../src/notifications");
 const { coordinatePushRetirement } = await import("../src/push-retirement");
 const originalFetch = globalThis.fetch;
 
@@ -77,6 +94,9 @@ beforeEach(() => {
   secureValues.set("openteam.push-installation-id", "installation-device");
   delayedInstallationRead = null;
   delayedPushToken = null;
+  presented = [];
+  dismissed = [];
+  nativeReadFailure = false;
 });
 
 afterAll(() => {
@@ -84,6 +104,44 @@ afterAll(() => {
 });
 
 describe("push authentication origin isolation", () => {
+  test("remote reads clear only covered alerts, retry native failures, and suppress late foreground pushes", async () => {
+    const channelId = crypto.randomUUID();
+    const make = (
+      id: string,
+      kind: string,
+      messageSequence: string,
+      notificationSequence: string
+    ): Presented => ({
+      request: {
+        identifier: id,
+        content: { data: { channelId, kind, messageSequence, notificationSequence } },
+      },
+    });
+    presented = [
+      make("read", "message", "10", "1"),
+      make("new", "message", "11", "2"),
+      make("reaction", "reaction", "1", "3"),
+    ];
+    const state = { channelId, lastReadSequence: "10", lastReadNotificationSequence: "1" };
+    nativeReadFailure = true;
+    await expect(synchronizeNotificationReads([state])).rejects.toThrow("native unavailable");
+    nativeReadFailure = false;
+    await synchronizeNotificationReads([state]);
+    expect(dismissed).toEqual(["read"]);
+    expect((await notificationHandler.handleNotification(presented[0]!)).shouldShowBanner).toBe(
+      false
+    );
+    expect((await notificationHandler.handleNotification(presented[2]!)).shouldShowBanner).toBe(
+      true
+    );
+    await synchronizeNotificationReads([{ ...state, lastReadNotificationSequence: "3" }]);
+    expect(dismissed).toContain("reaction");
+    expect(dismissed).not.toContain("new");
+    await synchronizeNotificationReads([{ ...state, lastReadSequence: "1" }]);
+    expect((await notificationHandler.handleNotification(presented[0]!)).shouldShowBanner).toBe(
+      false
+    );
+  });
   test("uses one installation identity across concurrent first registration and retirement", async () => {
     secureValues.delete("openteam.push-installation-id");
     const requests: Array<{

@@ -23,6 +23,10 @@ public final class OpenTeamNativeModule: Module, QLPreviewControllerDataSource {
     Name("OpenTeamNative")
     Events("onSpeechLevel", "onSpeechError")
 
+    AsyncFunction("reconcileNotificationReads") { (states: [[String: String]], promise: Promise) in
+      OpenTeamNotificationReads.reconcile(states) { promise.resolve(nil) }
+    }
+
     AsyncFunction("startVoiceRecording") { (promise: Promise) in
       DispatchQueue.main.async { [weak self] in
         guard let self else { promise.reject(VoiceRecordingException(("unavailable", "Recorder is unavailable."))); return }

@@ -5,7 +5,7 @@ export * from "./review-cards";
 import nativeToolsDocument from "./native-tools.json";
 import type { ClientCapabilities } from "./capabilities";
 import { PI_REASONING_LEVELS, type RuntimeEngine } from "./inference";
-import type { AgentNotificationKind } from "./notification-content";
+import type { AgentNotificationKind, ChannelNotificationState, NotificationReadState } from "./notification-content";
 
 export * from "./bot-avatar";
 export * from "./capabilities";
@@ -204,11 +204,15 @@ export interface PushDeviceView {
 }
 
 export const MarkChannelReadInput = Schema.Struct({
+  throughNotificationSequence: Schema.optional(Schema.String.pipe(Schema.pattern(/^\d+$/))),
   throughSequence: Schema.optional(Schema.String.pipe(Schema.pattern(/^\d+$/))),
 });
 export type MarkChannelReadInput = typeof MarkChannelReadInput.Type;
 
 export interface AgentNotificationPayload {
+  notificationSequence?: string;
+  messageSequence?: string;
+  sender?: import("./notification-content").NotificationSender;
   schemaVersion: 1;
   kind: AgentNotificationKind;
   botId: string;
@@ -222,6 +226,7 @@ export interface AgentNotificationPayload {
 }
 
 export interface BadgeSyncNotificationPayload {
+  readState?: NotificationReadState;
   schemaVersion: 1;
   kind: "badge-sync";
   badgeCount: number;
@@ -1485,6 +1490,7 @@ export interface ChannelMemberView {
 }
 
 export interface ChannelView {
+  notificationState?: ChannelNotificationState;
   id: string;
   kind: ChannelKind;
   name: string;
@@ -1784,6 +1790,7 @@ export interface ChannelClientState {
 }
 
 export interface MarkChannelReadView {
+  lastReadNotificationSequence?: string;
   channelId: string;
   lastReadSequence: string;
   unreadCount: number;

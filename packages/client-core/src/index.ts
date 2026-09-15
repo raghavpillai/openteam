@@ -11,6 +11,7 @@ export type {
 } from "@openteam/contracts";
 export { sidebarPreferencesFromRootSettings } from "@openteam/contracts/client-preferences";
 export * from "./auth";
+export * from "./account";
 export * from "./async";
 export * from "./client";
 export * from "./events";

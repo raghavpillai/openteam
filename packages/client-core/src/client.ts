@@ -686,14 +686,15 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
       transport.request(`/api/v0/notification-devices/${encodeURIComponent(installationId)}`, {
         method: "DELETE",
       }),
-    markChannelRead: (channelId: string, throughSequence?: string) =>
+    markChannelRead: (channelId: string, throughSequence?: string, throughNotificationSequence?: string) =>
       transport.request<{
         channelId: string;
         lastReadSequence: string;
+        lastReadNotificationSequence?: string;
         unreadCount: number;
       }>(`/api/v0/channels/${encodeURIComponent(channelId)}/read`, {
         method: "POST",
-        body: JSON.stringify({ throughSequence }),
+        body: JSON.stringify({ throughSequence, throughNotificationSequence }),
       }),
     screenStatus: (botId: string) =>
       transport.request<ScreenStatusView>(`/api/v0/bots/${encodeURIComponent(botId)}/screen`),

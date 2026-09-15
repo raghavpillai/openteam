@@ -1,6 +1,15 @@
 {
-  "platforms": ["apple"],
+  "platforms": [
+    "apple"
+  ],
   "apple": {
-    "modules": ["OpenTeamNativeModule"]
+    "modules": [
+      "OpenTeamNativeModule",
+      "OpenTeamButtonModule",
+      "OpenTeamSettingsModule"
+    ],
+    "appDelegateSubscribers": [
+      "OpenTeamNotificationSubscriber"
+    ]
   }
 }

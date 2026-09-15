@@ -104,7 +104,10 @@ describe("mobile virtual-list UI parity", () => {
     expect(route).not.toContain("this iPhone");
     expect(route).toContain("<SettingsHome");
     expect(route).toContain("authenticatedUserForServer(connection.serverUrl)");
-    expect(home).toContain('title="Usage"');
+    expect(home).not.toContain('title="Usage"');
+    expect(home).not.toContain("user?.email");
+    expect(route).not.toContain("Weekly usage");
+    expect(route).not.toContain("On-demand usage");
     expect(home).toContain('title="Plugins"');
     expect(home).toContain('title="Notifications"');
     expect(home).toContain('title="Appearance"');
@@ -195,16 +198,15 @@ describe("mobile virtual-list UI parity", () => {
     expect(route).toContain('row.hasApproval ? "Approval required" : null');
     expect(route).toContain("const unreadCount = row.channel.unreadCount ?? 0");
     expect(route).toContain('router.push({ pathname: "/chat/[channelId]"');
-    expect(route).toContain("creationMenuOpen");
-    expect(route).toContain(">New Bot</Text>");
-    expect(route).toContain(">New Channel</Text>");
-    expect(route).toContain('openCreation("group")');
+    expect(route).toContain("<NativeToolbarButton");
+    expect(route).toContain('title: "New Bot"');
+    expect(route).toContain('title: "New Group Chat"');
+    expect(route).toContain("openCreation(id)");
     expect(route).toContain("styles.unreadDot");
     expect(route).toContain('edges={["top", "left", "right"]}');
-    expect(route).toContain("styles.profileRim");
-    expect(route).toContain("styles.creationMenuShadow");
-    expect(route).toContain("boxShadow: theme.dark");
-    expect(route).not.toMatch(/styles\.creationMenuShadow,[\s\S]{0,180}backgroundColor/);
+    expect(route).not.toContain("creationMenuOpen");
+    expect(route).not.toContain("styles.profileRim");
+    expect(route).not.toContain("styles.creationMenuShadow");
     expect(route.indexOf("<View style={styles.header}>")).toBeLessThan(
       route.indexOf("<SectionList")
     );
@@ -217,7 +219,7 @@ describe("mobile virtual-list UI parity", () => {
     expect(tokens).toContain('text: "#000000"');
     expect(tokens).toContain('textMuted: "#8E8E93"');
     expect(tokens).toContain('textFaint: "#C3C3C1"');
-    expect(route).toContain("<GlassSurface");
+    expect(route).toContain("<NativeToolbarButton");
   });
 
   test("reference geometry stays aligned across the home, search, menus, and Bot profile", async () => {
@@ -237,8 +239,9 @@ describe("mobile virtual-list UI parity", () => {
     expect(home).toContain("loading || refreshing ? (");
     expect(home).toContain(">Loading</Text>");
     expect(home).not.toContain('loading || refreshing ? "Loading" : "OpenTeam"');
-    expect(search).toContain("width: 228");
-    expect(search).toContain("resultTitle: { flex: 1, fontSize: 16");
+    expect(search).toContain("<NativeToolbarButton");
+    expect(search).not.toContain("styles.filterMenu");
+    expect(search).toContain("resultTitle: { flex: 1, fontSize: 17");
     expect(contextMenu).toContain("width: 228");
     expect(contextMenu).toContain("height: 41");
     expect(composer).toContain("left: 8");
@@ -252,7 +255,8 @@ describe("mobile virtual-list UI parity", () => {
     expect(profile).toContain('shapeChoice: { width: "16.666%"');
     expect(profile).not.toContain("showFace={false}");
     expect(profile).toContain("paddingTop: 0");
-    expect(marketplace).toContain("width: 228");
+    expect(marketplace).toContain("<NativeToolbarButton");
+    expect(marketplace).not.toContain("styles.filterMenu");
     expect(richCard).toContain("styles.dismissedOptions");
     expect(richCard).toContain("dismissedOptions: { opacity: 0.48 }");
     expect(richCard).toContain("dismissedFullCard: {}");
@@ -361,7 +365,8 @@ describe("mobile virtual-list UI parity", () => {
     expect(imageViewer).toContain('name="square.and.arrow.down"');
     expect(imageViewer).toContain(">Close</Text>");
     expect(imageViewer).toContain("<GlassSurface");
-    expect(imageViewer).toContain("Share.share({ message: item.caption, url: item.uri })");
+    expect(imageViewer).toContain("Share.share({ title: item.fileName, url: uri })");
+    expect(imageViewer).toContain("File.createDownloadTask");
   });
 
   test("group messages identify the Bot that sent each reply", async () => {

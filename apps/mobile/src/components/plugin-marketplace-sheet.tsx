@@ -1,3 +1,4 @@
+import { PluginSetupSheet } from "./plugins/plugin-setup-sheet";
 import * as Haptics from "../haptics";
 import {
   PLUGIN_MARKETPLACE_CATEGORIES,
@@ -16,7 +17,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Linking,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -24,10 +24,10 @@ import {
   View,
 } from "react-native";
 import { useOpenTeam } from "../state/openteam-context";
-import { type Theme, useTheme } from "../theme";
+import { useTheme } from "../theme";
 import { PluginMark } from "./plugins/plugin-mark";
 import { GlassSurface } from "./glass-surface";
-import { IconButton } from "./icon-button";
+import { NativeActionButton, NativeToolbarButton } from "./native-controls";
 import { PluginManagerSheet as InstalledPluginManager } from "./plugin-manager-sheet";
 
 const emptySettings = (): PluginSettingsView => ({
@@ -70,26 +70,15 @@ function MarketplaceRow({
           {plugin.description}
         </Text>
       </View>
-      <Pressable
-        accessibilityLabel={`${actionLabel} ${plugin.name}`}
-        accessibilityRole="button"
+      <NativeActionButton
+        title={actionLabel}
+        label={`${actionLabel} ${plugin.name}`}
         disabled={busy}
+        busy={busy}
         onPress={onAction}
-        style={({ pressed }) => [
-          styles.actionPill,
-          { backgroundColor: primary ? "#087EF5" : theme.surfacePressed },
-          pressed && styles.pressed,
-          busy && styles.disabled,
-        ]}
-      >
-        {busy ? (
-          <ActivityIndicator color={primary ? "#FFFFFF" : theme.text} size="small" />
-        ) : (
-          <Text style={[styles.actionText, { color: primary ? "#FFFFFF" : theme.text }]}>
-            {actionLabel}
-          </Text>
-        )}
-      </Pressable>
+        variant={primary ? "filled" : "tinted"}
+        style={{ alignSelf: "center" }}
+      />
     </View>
   );
 }
@@ -106,9 +95,12 @@ function SectionHeading({
     <View style={styles.sectionHeading}>
       <Text style={[styles.sectionTitle, { color: theme.textFaint }]}>{children}</Text>
       {onViewAll ? (
-        <Pressable accessibilityRole="button" hitSlop={8} onPress={onViewAll}>
-          <Text style={[styles.viewAll, { color: theme.textMuted }]}>View all</Text>
-        </Pressable>
+        <NativeActionButton
+          title="View all"
+          label={`View all ${children}`}
+          onPress={onViewAll}
+          variant="plain"
+        />
       ) : null}
     </View>
   );
@@ -129,7 +121,6 @@ export function PluginMarketplaceSheet({
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<PluginMarketplaceCategory>("All");
-  const [filterOpen, setFilterOpen] = useState(false);
   const [installedOpen, setInstalledOpen] = useState(false);
   const [setupPlugin, setSetupPlugin] = useState<PluginCatalogItemView | null>(null);
   const [setupValues, setSetupValues] = useState<Record<string, string>>({});
@@ -251,49 +242,30 @@ export function PluginMarketplaceSheet({
     );
   }
 
-  const firstInstall = data.installs[0];
-  const firstCatalog = firstInstall
-    ? (data.catalog.find((plugin) => plugin.key === firstInstall.pluginKey) ?? null)
-    : null;
-
   return (
     <View style={[styles.screen, { backgroundColor: theme.dark ? "#141414" : theme.background }]}>
       <View style={styles.header}>
-        <IconButton
+        <NativeToolbarButton
           label="Back to settings"
           name="chevron.left"
           onPress={onClose}
-          size={38}
           symbolSize={18}
-          tone="surface"
         />
         <Text style={[styles.headerTitle, { color: theme.text }]}>Plugins</Text>
-        <Pressable
-          accessibilityLabel={`${data.installs.length} installed plugins`}
-          accessibilityRole="button"
+        <NativeActionButton
+          title={`${data.installs.length} installed`}
+          label={`${data.installs.length} installed plugins`}
           onPress={() => setInstalledOpen(true)}
-          style={({ pressed }) => [pressed && styles.pressed]}
-        >
-          <GlassSurface
-            fallbackColor={theme.surfaceElevated}
-            interactive
-            style={[styles.installedPill, { borderColor: theme.border }]}
-          >
-            {firstInstall ? (
-              <PluginMark logoUrl={firstCatalog?.logoUrl ?? null} size={22} />
-            ) : (
-              <SymbolView name="puzzlepiece.extension.fill" size={16} tintColor={theme.textMuted} />
-            )}
-            <Text style={[styles.installedText, { color: theme.text }]}>
-              {data.installs.length} installed
-            </Text>
-          </GlassSurface>
-        </Pressable>
+          variant="glass"
+          style={{ alignSelf: "center" }}
+        />
       </View>
 
       <View style={styles.searchRow}>
-        <View
-          style={[styles.searchWrap, { backgroundColor: theme.field, borderColor: theme.border }]}
+        <GlassSurface
+          fallbackColor={theme.field}
+          interactive
+          style={[styles.searchWrap, { borderColor: theme.border }]}
         >
           <SymbolView name="magnifyingglass" size={16} tintColor={theme.textFaint} />
           <TextInput
@@ -302,20 +274,30 @@ export function PluginMarketplaceSheet({
             autoCorrect={false}
             clearButtonMode="while-editing"
             keyboardAppearance={theme.dark ? "dark" : "light"}
+            returnKeyType="search"
             onChangeText={setQuery}
             placeholder="Search plugins"
             placeholderTextColor={theme.textFaint}
             style={[styles.searchInput, { color: theme.text }]}
             value={query}
           />
-        </View>
-        <IconButton
-          label="Filter plugins"
+        </GlassSurface>
+        <NativeToolbarButton
+          label={`Filter plugins: ${category}`}
           name="line.3.horizontal.decrease"
-          onPress={() => setFilterOpen(true)}
-          size={38}
-          symbolSize={17}
-          tone="surface"
+          actions={PLUGIN_MARKETPLACE_CATEGORIES.map((item) => ({
+            id: item,
+            title: item,
+            selected: item === category,
+          }))}
+          onAction={(id) => {
+            const next = PLUGIN_MARKETPLACE_CATEGORIES.find((item) => item === id);
+            if (next && next !== category) {
+              void Haptics.selectionAsync();
+              setCategory(next);
+            }
+          }}
+          symbolSize={18}
         />
       </View>
 
@@ -383,115 +365,18 @@ export function PluginMarketplaceSheet({
         )}
       </ScrollView>
 
-      {filterOpen ? (
-        <View style={StyleSheet.absoluteFill}>
-          <Pressable
-            accessibilityLabel="Close plugin filters"
-            onPress={() => setFilterOpen(false)}
-            style={StyleSheet.absoluteFill}
-          />
-          <GlassSurface
-            fallbackColor={theme.dark ? "rgba(55,55,55,0.97)" : "rgba(245,245,245,0.98)"}
-            style={[styles.filterMenu, { borderColor: theme.border }]}
-          >
-            <ScrollView
-              contentContainerStyle={styles.filterContent}
-              persistentScrollbar
-              showsVerticalScrollIndicator
-            >
-              {PLUGIN_MARKETPLACE_CATEGORIES.map((item) => (
-                <Pressable
-                  accessibilityRole="menuitem"
-                  accessibilityState={{ selected: item === category }}
-                  key={item}
-                  onPress={() => {
-                    if (item !== category) void Haptics.selectionAsync();
-                    setCategory(item);
-                    setFilterOpen(false);
-                  }}
-                  style={({ pressed }) => [
-                    styles.filterItem,
-                    pressed && {
-                      backgroundColor: theme.dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)",
-                    },
-                  ]}
-                >
-                  <View style={styles.checkSlot}>
-                    {item === category ? (
-                      <SymbolView
-                        name="checkmark"
-                        size={14}
-                        tintColor={theme.text}
-                        weight="medium"
-                      />
-                    ) : null}
-                  </View>
-                  <Text style={[styles.filterLabel, { color: theme.text }]}>{item}</Text>
-                </Pressable>
-              ))}
-            </ScrollView>
-          </GlassSurface>
-        </View>
-      ) : null}
-
       {setupPlugin ? (
-        <View style={StyleSheet.absoluteFill}>
-          <Pressable
-            accessibilityLabel="Cancel plugin setup"
-            onPress={() => setSetupPlugin(null)}
-            style={[StyleSheet.absoluteFill, styles.setupBackdrop]}
-          />
-          <GlassSurface
-            fallbackColor={theme.surfaceElevated}
-            style={[styles.setup, { borderColor: theme.border }]}
-          >
-            <Text style={[styles.setupTitle, { color: theme.text }]}>
-              Set up {setupPlugin.name}
-            </Text>
-            <Text style={[styles.pluginDescription, { color: theme.textMuted }]}>
-              {setupPlugin.setup?.description || "Enter the credentials required by this plugin."}
-            </Text>
-            {(setupPlugin.setup?.fields ?? setupPlugin.setupFields).map((field) => (
-              <TextInput
-                accessibilityLabel={field.label}
-                autoCapitalize="none"
-                autoCorrect={false}
-                keyboardAppearance={theme.dark ? "dark" : "light"}
-                key={field.key}
-                onChangeText={(value) =>
-                  setSetupValues((current) => ({ ...current, [field.key]: value }))
-                }
-                placeholder={
-                  "placeholder" in field && typeof field.placeholder === "string"
-                    ? field.placeholder
-                    : field.label
-                }
-                placeholderTextColor={theme.textFaint}
-                secureTextEntry={field.secret}
-                style={[
-                  styles.setupField,
-                  { backgroundColor: theme.field, borderColor: theme.border, color: theme.text },
-                ]}
-                value={setupValues[field.key] ?? ""}
-              />
-            ))}
-            <View style={styles.setupActions}>
-              <Pressable onPress={() => setSetupPlugin(null)} style={styles.setupButton}>
-                <Text style={[styles.setupButtonText, { color: theme.textMuted }]}>Cancel</Text>
-              </Pressable>
-              <Pressable
-                onPress={() => {
-                  const plugin = setupPlugin;
-                  setSetupPlugin(null);
-                  void mutate(plugin.key, () => installPlugin(plugin.key, setupValues));
-                }}
-                style={[styles.setupButton, { backgroundColor: theme.text }]}
-              >
-                <Text style={[styles.setupButtonText, { color: theme.background }]}>Install</Text>
-              </Pressable>
-            </View>
-          </GlassSurface>
-        </View>
+        <PluginSetupSheet
+          plugin={setupPlugin}
+          values={setupValues}
+          onChange={(key, value) => setSetupValues((current) => ({ ...current, [key]: value }))}
+          onCancel={() => setSetupPlugin(null)}
+          onInstall={() => {
+            const plugin = setupPlugin;
+            setSetupPlugin(null);
+            void mutate(plugin.key, () => installPlugin(plugin.key, setupValues));
+          }}
+        />
       ) : null}
     </View>
   );
@@ -499,119 +384,46 @@ export function PluginMarketplaceSheet({
 
 const styles = StyleSheet.create({
   screen: { flex: 1, paddingHorizontal: 14 },
-  header: { height: 69, flexDirection: "row", alignItems: "center", gap: 10 },
-  headerTitle: { flex: 1, fontSize: 16, lineHeight: 21, fontWeight: "600" },
-  installedPill: {
-    height: 38,
-    minWidth: 116,
-    borderRadius: 19,
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 10,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 7,
-  },
-  installedText: { fontSize: 14, lineHeight: 18, fontWeight: "500" },
+  header: { height: 76, flexDirection: "row", alignItems: "center", gap: 10 },
+  headerTitle: { flex: 1, fontSize: 17, lineHeight: 22, fontWeight: "600" },
   searchRow: {
-    height: 47,
-    marginTop: -9,
+    height: 56,
     flexDirection: "row",
     alignItems: "center",
     gap: 7,
   },
   searchWrap: {
     flex: 1,
-    height: 35,
-    borderRadius: 19,
+    height: 44,
+    borderRadius: 22,
     borderWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: 12,
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
   },
-  searchInput: { flex: 1, height: 35, padding: 0, fontSize: 14, lineHeight: 18 },
+  searchInput: { flex: 1, height: 40, padding: 0, fontSize: 17, lineHeight: 22 },
   error: { marginHorizontal: 7, marginTop: 5, fontSize: 12, lineHeight: 17 },
   catalogContent: { paddingTop: 17, paddingBottom: 42 },
   section: { marginBottom: 22 },
   sectionHeading: {
-    height: 28,
+    minHeight: 44,
     paddingHorizontal: 5,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
   },
-  sectionTitle: { fontSize: 12, lineHeight: 17 },
-  viewAll: { fontSize: 11, lineHeight: 15 },
+  sectionTitle: { fontSize: 15, lineHeight: 20 },
   pluginRow: {
-    minHeight: 71,
+    minHeight: 88,
     paddingHorizontal: 5,
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
   },
-  mark: { alignItems: "center", justifyContent: "center", overflow: "hidden" },
   pluginCopy: { flex: 1, minWidth: 0 },
-  pluginName: { fontSize: 15, lineHeight: 20, fontWeight: "500" },
-  pluginDescription: { marginTop: 1, fontSize: 12, lineHeight: 16 },
-  actionPill: {
-    minWidth: 45,
-    minHeight: 30,
-    borderRadius: 15,
-    paddingHorizontal: 11,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  actionText: { fontSize: 12, lineHeight: 16, fontWeight: "500" },
+  pluginName: { fontSize: 17, lineHeight: 22, fontWeight: "500" },
+  pluginDescription: { marginTop: 3, fontSize: 14, lineHeight: 19 },
   loading: { height: 130 },
   empty: { paddingVertical: 30, paddingHorizontal: 6, fontSize: 13, lineHeight: 18 },
-  filterMenu: {
-    position: "absolute",
-    right: 1,
-    top: 42,
-    width: 228,
-    maxHeight: 470,
-    borderRadius: 26,
-    borderWidth: StyleSheet.hairlineWidth,
-    overflow: "hidden",
-    shadowColor: "#000000",
-    shadowOpacity: 0.36,
-    shadowRadius: 24,
-    shadowOffset: { width: 0, height: 10 },
-  },
-  filterContent: { paddingVertical: 9, paddingRight: 5 },
-  filterItem: { minHeight: 38, paddingHorizontal: 13, flexDirection: "row", alignItems: "center" },
-  checkSlot: { width: 26, alignItems: "flex-start" },
-  filterLabel: { flex: 1, fontSize: 15, lineHeight: 20 },
-  setupBackdrop: { backgroundColor: "rgba(0,0,0,0.24)" },
-  setup: {
-    position: "absolute",
-    left: 12,
-    right: 12,
-    bottom: 12,
-    borderRadius: 24,
-    borderWidth: StyleSheet.hairlineWidth,
-    padding: 18,
-    gap: 10,
-  },
-  setupTitle: { fontSize: 16, lineHeight: 21, fontWeight: "600" },
-  setupField: {
-    minHeight: 44,
-    borderRadius: 13,
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 13,
-    fontSize: 14,
-  },
-  setupActions: { flexDirection: "row", justifyContent: "flex-end", gap: 8 },
-  setupButton: {
-    minWidth: 76,
-    minHeight: 40,
-    borderRadius: 20,
-    paddingHorizontal: 14,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  setupButtonText: { fontSize: 12, lineHeight: 16, fontWeight: "600" },
-  pressed: { opacity: 0.7 },
-  disabled: { opacity: 0.42 },
 });

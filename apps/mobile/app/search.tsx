@@ -32,7 +32,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { BotAvatar } from "../src/components/bot-avatar";
 import { GlassSurface } from "../src/components/glass-surface";
-import { IconButton } from "../src/components/icon-button";
+import { NativeToolbarButton } from "../src/components/native-controls";
 import { stageRoutineNavigation } from "../src/routine-route";
 import { normalizeMobileSearchQuery } from "../src/search";
 import { searchFailureMessage } from "../src/search-error";
@@ -171,9 +171,11 @@ function SearchResultRow({
             {result.kind === "channel" ? "Group" : searchResultKindLabel(result.kind)}
           </Text>
         </View>
-        <Text numberOfLines={2} style={[styles.resultSubtitle, { color: theme.textMuted }]}>
-          {result.subtitle}
-        </Text>
+        {result.subtitle.trim() ? (
+          <Text numberOfLines={1} style={[styles.resultSubtitle, { color: theme.textMuted }]}>
+            {result.subtitle}
+          </Text>
+        ) : null}
       </View>
     </Pressable>
   );
@@ -275,7 +277,6 @@ export default function SearchScreen() {
   const { search, snapshot } = useOpenTeam();
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
-  const [filterOpen, setFilterOpen] = useState(false);
   const [pageStates, setPageStates] = useState<Partial<Record<SearchCategory, PageState>>>({});
   const [retryRevision, setRetryRevision] = useState(0);
   const pagesRef = useRef<FlatList<SearchSection>>(null);
@@ -370,7 +371,6 @@ export default function SearchScreen() {
     (index: number, animated = true) => {
       const nextIndex = Math.max(0, Math.min(SEARCH_SECTIONS.length - 1, index));
       setActiveIndex(nextIndex);
-      setFilterOpen(false);
       pagesRef.current?.scrollToOffset({ animated, offset: nextIndex * width });
       tabsRef.current?.scrollToIndex({ animated: true, index: nextIndex, viewPosition: 0.5 });
     },
@@ -434,13 +434,11 @@ export default function SearchScreen() {
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: theme.background }]}>
       <View style={styles.header}>
-        <IconButton
+        <NativeToolbarButton
           label="Close search"
           name="xmark"
           onPress={() => (router.canGoBack() ? router.back() : router.replace("/"))}
           symbolSize={18}
-          size={40}
-          tone="surface"
         />
         <GlassSurface
           fallbackColor={theme.surface}
@@ -455,6 +453,7 @@ export default function SearchScreen() {
             autoFocus
             clearButtonMode="while-editing"
             keyboardAppearance={theme.dark ? "dark" : "light"}
+            returnKeyType="search"
             maxLength={SEARCH_QUERY_MAX_LENGTH}
             onChangeText={setQuery}
             placeholder="Search"
@@ -463,15 +462,22 @@ export default function SearchScreen() {
             style={[styles.input, { color: theme.text }]}
           />
         </GlassSurface>
-        <IconButton
+        <NativeToolbarButton
           label={`Search category: ${activeSection.label}`}
           name="line.3.horizontal.decrease"
-          onPress={() => {
-            setFilterOpen((current) => !current);
+          actions={SEARCH_SECTIONS.map((section, index) => ({
+            id: section.category,
+            title: section.label,
+            selected: index === activeIndex,
+          }))}
+          onAction={(id) => {
+            const index = SEARCH_SECTIONS.findIndex((section) => section.category === id);
+            if (index >= 0) {
+              if (index !== activeIndex) void Haptics.selectionAsync();
+              showSection(index);
+            }
           }}
-          size={40}
           symbolSize={18}
-          tone="surface"
         />
       </View>
 
@@ -502,53 +508,6 @@ export default function SearchScreen() {
           style={styles.pages}
         />
       </View>
-
-      {filterOpen ? (
-        <>
-          <Pressable
-            accessibilityLabel="Close search categories"
-            onPress={() => setFilterOpen(false)}
-            style={styles.filterBackdrop}
-          />
-          <GlassSurface
-            fallbackColor={theme.dark ? "rgba(49,49,49,0.98)" : "rgba(245,245,245,0.98)"}
-            style={[styles.filterMenu, { borderColor: theme.border, shadowColor: "#000" }]}
-          >
-            {SEARCH_SECTIONS.map((section, index) => {
-              const active = index === activeIndex;
-              return (
-                <Pressable
-                  accessibilityRole="menuitem"
-                  accessibilityState={{ selected: active }}
-                  key={section.category}
-                  onPress={() => {
-                    if (!active) void Haptics.selectionAsync();
-                    showSection(index);
-                  }}
-                  style={({ pressed }) => [
-                    styles.filterRow,
-                    pressed && {
-                      backgroundColor: theme.dark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.07)",
-                    },
-                  ]}
-                >
-                  <View style={styles.filterCheck}>
-                    {active ? (
-                      <SymbolView
-                        name="checkmark"
-                        size={14}
-                        tintColor={theme.text}
-                        weight="semibold"
-                      />
-                    ) : null}
-                  </View>
-                  <Text style={[styles.filterLabel, { color: theme.text }]}>{section.label}</Text>
-                </Pressable>
-              );
-            })}
-          </GlassSurface>
-        </>
-      ) : null}
     </SafeAreaView>
   );
 }
@@ -556,16 +515,18 @@ export default function SearchScreen() {
 const styles = StyleSheet.create({
   safe: { flex: 1 },
   header: {
-    minHeight: 58,
-    paddingHorizontal: 12,
+    minHeight: 80,
+    paddingTop: 16,
+    paddingBottom: 16,
+    paddingHorizontal: 16,
     flexDirection: "row",
     alignItems: "center",
-    gap: 7,
+    gap: 6,
   },
   searchField: {
     flex: 1,
-    height: 42,
-    borderRadius: 21,
+    height: 44,
+    borderRadius: 22,
     borderWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: 13,
     flexDirection: "row",
@@ -573,7 +534,7 @@ const styles = StyleSheet.create({
     gap: 8,
     overflow: "hidden",
   },
-  input: { flex: 1, height: 40, paddingVertical: 0, fontSize: 16, lineHeight: 21 },
+  input: { flex: 1, height: 40, paddingVertical: 0, fontSize: 17, lineHeight: 22 },
   tabs: { gap: 7, paddingHorizontal: 16, paddingBottom: 10, paddingTop: 4 },
   tabRail: { flexGrow: 0, height: 48 },
   tab: {
@@ -589,16 +550,16 @@ const styles = StyleSheet.create({
   divider: { height: StyleSheet.hairlineWidth },
   pages: { flex: 1 },
   page: { flex: 1 },
-  results: { paddingHorizontal: 16, paddingBottom: 34, paddingTop: 26 },
+  results: { paddingHorizontal: 16, paddingBottom: 34, paddingTop: 12 },
   emptyResults: { flexGrow: 1 },
   resultRow: {
-    minHeight: 70,
+    minHeight: 80,
     borderRadius: 18,
     paddingHorizontal: 2,
     paddingVertical: 8,
     flexDirection: "row",
     alignItems: "center",
-    gap: 9,
+    gap: 16,
   },
   resultGlyph: {
     width: 48,
@@ -609,9 +570,9 @@ const styles = StyleSheet.create({
   },
   resultCopy: { flex: 1, gap: 3 },
   resultTitleLine: { flexDirection: "row", alignItems: "center", gap: 10 },
-  resultTitle: { flex: 1, fontSize: 16, lineHeight: 20, fontWeight: "600" },
-  resultKind: { fontSize: 10, lineHeight: 14, fontWeight: "600" },
-  resultSubtitle: { fontSize: 14, lineHeight: 18 },
+  resultTitle: { flex: 1, fontSize: 17, lineHeight: 22, fontWeight: "600" },
+  resultKind: { fontSize: 13, lineHeight: 17, fontWeight: "400" },
+  resultSubtitle: { fontSize: 15, lineHeight: 20 },
   centerState: {
     flex: 1,
     minHeight: 250,
@@ -637,35 +598,4 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   retryText: { fontSize: 13, lineHeight: 17, fontWeight: "700" },
-  filterBackdrop: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
-    top: 0,
-    zIndex: 20,
-  },
-  filterMenu: {
-    position: "absolute",
-    right: 8,
-    top: 0,
-    width: 228,
-    zIndex: 21,
-    borderRadius: 25,
-    borderWidth: StyleSheet.hairlineWidth,
-    overflow: "hidden",
-    paddingVertical: 4,
-    shadowOpacity: 0.35,
-    shadowRadius: 24,
-    shadowOffset: { width: 0, height: 12 },
-  },
-  filterRow: {
-    height: 40,
-    paddingHorizontal: 20,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
-  filterCheck: { width: 18, alignItems: "center" },
-  filterLabel: { fontSize: 16, lineHeight: 21, fontWeight: "400" },
 });

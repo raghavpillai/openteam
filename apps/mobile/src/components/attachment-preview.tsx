@@ -1,5 +1,8 @@
 import type { AssetKind, AssetRef } from "@openteam/contracts";
-import { attachmentTextPreview, ATTACHMENT_CODE_PREVIEW_CHAR_LIMIT } from "@openteam/product-core/attachments";
+import {
+  attachmentTextPreview,
+  ATTACHMENT_CODE_PREVIEW_CHAR_LIMIT,
+} from "@openteam/product-core/attachments";
 import { openTeamNativeAvailable, openPreview } from "@openteam/mobile-native";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
 import { Directory, File, Paths } from "expo-file-system";
@@ -28,7 +31,7 @@ const fileSymbol = (kind: AssetKind) => {
 
 const cacheName = (asset: AssetRef) => {
   const safeName = asset.fileName.replace(/[^a-zA-Z0-9._-]+/g, "-").slice(-96) || "preview";
-  return `${asset.assetId.slice(0, 16)}-${safeName}`;
+  return safeName === "." || safeName === ".." ? "preview" : safeName;
 };
 
 export function AttachmentPreview({ asset, url }: { asset: AssetRef; url: string | null }) {
@@ -60,7 +63,12 @@ export function AttachmentPreview({ asset, url }: { asset: AssetRef; url: string
     const nextController = new AbortController();
     controller.current = nextController;
     try {
-      const cache = new Directory(Paths.cache, "openteam-previews");
+      // Keep identity in the directory so previews and shares retain a readable filename.
+      const cache = new Directory(
+        Paths.cache,
+        "openteam-previews",
+        asset.assetId.replace(/[^a-zA-Z0-9_-]/g, "-") || "asset"
+      );
       cache.create({ idempotent: true, intermediates: true });
       const destination = new File(cache, cacheName(asset));
       let localFile = destination;
@@ -82,7 +90,10 @@ export function AttachmentPreview({ asset, url }: { asset: AssetRef; url: string
       if (nextController.signal.aborted) return;
       setState("opening");
       if (asset.kind === "text" || /\.(?:md|markdown|txt)$/i.test(asset.fileName)) {
-        setDocumentPreview({ ...attachmentTextPreview(await localFile.text()), uri: localFile.uri });
+        setDocumentPreview({
+          ...attachmentTextPreview(await localFile.text()),
+          uri: localFile.uri,
+        });
       } else {
         const opened = await openPreview(localFile.uri);
         if (!opened) await Linking.openURL(url);
@@ -216,7 +227,9 @@ export function AttachmentPreview({ asset, url }: { asset: AssetRef; url: string
               keyboardDismissMode="interactive"
               showsVerticalScrollIndicator
             >
-              {documentPreview?.truncated ? <Text style={{color:theme.textMuted}}>Showing the start of this file</Text> : null}
+              {documentPreview?.truncated ? (
+                <Text style={{ color: theme.textMuted }}>Showing the start of this file</Text>
+              ) : null}
               {documentPreview ? (
                 <MobileMarkdown
                   color={theme.text}

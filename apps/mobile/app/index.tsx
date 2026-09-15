@@ -8,11 +8,10 @@ import * as Clipboard from "expo-clipboard";
 import * as Haptics from "../src/haptics";
 import { router } from "expo-router";
 import { SymbolView } from "expo-symbols";
-import { memo, useCallback, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useCallback, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  Modal,
   Pressable,
   RefreshControl,
   SectionList,
@@ -23,15 +22,18 @@ import {
 import ReanimatedSwipeable, {
   type SwipeableMethods,
 } from "react-native-gesture-handler/ReanimatedSwipeable";
-import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { BotAvatar } from "../src/components/bot-avatar";
 import {
   ConversationContextMenu,
   type MoveDestination,
 } from "../src/components/conversation-context-menu";
-import { GlassSurface } from "../src/components/glass-surface";
-import { IconButton } from "../src/components/icon-button";
+import type { OpenTeamAuthUser } from "@openteam/client-core/auth";
+import { authenticatedUserForServer } from "../src/auth";
+import { accountInitials } from "../src/account-display";
+import { NativeToolbarButton } from "../src/components/native-controls";
 import { MOBILE_VIRTUAL_LIST_TUNING, selectPinnedRows } from "../src/list-scale";
+import { networkFailureMessage } from "../src/network-error";
 import { useOpenTeam } from "../src/state/openteam-context";
 import { metrics, useTheme } from "../src/theme";
 
@@ -293,8 +295,8 @@ const reorderedPreferences = (
 
 export default function HomeScreen() {
   const theme = useTheme();
-  const insets = useSafeAreaInsets();
   const {
+    connection,
     archiveBot,
     deleteGroup,
     duplicateBot,
@@ -311,13 +313,25 @@ export default function HomeScreen() {
     togglePinned,
     updateSidebarPreferences,
   } = useOpenTeam();
+  const [account, setAccount] = useState<OpenTeamAuthUser | null>(null);
+  useEffect(() => {
+    let active = true;
+    setAccount(null);
+    void authenticatedUserForServer(connection.serverUrl)
+      .then((user) => {
+        if (active) setAccount(user);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [connection.serverUrl]);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionRow, setActionRow] = useState<ChannelRowProjection | null>(null);
   const openConversationMenu = useCallback((row: ChannelRowProjection) => {
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setActionRow(row);
   }, []);
-  const [creationMenuOpen, setCreationMenuOpen] = useState(false);
   const duplicatingBotIds = useRef(new Set<string>());
   const pinnedIds = sidebarPreferences.pinnedIds;
   const pinnedIdSet = useMemo(() => new Set(pinnedIds), [pinnedIds]);
@@ -512,7 +526,6 @@ export default function HomeScreen() {
     [perform, sidebarPreferences, updateSidebarPreferences]
   );
   const openCreation = useCallback((mode: "bot" | "group") => {
-    setCreationMenuOpen(false);
     router.push({ pathname: "/new", params: { mode } });
   }, []);
 
@@ -556,23 +569,13 @@ export default function HomeScreen() {
       style={[styles.safe, { backgroundColor: theme.background }]}
     >
       <View style={styles.header}>
-        <Pressable
-          accessibilityLabel="Open settings"
-          accessibilityRole="button"
+        <NativeToolbarButton
+          label="Open settings"
+          name="person.crop.circle"
           onPress={() => router.push("/settings")}
-          style={({ pressed }) => [styles.profileHit, pressed && { opacity: 0.72 }]}
-        >
-          <View style={[styles.profileRim, { borderColor: theme.border }]}>
-            <GlassSurface
-              fallbackColor={theme.surface}
-              interactive
-              style={styles.profileCircle}
-              tintColor={theme.dark ? "rgba(58,58,56,0.52)" : "rgba(224,224,221,0.34)"}
-            >
-              <Text style={[styles.profileText, { color: theme.textMuted }]}>RP</Text>
-            </GlassSurface>
-          </View>
-        </Pressable>
+          symbolSize={22}
+          initials={accountInitials(account)}
+        />
         <View style={styles.statusTitle}>
           {loading || refreshing ? (
             <>
@@ -582,21 +585,21 @@ export default function HomeScreen() {
           ) : null}
         </View>
         <View style={styles.headerActions}>
-          <IconButton
+          <NativeToolbarButton
             label="Search"
             name="magnifyingglass"
             onPress={() => router.push("/search")}
-            size={40}
-            symbolSize={18}
-            tone="surface"
           />
-          <IconButton
-            label="New bot or group"
+          <NativeToolbarButton
+            label="New bot or group chat"
             name="plus"
-            onPress={() => setCreationMenuOpen(true)}
-            size={40}
-            symbolSize={20}
-            tone="surface"
+            actions={[
+              { id: "bot", title: "New Bot" },
+              { id: "group", title: "New Group Chat" },
+            ]}
+            onAction={(id) => {
+              if (id === "bot" || id === "group") openCreation(id);
+            }}
           />
         </View>
       </View>
@@ -639,7 +642,11 @@ export default function HomeScreen() {
         ListHeaderComponent={
           error || actionError ? (
             <>
-              {error ? <Text style={[styles.error, { color: theme.danger }]}>{error}</Text> : null}
+              {error ? (
+                <Text style={[styles.error, { color: theme.danger }]}>
+                  {networkFailureMessage(error) ?? error}
+                </Text>
+              ) : null}
               {actionError ? (
                 <Text style={[styles.error, { color: theme.danger }]}>{actionError}</Text>
               ) : null}
@@ -677,65 +684,6 @@ export default function HomeScreen() {
           visible
         />
       ) : null}
-
-      <Modal
-        animationType="fade"
-        onRequestClose={() => setCreationMenuOpen(false)}
-        statusBarTranslucent
-        transparent
-        visible={creationMenuOpen}
-      >
-        <View style={styles.creationOverlay}>
-          <Pressable
-            accessibilityLabel="Dismiss new conversation menu"
-            accessibilityRole="button"
-            onPress={() => setCreationMenuOpen(false)}
-            style={StyleSheet.absoluteFill}
-          />
-          <View style={[styles.creationMenuAnchor, { paddingTop: Math.max(8, insets.top - 5) }]}>
-            <View
-              style={[
-                styles.creationMenuShadow,
-                {
-                  boxShadow: theme.dark
-                    ? "0 13px 28px rgba(0,0,0,0.38)"
-                    : "0 13px 28px rgba(105,105,101,0.18)",
-                },
-              ]}
-            >
-              <GlassSurface
-                fallbackColor={theme.surfaceElevated}
-                interactive
-                style={[styles.creationMenu, { borderColor: theme.border }]}
-                tintColor={theme.dark ? "rgba(22,22,22,0.14)" : "transparent"}
-              >
-                <Pressable
-                  accessibilityLabel="New Bot"
-                  accessibilityRole="button"
-                  onPress={() => openCreation("bot")}
-                  style={({ pressed }) => [
-                    styles.creationAction,
-                    pressed && { backgroundColor: theme.surfacePressed },
-                  ]}
-                >
-                  <Text style={[styles.creationLabel, { color: theme.text }]}>New Bot</Text>
-                </Pressable>
-                <Pressable
-                  accessibilityLabel="New Channel"
-                  accessibilityRole="button"
-                  onPress={() => openCreation("group")}
-                  style={({ pressed }) => [
-                    styles.creationAction,
-                    pressed && { backgroundColor: theme.surfacePressed },
-                  ]}
-                >
-                  <Text style={[styles.creationLabel, { color: theme.text }]}>New Channel</Text>
-                </Pressable>
-              </GlassSurface>
-            </View>
-          </View>
-        </View>
-      </Modal>
     </SafeAreaView>
   );
 }
@@ -744,37 +692,10 @@ const styles = StyleSheet.create({
   safe: { flex: 1 },
   content: { paddingHorizontal: metrics.pageGutter, paddingBottom: 32 },
   header: {
-    height: 46,
-    marginHorizontal: metrics.pageGutter,
+    height: 54,
+    marginHorizontal: 16,
     flexDirection: "row",
     alignItems: "center",
-    transform: [{ translateY: -3 }],
-  },
-  profileHit: {
-    width: 48,
-    height: 48,
-    alignItems: "flex-start",
-    justifyContent: "center",
-  },
-  profileRim: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    borderWidth: StyleSheet.hairlineWidth,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  profileCircle: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  profileText: {
-    fontSize: 14,
-    lineHeight: 18,
-    fontWeight: "600",
   },
   statusTitle: {
     flex: 1,
@@ -784,7 +705,7 @@ const styles = StyleSheet.create({
     paddingLeft: 6,
   },
   statusText: { fontSize: 17, lineHeight: 22, fontWeight: "600" },
-  headerActions: { flexDirection: "row", gap: 0 },
+  headerActions: { flexDirection: "row", gap: 4 },
   error: { fontSize: 13, lineHeight: 18, marginBottom: 8 },
   sectionHeader: {
     height: 48,
@@ -845,28 +766,4 @@ const styles = StyleSheet.create({
     fontSize: 11,
     lineHeight: 15,
   },
-  creationOverlay: { flex: 1 },
-  creationMenuAnchor: {
-    paddingHorizontal: 8,
-    alignItems: "flex-end",
-  },
-  creationMenuShadow: {
-    width: 228,
-    borderRadius: 26,
-    elevation: 12,
-  },
-  creationMenu: {
-    width: "100%",
-    borderRadius: 26,
-    paddingTop: 7.5,
-    paddingBottom: 11,
-    borderWidth: StyleSheet.hairlineWidth,
-    overflow: "hidden",
-  },
-  creationAction: {
-    height: 38,
-    paddingHorizontal: 25,
-    justifyContent: "center",
-  },
-  creationLabel: { fontSize: 16, lineHeight: 21, fontWeight: "400" },
 });

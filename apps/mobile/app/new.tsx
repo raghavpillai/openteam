@@ -17,7 +17,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { BotAvatar } from "../src/components/bot-avatar";
-import { IconButton } from "../src/components/icon-button";
+import { NativeToolbarButton } from "../src/components/native-controls";
 import {
   BOT_ROSTER_SEARCH_THRESHOLD,
   filterBotRoster,
@@ -183,15 +183,15 @@ export default function NewConversationScreen() {
         style={styles.safe}
       >
         <View style={styles.header}>
-          <IconButton
+          <NativeToolbarButton
             label="Cancel"
             name="xmark"
             onPress={() => (router.canGoBack() ? router.back() : router.replace("/"))}
-            size={38}
             symbolSize={17}
-            tone="surface"
           />
-          <Text style={[styles.headerTitle, { color: theme.text }]}>New</Text>
+          <Text style={[styles.headerTitle, { color: theme.text }]}>
+            {mode === "bot" ? "New Bot" : "New Group Chat"}
+          </Text>
           <View style={styles.headerSpacer} />
         </View>
 
@@ -229,7 +229,7 @@ export default function NewConversationScreen() {
                         { color: mode === candidate ? theme.text : theme.textMuted },
                       ]}
                     >
-                      {candidate === "bot" ? "Bot" : "Group"}
+                      {candidate === "bot" ? "Bot" : "Group Chat"}
                     </Text>
                   </Pressable>
                 ))}

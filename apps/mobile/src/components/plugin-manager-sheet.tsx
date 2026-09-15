@@ -1,3 +1,5 @@
+import { PluginSetupSheet } from "./plugins/plugin-setup-sheet";
+import { NativeActionButton, NativeToolbarButton } from "./native-controls";
 import * as Haptics from "../haptics";
 import { PluginMark } from "./plugins/plugin-mark";
 import { PluginWorkspace } from "./plugin-workspace";
@@ -25,7 +27,6 @@ import {
   Alert,
   Linking,
   Modal,
-  Pressable,
   ScrollView,
   StyleSheet,
   Switch,
@@ -329,13 +330,13 @@ export function PluginManagerSheet({
       >
         <SafeAreaView style={{ flex: 1, backgroundColor: theme.background }}>
           <View style={[styles.header, { borderBottomColor: theme.separator }]}>
-            <Pressable accessibilityRole="button" onPress={() => setManagementOpen(false)}>
-              <Text style={{ color: theme.accent }}>Back to plugins</Text>
-            </Pressable>
+            <NativeToolbarButton
+              name="chevron.left"
+              label="Back to plugins"
+              onPress={() => setManagementOpen(false)}
+            />
             <Text style={{ color: theme.text, fontWeight: "600" }}>Manage plugins</Text>
-            <Pressable accessibilityRole="button" onPress={onClose}>
-              <Text style={{ color: theme.accent }}>Done</Text>
-            </Pressable>
+            <NativeToolbarButton name="xmark" label="Close plugin manager" onPress={onClose} />
           </View>
           <ScrollView contentContainerStyle={{ padding: 20 }} keyboardShouldPersistTaps="handled">
             <PluginWorkspace
@@ -356,39 +357,28 @@ export function PluginManagerSheet({
     >
       <SafeAreaView style={[styles.safe, { backgroundColor: theme.background }]}>
         <View style={[styles.header, { borderBottomColor: theme.separator }]}>
-          <Pressable
-            accessible
-            accessibilityLabel="Close plugin manager"
-            accessibilityRole="button"
+          <NativeToolbarButton
+            name="chevron.left"
+            label="Back to plugin catalog"
             onPress={onClose}
-            style={styles.headerAction}
-          >
-            <Text style={[styles.headerActionText, { color: theme.accent }]}>Done</Text>
-          </Pressable>
+          />
           <Text style={[styles.headerTitle, { color: theme.text }]}>Plugins</Text>
-          <Pressable
-            accessibilityLabel="Refresh plugins"
-            accessibilityRole="button"
+          <NativeActionButton
+            title="Refresh"
+            label="Refresh plugins"
+            variant="plain"
+            busy={loading}
+            style={{ alignSelf: "center" }}
             onPress={() => void refresh()}
-            style={styles.headerAction}
-          >
-            {loading ? (
-              <ActivityIndicator color={theme.accent} size="small" />
-            ) : (
-              <Text style={[styles.headerActionText, { color: theme.accent }]}>Refresh</Text>
-            )}
-          </Pressable>
+          />
         </View>
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-          <Pressable
-            accessibilityRole="button"
+          <NativeActionButton
+            title="Manage plugins"
+            label="Manage accounts, private skills, sources, and packages"
+            variant="tinted"
             onPress={() => setManagementOpen(true)}
-            style={{ paddingVertical: 12 }}
-          >
-            <Text style={{ color: theme.accent, fontWeight: "600" }}>
-              Manage accounts, private skills, sources, and packages
-            </Text>
-          </Pressable>
+          />
           <Text style={[styles.intro, { color: theme.textMuted }]}>
             Install tools, authorize accounts, and choose which Bots can use each plugin.
           </Text>
@@ -448,47 +438,36 @@ export function PluginManagerSheet({
                           {connection.statusMessage || connection.status.replace("_", " ")}
                         </Text>
                       </View>
-                      <Pressable
-                        accessibilityRole="button"
+                      <NativeActionButton
+                        title={
+                          connection.status === "ready"
+                            ? "Disconnect"
+                            : connection.canAuthenticate || connection.status === "needs_auth"
+                              ? "Authorize"
+                              : "Connect"
+                        }
                         disabled={Boolean(mutationKey)}
+                        busy={mutationKey === `connection:${connection.id}`}
                         onPress={() => connectionAction(connection)}
-                        style={({ pressed }) => [
-                          styles.compactButton,
-                          { borderColor: theme.border },
-                          pressed && styles.pressed,
-                        ]}
-                      >
-                        {mutationKey === `connection:${connection.id}` ? (
-                          <ActivityIndicator color={theme.text} size="small" />
-                        ) : (
-                          <Text style={[styles.compactLabel, { color: theme.text }]}>
-                            {connection.status === "ready"
-                              ? "Disconnect"
-                              : connection.canAuthenticate || connection.status === "needs_auth"
-                                ? "Authorize"
-                                : "Connect"}
-                          </Text>
-                        )}
-                      </Pressable>
+                        style={{ alignSelf: "center" }}
+                      />
                     </View>
                   ))}
                   <View style={styles.cardActions}>
                     {install.hasSkills || install.connections.length > 0 ? (
-                      <Pressable
-                        accessibilityLabel={`Manage ${install.name} Bot access`}
-                        accessibilityRole="button"
+                      <NativeActionButton
+                        title="Bot access"
+                        variant="plain"
+                        label={`Manage ${install.name} Bot access`}
                         onPress={() => openAccess(install.pluginKey)}
-                        style={({ pressed }) => [styles.textButton, pressed && styles.pressed]}
-                      >
-                        <Text style={[styles.textButtonLabel, { color: theme.accent }]}>
-                          Bot access
-                        </Text>
-                      </Pressable>
+                      />
                     ) : (
                       <View />
                     )}
-                    <Pressable
-                      accessibilityRole="button"
+                    <NativeActionButton
+                      title="Remove"
+                      variant="plain"
+                      destructive
                       onPress={() =>
                         Alert.alert(
                           `Remove ${install.name}?`,
@@ -506,10 +485,7 @@ export function PluginManagerSheet({
                           ]
                         )
                       }
-                      style={({ pressed }) => [styles.textButton, pressed && styles.pressed]}
-                    >
-                      <Text style={[styles.textButtonLabel, { color: theme.danger }]}>Remove</Text>
-                    </Pressable>
+                    />
                   </View>
                 </View>
               ))}
@@ -527,13 +503,7 @@ export function PluginManagerSheet({
                     </Text>
                   ) : null}
                 </View>
-                <Pressable
-                  accessibilityRole="button"
-                  onPress={closeAccess}
-                  style={styles.textButton}
-                >
-                  <Text style={[styles.textButtonLabel, { color: theme.accent }]}>Close</Text>
-                </Pressable>
+                <NativeActionButton title="Close" variant="plain" onPress={closeAccess} />
               </View>
               <TextInput
                 accessibilityLabel="Filter Bot access"
@@ -541,6 +511,7 @@ export function PluginManagerSheet({
                 autoCorrect={false}
                 clearButtonMode="while-editing"
                 keyboardAppearance={theme.dark ? "dark" : "light"}
+                returnKeyType="search"
                 maxLength={PLUGIN_BOT_ACCESS_QUERY_MAX_LENGTH}
                 onChangeText={(value) => {
                   setAccessOffset(0);
@@ -574,7 +545,7 @@ export function PluginManagerSheet({
                         accessibilityLabel={`${bot.name} plugin skills`}
                         disabled={Boolean(mutationKey)}
                         onValueChange={(enabled) => changeSkillAccess(bot, enabled)}
-                        trackColor={{ false: theme.surfacePressed, true: theme.text }}
+                        trackColor={{ false: theme.surfacePressed, true: "#34C759" }}
                         value={bot.skillsEnabled}
                       />
                     </View>
@@ -595,7 +566,7 @@ export function PluginManagerSheet({
                           onValueChange={(enabled) =>
                             changeConnectionGrant(bot, connection, enabled)
                           }
-                          trackColor={{ false: theme.surfacePressed, true: theme.text }}
+                          trackColor={{ false: theme.surfacePressed, true: "#34C759" }}
                           value={bot.grantedConnectionIds.includes(connection.id)}
                         />
                       </View>
@@ -609,30 +580,26 @@ export function PluginManagerSheet({
               {access &&
               (access.offset > 0 || access.offset + access.bots.length < access.total) ? (
                 <View style={styles.pagination}>
-                  <Pressable
-                    accessibilityLabel="Previous Bot access page"
-                    accessibilityRole="button"
+                  <NativeActionButton
+                    title="Previous"
+                    variant="plain"
+                    label="Previous Bot access page"
                     disabled={accessLoading || access.offset === 0}
                     onPress={() =>
                       setAccessOffset(Math.max(0, access.offset - PLUGIN_BOT_ACCESS_PAGE_SIZE))
                     }
-                    style={({ pressed }) => [styles.pageButton, pressed && styles.pressed]}
-                  >
-                    <Text style={[styles.pageLabel, { color: theme.accent }]}>Previous</Text>
-                  </Pressable>
+                  />
                   <Text style={[styles.pageCount, { color: theme.textMuted }]}>
                     {access.bots.length ? access.offset + 1 : 0}–
                     {access.offset + access.bots.length} of {access.total}
                   </Text>
-                  <Pressable
-                    accessibilityLabel="Next Bot access page"
-                    accessibilityRole="button"
+                  <NativeActionButton
+                    title="Next"
+                    variant="plain"
+                    label="Next Bot access page"
                     disabled={accessLoading || access.offset + access.bots.length >= access.total}
                     onPress={() => setAccessOffset(access.offset + PLUGIN_BOT_ACCESS_PAGE_SIZE)}
-                    style={({ pressed }) => [styles.pageButton, pressed && styles.pressed]}
-                  >
-                    <Text style={[styles.pageLabel, { color: theme.accent }]}>Next</Text>
-                  </Pressable>
+                  />
                 </View>
               ) : access ? (
                 <Text style={[styles.pageCount, { color: theme.textMuted }]}>
@@ -649,6 +616,7 @@ export function PluginManagerSheet({
             autoCorrect={false}
             clearButtonMode="while-editing"
             keyboardAppearance={theme.dark ? "dark" : "light"}
+            returnKeyType="search"
             onChangeText={setQuery}
             placeholder="Search plugins"
             placeholderTextColor={theme.textFaint}
@@ -678,29 +646,14 @@ export function PluginManagerSheet({
                     {plugin.publisher} · {plugin.category}
                   </Text>
                 </View>
-                <Pressable
-                  accessibilityRole="button"
+                <NativeActionButton
+                  title={installed ? "Installed" : "Install"}
+                  label={`${installed ? "Installed" : "Install"} ${plugin.name}`}
                   disabled={installed || Boolean(mutationKey)}
+                  busy={mutationKey === plugin.key}
                   onPress={() => beginInstall(plugin)}
-                  style={({ pressed }) => [
-                    styles.installButton,
-                    { backgroundColor: installed ? theme.surfacePressed : theme.text },
-                    pressed && styles.pressed,
-                  ]}
-                >
-                  {mutationKey === plugin.key ? (
-                    <ActivityIndicator color={theme.background} size="small" />
-                  ) : (
-                    <Text
-                      style={[
-                        styles.installLabel,
-                        { color: installed ? theme.textMuted : theme.background },
-                      ]}
-                    >
-                      {installed ? "Installed" : "Install"}
-                    </Text>
-                  )}
-                </Pressable>
+                  style={{ alignSelf: "center" }}
+                />
               </View>
             );
           })}
@@ -710,61 +663,17 @@ export function PluginManagerSheet({
         </ScrollView>
 
         {setupPlugin ? (
-          <View
-            style={[
-              styles.setup,
-              { backgroundColor: theme.background, borderTopColor: theme.separator },
-            ]}
-          >
-            <Text style={[styles.title, { color: theme.text }]}>Set up {setupPlugin.name}</Text>
-            <Text style={[styles.description, { color: theme.textMuted }]}>
-              {setupPlugin.setup?.description || "Enter the credentials required by this plugin."}
-            </Text>
-            {(setupPlugin.setup?.fields ?? setupPlugin.setupFields).map((field) => (
-              <TextInput
-                accessibilityLabel={field.label}
-                autoCapitalize="none"
-                autoCorrect={false}
-                keyboardAppearance={theme.dark ? "dark" : "light"}
-                key={field.key}
-                onChangeText={(value) =>
-                  setSetupValues((current) => ({ ...current, [field.key]: value }))
-                }
-                placeholder={
-                  "placeholder" in field && typeof field.placeholder === "string"
-                    ? field.placeholder
-                    : field.label
-                }
-                placeholderTextColor={theme.textFaint}
-                secureTextEntry={field.secret}
-                style={[
-                  styles.search,
-                  { backgroundColor: theme.field, borderColor: theme.border, color: theme.text },
-                ]}
-                value={setupValues[field.key] ?? ""}
-              />
-            ))}
-            <View style={styles.setupActions}>
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => setSetupPlugin(null)}
-                style={styles.setupButton}
-              >
-                <Text style={[styles.compactLabel, { color: theme.textMuted }]}>Cancel</Text>
-              </Pressable>
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => {
-                  const plugin = setupPlugin;
-                  setSetupPlugin(null);
-                  void mutate(plugin.key, () => installPlugin(plugin.key, setupValues));
-                }}
-                style={[styles.setupButton, { backgroundColor: theme.text }]}
-              >
-                <Text style={[styles.compactLabel, { color: theme.background }]}>Install</Text>
-              </Pressable>
-            </View>
-          </View>
+          <PluginSetupSheet
+            plugin={setupPlugin}
+            values={setupValues}
+            onChange={(key, value) => setSetupValues((current) => ({ ...current, [key]: value }))}
+            onCancel={() => setSetupPlugin(null)}
+            onInstall={() => {
+              const plugin = setupPlugin;
+              setSetupPlugin(null);
+              void mutate(plugin.key, () => installPlugin(plugin.key, setupValues));
+            }}
+          />
         ) : null}
       </SafeAreaView>
     </Modal>
@@ -775,26 +684,23 @@ const styles = StyleSheet.create({
   safe: { flex: 1 },
   flex: { flex: 1 },
   header: {
-    minHeight: 58,
-    borderBottomWidth: StyleSheet.hairlineWidth,
+    minHeight: 68,
     paddingHorizontal: 10,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
   },
-  headerAction: { width: 72, minHeight: 44, alignItems: "center", justifyContent: "center" },
-  headerActionText: { fontSize: 15, lineHeight: 20, fontWeight: "600" },
-  headerTitle: { fontSize: 16, lineHeight: 21, fontWeight: "700" },
+  headerTitle: { fontSize: 17, lineHeight: 22, fontWeight: "600" },
   content: { padding: 18, paddingBottom: 54, gap: 12 },
   intro: { fontSize: 14, lineHeight: 20, marginBottom: 6 },
   error: { fontSize: 13, lineHeight: 18, marginBottom: 4 },
   eyebrow: { marginTop: 14, fontSize: 11, lineHeight: 14, fontWeight: "700", letterSpacing: 0.7 },
   card: { borderWidth: StyleSheet.hairlineWidth, borderRadius: 18, padding: 15, gap: 9 },
   titleLine: { flexDirection: "row", alignItems: "center", gap: 12 },
-  title: { fontSize: 15, lineHeight: 20, fontWeight: "700" },
-  publisher: { fontSize: 11, lineHeight: 15 },
+  title: { fontSize: 17, lineHeight: 22, fontWeight: "600" },
+  publisher: { fontSize: 13, lineHeight: 18 },
   status: { fontSize: 11, lineHeight: 15, fontWeight: "600", textTransform: "capitalize" },
-  description: { fontSize: 12, lineHeight: 17 },
+  description: { fontSize: 15, lineHeight: 20 },
   connection: {
     minHeight: 58,
     borderTopWidth: StyleSheet.hairlineWidth,
@@ -805,19 +711,7 @@ const styles = StyleSheet.create({
   },
   connectionName: { fontSize: 13, lineHeight: 18, fontWeight: "600" },
   connectionDetail: { fontSize: 11, lineHeight: 15, textTransform: "capitalize" },
-  compactButton: {
-    minWidth: 82,
-    minHeight: 38,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 10,
-  },
-  compactLabel: { fontSize: 12, lineHeight: 16, fontWeight: "600" },
   cardActions: { flexDirection: "row", justifyContent: "space-between" },
-  textButton: { minHeight: 40, justifyContent: "center", paddingHorizontal: 4 },
-  textButtonLabel: { fontSize: 13, lineHeight: 18, fontWeight: "600" },
   accessPanel: { borderRadius: 18, padding: 15, gap: 7 },
   accessLoading: { minHeight: 72 },
   botAccessCard: {
@@ -836,8 +730,6 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: 8,
   },
-  pageButton: { minHeight: 40, minWidth: 68, alignItems: "center", justifyContent: "center" },
-  pageLabel: { fontSize: 12, lineHeight: 17, fontWeight: "600" },
   pageCount: { textAlign: "center", fontSize: 11, lineHeight: 16 },
   search: {
     minHeight: 46,
@@ -855,28 +747,5 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 12,
   },
-  installButton: {
-    minWidth: 72,
-    minHeight: 38,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 10,
-  },
-  installLabel: { fontSize: 12, lineHeight: 16, fontWeight: "700" },
   empty: { paddingVertical: 14, fontSize: 13, lineHeight: 18 },
-  pressed: { opacity: 0.65 },
-  setup: {
-    borderTopWidth: StyleSheet.hairlineWidth,
-    padding: 18,
-    gap: 10,
-  },
-  setupActions: { flexDirection: "row", justifyContent: "flex-end", gap: 9 },
-  setupButton: {
-    minWidth: 82,
-    minHeight: 42,
-    borderRadius: 13,
-    alignItems: "center",
-    justifyContent: "center",
-  },
 });

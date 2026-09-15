@@ -135,6 +135,16 @@ describe("shared authentication protocol", () => {
     expect(parseAuthUser(null)).toBeNull();
   });
 
+  test("accepts username-only accounts without an email or display name", () => {
+    expect(parseAuthUser({ id: "owner", username: " raghav " })).toEqual({
+      id: "owner",
+      username: "raghav",
+      name: "raghav",
+      email: "",
+      image: null,
+    });
+  });
+
   test("shares required-session validation and secure-storage outcomes", async () => {
     const client = createOpenTeamAuthClient({
       baseUrl: "https://openteam.test",

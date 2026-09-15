@@ -164,6 +164,7 @@ export default function RoutineDetailScreen() {
           </Text>
         </View>
         <Pressable
+          accessibilityLabel="Edit routine instruction"
           accessibilityHint="Opens instruction editing"
           accessibilityRole="button"
           onPress={() => setInstructionEditorOpen(true)}
@@ -255,6 +256,7 @@ export default function RoutineDetailScreen() {
             </Pressable>
 
             <Pressable
+              accessibilityLabel="View routine instruction"
               accessibilityRole="button"
               onPress={() => setInstructionOpen(true)}
               style={({ pressed }) => [

@@ -16,13 +16,13 @@ describe("notification text", () => {
         body: "  Approve\nthis   command  ",
       })
     ).toEqual({
-      title: "Probe needs you",
+      title: "Probe",
       body: "Approve this command",
       sound: "default",
       urgency: "critical",
     });
     expect(agentNotificationPresentation({ kind: "agent-needs-input", botName: "Probe" })).toEqual({
-      title: "Probe needs you",
+      title: "Probe",
       body: "Waiting for your input.",
       sound: "default",
       urgency: "critical",
@@ -87,6 +87,13 @@ describe("notification text", () => {
     expect(notificationMessagePreview({ content: "", metadata: { type: "secret_request" } })).toBe(
       "Waiting for your input."
     );
+  });
+
+  test("includes archive filenames without repeating an existing caption", () => {
+    const metadata = { attachments: [{ fileName: "evidence.zip", kind: "file" }] };
+    expect(notificationMessagePreview({ metadata })).toBe("Sent 1 archive. 📎 evidence.zip");
+    expect(notificationMessagePreview({ content: "Sent 1 archive", metadata })).toBe("Sent 1 archive 📎 evidence.zip");
+    expect(notificationMessagePreview({ content: "Attached evidence.zip", metadata })).toBe("Attached evidence.zip");
   });
 
   test("classifies interactive and secret messages as needs-input reasons", () => {

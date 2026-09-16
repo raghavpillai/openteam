@@ -1,6 +1,64 @@
 import ExpoModulesCore
 import UIKit
 
+// These four silhouettes differ from the nearest SF Symbols. Keep the native
+// button, tint and accessibility behavior, with the reference's 16 pt artwork
+// centered in the same 20 pt action column.
+private func messageActionIcon(_ id: String) -> UIImage? {
+  guard ["reply", "thread", "unread", "copy"].contains(id) else { return nil }
+  return UIGraphicsImageRenderer(size: CGSize(width: 20, height: 20)).image { _ in
+    UIColor.black.setStroke()
+    UIColor.black.setFill()
+    let path = UIBezierPath()
+    path.lineWidth = 1.65
+    path.lineCapStyle = .round
+    path.lineJoinStyle = .round
+    switch id {
+    case "reply":
+      path.move(to: CGPoint(x: 6.5, y: 4))
+      path.addLine(to: CGPoint(x: 2.5, y: 8))
+      path.addLine(to: CGPoint(x: 6.5, y: 12))
+      path.move(to: CGPoint(x: 3, y: 8))
+      path.addLine(to: CGPoint(x: 12, y: 8))
+      path.addCurve(to: CGPoint(x: 12, y: 16), controlPoint1: CGPoint(x: 19, y: 8), controlPoint2: CGPoint(x: 19, y: 16))
+      path.addLine(to: CGPoint(x: 9, y: 16))
+    case "thread":
+      path.move(to: CGPoint(x: 6.5, y: 7.5))
+      path.addCurve(to: CGPoint(x: 2.5, y: 13), controlPoint1: CGPoint(x: 4, y: 8), controlPoint2: CGPoint(x: 2.5, y: 10))
+      path.addLine(to: CGPoint(x: 2.5, y: 18))
+      path.addLine(to: CGPoint(x: 7, y: 18))
+      path.addCurve(to: CGPoint(x: 12, y: 13.5), controlPoint1: CGPoint(x: 10, y: 18), controlPoint2: CGPoint(x: 12, y: 16))
+      path.move(to: CGPoint(x: 18, y: 8))
+      path.addCurve(to: CGPoint(x: 12.25, y: 2.5), controlPoint1: CGPoint(x: 18, y: 4.8), controlPoint2: CGPoint(x: 15.5, y: 2.5))
+      path.addCurve(to: CGPoint(x: 6.5, y: 8), controlPoint1: CGPoint(x: 9, y: 2.5), controlPoint2: CGPoint(x: 6.5, y: 4.8))
+      path.addCurve(to: CGPoint(x: 12.25, y: 13.5), controlPoint1: CGPoint(x: 6.5, y: 11.2), controlPoint2: CGPoint(x: 9, y: 13.5))
+      path.addLine(to: CGPoint(x: 18, y: 13.5))
+      path.close()
+    case "unread":
+      path.move(to: CGPoint(x: 11, y: 3))
+      path.addLine(to: CGPoint(x: 4, y: 3))
+      path.addQuadCurve(to: CGPoint(x: 2.5, y: 4.5), controlPoint: CGPoint(x: 2.5, y: 3))
+      path.addLine(to: CGPoint(x: 2.5, y: 13))
+      path.addQuadCurve(to: CGPoint(x: 4, y: 14.5), controlPoint: CGPoint(x: 2.5, y: 14.5))
+      path.addLine(to: CGPoint(x: 7.5, y: 14.5))
+      path.addLine(to: CGPoint(x: 10, y: 18))
+      path.addLine(to: CGPoint(x: 12.5, y: 14.5))
+      path.addLine(to: CGPoint(x: 16, y: 14.5))
+      path.addQuadCurve(to: CGPoint(x: 17.5, y: 13), controlPoint: CGPoint(x: 17.5, y: 14.5))
+      path.addLine(to: CGPoint(x: 17.5, y: 9.5))
+      UIBezierPath(ovalIn: CGRect(x: 14, y: 2.5, width: 4.5, height: 4.5)).fill()
+    case "copy":
+      path.append(UIBezierPath(roundedRect: CGRect(x: 6, y: 2.5, width: 11.5, height: 11.5), cornerRadius: 1.2))
+      path.move(to: CGPoint(x: 2.5, y: 7))
+      path.addLine(to: CGPoint(x: 2.5, y: 16.5))
+      path.addQuadCurve(to: CGPoint(x: 4, y: 18), controlPoint: CGPoint(x: 2.5, y: 18))
+      path.addLine(to: CGPoint(x: 13, y: 18))
+    default: break
+    }
+    path.stroke()
+  }.withRenderingMode(.alwaysTemplate)
+}
+
 private func menuElements(_ items: [[String: Any]], action: @escaping (String) -> Void)
   -> [UIMenuElement]
 {
@@ -207,7 +265,7 @@ private final class MessageActionsController: UIViewController {
       // SF Symbols have different optical bounds. Fit each in the same 20-point
       // column instead of letting its intrinsic width move the action label.
       let iconSize = CGSize(width: 20, height: 20)
-      config.image = UIGraphicsImageRenderer(size: iconSize).image { _ in
+      config.image = messageActionIcon(item["id"] as? String ?? "") ?? UIGraphicsImageRenderer(size: iconSize).image { _ in
         let scale = min(iconSize.width / symbol.size.width, iconSize.height / symbol.size.height)
         let size = CGSize(width: symbol.size.width * scale, height: symbol.size.height * scale)
         symbol.draw(in: CGRect(x: (20 - size.width) / 2, y: (20 - size.height) / 2,

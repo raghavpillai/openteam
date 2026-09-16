@@ -296,7 +296,8 @@ export function MessageBubble({
           if (replySwipe.move(distance))
             void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
         })
-        .onEnd((gesture) => {
+        .onEnd((gesture, success) => {
+          if (!success) return;
           // Gesture Handler reports points/second; ReplySwipe uses points/millisecond.
           const result = replySwipe.release(gesture.translationX, gesture.velocityX / 1000);
           if (result.open && swipeToReplyEnabled) {
@@ -786,8 +787,10 @@ export function MessageBubble({
           onDismiss={() => setActionsOpen(false)}
           onAction={({ nativeEvent: { id } }) => {
             setActionsOpen(false);
-            if (id === "reply") onReply();
-            else if (id === "thread") onStartThread?.();
+            if (id === "reply") {
+              void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              onReply();
+            } else if (id === "thread") onStartThread?.();
             else if (id === "unread") onMarkUnread?.();
             else if (id === "report") onReport?.();
             else if (id.startsWith("reaction:")) {
@@ -876,6 +879,7 @@ export function MessageBubble({
                     accessibilityRole="button"
                     onPress={() => {
                       setActionsOpen(false);
+                      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                       onReply();
                     }}
                     style={({ pressed }) => [

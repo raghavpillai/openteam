@@ -117,6 +117,10 @@ function A2AActivityRow({
   );
 }
 
+// Keep native anchoring stable across drag/follow transitions. Toggling it at
+// the live edge can restore a stale offset after Jump to latest.
+const retainedMessagePosition = { minIndexForVisible: 0 };
+
 export default function ConversationScreen() {
   const theme = useChatTheme();
   const insets = useSafeAreaInsets();
@@ -597,7 +601,7 @@ export default function ConversationScreen() {
               }
               keyboardDismissMode="interactive"
               keyboardShouldPersistTaps="handled"
-              maintainVisibleContentPosition={atLiveEdge ? undefined : { minIndexForVisible: 0 }}
+              maintainVisibleContentPosition={retainedMessagePosition}
               onContentSizeChange={chatScroll.onContentSizeChange}
               onLayout={chatScroll.onLayout}
               onScrollBeginDrag={() => {
@@ -796,6 +800,7 @@ export default function ConversationScreen() {
                 accessibilityRole="button"
                 hitSlop={4}
                 onPress={() => {
+                  void Haptics.selectionAsync();
                   messageFocus.cancel();
                   updateLiveEdge(true);
                   if (!channelHistory?.hasNewer) {

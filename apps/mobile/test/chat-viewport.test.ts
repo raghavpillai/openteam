@@ -7,6 +7,52 @@ import {
 } from "../src/chat-viewport";
 
 describe("mobile chat viewport coordination", () => {
+  test("reaching newest cues once during a deliberate drag and its momentum", () => {
+    const state = new ChatScrollState();
+    state.beginDrag();
+    expect(state.observeScroll(900, 800, 2000, false)).toBe(false);
+    expect(state.observeScroll(1150, 800, 2000, false)).toBe(false);
+    state.endDrag();
+    state.beginMomentum();
+    expect(state.observeScroll(1198, 800, 2000, false)).toBe(true);
+    expect(state.observeScroll(1210, 800, 2000, false)).toBe(false);
+    expect(state.observeScroll(1100, 800, 2000, false)).toBe(false);
+    expect(state.observeScroll(1200, 800, 2000, false)).toBe(false);
+    state.endMomentum();
+    state.beginDrag();
+    expect(state.observeScroll(1100, 800, 2000, false)).toBe(false);
+    expect(state.observeScroll(1200, 800, 2000, false)).toBe(true);
+  });
+
+  test("initial layout, automatic following, overscroll and paged history stay quiet", () => {
+    const state = new ChatScrollState();
+    expect(state.observeScroll(900, 800, 2000, false)).toBe(false);
+    expect(state.observeScroll(1200, 800, 2000, false)).toBe(false);
+    state.beginDrag();
+    for (const offset of [1200, 1210, 1190, 1200]) {
+      expect(state.observeScroll(offset, 800, 2000, false)).toBe(false);
+    }
+    state.beginDrag();
+    expect(state.observeScroll(900, 800, 2000, true)).toBe(false);
+    expect(state.observeScroll(1200, 800, 2000, true)).toBe(false);
+    state.beginDrag();
+    expect(state.observeScroll(-40, 800, 500, false)).toBe(false);
+    expect(state.observeScroll(0, 800, 500, false)).toBe(false);
+  });
+
+  test("jumping, sending or changing chat cancels pending scroll feedback", () => {
+    for (const following of [true, false]) {
+      const state = new ChatScrollState();
+      state.beginDrag();
+      state.observeScroll(900, 800, 2000, false);
+      state.setFollowing(following);
+      state.beginMomentum();
+      expect(state.observeScroll(1200, 800, 2000, false)).toBe(false);
+      state.reset(true);
+      expect(state.observeScroll(1200, 800, 2000, false)).toBe(false);
+    }
+  });
+
   test("the measured bottom includes composer padding and clamps short conversations", () => {
     const state = new ChatScrollState();
     state.contentHeight = 2_080; // 2,000 points of rows plus 80 of composer clearance.

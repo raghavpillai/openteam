@@ -938,6 +938,8 @@ export function Composer({
         >
           <Animated.View
             pointerEvents={replyTarget ? "auto" : "none"}
+            accessibilityElementsHidden={!replyTarget}
+            importantForAccessibility={replyTarget ? "auto" : "no-hide-descendants"}
             style={[
               styles.replyTray,
               {
@@ -954,27 +956,34 @@ export function Composer({
               },
             ]}
           >
-            <View style={[styles.replyInner, { backgroundColor: theme.surface }]}>
-              <SymbolView name="arrowshape.turn.up.left" size={14} tintColor={theme.textMuted} />
-              <Text numberOfLines={1} style={[styles.replyCopy, { color: theme.textMuted }]}>
-                {displayedReply?.content ?? ""}
-              </Text>
-              <Pressable
-                accessibilityLabel="Cancel reply"
-                accessibilityRole="button"
-                hitSlop={8}
-                onPress={() => {
-                  draftHydrationGuardRef.current.markEdited("reply");
-                  onClearReply();
-                }}
-                style={({ pressed }) => [
-                  styles.close,
-                  pressed && { backgroundColor: theme.surfacePressed },
-                ]}
-              >
-                <SymbolView name="xmark" size={14} tintColor={theme.textMuted} weight="semibold" />
-              </Pressable>
-            </View>
+            {displayedReply ? (
+              <View style={[styles.replyInner, { backgroundColor: theme.surface }]}>
+                <SymbolView name="arrowshape.turn.up.left" size={14} tintColor={theme.textMuted} />
+                <Text numberOfLines={1} style={[styles.replyCopy, { color: theme.textMuted }]}>
+                  {displayedReply?.content ?? ""}
+                </Text>
+                <Pressable
+                  accessibilityLabel="Cancel reply"
+                  accessibilityRole="button"
+                  hitSlop={8}
+                  onPress={() => {
+                    draftHydrationGuardRef.current.markEdited("reply");
+                    onClearReply();
+                  }}
+                  style={({ pressed }) => [
+                    styles.close,
+                    pressed && { backgroundColor: theme.surfacePressed },
+                  ]}
+                >
+                  <SymbolView
+                    name="xmark"
+                    size={14}
+                    tintColor={theme.textMuted}
+                    weight="semibold"
+                  />
+                </Pressable>
+              </View>
+            ) : null}
           </Animated.View>
 
           {attachments.length > 0 ? (

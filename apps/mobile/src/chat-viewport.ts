@@ -43,6 +43,8 @@ export class ChatScrollState {
   viewportHeight = 0;
   private userScrolling = false;
   private userMomentumPending = false;
+  private latestFeedbackArmed = false;
+  private latestFeedbackSent = false;
 
   get canCorrect(): boolean {
     return this.following && !this.userScrolling;
@@ -61,12 +63,16 @@ export class ChatScrollState {
     this.following = following;
     this.userScrolling = false;
     this.userMomentumPending = false;
+    this.latestFeedbackArmed = false;
+    this.latestFeedbackSent = false;
   }
 
   beginDrag(): void {
     this.userScrolling = true;
     this.userMomentumPending = true;
     this.following = false;
+    this.latestFeedbackArmed = false;
+    this.latestFeedbackSent = false;
   }
 
   endDrag(): void {
@@ -82,10 +88,17 @@ export class ChatScrollState {
     this.userMomentumPending = false;
   }
 
-  observeScroll(offset: number, viewport: number, content: number, hasNewer: boolean): void {
-    if (this.userScrolling) {
-      this.following = !hasNewer && isNearLiveEdge(offset, viewport, content);
-    }
+  /** Returns one feedback cue when an actual drag/momentum reaches the newest message. */
+  observeScroll(offset: number, viewport: number, content: number, hasNewer: boolean): boolean {
+    if (!this.userScrolling) return false;
+    this.following = !hasNewer && isNearLiveEdge(offset, viewport, content);
+    if (hasNewer || viewport <= 0 || content <= viewport) return false;
+    const remaining = content - Math.max(0, offset) - viewport;
+    // Require a deliberate trip away from the bottom; rubber-band jitter stays quiet.
+    if (remaining >= 24) this.latestFeedbackArmed = true;
+    if (!this.latestFeedbackArmed || this.latestFeedbackSent || remaining > 2) return false;
+    this.latestFeedbackSent = true;
+    return true;
   }
 }
 

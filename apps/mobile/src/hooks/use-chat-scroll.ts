@@ -6,6 +6,7 @@ import type {
   NativeSyntheticEvent,
 } from "react-native";
 import { ChatScrollState } from "../chat-viewport";
+import * as Haptics from "../haptics";
 
 export function useChatScroll<T>(
   list: RefObject<FlatList<T> | null>,
@@ -58,7 +59,11 @@ export function useChatScroll<T>(
   const onScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
     const previous = state.following;
-    state.observeScroll(contentOffset.y, layoutMeasurement.height, contentSize.height, hasNewer);
+    if (
+      state.observeScroll(contentOffset.y, layoutMeasurement.height, contentSize.height, hasNewer)
+    ) {
+      void Haptics.selectionAsync();
+    }
     if (previous !== state.following) publish();
   };
 

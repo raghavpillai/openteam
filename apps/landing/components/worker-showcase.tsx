@@ -1,30 +1,26 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import {
   ArrowRight,
-  CalendarDays,
   Check,
   ChevronRight,
-  Clock3,
   FileText,
   Folder,
   Globe,
   KeyRound,
   Laptop,
   LockKeyhole,
-  MessageSquare,
   MousePointer2,
   Pencil,
-  Play,
-  RotateCw,
   Server,
   Sparkles,
   Terminal,
   X,
 } from "lucide-react";
 import { BotAvatar } from "./bot-avatar";
+import { ChatGPTLogo, ClaudeLogo } from "./model-provider-logos";
 import { useDemoCycle } from "./use-demo-cycle";
 import "./worker-showcase.css";
 import "./worker-polish.css";
@@ -548,211 +544,10 @@ export function WorkerMemory({ children }: { children?: ReactNode }) {
   );
 }
 
-const meetings = [
-  {
-    time: "10:00",
-    title: "Acme · Intro call",
-    person: "Maya Chen",
-    role: "Head of Operations",
-    initials: "MC",
-    context: "Looking for a better way to manage vendor renewals.",
-    review: "Review the company overview and the introduction from Alex.",
-    sources: ["Intro email", "Company overview"],
-  },
-  {
-    time: "14:30",
-    title: "Northstar · Follow-up",
-    person: "Alex Rivera",
-    role: "Co-founder",
-    initials: "AR",
-    context: "Last time: discussed a pilot with the operations team.",
-    review: "Review the pilot outline and open questions from your last call.",
-    sources: ["Last meeting", "Pilot outline"],
-  },
-] as const;
-
-export function MeetingRoutine({ children }: { children?: ReactNode }) {
-  const [enabled, setEnabled] = useState(true);
-  const [running, setRunning] = useState(false);
-  const [hasRun, setHasRun] = useState(false);
-  const cycle = useDemoCycle(4, 3000, enabled && !running);
-  const [selected, setSelected] = useState(0);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(
-    () => () => {
-      if (timer.current) clearTimeout(timer.current);
-    },
-    []
-  );
-  const meeting = meetings[selected];
-  return (
-    <div
-      className="ws-routine-scene ws-ui"
-      aria-label="Example daily meeting routine"
-      ref={cycle.ref}
-      {...cycle.props}
-      data-routine-stage={cycle.index}
-    >
-      <div className="ws-routine-timeline">
-        <span>07:59</span>
-        <div className="ws-time-track">
-          <i />
-          <b />
-        </div>
-        <strong>08:00</strong>
-        <span className="ws-timeline-status">
-          {
-            [
-              "Checking your calendar",
-              "Reading past conversations",
-              "Preparing your brief",
-              "Ready for your day",
-            ][cycle.index]
-          }
-        </span>
-      </div>
-      <div className="ws-routine-layout">
-        <div className="ws-routine-left">
-          <div className="ws-routine-intro">{children}</div>
-          <div className="ws-routine">
-            <div className="ws-routine-config">
-              <header>
-                <span className="ws-routine-icon">
-                  <RotateCw size={18} />
-                </span>
-                <div>
-                  <h3>Daily meeting brief</h3>
-                  <span>Chief of staff</span>
-                </div>
-                <button
-                  className="ws-toggle"
-                  type="button"
-                  role="switch"
-                  aria-checked={enabled}
-                  aria-label="Enable example routine"
-                  onClick={() => setEnabled(!enabled)}
-                >
-                  <span />
-                </button>
-              </header>
-              <div className="ws-routine-schedule">
-                <Clock3 size={15} />
-                <strong>8:00 AM</strong>
-                <span>Every weekday</span>
-              </div>
-              <div className="ws-week" aria-label="Runs Monday through Friday">
-                {["M", "T", "W", "T", "F", "S", "S"].map((day, index) => (
-                  <span key={index} data-active={enabled && index < 5}>
-                    {day}
-                  </span>
-                ))}
-              </div>
-              <p>Prepare a brief of today’s meetings, who I’m meeting, and what to review.</p>
-              <ol className="ws-routine-flow" data-step={cycle.index}>
-                <li>
-                  <CalendarDays size={15} />
-                  Today’s calendar
-                </li>
-                <li>
-                  <MessageSquare size={15} />
-                  Past conversations
-                </li>
-                <li>
-                  <FileText size={15} />
-                  Meeting brief
-                </li>
-              </ol>
-              <div className="ws-routine-run">
-                <span aria-live="polite">
-                  {running
-                    ? "Preparing brief…"
-                    : !enabled
-                      ? "Schedule paused"
-                      : hasRun
-                        ? "Brief updated just now"
-                        : "Next run · Tomorrow, 8 AM"}
-                </span>
-                <button
-                  type="button"
-                  disabled={running}
-                  onClick={() => {
-                    setRunning(true);
-                    timer.current = setTimeout(() => {
-                      setRunning(false);
-                      setHasRun(true);
-                    }, 1100);
-                  }}
-                >
-                  <Play size={12} fill="currentColor" />
-                  {running ? "Running" : "Run now"}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-        <div className="ws-brief-stack">
-          <div className="ws-brief-underlay" aria-hidden="true" />
-          <div className="ws-brief" aria-busy={running} data-running={running}>
-            <header>
-              <div>
-                <span className="ws-label">Prepared for you</span>
-                <h3>Your day, at a glance.</h3>
-              </div>
-              <BotAvatar
-                shape="helmet"
-                color="#ff7a1a"
-                size={35}
-                mode={running ? "thinking" : "still"}
-              />
-            </header>
-            <div className="ws-meeting-tabs" aria-label="Meetings in today’s brief">
-              {meetings.map((item, index) => (
-                <button
-                  key={item.time}
-                  type="button"
-                  aria-pressed={selected === index}
-                  aria-controls="meeting-preparation"
-                  onClick={() => setSelected(index)}
-                >
-                  <span>{item.time}</span>
-                  <strong>{item.title}</strong>
-                  <ChevronRight size={15} />
-                </button>
-              ))}
-            </div>
-            <div id="meeting-preparation" className="ws-meeting-detail" key={meeting.time}>
-              <div className="ws-person">
-                <span>{meeting.initials}</span>
-                <div>
-                  <strong>{meeting.person}</strong>
-                  <small>{meeting.role}</small>
-                </div>
-              </div>
-              <p>{meeting.context}</p>
-              <div className="ws-review">
-                <span className="ws-label">Before the call</span>
-                <p>{meeting.review}</p>
-              </div>
-              <div className="ws-sources">
-                {meeting.sources.map((source) => (
-                  <span key={source}>
-                    <FileText size={12} />
-                    {source}
-                  </span>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 const providers = [
   {
     name: "ChatGPT",
-    icon: Sparkles,
+    icon: ChatGPTLogo,
     method: "Sign in with your ChatGPT account",
     detail: "Connect your account during setup and choose a model for your workers.",
     kind: "Account",
@@ -760,7 +555,7 @@ const providers = [
   },
   {
     name: "Claude",
-    icon: Sparkles,
+    icon: ClaudeLogo,
     method: "Sign in with your Claude account",
     detail: "Connect your account during setup. Claude sign-in uses paid extra usage.",
     kind: "Account",

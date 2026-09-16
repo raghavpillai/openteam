@@ -45,7 +45,9 @@ visible and editable; avoid a brain animation or claims about model training.
 
 ## Leave recurring work to your team
 
-The example is a daily meeting brief owned by the Chief of staff worker.
+The example is a daily meeting brief owned by the Chief of staff worker. Show it
+in the actual chat layout: a generated scheduling question, the routine-created
+event, then the delivered brief with a markdown attachment that opens.
 
 - Show the routine name "Today's meetings" and a weekday morning schedule.
 - Show the workflow: today's calendar, previous conversations, preparation brief.

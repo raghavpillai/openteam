@@ -142,12 +142,12 @@
   font-weight: 400;
   margin-top: 3px;
 }
-.ws-roster button > svg {
+.ws-roster button > svg:not(.robot-avatar) {
   margin-left: auto;
   color: #abb0a4;
   transition: transform 0.3s;
 }
-.ws-roster button[aria-pressed="true"] > svg {
+.ws-roster button[aria-pressed="true"] > svg:not(.robot-avatar) {
   transform: translateX(3px);
   color: #3c4939;
 }
@@ -1691,7 +1691,7 @@ html[data-page-hidden] .ot-home *,
   .ws-roster button[aria-pressed="true"] {
     padding-left: 5px;
   }
-  .ws-roster button > svg {
+  .ws-roster button > svg:not(.robot-avatar) {
     display: none;
   }
   .ws-roster button > span {

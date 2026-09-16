@@ -6,67 +6,299 @@
   position: relative;
   transition: background 250ms ease;
 }
-.ot-home .ot-proof-strip > a:hover { background: #f1f4ee; }
+.ot-home .ot-proof-strip > a:hover {
+  background: #f1f4ee;
+}
 .ot-home .ot-proof-strip > a > svg:first-child {
-  transition: color 250ms ease, transform 350ms ease;
+  transition:
+    color 250ms ease,
+    transform 350ms ease;
 }
 .ot-home .ot-proof-strip > a:hover > svg:first-child {
   color: #1e6b52;
   transform: translateY(-2px);
 }
 .ot-home .pd-showcase {
-  box-shadow: 0 2px 4px #17241505, 0 25px 70px -35px #17241530;
+  box-shadow:
+    0 2px 4px #17241505,
+    0 25px 70px -35px #17241530;
 }
-.ot-home .pd-scenarios { background: #f5f6f3; }
-.ot-home .pd-scenario { transition: color 220ms, background 220ms, box-shadow 220ms; }
-.ot-home .pd-scenario.is-selected { box-shadow: 0 1px 4px #0000000b; }
+.ot-home .pd-scenarios {
+  background: #f5f6f3;
+}
+.ot-home .pd-scenario {
+  transition:
+    color 220ms,
+    background 220ms,
+    box-shadow 220ms;
+}
+.ot-home .pd-scenario.is-selected {
+  box-shadow: 0 1px 4px #0000000b;
+}
 .ot-home .ot-control-stage {
   transform: none;
   background: radial-gradient(ellipse at 20% 0, #fff, #f3f5f0 80%);
   border-radius: 22px;
-  box-shadow: inset 0 1px 0 #fff, 0 24px 55px -45px #26382655;
+  box-shadow:
+    inset 0 1px 0 #fff,
+    0 24px 55px -45px #26382655;
 }
-.ot-control-stage .dc-window { border-radius: 13px; background: #fff; }
-.ot-control-stage .dc-chat-content { padding-top: 18px; }
+.ot-control-stage .dc-window {
+  border-radius: 13px;
+  background: #fff;
+}
+.ot-control-stage .dc-chat-content {
+  padding-top: 18px;
+}
 .dc-chat-header .dc-live-status {
   margin-left: auto;
   color: #90938d;
   font-size: 12px;
   font-weight: 400;
 }
-.dc-activity-slot { min-height: 20px; padding: 1px 3px; }
-.dc-live-activity { display: inline-flex; align-items: center; gap: 7px; color: #8d9386; font-size: 12px; animation: polish-arrive 350ms ease both; }
-.dc-live-activity .lucide-loader-circle { animation: polish-spin 1.5s linear infinite; }
-.ot-control-stage .dc-handoff-card { transition: opacity 450ms ease, transform 550ms cubic-bezier(.22,1,.36,1); }
-.ot-control-stage .dc-handoff-card[data-visible="false"] { opacity: 0; transform: translateY(10px); pointer-events: none; }
-.ot-control-stage .dc-handoff-card[data-visible="true"] { opacity: 1; transform: translateY(0); }
-.ot-control-stage .dc-handoff-actions button:last-child { box-shadow: 0 3px 7px #0002; }
-.ot-control-stage .dc-handoff-actions button { transition: background 200ms, box-shadow 200ms; }
-.dm-mobile-autoplay { min-width: 0; width: 100%; }
-.dm-mobile-autoplay .dm-bubble { transition: opacity 350ms, transform 450ms cubic-bezier(.22,1,.36,1); }
-.dm-mobile-autoplay .dm-bubble[data-visible="false"] { opacity: 0; transform: translateY(12px) scale(.97); }
-.dm-mobile-autoplay .dm-bubble[data-visible="true"] { opacity: 1; transform: translateY(0) scale(1); }
-.dm-mobile-autoplay .dm-attachment { position: relative; overflow: hidden; }
-.dm-mobile-autoplay[data-mobile-stage="2"] .dm-attachment::after {
-  content: ""; position: absolute; bottom: 0; left: 0; width: 100%; height: 2px;
-  background: #78a18e; transform-origin: left; animation: polish-save 1.3s ease both;
+.dc-activity-slot {
+  min-height: 20px;
+  padding: 1px 3px;
 }
-.ot-home .ot-desktop-receipt { border-color: #e1e6dc; box-shadow: 0 6px 8px -6px #0001, 0 22px 45px -24px #1c361b30; }
-.ot-home .dm-phone-frame { box-shadow: 0 0 0 1px #ffffff33, 4px 8px 0 -2px #858a8170, 0 35px 65px -25px #26342350; }
-.ot-home .ot-faq-trigger { transition: color 200ms, padding 200ms; }
-.ot-home .ot-faq-trigger:hover { color: #38745f; }
-.ot-install-steps li { position: relative; transition: opacity 400ms; }
-.ot-install-steps li::after { content: ""; position: absolute; left: 0; bottom: 0; width: 100%; height: 1px; background: #90b6a2; transform: scaleX(0); transform-origin: left; }
-.ot-install-card[data-playing="true"] .ot-install-steps li[data-active="true"]::after { animation: polish-save var(--cycle-duration) linear both; }
-.ot-install-steps li[data-done="true"]::after { transform: scaleX(1); opacity: .35; }
-.ot-install-step-number { transition: color 350ms, background 350ms, border-color 350ms, box-shadow 350ms; }
-.ot-install-steps li[data-active="true"] .ot-install-step-number { border-color: #8eaa9c; box-shadow: 0 0 0 4px #edf3ee; color: #36644b; }
-.ot-install-steps li[data-done="true"] .ot-install-step-number { background: #edf3ee; border-color: #dce8de; color: #42755a; }
-@keyframes polish-arrive { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
-@keyframes polish-spin { to { transform: rotate(360deg); } }
-@keyframes polish-save { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+.dc-live-activity {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: #8d9386;
+  font-size: 12px;
+  animation: polish-arrive 350ms ease both;
+}
+.dc-live-activity .lucide-loader-circle {
+  animation: polish-spin 1.5s linear infinite;
+}
+.ot-control-stage .dc-handoff-card {
+  transition:
+    opacity 450ms ease,
+    transform 550ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.ot-control-stage .dc-handoff-card[data-visible="false"] {
+  opacity: 0;
+  transform: translateY(10px);
+  pointer-events: none;
+}
+.ot-control-stage .dc-handoff-card[data-visible="true"] {
+  opacity: 1;
+  transform: translateY(0);
+}
+.ot-control-stage .dc-handoff-actions button:last-child {
+  box-shadow: 0 3px 7px #0002;
+}
+.ot-control-stage .dc-handoff-actions button {
+  transition:
+    background 200ms,
+    box-shadow 200ms;
+}
+.dm-mobile-autoplay {
+  min-width: 0;
+  width: 100%;
+}
+.dm-mobile-autoplay .dm-bubble {
+  transition:
+    opacity 350ms,
+    transform 450ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.dm-mobile-autoplay .dm-bubble[data-visible="false"] {
+  display: none;
+}
+.dm-mobile-autoplay .dm-bubble[data-visible="true"] {
+  animation: mobile-message-arrive 500ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.dm-mobile-autoplay .dm-attachment {
+  position: relative;
+  overflow: hidden;
+}
+.dm-mobile-autoplay[data-mobile-stage="2"] .dm-attachment::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  background: #78a18e;
+  transform-origin: left;
+  animation: polish-save 1.3s ease both;
+}
+.ot-home .ot-desktop-receipt {
+  border-color: #e1e6dc;
+  box-shadow:
+    0 6px 8px -6px #0001,
+    0 22px 45px -24px #1c361b30;
+}
+.ot-home .dm-phone-frame {
+  box-shadow:
+    0 0 0 1px #ffffff33,
+    4px 8px 0 -2px #858a8170,
+    0 35px 65px -25px #26342350;
+}
+.ot-home .ot-faq-trigger {
+  transition:
+    color 200ms,
+    padding 200ms;
+}
+.ot-home .ot-faq-trigger:hover {
+  color: #38745f;
+}
+.ot-install-steps li {
+  position: relative;
+  transition: opacity 400ms;
+}
+.ot-install-steps li::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 100%;
+  height: 1px;
+  background: #90b6a2;
+  transform: scaleX(0);
+  transform-origin: left;
+}
+.ot-install-card[data-playing="true"] .ot-install-steps li[data-active="true"]::after {
+  animation: polish-save var(--cycle-duration) linear both;
+}
+.ot-install-steps li[data-done="true"]::after {
+  transform: scaleX(1);
+  opacity: 0.35;
+}
+.ot-install-step-number {
+  transition:
+    color 350ms,
+    background 350ms,
+    border-color 350ms,
+    box-shadow 350ms;
+}
+.ot-install-steps li[data-active="true"] .ot-install-step-number {
+  border-color: #8eaa9c;
+  box-shadow: 0 0 0 4px #edf3ee;
+  color: #36644b;
+}
+.ot-install-steps li[data-done="true"] .ot-install-step-number {
+  background: #edf3ee;
+  border-color: #dce8de;
+  color: #42755a;
+}
+@keyframes polish-arrive {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes polish-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes polish-save {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+@keyframes mobile-message-arrive {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
 @media (max-width: 700px) {
-  .ot-home .ot-control-stage { padding: 14px; border-radius: 17px; }
-  .dc-chat-header .dc-live-status { font-size: 11px; }
-  .ot-home .ot-proof-strip > a { min-width: 0; }
+  .ot-home .ot-control-stage {
+    padding: 14px;
+    border-radius: 17px;
+  }
+  .dc-chat-header .dc-live-status {
+    font-size: 11px;
+  }
+  .ot-home .ot-proof-strip > a {
+    min-width: 0;
+  }
+}
+@media (max-width: 600px) {
+  .ot-home .ws-roster {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .ot-home .ws-roster button {
+    min-width: 0;
+  }
+  .ot-home .ws-roster button > .robot-avatar {
+    display: block;
+  }
+  .ot-home .ws-roster button > span {
+    width: 100%;
+    min-height: 2.5em;
+    white-space: normal;
+    font-size: 12px;
+    line-height: 1.25;
+  }
+}
+
+/* Phone layouts keep the working surfaces readable and easy to touch. */
+@media (max-width: 600px) {
+  .ot-home .ot-scene-copy > p,
+  .ot-home .ws-app-intro .ot-scene-copy > p,
+  .ot-home .mr-intro .ot-scene-copy > p {
+    font-size: 16px;
+    line-height: 1.7;
+    color: #62675e;
+  }
+  .ot-home .ws-machine .ot-scene-copy > p {
+    font-size: 16px;
+    color: #c1cec5;
+  }
+  .ot-home .ws-memory-scene .ot-scene-copy > p {
+    color: #716a60;
+  }
+  .ot-home .ws-roster button > span {
+    font-size: 14px;
+  }
+  .ot-home .ws-computer-workers button,
+  .ot-home .ws-provider-options button,
+  .ot-home .ws-memory-journey button,
+  .ot-home .mr-question-options button,
+  .ot-home .dc-handoff-actions button,
+  .ot-home .ws-memory-actions button {
+    min-height: 44px;
+    font-size: 14px;
+  }
+  .ot-home .ws-memory-file header button {
+    width: 44px;
+    height: 44px;
+    flex-shrink: 0;
+  }
+  .ot-home .ws-memory-content textarea {
+    font-size: 16px;
+  }
+  .ot-home .twd-live .twd-bubble {
+    font-size: 14px;
+    line-height: 1.55;
+  }
+  .ot-home .twd-live .twd-file strong {
+    font-size: 14px;
+  }
+  .ot-home .dc-chat-header .dc-live-status {
+    font-size: 12px;
+  }
+  .mr-preview-dialog > header button,
+  .twd-preview-dialog .twd-close,
+  .dc-viewer-header .dc-viewer-close {
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+    min-height: 44px;
+    flex-shrink: 0;
+  }
 }

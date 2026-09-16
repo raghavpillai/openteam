@@ -1296,3 +1296,38 @@
     transform: translateY(0);
   }
 }
+
+/* Only the active worker's output carries the shared-file highlight. */
+.ot-home .ws-machine .ws-workspace-file:not([data-current="true"]) {
+  background: transparent;
+  box-shadow: none;
+}
+.ot-home .ws-machine .ws-workspace-file:not([data-current="true"]):hover {
+  border-color: #d5dfcb;
+}
+
+/* Keep the entire physical card stack inside narrow viewports. */
+@media (max-width: 600px) {
+  .ot-home .ws-worker-deck {
+    width: calc(100% - 36px);
+  }
+  .ot-home .ws-worker-card {
+    animation-name: wp-worker-deal-mobile;
+  }
+  .ot-home .ws-deck-back-one {
+    transform: rotate(-1.5deg) translate(-4px, 5px);
+  }
+  .ot-home .ws-deck-back-two {
+    transform: rotate(1.25deg) translate(4px, -2px);
+  }
+}
+@keyframes wp-worker-deal-mobile {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

@@ -1,5 +1,5 @@
 import type { BotView, ChannelView, UpdateBotInput } from "@openteam/contracts";
-import { Plus } from "lucide-react";
+import { Plus, X } from "lucide-react";
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertDialog,
@@ -34,7 +34,9 @@ const RoutineEditor = lazy(() =>
 const RoutinesSummary = lazy(() =>
   import("./routine-summary").then((module) => ({ default: module.RoutinesSummary }))
 );
-const BotMemoryButton = lazy(() => import("./bot-memory").then((module) => ({ default: module.BotMemoryButton })));
+const BotMemoryButton = lazy(() =>
+  import("./bot-memory").then((module) => ({ default: module.BotMemoryButton }))
+);
 const GroupAvatarEditor = lazy(() =>
   import("./group-avatar-editor").then((module) => ({ default: module.GroupAvatarEditor }))
 );
@@ -163,7 +165,7 @@ function BotSettings({
           </Label>
           <Input
             aria-label="Bot name"
-            className="h-9 rounded-[7px] border-[#d9d9d9] px-2.5 text-[14px] shadow-none focus-visible:ring-0 dark:border-[#393939] dark:bg-[#181818]"
+            className="h-9 rounded-[7px] border-[#d9d9d9] px-2.5 text-[14px] shadow-none focus-visible:ring-0 dark:border-[#292929] dark:bg-transparent"
             id={`settings-name-${bot.id}`}
             onBlur={flush}
             onChange={(event) => queue({ ...draft, name: event.target.value })}
@@ -180,7 +182,7 @@ function BotSettings({
           </Label>
           <Input
             aria-label="Bot label"
-            className="h-9 rounded-[7px] border-[#d9d9d9] px-2.5 text-[14px] shadow-none focus-visible:ring-0 dark:border-[#393939] dark:bg-[#181818]"
+            className="h-9 rounded-[7px] border-[#d9d9d9] px-2.5 text-[14px] shadow-none focus-visible:ring-0 dark:border-[#292929] dark:bg-transparent"
             id={`settings-title-${bot.id}`}
             maxLength={120}
             onBlur={flush}
@@ -198,7 +200,7 @@ function BotSettings({
           </Label>
           <Textarea
             aria-label="Bot description"
-            className="min-h-20 resize-none rounded-[7px] border-[#d9d9d9] px-2.5 py-2 text-[14px] shadow-none focus-visible:ring-0 dark:border-[#393939] dark:bg-[#181818]"
+            className="min-h-20 resize-none rounded-[7px] border-[#d9d9d9] px-2.5 py-2 text-[14px] shadow-none focus-visible:ring-0 dark:border-[#292929] dark:bg-transparent"
             id={`settings-description-${bot.id}`}
             maxLength={2_000}
             onBlur={flush}
@@ -319,7 +321,7 @@ function GroupSettings({
             Name
           </Label>
           <Input
-            className="h-9 rounded-[7px] border-[#d9d9d9] px-2.5 text-[14px] shadow-none focus-visible:ring-0 dark:border-[#393939] dark:bg-[#181818]"
+            className="h-9 rounded-[7px] border-[#d9d9d9] px-2.5 text-[14px] shadow-none focus-visible:ring-0 dark:border-[#292929] dark:bg-transparent"
             id={`group-settings-name-${channel.id}`}
             maxLength={80}
             onBlur={flush}
@@ -335,7 +337,7 @@ function GroupSettings({
             Description
           </Label>
           <Textarea
-            className="min-h-20 resize-none rounded-[7px] border-[#d9d9d9] px-2.5 py-2 text-[14px] shadow-none focus-visible:ring-0 dark:border-[#393939] dark:bg-[#181818]"
+            className="min-h-20 resize-none rounded-[7px] border-[#d9d9d9] px-2.5 py-2 text-[14px] shadow-none focus-visible:ring-0 dark:border-[#292929] dark:bg-transparent"
             id={`group-settings-description-${channel.id}`}
             maxLength={2_000}
             onBlur={flush}
@@ -538,12 +540,12 @@ export const Inspector = memo(function Inspector({
                   </button>
                   <button
                     aria-label={`Remove ${member.name}`}
-                    className="mr-1 rounded-[7px] px-2 py-1 text-[11px] text-foreground-secondary opacity-0 outline-none transition-opacity hover:bg-black/[0.055] hover:text-foreground focus:opacity-100 focus-visible:ring-2 focus-visible:ring-ring/35 group-hover:opacity-100 disabled:pointer-events-none dark:hover:bg-white/[0.08]"
+                    className="mr-1 grid size-6 shrink-0 place-items-center rounded-[7px] text-foreground-secondary opacity-0 outline-none transition-opacity hover:bg-black/[0.055] hover:text-foreground focus:opacity-100 focus-visible:ring-2 focus-visible:ring-ring/35 group-hover:opacity-100 disabled:pointer-events-none dark:hover:bg-white/[0.08]"
                     disabled={members.length <= 1 || memberMutationPending}
                     onClick={() => setRemoveMemberTarget(member)}
                     type="button"
                   >
-                    Remove
+                    <X className="size-3.5" />
                   </button>
                 </div>
               ))}

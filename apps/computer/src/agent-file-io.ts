@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { HOST_TRANSFER_MAX_BYTES } from "@openteam/contracts/service-protocol";
 import { agentProcessIdentity, sanitizedAgentEnvironment } from "./agent-process";
+import { nodeBinary } from "./node-runtime";
 
 // File operations run as the same unprivileged user as Shell. Checking access
 // before doing privileged I/O would leave a symlink replacement race.
@@ -8,7 +9,8 @@ export const AGENT_FILE_IO_SCRIPT = String.raw`
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { once } = require('node:events');
+const { Transform, Writable } = require('node:stream');
+const { pipeline } = require('node:stream/promises');
 const cancellation = new AbortController();
 process.on('SIGTERM', () => { cancellation.abort(); process.stdin.destroy(new Error('File transfer cancelled')); });
 (async () => {
@@ -16,14 +18,32 @@ process.on('SIGTERM', () => { cancellation.abort(); process.stdin.destroy(new Er
  if (mode === 'read') {
    const file = await fs.open(target, 'r');
    try { const stat = await file.stat(); if (!stat.isFile() || stat.size > limit) throw Error('Source must be a regular file within the transfer size limit');
-     let size = 0; for await (const bytes of file.createReadStream({ autoClose: false, signal: cancellation.signal })) { size += bytes.length; if (size > limit) throw Error('File exceeds transfer limit'); if (!process.stdout.write(bytes)) await once(process.stdout, 'drain'); }
+     let size = 0;
+     const counted = new Transform({ transform(bytes, _encoding, done) { size += bytes.length; done(size > limit ? Error('File exceeds transfer limit') : null, bytes); } });
+     await pipeline(file.createReadStream({ autoClose: false }), counted, process.stdout, { signal: cancellation.signal });
    } finally { await file.close(); }
  } else {
    await fs.mkdir(path.dirname(target), {recursive:true});
    const temporary = path.join(path.dirname(target), '.openteam-transfer-' + crypto.randomUUID());
    try {
      const file = await fs.open(temporary, 'wx', 0o600); let size = 0;
-     try { for await (const chunk of process.stdin) { size += chunk.length; if (size > limit) throw Error('File exceeds transfer limit'); await file.writeFile(chunk); } await file.sync(); }
+     try {
+       // Drain the final partial pipe chunk and verify the file before publishing it.
+       const output = new Writable({ write(chunk, _encoding, done) {
+         size += chunk.length;
+         if (size > limit) { done(Error('File exceeds transfer limit')); return; }
+         (async () => {
+           let offset = 0;
+           while (offset < chunk.length) {
+             const { bytesWritten } = await file.write(chunk, offset, chunk.length - offset, size - chunk.length + offset);
+             if (!bytesWritten) throw Error('File write made no progress');
+             offset += bytesWritten;
+           }
+         })().then(() => done(), done);
+       } });
+       await pipeline(process.stdin, output, { signal: cancellation.signal }); await file.sync();
+       if ((await file.stat()).size !== size) throw Error('Incomplete file transfer');
+     }
      finally { await file.close(); }
      cancellation.signal.throwIfAborted(); await fs.rename(temporary, target);
    } finally { await fs.rm(temporary, {force:true}); }
@@ -45,7 +65,7 @@ export function agentFileIO(
 ): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const child = spawn(
-      process.execPath,
+      nodeBinary(),
       ["-e", AGENT_FILE_IO_SCRIPT, mode, path, String(HOST_TRANSFER_MAX_BYTES)],
       {
         ...agentProcessIdentity(),

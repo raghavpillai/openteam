@@ -91,11 +91,9 @@
 .landing .ot-text-link { text-decoration: none; background-image: linear-gradient(currentColor,currentColor); background-repeat: no-repeat; background-position: left bottom; background-size: 0 1px; transition: background-size 260ms cubic-bezier(.22,1,.36,1); }
 .landing .ot-text-link:hover { background-size: 100% 1px; }
 .landing .ot-proof-strip > a > svg, .landing .ot-provider-logo { transform: none; }
-@media (prefers-reduced-motion: no-preference) {
-  .ot-mobile-menu[open] nav { animation: ot-image-wipe-right 180ms cubic-bezier(.22,1,.36,1); }
-  .ot-title-line > span { animation: ot-title-uncover 660ms cubic-bezier(.22,1,.36,1) both; }
-  .ot-title-line + .ot-title-line > span { animation-delay: 85ms; }
-}
+.ot-mobile-menu[open] nav { animation: ot-image-wipe-right 180ms cubic-bezier(.22,1,.36,1); }
+.ot-title-line > span { animation: ot-title-uncover 660ms cubic-bezier(.22,1,.36,1) both; }
+.ot-title-line + .ot-title-line > span { animation-delay: 85ms; }
 @media (max-width: 850px) {
   .ot-worker-panel-copy { padding-top: 0; }
   .ot-worker-stage .ot-worker-panel { padding-top: 28px; }
@@ -110,10 +108,6 @@
   .pl-description { min-height: 48px; }
 }
 [data-page-hidden] * { animation-play-state: paused !important; }
-@media (prefers-reduced-motion: reduce) {
-  .ot-grid-signal { display: none; }
-  .landing *, .pl-lightbox, .pl-lightbox-backdrop { animation: none !important; transition-duration: .01ms !important; }
-}
 
 /* Touch targets expand without changing the desktop app recreation. */
 @media (pointer: coarse) {

@@ -80,6 +80,7 @@ import { normalizeClientSnapshot } from "./snapshot";
 export interface OpenTeamClientOptions extends OpenTeamTransportOptions {
   createId?: () => string;
   timeZone?: () => string;
+  sourceMachineId?: () => string | undefined;
   /** Use long polling where fetch does not expose an incrementally readable SSE body. */
   eventTransport?: "stream" | "long-poll";
 }
@@ -169,10 +170,11 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
         body: audio,
         signal,
       }),
-    machines: () => transport.request<Array<{machineId:string;label:string;bridgeUrl:string;connected:boolean;enabled:boolean}>>("/api/v0/server-settings/machines"),
+    machines: () => transport.request<Array<{machineId:string;label:string;bridgeUrl:string|null;transport?:string;localToolPermission?:string;connected:boolean;enabled:boolean}>>("/api/v0/server-settings/machines"),
     computerDisplay: () => transport.request<{width:number;height:number}>("/api/v0/server-settings/computer-display"),
     saveComputerDisplay: (value:{width:number;height:number}) => transport.request<{width:number;height:number}>("/api/v0/server-settings/computer-display",{method:"PATCH",body:JSON.stringify(value)}),
     registerMachine: (bridgeUrl:string) => transport.request("/api/v0/server-settings/machines",{method:"POST",body:JSON.stringify({bridgeUrl})}),
+    setMachineEnabled: (machineId:string, enabled:boolean) => transport.request(`/api/v0/server-settings/machines/${encodeURIComponent(machineId)}`,{method:"PATCH",body:JSON.stringify({enabled})}),
     removeMachine: (machineId:string) => transport.request(`/api/v0/server-settings/machines/${encodeURIComponent(machineId)}`,{method:"DELETE"}),
     automationWebhooks: () => transport.request<AutomationWebhookView[]>("/api/v0/server-settings/automation-webhooks"),
     saveAutomationWebhook: (input: AutomationWebhookInput) => transport.request<AutomationWebhookView>("/api/v0/server-settings/automation-webhooks",{method:"POST",body:JSON.stringify(input)}),
@@ -585,8 +587,10 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
       replyToMessageId?: string,
       messageOptions?: SendMessageOptions
     ) => {
+      const sourceMachineId = options.sourceMachineId?.();
       const input: SendMessageInput = {
         content,
+        ...(sourceMachineId ? { sourceMachineId } : {}),
         attachments: [...attachments],
         replyToMessageId,
         ...(messageOptions?.richText ? { richText: messageOptions.richText } : {}),
@@ -609,8 +613,10 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
       replyToMessageId?: string,
       messageOptions?: SendMessageOptions
     ) => {
+      const sourceMachineId = options.sourceMachineId?.();
       const input: SendMessageInput = {
         content,
+        ...(sourceMachineId ? { sourceMachineId } : {}),
         attachments: [...attachments],
         replyToMessageId,
         ...(messageOptions?.richText ? { richText: messageOptions.richText } : {}),

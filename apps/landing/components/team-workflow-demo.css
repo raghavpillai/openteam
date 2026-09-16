@@ -460,12 +460,6 @@
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .twd-file {
-    transition: none;
-  }
-}
-
 /* Reserve the final conversation's height while messages arrive, so the page
    does not shift beneath the reader or a pointer over an attachment. */
 .twd-message[data-revealed] > .twd-agent-row {
@@ -529,11 +523,6 @@
   0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
   30% { transform: translateY(-3px); opacity: 1; }
 }
-@media (prefers-reduced-motion: reduce) {
-  .twd-message[data-revealed] > .twd-agent-row { transition: none; }
-  .twd-typing-bubble i { animation: none; }
-  .twd-file:hover { transform: none; }
-}
 
 .twd-preview-backdrop {
   transition: opacity 180ms ease;
@@ -549,8 +538,4 @@
 .twd-preview-dialog[data-ending-style] {
   opacity: 0;
   transform: translate(-50%, calc(-50% + 8px)) scale(0.985);
-}
-@media (prefers-reduced-motion: reduce) {
-  .twd-preview-backdrop,
-  .twd-preview-dialog { transition: none; }
 }

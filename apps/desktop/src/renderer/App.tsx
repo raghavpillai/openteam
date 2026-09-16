@@ -447,14 +447,15 @@ export default function App() {
     [handleStandardBotRowAction]
   );
 
-  const createNewBot = useCallback(async () => {
+  const createNewBot = useCallback(async (requestedName?: string) => {
     if (creatingBot.current) return;
     creatingBot.current = true;
     setNewBotPicker(false);
-    setPendingBot({ name: "New Bot" });
+    const name = requestedName?.trim() || "New Bot";
+    setPendingBot({ name });
     try {
       const bot = await mutate(() =>
-        api.createBot({ clientRequestId: crypto.randomUUID(), name: "New Bot" })
+        api.createBot({ clientRequestId: crypto.randomUUID(), name })
       );
       setInspectorMode("summary");
       setDetailsOpen(false);
@@ -1135,7 +1136,7 @@ export default function App() {
                 botById={index.botById}
                 channels={visibleChannels}
                 onCancel={() => setNewBotPicker(false)}
-                onCreateBot={() => void createNewBot()}
+                onCreateBot={(name) => void createNewBot(name)}
                 onGroupModeChange={setNewChatGroup}
                 onCreateGroup={(botIds) => mutate(() => api.createGroup({ name: botIds.map((id) => index.botById.get(id)?.name ?? "Bot").join(", ").slice(0, 120), botIds }))}
                 onSelect={selectSidebarChannel}

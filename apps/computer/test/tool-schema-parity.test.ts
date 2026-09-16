@@ -5,6 +5,7 @@ import type { ActiveTurn } from "../src/runtime/types";
 import { objectToolSchema } from "../src/tool-schema";
 import reference from "../../../packages/contracts/src/tool-reference.json";
 import { referenceTool } from "@openteam/contracts/tool-contracts";
+import { READ_SIBLING_THREAD_TOOL } from "@openteam/contracts/sibling-threads";
 
 // The baseline is extracted from the captured external tool catalog, not our handlers.
 describe("captured tool contract wiring", () => {
@@ -45,6 +46,18 @@ describe("captured tool contract wiring", () => {
     expect(reference.browser_mouse_click_xy.inputSchema.properties.holdDurationMs.maximum).toBe(
       30_000
     );
+  });
+
+  test("sibling history is discoverable by parents and absent from subagent catalogs", () => {
+    const runtime=new RuntimeTools({} as never,"http://unused.invalid","test","/tmp","/tmp");
+    const base={runtimeProfile:"agent",pluginNamespaces:[]} as unknown as ActiveTurn;
+    const tools=(active:ActiveTurn)=>(runtime as any).dynamicCatalog(active).flatMap((namespace:any)=>namespace.tools);
+    const sibling=tools(base).find((tool:any)=>tool.name==="read_sibling_thread");
+    expect(sibling.description).toBe(READ_SIBLING_THREAD_TOOL.description);
+    expect(sibling.inputSchema).toEqual(READ_SIBLING_THREAD_TOOL.inputSchema);
+    expect(sibling.decodeArguments({session_id:" sibling "})).toEqual({session_id:"sibling",limit:20});
+    expect(()=>sibling.decodeArguments({session_id:"sibling",limit:51})).toThrow();
+    expect(tools({...base,runtimeProfile:"subagent",subagentType:"executor"}).some((tool:any)=>tool.name==="read_sibling_thread")).toBe(false);
   });
 
   test("distinguishes an omitted required list from an explicit empty list", () => {

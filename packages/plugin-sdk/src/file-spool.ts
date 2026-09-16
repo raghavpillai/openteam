@@ -20,7 +20,13 @@ export async function spoolFile(source: AsyncIterable<Uint8Array> | ReadableStre
         const abort=()=>{void reader.cancel(options.signal?.reason).catch(()=>{});};
         options.signal?.addEventListener("abort",abort,{once:true});
         try {options.signal?.throwIfAborted();for(;;){const item=await reader.read();if(item.done)break;yield item.value;}}
-        finally {options.signal?.removeEventListener("abort",abort);await reader.cancel().catch(()=>{});reader.releaseLock?.();}
+        finally {
+          options.signal?.removeEventListener("abort",abort);
+          await reader.cancel().catch(()=>{});
+          // Bun can throw from releaseLock on a closed native HTTP body. The
+          // reader is already cancelled; cleanup must not discard verified bytes.
+          try { reader.releaseLock(); } catch { /* No remaining source work. */ }
+        }
       }
       else yield* source;
     };
@@ -28,12 +34,19 @@ export async function spoolFile(source: AsyncIterable<Uint8Array> | ReadableStre
       options.signal?.throwIfAborted();
       sizeBytes+=chunk.length;
       if(sizeBytes>(options.sizeBytes ?? options.maxBytes ?? Number.MAX_SAFE_INTEGER)) throw new Error("Transfer exceeds the declared size");
-      hash.update(chunk); await file.writeFile(chunk);
+      hash.update(chunk);
+      let offset=0;
+      while(offset<chunk.length){
+        const {bytesWritten}=await file.write(chunk,offset,chunk.length-offset,sizeBytes-chunk.length+offset);
+        if(!bytesWritten)throw new Error("Staging write made no progress");
+        offset+=bytesWritten;
+      }
     }
     options.signal?.throwIfAborted();
     const sha256=hash.digest("hex");
     if(options.sizeBytes!==undefined&&options.sizeBytes!==sizeBytes || options.sha256!==undefined&&options.sha256!==sha256) throw new Error("Staged file bytes changed after review");
     await file.sync();
+    if((await file.stat()).size!==sizeBytes)throw new Error("Incomplete staged file");
     return {path,sizeBytes,sha256,cleanup};
   } catch(error) {await cleanup();throw error;}
   finally {await file?.close();}

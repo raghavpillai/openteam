@@ -1,5 +1,5 @@
 import { createOpenTeamClient } from "@openteam/client-core";
-import { authHeaders } from "./auth";
+import { authHeaders, getDesktopMachineId } from "./auth";
 import { API_BASE, desktopTransportOptions } from "./http";
 
 const localTimeZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
@@ -9,6 +9,7 @@ export const openTeamClient = createOpenTeamClient({
   ...desktopTransportOptions,
   createId: () => crypto.randomUUID(),
   timeZone: localTimeZone,
+  sourceMachineId: getDesktopMachineId,
 });
 
 export type { ChannelClientState, ClientBootstrapView } from "@openteam/contracts";

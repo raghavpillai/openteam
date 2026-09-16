@@ -6,6 +6,8 @@ import { refreshMemoryViews } from "../../src/renderer/lib/memory-events";
 
 if (window.openteam) throw new Error("Use an isolated synthetic fixture window");
 let offline = false;
+let delayReadsUntil = 0;
+let failNextDelete = false;
 const facts: Record<string, BotMemoryEntry[]> = {
   a: [
     {
@@ -31,6 +33,13 @@ window.fetch = async (input, init) => {
   const match = path.match(/^\/api\/v0\/bots\/(a|b)\/memories(?:\/([^/]+))?$/);
   if (!match) throw new Error("No external requests allowed in this fixture");
   const id = match[1]!;
+  if (init?.method !== "DELETE" && delayReadsUntil > Date.now()) {
+    await new Promise((resolve) => setTimeout(resolve, delayReadsUntil - Date.now()));
+  }
+  if (init?.method === "DELETE" && failNextDelete) {
+    failNextDelete = false;
+    throw new Error("Synthetic delete failed. Saved memories are unchanged.");
+  }
   if (init?.method === "DELETE")
     facts[id] = match[2] ? facts[id]!.filter((fact) => fact.id !== match[2]) : [];
   return Response.json({ botId: id, memories: facts[id], total: facts[id]!.length, limit: 1000 });
@@ -65,6 +74,20 @@ function Fixture() {
         </p>
         <div className="flex flex-wrap gap-3 text-sm">
           <button onClick={() => setTimeout(add, 3000)}>Save in background in 3 seconds</button>
+          <button
+            onClick={() => {
+              delayReadsUntil = Date.now() + 3000;
+            }}
+          >
+            Delay next read
+          </button>
+          <button
+            onClick={() => {
+              failNextDelete = true;
+            }}
+          >
+            Fail next delete
+          </button>
           <button
             onClick={() => {
               offline = !offline;

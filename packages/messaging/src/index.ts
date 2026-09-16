@@ -1,3 +1,5 @@
+import { listSiblingThreads } from "./sibling-threads";
+export { readSiblingThread } from "./sibling-threads";
 import { nextMessageAddress, resolveMessageAddress } from "./message-address";
 export { nextMessageAddress, resolveMessageAddress } from "./message-address";
 export { parseAutomationEvent, matchesAutomationEvent, type AutomationEvent } from "./automation-events";
@@ -1693,7 +1695,7 @@ export class AgentMessaging {
             sender: message.sender,
             senderId: message.senderBotId,
             senderName: message.senderBot?.name,
-            content: message.content,
+            content: message.content + (message.sender === "user" && typeof metadata.sourceMachineId === "string" && /^[\da-f]{8}(-[\da-f]{4}){3}-[\da-f]{12}$/i.test(metadata.sourceMachineId) ? `\n[Sent from machine ${metadata.sourceMachineId}]` : ""),
             hasImages: attachmentsFromMetadata(message.metadata).some(
               (attachment) => attachment.kind === "image"
             ),
@@ -2115,9 +2117,11 @@ export class AgentMessaging {
         : "No peer or group targets are currently available.",
       mcp_instructions: connectorInstructions,
     });
+    const siblings = await listSiblingThreads(this.prisma, botId, contextSessionId);
     const instructions = [
       frozen.sections.mcp_instructions,
       renderPlatformBaseSystemPrompt({ feedback: process.env.OPENTEAM_FEEDBACK_ALLOW_AGENT === "true" }),
+      siblings.length ? `Other active conversations (read with read_sibling_thread using session_id):\n${siblings.map(s => `- ${s.name}: ${s.sessionId}`).join("\n")}` : "",
       agentPrompt.profileSection,
       frozen.sections.agent_instructions,
       "Use GetDynamicTools with namespace cursor to discover SendToAgent, ListAgents/ListGroups, TodoWrite, Task/CheckSubagent/MessageSubagent/StopSubagent, CreateAgent/UpdateAgent, and CreateChannel/UpdateChannel. Invoke discovered tools with CallDynamicTool.",

@@ -20,6 +20,7 @@ import {
   Plus,
 } from "lucide-react";
 import { BotAvatar } from "./bot-avatar";
+import { useDemoCycle } from "./use-demo-cycle";
 import { DesktopPlusIcon, DesktopMicIcon } from "./desktop-demo-controls";
 import { Button } from "./ui/button";
 import "./app-demo-details.css";
@@ -29,16 +30,16 @@ type HandoffState = "requested" | "active" | "completed" | "skipped" | "dismisse
 // Presentational states mirror ComputerHandoffCard and BotScreen. The Linux
 // frame is captured from the real computer image with a local sample website.
 export function ComputerDemo() {
-  const showcase = useRef<HTMLDivElement>(null);
   const [state, setState] = useState<HandoffState>("requested");
+  const cycle = useDemoCycle(3, [1100, 1500, 12000], state === "requested");
+  const showcase = cycle.ref;
   const active = state === "active";
   const resolved = state !== "active" && state !== "requested";
   useEffect(() => {
     if (!resolved || !showcase.current) return;
-    const preference = window.matchMedia("(prefers-reduced-motion: reduce)");
     let inView = false;
     const panel = showcase.current.closest<HTMLElement>("[role='tabpanel']");
-    let remaining = 400;
+    let remaining = 7000;
     let began = 0;
     let timer: number | undefined;
     const stop = () => {
@@ -49,7 +50,7 @@ export function ComputerDemo() {
     };
     const sync = () => {
       stop();
-      if (!inView || document.hidden || preference.matches || panel?.hidden) return;
+      if (!inView || document.hidden || panel?.hidden) return;
       began = performance.now();
       timer = window.setTimeout(() => setState("requested"), remaining);
     };
@@ -61,13 +62,11 @@ export function ComputerDemo() {
     // Kept-mounted capability panels can intersect the viewport while hidden.
     const panelObserver = new MutationObserver(sync);
     if (panel) panelObserver.observe(panel, { attributes: true, attributeFilter: ["hidden"] });
-    preference.addEventListener("change", sync);
     document.addEventListener("visibilitychange", sync);
     return () => {
       stop();
       observer.disconnect();
       panelObserver.disconnect();
-      preference.removeEventListener("change", sync);
       document.removeEventListener("visibilitychange", sync);
     };
   }, [resolved]);
@@ -82,7 +81,7 @@ export function ComputerDemo() {
     return () => window.removeEventListener("keydown", close);
   }, [active]);
   return (
-    <div className="dc-demo" ref={showcase} data-handoff-state={state}>
+    <div className="dc-demo" ref={showcase} {...cycle.props} data-handoff-state={state} data-handoff-stage={cycle.index}>
       <div className="dc-window" aria-label="Desktop computer handoff demo">
         {active ? (
           <div
@@ -140,13 +139,19 @@ export function ComputerDemo() {
                 mode={resolved ? "thinking" : "idle"}
               />
               <strong>Research</strong>
+              <span className="dc-live-status">{resolved ? "Continuing the task" : cycle.index < 2 ? "Working…" : "Needs your input"}</span>
             </header>
             <div className="dc-chat-content" role="log" aria-live={resolved ? "polite" : "off"} aria-label="Sample handoff messages">
               <p className="dc-chat-date">Today 8:04 AM</p>
               <div className="dc-user-bubble">
                 Check the vendor dashboard and save a usage report.
               </div>
-              <section className="dc-handoff-card" aria-label="Computer handoff request">
+              <div className="dc-activity-slot">
+                <span className="dc-live-activity" key={cycle.index}>
+                  {cycle.index < 2 && !resolved ? <><LoaderCircle size={13} />{cycle.index === 0 ? "Opening the vendor dashboard" : "Sign-in required"}</> : <><MonitorUp size={13} />Your computer is ready</>}
+                </span>
+              </div>
+              <section className="dc-handoff-card" aria-label="Computer handoff request" data-visible={resolved || cycle.index === 2} aria-hidden={!resolved && cycle.index < 2} inert={!resolved && cycle.index < 2}>
                 <div className="dc-handoff-copy">
                   <MonitorUp size={16} />
                   <div>
@@ -189,9 +194,6 @@ export function ComputerDemo() {
             </div>
           </section>
         )}
-      </div>
-      <div className="dc-demo-caption">
-        <span>{state === "requested" ? "Try Take over to open the screen." : "Desktop handoff · Sample sign-in"}</span>
       </div>
     </div>
   );
@@ -424,8 +426,10 @@ export function MemoryDemo() {
 
 // Dimensions match the native 390pt chat UI, uniformly scaled by its frame.
 export function MobileDemo() {
+  const cycle = useDemoCycle(5, [1300, 1400, 2000, 1700, 8500]);
   return (
-    <figure className="dm-mobile-scene">
+    <div ref={cycle.ref} {...cycle.props} className="dm-mobile-autoplay" data-mobile-stage={cycle.index}>
+    <figure className="dm-mobile-scene" aria-label="Example OpenTeam conversation on iPhone">
       <div className="dm-phone-frame">
         <div className="dm-phone">
           <div className="dm-status">
@@ -448,8 +452,8 @@ export function MobileDemo() {
           <div className="dm-messages">
             <time>Today, 9:41 AM</time>
             <div className="dm-bubble dm-user">Which vendor do you recommend?</div>
-            <div className="dm-bubble">Northstar includes SSO and costs the least.</div>
-            <div className="dm-bubble">
+            <div className="dm-bubble" data-visible={cycle.index >= 1}>Northstar includes SSO and costs the least.</div>
+            <div className="dm-bubble" data-visible={cycle.index >= 2}>
               I saved the comparison in vendor-review.md.
               <div className="dm-attachment">
                 <FileText size={22} />
@@ -459,8 +463,8 @@ export function MobileDemo() {
                 </span>
               </div>
             </div>
-            <div className="dm-bubble dm-user">Check their pricing every Monday at 9 AM.</div>
-            <div className="dm-bubble">Scheduled. I’ll update the comparison.</div>
+            <div className="dm-bubble dm-user" data-visible={cycle.index >= 3}>Check their pricing every Monday at 9 AM.</div>
+            <div className="dm-bubble" data-visible={cycle.index >= 4}>Scheduled. I’ll update the comparison.</div>
           </div>
           <div className="dm-composer-row">
             <span className="dm-circle">
@@ -476,7 +480,7 @@ export function MobileDemo() {
           <div className="dm-home" />
         </div>
       </div>
-      <figcaption className="dm-phone-caption">iPhone chat · Sample conversation</figcaption>
     </figure>
+    </div>
   );
 }

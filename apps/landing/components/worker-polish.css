@@ -1,0 +1,1298 @@
+/* Small working details make these surfaces feel like a product in use. */
+.ot-home .ws-studio-body {
+  gap: clamp(35px, 6vw, 90px);
+}
+.ot-home .ws-presence {
+  display: inline-flex;
+  gap: 4px;
+}
+.ot-home .ws-presence i {
+  width: 4px;
+  height: 4px;
+  box-shadow: none;
+  animation: wp-presence 2.4s ease-in-out infinite;
+  animation-play-state: paused;
+}
+.ot-home .ws-presence i:nth-child(2) {
+  animation-delay: 0.3s;
+}
+.ot-home .ws-presence i:nth-child(3) {
+  animation-delay: 0.6s;
+}
+.ot-home .ws-studio[data-playing="true"] .ws-presence i {
+  animation-play-state: running;
+}
+.ot-home .ws-worker-deck {
+  max-width: 490px;
+  width: 100%;
+  justify-self: center;
+}
+.ot-home .ws-deck-back-one {
+  background: linear-gradient(135deg, #f0f2e9, #fbfcf9);
+  transform: rotate(-5deg) translate(-12px, 7px);
+  transition: background 0.8s;
+}
+.ot-home .ws-deck-back-two {
+  background: color-mix(in srgb, var(--worker-color) 8%, #fff);
+  transform: rotate(4deg) translate(10px, -2px);
+  transition: background 0.8s;
+}
+.ot-home .ws-worker-card {
+  min-height: 0;
+  padding: 24px 29px 0;
+  border-color: #e0e3d9;
+  box-shadow:
+    0 30px 55px -37px #24352055,
+    0 3px 9px #25341906;
+  overflow: hidden;
+}
+.ot-home .ws-worker-card-top {
+  margin-bottom: 25px;
+  font-size: 12px;
+}
+.ot-home .ws-worker-identity {
+  display: flex;
+  gap: 17px;
+  align-items: center;
+  margin-bottom: 26px;
+}
+.ot-home .ws-worker-portrait {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 82px;
+  height: 82px;
+  flex-shrink: 0;
+  border-radius: 24px;
+  background: color-mix(in srgb, var(--worker-color) 8%, white);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--worker-color) 12%, white);
+}
+.ot-home .ws-worker-portrait > i {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  border: 3px solid white;
+  border-radius: 50%;
+  background: #5e9775;
+  bottom: 5px;
+  right: 5px;
+  box-sizing: content-box;
+}
+.ot-home .ws-worker-identity h3 {
+  margin: 0 0 7px;
+  font-size: clamp(20px, 2.3vw, 27px);
+  line-height: 1.15;
+  letter-spacing: -0.8px;
+}
+.ot-home .ws-worker-identity > div > span {
+  font-size: 12px;
+  color: #89947e;
+}
+.ot-home .ws-worker-instructions {
+  padding: 17px 18px;
+  border: 1px solid #eaede4;
+  border-radius: 8px;
+  background: linear-gradient(120deg, #f8f9f5, #fcfdfa);
+}
+.ot-home .ws-worker-instructions .ws-label {
+  font-size: 12px;
+  color: #778168;
+}
+.ot-home .ws-worker-instructions p {
+  font-size: 13px;
+  line-height: 1.7;
+  min-height: 67px;
+  margin-top: 6px;
+  color: #626957;
+}
+.ot-home .ws-worker-card .ws-connected {
+  margin: 19px 0 24px;
+}
+.ot-home .ws-worker-card .ws-connected .ws-label {
+  font-size: 12px;
+  color: #778168;
+}
+.ot-home .ws-worker-card .ws-connected > div {
+  gap: 5px;
+}
+.ot-home .ws-worker-card .ws-connected > div span {
+  border: 0;
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: #f0f3eb;
+  font-size: 12px;
+  color: #7c866e;
+}
+.ot-home .ws-worker-result {
+  margin: 0 -29px;
+  padding: 17px 24px 21px;
+  border-radius: 0;
+  background: #fbfcf8;
+}
+.ot-home .ws-task-status {
+  position: relative;
+  display: flex;
+  justify-content: space-between;
+  height: 20px;
+  font-size: 12px;
+  color: #78866a;
+}
+.ot-home .ws-task-status > span {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.ot-home .ws-task-working {
+  animation: wp-working 8.2s both paused;
+}
+.ot-home .ws-task-finished {
+  position: absolute;
+  left: 0;
+  top: 0;
+  color: #6a8955;
+  animation: wp-finished 8.2s both paused;
+}
+.ot-home .ws-activity-dots,
+.ot-home .ws-live-task-working {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+.ot-home .ws-activity-dots i,
+.ot-home .ws-live-task-working i {
+  width: 3px;
+  height: 3px;
+  background: currentColor;
+  border-radius: 50%;
+  animation: wp-typing 1.2s ease-in-out infinite paused;
+}
+.ot-home .ws-activity-dots i:nth-child(2),
+.ot-home .ws-live-task-working i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.ot-home .ws-activity-dots i:nth-child(3),
+.ot-home .ws-live-task-working i:nth-child(3) {
+  animation-delay: 0.3s;
+}
+.ot-home .ws-studio[data-playing="true"] .ws-task-working,
+.ot-home .ws-studio[data-playing="true"] .ws-task-finished,
+.ot-home .ws-studio[data-playing="true"] .ws-activity-dots i {
+  animation-play-state: running;
+}
+.ot-home .ws-worker-result > p {
+  font-size: 12px;
+  font-weight: 500;
+  color: #5b654e;
+  line-height: 1.5;
+  margin: 3px 0 12px;
+}
+.ot-home .ws-result-file {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid #e3e8d9;
+  background: #fff;
+  border-radius: 7px;
+  padding: 11px 12px;
+  text-align: left;
+  transition:
+    transform 0.2s,
+    border-color 0.2s,
+    box-shadow 0.2s;
+}
+.ot-home .ws-result-file:hover {
+  transform: translateY(-2px);
+  border-color: #b7c6a8;
+  box-shadow: 0 4px 10px #24331a08;
+}
+.ot-home .ws-result-file > span {
+  width: 31px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  background: #f3f5ed;
+  border-radius: 5px;
+  color: #8b9d76;
+  flex-shrink: 0;
+}
+.ot-home .ws-result-file > strong {
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.ot-home .ws-result-file small {
+  display: block;
+  color: #758269;
+  font-size: 12px;
+  font-weight: 400;
+  margin-top: 1px;
+}
+.ot-home .ws-result-file > svg {
+  margin-left: auto;
+  color: #71865f;
+  transition: transform 0.2s;
+}
+.ot-home .ws-result-file[aria-expanded="true"] > svg {
+  transform: rotate(90deg);
+}
+.ot-home .ws-result-preview {
+  display: grid;
+  gap: 8px;
+  list-style: none;
+  padding: 14px 2px 0;
+  margin: 0;
+  font-size: 12px;
+  color: #7b876f;
+  animation: wp-arrive 0.35s both;
+}
+.ot-home .ws-result-preview li {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+/* A worker's screen is active; the shared files reflect the work happening on it. */
+.ot-home .ws-machine {
+  background: radial-gradient(ellipse at 90% 0, #2e3b32, transparent 70%), #171e1b;
+}
+.ot-home .ws-machine .ws-computer {
+  box-shadow:
+    0 15px 55px #0005,
+    0 0 0 1px #ffffff06;
+}
+.ot-home .ws-screen-view {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+.ot-home .ws-screen-view .ws-screen-capture {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.ot-home .ws-live-cursor {
+  position: absolute;
+  top: 32%;
+  left: 40%;
+  z-index: 2;
+  color: #89ad79;
+  filter: drop-shadow(0 1px 1px #0005);
+  display: flex;
+  align-items: flex-start;
+  gap: 1px;
+  pointer-events: none;
+  animation: wp-cursor 8s cubic-bezier(0.3, 0.1, 0.25, 1) infinite paused;
+}
+.ot-home .ws-live-cursor > svg {
+  color: #f5fff0;
+  stroke: #426b39;
+}
+.ot-home .ws-live-cursor > span {
+  margin-top: 17px;
+  padding: 3px 6px;
+  border-radius: 0 4px 4px;
+  background: #668357;
+  color: white;
+  font-size: 12px;
+  line-height: 1.3;
+}
+.ot-home .ws-screen-live-task {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  bottom: 13px;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 11px 14px;
+  background: #fffffff2;
+  border: 1px solid #f7faf5;
+  border-radius: 8px;
+  box-shadow: 0 4px 22px #16271624;
+  backdrop-filter: blur(10px);
+  overflow: hidden;
+}
+.ot-home .ws-screen-live-task > div {
+  min-width: 0;
+}
+.ot-home .ws-screen-live-task strong {
+  display: block;
+  color: #46593c;
+  font-size: 12px;
+  font-weight: 500;
+}
+.ot-home .ws-screen-live-task > div > span {
+  display: block;
+  margin-top: 2px;
+  color: #909d86;
+  font-size: 12px;
+}
+.ot-home .ws-live-task-working {
+  margin-left: auto;
+  color: #88a372;
+  animation: wp-working 8s both paused;
+}
+.ot-home .ws-live-task-done {
+  position: absolute;
+  right: 17px;
+  color: #729758;
+  animation: wp-finished 8s both paused;
+}
+.ot-home .ws-screen-task-progress {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  width: 100%;
+  background: #91b277;
+  transform-origin: left;
+  animation: wp-screen-progress 8s ease-in-out both paused;
+}
+.ot-home .ws-machine[data-playing="true"] .ws-live-cursor,
+.ot-home .ws-machine[data-playing="true"] .ws-live-task-working,
+.ot-home .ws-machine[data-playing="true"] .ws-live-task-working i,
+.ot-home .ws-machine[data-playing="true"] .ws-live-task-done,
+.ot-home .ws-machine[data-playing="true"] .ws-screen-task-progress {
+  animation-play-state: running;
+}
+.ot-home .ws-desktop-tools {
+  display: flex;
+  align-items: center;
+  gap: 19px;
+  padding: 9px 13px;
+  background: #eff3ed;
+  color: #7e8b75;
+  border-top: 1px solid #e2e8db;
+  font-size: 12px;
+}
+.ot-home .ws-desktop-tools > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.ot-home .ws-desktop-tools .ws-desktop-live {
+  margin-left: auto;
+  color: #72915d;
+}
+.ot-home .ws-desktop-live i {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 0 3px #81a26114;
+}
+.ot-home .ws-machine .ws-workspace {
+  background: #f9fbf6;
+}
+.ot-home .ws-machine .ws-workspace-file {
+  position: relative;
+  padding-block: 11px;
+  padding-right: 20px;
+  transition:
+    background 0.5s,
+    box-shadow 0.5s;
+}
+.ot-home .ws-machine .ws-workspace-file[data-current="true"] {
+  background: linear-gradient(90deg, #eaf0e3, #f5f8f0);
+  box-shadow: inset 2px 0 #8dac75;
+}
+.ot-home .ws-file-writing {
+  color: #8ca378;
+  font-size: 12px;
+}
+.ot-home .ws-file-pulse {
+  position: absolute;
+  right: 8px;
+  top: 17px;
+  width: 4px;
+  height: 4px;
+  background: #7ea365;
+  border-radius: 50%;
+  animation: wp-file-pulse 2.2s ease-in-out infinite paused;
+}
+.ot-home .ws-machine[data-playing="true"] .ws-file-pulse {
+  animation-play-state: running;
+}
+
+/* Memory has a visible path from a message to a durable note and back. */
+.ot-home .ws-memory-scene {
+  background: radial-gradient(ellipse at 20% 85%, #f1e9dd, transparent 70%), #f8f5ef;
+}
+.ot-home .ws-memory-journey {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  margin: 0 0 24px;
+  width: 100%;
+}
+.ot-home .ws-memory-journey button {
+  flex: 1;
+  position: relative;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding: 9px 0;
+  border: 0;
+  border-bottom: 1px solid #dfd7c7;
+  background: transparent;
+  font-size: 12px;
+  color: #918164;
+  transition:
+    color 0.5s,
+    border-color 0.5s;
+  white-space: nowrap;
+}
+.ot-home .ws-memory-journey button > span {
+  width: 17px;
+  height: 17px;
+  display: grid;
+  place-items: center;
+  background: #e9e2d5;
+  border-radius: 50%;
+  font-size: 12px;
+  transition:
+    background 0.4s,
+    color 0.4s;
+}
+.ot-home .ws-memory-journey button[aria-pressed="true"] {
+  color: #77664a;
+  border-bottom-color: #9c8760;
+}
+.ot-home .ws-memory-journey button[aria-pressed="true"] > span {
+  background: #9c8760;
+  color: #fffdf8;
+}
+.ot-home .ws-memory-note {
+  background: #fffcf7;
+  border-radius: 12px 12px 3px 12px;
+  margin-bottom: 22px;
+  box-shadow: 0 6px 18px #71562c05;
+}
+.ot-home .ws-memory-scene .ws-memory-file {
+  border-radius: 10px;
+  background: #fffdf8;
+  box-shadow: 0 10px 30px -20px #80603435;
+}
+.ot-home .ws-memory-scene .ws-memory-file header {
+  background: #f9f6ef;
+  border-bottom-color: #eee7db;
+  color: #95866a;
+  font-size: 12px;
+}
+.ot-home .ws-memory-scene .ws-memory-content {
+  position: relative;
+  padding-left: 32px;
+}
+.ot-home .ws-memory-scene .ws-memory-content::before {
+  content: "";
+  position: absolute;
+  left: 18px;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: #f1e7d7;
+}
+.ot-home .ws-memory-scene .ws-saved-preference {
+  padding: 3px 5px;
+  margin-left: -5px;
+  color: #66583e;
+}
+.ot-home .ws-memory-scene .ws-memory-content .ws-label {
+  color: #8c7a5c;
+  font-size: 12px;
+}
+.ot-home .ws-memory-scene .ws-memory-shared {
+  color: #8d8068;
+  font-size: 12px;
+}
+.ot-home .ws-memory-file footer {
+  background: #fcfaf5;
+  border-top-color: #eee7da;
+}
+.ot-home .ws-memory-save-status {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  opacity: 0.3;
+  transition: opacity 0.6s;
+}
+.ot-home [data-memory-stage="1"] .ws-memory-save-status,
+.ot-home [data-memory-stage="2"] .ws-memory-save-status {
+  opacity: 1;
+  color: #8f9871;
+}
+.ot-home [data-memory-stage="0"] .ws-memory-note {
+  transform: translateY(-3px) rotate(1deg);
+}
+.ot-home [data-memory-stage="1"] .ws-memory-file {
+  transform: rotate(0deg) translateY(-3px);
+  box-shadow: 0 12px 34px -18px #80603445;
+}
+.ot-home .ws-memory-scene .ws-memory-recall {
+  margin-top: 24px;
+  opacity: 0.65;
+}
+.ot-home .ws-memory-scene[data-memory-stage="2"] .ws-memory-recall {
+  opacity: 1;
+}
+.ot-home .ws-memory-reply > div {
+  padding: 12px 15px 14px;
+  border: 1px solid transparent;
+  border-radius: 4px 13px 13px;
+  transition:
+    background 0.6s,
+    border-color 0.6s;
+}
+.ot-home [data-memory-stage="2"] .ws-memory-reply > div {
+  background: #fffaf0;
+  border-color: #e9dfcb;
+}
+.ot-home .ws-memory-reply blockquote {
+  margin-top: 9px;
+  padding-left: 9px;
+}
+
+/* One interchangeable model connection, feeding the same team. */
+.ot-home .ws-inference {
+  border-color: #e1e6d9;
+  background: #f7f9f3;
+  border-radius: 12px;
+  box-shadow: 0 13px 35px -25px #34472730;
+}
+.ot-home .ws-inference-header {
+  display: flex;
+  justify-content: space-between;
+  padding: 17px 21px 8px;
+  font-size: 12px;
+  color: #8f9b80;
+}
+.ot-home .ws-inference-header > span:first-child {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.ot-home .ws-inference-header > span:last-child {
+  color: #7e8c70;
+}
+.ot-home .ws-inference .ws-provider-options {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 5px;
+  padding: 12px 15px;
+}
+.ot-home .ws-inference .ws-provider-options button {
+  flex-direction: column;
+  gap: 9px;
+  padding: 12px 3px;
+  border-radius: 7px;
+  color: #89937b;
+  font-size: 12px;
+  position: relative;
+  transition:
+    color 0.3s,
+    background 0.3s,
+    border-color 0.3s,
+    transform 0.3s;
+}
+.ot-home .ws-inference .ws-provider-options button[aria-pressed="true"] {
+  border-color: color-mix(in srgb, var(--provider-color) 23%, white);
+  color: var(--provider-color);
+  background: #ffffff;
+  transform: translateY(-2px);
+  box-shadow: 0 5px 10px #28371a05;
+}
+.ot-home .ws-inference .ws-radio {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 10px;
+  height: 10px;
+  border: 0;
+  opacity: 0;
+}
+.ot-home .ws-inference [aria-pressed="true"] > .ws-radio {
+  background: var(--provider-color);
+  opacity: 1;
+}
+.ot-home .ws-inference .ws-radio svg {
+  width: 8px;
+  height: 8px;
+}
+.ot-home .ws-inference-bridge {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 15px 30px 25px;
+}
+.ot-home .ws-inference-source {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  color: var(--provider-color);
+  animation: wp-arrive 0.5s both;
+  min-width: 58px;
+}
+.ot-home .ws-inference-source > span {
+  font-size: 12px;
+  color: #879576;
+}
+.ot-home .ws-inference-source > svg {
+  box-sizing: content-box;
+  padding: 12px;
+  background: #fff;
+  border: 1px solid #e5eadc;
+  border-radius: 13px;
+}
+.ot-home .ws-inference-wire {
+  width: clamp(35px, 5vw, 90px);
+  margin: -12px 10px 0;
+  height: 1px;
+  background: #dce5d0;
+  position: relative;
+  overflow: visible;
+}
+.ot-home .ws-inference-wire i {
+  position: absolute;
+  width: 5px;
+  height: 5px;
+  left: 0;
+  top: -2px;
+  border-radius: 50%;
+  background: #829969;
+  box-shadow: 0 0 0 3px #8299690b;
+  animation: wp-model-packet 2.7s linear infinite paused;
+}
+.ot-home .ws-inference-wire i:last-child {
+  animation-delay: 1.35s;
+}
+.ot-home .ws-inference[data-playing="true"] .ws-inference-wire i {
+  animation-play-state: running;
+}
+.ot-home .ws-inference-workers {
+  display: flex;
+  align-items: center;
+  padding-bottom: 15px;
+}
+.ot-home .ws-inference-workers > .robot-avatar {
+  box-sizing: content-box;
+  border: 3px solid #f7f9f3;
+  background: #edf1e6;
+  border-radius: 50%;
+  padding: 4px;
+  margin-left: -5px;
+}
+.ot-home .ws-inference .ws-provider-detail {
+  padding: 20px 23px;
+  min-height: 128px;
+  align-items: center;
+  border-top-color: #e6eadf;
+  gap: 16px;
+}
+.ot-home .ws-inference .ws-provider-detail > div {
+  animation: wp-arrive 0.35s both;
+}
+.ot-home .ws-provider-kind {
+  display: inline-block;
+  font-size: 12px;
+  color: #788b67;
+  margin-bottom: 5px;
+}
+.ot-home .ws-inference .ws-provider-detail h3 {
+  font-size: 14px;
+  color: #526445;
+}
+.ot-home .ws-inference .ws-provider-detail p {
+  font-size: 12px;
+  color: #78856c;
+  line-height: 1.7;
+}
+.ot-home .ws-inference .ws-provider-detail a {
+  width: 32px;
+  height: 32px;
+  background: #38472f;
+  transition:
+    transform 0.25s,
+    background 0.25s;
+}
+.ot-home .ws-inference .ws-provider-detail a:hover {
+  background: #536c45;
+  transform: translateX(3px);
+}
+
+@keyframes wp-presence {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+@keyframes wp-working {
+  0%,
+  25% {
+    opacity: 1;
+  }
+  32%,
+  100% {
+    opacity: 0;
+  }
+}
+@keyframes wp-finished {
+  0%,
+  25% {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+  35%,
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes wp-typing {
+  0%,
+  70%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.4;
+  }
+  35% {
+    transform: translateY(-2px);
+    opacity: 1;
+  }
+}
+@keyframes wp-arrive {
+  from {
+    opacity: 0.25;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes wp-cursor {
+  0%,
+  6% {
+    transform: translate(0, 0);
+  }
+  20%,
+  29% {
+    transform: translate(75px, -18px);
+  }
+  42%,
+  57% {
+    transform: translate(25px, 35px);
+  }
+  70%,
+  89% {
+    transform: translate(100px, 55px);
+  }
+  100% {
+    transform: translate(0, 0);
+  }
+}
+@keyframes wp-screen-progress {
+  0% {
+    transform: scaleX(0.05);
+  }
+  18% {
+    transform: scaleX(0.33);
+  }
+  33% {
+    transform: scaleX(0.65);
+  }
+  45%,
+  100% {
+    transform: scaleX(1);
+  }
+}
+@keyframes wp-file-pulse {
+  0%,
+  100% {
+    opacity: 0.4;
+    box-shadow: 0 0 0 0 #8dac7520;
+  }
+  50% {
+    opacity: 1;
+    box-shadow: 0 0 0 4px #8dac7500;
+  }
+}
+@keyframes wp-model-packet {
+  0% {
+    left: 0;
+    opacity: 0;
+  }
+  12%,
+  88% {
+    opacity: 1;
+  }
+  100% {
+    left: 100%;
+    opacity: 0;
+  }
+}
+
+@media (max-width: 1100px) {
+  .ot-home .ws-worker-card {
+    padding-inline: 22px;
+  }
+  .ot-home .ws-worker-result {
+    margin-inline: -22px;
+    padding-inline: 20px;
+  }
+  .ot-home .ws-worker-identity {
+    gap: 12px;
+  }
+  .ot-home .ws-worker-portrait {
+    width: 65px;
+    height: 65px;
+    border-radius: 18px;
+  }
+  .ot-home .ws-worker-portrait .robot-avatar {
+    width: 55px;
+    height: 55px;
+  }
+  .ot-home .ws-worker-identity h3 {
+    font-size: 22px;
+  }
+  .ot-home .ws-machine .ws-computer-body {
+    grid-template-columns: minmax(0, 1fr) 220px;
+  }
+  .ot-home .ws-screen-live-task {
+    left: 10px;
+    right: 10px;
+    bottom: 10px;
+    padding: 9px 11px;
+    gap: 7px;
+  }
+  .ot-home .ws-screen-live-task strong {
+    font-size: 12px;
+  }
+}
+@media (max-width: 850px) {
+  .ot-home .ws-studio-body {
+    gap: 30px;
+  }
+  .ot-home .ws-worker-deck {
+    width: 100%;
+    max-width: 390px;
+  }
+  .ot-home .ws-worker-identity {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 14px;
+  }
+  .ot-home .ws-machine .ws-computer-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .ot-home .ws-memory-journey {
+    margin-bottom: 20px;
+  }
+  .ot-home .ws-memory-journey button {
+    font-size: 12px;
+  }
+  .ot-home .ws-inference .ws-provider-options {
+    gap: 8px;
+    padding: 12px 22px;
+  }
+  .ot-home .ws-inference .ws-provider-options button {
+    flex-direction: row;
+    justify-content: center;
+    padding: 14px 5px;
+    font-size: 12px;
+  }
+  .ot-home .ws-inference-bridge {
+    padding-block: 16px 28px;
+  }
+  .ot-home .ws-inference-wire {
+    width: 110px;
+  }
+  .ot-home .ws-inference .ws-provider-detail {
+    min-height: 110px;
+  }
+}
+@media (max-width: 600px) {
+  .ot-home .ws-studio-body {
+    gap: 34px;
+  }
+  .ot-home .ws-worker-deck {
+    width: calc(100% - 20px);
+  }
+  .ot-home .ws-worker-identity {
+    flex-direction: row;
+    align-items: center;
+    margin-bottom: 21px;
+  }
+  .ot-home .ws-worker-card {
+    padding: 20px 20px 0;
+  }
+  .ot-home .ws-worker-card-top {
+    margin-bottom: 18px;
+    font-size: 12px;
+  }
+  .ot-home .ws-worker-identity h3 {
+    font-size: 22px;
+  }
+  .ot-home .ws-worker-instructions {
+    padding: 13px;
+  }
+  .ot-home .ws-worker-instructions p {
+    font-size: 12px;
+    min-height: 82px;
+  }
+  .ot-home .ws-worker-card .ws-connected {
+    margin-block: 16px 20px;
+  }
+  .ot-home .ws-worker-card .ws-connected > div span {
+    font-size: 12px;
+    padding-inline: 6px;
+  }
+  .ot-home .ws-worker-result {
+    margin-inline: -20px;
+    padding: 14px 18px 18px;
+  }
+  .ot-home .ws-worker-result > p {
+    font-size: 12px;
+  }
+  .ot-home .ws-result-file > strong {
+    font-size: 12px;
+  }
+  .ot-home .ws-machine .ws-screen-toolbar {
+    padding: 9px 10px;
+  }
+  .ot-home .ws-screen-live-task {
+    padding: 8px 9px;
+    bottom: 7px;
+    left: 7px;
+    right: 7px;
+    border-radius: 6px;
+  }
+  .ot-home .ws-screen-live-task > .robot-avatar {
+    width: 23px;
+    height: 23px;
+  }
+  .ot-home .ws-screen-live-task strong {
+    font-size: 12px;
+  }
+  .ot-home .ws-screen-live-task > div > span {
+    font-size: 12px;
+    margin-top: 1px;
+  }
+  .ot-home .ws-screen-live-task .ws-live-task-working {
+    margin-right: 2px;
+  }
+  .ot-home .ws-live-task-done {
+    right: 11px;
+    width: 12px;
+  }
+  .ot-home .ws-desktop-tools {
+    gap: 12px;
+    padding: 8px 10px;
+    font-size: 12px;
+  }
+  .ot-home .ws-live-cursor {
+    top: 20%;
+    left: 16%;
+  }
+  .ot-home .ws-live-cursor > svg {
+    width: 15px;
+    height: 15px;
+  }
+  .ot-home .ws-live-cursor > span {
+    font-size: 12px;
+    padding: 2px 4px;
+    margin-top: 11px;
+  }
+  .ot-home .ws-machine .ws-workspace-file {
+    padding-right: 23px;
+  }
+  .ot-home .ws-file-pulse {
+    top: 20px;
+  }
+  .ot-home .ws-file-writing {
+    display: none;
+  }
+  .ot-home .ws-memory-journey {
+    gap: 6px;
+  }
+  .ot-home .ws-memory-journey button {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 5px;
+    font-size: 12px;
+  }
+  .ot-home .ws-memory-note {
+    margin-right: 0;
+  }
+  .ot-home .ws-memory-scene .ws-memory-content {
+    padding-left: 25px;
+  }
+  .ot-home .ws-memory-scene .ws-memory-content::before {
+    left: 14px;
+  }
+  .ot-home .ws-memory-scene .ws-memory-file header {
+    gap: 7px;
+  }
+  .ot-home .ws-memory-scene .ws-memory-file header > span {
+    min-width: 0;
+    font-size: 12px;
+  }
+  .ot-home .ws-memory-scene .ws-memory-file footer {
+    font-size: 12px;
+    padding-inline: 13px;
+    gap: 5px;
+  }
+  .ot-home .ws-memory-reply {
+    gap: 5px;
+  }
+  .ot-home .ws-memory-reply > div {
+    padding: 10px;
+  }
+  .ot-home .ws-memory-scene .ws-memory-reply p {
+    font-size: 12px;
+  }
+  .ot-home .ws-inference .ws-provider-options {
+    padding-inline: 12px;
+    gap: 4px;
+  }
+  .ot-home .ws-inference .ws-provider-options button {
+    flex-direction: column;
+    gap: 8px;
+    padding: 13px 3px 10px;
+    font-size: 12px;
+  }
+  .ot-home .ws-inference .ws-provider-options button > svg {
+    width: 18px;
+    height: 18px;
+  }
+  .ot-home .ws-inference-bridge {
+    padding-inline: 16px;
+  }
+  .ot-home .ws-inference-wire {
+    width: 55px;
+    margin-inline: 6px;
+  }
+  .ot-home .ws-inference .ws-provider-detail {
+    padding: 17px 19px;
+    min-height: 140px;
+    gap: 13px;
+  }
+  .ot-home .ws-inference .ws-provider-detail h3 {
+    font-size: 13px;
+  }
+}
+@media (max-width: 360px) {
+  .ot-home .ws-worker-card {
+    padding-inline: 16px;
+  }
+  .ot-home .ws-worker-result {
+    margin-inline: -16px;
+    padding-inline: 14px;
+  }
+  .ot-home .ws-worker-portrait {
+    width: 53px;
+    height: 58px;
+  }
+  .ot-home .ws-worker-portrait .robot-avatar {
+    width: 46px;
+    height: 46px;
+  }
+  .ot-home .ws-worker-identity h3 {
+    font-size: 19px;
+  }
+  .ot-home .ws-worker-identity {
+    gap: 10px;
+  }
+  .ot-home .ws-worker-instructions p {
+    min-height: 101px;
+  }
+  .ot-home .ws-worker-card .ws-connected > div span {
+    font-size: 12px;
+  }
+  .ot-home .ws-screen-live-task > div > span {
+    display: none;
+  }
+  .ot-home .ws-screen-live-task {
+    gap: 5px;
+  }
+  .ot-home .ws-screen-live-task strong {
+    max-width: 135px;
+    font-size: 12px;
+  }
+  .ot-home .ws-desktop-tools {
+    gap: 9px;
+    font-size: 12px;
+  }
+  .ot-home .ws-memory-scene .ws-memory-file header > span {
+    font-size: 12px;
+  }
+  .ot-home .ws-inference-wire {
+    width: 34px;
+  }
+  .ot-home .ws-inference-workers .robot-avatar {
+    width: 25px;
+    height: 25px;
+    padding: 3px;
+  }
+}
+
+/* Reading sizes stay consistent even when the composition stacks. */
+.ot-home .ws-worker-instructions p,
+.ot-home .ws-worker-result > p,
+.ot-home .ws-result-file > strong,
+.ot-home .ws-machine .ws-workspace-file strong,
+.ot-home .ws-memory-scene .ws-memory-reply p,
+.ot-home .ws-inference .ws-provider-detail h3 {
+  font-size: 14px;
+}
+.ot-home .ws-worker-card .ws-connected > div span,
+.ot-home .ws-memory-scene .ws-memory-file header > span,
+.ot-home .ws-memory-scene .ws-memory-file footer,
+.ot-home .ws-inference .ws-provider-options button,
+.ot-home .ws-inference .ws-provider-detail p {
+  font-size: 12px;
+}
+.ot-home .ws-result-file > strong {
+  line-height: 1.4;
+}
+.ot-home .ws-worker-instructions p {
+  min-height: 95px;
+}
+.ot-home .ws-worker-result > p {
+  min-height: 42px;
+}
+.ot-home .ws-provider-options button > span:not(.ws-radio) {
+  line-height: 1.3;
+}
+.ot-home .ws-screen-live-task strong {
+  font-size: 13px;
+  line-height: 1.35;
+}
+.ot-home .ws-workspace-file > span {
+  min-width: 0;
+}
+.ot-home .ws-machine .ws-workspace-file strong {
+  overflow-wrap: anywhere;
+}
+.ot-home .ws-machine .ws-workspace-file small {
+  font-size: 12px;
+}
+.ot-home .ws-file-writing {
+  font-size: 12px;
+}
+.ot-home .ws-live-cursor > span {
+  font-size: 11px;
+}
+@media (max-width: 1100px) and (min-width: 851px) {
+  .ot-home .ws-screen-live-task > div > span {
+    display: none;
+  }
+  .ot-home .ws-worker-identity h3 {
+    font-size: 22px;
+  }
+}
+@media (max-width: 600px) {
+  .ot-home .ws-inference .ws-provider-options button {
+    min-height: 82px;
+    justify-content: flex-start;
+  }
+  .ot-home .ws-memory-scene .ws-memory-file header > span {
+    overflow-wrap: anywhere;
+  }
+  .ot-home .ws-worker-instructions p {
+    min-height: 119px;
+  }
+  .ot-home .ws-screen-live-task strong {
+    font-size: 12px;
+  }
+  .ot-home .ws-screen-live-task > div > span {
+    display: none;
+  }
+  .ot-home .ws-desktop-tools {
+    gap: 11px;
+    font-size: 11px;
+  }
+  .ot-home .ws-desktop-tools .ws-desktop-live {
+    display: none;
+  }
+  .ot-home .ws-machine .ws-workspace-file > span {
+    display: block;
+  }
+  .ot-home .ws-machine .ws-workspace-file small {
+    margin-top: 2px;
+    display: block;
+  }
+  .ot-home .ws-memory-save-status {
+    gap: 3px;
+  }
+  .ot-home .ws-memory-save-status svg {
+    display: none;
+  }
+  .ot-home .ws-inference .ws-provider-detail {
+    min-height: 159px;
+  }
+}
+@media (max-width: 360px) {
+  .ot-home .ws-worker-card .ws-connected > div {
+    gap: 4px;
+  }
+  .ot-home .ws-worker-card .ws-connected > div span {
+    padding-inline: 5px;
+  }
+  .ot-home .ws-worker-instructions p {
+    min-height: 143px;
+  }
+  .ot-home .ws-memory-file footer {
+    flex-wrap: wrap;
+  }
+  .ot-home .ws-memory-save-status {
+    margin-left: 18px;
+  }
+  .ot-home .ws-live-cursor > span {
+    font-size: 10px;
+  }
+}
+
+.ot-home .ws-result-file {
+  animation: wp-result-appear 8.2s both paused;
+}
+.ot-home .ws-studio[data-playing="true"] .ws-result-file {
+  animation-play-state: running;
+}
+.ot-home .ws-result-preview {
+  font-size: 13px;
+  color: #68765c;
+}
+.ot-home .ws-inference .ws-provider-detail p {
+  font-size: 14px;
+  color: #78856c;
+}
+.ot-home .ws-memory-note > span {
+  color: #948264;
+}
+.ot-home .ws-worker-identity > div > span {
+  color: #778565;
+}
+.ot-home .ws-machine .ws-screen-status {
+  color: #6d7d61;
+}
+.ot-home .ws-machine .ws-file-peek p {
+  font-size: 14px;
+}
+@keyframes wp-result-appear {
+  0%,
+  12% {
+    opacity: 0.45;
+    transform: translateY(4px);
+  }
+  34%,
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

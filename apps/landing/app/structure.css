@@ -400,8 +400,3 @@
     margin-bottom: 54px;
   }
 }
-@media (prefers-reduced-motion: reduce) {
-  .ot-proof-strip > a {
-    transition: none;
-  }
-}

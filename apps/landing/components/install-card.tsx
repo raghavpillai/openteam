@@ -1,6 +1,9 @@
-import { Container, MemoryStick } from "lucide-react";
+"use client";
+
+import { Check, Container, MemoryStick } from "lucide-react";
 import { InstallCommand } from "./install-command";
 import "./install-card.css";
+import { useDemoCycle } from "./use-demo-cycle";
 
 const steps = [
   ["Install the server", "Run guided setup on the machine that will host your agents."],
@@ -9,13 +12,14 @@ const steps = [
 ] as const;
 
 export function InstallCard() {
+  const cycle = useDemoCycle(4, [2200, 2200, 2200, 6500]);
   return (
-    <div className="ot-install-card">
+    <div className="ot-install-card" ref={cycle.ref} {...cycle.props} data-setup-stage={cycle.index}>
       <InstallCommand />
       <ol className="ot-install-steps" aria-label="Set up OpenTeam">
         {steps.map(([title, description], index) => (
-          <li key={title}>
-            <span className="ot-install-step-number" aria-hidden="true">0{index + 1}</span>
+          <li key={title} data-active={cycle.index === index} data-done={cycle.index > index}>
+            <span className="ot-install-step-number" aria-hidden="true">{cycle.index > index ? <Check size={15} /> : `0${index + 1}`}</span>
             <div>
               <h3>{title}</h3>
               <p>{description}</p>

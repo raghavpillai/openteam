@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ShellJobRegistry, validateShellWait } from "../src";
+import { ShellJobRegistry, validateShellWait, renderShellAwaitResult } from "../src";
 import { parseHostAwaitShellRequest } from "@openteam/contracts/service-protocol";
 
 const roots: string[] = [];
@@ -125,13 +125,36 @@ test("restart recovers an in-flight terminal and retries completion delivery onc
   const recovered = new ShellJobRegistry({ directory: root, onComplete: async (receipt) => { expect(receipt.automationRunId).toBe("automation-run"); if (++attempts === 1) throw new Error("offline"); } });
   try {
     await writeFile(outputPath, "header\nready\n\n\nstatus: completed\nexit_code: 3\nelapsed_ms: 100\n");
-    expect(await recovered.await({ shell_id: "700", block_until_ms: 0 }, "bot")).toMatchObject({ status: "completed", exit_code: 3 });
     await recovered.flushCompletions(); await recovered.flushCompletions(); await recovered.flushCompletions();
     expect(attempts).toBe(2);
+    expect(await recovered.await({ shell_id: "700", block_until_ms: 0 }, "bot")).toMatchObject({ status: "completed", exit_code: 3 });
     const again = new ShellJobRegistry({ directory: root, onComplete: async () => { attempts++; } });
     try { await again.flushCompletions(); expect(attempts).toBe(2); } finally { again.dispose(); }
     await expect(recovered.await({ shell_id: "700", block_until_ms: 0 }, "another-bot")).rejects.toThrow("Unknown or expired");
   } finally { recovered.dispose(); }
+});
+
+test("observed completions do not emit stale notifications after the turn ends", async () => {
+  const { outputPath } = await fixture();
+  let active = true, deliveries = 0;
+  const registry = new ShellJobRegistry({ onComplete: async () => { if (active) throw new Error("Turn active"); deliveries++; } });
+  try {
+    const job = registry.start({ id: "observed", scope: "bot", outputPath, outputOffset: 0, startedAt: Date.now() });
+    registry.markBackground("observed"); job.finish(0);
+    await registry.await({ shell_id: "observed", block_until_ms: 0 }, "bot");
+    active = false; await registry.flushCompletions();
+    expect(deliveries).toBe(0);
+  } finally { registry.dispose(); }
+});
+
+test("AwaitShell renders running, pattern, sleep and error receipts in the reference format", async () => {
+  expect(renderShellAwaitResult({status:"running",waited_ms:25,elapsed_ms:120,pattern_matched:false,output_path:"/tmp/test",output_length:30})).toBe("Task still running after 120ms... Pattern did NOT match.\noutput_file_path: /tmp/test\noutput_length: 30");
+  expect(renderShellAwaitResult({status:"running",waited_ms:25,elapsed_ms:120,pattern_matched:true,regex_match:"ready",output_path:"/tmp/test",output_length:30})).toContain("120ms... Pattern matched: ready\n");
+  expect(renderShellAwaitResult({status:"slept",waited_ms:1500})).toBe("Slept for 2s.");
+  expect(renderShellAwaitResult({status:"failed",waited_ms:0,error:"failed to start"})).toBe("Error awaiting task: failed to start");
+  const { registry } = await fixture("x".repeat(1200));
+  const result = await registry.await({shell_id:"job",pattern:"x+",block_until_ms:0},"bot-1");
+  expect(result.regex_match).toBe("x".repeat(500)+"..."+"x".repeat(500));
 });
 
 test("bounds completed handle retention while keeping running jobs", async () => {

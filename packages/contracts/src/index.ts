@@ -277,6 +277,7 @@ export type UploadAssetInput = typeof UploadAssetInput.Type;
 
 export const SendMessageInput = Schema.Struct({
   content: Schema.String,
+  sourceMachineId: Schema.optional(Schema.String.pipe(Schema.pattern(/^[\da-f]{8}(-[\da-f]{4}){3}-[\da-f]{12}$/i))),
   clientId: Schema.String.pipe(Schema.minLength(8), Schema.maxLength(120)),
   replyToMessageId: Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(120))),
   richText: Schema.optional(Schema.String),

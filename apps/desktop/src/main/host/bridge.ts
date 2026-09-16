@@ -180,6 +180,7 @@ const autoReviewApprovalDecision = (
 export const startHostBridge = (options: {
   token: string;
   port: number;
+  hostname?: string;
   terminalDir: string;
   permissionSettings: PermissionSettingsStore;
   autoReviewMode: AutoReviewMode;
@@ -422,5 +423,5 @@ export const startHostBridge = (options: {
     }
   });
   server.once("close", () => { void mcp.closeAll(); });
-  return listenForHostBridge(server, options.port);
+  return listenForHostBridge(server, options.port, options.hostname);
 };

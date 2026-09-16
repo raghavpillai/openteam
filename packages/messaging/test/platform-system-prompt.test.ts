@@ -40,7 +40,7 @@ const mainAgent = (id: string) => {
       }),
     },
     prisma: {
-      contextSession: { findFirst: async () => ({ scope: "home" }) },
+      contextSession: { findFirst: async () => ({ scope: "home" }), findMany: async () => [] },
       $queryRaw: async () => [],
       bot: {
         findUniqueOrThrow: async () => ({
@@ -124,7 +124,10 @@ describe("Grok-derived platform prompt integration", () => {
     expect(PLATFORM_BASE_SYSTEM_PROMPT).toContain("end_turn to true");
     expect(PLATFORM_BASE_SYSTEM_PROMPT).toContain("CopyToBox");
     expect(PLATFORM_BASE_SYSTEM_PROMPT).toContain("AwaitShell");
-    expect(PLATFORM_BASE_SYSTEM_PROMPT).toContain("output_path");
+    expect(PLATFORM_BASE_SYSTEM_PROMPT).toContain("returned output path");
+    expect(PLATFORM_BASE_SYSTEM_PROMPT).toContain("Background completion notifications");
+    expect(PLATFORM_BASE_SYSTEM_PROMPT).not.toContain("image-generation tools");
+    expect(PLATFORM_BASE_SYSTEM_PROMPT).not.toContain("do not assume a separate search tool");
     expect(PLATFORM_BASE_SYSTEM_PROMPT).toContain("actual tool flow");
   });
 

@@ -41,7 +41,7 @@ capability URLs so native image and file viewers can open them. Use HTTPS outsid
 - authenticated home roster with synced pins, hide/unhide, Bot duplication, Bot/group creation and profile editing, and confirmed Bot deletion;
 - bounded bootstrap and per-conversation history pagination, foreground reconciliation, an offline last-known snapshot, and persisted per-conversation text/attachment/reply drafts;
 - optimistic send, replies, reactions, group mention suggestions, file/photo/camera attachments, approvals, working state, server search, and exact-message deep links;
-- shared-computer watch/takeover, read-only routine details with pause/resume, notification settings, push deep links, sign-out, and persistent System/Light/Dark appearance;
+- shared-computer watch/takeover, routine creation and editing, manual runs and pause/resume, notification settings, push deep links, sign-out, and persistent System/Light/Dark appearance;
 - native SF Symbols, safe areas, keyboard avoidance, haptic interaction, spring reply/reaction motion, light/dark tokens;
 - portable `@openteam/client-core` transport and snapshot selectors shared with future clients.
 

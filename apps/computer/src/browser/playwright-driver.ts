@@ -1,6 +1,6 @@
 import childProcess from "node:child_process";
-import { existsSync } from "node:fs";
-import { delimiter, join } from "node:path";
+import { nodeBinary } from "../node-runtime";
+export { nodeBinary } from "../node-runtime";
 import type { BrowserType } from "playwright-core";
 
 export interface OutOfProcessPlaywright {
@@ -9,21 +9,6 @@ export interface OutOfProcessPlaywright {
 }
 
 export let playwrightDriver: Promise<OutOfProcessPlaywright> | null = null;
-
-export const nodeBinary = (): string => {
-  const candidates = [
-    process.env.OPENTEAM_NODE_BINARY,
-    "/usr/bin/node",
-    "/opt/homebrew/bin/node",
-    "/usr/local/bin/node",
-    ...(process.env.PATH ?? "").split(delimiter).filter(Boolean).map((directory) => join(directory, "node")),
-  ];
-  const resolved = candidates.find((candidate): candidate is string =>
-    Boolean(candidate && existsSync(candidate))
-  );
-  if (!resolved) throw new Error("Browser use requires a Node.js executable for Playwright");
-  return resolved;
-};
 
 export const outOfProcessPlaywright = async (): Promise<OutOfProcessPlaywright> => {
   if (!playwrightDriver) {

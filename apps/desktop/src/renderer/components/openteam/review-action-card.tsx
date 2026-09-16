@@ -167,7 +167,7 @@ export function ReviewActionCard({ message }: { message: ChannelMessageView }) {
           action={primaryLabel}
           busy={busy}
           onAction={primaryAction}
-          onDownload={() => void download()}
+          updatedAt={message.createdAt}
           error={error}
         />
       </>

@@ -1,0 +1,201 @@
+/* Each feature has one introduction; the product examples carry the detail. */
+.ot-home .ot-feature-split {
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+  align-items: center;
+  gap: clamp(40px, 6vw, 88px);
+  border-bottom: 1px solid #e3e3e3;
+}
+.ot-home .ot-feature-copy {
+  max-width: 430px;
+}
+.ot-home .ot-feature-copy h2 {
+  margin: 0;
+}
+.ot-home .ot-feature-copy > p,
+.ot-home .ot-feature-heading > p {
+  font-size: 17px;
+  line-height: 1.85;
+  color: #797979;
+}
+.ot-home .ot-feature-copy > p {
+  max-width: 430px;
+  margin: 25px 0 0;
+}
+.ot-home .ot-feature-wide {
+  border-bottom: 1px solid #e3e3e3;
+}
+.ot-home .ot-feature-heading {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 0.9fr);
+  align-items: end;
+  gap: 60px;
+  margin-bottom: 46px;
+}
+.ot-home .ot-feature-heading > p {
+  max-width: 490px;
+  margin: 0;
+  justify-self: end;
+}
+.ot-home .ot-feature-heading > h2 {
+  margin: 0;
+}
+.ot-home .ot-feature-reverse {
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+  gap: clamp(60px, 9vw, 130px);
+}
+.ot-feature-reverse > .ot-feature-copy {
+  grid-column: 2;
+  grid-row: 1;
+}
+.ot-feature-reverse > .ws-memory {
+  grid-column: 1;
+  grid-row: 1;
+}
+.ot-home .ot-team-feature > .twd-showcase {
+  max-width: 960px;
+  margin-inline: auto;
+}
+.ot-team-feature .twd-transcript {
+  padding: 24px 26px 30px;
+  gap: 18px;
+  min-height: 420px;
+}
+.ot-team-feature .twd-header {
+  height: 50px;
+  border-bottom: 1px solid #ededed;
+}
+.ot-team-feature .twd-members {
+  padding-top: 15px;
+}
+.ot-home .ot-control-feature {
+  grid-template-columns: minmax(0, 0.7fr) minmax(0, 1.3fr);
+}
+.ot-control-feature .dc-demo {
+  min-width: 0;
+}
+.ot-home .ot-mobile-copy > h2 {
+  margin-top: 0;
+}
+.ot-home .ot-mobile-copy > p {
+  font-size: 17px;
+  line-height: 1.85;
+}
+.ot-home .ot-mobile-section {
+  overflow: visible;
+}
+.ot-home .ot-plugins .pl-demo {
+  max-width: 1040px;
+  margin-inline: auto;
+  padding-bottom: 24px;
+}
+.ot-home .pl-image-button {
+  position: relative;
+}
+.ot-home .pl-image-expand {
+  position: absolute;
+  right: 15px;
+  bottom: 15px;
+  z-index: 5;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  background: #fff;
+  border: 1px solid #dedede;
+  border-radius: 7px;
+  color: #686868;
+  box-shadow: 0 2px 8px #00000009;
+}
+.ot-home .ot-inference-feature {
+  padding-bottom: 65px;
+}
+.ot-home .ot-inference-feature > .ws-inference {
+  max-width: 960px;
+  margin-inline: auto;
+}
+.ot-home .ot-start h2 {
+  font-size: clamp(36px, 4vw, 52px);
+}
+.ot-home .ot-start > div > p {
+  max-width: 345px;
+}
+@media (max-width: 1000px) {
+  .ot-home .ot-feature-heading {
+    gap: 35px;
+    grid-template-columns: 1fr 1fr;
+  }
+  .ot-home .ot-feature-heading > p,
+  .ot-home .ot-feature-copy > p {
+    font-size: 15px;
+  }
+  .ot-home .ot-feature-split {
+    gap: 36px;
+    grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+  }
+  .ot-home .ot-feature-reverse {
+    grid-template-columns: 1.1fr 0.9fr;
+    gap: 60px;
+  }
+  .ot-home .ot-feature-copy h2 {
+    font-size: 41px;
+  }
+}
+@media (max-width: 850px) {
+  .ot-home .ot-feature-split {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 36px;
+  }
+  .ot-home .ot-feature-copy {
+    max-width: 540px;
+  }
+  .ot-home .ot-feature-reverse > .ot-feature-copy,
+  .ot-home .ot-feature-reverse > .ws-memory {
+    grid-column: auto;
+    grid-row: auto;
+  }
+  .ot-home .ot-feature-split > .ws-profiles,
+  .ot-home .ot-feature-split > .ws-memory {
+    width: 100%;
+    max-width: 570px;
+    justify-self: center;
+  }
+  .ot-home .ot-feature-heading {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 22px;
+    margin-bottom: 32px;
+  }
+  .ot-home .ot-feature-heading > p {
+    justify-self: start;
+    max-width: 540px;
+  }
+  .ot-home .ot-feature-heading h2,
+  .ot-home .ot-feature-copy h2 {
+    font-size: clamp(36px, 5.6vw, 48px);
+    letter-spacing: -1.8px;
+  }
+  .ot-team-feature .twd-transcript {
+    padding: 20px 16px;
+  }
+}
+@media (max-width: 500px) {
+  .ot-home .ot-feature-copy > p {
+    margin-top: 20px;
+  }
+  .ot-home .ot-feature-heading > p,
+  .ot-home .ot-feature-copy > p,
+  .ot-home .ot-mobile-copy > p {
+    font-size: 15px;
+    line-height: 1.8;
+  }
+  .ot-home .ot-plugins .pl-demo {
+    padding: 12px 10px 10px;
+  }
+  .ot-team-feature .twd-transcript {
+    padding-inline: 12px;
+    min-height: 430px;
+  }
+  .ot-home .ot-control-feature .dc-window:not(:has(.dc-viewer)) {
+    min-height: 365px;
+  }
+}

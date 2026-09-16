@@ -1,28 +1,16 @@
-import Image from "next/image";
-import {
-  ArrowDown,
-  ArrowUpRight,
-  FileText,
-  GitBranch,
-  Globe2,
-  LockKeyhole,
-  Monitor,
-  Server,
-  Terminal,
-} from "lucide-react";
-import { BotAvatar } from "@/components/bot-avatar";
+import { ArrowDown, ArrowUpRight, Server, Terminal } from "lucide-react";
 import { SectionBot } from "@/components/section-bot";
 import { GithubMark } from "@/components/brand";
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
 import { LandingEffects } from "@/components/landing-effects";
 import { InstallCard } from "@/components/install-card";
-import { PluginsDemo } from "@/components/plugins-demo";
+import { AppConnections } from "@/components/app-connections";
+import { MeetingRoutine } from "@/components/meeting-routine";
+import { BotAvatar } from "@/components/bot-avatar";
 import { ProductDemo } from "@/components/product-demo";
-import { DemoTaskLink } from "@/components/demo-task-link";
 import { TeamWorkflowDemo } from "@/components/team-workflow-demo";
-import { WorkerCapabilities } from "@/components/worker-capabilities";
-import { MobileDemo } from "@/components/app-demo-details";
+import { ComputerDemo, MobileDemo } from "@/components/app-demo-details";
 import {
   Accordion,
   AccordionContent,
@@ -34,6 +22,15 @@ import "./landing.css";
 import "./monochrome.css";
 import "./structure.css";
 import "./alive.css";
+import "./features.css";
+import "./live-scenes.css";
+import "./polish.css";
+import {
+  ComputerWorkspace,
+  InferencePicker,
+  WorkerMemory,
+  WorkerProfiles,
+} from "@/components/worker-showcase";
 
 const GITHUB = "https://github.com/raghavpillai/openteam";
 const questions = [
@@ -109,14 +106,18 @@ export default function Home() {
                 <ArrowUpRight size={13} />
               </a>
               <h1>
-                <span className="ot-title-line"><span>Run your own </span></span>
-                <span className="ot-title-line"><span>AI team.</span></span>
+                <span className="ot-title-line">
+                  <span>Run your own </span>
+                </span>
+                <span className="ot-title-line">
+                  <span>AI team.</span>
+                </span>
               </h1>
             </div>
             <div className="ot-hero-description">
               <p>
-                Digital workers that run on <strong>your compute</strong> and work in your apps. They
-                have their <strong>own computer and shared workspace</strong>, remember your
+                Digital workers that run on <strong>your compute</strong> and work in your apps.
+                They have their <strong>own computer and shared workspace</strong>, remember your
                 instructions, and <strong>delegate work</strong> to each other.
               </p>
               <div className="ot-hero-actions">
@@ -130,16 +131,10 @@ export default function Home() {
           <div id="product" tabIndex={-1} className="ot-product-anchor">
             <ProductDemo />
           </div>
-          <div className="ot-demo-caption">
-            <span>
-              <Monitor size={14} /> Choose a task. Open its screen or generated file.
-            </span>
-            <span>Interactive product recreation · Sample tasks and data</span>
-          </div>
           <SectionBot bot="research" />
         </section>
         <nav className="ot-proof-strip ot-container" aria-label="Why run OpenTeam">
-          <a href="#open-source">
+          <a href="#get-started">
             <Server size={19} />
             <span>
               <strong>Your compute</strong>
@@ -164,291 +159,180 @@ export default function Home() {
             <ArrowUpRight size={15} />
           </a>
         </nav>
-        <section id="use-cases" className="ot-use-cases ot-section ot-container ot-bot-section">
-          <div className="ot-section-heading">
-            <div>
+        <section id="use-cases" className="ot-section ot-container ot-studio-section">
+          <WorkerProfiles>
+            <div className="ot-scene-copy">
               <h2>
-                Delegate research,
+                Build the team
                 <br />
-                <span>reporting, and code.</span>
+                <span>you need.</span>
               </h2>
+              <p>
+                Create specialized workers for the jobs you want to delegate. Give each one a role
+                and its own instructions, then put your team to work on your own server.
+              </p>
             </div>
-            <p>
-              Get a sourced recommendation, a daily report, or a tested code change.
-              Open a demo to see the work and its files.
-            </p>
-          </div>
-          <div className="ot-jobs">
-            {[
-              {
-                number: "01",
-                task: "research" as const,
-                shape: "helmet" as const,
-                color: "#ff7a1a",
-                name: "Research",
-                title: "Compare vendors",
-                result: "A comparison, recommendation, and source links.",
-                icon: FileText,
-                tags: "WEB + FILES",
-              },
-              {
-                number: "02",
-                task: "operations" as const,
-                shape: "pod" as const,
-                color: "#925df2",
-                name: "Operations",
-                title: "Check dashboards",
-                result: "A daily report showing what changed.",
-                icon: Globe2,
-                tags: "BROWSER + ROUTINES",
-              },
-              {
-                number: "03",
-                task: "engineering" as const,
-                shape: "chip" as const,
-                color: "#27baae",
-                name: "Engineering",
-                title: "Fix failing tests",
-                result: "A proposed fix, with the diff and test results.",
-                icon: GitBranch,
-                tags: "TERMINAL + CODE",
-              },
-            ].map((job) => (
-              <article key={job.number} className="ot-job">
-                <div className="ot-job-top">
-                  <BotAvatar shape={job.shape} color={job.color} size={32} ambient />
-                  <span>{job.name}</span>
-                  <span className="ot-job-number">{job.number}</span>
-                </div>
-                <h3>{job.title}</h3>
-                <div className="ot-job-result">
-                  <job.icon size={17} />
-                  <span>{job.result}</span>
-                </div>
-                <span className="ot-eyebrow ot-job-tags">{job.tags}</span>
-                <DemoTaskLink task={job.task} className="ot-text-link ot-job-demo-link">
-                  See {job.name.toLowerCase()} demo <ArrowUpRight size={15} />
-                </DemoTaskLink>
-              </article>
-            ))}
-          </div>
-          <SectionBot bot="engineering" />
+          </WorkerProfiles>
         </section>
-        <section
-          id="how-it-works"
-          className="ot-section ot-container ot-team-section ot-bot-section"
-        >
-          <div className="ot-section-heading">
-            <div>
+        <section id="capabilities" className="ot-section ot-container ot-machine-section">
+          <ComputerWorkspace>
+            <div className="ot-scene-copy">
               <h2>
-                How your AI team
+                A computer
                 <br />
-                <span>works together.</span>
+                <span>of their own.</span>
               </h2>
+              <p>
+                Each worker has its own desktop and browser, with a shared workspace for files they
+                use together. Give them access to your computer when a job needs local files or
+                tools.
+              </p>
             </div>
+          </ComputerWorkspace>
+        </section>
+        <section id="plugins" className="ot-section ot-container ot-apps-section">
+          <AppConnections>
+            <div className="ot-scene-copy">
+              <h2>
+                Bring your
+                <br />
+                <span>apps and data.</span>
+              </h2>
+              <p>
+                Give workers the context in your email, calendar, documents and meeting notes,
+                alongside web search. Connect apps from the plugin marketplace, save workflows as
+                reusable skills, or add your own tools through MCP.
+              </p>
+            </div>
+          </AppConnections>
+        </section>
+        <section id="memory" className="ot-section ot-container ot-memory-section">
+          <WorkerMemory>
+            <div className="ot-scene-copy">
+              <h2>
+                They remember
+                <br />
+                <span>how you work.</span>
+              </h2>
+              <p>
+                Each worker remembers your instructions, preferences, and past work, so you spend
+                less time repeating context. They keep their own memory and can draw on shared
+                knowledge, all stored on compute you control.
+              </p>
+            </div>
+          </WorkerMemory>
+        </section>
+        <section id="routines" className="ot-section ot-container ot-routine-section">
+          <MeetingRoutine>
+            <div className="ot-scene-copy">
+              <h2>
+                Leave recurring work
+                <br />
+                <span>to your team.</span>
+              </h2>
+              <p>
+                Set the instructions once and choose when they run. A worker, or a group of them,
+                handles the recurring work on schedule and delivers the result without a reminder
+                from you.
+              </p>
+            </div>
+          </MeetingRoutine>
+        </section>
+        <section id="how-it-works" className="ot-section ot-container ot-team-feature">
+          <div className="ot-scene-copy ot-team-copy">
+            <h2>
+              Workers that
+              <br />
+              <span>help each other.</span>
+            </h2>
             <p>
-              Workers can message each other, delegate subtasks, and use the same project files.
+              Workers can share context and delegate parts of a job to each other or specialized
+              helpers. Bring them into a group conversation to work together, each with its own
+              instructions and memory.
             </p>
           </div>
-          <div className="ot-team-explainer">
-            <ol className="ot-team-steps">
-              <li>
-                <span>01</span>
-                <div>
-                  <h3>Give each worker a role.</h3>
-                  <p>Define its responsibilities and save instructions it can reuse.</p>
-                </div>
-              </li>
-              <li>
-                <span>02</span>
-                <div>
-                  <h3>Connect apps and skills.</h3>
-                  <p>Add plugins and choose which accounts each worker can access.</p>
-                </div>
-              </li>
-              <li>
-                <span>03</span>
-                <div>
-                  <h3>Let workers hand off tasks.</h3>
-                  <p>
-                    Put workers in a group chat to share context, delegate subtasks, and build
-                    on each other&apos;s files.
-                  </p>
-                </div>
-              </li>
-            </ol>
+          <div className="ot-team-stage">
+            <div className="ot-team-handoff" aria-hidden="true">
+              <BotAvatar shape="chip" color="#27baae" size={34} ambient />
+              <span className="ot-handoff-line" />
+              <span>trip-budget.md</span>
+              <span className="ot-handoff-line" />
+              <BotAvatar shape="pod" color="#925df2" size={34} ambient />
+            </div>
             <TeamWorkflowDemo />
           </div>
-          <SectionBot bot="research" side="right" />
         </section>
-        <section id="plugins" className="ot-section ot-container ot-plugins ot-bot-section">
-          <div className="ot-section-heading">
-            <div>
-              <h2>
-                Connect your apps.
-                <br />
-                <span>Add reusable skills.</span>
-              </h2>
-            </div>
+        <section id="control" className="ot-section ot-container ot-control-feature">
+          <div className="ot-scene-copy">
+            <h2>
+              You stay
+              <br />
+              <span>in control.</span>
+            </h2>
             <p>
-              Give workers access to GitHub, Notion, Slack, and Linear. Plugins connect your
-              accounts and add reusable skills. You choose which workers can use them.
+              Choose what workers can do on their own and when they should ask you. Approve a step
+              once or set rules for future work, and provide sensitive information privately.
             </p>
           </div>
-          <PluginsDemo />
-          <div className="ot-plugin-points">
-            <article>
-              <h3>Choose who can use each app.</h3>
-              <p>
-                Connect multiple accounts. Give Engineering access to GitHub and Research access to
-                Notion. Allow individual tools, require approval, or deny them.
-              </p>
-            </article>
-            <article>
-              <h3>Save your team&apos;s instructions.</h3>
-              <p>
-                Ask a worker to save your research playbook, report format, or review checklist
-                as a skill. The team can reuse it on future tasks.
-              </p>
-            </article>
-            <article>
-              <h3>Connect your own tools.</h3>
-              <p>
-                Add a remote MCP server or run a local one on the team&apos;s computer.
-                Give workers tools for your internal systems and choose who can use them.
-              </p>
-            </article>
+          <div className="ot-control-stage">
+            <ComputerDemo />
           </div>
-          <a
-            className="ot-text-link ot-plugins-source"
-            href={`${GITHUB}/blob/main/apps/server/src/plugins/catalog.ts`}
-          >
-            View the plugin catalog source <ArrowUpRight size={16} />
-          </a>
-          <SectionBot bot="operations" side="right" />
-        </section>
-        <section
-          id="capabilities"
-          className="ot-section ot-container ot-worker-section ot-bot-section"
-        >
-          <div className="ot-section-heading">
-            <div>
-              <h2>
-                A computer, memory,
-                <br />
-                <span>and a schedule.</span>
-              </h2>
-            </div>
-            <p>Watch the screen, edit saved memory, or schedule recurring work. Try each below.</p>
-          </div>
-          <WorkerCapabilities />
-          <SectionBot bot="operations" />
         </section>
         <section
           id="mobile"
           aria-labelledby="mobile-heading"
           className="ot-section ot-container ot-mobile-section"
         >
-          <div className="ot-mobile-copy">
-            <span className="ot-eyebrow">OPENTEAM FOR IPHONE</span>
+          <div className="ot-mobile-copy ot-scene-copy">
             <h2 id="mobile-heading">
-              Take your team<br />
+              Take your team
+              <br />
               <span>with you.</span>
             </h2>
             <p>
-              Send messages, review files, and follow the work from your iPhone.
-              Pick up the same conversations you started on desktop, with the same
-              workers on your server.
+              The desktop and iPhone apps connect to the same workers, conversations, and files, so
+              you can pick up work wherever you are.
             </p>
-            <p className="ot-mobile-availability">
-              The iPhone app is currently available to build from source.
-            </p>
-            <a href="/download#mobile" className="ot-text-link">
-              Get the iPhone app <ArrowUpRight size={15} />
+            <a href="/download" className="ot-text-link">
+              Get the apps <ArrowUpRight size={15} />
             </a>
           </div>
-          <MobileDemo />
+          <div className="ot-mobile-continuity">
+            <div className="ot-desktop-receipt">
+              <div>
+                <BotAvatar shape="helmet" color="#ff7a1a" size={23} mode="still" />
+                <strong>Research</strong>
+                <span>Desktop</span>
+              </div>
+              <p>
+                I saved the comparison in <strong>vendor-review.md.</strong>
+              </p>
+              <span className="ot-receipt-line" />
+              <span className="ot-receipt-line" />
+            </div>
+            <div className="ot-device-sync" aria-hidden="true">
+              <i />
+              <i />
+              <i />
+              <i />
+              <i />
+            </div>
+            <MobileDemo />
+          </div>
         </section>
-        <section
-          id="open-source"
-          className="ot-section ot-container ot-ownership-section ot-bot-section"
-        >
-          <div className="ot-ownership">
-            <div>
-              <h2>
-                Your compute.
-                <br />
-                <span>Your workspace.</span>
-              </h2>
-              <a href={GITHUB} className="ot-text-link">
-                <GithubMark /> View source on GitHub <ArrowUpRight size={16} />
-              </a>
-            </div>
-            <div className="ot-ownership-facts">
-              {[
-                {
-                  icon: LockKeyhole,
-                  title: "Workspace stored on your server.",
-                  text: "Chats, memory, files, and browser profiles live on your server. Model requests go to the provider you choose.",
-                },
-                {
-                  icon: Server,
-                  title: "Run on the machine you choose.",
-                  text: "Use Docker Compose on a VPS, home server, or spare machine. You control where OpenTeam runs.",
-                },
-                {
-                  icon: Terminal,
-                  title: "Choose your inference provider.",
-                  text: "Connect ChatGPT or Claude, use an OpenAI or Anthropic API key, or configure a compatible model endpoint.",
-                },
-                {
-                  icon: GitBranch,
-                  title: "Read and modify the code.",
-                  text: "Inspect the server, runtime, and apps. Build plugins, add skills, or modify the source.",
-                },
-              ].map((item) => (
-                <article key={item.title}>
-                  <item.icon size={21} />
-                  <div>
-                    <h3>{item.title}</h3>
-                    <p>{item.text}</p>
-                  </div>
-                </article>
-              ))}
-            </div>
-          </div>
-          <div
-            className="ot-providers ot-ownership-providers"
-            aria-label="Supported model providers"
-          >
+        <section id="open-source" className="ot-section ot-container ot-inference-feature">
+          <div className="ot-scene-copy">
+            <h2>
+              Use the model
+              <br />
+              <span>you prefer.</span>
+            </h2>
             <p>
-              <strong>Bring your own inference.</strong>
+              Sign in with ChatGPT or Claude, bring your own API keys, or connect a compatible
+              hosted or local model.
             </p>
-            <div className="ot-provider-logo ot-provider-openai">
-              <Image src="/logos/openai.svg" alt="OpenAI" width={1604} height={718} unoptimized />
-            </div>
-            <div className="ot-provider-logo ot-provider-anthropic">
-              <Image
-                src="/logos/anthropic.svg"
-                alt="Anthropic"
-                width={570}
-                height={64}
-                unoptimized
-              />
-            </div>
-            <div className="ot-provider-logo ot-provider-google">
-              <Image src="/logos/google.svg" alt="Google" width={74} height={24} unoptimized />
-            </div>
-            <div className="ot-provider-endpoint">
-              <Terminal size={22} />
-              <span>
-                Compatible
-                <br />
-                endpoint
-              </span>
-            </div>
           </div>
-          <SectionBot bot="engineering" side="right" />
+          <InferencePicker />
         </section>
         <section id="faq" className="ot-section ot-container ot-faq ot-bot-section">
           <div>
@@ -474,14 +358,13 @@ export default function Home() {
         <section id="get-started" className="ot-start ot-container ot-bot-section">
           <div>
             <h2>
-              Install OpenTeam.
+              One command
               <br />
-              Connect your model.
+              <span>to get started.</span>
             </h2>
             <p>
-              No OpenTeam subscription.
-              <br />
-              You pay for hosting and model usage.
+              Run the installer on a machine with Docker. Guided setup configures your server and
+              model connection.
             </p>
             <GetStarted />
             <a className="ot-install-guide" href="/install/source">

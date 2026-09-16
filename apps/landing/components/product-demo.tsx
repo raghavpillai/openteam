@@ -92,9 +92,8 @@ const examples = [
 
 const DEMO_STAGE_ENDS = [1100, 2500, 3900, 5300];
 const DEMO_DURATION = DEMO_STAGE_ENDS[DEMO_STAGE_ENDS.length - 1];
-// The result finishes its 220ms entrance before the next task takes over.
-const DEMO_CYCLE_DURATION = DEMO_DURATION + 400;
-const READING_RESUME_DELAY = 500;
+// Give the result time to be read before automatically switching workers.
+const DEMO_CYCLE_DURATION = DEMO_DURATION + 4200;
 
 function sampleFileContent(scenario: (typeof examples)[number]) {
   const table = [
@@ -134,17 +133,12 @@ export function ProductDemo() {
   const showcase = useRef<HTMLDivElement>(null);
   const progress = useRef<HTMLSpanElement>(null);
   const playback = useRef<Animation | null>(null);
-  const readingTimer = useRef<number | null>(null);
-  const pointerHeld = useRef(false);
   const [selected, setSelected] = useState(0);
   const [stage, setStage] = useState(0);
   const [manualRun, setManualRun] = useState(false);
   const [visible, setVisible] = useState(false);
   const [documentVisible, setDocumentVisible] = useState(false);
-  const [reducedMotion, setReducedMotion] = useState(false);
   const [runId, setRunId] = useState(0);
-  const [resultFocused, setResultFocused] = useState(false);
-  const [reading, setReading] = useState(false);
   const [compact, setCompact] = useState(false);
   const [details, setDetails] = useState(true);
   const [search, setSearch] = useState("");
@@ -154,52 +148,11 @@ export function ProductDemo() {
   const fileSize = fileBytes < 1024 ? `${fileBytes} B` : `${(fileBytes / 1024).toFixed(1)} KB`;
   const done = stage >= 4;
   const active = visible && documentVisible && preview === null;
-  const avatarMode = !active || reducedMotion ? "still" : done ? "idle" : "thinking";
-
-  const resumeAfterReading = useCallback(() => {
-    if (readingTimer.current !== null) window.clearTimeout(readingTimer.current);
-    readingTimer.current = window.setTimeout(() => {
-      readingTimer.current = null;
-      setReading(false);
-    }, READING_RESUME_DELAY);
-  }, []);
-
-  const holdForReading = useCallback(() => {
-    setReading(true);
-    if (readingTimer.current !== null) window.clearTimeout(readingTimer.current);
-    readingTimer.current = null;
-    if (!pointerHeld.current) resumeAfterReading();
-  }, [resumeAfterReading]);
+  const avatarMode = !active ? "still" : done ? "idle" : "thinking";
 
   useEffect(() => {
-    const releasePointer = () => {
-      if (!pointerHeld.current) return;
-      pointerHeld.current = false;
-      resumeAfterReading();
-    };
-    window.addEventListener("pointerup", releasePointer);
-    window.addEventListener("pointercancel", releasePointer);
-    window.addEventListener("blur", releasePointer);
-    return () => {
-      window.removeEventListener("pointerup", releasePointer);
-      window.removeEventListener("pointercancel", releasePointer);
-      window.removeEventListener("blur", releasePointer);
-      if (readingTimer.current !== null) window.clearTimeout(readingTimer.current);
-    };
-  }, [resumeAfterReading]);
-
-  useEffect(() => {
-    const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
-    const syncMotion = () => {
-      const disabled = motion.matches;
-      setReducedMotion(disabled);
-      // Always leave a readable, complete conversation when motion is disabled.
-      if (disabled) setStage(4);
-    };
     const syncDocument = () => setDocumentVisible(!document.hidden);
-    syncMotion();
     syncDocument();
-    motion.addEventListener("change", syncMotion);
     document.addEventListener("visibilitychange", syncDocument);
     const observer = new IntersectionObserver(
       ([entry]) => setVisible(entry?.isIntersecting ?? false),
@@ -208,7 +161,6 @@ export function ProductDemo() {
     if (showcase.current) observer.observe(showcase.current);
     return () => {
       observer.disconnect();
-      motion.removeEventListener("change", syncMotion);
       document.removeEventListener("visibilitychange", syncDocument);
     };
   }, []);
@@ -234,12 +186,6 @@ export function ProductDemo() {
   useEffect(() => {
     const animation = playback.current;
     if (!animation) return;
-    if (reducedMotion) {
-      animation.pause();
-      animation.currentTime = DEMO_CYCLE_DURATION;
-      setStage(4);
-      return;
-    }
     if (!active) return;
 
     const nextTask = () => {
@@ -248,14 +194,11 @@ export function ProductDemo() {
       setStage(0);
       setRunId((id) => id + 1);
     };
-    // Let the current task finish while someone reads or scrolls. Only hold the
-    // next conversation, which would otherwise replace their content.
     const advanceWhenReady = () => {
       setStage(4);
-      if (reading || resultFocused || pointerHeld.current || readingTimer.current !== null) return;
       nextTask();
     };
-    // A finished timeline may resume after reading or a preview was closed.
+    // Resume a completed timeline after its file preview closes.
     if (Number(animation.currentTime) >= DEMO_CYCLE_DURATION) {
       advanceWhenReady();
       return;
@@ -282,20 +225,15 @@ export function ProductDemo() {
       cancelAnimationFrame(frame);
       animation.pause();
     };
-  }, [active, reading, reducedMotion, resultFocused, runId]);
+  }, [active, runId]);
 
   const choose = useCallback((index: number) => {
-    if (readingTimer.current !== null) window.clearTimeout(readingTimer.current);
-    readingTimer.current = null;
-    pointerHeld.current = false;
-    setReading(false);
     setManualRun(true);
     setSelected(index);
-    setStage(reducedMotion ? 4 : 0);
+    setStage(0);
     setRunId((count) => count + 1);
-    setResultFocused(false);
     setPreview(null);
-  }, [reducedMotion]);
+  }, []);
   useEffect(() => {
     const selectTask = (event: Event) => {
       if (!(event instanceof CustomEvent)) return;
@@ -329,8 +267,8 @@ export function ProductDemo() {
       ref={showcase}
       data-demo-task={scenario.id}
       data-demo-stage={stage}
-      data-demo-running={active && !reducedMotion && !done}
-      data-demo-motion={!reducedMotion}
+      data-demo-running={active && !done}
+      data-demo-motion="true"
     >
       <div className="pd-scenarios">
         <span className="pd-try-label">Example Bots</span>
@@ -460,12 +398,7 @@ export function ProductDemo() {
             role="log"
             aria-label="Sample messages"
             aria-live={manualRun ? "polite" : "off"}
-            onScroll={holdForReading}
-            onPointerDown={(event) => {
-              if (event.button !== 0) return;
-              pointerHeld.current = true;
-              holdForReading();
-            }}
+
           >
             <p className="dt-date">Today 8:00 AM</p>
             <div className="dt-message dt-message-user">
@@ -487,14 +420,7 @@ export function ProductDemo() {
                 data-revealed={done}
                 aria-hidden={!done}
                 inert={!done}
-                onFocusCapture={(event) => {
-                  // Pointer focus (including focus restored after a preview)
-                  // must not lock the carousel until the next click elsewhere.
-                  setResultFocused(event.target.matches(":focus-visible"));
-                }}
-                onBlurCapture={(event) => {
-                  if (!event.currentTarget.contains(event.relatedTarget)) setResultFocused(false);
-                }}
+
               >
                 <div className="dt-bubble">{scenario.reply}</div>
                 <article className="dt-file">
@@ -606,7 +532,6 @@ export function ProductDemo() {
         onOpenChange={(open) => {
           if (!open) {
             setPreview(null);
-            holdForReading();
           }
         }}
       >

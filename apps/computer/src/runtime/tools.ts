@@ -73,6 +73,7 @@ import { FetchProviderClient } from "../fetch-provider";
 import { serverSearchConfiguration, serverFetchConfiguration } from "../search-settings";
 import { UserFormHost, type FormBrowser, type FormPageBinding } from "../user-form-host";
 import type { ActiveTurn, RuntimeDynamicTool } from "./types";
+import { renderShellAwaitResult } from "@openteam/shell-jobs";
 
 export const GRAPHICAL_WORKER_SHELL_DESCRIPTION =
   "Executes a command in this worker's box with an optional foreground timeout. Use Shell for terminal operations and bulk file processing; use Read for reading, searching, or inspecting files. Run independent commands in parallel and chain dependent commands with &&. If shell text search is necessary, use rg rather than grep or find.";
@@ -94,6 +95,37 @@ export const LEGACY_EXTERNAL_NATIVE_TOOLS: ReadonlySet<string> = new Set([
 ]);
 
 export class RuntimeTools {
+  private readonly shellWaits = new Map<string, Set<AbortController>>();
+  interruptShellWaits(runId: string) {
+    for (const wait of this.shellWaits.get(runId) ?? []) wait.abort(new Error("A new user message arrived"));
+  }
+
+  private async awaitShellForTurn(turn: ActiveTurn, args: unknown, signal?: AbortSignal): Promise<AgentToolResult<Record<string, unknown>>> {
+    const input = Schema.decodeUnknownSync(AwaitShellInput)(parseHostAwaitShellRequest(args));
+    if (input.machineId && (turn.subagentType || turn.runtimeProfile === "subagent")) throw new Error("Subagents cannot target the user's local computer");
+    const controller = new AbortController(), started = Date.now();
+    const waits = this.shellWaits.get(turn.runId) ?? new Set<AbortController>();
+    waits.add(controller); this.shellWaits.set(turn.runId, waits);
+    const execute = (block_until_ms: number | undefined, waitSignal?: AbortSignal) => input.machineId
+      ? this.nativeToolExecutor.externalAwaitShell({ ...input, block_until_ms }, waitSignal)
+      : this.nativeToolExecutor.awaitShell({ ...input, block_until_ms }, waitSignal, turn.botId);
+    try {
+      let result: AgentToolResult<Record<string, unknown>>;
+      try { result = await execute(input.block_until_ms, signal ? AbortSignal.any([signal, controller.signal]) : controller.signal); }
+      catch (error) {
+        if (!controller.signal.aborted || signal?.aborted) throw error;
+        if (input.shell_id) result = await execute(0, signal);
+        else {
+          const receipt = { status: "slept" as const, waited_ms: Date.now() - started };
+          result = { content: [{ type: "text", text: renderShellAwaitResult(receipt) }], details: receipt };
+        }
+      }
+      if (input.machineId && input.shell_id && ["completed", "failed"].includes(String(result.details.status))) await this.hostShellCompletions.observe(turn.botId, input.machineId, input.shell_id);
+      return result;
+    } finally {
+      waits.delete(controller); if (!waits.size) this.shellWaits.delete(turn.runId);
+    }
+  }
   private readonly turnSecrets = new WeakMap<ActiveTurn, Record<string, string>>();
 
   private async processSecrets(active: ActiveTurn, signal?: AbortSignal): Promise<Record<string, string>> {
@@ -125,7 +157,8 @@ export class RuntimeTools {
     private readonly serverUrl: string,
     private readonly controlToken: string,
     private readonly agentDir: string,
-    private readonly workspaceRoot: string
+    private readonly workspaceRoot: string,
+    private readonly canDeliverShellCompletion: (botId: string, channelId?: string) => boolean = () => true
   ) {
     this.webTools = new WebTools(
       new SearchProviderClient(serverSearchConfiguration(serverUrl, controlToken)),
@@ -134,6 +167,7 @@ export class RuntimeTools {
     this.userForms = new UserFormHost(join(agentDir, "private-user-forms"), (botId) => this.formBrowser(botId));
     const deliverShellCompletion = async (completion: import("@openteam/contracts").ShellCompletionInput) => {
       if (!completion.scope) return;
+      if (!this.canDeliverShellCompletion(completion.scope, completion.channelId)) throw new Error("Defer shell notification until the current turn ends");
       const response = await fetch(`${this.serverUrl}/api/v0/internal/shell-completions`, {
         method: "POST", headers: { authorization: `Bearer ${this.controlToken}`, "content-type": "application/json" },
         body: JSON.stringify(completion), signal: AbortSignal.timeout(15_000),
@@ -304,7 +338,7 @@ export class RuntimeTools {
       if (!credential || credential.kind !== "browser-login" || ["credential_id", "connection_id", "catalog_revision", "site", "purpose"].some(key => typeof credential[key] !== "string" || !credential[key])) throw new Error("Invalid credential-request");
       const {browser, binding} = await this.privateLoginBinding(active, credential.site as string);
       try {
-        const values = await this.nativeToolExecutor.desktopCapability("UseSavedCredential", active.screenBotId, { ...credential, site: binding.origin }, signal);
+        const values = await this.nativeToolExecutor.desktopCapability("UseSavedCredential", active.screenBotId, { ...credential, site: binding.origin }, signal, undefined, active.channelId);
         signal?.throwIfAborted();
         this.rememberBrowserValues(active.screenBotId, [values.password, values.username]);
         const filled = await this.screens.withAgentBrowserInput(active.screenBotId, active.cwd, async (leaseSignal) => {
@@ -607,7 +641,7 @@ export class RuntimeTools {
     let binding: Awaited<ReturnType<BrowserUseSession["loginBinding"]>> | undefined;
     try {
       binding = await browser.loginBinding(site);
-      const values = await this.nativeToolExecutor.desktopCapability("AutomaticSavedCredential", active.screenBotId, {site});
+      const values = await this.nativeToolExecutor.desktopCapability("AutomaticSavedCredential", active.screenBotId, {site}, undefined, undefined, active.channelId);
       if (values.skipped || typeof values.password !== "string") return false;
       this.rememberBrowserValues(active.screenBotId, [values.password, values.username]);
       const bound = binding;
@@ -624,7 +658,7 @@ export class RuntimeTools {
   }
 
   private async desktopTool(active: ActiveTurn, name: string, args: unknown, signal?: AbortSignal, callId?: string): Promise<AgentToolResult<Record<string, unknown>>> {
-    const output = await this.nativeToolExecutor.desktopCapability(name, active.botId, args, signal, callId);
+    const output = await this.nativeToolExecutor.desktopCapability(name, active.botId, args, signal, callId, active.channelId);
     if (name === "request_cookie_origin_approval" && output.kind === "collected") {
       signal?.throwIfAborted();
       let injected = 0, failed = output.cookies.length;
@@ -860,16 +894,7 @@ export class RuntimeTools {
       (turn, callId, args, signal) => this.executeTodoWrite(turn, callId, args, signal),
       (...args) => this.executeReviewedTask(...args),
       active,
-      (turn, _callId, args, signal) => {
-        const input = Schema.decodeUnknownSync(AwaitShellInput)(parseHostAwaitShellRequest(args));
-        if (input.machineId) {
-          if (turn.subagentType || turn.runtimeProfile === "subagent") {
-            throw new Error("Subagents cannot target the user's local computer");
-          }
-          return this.nativeToolExecutor.externalAwaitShell(input, signal);
-        }
-        return this.nativeToolExecutor.awaitShell(input, signal, turn.botId);
-      },
+      (turn, _callId, args, signal) => this.awaitShellForTurn(turn, args, signal),
       [
         ...(active.runtimeProfile === "subagent" || active.requestSource === "automation" ? [] : CONNECTOR_TRANSFER_TOOLS.map((definition): RuntimeDynamicTool => ({
           ...definition, source: "first-party", decodeArguments: args => parseConnectorTransfer(definition.name, args),

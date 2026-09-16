@@ -713,11 +713,6 @@
     --dm-phone-scale: 0.64;
   }
 }
-@media (prefers-reduced-motion: reduce) {
-  .dr-switch > span {
-    transition: none;
-  }
-}
 
 .dc-composer-plus,
 .dc-composer-mic {
@@ -783,11 +778,6 @@
 @media (hover: none) {
   .dr-remove-schedule {
     opacity: 1;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .dr-history .dr-running {
-    animation: none;
   }
 }
 
@@ -865,12 +855,10 @@
 .dr-result-body caption { padding-block: 16px 6px; text-align: left; color: #777; font-size: 11px; }
 .dr-result-body th, .dr-result-body td { text-align: left; padding: 9px 5px; border-bottom: 1px solid #eee; }
 .dr-result-body th { color: #777; font-weight: 400; }
-@media (prefers-reduced-motion: no-preference) {
-  .dm-memory-demo .dm-file[data-updated] pre { animation: dm-saved 800ms ease-out; }
-  .dr-sample-result { animation: dr-result-arrive 220ms ease-out; }
-  .dc-viewer { animation: dc-screen-open 260ms cubic-bezier(.22,1,.36,1); }
-  .dc-assistant-bubble { animation: dr-result-arrive 220ms ease-out; }
-}
+.dm-memory-demo .dm-file[data-updated] pre { animation: dm-saved 800ms ease-out; }
+.dr-sample-result { animation: dr-result-arrive 220ms ease-out; }
+.dc-viewer { animation: dc-screen-open 260ms cubic-bezier(.22,1,.36,1); }
+.dc-assistant-bubble { animation: dr-result-arrive 220ms ease-out; }
 @keyframes dc-screen-open { from { clip-path: inset(0 0 100% 0); } to { clip-path: inset(0); } }
 @keyframes dm-saved { from { background: #27baae18; } to { background: transparent; } }
 @keyframes dr-result-arrive { from { opacity: 0; } to { opacity: 1; } }

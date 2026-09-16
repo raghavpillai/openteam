@@ -9,7 +9,6 @@ export function LandingEffects() {
     const root = ref.current?.closest<HTMLElement>(".landing");
     if (!root || !("IntersectionObserver" in window)) return;
     const html = document.documentElement;
-    const preference = matchMedia("(prefers-reduced-motion: reduce)");
     const played = new WeakSet<Element>();
     const animations = new Set<Animation>();
     let observer: IntersectionObserver | undefined;
@@ -17,15 +16,10 @@ export function LandingEffects() {
     html.removeAttribute("data-motion-paused");
     try { localStorage.removeItem("openteam-motion-paused"); } catch { /* Storage is optional. */ }
     const targets = root.querySelectorAll<HTMLElement>(
-      ".ot-section-heading h2, .ot-faq h2, .ot-ownership h2, .dl-step-heading h2, .ot-start h2",
+      ".ot-section-heading h2, .ot-feature-copy h2, .ot-scene-copy h2, .ot-faq h2, .ot-ownership h2, .dl-step-heading h2, .ot-start h2",
     );
     const sync = () => {
       observer?.disconnect();
-      if (preference.matches) {
-        animations.forEach((animation) => animation.cancel());
-        animations.clear();
-        return;
-      }
       observer = new IntersectionObserver((entries) => {
         entries.forEach((entry) => {
           if (!entry.isIntersecting || played.has(entry.target)) return;
@@ -50,16 +44,19 @@ export function LandingEffects() {
     const ambient = new IntersectionObserver((entries) => {
       entries.forEach((entry) => entry.target.toggleAttribute("data-motion-visible", entry.isIntersecting));
     });
+    const scenes = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => entry.target.toggleAttribute("data-scene-visible", entry.isIntersecting));
+    }, { threshold: 0.1 });
+    root.querySelectorAll("main > section").forEach((section) => scenes.observe(section));
     if (ref.current) ambient.observe(ref.current);
     sync();
     visibility();
-    preference.addEventListener("change", sync);
     document.addEventListener("visibilitychange", visibility);
     return () => {
       observer?.disconnect();
       ambient.disconnect();
+      scenes.disconnect();
       animations.forEach((animation) => animation.cancel());
-      preference.removeEventListener("change", sync);
       document.removeEventListener("visibilitychange", visibility);
       html.removeAttribute("data-page-hidden");
     };

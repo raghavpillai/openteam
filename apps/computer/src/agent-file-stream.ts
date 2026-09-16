@@ -2,9 +2,10 @@ import { spawn } from "node:child_process";
 import { Readable } from "node:stream";
 import { agentProcessIdentity, sanitizedAgentEnvironment } from "./agent-process";
 import { AGENT_FILE_IO_SCRIPT } from "./agent-file-io";
+import { nodeBinary } from "./node-runtime";
 
 function fileProcess(mode: "read" | "write", path: string, signal?: AbortSignal) {
-  const child = spawn(process.execPath, ["-e", AGENT_FILE_IO_SCRIPT, mode, path, String(Number.MAX_SAFE_INTEGER)], {
+  const child = spawn(nodeBinary(), ["-e", AGENT_FILE_IO_SCRIPT, mode, path, String(Number.MAX_SAFE_INTEGER)], {
     ...agentProcessIdentity(), env: sanitizedAgentEnvironment(process.env), stdio: ["pipe", "pipe", "pipe"], signal,
   });
   let errorText = "";

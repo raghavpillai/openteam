@@ -10,8 +10,16 @@ export function MachineSettings() {
   const [address, setAddress] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const load = async () => setMachines(await api.machines());
+  const [local, setLocal] = useState<{machineId:string;connected:boolean;configured:boolean;error:string|null} | null>(null);
+  const load = async () => {
+    const [roster, status] = await Promise.all([api.machines(), window.openteam?.auth.machineStatus?.().catch(() => null)]);
+    setMachines(roster); setLocal(status ?? null);
+  };
   useEffect(() => { void api.computerDisplay().then(setDisplay).catch(e=>setError(clientErrorMessage(e,"Could not load display settings"))); void load().catch(e => setError(clientErrorMessage(e, "Could not load computers"))); }, []);
+  useEffect(() => {
+    const timer = setInterval(() => { void load().catch(() => {}); }, 10_000);
+    return () => clearInterval(timer);
+  }, []);
   const change = async (action: () => Promise<unknown>) => {
     setBusy(true); setError(null);
     try { await action(); await load(); } catch (e) { setError(clientErrorMessage(e, "Could not update computers")); }
@@ -20,16 +28,21 @@ export function MachineSettings() {
   return <>
     <SectionLabel>Connected computers</SectionLabel>
     <SettingsGroup>
-      <p className="py-2 text-xs text-foreground-secondary">Computers registered to this deployment remain listed when offline. Each computer keeps its own execution permissions.</p>
+      <p className="py-2 text-xs text-foreground-secondary">Connect the OpenTeam desktop app to this server on each computer. It joins automatically and stays listed when offline. Each computer keeps its own execution permissions.</p>
+      {local && !local.connected && <p role="status" className="py-2 text-xs text-foreground-secondary">{local.error ?? (local.configured ? "Connecting this computer…" : "Sign in to connect this computer.")}</p>}
       {machines.map(machine => <div key={machine.machineId} className="flex items-center gap-3 py-2 text-xs">
-        <div className="min-w-0 flex-1"><div>{machine.label} · {machine.connected ? "Online" : "Offline"}</div><div className="truncate text-foreground-secondary">{machine.bridgeUrl}</div></div>
-        <button type="button" disabled={busy} onClick={() => void change(() => api.removeMachine(machine.machineId))}>Remove</button>
+        <div className="min-w-0 flex-1"><div>{machine.label}{local?.machineId === machine.machineId ? " (this computer)" : ""} · {!machine.enabled ? "Disabled" : machine.connected ? "Online" : "Offline"}</div><div className="truncate text-foreground-secondary">{machine.transport === "relay" ? "Desktop app connection" : machine.bridgeUrl}</div></div>
+        {machine.transport === "relay"
+          ? <button type="button" disabled={busy} onClick={() => void change(() => api.setMachineEnabled(machine.machineId, !machine.enabled))}>{machine.enabled ? "Disable" : "Enable"}</button>
+          : <button type="button" disabled={busy} onClick={() => void change(() => api.removeMachine(machine.machineId))}>Remove</button>}
       </div>)}
+      <details className="text-xs"><summary>Connect a bridge manually</summary>
       <form className="flex gap-2 py-2" onSubmit={event => { event.preventDefault(); void change(async () => { await api.registerMachine(address); setAddress(""); }); }}>
         <input aria-label="Computer bridge URL" type="url" required placeholder="http://computer.local:port" value={address} onChange={event => setAddress(event.target.value)} className="min-w-0 flex-1 rounded border bg-background px-2 py-1 text-xs" />
         <button type="submit" disabled={busy || !address.trim()} className="text-xs">Add computer</button>
         <button type="button" disabled={busy} onClick={() => void change(load)} className="text-xs">Refresh</button>
       </form>
+      </details>
       <form className="flex flex-wrap items-center gap-2 py-2 text-xs" onSubmit={event=>{event.preventDefault();void change(async()=>{setDisplay(await api.saveComputerDisplay(display));setDisplaySaved(true);});}}>
         <span>Box display</span>
         <input aria-label="Box display width" className="w-20 rounded border bg-background px-2 py-1" type="number" min={640} max={7680} required value={display.width} onChange={e=>{setDisplaySaved(false);setDisplay({...display,width:Number(e.target.value)});}} /> ×

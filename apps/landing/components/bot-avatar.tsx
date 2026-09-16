@@ -85,10 +85,9 @@ export function BotAvatar({
     if (!enabled) return;
     const element = ref.current;
     if (!element) return;
-    const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
     let inViewport = false;
     const sync = () => {
-      const active = inViewport && !document.hidden && !reducedMotion.matches;
+      const active = inViewport && !document.hidden;
       setVisible(active);
       if (!active) setExpression("idle");
     };
@@ -98,11 +97,9 @@ export function BotAvatar({
     });
     observer.observe(element);
     document.addEventListener("visibilitychange", sync);
-    reducedMotion.addEventListener("change", sync);
     return () => {
       observer.disconnect();
       document.removeEventListener("visibilitychange", sync);
-      reducedMotion.removeEventListener("change", sync);
     };
   }, [enabled]);
 

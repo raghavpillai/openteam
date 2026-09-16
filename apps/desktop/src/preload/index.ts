@@ -156,6 +156,8 @@ const notificationSnapshot = (value: unknown) => {
 contextBridge.exposeInMainWorld("openteam", {
   platform: process.platform,
   auth: {
+    connectMachine: (serverUrl: string) => ipcRenderer.invoke("openteam:machine:connect", serverUrl),
+    machineStatus: () => ipcRenderer.invoke("openteam:machine:status"),
     signIn: (serverUrl: string, username: string, password: string) =>
       ipcRenderer.invoke("openteam:auth:sign-in", serverUrl, username, password),
     signOut: (serverUrl: string, token: string) =>

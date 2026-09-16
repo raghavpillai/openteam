@@ -23,7 +23,7 @@ product understandable without a long setup.
 
 ## Positioning and scope
 
-The core message remains:
+The headline is **Run your own AI team.** The supporting message remains:
 
 > Digital workers that run on your compute and work in your apps. They have
 > their own computer and shared workspace, remember your instructions, and
@@ -34,8 +34,12 @@ Basic chat, file uploads, search controls, and routine interface actions do not
 need their own sales pitch. Use brief, distinct feature sections with a clear
 benefit in the heading and one short paragraph explaining its use. Each section
 should make sense on its own. Let the accompanying visual demonstrate an
-example rather than narrating a particular job in the paragraph. Section order
-and final copy are still being discussed.
+example rather than narrating a particular job in the paragraph.
+
+Keep the interactive example tasks directly below the hero. Use varied, polished
+custom components for the feature sections. Remove detached demo captions,
+sample-conversation subtitles, and other accent text beneath the visuals.
+Meaningful interface labels and controls belong inside their components.
 
 ### Audience and examples
 

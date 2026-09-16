@@ -119,7 +119,9 @@ export class ChannelService {
     serviceEffect(async () => {
       input = await this.normalizeMessageAttachments(input);
       const scope = `conversation:${conversationId}:message`;
-      const requestHash = hashRequest(input);
+      // Enrollment can finish between delivery retries. Origin is routing metadata,
+      // not a content change; the first accepted message keeps its original origin.
+      const requestHash = hashRequest({ ...input, sourceMachineId: undefined });
       const existing = await this.prisma.idempotencyRecord.findUnique({
         where: { scope_key: { scope, key: input.clientId } },
       });
@@ -180,6 +182,7 @@ export class ChannelService {
           select: { id: true, name: true },
           orderBy: { createdAt: "asc" },
         });
+        const sourceMachineId = input.sourceMachineId && await tx.hostMachine.findUnique({ where: { machineId: input.sourceMachineId }, select: { machineId: true } }) ? input.sourceMachineId : undefined;
         const address = await nextMessageAddress(tx, channel.id, "user");
         const visibleMessage = await tx.channelMessage.create({
           data: {
@@ -190,6 +193,7 @@ export class ChannelService {
             metadata: {
               type: "text",
               address,
+              ...(sourceMachineId ? { sourceMachineId } : {}),
               ...(input.attachments?.length ? { attachments: input.attachments } : {}),
               ...(reply ? { replyTo: reply.id } : {}),
               ...(input.richText ? { richText: input.richText } : {}),
@@ -205,7 +209,7 @@ export class ChannelService {
             address,
             formatDirectMentionContext(input.content, mentionPeers),
             reply
-          ),
+          ) + (sourceMachineId ? `\n\n[Sent from machine ${sourceMachineId}]` : ""),
           attachments: input.attachments,
           clientId: input.clientId,
           occurredAt: visibleMessage.createdAt,
@@ -268,7 +272,7 @@ export class ChannelService {
     serviceEffect(async () => {
       input = await this.normalizeMessageAttachments(input);
       const scope = `channel:${channelId}:message`;
-      const requestHash = hashRequest(input);
+      const requestHash = hashRequest({ ...input, sourceMachineId: undefined });
       const existing = await this.prisma.idempotencyRecord.findUnique({
         where: { scope_key: { scope, key: input.clientId } },
       });
@@ -304,6 +308,7 @@ export class ChannelService {
           },
         });
         await dismissMoveOnWidgets(tx, channelId);
+        const sourceMachineId = input.sourceMachineId && await tx.hostMachine.findUnique({ where: { machineId: input.sourceMachineId }, select: { machineId: true } }) ? input.sourceMachineId : undefined;
         const address = await nextMessageAddress(tx, channelId, "user");
         const message = await tx.channelMessage.create({
           data: {
@@ -314,6 +319,7 @@ export class ChannelService {
             metadata: {
               type: "text",
               address,
+              ...(sourceMachineId ? { sourceMachineId } : {}),
               ...(input.attachments?.length ? { attachments: input.attachments } : {}),
               ...(reply ? { replyTo: reply.id } : {}),
               ...(input.richText ? { richText: input.richText } : {}),

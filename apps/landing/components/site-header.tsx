@@ -9,12 +9,12 @@ import "./site-header.css";
 
 const GITHUB = "https://github.com/raghavpillai/openteam";
 const links = [
-  ["Use cases", "use-cases"],
-  ["How it works", "how-it-works"],
-  ["Plugins", "plugins"],
-  ["Workspace", "capabilities"],
+  ["Workers", "use-cases"],
+  ["Computer", "capabilities"],
+  ["Apps", "plugins"],
+  ["Memory", "memory"],
+  ["Routines", "routines"],
   ["Mobile", "mobile"],
-  ["Open source", "open-source"],
 ];
 
 export function SiteHeader({ home = false }: { home?: boolean }) {

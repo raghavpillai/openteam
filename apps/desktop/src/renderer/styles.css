@@ -24,6 +24,108 @@
   }
 }
 
+/* Template navigation: the incoming page slides over the outgoing page.
+ * Keep outgoing content inert and clip it to the dialog's content viewport. */
+/* Template pages share a persistent avatar; only the body slides. */
+.template-mark {
+  transform-origin: top;
+  transition: transform 200ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.template-mark[data-compact="true"] {
+  transform: translateY(36px) scale(0.7);
+}
+.template-page[data-page="overview"] {
+  padding-top: 128px;
+}
+.template-page[data-page="context"],
+.template-page[data-page="routines"],
+.template-page[data-page="integrations"] {
+  padding-top: 140px;
+}
+.template-card {
+  background: #77777717;
+}
+[data-theme="light"] .template-details {
+  --foreground-secondary: #14141499;
+}
+[data-theme="dark"] .template-card {
+  background: #282828;
+}
+.template-page[data-page="content"] {
+  padding-top: 76px;
+}
+.template-page[data-direction] {
+  animation-duration: 200ms;
+  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+  animation-fill-mode: both;
+}
+.template-page[data-direction="push"] {
+  animation-name: template-page-push-in;
+}
+.template-page.outgoing[data-direction="push"] {
+  animation-name: template-page-push-out;
+}
+.template-page[data-direction="pop"] {
+  animation-name: template-page-pop-in;
+}
+.template-page.outgoing[data-direction="pop"] {
+  animation-name: template-page-pop-out;
+}
+.template-page.outgoing {
+  pointer-events: none;
+  overflow: hidden;
+}
+.template-page[data-direction="push"]:not(.outgoing),
+.template-page.outgoing[data-direction="pop"] {
+  z-index: 1;
+  background: var(--background);
+}
+@keyframes template-page-push-in {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+@keyframes template-page-push-out {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(-30%);
+    opacity: 0;
+  }
+}
+@keyframes template-page-pop-in {
+  from {
+    transform: translateX(-30%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+@keyframes template-page-pop-out {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .template-mark {
+    transition: none;
+  }
+  .template-page[data-direction] {
+    animation: none;
+  }
+  .template-page.outgoing {
+    display: none;
+  }
+}
+
 .rich-message-card {
   animation: rich-message-card-enter 320ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
 }

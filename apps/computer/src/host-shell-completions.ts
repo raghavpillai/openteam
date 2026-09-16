@@ -17,6 +17,7 @@ interface PendingHostShell {
 export class HostShellCompletions {
   private readonly timer: ReturnType<typeof setInterval>;
   private polling = false;
+  private readonly locks = new Map<string, Promise<unknown>>();
   constructor(
     private readonly directory: string,
     private readonly pollHost: (job: PendingHostShell) => Promise<ShellAwaitResponse>,
@@ -38,11 +39,21 @@ export class HostShellCompletions {
       await rm(temp, { force: true });
     }
   }
+  private path(botId: string, machineId: string, shellId: string) {
+    return join(this.directory, `${createHash("sha256").update(`${botId}:${machineId}:${shellId}`).digest("hex")}.json`);
+  }
+  private async withJob<T>(path: string, operation: () => Promise<T>) {
+    const next = (this.locks.get(path) ?? Promise.resolve()).catch(() => {}).then(operation);
+    this.locks.set(path, next);
+    try { return await next; } finally { if (this.locks.get(path) === next) this.locks.delete(path); }
+  }
   async register(value: PendingHostShell) {
-    const id = createHash("sha256")
-      .update(`${value.botId}:${value.machineId}:${value.shellId}`)
-      .digest("hex");
-    await this.save(join(this.directory, `${id}.json`), value);
+    const path = this.path(value.botId, value.machineId, value.shellId);
+    await this.withJob(path, () => this.save(path, value));
+  }
+  async observe(botId: string, machineId: string, shellId: string) {
+    const path = this.path(botId, machineId, shellId);
+    await this.withJob(path, () => rm(path, { force: true }));
   }
   async flush() {
     if (this.polling) return;
@@ -56,6 +67,7 @@ export class HostShellCompletions {
             .filter((file) => /^[a-f0-9]{64}\.json$/.test(file))
             .map(async (file) => {
               const path = join(this.directory, file);
+              await this.withJob(path, async () => {
               try {
                 const job = JSON.parse(await readFile(path, "utf8")) as PendingHostShell;
                 if (!job.completion) {
@@ -79,6 +91,7 @@ export class HostShellCompletions {
               } catch {
                 /* Offline hosts and delivery failures keep their durable receipts. */
               }
+              });
             })
         );
     } finally {

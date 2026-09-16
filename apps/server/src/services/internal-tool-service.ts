@@ -1,3 +1,4 @@
+import { readSiblingThread } from "@openteam/messaging";
 import { normalizeMainToolArguments } from "@openteam/contracts/reference-main-parsers";
 import {
   AgentSendToUserInput,
@@ -138,6 +139,7 @@ export class InternalToolService {
         "request_user_form",
         "remap_user_form_targets",
         "RecallMemory",
+        "read_sibling_thread",
         "ListSections",
         "Task",
         "CheckSubagent",
@@ -167,6 +169,7 @@ export class InternalToolService {
       if (childIdentity && parentOnlyTools.has(request.tool)) {
         throw new ApiError(403, "subagent_tool_forbidden", "This tool is parent-agent only");
       }
+      if (request.tool === "read_sibling_thread") return readSiblingThread(this.prisma, context, request.arguments);
       if (request.tool === "RecallMemory") {
         const memoryContextId = run.memoryConversationId ?? (await this.messaging.agentData.resolveMemoryConversation(request.botId, run.channelId)).id;
         return this.messaging.agentData.recallMemory(request.botId, request.arguments, memoryContextId);

@@ -6,6 +6,9 @@ import { dispatchRoutes, effectRoute } from "./dispatch";
 export async function settingsRoutes(context: RouteContext): Promise<Response | undefined> {
   const { app, request, path } = context;
 
+  if (path === "/api/machines/enroll" && request.method === "POST") {
+    return json(await app.machines.enroll(await request.json(), context.authenticatedSessionId));
+  }
   if(path === "/api/server-settings/computer-display") {
     if(request.method==="GET")return json(await app.machines.display());
     if(request.method==="PATCH")return json(await app.machines.saveDisplay(await request.json()));
@@ -15,6 +18,11 @@ export async function settingsRoutes(context: RouteContext): Promise<Response | 
     if(request.method === "POST")return json(await app.machines.save(await request.json()));
   }
   const machine=path.match(/^\/api\/server-settings\/machines\/([^/]+)$/);
+  if (machine?.[1] && request.method === "PATCH") {
+    const input = await request.json() as { enabled?: unknown };
+    if (typeof input.enabled !== "boolean") throw new ApiError(400, "machine_enabled_invalid", "enabled must be a boolean");
+    return json(await app.machines.setEnabled(decodeURIComponent(machine[1]), input.enabled));
+  }
   if(machine?.[1] && request.method === "DELETE")return json(await app.machines.remove(decodeURIComponent(machine[1])));
   if(path === "/api/server-settings/automation-webhooks") {
     if(request.method === "GET")return json(await app.automationWebhooks.list());

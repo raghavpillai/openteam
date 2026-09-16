@@ -22,5 +22,18 @@ test.skipIf(!process.env.OPENTEAM_TEST_DATABASE_URL)("registered machines surviv
   await db.hostMachine.update({where:{machineId:id},data:{enabled:false}});
   await expect(directory.endpoint(id)).rejects.toThrow("disabled");
   await expect(service.save({bridgeUrl:"file:///etc"})).rejects.toThrow("HTTP");
- }finally{bridge.stop(true);api.stop(true);await service.remove(id);await db.$disconnect();}
+ }finally{service.relay.close();bridge.stop(true);api.stop(true);await service.remove(id);await db.$disconnect();}
+});
+
+test.skipIf(!process.env.OPENTEAM_TEST_DATABASE_URL)("auth-disabled enrollment is rejected after required authentication is enabled",async()=>{
+ const db=createPrismaClient(process.env.OPENTEAM_TEST_DATABASE_URL!);
+ const disabled=new MachineService(db,"fixture",undefined,undefined,true),required=new MachineService(db,"fixture");
+ const machineId=crypto.randomUUID();
+ try{
+  const result=await disabled.enroll({machineId,label:"Local fixture",localToolPermission:"ask"},null);
+  const request=new Request("http://fixture/channel",{headers:{authorization:`Bearer ${result.credential}`,"x-openteam-machine-id":machineId}});
+  expect((await disabled.authenticate(request)).machineId).toBe(machineId);
+  await expect(required.authenticate(request)).rejects.toThrow("no longer authorized");
+  await expect(required.assertRoutable(machineId)).rejects.toThrow("not available");
+ }finally{disabled.relay.close();required.relay.close();await db.hostMachine.deleteMany({where:{machineId}});await db.$disconnect();}
 });

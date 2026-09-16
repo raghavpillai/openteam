@@ -1,4 +1,4 @@
-/** Provider APIs verified against their official documentation; see docs/web-search.md. */
+/** Provider APIs verified against their official documentation; see docs/configuration/web-search.md. */
 import { SEARCH_PROVIDERS, type SearchProvider } from "@openteam/contracts/web-search";
 export { SEARCH_PROVIDERS, type SearchProvider } from "@openteam/contracts/web-search";
 export interface SearchConfiguration {

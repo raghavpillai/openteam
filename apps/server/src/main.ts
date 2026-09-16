@@ -1,3 +1,4 @@
+import { machineChannelResponse } from "./machine-http";
 import { connectorTransferResponse, boundedRequest } from "./connector-transfer-http";
 import { automationWebhookBinding, receiveAutomationWebhook } from "./automation-webhooks";
 import { AdminBroadcastInput, DynamicToolCallRequest, ShellCompletionInput } from "@openteam/contracts";
@@ -76,6 +77,17 @@ const server = Bun.serve({
         requestServer.timeout(networkRequest,0);
         return await connectorTransferResponse(request,app.internalTools);
       }
+      if (path.startsWith("/api/machines/channel/")) {
+        requestServer.timeout(networkRequest, 0);
+        return await machineChannelResponse(app.machines, request, path, value => app.autoReview.review(parseAutoReviewInput(value)));
+      }
+      const machineRelay = path.match(/^\/api\/internal\/machines\/([\da-f-]{36})\/bridge(\/.*)$/i);
+      if (machineRelay) {
+        if (!authorizedInternal(request)) return json({ error: "Unauthorized" }, 401);
+        await app.machines.assertRoutable(machineRelay[1]!);
+        requestServer.timeout(networkRequest, 0);
+        return await app.machines.relay.forward(machineRelay[1]!, machineRelay[2]!, request);
+      }
       request=boundedRequest(request,280*1024*1024);
       const automationHook = path.match(/^\/api\/automation-hooks\/([a-zA-Z0-9_-]{1,100})$/);
       if (automationHook && request.method === "POST") {
@@ -119,16 +131,18 @@ const server = Bun.serve({
           requestIpServer,
           proxySecret,
           undefined,
-          undefined,
+          await request.text(),
           { trustPrivateForwarder }
         );
-        if (authMode === "required") {
-          const signingOutSession = await auth.api.getSession({ headers: authRequest.headers });
-          if (signingOutSession) {
-            await run(app.disablePushDevicesForSession(signingOutSession.session.id));
-          }
+        const signingOutSession = authMode === "required" ? await auth.api.getSession({ headers: authRequest.headers }) : null;
+        // Retire the owner session before releasing its computers. Otherwise a
+        // reconnect can mint a fresh device credential while sign-out is pending.
+        const response = await auth.handler(authRequest);
+        if (response.ok && signingOutSession) {
+          await run(app.disablePushDevicesForSession(signingOutSession.session.id));
+          await app.machines.revokeSession(signingOutSession.session.id);
         }
-        return withCors(await auth.handler(authRequest));
+        return withCors(response);
       }
       if (url.pathname.startsWith("/api/auth/")) {
         return withCors(
@@ -177,6 +191,7 @@ const server = Bun.serve({
       if (path.startsWith("/api/internal/machines")) {
         if (!authorizedInternal(request)) return json({error:{code:"unauthorized",message:"Unauthorized"}},401);
         if(path === "/api/internal/machines" && request.method === "GET")return json(await app.machines.list());
+        if(path === "/api/internal/machines/preferred" && request.method === "GET")return json(await app.machines.preferred(url.searchParams.get("botId") ?? "", url.searchParams.get("channelId") ?? undefined));
         if(path === "/api/internal/machines/register" && request.method === "POST")return json(await app.machines.save(await request.json()));
         if(path === "/api/internal/machines/observe" && request.method === "POST")return json(await app.machines.observe(await request.json()));
         return json({error:{code:"not_found",message:"Not found"}},404);
@@ -265,6 +280,7 @@ const server = Bun.serve({
 });
 
 const shutdown = async () => {
+  app.machines.relay.close();
   server.stop();
   await Effect.runPromise(app.close());
   process.exit(0);

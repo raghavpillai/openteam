@@ -109,7 +109,8 @@ export class ComputerRuntime {
       this.serverUrl,
       this.controlToken,
       this.agentDir,
-      this.workspaceRoot
+      this.workspaceRoot,
+      (botId, channelId) => ![...this.activeByRun.values()].some(turn => turn.botId === botId && (!channelId || turn.channelId === channelId))
     );
   }
 
@@ -473,6 +474,7 @@ export class ComputerRuntime {
     };
     active.acceptedSteerIds.add(request.inboxId);
     active.pendingSteers.push(pending);
+    this.tools.interruptShellWaits(runId);
     try {
       const prepared = await prepareUserImages(decodeInlineImages(request.images ?? []));
       const images = prepared.images;

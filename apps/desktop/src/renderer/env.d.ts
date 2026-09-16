@@ -2,6 +2,8 @@ interface Window {
   openteam?: {
     platform: string;
     auth: {
+      connectMachine: (serverUrl: string) => Promise<{ machineId: string }>;
+      machineStatus: () => Promise<{ machineId: string; connected: boolean; configured: boolean; error: string | null }>;
       signIn: (
         serverUrl: string,
         username: string,

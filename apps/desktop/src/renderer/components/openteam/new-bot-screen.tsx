@@ -8,7 +8,7 @@ import {
   stageDesktopDeliveryFile,
 } from "../../lib/durable-sends";
 import { PromptInput } from "../ai-elements/prompt-input";
-import { ChannelAvatar } from "./avatar";
+import { BotAvatar, ChannelAvatar } from "./avatar";
 
 export function NewBotScreen({
   channels,
@@ -21,7 +21,7 @@ export function NewBotScreen({
 }: {
   channels: ChannelView[];
   botById: ReadonlyMap<string, BotView>;
-  onCreateBot: () => void;
+  onCreateBot: (name?: string) => void;
   onCreateGroup: (botIds: string[]) => Promise<ChannelView>;
   onGroupModeChange: (group: boolean) => void;
   onCancel: () => void;
@@ -52,7 +52,9 @@ export function NewBotScreen({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [onCancel, resultsOpen, submitting]);
 
-  const actionCount = group ? 0 : 2;
+  const hasQuery = query.trim().length > 0;
+  const actionCount = group ? 0 : hasQuery ? 1 : 2;
+  const createBot = () => onCreateBot(query.trim() || undefined);
   const matches = useMemo(() => {
     const normalized = query.trim().toLowerCase();
     return channels.filter(
@@ -98,10 +100,10 @@ export function NewBotScreen({
   };
   const openActiveResult = () => {
     if (!group && activeIndex === 0) {
-      onCreateBot();
+      createBot();
       return;
     }
-    if (!group && activeIndex === 1) {
+    if (!group && !hasQuery && activeIndex === 1) {
       startGroup();
       return;
     }
@@ -118,8 +120,9 @@ export function NewBotScreen({
           {recipients.map((id) => (
             <span
               key={id}
-              className="flex max-w-[180px] items-center gap-1 rounded-md bg-subtle px-1.5 py-1 text-foreground"
+              className="flex max-w-[180px] items-center gap-1 rounded-full bg-subtle px-1.5 py-1 text-[12px] text-foreground"
             >
+              <BotAvatar bot={botById.get(id)} size="xs" />
               <span className="truncate">{botById.get(id)?.name ?? "Bot"}</span>
               <button
                 type="button"
@@ -149,6 +152,8 @@ export function NewBotScreen({
             }
             aria-expanded={resultsOpen}
             aria-label="Search or create bots"
+            autoComplete="off"
+            maxLength={120}
             role="combobox"
             className="min-w-[100px] flex-1 bg-transparent text-[13px] text-foreground outline-none placeholder:text-muted-foreground"
             disabled={submitting || Boolean(createdRoom.current)}
@@ -206,29 +211,31 @@ export function NewBotScreen({
                     role="option"
                     aria-selected={activeIndex === 0}
                     className={`flex h-[38px] w-full items-center gap-2 rounded-[7px] px-2 text-left text-[13px] ${activeIndex === 0 ? "bg-selected" : "hover:bg-hover"}`}
-                    onClick={onCreateBot}
+                    onClick={createBot}
                     onMouseEnter={() => setActiveIndex(0)}
                     type="button"
                   >
                     <span className="grid size-5 place-items-center rounded-full bg-subtle text-muted-foreground">
                       <Plus className="size-3.5" />
                     </span>
-                    Create new Bot
+                    {hasQuery ? `Create “${query.trim()}” Bot` : "Create new Bot"}
                   </button>
-                  <button
-                    id="new-chat-action-1"
-                    role="option"
-                    aria-selected={activeIndex === 1}
-                    className={`flex h-[38px] w-full items-center gap-2 rounded-[7px] px-2 text-left text-[13px] ${activeIndex === 1 ? "bg-selected" : "hover:bg-hover"}`}
-                    onClick={startGroup}
-                    onMouseEnter={() => setActiveIndex(1)}
-                    type="button"
-                  >
-                    <span className="grid size-5 place-items-center rounded-full bg-subtle text-muted-foreground">
-                      <UsersRound className="size-3.5" />
-                    </span>
-                    Create group chat
-                  </button>
+                  {!hasQuery && (
+                    <button
+                      id="new-chat-action-1"
+                      role="option"
+                      aria-selected={activeIndex === 1}
+                      className={`flex h-[38px] w-full items-center gap-2 rounded-[7px] px-2 text-left text-[13px] ${activeIndex === 1 ? "bg-selected" : "hover:bg-hover"}`}
+                      onClick={startGroup}
+                      onMouseEnter={() => setActiveIndex(1)}
+                      type="button"
+                    >
+                      <span className="grid size-5 place-items-center rounded-full bg-subtle text-muted-foreground">
+                        <UsersRound className="size-3.5" />
+                      </span>
+                      Create group chat
+                    </button>
+                  )}
                 </>
               )}
               <div

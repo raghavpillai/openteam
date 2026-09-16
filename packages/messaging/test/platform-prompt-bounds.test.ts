@@ -97,6 +97,7 @@ describe("bounded platform target context", () => {
       },
       prisma: {
         $queryRaw: async () => [],
+        contextSession: { findMany: async () => [] },
         bot: {
           findUniqueOrThrow: async (args: Record<string, unknown>) => {
             queryArgs.bot = args;

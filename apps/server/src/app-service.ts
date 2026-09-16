@@ -89,7 +89,7 @@ export class AppService {
     const databaseUrl = process.env.DATABASE_URL;
     this.prisma = createPrismaClient(databaseUrl);
     this.webSearchSettings = new WebSearchSettingsService(this.prisma);
-    this.machines = new MachineService(this.prisma, process.env.OPENTEAM_CONTROL_TOKEN ?? "local-compose-only-change-me");
+    this.machines = new MachineService(this.prisma, process.env.OPENTEAM_CONTROL_TOKEN ?? "local-compose-only-change-me", undefined, undefined, authMode === "disabled");
     this.webFetchSettings = new WebFetchSettingsService(this.prisma);
     this.boss = new PgBoss(databaseUrl ?? "");
     this.eventWakeup = new EventWakeup(databaseUrl ?? "");

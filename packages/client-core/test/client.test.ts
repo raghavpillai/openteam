@@ -69,6 +69,14 @@ describe("mobile-safe OpenTeam client", () => {
     );
   });
 
+  test("desktop sends its source machine on both direct and group messages", async () => {
+    const bodies: unknown[]=[];
+    const machineId=crypto.randomUUID();
+    const client=createOpenTeamClient({baseUrl:"http://fixture",sourceMachineId:()=>machineId,fetch:(async(_url,init)=>{bodies.push(JSON.parse(String(init?.body)));return Response.json({});}) as typeof fetch});
+    await client.sendDirectMessage("conversation","hello");await client.sendChannelMessage("channel","hello");
+    for(const body of bodies)expect(body).toMatchObject({sourceMachineId:machineId,content:"hello"});
+  });
+
   test("routes widget and secure handoff actions through one-shot message endpoints", async () => {
     const calls: Array<{ url: string; init?: RequestInit }> = [];
     let nextId = 0;

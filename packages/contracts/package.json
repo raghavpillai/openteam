@@ -33,7 +33,8 @@
     "./reference-formatters": "./src/reference-formatters.ts",
     "./reference-form-results": "./src/reference-form-results.ts",
     "./tool-results": "./src/tool-results.ts",
-    "./reference-main-parsers": "./src/reference-main-parsers.ts"
+    "./reference-main-parsers": "./src/reference-main-parsers.ts",
+    "./sibling-threads": "./src/sibling-threads.ts"
   },
   "scripts": {
     "build": "bun build src/index.ts --outdir dist --target bun",

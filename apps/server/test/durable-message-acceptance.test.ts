@@ -29,6 +29,8 @@ describe("durable message acceptance boundary", () => {
     const clientId = "nonce-direct-1";
     const cancellation = deferred<Response>();
     const message = acceptedMessage(channelId, clientId);
+    const machineId=crypto.randomUUID();
+    let runtimeContent="";
     const tx = {
       $executeRaw: async () => 0,
       conversation: {
@@ -44,6 +46,7 @@ describe("durable message acceptance boundary", () => {
       },
       channelMessage: { create: async () => message, count: async () => 0 },
       bot: { findMany: async () => [] },
+      hostMachine: { findUnique: async()=>({machineId}) },
       event: { create: async () => ({}) },
     };
     const prisma = {
@@ -52,7 +55,7 @@ describe("durable message acceptance boundary", () => {
     };
     const messaging = {
       skipBootstrapForUser: async () => "bootstrap-run-1",
-      acceptDirectUserMessage: async () => ({
+      acceptDirectUserMessage: async (_tx:unknown,input:{content:string}) => (runtimeContent=input.content,{
         run: { id: "run-direct" },
         steer: null,
         interruptRunId: null,
@@ -68,12 +71,13 @@ describe("durable message acceptance boundary", () => {
 
     const result = await Promise.race([
       Effect.runPromise(
-        service.sendDirectMessage("conversation-1", { content: "hello", clientId })
+        service.sendDirectMessage("conversation-1", { content: "hello", clientId,sourceMachineId:machineId })
       ),
       Bun.sleep(100).then(() => "timed-out" as const),
     ]);
     expect(result).not.toBe("timed-out");
     expect(result).toMatchObject({ message: { id: message.id, clientId } });
+    expect(runtimeContent).toContain(`[Sent from machine ${machineId}]`);
     cancellation.resolve(new Response(null, { status: 200 }));
   });
 

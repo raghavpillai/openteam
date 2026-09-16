@@ -443,9 +443,3 @@
   .landing .pd-showcase,
   .landing .pl-demo { border-radius: 8px; }
 }
-@media (prefers-reduced-motion: reduce) {
-  .landing .ot-button:hover,
-  .landing .ot-button:hover > svg,
-  .landing .ot-text-link[href="#product"]:hover > svg,
-  .landing .ot-text-link:hover > svg { transform: none; }
-}

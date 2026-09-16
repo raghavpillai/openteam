@@ -1,0 +1,431 @@
+/* Each source feeds a real piece of context into the worker's conversation. */
+.ws-app-scene .ws-app-orbit {
+  isolation: isolate;
+}
+.ws-app-scene .ws-connection-lines path {
+  stroke-width: 1.25;
+  transition: stroke 700ms ease;
+}
+.ws-app-scene .ws-connection-lines [data-active="true"] > path:first-child {
+  stroke: color-mix(in srgb, var(--source-color) 25%, #e4e9df);
+}
+.ws-app-scene .ws-connection-lines .ws-connection-packet {
+  stroke: var(--source-color);
+  stroke-dasharray: 4 96;
+  stroke-width: 2.4;
+}
+.ws-app-scene[data-playing="true"] .ws-connection-lines [data-active="true"] .ws-connection-packet {
+  opacity: 0.9;
+  animation: app-context-travel 2.2s cubic-bezier(0.3, 0.1, 0.6, 1) infinite;
+}
+.ws-app-scene .ws-app-worker {
+  position: relative;
+  padding: 7px 22px 7px 10px;
+  gap: 11px;
+  border-color: #d4dfcc;
+  box-shadow:
+    0 0 0 7px #edf2e66b,
+    0 12px 25px -17px #3a582b66;
+}
+.ws-app-scene .ws-app-worker-label {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+}
+.ws-app-worker-label strong {
+  color: #3d4837;
+  font-size: 14px;
+  font-weight: 500;
+}
+.ws-app-worker-label small {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  color: #7b8970;
+  animation: app-context-enter 350ms ease both;
+}
+.ws-app-worker-label i {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #90ab7b;
+  box-shadow: 0 0 0 3px #90ab7b20;
+  animation: app-worker-pulse 1.5s ease-in-out infinite;
+}
+.ws-app-scene .ws-app-node {
+  overflow: hidden;
+  background: linear-gradient(160deg, #fff, #fdfefd);
+  border-radius: 17px;
+  box-shadow:
+    0 3px 0 #fff inset,
+    0 10px 20px -15px #26392230;
+}
+.ws-app-scene[data-playing="true"] .ws-app-node {
+  animation: app-node-float 7s ease-in-out infinite;
+}
+.ws-app-scene .ws-app-node:nth-of-type(2n) {
+  animation-delay: -2s;
+}
+.ws-app-scene .ws-app-node:nth-of-type(3n) {
+  animation-delay: -4s;
+}
+.ws-app-scene .ws-app-node[aria-pressed="true"] {
+  animation: none;
+  background: #fff;
+  box-shadow:
+    0 4px 1px #fff inset,
+    0 18px 30px -17px color-mix(in srgb, var(--app-color) 35%, transparent);
+}
+.ws-app-scene .ws-app-node::after {
+  content: "";
+  position: absolute;
+  inset: auto 12px 0;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--app-color);
+  opacity: 0;
+  transform: scaleX(0);
+  transform-origin: left;
+}
+.ws-app-scene .ws-app-node[aria-pressed="true"]::after {
+  opacity: 0.6;
+  animation: app-context-fill var(--cycle-duration) linear both;
+}
+.ws-app-scene .ws-app-node-state {
+  min-height: 14px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.ws-app-scene .ws-context-feed {
+  position: relative;
+  margin: 10px 30px 0;
+  border: 1px solid #dfe5d8;
+  border-radius: 17px;
+  background: #fff;
+  box-shadow: 0 20px 45px -35px #32462766;
+  overflow: hidden;
+}
+.ws-context-feed-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 22px;
+  border-bottom: 1px solid #e9ede5;
+  background: #f7f9f4;
+  font-size: 12px;
+  color: #77856c;
+}
+.ws-context-feed-header > span:first-child {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.ws-feed-count {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: #5c6a52;
+  letter-spacing: 1px;
+}
+.ws-feed-count > span {
+  color: #829076;
+}
+.ws-app-scene .ws-context-strip {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 36px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  min-height: 228px;
+  margin: 0;
+  padding: 25px;
+  border: 0;
+  border-radius: 0;
+  background: #fff;
+  box-shadow: none;
+}
+.ws-context-source {
+  min-width: 0;
+  animation: app-context-enter 600ms ease both;
+}
+.ws-app-scene .ws-context-file {
+  width: auto;
+  gap: 11px;
+  animation: none;
+}
+.ws-app-scene .ws-context-file > span {
+  width: 38px;
+  height: 42px;
+  flex-shrink: 0;
+  color: var(--source-color);
+  border-color: color-mix(in srgb, var(--source-color) 15%, #edf0e9);
+  background: color-mix(in srgb, var(--source-color) 3%, #fff);
+}
+.ws-app-scene .ws-context-file > div {
+  min-width: 0;
+}
+.ws-app-scene .ws-context-file small {
+  color: #8b9683;
+  font-size: 12px;
+}
+.ws-app-scene .ws-context-file strong {
+  color: #3c4637;
+  font-size: 14px;
+  line-height: 1.4;
+}
+.ws-context-detail {
+  color: #7b8672;
+  font-size: 12px;
+  margin: 13px 0 5px;
+}
+.ws-context-source-text {
+  color: #76816c;
+  font-size: 13px;
+  line-height: 1.6;
+  margin: 0;
+}
+.ws-context-route {
+  position: relative;
+  display: grid;
+  place-items: center;
+  height: 34px;
+  color: #b6c1ad;
+}
+.ws-context-route i {
+  position: absolute;
+  width: 4px;
+  height: 4px;
+  background: #8caa75;
+  border-radius: 50%;
+  animation: app-context-pass 2.2s ease-in-out infinite;
+}
+.ws-context-received {
+  padding: 15px;
+  border: 1px solid #e6ebe0;
+  border-radius: 13px;
+  background: #f9fbf6;
+  min-width: 0;
+  animation: app-context-enter 700ms 250ms ease both;
+}
+.ws-context-recipient {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+  font-size: 12px;
+}
+.ws-context-recipient strong {
+  font-weight: 500;
+  color: #4c5842;
+}
+.ws-context-recipient > span {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: auto;
+  font-size: 12px;
+  color: #738563;
+}
+.ws-context-received > p {
+  font-size: 13px;
+  line-height: 1.6;
+  color: #637057;
+  margin: 10px 0 12px;
+}
+.ws-context-source-link {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 7px;
+  border: 1px solid #e4e9dd;
+  border-radius: 5px;
+  background: #fff;
+  color: #748167;
+  font-size: 12px;
+}
+.ws-context-source-link > svg {
+  flex-shrink: 0;
+}
+.ws-context-source-link > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ws-context-progress {
+  position: absolute;
+  inset: auto 0 0;
+  height: 2px;
+  background: #f2f5ef;
+}
+.ws-context-progress > i {
+  display: block;
+  height: 100%;
+  background: color-mix(in srgb, var(--source-color) 40%, #cedbbf);
+  transform-origin: left;
+  animation: app-context-fill var(--cycle-duration) linear both;
+}
+.ws-app-scene .ws-app-footer {
+  margin: 23px 42px 0;
+}
+.ws-app-scene[data-playing="false"] .ws-app-node,
+.ws-app-scene[data-playing="false"] .ws-app-node::after,
+.ws-app-scene[data-playing="false"] .ws-context-progress > i,
+.ws-app-scene[data-playing="false"] .ws-context-route i,
+.ws-app-scene[data-playing="false"] .ws-app-worker-label i {
+  animation-play-state: paused;
+}
+@keyframes app-context-travel {
+  from {
+    stroke-dashoffset: 100;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes app-node-float {
+  0%,
+  100% {
+    translate: 0 0;
+  }
+  50% {
+    translate: 0 -5px;
+  }
+}
+@keyframes app-worker-pulse {
+  0%,
+  100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 1;
+    box-shadow: 0 0 0 5px #90ab7b10;
+  }
+}
+@keyframes app-context-enter {
+  from {
+    opacity: 0;
+    transform: translateY(7px);
+    filter: blur(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+}
+@keyframes app-context-pass {
+  0% {
+    transform: translateX(-13px);
+    opacity: 0;
+  }
+  35%,
+  65% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(13px);
+    opacity: 0;
+  }
+}
+@keyframes app-context-fill {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+@media (max-width: 1100px) {
+  .ws-app-scene .ws-context-feed {
+    margin-inline: 0;
+  }
+  .ws-app-scene .ws-context-strip {
+    padding: 20px;
+    gap: 6px;
+    grid-template-columns: minmax(0, 1fr) 24px minmax(0, 1fr);
+  }
+  .ws-context-recipient > span {
+    display: none;
+  }
+  .ws-app-scene .ws-app-footer {
+    margin-inline: 8px;
+  }
+}
+@media (max-width: 850px) {
+  .ws-app-scene .ws-app-orbit {
+    min-height: 0;
+    padding-bottom: 26px;
+  }
+  .ws-app-scene .ws-app-worker {
+    margin-bottom: 5px;
+  }
+  .ws-app-scene .ws-app-node {
+    border-radius: 13px;
+  }
+  .ws-app-scene .ws-context-strip {
+    min-height: 228px;
+  }
+}
+@media (max-width: 600px) {
+  .ws-app-scene .ws-context-strip {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 13px;
+    padding: 17px;
+    min-height: 331px;
+  }
+  .ws-context-feed-header {
+    padding: 12px 16px;
+    font-size: 12px;
+  }
+  .ws-context-route {
+    display: none;
+  }
+  .ws-context-source-text {
+    display: none;
+  }
+  .ws-context-detail {
+    margin-bottom: 0;
+  }
+  .ws-context-received {
+    padding: 13px;
+    align-self: start;
+  }
+  .ws-context-recipient > span {
+    display: flex;
+  }
+  .ws-context-received > p {
+    font-size: 13px;
+  }
+  .ws-app-scene .ws-app-footer {
+    margin: 20px 0 0;
+  }
+  .ws-app-scene .ws-app-node strong {
+    font-size: 12px;
+  }
+}
+@media (max-width: 360px) {
+  .ws-context-recipient > span {
+    display: none;
+  }
+  .ws-app-worker-label strong {
+    font-size: 13px;
+  }
+  .ws-app-scene .ws-context-strip {
+    padding: 14px;
+  }
+}
+
+.ws-app-scene .ws-app-node-state {
+  color: #89957f;
+}
+.ws-app-scene .ws-context-received > p {
+  color: #59664e;
+  font-size: 14px;
+}
+@media (max-width: 600px) {
+  .ws-app-scene .ws-context-received > p {
+    font-size: 13px;
+  }
+}

@@ -2964,15 +2964,6 @@
     font-size: 8px;
   }
 }
-@media (prefers-reduced-motion: reduce) {
-  .landing *,
-  .landing *:before,
-  .landing *:after {
-    animation: none !important;
-    scroll-behavior: auto !important;
-    transition: none !important;
-  }
-}
 
 /* Readable working surfaces at their displayed size. */
 .pd-workspace {

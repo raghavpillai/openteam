@@ -1351,7 +1351,11 @@ model AutomationWebhook {
 model HostMachine {
   machineId String @id
   label String
-  bridgeUrl String @unique
+  bridgeUrl String? @unique
+  transport String @default("direct")
+  credentialHash String?
+  authSessionId String?
+  localToolPermission String @default("ask")
   enabled Boolean @default(true)
   lastSeenAt DateTime?
   createdAt DateTime @default(now())

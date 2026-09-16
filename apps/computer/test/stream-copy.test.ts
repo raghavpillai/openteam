@@ -23,7 +23,7 @@ test("host and box stream a file above 256 MiB, with single-use permits and atom
   expect((await fetch(`${base}/${permit.transferId}`)).status).toBe(400);
   const staged=await spoolFile(Bun.file(box).stream());
   try {
-   const original=await spoolFile(Bun.file(source).stream());try{expect(staged.sha256).toBe(original.sha256);}finally{await original.cleanup();}
+   const original=await spoolFile(Bun.file(source).stream());try{expect(staged.sizeBytes).toBe(original.sizeBytes);expect(staged.sha256).toBe(original.sha256);}finally{await original.cleanup();}
    const write=await transfers.prepare({direction:"write",path:destination,bytes:staged.sizeBytes,machineId:"fixture"});
    const input=agentReadStream(box);
    try {expect((await fetch(`${base}/${write.transferId}`,{method:"PUT",body:Readable.toWeb(input.stream) as any,duplex:"half"} as any)).ok).toBe(true);await input.done;}finally{input.cancel();}

@@ -65,10 +65,16 @@ export class HostFileTransfers {
         for await (const chunk of request) {
           bytes += chunk.length;
           if (bytes > permit.bytes!) throw new Error("Transfer body exceeds declared size");
-          await file.writeFile(chunk);
+          let offset = 0;
+          while (offset < chunk.length) {
+            const { bytesWritten } = await file.write(chunk, offset, chunk.length - offset, bytes - chunk.length + offset);
+            if (!bytesWritten) throw new Error("File write made no progress");
+            offset += bytesWritten;
+          }
         }
         if (bytes !== permit.bytes) throw new Error("Incomplete file transfer");
         await file.sync();
+        if ((await file.stat()).size !== bytes) throw new Error("Incomplete file transfer");
       } finally {
         await file.close();
       }

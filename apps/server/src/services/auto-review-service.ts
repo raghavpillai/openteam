@@ -8,6 +8,7 @@ import type { ComputerFetch } from "./service-utils";
 const SURFACES = new Set([
   "hostShell",
   "hostRead",
+  "hostWrite",
   "mcp",
   "computer",
   "automationWrite",
@@ -19,6 +20,7 @@ export interface AutoReviewInput {
   surface:
     | "hostShell"
     | "hostRead"
+    | "hostWrite"
     | "mcp"
     | "computer"
     | "automationWrite"

@@ -6,6 +6,18 @@ simple example of its section's feature, using clearly identifiable sample data.
 Keep supporting labels inside the relevant interface. Avoid detached subtitles
 and repeated explanations around the components.
 
+The sections should have different compositions, with their copy integrated into
+the example: a rotating worker roster and profile deck, a dark computer workspace,
+apps feeding a shared context, a memory notebook, and a scheduled brief moving
+through its preparation steps. Avoid repeating heading, paragraph, then large
+rectangle throughout the page. Preserve the hero copy and example bots.
+
+Automatic transitions should advance the example, with readable completed states.
+Start each scene as it approaches the viewport and continue through hover, focus,
+and selector clicks. Hold only while editing memory or viewing an opened file.
+Sleep offscreen and in hidden tabs; do not show playback controls.
+No reduced-motion variant is needed.
+
 ## Build the team you need
 
 Show Chief of staff, Travel planner, and Finance manager as configurable worker

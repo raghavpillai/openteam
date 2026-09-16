@@ -7,7 +7,7 @@ import {
 import { relevanceTokens } from "./recall-memory";
 
 // Compatibility target: the inspected Grok Bot ecc8113 file-memory lifecycle.
-// See docs/memory-parity.md for evidence, configuration, and backend boundaries.
+// See docs/reference/memory-parity.md for evidence, configuration, and backend boundaries.
 const TRIVIAL_EXCHANGES = new Set(
   "hi|hey|hello|yo|sup|thanks|thank you|ty|thx|ok|okay|k|kk|cool|nice|great|awesome|perfect|yes|yep|yeah|no|nope|sure|got it|gotcha|lol|haha|np|done|good|bye".split(
     "|"

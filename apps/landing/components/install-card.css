@@ -137,6 +137,3 @@
   .ot-install-steps li { gap: 12px; padding: 20px 0; }
   .ot-install-requirements { padding: 16px 18px; }
 }
-@media (prefers-reduced-motion: reduce) {
-  .landing .ot-install-copy { transition: none; }
-}

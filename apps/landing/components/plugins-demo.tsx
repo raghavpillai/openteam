@@ -5,6 +5,7 @@ import { useState } from "react";
 import { Dialog } from "@base-ui/react/dialog";
 import { BookOpen, Expand, Plug, ShieldCheck, X } from "lucide-react";
 import { Button } from "./ui/button";
+import { useDemoCycle } from "./use-demo-cycle";
 import "./plugins-demo.css";
 
 const views = [
@@ -38,13 +39,14 @@ const views = [
 // data. The 1000 × 700 image dimensions below preserve their logical UI size.
 // View selection and image enlargement belong to the landing page, outside the app.
 export function PluginsDemo() {
-  const [selected, setSelected] = useState(0);
-  const [previous, setPrevious] = useState(0);
   const [direction, setDirection] = useState("forward");
   const [expanded, setExpanded] = useState(false);
+  const cycle = useDemoCycle(views.length, 6500, !expanded);
+  const selected = cycle.index;
+  const previous = (selected + views.length - 1) % views.length;
   const view = views[selected];
   return (
-    <div className="pl-demo" data-direction={direction}>
+    <div className="pl-demo" data-direction={direction} ref={cycle.ref} {...cycle.props}>
       <div className="pl-views" aria-label="Plugin screenshots">
         <span className="pl-selection" style={{ "--selection": selected } as React.CSSProperties} aria-hidden="true" />
         {views.map((item, index) => (
@@ -56,9 +58,8 @@ export function PluginsDemo() {
             className="pl-view"
             onClick={() => {
               if (index === selected) return;
-              setPrevious(selected);
               setDirection(index > selected ? "forward" : "backward");
-              setSelected(index);
+              cycle.select(index);
             }}
           >
             <item.icon size={16} />
@@ -78,15 +79,9 @@ export function PluginsDemo() {
               src={item.src} width={1000} height={700} unoptimized
               alt={selected === index ? item.alt : ""} aria-hidden={selected !== index} />
           ))}
+          <span className="pl-image-expand" aria-hidden="true"><Expand size={15} /></span>
         </button>
-        <figcaption>
-          <p className="pl-description" aria-live="polite">{view.description}</p>
-          <Button variant="ghost" className="pl-expand" onClick={() => setExpanded(true)}>
-            <Expand size={14} /> Expand screenshot
-          </Button>
-        </figcaption>
       </figure>
-      <p className="pl-disclosure">Desktop app preview · Sample accounts and settings</p>
       <Dialog.Root open={expanded} onOpenChange={setExpanded}>
         <Dialog.Portal>
           <Dialog.Backdrop className="pl-lightbox-backdrop" />

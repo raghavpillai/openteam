@@ -146,19 +146,6 @@ body {
   border-radius: 6px;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  html {
-    scroll-behavior: auto;
-  }
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-  }
-}
-
 /* Utilities that read better as classes than as long utility strings. */
 @utility microlabel {
   font-family: var(--font-mono);

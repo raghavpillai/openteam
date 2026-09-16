@@ -213,3 +213,21 @@ test("external AwaitShell authenticates, uses the host wait endpoint, and parses
     bridge.stop(true);
   }
 });
+
+test("new user input releases AwaitShell and sleep promptly without terminating a job", async () => {
+  const {root}=await fixture();
+  const runtime=new RuntimeTools({} as ScreenBroker,"http://unused.invalid","test",root,root);
+  (runtime as any).processSecrets=async()=>({});
+  const active={runId:"steered-run",runtimeProfile:"agent",botId:"bot-steer",cwd:root,pluginNamespaces:[],discoveredDynamicTools:new Set<string>()} as unknown as ActiveTurn;
+  const tools=testTools(runtime,active),call=tools.find(t=>t.name==="CallDynamicTool")!;
+  await tools.find(t=>t.name==="GetDynamicTools")!.execute("discover",{namespace:"cursor",toolName:"AwaitShell"});
+  const started=await tools.find(t=>t.name==="Shell")!.execute("start",{command:"sleep 0.3; printf survived",block_until_ms:0});
+  const args={namespace:"cursor",toolName:"AwaitShell",arguments:{shell_id:started.details.shellId,block_until_ms:60_000}};
+  const pending=call.execute("await",args);
+  const timer=setTimeout(()=>runtime.interruptShellWaits(active.runId),20);
+  try {expect((await pending).details.status).toBe("running");}finally{clearTimeout(timer);}
+  expect((await call.execute("finish",{...args,arguments:{...args.arguments,block_until_ms:2000}})).details).toMatchObject({status:"completed",exit_code:0});
+  const sleeping=call.execute("sleep",{...args,arguments:{block_until_ms:60_000}});
+  const wake=setTimeout(()=>runtime.interruptShellWaits(active.runId),20);
+  try {expect((await sleeping).details.status).toBe("slept");}finally{clearTimeout(wake);}
+});

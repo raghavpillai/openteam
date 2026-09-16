@@ -157,7 +157,7 @@ export class ShellJobRegistry {
       this.notifying.add(job.id);
       try {
         await this.refresh(job);
-        if (!job.outcome) continue;
+        if (!job.outcome || job.notified) continue;
         await this.options.onComplete({ id: job.id, scope: job.scope, outputPath: job.outputPath, channelId: job.channelId, ...(job.automationRunId ? { automationRunId: job.automationRunId } : {}), ...job.outcome });
         job.notified = true;
         this.persist(job);
@@ -236,6 +236,10 @@ export class ShellJobRegistry {
       )
         continue;
       if (job.outcome || patternMatched || Date.now() >= deadline) {
+        if (job.outcome && !job.notified) {
+          job.notified = true;
+          this.persist(job);
+        }
         return {
           shell_id: job.id,
           status: job.outcome ? (job.outcome.error ? "failed" : "completed") : "running",
@@ -246,7 +250,7 @@ export class ShellJobRegistry {
           waited_ms: Date.now() - waitedAt,
           ...(job.pid === undefined ? {} : { pid: job.pid }),
           ...(input.pattern === undefined ? {} : { pattern_matched: patternMatched }),
-          ...(regexMatch === null ? {} : { regex_match: regexMatch }),
+          ...(regexMatch === null ? {} : { regex_match: regexMatch.length > 1000 ? `${regexMatch.slice(0, 500)}...${regexMatch.slice(-500)}` : regexMatch }),
           ...(job.outcome?.error ? { error: job.outcome.error } : {}),
         };
       }
@@ -308,9 +312,11 @@ export function compileToolSearchPattern(source: string): { test(text: string): 
 }
 
 export function renderShellAwaitResult(result: ShellAwaitResponse): string {
-  if (result.status === "slept") return `Slept for ${Math.max(1, Math.ceil(result.waited_ms / 1000))} seconds.`;
+  if (result.status === "slept") return result.waited_ms <= 0 ? "Slept briefly." : `Slept for ${Math.max(1, Math.ceil(result.waited_ms / 1000))}s.`;
+  if (result.status === "failed") return `Error awaiting task: ${result.error ?? "Unknown error"}`;
   const status = result.status === "running"
-    ? `Task still running after ${result.waited_ms}ms.`
+    ? `Task still running after ${result.elapsed_ms ?? result.waited_ms}ms...`
     : `Task completed in ${result.elapsed_ms}ms with exit code: ${result.exit_code ?? "unknown"}.`;
-  return [status, result.error, `output_file_path: ${result.output_path}`, `output_length: ${result.output_length}`, result.regex_match ? `Pattern matched: ${result.regex_match}` : ""].filter(Boolean).join("\n");
+  const pattern = result.pattern_matched === undefined ? "" : result.regex_match ? ` Pattern matched: ${result.regex_match}`.trimEnd() : " Pattern did NOT match.";
+  return `${status}${pattern}\noutput_file_path: ${result.output_path}\noutput_length: ${result.output_length}`;
 }

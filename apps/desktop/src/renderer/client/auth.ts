@@ -54,6 +54,8 @@ export const getAuthSnapshot = authStore.getSnapshot;
 export const subscribeAuthSnapshot = authStore.subscribe;
 
 let token: string | null = null;
+let desktopMachineId: string | undefined;
+export const getDesktopMachineId = () => desktopMachineId;
 let legacyToken: string | null = localStorage.getItem(LEGACY_TOKEN_KEY);
 localStorage.removeItem(LEGACY_TOKEN_KEY);
 let credentialGeneration = 0;
@@ -95,6 +97,7 @@ const loadAuthToken = (): Promise<string | null> => {
 };
 
 const persistAuthToken = async (next: string | null): Promise<void> => {
+  if (!next) desktopMachineId = undefined;
   credentialGeneration += 1;
   legacyToken = null;
   token = next;
@@ -145,6 +148,7 @@ export const refreshAuthSession = (): Promise<OpenTeamAuthSnapshot> => {
     });
     if (assessment.clearCredentials) await removeAuthCredentials();
     if (assessment.user) cacheUser(assessment.user);
+    if (assessment.status === "authenticated") void authBridge()?.connectMachine?.(API_BASE).then(result => { desktopMachineId = result.machineId; }).catch(() => undefined);
     return authStore.publish({
       status: assessment.status,
       mode: assessment.mode,

@@ -1,3 +1,6 @@
+import { randomBytes } from "node:crypto";
+import { loadMachineIdentity } from "./host/machine-identity";
+import { DesktopMachineEnrollment } from "./host/machine-enrollment";
 import { SavedCredentials } from "./host/credentials";
 import { open, rename, unlink } from "node:fs/promises";
 import { hostname } from "node:os";
@@ -68,7 +71,9 @@ let durableSendJournals: DurableSendJournalStore | null = null;
 const activeNotifications = new Set<Notification>();
 const activityNotifications = new Map<string, Notification>();
 let isQuitting = false;
-const localMachine = { machineId: "this-computer", label: hostname() } as const;
+const localMachine = { machineId: "", label: hostname() };
+let machineEnrollment: DesktopMachineEnrollment | null = null;
+let enrollmentServerUrl: string | null = null;
 const windowBackground = () => (nativeTheme.shouldUseDarkColors ? "#080808" : "#fbfbfb");
 const releasePage = "https://github.com/raghavpillai/openteam/releases/latest";
 
@@ -601,7 +606,12 @@ ipcMain.handle("openteam:auth-token:write", (event, value: unknown) => {
   }
   return requireAuthTokenStore(event).write(value);
 });
-ipcMain.handle("openteam:auth-token:clear", (event) => requireAuthTokenStore(event).clear());
+ipcMain.handle("openteam:auth-token:clear", async (event) => {
+  const store = requireAuthTokenStore(event);
+  enrollmentServerUrl = null;
+  await machineEnrollment?.stop();
+  return store.clear();
+});
 
 const requireAuthSender = (event: Electron.IpcMainInvokeEvent) => {
   if (
@@ -612,6 +622,21 @@ const requireAuthSender = (event: Electron.IpcMainInvokeEvent) => {
     throw new Error("Authentication is unavailable");
   }
 };
+
+ipcMain.handle("openteam:machine:connect", (event, serverUrl: unknown) => {
+  requireAuthSender(event);
+  if (typeof serverUrl !== "string" || serverUrl.length > 8192) throw new Error("Invalid server URL");
+  const url = new URL(serverUrl);
+  if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || url.search || url.hash) throw new Error("Invalid server URL");
+  enrollmentServerUrl = url.href.replace(/\/$/, "");
+  machineEnrollment?.configure(enrollmentServerUrl);
+  return { machineId: localMachine.machineId };
+});
+
+ipcMain.handle("openteam:machine:status", event => {
+  requireAuthSender(event);
+  return { machineId: localMachine.machineId, ...(machineEnrollment?.status() ?? { connected: false, configured: false, error: null }) };
+});
 
 ipcMain.handle("openteam:auth:sign-in", (event, serverUrl, username, password) => {
   requireAuthSender(event);
@@ -1006,6 +1031,7 @@ if (!hasSingleInstanceLock) {
   void app
     .whenReady()
     .then(async () => {
+      localMachine.machineId = await loadMachineIdentity(join(app.getPath("userData"), "machine-id"));
       authTokenStore = new DesktopAuthTokenStore(
         join(app.getPath("userData"), "auth-session.bin"),
         {
@@ -1118,6 +1144,8 @@ if (!hasSingleInstanceLock) {
         executablePath: process.execPath,
         userDataPath: app.getPath("userData"),
       });
+      const legacyBridge = token !== "local-compose-only-change-me";
+      const bridgeToken = legacyBridge ? token : randomBytes(32).toString("base64url");
       const configuredMode = process.env.OPENTEAM_AUTO_REVIEW_MODE;
       const autoReviewMode: AutoReviewMode = ["off", "shadow", "enforce"].includes(
         configuredMode ?? ""
@@ -1128,6 +1156,9 @@ if (!hasSingleInstanceLock) {
         action: HostAction,
         rules: { allowInstructions: string[]; blockInstructions: string[] }
       ): Promise<AutoReviewResult> => {
+        if (machineEnrollment?.isConnected()) {
+          return await machineEnrollment.review({ ...action, allowInstructions: rules.allowInstructions, blockInstructions: rules.blockInstructions }) as AutoReviewResult;
+        }
         const serverUrl = process.env.OPENTEAM_SERVER_URL ?? "http://127.0.0.1:8787";
         const response = await fetch(`${serverUrl}/api/v0/internal/permissions/auto-review`, {
           method: "POST",
@@ -1166,12 +1197,12 @@ if (!hasSingleInstanceLock) {
             : {}),
         };
       };
-      try {
-        hostBridge = await startHostBridge({
-          token,
-          port,
+      const startBridge = (bridgePort: number) => startHostBridge({
+          token: bridgeToken,
+          port: bridgePort,
+          hostname: legacyBridge ? "0.0.0.0" : "127.0.0.1",
           terminalDir: join(app.getPath("userData"), "host-terminals"),
-          permissionSettings,
+          permissionSettings: permissionSettings!,
           autoReviewMode,
           machineId: localMachine.machineId,
           machineLabel: localMachine.label,
@@ -1184,10 +1215,24 @@ if (!hasSingleInstanceLock) {
             return result.response === 2 ? "always" : result.response === 1 ? "once" : "deny";
           }, undefined, undefined, undefined, process.platform, new NativeActionReceipts(join(app.getPath("userData"), "native-action-receipts.json"))),
         });
-      } catch (error) {
+      try { hostBridge = await startBridge(port); }
+      catch (error) {
         if (!isAddressInUseError(error)) throw error;
-        console.warn(`OpenTeam host bridge port ${port} is already in use; continuing without it.`);
+        hostBridge = await startBridge(0);
       }
+      const address = hostBridge.address();
+      if (!address || typeof address === "string") throw new Error("Local computer bridge did not start");
+      machineEnrollment = new DesktopMachineEnrollment({
+        machineId: localMachine.machineId,
+        localUrl: `http://127.0.0.1:${address.port}`,
+        localToken: bridgeToken,
+        getToken: async () => (await authTokenStore!.read()).token,
+        getIdentity: async () => {
+          const settings = await permissionSettings!.read();
+          return { label: settings.machineLabel ?? localMachine.label, localToolPermission: settings.localToolPermission };
+        },
+      });
+      if (enrollmentServerUrl) machineEnrollment.configure(enrollmentServerUrl);
 
       app.on("activate", () => {
         if (BrowserWindow.getAllWindows().length === 0) void createWindow();
@@ -1205,6 +1250,7 @@ app.on("before-quit", () => {
   if (desktopUpdateTimer) clearInterval(desktopUpdateTimer);
   desktopUpdateTimer = null;
   desktopNotifications?.clear();
+  void machineEnrollment?.stop();
   hostBridge?.close();
   hostJobs.close();
 });

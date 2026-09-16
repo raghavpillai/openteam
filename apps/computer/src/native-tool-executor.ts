@@ -84,8 +84,9 @@ export class HostApprovalRequiredError extends Error {
 
 export class NativeToolExecutor {
   /** Private supervisor transport. Never return this envelope from a model tool. */
-  desktopCapability(tool: string, botId: string, args: unknown, signal?: AbortSignal, callId?: string): Promise<Record<string, any>> {
-    return this.hostFetch(HOST_BRIDGE_PATHS.capabilities, { tool, botId, arguments: args, callId }, signal, undefined, 15 * 60_000);
+  async desktopCapability(tool: string, botId: string, args: unknown, signal?: AbortSignal, callId?: string, channelId?: string): Promise<Record<string, any>> {
+    const machineId = await this.machines?.preferred(botId, channelId, signal);
+    return this.hostFetch(HOST_BRIDGE_PATHS.capabilities, { tool, botId, arguments: args, callId, machineId }, signal, undefined, 15 * 60_000);
   }
   private readonly shellJobs: ShellJobRegistry;
   private readonly terminalDir: string;
@@ -353,12 +354,12 @@ export class NativeToolExecutor {
     try {
       const bridgeUrl = await this.machines?.endpoint(input.machineId,signal) ?? this.hostBridgeUrl;
       const response = await fetch(`${bridgeUrl}${HOST_BRIDGE_PATHS.transfer}/${encodeURIComponent(permit.transferId)}`, {
-        method: toBox ? "GET" : "PUT", headers: { authorization: `Bearer ${this.controlToken}`, "content-type": "application/octet-stream" },
+        method: toBox ? "GET" : "PUT", headers: { authorization: `Bearer ${this.controlToken}`, "content-type": "application/octet-stream", ...(sourceSize === undefined ? {} : { "content-length": String(sourceSize) }) },
         ...(source ? { body: Readable.toWeb(source.stream) as unknown as ReadableStream<Uint8Array>, duplex:"half" } : {}), signal,
       });
       if (!response.ok) {
-        const error = await response.json().catch(() => ({})) as { error?: string };
-        throw new Error(error.error ?? `File transfer failed (${response.status})`);
+        const error = await response.json().catch(() => null) as { error?: unknown } | null;
+        throw new Error(typeof error?.error === "string" ? error.error : `File transfer failed (${response.status})`);
       }
       if (toBox) {
         if (!response.body) throw new Error("File transfer returned no body");

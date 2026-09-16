@@ -50,7 +50,7 @@ import { Switch } from "../ui/switch";
 import { Textarea } from "../ui/textarea";
 
 const fieldClass =
-  "h-9 rounded-[7px] border-[#d9d9d9] bg-background px-2.5 text-[13px] shadow-none focus-visible:ring-0 dark:border-[#393939] dark:bg-[#181818]";
+  "h-9 rounded-[7px] border-[#d9d9d9] bg-background px-2.5 text-[13px] shadow-none focus-visible:ring-0 dark:border-[#292929] dark:bg-transparent";
 const compactControlClass =
   "inline-flex h-7 min-w-0 items-center justify-between gap-1 rounded-[6px] border border-transparent bg-[#eeeeee] px-2 text-[12px] outline-none hover:bg-[#e7e7e7] focus-visible:border-[#2388ff] focus-visible:ring-2 focus-visible:ring-[#2388ff]/25 data-[state=open]:border-[#2388ff] data-[state=open]:ring-2 data-[state=open]:ring-[#2388ff]/20 dark:bg-[#292929] dark:hover:bg-[#303030]";
 
@@ -273,9 +273,9 @@ function MultiPicker({
 }
 
 const menuContentClass =
-  "z-[120] min-w-[180px] overflow-hidden rounded-[9px] border border-[#d6d6d6] bg-popover p-1 text-[12px] text-popover-foreground shadow-[0_8px_24px_rgba(0,0,0,0.18)] dark:border-[#3a3a3a]";
+  "z-[120] min-w-[156px] overflow-hidden rounded-[9px] border border-[#d6d6d6] bg-popover p-1 text-[12px] text-popover-foreground shadow-[0_8px_24px_rgba(0,0,0,0.18)] dark:border-[#3a3a3a]";
 const menuItemClass =
-  "flex h-8 cursor-default select-none items-center gap-2 rounded-[6px] px-2 outline-none data-[highlighted]:bg-accent";
+  "flex h-8 cursor-default select-none items-center gap-2 rounded-[6px] px-2 text-[13px] font-normal outline-none data-[highlighted]:bg-accent";
 
 function AddScheduleMenu({
   hasSchedules,
@@ -635,7 +635,7 @@ function ScheduleFields({
       {value.preset === "custom" && (
         <Input
           aria-label="Schedule"
-          className="h-8 min-w-[145px] flex-1 rounded-[7px] border-[#d9d9d9] bg-background px-2 text-[12px] shadow-none focus-visible:ring-0 dark:border-[#393939] dark:bg-[#181818]"
+          className="h-8 min-w-[145px] flex-1 rounded-[7px] border-[#d9d9d9] bg-background px-2 text-[12px] shadow-none focus-visible:ring-0 dark:border-[#292929] dark:bg-transparent"
           onChange={(event) => patch({ customSchedule: event.target.value })}
           value={value.customSchedule}
         />
@@ -1113,6 +1113,7 @@ export function RoutineEditor({
               "h-8 rounded-[8px] px-2 text-[12px] font-normal transition-[width,background-color,color]",
               running ? "w-[84px]" : "w-[62px]"
             )}
+            variant="secondary"
             disabled={!routine || !valid || dirty || running || saveState === "saving"}
             onClick={() => {
               if (!routine) return;
@@ -1128,7 +1129,7 @@ export function RoutineEditor({
         </div>
       </div>
 
-      <div className="mt-3 grid gap-4">
+      <div className="mt-4 grid gap-6">
         <div className="grid gap-[3px]">
           <Label
             className="pl-2 text-[12px] font-normal text-muted-foreground"
@@ -1137,7 +1138,7 @@ export function RoutineEditor({
             Name
           </Label>
           <Input
-            className={fieldClass}
+            className={cn(fieldClass, "h-7")}
             id="routine-name"
             maxLength={80}
             onChange={(event) => queue({ ...draft, name: event.target.value })}
@@ -1153,7 +1154,7 @@ export function RoutineEditor({
             Instruction
           </Label>
           <Textarea
-            className="min-h-[68px] resize-y rounded-[7px] border-[#d9d9d9] px-2.5 py-2 text-[13px] shadow-none focus-visible:ring-0 dark:border-[#393939] dark:bg-[#181818]"
+            className="min-h-[80px] resize-none rounded-[7px] border-[#d9d9d9] px-2.5 py-2 text-[13px] shadow-none focus-visible:ring-0 dark:border-[#292929] dark:bg-transparent"
             id="routine-instruction"
             maxLength={20_000}
             onChange={(event) => queue({ ...draft, prompt: event.target.value })}

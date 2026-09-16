@@ -25,7 +25,7 @@
         "NSLocalNetworkUsageDescription": "OpenTeam connects to the self-hosted server you choose on your local network.",
         "NSMicrophoneUsageDescription": "OpenTeam records voice notes when you choose the microphone and sends them to your server for transcription."
       },
-      "buildNumber": "10"
+      "buildNumber": "11"
     },
     "android": {
       "package": "dev.openteam.mobile"

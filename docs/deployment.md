@@ -1,12 +1,12 @@
 # Deploying OpenTeam
 
 This guide covers installing the released OpenTeam stack on a machine you control, choosing how to
-reach it, connecting the apps, and keeping it updated. To run from source instead, see
-[Develop from source](../README.md#develop-from-source) in the README.
+reach it, connecting the apps, and keeping it updated. To run from source instead, see the
+[development guide](development.md).
 
 - [Requirements](#requirements)
 - [Install](#install)
-- [Choose how to reach it](#choose-how-to-reach-it)
+- [Connection defaults](#connection-defaults)
 - [Owner account](#owner-account)
 - [Connect a model provider](#connect-a-model-provider)
 - [Connect the apps](#connect-the-apps)

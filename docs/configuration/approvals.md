@@ -10,7 +10,7 @@ Approval does not undo a change after it happens. If a task stops or a service r
 
 ## Set plugin access
 
-Installing a plugin, connecting an account, and granting it to a bot are separate steps. Grant only the accounts that bot needs.
+Under the plugin's **Bot access and plugin details**, grant only the accounts the bot needs. A connected account is not available to a bot until it has a grant.
 
 In the plugin's tool policies:
 
@@ -24,9 +24,9 @@ A disabled tool is hidden from bots. Workspace restrictions take precedence over
 
 ## Control local computer access
 
-Use **Settings → Computer** for access to your physical computer. **Ask every time**, **Always allow**, and **Never allow** control local execution permission.
+Choose local execution permissions in **Settings → Computer**. See [use your own computer](../usage/computer.md#use-your-own-computer) for the connection and permission steps.
 
-Desktop **Settings → General** also contains auto-review and its rules. Auto-review can handle eligible review decisions automatically; an “always allow” setting is not a promise that every action will run. The requested capability and other checks still matter.
+Desktop **Settings → General** contains auto-review and its rules. Auto-review handles eligible decisions automatically; capability permissions and other access checks still apply.
 
 ## Know where data goes
 

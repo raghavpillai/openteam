@@ -60,4 +60,4 @@ Supported adapters include `openai-completions`, `openai-responses`, `anthropic-
 
 Run `openteam doctor` to test an actual model request. A model appearing in the list does not guarantee quota or support for every tool.
 
-If sign-in expires, reconnect through Server settings or `openteam provider login`. Search and voice notes have [separate credentials](web-search.md); connecting a chat model does not configure those services.
+If sign-in expires, reconnect through Server settings or `openteam provider login`. [Web search](web-search.md) and [voice notes](transcription.md) have separate credentials.

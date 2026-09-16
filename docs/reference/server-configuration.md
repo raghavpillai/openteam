@@ -1,4 +1,4 @@
-# Server settings
+# Server environment variables
 
 Use guided setup for installation settings. Provider, plugin, search, and app settings have their own controls.
 
@@ -14,36 +14,19 @@ openteam setup --advanced   # also API port, time zone, reasoning effort, concur
 
 Setup restarts the stack for you and rolls the file back if the new values fail to start.
 
-| Setting | Values | Default | Meaning |
-| --- | --- | --- | --- |
-| `OPENTEAM_ACCESS_MODE` | `https`, `proxy`, `http`, `private`, `local` | `private` in guided setup | How clients reach the server. See [remote access](../configuration/remote-access.md#connection-defaults). |
-| `OPENTEAM_PUBLIC_URL` | URL | `http://127.0.0.1:8787` | The address the apps use. Also the HTTPS domain Caddy serves. |
-| `OPENTEAM_API_PORT` | 1 to 65535 | `8787` | Host port for the API. |
-| `OPENTEAM_TIME_ZONE` | IANA zone | Detected at install, else `UTC` | Time zone for routine schedules and timestamps. |
-| `OPENTEAM_WORKER_CONCURRENCY` | 1 to 64 | `8` | How many bot turns can run at the same time across all bots. Each bot still runs one turn at a time. |
-| `OPENTEAM_AUTH_MODE` | `required`, `disabled` | `required` | `disabled` removes API login entirely. Trusted, isolated networks only. |
-| `COMPOSE_PROFILES` | `https`, `direct` | Set by access mode | `https` adds the Caddy container. |
-| `OPENTEAM_BIND_HOST`, `OPENTEAM_VIEWER_BIND_HOST`, `OPENTEAM_PUBLIC_HOST`, `OPENTEAM_AUTH_URL` | Hosts and URLs | Set by access mode | Derived from the access mode. Do not edit by hand. |
+Guided setup defaults to private-network access. It accepts API ports from 1 to 65535 and concurrency from 1 to 64 (default 8). Each bot still runs one turn at a time. Setup detects the time zone, falling back to UTC. The base-file defaults in the table below can differ from these detected values.
+
+`OPENTEAM_AUTH_MODE=disabled` removes API login entirely; use it only on a trusted, isolated network. Setup derives bind hosts, public hosts, auth URLs, and Compose profiles from the access mode. Change that mode through setup rather than editing its derived values.
 
 The file also holds four generated secrets (`OPENTEAM_POSTGRES_PASSWORD`, `OPENTEAM_CONTROL_TOKEN`,
 `OPENTEAM_AUTH_SECRET`, `OPENTEAM_PROXY_SECRET`), the release version, and the image registry
 prefix. Leave those alone. The owner password and inference-provider credentials are never stored here.
 
-## Advanced and experimental
+## Manual settings
 
-Set these by editing `.env` in the install directory, then restart with `openteam stop` and
-`openteam start`.
+For options unavailable in guided setup, edit `.env` in the install directory and run `openteam stop` followed by `openteam start`. The environment table lists these as set "by hand". A value only reaches a container if its Compose configuration passes it through.
 
-| Variable | Default | Meaning |
-| --- | --- | --- |
-| `OPENTEAM_MEMORY_DREAMING` | `false` | Turns on background memory synthesis across bots. Experimental, installation-wide, not per bot. |
-| `OPENTEAM_MARKETPLACE_FILE` | empty | Path to a custom plugin catalog. See [plugins](../usage/plugins.md). |
-| `OPENTEAM_ENFORCE_AUTOMATION_MINIMUM` | unset | `true` enforces the 5-minute minimum routine interval. |
-| `EXPO_ACCESS_TOKEN` | empty | Optional token for the Expo push service, for enhanced push security. |
-| `OPENTEAM_BOX_COPY_IN` | `0` | `1` copies the snapshot store into the computer on boot. |
-
-There is no setting for the number of subagents a bot may run. `OPENTEAM_SUBAGENT_PER_PARENT_LIMIT`
-and `OPENTEAM_SUBAGENT_GLOBAL_LIMIT` appear in `.env.example` but nothing reads them today.
+`OPENTEAM_SUBAGENT_PER_PARENT_LIMIT` and `OPENTEAM_SUBAGENT_GLOBAL_LIMIT` appear in `.env.example`, but the runtime does not read them.
 
 ## Environment variable reference
 
@@ -72,7 +55,7 @@ normally writes a value; "Restart" says whether a change needs a container resta
 | `OPENTEAM_WORKER_CONCURRENCY` | `8` | setup `--advanced` | yes | Concurrent bot turns |
 | `OPENTEAM_MEMORY_DREAMING` | `false` | by hand | yes | Memory synthesis experiment |
 | `OPENTEAM_MARKETPLACE_FILE` | empty | by hand | yes | Custom plugin catalog path |
-| `OPENTEAM_ENFORCE_AUTOMATION_MINIMUM` | unset | by hand | yes | Enforce 5-minute routine minimum |
+| `OPENTEAM_ENFORCE_AUTOMATION_MINIMUM` | enabled unless `false` | by hand | yes | Enforce the 5-minute routine minimum; set `false` to opt out |
 | `EXPO_ACCESS_TOKEN` | empty | by hand | yes | Expo push token |
 | `OPENTEAM_BOX_COPY_IN` | `0` | by hand | yes | Copy snapshot store in on boot |
 | `OPENTEAM_MCP_OAUTH_CLIENT_ID`, `OPENTEAM_MCP_OAUTH_CLIENT_SECRET` | unset | by hand | yes | Fallback OAuth client for MCP plugins |

@@ -29,6 +29,4 @@ For mobile access away from home, keep the phone connected to your private VPN o
 
 ## Notifications
 
-Enable notifications in the app and allow them in your operating system. Mobile push also requires a native build with push credentials configured by whoever builds the app.
-
-For notification controls and troubleshooting, see [settings and notifications](../configuration/apps.md).
+See [settings and notifications](../configuration/apps.md#enable-notifications) to enable alerts and configure mobile push.

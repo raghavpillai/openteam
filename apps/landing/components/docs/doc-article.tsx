@@ -1,4 +1,5 @@
-import { ArrowLeft, ArrowRight, ArrowUpRight } from "lucide-react";
+import { ArrowLeft, ArrowRight, ArrowUpRight, ChevronRight } from "lucide-react";
+import { GithubMark } from "@/components/brand";
 import { DocsLink } from "@/components/docs/docs-link";
 import { CopyPage } from "@/components/docs/copy-page";
 import { TableOfContents } from "@/components/docs/table-of-contents";
@@ -10,6 +11,8 @@ export function DocArticle({ page }: { page: DocPage }) {
   const previous = docPages[index - 1];
   const next = docPages[index + 1];
   const headings = page.headings.filter((heading) => heading.level === 2);
+  const lead = page.html.match(/^<p>[\s\S]*?<\/p>\n?/);
+  const body = lead ? page.html.slice(lead[0].length) : page.html;
 
   return (
     <div className="docs-reading-layout">
@@ -17,17 +20,22 @@ export function DocArticle({ page }: { page: DocPage }) {
         <article>
           <header className="docs-page-header">
             <div className="docs-page-toolbar">
-              <p className="docs-eyebrow">{page.group}</p>
+              <div className="docs-breadcrumbs" aria-label="Breadcrumb">
+                <DocsLink href="/docs">Docs</DocsLink>
+                <ChevronRight size={13} aria-hidden="true" />
+                <span>{page.group}</span>
+              </div>
               <CopyPage key={page.slug} markdown={page.markdown} />
             </div>
             <h1 id={page.headings[0]?.id}>{page.title}</h1>
+            {lead && <div className="docs-prose docs-lead" dangerouslySetInnerHTML={{ __html: lead[0] }} />}
           </header>
           {/* HTML is compiled from checked-in Markdown, with raw HTML escaped. */}
-          <div className="docs-prose" dangerouslySetInnerHTML={{ __html: page.html }} />
+          <div className="docs-prose docs-article-body" dangerouslySetInnerHTML={{ __html: body }} />
         </article>
         <div className="docs-source">
           <a href={page.sourceUrl} target="_blank" rel="noreferrer">
-            View this page on GitHub <ArrowUpRight size={14} aria-hidden="true" />
+            <GithubMark /> View source on GitHub <ArrowUpRight size={14} aria-hidden="true" />
           </a>
         </div>
         <nav className="docs-pagination" aria-label="Adjacent pages">

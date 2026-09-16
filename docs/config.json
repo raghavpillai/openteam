@@ -6,7 +6,7 @@
   "home": "overview/introduction",
   "groups": [
     {
-      "title": "Getting started",
+      "title": "Overview",
       "pages": [
         {
           "title": "Introduction",
@@ -16,6 +16,15 @@
           "title": "Use cases",
           "file": "overview/use-cases.md"
         },
+        {
+          "title": "How hosting works",
+          "file": "overview/architecture.md"
+        }
+      ]
+    },
+    {
+      "title": "Getting started",
+      "pages": [
         {
           "title": "Quickstart",
           "file": "getting-started/quickstart.md"
@@ -27,16 +36,16 @@
         {
           "title": "Desktop and mobile",
           "file": "getting-started/apps.md"
+        },
+        {
+          "title": "Create and manage bots",
+          "file": "getting-started/first-bot.md"
         }
       ]
     },
     {
       "title": "Working with bots",
       "pages": [
-        {
-          "title": "Create and manage bots",
-          "file": "getting-started/first-bot.md"
-        },
         {
           "title": "Chat and teamwork",
           "file": "usage/conversations.md"
@@ -113,10 +122,6 @@
       "title": "Self-hosting",
       "pages": [
         {
-          "title": "How hosting works",
-          "file": "overview/architecture.md"
-        },
-        {
           "title": "Server settings",
           "file": "configuration/server.md"
         },
@@ -139,19 +144,6 @@
       ]
     },
     {
-      "title": "Help",
-      "pages": [
-        {
-          "title": "Troubleshooting",
-          "file": "manage/troubleshooting.md"
-        },
-        {
-          "title": "FAQ",
-          "file": "manage/faq.md"
-        }
-      ]
-    },
-    {
       "title": "Advanced setup",
       "pages": [
         {
@@ -161,6 +153,19 @@
         {
           "title": "Build a plugin",
           "file": "development/plugins.md"
+        }
+      ]
+    },
+    {
+      "title": "Help",
+      "pages": [
+        {
+          "title": "Troubleshooting",
+          "file": "manage/troubleshooting.md"
+        },
+        {
+          "title": "FAQ",
+          "file": "manage/faq.md"
         }
       ]
     }

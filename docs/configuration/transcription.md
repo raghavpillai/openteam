@@ -10,6 +10,8 @@ You can edit the transcript before sending. Check names, numbers, and instructio
 
 On desktop, **⌘D** or **Ctrl+D** toggles dictation while the draft is focused. You can also hold the shortcut and release it to stop. On mobile, use the recording controls in the composer.
 
+Choose a desktop input under **Settings → General → System → Microphone**. **Test microphone** shows a local level meter without recording or uploading audio; it works before a transcription provider is configured.
+
 ## Configure
 
 In desktop **Settings → Server → Transcription**:

@@ -1,69 +1,47 @@
 # Connecting accounts
 
-Each plugin account connects one identity to a service. Authorize it, verify the account, and choose which bots can use it.
+Choose the sign-in method for your service, then verify the account before granting it to a bot. For the shared install and access steps, see [plugins](../usage/plugins.md#install-and-connect).
 
 ## Choose an integration
 
-| Service | How to connect |
+Open **Plugins → Manage → Installed** and select the package and account. Its setup form lists the required fields; enter secrets there.
+
+| Service | What you need |
 | --- | --- |
-| GitHub | Enter a provider token with access to the repositories and operations you need |
-| Linear, Notion, Granola | Start browser authorization from the plugin's account setup |
-| Gmail, Google Calendar, Google Drive | Configure a Google OAuth application, then authorize each plugin |
-| Slack | Configure a Slack app for your workspace, then authorize the account |
-| 1Password | Connect its local Environments MCP service through the desktop app |
-| Custom MCP | Provide the endpoint or package configuration and its required authentication |
+| GitHub | A token with access to the repositories and operations you need |
+| Linear, Notion, Granola | An existing account and browser authorization; no developer application to register |
+| Gmail, Google Calendar, Google Drive | A Google OAuth application; follow [Google setup](google.md) |
+| Slack | An application in the intended workspace; follow [Slack setup](slack.md) |
+| 1Password | Its local Environments MCP service; see [1Password setup](#1password-setup) |
+| Custom MCP | The endpoint or package configuration and its authentication requirements |
 
-Use **Plugins → Manage → Installed** to select a package and account. The package's setup form describes its required fields. Enter secrets there, rather than in a bot conversation.
+## Verify the connected identity
 
-## Check the account before granting access
+Choose **Save and authorize** for browser sign-in, select the intended identity and workspace, then use **Test a tool**:
 
-After connecting, use **Test a tool** for a small read that identifies the account or lists familiar data. Then grant it to the intended bot and try a small task in chat.
+| Service | Test | Access to check |
+| --- | --- | --- |
+| Linear | `get_user` with `{"query":"me"}` | The expected user and workspace |
+| Notion | `notion-get-users` with `{"user_id":"self"}` | The expected workspace and accessible pages |
+| Granola | `get_account_info` with `{}` | The expected identity and active workspace; available notes depend on plan and sharing permissions |
 
-Multiple accounts keep separate authorization and bot grants. Name them clearly, such as Personal GitHub and Work GitHub.
+Grant the account to the intended bot and enable any included skills separately. For a second identity, add an account, name it clearly, and authorize it separately. Google and Slack also need that account's exact callback registered.
 
-## Google access requirements
-
-Gmail, Calendar, and Drive are separate plugins. You can reuse a Google OAuth application, but each account needs its own callback registration and authorization. Follow [Google setup](google.md).
-
-### Google capabilities and limits
-
-Gmail can read and organize mail and prepare drafts; the bundled connector has no send tool. Calendar can read and manage events. Drive can find, read, and work with accessible files. See [Google capabilities](google.md#what-bots-can-do) for the practical limits.
-
-## Slack application setup
-
-Slack needs a configured application in the workspace you want to connect. Follow [Slack setup](slack.md), including the MCP-access switch and exact callback URL.
-
-## Linear setup
-
-Install Linear, choose **Save and authorize**, sign in, and select the intended workspace. You do not need to create a separate developer application for the bundled connection. Verify the returned account and grant it to your bot.
-
-## Notion setup
-
-Install Notion and start browser authorization. Select the intended workspace and review the access offered by Notion. The plugin can only work with content the connected account can access.
-
-Enable any included Notion skills separately from the account grant. An installed skill does not authorize the account.
-
-## Granola setup
-
-Use an existing Granola account and complete browser authorization. Check the active workspace and run a small read before granting access. Available meeting notes depend on the connected account's plan and sharing permissions.
-
-If the wrong identity appears, reauthorize with the intended login. Connecting another account does not merge separate Granola workspaces.
+Granola follows the active workspace selected in Granola. Adding another OpenTeam account does not pin or merge workspaces. If the wrong identity connects, sign out of Granola in the browser before authorizing again.
 
 ## 1Password setup
 
-The bundled integration uses 1Password's local **Environments MCP server** through the OpenTeam desktop app. It manages environments and mounts; it does not retrieve vault passwords.
+The Environments integration manages environment variables and local mounts; it does not retrieve vault passwords. Enable MCP integration in 1Password, keep it unlocked, and keep OpenTeam desktop open on the same computer.
 
-Enable MCP integration in 1Password's developer settings, keep the app unlocked, and follow the [package setup instructions](../../packages/plugins/1password/README.md) for the supported desktop platforms.
+Follow the [package setup instructions](../../packages/plugins/1password/README.md) for supported platforms, permissions, and connection checks. This integration is separate from the computer's saved-login feature.
 
 ## Troubleshooting
 
-| Problem | Check |
+| Problem | Next step |
 | --- | --- |
-| Callback or redirect mismatch | Register the full callback URL shown for this account, including its query string |
-| Wrong account connected | Reauthorize and select the intended browser identity |
+| Callback or redirect mismatch | Register the full callback shown for this account, including its query string; recheck callbacks after changing the server URL |
+| Wrong account connected | Reauthorize with the intended browser identity |
 | Sign-in works but a tool fails | Check scopes, workspace access, API enablement, and provider limits |
 | A bot cannot find the tool | Check its account grant, enabled tools, and tool policies |
 | An old sign-in tab fails | Start a fresh authorization from the plugin account |
-| Connection stopped working | Try refresh, then reauthorize if the provider revoked or expired access |
-
-If you change the server's public URL, review registered callbacks too. See [remote access](../configuration/remote-access.md).
+| Connection stopped working | Refresh tools, then reauthorize if access expired or was revoked |

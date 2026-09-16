@@ -1,64 +1,6 @@
-# Development from source
+# Contributor workflow
 
-Use this guide to run and change OpenTeam from source. To install a released version, follow
-the [deployment guide](../getting-started/installation.md).
-
-## Prerequisites
-
-- Git and **Bun 1.3.8**, the version pinned in the root `package.json`.
-- A running Docker Engine for Linux containers and Docker Compose 2.20+.
-- Bash for the repository's shell scripts. Run the commands below from the repository root.
-
-The same [host requirements](../getting-started/installation.md#requirements) apply to the development stack.
-For native mobile builds, also follow the [mobile setup guide](../../apps/mobile/README.md).
-
-## Run locally
-
-### 1. Get the source and dependencies
-
-```sh
-git clone https://github.com/raghavpillai/openteam.git
-cd openteam
-bun install --frozen-lockfile
-bun run db:generate
-cp .env.example .env
-```
-
-In `.env`, replace `OPENTEAM_CONTROL_TOKEN`, `OPENTEAM_AUTH_SECRET`, and
-`OPENTEAM_PROXY_SECRET` with three different random values. Run `openssl rand -hex 32` once
-for each value. Set `OPENTEAM_TIME_ZONE` to your IANA time zone, such as `America/New_York`.
-Provider credentials are configured later inside the computer container.
-
-### 2. Start the services
-
-```sh
-bash scripts/compose.sh up --build -d
-bash scripts/compose.sh ps
-```
-
-Wait for PostgreSQL, server, worker, and computer to be healthy. The initialization and schema
-jobs exit after completing successfully; an exit code of `0` is expected for those jobs.
-
-### 3. Create your account and connect a provider
-
-```sh
-bun run auth:setup
-bash scripts/compose.sh exec computer openteam-pi-auth login openai-codex oauth
-```
-
-The first command prompts for the owner username and a hidden password. The second signs in
-with ChatGPT. For other providers and authentication options, see
-[provider setup](../configuration/models.md#connect-a-provider).
-
-### 4. Check the server and open the app
-
-```sh
-curl http://127.0.0.1:8787/api/v0/health
-bun run desktop
-```
-
-The health endpoint should report `ready`. In the desktop app, connect to
-`http://127.0.0.1:8787` and sign in with the account you created above.
+Follow [development from source](../development/from-source.md) to install dependencies, configure credentials, and start the stack. This reference covers repository structure, checks, and release work.
 
 ## Development stack
 

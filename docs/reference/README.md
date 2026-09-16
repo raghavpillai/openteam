@@ -11,22 +11,23 @@ The [main documentation](../README.md) covers setup and everyday use. These note
 
 ## Contributor guides
 
-- [Development and repository map](development.md)
-- [Plugin authoring](plugin-development.md)
+- [Contributor workflow and repository map](development.md)
+- [Plugin format and runtime](plugin-development.md)
 - [Architecture and storage](architecture.md)
 - [Provider discovery](model-providers.md)
 - [Native capabilities and file transfers](native-capabilities.md)
 - [Health checks and fault tests](health-checks.md)
 - [Performance checks](../../scripts/performance/README.md)
+- [Maintaining the docs](documentation.md)
 - [Release process](../../.github/RELEASING.md)
 
-## Implementation history
+## Runtime and client behavior
 
-These notes contain detailed behavior, evidence, and limits. They are not user-facing setup instructions.
+These references cover implementation contracts and verification. Dated investigations are labeled separately within the relevant page.
 
 - [Platform prompt and tool behavior](platform-system-prompt.md)
 - [Memory behavior and compatibility](memory-parity.md)
 - [Compaction](compaction.md)
 - [Integration setup and compatibility details](integration-setup.md)
-- [Message and attachment policy](../input-parity.md)
-- [Notifications](../notifications.md)
+- [Message and attachment policy](message-input.md)
+- [Notifications](notifications.md)

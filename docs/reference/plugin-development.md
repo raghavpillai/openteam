@@ -1,18 +1,8 @@
-# Build a plugin
+# Plugin format and runtime
 
-Create a reusable skills package, an MCP connection, or a package that includes both. Develop and test it in the app, then export it or contribute it to the repository.
+Start with [Build a plugin](../development/plugins.md) for the app workflow. This reference covers package files, manifests, executable connectors, and repository contributions.
 
-## Start in the UI
-
-1. Open **Plugins → Manage plugins → Develop**.
-2. Choose **Skills**, **Remote MCP**, **Packaged MCP**, or **Hybrid skills + packaged MCP**, then **Create plugin**. The packaged templates include a working `greet` server using the Bun runtime already on the Bot computer.
-3. Give the package a stable key, name, version, description, and publisher. Edit **Package definition**, or edit its files in your editor and use **Load / reload folder** on desktop. ZIP/manifest and URL imports are also available.
-4. Choose **Validate and save**. This validates the draft without changing an installed version.
-5. Choose **Install for testing**, then configure its account under **Installed**. For an already installed package, review and apply the available update.
-6. Run a tool test, enable the package/account for a test Bot, and verify the actual Bot behavior. For the unmodified packaged template, call `greet` with `{"name":"World"}`.
-7. Return to **Develop → Export ZIP** to share the draft, or export the installed package from **Installed**.
-
-Loading the same package key updates its draft. Use a new key for a different plugin and increment the version for a distributable update. Saving a draft, testing an installation, and distributing a package are separate steps.
+The packaged UI template includes a Bun `greet` server; test it with `{"name":"World"}`. Desktop also supports **Load / reload folder**, ZIP/manifest imports, and URL imports. Loading the same package key updates its draft; a distributable update needs a new version.
 
 ## Directory layout
 

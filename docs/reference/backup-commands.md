@@ -1,8 +1,8 @@
 # Backup and restore commands
 
-Back up PostgreSQL, all persistent volumes, and the installation secrets as one recovery set.
+Use these commands for the default released installation. Run them in **Bash** on the server host. For backup planning and moving Docker environments, see [Backups and restore](../manage/backups.md).
 
-## Backups and restore
+## Identify the data
 
 Everything OpenTeam needs lives in PostgreSQL plus five Docker volumes:
 
@@ -15,19 +15,16 @@ Everything OpenTeam needs lives in PostgreSQL plus five Docker volumes:
 | `openteam_workspace` | The shared `/workspace` files |
 | `openteam_box_store` | Snapshot blobs and their manifest |
 
-They form one recovery set. Always back up and restore them together. For the cleanest backup,
-stop sending messages and let active runs finish first. The names above are the keys in the Compose
+Back up and restore these stores together. The names above are the keys in the Compose
 file; Docker prefixes the project name, so `docker volume ls` shows them as
 `openteam_openteam_postgres`, `openteam_openteam_workspace`, and so on. A dev stack from the repo
 uses project `openteam-dev`, so its volumes are `openteam-dev_openteam_*`, and every container
 carries a `com.openteam.environment` label of `production` or `development`, so the two never
 collide on one machine.
 
-Volumes belong to the Docker engine that created them. Switching Docker contexts or VM backends
-does not move the volumes or their data. Back up this recovery set on the old engine and restore
-it on the new one before removing the old backend.
-
 ## Back up a released install
+
+Pause routines, stop sending new work, and let active runs finish. Keep the application services stopped while copying data, with PostgreSQL running for the dump. Choose a private backup destination outside the installation directory and its Docker volumes.
 
 ```sh
 D=~/.openteam
@@ -40,11 +37,13 @@ for v in computer_home agent_data assets workspace box_store; do
 done
 ```
 
-Also copy `~/.openteam/.env`. It holds the database password and signing secrets the restored
-data expects. For the dev stack, `sh scripts/backup.sh` in the repo does the same thing; run it
-with `PROJECT=openteam` to back up a CLI install from a checkout instead.
+Copy the installation configuration into the same backup: `.env`, `compose.yaml`, `installation.json`, and any Compose overrides. The `.env` secrets must match the restored database and volumes. Keep this configuration copy private, then restart the application and re-enable the routines you paused.
+
+For the development stack, `sh scripts/backup.sh` dumps the database and archives volumes; copy its configuration separately too.
 
 ## Restore
+
+These commands **replace the target database and volume contents**. Confirm the installation directory, Docker context, and project first. Restore its saved configuration, and set `OUT` to the directory containing the matching `postgres.dump` and volume archives before running the block. `OUT` from a previous terminal session will not carry over.
 
 ```sh
 D=~/.openteam; C="docker compose --project-name openteam --project-directory $D -f $D/compose.yaml"

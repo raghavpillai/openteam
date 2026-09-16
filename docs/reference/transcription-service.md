@@ -1,39 +1,24 @@
-# Voice notes
+# Transcription service
 
-Desktop and iPhone record a complete voice note and send it to the OpenTeam server. The server calls the selected transcription provider and returns text to the composer. Both clients also offer an explicit “Transcribe and send” action. Recording does not stream audio or use Apple speech recognition.
+For recording controls and provider setup, see [Voice notes](../configuration/transcription.md). This reference covers a self-hosted provider, its API contract, diagnostics, and storage.
 
-On desktop, recording shows a stop/timer/waveform pill inside the composer. Click the pill or press Enter to stop and review the transcript in your draft; click the arrow to transcribe and send. Escape cancels recording or transcription. With the draft focused, tap ⌘D (Ctrl+D on Windows/Linux) to toggle dictation, or hold it for at least half a second and release to stop. A second Enter during transcription requests sending when the transcript arrives. Failed transcription retains the audio for retry; retry returns text to the draft for review.
+## Provider contract
 
-On iPhone, the text field and keyboard stay visible during recording. A red stop/timer pill returns the transcript to the draft; the arrow transcribes and sends. The left-hand cancel button discards the recording or pending transcription. The microphone remains available alongside Send when the draft already contains text, so you can dictate more than once. Main conversations and thread replies use the same server configuration on both platforms; opening a thread cancels recording in the main composer.
+The OpenTeam server sends `POST <baseUrl>/audio/transcriptions` with multipart `file`, `model`, `response_format=json`, optional `language`, and optional Bearer authentication. The service must return `{ "text": "..." }` and accept WAV and WebM recordings. Other protocols require an adapter. See [OpenAI speech-to-text documentation](https://developers.openai.com/api/docs/guides/speech-to-text).
 
-Dictation inserts at the cursor or replaces selected text. Desktop preserves existing mention tokens. The agent receives the submitted draft through the normal text-message path, including its usual timestamp, reply and mention context. No extra language-model rewrite is applied to transcription. Recognition can still mishear words; review names, numbers and consequential instructions before sending.
+Use a URL reachable from the server container, including `/v1` when required. Container `localhost` does not reach the host Mac. Only the server needs access to the transcription service; mobile continues using its normal OpenTeam URL.
 
-```mermaid
-flowchart LR
-  Client[Desktop or iPhone microphone] -->|Complete recording| Server[OpenTeam server]
-  Server -->|Server-held credentials| Provider[Mac mini / OpenAI / compatible service]
-  Provider -->|Transcript| Server
-  Server -->|Editable draft| Client
-```
+OpenAI defaults to `https://api.openai.com/v1` and `whisper-1`; another supported transcription model can be entered manually. Clients refresh server capabilities approximately every 30 seconds or when reopened. A disabled, incomplete, or unsupported configuration leaves the microphone visible but disabled.
 
-## Configure
+## Client behavior
 
-In the desktop app, open **Settings → Server → Transcription**. Settings apply to every client connected to that server.
+Clients upload a complete recording. They do not stream audio or use Apple speech recognition. Transcription inserts at the cursor or replaces selected text; desktop preserves mention tokens. The submitted draft follows the normal text-message path without an additional model rewrite.
 
-1. Choose **Custom / OpenAI-compatible** or **OpenAI**.
-2. Enter the full base URL (including `/v1` when the provider uses it), model ID, and API key if required. OpenAI uses `https://api.openai.com/v1` and defaults to `whisper-1`; you can enter another transcription model supported by that endpoint.
-3. Leave language blank for automatic detection, or enter a supported language code.
-4. Enable voice notes, save, then use **Test connection**.
+Desktop Enter stops recording for review; the arrow transcribes and sends. A second Enter during transcription requests sending when it finishes. Escape cancels. Holding the dictation shortcut for at least half a second records until release. iPhone keeps the draft and keyboard visible, with stop, send, and cancel controls. Opening a reply thread cancels recording in the main composer.
 
-The microphone stays visible and greyed out while transcription is disabled, missing, or invalid. Older servers that do not report transcription capability also leave it disabled. Connected clients pick up configuration changes on their runtime refresh (approximately 30 seconds); reopening the app refreshes its initial state.
+Desktop microphone selection is saved per computer and shared across app windows. If the chosen input disconnects, recording tries the system default once and retains the preference. Permission denial does not trigger fallback. Recording requests echo cancellation, noise suppression, and automatic gain control.
 
-On desktop, **Settings → General → System → Microphone** selects System Default or a specific input. The choice is saved on that computer and shared across its app windows; it is independent of the server and its transcription provider. The device list refreshes when microphones connect or disconnect. If the selected input becomes unavailable, recording tries the system default once and shows a notice, keeping your preference for when that input reconnects. Permission denial does not trigger fallback. Recordings request echo cancellation, noise suppression, and automatic gain control.
-
-**Test microphone** shows a local input-level meter without recording a file or uploading audio. It works before transcription is configured. The test requests microphone access only when clicked and stops after 30 seconds, when cancelled, when settings close or the app becomes hidden, when the input choice changes, or when the microphone disconnects. Missing hardware and denied access have separate recovery messages. Doctor checks the server/provider; use this local test to check each desktop's microphone.
-
-Use an address reachable **from the OpenTeam server**. If OpenTeam runs in Docker, `localhost` refers to the container, not the Mac. A reachable LAN or Tailscale address works, for example `http://100.x.y.z:18080/v1`. Only the OpenTeam server needs connectivity to that service. The phone continues using its normal OpenTeam URL.
-
-The custom provider contract is `POST <baseUrl>/audio/transcriptions` with multipart `file`, `model`, `response_format=json`, optional `language`, and optional Bearer authentication. It must return `{ "text": "..." }` and accept the clients' WAV and WebM recordings. Services with different protocols require a separate adapter; an arbitrary transcription API URL is not sufficient. See [OpenAI speech-to-text documentation](https://developers.openai.com/api/docs/guides/speech-to-text).
+The local input meter requests permission only when clicked. It stops after 30 seconds, cancellation, settings closure, app hiding, an input change, or disconnection. It never records or uploads audio.
 
 ## Self-host on an Apple silicon Mac
 

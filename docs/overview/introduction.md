@@ -14,11 +14,15 @@ For example, attach a spreadsheet and ask:
 
 The bot can ask for clarification or access before continuing. You can check its work, give corrections, or take over its screen when a step needs your input.
 
-## Work with more than one bot
+## Choose how to work
 
-Give bots different jobs and bring them together in a group chat. They can share files and delegate work. Each bot has its own screen and browser profile; files in the workspace are shared.
-
-Use [skills](../usage/skills.md) to keep a repeatable method and [routines](../usage/routines.md) to run work on a schedule.
+| You want to… | Use |
+| --- | --- |
+| Give several bots different roles on a task | A [group chat](../usage/conversations.md#create-a-group-chat) |
+| Keep a preference or project fact | [Memory](../usage/memory.md) |
+| Reuse a method | A [skill](../usage/skills.md) |
+| Run a task on a schedule | A [routine](../usage/routines.md) |
+| Give a bot access to a service | A [plugin account](../usage/plugins.md) |
 
 ## Start using OpenTeam
 
@@ -27,4 +31,4 @@ Use [skills](../usage/skills.md) to keep a repeatable method and [routines](../u
 - **Looking for ideas:** try the [use cases](use-cases.md).
 - **Choosing a host:** read [how hosting works](architecture.md).
 
-Your server must stay on for work to continue. Keep the desktop app open for tasks that need delegation or access to your physical computer. OpenTeam uses your chosen model and service accounts; their access and usage limits still apply.
+Your server must stay on while bots work. [How hosting works](architecture.md#what-needs-to-stay-running) explains when the desktop app also needs to stay connected. Your model and service accounts' access and usage limits apply.

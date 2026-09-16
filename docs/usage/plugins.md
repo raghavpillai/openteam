@@ -23,9 +23,9 @@ When a service requires registered callbacks, add the new account's exact callba
 
 ## Bot access and tool approvals
 
-Choose account grants under **Bot access and plugin details**. Under tool policies, use **Allow**, **Ask first**, or **Deny** to control execution. Start with read access and deliberate approvals for changes.
+Choose account grants under **Bot access and plugin details**. Tool policies control which actions need review; see [approvals and privacy](../configuration/approvals.md#set-plugin-access) for **Allow**, **Ask first**, and **Deny**.
 
-If a bot cannot see a connected tool, check its account grant, the tool's enabled state, and any workspace restrictions. See [approvals and privacy](../configuration/approvals.md).
+If a connected tool is missing, check the bot's grant, the tool's enabled state, and workspace restrictions.
 
 ## Updates, disconnection, and removal
 

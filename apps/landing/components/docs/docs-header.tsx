@@ -1,22 +1,27 @@
 import { ArrowUpRight } from "lucide-react";
 import Link from "next/link";
 import { GithubMark, Wordmark } from "@/components/brand";
-import { Button } from "@/components/ui/button";
+import { DocsLink } from "./docs-link";
 
 export function DocsHeader({ repository }: { repository: string }) {
   return (
     <header className="docs-header">
       <div className="docs-container docs-header-inner">
-        <Link href="/" aria-label="OpenTeam home" className="docs-brand">
-          <Wordmark size={30} textSize={23} />
-        </Link>
+        <div className="docs-header-identity">
+          <Link href="/" aria-label="OpenTeam home" className="docs-brand">
+            <Wordmark size={30} textSize={23} />
+          </Link>
+          <span className="docs-brand-divider" aria-hidden="true" />
+          <DocsLink href="/docs" className="docs-header-label">Docs</DocsLink>
+        </div>
         <nav aria-label="Site navigation" className="docs-header-actions">
+          <DocsLink href="/docs/getting-started/quickstart" className="docs-header-quickstart">Quickstart</DocsLink>
           <a href={repository} className="docs-github" aria-label="OpenTeam on GitHub">
             <GithubMark /><span>GitHub</span>
           </a>
-          <Button className="docs-install" render={<Link href="/download" />} nativeButton={false}>
-            Get OpenTeam <ArrowUpRight size={15} aria-hidden="true" />
-          </Button>
+          <Link href="/download" className="docs-install">
+            Get OpenTeam <ArrowUpRight size={16} aria-hidden="true" />
+          </Link>
         </nav>
       </div>
     </header>

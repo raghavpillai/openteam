@@ -14,15 +14,9 @@ Use app settings for your device, bot settings for a particular bot, and server 
 
 Appearance and local-computer permissions belong to the device. Model and service configuration belongs to the server. Changing the model affects new work from every connected app.
 
-## Change a bot's profile
-
-Open the bot's settings to edit its name, description, and avatar. Use the bot's notification control when you want fewer alerts from that conversation.
-
-Hiding a bot changes its visibility in navigation. It does not pause its routines or stop the server. Use the task or routine controls for that.
-
 ## Enable notifications
 
-Allow OpenTeam notifications in your operating system, then check the app and bot notification settings. Alerts depend on the conversation and its read state; the app avoids notifying you for work you are already viewing.
+Allow OpenTeam notifications in your operating system, then check the app and bot notification settings. Use the bot's notification control for fewer alerts from that conversation. The app suppresses alerts for the conversation you are viewing.
 
 Mobile push also requires a native app build configured for push delivery. If you built the mobile app yourself, complete the [mobile notification setup](../../apps/mobile/README.md) before relying on background alerts.
 

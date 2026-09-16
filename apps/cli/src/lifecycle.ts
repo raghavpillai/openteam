@@ -24,11 +24,13 @@ import {
 import { CLI_VERSION, DEFAULT_REPOSITORY, PROJECT_NAME } from "./constants";
 import { type ComposeProject, requireComposeProject } from "./docker";
 import { printDoctor, runDoctor } from "./doctor";
+import { doctorNextSteps } from "./doctor-ui";
 import { CliError } from "./errors";
 import { checkHealth, type HealthResult, withExpectedVersion } from "./health";
 import type { CommandRunner } from "./process";
 import { downloadRelease, latestReleaseVersion } from "./release";
 import { setupCommand, type SetupPrompter } from "./setup";
+import { printSetupCancelled, waitForAutomaticSetup } from "./setup-countdown";
 export { statusCommand } from "./status";
 import {
   assertServerReachable,
@@ -189,7 +191,7 @@ export const installCommand = async (
       await setupCommand(
         paths,
         runner,
-        { advanced: options.advanced, fresh: true },
+        { advanced: options.advanced, fresh: true, countdown: options.command === "install" },
         suppliedPrompter
       );
     } else {
@@ -203,7 +205,20 @@ export const installCommand = async (
   const diagnosis = await runDoctor(paths, runner, projectName, {
     checkInstallPorts: options.noSetup,
   });
-  printDoctor(diagnosis, { compact: true });
+  if (diagnosis.ok) {
+    const report = new TerminalReport();
+    report.notice("Server requirements checked", "success");
+    const warnings = diagnosis.checks.filter(
+      (check) => check.level === "warn" && !["Installation", "Local ports"].includes(check.label)
+    );
+    for (const check of warnings) report.notice(`${check.label}: ${check.detail}`, "warning");
+    for (const action of doctorNextSteps(
+      { ...diagnosis, checks: warnings },
+      { installInProgress: true }
+    ))
+      report.text(action);
+    console.log(report.toString());
+  } else printDoctor(diagnosis, { compact: true });
   if (!diagnosis.ok)
     throw new CliError(
       `Server setup paused. The CLI is available. Fix the failed checks above, then run ${installationCommand(paths, "setup")} again.`,
@@ -215,6 +230,13 @@ export const installCommand = async (
       `Preflight checks passed. Guided setup needs an interactive terminal. Run ${installationCommand(paths, "setup")} in a terminal to continue.`,
       2
     );
+  }
+
+  if (options.command === "install" && !options.noSetup && !suppliedPrompter) {
+    if (!(await waitForAutomaticSetup())) {
+      printSetupCancelled(paths);
+      return;
+    }
   }
 
   const version = normalizeVersion(options.version || CLI_VERSION);

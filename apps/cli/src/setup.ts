@@ -23,6 +23,7 @@ import { type ComposeProject, requireComposeProject } from "./docker";
 import { printDoctor, runDoctor, suggestApiPort } from "./doctor";
 import { CliError } from "./errors";
 import { installationCommand } from "./command-ui";
+import { printSetupCancelled, waitForAutomaticSetup } from "./setup-countdown";
 import { checkHealth } from "./health";
 import { SETUP_JOBS_NOTE, waitForStartup } from "./startup";
 import type { CommandRunner } from "./process";
@@ -124,6 +125,8 @@ export interface SetupPrompter {
 }
 
 export interface SetupCommandOptions {
+  /** Automatic installer handoff; explicit setup starts immediately. */
+  countdown?: boolean;
   advanced?: boolean;
   fresh?: boolean;
   presentation?: SetupPresentation;
@@ -919,6 +922,17 @@ export const setupCommand = async (
     );
   }
   const manifest = requireInstallation(paths);
+  if (options.countdown && !suppliedPrompter) {
+    if (!process.stdin.isTTY || !process.stdout.isTTY)
+      throw new CliError(
+        `Run ${installationCommand(paths, "setup")} in an interactive terminal.`,
+        2
+      );
+    if (!(await waitForAutomaticSetup())) {
+      printSetupCancelled(paths);
+      return;
+    }
+  }
   const project = requireComposeProject(paths, runner, manifest.projectName || PROJECT_NAME);
   const previousEnvironment = readFileSync(paths.environment, "utf8");
   const current = new Map(parseEnvironment(previousEnvironment));

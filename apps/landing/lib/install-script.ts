@@ -14,6 +14,18 @@ command_exists() {
   command -v "$1" >/dev/null 2>&1
 }
 
+cyan=""; green=""; bold=""; reset=""
+if [ -t 1 ] && [ "$(printenv TERM 2>/dev/null || printf dumb)" != "dumb" ] && ! printenv NO_COLOR >/dev/null 2>&1; then
+  cyan=$(printf '\033[36m'); green=$(printf '\033[32m')
+  bold=$(printf '\033[1m'); reset=$(printf '\033[0m')
+fi
+step() {
+  printf '  %b%s%b %s\n' "$3" "$1" "$reset" "$2"
+}
+# ASCII source keeps raw-template bundlers from turning glyphs into literal Unicode escapes.
+diamond=$(printf '\342\227\207'); checkmark=$(printf '\342\234\223')
+ellipsis=$(printf '\342\200\246'); middot=$(printf '\302\267')
+
 os_name=$(uname -s 2>/dev/null || printf unknown)
 arch_name=$(uname -m 2>/dev/null || printf unknown)
 
@@ -29,7 +41,9 @@ case "$arch_name" in
   *) fail "unsupported architecture: $arch_name. OpenTeam supports x64 and arm64 hosts." ;;
 esac
 
-say "OpenTeam · $platform $architecture"
+printf '\n  %bOPENTEAM%b / install\n' "$bold$cyan" "$reset"
+say "  $platform $middot $architecture"
+say ""
 
 command_exists curl || fail "curl is required to download the OpenTeam CLI."
 
@@ -58,17 +72,17 @@ cleanup() {
 }
 trap cleanup EXIT HUP INT TERM
 
-say "Downloading OpenTeam $release_tag from GitHub…"
+step "$diamond" "Downloading CLI $release_tag$ellipsis" "$cyan"
 # Prefer the gzip copy (about a third of the size); fall back to the raw binary for releases
 # that predate it. The checksum below is always verified against the decompressed binary.
 if command_exists gunzip && curl -fsL --retry 3 --connect-timeout 15 "$release_base/$asset_name.gz" -o "$binary_path.gz" 2>/dev/null; then
   gunzip -f "$binary_path.gz" || fail "could not decompress $asset_name.gz."
 else
   rm -f "$binary_path.gz"
-  curl -fL --retry 3 --connect-timeout 15 "$release_base/$asset_name" -o "$binary_path" ||
+  curl -fsSL --retry 3 --connect-timeout 15 "$release_base/$asset_name" -o "$binary_path" ||
     fail "could not download $asset_name from $release_tag."
 fi
-curl -fL --retry 3 --connect-timeout 15 "$release_base/SHA256SUMS" -o "$checksums_path" ||
+curl -fsSL --retry 3 --connect-timeout 15 "$release_base/SHA256SUMS" -o "$checksums_path" ||
   fail "could not download checksums for $release_tag."
 
 expected_checksum=$(awk -v name="$asset_name" '$2 == name || $2 ~ ("/" name "$") { print $1; exit }' "$checksums_path")
@@ -83,6 +97,7 @@ else
 fi
 
 [ "$actual_checksum" = "$expected_checksum" ] || fail "the OpenTeam CLI checksum did not match."
+step "$checkmark" "Download verified" "$green"
 chmod +x "$binary_path"
 
 user_home=$(printenv HOME 2>/dev/null || true)
@@ -97,13 +112,14 @@ else
   chmod +x "$installed_binary"
 fi
 
-say "OpenTeam CLI installed at $installed_binary"
+step "$checkmark" "CLI installed" "$green"
+say "    $installed_binary"
 case ":$PATH:" in
   *":$bin_directory:"*) ;;
-  *) say "Note: add $bin_directory to PATH to run openteam later." ;;
+  *) say "  Add $bin_directory to PATH to run openteam later." ;;
 esac
 
-say "Starting the guided server setup…"
+printf '\n  %bSERVER SETUP%b\n\n' "$bold$cyan" "$reset"
 # Opening /dev/tty can fail even when it is readable (for example, in CI).
 if ( : </dev/tty ) 2>/dev/null; then
   "$installed_binary" install "$@" </dev/tty
@@ -121,6 +137,16 @@ function Fail([string]$Message) {
   Write-Error "OpenTeam installer: $Message"
   exit 1
 }
+
+$installerColor = -not [Console]::IsOutputRedirected -and -not (Test-Path Env:NO_COLOR) -and $env:TERM -ne "dumb"
+function Write-Step([string]$Mark, [string]$Message, [string]$Color = "Cyan") {
+  if ($installerColor) { Write-Host "  $Mark $Message" -ForegroundColor $Color }
+  else { Write-Host "  $Mark $Message" }
+}
+Write-Host ""
+Write-Step "OPENTEAM" "/ install"
+Write-Host "  Windows"
+Write-Host ""
 
 $architecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString().ToLowerInvariant()
 switch ($architecture) {
@@ -146,29 +172,37 @@ $checksumsPath = Join-Path $temporaryDirectory "SHA256SUMS"
 $binDirectory = if ($env:OPENTEAM_BIN_DIR) { $env:OPENTEAM_BIN_DIR } else { Join-Path $env:LOCALAPPDATA "OpenTeam\bin" }
 $installedBinary = Join-Path $binDirectory "openteam.exe"
 
+$installerProgressPreference = $ProgressPreference
+$ProgressPreference = "SilentlyContinue"
 try {
-  Write-Host "Downloading OpenTeam $releaseTag from GitHub..."
+  Write-Step ([char]0x25C7) "Downloading CLI $releaseTag$([char]0x2026)"
   # Prefer the gzip copy; fall back to the raw binary for releases that predate it.
+  # Basic parsing avoids browser/HTML prompts in Windows PowerShell 5.1.
   $compressedPath = "$binaryPath.gz"
   try {
-    Invoke-WebRequest "$releaseBase/$assetName.gz" -OutFile $compressedPath
+    Invoke-WebRequest "$releaseBase/$assetName.gz" -UseBasicParsing -OutFile $compressedPath
     $compressedStream = [System.IO.File]::OpenRead($compressedPath)
     $binaryStream = [System.IO.File]::Create($binaryPath)
     $gzipStream = New-Object System.IO.Compression.GZipStream($compressedStream, [System.IO.Compression.CompressionMode]::Decompress)
     $gzipStream.CopyTo($binaryStream)
     $gzipStream.Dispose(); $binaryStream.Dispose(); $compressedStream.Dispose()
   } catch {
-    Invoke-WebRequest "$releaseBase/$assetName" -OutFile $binaryPath
+    Invoke-WebRequest "$releaseBase/$assetName" -UseBasicParsing -OutFile $binaryPath
   }
-  Invoke-WebRequest "$releaseBase/SHA256SUMS" -OutFile $checksumsPath
-  $checksumLine = Get-Content $checksumsPath | Where-Object { $_ -match "(^|/)$([regex]::Escape($assetName))$" } | Select-Object -First 1
+  Invoke-WebRequest "$releaseBase/SHA256SUMS" -UseBasicParsing -OutFile $checksumsPath
+  $checksumLine = Get-Content $checksumsPath | Where-Object {
+    $fields = $_.Trim() -split "\s+", 2
+    $fields.Count -eq 2 -and (($fields[1].Trim() -replace "^\*", "") -replace "^.*/", "") -ceq $assetName
+  } | Select-Object -First 1
   if (-not $checksumLine) { Fail "SHA256SUMS does not contain $assetName." }
-  $expectedChecksum = ($checksumLine -split "\s+")[0].ToLowerInvariant()
+  $expectedChecksum = ($checksumLine.Trim() -split "\s+")[0].ToLowerInvariant()
   $actualChecksum = (Get-FileHash -Algorithm SHA256 $binaryPath).Hash.ToLowerInvariant()
   if ($actualChecksum -ne $expectedChecksum) { Fail "the OpenTeam CLI checksum did not match." }
+  Write-Step ([char]0x2713) "Download verified" "Green"
   New-Item -ItemType Directory -Force -Path $binDirectory | Out-Null
   Copy-Item -Force $binaryPath $installedBinary
-  Write-Host "OpenTeam CLI installed at $installedBinary"
+  Write-Step ([char]0x2713) "CLI installed" "Green"
+  Write-Host "    $installedBinary"
   $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
   if (-not $userPath) { $userPath = "" }
   if (-not (($userPath -split ";") -contains $binDirectory)) {
@@ -176,9 +210,13 @@ try {
     [Environment]::SetEnvironmentVariable("Path", $newPath, "User")
     Write-Host "Added $binDirectory to your user PATH."
   }
+  Write-Host ""
+  Write-Step "SERVER" "SETUP"
+  Write-Host ""
   & $installedBinary install @args
   exit $LASTEXITCODE
 } finally {
+  $ProgressPreference = $installerProgressPreference
   Remove-Item -Recurse -Force $temporaryDirectory -ErrorAction SilentlyContinue
 }
 `;

@@ -69,7 +69,8 @@ def environment(name, docker=False, compose=False):
            'OPENTEAM_BIN_DIR': str(directory / 'bin')}
     return directory, env
 
-def execute(args, env, terminal=False, columns=80, cancel_at=None, timeout=45):
+def execute(args, env, terminal=False, columns=80, cancel_at=None, timeout=45,
+            cancel_key=b'\x1b', cancel_delay=0, recording=None):
     if not terminal:
         process = subprocess.run(args, env=env, stdin=subprocess.DEVNULL,
                                  stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=timeout)
@@ -79,10 +80,17 @@ def execute(args, env, terminal=False, columns=80, cancel_at=None, timeout=45):
         fcntl.ioctl(0, termios.TIOCSWINSZ, struct.pack('HHHH', 30, columns, 0, 0))
         os.execvpe(args[0], args, env)
     output = b''
+    started = time.monotonic()
+    events = []
     deadline = time.monotonic() + timeout
     cancelled = False
+    cancel_due = None
     try:
         while time.monotonic() < deadline:
+            if cancel_due is not None and time.monotonic() >= cancel_due and not cancelled:
+                os.write(master, cancel_key)
+                events.append([round(time.monotonic() - started, 3), 'i', cancel_key.decode()])
+                cancelled = True
             ready, _, _ = select.select([master], [], [], .1)
             if ready:
                 try:
@@ -92,16 +100,19 @@ def execute(args, env, terminal=False, columns=80, cancel_at=None, timeout=45):
                     raise
                 if not data: break
                 output += data
-                if cancel_at and cancel_at.lower() in ansi.sub('', output.decode(errors='replace')).lower() and not cancelled:
-                    time.sleep(.1)
-                    os.write(master, b'\x1b')
-                    cancelled = True
+                events.append([round(time.monotonic() - started, 3), 'o', data.decode(errors='replace')])
+                if cancel_at and cancel_at.lower() in ansi.sub('', output.decode(errors='replace')).lower() and cancel_due is None:
+                    cancel_due = time.monotonic() + cancel_delay + .05
         else:
             os.killpg(pid, signal.SIGKILL)
             raise AssertionError('CLI timed out\n' + output.decode(errors='replace')[-10000:])
     finally:
         os.close(master)
         _, status = os.waitpid(pid, 0)
+        if recording:
+            target = Path('/recordings') / (recording + '.cast')
+            header = {'version': 2, 'width': columns, 'height': 30, 'timestamp': int(time.time())}
+            target.write_text('\n'.join(json.dumps(event) for event in [header, *events]) + '\n')
     if cancel_at: check(cancelled, 'The setup screen did not appear', output.decode(errors='replace'))
     return os.waitstatus_to_exitcode(status), output.decode(errors='replace')
 
@@ -115,6 +126,9 @@ def bootstrap(name, env_options=None, terminal=False, raw=False, bad=False, colu
     if bad: env['FRESH_BAD_CHECKSUM'] = '1'
     installation = directory / 'installation'
     code, output = execute(['/bin/sh', '/fixtures/install.sh', '--dir', str(installation)], env, terminal, columns)
+    check(not re.search(r'\\u[0-9a-fA-F]{4}', output), 'Bundled installer printed literal Unicode escapes', output)
+    if not bad:
+        check('✓ Download verified' in ansi.sub('', output), 'Installer status glyph did not render', output)
     cli = directory / 'bin/openteam'
     check(code == (1 if bad else 2), 'Wrong bootstrap exit code', output)
     if bad:
@@ -122,7 +136,7 @@ def bootstrap(name, env_options=None, terminal=False, raw=False, bad=False, colu
     else:
         check(cli.is_file() and os.access(cli, os.X_OK), 'CLI was not installed', output)
         check(hashlib.sha256(cli.read_bytes()).digest() == hashlib.sha256(binary_asset.read_bytes()).digest(), 'CLI checksum changed')
-        check('OpenTeam CLI installed at' in output and 'Server setup paused' in output, 'Missing installed/paused distinction', output)
+        check('CLI installed' in output and 'Server setup paused' in output, 'Missing installed/paused distinction', output)
         check('The docker command was not found' in ' '.join(output.split()), 'Missing Docker diagnosis', output)
         check('Install Docker Engine' in ' '.join(output.split()), 'Missing recovery instructions', output)
     check(not installation.exists(), 'Preflight wrote server configuration')
@@ -190,6 +204,21 @@ check(code == 2 and 'interactive terminal' in output, 'Noninteractive setup was 
 check(not (directory / 'installation').exists(), 'Noninteractive setup downloaded server configuration')
 record('noninteractive-setup', output)
 
+for name, key in [('escape', b'\x1b'), ('enter', b'\r'), ('letter', b'x'),
+                  ('space', b' '), ('arrow', b'\x1b[A'), ('ctrl-c', b'\x03')]:
+    cancel_directory, cancel_env = environment('countdown-' + name, docker=True, compose=True)
+    cancel_env.pop('NO_COLOR', None)
+    target = cancel_directory / 'installation'
+    code, output = execute(['/bin/sh', '/fixtures/install.sh', '--dir', str(target)],
+        cancel_env, terminal=True, cancel_at='Starting in 5s', cancel_key=key,
+        cancel_delay=2.1 if name == 'escape' else 0,
+        recording='installer-cancel' if name == 'escape' else None)
+    check(code == 0 and 'Setup cancelled' in output, 'Countdown cancellation failed', output)
+    check('openteam setup' in output and not target.exists(), 'Cancelled install changed server files', output)
+    check((cancel_directory / 'bin/openteam').is_file(), 'Cancellation removed the CLI', output)
+    check('Starting setup…' not in output, 'Cancelled countdown continued', output)
+    record('countdown-cancel-' + name, output)
+
 # The real CLI validates/downloads a test Compose bundle, pulls one tiny image
 # into the isolated engine, and reaches its interactive first-run screen.
 class Handler(http.server.SimpleHTTPRequestHandler):
@@ -199,16 +228,28 @@ server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Handler)
 threading.Thread(target=server.serve_forever, daemon=True).start()
 url = f'http://127.0.0.1:{server.server_port}'
 try:
-    code, output = execute([str(cli), 'install', '--dir', str(directory / 'installation'),
+    demo_env = {**env}
+    demo_env.pop('NO_COLOR', None)
+    code, output = execute(['/bin/sh', '/fixtures/install.sh', '--dir', str(directory / 'installation'),
         '--compose-url', url + '/openteam-compose.yaml', '--checksum-url', url + '/SHA256SUMS',
-        '--allow-unsigned'], env, terminal=True, cancel_at='Username', timeout=120)
+        '--allow-unsigned'], demo_env, terminal=True, cancel_at='Username', timeout=120,
+        recording='installer-continue')
+    for seconds in range(5, 0, -1):
+        check(f'Starting in {seconds}s' in output, 'Missing countdown step', output)
     check(code == 0 and 'cancelled' in output.lower(), 'Could not cancel fresh setup', output)
     check((directory / 'installation/installation.json').is_file(), 'Fresh setup did not install configuration', output)
     record('fresh-install-and-cancel', output)
     code, output = execute([str(cli), 'setup', '--dir', str(directory / 'installation')],
                           env, terminal=True, cancel_at='Username')
     check(code == 0 and 'cancelled' in output.lower(), 'Could not resume and cancel setup', output)
+    check('Starting in' not in output, 'Explicit setup should not count down', output)
     record('resume-setup-and-cancel', output)
+    existing = {path.name: path.read_bytes() for path in (directory / 'installation').iterdir() if path.is_file()}
+    code, output = execute([str(cli), 'install', '--dir', str(directory / 'installation')],
+                          env, terminal=True, cancel_at='Starting in 5s')
+    check(code == 0 and 'Setup cancelled' in output, 'Repeated install could not cancel its setup handoff', output)
+    check(all((directory / 'installation' / name).read_bytes() == body for name, body in existing.items()), 'Repeated install changed configuration during cancellation')
+    record('resume-install-countdown-cancel', output)
 finally:
     server.shutdown()
 code, output = execute(['/opt/docker/docker', 'ps', '-aq'], env)

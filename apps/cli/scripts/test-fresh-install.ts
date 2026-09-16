@@ -1,6 +1,6 @@
 /** Fresh Linux installer/preflight smoke test. Uses its own Docker-in-Docker engine. */
 import { createHash, randomUUID } from "node:crypto";
-import { copyFileSync, mkdirSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { installScript } from "../../landing/lib/install-script";
 
@@ -8,6 +8,9 @@ const root = resolve(import.meta.dir, "../../..");
 const output = resolve(root, "output/fresh-install");
 const assets = resolve(output, "assets");
 mkdirSync(assets, { recursive: true });
+const recordings = resolve(output, "recordings");
+mkdirSync(recordings, { recursive: true });
+chmodSync(recordings, 0o777);
 const log: string[] = [];
 async function run(args: string[], allowFailure = false) {
   const child = Bun.spawn(args, { cwd: root, stdout: "pipe", stderr: "pipe" });
@@ -107,6 +110,8 @@ try {
     id,
     "--mount",
     `type=bind,src=${output},dst=/fixtures,readonly`,
+    "--mount",
+    `type=bind,src=${recordings},dst=/recordings`,
     "openteam-preflight-test:local",
   ]);
   writeFileSync(resolve(output, "results.txt"), result.stdout);

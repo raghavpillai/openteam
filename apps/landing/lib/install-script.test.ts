@@ -22,8 +22,8 @@ describe("install script", () => {
   test("leaves Docker preflight to the installed CLI on both platforms", () => {
     expect(installScript).not.toContain("command_exists docker");
     expect(powerShellInstallScript).not.toContain("Get-Command docker");
-    expect(installScript).toContain("OpenTeam CLI installed at");
-    expect(powerShellInstallScript).toContain("OpenTeam CLI installed at");
+    expect(installScript).toContain('"CLI installed"');
+    expect(powerShellInstallScript).toContain('"CLI installed"');
     expect(installScript).toContain('"$installed_binary" install "$@" </dev/null');
   });
 
@@ -40,6 +40,16 @@ describe("install script", () => {
     expect(installScript).toContain('"$release_base/$asset_name" -o "$binary_path"');
     expect(powerShellInstallScript).toContain('"$releaseBase/$assetName.gz"');
     expect(powerShellInstallScript).toContain("System.IO.Compression.GZipStream");
-    expect(powerShellInstallScript).toContain('"$releaseBase/$assetName" -OutFile $binaryPath');
+    expect(powerShellInstallScript).toContain(
+      '"$releaseBase/$assetName" -UseBasicParsing -OutFile $binaryPath'
+    );
+  });
+
+  test("download-script glyphs survive raw-template bundling", () => {
+    for (const script of [installScript, powerShellInstallScript]) {
+      expect(script).not.toMatch(/\\u[0-9a-fA-F]{4}/);
+    }
+    expect(installScript).toContain("checkmark=$(printf '\\342\\234\\223')");
+    expect(powerShellInstallScript).toContain("([char]0x2713)");
   });
 });

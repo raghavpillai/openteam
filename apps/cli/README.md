@@ -9,6 +9,11 @@ The CLI stays installed, and preflight does not create server configuration or s
 After fixing the problem, run `openteam setup`; it installs the server if necessary or resumes
 an existing installation. `openteam doctor` can also check prerequisites before installation.
 
+Automatic setup starts after a five-second countdown once preflight passes. Press any key
+(including Esc, Enter, or Ctrl+C) to cancel; the CLI stays installed and prints the command
+to continue later. Cancellation happens before downloading server configuration or images.
+Explicit `openteam setup` starts immediately. `--no-setup` skips both the countdown and guided setup.
+
 In a noninteractive shell, prerequisite errors still appear. Once preflight passes, guided
 installation asks you to continue in a terminal before downloading server configuration.
 The explicit `openteam install --no-setup` automation path remains available.
@@ -31,6 +36,22 @@ native Windows/macOS VM. It also checks missing Docker, stopped or inaccessible 
 contexts, executable permissions, missing Compose, gzip fallback, and a corrupt download. Process
 regressions additionally cover API incompatibility and old Compose, and preserve existing configuration
 on failure.
+
+The `CLI installer` GitHub Actions workflow runs terminal checks on Linux, macOS, and Windows.
+On Windows, `bun scripts/test-windows-install.ts` builds the real Windows executable and tests
+both Windows PowerShell 5.1 and PowerShell 7 with ConPTY (Python `pywinpty` and `pyte` required).
+It checks keyboard cancellation, all five countdown steps, downloads and checksums, missing Docker,
+and recovery messages. Windows Docker responses are simulated; the Linux suite uses a real engine.
+Windows logs are saved under `output/windows-install`. These checks do not validate a full Windows
+Docker Desktop deployment or Windows on ARM (which uses the x64 executable through emulation).
+Use a disposable Windows runner: the suite temporarily hides any preinstalled Docker CLI on
+GitHub Actions so Windows cannot discover it in System32, then restores it in cleanup.
+
+The fresh test also records automatic setup and cancellation under
+`output/fresh-install/recordings`. To render those actual terminal recordings as an MP4 and GIF,
+run `python scripts/render-installer-demo.py` from this directory with `pillow`, `pyte`, and
+`ffmpeg` installed. Pass `--font /path/to/monospace.ttf` outside macOS. Generated media is saved
+under `output/installer-demo` at the repository root.
 
 ## Status and health
 

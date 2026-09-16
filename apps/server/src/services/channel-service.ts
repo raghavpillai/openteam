@@ -1,3 +1,4 @@
+import { nextMessageAddress } from "@openteam/messaging";
 import {
   ApiError,
   type ComputerSteerRequest,
@@ -179,6 +180,7 @@ export class ChannelService {
           select: { id: true, name: true },
           orderBy: { createdAt: "asc" },
         });
+        const address = await nextMessageAddress(tx, channel.id, "user");
         const visibleMessage = await tx.channelMessage.create({
           data: {
             channelId: channel.id,
@@ -187,6 +189,7 @@ export class ChannelService {
             content: input.content,
             metadata: {
               type: "text",
+              address,
               ...(input.attachments?.length ? { attachments: input.attachments } : {}),
               ...(reply ? { replyTo: reply.id } : {}),
               ...(input.richText ? { richText: input.richText } : {}),
@@ -199,7 +202,7 @@ export class ChannelService {
           botId: conversation.botId,
           channelId: channel.id,
           content: formatUserPrompt(
-            visibleMessage.sequence,
+            address,
             formatDirectMentionContext(input.content, mentionPeers),
             reply
           ),
@@ -301,6 +304,7 @@ export class ChannelService {
           },
         });
         await dismissMoveOnWidgets(tx, channelId);
+        const address = await nextMessageAddress(tx, channelId, "user");
         const message = await tx.channelMessage.create({
           data: {
             channelId,
@@ -309,6 +313,7 @@ export class ChannelService {
             content: input.content,
             metadata: {
               type: "text",
+              address,
               ...(input.attachments?.length ? { attachments: input.attachments } : {}),
               ...(reply ? { replyTo: reply.id } : {}),
               ...(input.richText ? { richText: input.richText } : {}),

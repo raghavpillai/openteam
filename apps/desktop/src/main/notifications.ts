@@ -3,6 +3,11 @@ import {
   type AgentNotificationPresentation,
   agentNotificationPresentation,
   truncateNotificationText,
+  notificationIsRead,
+  type ChannelNotificationState,
+  type ChannelNotificationView,
+  type NotificationSender,
+  isAgentNotificationKind,
 } from "@openteam/contracts/notification-content";
 
 export type DesktopNotificationKind = AgentNotificationKind;
@@ -23,9 +28,66 @@ export interface DesktopAgentNotificationState {
 export interface DesktopNotificationSnapshot {
   cursor?: string;
   agents: DesktopAgentNotificationState[];
+  channels?: Array<ChannelNotificationState & { unreadCount: number }>;
 }
 
+export const parseNotificationChannels = (
+  value: unknown
+): NonNullable<DesktopNotificationSnapshot["channels"]> | null => {
+  if (!Array.isArray(value) || value.length > 10_000) return null;
+  const numeric = (field: unknown) => typeof field === "string" && /^\d{1,20}$/.test(field);
+  for (const channel of value) {
+    if (
+      !channel ||
+      typeof channel !== "object" ||
+      typeof channel.channelId !== "string" ||
+      !numeric(channel.lastReadSequence) ||
+      !numeric(channel.lastReadNotificationSequence) ||
+      !numeric(channel.notificationCursor) ||
+      typeof channel.unreadCount !== "number" ||
+      !Number.isFinite(channel.unreadCount) ||
+      channel.unreadCount < 0 ||
+      !Array.isArray(channel.notifications) ||
+      channel.notifications.length > 100
+    )
+      return null;
+    for (const notification of channel.notifications) {
+      if (
+        !notification ||
+        notification.channelId !== channel.channelId ||
+        typeof notification.botId !== "string" ||
+        !isAgentNotificationKind(notification.kind) ||
+        !numeric(notification.notificationSequence) ||
+        (notification.messageSequence !== undefined && !numeric(notification.messageSequence)) ||
+        typeof notification.title !== "string" ||
+        typeof notification.body !== "string" ||
+        notification.title.length > 1000 ||
+        notification.body.length > 4000 ||
+        (notification.sender !== undefined &&
+          (!notification.sender ||
+            typeof notification.sender !== "object" ||
+            typeof notification.sender.name !== "string" ||
+            notification.sender.name.length > 1000 ||
+            typeof notification.sender.icon !== "string" ||
+            notification.sender.icon.length > 64 ||
+            typeof notification.sender.color !== "string" ||
+            !/^#[0-9a-f]{6}$/i.test(notification.sender.color) ||
+            (notification.sender.avatarDataUrl !== undefined &&
+              (typeof notification.sender.avatarDataUrl !== "string" ||
+                notification.sender.avatarDataUrl.length > 100_000 ||
+                !/^data:image\/png;base64,[A-Za-z0-9+/]+=*$/.test(
+                  notification.sender.avatarDataUrl
+                )))))
+      )
+        return null;
+    }
+  }
+  return value;
+};
+
 export interface DesktopNotificationEvent {
+  notificationId?: string;
+  sender?: NotificationSender;
   botId: string;
   channelId: string;
   kind: DesktopNotificationKind;
@@ -39,6 +101,7 @@ export interface DesktopNotificationAdapter {
   isFocused: () => boolean;
   isSupported: () => boolean;
   deliver: (event: DesktopNotificationEvent) => void;
+  dismiss?: (notificationId: string) => void;
   setBadge: (label: string) => void;
 }
 
@@ -56,6 +119,8 @@ export class DesktopNotificationManager {
   private totalUnread = 0;
   private visibleChannelId: string | null = null;
   private lastBadge = "";
+  private activityCursors = new Map<string, bigint>();
+  private deliveredActivity = new Map<string, ChannelNotificationView>();
 
   constructor(
     private readonly adapter: DesktopNotificationAdapter,
@@ -84,6 +149,11 @@ export class DesktopNotificationManager {
       snapshot.cursor && /^\d+$/.test(snapshot.cursor) ? BigInt(snapshot.cursor) : null;
     if (cursor !== null && this.lastCursor !== null && cursor < this.lastCursor) return;
     if (cursor !== null) this.lastCursor = cursor;
+    if (snapshot.channels) {
+      this.syncActivity(snapshot.channels);
+      this.previous = snapshot;
+      return;
+    }
     const currentBotIds = new Set(snapshot.agents.map((agent) => agent.botId));
     for (const botId of this.accountedMessageByBot.keys()) {
       if (!currentBotIds.has(botId)) this.accountedMessageByBot.delete(botId);
@@ -138,7 +208,7 @@ export class DesktopNotificationManager {
         };
       } else if (prior.isRunning && !agent.isRunning && !agent.awaitingReason) {
         const accounted = this.accountedMessageByBot.get(agent.botId);
-        if (agent.lastMessageId && agent.lastMessageId !== accounted) {
+        if (agent.unreadCount > 0 && agent.lastMessageId && agent.lastMessageId !== accounted) {
           const presentation = agentNotificationPresentation({
             kind: "agent-done",
             botName: agent.name,
@@ -173,7 +243,66 @@ export class DesktopNotificationManager {
     }
   }
 
+  private syncActivity(channels: NonNullable<DesktopNotificationSnapshot["channels"]>): void {
+    const byChannel = new Map(channels.map((channel) => [channel.channelId, channel]));
+    for (const [id, notification] of this.deliveredActivity) {
+      const state = byChannel.get(notification.channelId);
+      if (!state || notificationIsRead(notification, state)) {
+        this.adapter.dismiss?.(id);
+        this.deliveredActivity.delete(id);
+      }
+    }
+    this.unreadByChannel.clear();
+    this.totalUnread = 0;
+    for (const channel of channels) {
+      this.unreadByChannel.set(channel.channelId, channel.unreadCount);
+      this.totalUnread += channel.unreadCount;
+      const previousCursor = this.activityCursors.get(channel.channelId);
+      const cursor = BigInt(channel.notificationCursor);
+      if (previousCursor !== undefined && cursor < previousCursor) continue;
+      this.activityCursors.set(channel.channelId, cursor);
+      if (previousCursor === undefined) continue;
+      for (const notification of [...channel.notifications].sort((a, b) =>
+        BigInt(a.notificationSequence) < BigInt(b.notificationSequence) ? -1 : 1
+      )) {
+        if (
+          BigInt(notification.notificationSequence) <= previousCursor ||
+          notificationIsRead(notification, channel)
+        )
+          continue;
+        if (
+          (this.adapter.isFocused() && this.visibleChannelId === channel.channelId) ||
+          !this.adapter.isSupported()
+        )
+          continue;
+        const id = `${channel.channelId}:${notification.notificationSequence}`;
+        this.deliveredActivity.set(id, notification);
+        const presentation = agentNotificationPresentation({
+          kind: notification.kind,
+          botName: notification.title,
+          body: notification.body,
+        });
+        this.adapter.deliver({
+          ...notification,
+          notificationId: id,
+          // The server has already formatted the title (including needs-input).
+          title: notification.title,
+          body: truncateNotificationText(notification.body),
+          sound: presentation.sound,
+          urgency: presentation.urgency,
+        });
+      }
+    }
+    for (const channelId of this.activityCursors.keys()) {
+      if (!byChannel.has(channelId)) this.activityCursors.delete(channelId);
+    }
+    this.updateBadge();
+  }
+
   clear(): void {
+    for (const id of this.deliveredActivity.keys()) this.adapter.dismiss?.(id);
+    this.deliveredActivity.clear();
+    this.activityCursors.clear();
     this.previous = null;
     this.accountedMessageByBot.clear();
     this.lastDeliveredAt.clear();

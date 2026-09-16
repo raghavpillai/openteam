@@ -64,6 +64,11 @@ interface Window {
     notifications: {
       sync: (snapshot: {
         cursor?: string;
+        channels?: Array<
+          import("@openteam/contracts/notification-content").ChannelNotificationState & {
+            unreadCount: number;
+          }
+        >;
         agents: Array<{
           botId: string;
           channelId: string;

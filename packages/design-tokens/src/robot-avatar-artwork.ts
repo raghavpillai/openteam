@@ -15,7 +15,7 @@ const node = (
 
 export const ROBOT_AVATAR_VIEW_BOX = "-4 -4 108 108";
 export const robotAvatarFaceColor = (color: string): string =>
-  color.toLowerCase() === "#242424" ? "#f2f2f2" : "#1b1b1d";
+  ["#242424", "#000000"].includes(color.toLowerCase()) ? "#f2f2f2" : "#1b1b1d";
 export const robotAvatarTempo = (shape: RobotAvatarShape): number =>
   6.4 + ROBOT_AVATAR_SHAPES.indexOf(shape) * 0.21;
 

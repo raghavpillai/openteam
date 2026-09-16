@@ -1,7 +1,11 @@
+import { nextMessageAddress, resolveMessageAddress } from "./message-address";
+export { nextMessageAddress, resolveMessageAddress } from "./message-address";
 export { parseAutomationEvent, matchesAutomationEvent, type AutomationEvent } from "./automation-events";
 export { wakeAutomationParent, saveSilentAutomationResult, automationContinuationRoute, automationContextRunId } from "./automation-results";
 import { AUTOMATION_RUN_INSTRUCTIONS, automationContinuationRoute } from "./automation-results";
 import { join } from "node:path";
+import { publishChannelNotification, publishMessageNotification } from "./notifications";
+export { publishChannelNotification, publishMessageNotification, channelNotificationStates } from "./notifications";
 import {
   type AdminBroadcastInput,
   type AgentImageInput,
@@ -2437,7 +2441,7 @@ export class AgentMessaging {
         `${JSON.stringify(input.message_address)} isn't a valid message address. React with the [t3u]-style tag shown on the user's message.`
       );
     }
-    const sequence = BigInt(match[1]);
+    if (!context.channelId) throw new Error("No active chat for this reaction");
     const scope = `reaction:${context.botId}`;
     const requestHash = `${input.message_address}:${input.emoji}`;
     const receipt = await this.prisma.idempotencyRecord.findUnique({
@@ -2459,18 +2463,11 @@ export class AgentMessaging {
           expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1_000),
         },
       });
-      const message = await tx.channelMessage.findFirst({
-        where: {
-          sequence,
-          sender: "user",
-          channel: { members: { some: { botId: context.botId } } },
-        },
-        include: {
-          channel: {
-            include: { members: { select: { botId: true } } },
-          },
-        },
-      });
+      const addressed = await resolveMessageAddress(tx, context.channelId!, input.message_address);
+      const message = addressed?.sender === "user" ? await tx.channelMessage.findFirst({
+        where:{id:addressed.id,channel:{members:{some:{botId:context.botId}}}},
+        include:{channel:{include:{members:{select:{botId:true}}}}}
+      }) : null;
       if (!message) throw new Error("The addressed user message is not visible to this bot");
       const metadata =
         message.metadata && !Array.isArray(message.metadata) && typeof message.metadata === "object"
@@ -2497,6 +2494,18 @@ export class AgentMessaging {
         where: { id: message.id },
         data: { metadata: json(metadata) },
       });
+      const notificationKey = `reaction:${message.id}:${context.botId}:${input.emoji}`;
+      if (removed) {
+        await tx.channelNotification.updateMany({ where: { key: { startsWith: `${notificationKey}:` } }, data: { revoked: true } });
+      } else {
+        const bot = await tx.bot.findUniqueOrThrow({ where: { id: context.botId } });
+        await publishChannelNotification(tx, `${notificationKey}:${context.callId}`, {
+          schemaVersion: 1, kind: "reaction", botId: context.botId, channelId: message.channelId,
+          runId: context.runId, messageSequence: message.sequence.toString(),
+          title: bot.name, body: `Reacted ${input.emoji} to ${message.content ? `“${message.content}”` : "your message"}`,
+          deepLink: `openteam:///chat/${message.channelId}`,
+        });
+      }
       const result = {
         reacted: !removed,
         removed,
@@ -2547,14 +2556,8 @@ export class AgentMessaging {
           "Reply to the peer with SendToAgent using their agent id"
         );
       }
-      if (input.to === "dm" && activeChannel.kind !== "group") {
-        throw new ApiError(
-          400,
-          "dm_destination_unavailable",
-          'The to: "dm" destination is available only during a group turn'
-        );
-      }
-      if (input.to === "dm" && input.type !== "text") {
+      const privateDm = input.to === "dm" && activeChannel.kind === "group";
+      if (privateDm && input.type !== "text") {
         throw new ApiError(
           400,
           "dm_text_only",
@@ -2562,7 +2565,7 @@ export class AgentMessaging {
         );
       }
       const channel =
-        input.to === "dm"
+        privateDm
           ? await tx.channel.findFirst({
               where: {
                 kind: "bot_dm",
@@ -2573,21 +2576,11 @@ export class AgentMessaging {
             })
           : activeChannel;
       if (!channel) throw new Error("The agent's home chat is unavailable");
-      const inheritsFork = context.isFork && input.to !== "dm";
+      const inheritsFork = context.isFork && !privateDm;
       const replyAddress =
         input.reply_to?.trim() ||
         (inheritsFork ? (context.replyToMessageId ?? undefined) : undefined);
-      const addressedSequence = replyAddress?.match(/^t(\d+)(?:u|a\d+)$/)?.[1];
-      const replyTarget = replyAddress
-        ? await tx.channelMessage.findFirst({
-            where: {
-              channelId: channel.id,
-              ...(addressedSequence
-                ? { sequence: BigInt(addressedSequence) }
-                : { id: replyAddress }),
-            },
-          })
-        : null;
+      const replyTarget = replyAddress ? await resolveMessageAddress(tx, channel.id, replyAddress) : null;
       if (replyAddress && !replyTarget) {
         throw new ApiError(404, "reply_target_not_found", "The reply target was not found");
       }
@@ -2604,6 +2597,7 @@ export class AgentMessaging {
           acknowledgement: {
             sent: true,
             message_id: existing.id,
+            message_address: (existing.metadata as any)?.address ?? `t${existing.sequence}a0`,
             duplicate: true,
           },
           interruptRunId: null,
@@ -2658,6 +2652,7 @@ export class AgentMessaging {
         }
       }
       const { reply_to: _replyTo, ...visibleInput } = persistedInput;
+      const address = await nextMessageAddress(tx, channel.id, "agent");
       const message = await tx.channelMessage.create({
         data: {
           channelId: channel.id,
@@ -2668,12 +2663,14 @@ export class AgentMessaging {
           content,
           metadata: json({
             ...visibleInput,
+            address,
             ...(replyTarget ? { replyTo: replyTarget.id } : {}),
             ...(inheritsFork ? { branched: true } : {}),
             timeZone: resolveTimeZone(context.timeZone ?? this.defaultTimeZone),
           }),
         },
       });
+      await publishMessageNotification(tx, message);
       await this.scheduleTranscriptProjection(
         tx,
         channel.members.map((member) => member.botId)
@@ -2688,6 +2685,7 @@ export class AgentMessaging {
           channel_id: channel.id,
           channel_type: channel.kind,
           message_id: message.id,
+          message_address: address,
         },
         interruptRunId: null,
       };

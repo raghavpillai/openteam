@@ -29,7 +29,18 @@ const notificationProjection = ({
     kind: originChannelKind,
     archivedAt: null,
   };
+  const keys = new Set<string>();
   const tx = {
+    $executeRaw: async () => 1,
+    bot: { findUnique: async () => bot },
+    channelNotification: {
+      createMany: async ({ data }: { data: { key: string } }) => {
+        const count = keys.has(data.key) ? 0 : 1;
+        keys.add(data.key);
+        return { count };
+      },
+      findUniqueOrThrow: async () => ({ sequence: BigInt(keys.size) }),
+    },
     $queryRaw: async () => [{ count: 0n }],
     run: {
       findUniqueOrThrow: async () => ({ status }),
@@ -62,10 +73,21 @@ const notificationProjection = ({
     message: { updateMany: async () => ({ count: 0 }) },
     event: { create: async () => ({}) },
     channelMessage: {
-      findFirst: async () => lastMessage,
+      findFirst: async () =>
+        lastMessage
+          ? {
+              id: "message-1",
+              sequence: 10n,
+              channelId: channel.id,
+              senderBotId: bot.id,
+              sourceRunId: "run-1",
+              ...lastMessage,
+            }
+          : null,
       findMany: async () => [],
     },
     channel: {
+      findUnique: async () => channel,
       findFirst: async () => channel,
       findMany: async () => [],
     },
@@ -129,7 +151,7 @@ describe("OpenTeam-compatible notification transitions", () => {
     expect(harness.status()).toBe("cancelled");
     expect(harness.deliveries).toHaveLength(1);
     expect(harness.deliveries[0]?.payload).toMatchObject({
-      kind: "agent-done",
+      kind: "message",
       runId: "run-1",
     });
   });
@@ -151,7 +173,7 @@ describe("OpenTeam-compatible notification transitions", () => {
     expect(harness.deliveries).toHaveLength(1);
     expect(harness.deliveries[0]?.payload).toMatchObject({
       kind: "agent-needs-input",
-      title: "Probe needs you",
+      title: "Probe",
       body: "Deploy to production?",
     });
   });
@@ -167,7 +189,7 @@ describe("OpenTeam-compatible notification transitions", () => {
 
     expect(harness.deliveries).toHaveLength(1);
     expect(harness.deliveries[0]?.payload).toMatchObject({
-      kind: "agent-done",
+      kind: "message",
       channelId: "channel-1",
     });
   });

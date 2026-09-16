@@ -178,8 +178,9 @@ export const messageRenderKey = (message: ChannelMessageView): string =>
   (message.sender === "user" && message.clientId ? `optimistic:${message.clientId}` : message.id);
 
 export const channelMessageAddress = (message: ChannelMessageView): string => {
-  if (message.sender === "user") return `t${message.sequence}u`;
   const address = messageMetadata(message).address;
+  if (typeof address === "string") return address;
+  if (message.sender === "user") return `t${message.sequence}u`;
   return typeof address === "string" ? address : `t${message.sequence}a0`;
 };
 

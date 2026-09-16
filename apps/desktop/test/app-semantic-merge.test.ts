@@ -14,7 +14,7 @@ describe("desktop App semantic merge", () => {
     expect(app).toContain("setSettingsTarget({ anchor: target.anchor, nonce: Date.now() })");
     expect(app).toContain("setPluginTarget({ pluginId: target.pluginId, nonce: Date.now() })");
     expect(app).toContain("readReceipts.current.request(channelId, throughSequence");
-    expect(app).toContain("api.markChannelRead(id, sequence)");
+    expect(app).toContain("api.markChannelRead(id, sequence, activity)");
     expect(app).toContain("onAcknowledged: () => refresh(true)");
     expect(app).toContain("sidebarPreferences.markUnreadMany(unreadChannelIds)");
     expect(app).toContain("sidebarPreferences.markReadMany(readChannelIds)");

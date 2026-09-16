@@ -8,7 +8,7 @@ type QueryClient = Pick<Prisma.TransactionClient, "$queryRaw">;
  */
 export const unreadBadgeCount = async (client: QueryClient): Promise<number> => {
   const [result] = await client.$queryRaw<Array<{ count: bigint }>>(Prisma.sql`
-    SELECT count(*)::bigint AS "count"
+    SELECT ((SELECT count(*)
     FROM "ChannelMessage" AS message
     INNER JOIN "Channel" AS channel ON channel."id" = message."channelId"
     LEFT JOIN "ChannelReadState" AS read_state
@@ -27,6 +27,15 @@ export const unreadBadgeCount = async (client: QueryClient): Promise<number> => 
           AND bot."hiddenFromSidebar" = false
           AND subagent."id" IS NULL
       )
+    ) + (SELECT count(*) FROM "ChannelNotification" n
+      JOIN "Channel" c ON c.id = n."channelId"
+      JOIN "Bot" b ON b.id = n."botId"
+      LEFT JOIN "ChannelReadState" s ON s."channelId" = n."channelId"
+      WHERE NOT n.revoked AND c."archivedAt" IS NULL AND NOT c."hiddenFromSidebar"
+        AND b."notificationsEnabled" AND NOT b."hiddenFromSidebar"
+        AND (n.kind = 'reaction' OR n."messageSequence" IS NULL)
+        AND n.sequence > COALESCE(s."lastReadNotificationSequence", 0)
+    ))::bigint AS "count"
   `);
   return Number(result?.count ?? 0n);
 };

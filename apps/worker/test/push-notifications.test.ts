@@ -201,10 +201,6 @@ describe("push notification content", () => {
             },
           ];
         }
-        if (queryCount === 2) {
-          retiredDuringBadgeRead = true;
-          return [{ count: 0n }];
-        }
         return [];
       },
       pushDevice: {
@@ -221,7 +217,13 @@ describe("push notification content", () => {
       },
       $transaction: async (operation: (client: unknown) => Promise<unknown>) =>
         operation({
-          $queryRaw: async () => [],
+          $queryRaw: async (query: { sql?: string }) => {
+            if (query.sql?.includes('AS "count"')) {
+              retiredDuringBadgeRead = true;
+              return [{ count: 0n }];
+            }
+            return [];
+          },
           pushDevice: {
             findMany: async () => {
               deviceReads += 1;
@@ -293,7 +295,6 @@ describe("push notification content", () => {
             },
           ];
         }
-        if (queryCount === 2) return [{ count: 0n }];
         return [];
       },
       pushDevice: { findMany: async () => [device] },
@@ -323,7 +324,7 @@ describe("push notification content", () => {
     await sendStarted.promise;
 
     expect(transactionActive).toBeTrue();
-    expect(authorizationLockQueries).toBe(2);
+    expect(authorizationLockQueries).toBe(3);
 
     releaseSend.resolve();
     await draining;
@@ -386,7 +387,7 @@ describe("push notification content", () => {
       deepLink: "openteam:///chat/channel",
       badgeCount: 4,
     });
-    expect(message).toMatchObject({ badge: 4, sound: undefined, data: { badgeCount: 4 } });
+    expect(message).toMatchObject({ badge: 4, sound: undefined, mutableContent: true, threadId: "channel", data: { badgeCount: 4 } });
     expect(
       expoPushMessage("ExpoPushToken[token]", {
         schemaVersion: 1,
@@ -416,6 +417,8 @@ describe("push notification content", () => {
       to: "ExpoPushToken[token]",
       badge: 2,
       data: { schemaVersion: 1, kind: "badge-sync", badgeCount: 2 },
+      _contentAvailable: true,
+      priority: "normal",
     });
   });
 });

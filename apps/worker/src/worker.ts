@@ -1,3 +1,4 @@
+import { publishMessageNotification } from "@openteam/messaging";
 import { createHash } from "node:crypto";
 import type {
   AssetRef,
@@ -17,9 +18,6 @@ import {
   type AgentDirectoryRecord,
 } from "@openteam/contracts/service-protocol";
 import {
-  agentNotificationPresentation,
-  notificationMessageInputReason,
-  notificationMessagePreview,
 } from "@openteam/contracts";
 import { createPrismaClient, Prisma, type PrismaClient } from "@openteam/db";
 import {
@@ -37,7 +35,7 @@ import { fromPrisma, type Job, type JobWithMetadata, PgBoss } from "pg-boss";
 import { pluginRuntimeContext } from "./plugins";
 import { Projection } from "./projection";
 import { memoryInferenceSettings } from "./memory-inference";
-import { enqueuePushNotification, PushNotificationDispatcher } from "./push-notifications";
+import { PushNotificationDispatcher } from "./push-notifications";
 
 const LEASE_MS = 2 * 60_000;
 export const AUTOMATION_RECONCILE_BATCH_SIZE = 8;
@@ -1574,29 +1572,7 @@ export class WakeWorker {
           !channel.archivedAt &&
           lastMessage
         ) {
-          const inputReason = notificationMessageInputReason(lastMessage);
-          const kind = inputReason ? "agent-needs-input" : "agent-done";
-          const presentation = agentNotificationPresentation({
-            kind,
-            botName: bot.name,
-            body: inputReason ?? notificationMessagePreview(lastMessage),
-          });
-          await enqueuePushNotification(
-            tx,
-            inputReason
-              ? `notification:needs-input:message:${claimed.runId}`
-              : `notification:done:${claimed.runId}`,
-            {
-              schemaVersion: 1,
-              kind,
-              botId: bot.id,
-              channelId: channel.id,
-              runId: claimed.runId,
-              title: presentation.title,
-              body: presentation.body,
-              deepLink: `openteam:///chat/${channel.id}`,
-            }
-          );
+          await publishMessageNotification(tx, lastMessage);
         }
       }
       await this.messaging.scheduleTranscriptProjection(tx, [claimed.botId]);

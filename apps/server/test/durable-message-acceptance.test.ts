@@ -42,7 +42,7 @@ describe("durable message acceptance boundary", () => {
         findUnique: async () => ({ id: channelId, archivedAt: null }),
         update: async () => ({}),
       },
-      channelMessage: { create: async () => message },
+      channelMessage: { create: async () => message, count: async () => 0 },
       bot: { findMany: async () => [] },
       event: { create: async () => ({}) },
     };
@@ -94,7 +94,7 @@ describe("durable message acceptance boundary", () => {
         }),
         update: async () => ({}),
       },
-      channelMessage: { create: async () => message },
+      channelMessage: { create: async () => message, count: async () => 0 },
       idempotencyRecord: { create: async () => ({}), update: async () => ({}) },
       event: { create: async () => ({}) },
     };

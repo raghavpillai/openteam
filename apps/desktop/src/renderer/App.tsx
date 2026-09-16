@@ -254,7 +254,8 @@ export default function App() {
       const throughSequence =
         latestSequence && /^\d+$/.test(latestSequence) ? latestSequence : undefined;
       void readReceipts.current.request(channelId, throughSequence, {
-        send: (id, sequence) => api.markChannelRead(id, sequence),
+        throughNotificationSequence: channel?.notificationState?.notificationCursor,
+        send: (id, sequence, activity) => api.markChannelRead(id, sequence, activity),
         onAcknowledged: () => refresh(true),
       });
     },
@@ -316,8 +317,11 @@ export default function App() {
     );
   }, [sidebarPreferences.unreadIds, snapshot]);
   useEffect(() => {
-    const publishVisibleChannel = () =>
-      window.openteam?.notifications.setVisibleChannel(document.hasFocus() ? selectedId : null);
+    const publishVisibleChannel = () => {
+      const focused = document.hasFocus();
+      window.openteam?.notifications.setVisibleChannel(focused ? selectedId : null);
+      if (focused && selectedId) markChannelRead(selectedId);
+    };
     publishVisibleChannel();
     window.addEventListener("focus", publishVisibleChannel);
     window.addEventListener("blur", publishVisibleChannel);
@@ -325,7 +329,7 @@ export default function App() {
       window.removeEventListener("focus", publishVisibleChannel);
       window.removeEventListener("blur", publishVisibleChannel);
     };
-  }, [selectedId]);
+  }, [markChannelRead, selectedId]);
   useEffect(() => {
     if (!snapshot) return;
     const visibleChannelId = document.hasFocus() ? selectedIdRef.current : null;

@@ -12,6 +12,7 @@ const links = [
   ["How it works", "how-it-works"],
   ["Plugins", "plugins"],
   ["Workspace", "capabilities"],
+  ["Mobile", "mobile"],
   ["Open source", "open-source"],
 ];
 

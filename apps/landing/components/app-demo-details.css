@@ -461,27 +461,35 @@
   color: #6b6b6b;
 }
 .dm-mobile-scene {
-  height: 680px;
-  align-items: flex-end;
-  padding-top: 30px;
+  --dm-phone-scale: 0.79;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 32px;
+  min-width: 0;
+  margin: 0;
+  padding: 24px 24px 32px;
 }
 .dm-phone-frame {
   position: relative;
-  width: 320px;
-  height: 646px;
+  /* Reserve the complete scaled screen plus its bezel in normal flow. */
+  width: calc(390px * var(--dm-phone-scale) + 12px);
+  height: calc(810px * var(--dm-phone-scale) + 12px);
+  flex-shrink: 0;
+  margin-block: 12px;
   overflow: clip;
   border: 6px solid #141414;
-  border-radius: 46px 46px 0 0;
+  border-radius: 46px;
   background: #fcfcfc;
   box-shadow:
     0 0 0 1px #ffffff33,
     0 28px 80px #0004;
-  transform: rotate(4deg) translateY(14px);
+  transform: rotate(4deg);
 }
 .dm-phone {
   width: 390px;
   height: 810px;
-  transform: scale(0.79);
+  transform: scale(var(--dm-phone-scale));
   transform-origin: top left;
   background: #fcfcfc;
   color: #000;
@@ -648,14 +656,10 @@
   flex-shrink: 0;
 }
 .dm-phone-caption {
-  position: absolute;
-  top: 8px;
-  left: 0;
-  right: 0;
   text-align: center;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  font-size: 11px;
-  color: #bed0b3;
+  font-size: 12px;
+  color: #737373;
 }
 @media (max-width: 700px) {
   .dc-viewer-header > span {
@@ -692,23 +696,21 @@
     font-size: 11px;
   }
   .dm-mobile-scene {
-    height: 666px;
+    --dm-phone-scale: 0.72;
+    gap: 24px;
+    padding: 12px 0 0;
   }
   .dm-phone-frame {
-    transform: rotate(3deg) translateY(14px);
+    margin-block: 0;
+    transform: none;
   }
 }
-@media (max-width: 360px) {
+@media (max-width: 380px) {
   .dm-phone-frame {
-    width: 278px;
-    height: 559px;
-    border-radius: 39px 39px 0 0;
-  }
-  .dm-phone {
-    transform: scale(0.682);
+    border-radius: 39px;
   }
   .dm-mobile-scene {
-    height: 595px;
+    --dm-phone-scale: 0.64;
   }
 }
 @media (prefers-reduced-motion: reduce) {

@@ -108,7 +108,6 @@
   .landing .pl-views { grid-template-columns: 1fr; margin-bottom: 16px; }
   .pl-selection { width: 100%; height: calc(100% / 3); transform: translateY(calc(var(--selection) * 100%)); }
   .pl-description { min-height: 48px; }
-  .ot-worker-panel-apps .ot-mobile-scene { zoom: .8; }
 }
 [data-page-hidden] * { animation-play-state: paused !important; }
 @media (prefers-reduced-motion: reduce) {

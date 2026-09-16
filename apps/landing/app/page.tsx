@@ -22,6 +22,7 @@ import { ProductDemo } from "@/components/product-demo";
 import { DemoTaskLink } from "@/components/demo-task-link";
 import { TeamWorkflowDemo } from "@/components/team-workflow-demo";
 import { WorkerCapabilities } from "@/components/worker-capabilities";
+import { MobileDemo } from "@/components/app-demo-details";
 import {
   Accordion,
   AccordionContent,
@@ -342,6 +343,31 @@ export default function Home() {
           </div>
           <WorkerCapabilities />
           <SectionBot bot="operations" />
+        </section>
+        <section
+          id="mobile"
+          aria-labelledby="mobile-heading"
+          className="ot-section ot-container ot-mobile-section"
+        >
+          <div className="ot-mobile-copy">
+            <span className="ot-eyebrow">OPENTEAM FOR IPHONE</span>
+            <h2 id="mobile-heading">
+              Take your team<br />
+              <span>with you.</span>
+            </h2>
+            <p>
+              Send messages, review files, and follow the work from your iPhone.
+              Pick up the same conversations you started on desktop, with the same
+              workers on your server.
+            </p>
+            <p className="ot-mobile-availability">
+              The iPhone app is currently available to build from source.
+            </p>
+            <a href="/download#mobile" className="ot-text-link">
+              Get the iPhone app <ArrowUpRight size={15} />
+            </a>
+          </div>
+          <MobileDemo />
         </section>
         <section
           id="open-source"

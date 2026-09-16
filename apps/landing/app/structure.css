@@ -185,12 +185,34 @@
   max-width: 480px;
   margin-inline: auto;
 }
-.ot-worker-panel .ot-mobile-scene {
-  min-height: 0;
-  width: 100%;
+.ot-mobile-section {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  align-items: center;
+  gap: 64px;
+  border-bottom: 1px solid #e4e4e4;
 }
-.ot-worker-panel-apps {
-  padding-block: 30px 0;
+.ot-mobile-copy {
+  max-width: 500px;
+}
+.ot-mobile-copy h2 {
+  margin-top: 20px;
+  font-size: clamp(36px, 4.2vw, 54px);
+  line-height: 1.08;
+  font-weight: 400;
+  letter-spacing: -1.6px;
+}
+.ot-mobile-copy p {
+  margin-top: 24px;
+  font-size: 18px;
+  line-height: 1.75;
+  color: #666;
+}
+.ot-mobile-copy .ot-mobile-availability {
+  font-size: 14px;
+}
+.ot-mobile-copy .ot-text-link {
+  margin-top: 24px;
 }
 .ot-home .ot-ownership-section .ot-ownership {
   gap: 75px;
@@ -232,6 +254,10 @@
   }
 }
 @media (max-width: 850px) {
+  .ot-mobile-section {
+    grid-template-columns: 1fr;
+    gap: 32px;
+  }
   .ot-proof-strip {
     grid-template-columns: 1fr;
     margin-top: 28px;
@@ -337,9 +363,11 @@
     order: -1;
   }
   .ot-worker-tab-list {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    flex-wrap: wrap;
     gap: 0 20px;
+  }
+  .ot-mobile-copy p {
+    font-size: 16px;
   }
   .ot-worker-tab {
     justify-content: flex-start;

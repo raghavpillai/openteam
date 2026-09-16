@@ -338,8 +338,7 @@
   color: #fff;
 }
 .landing .ot-anywhere .ot-eyebrow,
-.landing .ot-platforms,
-.landing .dm-phone-caption {
+.landing .ot-platforms {
   color: #aaa;
 }
 .landing .ot-anywhere-copy > p:not(:first-child) {

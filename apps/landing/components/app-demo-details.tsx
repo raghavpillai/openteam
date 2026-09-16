@@ -425,7 +425,7 @@ export function MemoryDemo() {
 // Dimensions match the native 390pt chat UI, uniformly scaled by its frame.
 export function MobileDemo() {
   return (
-    <div className="ot-mobile-scene dm-mobile-scene">
+    <figure className="dm-mobile-scene">
       <div className="dm-phone-frame">
         <div className="dm-phone">
           <div className="dm-status">
@@ -476,7 +476,7 @@ export function MobileDemo() {
           <div className="dm-home" />
         </div>
       </div>
-      <span className="dm-phone-caption">iPhone chat · Sample conversation</span>
-    </div>
+      <figcaption className="dm-phone-caption">iPhone chat · Sample conversation</figcaption>
+    </figure>
   );
 }

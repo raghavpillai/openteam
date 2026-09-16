@@ -36,12 +36,6 @@ const examples = [
     preview: "Vendor comparison is ready.",
     prompt:
       "Compare these three vendors against our requirements and budget. Check pricing and SSO support. Save a recommendation with source links.",
-    steps: [
-      "Read the brief and team requirements",
-      "Compare three vendors in the browser",
-      "Verify pricing and SSO in the docs",
-      "Save the comparison and recommendation",
-    ],
     reply:
       "I recommend Northstar. It meets the requirements and has the lowest annual price. The comparison includes pricing, SSO support, and source notes.",
     file: "vendor-review.md",
@@ -64,12 +58,6 @@ const examples = [
     preview: "Daily report is ready.",
     prompt:
       "Every morning at 8, check our vendor dashboards. Export uptime and usage, compare with yesterday, and flag changes.",
-    steps: [
-      "Open the saved dashboard sessions",
-      "Read uptime and usage metrics",
-      "Compare with yesterday’s snapshot",
-      "Save the changes in a CSV",
-    ],
     reply:
       "All three services are healthy. API usage is up 12% since yesterday. I saved uptime and usage changes in the CSV.",
     file: "morning-report.csv",
@@ -92,12 +80,6 @@ const examples = [
     preview: "The fix is ready for review.",
     prompt:
       "Run the test suite, track down the failure, and fix it. Leave me the diff and explain what changed.",
-    steps: [
-      "Read the project and run the tests",
-      "Trace the failure to the date parser",
-      "Handle the empty input case",
-      "Run the full suite again",
-    ],
     reply:
       "The parser returned an invalid Date for empty input. I changed it to return null and added a regression test. All 24 tests pass. The diff is ready for review.",
     file: "fix-summary.md",
@@ -351,8 +333,8 @@ export function ProductDemo() {
       data-demo-motion={!reducedMotion}
     >
       <div className="pd-scenarios">
-        <span className="pd-try-label">SAMPLE TASKS</span>
-        <div className="pd-scenario-buttons" aria-label="Choose a sample task">
+        <span className="pd-try-label">Example Bots</span>
+        <div className="pd-scenario-buttons" aria-label="Choose an example bot">
           {examples.map((item, i) => (
             <Button
               variant="ghost"
@@ -377,11 +359,6 @@ export function ProductDemo() {
             </Button>
           ))}
         </div>
-      </div>
-      <div className="pd-playback-progress" aria-live={manualRun ? "polite" : "off"}>
-        <span className={`pd-playback-dot ${done ? "is-complete" : ""}`} aria-hidden="true" />
-        <span>{done ? scenario.preview : scenario.steps[stage]}</span>
-        <span className="pd-step-count" aria-hidden="true">{done ? "4 / 4" : `${stage + 1} / 4`}</span>
       </div>
       <div className={`dt-app ${compact ? "dt-compact" : ""} ${details ? "dt-details-open" : ""}`}>
         <aside className="dt-sidebar" aria-label="Demo conversations">

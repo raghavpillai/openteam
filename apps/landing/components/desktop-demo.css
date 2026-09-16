@@ -851,46 +851,9 @@ button.dt-icon-button:hover {
   transform-origin: left;
   transform: scaleX(0);
 }
-.pd-playback-progress {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  min-height: 25px;
-  padding: 0 9px 8px;
-  text-align: left;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 12px;
-  line-height: 16px;
-  color: #727272;
-}
-.pd-playback-progress > span:nth-child(2) {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.pd-playback-dot {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  flex: 0 0 auto;
-  background: #777;
-}
-.pd-playback-dot.is-complete {
-  background: #222;
-}
-.pd-step-count {
-  margin-left: auto;
-  flex: 0 0 auto;
-  font-variant-numeric: tabular-nums;
-}
-
 @keyframes dt-message-arrive {
   from { opacity: 0; transform: translateY(7px); }
   to { opacity: 1; transform: translateY(0); }
-}
-@keyframes dt-playback-pulse {
-  50% { opacity: 0.35; }
 }
 @media (prefers-reduced-motion: no-preference) {
   .pd-showcase[data-demo-motion="true"] .dt-message-user {
@@ -905,12 +868,6 @@ button.dt-icon-button:hover {
   .pd-showcase[data-demo-motion="true"] .dt-result .dt-file {
     transition: opacity 160ms ease 40ms, transform 180ms cubic-bezier(0.2, 0.75, 0.3, 1) 40ms, background-color 160ms ease, box-shadow 180ms ease;
   }
-  .pd-showcase[data-demo-motion="true"] .pd-playback-dot:not(.is-complete) {
-    animation: dt-playback-pulse 1.4s ease-in-out infinite;
-  }
-  .pd-showcase[data-demo-running="false"] .pd-playback-dot {
-    animation-play-state: paused;
-  }
   .pd-showcase .dt-conversation,
   .pd-showcase .dt-icon-button,
   .pd-showcase .dt-file {
@@ -922,12 +879,6 @@ button.dt-icon-button:hover {
 }
 .pd-showcase[data-demo-motion="false"] .dt-thinking > span {
   animation: none;
-}
-@media (max-width: 700px) {
-  .pd-playback-progress {
-    padding-inline: 4px;
-    font-size: 12px;
-  }
 }
 .dt-composer-plus {
   margin-left: 4px;

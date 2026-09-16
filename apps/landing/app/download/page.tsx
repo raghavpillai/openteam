@@ -126,7 +126,7 @@ export default function DownloadPage() {
           <SectionBot bot="operations" />
         </section>
 
-        <section className="dl-step dl-mobile-step ot-bot-section">
+        <section id="mobile" className="dl-step dl-mobile-step ot-bot-section">
           <div className="dl-step-heading">
             <h2>Build the iPhone companion.</h2>
             <p>Connect to the same server and continue your conversations from your phone.</p>

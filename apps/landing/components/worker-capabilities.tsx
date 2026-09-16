@@ -1,8 +1,8 @@
 "use client";
 
 import { Tabs } from "@base-ui/react/tabs";
-import { ArrowUpRight, CalendarClock, HardDrive, Monitor, Smartphone } from "lucide-react";
-import { ComputerDemo, MemoryDemo, MobileDemo, RoutineDemo } from "./app-demo-details";
+import { CalendarClock, HardDrive, Monitor } from "lucide-react";
+import { ComputerDemo, MemoryDemo, RoutineDemo } from "./app-demo-details";
 import { useLayoutEffect, useRef, useState } from "react";
 
 const capabilities = [
@@ -38,17 +38,6 @@ const capabilities = [
     detail:
       "Each run uses the worker's conversation context. Review results in the same thread and inspect the run history.",
     demo: RoutineDemo,
-  },
-  {
-    id: "apps",
-    label: "Desktop + iPhone",
-    icon: Smartphone,
-    heading: "The same team on desktop and iPhone.",
-    description:
-      "Send messages, review files, and follow the work from either app. Both connect to the same workers and conversations on your server.",
-    detail:
-      "Check available desktop builds for macOS, Windows, and Linux. The iPhone app is currently available to build from source.",
-    demo: MobileDemo,
   },
 ];
 
@@ -98,11 +87,6 @@ export function WorkerCapabilities() {
             <h3>{heading}</h3>
             <p>{description}</p>
             <p>{detail}</p>
-            {id === "apps" && (
-              <a href="/download" className="ot-text-link">
-                See available downloads <ArrowUpRight size={15} />
-              </a>
-            )}
           </div>
           <div className="ot-worker-panel-demo">
             <Demo />

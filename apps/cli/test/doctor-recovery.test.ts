@@ -66,7 +66,7 @@ esac
             child.exited,
           ]);
           const output = `${stdout}\n${stderr}`.replace(/\s+/g, " ");
-          expect(exitCode).toBe(command === "install" ? 1 : 2);
+          expect(exitCode).toBe(2);
           expect(output).toContain(
             "Docker is installed, but OpenTeam could not connect to its engine."
           );

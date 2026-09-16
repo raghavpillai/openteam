@@ -1,7 +1,7 @@
 import { installationCommand, renderSummary } from "./command-ui";
 import { installationExists, type InstallationPaths } from "./config";
 import { CLI_VERSION } from "./constants";
-import { providerLoginCommand } from "./providers";
+import { providerConnectionCommand } from "./provider-connection";
 import { SystemCommandRunner } from "./process";
 import { CliError, errorMessage } from "./errors";
 import { runInteractiveSession } from "./interactive-session";
@@ -34,14 +34,23 @@ export const modelCommand = async (paths: InstallationPaths): Promise<void> => {
     );
     if (!outcome || outcome === true) break;
     let error: string | undefined;
+    let cancelled = false;
     try {
-      await providerLoginCommand(paths, new SystemCommandRunner(), {
-        providerId: outcome.connectProvider,
-      });
+      const result = await providerConnectionCommand(
+        paths,
+        new SystemCommandRunner(),
+        outcome.connectProvider,
+        outcome.authType ?? (outcome.connectProvider === "openai-codex" ? "oauth" : "api_key")
+      );
+      cancelled = result === "cancelled";
     } catch (cause) {
       error = errorMessage(cause);
     }
-    await session.providerConnected(error);
+    await session.providerConnected(
+      error,
+      cancelled ? undefined : outcome.connectProvider,
+      cancelled
+    );
   }
   console.log(
     renderSummary(

@@ -14,6 +14,7 @@ import { CliError } from "./errors";
 import type { CommandRunner } from "./process";
 import { readRuntimeInferenceSettings, writeRuntimeInferenceSettings } from "./runtime-settings";
 import { createTerminalPrompter, type SetupPrompter } from "./setup";
+import { providerConnectionCommand } from "./provider-connection";
 
 export type ProviderRow = {
   id: string;
@@ -162,7 +163,25 @@ export const providerLoginCommand = async (
   const prompter = suppliedPrompter || createTerminalPrompter();
   try {
     const authType = await chooseAuthType(provider, options.authType, prompter);
-    if (authType === "api_key") {
+    if (
+      !suppliedPrompter &&
+      process.stdin.isTTY &&
+      process.stdout.isTTY &&
+      process.env.TERM !== "dumb"
+    ) {
+      prompter.close();
+      const result = await providerConnectionCommand(
+        paths,
+        runner,
+        providerId,
+        authType,
+        "provider"
+      );
+      if (result === "cancelled") {
+        printMessage("Connection cancelled.", "info");
+        return;
+      }
+    } else if (authType === "api_key") {
       const key = (await prompter.secret(`${provider.name} API key or password: `)).trim();
       if (!key) throw new CliError("Provider API key or password cannot be empty");
       project.runOrThrow(authCommand(["login", providerId, "api_key"]), { input: `${key}\n` });

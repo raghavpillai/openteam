@@ -50,7 +50,7 @@ describe.skipIf(process.platform === "win32" || !python)(
           [
             { expect: "Inference]" },
             { send: keys.enter, expect: "CHOOSE A PROVIDER" },
-            { send: keys.enter, expect: "CHOOSE AN INFERENCE MODEL" },
+            { send: keys.enter, expect: "128k context" },
             { send: "fast\r\r", expect: "Currently saved" },
             { send: keys.down.repeat(3) + keys.enter, expect: "Inference saved." },
             { send: keys.right, expect: "Transcription]" },

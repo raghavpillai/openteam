@@ -67,7 +67,7 @@ Advanced release/testing options:
 
   setup: `${heading(
     "openteam setup [options]",
-    "Finish account setup and connect an AI provider, or change an existing setup.\nInference can be skipped for now. Your existing sign-in stays unchanged."
+    "Check prerequisites, install the server if needed, and finish account and provider setup.\nRun this again to change an existing setup. Inference can be skipped for now."
   )}
 
 Options:

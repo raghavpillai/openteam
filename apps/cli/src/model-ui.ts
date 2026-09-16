@@ -3,19 +3,22 @@ import type { SetupSessionFrame, SetupSessionView } from "./ui";
 
 export const renderModelSession = (
   input: SetupSessionView,
-  options: TerminalOptions = {}
+  options: TerminalOptions & { compact?: boolean } = {}
 ): SetupSessionFrame => {
-  const header = new TerminalReport(options).header("model", `VERSION ${input.version}`);
+  const header = new TerminalReport(options);
+  if (options.compact) header.text("OPENTEAM / model", "info");
+  else header.header("model", `VERSION ${input.version}`);
   const tabs = input.stages
     .map((stage, index) => (index === input.activeStage ? `[${stage.label}]` : stage.label))
     .join("  |  ");
   header.text(`‹ ${tabs} ›`, "info");
-  header.lines.push("");
+  if (!options.compact) header.lines.push("");
   const body = new TerminalReport(options);
   body.section(input.title);
   body.text(input.description);
-  body.lines.push("");
+  if (!options.compact) body.lines.push("");
   let cursorLine = -1;
+  let cursorEndLine: number | undefined;
   for (const [index, row] of input.rows.entries()) {
     const focused = index === input.cursorRow;
     if (focused) cursorLine = body.lines.length;
@@ -30,6 +33,7 @@ export const renderModelSession = (
         active: focused,
       });
       if (focused && row.description) body.text(row.description);
+      if (focused) cursorEndLine = body.lines.length - 1;
     } else if (row.kind === "text") {
       const buffer = row.editing?.buffer;
       const shown = row.secret
@@ -62,5 +66,11 @@ export const renderModelSession = (
       ? "Enter keeps edit · Esc discards edit"
       : "←/→ tabs · ↑/↓ move · Enter choose · Esc back";
   for (const line of wrapTerminalText(hint, footer.width - 4)) footer.text(line);
-  return { header: header.lines, body: body.lines, footer: footer.lines, cursorLine };
+  return {
+    header: header.lines,
+    body: body.lines,
+    footer: footer.lines,
+    cursorLine,
+    cursorEndLine,
+  };
 };

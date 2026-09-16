@@ -1,5 +1,37 @@
 # OpenTeam CLI
 
+## First installation and prerequisites
+
+The shell and PowerShell installers install and verify the CLI before starting server setup.
+Docker is required for the server. If Docker is missing, its engine is stopped or inaccessible,
+or Compose is missing or older than 2.20.0, setup stops with an explanation and recovery steps.
+The CLI stays installed, and preflight does not create server configuration or start containers.
+After fixing the problem, run `openteam setup`; it installs the server if necessary or resumes
+an existing installation. `openteam doctor` can also check prerequisites before installation.
+
+In a noninteractive shell, prerequisite errors still appear. Once preflight passes, guided
+installation asks you to continue in a terminal before downloading server configuration.
+The explicit `openteam install --no-setup` automation path remains available.
+
+```sh
+bun run test:install
+bun run test:install:fresh
+```
+
+The fresh test builds the standalone Linux release binary and runs the real download script in
+a Debian container with an empty home. It uses real Docker and Compose executables and a separate
+Docker-in-Docker engine, without mounting the host Docker socket or credentials. It requires Docker
+and permission to run a privileged test container; its containers, volumes, and network are removed
+afterward. Reports are saved under `output/fresh-install` at the repository root.
+
+Release downloads use local fixture assets with real checksum verification. The successful path
+uses a small Compose fixture, reaches the account screen, and tests cancellation and resuming.
+This suite covers installation and preflight, not a complete production server deployment or a
+native Windows/macOS VM. It also checks missing Docker, stopped or inaccessible engines, broken
+contexts, executable permissions, missing Compose, gzip fallback, and a corrupt download. Process
+regressions additionally cover API incompatibility and old Compose, and preserve existing configuration
+on failure.
+
 ## Status and health
 
 `openteam status` and `openteam health` are aliases. Both show the containers for the selected
@@ -197,7 +229,22 @@ edits a field. Each tab has its own **Save** action. Esc goes back and asks befo
 edits. Add `--dir /path/to/installation` to select another installation.
 
 Inference starts with a provider, followed by its searchable chat model list and a thinking level.
-Selecting a disconnected provider opens sign-in and returns to the editor. Transcription offers
+The compact provider picker groups subscription accounts, API keys, and custom endpoints.
+Selecting a disconnected provider opens a connection screen with **Back to providers**.
+During browser sign-in, **Esc** or **Ctrl+C** cancels the remote sign-in and returns to the picker.
+In a key or code field, Esc discards the input; Ctrl+C cancels the whole connection.
+**Open sign-in page**, **Copy sign-in link**, and **Paste code or redirect URL** keep long OAuth
+URLs out of the main flow. Codes and API keys are masked.
+
+**Use Claude Code login** imports a saved login from `~/.claude/.credentials.json`, or the
+macOS Keychain. `CLAUDE_CONFIG_DIR` selects a custom credentials file; a missing custom file
+never falls back to another account's default Keychain entry. **Use Codex login** reads
+`~/.codex/auth.json` (or `CODEX_HOME`). Importing is an explicit action: credentials travel over
+stdin to this OpenTeam server and never appear in command arguments. Missing, expired, or
+unreadable credentials leave Browser sign-in and Back available. A completed connection opens
+that provider's model picker; the active model changes only when you save.
+
+Transcription offers
 OpenAI or an OpenAI-compatible audio endpoint, model browsing or manual model ID entry, language,
 and a masked API key. Browsing does not save or enable transcription. Model discovery filters out
 known chat, embedding, image, and speech-generation models. Saved keys stay on the server, blank key edits

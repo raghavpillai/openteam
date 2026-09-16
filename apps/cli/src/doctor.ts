@@ -91,6 +91,8 @@ export const runDoctor = async (
     checkInstallPorts?: boolean;
     testInference?: boolean;
     deepChecks?: boolean;
+    /** Only host and Docker prerequisites; safe before setup or when services are stopped. */
+    prerequisitesOnly?: boolean;
     onProgress?: (stage: string) => void;
   } = {}
 ): Promise<DoctorResult> => {
@@ -189,6 +191,17 @@ export const runDoctor = async (
             : {}),
         }
   );
+
+  if (options.prerequisitesOnly) {
+    return {
+      ok: checks.every((check) => check.level !== "fail"),
+      installed,
+      checks,
+      elapsedMs: Date.now() - started,
+      commandDirectory,
+      platform: process.platform,
+    };
+  }
 
   if (!installed) {
     checks.push({

@@ -1,5 +1,17 @@
-import { modelFixture, activate, press, edit } from "../test/fixtures/model-session";
+import {
+  modelFixture,
+  providerAccessFixture,
+  activate,
+  press,
+  edit,
+} from "../test/fixtures/model-session";
 import { clampViewport } from "../src/ui";
+import {
+  connectionFixture,
+  choose,
+  settle,
+  connectionScreen,
+} from "../test/fixtures/provider-connection";
 import {
   galleryWidths,
   writeTerminalGallery,
@@ -9,6 +21,10 @@ const scenarios = [
   ["inference", "Inference settings"],
   ["models", "Searchable inference models"],
   ["providers", "Connected and disconnected providers"],
+  ["connection-choice", "Choose saved login or browser sign-in"],
+  ["connection-browser", "Browser sign-in with cancellation"],
+  ["connection-key", "Hidden API key entry"],
+  ["connection-import-missing", "Missing local Claude login"],
   ["discovery-error", "Provider model discovery failed"],
   ["transcription", "Transcription settings"],
   ["audio-models", "Transcription model picker"],
@@ -31,6 +47,14 @@ if (args.includes("--list")) {
   const data: TerminalGalleryScenario[] = [];
   for (const [id, title] of selected) {
     const { session: s, api } = modelFixture();
+    if (id === "providers") {
+      const catalog = api.catalog.bind(api);
+      api.catalog = async (...args) => ({
+        ...(await catalog(...args)),
+        inference: { providerId: "openai", modelId: "reasoner", reasoning: "high" },
+        providers: providerAccessFixture(),
+      });
+    }
     if (id === "discovery-error") {
       const catalog = api.catalog.bind(api);
       api.catalog = async (...args) => {
@@ -68,13 +92,35 @@ if (args.includes("--list")) {
       await activate(s, "thinking");
       await press(s, "escape");
     }
+    const connection = id.startsWith("connection-")
+      ? connectionFixture(id === "connection-key" ? "api_key" : "oauth")
+      : null;
+    if (connection && id === "connection-browser") {
+      choose(connection.session, "browser");
+      await settle(() => connection.session.actions().some((action) => action.id === "open"));
+    }
+    if (connection && id === "connection-key")
+      connection.session.handle("synthetic-preview-key", {});
+    if (connection && id === "connection-import-missing") {
+      connection.api.importLogin = async () => {
+        throw new Error(
+          "No reusable Claude Code login found. Sign in with Claude Code first, or choose Browser sign-in."
+        );
+      };
+      choose(connection.session, "import");
+      await settle(() => connectionScreen(connection.session).includes("No reusable"));
+    }
+    const previewSession = connection?.session ?? s;
     const reports = Object.fromEntries(
       galleryWidths.map((width) => {
-        const frame = s.frame(width, true);
+        const frame = previewSession.frame(width, true);
         const viewport = clampViewport(
           frame.body,
           frame.cursorLine,
-          Math.max(3, 24 - frame.header.length - frame.footer.length - 1)
+          Math.max(3, 24 - frame.header.length - frame.footer.length - 1),
+          0,
+          false,
+          frame.cursorEndLine
         );
         return [
           width,
@@ -87,9 +133,13 @@ if (args.includes("--list")) {
     );
     data.push({ id, title, reports });
     if (!directory) {
-      const frame = s.frame(Number(option("--width") ?? 90), Boolean(process.stdout.isTTY));
+      const frame = previewSession.frame(
+        Number(option("--width") ?? 90),
+        Boolean(process.stdout.isTTY)
+      );
       console.log([...frame.header, ...frame.body, ...frame.footer].join("\n"));
     }
+    await connection?.session.dispose();
   }
   if (directory) console.log(writeTerminalGallery(directory, data, "model"));
 }

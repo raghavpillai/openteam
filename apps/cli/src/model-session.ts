@@ -2,6 +2,11 @@ import { errorMessage } from "./errors";
 import type { InteractiveOutcome, InteractiveSession } from "./interactive-session";
 import { renderModelSession } from "./model-ui";
 import {
+  modelProviderOptions,
+  modelProviderAccess,
+  PROVIDER_GROUPS,
+} from "./model-provider-options";
+import {
   THINKING,
   type ModelCatalog,
   type ModelChoice,
@@ -29,7 +34,7 @@ const draftOf = (value: TranscriptionView): TranscriptionDraft => ({
 const endpoint = (value: TranscriptionDraft) =>
   value.provider === "openai" ? "https://api.openai.com/v1" : value.baseUrl.replace(/\/+$/, "");
 
-export type ModelExit = boolean | { connectProvider: string };
+export type ModelExit = boolean | { connectProvider: string; authType?: "oauth" | "api_key" };
 export class ModelSession implements InteractiveSession<ModelExit> {
   tab = 0;
   private cursors = [0, 0];
@@ -57,9 +62,26 @@ export class ModelSession implements InteractiveSession<ModelExit> {
     await Promise.all([this.reload(0), this.reload(1)]);
     this.notice = null;
   }
-  async providerConnected(error?: string): Promise<void> {
+  async providerConnected(error?: string, providerId?: string, cancelled = false): Promise<void> {
     try {
       this.installCatalog(await this.api.catalog(this.inference?.providerId));
+      if (cancelled) {
+        this.pane = "providers";
+        this.notice = {
+          text: "Connection cancelled. Choose another provider or press Esc to go back.",
+          tone: "info",
+        };
+        return;
+      }
+      if (!error && providerId) {
+        const option = modelProviderOptions(this.providers).find(
+          (option) => option.provider.id === providerId && option.connected
+        );
+        if (option) {
+          await this.action(option.id);
+          return;
+        }
+      }
       this.notice = {
         text: error ?? "Provider connected. Choose it to browse its chat models.",
         tone: error ? "warning" : "success",
@@ -146,16 +168,36 @@ export class ModelSession implements InteractiveSession<ModelExit> {
       ).toLowerCase();
       const choices: SessionRow[] =
         this.pane === "providers"
-          ? this.providers
-              .filter((p) => `${p.name} ${p.id}`.toLowerCase().includes(query))
-              .map((p) => ({
-                kind: "option",
-                id: `provider:${p.id}`,
-                label: p.name,
-                selected: p.id === this.inference?.providerId,
-                badge: p.connected ? "Connected" : "Sign-in needed",
-                description: `${p.id} · ${p.modelCount} chat models${p.connected ? (p.modelMessage ? `. ${p.modelMessage}` : "") : `. Connect with ${this.loginCommand(p.id)}`}`,
-              }))
+          ? PROVIDER_GROUPS.flatMap((group): SessionRow[] => {
+              const options = modelProviderOptions(this.providers).filter(
+                (option) =>
+                  option.group === group &&
+                  `${option.label} ${option.provider.id} ${option.detail} ${group}`
+                    .toLowerCase()
+                    .includes(query)
+              );
+              return options.length
+                ? [
+                    { kind: "heading", text: group },
+                    ...options.map(
+                      (option): SessionRow => ({
+                        kind: "option",
+                        id: option.id,
+                        label: option.label,
+                        selected:
+                          option.provider.id === this.inference?.providerId && option.connected,
+                        badge: option.badge,
+                        description: `${option.detail}. ${
+                          option.connected
+                            ? (option.provider.modelMessage ??
+                              `${option.provider.modelCount} models available. Enter to choose.`)
+                            : "Enter to choose how to connect."
+                        }`,
+                      })
+                    ),
+                  ]
+                : [];
+            })
           : this.pane === "transcription-models"
             ? this.transcriptionModels
                 .filter((model) => model.toLowerCase().includes(query))
@@ -221,7 +263,7 @@ export class ModelSession implements InteractiveSession<ModelExit> {
           kind: "cycle",
           id: "provider",
           label: "Provider",
-          value: provider?.name ?? current.providerId,
+          value: provider ? modelProviderAccess(provider) : current.providerId,
         },
         { kind: "cycle", id: "model", label: "Model", value: current.modelId || "Choose a model" },
         { kind: "cycle", id: "thinking", label: "Thinking", value: current.reasoning },
@@ -230,7 +272,7 @@ export class ModelSession implements InteractiveSession<ModelExit> {
               {
                 kind: "note",
                 text: provider
-                  ? `Sign-in required: ${this.loginCommand(current.providerId)}`
+                  ? "Choose a subscription or API connection to load its chat models."
                   : "The saved provider is not in your registry. Choose a connected provider, or add its custom endpoint with openteam provider add.",
                 tone: "warning",
               } as SessionRow,
@@ -304,6 +346,17 @@ export class ModelSession implements InteractiveSession<ModelExit> {
   private choices() {
     return this.rows().flatMap((row, index) => (SELECTABLE_ROW_KINDS.has(row.kind) ? [index] : []));
   }
+  private focusSelectedOption() {
+    const rows = this.rows();
+    const choices = this.choices();
+    this.listCursor = Math.max(
+      0,
+      choices.findIndex((index) => {
+        const row = rows[index];
+        return row?.kind === "option" && row.selected;
+      })
+    );
+  }
   private get cursor() {
     return this.pane === "main" ? this.cursors[this.tab]! : this.listCursor;
   }
@@ -334,7 +387,7 @@ export class ModelSession implements InteractiveSession<ModelExit> {
                 : stages[this.tab]!.label,
       description:
         this.pane === "providers"
-          ? "Choose a provider. Enter connects it or opens its chat models."
+          ? "Choose your account, then a model."
           : stages[this.tab]!.description,
       rows: this.rows(),
       cursorRow: this.cursorRow(),
@@ -343,7 +396,7 @@ export class ModelSession implements InteractiveSession<ModelExit> {
     };
   }
   frame(width: number | undefined, color: boolean) {
-    return renderModelSession(this.view(), { width, color });
+    return renderModelSession(this.view(), { width, color, compact: this.pane !== "main" });
   }
   private back() {
     this.pane = "main";
@@ -405,9 +458,17 @@ export class ModelSession implements InteractiveSession<ModelExit> {
         await this.reload(this.tab, signal);
         this.notice = null;
       } else if (id.startsWith("provider:")) {
-        const providerId = id.slice(9);
-        if (!this.providers.find((p) => p.id === providerId)?.connected)
-          return { type: "complete", value: { connectProvider: providerId } };
+        const option = modelProviderOptions(this.providers).find((option) => option.id === id);
+        if (!option) throw new Error("Provider connection changed. Refresh the provider list.");
+        const providerId = option.provider.id;
+        if (!option.connected)
+          return {
+            type: "complete",
+            value: {
+              connectProvider: providerId,
+              ...(option.authType ? { authType: option.authType } : {}),
+            },
+          };
         const catalog = await this.api.catalog(providerId, signal);
         this.installCatalog(catalog);
         const selected =
@@ -421,10 +482,7 @@ export class ModelSession implements InteractiveSession<ModelExit> {
           this.inference.reasoning = "off";
         this.pane = "models";
         this.search = "";
-        this.listCursor = Math.max(
-          0,
-          this.rows().findIndex((row) => row.kind === "option" && row.selected)
-        );
+        this.focusSelectedOption();
         const provider = catalog.providers.find((p) => p.id === providerId);
         this.notice = {
           text:
@@ -432,7 +490,11 @@ export class ModelSession implements InteractiveSession<ModelExit> {
           tone: provider?.modelMessage ? "warning" : "info",
         };
       } else if (id === "reconnect-provider") {
-        return { type: "complete", value: { connectProvider: this.inference!.providerId } };
+        const authType = this.providers.find((p) => p.id === this.inference!.providerId)?.authType;
+        return {
+          type: "complete",
+          value: { connectProvider: this.inference!.providerId, ...(authType ? { authType } : {}) },
+        };
       } else if (id === "refresh-models") {
         this.installCatalog(await this.api.catalog(this.inference?.providerId, signal));
         this.notice = { text: "Provider models refreshed.", tone: "info" };
@@ -587,8 +649,7 @@ export class ModelSession implements InteractiveSession<ModelExit> {
     } else if (row.id === "provider" || row.id === "model") {
       this.pane = row.id === "provider" ? "providers" : "models";
       this.search = "";
-      const selected = this.rows().findIndex((row) => row.kind === "option" && row.selected);
-      this.listCursor = Math.max(0, selected);
+      this.focusSelectedOption();
     } else if (row.id.startsWith("model:")) {
       this.inference!.modelId = row.id.slice(6);
       if (!this.models().find((m) => m.modelId === this.inference!.modelId)?.reasoning)

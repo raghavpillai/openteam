@@ -321,6 +321,18 @@ describe("setup session frame", () => {
     expect(stripAnsi(frame.footer.at(-1) ?? "")).toBe("  ↑↓ move · Enter · ←→ · Esc cancel");
   });
 
+  test("keeps a selected row and its wrapped details visible in both scroll directions", () => {
+    const lines = Array.from({ length: 30 }, (_value, index) => `line ${index}`);
+    const down = clampViewport(lines, 15, 12, 0, false, 20);
+    expect(down.lines).toContain("line 15");
+    expect(down.lines).toContain("line 20");
+    const up = clampViewport(lines, 8, 12, down.offset, false, 12);
+    expect(up.lines).toContain("line 8");
+    expect(up.lines).toContain("line 12");
+    const oversized = clampViewport(lines, 8, 5, down.offset, false, 20);
+    expect(oversized.lines).toContain("line 8");
+    expect(oversized.lines).toHaveLength(5);
+  });
   test("scrolls the body to keep the highlighted line visible", () => {
     const lines = Array.from({ length: 30 }, (_value, index) => `line ${index}`);
 

@@ -82,6 +82,7 @@ export interface SetupSessionFrame {
   body: readonly string[];
   footer: readonly string[];
   cursorLine: number;
+  cursorEndLine?: number;
 }
 
 const ANSI = {
@@ -414,7 +415,7 @@ export const renderSetupSession = (
 };
 
 /**
- * Keep a scrolling body within `maxLines`, always keeping the focused line visible.
+ * Keep a scrolling body within `maxLines`, keeping the focused row and its details visible.
  * Returns the lines to draw plus the offset to remember for the next frame.
  */
 export const clampViewport = (
@@ -422,15 +423,18 @@ export const clampViewport = (
   focusLine: number,
   maxLines: number,
   previousOffset = 0,
-  color = false
+  color = false,
+  focusEndLine = focusLine
 ): { lines: readonly string[]; offset: number } => {
   const limit = Math.max(3, maxLines);
   if (lines.length <= limit) return { lines, offset: 0 };
   const window = limit - 2;
   let offset = Math.max(0, Math.min(previousOffset, lines.length - window));
   const focus = focusLine < 0 ? offset : focusLine;
+  const focusEnd = Math.max(focus, focusEndLine);
+  if (focusEnd >= offset + window) offset = focusEnd - window + 1;
+  // If the row is taller than the viewport, prioritize its name and selection marker.
   if (focus < offset) offset = focus;
-  if (focus >= offset + window) offset = focus - window + 1;
   offset = Math.max(0, Math.min(offset, lines.length - window));
   const above = offset;
   const below = lines.length - offset - window;

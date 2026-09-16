@@ -1,12 +1,55 @@
 import { ModelSession } from "../../src/model-session";
 import type {
   ModelSettingsAPI,
+  ModelProvider,
   ModelCatalog,
   TranscriptionDraft,
   TranscriptionView,
 } from "../../src/model-settings";
 import type { RuntimeInferenceSettings } from "../../src/runtime-settings";
 import type { SessionKey } from "../../src/setup-session";
+
+export const providerAccessFixture = (): ModelProvider[] => [
+  {
+    id: "openai-codex",
+    name: "OpenAI · ChatGPT subscription",
+    custom: false,
+    connected: false,
+    authType: null,
+    modelCount: 0,
+    authMethods: [{ type: "oauth", label: "ChatGPT", subscription: true }],
+  },
+  {
+    id: "openai",
+    name: "OpenAI · API key",
+    custom: false,
+    connected: true,
+    authType: "api_key",
+    modelCount: 2,
+    authMethods: [{ type: "api_key", label: "OpenAI API key", subscription: false }],
+  },
+  {
+    id: "anthropic",
+    name: "Anthropic",
+    custom: false,
+    connected: false,
+    authType: null,
+    modelCount: 0,
+    authMethods: [
+      { type: "oauth", label: "Claude Pro/Max", subscription: true },
+      { type: "api_key", label: "Anthropic API key", subscription: false },
+    ],
+  },
+  {
+    id: "local",
+    name: "Local models",
+    custom: true,
+    connected: true,
+    authType: "api_key",
+    modelCount: 1,
+    authMethods: [{ type: "api_key", label: "API key", subscription: false }],
+  },
+];
 
 export const modelFixture = () => {
   let inference: RuntimeInferenceSettings = {

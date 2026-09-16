@@ -19,11 +19,12 @@ describe("install script", () => {
     expect(installScript).toContain('"$installed_binary" install "$@" </dev/tty');
   });
 
-  test("accepts both Docker Compose command forms", () => {
-    expect(installScript).toContain("docker compose version");
-    expect(installScript).toContain("command_exists docker-compose");
-    expect(installScript).toContain("docker-compose version");
-    expect(powerShellInstallScript).toContain("Get-Command docker-compose");
+  test("leaves Docker preflight to the installed CLI on both platforms", () => {
+    expect(installScript).not.toContain("command_exists docker");
+    expect(powerShellInstallScript).not.toContain("Get-Command docker");
+    expect(installScript).toContain("OpenTeam CLI installed at");
+    expect(powerShellInstallScript).toContain("OpenTeam CLI installed at");
+    expect(installScript).toContain('"$installed_binary" install "$@" </dev/null');
   });
 
   test("ships a checksum-verified Windows installer", () => {

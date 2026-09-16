@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { terminalTextWidth } from "../src/terminal";
+import { clampViewport } from "../src/ui";
 import {
   activate,
   edit,
@@ -7,10 +8,152 @@ import {
   focused,
   modelFixture,
   press,
+  providerAccessFixture,
   screen,
 } from "./fixtures/model-session";
 
 describe("interactive model editor", () => {
+  test("connection cancellation preserves both drafts and returns to provider choices", async () => {
+    const { session: s, calls } = modelFixture();
+    await s.load();
+    s.inference!.reasoning = "medium";
+    s.transcription!.model = "unsaved-speech-model";
+    await activate(s, "provider");
+    await activate(s, "provider:offline");
+    await s.providerConnected(undefined, undefined, true);
+    expect(s.view().title).toBe("Choose a provider");
+    expect(screen(s)).toContain("Connection cancelled");
+    expect(s.inference!.reasoning).toBe("medium");
+    expect(s.transcription!.model).toBe("unsaved-speech-model");
+    expect(calls.inference).toHaveLength(0);
+    expect(calls.transcription).toHaveLength(0);
+  });
+  test("a new connection opens that provider's models without saving the selection", async () => {
+    const { session: s, api, calls } = modelFixture();
+    await s.load();
+    const catalog = api.catalog;
+    api.catalog = async (...args) => {
+      const value = await catalog(...args);
+      value.providers = value.providers.map((provider) => ({ ...provider, connected: true }));
+      return value;
+    };
+    await s.providerConnected(undefined, "offline");
+    expect(s.view().title).toBe("Choose an inference model");
+    expect(s.inference!.providerId).toBe("offline");
+    expect(screen(s)).toContain("offline-model");
+    expect(s.savedInference!.providerId).toBe("example");
+    expect(calls.inference).toHaveLength(0);
+  });
+  test("groups subscriptions, APIs and custom endpoints, and focuses the active connection", async () => {
+    const { session: s, api } = modelFixture();
+    const catalog = api.catalog;
+    api.catalog = async (...args) => ({
+      ...(await catalog(...args)),
+      inference: { providerId: "openai", modelId: "reasoner", reasoning: "high" },
+      providers: providerAccessFixture(),
+    });
+    await s.load();
+    await activate(s, "provider");
+    expect(
+      s
+        .rows()
+        .filter((r) => r.kind === "heading")
+        .map((r) => r.text)
+    ).toEqual(["Subscriptions", "APIs", "Custom endpoints"]);
+    expect(focused(s)).toBe("provider:openai");
+    expect(screen(s)).not.toContain("Sign-in needed");
+    for (const width of [24, 40, 60, 90, 110]) {
+      const frame = s.frame(width, false);
+      expect(
+        [...frame.header, ...frame.body, ...frame.footer].every(
+          (line) => terminalTextWidth(line) <= width
+        )
+      ).toBe(true);
+    }
+    const compact = s.frame(40, false);
+    const visible = clampViewport(
+      compact.body,
+      compact.cursorLine,
+      24 - compact.header.length - compact.footer.length - 1,
+      0,
+      false,
+      compact.cursorEndLine
+    ).lines.join("\n");
+    expect(visible).toContain("❯ OpenAI");
+    expect(visible).toContain("Connected");
+    expect(visible).toContain("API key access");
+    expect(await activate(s, "provider:openai-codex")).toEqual({
+      type: "complete",
+      value: { connectProvider: "openai-codex", authType: "oauth" },
+    });
+    expect(await activate(s, "provider:anthropic:api_key")).toEqual({
+      type: "complete",
+      value: { connectProvider: "anthropic", authType: "api_key" },
+    });
+    expect(await activate(s, "provider:anthropic:oauth")).toEqual({
+      type: "complete",
+      value: { connectProvider: "anthropic", authType: "oauth" },
+    });
+  });
+  test("an API connection does not mark a subscription connected or expose its model count", async () => {
+    const { session: s, api } = modelFixture();
+    const catalog = api.catalog;
+    api.catalog = async (...args) => ({
+      ...(await catalog(...args)),
+      providers: providerAccessFixture().map((p) =>
+        p.id === "anthropic" ? { ...p, connected: true, authType: "api_key", modelCount: 38 } : p
+      ),
+    });
+    await s.load();
+    await activate(s, "provider");
+    const subscriptions = s
+      .rows()
+      .find((r) => r.kind === "option" && r.id === "provider:anthropic:oauth");
+    expect(subscriptions).toMatchObject({ badge: "Connect subscription" });
+    expect(JSON.stringify(subscriptions)).not.toContain("38");
+    expect(
+      s.rows().find((r) => r.kind === "option" && r.id === "provider:anthropic:api_key")
+    ).toMatchObject({ badge: "Connected" });
+    expect(await activate(s, "provider:anthropic:oauth")).toEqual({
+      type: "complete",
+      value: { connectProvider: "anthropic", authType: "oauth" },
+    });
+  });
+  test("older catalogs hide unrelated built-ins and label OpenAI API and subscription access", async () => {
+    const { session: s, api } = modelFixture();
+    const catalog = api.catalog;
+    api.catalog = async (...args) => ({
+      ...(await catalog(...args)),
+      providers: [
+        { id: "nvidia", name: "NVIDIA", custom: false, connected: false, modelCount: 38 },
+        { id: "openai", name: "OpenAI", custom: false, connected: false, modelCount: 38 },
+        {
+          id: "openai-codex",
+          name: "OpenAI Codex",
+          custom: false,
+          connected: false,
+          modelCount: 20,
+        },
+        {
+          id: "my-nvidia",
+          name: "My NVIDIA endpoint",
+          custom: true,
+          connected: false,
+          modelCount: 38,
+        },
+      ],
+    });
+    await s.load();
+    await activate(s, "provider");
+    expect(s.rows().some((r) => r.kind === "option" && r.id === "provider:nvidia")).toBe(false);
+    expect(s.rows().some((r) => r.kind === "option" && r.id === "provider:my-nvidia")).toBe(true);
+    expect(s.rows().find((r) => r.kind === "option" && r.id === "provider:openai")).toMatchObject({
+      badge: "Add API key",
+    });
+    expect(
+      s.rows().find((r) => r.kind === "option" && r.id === "provider:openai-codex")
+    ).toMatchObject({ badge: "Connect subscription" });
+  });
   test("left/right tabs preserve independent drafts and saves", async () => {
     const { session: s, calls } = modelFixture();
     await s.load();

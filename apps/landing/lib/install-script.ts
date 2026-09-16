@@ -31,14 +31,6 @@ esac
 
 say "OpenTeam · $platform $architecture"
 
-command_exists docker || fail "Docker is required. Install Docker Engine and Compose on Linux, or Docker Desktop on macOS, then run this command again."
-if docker compose version >/dev/null 2>&1; then
-  :
-elif command_exists docker-compose && docker-compose version >/dev/null 2>&1; then
-  :
-else
-  fail "Docker Compose 2.20 or newer is required."
-fi
 command_exists curl || fail "curl is required to download the OpenTeam CLI."
 
 repository=$(printenv OPENTEAM_REPOSITORY 2>/dev/null || printf raghavpillai/openteam)
@@ -105,18 +97,22 @@ else
   chmod +x "$installed_binary"
 fi
 
+say "OpenTeam CLI installed at $installed_binary"
 case ":$PATH:" in
   *":$bin_directory:"*) ;;
   *) say "Note: add $bin_directory to PATH to run openteam later." ;;
 esac
 
 say "Starting the guided server setup…"
-if [ -r /dev/tty ]; then
+# Opening /dev/tty can fail even when it is readable (for example, in CI).
+if ( : </dev/tty ) 2>/dev/null; then
   "$installed_binary" install "$@" </dev/tty
   exit $?
 fi
 
-fail "no interactive terminal was detected. Run this installer from a terminal."
+# The CLI checks prerequisites before asking for a terminal. Keep it installed
+# when setup is blocked, so the user can fix Docker and resume with openteam setup.
+"$installed_binary" install "$@" </dev/null
 `;
 
 export const powerShellInstallScript = String.raw`$ErrorActionPreference = "Stop"
@@ -125,23 +121,6 @@ function Fail([string]$Message) {
   Write-Error "OpenTeam installer: $Message"
   exit 1
 }
-
-if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
-  Fail "Docker is required. Install and start Docker Desktop with Linux containers, then run this command again."
-}
-
-$composeAvailable = $false
-try {
-  docker compose version | Out-Null
-  $composeAvailable = $LASTEXITCODE -eq 0
-} catch {}
-if (-not $composeAvailable -and (Get-Command docker-compose -ErrorAction SilentlyContinue)) {
-  try {
-    docker-compose version | Out-Null
-    $composeAvailable = $LASTEXITCODE -eq 0
-  } catch {}
-}
-if (-not $composeAvailable) { Fail "Docker Compose 2.20 or newer is required." }
 
 $architecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString().ToLowerInvariant()
 switch ($architecture) {
@@ -189,6 +168,7 @@ try {
   if ($actualChecksum -ne $expectedChecksum) { Fail "the OpenTeam CLI checksum did not match." }
   New-Item -ItemType Directory -Force -Path $binDirectory | Out-Null
   Copy-Item -Force $binaryPath $installedBinary
+  Write-Host "OpenTeam CLI installed at $installedBinary"
   $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
   if (-not $userPath) { $userPath = "" }
   if (-not (($userPath -split ";") -contains $binDirectory)) {

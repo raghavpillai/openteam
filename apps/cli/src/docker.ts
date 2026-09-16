@@ -78,22 +78,11 @@ export class ComposeProject {
     readonly projectName = PROJECT_NAME
   ) {}
 
-  run(
-    args: readonly string[],
-    options: {
-      inherit?: boolean;
-      composeFile?: string;
-      input?: string;
-      inputFile?: string;
-      outputFile?: string;
-      timeoutMs?: number;
-    } = {}
-  ): RunResult {
-    const composeFile = options.composeFile ?? this.paths.compose;
+  invocation(args: readonly string[], composeFile = this.paths.compose) {
     if (!existsSync(composeFile)) throw new CliError(`Compose file not found: ${composeFile}`);
-    return this.runner.run(
-      this.command.executable,
-      [
+    return {
+      command: this.command.executable,
+      args: [
         ...this.command.prefix,
         "--project-name",
         this.projectName,
@@ -105,16 +94,32 @@ export class ComposeProject {
         composeFile,
         ...args,
       ],
-      {
-        cwd: this.paths.directory,
-        env: composeProcessEnvironment(this.paths),
-        inherit: options.inherit,
-        input: options.input,
-        inputFile: options.inputFile,
-        outputFile: options.outputFile,
-        timeoutMs: options.timeoutMs,
-      }
-    );
+      cwd: this.paths.directory,
+      env: composeProcessEnvironment(this.paths),
+    };
+  }
+
+  run(
+    args: readonly string[],
+    options: {
+      inherit?: boolean;
+      composeFile?: string;
+      input?: string;
+      inputFile?: string;
+      outputFile?: string;
+      timeoutMs?: number;
+    } = {}
+  ): RunResult {
+    const invocation = this.invocation(args, options.composeFile);
+    return this.runner.run(invocation.command, invocation.args, {
+      cwd: invocation.cwd,
+      env: invocation.env,
+      inherit: options.inherit,
+      input: options.input,
+      inputFile: options.inputFile,
+      outputFile: options.outputFile,
+      timeoutMs: options.timeoutMs,
+    });
   }
 
   runOrThrow(

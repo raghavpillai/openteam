@@ -36,6 +36,36 @@ class KeychainRunner implements CommandRunner {
 }
 
 describe("detected vendor sign-ins", () => {
+  test("a custom Claude config uses its own credentials and never the default Keychain account", () => {
+    const directory = home();
+    const custom = join(directory, "other-account");
+    mkdirSync(custom);
+    const runner = new KeychainRunner(
+      JSON.stringify({
+        claudeAiOauth: { accessToken: "wrong-account", refreshToken: "wrong-refresh" },
+      })
+    );
+    const options = {
+      home: directory,
+      env: { CLAUDE_CONFIG_DIR: custom },
+      platform: "darwin" as const,
+      runner,
+    };
+    expect(readClaudeCredential(options)).toBeNull();
+    expect(runner.calls).toHaveLength(0);
+    writeFileSync(
+      join(custom, ".credentials.json"),
+      JSON.stringify({
+        claudeAiOauth: {
+          accessToken: "right-account",
+          refreshToken: "right-refresh",
+          expiresAt: 42,
+        },
+      })
+    );
+    expect(readClaudeCredential(options)?.credential.access).toBe("right-account");
+    expect(runner.calls).toHaveLength(0);
+  });
   test("reads the Codex CLI ChatGPT sign-in with its account id and expiry", () => {
     const directory = home();
     mkdirSync(join(directory, ".codex"));

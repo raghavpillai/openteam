@@ -22,6 +22,7 @@ import {
 import { type ComposeProject, requireComposeProject } from "./docker";
 import { printDoctor, runDoctor, suggestApiPort } from "./doctor";
 import { CliError } from "./errors";
+import { installationCommand } from "./command-ui";
 import { checkHealth } from "./health";
 import { SETUP_JOBS_NOTE, waitForStartup } from "./startup";
 import type { CommandRunner } from "./process";
@@ -907,6 +908,16 @@ export const setupCommand = async (
   options: SetupCommandOptions = {},
   suppliedPrompter?: SetupPrompter
 ): Promise<void> => {
+  const prerequisites = await runDoctor(paths, runner, PROJECT_NAME, {
+    prerequisitesOnly: true,
+  });
+  if (!prerequisites.ok) {
+    printDoctor(prerequisites, { compact: true });
+    throw new CliError(
+      `Setup paused. Fix the failed checks above, then run ${installationCommand(paths, "setup")} again.`,
+      2
+    );
+  }
   const manifest = requireInstallation(paths);
   const project = requireComposeProject(paths, runner, manifest.projectName || PROJECT_NAME);
   const previousEnvironment = readFileSync(paths.environment, "utf8");

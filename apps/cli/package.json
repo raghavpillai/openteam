@@ -21,11 +21,13 @@
     "typecheck": "tsc -p tsconfig.json",
     "test": "bun test",
     "test:doctor": "bun test ./test/doctor*.test.ts ./test/docker.test.ts",
+    "test:install": "bun test ./test/preflight-command.test.ts ./test/doctor-recovery.test.ts ./../landing/lib/install-script.test.ts",
+    "test:install:fresh": "bun scripts/test-fresh-install.ts",
     "preview:doctor": "bun scripts/preview-doctor.ts",
     "test:status": "bun test ./test/status*.test.ts ./test/command-ui.test.ts ./test/lifecycle.test.ts",
     "preview:status": "bun scripts/preview-status.ts",
     "preview:model": "bun scripts/preview-model.ts",
-    "test:model": "bun test ./test/model*.test.ts"
+    "test:model": "bun test ./test/model*.test.ts ./test/provider-connection*.test.ts ./test/detected-logins.test.ts"
   },
   "engines": {
     "node": "^22.22.2 || ^24.15.0 || >=26"

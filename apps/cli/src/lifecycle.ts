@@ -206,8 +206,16 @@ export const installCommand = async (
   printDoctor(diagnosis, { compact: true });
   if (!diagnosis.ok)
     throw new CliError(
-      "Installation paused. Follow the next steps above to resolve the failed checks."
+      `Server setup paused. The CLI is available. Fix the failed checks above, then run ${installationCommand(paths, "setup")} again.`,
+      2
     );
+
+  if (!options.noSetup && !suppliedPrompter && (!process.stdin.isTTY || !process.stdout.isTTY)) {
+    throw new CliError(
+      `Preflight checks passed. Guided setup needs an interactive terminal. Run ${installationCommand(paths, "setup")} in a terminal to continue.`,
+      2
+    );
+  }
 
   const version = normalizeVersion(options.version || CLI_VERSION);
   const repository = normalizeRepository(options.repository || DEFAULT_REPOSITORY);

@@ -9,6 +9,7 @@ export type InteractiveOutcome<T> =
   | { type: "cancel" }
   | { type: "interrupt" };
 export interface InteractiveSession<T> {
+  subscribe?(listener: (outcome?: InteractiveOutcome<T>) => void): () => void;
   frame(width: number | undefined, color: boolean): SetupSessionFrame;
   handle(
     character: string,
@@ -32,6 +33,7 @@ export const runInteractiveSession = <T>(
     let offset = 0;
     let busy = false;
     let finished = false;
+    let unsubscribe: (() => void) | undefined;
     const paint = (lines: readonly string[]) => {
       const chunks: string[] = [];
       if (rendered > 0) chunks.push(`\r${rendered > 1 ? `\x1b[${rendered - 1}A` : ""}`);
@@ -48,7 +50,14 @@ export const runInteractiveSession = <T>(
       const view = session.frame(stdout.columns, styled);
       const rows = stdout.rows > 0 ? stdout.rows : 24;
       const bodyLimit = Math.max(3, rows - view.header.length - view.footer.length - 1);
-      const viewport = clampViewport(view.body, view.cursorLine, bodyLimit, offset, styled);
+      const viewport = clampViewport(
+        view.body,
+        view.cursorLine,
+        bodyLimit,
+        offset,
+        styled,
+        view.cursorEndLine
+      );
       offset = viewport.offset;
       paint([...view.header, ...viewport.lines, ...view.footer]);
     };
@@ -60,6 +69,7 @@ export const runInteractiveSession = <T>(
     const finish = () => {
       if (finished) return;
       finished = true;
+      unsubscribe?.();
       abort.abort();
       stdin.off("keypress", onKeypress);
       stdin.off("end", onEnd);
@@ -121,6 +131,7 @@ export const runInteractiveSession = <T>(
     stdin.resume();
     stdout.write("\x1b[?25l");
     try {
+      unsubscribe = session.subscribe?.((outcome) => (outcome ? accept(outcome) : render()));
       render();
     } catch (error) {
       failed(error);

@@ -9,6 +9,9 @@ export type ModelProvider = {
   modelCount: number;
   modelStatus?: string;
   modelMessage?: string;
+  custom?: boolean;
+  authType?: "oauth" | "api_key" | null;
+  authMethods?: Array<{ type: "oauth" | "api_key"; label: string; subscription: boolean }>;
 };
 export type ModelChoice = {
   providerId: string;
@@ -102,7 +105,7 @@ export const createModelSettingsAPI = (paths: InstallationPaths): ModelSettingsA
       typeof body.modelProviderId !== "string"
     )
       throw invalid();
-    const providers = body.providers.map((value) => {
+    const providers = body.providers.map((value): ModelProvider => {
       if (
         !object(value) ||
         typeof value.id !== "string" ||
@@ -118,6 +121,19 @@ export const createModelSettingsAPI = (paths: InstallationPaths): ModelSettingsA
         modelCount: value.modelCount,
         modelStatus: typeof value.modelStatus === "string" ? value.modelStatus : undefined,
         modelMessage: typeof value.modelMessage === "string" ? value.modelMessage : undefined,
+        custom: typeof value.custom === "boolean" ? value.custom : undefined,
+        authType:
+          value.authType === "oauth" || value.authType === "api_key" ? value.authType : null,
+        authMethods: Array.isArray(value.authMethods)
+          ? value.authMethods.flatMap((method) =>
+              object(method) &&
+              (method.type === "oauth" || method.type === "api_key") &&
+              typeof method.label === "string" &&
+              typeof method.subscription === "boolean"
+                ? [{ type: method.type, label: method.label, subscription: method.subscription }]
+                : []
+            )
+          : undefined,
       };
     });
     const models = body.models.map((value) => {

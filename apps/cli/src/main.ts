@@ -5,7 +5,7 @@ import { renderHelp, renderCommandError } from "./command-ui";
 import { colorEnabled } from "./ui";
 import { resolve } from "node:path";
 import { parseArguments } from "./arguments";
-import { defaultInstallDirectory, installationPaths } from "./config";
+import { defaultInstallDirectory, installationExists, installationPaths } from "./config";
 import { CLI_VERSION } from "./constants";
 import {
   durableUpdateCommand,
@@ -56,7 +56,9 @@ const main = async (): Promise<void> => {
       await installCommand(paths, options, runner);
       break;
     case "setup":
-      await setupCommand(paths, runner, { advanced: options.advanced });
+      if (installationExists(paths))
+        await setupCommand(paths, runner, { advanced: options.advanced });
+      else await installCommand(paths, options, runner);
       break;
     case "doctor":
       await doctorCommand(paths, options, runner);

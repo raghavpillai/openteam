@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { createModelSettingsAPI } from "../src/model-settings";
 import { modelServer } from "./fixtures/model-server";
+import { providerAccessFixture } from "./fixtures/model-session";
 const cleanups: Array<() => void> = [];
 afterEach(() => {
   for (const cleanup of cleanups.splice(0)) cleanup();
@@ -11,6 +12,17 @@ const fixture = () => {
   return { ...f, client: createModelSettingsAPI(f.paths) };
 };
 describe("interactive model HTTP settings", () => {
+  test("preserves subscription/API metadata without retaining extra credential fields", async () => {
+    const { client, api } = fixture();
+    const catalog = api.catalog;
+    api.catalog = async (...args) => ({
+      ...(await catalog(...args)),
+      providers: providerAccessFixture().map((p) => ({ ...p, apiKey: "synthetic-private-key" })),
+    });
+    const result = await client.catalog();
+    expect(result.providers).toMatchObject(providerAccessFixture());
+    expect(JSON.stringify(result)).not.toContain("synthetic-private-key");
+  });
   test("authenticates catalog reads and saves both settings through their own endpoints", async () => {
     const { client, requests, calls } = fixture();
     expect((await client.catalog("example")).models).toHaveLength(2);

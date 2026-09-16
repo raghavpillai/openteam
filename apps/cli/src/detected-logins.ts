@@ -122,11 +122,13 @@ const claudeCredentialFrom = (
 export const readClaudeCredential = (
   options: LoginDetectionOptions = {}
 ): { credential: ReusableCredential; source: string } | null => {
-  const { home, platform, runner } = settings(options);
+  const { env, home, platform, runner } = settings(options);
   const path = claudeCredentialsPath(options);
   const fromFile = claudeCredentialFrom(readJson(path), `Claude Code (${displayPath(path, home)})`);
   if (fromFile) return fromFile;
-  if (platform !== "darwin" || !runner) return null;
+  // Custom Claude config directories use distinct Keychain entries. Never fall back
+  // to the default account when that directory's credentials file is unavailable.
+  if (platform !== "darwin" || !runner || env.CLAUDE_CONFIG_DIR) return null;
   const result = runner.run("security", [
     "find-generic-password",
     "-s",

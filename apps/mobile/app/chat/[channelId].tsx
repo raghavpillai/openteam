@@ -52,6 +52,7 @@ import { BotAvatar } from "../../src/components/bot-avatar";
 import { Composer, type ComposerRecovery, type ReplyTarget } from "../../src/components/composer";
 import { GlassSurface } from "../../src/components/glass-surface";
 import { IconButton } from "../../src/components/icon-button";
+import { NativeGlassButton } from "../../src/components/native-controls";
 import { MessageBubble } from "../../src/components/message-bubble";
 import { ThreadSheet } from "../../src/components/thread-sheet";
 import { WorkingIndicator } from "../../src/components/working-indicator";
@@ -529,33 +530,30 @@ export default function ConversationScreen() {
             style={{ bottom: undefined, height: insets.top + 104, zIndex: 2 }}
           />
           <View style={[styles.header, { top: insets.top + 6 }]}>
-            <IconButton
+            <NativeGlassButton
               label="Back"
-              name="chevron.left"
+              symbol="chevron.left"
               onPress={() => (router.canGoBack() ? router.back() : router.replace("/"))}
-              size={44}
-              symbolSize={18}
-              symbolWeight="regular"
+              symbolSize={14.5}
+              fallbackSymbolSize={18}
               symbolOffsetX={1}
-              tone="glass"
+              style={{ width: 44, height: 44 }}
             />
-            <Pressable
-              accessibilityLabel={`${name} conversation details`}
-              accessibilityRole="button"
+            <NativeGlassButton
+              label={`${name} conversation details`}
               onPress={() =>
                 router.push({ pathname: "/details/[channelId]", params: { channelId } })
               }
-              style={({ pressed }) => [styles.identityButton, pressed && styles.identityPressed]}
+              style={styles.identityButton}
             >
-              <GlassSurface
-                fallbackColor={theme.surfaceElevated}
-                interactive
-                variant="clear"
-                tintColor={theme.dark ? chatGlassTint : undefined}
-                style={styles.identity}
-              >
+              <View style={styles.identity}>
                 <View style={styles.headerAvatar}>
-                  <BotAvatar bot={bot} color={bot?.color ?? "#858580"} size={27} />
+                  <BotAvatar
+                    bot={bot}
+                    color={bot?.color ?? "#858580"}
+                    size={27}
+                    artworkScale={1.1}
+                  />
                   {activeRun ? (
                     <View style={[styles.activityDot, { borderColor: theme.background }]} />
                   ) : null}
@@ -563,20 +561,19 @@ export default function ConversationScreen() {
                 <Text numberOfLines={1} style={[styles.title, { color: theme.text }]}>
                   {name}
                 </Text>
-              </GlassSurface>
-            </Pressable>
-            <IconButton
+              </View>
+            </NativeGlassButton>
+            <NativeGlassButton
               style={styles.headerTrailingAction}
               label="Open shared computer"
-              name="display"
+              symbol="display"
               disabled={!botId}
               onPress={() => {
                 if (!botId) return;
                 router.push({ pathname: "/computer/[botId]", params: { botId } });
               }}
-              size={44}
-              symbolSize={22}
-              tone="glass"
+              symbolSize={12.5}
+              fallbackSymbolSize={22}
             />
           </View>
 
@@ -993,7 +990,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: 9,
   },
-  identityPressed: { opacity: 0.78, transform: [{ scale: 0.98 }] },
   title: { flexShrink: 1, fontSize: 17, lineHeight: 22, fontWeight: "500" },
   messages: {
     flexGrow: 1,

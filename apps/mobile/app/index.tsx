@@ -31,7 +31,12 @@ import {
 import type { OpenTeamAuthUser } from "@openteam/client-core/auth";
 import { authenticatedUserForServer } from "../src/auth";
 import { accountInitials } from "../src/account-display";
-import { NativeToolbarButton } from "../src/components/native-controls";
+import {
+  NativeContextMenu,
+  NativeContextMenuHost,
+  NativeToolbarButton,
+  type NativeMenuAction,
+} from "../src/components/native-controls";
 import { MOBILE_VIRTUAL_LIST_TUNING, selectPinnedRows } from "../src/list-scale";
 import { networkFailureMessage } from "../src/network-error";
 import { useOpenTeam } from "../src/state/openteam-context";
@@ -53,6 +58,8 @@ interface ConversationSection {
 
 interface ChannelRowProps {
   botById: ReadonlyMap<string, BotView>;
+  menuJSON: string;
+  onMenuAction: (row: ChannelRowProjection, id: string) => void;
   manualUnread: boolean;
   onHide: (row: ChannelRowProjection) => void;
   onLongPress: (row: ChannelRowProjection) => void;
@@ -143,6 +150,8 @@ function SwipeAction({
 
 const ChannelRow = memo(function ChannelRow({
   botById,
+  menuJSON,
+  onMenuAction,
   manualUnread,
   onHide,
   onLongPress,
@@ -198,65 +207,81 @@ const ChannelRow = memo(function ChannelRow({
       renderRightActions={renderRightActions}
       rightThreshold={48}
     >
-      <Pressable
+      <NativeContextMenuHost
+        accessible={Boolean(NativeContextMenu)}
         accessibilityLabel={`${name}. ${accessibilityStatus}`}
-        accessibilityActions={[
-          { name: "showMenu", label: "Show conversation menu" },
-          { name: "showSwipeActions", label: "Show swipe actions" },
-        ]}
-        accessibilityRole="button"
-        accessibilityState={{ busy: working }}
-        delayLongPress={320}
-        onAccessibilityAction={({ nativeEvent }) => {
-          if (nativeEvent.actionName === "showMenu") onLongPress(row);
-          if (nativeEvent.actionName === "showSwipeActions") swipeableRef.current?.openRight();
-        }}
-        onLongPress={() => onLongPress(row)}
-        onPress={() =>
+        onActivate={() =>
           router.push({ pathname: "/chat/[channelId]", params: { channelId: row.channel.id } })
         }
-        style={({ pressed }) => [
-          styles.row,
-          {
-            backgroundColor: selected ? theme.surfacePressed : theme.background,
-          },
-          pressed && { backgroundColor: theme.surface },
-        ]}
+        dark={theme.dark}
+        menuJSON={menuJSON}
+        onAction={({ nativeEvent }) => onMenuAction(row, nativeEvent.id)}
       >
-        <ConversationMark botById={botById} row={row} />
-        <View style={styles.rowCopy}>
-          <View style={styles.rowTitleLine}>
-            <Text
-              numberOfLines={1}
-              style={[styles.rowTitle, unread && styles.rowTitleUnread, { color: theme.text }]}
-            >
-              {name}
-            </Text>
-            {row.bot?.title ? (
-              <View style={[styles.titlePill, { backgroundColor: theme.surface }]}>
-                <Text numberOfLines={1} style={[styles.titlePillText, { color: theme.textMuted }]}>
-                  {row.bot.title}
-                </Text>
-              </View>
-            ) : null}
-            <Text style={[styles.time, { color: theme.textFaint }]}>
-              {timeLabel(row.latest?.createdAt ?? row.channel.createdAt)}
-            </Text>
+        <Pressable
+          accessible={!NativeContextMenu}
+          accessibilityElementsHidden={Boolean(NativeContextMenu)}
+          accessibilityLabel={`${name}. ${accessibilityStatus}`}
+          accessibilityActions={[
+            { name: "showMenu", label: "Show conversation menu" },
+            { name: "showSwipeActions", label: "Show swipe actions" },
+          ]}
+          accessibilityRole="button"
+          accessibilityState={{ busy: working }}
+          delayLongPress={320}
+          onAccessibilityAction={({ nativeEvent }) => {
+            if (nativeEvent.actionName === "showMenu") onLongPress(row);
+            if (nativeEvent.actionName === "showSwipeActions") swipeableRef.current?.openRight();
+          }}
+          onLongPress={NativeContextMenu ? undefined : () => onLongPress(row)}
+          onPress={() =>
+            router.push({ pathname: "/chat/[channelId]", params: { channelId: row.channel.id } })
+          }
+          style={({ pressed }) => [
+            styles.row,
+            {
+              backgroundColor: selected ? theme.surfacePressed : theme.background,
+            },
+            pressed && { backgroundColor: theme.surface },
+          ]}
+        >
+          <ConversationMark botById={botById} row={row} />
+          <View style={styles.rowCopy}>
+            <View style={styles.rowTitleLine}>
+              <Text
+                numberOfLines={1}
+                style={[styles.rowTitle, unread && styles.rowTitleUnread, { color: theme.text }]}
+              >
+                {name}
+              </Text>
+              {row.bot?.title ? (
+                <View style={[styles.titlePill, { backgroundColor: theme.surface }]}>
+                  <Text
+                    numberOfLines={1}
+                    style={[styles.titlePillText, { color: theme.textMuted }]}
+                  >
+                    {row.bot.title}
+                  </Text>
+                </View>
+              ) : null}
+              <Text style={[styles.time, { color: theme.textFaint }]}>
+                {timeLabel(row.latest?.createdAt ?? row.channel.createdAt)}
+              </Text>
+            </View>
+            <View style={styles.previewLine}>
+              {row.hasApproval ? (
+                <View style={[styles.attentionDot, { backgroundColor: theme.danger }]} />
+              ) : null}
+              {working ? (
+                <View style={[styles.workingDot, { backgroundColor: theme.success }]} />
+              ) : null}
+              <Text numberOfLines={1} style={[styles.preview, { color: theme.textMuted }]}>
+                {working ? "Working…" : row.latest ? channelMessageSummary(row.latest) : ""}
+              </Text>
+              {unread ? <View style={styles.unreadDot} /> : null}
+            </View>
           </View>
-          <View style={styles.previewLine}>
-            {row.hasApproval ? (
-              <View style={[styles.attentionDot, { backgroundColor: theme.danger }]} />
-            ) : null}
-            {working ? (
-              <View style={[styles.workingDot, { backgroundColor: theme.success }]} />
-            ) : null}
-            <Text numberOfLines={1} style={[styles.preview, { color: theme.textMuted }]}>
-              {working ? "Working…" : row.latest ? channelMessageSummary(row.latest) : ""}
-            </Text>
-            {unread ? <View style={styles.unreadDot} /> : null}
-          </View>
-        </View>
-      </Pressable>
+        </Pressable>
+      </NativeContextMenuHost>
     </ReanimatedSwipeable>
   );
 }, areChannelRowPropsEqual);
@@ -264,6 +289,8 @@ const ChannelRow = memo(function ChannelRow({
 function areChannelRowPropsEqual(previous: ChannelRowProps, next: ChannelRowProps): boolean {
   return (
     previous.botById === next.botById &&
+    previous.menuJSON === next.menuJSON &&
+    previous.onMenuAction === next.onMenuAction &&
     previous.manualUnread === next.manualUnread &&
     previous.pinned === next.pinned &&
     previous.selected === next.selected &&
@@ -529,6 +556,87 @@ export default function HomeScreen() {
     router.push({ pathname: "/new", params: { mode } });
   }, []);
 
+  const handleMenuAction = useCallback(
+    (row: ChannelRowProjection, id: string) => {
+      if (id === "unread") handleToggleUnread(row.channel.id);
+      else if (id === "pin") handleTogglePinned(row.channel.id);
+      else if (id === "hide") handleHide(row);
+      else if (id === "duplicate") handleDuplicate(row);
+      else if (id === "copy") void Clipboard.setStringAsync(row.channel.id);
+      else if (id === "delete") handleDelete(row);
+      else if (id === "new-section") handleNewSection(row);
+      else if (id.startsWith("move:")) handleMove(row.channel.id, id.slice(5) || null);
+      else if (id === "siri")
+        Alert.alert(
+          "Ask Siri",
+          "Add OpenTeam actions from the Shortcuts app to use them with Siri."
+        );
+    },
+    [
+      handleToggleUnread,
+      handleTogglePinned,
+      handleHide,
+      handleDuplicate,
+      handleDelete,
+      handleNewSection,
+      handleMove,
+    ]
+  );
+  const menus = useMemo(
+    () =>
+      new Map(
+        rows.map((row) => [
+          row.channel.id,
+          JSON.stringify([
+            {
+              id: "unread",
+              title:
+                unreadIdSet.has(row.channel.id) || (row.channel.unreadCount ?? 0) > 0
+                  ? "Mark Read"
+                  : "Mark Unread",
+              symbol: "bubble.left",
+            },
+            { id: "pin", title: pinnedIdSet.has(row.channel.id) ? "Unpin" : "Pin", symbol: "pin" },
+            {
+              id: "move",
+              title: "Move to",
+              symbol: "folder",
+              children: [
+                ...moveDestinations.map((destination) => ({
+                  id: `move:${destination.id ?? ""}`,
+                  title: destination.name,
+                  selected:
+                    (sidebarPreferences.sectionByChannel[row.channel.id] ?? null) ===
+                    destination.id,
+                })),
+                { id: "new-section", title: "New Section", symbol: "folder.badge.plus" },
+              ],
+            },
+            { id: "hide", title: "Hide", symbol: "eye.slash", destructive: true },
+            {
+              id: "more",
+              title: "More",
+              symbol: "ellipsis",
+              children: [
+                ...(row.bot
+                  ? [{ id: "duplicate", title: "Duplicate", symbol: "plus.square.on.square" }]
+                  : []),
+                { id: "copy", title: "Copy ID", symbol: "doc.on.doc" },
+                { id: "delete", title: "Delete", symbol: "trash", destructive: true },
+              ],
+            },
+            {
+              id: "system",
+              title: "",
+              inline: true,
+              children: [{ id: "siri", title: "Ask Siri", symbol: "apple.intelligence" }],
+            },
+          ] as NativeMenuAction[]),
+        ])
+      ),
+    [rows, unreadIdSet, pinnedIdSet, moveDestinations, sidebarPreferences.sectionByChannel]
+  );
+
   const renderItem = useCallback(
     ({ item }: { item: ConversationItem }) => {
       if (item.kind === "empty") {
@@ -537,6 +645,8 @@ export default function HomeScreen() {
       return (
         <ChannelRow
           botById={botById}
+          menuJSON={menus.get(item.row.channel.id) ?? "[]"}
+          onMenuAction={handleMenuAction}
           manualUnread={unreadIdSet.has(item.row.channel.id)}
           onHide={handleHide}
           onLongPress={openConversationMenu}
@@ -549,6 +659,8 @@ export default function HomeScreen() {
     },
     [
       actionRow?.channel.id,
+      menus,
+      handleMenuAction,
       botById,
       handleHide,
       handleTogglePinned,
@@ -717,21 +829,21 @@ const styles = StyleSheet.create({
   sectionTitle: { fontSize: 14, lineHeight: 19, fontWeight: "400" },
   emptySection: { height: 36, fontSize: 14, lineHeight: 19, paddingTop: 2 },
   row: {
-    minHeight: 72,
+    minHeight: 80,
     marginHorizontal: -4,
     paddingHorizontal: 4,
     borderRadius: 11,
     flexDirection: "row",
     alignItems: "center",
-    gap: 9,
+    gap: 16,
   },
   groupMark: { width: 48, height: 48 },
   groupMarkBack: { position: "absolute", left: 1, top: 1 },
   groupMarkFront: { position: "absolute", right: 0, bottom: 0 },
   rowCopy: { flex: 1, gap: 3 },
   rowTitleLine: { flexDirection: "row", alignItems: "center", gap: 7 },
-  rowTitle: { flexShrink: 1, fontSize: 17, lineHeight: 20, fontWeight: "600" },
-  rowTitleUnread: { fontWeight: "700" },
+  rowTitle: { flexShrink: 1, fontSize: 17, lineHeight: 20, fontWeight: "500" },
+  rowTitleUnread: { fontWeight: "500" },
   titlePill: {
     maxWidth: 70,
     borderRadius: 7,

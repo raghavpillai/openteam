@@ -30,7 +30,7 @@ function InlineMarkdown({
       {tokens.map((token) => {
         if (token.type === "code") {
           return (
-            <Text key={token.key} style={styles.inlineCode}>
+            <Text key={token.key} style={[styles.inlineCode, { color }]}>
               {token.text}
             </Text>
           );
@@ -247,12 +247,13 @@ const styles = StyleSheet.create({
   plainPreview: { gap: 8 },
   previewNotice: { fontSize: 12, lineHeight: 17, fontWeight: "600" },
   bodyText: { fontSize: 17, lineHeight: 22 },
-  strong: { fontWeight: "700" },
+  strong: { fontWeight: "600" },
   emphasis: { fontStyle: "italic" },
   strike: { textDecorationLine: "line-through" },
   inlineCode: {
-    fontFamily: "Menlo",
+    fontFamily: "Menlo-Regular",
     fontSize: 14,
+    fontWeight: "400",
   },
   link: { textDecorationLine: "underline" },
   heading: { fontWeight: "700" },
@@ -273,5 +274,5 @@ const styles = StyleSheet.create({
   codeScroller: { flexGrow: 0 },
   codeScrollContent: { flexGrow: 0 },
   codeLanguage: { fontSize: 10, lineHeight: 13, fontWeight: "700", textTransform: "uppercase" },
-  codeText: { fontFamily: "Menlo", fontSize: 12, lineHeight: 18 },
+  codeText: { fontFamily: "Menlo-Regular", fontSize: 12, lineHeight: 18 },
 });

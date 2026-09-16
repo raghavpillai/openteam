@@ -70,7 +70,17 @@ function RootNavigation() {
                   name="search"
                   options={{ headerShown: false, presentation: "modal" }}
                 />
-                <Stack.Screen name="new" options={{ headerShown: false, presentation: "modal" }} />
+                <Stack.Screen
+                  name="new"
+                  options={{
+                    headerShown: false,
+                    presentation: "formSheet",
+                    sheetAllowedDetents: [0.9495],
+                    sheetCornerRadius: 40,
+                    sheetGrabberVisible: false,
+                    sheetExpandsWhenScrolledToEdge: false,
+                  }}
+                />
                 <Stack.Screen
                   name="settings"
                   options={{

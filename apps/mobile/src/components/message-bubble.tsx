@@ -17,6 +17,7 @@ import { formatOfflineDeliveryLabel } from "@openteam/product-core/timestamps";
 import * as Clipboard from "expo-clipboard";
 import * as Haptics from "../haptics";
 import { ReplySwipe } from "../reply-swipe";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { SymbolView } from "expo-symbols";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -26,7 +27,6 @@ import {
   Easing,
   Image,
   Modal,
-  PanResponder,
   Pressable,
   StyleSheet,
   Text,
@@ -38,6 +38,7 @@ import {
 } from "../mobile-markdown-core";
 import { useChatTheme } from "../chat-appearance";
 import { AttachmentPreview } from "./attachment-preview";
+import { NativeMessageActions } from "./native-controls";
 import { ImageViewer, type ImageViewerItem } from "./image-viewer";
 import { MobileMarkdown, messageNeedsMobileMarkdown } from "./mobile-markdown";
 import { MobileRichMessageCard } from "./rich-message-card";
@@ -277,46 +278,33 @@ export function MessageBubble({
     };
   }, [entranceOpacity, entranceTransform, enters, swipeToReplyEnabled]);
 
-  const swipeResponder = useMemo(
+  const swipeGesture = useMemo(
     () =>
-      PanResponder.create({
-        onMoveShouldSetPanResponderCapture: (_event, gesture) =>
-          swipeToReplyEnabled &&
-          gesture.dx > 7 &&
-          Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.2,
-        onPanResponderGrant: () => {
+      Gesture.Pan()
+        .enabled(swipeToReplyEnabled)
+        .activeOffsetX(7)
+        .failOffsetY([-10, 10])
+        .runOnJS(true)
+        .onStart(() => {
           swipeOffset.stopAnimation();
           replySwipe.reset();
-        },
-        onPanResponderMove: (_event, gesture) => {
-          const distance = Math.max(0, gesture.dx);
+        })
+        .onUpdate((gesture) => {
+          const distance = Math.max(0, gesture.translationX);
           const resistedDistance = Math.min(distance, 52) + Math.max(0, distance - 52) * 0.28;
           swipeOffset.setValue(Math.min(78, resistedDistance));
-          if (replySwipe.move(distance)) {
+          if (replySwipe.move(distance))
             void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-          }
-        },
-        onPanResponderRelease: (_event, gesture) => {
-          const result = replySwipe.release(gesture.dx, gesture.vx);
+        })
+        .onEnd((gesture) => {
+          // Gesture Handler reports points/second; ReplySwipe uses points/millisecond.
+          const result = replySwipe.release(gesture.translationX, gesture.velocityX / 1000);
           if (result.open && swipeToReplyEnabled) {
-            if (result.signal) {
-              void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            }
+            if (result.signal) void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
             onReply();
           }
-          if (reduceMotion !== false) {
-            swipeOffset.setValue(0);
-            return;
-          }
-          Animated.spring(swipeOffset, {
-            toValue: 0,
-            damping: 18,
-            stiffness: 260,
-            mass: 0.72,
-            useNativeDriver: true,
-          }).start();
-        },
-        onPanResponderTerminate: () => {
+        })
+        .onFinalize(() => {
           replySwipe.reset();
           if (reduceMotion !== false) {
             swipeOffset.setValue(0);
@@ -329,9 +317,7 @@ export function MessageBubble({
             mass: 0.72,
             useNativeDriver: true,
           }).start();
-        },
-        onPanResponderTerminationRequest: () => false,
-      }),
+        }),
     [onReply, reduceMotion, replySwipe, swipeOffset, swipeToReplyEnabled]
   );
 
@@ -438,323 +424,381 @@ export function MessageBubble({
           <SymbolView name="arrowshape.turn.up.left" size={19} tintColor={theme.textMuted} />
         </Animated.View>
       ) : null}
-      <Animated.View
-        {...swipeResponder.panHandlers}
-        style={[
-          styles.entranceContent,
-          isUser ? styles.contentRight : styles.contentLeft,
-          {
-            opacity: entranceOpacity,
-            transform:
-              reduceMotion === true
-                ? [{ translateX: swipeOffset }]
-                : [
-                    {
-                      translateY: entranceTransform.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [12, 0],
-                      }),
-                    },
-                    {
-                      scale: entranceTransform.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [0.94, 1],
-                      }),
-                    },
-                    { translateX: swipeOffset },
-                  ],
-            transformOrigin: isUser ? "100% 100%" : "0% 100%",
-          },
-        ]}
-      >
-        {showSpeakerName && speakerName ? (
-          <Text style={[styles.speakerLabel, { color: theme.textMuted }]}>{speakerName}</Text>
-        ) : null}
-        {a2aContext ? (
-          <View style={styles.a2aLabel}>
-            <SymbolView name="message.fill" size={12} tintColor={theme.textMuted} />
-            <Text style={[styles.a2aText, { color: theme.textMuted }]}>
-              {a2aContext.direction === "incoming" ? "Message from" : "Messaged"}{" "}
-              {peerBot?.name ?? a2aContext.peerName ?? "another agent"}
-            </Text>
-          </View>
-        ) : null}
-        {replyPreview ? (
-          <View style={[styles.replyPreview, isUser ? styles.replyRight : styles.replyLeft]}>
-            <SymbolView name="arrowshape.turn.up.left" size={13} tintColor={theme.textMuted} />
-            <Text numberOfLines={1} style={[styles.replyText, { color: theme.textMuted }]}>
-              {replyPreview}
-            </Text>
-          </View>
-        ) : null}
-        {richMessage ? (
-          <Pressable
-            accessible={false}
-            delayLongPress={280}
-            onLongPress={deliveryActionsDisabled ? undefined : openActions}
-            style={({ pressed }) => [styles.richActionTarget, pressed && { opacity: 0.82 }]}
-          >
-            <MobileRichMessageCard
-              message={message}
-              onComputerHandoff={onComputerHandoff}
-              onSecretSubmit={onSecretSubmit}
-              onWidgetDismiss={onWidgetDismiss}
-              onWidgetResponse={onWidgetResponse}
-              readOnly={readOnly}
-            />
-          </Pressable>
-        ) : (
-          <Pressable
-            accessibilityLabel={`${speakerName ?? (isUser ? "You" : "Agent")}: ${accessibilitySummary}`}
-            accessibilityRole="text"
-            accessibilityActions={
-              readOnly
-                ? undefined
-                : [
-                    {
-                      name: "showMessageActions",
-                      label: "Show message actions",
-                    },
-                  ]
-            }
-            accessibilityState={{ busy: pending }}
-            accessible={attachmentCount === 0}
-            delayLongPress={280}
-            onLongPress={deliveryActionsDisabled ? undefined : openActions}
-            onAccessibilityAction={(event) => {
-              if (
-                event.nativeEvent.actionName === "showMessageActions" &&
-                !deliveryActionsDisabled
-              ) {
-                openActions();
-              }
-            }}
-            style={({ pressed }) => [
-              styles.bubble,
-              advancedMarkdown && styles.advancedMarkdownBubble,
-              attachmentCount > 0 && styles.bubbleWithAttachments,
-              attachmentCount > 0 && !displayContent && styles.attachmentOnlyBubble,
-              {
-                backgroundColor: isUser ? theme.userBubble : theme.assistantBubble,
-                opacity: pressed ? 0.82 : 1,
-              },
-            ]}
-          >
-            {(files.length > 0 || stagedFiles.length > 0) && renderedContent ? (
-              <View
-                accessibilityLabel={`${speakerName ?? (isUser ? "You" : "Agent")}: ${accessibilitySummary}`}
-                accessibilityRole="text"
-                accessibilityState={{ busy: pending }}
-                accessible
-              >
-                {renderedContent}
-              </View>
-            ) : (
-              renderedContent
-            )}
-            {images.length > 0 || stagedImages.length > 0 ? (
-              <View
-                style={[
-                  styles.imageGallery,
-                  images.length + stagedImages.length === 1 && styles.singleImageGallery,
-                ]}
-              >
-                {keyedImages.map(({ value: { image, url }, key }, index) => (
-                  <Pressable
-                    accessibilityLabel={image.alt ?? `Attached image ${index + 1}`}
-                    accessibilityHint="Opens full-screen image viewer"
-                    accessibilityRole="button"
-                    key={key}
-                    onPress={() =>
-                      setViewerItem({
-                        caption: image.alt?.trim() || displayContent.trim() || image.fileName,
-                        uri: url,
-                        fileName: image.fileName,
-                        assetId: image.assetId,
-                        byteSize: image.byteSize,
-                      })
-                    }
-                    style={
-                      images.length + stagedImages.length === 1
-                        ? [styles.singleImage, { backgroundColor: theme.surfacePressed }]
-                        : [styles.gridImage, { backgroundColor: theme.surfacePressed }]
-                    }
-                  >
-                    <Image resizeMode="cover" source={{ uri: url }} style={styles.galleryImage} />
-                  </Pressable>
-                ))}
-                {stagedImages.map((image, index) => (
-                  <Pressable
-                    accessibilityLabel={image.alt ?? `Attached image ${images.length + index + 1}`}
-                    accessibilityHint="Opens full-screen image viewer"
-                    accessibilityRole="button"
-                    key={image.stagingId}
-                    onPress={() =>
-                      setViewerItem({
-                        caption: image.alt?.trim() || displayContent.trim() || image.fileName,
-                        uri: image.previewUri ?? "",
-                        fileName: image.fileName,
-                      })
-                    }
-                    style={
-                      images.length + stagedImages.length === 1
-                        ? [styles.singleImage, { backgroundColor: theme.surfacePressed }]
-                        : [styles.gridImage, { backgroundColor: theme.surfacePressed }]
-                    }
-                  >
-                    <Image
-                      resizeMode="cover"
-                      source={{ uri: image.previewUri }}
-                      style={styles.galleryImage}
-                    />
-                  </Pressable>
-                ))}
-              </View>
-            ) : null}
-            {files.length > 0 || stagedFiles.length > 0 ? (
-              <View style={styles.fileList}>
-                {files.map((file) => (
-                  <AttachmentPreview
-                    asset={file}
-                    key={`${file.assetId}:${file.fileName}`}
-                    url={assetUrl(file, true)}
-                  />
-                ))}
-                {stagedFiles.map((file) => (
-                  <View
-                    key={file.stagingId}
-                    style={[
-                      styles.stagedFile,
+      <GestureDetector gesture={swipeGesture}>
+        <Animated.View
+          collapsable={false}
+          style={[
+            styles.entranceContent,
+            isUser ? styles.contentRight : styles.contentLeft,
+            {
+              opacity: entranceOpacity,
+              transform:
+                reduceMotion === true
+                  ? [{ translateX: swipeOffset }]
+                  : [
                       {
-                        backgroundColor: theme.surface,
-                        borderColor: theme.border,
+                        translateY: entranceTransform.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [12, 0],
+                        }),
                       },
-                    ]}
-                  >
-                    <SymbolView name="doc.fill" size={18} tintColor={theme.textMuted} />
-                    <Text
-                      numberOfLines={1}
-                      style={[styles.stagedFileName, { color: theme.textMuted }]}
-                    >
-                      {file.fileName}
-                    </Text>
-                  </View>
-                ))}
-              </View>
-            ) : null}
-          </Pressable>
-        )}
-        {reactions.length > 0 ? (
-          <View style={[styles.reactions, isUser ? styles.reactionsRight : styles.reactionsLeft]}>
-            {reactions.map((reaction) => (
-              <ReactionPill
-                key={reaction.emoji}
-                {...reaction}
-                onPress={() => onReact(reaction.emoji)}
+                      {
+                        scale: entranceTransform.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [0.94, 1],
+                        }),
+                      },
+                      { translateX: swipeOffset },
+                    ],
+              transformOrigin: isUser ? "100% 100%" : "0% 100%",
+            },
+          ]}
+        >
+          {showSpeakerName && speakerName ? (
+            <Text style={[styles.speakerLabel, { color: theme.textMuted }]}>{speakerName}</Text>
+          ) : null}
+          {a2aContext ? (
+            <View style={styles.a2aLabel}>
+              <SymbolView name="message.fill" size={12} tintColor={theme.textMuted} />
+              <Text style={[styles.a2aText, { color: theme.textMuted }]}>
+                {a2aContext.direction === "incoming" ? "Message from" : "Messaged"}{" "}
+                {peerBot?.name ?? a2aContext.peerName ?? "another agent"}
+              </Text>
+            </View>
+          ) : null}
+          {replyPreview ? (
+            <View style={[styles.replyPreview, isUser ? styles.replyRight : styles.replyLeft]}>
+              <SymbolView name="arrowshape.turn.up.left" size={13} tintColor={theme.textMuted} />
+              <Text numberOfLines={1} style={[styles.replyText, { color: theme.textMuted }]}>
+                {replyPreview}
+              </Text>
+            </View>
+          ) : null}
+          {richMessage ? (
+            <Pressable
+              accessible={false}
+              delayLongPress={280}
+              onLongPress={deliveryActionsDisabled ? undefined : openActions}
+              style={({ pressed }) => [styles.richActionTarget, pressed && { opacity: 0.82 }]}
+            >
+              <MobileRichMessageCard
+                message={message}
+                onComputerHandoff={onComputerHandoff}
+                onSecretSubmit={onSecretSubmit}
+                onWidgetDismiss={onWidgetDismiss}
+                onWidgetResponse={onWidgetResponse}
                 readOnly={readOnly}
               />
-            ))}
-          </View>
-        ) : null}
-        {threadReplyCount > 0 && onOpenThread ? (
-          <Pressable
-            accessibilityLabel={`Open thread with ${threadReplyCountLabel(threadReplyCount, threadReplyCountIsPartial)}`}
-            accessibilityRole="button"
-            hitSlop={6}
-            onPress={onOpenThread}
-            style={({ pressed }) => [styles.threadButton, { opacity: pressed ? 0.62 : 1 }]}
-          >
-            <SymbolView name="bubble.left.and.bubble.right" size={13} tintColor={theme.accent} />
-            <Text style={[styles.threadLabel, { color: theme.accent }]}>
-              {threadReplyCountLabel(threadReplyCount, threadReplyCountIsPartial)}
-            </Text>
-          </Pressable>
-        ) : null}
-        {deliveryState === "queued" && deliveryNonce ? (
-          <View
-            accessibilityLabel="Queued message actions"
-            style={[styles.deliveryFooter, isUser ? styles.deliveryFooterRight : null]}
-          >
-            <Text style={[styles.deliveryStatus, { color: theme.textMuted }]}>
-              {durableSendStatusLabel("queued", deliveryTransportDown)}
-            </Text>
-            {onCancelQueued ? (
-              <Pressable
-                accessibilityLabel="Cancel queued message"
-                accessibilityRole="button"
-                hitSlop={6}
-                onPress={() => onCancelQueued(deliveryNonce)}
-                style={({ pressed }) => [styles.deliveryAction, { opacity: pressed ? 0.55 : 1 }]}
-              >
-                <Text style={[styles.deliveryActionText, { color: theme.textMuted }]}>Cancel</Text>
-              </Pressable>
-            ) : null}
-          </View>
-        ) : deliveryState === "failed" && deliveryNonce ? (
-          <View
-            accessibilityLabel="Failed message actions"
-            style={[styles.deliveryFooter, isUser ? styles.deliveryFooterRight : null]}
-          >
-            <Text style={[styles.deliveryStatus, { color: theme.danger }]}>
-              {durableSendStatusLabel("failed")}
-            </Text>
-            {onResendFailed ? (
-              <Pressable
-                accessibilityLabel="Resend failed message"
-                accessibilityRole="button"
-                hitSlop={6}
-                onPress={() => {
-                  void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  onResendFailed(deliveryNonce);
-                }}
-                style={({ pressed }) => [styles.deliveryAction, { opacity: pressed ? 0.55 : 1 }]}
-              >
-                <Text style={[styles.deliveryActionText, { color: theme.accent }]}>Resend</Text>
-              </Pressable>
-            ) : null}
-            {onDeleteFailed ? (
-              <Pressable
-                accessibilityLabel="Delete failed message"
-                accessibilityRole="button"
-                hitSlop={6}
-                onPress={() => onDeleteFailed(deliveryNonce)}
-                style={({ pressed }) => [styles.deliveryAction, { opacity: pressed ? 0.55 : 1 }]}
-              >
-                <Text style={[styles.deliveryActionText, { color: theme.textMuted }]}>Delete</Text>
-              </Pressable>
-            ) : null}
-          </View>
-        ) : sentOfflineLabel ? (
-          <Animated.Text
-            accessibilityElementsHidden={currentSentOfflineAtMs === null}
-            importantForAccessibility={
-              currentSentOfflineAtMs === null ? "no-hide-descendants" : "auto"
-            }
-            style={[
-              styles.sentOffline,
-              isUser ? styles.sentOfflineRight : null,
-              { color: theme.textMuted },
-              {
-                maxHeight: sentOfflineVisibility.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [0, 32],
-                }),
-                marginTop: sentOfflineVisibility.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [0, 4],
-                }),
-                opacity: sentOfflineVisibility,
-              },
-            ]}
-          >
-            {sentOfflineLabel}
-          </Animated.Text>
-        ) : null}
-      </Animated.View>
+            </Pressable>
+          ) : (
+            <Pressable
+              accessibilityLabel={`${speakerName ?? (isUser ? "You" : "Agent")}: ${accessibilitySummary}`}
+              accessibilityRole="text"
+              accessibilityActions={
+                readOnly
+                  ? undefined
+                  : [
+                      {
+                        name: "showMessageActions",
+                        label: "Show message actions",
+                      },
+                    ]
+              }
+              accessibilityState={{ busy: pending }}
+              accessible={attachmentCount === 0}
+              delayLongPress={280}
+              onLongPress={deliveryActionsDisabled ? undefined : openActions}
+              onAccessibilityAction={(event) => {
+                if (
+                  event.nativeEvent.actionName === "showMessageActions" &&
+                  !deliveryActionsDisabled
+                ) {
+                  openActions();
+                }
+              }}
+              style={({ pressed }) => [
+                styles.bubble,
+                advancedMarkdown && styles.advancedMarkdownBubble,
+                attachmentCount > 0 && styles.bubbleWithAttachments,
+                attachmentCount > 0 && !displayContent && styles.attachmentOnlyBubble,
+                {
+                  backgroundColor: isUser ? theme.userBubble : theme.assistantBubble,
+                  opacity: pressed ? 0.82 : 1,
+                },
+              ]}
+            >
+              {(files.length > 0 || stagedFiles.length > 0) && renderedContent ? (
+                <View
+                  accessibilityLabel={`${speakerName ?? (isUser ? "You" : "Agent")}: ${accessibilitySummary}`}
+                  accessibilityRole="text"
+                  accessibilityState={{ busy: pending }}
+                  accessible
+                >
+                  {renderedContent}
+                </View>
+              ) : (
+                renderedContent
+              )}
+              {images.length > 0 || stagedImages.length > 0 ? (
+                <View
+                  style={[
+                    styles.imageGallery,
+                    images.length + stagedImages.length === 1 && styles.singleImageGallery,
+                  ]}
+                >
+                  {keyedImages.map(({ value: { image, url }, key }, index) => (
+                    <Pressable
+                      accessibilityLabel={image.alt ?? `Attached image ${index + 1}`}
+                      accessibilityHint="Opens full-screen image viewer"
+                      accessibilityRole="button"
+                      key={key}
+                      onPress={() =>
+                        setViewerItem({
+                          caption: image.alt?.trim() || displayContent.trim() || image.fileName,
+                          uri: url,
+                          fileName: image.fileName,
+                          assetId: image.assetId,
+                          byteSize: image.byteSize,
+                        })
+                      }
+                      style={
+                        images.length + stagedImages.length === 1
+                          ? [styles.singleImage, { backgroundColor: theme.surfacePressed }]
+                          : [styles.gridImage, { backgroundColor: theme.surfacePressed }]
+                      }
+                    >
+                      <Image resizeMode="cover" source={{ uri: url }} style={styles.galleryImage} />
+                    </Pressable>
+                  ))}
+                  {stagedImages.map((image, index) => (
+                    <Pressable
+                      accessibilityLabel={
+                        image.alt ?? `Attached image ${images.length + index + 1}`
+                      }
+                      accessibilityHint="Opens full-screen image viewer"
+                      accessibilityRole="button"
+                      key={image.stagingId}
+                      onPress={() =>
+                        setViewerItem({
+                          caption: image.alt?.trim() || displayContent.trim() || image.fileName,
+                          uri: image.previewUri ?? "",
+                          fileName: image.fileName,
+                        })
+                      }
+                      style={
+                        images.length + stagedImages.length === 1
+                          ? [styles.singleImage, { backgroundColor: theme.surfacePressed }]
+                          : [styles.gridImage, { backgroundColor: theme.surfacePressed }]
+                      }
+                    >
+                      <Image
+                        resizeMode="cover"
+                        source={{ uri: image.previewUri }}
+                        style={styles.galleryImage}
+                      />
+                    </Pressable>
+                  ))}
+                </View>
+              ) : null}
+              {files.length > 0 || stagedFiles.length > 0 ? (
+                <View style={styles.fileList}>
+                  {files.map((file) => (
+                    <AttachmentPreview
+                      asset={file}
+                      key={`${file.assetId}:${file.fileName}`}
+                      url={assetUrl(file, true)}
+                    />
+                  ))}
+                  {stagedFiles.map((file) => (
+                    <View
+                      key={file.stagingId}
+                      style={[
+                        styles.stagedFile,
+                        {
+                          backgroundColor: theme.surface,
+                          borderColor: theme.border,
+                        },
+                      ]}
+                    >
+                      <SymbolView name="doc.fill" size={18} tintColor={theme.textMuted} />
+                      <Text
+                        numberOfLines={1}
+                        style={[styles.stagedFileName, { color: theme.textMuted }]}
+                      >
+                        {file.fileName}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              ) : null}
+            </Pressable>
+          )}
+          {reactions.length > 0 ? (
+            <View style={[styles.reactions, isUser ? styles.reactionsRight : styles.reactionsLeft]}>
+              {reactions.map((reaction) => (
+                <ReactionPill
+                  key={reaction.emoji}
+                  {...reaction}
+                  onPress={() => onReact(reaction.emoji)}
+                  readOnly={readOnly}
+                />
+              ))}
+            </View>
+          ) : null}
+          {threadReplyCount > 0 && onOpenThread ? (
+            <Pressable
+              accessibilityLabel={`Open thread with ${threadReplyCountLabel(threadReplyCount, threadReplyCountIsPartial)}`}
+              accessibilityRole="button"
+              hitSlop={6}
+              onPress={onOpenThread}
+              style={({ pressed }) => [styles.threadButton, { opacity: pressed ? 0.62 : 1 }]}
+            >
+              <SymbolView name="bubble.left.and.bubble.right" size={13} tintColor={theme.accent} />
+              <Text style={[styles.threadLabel, { color: theme.accent }]}>
+                {threadReplyCountLabel(threadReplyCount, threadReplyCountIsPartial)}
+              </Text>
+            </Pressable>
+          ) : null}
+          {deliveryState === "queued" && deliveryNonce ? (
+            <View
+              accessibilityLabel="Queued message actions"
+              style={[styles.deliveryFooter, isUser ? styles.deliveryFooterRight : null]}
+            >
+              <Text style={[styles.deliveryStatus, { color: theme.textMuted }]}>
+                {durableSendStatusLabel("queued", deliveryTransportDown)}
+              </Text>
+              {onCancelQueued ? (
+                <Pressable
+                  accessibilityLabel="Cancel queued message"
+                  accessibilityRole="button"
+                  hitSlop={6}
+                  onPress={() => onCancelQueued(deliveryNonce)}
+                  style={({ pressed }) => [styles.deliveryAction, { opacity: pressed ? 0.55 : 1 }]}
+                >
+                  <Text style={[styles.deliveryActionText, { color: theme.textMuted }]}>
+                    Cancel
+                  </Text>
+                </Pressable>
+              ) : null}
+            </View>
+          ) : deliveryState === "failed" && deliveryNonce ? (
+            <View
+              accessibilityLabel="Failed message actions"
+              style={[styles.deliveryFooter, isUser ? styles.deliveryFooterRight : null]}
+            >
+              <Text style={[styles.deliveryStatus, { color: theme.danger }]}>
+                {durableSendStatusLabel("failed")}
+              </Text>
+              {onResendFailed ? (
+                <Pressable
+                  accessibilityLabel="Resend failed message"
+                  accessibilityRole="button"
+                  hitSlop={6}
+                  onPress={() => {
+                    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    onResendFailed(deliveryNonce);
+                  }}
+                  style={({ pressed }) => [styles.deliveryAction, { opacity: pressed ? 0.55 : 1 }]}
+                >
+                  <Text style={[styles.deliveryActionText, { color: theme.accent }]}>Resend</Text>
+                </Pressable>
+              ) : null}
+              {onDeleteFailed ? (
+                <Pressable
+                  accessibilityLabel="Delete failed message"
+                  accessibilityRole="button"
+                  hitSlop={6}
+                  onPress={() => onDeleteFailed(deliveryNonce)}
+                  style={({ pressed }) => [styles.deliveryAction, { opacity: pressed ? 0.55 : 1 }]}
+                >
+                  <Text style={[styles.deliveryActionText, { color: theme.textMuted }]}>
+                    Delete
+                  </Text>
+                </Pressable>
+              ) : null}
+            </View>
+          ) : sentOfflineLabel ? (
+            <Animated.Text
+              accessibilityElementsHidden={currentSentOfflineAtMs === null}
+              importantForAccessibility={
+                currentSentOfflineAtMs === null ? "no-hide-descendants" : "auto"
+              }
+              style={[
+                styles.sentOffline,
+                isUser ? styles.sentOfflineRight : null,
+                { color: theme.textMuted },
+                {
+                  maxHeight: sentOfflineVisibility.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0, 32],
+                  }),
+                  marginTop: sentOfflineVisibility.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0, 4],
+                  }),
+                  opacity: sentOfflineVisibility,
+                },
+              ]}
+            >
+              {sentOfflineLabel}
+            </Animated.Text>
+          ) : null}
+        </Animated.View>
+      </GestureDetector>
 
       <ImageViewer item={viewerItem} onClose={() => setViewerItem(null)} />
 
-      {actionsOpen ? (
+      {actionsOpen && NativeMessageActions ? (
+        <NativeMessageActions
+          visible
+          dark={theme.dark}
+          reactions={readOnly ? [] : [...QUICK_REACTIONS, "🔥", "👀", "🙏", "😢", "💯"]}
+          actionsJSON={JSON.stringify([
+            ...(!readOnly
+              ? [
+                  { id: "reply", title: "Reply", symbol: "arrowshape.turn.up.left" },
+                  ...(onStartThread
+                    ? [
+                        {
+                          id: "thread",
+                          title: "Start a thread",
+                          symbol: "bubble.left.and.bubble.right",
+                        },
+                      ]
+                    : []),
+                  ...(onMarkUnread
+                    ? [{ id: "unread", title: "Mark as unread", symbol: "bubble.badge" }]
+                    : []),
+                ]
+              : []),
+            { id: "copy", title: "Copy", symbol: "doc.on.doc", separate: true },
+            ...(!readOnly && onReport
+              ? [{ id: "report", title: "Report", symbol: "flag", separate: true }]
+              : []),
+          ])}
+          onDismiss={() => setActionsOpen(false)}
+          onAction={({ nativeEvent: { id } }) => {
+            setActionsOpen(false);
+            if (id === "reply") onReply();
+            else if (id === "thread") onStartThread?.();
+            else if (id === "unread") onMarkUnread?.();
+            else if (id === "report") onReport?.();
+            else if (id.startsWith("reaction:")) {
+              void Haptics.selectionAsync();
+              onReact(id.slice(9));
+            } else if (id === "more-reactions")
+              Alert.alert(
+                "More reactions",
+                "Custom emoji reactions are not available on this server."
+              );
+            else if (id === "copy")
+              void Clipboard.setStringAsync(message.content)
+                .then(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light))
+                .catch(() => Alert.alert("Couldn’t copy message", "Please try again."));
+          }}
+          style={{ width: 0, height: 0 }}
+        />
+      ) : actionsOpen ? (
         <Modal
           animationType="fade"
           transparent
@@ -936,7 +980,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     minHeight: 24,
-    marginVertical: 7,
+    marginVertical: 0,
     gap: 6,
   },
   nameChangeEventText: { flexShrink: 1, fontSize: 14, lineHeight: 18 },

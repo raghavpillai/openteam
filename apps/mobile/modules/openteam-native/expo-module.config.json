@@ -6,7 +6,9 @@
     "modules": [
       "OpenTeamNativeModule",
       "OpenTeamButtonModule",
-      "OpenTeamSettingsModule"
+      "OpenTeamSettingsModule",
+      "OpenTeamContextMenuModule",
+      "OpenTeamMessageActionsModule"
     ],
     "appDelegateSubscribers": [
       "OpenTeamNotificationSubscriber"

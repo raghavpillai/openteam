@@ -151,9 +151,13 @@ function SearchResultRow({
   result: SearchResultView;
 }) {
   const theme = useTheme();
+  const subtitle =
+    result.kind === "bot" && result.botId
+      ? botById.get(result.botId)?.description.trim() || result.subtitle
+      : result.subtitle;
   return (
     <Pressable
-      accessibilityLabel={`${searchResultKindLabel(result.kind)}: ${result.title}. ${result.subtitle}`}
+      accessibilityLabel={`${searchResultKindLabel(result.kind)}: ${result.title}. ${subtitle}`}
       accessibilityRole="button"
       onPress={onPress}
       style={({ pressed }) => [
@@ -171,9 +175,9 @@ function SearchResultRow({
             {result.kind === "channel" ? "Group" : searchResultKindLabel(result.kind)}
           </Text>
         </View>
-        {result.subtitle.trim() ? (
+        {subtitle.trim() ? (
           <Text numberOfLines={1} style={[styles.resultSubtitle, { color: theme.textMuted }]}>
-            {result.subtitle}
+            {subtitle}
           </Text>
         ) : null}
       </View>
@@ -570,7 +574,7 @@ const styles = StyleSheet.create({
   },
   resultCopy: { flex: 1, gap: 3 },
   resultTitleLine: { flexDirection: "row", alignItems: "center", gap: 10 },
-  resultTitle: { flex: 1, fontSize: 17, lineHeight: 22, fontWeight: "600" },
+  resultTitle: { flex: 1, fontSize: 17, lineHeight: 22, fontWeight: "500" },
   resultKind: { fontSize: 13, lineHeight: 17, fontWeight: "400" },
   resultSubtitle: { fontSize: 15, lineHeight: 20 },
   centerState: {

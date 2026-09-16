@@ -1,10 +1,11 @@
 import { requireNativeView, requireOptionalNativeModule } from "expo";
-import type { ComponentType } from "react";
+import type { ComponentType, ReactNode } from "react";
 import {
   ActionSheetIOS,
   Alert,
   Button,
   Platform,
+  Pressable,
   StyleSheet,
   Text,
   View,
@@ -13,22 +14,138 @@ import {
 import type { SymbolViewProps } from "expo-symbols";
 import { useTheme } from "../theme";
 import { IconButton } from "./icon-button";
+import { GlassSurface } from "./glass-surface";
+
+export function NativeGlassButton({
+  children,
+  label,
+  symbol = "",
+  symbolSize = 20,
+  fallbackSymbolSize = symbolSize,
+  symbolOffsetX = 0,
+  disabled = false,
+  onPress,
+  style,
+}: {
+  children?: ReactNode;
+  label: string;
+  symbol?: string;
+  symbolSize?: number;
+  fallbackSymbolSize?: number;
+  symbolOffsetX?: number;
+  disabled?: boolean;
+  onPress: () => void;
+  style?: ViewProps["style"];
+}) {
+  const theme = useTheme();
+  if (!NativeButton) {
+    return children ? (
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={label}
+        disabled={disabled}
+        onPress={onPress}
+        style={style}
+      >
+        <GlassSurface interactive edgeTreatment="native" style={{ borderRadius: 22 }}>
+          {children}
+        </GlassSurface>
+      </Pressable>
+    ) : (
+      <IconButton
+        label={label}
+        name={symbol as SymbolViewProps["name"]}
+        symbolSize={fallbackSymbolSize}
+        size={44}
+        tone="glass"
+        onPress={onPress}
+        disabled={disabled}
+        style={style}
+      />
+    );
+  }
+  return (
+    <View style={[{ minWidth: 44, minHeight: 44 }, style]}>
+      {/* Offset the native wrapper's two-point reserve to keep the visual frame at 44 points. */}
+      <NativeButton
+        label={label}
+        symbol={symbol}
+        symbolSize={symbolSize}
+        symbolOffsetX={symbolOffsetX}
+        glassTintAlpha={0.056}
+        dark={theme.dark}
+        disabled={disabled}
+        variant="chatGlass"
+        actions={[]}
+        onActivate={onPress}
+        style={{ position: "absolute", top: -2, bottom: -2, left: -2, right: -2 }}
+      />
+      {children ? (
+        <View
+          pointerEvents="none"
+          accessible={false}
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+        >
+          {children}
+        </View>
+      ) : null}
+    </View>
+  );
+}
 
 export interface NativeMenuAction {
   id: string;
   title: string;
   symbol?: string;
   selected?: boolean;
+  destructive?: boolean;
+  children?: NativeMenuAction[];
+  inline?: boolean;
 }
+
+interface ContextMenuProps extends ViewProps {
+  onActivate?: () => void;
+  dark: boolean;
+  menuJSON: string;
+  onAction: (event: { nativeEvent: { id: string } }) => void;
+}
+export const NativeContextMenu: ComponentType<ContextMenuProps> | null =
+  Platform.OS === "ios" && requireOptionalNativeModule("OpenTeamContextMenu")
+    ? requireNativeView<ContextMenuProps>("OpenTeamContextMenu")
+    : null;
+
+export function NativeContextMenuHost(props: ContextMenuProps) {
+  return NativeContextMenu ? (
+    <NativeContextMenu {...props} />
+  ) : (
+    <View style={props.style}>{props.children}</View>
+  );
+}
+
+interface MessageActionsProps extends ViewProps {
+  visible: boolean;
+  dark: boolean;
+  actionsJSON: string;
+  reactions: string[];
+  onAction: (event: { nativeEvent: { id: string } }) => void;
+  onDismiss: () => void;
+}
+export const NativeMessageActions: ComponentType<MessageActionsProps> | null =
+  Platform.OS === "ios" && requireOptionalNativeModule("OpenTeamMessageActions")
+    ? requireNativeView<MessageActionsProps>("OpenTeamMessageActions")
+    : null;
 interface ButtonProps extends ViewProps {
   symbol: string;
   label: string;
   initials?: string;
   title?: string;
-  variant?: "glass" | "tinted" | "filled" | "plain";
+  variant?: "glass" | "chatGlass" | "tinted" | "filled" | "plain" | "primary";
   busy?: boolean;
   destructive?: boolean;
   symbolSize: number;
+  symbolOffsetX?: number;
+  glassTintAlpha?: number;
   dark: boolean;
   disabled?: boolean;
   actions?: NativeMenuAction[];
@@ -152,7 +269,7 @@ export function NativeActionButton({
   disabled?: boolean;
   busy?: boolean;
   destructive?: boolean;
-  variant?: "glass" | "tinted" | "filled" | "plain";
+  variant?: "glass" | "tinted" | "filled" | "plain" | "primary";
   symbol?: SymbolViewProps["name"];
   actions?: NativeMenuAction[];
   onAction?: (id: string) => void;
@@ -212,7 +329,7 @@ export function NativeActionButton({
         }}
       >
         {symbol ? <View style={{ width: 26 }} /> : null}
-        <Text style={{ fontSize: 15, fontWeight: "600" }}>{title}</Text>
+        <Text style={{ fontSize: 17, fontWeight: "400" }}>{title}</Text>
       </View>
       <NativeButton
         title={title}

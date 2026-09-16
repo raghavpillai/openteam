@@ -13,4 +13,4 @@ export function useChatTheme() {
   return useTheme().dark ? darkChatTheme : lightTheme;
 }
 
-export const chatGlassTint = "rgba(255,255,255,0.06)";
+export const chatGlassTint = "rgba(255,255,255,0.056)";

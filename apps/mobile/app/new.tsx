@@ -16,6 +16,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { CreateBotSheet } from "../src/components/create-bot-sheet";
 import { BotAvatar } from "../src/components/bot-avatar";
 import { NativeToolbarButton } from "../src/components/native-controls";
 import {
@@ -146,6 +147,9 @@ export default function NewConversationScreen() {
     ),
     [filteredBots.length, selectedBotIdSet, toggleBot]
   );
+
+  const botForm = mode === "bot" ? <CreateBotSheet /> : null;
+  if (botForm) return botForm;
 
   const footer = (
     <>

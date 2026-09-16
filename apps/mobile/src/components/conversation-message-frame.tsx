@@ -90,7 +90,7 @@ export function ConversationMessageFrame({
 }
 
 const styles = StyleSheet.create({
-  timestamp: { textAlign: "center", fontSize: 14, lineHeight: 20, marginTop: 16, marginBottom: 10 },
+  timestamp: { textAlign: "center", fontSize: 14, lineHeight: 20, marginTop: 19, marginBottom: 7 },
   unread: { height: 36, paddingBottom: 6, flexDirection: "row", alignItems: "center", gap: 10 },
   rule: { flex: 1, height: 1, backgroundColor: "rgba(0,108,235,0.5)" },
   newLabel: {

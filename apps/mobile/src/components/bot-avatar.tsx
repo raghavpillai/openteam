@@ -12,12 +12,14 @@ export const BotAvatar = memo(function BotAvatar({
   color = bot?.color ?? DEFAULT_BOT_AVATAR.color,
   icon = bot?.icon,
   size = 48,
+  artworkScale = 1.25,
   showCustomAvatar = true,
 }: {
   bot?: Pick<BotView, "id" | "hasAvatar" | "updatedAt" | "color" | "icon">;
   color?: string;
   icon?: string;
   size?: number;
+  artworkScale?: number;
   showCustomAvatar?: boolean;
 }) {
   const { connection, isFixture } = useOpenTeam();
@@ -34,7 +36,9 @@ export const BotAvatar = memo(function BotAvatar({
   return (
     <View style={{ width: size, height: size }}>
       {(!imageSource || loadedUri !== imageSource.uri) && (
-        <BotMark color={color} icon={icon} size={size} />
+        <View style={{ transform: [{ scale: artworkScale }] }}>
+          <BotMark color={color} icon={icon} size={size} />
+        </View>
       )}
       {imageSource && (
         <Image

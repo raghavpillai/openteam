@@ -218,7 +218,7 @@ describe("mobile virtual-list UI parity", () => {
     expect(tokens).toContain('background: "#FCFCFC"');
     expect(tokens).toContain('text: "#000000"');
     expect(tokens).toContain('textMuted: "#8E8E93"');
-    expect(tokens).toContain('textFaint: "#C3C3C1"');
+    expect(tokens).toContain('textFaint: "#BFBFBF"');
     expect(route).toContain("<NativeToolbarButton");
   });
 
@@ -350,7 +350,7 @@ describe("mobile virtual-list UI parity", () => {
     expect(bubble).toContain("messageNeedsMobileMarkdown");
     expect(bubble).toContain("<MobileMarkdown");
     expect(bubble).toContain("threadReplyCount");
-    expect(bubble).toContain("{actionsOpen ? (");
+    expect(bubble).toContain("{actionsOpen && NativeMessageActions ? (");
     expect(bubble).toContain("styles.richActionTarget");
     expect(bubble).toContain('richMessageWrap: { width: "88%" }');
     expect(bubble).toContain("boundedMobileAccessibilitySummary(displayContent)");

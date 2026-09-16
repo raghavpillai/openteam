@@ -1205,6 +1205,7 @@ export function Composer({
                     size={36}
                     visualHeight={28}
                     symbolSize={17}
+                    symbolWeight="bold"
                     tone="dark"
                     onPress={() => {
                       sendAfterVoice.current = true;
@@ -1239,6 +1240,7 @@ export function Composer({
                 size={36}
                 visualHeight={28}
                 symbolSize={17}
+                symbolWeight="bold"
                 tone="dark"
               />
             ) : null}

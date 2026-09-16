@@ -146,7 +146,7 @@ interface OpenTeamState {
   enableNotifications: () => Promise<void>;
   openNotificationSettings: () => Promise<void>;
   setBotNotifications: (botId: string, enabled: boolean) => Promise<void>;
-  createBot: (name: string) => Promise<string>;
+  createBot: (name: string, appearance?: { icon: string; color: string }) => Promise<string>;
   duplicateBot: (botId: string) => Promise<string>;
   archiveBot: (botId: string) => Promise<void>;
   createGroup: (name: string, botIds: string[]) => Promise<string>;
@@ -1470,13 +1470,14 @@ export function OpenTeamProvider({ children }: { children: React.ReactNode }) {
   );
 
   const createBot = useCallback(
-    async (name: string) => {
+    async (name: string, appearance?: { icon: string; color: string }) => {
       if (!client) throw new Error("Connect OpenTeam to a server before creating a Bot.");
       const operationClient = client;
       const epoch = connectionEpochRef.current;
       const bot = await operationClient.createBot({
         clientRequestId: mutationId(),
         name: name.trim(),
+        ...appearance,
       });
       if (!operationIsCurrent(operationClient, epoch)) {
         throw new Error("The OpenTeam server changed while creating this Bot.");

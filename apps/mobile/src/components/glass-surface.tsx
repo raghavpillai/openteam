@@ -5,13 +5,21 @@ import {
   isGlassEffectAPIAvailable,
 } from "expo-glass-effect";
 import type React from "react";
-import { Platform, type StyleProp, View, type ViewProps, type ViewStyle } from "react-native";
+import {
+  Platform,
+  type StyleProp,
+  StyleSheet,
+  View,
+  type ViewProps,
+  type ViewStyle,
+} from "react-native";
 import { useTheme } from "../theme";
 
 const nativeGlassAvailable = Platform.OS === "ios" && isGlassEffectAPIAvailable();
 
 export function GlassSurface({
   children,
+  edgeTreatment = "enhanced",
   fallbackColor,
   interactive = false,
   style,
@@ -20,6 +28,7 @@ export function GlassSurface({
   ...viewProps
 }: {
   children?: React.ReactNode;
+  edgeTreatment?: "native" | "enhanced";
   fallbackColor?: string;
   interactive?: boolean;
   style?: StyleProp<ViewStyle>;
@@ -42,13 +51,46 @@ export function GlassSurface({
   return (
     <GlassView
       colorScheme={theme.dark ? "dark" : "light"}
-      glassEffectStyle={variant}
+      glassEffectStyle={!theme.dark && variant === "clear" ? "regular" : variant}
       isInteractive={interactive}
       {...viewProps}
       style={style}
       tintColor={tintColor ?? (theme.dark ? "rgba(38,38,36,0.46)" : "rgba(255,255,255,0.24)")}
     >
       {children}
+      {edgeTreatment === "enhanced" && (!theme.dark || variant === "clear") ? (
+        <View
+          pointerEvents="none"
+          style={[
+            StyleSheet.absoluteFill,
+            {
+              borderRadius: StyleSheet.flatten(style)?.borderRadius ?? 0,
+              borderWidth: theme.dark ? StyleSheet.hairlineWidth : 0.5,
+              borderColor: theme.dark ? "rgba(255,255,255,0.17)" : "rgba(0,0,0,0.12)",
+              ...(theme.dark
+                ? {
+                    boxShadow: [
+                      {
+                        inset: true,
+                        offsetX: 0,
+                        offsetY: 1,
+                        blurRadius: 2,
+                        color: "rgba(255,255,255,0.15)",
+                      },
+                      {
+                        inset: true,
+                        offsetX: 0,
+                        offsetY: -1,
+                        blurRadius: 2,
+                        color: "rgba(255,255,255,0.15)",
+                      },
+                    ],
+                  }
+                : {}),
+            },
+          ]}
+        />
+      ) : null}
     </GlassView>
   );
 }

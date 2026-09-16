@@ -36,7 +36,9 @@ final class OpenTeamButtonView: ExpoView {
   var destructive = false { didSet { updateConfiguration() } }
   var label = "" { didSet { button.accessibilityLabel = label } }
   var symbolSize: Double = 20 { didSet { updateConfiguration() } }
-  var disabled = false { didSet { button.isEnabled = !disabled && !busy } }
+  var symbolOffsetX: Double = 0 { didSet { updateConfiguration() } }
+  var glassTintAlpha: Double = 0.056 { didSet { updateConfiguration() } }
+  var disabled = false { didSet { updateConfiguration() } }
   var dark = false { didSet {
     overrideUserInterfaceStyle = dark ? .dark : .light
     updateConfiguration()
@@ -51,15 +53,31 @@ final class OpenTeamButtonView: ExpoView {
     updateConfiguration()
   }
 
+  override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+    super.traitCollectionDidChange(previousTraitCollection)
+    if traitCollection.hasDifferentColorAppearance(comparedTo: previousTraitCollection) { updateConfiguration() }
+  }
+
   override func layoutSubviews() {
     super.layoutSubviews()
     button.frame = bounds.insetBy(dx: 2, dy: 2)
+    button.layer.cornerRadius = min(button.bounds.width, button.bounds.height) / 2
+    button.layer.borderWidth = (variant == "glass" || variant == "chatGlass") && !dark ? 0.5 : 0
+    button.layer.borderColor = UIColor.black.withAlphaComponent(0.12).cgColor
   }
 
   private func updateConfiguration() {
     var configuration: UIButton.Configuration
     switch variant {
+    case "chatGlass":
+      if #available(iOS 26.0, *) {
+        configuration = .prominentClearGlass()
+        configuration.baseBackgroundColor = dark ? UIColor(white: 1, alpha: glassTintAlpha) : UIColor.white.withAlphaComponent(0.24)
+      } else { configuration = .gray() }
     case "filled": configuration = .filled()
+    case "primary":
+      if #available(iOS 26.0, *) { configuration = .prominentGlass() } else { configuration = .filled() }
+      configuration.baseBackgroundColor = .label
     case "tinted": configuration = .tinted()
     case "plain": configuration = .plain()
     default: configuration = glassConfiguration()
@@ -68,19 +86,24 @@ final class OpenTeamButtonView: ExpoView {
     if variant == "filled" || variant == "tinted" {
       configuration.baseBackgroundColor = destructive ? .systemRed : .systemBlue
     }
-    configuration.baseForegroundColor = variant == "filled" ? .white : destructive ? .systemRed : variant == "glass" ? .label : .systemBlue
-    configuration.contentInsets = title.isEmpty ? .zero : NSDirectionalEdgeInsets(top: 8, leading: 14, bottom: 8, trailing: 14)
+    configuration.baseForegroundColor = variant == "primary" ? (dark ? .black : .white) : variant == "filled" ? .white : destructive ? .systemRed : variant == "glass" || variant == "chatGlass" ? .label : .systemBlue
+    configuration.contentInsets = title.isEmpty ? NSDirectionalEdgeInsets(top: 0, leading: symbolOffsetX * 2, bottom: 0, trailing: 0) : NSDirectionalEdgeInsets(top: 8, leading: 14, bottom: 8, trailing: 14)
     configuration.title = title.isEmpty || busy ? nil : title
+    let titleSize: CGFloat = variant == "primary" ? 19 : 17
+    let titleWeight: UIFont.Weight = variant == "primary" ? .medium : .regular
+    let titleColor: UIColor? = variant == "primary" ? (disabled ? UIColor(white: 0.81, alpha: 1) : dark ? .black : .white) : nil
     configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
       var attributes = incoming
-      attributes.font = UIFontMetrics(forTextStyle: .subheadline).scaledFont(for: .systemFont(ofSize: 15, weight: .semibold))
+      if let titleColor { attributes.foregroundColor = titleColor }
+      attributes.font = UIFontMetrics(forTextStyle: .subheadline).scaledFont(for: .systemFont(ofSize: titleSize, weight: titleWeight))
       return attributes
     }
     configuration.imagePadding = 6
     configuration.showsActivityIndicator = busy
+    let symbolWeight: UIImage.SymbolWeight = variant == "chatGlass" ? .semibold : .regular
     traitCollection.performAsCurrent {
       configuration.image = initials.isEmpty
-        ? (symbol.isEmpty ? nil : UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: symbolSize, weight: .regular)))
+        ? (symbol.isEmpty ? nil : UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: symbolSize, weight: symbolWeight)))
         : accountAvatar(initials, diameter: 38)
     }
     button.configuration = configuration
@@ -110,6 +133,8 @@ public final class OpenTeamButtonModule: Module {
       Prop("destructive") { (view, value: Bool) in view.destructive = value }
       Prop("label") { (view, value: String) in view.label = value }
       Prop("symbolSize") { (view, value: Double) in view.symbolSize = value }
+      Prop("symbolOffsetX") { (view, value: Double) in view.symbolOffsetX = value }
+      Prop("glassTintAlpha") { (view, value: Double) in view.glassTintAlpha = value }
       Prop("disabled") { (view, value: Bool) in view.disabled = value }
       Prop("dark") { (view, value: Bool) in view.dark = value }
       Prop("actions") { (view, value: [OpenTeamMenuAction]) in view.actions = value }
@@ -163,7 +188,7 @@ final class OpenTeamSettingsView: ExpoView, UITableViewDataSource, UITableViewDe
     table.contentInsetAdjustmentBehavior = .never
     table.keyboardDismissMode = .interactive
     var configuration = glassConfiguration()
-    configuration.image = UIImage(systemName: "xmark", withConfiguration: UIImage.SymbolConfiguration(pointSize: 17, weight: .semibold))
+    configuration.image = UIImage(systemName: "xmark", withConfiguration: UIImage.SymbolConfiguration(pointSize: 18, weight: .regular))
     configuration.cornerStyle = .capsule
     configuration.baseForegroundColor = .label
     closeButton.configuration = configuration
@@ -176,6 +201,9 @@ final class OpenTeamSettingsView: ExpoView, UITableViewDataSource, UITableViewDe
   override func layoutSubviews() {
     super.layoutSubviews()
     closeButton.frame = CGRect(x: 16, y: 18, width: 44, height: 44)
+    closeButton.layer.cornerRadius = 22
+    closeButton.layer.borderWidth = dark ? 0 : 0.5
+    closeButton.layer.borderColor = UIColor.black.withAlphaComponent(0.12).cgColor
     let tableTop: CGFloat = 92
     table.frame = CGRect(x: 0, y: tableTop, width: bounds.width, height: max(0, bounds.height - tableTop))
     table.contentInset.bottom = 24
@@ -219,7 +247,7 @@ final class OpenTeamSettingsView: ExpoView, UITableViewDataSource, UITableViewDe
     var content = row.detail.isEmpty ? UIListContentConfiguration.subtitleCell() : UIListContentConfiguration.valueCell()
     content.text = row.title
     content.secondaryText = row.detail.isEmpty ? (row.subtitle.isEmpty ? nil : row.subtitle) : row.detail
-    content.textProperties.font = UIFontMetrics(forTextStyle: .body).scaledFont(for: .systemFont(ofSize: 17, weight: row.kind == "profile" ? .medium : .regular))
+    content.textProperties.font = UIFontMetrics(forTextStyle: .body).scaledFont(for: .systemFont(ofSize: 17, weight: .regular))
     content.secondaryTextProperties.font = UIFontMetrics(forTextStyle: .subheadline).scaledFont(for: .systemFont(ofSize: row.detail.isEmpty ? 14 : 16))
     content.directionalLayoutMargins = NSDirectionalEdgeInsets(top: 10, leading: 18, bottom: 10, trailing: 18)
     content.textProperties.color = row.destructive ? .systemRed : .label

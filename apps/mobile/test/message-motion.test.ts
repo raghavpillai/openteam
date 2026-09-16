@@ -54,7 +54,7 @@ test("iOS message motion preserves OpenTeam entrance and acknowledgement semanti
   expect(route).toContain("paddingHorizontal: 16");
   expect(theme).toContain('from "@openteam/design-tokens/mobile-theme"');
   expect(themeTokens).toContain('userBubble: "#0A0A0A"');
-  expect(themeTokens).toContain('assistantBubble: "#F1F1EF"');
+  expect(themeTokens).toContain('assistantBubble: "#F2F2F2"');
 });
 
 test("right-swiping replies in the composer while thread creation remains a separate action", async () => {
@@ -65,12 +65,12 @@ test("right-swiping replies in the composer while thread creation remains a sepa
     source("src/components/composer.tsx"),
   ]);
 
-  expect(bubble).toContain("PanResponder.create");
-  expect(bubble).toContain("onMoveShouldSetPanResponderCapture");
-  expect(bubble).toContain("replySwipe.release(gesture.dx, gesture.vx)");
+  expect(bubble).toContain("Gesture.Pan()");
+  expect(bubble).toContain(".failOffsetY([-10, 10])");
+  expect(bubble).toContain("replySwipe.release(gesture.translationX, gesture.velocityX / 1000)");
   expect(bubble).toContain("swipeReplyIndicator");
   const swipeHandler = bubble.slice(
-    bubble.indexOf("const swipeResponder"),
+    bubble.indexOf("const swipeGesture"),
     bubble.indexOf("const openActions")
   );
   expect(swipeHandler).toContain("onReply()");

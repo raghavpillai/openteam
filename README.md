@@ -7,7 +7,7 @@ Each bot keeps its conversation, memory, and browser logins between tasks. Watch
 take over when needed, or come back when the work is done.
 
 [Get started](#get-started) · [Apps](#apps) · [Documentation](docs/README.md) ·
-[Develop from source](docs/development.md)
+[Develop from source](docs/development/from-source.md)
 
 [![OpenTeam desktop on the left and iPhone app on the right, showing sample conversations](docs/images/openteam-desktop-mobile.png)](docs/images/openteam-desktop-mobile.png)
 
@@ -30,7 +30,7 @@ take over when needed, or come back when the work is done.
 
 You need an **x64 or arm64 machine** with a running **Docker Engine for Linux containers** and
 **Docker Compose 2.20+**. We recommend **8 GB RAM** and **8 GB free disk**. On macOS and Windows,
-Docker Desktop supplies the engine and Compose. See the [requirements](docs/deployment.md#requirements).
+Docker Desktop supplies the engine and Compose. See the [requirements](docs/getting-started/installation.md#requirements).
 
 ### 1. Install the server
 
@@ -55,7 +55,7 @@ The installer downloads the CLI and starts guided setup. Node.js and Bun are not
 Create your OpenTeam username and password, then connect a model provider. Setup supports
 ChatGPT or Claude sign-in, OpenAI or Anthropic API keys, and compatible custom endpoints.
 You can skip the provider step and connect one later with `openteam setup`; bots need a
-connected provider to run. See [provider setup](docs/deployment.md#connect-a-model-provider).
+connected provider to run. See [provider setup](docs/configuration/models.md#connect-a-provider).
 
 Setup defaults to a private connection over your LAN or VPN and prints your **server URL**.
 For a public HTTPS address or other connection options, use `openteam setup --advanced`.
@@ -87,13 +87,14 @@ openteam setup     # Connect or change your model provider
 openteam update    # Update the CLI and server with backup and rollback
 ```
 
-For logs, remote access, backups, and troubleshooting, see the [deployment guide](docs/deployment.md).
+See [server commands](docs/manage/server.md), [remote access](docs/configuration/remote-access.md),
+[backups](docs/manage/backups.md), and [troubleshooting](docs/manage/troubleshooting.md) for ongoing operation.
 
 ## Documentation
 
-- [Settings](docs/settings.md): models, bot profiles, memory, routines, and app preferences.
-- [Plugins and skills](docs/plugins.md): connect accounts and control bot access.
-- [Architecture](docs/architecture.md): how bots run, where data lives, and what persists.
-- [Development](docs/development.md): run from source, navigate the repository, and run checks.
+- [Configuration](docs/README.md#configuration): model providers, server settings, remote access, and app preferences.
+- [Plugins and skills](docs/usage/plugins.md): connect accounts and control bot access.
+- [Architecture](docs/overview/architecture.md): how bots run, where data lives, and what persists.
+- [Development](docs/development/from-source.md): run from source, navigate the repository, and run checks.
 
 Browse [all documentation](docs/README.md) for feature guides and implementation notes.

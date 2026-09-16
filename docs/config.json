@@ -1,0 +1,168 @@
+{
+  "title": "Documentation",
+  "description": "Get started with OpenTeam, work with bots, and manage your own server.",
+  "repository": "https://github.com/raghavpillai/openteam",
+  "branch": "main",
+  "home": "overview/introduction",
+  "groups": [
+    {
+      "title": "Getting started",
+      "pages": [
+        {
+          "title": "Introduction",
+          "file": "overview/introduction.md"
+        },
+        {
+          "title": "Use cases",
+          "file": "overview/use-cases.md"
+        },
+        {
+          "title": "Quickstart",
+          "file": "getting-started/quickstart.md"
+        },
+        {
+          "title": "Installation",
+          "file": "getting-started/installation.md"
+        },
+        {
+          "title": "Desktop and mobile",
+          "file": "getting-started/apps.md"
+        }
+      ]
+    },
+    {
+      "title": "Working with bots",
+      "pages": [
+        {
+          "title": "Create and manage bots",
+          "file": "getting-started/first-bot.md"
+        },
+        {
+          "title": "Chat and teamwork",
+          "file": "usage/conversations.md"
+        },
+        {
+          "title": "Files and results",
+          "file": "usage/files.md"
+        },
+        {
+          "title": "Computer and browser",
+          "file": "usage/computer.md"
+        },
+        {
+          "title": "Memory",
+          "file": "usage/memory.md"
+        },
+        {
+          "title": "Skills",
+          "file": "usage/skills.md"
+        },
+        {
+          "title": "Routines",
+          "file": "usage/routines.md"
+        }
+      ]
+    },
+    {
+      "title": "Connect your tools",
+      "pages": [
+        {
+          "title": "Plugins",
+          "file": "usage/plugins.md"
+        },
+        {
+          "title": "Connecting accounts",
+          "file": "integrations/accounts.md"
+        },
+        {
+          "title": "Google",
+          "file": "integrations/google.md"
+        },
+        {
+          "title": "Slack",
+          "file": "integrations/slack.md"
+        }
+      ]
+    },
+    {
+      "title": "Configuration",
+      "pages": [
+        {
+          "title": "Model providers",
+          "file": "configuration/models.md"
+        },
+        {
+          "title": "Web search",
+          "file": "configuration/web-search.md"
+        },
+        {
+          "title": "Voice notes",
+          "file": "configuration/transcription.md"
+        },
+        {
+          "title": "Settings and notifications",
+          "file": "configuration/apps.md"
+        },
+        {
+          "title": "Approvals and privacy",
+          "file": "configuration/approvals.md"
+        }
+      ]
+    },
+    {
+      "title": "Self-hosting",
+      "pages": [
+        {
+          "title": "How hosting works",
+          "file": "overview/architecture.md"
+        },
+        {
+          "title": "Server settings",
+          "file": "configuration/server.md"
+        },
+        {
+          "title": "Remote access",
+          "file": "configuration/remote-access.md"
+        },
+        {
+          "title": "Server commands",
+          "file": "manage/server.md"
+        },
+        {
+          "title": "Updates",
+          "file": "manage/updates.md"
+        },
+        {
+          "title": "Backups and restore",
+          "file": "manage/backups.md"
+        }
+      ]
+    },
+    {
+      "title": "Help",
+      "pages": [
+        {
+          "title": "Troubleshooting",
+          "file": "manage/troubleshooting.md"
+        },
+        {
+          "title": "FAQ",
+          "file": "manage/faq.md"
+        }
+      ]
+    },
+    {
+      "title": "Advanced setup",
+      "pages": [
+        {
+          "title": "Development from source",
+          "file": "development/from-source.md"
+        },
+        {
+          "title": "Build a plugin",
+          "file": "development/plugins.md"
+        }
+      ]
+    }
+  ]
+}

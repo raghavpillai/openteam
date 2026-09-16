@@ -1,6 +1,4 @@
-# OpenTeam architecture
-
-[Documentation](README.md) · [Development](development.md) · [Deployment](deployment.md)
+# Architecture
 
 OpenTeam runs a server, PostgreSQL database, worker, and Linux computer in Docker Compose on one
 host. The desktop and mobile apps connect to that server. Model credentials stay in the computer
@@ -63,12 +61,12 @@ filesystems.
 - **Subagents** handle delegated work: plain execution, computer use, browser use, or video review.
 - **Routines** save instructions with up to eight schedules using cron, intervals, or presets.
   They run with the bot's context and keep a run history. Event routines require a configured
-  [event subscription](automation-event-subscriptions.md).
+  [event subscription](../reference/automation-event-subscriptions.md).
 - **Skills and plugins** add reusable instructions and tools. Shared `SKILL.md` files are
   available across bots; plugin skills and connections have their own bot grants. Tool policies
-  allow, ask before, or deny a call. See [plugins and skills](plugins.md).
+  allow, ask before, or deny a call. See [plugins and skills](../usage/plugins.md).
 
-See [settings](settings.md) for the editable files, runtime settings, and environment variables.
+See [settings](../configuration/server.md) for the editable files, runtime settings, and environment variables.
 
 ## Tools and runtime behavior
 
@@ -80,17 +78,17 @@ Bot state and tool names use OpenTeam's portable layout so files stay readable a
 The runtime also supports shell completion waits, memory recall, binary host transfers, web
 search and fetch, reviewed forms and external drafts, and bot template sharing. Further details:
 
-- [Platform prompt and tools](platform-system-prompt.md): behavior, configuration, and verification limits.
-- [Web search](web-search.md): Exa, Tavily, Brave, and Bing via SerpApi.
-- [Native capabilities](native-capabilities.md): host access and file transfers.
-- [Memory](memory-parity.md) and [compaction](compaction.md): keeping context across turns.
+- [Platform prompt and tools](../reference/platform-system-prompt.md): behavior, configuration, and verification limits.
+- [Web search](../configuration/web-search.md): Exa, Tavily, Brave, and Bing via SerpApi.
+- [Native capabilities](../reference/native-capabilities.md): host access and file transfers.
+- [Memory](../reference/memory-parity.md) and [compaction](../reference/compaction.md): keeping context across turns.
 
 ## Credentials and persistent data
 
 The model runtime holds provider credentials inside the computer container's private volume.
 Bot shells run as a different user and cannot read them; client apps do not receive them.
 Provider and model changes apply to new turns without a restart. See
-[provider setup](deployment.md#connect-a-model-provider) for authentication options.
+[provider setup](../configuration/models.md#connect-a-provider) for authentication options.
 
 State is stored in six Docker volumes:
 
@@ -105,4 +103,4 @@ State is stored in six Docker volumes:
 
 Restarting the stack preserves this data. Back up and restore all six stores together.
 `openteam update` takes a database dump before applying the release and rolls back on failure;
-that dump does not replace a full backup. See [backups and restore](deployment.md#backups-and-restore).
+that dump does not replace a full backup. See [backups and restore](../manage/backups.md#what-to-keep).

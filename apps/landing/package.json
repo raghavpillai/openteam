@@ -10,7 +10,9 @@
     "build": "vinext build",
     "start": "vinext start",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
-    "test": "bun test"
+    "test": "bun test",
+    "docs:generate": "bun scripts/generate-docs.ts",
+    "typecheck": "bun run docs:generate && tsc --noEmit"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

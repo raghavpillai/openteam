@@ -1,6 +1,7 @@
 "use client";
 
 import { ArrowUpRight } from "lucide-react";
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { GithubMark, Wordmark } from "./brand";
 import { Button } from "./ui/button";
@@ -65,6 +66,7 @@ export function SiteHeader({ home = false }: { home?: boolean }) {
               {label}
             </a>
           ))}
+          <Link href="/docs">Docs</Link>
         </nav>
         <div className="ot-nav-actions">
           <a className="ot-github" href={GITHUB} aria-label="OpenTeam on GitHub">
@@ -95,6 +97,7 @@ export function SiteHeader({ home = false }: { home?: boolean }) {
               </a>
             ))}
             <a href={`${prefix}#faq`}>FAQ</a>
+            <Link href="/docs">Docs</Link>
           </nav>
         </details>
       </div>

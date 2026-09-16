@@ -1,6 +1,6 @@
 """A single-model, authenticated voice-note endpoint for Apple silicon.
 
-Install requirements.txt into a venv and install ffmpeg. See docs/transcription.md.
+Install requirements.txt into a venv and install ffmpeg. See docs/configuration/transcription.md.
 No microphone access, streaming, model-management API, or transcript logging.
 """
 

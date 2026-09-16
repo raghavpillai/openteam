@@ -1,6 +1,6 @@
 # Plugins
 
-See [Using and developing plugins](../../docs/plugins.md) for account setup, Bot access, provider requirements, package examples, and contribution guidance.
+See [Using and developing plugins](../../docs/usage/plugins.md) for account setup, Bot access, provider requirements, package examples, and contribution guidance.
 
 Every plugin belongs in `packages/plugins/<plugin-name>/`. The same structure applies to every author. Most contributions change one directory. `scripts/generate.ts` discovers the directories, runs the shared validator, and builds `_generated/registry.json` automatically during the server build. Do not edit the generated registry or add provider imports to the server.
 
@@ -36,7 +36,7 @@ A package may declare `connector/server.ts`. Catalog generation bundles it as `c
 
 Provider behavior tests live in that package's `connector/test/`; shared contract and installation tests live in `test/`. The Google reference snapshots in `_shared/reference/` pin public interfaces for deliberate compatibility review. Check behavior beyond tool names: field defaults, reply MIME, binary integrity, pagination, error handling, account routing and notifications. Calendar's local model includes its license, pinned revision and checksums in `models/`. Exported packages contain their runtime assets and need no first-run dependency download.
 
-Gmail, Calendar and Drive 1.2.0 add the richer Google tool inputs and lossless result paging. Notion 1.1.0 includes 14 independently authored workflows. See the [capability and limit details](../../docs/plugins.md#google-capabilities-and-limits). Linear, Notion and Slack use their provider's official MCP services with user-owned authorization.
+Gmail, Calendar and Drive 1.2.0 add the richer Google tool inputs and lossless result paging. Notion 1.1.0 includes 14 independently authored workflows. See the [capability and limit details](../../docs/integrations/accounts.md#google-capabilities-and-limits). Linear, Notion and Slack use their provider's official MCP services with user-owned authorization.
 
 For packaged browser OAuth, declare `oauth.authorizationServer` (`issuer`, `authorizationUrl`, `tokenUrl`), `oauth.registration: "manual"`, and `oauth.accessTokenEnv`. The server performs PKCE authorization and refresh, stores credentials in the user's database, and sends only the access token to the named environment variable. The computer needs no OAuth callback listener, client secret, or refresh token.
 

@@ -146,7 +146,7 @@ export function BotAvatar({
           color,
           "--robot-face": eyeColor ?? robotAvatarFaceColor(color),
           "--robot-tempo": `${robotAvatarTempo(robot) * (decorative ? 0.48 : 1)}s`,
-          "--robot-delay": `${blinkDelay + offset}ms`,
+          "--robot-delay": `${blinkDelay + (visible ? offset : 0)}ms`,
         } as CSSProperties
       }
     >

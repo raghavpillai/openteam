@@ -1,8 +1,9 @@
 import { sites } from "@openai/sites-vite-plugin";
 import tailwindcss from "@tailwindcss/postcss";
 import vinext from "vinext";
-import { defineConfig } from "vite";
+import { defineConfig, type ViteDevServer } from "vite";
 import hostingConfig from "./.openai/hosting.json" with { type: "json" };
+import { docsDirectory, generateDocs } from "./scripts/build-docs";
 
 const SITE_CREATOR_PLACEHOLDER_DATABASE_ID = "00000000-0000-4000-8000-000000000000";
 
@@ -34,6 +35,7 @@ const localBindingConfig = {
 };
 
 export default defineConfig(async () => {
+  generateDocs();
   // Keep Wrangler and Miniflare state project-local. These are non-secret tool
   // settings; application environment belongs in ignored `.env*` files.
   process.env.WRANGLER_WRITE_LOGS ??= "false";
@@ -45,8 +47,25 @@ export default defineConfig(async () => {
 
   return {
     css: { postcss: { plugins: [tailwindcss()] } },
-    server: usePolling ? { watch: { useFsEvents: false, usePolling: true } } : undefined,
+    server: {
+      allowedHosts: ["office-mac-mini.tail658346.ts.net"],
+      ...(usePolling ? { watch: { useFsEvents: false, usePolling: true } } : {}),
+    },
     plugins: [
+      {
+        name: "openteam-docs",
+        configureServer(server: ViteDevServer) {
+          server.watcher.add(docsDirectory);
+          server.watcher.on("all", (_event, file) => {
+            if (!file.startsWith(`${docsDirectory}/`)) return;
+            try {
+              generateDocs();
+            } catch (error) {
+              server.ws.send({ type: "error", err: { message: String(error), stack: "" } });
+            }
+          });
+        },
+      },
       vinext(),
       sites(),
       cloudflare({

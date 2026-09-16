@@ -12,4 +12,4 @@ The manifest requests the user-token scopes in [Slack's MCP tool reference](http
 
 For multiple accounts or workspaces, add an OpenTeam account, register its callback URL in the Slack app, and authorize it separately. An internal app belongs to its workspace; a different workspace may require its own internal app credentials.
 
-Use the [plugin guide](../../../docs/plugins.md) for account management, secrets, development, and troubleshooting. No Slack CLI is required.
+Use the [plugin guide](../../../docs/usage/plugins.md) for account management, secrets, development, and troubleshooting. No Slack CLI is required.

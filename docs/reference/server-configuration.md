@@ -1,0 +1,104 @@
+# Server settings
+
+Use guided setup for installation settings. Provider, plugin, search, and app settings have their own controls.
+
+## Installation settings
+
+These live in `<install dir>/.env` (default `~/.openteam/.env`) and are read when containers
+start. The CLI writes this file. Change values with:
+
+```sh
+openteam setup              # connect or change your model provider
+openteam setup --advanced   # also API port, time zone, reasoning effort, concurrent bot turns
+```
+
+Setup restarts the stack for you and rolls the file back if the new values fail to start.
+
+| Setting | Values | Default | Meaning |
+| --- | --- | --- | --- |
+| `OPENTEAM_ACCESS_MODE` | `https`, `proxy`, `http`, `private`, `local` | `private` in guided setup | How clients reach the server. See [remote access](../configuration/remote-access.md#connection-defaults). |
+| `OPENTEAM_PUBLIC_URL` | URL | `http://127.0.0.1:8787` | The address the apps use. Also the HTTPS domain Caddy serves. |
+| `OPENTEAM_API_PORT` | 1 to 65535 | `8787` | Host port for the API. |
+| `OPENTEAM_TIME_ZONE` | IANA zone | Detected at install, else `UTC` | Time zone for routine schedules and timestamps. |
+| `OPENTEAM_WORKER_CONCURRENCY` | 1 to 64 | `8` | How many bot turns can run at the same time across all bots. Each bot still runs one turn at a time. |
+| `OPENTEAM_AUTH_MODE` | `required`, `disabled` | `required` | `disabled` removes API login entirely. Trusted, isolated networks only. |
+| `COMPOSE_PROFILES` | `https`, `direct` | Set by access mode | `https` adds the Caddy container. |
+| `OPENTEAM_BIND_HOST`, `OPENTEAM_VIEWER_BIND_HOST`, `OPENTEAM_PUBLIC_HOST`, `OPENTEAM_AUTH_URL` | Hosts and URLs | Set by access mode | Derived from the access mode. Do not edit by hand. |
+
+The file also holds four generated secrets (`OPENTEAM_POSTGRES_PASSWORD`, `OPENTEAM_CONTROL_TOKEN`,
+`OPENTEAM_AUTH_SECRET`, `OPENTEAM_PROXY_SECRET`), the release version, and the image registry
+prefix. Leave those alone. The owner password and inference-provider credentials are never stored here.
+
+## Advanced and experimental
+
+Set these by editing `.env` in the install directory, then restart with `openteam stop` and
+`openteam start`.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `OPENTEAM_MEMORY_DREAMING` | `false` | Turns on background memory synthesis across bots. Experimental, installation-wide, not per bot. |
+| `OPENTEAM_MARKETPLACE_FILE` | empty | Path to a custom plugin catalog. See [plugins](../usage/plugins.md). |
+| `OPENTEAM_ENFORCE_AUTOMATION_MINIMUM` | unset | `true` enforces the 5-minute minimum routine interval. |
+| `EXPO_ACCESS_TOKEN` | empty | Optional token for the Expo push service, for enhanced push security. |
+| `OPENTEAM_BOX_COPY_IN` | `0` | `1` copies the snapshot store into the computer on boot. |
+
+There is no setting for the number of subagents a bot may run. `OPENTEAM_SUBAGENT_PER_PARENT_LIMIT`
+and `OPENTEAM_SUBAGENT_GLOBAL_LIMIT` appear in `.env.example` but nothing reads them today.
+
+## Environment variable reference
+
+Common container settings for operators. Defaults here describe the base configuration before
+guided setup detects the network and writes installation-specific values. "Set by" says who
+normally writes a value; "Restart" says whether a change needs a container restart.
+
+| Variable | Default | Set by | Restart | Meaning |
+| --- | --- | --- | --- | --- |
+| `OPENTEAM_VERSION` | release | install, update | yes | Release version and image tag. The dev stack reports the package version plus `+dev`. |
+| `OPENTEAM_IMAGE_PREFIX` | `ghcr.io/raghavpillai/openteam` | install | yes | Image registry prefix |
+| `OPENTEAM_POSTGRES_PASSWORD` | generated | install | yes | Database password |
+| `OPENTEAM_CONTROL_TOKEN` | generated | install | yes | Token the server, worker, computer, and CLI use with each other |
+| `OPENTEAM_AUTH_SECRET` | generated | install | yes | Signs login sessions |
+| `OPENTEAM_PROXY_SECRET` | generated | install | yes | Shared secret a reverse proxy can send in `X-OpenTeam-Proxy` |
+| `OPENTEAM_AUTH_MODE` | `required` | setup | yes | `required` or `disabled` |
+| `OPENTEAM_ACCESS_MODE` | `local` | setup | yes | `https`, `proxy`, `http`, `private`, `local` |
+| `OPENTEAM_PUBLIC_URL` | `http://127.0.0.1:8787` | setup | yes | Client-facing base URL, plugin OAuth redirects, Caddy domain |
+| `OPENTEAM_AUTH_URL` | same as public URL | setup | yes | Base URL for the auth library |
+| `OPENTEAM_API_PORT` | `8787` | setup | yes | Host port for the API |
+| `OPENTEAM_BIND_HOST` | `127.0.0.1` | setup | yes | Interface the API port binds to |
+| `OPENTEAM_VIEWER_BIND_HOST` | `127.0.0.1` | setup | yes | Interface for screen viewer ports `6200-6299` |
+| `OPENTEAM_PUBLIC_HOST` | `127.0.0.1` | setup | yes | Host the apps use to open screen viewers |
+| `COMPOSE_PROFILES` | `direct` | setup | yes | `https` enables Caddy |
+| `OPENTEAM_TIME_ZONE` | `UTC` | setup | yes | Installation time zone |
+| `OPENTEAM_WORKER_CONCURRENCY` | `8` | setup `--advanced` | yes | Concurrent bot turns |
+| `OPENTEAM_MEMORY_DREAMING` | `false` | by hand | yes | Memory synthesis experiment |
+| `OPENTEAM_MARKETPLACE_FILE` | empty | by hand | yes | Custom plugin catalog path |
+| `OPENTEAM_ENFORCE_AUTOMATION_MINIMUM` | unset | by hand | yes | Enforce 5-minute routine minimum |
+| `EXPO_ACCESS_TOKEN` | empty | by hand | yes | Expo push token |
+| `OPENTEAM_BOX_COPY_IN` | `0` | by hand | yes | Copy snapshot store in on boot |
+| `OPENTEAM_MCP_OAUTH_CLIENT_ID`, `OPENTEAM_MCP_OAUTH_CLIENT_SECRET` | unset | by hand | yes | Fallback OAuth client for MCP plugins |
+
+Fixed inside the Compose file, not meant to change: `DATABASE_URL`, `OPENTEAM_PORT` (`8787`),
+`OPENTEAM_COMPUTER_URL`, `OPENTEAM_COMPUTER_PORT` (`8790`), `OPENTEAM_SERVER_URL`,
+`OPENTEAM_WORKSPACE_ROOT` (`/workspace`), `OPENTEAM_AGENT_DATA_ROOT` (`/home/box/agent-data`),
+`OPENTEAM_AGENT_DATA_CANONICAL_ROOT` (`/home/box/sand-data`), `OPENTEAM_ASSET_ROOT`
+(`/asset-store`), `OPENTEAM_BOX_STORE_ROOT` (`/box-store`), `OPENTEAM_PI_AGENT_DIR`
+(`/home/box/.pi/agent`), `OPENTEAM_SCREEN_VIEWER_HOST`, and the agent user ids
+`OPENTEAM_AGENT_UID` (`1001`) and `OPENTEAM_AGENT_GID` (`1000`).
+
+The computer service uses `OPENTEAM_HOST_BRIDGE_URL` (default
+`http://host.docker.internal:8791`) to reach the OpenTeam desktop app's approval and physical-host
+bridge. Delegated task launches, including computer-use workers, require this bridge. For a
+desktop app on another host, set a reachable URL in the computer service's environment through
+a Compose override and recreate that service. Setting an arbitrary key in the install `.env`
+alone does not pass it into the container. The bridge and server must use the same control token.
+Docker Desktop supplies the container engine; it does not replace the OpenTeam approval bridge.
+
+Internal tuning knobs, read by the computer service and not meant for operators:
+`OPENTEAM_MAX_OPEN_AGENT_STORES` (`32`), `OPENTEAM_AGENT_STORE_IDLE_CLOSE_MS` (`120000`),
+`OPENTEAM_NODE_BINARY`, and the debugging switch
+`SAND_DISABLE_MEMORY_FREEZE=1`. `BETTER_AUTH_SECRET` is accepted as an alias for
+`OPENTEAM_AUTH_SECRET`.
+
+Development-only variables for the desktop app: `OPENTEAM_SERVER_URL`, `OPENTEAM_RENDERER_URL`,
+`OPENTEAM_HOST_BRIDGE_PORT` (`8791`), `OPENTEAM_AUTO_REVIEW_MODE` (`off`, `shadow`, `enforce`),
+`OPENTEAM_UPDATE_MANIFEST_URL`, `OPENTEAM_DEV_HOST`, and `VITE_OPENTEAM_API_URL`.

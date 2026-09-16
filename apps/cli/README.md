@@ -52,7 +52,7 @@ Doctor additionally tests model access, storage round trips, job backlog, leases
 These checks cover core service readiness. They do not guarantee every plugin, external provider,
 browser session, or user task will succeed. Doctor sends a small model request; health does not.
 Existing containers need images and Compose configuration from this change to show the new check.
-See [Health checks and chaos tests](../../docs/health-checks.md) for coverage and repeatable testing.
+See [Health checks and chaos tests](../../docs/reference/health-checks.md) for coverage and repeatable testing.
 
 ## Testing doctor errors and terminal output
 
@@ -239,7 +239,7 @@ base URL. Discovery support is required for selectable chat models. Provider cat
 declare model types: capability metadata takes priority, followed by known model families. Opaque
 IDs on a custom chat endpoint are treated as chat models. A listed model is not a guarantee of
 quota, billing, or tool support; `openteam doctor` tests a real inference request.
-See [provider discovery details](../../docs/model-providers.md).
+See [provider discovery details](../../docs/reference/model-providers.md).
 
 `openteam logs`
 shows the most recent 200 lines; add `--follow`, `--tail <lines>`, or `--service <name>` to narrow a

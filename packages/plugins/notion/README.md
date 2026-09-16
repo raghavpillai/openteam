@@ -6,4 +6,4 @@ The workflow inventory was compared with [Notion’s Cursor plugin](https://gith
 
 Install or update in Plugins, connect an account, enable the package for a Bot, and grant the intended account. Skills are independent of OAuth, but executing their Notion operations requires an authorized account. Each skill uses discovered tool schemas, validates destinations and database properties, preserves unrelated content, and verifies writes. Provider tools and workspace permissions determine which operations are available.
 
-See [the plugin guide](../../../docs/plugins.md) for UI setup, multiple accounts, permissions, updates and contribution requirements.
+See [the plugin guide](../../../docs/usage/plugins.md) for UI setup, multiple accounts, permissions, updates and contribution requirements.

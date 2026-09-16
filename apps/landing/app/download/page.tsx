@@ -1,5 +1,6 @@
 import { ArrowDown, ArrowUpRight, Check, Server, Terminal } from "lucide-react";
 import Image from "next/image";
+import Link from "next/link";
 import { pageMetadata } from "@/lib/page-metadata";
 import { CopyCommand } from "@/components/copy-command";
 import { DownloadOptions } from "@/components/download-options";
@@ -107,9 +108,9 @@ export default function DownloadPage() {
               <a href="/install/source" className="ot-text-link">
                 Read the install scripts <ArrowUpRight size={15} />
               </a>
-              <a href={`${GITHUB}/blob/main/docs/deployment.md`} className="ot-text-link">
-                Deployment guide <ArrowUpRight size={15} />
-              </a>
+              <Link href="/docs/getting-started/installation" className="ot-text-link">
+                Installation guide <ArrowUpRight size={15} />
+              </Link>
             </div>
           </div>
           <SectionBot bot="engineering" side="right" />

@@ -1,4 +1,4 @@
-# Voice-note transcription
+# Voice notes
 
 Desktop and iPhone record a complete voice note and send it to the OpenTeam server. The server calls the selected transcription provider and returns text to the composer. Both clients also offer an explicit “Transcribe and send” action. Recording does not stream audio or use Apple speech recognition.
 
@@ -70,29 +70,3 @@ Stopping produces a transcript for review; cancellation discards the recording a
 Audio is not stored as a chat attachment. Desktop keeps it in memory; iPhone uses a temporary file removed on success, cancellation, or navigation (abandoned files older than a day are removed before a new recording). The OpenTeam server holds audio in memory only; the Mac helper uses temporary decode files. A selected external provider has its own retention policy.
 
 Settings are stored in `transcription.json` within the server's agent-data volume. API keys are encrypted with a key derived from `OPENTEAM_AUTH_SECRET` (or its supported `BETTER_AUTH_SECRET` fallback), and the file is written atomically with mode 0600. Back up the auth secret with the volume. Changing that secret requires saving the transcription key again. Changing the provider or base URL clears the old key instead of forwarding it to a new endpoint. API responses expose only whether a key is saved.
-
-## Development verification
-
-```sh
-bun test apps/server/test/transcription.test.ts apps/cli/test/transcription-check.test.ts
-bun test apps/mobile/test/native-transcription-upload.test.ts apps/mobile/test/native-config.test.ts
-cd apps/desktop
-bun scripts/test-voice-note.ts
-bun scripts/test-voice-note.ts --microphone
-```
-
-The browser scenarios exercise the real composer with a synthetic microphone: disabled state, recording, preserving existing mentions, retry, cancellation, and navigation during microphone permission. The microphone scenarios use real Web Audio metering and MediaRecorder with synthetic inputs to check saved selection, device changes, fallback, error messages, local-only testing, cancellation, the 30-second cutoff, and cleanup. Native recorder changes require rebuilding the iOS app; an over-the-air JavaScript update alone cannot add the native methods. Rebuild the server and desktop app to expose the settings and new API routes.
-
-For an end-to-end test against a running transcription provider on macOS:
-
-```sh
-bun scripts/transcription/test-e2e.ts \
-  --provider-url http://YOUR_AUDIO_HOST:18080/v1 \
-  --api-key-file ~/.local/share/openteam/transcription/api-key
-```
-
-This creates a disposable PostgreSQL container, starts the actual app server with a temporary owner account, and tests authentication, encrypted settings, runtime capability, doctor, WAV/WebM uploads, and provider failures. It feeds synthesized speech through Web Audio into Chromium's real MediaRecorder, reviews the transcript in the actual desktop composer, and sends it through the durable journal to a disposable QA bot. The actual worker and Pi runtime then process the message against a local deterministic inference fixture. Assertions check unchanged stored text, exactly one agent turn, and the exact submitted text in that turn's inference request. The transcription model is real; the chat model's response is synthetic. No physical microphone, production conversations, or external chat-model API is used. Docker, ffmpeg, macOS `say`, and an installed Electron dependency are required.
-
-If PostgreSQL is installed locally, add `--native-postgres` to use `initdb`, `pg_ctl`, and `createdb` with a temporary data directory and an unused loopback port. This mode requires no Docker storage and does not connect to an existing PostgreSQL installation.
-
-Add `--ios-app /absolute/path/to/Debug-iphonesimulator/OpenTeam.app` to run native checks in a temporary iPhone simulator. It verifies the compiled recorder bridge, missing setup, denied microphone permission, real Expo uploads, revoked sessions and file cleanup. The native composer fixture substitutes a prerecorded WAV only at the capture boundary, exercises the actual composer and thread sheet, and sends their text through the authenticated chat API. It also checks selection replacement, repeated dictation, rapid duplicate taps, retry, cancellation, late results and backgrounded permission requests. These messages undergo the same worker/Pi delivery assertions. The physical microphone remains denied; a physical-phone test is still needed for device capture and audio routing. Build the simulator app with the current source first. The runner deletes its test container and simulator, and prints a directory containing JSON results, logs, and screenshots.

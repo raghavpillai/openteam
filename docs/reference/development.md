@@ -1,9 +1,7 @@
-# Developing OpenTeam
-
-[Documentation](README.md) · [Architecture](architecture.md)
+# Development from source
 
 Use this guide to run and change OpenTeam from source. To install a released version, follow
-the [deployment guide](deployment.md).
+the [deployment guide](../getting-started/installation.md).
 
 ## Prerequisites
 
@@ -11,8 +9,8 @@ the [deployment guide](deployment.md).
 - A running Docker Engine for Linux containers and Docker Compose 2.20+.
 - Bash for the repository's shell scripts. Run the commands below from the repository root.
 
-The same [host requirements](deployment.md#requirements) apply to the development stack.
-For native mobile builds, also follow the [mobile setup guide](../apps/mobile/README.md).
+The same [host requirements](../getting-started/installation.md#requirements) apply to the development stack.
+For native mobile builds, also follow the [mobile setup guide](../../apps/mobile/README.md).
 
 ## Run locally
 
@@ -50,7 +48,7 @@ bash scripts/compose.sh exec computer openteam-pi-auth login openai-codex oauth
 
 The first command prompts for the owner username and a hidden password. The second signs in
 with ChatGPT. For other providers and authentication options, see
-[provider setup](deployment.md#connect-a-model-provider).
+[provider setup](../configuration/models.md#connect-a-provider).
 
 ### 4. Check the server and open the app
 
@@ -64,8 +62,8 @@ The health endpoint should report `ready`. In the desktop app, connect to
 
 ## Development stack
 
-The root [`docker-compose.yml`](../docker-compose.yml) defines the development stack. Released
-installs use [`deploy/compose.yaml`](../deploy/compose.yaml).
+The root [`docker-compose.yml`](../../docker-compose.yml) defines the development stack. Released
+installs use [`deploy/compose.yaml`](../../deploy/compose.yaml).
 
 | Detail | Development | Released install |
 | --- | --- | --- |
@@ -82,7 +80,7 @@ viewer ports on loopback or a trusted private network. Provider credentials live
 computer volume, never `.env`.
 
 `bun run desktop:tailscale` serves the UI to other devices on your tailnet. See the
-[mobile guide](../apps/mobile/README.md) to build the phone app and configure a reachable server URL.
+[mobile guide](../../apps/mobile/README.md) to build the phone app and configure a reachable server URL.
 
 ## Repository map
 
@@ -105,8 +103,8 @@ OpenTeam is a Bun and Turborepo TypeScript monorepo.
 | `packages/shell-jobs` | Shell job support |
 
 Client import boundaries are enforced by `bun run check:architecture`. See
-[architecture](architecture.md) for how the services work together and
-[plugin development](plugins.md#developing-packages) for adding integrations.
+[architecture](../overview/architecture.md) for how the services work together and
+[plugin development](plugin-development.md) for adding integrations.
 
 ## Checks and common commands
 
@@ -131,11 +129,10 @@ OPENTEAM_TEST_DATABASE_URL=postgresql://localhost/openteam_test \
   bun test apps/worker/test/lifecycle.integration.test.ts
 ```
 
-For more validation guidance, see [health checks](health-checks.md),
-[onboarding and login QA](auth-onboarding-qa.md), and
-[performance checks](../scripts/performance/README.md).
+For more validation guidance, see [health checks](../reference/health-checks.md),
+[performance checks](../../scripts/performance/README.md).
 
 ## Releases
 
-Releases are built from `v*` tags. The [release guide](../.github/RELEASING.md) covers versioning,
+Releases are built from `v*` tags. The [release guide](../../.github/RELEASING.md) covers versioning,
 signing, CI, desktop installers, and iPhone distribution.

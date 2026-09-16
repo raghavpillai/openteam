@@ -2,6 +2,7 @@ import { DocsNavigation } from "@/components/docs/docs-navigation";
 import { DocsHeader } from "@/components/docs/docs-header";
 import { docPages, docsConfig } from "@/lib/docs";
 import "./docs.css";
+import "./search.css";
 
 export default function DocsLayout({ children }: { children: React.ReactNode }) {
   const groups = docsConfig.groups.map((group) => ({

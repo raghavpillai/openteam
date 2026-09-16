@@ -5,6 +5,7 @@ import GithubSlugger from "github-slugger";
 import { Marked, type Token, type Tokens } from "marked";
 import { DOCS_ORIGIN, type DocPage, type DocsConfig, type DocsData, type DocsTextData } from "../lib/docs-types";
 import { exportMarkdown } from "./markdown-export";
+import { buildDocsSearchIndex } from "./docs-search-index";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 export const docsDirectory = path.join(repositoryRoot, "docs");
@@ -203,7 +204,7 @@ export function compileDocs(directory = docsDirectory): DocsData & { text: DocsT
 export function generateDocs() {
   const { text, ...data } = compileDocs();
   mkdirSync(generatedDirectory, { recursive: true });
-  for (const [filename, content] of [["docs.json", data], ["docs-text.json", text]] as const) {
+  for (const [filename, content] of [["docs.json", data], ["docs-text.json", text], ["docs-search.json", buildDocsSearchIndex(data.pages)]] as const) {
     const output = path.join(generatedDirectory, filename);
     const json = `${JSON.stringify(content)}\n`;
     if (!existsSync(output) || readFileSync(output, "utf8") !== json) writeFileSync(output, json);

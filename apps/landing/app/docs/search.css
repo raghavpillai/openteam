@@ -1,0 +1,77 @@
+.docs-search-trigger { display: flex; align-items: center; gap: 10px; flex: 1; width: 100%; min-width: 170px; max-width: 360px; height: 38px; padding: 0 10px 0 12px; border: 1px solid #dedede; border-radius: 7px; background: #fafafa; color: #777; font-size: 14px; text-align: left; cursor: pointer; box-shadow: 0 1px 2px #00000004; transition: background 150ms, border-color 150ms, box-shadow 150ms; }
+.docs-search-trigger:hover { background: #fff; border-color: #bcbcbc; box-shadow: 0 2px 5px #00000008; }
+.docs-search-trigger > svg { flex-shrink: 0; stroke-width: 1.7; }
+.docs-search-trigger > span:first-of-type { flex: 1; white-space: nowrap; }
+.docs-search-shortcut { display: flex; align-items: center; gap: 3px; }
+.docs-search-trigger kbd, .docs-search-dialog kbd { display: inline-flex; align-items: center; justify-content: center; gap: 2px; min-width: 20px; height: 21px; padding: 0 4px; border: 1px solid #dedede; border-radius: 4px; background: #fff; color: #777; font-family: "Plex Mono", monospace; font-size: 11px; font-weight: 400; line-height: 1; box-shadow: 0 1px 1px #00000004; }
+.docs-search-backdrop { position: fixed; inset: 0; z-index: 70; background: #17171738; backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); opacity: 1; transition: opacity 160ms ease; }
+.docs-search-backdrop[data-starting-style], .docs-search-backdrop[data-ending-style] { opacity: 0; }
+.docs-search-dialog { position: fixed; top: min(15vh, 140px); left: 50%; z-index: 71; display: flex; flex-direction: column; width: min(640px, calc(100vw - 40px)); max-height: calc(100dvh - min(15vh, 140px) - 32px); margin: 0; overflow: hidden; border: 1px solid #d6d6d6; border-radius: 12px; background: #fff; color: #171717; font-family: var(--font-sans), "Plex Sans", sans-serif; -webkit-font-smoothing: antialiased; box-shadow: 0 24px 80px #00000026, 0 8px 24px #0000000d, 0 0 0 1px #ffffff80 inset; outline: none; opacity: 1; transform: translateX(-50%) translateY(0) scale(1); transition: opacity 160ms, transform 180ms cubic-bezier(.2,.8,.2,1); }
+.docs-search-dialog[data-starting-style], .docs-search-dialog[data-ending-style] { opacity: 0; transform: translateX(-50%) translateY(-6px) scale(.98); }
+.docs-search-dialog :focus-visible { outline: 2px solid #262626; outline-offset: 3px; }
+.docs-search-sr { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+.docs-search-input-row { display: flex; align-items: center; gap: 13px; min-height: 66px; padding: 0 20px; border-bottom: 1px solid #e8e8e8; flex-shrink: 0; }
+.docs-search-input-row > svg { flex-shrink: 0; color: #888; stroke-width: 1.7; }
+.docs-search-input-row input { min-width: 0; width: 100%; height: 64px; padding: 0; border: 0; border-radius: 0; background: transparent; color: #171717; font-family: inherit; font-size: 17px; line-height: 1.5; outline: none; box-shadow: none; }
+.docs-search-input-row input:focus-visible { outline: none; }
+.docs-search-input-row input::placeholder { color: #929292; }
+.docs-search-close { display: flex; align-items: center; justify-content: center; flex-shrink: 0; min-width: 34px; min-height: 28px; padding: 2px 6px; border: 1px solid #e5e5e5; border-radius: 5px; background: #fafafa; color: #888; font-family: "Plex Mono", monospace; font-size: 11px; cursor: pointer; transition: background 150ms, color 150ms; }
+.docs-search-close:hover { background: #efefef; color: #333; }
+.docs-search-close > svg { display: none; }
+.docs-search-body { min-height: 0; display: flex; flex-direction: column; }
+.docs-search-results-label { padding: 17px 21px 9px; color: #888; font-family: "Plex Mono", monospace; font-size: 10px; font-weight: 500; letter-spacing: .07em; text-transform: uppercase; }
+.docs-search-body ul { margin: 0; padding: 0 8px 8px; list-style: none; overflow-y: auto; overscroll-behavior: contain; scroll-padding-block: 8px; scrollbar-width: thin; scrollbar-color: #ddd transparent; max-height: 440px; }
+.docs-search-body ul:empty { padding: 0; }
+.docs-search-result { display: flex; align-items: flex-start; gap: 13px; padding: 13px 12px; border: 1px solid transparent; border-radius: 7px; cursor: pointer; }
+.docs-search-result[aria-selected="true"] { background: #f5f5f5; border-color: #e9e9e9; }
+.docs-search-result-icon { display: flex; align-items: center; justify-content: center; width: 30px; height: 32px; flex-shrink: 0; margin-top: 3px; color: #888; }
+.docs-search-result[aria-selected="true"] .docs-search-result-icon { color: #333; }
+.docs-search-result-copy { display: flex; flex-direction: column; flex: 1; min-width: 0; gap: 4px; }
+.docs-search-result-path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #777; font-size: 11px; line-height: 1.5; }
+.docs-search-result-path > span { margin-inline: 3px; color: #bbb; }
+.docs-search-result-title { color: #242424; font-size: 15px; font-weight: 550; letter-spacing: -.01em; line-height: 1.45; overflow-wrap: anywhere; }
+.docs-search-result-snippet { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; color: #777; font-size: 13px; line-height: 1.55; overflow-wrap: anywhere; }
+.docs-search-result mark { padding: 0; border-radius: 2px; background: #e3eee9; color: #205b49; font-weight: 550; }
+.docs-search-result-enter { align-self: center; flex-shrink: 0; color: #777; opacity: 0; }
+.docs-search-result[aria-selected="true"] .docs-search-result-enter { opacity: 1; }
+.docs-search-empty { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 35px 28px 48px; color: #888; text-align: center; font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; overflow-y: auto; }
+.docs-search-empty > strong { max-width: 100%; color: #444; font-size: 15px; font-weight: 500; }
+.docs-search-empty > button { display: inline-flex; align-items: center; gap: 6px; padding: 5px 9px; border: 1px solid #ddd; border-radius: 5px; color: #333; background: #fafafa; cursor: pointer; }
+.docs-search-loading { width: 18px; height: 18px; border: 2px solid #e5e5e5; border-top-color: #888; border-radius: 50%; animation: docs-search-spin 650ms linear infinite; }
+.docs-search-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; padding: 9px 18px; border-top: 1px solid #e9e9e9; background: #fcfcfc; color: #929292; font-size: 11px; flex-shrink: 0; }
+.docs-search-footer > span { display: flex; align-items: center; gap: 7px; }
+.docs-search-footer kbd + kbd { margin-left: 7px; }
+.docs-search-footer > span:last-child { font-family: "Plex Mono", monospace; font-size: 10px; }
+@keyframes docs-search-spin { to { transform: rotate(360deg); } }
+@media (max-width: 1100px) {
+  .docs-header-quickstart { display: none; }
+}
+@media (max-width: 800px) {
+  .docs-header-inner { gap: 16px; }
+  .docs-search-trigger { flex: 0 0 38px; min-width: 38px; width: 38px; padding: 0; justify-content: center; margin-left: auto; background: transparent; }
+  .docs-search-trigger > span { display: none; }
+}
+@media (max-width: 600px) {
+  .docs-header-inner { gap: 12px; }
+  .docs-header-label, .docs-brand-divider, .docs-github { display: none; }
+  .docs-search-trigger { height: 38px; }
+  .docs-search-dialog { top: 12px; width: calc(100vw - 24px); max-height: calc(100dvh - 24px); border-radius: 10px; }
+  .docs-search-input-row { min-height: 60px; gap: 10px; padding-inline: 15px; }
+  .docs-search-input-row input { height: 58px; font-size: 16px; }
+  .docs-search-close { min-height: 36px; min-width: 32px; padding: 0; border: 0; background: transparent; }
+  .docs-search-close > span { display: none; }
+  .docs-search-close > svg { display: block; }
+  .docs-search-results-label { padding-left: 18px; }
+  .docs-search-result { gap: 8px; padding-inline: 8px; }
+  .docs-search-result-icon { width: 25px; }
+  .docs-search-result-enter { display: none; }
+  .docs-search-footer { justify-content: flex-end; }
+  .docs-search-footer > span:first-child { display: none; }
+}
+@media (max-width: 359px) {
+  .docs-header-inner { gap: 8px; }
+  .docs-install { padding-inline: 8px; font-size: 12px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .docs-search-trigger, .docs-search-dialog, .docs-search-backdrop, .docs-search-dialog * { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+}

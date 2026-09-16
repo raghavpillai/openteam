@@ -2,6 +2,7 @@ import { ArrowUpRight } from "lucide-react";
 import Link from "next/link";
 import { GithubMark, Wordmark } from "@/components/brand";
 import { DocsLink } from "./docs-link";
+import { DocsSearchButton } from "./docs-search";
 
 export function DocsHeader({ repository }: { repository: string }) {
   return (
@@ -14,6 +15,7 @@ export function DocsHeader({ repository }: { repository: string }) {
           <span className="docs-brand-divider" aria-hidden="true" />
           <DocsLink href="/docs" className="docs-header-label">Docs</DocsLink>
         </div>
+        <DocsSearchButton />
         <nav aria-label="Site navigation" className="docs-header-actions">
           <DocsLink href="/docs/getting-started/quickstart" className="docs-header-quickstart">Quickstart</DocsLink>
           <a href={repository} className="docs-github" aria-label="OpenTeam on GitHub">

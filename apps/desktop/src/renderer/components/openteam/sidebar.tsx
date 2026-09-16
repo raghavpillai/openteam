@@ -14,7 +14,6 @@ import {
   ArrowDown,
   ArrowUp,
   BellDot,
-  BriefcaseBusiness,
   Check,
   ChevronDown,
   ChevronRight,
@@ -25,7 +24,7 @@ import {
   EyeOff,
   Folder,
   FolderPlus,
-  Hash,
+  Grid2X2,
   Info,
   LogOut,
   Megaphone,
@@ -34,7 +33,6 @@ import {
   Pencil,
   Pin,
   PinOff,
-  Plug,
   Plus,
   RotateCw,
   Search,
@@ -57,6 +55,7 @@ import { useVirtualWindow } from "../../hooks/use-virtual-window";
 import { accountPresentation } from "../../lib/account";
 import { channelMessageSummary } from "../../lib/channel-events";
 import { cn } from "../../lib/cn";
+import { requestDesktopUpdateRestart } from "../../lib/desktop-update";
 import {
   COMPACT_SIDEBAR_WIDTH,
   MIN_EXPANDED_SIDEBAR_WIDTH,
@@ -110,11 +109,15 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
 import { Input } from "../ui/input";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
 import { BotAvatar, ChannelAvatar } from "./avatar";
+import { BotName, BotRenameContext } from "./bot-name";
 
 function WorkingAvatar({
   active,
@@ -188,7 +191,7 @@ function sameUnreadJumpTargets(left: SidebarUnreadJumpTargets, right: SidebarUnr
 type SidebarVirtualJumpHandler = (id: string) => boolean;
 const VIRTUAL_SECTIONS_JUMP_KEY = "virtual-sections";
 
-function AccountMenu({
+export function AccountMenu({
   children,
   compact = false,
   onOpenAbout,
@@ -205,8 +208,21 @@ function AccountMenu({
   const [includeConversationId, setIncludeConversationId] = useState(false);
   const [wantsFeedbackResponse, setWantsFeedbackResponse] = useState(false);
   const [signOutOpen, setSignOutOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const openingUpdateDialog = useRef(false);
+  const [updateError, setUpdateError] = useState<string | null>(null);
   const [update, setUpdate] = useState<OpenTeamUpdateStatus | null>(null);
-  useEffect(() => window.openteam?.updates.onClientProgress(setUpdate), []);
+  useEffect(
+    () =>
+      window.openteam?.updates.onClientProgress((next) => {
+        setUpdate(next);
+        if (next.status === "downloaded") {
+          openingUpdateDialog.current = true;
+          setMenuOpen(false);
+        }
+      }),
+    []
+  );
   const menuItem = "h-8 gap-2 rounded-[8px] px-2 text-[13px] font-normal leading-[19.5px]";
   const openExternal = (url: string) => window.open(url, "_blank", "noopener,noreferrer");
   const submitFeedback = () => {
@@ -238,46 +254,80 @@ function AccountMenu({
   return (
     <>
       <DropdownMenu
+        open={menuOpen}
         onOpenChange={(open) => {
+          setMenuOpen(open);
           if (!open) return;
-          void window.openteam?.updates.status().then((value) => {
-            setUpdate(value);
-            if (value.status === "idle") void window.openteam?.updates.check().then(setUpdate);
-          });
+          openingUpdateDialog.current = false;
+          setUpdateError(null);
+          void window.openteam?.updates
+            .status()
+            .then((value) => {
+              setUpdate(value);
+              if (value.status === "idle") return window.openteam?.updates.check().then(setUpdate);
+            })
+            .catch(() => setUpdateError("Could not check for updates. Try again from Settings."));
         }}
       >
         <DropdownMenuTrigger asChild>{children}</DropdownMenuTrigger>
         <DropdownMenuContent
           align={compact ? "end" : "start"}
           aria-label="Account"
-          className="w-[228px] rounded-[16px] border-[0.5px] border-[#d9d9d9] bg-[#fcfcfc] p-1 shadow-[0_8px_22px_rgba(0,0,0,0.10),0_2px_6px_rgba(0,0,0,0.04)] dark:border-white/10 dark:bg-popover"
+          onCloseAutoFocus={(event) => {
+            if (!openingUpdateDialog.current) return;
+            event.preventDefault();
+            openingUpdateDialog.current = false;
+          }}
+          className="w-[228px] rounded-[13px] border-0 bg-[#fcfcfc] p-1.5 antialiased shadow-[inset_0_0_0_0.5px_#d9d9d9,0_8px_22px_rgba(0,0,0,0.10),0_2px_6px_rgba(0,0,0,0.04)] dark:bg-popover dark:shadow-[inset_0_0_0_0.5px_#3a3a3a,0_8px_22px_rgba(0,0,0,0.10),0_2px_6px_rgba(0,0,0,0.04)]"
           side={compact ? "right" : "top"}
           sideOffset={8}
         >
           {["available", "downloading", "downloaded", "installing"].includes(
             update?.status ?? ""
           ) ? (
-            <div className="mb-1 flex h-10 items-center gap-2 rounded-[10px] bg-black/[0.035] px-2 dark:bg-white/[0.055]">
-              <span className="min-w-0 flex-1 truncate text-[12px]">New update available</span>
+            <div className="mb-1 flex h-[46px] items-center gap-2 rounded-[12px] bg-[#e3efff] pl-3 pr-2.5 text-[#0879e8] dark:bg-[#1b3b62] dark:text-[#469ffe]">
+              <span aria-live="polite" className="relative top-px min-w-0 flex-1 text-[13px]">
+                {update?.status === "downloading"
+                  ? "Downloading update"
+                  : update?.status === "installing"
+                    ? "Restarting…"
+                    : "New update available"}
+              </span>
               <button
-                className="h-7 rounded-full bg-black px-3 text-[11.5px] font-medium text-white hover:opacity-80 dark:bg-white dark:text-black"
+                className="h-[26px] min-w-[47.5px] shrink-0 rounded-[6px] bg-[#fafafa] px-[5.5px] text-[13px] text-[#141414] hover:bg-white disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#469ffe]"
                 disabled={["downloading", "installing"].includes(update?.status ?? "")}
-                onClick={() =>
-                  void (update?.status === "downloaded"
-                    ? window.openteam?.updates.installClient()
-                    : window.openteam?.updates.openDownload())
-                }
+                onClick={() => {
+                  setUpdateError(null);
+                  if (update?.status === "downloaded") {
+                    openingUpdateDialog.current = true;
+                    setMenuOpen(false);
+                    requestDesktopUpdateRestart(update);
+                    return;
+                  }
+                  void window.openteam?.updates
+                    .openDownload()
+                    .catch(() =>
+                      setUpdateError(
+                        "Could not download the update. Try again from update settings."
+                      )
+                    );
+                }}
                 type="button"
               >
-                {update?.status === "downloaded"
-                  ? "Restart"
-                  : update?.status === "downloading"
+                <span className="relative top-px">
+                  {update?.status === "downloading"
                     ? `${Math.round(update.progress ?? 0)}%`
                     : update?.status === "installing"
                       ? "Restarting"
                       : "Install"}
+                </span>
               </button>
             </div>
+          ) : null}
+          {updateError ? (
+            <p className="px-2 py-1 text-[12px] text-destructive" role="alert">
+              {updateError}
+            </p>
           ) : null}
           <DropdownMenuItem
             className={menuItem}
@@ -288,25 +338,16 @@ function AccountMenu({
             <Smartphone className="size-4" strokeWidth={1.85} />
             Get OpenTeam for iOS
           </DropdownMenuItem>
-          <DropdownMenuItem className={menuItem} onSelect={onOpenSettings}>
-            <Settings className="size-4" strokeWidth={1.85} />
-            Settings
-          </DropdownMenuItem>
-          <DropdownMenuItem className={menuItem} onSelect={onOpenAbout}>
-            <Info className="size-4" strokeWidth={1.85} />
-            About
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            className={menuItem}
-            onSelect={() => openExternal("https://github.com/raghavpillai/openteam#readme")}
-          >
-            <CircleHelp className="size-4" strokeWidth={1.85} />
-            Help Center
-          </DropdownMenuItem>
-          <DropdownMenuItem className={menuItem} onSelect={() => setFeedbackOpen(true)}>
-            <Megaphone className="size-4" strokeWidth={1.85} />
-            Send Feedback
-          </DropdownMenuItem>
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger className={menuItem}><CircleHelp className="size-4" strokeWidth={1.85} />Support<ChevronRight className="ml-auto size-3.5" /></DropdownMenuSubTrigger>
+            <DropdownMenuSubContent className="w-[200px] rounded-[13px] p-1.5">
+              <DropdownMenuItem className={menuItem} onSelect={() => openExternal("https://github.com/raghavpillai/openteam#readme")}><CircleHelp className="size-4" strokeWidth={1.85} />Help Center</DropdownMenuItem>
+              <DropdownMenuItem className={menuItem} onSelect={() => setFeedbackOpen(true)}><Megaphone className="size-4" strokeWidth={1.85} />Send Feedback</DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem className={menuItem} onSelect={onOpenAbout}><Info className="size-4" strokeWidth={1.85} />About</DropdownMenuItem>
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+          <DropdownMenuItem className={menuItem} onSelect={onOpenSettings}><Settings className="size-4" strokeWidth={1.85} />Settings</DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem className={menuItem} onSelect={() => setSignOutOpen(true)}>
             <LogOut className="size-4" strokeWidth={1.85} />
@@ -749,8 +790,9 @@ function BotContextMenu({
   tooltipContent?: React.ReactNode;
   children: React.ReactNode;
 }) {
+  const [renaming, setRenaming] = useState(false);
   const menuContent = (
-    <ContextMenuContent className="w-[202px]">
+    <ContextMenuContent className="w-[202px]" onCloseAutoFocus={(event) => { if (renaming) event.preventDefault(); }}>
       <ContextMenuItem onSelect={() => onBotAction(bot, "togglePin")}>
         {pinned ? <PinOff className="size-4" /> : <Pin className="size-4" />}
         {pinned ? "Unpin" : "Pin"}
@@ -773,6 +815,9 @@ function BotContextMenu({
         </ContextMenuItem>
       )}
       <ContextMenuSeparator />
+      <ContextMenuItem onSelect={() => setRenaming(true)}>
+        <Pencil className="size-4" /> Rename Bot
+      </ContextMenuItem>
       <ContextMenuItem onSelect={() => onBotAction(bot, "editProfile")}>
         <Pencil className="size-4" /> Edit Profile
       </ContextMenuItem>
@@ -801,26 +846,18 @@ function BotContextMenu({
     </ContextMenuContent>
   );
 
-  if (tooltipContent) {
-    return (
-      <Tooltip>
-        <ContextMenu>
-          <TooltipTrigger asChild>
-            <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
-          </TooltipTrigger>
-          {menuContent}
-        </ContextMenu>
-        {tooltipContent}
-      </Tooltip>
-    );
-  }
-
-  return (
-    <ContextMenu>
-      <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
-      {menuContent}
-    </ContextMenu>
+  const content = tooltipContent ? (
+    <Tooltip>
+      <ContextMenu>
+        <TooltipTrigger asChild><ContextMenuTrigger asChild>{children}</ContextMenuTrigger></TooltipTrigger>
+        {menuContent}
+      </ContextMenu>
+      {tooltipContent}
+    </Tooltip>
+  ) : (
+    <ContextMenu><ContextMenuTrigger asChild>{children}</ContextMenuTrigger>{menuContent}</ContextMenu>
   );
+  return <BotRenameContext.Provider value={{ bot, active: renaming, finish: () => setRenaming(false) }}>{content}</BotRenameContext.Provider>;
 }
 
 function GroupContextMenu({
@@ -987,7 +1024,7 @@ const ChannelRow = memo(function ChannelRow({
                 unread ? "font-semibold" : "font-medium"
               )}
             >
-              {channel.name}
+              <BotName name={channel.name} />
             </span>
             {bot?.title ? (
               <span className="max-w-24 shrink-0 truncate rounded-[4px] bg-black/[0.07] px-1.5 py-px text-[11px] font-normal leading-[15px] text-foreground-secondary dark:bg-white/[0.1] dark:text-[#ababab]">
@@ -1288,7 +1325,7 @@ function DraggablePinnedTile({
         ) : unread ? (
           <span aria-label="Unread" className="size-1.5 shrink-0 rounded-full bg-blue-600" />
         ) : null}
-        <span className="truncate">{channel.name}</span>
+        <span className="min-w-0 truncate"><BotName name={channel.name} /></span>
       </span>
     </Button>
   );
@@ -2323,28 +2360,12 @@ function CompactSidebarContent({
           <TooltipContent side="top">Expand sidebar</TooltipContent>
         </Tooltip>
         <Tooltip>
-          <DropdownMenu>
-            <TooltipTrigger asChild>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  aria-label="New Bot or Channel"
-                  className="size-7 rounded-[7px] p-0 text-foreground-tertiary hover:bg-subtle hover:text-foreground-secondary"
-                  variant="ghost"
-                >
-                  <Plus className="size-5" strokeWidth={1.8} />
-                </Button>
-              </DropdownMenuTrigger>
-            </TooltipTrigger>
-            <DropdownMenuContent align="start" className="w-[188px] rounded-xl p-1" side="right">
-              <DropdownMenuItem className="text-[13px]" onSelect={onNewBot}>
-                <BriefcaseBusiness className="size-3.5" /> New Bot
-              </DropdownMenuItem>
-              <DropdownMenuItem className="text-[13px]" onSelect={onNewGroup}>
-                <Hash className="size-3.5" /> New Channel
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-          <TooltipContent side="top">New Bot or Channel</TooltipContent>
+          <TooltipTrigger asChild>
+            <Button aria-label="New chat" className="size-7 rounded-[7px] p-0 text-foreground-tertiary hover:bg-subtle hover:text-foreground-secondary" onClick={onNewBot} variant="ghost">
+              <Plus className="size-5" strokeWidth={1.8} />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="top">New chat</TooltipContent>
         </Tooltip>
         <AccountMenu compact onOpenAbout={onOpenAbout} onOpenSettings={onOpenSettings}>
           <Button
@@ -2390,6 +2411,7 @@ export const Sidebar = memo(function Sidebar({
   activeTaskChannelIds,
   selectedId,
   creating,
+  creatingLabel = "New chat",
   onPreloadSearch,
   onSearch,
   onSelect,
@@ -2416,6 +2438,7 @@ export const Sidebar = memo(function Sidebar({
   activeTaskChannelIds: ReadonlySet<string>;
   selectedId: string | null;
   creating?: boolean;
+  creatingLabel?: string;
   onPreloadSearch: () => void;
   onSearch: () => void;
   onSelect: (id: string) => void;
@@ -2436,7 +2459,6 @@ export const Sidebar = memo(function Sidebar({
 }) {
   const auth = useAuthSession();
   const account = accountPresentation(auth.user, auth.mode);
-  const keepFocusInNewBotPicker = useRef(false);
   const [editingSectionId, setEditingSectionId] = useState<string | null>(null);
   const [sectionDraft, setSectionDraft] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<SidebarSection | null>(null);
@@ -3050,45 +3072,12 @@ export const Sidebar = memo(function Sidebar({
               <TooltipContent side="bottom">Collapse sidebar</TooltipContent>
             </Tooltip>
             <Tooltip>
-              <DropdownMenu>
-                <TooltipTrigger asChild>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      aria-label="New Bot or Channel"
-                      className="electron-no-drag size-7 rounded-[7px] text-foreground-tertiary hover:bg-subtle hover:text-foreground data-[state=open]:bg-subtle data-[state=open]:text-foreground focus-visible:ring-0 dark:text-foreground-secondary"
-                      size="icon-sm"
-                      variant="ghost"
-                    >
-                      <Plus className="size-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                </TooltipTrigger>
-                <DropdownMenuContent
-                  align="end"
-                  alignOffset={3}
-                  className="w-[188px] rounded-xl border-input p-1 shadow-[0_8px_18px_rgba(0,0,0,0.24)]"
-                  onCloseAutoFocus={(event) => {
-                    if (!keepFocusInNewBotPicker.current) return;
-                    event.preventDefault();
-                    keepFocusInNewBotPicker.current = false;
-                  }}
-                  sideOffset={-1}
-                >
-                  <DropdownMenuItem
-                    className="text-[13px]"
-                    onSelect={() => {
-                      keepFocusInNewBotPicker.current = true;
-                      onNewBot();
-                    }}
-                  >
-                    <BriefcaseBusiness className="size-3.5" /> New Bot
-                  </DropdownMenuItem>
-                  <DropdownMenuItem className="text-[13px]" onSelect={onNewGroup}>
-                    <Hash className="size-3.5" /> New Channel
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-              <TooltipContent side="bottom">New Bot or Channel</TooltipContent>
+              <TooltipTrigger asChild>
+                <Button aria-label="New chat" className="electron-no-drag size-7 rounded-[7px] text-foreground-tertiary hover:bg-subtle hover:text-foreground focus-visible:ring-0 dark:text-foreground-secondary" onClick={onNewBot} size="icon-sm" variant="ghost">
+                  <Plus className="size-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">New chat</TooltipContent>
             </Tooltip>
           </div>
           <div className="relative px-[12px] pb-[9px]">
@@ -3316,7 +3305,7 @@ export const Sidebar = memo(function Sidebar({
                         <span className="grid size-9 shrink-0 place-items-center rounded-full bg-subtle text-foreground-tertiary">
                           <Plus className="size-4" />
                         </span>
-                        Create new
+                        {creatingLabel}
                       </div>
                     )}
                     {pendingBot && (
@@ -3492,12 +3481,13 @@ export const Sidebar = memo(function Sidebar({
               variant="ghost"
             >
               <span className="grid size-7 shrink-0 place-items-center rounded-full border-[0.5px] border-[#e4e4e4] bg-background dark:border-[#393939] dark:bg-[#181818]">
-                <Plug className="size-3.5" />
+                <Grid2X2 className="size-3.5" />
               </span>
-              Plugins
+              Marketplace
             </Button>
             <AccountMenu onOpenAbout={onOpenAbout} onOpenSettings={onOpenSettings}>
               <Button
+                aria-label="Open account menu"
                 className="group/footer-account h-10 w-full justify-start px-[13px] text-[13.5px] font-normal hover:bg-[#eaeaea] dark:hover:bg-[#232323]"
                 variant="ghost"
               >

@@ -11,6 +11,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { SectionLabel, SettingsGroup, SettingsRow } from "./ui";
 import { TranscriptionSettingsPanel } from "./transcription";
 
+const AutomationWebhookSettings = lazy(() => import("./automation-webhooks").then(module => ({default:module.AutomationWebhookSettings})));
+
 const WebSearchSettingsPanel = lazy(() =>
   import("./web-search").then((module) => ({ default: module.WebSearchSettingsPanel }))
 );
@@ -439,7 +441,7 @@ export default function ServerSettings() {
         <div className="mt-3 px-2 text-[12px] text-red-600 dark:text-red-400">{error}</div>
       ) : null}
       <Suspense fallback={<div className="mt-7 text-[12px] text-foreground-secondary">Loading web search settings…</div>}>
-        <WebSearchSettingsPanel />
+        <WebSearchSettingsPanel /><AutomationWebhookSettings />
       </Suspense>
       <TranscriptionSettingsPanel />
     </>

@@ -104,7 +104,7 @@ export function SettingsPanel({
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>
       <DialogContent
-        className="grid h-[min(700px,calc(100vh-96px))] w-[min(1000px,calc(100vw-40px))] max-w-none grid-cols-[198px_minmax(0,1fr)] gap-0 overflow-hidden rounded-[15px] border-black/10 bg-[#fcfcfc] p-0 shadow-[0_22px_70px_rgba(0,0,0,0.20)] dark:border-[#303030] dark:bg-[#070707] max-sm:grid-cols-1 max-sm:grid-rows-[auto_minmax(0,1fr)]"
+        className="grid h-[min(700px,calc(100vh-96px))] w-[min(900px,calc(100vw-40px))] max-w-none grid-cols-[198px_minmax(0,1fr)] gap-0 overflow-hidden rounded-[15px] border-black/10 bg-[#fcfcfc] p-0 shadow-[0_22px_70px_rgba(0,0,0,0.20)] dark:border-[#303030] dark:bg-[#070707] max-sm:grid-cols-1 max-sm:grid-rows-[auto_minmax(0,1fr)]"
         showCloseButton={false}
         surface="transparent"
       >
@@ -115,7 +115,7 @@ export function SettingsPanel({
         <aside className="border-r-[0.5px] border-black/[0.07] bg-[#f7f7f7] px-3 pb-4 pt-4 dark:border-white/[0.07] dark:bg-[#111111] max-sm:border-b-[0.5px] max-sm:border-r-0 max-sm:py-2">
           <nav
             aria-label="Settings sections"
-            className="space-y-0.5 max-sm:flex max-sm:gap-1 max-sm:space-y-0"
+            className="space-y-0.5 max-sm:grid max-sm:grid-cols-2 max-sm:gap-1 max-sm:space-y-0"
           >
             {navigation.map((item) => {
               const Icon = item.icon;
@@ -125,7 +125,7 @@ export function SettingsPanel({
                   aria-current={view === item.id ? "page" : undefined}
                   aria-disabled={!item.available}
                   className={cn(
-                    "flex h-7 w-full items-center gap-2 rounded-[7px] px-2 text-left text-[12.5px] font-normal outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/35 max-sm:justify-center",
+                    "flex h-7 w-full items-center gap-2 rounded-[7px] px-2 text-left text-[13px] font-normal outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/35 max-sm:justify-center",
                     view === item.id
                       ? "bg-black/[0.1] dark:bg-white/[0.1]"
                       : item.available
@@ -133,7 +133,11 @@ export function SettingsPanel({
                         : "cursor-default"
                   )}
                   key={item.id}
-                  onClick={() => item.available && setView(item.id)}
+                  onClick={() => {
+                    if (!item.available) return;
+                    setView(item.id);
+                    scrollRef.current?.scrollTo({ top: 0 });
+                  }}
                   onFocus={preload}
                   onPointerEnter={preload}
                   type="button"
@@ -146,7 +150,7 @@ export function SettingsPanel({
           </nav>
         </aside>
 
-        <section className="relative min-w-0">
+        <section className="relative min-h-0 min-w-0">
           <DialogClose asChild>
             <button
               aria-label="Close"

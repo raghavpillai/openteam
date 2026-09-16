@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { Toaster } from "sonner";
 import App from "./App";
 import { AuthGate } from "./components/openteam/auth-gate";
+import { DesktopUpdateDialog } from "./components/openteam/desktop-update-dialog";
 import { installPerformanceMonitoring } from "./lib/performance";
 import { initializeTheme } from "./lib/theme";
 import "./styles.css";
@@ -16,6 +17,7 @@ if (!root) throw new Error("OpenTeam renderer root is missing");
 createRoot(root).render(
   <StrictMode>
     <Toaster closeButton position="bottom-right" richColors theme="system" />
+    <DesktopUpdateDialog />
     <AuthGate>
       <App />
     </AuthGate>

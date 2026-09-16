@@ -10,10 +10,11 @@ describe("Bot account and media UI parity guards", () => {
     const menu = source.slice(menuStart, menuEnd);
     const labels = [
       "Get OpenTeam for iOS",
-      "Settings",
-      "About",
+      "Support",
       "Help Center",
       "Send Feedback",
+      "About",
+      "Settings",
       "Log out",
     ];
     const offsets = labels.map((label) => menu.indexOf(label));
@@ -21,7 +22,7 @@ describe("Bot account and media UI parity guards", () => {
     expect(offsets).toEqual([...offsets].sort((left, right) => left - right));
     expect(menu).not.toContain("Weekly usage");
     expect(source).toContain("New update available");
-    expect(source).toContain("openteam?.updates.openDownload()");
+    expect(source).toMatch(/openteam\?\.updates\s*\.openDownload\(\)/);
   });
 
   test("keeps source-verified Bot dialog and file-viewer geometry", async () => {
@@ -33,22 +34,24 @@ describe("Bot account and media UI parity guards", () => {
     ]);
 
     expect(settings).toContain("h-[min(700px,calc(100vh-96px))]");
-    expect(settings).toContain("w-[min(1000px,calc(100vw-40px))]");
+    expect(settings).toContain("w-[min(900px,calc(100vw-40px))]");
     expect(settings).toContain("grid-cols-[198px_minmax(0,1fr)]");
     expect(settings).toContain("max-sm:grid-cols-1");
     expect(settings).toContain("max-sm:grid-rows-[auto_minmax(0,1fr)]");
-    expect(settings).toContain("max-sm:flex");
+    expect(settings).toContain("max-sm:grid-cols-2");
     expect(settings).toContain('surface="transparent"');
     expect(settings).toContain("dark:bg-[#070707]");
     expect(settings).toContain("dark:bg-[#111111]");
     expect(settings).toContain('aria-label="Close"');
-    expect(plugins).toContain("h-[min(700px,calc(100vh-96px))]");
-    expect(plugins).toContain("w-[min(1000px,calc(100vw-40px))]");
-    expect(plugins).toContain('surface={page === "detail" ? "transparent" : "modal"}');
-    expect(plugins).toContain('size === "md" && "size-10 text-[14px]"');
-    expect(plugins).toContain("h-[26px] rounded-[6px] border-[0.5px] px-2 text-[13px]");
+    expect(plugins).toContain("h-[min(700px,calc(100vh-80px))]");
+    expect(plugins).toContain("w-[min(800px,calc(100vw-40px))]");
+    expect(plugins).toContain('surface="modal"');
+    const pluginMark = await read("../src/renderer/components/openteam/plugins/plugin-mark.tsx");
+    expect(pluginMark).toContain('size === "md" && "size-10"');
+    expect(plugins).toContain("h-[26px]");
     expect(plugins).toContain("View Source");
-    expect(plugins).toContain("navigator.share");
+    const pluginCopy = await read("../src/renderer/components/openteam/plugins/plugin-copy-button.tsx");
+    expect(pluginCopy).toContain("Copy link to this plugin");
     expect(attachment).toContain("h-[calc(100vh-80px)]");
     expect(attachment).toContain("w-[min(1100px,calc(100vw-80px))]");
     expect(attachment).toContain("grid-rows-[40px_minmax(0,1fr)]");

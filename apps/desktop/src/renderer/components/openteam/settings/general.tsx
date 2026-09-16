@@ -50,8 +50,8 @@ export default function GeneralSettings() {
             {account.initials}
           </span>
           <div className="min-w-0 flex-1">
-            <div className="truncate text-[12.5px] font-medium">{account.name}</div>
-            <div className="mt-0.5 flex items-center gap-2 text-[11.5px] text-foreground-secondary">
+            <div className="truncate text-[13px] font-medium">{account.name}</div>
+            <div className="mt-0.5 flex items-center gap-2 text-[12px] text-foreground-secondary">
               <span className="truncate">{account.detail}</span>
               {account.copyValue ? (
                 <button

@@ -38,9 +38,9 @@ function setValue(node: HTMLInputElement | HTMLTextAreaElement, value: string) {
  assert(delivered.find((item) => item.action === 'save').edits.body === 'Human reviewed body', 'edited body saved');
  assert(!delivered.some((item) => item.action === 'send'), 'save does not send');
  button('#draft', 'Send').click(); await wait(); assert(delivered.filter((item) => item.action === 'send').length === 1, 'reviewed send once'); assert(document.querySelector('#draft')!.textContent!.includes('Message sent'), 'confirmed send state');
- button('#template', 'Publish this version').click(); await wait(); button('#template', 'Unpublish').click(); await wait();
- assert(!!button('#template', 'Publish this version again'), 'revoked template can be republished'); button('#template', 'Publish this version again').click(); await wait();
- button('#template', 'Create a bot from this template').click(); await wait(); assert(reviews.join(',') === 'approve,unpublish,approve,import', 'template action lifecycle');
+ button('#template', 'Publish').click(); await wait(); document.querySelector<HTMLButtonElement>('#template [aria-label="Template actions"]')!.click(); await wait(); [...document.querySelectorAll<HTMLElement>('[role=menuitem]')].find((node) => node.textContent === 'Unpublish')!.click(); await wait();
+ assert(!!button('#template', 'Publish'), 'revoked template can be republished'); button('#template', 'Publish').click(); await wait();
+ button('#template', 'Use template').click(); await wait(); assert(reviews.join(',') === 'approve,unpublish,approve,import', 'template action lifecycle');
  assert(!JSON.stringify(localStorage).includes('fixture-secret'), 'values absent from local storage');
  (window as any).parityResults = { passed: 12, scenarios: ['form validation, prefill and value removal', 'duplicate submission protection', 'draft edit/save/send', 'template publish/revoke/republish/import'] };
 })().catch((error) => { (window as any).parityResults = { error: String(error), stack: error.stack }; });

@@ -29,6 +29,7 @@ import {
 } from "./lib/app-deep-links";
 import { activeAsyncTaskChannelIds, activeAsyncTasksForBot } from "./lib/async-tasks";
 import { cn } from "./lib/cn";
+import { requestDesktopUpdateRestart } from "./lib/desktop-update";
 import {
   CHAT_SETTINGS_KEYWORDS,
   HIDDEN_BOTS_PALETTE_KEYWORDS,
@@ -168,6 +169,8 @@ export default function App() {
     nonce: number;
   } | null>(null);
   const [newBotPicker, setNewBotPicker] = useState(false);
+  const [newChatGroup, setNewChatGroup] = useState(false);
+  const [newChatDraft, setNewChatDraft] = useState(0);
   const [newGroupDialog, setNewGroupDialog] = useState(false);
   const [deleteGroupTarget, setDeleteGroupTarget] = useState<ChannelView | null>(null);
   const [hiddenAgentsOpen, setHiddenAgentsOpen] = useState(false);
@@ -567,6 +570,8 @@ export default function App() {
 
   const openNewBot = useCallback(() => {
     measureUntilNextPaint("view.new-bot-open");
+    setNewChatGroup(false);
+    setNewChatDraft((draft) => draft + 1);
     setNewBotPicker(true);
   }, []);
   const openNewGroup = useCallback(() => {
@@ -938,7 +943,7 @@ export default function App() {
               icon: updatePaletteAction.icon,
               run: () => {
                 if (paletteUpdateStatus?.status === "downloaded") {
-                  void window.openteam?.updates.installClient().catch(() => undefined);
+                  requestDesktopUpdateRestart(paletteUpdateStatus);
                   return;
                 }
                 openSettingsTarget("update-status");
@@ -1035,6 +1040,7 @@ export default function App() {
           botById={index.botById}
           channels={visibleChannels}
           creating={newBotPicker}
+          creatingLabel={newChatGroup ? "New group chat" : "New chat"}
           forcedCompact={forcedSidebarCompact}
           hiddenAgentCount={hiddenAgentCount}
           latestMessageByChannel={index.latestMessageByChannel}
@@ -1125,10 +1131,13 @@ export default function App() {
               }
             >
               <NewBotScreen
+                key={newChatDraft}
                 botById={index.botById}
                 channels={visibleChannels}
                 onCancel={() => setNewBotPicker(false)}
                 onCreateBot={() => void createNewBot()}
+                onGroupModeChange={setNewChatGroup}
+                onCreateGroup={(botIds) => mutate(() => api.createGroup({ name: botIds.map((id) => index.botById.get(id)?.name ?? "Bot").join(", ").slice(0, 120), botIds }))}
                 onSelect={selectSidebarChannel}
               />
             </Suspense>
@@ -1387,6 +1396,7 @@ export default function App() {
               onCreateGroup={async (name, botIds) => {
                 const channel = await mutate(() => api.createGroup({ name, botIds }));
                 setSelectedId(channel.id);
+                setNewBotPicker(false);
                 setNewGroupDialog(false);
               }}
               onDeleteBotOpenChange={(open) => !open && setDeleteBotTarget(null)}

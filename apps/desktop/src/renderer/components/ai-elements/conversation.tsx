@@ -31,7 +31,7 @@ export const ConversationContent = ({
   return (
     <StickToBottom.Content
       className={cn("mx-auto flex w-full max-w-4xl flex-col gap-6 py-8", className)}
-      scrollClassName={cn("overflow-y-auto", scrollClassName)}
+      scrollClassName={cn("conversation-scroll overflow-y-auto", scrollClassName)}
       {...props}
     >
       {viewportReady ? children : null}

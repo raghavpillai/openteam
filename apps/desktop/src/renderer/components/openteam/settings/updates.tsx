@@ -7,6 +7,7 @@ import { clientErrorMessage } from "@openteam/product-core/redaction";
 import { useEffect, useMemo, useState } from "react";
 import { API_BASE } from "../../../client/http";
 import { useServerUpdateStatus } from "../../../hooks/use-server-update-status";
+import { requestDesktopUpdateRestart } from "../../../lib/desktop-update";
 import { SectionLabel, SettingsGroup, SettingsRow } from "./ui";
 
 const primaryButton =
@@ -122,7 +123,7 @@ export default function UpdatesSettings() {
     setActionError(null);
     try {
       if (clientUpdate?.status === "downloaded") {
-        await window.openteam?.updates.installClient();
+        requestDesktopUpdateRestart(clientUpdate);
         return;
       }
       if (["downloading", "installing"].includes(clientUpdate?.status ?? "")) return;

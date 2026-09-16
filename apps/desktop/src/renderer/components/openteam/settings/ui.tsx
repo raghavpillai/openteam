@@ -75,7 +75,7 @@ export function SettingsRow({
       data-settings-anchor={anchors?.join(" ")}
     >
       <div className="min-w-0 flex-1">
-        <div className="text-[12.5px] font-normal leading-[17px] text-foreground">{title}</div>
+        <div className="text-[13px] font-normal leading-[17px] text-foreground">{title}</div>
         {description ? (
           <div className="mt-px max-w-[640px] text-[12px] leading-4 text-foreground-secondary">
             {description}
@@ -89,7 +89,7 @@ export function SettingsRow({
 
 export function SectionLabel({ children }: { children: ReactNode }) {
   return (
-    <div className="mb-2 mt-7 px-2 text-[11.5px] font-normal leading-4 text-foreground-tertiary first:mt-0">
+    <div className="mb-2 mt-7 px-2 text-[12px] font-normal leading-4 text-foreground-tertiary first:mt-0">
       {children}
     </div>
   );

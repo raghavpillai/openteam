@@ -1,6 +1,15 @@
-import { type ChannelMessageView } from "@openteam/contracts";
+import { type BotRecipe, type ChannelMessageView } from "@openteam/contracts";
 import { useEffect, useRef, useState } from "react";
+import { Ellipsis } from "lucide-react";
 import { api } from "../../client/openteam-api";
+import { BotAvatar } from "./avatar";
+import { TemplateDetails } from "./template-details";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "../ui/dropdown-menu";
 export function ReviewActionCard({ message }: { message: ChannelMessageView }) {
   const inFlight = useRef(false);
   const metadata = message.metadata as Record<string, unknown>;
@@ -9,6 +18,7 @@ export function ReviewActionCard({ message }: { message: ChannelMessageView }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [imported, setImported] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const [importId] = useState(() => crypto.randomUUID());
   useEffect(() => setState(String(metadata.cardState ?? "pending")), [metadata.cardState]);
   const act = async (action: "approve" | "cancel" | "refresh" | "import" | "unpublish") => {
@@ -43,39 +53,132 @@ export function ReviewActionCard({ message }: { message: ChannelMessageView }) {
     }
   };
   const template = review.kind === "template";
+  if (template) {
+    const recipe = review.recipe as BotRecipe;
+    const tint = /^#[0-9a-f]{6}$/i.test(recipe.profile.avatarColor ?? "")
+      ? recipe.profile.avatarColor!
+      : "#5bc67a";
+    const publishable = state === "pending" || state === "unpublished";
+    const primaryLabel = publishable
+      ? "Publish"
+      : state === "published"
+        ? imported
+          ? null
+          : "Use template"
+        : null;
+    const primaryAction = () => void act(publishable ? "approve" : "import");
+    return (
+      <>
+        <div className="rich-message-card flex w-[300px] max-w-full flex-col gap-3 rounded-[14px] bg-message-assistant p-3 text-[13px] leading-[18px]">
+          <div className="flex items-center gap-2">
+            <strong className="min-w-0 flex-1 truncate font-medium">{recipe.profile.name}</strong>
+            <span className="flex shrink-0 items-center gap-1 rounded-full bg-foreground/[0.04] px-2 py-0.5 text-[11px] text-foreground-secondary">
+              <span
+                className={`size-1.5 rounded-full ${state === "published" ? "bg-[#5bc67a]" : "bg-foreground-tertiary"}`}
+              />
+              {state === "published"
+                ? "Published"
+                : state === "pending" || state === "unpublished"
+                  ? "Unpublished"
+                  : String(metadata.outcomeText ?? state)}
+            </span>
+          </div>
+          <button
+            type="button"
+            aria-label={`View ${recipe.profile.name} template`}
+            onClick={() => setDetailsOpen(true)}
+            style={{
+              background: `linear-gradient(135deg, color-mix(in srgb, ${tint} 30%, var(--message-assistant)), color-mix(in srgb, ${tint} 5%, var(--message-assistant)))`,
+            }}
+            className="grid aspect-[5/3] w-full place-items-center rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-ring [&>span]:size-[104px]"
+          >
+            <BotAvatar
+              bot={{
+                color: recipe.profile.avatarColor ?? "#5bc67a",
+                icon: recipe.profile.avatarShape ?? "classic",
+              }}
+              size="lg"
+            />
+          </button>
+          <p className="line-clamp-2 whitespace-pre-wrap text-foreground-secondary">
+            {recipe.profile.description}
+          </p>
+          <div className="flex gap-2">
+            {primaryLabel && (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={primaryAction}
+                className="h-8 flex-1 rounded-[8px] bg-foreground px-3 font-medium text-background disabled:opacity-50"
+              >
+                {busy ? "Working…" : primaryLabel}
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setDetailsOpen(true)}
+              className="h-8 flex-1 rounded-[8px] border border-foreground/10 bg-background/60 px-3 hover:bg-background"
+            >
+              View Details
+            </button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  aria-label="Template actions"
+                  className="grid size-8 shrink-0 place-items-center rounded-lg text-foreground-secondary hover:bg-background/60"
+                >
+                  <Ellipsis className="size-4" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="text-[13px]">
+                <DropdownMenuItem onSelect={() => void download()}>
+                  Download template JSON
+                </DropdownMenuItem>
+                {state === "pending" && (
+                  <DropdownMenuItem disabled={busy} onSelect={() => void act("cancel")}>
+                    Cancel draft
+                  </DropdownMenuItem>
+                )}
+                {state === "published" && (
+                  <DropdownMenuItem disabled={busy} onSelect={() => void act("unpublish")}>
+                    Unpublish
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+          {imported && (
+            <p role="status" className="text-[12px] text-foreground-secondary">
+              Bot created — open it from the sidebar
+            </p>
+          )}
+          {error && (
+            <p role="alert" className="text-[12px] text-destructive">
+              {error}
+            </p>
+          )}
+        </div>
+        <TemplateDetails
+          recipe={recipe}
+          version={Number(review.version)}
+          open={detailsOpen}
+          onOpenChange={setDetailsOpen}
+          action={primaryLabel}
+          busy={busy}
+          onAction={primaryAction}
+          onDownload={() => void download()}
+          error={error}
+        />
+      </>
+    );
+  }
   return (
     <div className="rich-message-card flex w-full max-w-[560px] flex-col gap-3 rounded-2xl bg-[#eeeeee] p-4 text-sm dark:bg-[#262626]">
-      <strong>
-        {template
-          ? `${review.recipe.profile.name} · version ${review.version}`
-          : "Review product feedback"}
-      </strong>
-      {template ? (
-        <>
-          <p>{review.recipe.profile.description}</p>
-          <p>
-            Visibility:{" "}
-            {review.recipe.visibility === "public"
-              ? "Public after publishing"
-              : "People with access to this OpenTeam installation"}
-          </p>
-          <details>
-            <summary>Review complete template</summary>
-            <pre className="max-h-96 overflow-auto whitespace-pre-wrap rounded-lg bg-background p-3 text-xs">
-              {JSON.stringify(review.recipe, null, 2)}
-            </pre>
-          </details>
-          <button className="text-left underline" onClick={() => void download()}>
-            Download template JSON
-          </button>
-        </>
-      ) : (
-        <>
-          <p className="whitespace-pre-wrap">{review.message}</p>
-          <p>To: {review.destination}</p>
-          <p>{review.wantsResponse ? "Request a reply from support" : "No reply requested"}</p>
-        </>
-      )}
+      <strong className="font-medium">Review product feedback</strong>
+      <p className="whitespace-pre-wrap">{review.message}</p>
+      <p>To: {review.destination}</p>
+      <p>{review.wantsResponse ? "Request a reply from support" : "No reply requested"}</p>
       {state === "pending" ? (
         <div className="flex justify-end gap-3">
           <button disabled={busy} onClick={() => void act("cancel")}>
@@ -86,7 +189,7 @@ export function ReviewActionCard({ message }: { message: ChannelMessageView }) {
             disabled={busy}
             onClick={() => void act("approve")}
           >
-            {busy ? "Working…" : template ? "Publish this version" : "Send feedback"}
+            {busy ? "Working…" : "Send feedback"}
           </button>
         </div>
       ) : (
@@ -101,23 +204,6 @@ export function ReviewActionCard({ message }: { message: ChannelMessageView }) {
           {state === "sending" && (
             <button disabled={busy} onClick={() => void act("refresh")}>
               Check delivery
-            </button>
-          )}
-          {template && state === "unpublished" && (
-            <button disabled={busy} onClick={() => void act("approve")}>
-              Publish this version again
-            </button>
-          )}
-          {template && state === "published" && (
-            <button disabled={busy} onClick={() => void act("unpublish")}>
-              Unpublish
-            </button>
-          )}
-          {template && state === "published" && (
-            <button disabled={busy || imported} onClick={() => void act("import")}>
-              {imported
-                ? "Bot created — open it from the sidebar"
-                : "Create a bot from this template"}
             </button>
           )}
         </>

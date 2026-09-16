@@ -633,11 +633,9 @@ const MessageRow = memo(function MessageRow({
           <DropdownMenuItem className="h-8 text-[13px]" onSelect={() => copyMessage(message)}>
             <Copy className="size-3.5" /> Copy
           </DropdownMenuItem>
-          {from === "user" && (
-            <DropdownMenuItem className="h-8 text-[13px]" onSelect={() => copyRequestId(message)}>
-              <Copy className="size-3.5" /> Copy request ID
-            </DropdownMenuItem>
-          )}
+          <DropdownMenuItem className="h-8 text-[13px]" onSelect={() => copyRequestId(message)}>
+            <Copy className="size-3.5" /> Copy request ID
+          </DropdownMenuItem>
           {attachments.length > 1 && (
             <DropdownMenuItem
               className="h-8 text-[13px]"

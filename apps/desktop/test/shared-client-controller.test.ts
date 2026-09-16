@@ -48,7 +48,7 @@ describe("desktop shared client controllers", () => {
     expect(screen).toContain("Skip this step");
     expect(screen).toContain("I'm done, continue");
     expect(screen).toContain('finishHandoff("dismiss")');
-    expect(screen).toContain("api.releaseComputerHandoff(handoff.messageId)");
+    expect(screen).toContain("api.releaseComputerHandoff(handoffMessageId)");
     expect(screen).toContain("createHandoffReleaseController");
     expect(screen).toContain("handoffRelease.resume()");
     expect(screen).toContain("handoffRelease.deferRelease()");

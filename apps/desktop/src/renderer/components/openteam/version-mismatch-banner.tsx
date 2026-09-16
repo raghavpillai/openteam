@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useServerUpdateStatus } from "../../hooks/use-server-update-status";
 import { OPENTEAM_DEEP_LINK_EVENT } from "../../lib/app-deep-links";
+import { requestDesktopUpdateRestart } from "../../lib/desktop-update";
 
 export const VERSION_MISMATCH_TOAST_ID = "openteam-version-mismatch";
 
@@ -47,7 +48,7 @@ export function VersionMismatchBanner({ showReview = true }: { showReview?: bool
     if (!window.openteam) throw new Error("Desktop updates are unavailable");
     let update = clientUpdate ?? (await window.openteam.updates.status());
     if (update.status === "downloaded") {
-      await window.openteam.updates.installClient();
+      requestDesktopUpdateRestart(update);
       return;
     }
     if (update.status !== "available") {

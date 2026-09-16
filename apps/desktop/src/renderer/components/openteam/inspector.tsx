@@ -504,7 +504,6 @@ export const Inspector = memo(function Inspector({
                 : `${bot.name}'s screen`}
             </div>
           </section>
-          <BotMemoryButton key={bot.id} bot={bot} active={active} />
           <RoutinesSummary
             active={active}
             ownerId={bot.id}
@@ -514,6 +513,7 @@ export const Inspector = memo(function Inspector({
               onModeChange("routine");
             }}
           />
+          <BotMemoryButton key={bot.id} bot={bot} active={active} />
         </Suspense>
       ) : (
         <>
@@ -537,6 +537,7 @@ export const Inspector = memo(function Inspector({
                     </span>
                   </button>
                   <button
+                    aria-label={`Remove ${member.name}`}
                     className="mr-1 rounded-[7px] px-2 py-1 text-[11px] text-foreground-secondary opacity-0 outline-none transition-opacity hover:bg-black/[0.055] hover:text-foreground focus:opacity-100 focus-visible:ring-2 focus-visible:ring-ring/35 group-hover:opacity-100 disabled:pointer-events-none dark:hover:bg-white/[0.08]"
                     disabled={members.length <= 1 || memberMutationPending}
                     onClick={() => setRemoveMemberTarget(member)}

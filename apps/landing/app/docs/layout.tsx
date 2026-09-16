@@ -1,5 +1,6 @@
 import { DocsNavigation } from "@/components/docs/docs-navigation";
 import { DocsHeader } from "@/components/docs/docs-header";
+import { DocsShell } from "@/components/docs/docs-shell";
 import { docPages, docsConfig } from "@/lib/docs";
 import "./docs.css";
 
@@ -12,15 +13,15 @@ export default function DocsLayout({ children }: { children: React.ReactNode }) 
     }),
   }));
   return (
-    <div className="ot-docs" id="top">
+    <DocsShell>
       <a href="#docs-content" className="docs-skip">
         Skip to content
       </a>
       <DocsHeader repository={docsConfig.repository} />
-      <div className="docs-layout docs-container">
+      <div className="docs-layout">
         <DocsNavigation groups={groups} />
         {children}
       </div>
-    </div>
+    </DocsShell>
   );
 }

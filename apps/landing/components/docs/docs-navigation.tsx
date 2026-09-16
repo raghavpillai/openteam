@@ -5,6 +5,7 @@ import { BookOpen, Bot, ChevronDown, ChevronRight, Code2, Compass, LifeBuoy, Men
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { DocsLink } from "./docs-link";
+import { useDocsSidebar } from "./docs-shell";
 
 type NavigationGroup = { title: string; pages: { title: string; href: string }[] };
 const groupIcons: Record<string, typeof BookOpen> = {
@@ -88,6 +89,7 @@ function NavigationList({ groups, pathname, label, idPrefix, onNavigate }: {
 }
 
 export function DocsNavigation({ groups }: { groups: NavigationGroup[] }) {
+  const { expanded } = useDocsSidebar();
   const pathname = usePathname().replace(/\/$/, "") || "/docs";
   const [open, setOpen] = useState(false);
   const [previousPath, setPreviousPath] = useState(pathname);
@@ -103,10 +105,13 @@ export function DocsNavigation({ groups }: { groups: NavigationGroup[] }) {
 
   useEffect(() => {
     if (focusArticle.current) document.getElementById("docs-content")?.focus({ preventScroll: true });
+  }, [pathname]);
+
+  useEffect(() => {
     // Reveal after the active section expands, without interrupting manual rail scrolling.
     const timer = window.setTimeout(() => revealCurrent(sidebar.current), 240);
     return () => window.clearTimeout(timer);
-  }, [pathname]);
+  }, [pathname, expanded]);
 
   useEffect(() => {
     const desktop = window.matchMedia("(min-width: 960px)");
@@ -117,7 +122,7 @@ export function DocsNavigation({ groups }: { groups: NavigationGroup[] }) {
 
   return (
     <>
-      <aside className="docs-sidebar" ref={sidebar}>
+      <aside className="docs-sidebar" id="docs-sidebar" ref={sidebar} inert={!expanded} aria-hidden={!expanded}>
         <NavigationList groups={groups} pathname={pathname} label="Documentation" idPrefix="docs-sidebar-group" />
       </aside>
       <Dialog.Root

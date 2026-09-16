@@ -2,12 +2,14 @@ import { ArrowUpRight } from "lucide-react";
 import Link from "next/link";
 import { GithubMark, Wordmark } from "@/components/brand";
 import { DocsLink } from "./docs-link";
+import { DocsSidebarToggle } from "./docs-shell";
 
 export function DocsHeader({ repository }: { repository: string }) {
   return (
     <header className="docs-header">
       <div className="docs-container docs-header-inner">
         <div className="docs-header-identity">
+          <DocsSidebarToggle />
           <Link href="/" aria-label="OpenTeam home" className="docs-brand">
             <Wordmark size={30} textSize={23} />
           </Link>

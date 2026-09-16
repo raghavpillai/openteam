@@ -27,8 +27,11 @@ and schedule a weekday pricing check. The vendors and prices are illustrative.
   so their conversations stay consistent.
 
 The composite keeps the desktop at 2688 × 1634 and reduces the original mobile capture
-to 752 × 1634. A 56-pixel gap, 64-pixel outer margin, neutral background, rounded corners, and
-thin borders frame the screenshots. The final image is 3624 × 1762 pixels, twice the previous
+to 752 × 1634. A 56-pixel gap, 64-pixel outer margin, rounded corners, thin borders, and soft
+shadows frame the screenshots. The PNG background is transparent so it blends with both
+light and dark page themes. Shadows use black at 16% opacity with a 20-pixel blur and
+14-pixel vertical offset, plus a tighter 10% shadow with a 4-pixel blur and 2-pixel offset.
+The final image is 3624 × 1762 pixels, twice the previous
 resolution in each dimension, with the same layout and proportions. App content has not
 been redrawn or generated. Direct renderer capture excludes the pointer; the native control
 crop is also unobstructed.
@@ -49,5 +52,7 @@ fresh simulator so existing connections and conversations cannot enter the captu
 
 Capture both apps after the content has loaded, then frame the images using the dimensions
 above. Keep the desktop renderer at its captured size; downsample the original iPhone capture.
+Composite onto a transparent RGBA canvas and retain the alpha channel when saving the PNG.
+Check the result against both light and dark backgrounds, including the shadows at the edges.
 Keep the native controls, and check that every message and the computer preview are visible
 before replacing the README image.

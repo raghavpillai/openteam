@@ -91,9 +91,10 @@
 .docs-prose h4 { margin: 24px 0 10px; color: #333333; font-size: 16px; font-weight: 600; scroll-margin-top: 108px; }
 .docs-prose a { color: var(--docs-accent); font-weight: 500; text-decoration: underline; text-decoration-color: #2626263b; text-decoration-thickness: 1px; text-underline-offset: 4px; transition: color 160ms, text-decoration-color 160ms; }
 .docs-prose a:hover { color: var(--docs-accent-strong); text-decoration-color: currentColor; }
-.docs-prose :is(h2, h3, h4) a { position: relative; color: inherit; font-weight: inherit; text-decoration: none; }
-.docs-prose :is(h2, h3, h4) a::before { content: "#"; position: absolute; right: calc(100% + 10px); color: var(--docs-accent); font-size: .8em; font-weight: 400; opacity: 0; transform: translateX(4px); transition: opacity 160ms, transform 160ms; }
-.docs-prose :is(h2, h3, h4) a:hover::before, .docs-prose :is(h2, h3, h4) a:focus-visible::before { opacity: 1; transform: translateX(0); }
+.docs-prose :is(h2, h3, h4) a { position: relative; display: inline-block; vertical-align: top; color: inherit; font-weight: inherit; text-decoration: none; }
+/* Share the first line's metrics, then scale the mark around that line's center. */
+.docs-prose :is(h2, h3, h4) a::before { content: "#"; position: absolute; top: 0; right: calc(100% + 8px); color: var(--docs-accent); font-size: inherit; line-height: inherit; font-weight: 400; opacity: 0; transform: translateX(4px) scale(.8); transition: opacity 160ms, transform 160ms; }
+.docs-prose :is(h2, h3, h4) a:hover::before, .docs-prose :is(h2, h3, h4) a:focus-visible::before { opacity: 1; transform: translateX(0) scale(.8); }
 .docs-prose strong { color: #333333; font-weight: 600; }
 .docs-prose ul, .docs-prose ol { margin: 20px 0; padding-left: 24px; }
 .docs-prose ul { list-style: disc; }

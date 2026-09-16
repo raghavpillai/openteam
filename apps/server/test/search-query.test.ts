@@ -22,6 +22,13 @@ describe("search query parsing", () => {
     expect(prefixTsQuery("a command")).toBe("a & command:*");
   });
 
+  test("finds hyphenated numeric names using PostgreSQL's signed-number tokens", () => {
+    expect(prefixTsQuery("gesture-0916")).toBe("gesture:* & (0916:* | -0916:*)");
+    expect(prefixTsQuery("project-1")).toBe("project:* & (1 | -1)");
+    expect(prefixTsQuery("project 0916")).toBe("project:* & 0916:*");
+    expect(prefixTsQuery("project-0916abc")).toBe("project:* & 0916abc:*");
+  });
+
   test("keeps the FTS predicate inline and bounds expensive ranking", async () => {
     let sql = "";
     const prisma = {

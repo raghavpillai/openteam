@@ -49,11 +49,19 @@ export const normalizeSearchQuery = (value: string) =>
   value.normalize("NFKC").replace(/\s+/g, " ").trim().slice(0, MAX_QUERY_LENGTH);
 
 export const prefixTsQuery = (value: string) =>
-  (normalizeSearchQuery(value).match(/[\p{L}\p{N}_]+/gu) ?? [])
+  Array.from(normalizeSearchQuery(value).matchAll(/[\p{L}\p{N}_]+/gu))
     .slice(0, MAX_QUERY_TERMS)
     // A one-character prefix can expand to most of the lexicon. Exact matching keeps
     // that first keystroke cheap; normal prefix matching starts at two characters.
-    .map((term) => (term.length === 1 ? term : `${term}:*`))
+    .map((match) => {
+      const term = match[0];
+      const suffix = term.length === 1 ? "" : ":*";
+      // PostgreSQL indexes the number in "project-0916" as "-0916". Accept
+      // either spelling without losing the sign that its text parser preserved.
+      return /^\p{N}+$/u.test(term) && match.input[match.index - 1] === "-"
+        ? `(${term}${suffix} | -${term}${suffix})`
+        : `${term}${suffix}`;
+    })
     .join(" & ");
 
 export class SearchService {

@@ -17,6 +17,7 @@ import { Inspector } from "../../src/renderer/components/openteam/inspector";
 import { Sidebar } from "../../src/renderer/components/openteam/sidebar";
 import { TooltipProvider } from "../../src/renderer/components/ui/tooltip";
 import type { SidebarPreferencesController } from "../../src/renderer/hooks/use-sidebar-preferences";
+import readmeConversation from "../../../../scripts/screenshots/readme-conversation.json";
 
 // Only synthetic records are supplied. Shipping components, fonts, tokens, and
 // CSS render the reference; no auth gate, app controller, or real transport runs.
@@ -76,7 +77,20 @@ const replies = [
   "All three services are healthy. API usage is up 12% since yesterday. I saved uptime and usage changes to `/workspace/reports/daily-check.csv`.",
   "The parser returned an invalid Date for empty input. I changed it to return null and added a regression test. All 24 tests pass. The diff is ready for review.",
 ];
-const messages: ChannelMessageView[] = channels.flatMap((channel, index) => [
+const readme = new URLSearchParams(window.location.search).has("readme");
+const messages: ChannelMessageView[] = channels.flatMap((channel, index) => readme && index === 0
+  ? readmeConversation.map((message, ordinal) => ({
+      id: `readme-message-${ordinal}`,
+      sequence: String(ordinal + 1),
+      channelId: channel.id,
+      sender: message.sender as "user" | "agent",
+      senderBotId: message.sender === "agent" ? bots[0]!.id : null,
+      sourceRunId: null,
+      content: message.content,
+      metadata: {},
+      createdAt: later(ordinal),
+    }))
+  : [
   {
     id: `${channel.id}-request`,
     sequence: String(index * 2 + 1),
@@ -155,6 +169,20 @@ const routine: RoutineView = {
   triggerPresentation: null,
 };
 api.routines = async () => [routine];
+if (readme) {
+  routine.schedule = "0 8 * * 1-5";
+  routine.schedules = [routine.schedule];
+  routine.cronExpression = routine.schedule;
+  api.screenStatus = async (botId) => ({
+    botId, state: "ready", width: 1280, height: 800, display: 100,
+    viewerUrl: "", humanTakeover: false, agentInputPaused: false,
+    apps: ["chromium"], browserProfileScope: "computer", browserSessionScope: "computer",
+    browserSessionMechanism: "shared-profiles", browserStateCoverage: [],
+    browserTargetRouting: "bot-owned-tabs",
+  });
+  // An actual Linux computer capture of the same illustrative comparison.
+  api.screenFrameUrl = () => new URL("../../../landing/public/screenshots/linux-vendor-review.png", import.meta.url).href;
+}
 const runtime: ClientSnapshot["runtime"] = {
   server: "ready",
   database: "ready",
@@ -245,7 +273,7 @@ function Reference() {
                     onSetMembers={noMutation}
                     onUpdateBot={noMutation}
                     onUpdateGroupProfile={noMutation}
-                    screenEnabled={false}
+                    screenEnabled={readme}
                   />
                 </div>
               ) : null}

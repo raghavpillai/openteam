@@ -9,9 +9,9 @@ take over when needed, or come back when the work is done.
 [Get started](#get-started) · [Apps](#apps) · [Documentation](docs/README.md) ·
 [Develop from source](docs/development/from-source.md)
 
-[![OpenTeam desktop on the left and iPhone app on the right, showing sample conversations](docs/images/openteam-desktop-mobile.png)](docs/images/openteam-desktop-mobile.png)
+[![OpenTeam desktop and iPhone apps showing the same vendor comparison and weekday pricing check](docs/images/openteam-desktop-mobile.png)](docs/images/openteam-desktop-mobile.png)
 
-*Desktop and iPhone apps with sample conversations. Click to view full size.*
+*The same vendor comparison on desktop and iPhone, using sample data. Click to view full size.*
 
 ## What you can do
 
@@ -66,8 +66,7 @@ For a public HTTPS address or other connection options, use `openteam setup --ad
 and sign in with the account you just created. Create a bot and send it a task.
 
 The host and Docker must stay running for bots and routines to work. Server-side work continues
-when you close the app; keep the OpenTeam desktop app open for delegated tasks and access to
-your physical computer.
+when you close the app. Keep the desktop app open when bots need access to your physical computer.
 
 ## Apps
 
@@ -92,7 +91,7 @@ See [server commands](docs/manage/server.md), [remote access](docs/configuration
 
 ## Documentation
 
-- [Configuration](docs/README.md#configuration): model providers, server settings, remote access, and app preferences.
+- [Configuration](docs/configuration/server.md): model providers, server settings, remote access, and app preferences.
 - [Plugins and skills](docs/usage/plugins.md): connect accounts and control bot access.
 - [Architecture](docs/overview/architecture.md): how bots run, where data lives, and what persists.
 - [Development](docs/development/from-source.md): run from source, navigate the repository, and run checks.

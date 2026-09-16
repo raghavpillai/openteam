@@ -1,0 +1,18 @@
+[
+  {
+    "sender": "user",
+    "content": "Compare Northstar, Acme, and Orbit for our team. We need SSO and a budget under $200 a year."
+  },
+  {
+    "sender": "agent",
+    "content": "**Northstar is the best fit.**\n\n- **144 USD/year** with SSO included\n- **72 USD less** than Acme\n- **56 USD under** your budget\n\nSaved the comparison and sources to `/workspace/reports/vendor-review.md`."
+  },
+  {
+    "sender": "user",
+    "content": "Great. Check their pricing every weekday at 8 AM."
+  },
+  {
+    "sender": "agent",
+    "content": "Done. I’ll check each weekday at 8 AM and let you know if pricing or SSO changes."
+  }
+]

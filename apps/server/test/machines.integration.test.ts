@@ -13,6 +13,8 @@ test.skipIf(!process.env.OPENTEAM_TEST_DATABASE_URL)("registered machines surviv
   expect((await service.list(true)).find(row=>row.machineId===id)).toMatchObject({connected:true,label:"Fixture laptop"});
   const directory=new MachineDirectory(api.url.origin,"fixture",bridge.url.origin);
   expect(await directory.endpoint(id)).toBe(bridge.url.origin);
+  await expect(directory.endpoint("unregistered-computer")).rejects.toThrow("ListMachines");
+  expect(await directory.endpoint(undefined)).toBe(bridge.url.origin);
   expect((await directory.list()).find(row=>row.machineId===id)).toMatchObject({connected:true});
   online=false;
   expect((await directory.list()).find(row=>row.machineId===id)).toMatchObject({connected:false,label:"Fixture laptop"});

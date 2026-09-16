@@ -31,6 +31,7 @@
     "./tool-contracts": "./src/tool-contracts.ts",
     "./reference-parsers": "./src/reference-parsers.ts",
     "./reference-formatters": "./src/reference-formatters.ts",
+    "./reference-form-results": "./src/reference-form-results.ts",
     "./tool-results": "./src/tool-results.ts",
     "./reference-main-parsers": "./src/reference-main-parsers.ts"
   },

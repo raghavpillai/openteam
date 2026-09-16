@@ -312,8 +312,13 @@ export interface ShellAwaitResponse {
   error?: string;
 }
 
-export const parseHostAwaitShellRequest = (value: unknown): HostAwaitShellRequest => {
-  if (!isRecord(value)) throw new Error("AwaitShell arguments must be an object");
+export const parseHostAwaitShellRequest = (raw: unknown): HostAwaitShellRequest => {
+  if (!isRecord(raw)) throw new Error("AwaitShell arguments must be an object");
+  let value = raw;
+  if (typeof value.block_until_ms === "string" && value.block_until_ms.trim()) {
+    const number = Number(value.block_until_ms.trim());
+    if (!Number.isNaN(number)) value = { ...value, block_until_ms: number };
+  }
   for (const key of ["pattern", "machineId"] as const) {
     if (value[key] !== undefined && typeof value[key] !== "string") {
       throw new Error(`AwaitShell ${key} must be a string`);

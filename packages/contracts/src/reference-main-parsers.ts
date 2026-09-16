@@ -1900,5 +1900,17 @@ const adaptedSendSchema = sendMessageObjectSchemaWithCredentialRequest.extend({
   secret: localSecretSchema.optional(),
   end_turn: external_exports.boolean().optional(),
 }).superRefine(refineSendMessage);
-export function normalizeMainToolArguments(name:string, raw:unknown):Record<string,any>{return name === "SendToUser" ? adaptedSendSchema.parse(raw) : schemas[name] ? schemas[name].parse(raw) : raw as Record<string,any>;}
+export function normalizeMainToolArguments(name:string, raw:unknown):Record<string,any>{
+  if (name === "Shell" && raw && typeof raw === "object" && !Array.isArray(raw)) {
+    const value = {...raw};
+    if (typeof value.block_until_ms === "string" && value.block_until_ms.trim()) {
+      const number = Number(value.block_until_ms.trim());
+      if (!Number.isNaN(number)) value.block_until_ms = number;
+    }
+    if (typeof value.block_until_ms === "number" && Number.isFinite(value.block_until_ms))
+      value.block_until_ms = value.block_until_ms < 0 ? 30_000 : Math.floor(value.block_until_ms);
+    return value;
+  }
+  return name === "SendToUser" ? adaptedSendSchema.parse(raw) : schemas[name] ? schemas[name].parse(raw) : raw as Record<string,any>;
+}
 export { describeTrigger };

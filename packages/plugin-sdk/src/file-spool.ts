@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 
 /** Private immutable staging keeps file bytes outside JSON/tool history and bounds memory. */
 export async function spoolFile(source: AsyncIterable<Uint8Array> | ReadableStream<Uint8Array>, options: {signal?:AbortSignal; sizeBytes?:number; sha256?:string; maxBytes?:number} = {}) {
+  options.signal?.throwIfAborted();
   const directory = await mkdtemp(join(tmpdir(), "openteam-transfer-"));
   const path = join(directory,"bytes");
   const cleanup = () => rm(directory,{recursive:true,force:true});
@@ -14,7 +15,13 @@ export async function spoolFile(source: AsyncIterable<Uint8Array> | ReadableStre
   try {
     file = await open(path,"wx",0o600);
     const chunks = async function* () {
-      if ("getReader" in source) { const reader=source.getReader(); try {for(;;){const item=await reader.read();if(item.done)break;yield item.value;}} finally {await reader.cancel().catch(()=>{});reader.releaseLock();} }
+      if ("getReader" in source) {
+        const reader=source.getReader();
+        const abort=()=>{void reader.cancel(options.signal?.reason).catch(()=>{});};
+        options.signal?.addEventListener("abort",abort,{once:true});
+        try {options.signal?.throwIfAborted();for(;;){const item=await reader.read();if(item.done)break;yield item.value;}}
+        finally {options.signal?.removeEventListener("abort",abort);await reader.cancel().catch(()=>{});reader.releaseLock?.();}
+      }
       else yield* source;
     };
     for await (const chunk of chunks()) {

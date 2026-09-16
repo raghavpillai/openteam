@@ -1,6 +1,7 @@
 import { createCipheriv, createDecipheriv, randomBytes, randomUUID } from "node:crypto";
 import { chmod, mkdir, readFile, rename, writeFile, access, open, rm } from "node:fs/promises";
 import { join } from "node:path";
+import {buildUserFormSkippedFieldsNote,buildUserFormUnfillableResult} from "@openteam/contracts/reference-form-results";
 import {
   formFieldIsPayment,
   formFieldIsSecret,
@@ -21,7 +22,7 @@ export interface FormPageBinding {
   url?: string;
 }
 export interface FormBrowser {
-  prepare(form: UserForm): Promise<{ binding: FormPageBinding; reachable: string[] }>;
+  prepare(form: UserForm): Promise<{ binding: FormPageBinding; reachable: string[]; failureKinds?:Record<string,string> }>;
   fill(binding: FormPageBinding, field: UserFormField, value: string | boolean): Promise<boolean>;
   submit(binding: FormPageBinding, field: UserFormField): Promise<boolean>;
   snapshot(binding: FormPageBinding): Promise<string>;
@@ -41,6 +42,7 @@ interface SavedForm {
   remapCallId?: string;
   remapProcessing?: boolean;
   remapPending?: boolean;
+  preflightNote?: string;
 }
 interface VaultEntry {
   key: string;
@@ -192,23 +194,26 @@ export class UserFormHost {
       const existing = state.forms[formId];
       if (existing) {
         if (existing.botId !== botId) throw new Error("Form is unavailable");
-        return existing.form;
+        return {...existing.form,...(existing.preflightNote ? {preflightNote:existing.preflightNote} : {})};
       }
       let binding: FormPageBinding | undefined;
+      let preflightNote: string | undefined;
       if (form.fields.some((field) => field.target)) {
         const prepared = await (await this.browser(botId)).prepare(form);
         if (normalizeFormDomain(prepared.binding.domain) !== form.domain)
           throw new Error("The browser page does not match the requested domain");
         const reachable = new Set(prepared.reachable);
+        const skipped = Object.fromEntries(form.fields.filter(field=>field.target&&!reachable.has(field.id)).map(field=>[field.id,prepared.failureKinds?.[field.id] ?? "target_missing"]));
+        const structural = Object.values(skipped).every(kind=>["in_unreachable_frame","in_closed_shadow"].includes(kind));
+        if (Object.keys(skipped).length) preflightNote = structural ? buildUserFormSkippedFieldsNote(skipped) : `The host did not ask the user for these fields because their controls are unavailable: ${Object.entries(skipped).map(([id,kind])=>`${id} (${kind})`).join(", ")}. Inspect a fresh browser snapshot. If this step cannot proceed, use request_box_help; do not ask the user to type into the same unavailable controls again.`;
+        const unfillable = structural ? buildUserFormUnfillableResult(form,skipped) : `No requested fields are reachable on the page. The form was not shown and nothing was asked of the user. ${preflightNote}`;
         form.fields = form.fields.filter((field) => !field.target || reachable.has(field.id));
         if (!form.fields.some((field) => field.target))
-          throw new Error(
-            "No requested fields are reachable on the page. Use request_box_help so the user can complete this step directly."
-          );
+          throw new Error(unfillable);
         binding = prepared.binding;
       }
-      state.forms[formId] = { botId, form, binding, createdAt: Date.now() };
-      return form;
+      state.forms[formId] = { botId, form, binding, createdAt: Date.now(),preflightNote };
+      return {...form,...(preflightNote ? {preflightNote} : {})};
     });
   }
 

@@ -1,6 +1,7 @@
 import { CONNECTOR_TRANSFER_MAX_BYTES } from "@openteam/contracts/connector-transfers";
 import { basename, extname } from "node:path";
 const part = encodeURIComponent;
+const transferError = (kind: string, message: string, extra: Record<string, unknown> = {}) => Object.assign(new Error(message), {outcome:{kind,message,...extra}});
 const drive = "https://www.googleapis.com/drive/v3";
 const gmail = "https://gmail.googleapis.com/gmail/v1/users/me";
 const graph = "https://graph.microsoft.com/v1.0/me/drive";
@@ -149,7 +150,7 @@ export class FileTransferProvider {
   }
   async downloadStream(provider:string,source:{fileId?:string;path?:string},signal?:AbortSignal): Promise<{id:string;name:string;mimeType:string;stream:ReadableStream<Uint8Array>;webUrl?:string}> {
     if (provider === "google-drive") {
-      if (!source.fileId) throw new Error("Drive requires source.fileId");
+      if (!source.fileId) throw transferError("rejected", "Drive requires source.fileId");
       const id = source.fileId;
       const file = await this.json(
         `${drive}/files/${part(id)}?fields=id,name,mimeType,size,webViewLink&supportsAllDrives=true`,
@@ -157,7 +158,7 @@ export class FileTransferProvider {
       );
       const native = exports[file.mimeType];
       if (file.mimeType?.startsWith("application/vnd.google-apps.") && !native)
-        throw new Error("This Google native file type cannot be exported");
+        throw transferError("rejected", "This Google native file type cannot be exported");
       const url = native
         ? `${drive}/files/${part(id)}/export?mimeType=${part(native[0])}`
         : `${drive}/files/${part(id)}?alt=media&supportsAllDrives=true`;
@@ -177,7 +178,7 @@ export class FileTransferProvider {
         `${graph}${route}?$select=id,name,size,file,webUrl,@microsoft.graph.downloadUrl`,
         { signal }
       );
-      if (!file.file) throw new Error("Source is not a file");
+      if (!file.file) throw transferError("not_found", "Source is not a file");
       const url = new URL(file["@microsoft.graph.downloadUrl"]);
       // Download URLs are short-lived bearer URLs from authenticated Graph metadata.
       if (url.protocol !== "https:" || url.username || url.password || url.port)
@@ -193,20 +194,20 @@ export class FileTransferProvider {
     if (provider === "gmail") {
       const ids = source.fileId?.split("/");
       if (ids?.length !== 2 || !ids[0] || !ids[1])
-        throw new Error("Gmail fileId must be messageId/attachmentId");
+        throw transferError("rejected", "Gmail fileId must be messageId/attachmentId");
       const message = await this.json(`${gmail}/messages/${part(ids[0])}?format=full`, { signal });
       const visit = (p: any): any =>
         p.body?.attachmentId === ids[1] ? p : (p.parts ?? []).map(visit).find(Boolean);
       const attachment = visit(message.payload ?? {});
-      if (!attachment) throw new Error("Attachment does not belong to this message");
+      if (!attachment) throw transferError("not_found", "Attachment does not belong to this message");
       if (Number(attachment.body.size) > CONNECTOR_TRANSFER_MAX_BYTES)
-        throw new Error("Attachment exceeds 64 MiB");
+        throw transferError("too_large", "Attachment exceeds 64 MiB", {maxBytes:CONNECTOR_TRANSFER_MAX_BYTES});
       const data = await this.json(
         `${gmail}/messages/${part(ids[0])}/attachments/${part(ids[1])}`,
         { signal }
       );
       const bytes = Buffer.from(data.data, "base64url");
-      if (bytes.length > CONNECTOR_TRANSFER_MAX_BYTES) throw new Error("Attachment exceeds 64 MiB");
+      if (bytes.length > CONNECTOR_TRANSFER_MAX_BYTES) throw transferError("too_large", "Attachment exceeds 64 MiB", {maxBytes:CONNECTOR_TRANSFER_MAX_BYTES});
       return {
         id: source.fileId!,
         name: attachment.filename || `attachment-${ids[1]}`,
@@ -233,14 +234,14 @@ export class FileTransferProvider {
     const name = destination.name ?? basename(sourceName);
     const mimeType = mimeFor(name);
     if (provider === "gmail") {
-      if (size > 25 * 1024 * 1024) throw new Error("Draft with attachments exceeds 25 MiB");
+      if (size > 25 * 1024 * 1024) throw transferError("too_large", "Draft with attachments exceeds 25 MiB", {maxBytes:25 * 1024 * 1024});
       if (
         !destination.draftId ||
         destination.path ||
         destination.folderId ||
         destination.overwrite !== undefined
       )
-        throw new Error("Gmail requires only draftId and optional name");
+        throw transferError("invalid_destination", "Gmail requires only draftId and optional name");
       const draft = await this.json(`${gmail}/drafts/${part(destination.draftId)}?format=raw`, {
         signal,
       });
@@ -250,12 +251,12 @@ export class FileTransferProvider {
         mimeType,
         Buffer.from(await chunk(0,size))
       );
-      if (raw.length > 25 * 1024 * 1024) throw new Error("Draft with attachments exceeds 25 MiB");
+      if (raw.length > 25 * 1024 * 1024) throw transferError("too_large", "Draft with attachments exceeds 25 MiB", {maxBytes:25 * 1024 * 1024});
       const latest = await this.json(`${gmail}/drafts/${part(destination.draftId)}?format=raw`, {
         signal,
       });
       if (latest.message?.id !== draft.message?.id || latest.message?.raw !== draft.message?.raw)
-        throw new Error("Draft changed while adding the attachment; reopen it before retrying");
+        throw transferError("rejected", "Draft changed while adding the attachment; reopen it before retrying");
       const result = await this.json(`${gmail}/drafts/${part(destination.draftId)}`, {
         method: "PUT",
         headers: { "content-type": "application/json" },
@@ -267,15 +268,15 @@ export class FileTransferProvider {
       });
       return { id: result.id, name, mimeType, sizeBytes: size, draftId: result.id };
     }
-    if (destination.draftId) throw new Error("draftId only applies to Gmail");
+    if (destination.draftId) throw transferError("invalid_destination", "draftId only applies to Gmail");
     if (provider === "google-drive") {
       if (destination.overwrite !== undefined)
-        throw new Error("Drive always creates a new file; overwrite is only for OneDrive");
+        throw transferError("invalid_destination", "Drive always creates a new file; overwrite is only for OneDrive");
       let parent = destination.folderId ?? "root";
       if (destination.path) {
         for (const segment of destination.path.split("/")) {
           if (!segment || [".", ".."].includes(segment))
-            throw new Error("Invalid Drive folder path");
+            throw transferError("invalid_destination", "Invalid Drive folder path");
           const escape = (x: string) => x.replaceAll("\\", "\\\\").replaceAll("'", "\\'");
           const query = `'${escape(parent)}' in parents and name = '${escape(segment)}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
           const folders = await this.json(
@@ -283,7 +284,7 @@ export class FileTransferProvider {
             { signal }
           );
           if (folders.files?.length !== 1 || folders.nextPageToken)
-            throw new Error("Drive folder is missing or ambiguous");
+            throw transferError("invalid_destination", "Drive folder is missing or ambiguous");
           parent = folders.files[0].id;
         }
       }
@@ -334,7 +335,7 @@ export class FileTransferProvider {
           ? `/root:/${this.providerPath(destination.path)}:`
           : "/root";
       const folder = await this.json(`${graph}${folderRoute}?$select=id,folder`, { signal });
-      if (!folder.folder || !folder.id) throw new Error("OneDrive destination is not a folder");
+      if (!folder.folder || !folder.id) throw transferError("invalid_destination", "OneDrive destination is not a folder");
       const parent = `/items/${part(folder.id)}`;
       if (!size) {
         const file = await this.json(

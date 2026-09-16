@@ -62,6 +62,11 @@ test("plugin install, connection, grant, policy, discovery, call, and removal li
     await Effect.runPromise(service.setGrant(connection.id, botId, true));
     const namespaces = await service.dynamicNamespaces(botId);
     expect(namespaces[0]?.tools.map((tool) => tool.name)).toEqual(["echo", "add", "remember_note"]);
+    await Effect.runPromise(service.renameAccount(connection.id,"renamed"));
+    const renamed = await service.dynamicNamespaces(botId);
+    expect(renamed[0]!.name).not.toBe(namespaces[0]!.name);
+    await expect(service.invoke({connectionId:connection.id,namespace:namespaces[0]!.name,botId,runId,callId:"stale-account",toolName:"echo",arguments:{text:"wrong namespace"},allowReviewUI:false})).rejects.toMatchObject({code:"plugin_identifier_stale"});
+    expect(await service.invoke({connectionId:connection.id,namespace:renamed[0]!.name,botId,runId,callId:"renamed-account",toolName:"echo",arguments:{text:"renamed namespace"},allowReviewUI:false})).toEqual({text:"renamed namespace"});
 
     const result = await service.invoke({
       connectionId: connection.id,
@@ -231,12 +236,16 @@ test("plugin install, connection, grant, policy, discovery, call, and removal li
     const actionApproval = await prisma.approval.findFirstOrThrow({
       where: { upstreamRequestId: "plugin-action:plugin-action-install-1" },
     });
+    let actionSettled = false;
+    const awaitingAction = service.waitForAction({runId,botId,callId:"plugin-action-install-1",action:"InstallPlugin",arguments:{pluginKey:"research-playbook"}}).then(result=>{actionSettled=true;return result;});
+    await Bun.sleep(20);expect(actionSettled).toBe(false);
     expect(
       await Effect.runPromise(runs.resolveApproval(actionApproval.id, "accept"))
     ).toMatchObject({ status: "accepted", result: { installed: true } });
     expect((await Effect.runPromise(service.settings())).installs[0]?.pluginKey).toBe(
       "research-playbook"
     );
+    expect(await awaitingAction).toMatchObject({completed:true,actionResult:{installed:true}});
     const replay = await service.requestAction({runId,botId,callId:"plugin-action-install-1",action:"InstallPlugin",arguments:{plugin_id:"research-playbook"}});
     expect(replay).toMatchObject({status:"accepted",completed:true,actionResult:{installed:true},detail:{installed:true}});
     expect(renderControlResult("InstallPlugin", replay, {plugin_id:"research-playbook"})).toStartWith("Installed ");

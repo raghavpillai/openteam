@@ -11,8 +11,9 @@ function fileProcess(mode: "read" | "write", path: string, signal?: AbortSignal)
   child.stderr.on("data", (data: Buffer) => { if (errorText.length < 8192) errorText += data.toString(); });
   child.stdin.on("error", () => {});
   const done = new Promise<void>((resolve,reject) => {
-    child.once("error",reject);
-    child.once("close",code => code === 0 ? resolve() : reject(new Error(errorText || "File transfer interrupted")));
+    let processError: Error | undefined;
+    child.once("error",error=>{processError=error;});
+    child.once("close",code => processError ? reject(processError) : code === 0 ? resolve() : reject(new Error(errorText || "File transfer interrupted")));
   });
   // Install a rejection handler immediately; callers still await and receive the original failure.
   void done.catch(()=>{});
@@ -24,10 +25,13 @@ export function agentReadStream(path: string, signal?: AbortSignal) {
   return { stream: child.stdout, done, cancel:()=>child.kill() };
 }
 export async function agentWriteStream(path: string, stream: ReadableStream<Uint8Array> | Readable, signal?: AbortSignal): Promise<number> {
+  signal?.throwIfAborted();
   const {child,done} = fileProcess("write",path,signal);
   let bytes=0;
   const reader=stream instanceof Readable ? undefined : stream.getReader();
-  const chunks=async function*(){if(reader){try{for(;;){const item=await reader.read();if(item.done)break;yield item.value;}}finally{await reader.cancel().catch(()=>{});reader.releaseLock();}}else yield* stream as Readable;};
+  const abort=()=>{if(reader)void reader.cancel(signal?.reason).catch(()=>{});else (stream as Readable).destroy(new Error("File transfer cancelled"));};
+  signal?.addEventListener("abort",abort,{once:true});
+  const chunks=async function*(){if(reader){try{for(;;){const item=await reader.read();if(item.done)break;yield item.value;}}finally{await reader.cancel().catch(()=>{});reader.releaseLock?.();}}else yield* stream as Readable;};
   try {
     // Keep pipe writes bounded and wait for each write before reading more bytes.
     for await (const chunk of chunks()) {
@@ -38,8 +42,10 @@ export async function agentWriteStream(path: string, stream: ReadableStream<Uint
         bytes+=part.length;
       }
     }
+    signal?.throwIfAborted();
     child.stdin.end();
     await done;
     return bytes;
   } catch(error) {if(stream instanceof Readable)stream.destroy();child.kill(); try {await done;} catch(processError) {if(!signal?.aborted && processError instanceof Error && processError.message !== "File transfer interrupted") throw processError;} throw error;}
+  finally {signal?.removeEventListener("abort",abort);}
 }

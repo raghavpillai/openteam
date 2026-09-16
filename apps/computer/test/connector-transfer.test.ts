@@ -53,15 +53,21 @@ test("discovered file tools move real box bytes over the private bridge and retu
     conversationId: "room-fixture",
     channelId: "room-fixture",
     cwd: root,
-    pluginNamespaces: [],
+    pluginNamespaces: [
+      {name:"eligible-drive",description:"Fixture",namespaceStatus:"ready",tools:[],fileTransfers:{upload:true,download:true}},
+      {name:"denied-drive",description:"Fixture",namespaceStatus:"ready",tools:[],fileTransfers:{upload:false,download:false}},
+    ],
     discoveredDynamicTools: new Set<string>(),
   } as any;
   const tools = runtime.customTools(active) as any[];
   const get = tools.find((tool) => tool.name === "GetDynamicTools");
   const invoke = tools.find((tool) => tool.name === "CallDynamicTool");
   try {
-    for (const name of ["upload_file", "download_file"])
-      await get.execute(`discover-${name}`, { namespace: "cursor", toolName: name });
+    for (const name of ["upload_file", "download_file"]) {
+      const discovery = await get.execute(`discover-${name}`, { namespace: "cursor", toolName: name });
+      expect(JSON.stringify(discovery)).toContain("eligible-drive");
+      expect(JSON.stringify(discovery)).not.toContain("denied-drive");
+    }
     const uploaded = await invoke.execute("upload-1", {
       namespace: "cursor",
       toolName: "upload_file",
@@ -80,13 +86,13 @@ test("discovered file tools move real box bytes over the private bridge and retu
     expect(reviews).toHaveLength(2);
     expect(calls).toHaveLength(4);
     await symlink("/etc", join(root, "escape"));
-    await expect(
-      invoke.execute("escape", {
+    const refused = await invoke.execute("escape", {
         namespace: "cursor",
         toolName: "upload_file",
         arguments: { connection: "Fixture Drive", sourcePath: join(root, "escape/hosts") },
-      })
-    ).rejects.toThrow("symlink escapes");
+      });
+    expect(refused.content[0].text).toContain("only sends files under");
+    expect(refused.details.outcome.kind).toBe("source_refused");
     expect(calls).toHaveLength(4);
   } finally {
     server.stop(true);

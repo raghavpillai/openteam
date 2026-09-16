@@ -620,7 +620,7 @@ export type ReactToMessageInput = typeof ReactToMessageInput.Type;
 
 export const ShellToolInput = Schema.Struct({
   command: Schema.String,
-  block_until_ms: Schema.optional(Schema.Number.pipe(Schema.between(0, 7_140_000))),
+  block_until_ms: Schema.optional(Schema.Number.pipe(Schema.finite(), Schema.greaterThanOrEqualTo(0))),
   description: Schema.optional(Schema.String),
   working_directory: Schema.optional(Schema.String),
   machineId: Schema.optional(Schema.String),

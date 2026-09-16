@@ -588,7 +588,7 @@ export const executeShell = async (
       .catch(() => undefined);
 
     const requested = typeof input.block_until_ms === "number" ? input.block_until_ms : 30_000;
-    const blockMs = Math.max(0, Math.min(7_140_000, requested));
+    const blockMs = Math.max(0, Math.min(2_147_483_647, requested));
     let blockTimer: ReturnType<typeof setTimeout> | undefined;
     const completed = await Promise.race([
       completion.then((outcome) => ({ done: true as const, outcome })),

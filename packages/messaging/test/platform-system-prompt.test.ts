@@ -106,10 +106,7 @@ describe("Grok-derived platform prompt integration", () => {
 
   test("does not instruct the model to use unsupported capture-specific mechanics", () => {
     for (const unsupported of [
-      "end_turn",
       "CloudAgent",
-      "CopyToBox",
-      "CopyFromBox",
       "RecallMemory",
       "request_smart_mode_approval",
       "requestSmartModeApproval",
@@ -124,6 +121,9 @@ describe("Grok-derived platform prompt integration", () => {
     ]) {
       expect(PLATFORM_BASE_SYSTEM_PROMPT).not.toContain(unsupported);
     }
+    expect(PLATFORM_BASE_SYSTEM_PROMPT).toContain("end_turn to true");
+    expect(PLATFORM_BASE_SYSTEM_PROMPT).toContain("CopyToBox");
+    expect(PLATFORM_BASE_SYSTEM_PROMPT).toContain("AwaitShell");
     expect(PLATFORM_BASE_SYSTEM_PROMPT).toContain("output_path");
     expect(PLATFORM_BASE_SYSTEM_PROMPT).toContain("actual tool flow");
   });

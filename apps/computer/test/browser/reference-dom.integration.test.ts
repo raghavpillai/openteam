@@ -33,6 +33,7 @@ test.skipIf(!process.env.OPENTEAM_BROWSER_TEST_EXECUTABLE)("reference snapshots 
   snapshot=text(await session.execute("browser_snapshot",{}));expect(snapshot).not.toContain("731942");expect(snapshot).not.toContain("private replacement");
   await expect(session.execute("browser_cdp",{method:"Runtime.evaluate",params:{expression:'btoa(document.querySelector("#replaceable").value)',returnByValue:true}})).rejects.toThrow("private login data");
   await page.locator('#replaceable').evaluate((node:HTMLElement)=>node.style.display='none');
+  expect(await session.prepareForm(binding,{title:"Hidden",instruction:"Fixture",domain:"127.0.0.1",fields:[{id:"hidden",label:"Replaceable",type:"text",target:{kind:"selector",value:'#replaceable'}}]})).toMatchObject({reachable:[],failureKinds:{hidden:"hidden_target"}});
   await expect(session.fillForm(binding,{id:"hidden",label:"Replaceable",type:"text",target:{kind:"selector",value:'#replaceable'}},"never written")).rejects.toThrow("hidden");
   await page.evaluate(()=>history.pushState({},'', '/next'));
   await expect(session.fillForm(binding,{id:"moved",label:"Masked number",type:"text",target:{kind:"selector",value:'#masked'}},"never written")).rejects.toThrow("moved");

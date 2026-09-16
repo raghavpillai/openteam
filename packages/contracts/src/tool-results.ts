@@ -132,7 +132,7 @@ export function renderControlResult(
   if (name === "create_bot_share_json" && result.staged)
     return `Staged unpublished version ${result.version} of "${args.profile?.name}". It is not public until you confirm it.`;
   if (name === "request_user_form" && result.sent)
-    return "Showed the form to the user; your turn is over. When they submit, the host fills the browser and resumes you with a per-field receipt (fill statuses only — never the submitted values). If they dismiss it, you'll be resumed with that outcome. If they choose to do the step on the screen instead, the host hands them the box directly (same as request_box_help) and you'll be resumed when they hand it back.";
+    return "Showed the form to the user; your turn is over. When they submit, the host fills the browser and resumes you with a per-field receipt (fill statuses only — never the submitted values). If they dismiss it, you'll be resumed with that outcome. If they choose to do the step on the screen instead, the host hands them the box directly (same as request_box_help) and you'll be resumed when they hand it back." + (result.preflightNote ? `\n\n${result.preflightNote}` : "");
   if (name === "request_box_help" && result.sent)
     return "Handed the box to the user. They have control now; wait for them to hand it back, and you'll be resumed automatically.";
   if (name === "SendFeedback" && result.feedbackStatus) {

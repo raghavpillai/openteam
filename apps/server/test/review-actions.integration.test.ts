@@ -42,10 +42,31 @@ test('template versions stay private until reviewed; feedback respects privacy, 
   process.env.OPENTEAM_FEEDBACK_ALLOW_AGENT = 'false'; process.env.OPENTEAM_FEEDBACK_URL = server.url.href;
   await expect(service.stage({ ...context, callId: 'feedback-blocked' }, 'SendFeedback', { message: 'Make it faster', wantsResponse: false })).rejects.toThrow('privacy');
   process.env.OPENTEAM_FEEDBACK_ALLOW_AGENT = 'true';
-  const feedback = await service.stage({ ...context, callId: 'feedback-a' }, 'SendFeedback', { message: 'Make it faster', wantsResponse: false }) as { message_id: string };
+  let settled = false;
+  const pending = service.sendFeedback({ ...context, callId: 'feedback-a' }, { message: 'Make it faster', wantsResponse: false }).then(result => {settled = true; return result;});
+  const waitCard = async (callId: string) => {
+   for (let i=0;i<100;i++) {const row=await prisma.channelMessage.findUnique({where:{channelId_clientId:{channelId,clientId:`tool:${callId}`}}});if(row)return row;await Bun.sleep(10);}
+   throw new Error('Review card did not appear');
+  };
+  const feedback = {message_id:(await waitCard('feedback-a')).id};
+  expect(settled).toBe(false);
   expect(deliveries).toHaveLength(0);
   await Promise.all([Effect.runPromise(service.mutate(feedback.message_id, { action: 'approve' })), Effect.runPromise(service.mutate(feedback.message_id, { action: 'approve' }))]);
   expect(deliveries).toEqual([{ id: feedback.message_id, product: 'OpenTeam', message: 'Make it faster', wantsResponse: false }]);
+  expect(await pending).toMatchObject({feedbackStatus:'sent',wantsResponse:false});
+  expect((await prisma.channelMessage.findUniqueOrThrow({where:{id:feedback.message_id}})).metadata).toMatchObject({outcomeEchoed:true});
+  const declined = service.sendFeedback({...context,callId:'feedback-declined'},{message:'Do not send this',wantsResponse:false});
+  const declinedCard=await waitCard('feedback-declined');
+  await Effect.runPromise(service.mutate(declinedCard.id,{action:'cancel'}));
+  expect(await declined).toMatchObject({feedbackStatus:'dismissed'});
+  const cancellation = new AbortController();
+  const cancelled = service.sendFeedback({...context,callId:'feedback-cancelled'},{message:'Interrupted review',wantsResponse:false},cancellation.signal);
+  const cancellationResult=cancelled.then(()=>false,()=>true);
+  const cancelledCard=await waitCard('feedback-cancelled');cancellation.abort();
+  expect(await cancellationResult).toBe(true);
+  await Effect.runPromise(service.mutate(cancelledCard.id,{action:'cancel'}));
+  expect((await prisma.channelMessage.findUniqueOrThrow({where:{id:cancelledCard.id}})).metadata).toMatchObject({cardState:'dismissed'});
+  expect(deliveries).toHaveLength(1);
   const limited = await service.stage({ ...context, callId: 'feedback-b' }, 'SendFeedback', { message: 'Second feedback', wantsResponse: false }) as { message_id: string };
   await Effect.runPromise(service.mutate(limited.message_id, { action: 'approve' }));
   expect((await prisma.channelMessage.findUniqueOrThrow({where:{id:limited.message_id}})).metadata).toMatchObject({cardState:'failed',outcomeText:expect.stringContaining('rate limited')}); expect(deliveries).toHaveLength(1);

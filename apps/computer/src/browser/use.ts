@@ -245,19 +245,21 @@ export class BrowserUseSession {
       handle = matches[0]!;
     }
     const frame = await handle.ownerFrame();
-    if (!frame || !sameOriginFrame(page.url(), frame.url())) throw new Error("Cross-origin form target refused");
+    if (!frame || !sameOriginFrame(page.url(), frame.url())) throw Object.assign(new Error("Cross-origin form target refused"),{kind:"in_unreachable_frame"});
     return handle;
   }
 
-  async prepareForm(binding: FormPageBinding, form: UserForm): Promise<string[]> {
-    const page = await this.formPage(binding); const reachable: string[] = [];
+  async prepareForm(binding: FormPageBinding, form: UserForm): Promise<{reachable:string[];failureKinds:Record<string,string>}> {
+    const page = await this.formPage(binding); const reachable: string[] = [], failureKinds:Record<string,string> = {};
     for (const field of form.fields) if (field.target) {
       try {
         const handle = await editableHandle(await this.formHandle(page, field)) as ElementHandle<HTMLElement>;
-        if (await handle.evaluate((node) => node.isConnected && !node.hasAttribute("disabled") && node.getAttribute("type") !== "hidden" && (node.matches("input,textarea,select") || node.isContentEditable))) reachable.push(field.id);
-      } catch { /* Only a structurally reachable field is requested from the user. */ }
+        if (await handle.evaluate(WRITE_TARGET_IS_HIDDEN_FN) || await writeTargetFrameIsHidden(page,handle)) failureKinds[field.id]="hidden_target";
+        else if (await handle.evaluate((node) => node.isConnected && !node.hasAttribute("disabled") && !node.hasAttribute("readonly") && (node.matches("input,textarea,select") || node.isContentEditable))) reachable.push(field.id);
+        else failureKinds[field.id]="target_unavailable";
+      } catch(error) { failureKinds[field.id]=(error as any).kind ?? "target_missing"; }
     }
-    return reachable;
+    return {reachable,failureKinds};
   }
 
   async fillForm(binding: FormPageBinding, field: UserFormField, value: string | boolean): Promise<boolean> {

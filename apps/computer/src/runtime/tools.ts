@@ -290,7 +290,6 @@ export class RuntimeTools {
     args: unknown,
     signal?: AbortSignal
   ): Promise<AgentToolResult<Record<string, unknown>>> {
-    args = normalizeMainToolArguments(tool,args);
     if (tool === "Task") args = expandPluginAgent(active.pluginRuntimePackages ?? [], args as Record<string, unknown>);
     if (active.readOnly && !["Read", "RecallMemory", "GetDynamicTools", "CallDynamicTool", "ListSections"].includes(tool)) throw new Error("This plugin agent is read-only");
     if (active.readOnly && tool === "Read" && (args as Record<string, unknown>).machineId) throw new Error("Read-only agents cannot access the user's computer");
@@ -298,6 +297,7 @@ export class RuntimeTools {
     if (active.requestSource === "automation" && AUTOMATION_PARENT_ONLY_TOOLS.has(tool)) {
       throw new Error("Use WakeParent to hand this communication to the parent agent");
     }
+    args = normalizeMainToolArguments(tool,args);
     if (tool === SEND_TO_USER_TOOL.name && (args as Record<string, unknown>)?.type === "credential-request") {
       if (active.runtimeProfile === "subagent" || active.requestSource === "automation") throw new Error("Saved-login approval must be requested by the parent bot");
       const credential = (args as { credential?: Record<string, unknown> }).credential;
@@ -572,10 +572,10 @@ export class RuntimeTools {
     };
     return {
       prepare: async (form) => {
-        const candidates = new Map<string, { binding: FormPageBinding; reachable: string[] }>();
+        const candidates = new Map<string, { binding: FormPageBinding; reachable: string[]; failureKinds:Record<string,string> }>();
         for (const [sessionId, session] of sessions()) for (const binding of await session.formPages(form.domain!)) {
-          const reachable = await session.prepareForm(binding, form);
-          if (!candidates.has(binding.pageId) || candidates.get(binding.pageId)!.reachable.length < reachable.length) candidates.set(binding.pageId, { binding: { ...binding, sessionId }, reachable });
+          const prepared = await session.prepareForm(binding, form);
+          if (!candidates.has(binding.pageId) || candidates.get(binding.pageId)!.reachable.length < prepared.reachable.length) candidates.set(binding.pageId, { binding: { ...binding, sessionId }, ...prepared });
         }
         if (candidates.size !== 1) throw new Error(candidates.size ? "More than one browser tab matches this form domain. Keep the intended tab open and close the other matching tab before requesting the form." : "No live browser tab matches the form domain. Open the page before requesting the form.");
         return [...candidates.values()][0]!;
@@ -665,24 +665,35 @@ export class RuntimeTools {
   private async transferPath(active: ActiveTurn, path: string, write: boolean): Promise<string> {
     const roots = [await realpath(this.workspaceRoot), await realpath(active.cwd)];
     const target = resolve(path);
-    if (!roots.some(root => target.startsWith(root + sep))) throw new Error("File transfer path must be inside the workspace or this bot's directory");
+    const refused = (message: string) => Object.assign(new Error(message), {outcome:{kind:write ? "destination_refused" : "source_refused",allowedRoots:roots}});
+    if (!roots.some(root => target.startsWith(root + sep))) throw refused("File transfer path must be inside the workspace or this bot's directory");
     let existing = write ? dirname(target) : target;
     for (;;) { try { existing = await realpath(existing); break; } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT" || !write) throw error; const parent=dirname(existing); if(parent===existing)throw error;existing=parent; } }
-    if (!roots.some(root => existing === root || existing.startsWith(root + sep))) throw new Error("File transfer symlink escapes the allowed directory");
+    if (!roots.some(root => existing === root || existing.startsWith(root + sep))) throw refused("File transfer symlink escapes the allowed directory");
     return target;
   }
 
   private async connectorTransfer(active: ActiveTurn, callId: string, tool: string, input: Record<string, any>, signal?: AbortSignal): Promise<AgentToolResult<Record<string, unknown>>> {
+    const outcomeResult = (outcome: Record<string, any>): AgentToolResult<Record<string, unknown>> => ({
+      content: [{type:"text",text:outcome.kind === "uncertain" ? outcome.message : (tool === "upload_file" ? describeUploadFileOutcome : describeDownloadFileOutcome)(outcome,input)!}], details:{outcome},
+    });
     let file: Awaited<ReturnType<typeof spoolFile>> | undefined;
     if (tool === "upload_file") {
-      const source=agentReadStream(await this.transferPath(active,input.sourcePath,false),signal);
-      try {file=await spoolFile(source.stream,{signal});await source.done;}
-      catch(error){await file?.cleanup();throw error;} finally {source.cancel();}
+      try {
+        const source=agentReadStream(await this.transferPath(active,input.sourcePath,false),signal);
+        try {file=await spoolFile(source.stream,{signal});await source.done;}
+        finally {source.cancel();}
+      } catch(error) {
+        await file?.cleanup();signal?.throwIfAborted();
+        if ((error as any).outcome) return outcomeResult((error as any).outcome);
+        if (["ENOENT","ENOTDIR","EISDIR"].includes((error as any).code)) return outcomeResult({kind:"source_missing"});
+        throw error;
+      }
     }
     try {
     const staged = {tool,input,...(file ? {sha256:file.sha256,sizeBytes:file.sizeBytes} : {})};
     const prepared = await this.privateControl(active, callId, "PrepareConnectorTransfer", staged, signal);
-    if (prepared.outcome) return {content:[{type:"text",text:(tool==="upload_file" ? describeUploadFileOutcome : describeDownloadFileOutcome)(prepared.outcome,input)!}],details:{}};
+    if (prepared.outcome) return outcomeResult(prepared.outcome);
     if (tool === "upload_file" && prepared.status === "completed") return { content: [{ type: "text", text: describeUploadFileOutcome({ kind: "uploaded", ...prepared.result }, input)! }], details: { ...prepared.result } };
     let reviewed = false;
     if (prepared.decision === "prompt") {
@@ -690,13 +701,19 @@ export class RuntimeTools {
         type: "autoReview", gate: "auto-review", action: "mcp", toolName: tool, summary: `${tool === "upload_file" ? "Upload to" : "Download from"} ${prepared.connectionName}`,
         reason: "This connected account requires approval for file transfers", arguments: { ...input, connection: prepared.connectionId, sha256: staged.sha256, sizeBytes: staged.sizeBytes }, supportsAlwaysAllow: false,
       } }), signal);
-      if (decision !== "accept") throw new Error("File transfer declined. Do not retry unless asked.");
+      if (decision !== "accept") return outcomeResult({kind:"rejected",message:"The user declined the transfer. Do not retry unless asked."});
       reviewed = true;
     }
     const envelope={runId:active.runId,botId:active.botId,conversationId:active.conversationId,channelId:active.channelId,deliveryId:active.deliveryId,callId,tool:"ExecuteConnectorTransfer",arguments:{...staged,input:{...input,connection:prepared.connectionId},reviewed}};
     const response=await fetch(`${this.serverUrl}/api/v0/internal/connector-transfer`,{method:"POST",headers:{authorization:`Bearer ${this.controlToken}`,"content-type":"application/octet-stream","x-openteam-transfer":Buffer.from(JSON.stringify(envelope)).toString("base64url")},body:file ? Bun.file(file.path) : undefined,signal});
     if(!response.ok){const failure=await response.json().catch(()=>({})) as any;throw new Error(failure.error?.message ?? `Transfer failed (${response.status}); inspect the destination before retrying`);}
     let output:Record<string,any>;
+    if (response.headers.get("content-type")?.includes("application/json")) {
+      output = await response.json() as Record<string,any>;
+      if (output.outcome) return outcomeResult(output.outcome);
+      if (tool === "download_file") throw new Error("File service returned no download stream");
+      return {content:[{type:"text",text:describeUploadFileOutcome({kind:"uploaded",...output},input)!}],details:{...output}};
+    }
     if (tool === "download_file") {
       try {
       output=JSON.parse(Buffer.from(response.headers.get("x-openteam-transfer-result") ?? "","base64url").toString());
@@ -704,7 +721,7 @@ export class RuntimeTools {
       const path=await this.transferPath(active,input.destination.path ?? join(active.cwd,"downloads",[".",".."].includes(filename) ? "download" : filename),true);
       if(!response.body)throw new Error("File service returned no download stream");
       output.sizeBytes=await agentWriteStream(path,response.body,signal);output.boxPath=path;
-      } catch(error) {await response.body?.cancel().catch(()=>{});throw error;}
+      } catch(error) {await response.body?.cancel().catch(()=>{});if((error as any).outcome)return outcomeResult((error as any).outcome);throw error;}
     } else output=await response.json() as Record<string,any>;
     return { content: [{ type: "text", text: tool === "upload_file" ? describeUploadFileOutcome({ kind: "uploaded", ...output }, input)! : describeDownloadFileOutcome({ kind: "downloaded", ...output }, input)! }], details: { ...output } };
     } finally {await file?.cleanup();}

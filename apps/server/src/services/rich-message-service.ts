@@ -132,7 +132,7 @@ export class RichMessageService {
     const id = createHash("sha256").update(`${context.botId}:${context.callId}`).digest("hex");
     const prepared = await this.screens.userFormAction(context.botId, id, "prepare", { form });
     const result = await this.messaging.sendVisible(context, { type: "user-form", form: { ...parseUserForm(prepared), id }, end_turn: true });
-    return result.acknowledgement;
+    return {...result.acknowledgement as Record<string,unknown>,...(typeof metadataRecord(prepared).preflightNote === "string" ? {preflightNote:metadataRecord(prepared).preflightNote} : {})};
   }
 
   async recordFormRemap(botId: string, raw: unknown) {

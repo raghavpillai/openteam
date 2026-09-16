@@ -71,6 +71,8 @@ export function renderPluginResult(name: string, r: Row, args: Row): string | un
     return undefined;
   if (r.status === "declined" || r.status === "cancelled")
     return `${name} was ${r.status} by the user. No change was made.`;
+  if (r.error)
+    return `${name}: the approved operation failed. Check GetMcpServerStatus and the connection's setup screen before retrying.`;
   if (!r.completed || r.actionResult == null)
     return `${name}: ${r.status === "accepted" ? "the approval was accepted, but its operation result is unavailable. Check the current status before relying on it" : "waiting for user confirmation"}.`;
   const outcome = r.actionResult;

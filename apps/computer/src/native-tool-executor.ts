@@ -220,7 +220,7 @@ export class NativeToolExecutor {
       });
     });
 
-    const blockMs = Math.max(0, input.block_until_ms ?? DEFAULT_BLOCK_MS);
+    const blockMs = Math.max(0, Math.min(2_147_483_647, input.block_until_ms ?? DEFAULT_BLOCK_MS));
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
     const completed = await Promise.race([
       completion.then((exitCode) => ({ done: true as const, exitCode })),
@@ -289,7 +289,8 @@ export class NativeToolExecutor {
       HOST_BRIDGE_PATHS.shell,
       request,
       signal,
-      parseHostShellResponse
+      parseHostShellResponse,
+      Math.min(2_147_483_647, Math.max(120_000, (input.block_until_ms ?? DEFAULT_BLOCK_MS) + 60_000))
     );
     return textResult(response.output || JSON.stringify(response), {
       ...response,

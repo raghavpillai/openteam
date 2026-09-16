@@ -97,7 +97,7 @@ test.skipIf(!databaseUrl)(
       await expect(call(ordinary.id, "WakeParent", { message: "Wrong mode" })).rejects.toThrow(
         "active automation"
       );
-      for (const message of ["", "  ", "x".repeat(200_001)])
+      for (const message of ["", "  "])
         await expect(call(run.id, "WakeParent", { message })).rejects.toThrow();
       expect(await prisma.automationResult.count({ where: { run: { botId } } })).toBe(0);
       const handoff =

@@ -79,6 +79,17 @@ test("no Enter on failed fill, dismissal is idempotent, and preflight refuses un
   await expect(f.host.prepare("bot", "unreachable", form)).rejects.toThrow("No requested fields");
 });
 
+test("form preflight reports omitted controls and preserves that diagnostic on replay",async()=>{
+ const f=await fixture();
+ f.browser.prepare=async()=>({binding:{pageId:"page",domain:"example.com"},reachable:["email"],failureKinds:{password:"in_unreachable_frame"}});
+ const prepared=await f.host.prepare("bot","partial",form);
+ expect(prepared.fields.map(field=>field.id)).toEqual(["email"]);
+ expect(prepared.preflightNote).toContain("cross-origin iframe");
+ expect(await f.host.prepare("bot","partial",form)).toEqual(prepared);
+ f.browser.prepare=async()=>({binding:{pageId:"page",domain:"example.com"},reachable:[],failureKinds:{email:"in_unreachable_frame",password:"in_unreachable_frame"}});
+ await expect(f.host.prepare("bot","structural",form)).rejects.toThrow("was NOT shown");
+});
+
 test('a killed host records unknown effects and never repeats the browser operation after restart', async () => {
   const f = await fixture();
   const script = `import {UserFormHost} from ${JSON.stringify(join(import.meta.dir, '../src/user-form-host.ts'))};

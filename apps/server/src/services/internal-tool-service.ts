@@ -50,7 +50,6 @@ export class InternalToolService {
 
   execute = (request: DynamicToolCallRequest, transfer: {upload?:import("@openteam/plugin-sdk/file-spool").StagedFile;stream?:boolean} = {}) =>
     serviceEffect(async (signal) => {
-      request={...request,arguments:normalizeMainToolArguments(request.tool,request.arguments)};
       const reviewedExternal=request.tool==="ReviewedExternalFileDelivery";
       if(reviewedExternal)request={...request,tool:"SendToUser"};
       const run = await this.prisma.run.findUnique({
@@ -102,6 +101,7 @@ export class InternalToolService {
       if (run.origin === "routine" && AUTOMATION_PARENT_ONLY_TOOLS.has(request.tool)) {
         throw new ApiError(403, "automation_tool_forbidden", "Use WakeParent to hand this communication or review to the parent agent");
       }
+      if (!reviewedExternal) request={...request,arguments:normalizeMainToolArguments(request.tool,request.arguments)};
       if (request.tool === "WakeParent") {
         if (childIdentity) throw new ApiError(403, "wake_parent_unavailable", "Only the automation itself can wake its parent");
         return wakeAutomationParent(this.messaging, context, Schema.decodeUnknownSync(WakeParentInput)(request.arguments));

@@ -12,6 +12,7 @@ test.skipIf(!databaseUrl)(
     const runId = crypto.randomUUID();
     const callId = crypto.randomUUID();
     let writes = 0;
+    let providerFailure: Error | undefined;
     try {
       await db.bot.create({
         data: {
@@ -57,6 +58,7 @@ test.skipIf(!databaseUrl)(
             ({
               upload: async () => {
                 writes++;
+                if (providerFailure) throw providerFailure;
                 return { id: "uploaded", name: "file.bin", sizeBytes: 3 };
               },
             }) as never
@@ -104,13 +106,24 @@ test.skipIf(!databaseUrl)(
       const stored = await db.connectorFileTransfer.findUniqueOrThrow({ where: { callId } });
       expect(JSON.stringify(stored)).not.toContain("bytesBase64");
       expect(JSON.stringify(stored)).not.toContain("fixture-token");
+      for (const [status,kind] of [[401,"needs_auth"],[404,"invalid_destination"],[403,"rejected"],[503,"uncertain"]] as const) {
+        const failedContext={...context,callId:crypto.randomUUID()};
+        await service().prepare(failedContext,raw);
+        providerFailure=Object.assign(new Error("Private provider diagnostic"),{status});
+        const result=await service().execute(failedContext,{...raw,reviewed:true,bytesBase64:bytes.toString("base64")});
+        expect(result).toMatchObject({outcome:{kind}});
+        expect(JSON.stringify(result)).not.toContain("Private provider diagnostic");
+        const before=writes;
+        await expect(service().execute(failedContext,{...raw,reviewed:true,bytesBase64:bytes.toString("base64")})).rejects.toThrow("uncertain");
+        expect(writes).toBe(before);
+      }
       await db.botPluginConnectionGrant.updateMany({
         where: { connectionId: connection.id, botId },
         data: { enabled: false },
       });
-      await expect(
-        service().prepare({ ...context, callId: crypto.randomUUID() }, raw)
-      ).rejects.toThrow("available file connection");
+      expect(await service().prepare({ ...context, callId: crypto.randomUUID() }, raw))
+        .toMatchObject({outcome:{kind:"unknown_connection",available:[]}});
+      expect(writes).toBe(5);
     } finally {
       await db.connectorFileTransfer.deleteMany({ where: { botId } });
       await db.pluginInstallation.deleteMany({ where: { id: installationId } });

@@ -107,7 +107,10 @@ export class ConnectorFileTransfers {
   }
   async execute(context: Context, raw: Record<string, any>, signal?: AbortSignal, transfer: {upload?:StagedFile;stream?:boolean} = {}) {
     const input = parseConnectorTransfer(raw.tool, raw.input);
-    const { connection, decision } = await this.resolve(context.botId, input.connection, raw.tool);
+    let resolved: Awaited<ReturnType<ConnectorFileTransfers["resolve"]>>;
+    try { resolved = await this.resolve(context.botId, input.connection, raw.tool); }
+    catch (error) { if ((error as any).outcome) return {outcome:(error as any).outcome}; throw error; }
+    const { connection, decision } = resolved;
     const record = await this.db.connectorFileTransfer.findUnique({
       where: { callId: context.callId },
     });
@@ -210,7 +213,17 @@ export class ConnectorFileTransfers {
         where: { callId: context.callId },
         data: { status: "failed" },
       });
-      throw error;
+      signal?.throwIfAborted();
+      if ((error as any).outcome) return {outcome:(error as any).outcome};
+      const status = (error as any).status;
+      if (status === 401) return {outcome:{kind:"needs_auth"}};
+      if (status === 404) return {outcome:{kind:raw.tool === "download_file" ? "not_found" : "invalid_destination",message:"The selected file or destination was not found in this account."}};
+      if (status >= 400 && status < 500) return {outcome:{kind:"rejected",message:`The provider rejected the request (HTTP ${status}). Check this account's access and the destination.`}};
+      // A dropped response can follow a successful write. Never turn an uncertain
+      // upload into the reference's "nothing uploaded; retry" message.
+      return {outcome:{kind:raw.tool === "upload_file" ? "uncertain" : "unavailable",message:raw.tool === "upload_file"
+        ? "The provider did not confirm the upload. It may have succeeded; inspect the destination before retrying. This call will not replay the write."
+        : "The file provider could not complete the download."}};
     }
   }
 }

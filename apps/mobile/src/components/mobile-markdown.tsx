@@ -18,15 +18,17 @@ function InlineMarkdown({
   color,
   linkColor,
   bold = false,
+  selectable = true,
 }: {
   text: string;
   color: string;
   linkColor: string;
   bold?: boolean;
+  selectable?: boolean;
 }) {
   const tokens = parseInlineMarkdown(text);
   return (
-    <Text selectable style={[styles.bodyText, bold && styles.strong, { color }]}>
+    <Text selectable={selectable} style={[styles.bodyText, bold && styles.strong, { color }]}>
       {tokens.map((token) => {
         if (token.type === "code") {
           return (
@@ -78,10 +80,12 @@ export function MobileMarkdown({
   content,
   color,
   forceRich = false,
+  selectable = true,
 }: {
   content: string;
   color: string;
   forceRich?: boolean;
+  selectable?: boolean;
 }) {
   const theme = useChatTheme();
   const rich = forceRich || shouldRenderRichMobileMarkdown(content);
@@ -95,7 +99,7 @@ export function MobileMarkdown({
   if (plainPreview) {
     return (
       <View style={styles.plainPreview}>
-        <Text selectable style={[styles.bodyText, { color }]}>
+        <Text selectable={selectable} style={[styles.bodyText, { color }]}>
           {plainPreview.text}
         </Text>
         {plainPreview.truncated ? (
@@ -151,7 +155,7 @@ export function MobileMarkdown({
                 showsHorizontalScrollIndicator={false}
                 style={styles.codeScroller}
               >
-                <Text selectable style={[styles.codeText, { color: theme.text }]}>
+                <Text selectable={selectable} style={[styles.codeText, { color: theme.text }]}>
                   {block.text}
                 </Text>
               </ScrollView>
@@ -186,6 +190,7 @@ export function MobileMarkdown({
                       ]}
                     >
                       <InlineMarkdown
+                        selectable={selectable}
                         bold={rowIndex === 0}
                         color={rowIndex === 0 ? color : theme.textMuted}
                         linkColor={color}
@@ -202,7 +207,7 @@ export function MobileMarkdown({
           return (
             <Text
               key={block.key}
-              selectable
+              selectable={selectable}
               style={[
                 styles.heading,
                 block.level <= 2 ? styles.headingLarge : styles.headingSmall,
@@ -216,7 +221,12 @@ export function MobileMarkdown({
         if (block.type === "quote") {
           return (
             <View key={block.key} style={[styles.quote, { borderLeftColor: theme.textMuted }]}>
-              <InlineMarkdown color={color} linkColor={color} text={block.text} />
+              <InlineMarkdown
+                selectable={selectable}
+                color={color}
+                linkColor={color}
+                text={block.text}
+              />
             </View>
           );
         }
@@ -229,14 +239,27 @@ export function MobileMarkdown({
                     {block.ordered ? `${itemIndex + 1}.` : "•"}
                   </Text>
                   <View style={styles.listText}>
-                    <InlineMarkdown color={color} linkColor={color} text={item.text} />
+                    <InlineMarkdown
+                      selectable={selectable}
+                      color={color}
+                      linkColor={color}
+                      text={item.text}
+                    />
                   </View>
                 </View>
               ))}
             </View>
           );
         }
-        return <InlineMarkdown color={color} key={block.key} linkColor={color} text={block.text} />;
+        return (
+          <InlineMarkdown
+            selectable={selectable}
+            color={color}
+            key={block.key}
+            linkColor={color}
+            text={block.text}
+          />
+        );
       })}
     </View>
   );

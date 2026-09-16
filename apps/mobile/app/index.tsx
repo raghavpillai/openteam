@@ -700,11 +700,13 @@ export default function HomeScreen() {
           <NativeToolbarButton
             label="Search"
             name="magnifyingglass"
+            symbolSize={14.3}
             onPress={() => router.push("/search")}
           />
           <NativeToolbarButton
             label="New bot or group chat"
             name="plus"
+            symbolSize={16}
             actions={[
               { id: "bot", title: "New Bot" },
               { id: "group", title: "New Group Chat" },

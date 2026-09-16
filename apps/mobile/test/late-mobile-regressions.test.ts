@@ -130,7 +130,13 @@ describe("late native iOS regression guards", () => {
 
     expect(composer).toContain("void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);");
     expect(composer).toContain('label={voiceActive ? "Cancel voice note" : "Add attachment"}');
-    expect(composer).toContain('haptic="light"');
+    const attachmentButton = composer.match(
+      /<NativeGlassButton\s+label=\{voiceActive[\s\S]*?\/>/
+    )?.[0];
+    expect(attachmentButton).toBeDefined();
+    expect(attachmentButton).toContain(
+      "void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);"
+    );
     expect(composer).toContain('accessibilityLabel="Attach Image"');
     expect(composer).toContain('accessibilityLabel="Take Photo"');
     expect(composer).toContain('accessibilityLabel="Choose File"');

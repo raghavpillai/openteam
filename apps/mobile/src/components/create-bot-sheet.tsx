@@ -75,7 +75,7 @@ export function CreateBotSheet() {
         <NativeToolbarButton
           label="Cancel"
           name="xmark"
-          symbolSize={18}
+          symbolSize={14.2}
           onPress={() => router.back()}
         />
         <Text style={[styles.title, { color: theme.text }]}>Create New Bot</Text>

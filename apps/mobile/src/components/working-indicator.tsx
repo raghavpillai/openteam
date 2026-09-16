@@ -132,12 +132,16 @@ export function WorkingIndicator({
             onPress={onStop}
             hitSlop={6}
           >
-            <View accessibilityLabel={`${name} is thinking`} accessibilityRole="progressbar">
+            <View
+              accessibilityLabel={`${name} is thinking`}
+              accessibilityRole="progressbar"
+              style={styles.artwork}
+            >
               <ThinkingRobot
                 color={displayedBot?.color ?? DEFAULT_BOT_AVATAR.color}
                 icon={displayedBot?.icon ?? DEFAULT_BOT_AVATAR.icon}
                 active={active}
-                size={32}
+                size={40}
               />
             </View>
           </Pressable>
@@ -153,6 +157,7 @@ const styles = StyleSheet.create({
     height: THINKING_SLOT_HEIGHT,
     alignItems: "flex-start",
     paddingTop: 16,
-    paddingBottom: 24,
+    paddingBottom: 16,
   },
+  artwork: { width: 32, height: 32, alignItems: "center", justifyContent: "center" },
 });

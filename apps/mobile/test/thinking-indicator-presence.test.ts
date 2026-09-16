@@ -12,9 +12,9 @@ test("the robot is invisible throughout space expansion and collapse", () => {
     if (pose.opacity > 0) expect(pose.height).toBe(THINKING_SLOT_HEIGHT);
   }
   expect(thinkingIndicatorPresence(0)).toEqual({ height: 0, opacity: 0 });
-  expect(thinkingIndicatorPresence(0.5)).toEqual({ height: 36, opacity: 0 });
-  expect(thinkingIndicatorPresence(1.5)).toEqual({ height: 72, opacity: 0.5 });
-  expect(thinkingIndicatorPresence(2)).toEqual({ height: 72, opacity: 1 });
+  expect(thinkingIndicatorPresence(0.5)).toEqual({ height: 32, opacity: 0 });
+  expect(thinkingIndicatorPresence(1.5)).toEqual({ height: 64, opacity: 0.5 });
+  expect(thinkingIndicatorPresence(2)).toEqual({ height: 64, opacity: 1 });
 });
 
 test("opening expands before revealing; closing fades before reclaiming space", () => {

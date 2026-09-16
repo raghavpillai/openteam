@@ -200,12 +200,21 @@ private final class MessageActionsController: UIViewController {
       let button = UIButton(type: .system)
       var config = UIButton.Configuration.plain()
       config.title = item["title"] as? String
-      config.image =
-        UIImage(systemName: item["symbol"] as? String ?? "") ?? UIImage(systemName: "bubble.left")
-      config.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(
-        pointSize: 19, weight: .regular)
+      let symbol = UIImage(
+        systemName: item["symbol"] as? String ?? "",
+        withConfiguration: UIImage.SymbolConfiguration(pointSize: 17, weight: .regular))
+        ?? UIImage(systemName: "bubble.left")!
+      // SF Symbols have different optical bounds. Fit each in the same 20-point
+      // column instead of letting its intrinsic width move the action label.
+      let iconSize = CGSize(width: 20, height: 20)
+      config.image = UIGraphicsImageRenderer(size: iconSize).image { _ in
+        let scale = min(iconSize.width / symbol.size.width, iconSize.height / symbol.size.height)
+        let size = CGSize(width: symbol.size.width * scale, height: symbol.size.height * scale)
+        symbol.draw(in: CGRect(x: (20 - size.width) / 2, y: (20 - size.height) / 2,
+                              width: size.width, height: size.height))
+      }.withRenderingMode(.alwaysTemplate)
       config.baseForegroundColor = item["destructive"] as? Bool == true ? .systemRed : .label
-      config.imagePadding = 14
+      config.imagePadding = 10
       config.contentInsets = NSDirectionalEdgeInsets(top: 12, leading: 20, bottom: 12, trailing: 20)
       config.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { old in
         var a = old

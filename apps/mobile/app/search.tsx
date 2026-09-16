@@ -442,7 +442,7 @@ export default function SearchScreen() {
           label="Close search"
           name="xmark"
           onPress={() => (router.canGoBack() ? router.back() : router.replace("/"))}
-          symbolSize={18}
+          symbolSize={14.2}
         />
         <GlassSurface
           fallbackColor={theme.surface}
@@ -481,7 +481,7 @@ export default function SearchScreen() {
               showSection(index);
             }
           }}
-          symbolSize={18}
+          symbolSize={14.3}
         />
       </View>
 

@@ -44,6 +44,7 @@ import { useVoiceInput } from "../use-voice-input";
 import { insertVoiceTranscript, type VoiceSelection } from "../voice-insertion";
 import { GlassSurface } from "./glass-surface";
 import { IconButton } from "./icon-button";
+import { NativeGlassButton } from "./native-controls";
 
 export interface ReplyTarget {
   id: string;
@@ -900,15 +901,17 @@ export function Composer({
           </GlassSurface>
         </View>
       </Modal>
-      <IconButton
+      <NativeGlassButton
         label={voiceActive ? "Cancel voice note" : "Add attachment"}
-        name={voiceActive ? "xmark" : "plus"}
+        symbol={voiceActive ? "xmark" : "plus"}
         disabled={sending || picking}
-        haptic="light"
-        onPress={voiceActive ? voice.cancel : showAttachmentMenu}
-        size={44}
-        symbolSize={22}
-        tone="glass"
+        onPress={() => {
+          void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          if (voiceActive) voice.cancel();
+          else showAttachmentMenu();
+        }}
+        symbolSize={16}
+        fallbackSymbolSize={22}
       />
       {/* Keep the shadow outside the clipped glass, fixed to the composer while history scrolls. */}
       <View
@@ -918,9 +921,9 @@ export function Composer({
             boxShadow: [
               {
                 offsetX: 0,
-                offsetY: 8,
-                blurRadius: 16,
-                color: theme.dark ? "rgba(0,0,0,0.3)" : "rgba(0,0,0,0.12)",
+                offsetY: theme.dark ? 8 : 6,
+                blurRadius: theme.dark ? 16 : 14,
+                color: theme.dark ? "rgba(0,0,0,0.3)" : "rgba(0,0,0,0.08)",
               },
             ],
           },

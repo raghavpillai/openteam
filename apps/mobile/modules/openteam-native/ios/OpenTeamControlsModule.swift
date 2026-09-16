@@ -28,6 +28,8 @@ final class OpenTeamButtonView: ExpoView {
   let onActivate = EventDispatcher()
   let onAction = EventDispatcher()
   private let button = UIButton(type: .system)
+  private let glassRim = CAGradientLayer()
+  private let glassRimShape = CAShapeLayer()
   var symbol = "" { didSet { updateConfiguration() } }
   var initials = "" { didSet { updateConfiguration() } }
   var title = "" { didSet { updateConfiguration() } }
@@ -49,6 +51,10 @@ final class OpenTeamButtonView: ExpoView {
     super.init(appContext: appContext)
     clipsToBounds = false
     addSubview(button)
+    // Preserve UIKit's glass and interaction; only tune its optical edge.
+    // The dark rim fades before the sides, avoiding a bright drawn outline.
+    glassRim.mask = glassRimShape
+    button.layer.addSublayer(glassRim)
     button.addAction(UIAction { [weak self] _ in self?.onActivate([:]) }, for: .touchUpInside)
     updateConfiguration()
   }
@@ -62,8 +68,34 @@ final class OpenTeamButtonView: ExpoView {
     super.layoutSubviews()
     button.frame = bounds.insetBy(dx: 2, dy: 2)
     button.layer.cornerRadius = min(button.bounds.width, button.bounds.height) / 2
-    button.layer.borderWidth = (variant == "glass" || variant == "chatGlass") && !dark ? 0.5 : 0
-    button.layer.borderColor = UIColor.black.withAlphaComponent(0.12).cgColor
+    updateGlassRim()
+  }
+
+  private func updateGlassRim() {
+    CATransaction.begin()
+    CATransaction.setDisableActions(true)
+    glassRim.isHidden = variant != "glass" && variant != "chatGlass" && variant != "primary"
+    glassRim.frame = button.bounds
+    let width: CGFloat = dark ? 1 / max(1, traitCollection.displayScale) : 0.5
+    glassRimShape.frame = button.bounds
+    glassRimShape.path = UIBezierPath(
+      roundedRect: button.bounds.insetBy(dx: width / 2, dy: width / 2),
+      cornerRadius: max(0, button.bounds.height / 2 - width / 2)).cgPath
+    glassRimShape.fillColor = UIColor.clear.cgColor
+    glassRimShape.strokeColor = UIColor.white.cgColor
+    glassRimShape.lineWidth = width
+    let brightRim = dark || variant == "primary"
+    glassRim.colors = brightRim
+      ? [UIColor.white.withAlphaComponent(0.18).cgColor, UIColor.clear.cgColor,
+         UIColor.clear.cgColor, UIColor.white.withAlphaComponent(0.18).cgColor]
+      : [UIColor.black.withAlphaComponent(0.12).cgColor,
+         UIColor.black.withAlphaComponent(0.12).cgColor]
+    glassRim.locations = brightRim ? [0, 0.14, 0.86, 1] : [0, 1]
+    button.layer.shadowColor = UIColor.black.cgColor
+    button.layer.shadowOffset = CGSize(width: 0, height: 3)
+    button.layer.shadowRadius = 9
+    button.layer.shadowOpacity = variant == "primary" ? 0.08 : 0
+    CATransaction.commit()
   }
 
   private func updateConfiguration() {
@@ -108,6 +140,10 @@ final class OpenTeamButtonView: ExpoView {
     }
     button.configuration = configuration
     button.isEnabled = !disabled && !busy
+    // Configuration changes can replace UIKit's own layers; keep the rim above
+    // the material without inspecting or changing UIKit's private view tree.
+    button.layer.addSublayer(glassRim)
+    updateGlassRim()
   }
 
   private func updateMenu() {
@@ -188,7 +224,7 @@ final class OpenTeamSettingsView: ExpoView, UITableViewDataSource, UITableViewDe
     table.contentInsetAdjustmentBehavior = .never
     table.keyboardDismissMode = .interactive
     var configuration = glassConfiguration()
-    configuration.image = UIImage(systemName: "xmark", withConfiguration: UIImage.SymbolConfiguration(pointSize: 18, weight: .regular))
+    configuration.image = UIImage(systemName: "xmark", withConfiguration: UIImage.SymbolConfiguration(pointSize: 14.2, weight: .regular))
     configuration.cornerStyle = .capsule
     configuration.baseForegroundColor = .label
     closeButton.configuration = configuration

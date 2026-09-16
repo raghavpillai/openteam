@@ -75,14 +75,14 @@ export function GlassSurface({
                         offsetX: 0,
                         offsetY: 1,
                         blurRadius: 2,
-                        color: "rgba(255,255,255,0.15)",
+                        color: "rgba(255,255,255,0.16)",
                       },
                       {
                         inset: true,
                         offsetX: 0,
                         offsetY: -1,
                         blurRadius: 2,
-                        color: "rgba(255,255,255,0.15)",
+                        color: "rgba(255,255,255,0.16)",
                       },
                     ],
                   }

@@ -1,4 +1,6 @@
-export const THINKING_SLOT_HEIGHT = 72;
+// The artwork keeps a 32-point layout box with 16 points above and below it.
+// Extra space here shifts the entire bottom-aligned conversation upward.
+export const THINKING_SLOT_HEIGHT = 64;
 
 /** 0 → 1 opens the empty slot; 1 → 2 reveals the robot. Reverse to dismiss. */
 export function thinkingIndicatorPresence(phase: number) {

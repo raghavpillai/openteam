@@ -328,9 +328,16 @@ export function MessageBubble({
   const renderedText = displayContent.trimEnd();
   const renderedContent = renderedText ? (
     messageNeedsMobileMarkdown(renderedText) ? (
-      <MobileMarkdown color={isUser ? theme.userText : theme.text} content={renderedText} />
+      <MobileMarkdown
+        color={isUser ? theme.userText : theme.text}
+        content={renderedText}
+        selectable={readOnly === true}
+      />
     ) : (
-      <Text selectable style={[styles.content, { color: isUser ? theme.userText : theme.text }]}>
+      <Text
+        selectable={readOnly === true}
+        style={[styles.content, { color: isUser ? theme.userText : theme.text }]}
+      >
         {renderedText}
       </Text>
     )
@@ -421,7 +428,7 @@ export function MessageBubble({
             },
           ]}
         >
-          <SymbolView name="arrowshape.turn.up.left" size={19} tintColor={theme.textMuted} />
+          <SymbolView name="arrow.uturn.backward" size={18} tintColor={theme.textFaint} />
         </Animated.View>
       ) : null}
       <GestureDetector gesture={swipeGesture}>
@@ -756,7 +763,7 @@ export function MessageBubble({
           actionsJSON={JSON.stringify([
             ...(!readOnly
               ? [
-                  { id: "reply", title: "Reply", symbol: "arrowshape.turn.up.left" },
+                  { id: "reply", title: "Reply", symbol: "arrow.uturn.backward" },
                   ...(onStartThread
                     ? [
                         {
@@ -767,11 +774,11 @@ export function MessageBubble({
                       ]
                     : []),
                   ...(onMarkUnread
-                    ? [{ id: "unread", title: "Mark as unread", symbol: "bubble.badge" }]
+                    ? [{ id: "unread", title: "Mark as unread", symbol: "bubble.left" }]
                     : []),
                 ]
               : []),
-            { id: "copy", title: "Copy", symbol: "doc.on.doc", separate: true },
+            { id: "copy", title: "Copy", symbol: "square.on.square", separate: true },
             ...(!readOnly && onReport
               ? [{ id: "report", title: "Report", symbol: "flag", separate: true }]
               : []),
@@ -876,7 +883,7 @@ export function MessageBubble({
                       pressed && { backgroundColor: theme.surfacePressed },
                     ]}
                   >
-                    <SymbolView name="arrowshape.turn.up.left" size={19} tintColor={theme.text} />
+                    <SymbolView name="arrow.uturn.backward" size={18} tintColor={theme.text} />
                     <Text style={[styles.menuLabel, { color: theme.text }]}>Reply</Text>
                   </Pressable>
                   {onStartThread ? (
@@ -918,7 +925,7 @@ export function MessageBubble({
                           pressed && { backgroundColor: theme.surfacePressed },
                         ]}
                       >
-                        <SymbolView name="bubble.left" size={19} tintColor={theme.text} />
+                        <SymbolView name="bubble.left" size={18} tintColor={theme.text} />
                         <Text style={[styles.menuLabel, { color: theme.text }]}>
                           Mark as unread
                         </Text>
@@ -944,7 +951,7 @@ export function MessageBubble({
                     pressed && { backgroundColor: theme.surfacePressed },
                   ]}
                 >
-                  <SymbolView name="doc.on.doc" size={18} tintColor={theme.text} />
+                  <SymbolView name="square.on.square" size={18} tintColor={theme.text} />
                   <Text style={[styles.menuLabel, { color: theme.text }]}>Copy</Text>
                 </Pressable>
               </View>

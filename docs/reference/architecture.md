@@ -81,7 +81,7 @@ search and fetch, reviewed forms and external drafts, and bot template sharing. 
 - [Platform prompt and tools](../reference/platform-system-prompt.md): behavior, configuration, and verification limits.
 - [Web search](../configuration/web-search.md): Exa, Tavily, Brave, and Bing via SerpApi.
 - [Native capabilities](../reference/native-capabilities.md): host access and file transfers.
-- [Memory](../reference/memory-parity.md) and [compaction](../reference/compaction.md): keeping context across turns.
+- [Memory and long conversations](../usage/memory.md): keeping context across turns.
 
 ## Credentials and persistent data
 

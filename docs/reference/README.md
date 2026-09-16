@@ -23,11 +23,9 @@ The [main documentation](../README.md) covers setup and everyday use. These note
 
 ## Runtime and client behavior
 
-These references cover implementation contracts and verification. Dated investigations are labeled separately within the relevant page.
+These references cover implementation contracts and verification.
 
 - [Platform prompt and tool behavior](platform-system-prompt.md)
-- [Memory behavior and compatibility](memory-parity.md)
-- [Compaction](compaction.md)
 - [Integration setup and compatibility details](integration-setup.md)
 - [Message and attachment policy](message-input.md)
 - [Notifications](notifications.md)

@@ -1,5 +1,4 @@
 // Prompts from the inspected ecc8113 memory lifecycle; only the assistant name is adapted.
-// Provenance and compatibility boundaries: docs/reference/memory-parity.md.
 
 export const MEMORY_EXTRACTION_SYSTEM_PROMPT = `<<SAND_MEMORY_EXTRACTION>>
 You maintain the long-term memory of a personal assistant. Read the latest exchange and decide what — if anything — is worth remembering for future, unrelated conversations.

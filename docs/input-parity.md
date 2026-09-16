@@ -17,5 +17,3 @@ Desktop and iOS share their attachment selection policy through `@openteam/contr
 iOS waits for the attachment menu's native `onDismiss` before presenting Files, Photos, or the camera. Presenting a picker while the menu is dismissing can leave the composer waiting indefinitely.
 
 This policy reproduces verified behavior from Grok Bot desktop 0.47.0 and host 886e13a. It does not establish complete equivalence with the private Temporal harness, GrokBot's native iOS app, every codec, video frame extraction, PDF extraction layout, or compaction. OpenTeam retains its own transport and tool-result wrappers. The server request-body ceiling is 280 MiB, and the durable send journal has a 16 MiB serialized-size guard; neither is proof of GrokBot's ultimate chat limit.
-
-Evidence, native QA, differential checks, and validation caveats are in [the QA record](qa/input-parity-2026-09-14.md).

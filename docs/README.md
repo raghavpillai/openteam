@@ -43,6 +43,5 @@ Start with [installation](deployment.md) to run a release, or
 ## QA and research
 
 - [Onboarding and login QA](auth-onboarding-qa.md)
-- [Input policy QA, September 14, 2026](qa/input-parity-2026-09-14.md)
 - [iOS haptics audit](ios-haptics-audit.md)
 - [iOS haptic design research](ios-haptic-design-research.md)

@@ -1,10 +1,10 @@
-import { constants } from "node:fs";
+import { pipeline } from "node:stream/promises";
+import { constants, createReadStream } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { mkdir, open, realpath, rename, rm } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import {
-  HOST_TRANSFER_MAX_BYTES,
   type HostTransferRequest,
 } from "@openteam/contracts/service-protocol";
 
@@ -48,44 +48,26 @@ export class HostFileTransfers {
       try {
         const stat = await file.stat();
         if (!stat.isFile()) throw new Error("Only regular files can be copied");
-        if (stat.size > HOST_TRANSFER_MAX_BYTES)
-          throw new Error("File exceeds the 256 MiB transfer limit");
-        const chunks: Buffer[] = [];
-        let size = 0;
-        for await (const chunk of file.createReadStream({ autoClose: false })) {
-          size += chunk.length;
-          if (size > HOST_TRANSFER_MAX_BYTES)
-            throw new Error("File exceeds the 256 MiB transfer limit");
-          chunks.push(Buffer.from(chunk));
-        }
-        const data = Buffer.concat(chunks);
-        response.writeHead(200, {
-          "content-type": "application/octet-stream",
-          "content-length": data.length,
-          "cache-control": "no-store",
-        });
-        response.end(data);
+        response.writeHead(200, {"content-type":"application/octet-stream","content-length":stat.size,"cache-control":"no-store"});
+        await pipeline(createReadStream(permit.path,{fd:file.fd,autoClose:false}),response);
       } finally {
         await file.close();
       }
       return;
     }
-    const chunks: Buffer[] = [];
     let bytes = 0;
-    for await (const chunk of request) {
-      bytes += chunk.length;
-      if (bytes > HOST_TRANSFER_MAX_BYTES || bytes > permit.bytes!)
-        throw new Error("Transfer body exceeds declared size");
-      chunks.push(Buffer.from(chunk));
-    }
-    if (bytes !== permit.bytes) throw new Error("Incomplete file transfer");
     if ((await realpath(dirname(permit.path))) !== dirname(permit.path))
       throw new Error("The approved destination directory changed");
     const temporary = resolve(dirname(permit.path), `.openteam-transfer-${randomUUID()}`);
     try {
       const file = await open(temporary, "wx", 0o600);
       try {
-        await file.writeFile(Buffer.concat(chunks));
+        for await (const chunk of request) {
+          bytes += chunk.length;
+          if (bytes > permit.bytes!) throw new Error("Transfer body exceeds declared size");
+          await file.writeFile(chunk);
+        }
+        if (bytes !== permit.bytes) throw new Error("Incomplete file transfer");
         await file.sync();
       } finally {
         await file.close();

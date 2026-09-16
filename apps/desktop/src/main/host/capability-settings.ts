@@ -1,7 +1,12 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
+export interface CredentialProviderConnection { account: string; vault: string }
+export const credentialConnectionId = (provider: CredentialProviderConnection) => `1password:${provider.account}:${provider.vault}`;
+export const credentialConnections = (settings: CapabilitySettings): CredentialProviderConnection[] => settings.credentialProviders ?? (settings.credentialProvider ? [settings.credentialProvider] : []);
 export interface CapabilitySettings {
   credentialProvider: { account: string; vault: string } | null;
+  credentialProviders?: CredentialProviderConnection[];
+  messagesSendAll?: boolean;
   autoFill: string[];
   cookieGrants: string[];
   messagesGrants: string[];
@@ -14,7 +19,9 @@ export class CapabilitySettingsStore {
     try {
       const value = JSON.parse(await readFile(this.path, "utf8"));
       return {
-        credentialProvider: value.credentialProvider ?? null,
+        credentialProvider: value.credentialProviders?.[0] ?? value.credentialProvider ?? null,
+        credentialProviders: value.credentialProviders ?? (value.credentialProvider ? [value.credentialProvider] : []),
+        messagesSendAll: value.messagesSendAll === true,
         autoFill: value.autoFill ?? [],
         cookieGrants: value.cookieGrants ?? [],
         messagesGrants: value.messagesGrants ?? [],
@@ -48,13 +55,17 @@ export class CapabilitySettingsStore {
     vault?: string;
     revoke?: "cookies" | "credentials" | "messages";
     autoFill?: string[];
+    removeCredentialConnection?: string;
+    messagesSendAll?: boolean;
   }) {
     return this.mutate((current) => {
       current.revocationEpoch = (current.revocationEpoch ?? 0) + 1;
       if (input.revoke === "cookies") current.cookieGrants = [];
-      if (input.revoke === "messages") current.messagesGrants = [];
+      if (input.revoke === "messages") {current.messagesGrants = []; current.messagesSendAll = false;}
+      if (input.messagesSendAll !== undefined) { if(typeof input.messagesSendAll !== "boolean") throw new Error("Invalid Messages send setting"); current.messagesSendAll = input.messagesSendAll; }
       if (input.revoke === "credentials") {
         current.credentialProvider = null;
+        current.credentialProviders = [];
         current.autoFill = [];
       }
       if (input.account !== undefined || input.vault !== undefined) {
@@ -67,8 +78,16 @@ export class CapabilitySettingsStore {
           input.vault.length > 256
         )
           throw new Error("Specify a 1Password account and vault ID");
-        current.credentialProvider = { account: input.account.trim(), vault: input.vault.trim() };
-        current.autoFill = [];
+        const provider = { account: input.account.trim(), vault: input.vault.trim() };
+        const connections = credentialConnections(current).filter(existing => credentialConnectionId(existing) !== credentialConnectionId(provider));
+        current.credentialProviders = [...connections, provider];
+        current.credentialProvider = current.credentialProviders[0] ?? null;
+      }
+      if (input.removeCredentialConnection !== undefined) {
+        if(typeof input.removeCredentialConnection !== "string") throw new Error("Invalid credential connection");
+        current.credentialProviders = credentialConnections(current).filter(provider => credentialConnectionId(provider) !== input.removeCredentialConnection);
+        current.credentialProvider = current.credentialProviders[0] ?? null;
+        current.autoFill = current.autoFill.filter(key => !key.startsWith(input.removeCredentialConnection + ":"));
       }
       if (input.autoFill !== undefined) {
         if (

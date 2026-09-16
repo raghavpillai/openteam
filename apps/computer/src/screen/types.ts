@@ -3,6 +3,8 @@ import type { ChildProcess } from "node:child_process";
 export type ScreenState = "starting" | "ready" | "failed";
 
 export interface ScreenSession {
+  width?:number;
+  height?:number;
   botId: string;
   cwd: string;
   slot: number;

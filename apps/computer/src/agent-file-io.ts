@@ -4,18 +4,19 @@ import { agentProcessIdentity, sanitizedAgentEnvironment } from "./agent-process
 
 // File operations run as the same unprivileged user as Shell. Checking access
 // before doing privileged I/O would leave a symlink replacement race.
-const SCRIPT = String.raw`
+export const AGENT_FILE_IO_SCRIPT = String.raw`
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const { once } = require('node:events');
 const cancellation = new AbortController();
 process.on('SIGTERM', () => { cancellation.abort(); process.stdin.destroy(new Error('File transfer cancelled')); });
 (async () => {
  const [mode, target, limitText] = process.argv.slice(1); const limit = Number(limitText);
  if (mode === 'read') {
    const file = await fs.open(target, 'r');
-   try { const stat = await file.stat(); if (!stat.isFile() || stat.size > limit) throw Error('Source must be a regular file of at most 256 MiB');
-     let size = 0; for await (const bytes of file.createReadStream({ autoClose: false, signal: cancellation.signal })) { size += bytes.length; if (size > limit) throw Error('File exceeds transfer limit'); process.stdout.write(bytes); }
+   try { const stat = await file.stat(); if (!stat.isFile() || stat.size > limit) throw Error('Source must be a regular file within the transfer size limit');
+     let size = 0; for await (const bytes of file.createReadStream({ autoClose: false, signal: cancellation.signal })) { size += bytes.length; if (size > limit) throw Error('File exceeds transfer limit'); if (!process.stdout.write(bytes)) await once(process.stdout, 'drain'); }
    } finally { await file.close(); }
  } else {
    await fs.mkdir(path.dirname(target), {recursive:true});
@@ -45,7 +46,7 @@ export function agentFileIO(
   return new Promise((resolve, reject) => {
     const child = spawn(
       process.execPath,
-      ["-e", SCRIPT, mode, path, String(HOST_TRANSFER_MAX_BYTES)],
+      ["-e", AGENT_FILE_IO_SCRIPT, mode, path, String(HOST_TRANSFER_MAX_BYTES)],
       {
         ...agentProcessIdentity(),
         env: sanitizedAgentEnvironment(process.env),

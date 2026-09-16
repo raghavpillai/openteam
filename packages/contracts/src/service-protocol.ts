@@ -36,7 +36,8 @@ export const HOST_BRIDGE_PATHS = {
 } as const;
 
 export const HOST_INLINE_OUTPUT_MAX_BYTES = 100_000;
-export const HOST_TRANSFER_MAX_BYTES = 256 * 1024 * 1024;
+// Streaming transport is limited only by representable file sizes and available storage.
+export const HOST_TRANSFER_MAX_BYTES = Number.MAX_SAFE_INTEGER;
 
 export interface HostTransferRequest extends HostApprovalTokens {
   direction: "read" | "write";

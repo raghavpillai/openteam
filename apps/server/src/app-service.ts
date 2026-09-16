@@ -1,3 +1,4 @@
+import { MachineService } from "./services/machine-service";
 import { AutomationWebhooksService } from "./services/automation-webhooks";
 import { ApiError, type UploadAssetInput } from "@openteam/contracts";
 import { createPrismaClient, Prisma, type PrismaClient } from "@openteam/db";
@@ -66,6 +67,7 @@ export class AppService {
   readonly todos: TodoService;
   readonly internalTools: InternalToolService;
   readonly plugins: PluginService;
+  readonly machines: MachineService;
   readonly richMessages: RichMessageService;
   readonly autoReview: AutoReviewService;
   readonly runs: RunService;
@@ -87,6 +89,7 @@ export class AppService {
     const databaseUrl = process.env.DATABASE_URL;
     this.prisma = createPrismaClient(databaseUrl);
     this.webSearchSettings = new WebSearchSettingsService(this.prisma);
+    this.machines = new MachineService(this.prisma, process.env.OPENTEAM_CONTROL_TOKEN ?? "local-compose-only-change-me");
     this.webFetchSettings = new WebFetchSettingsService(this.prisma);
     this.boss = new PgBoss(databaseUrl ?? "");
     this.eventWakeup = new EventWakeup(databaseUrl ?? "");

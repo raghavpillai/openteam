@@ -99,7 +99,9 @@ export class ChromeCookies {
     return result;
   }
   async collect(botId: string, requested: unknown, signal?: AbortSignal) {
-    const available = await this.list(signal);
+    let available: Origin[];
+    try { available = await this.list(signal); }
+    catch (error) { signal?.throwIfAborted(); return {kind:"failed",stage:"enumerate",decision:"not_requested",grants:[],errorClass:cookieErrorClass(error)}; }
     if (requested === undefined || (Array.isArray(requested) && !requested.length))
       return { kind: "listed", items: available };
     if (!Array.isArray(requested) || requested.length > 32)
@@ -137,8 +139,7 @@ export class ChromeCookies {
         allowAlways: true,
       });
       importDecision = decision === "always" ? "always_allow" : "approve_once";
-      if (decision === "deny")
-        throw new Error("Chrome cookie import denied. Do not retry unless asked.");
+      if (decision === "deny") return {kind:"refused",reason:"denied",message:"The user denied Chrome cookie access."};
       if (decision === "always")
         await this.settings.mutate((s) => {
           if ((s.revocationEpoch ?? 0) !== epoch)
@@ -148,6 +149,7 @@ export class ChromeCookies {
     }
     if (((await this.settings.read()).revocationEpoch ?? 0) !== epoch)
       throw new Error("Cookie access was revoked during review");
+    try {
     const password = (
       await this.run(
         "/usr/bin/security",
@@ -204,5 +206,17 @@ export class ChromeCookies {
     if (((await this.settings.read()).revocationEpoch ?? 0) !== epoch)
       throw new Error("Cookie access was revoked during collection");
     return { kind: "collected", decision: importDecision, grants: [...pairs.values()], cookies };
+    } catch (error) {
+      signal?.throwIfAborted();
+      return {kind:"failed",stage:"collect",decision:importDecision,grants:[...pairs.values()],errorClass:cookieErrorClass(error)};
+    }
   }
+}
+
+function cookieErrorClass(error: unknown): string {
+  const message = error instanceof Error ? error.message : "";
+  if (/safe storage|keychain|security.*(?:denied|cancel)/i.test(message)) return "ChromeSafeStoragePermissionError";
+  if (/permission|not permitted|access denied|full disk/i.test(message)) return "ChromeCookieImportPermissionError";
+  if (/encryption version/i.test(message)) return "ChromeCookieEncryptionUnsupported";
+  return "ChromeCookieImportError";
 }

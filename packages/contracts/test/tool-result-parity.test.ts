@@ -123,7 +123,7 @@ describe("reference result and parser fixtures", () => {
         { emoji: " 👍 ", message_address: "t2u" }
       )
     ).toBe("Reacted 👍 on t2u. (Reactions toggle: react the same emoji again to take it back.)");
-    expect(renderControlResult("update_state", {target:"routine",name:"Daily",folder:"daily",schedule:"0 8 * * *",enabled:true}, {action:"create"})).toBe('Saved routine "Daily" (folder daily) — 0 8 * * *.');
+    expect(renderControlResult("update_state", {target:"routine",name:"Daily",folder:"daily",schedule:"0 8 * * *",enabled:true}, {action:"create"})).toBe('Saved routine "Daily" (folder daily) — Every day at 8:00 AM.');
     expect(renderControlResult("WakeParent", { woken: true }, {})).toBe(
       "The parent was awakened and this automation turn has ended."
     );

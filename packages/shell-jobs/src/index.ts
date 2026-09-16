@@ -47,8 +47,8 @@ export function validateShellWait(input: ShellAwaitRequest): number {
     throw new Error("AwaitShell shell_id is required with block_until_ms: 0");
   }
   if (input.pattern !== undefined) {
-    if (typeof input.pattern !== "string" || input.pattern.length > 4_096) {
-      throw new Error("AwaitShell pattern must be a string of at most 4096 characters");
+    if (typeof input.pattern !== "string") {
+      throw new Error("AwaitShell pattern must be a string");
     }
     try {
       RE2JS.compile(input.pattern, RE2JS.MULTILINE);

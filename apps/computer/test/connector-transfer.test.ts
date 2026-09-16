@@ -17,7 +17,8 @@ test("discovered file tools move real box bytes over the private bridge and retu
     port: 0,
     async fetch(request) {
       expect(request.headers.get("authorization")).toBe("Bearer synthetic-control");
-      const body = (await request.json()) as any;
+      const streaming=new URL(request.url).pathname.endsWith("/connector-transfer");
+      const body = streaming ? JSON.parse(Buffer.from(request.headers.get("x-openteam-transfer")!,"base64url").toString()) : await request.json() as any;
       calls.push(body);
       if (body.tool === "PrepareConnectorTransfer") {
         expect(body.arguments.bytesBase64).toBeUndefined();
@@ -31,16 +32,11 @@ test("discovered file tools move real box bytes over the private bridge and retu
       expect(body.arguments.reviewed).toBe(true);
       expect(body.arguments.input.connection).toBe("exact-connection");
       if (body.arguments.tool === "upload_file") {
-        expect(Buffer.from(body.arguments.bytesBase64, "base64")).toEqual(bytes);
+        expect(Buffer.from(await request.arrayBuffer())).toEqual(bytes);
         expect(body.arguments.sha256).toBe(createHash("sha256").update(bytes).digest("hex"));
         return Response.json({ id: "file-1", name: "fixture.bin", sizeBytes: bytes.length });
       }
-      return Response.json({
-        id: "file-1",
-        name: "download.bin",
-        sizeBytes: bytes.length,
-        bytesBase64: bytes.toString("base64"),
-      });
+      return new Response(new Uint8Array(bytes),{headers:{"x-openteam-transfer-result":Buffer.from(JSON.stringify({id:"file-1",name:"download.bin",sizeBytes:bytes.length})).toString("base64url")}});
     },
   });
   const runtime = new RuntimeTools({} as never, server.url.origin, "synthetic-control", root, root);

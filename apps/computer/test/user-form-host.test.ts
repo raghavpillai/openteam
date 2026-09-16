@@ -7,7 +7,7 @@ import { UserFormHost, formVaultKey, type FormBrowser } from "../src/user-form-h
 
 const roots: string[] = [];
 afterEach(async () => { for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true }); });
-const form = { title: "Sign in", instruction: "Complete these fields", domain: "www.example.com", fields: [
+const form = { title: "Sign in", instruction: "Complete these fields", domain: "example.com", fields: [
   { id: "email", label: "Email", type: "email", required: true, target: { kind: "ref", value: "e1" } },
   { id: "password", label: "Password", type: "password", secret: false, target: { kind: "ref", value: "e2" } },
 ] };
@@ -58,7 +58,7 @@ test("failed fills return redacted refs and one-shot remap discards omitted held
   const held = await f.host.submit("bot", "form", { email: "alice@example.com", password: "SECRET-TEST" });
   expect(held.fields.map((field) => field.status)).toEqual(["held", "held"]);
   expect(held.snapshot).toContain("[withheld]"); expect(JSON.stringify(held)).not.toContain("SECRET-TEST");
-  await expect(f.host.remap("bot", { targets: [{ fieldId: "unknown", target: { kind: "ref", value: "e3" } }] })).rejects.toThrow("HELD");
+  expect((await f.host.remap("bot", { targets: [{ fieldId: "unknown", target: { kind: "ref", value: "e3" } }] })).unknownFieldIds).toEqual(["unknown"]);
   f.fail(false);
   const remapped = await f.host.remap("bot", { targets: [{ fieldId: "email", target: { kind: "ref", value: "e3" } }] });
   expect(remapped.fields).toEqual([{ id: "email", status: "filled" }, { id: "password", status: "dropped" }]);
@@ -91,4 +91,27 @@ test('a killed host records unknown effects and never repeats the browser operat
   expect(receipt.interrupted).toBe(true); expect(receipt.fields.every((field) => field.status === 'unknown')).toBe(true);
   expect(f.fills).toEqual([]); expect(f.entered()).toBe(0);
   expect(await recovered.submit('bot', 'crash', {})).toEqual(receipt);
+});
+
+
+test("held form values survive waiting for a user turn and are discarded at that turn's end", async () => {
+  const f=await fixture(); f.fail(true);
+  await f.host.prepare("bot","form",form);
+  const receipt=await f.host.submit("bot","form",{email:"private@example.test",password:"synthetic-secret"});
+  expect(receipt.heldUntil).toBeUndefined();
+  expect(formatUserFormReceipt(receipt)).toContain("REMAP OFFERED");
+  await f.host.endTurn("bot","requesting-turn");
+  await f.host.beginTurn("bot","response-turn");
+  await f.host.endTurn("bot","response-turn");
+  await expect(f.host.remap("bot",{targets:[{fieldId:"email",target:{kind:"ref",value:"e3"}}]})).rejects.toThrow("No held");
+});
+
+test("a new turn discards holds left by an interrupted old turn", async () => {
+  const f=await fixture(); f.fail(true);
+  await f.host.prepare("bot","form",form);
+  await f.host.submit("bot","form",{email:"private@example.test",password:"synthetic-secret"});
+  await f.host.beginTurn("bot","interrupted");
+  const restarted=new UserFormHost(f.root,async()=>f.browser);
+  await restarted.beginTurn("bot","next");
+  await expect(restarted.remap("bot",{targets:[{fieldId:"email",target:{kind:"ref",value:"e3"}}]})).rejects.toThrow("No held");
 });

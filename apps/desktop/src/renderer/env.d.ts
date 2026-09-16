@@ -14,8 +14,8 @@ interface Window {
     };
     permissions: {
       listSavedLogins(): Promise<{ connected: boolean; credentials: Array<{credential_id: string; connection_id: string; title: string; sites: string[]; autoFill: boolean}> }>;
-      getCapabilities(): Promise<{ credentialProvider: { account: string; vault: string } | null; autoFill: string[]; cookieGrants: string[]; messagesGrants: string[] }>;
-      updateCapabilities(input: { account?: string; vault?: string; revoke?: "cookies" | "credentials" | "messages"; autoFill?: string[] }): Promise<{ credentialProvider: { account: string; vault: string } | null; autoFill: string[]; cookieGrants: string[]; messagesGrants: string[] }>;
+      getCapabilities(): Promise<{ credentialProvider: { account: string; vault: string } | null; credentialProviders?: Array<{account:string;vault:string}>; messagesSendAll?:boolean; autoFill: string[]; cookieGrants: string[]; messagesGrants: string[] }>;
+      updateCapabilities(input: { account?: string; vault?: string; revoke?: "cookies" | "credentials" | "messages"; autoFill?: string[]; removeCredentialConnection?: string; messagesSendAll?: boolean }): Promise<{ credentialProvider: { account: string; vault: string } | null; credentialProviders?: Array<{account:string;vault:string}>; messagesSendAll?:boolean; autoFill: string[]; cookieGrants: string[]; messagesGrants: string[] }>;
       get: () => Promise<OpenTeamPermissionSettings>;
       update: (request: {
         machineLabel?: string;

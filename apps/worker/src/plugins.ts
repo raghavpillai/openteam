@@ -1,5 +1,5 @@
 import type { PluginDynamicNamespace } from "@openteam/contracts";
-import { connectionNamespace, effectiveToolPolicy, parsePluginRuntimeComponents, type PluginRuntimePackage } from "@openteam/plugin-sdk";
+import { connectionNamespace, effectiveToolPolicy, fileTransferCapabilities, parsePluginRuntimeComponents, type PluginRuntimePackage } from "@openteam/plugin-sdk";
 import { readFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
@@ -53,9 +53,10 @@ export const pluginRuntimeContext = async (
   ]);
 
   const dynamicNamespaces: PluginDynamicNamespace[] = grants.map(({ connection }) => ({
-    name: connectionNamespace(connection.id),
+    name: connectionNamespace(connection.id, connection.alias),
     description: `${connection.installation.name}: ${connection.name} (${connection.alias})${connection.instructions ? `\n${connection.instructions}` : ""}`,
     namespaceStatus: runtimeStatus(connection.status),
+    fileTransfers: fileTransferCapabilities(connection.installation.pluginKey, connection.policies, Array.isArray(connection.toolSnapshot) ? connection.toolSnapshot.map(objectValue).filter(tool => typeof tool.name === "string") as any : [], botId),
     tools: Array.isArray(connection.toolSnapshot)
       ? connection.toolSnapshot.flatMap((candidate) => {
           const tool = objectValue(candidate);

@@ -83,9 +83,9 @@ export function applySecretEdits(
   return result;
 }
 
-/** Opaque account identity survives renames and cannot collide across connectors. */
-export const connectionNamespace = (connectionId: string): string =>
-  `plugin_${connectionId.replace(/[^a-zA-Z0-9]/g, "_")}`;
+/** Account-qualified public identifier changes on rename; the private connection UUID stays stable. */
+export const connectionNamespace = (connectionId: string, accountLabel = "default"): string =>
+  `plugin_${connectionId.replace(/[^a-zA-Z0-9]/g, "_")}${accountLabel === "default" ? "" : "__" + Array.from(new TextEncoder().encode(accountLabel),byte=>byte.toString(16).padStart(2,"0")).join("")}`;
 
 /** Only OS runtime essentials are inherited. All application/provider secrets are explicit. */
 export function scopedProcessEnvironment(

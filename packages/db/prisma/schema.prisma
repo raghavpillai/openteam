@@ -1329,3 +1329,21 @@ model AutomationWebhook {
   updatedAt DateTime @updatedAt
   @@index([ownerKind,ownerId])
 }
+
+// Single deployment owner's registered physical computers. Offline devices stay listed.
+model HostMachine {
+  machineId String @id
+  label String
+  bridgeUrl String @unique
+  enabled Boolean @default(true)
+  lastSeenAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model ComputerDisplaySettings {
+  id String @id @default("global")
+  width Int @default(1280)
+  height Int @default(800)
+  updatedAt DateTime @updatedAt
+}

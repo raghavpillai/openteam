@@ -405,6 +405,7 @@ export const startHostBridge = (options: {
       }
       return json(response, 404, { error: "not_found" });
     } catch (error) {
+      if (response.headersSent) { response.destroy(error instanceof Error ? error : undefined); return; }
       if (error instanceof HostApprovalRequired) {
         return json(response, 409, {
           error: "approval_required",

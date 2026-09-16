@@ -47,11 +47,12 @@ export const outOfProcessPlaywright = async (): Promise<OutOfProcessPlaywright> 
         const driverModule = (await import("playwright-core/lib/outofprocess")) as unknown as {
           start: () => Promise<OutOfProcessPlaywright>;
         };
-        return await driverModule.start();
+        const driver=await driverModule.start();
+        return {...driver,stop:async()=>{try{await driver.stop();}finally{playwrightDriver=null;}}};
       } finally {
         childProcess.fork = originalFork;
       }
-    })();
+    })().catch(error=>{playwrightDriver=null;throw error;});
   }
   return playwrightDriver;
 };

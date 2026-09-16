@@ -91,9 +91,9 @@ integration(
       const initialNamespaces = await service.dynamicNamespaces(botId);
       expect(new Set(initialNamespaces.map((entry) => entry.name)).size).toBe(2);
       await Effect.runPromise(service.renameAccount(first.id, "renamed"));
-      expect((await service.dynamicNamespaces(botId)).map((entry) => entry.name)).toEqual(
-        initialNamespaces.map((entry) => entry.name)
-      );
+      const renamedNamespaces = await service.dynamicNamespaces(botId);
+      expect(renamedNamespaces.map(entry=>entry.name)).not.toEqual(initialNamespaces.map(entry=>entry.name));
+      expect(renamedNamespaces.find(entry=>entry.tools.some(tool=>tool.connectionId===first.id))?.name).toContain("__72656e616d6564");
       await Effect.runPromise(
         service.setPolicy(first.id, {
           botId: null,

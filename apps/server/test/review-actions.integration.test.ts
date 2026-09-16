@@ -47,7 +47,8 @@ test('template versions stay private until reviewed; feedback respects privacy, 
   await Promise.all([Effect.runPromise(service.mutate(feedback.message_id, { action: 'approve' })), Effect.runPromise(service.mutate(feedback.message_id, { action: 'approve' }))]);
   expect(deliveries).toEqual([{ id: feedback.message_id, product: 'OpenTeam', message: 'Make it faster', wantsResponse: false }]);
   const limited = await service.stage({ ...context, callId: 'feedback-b' }, 'SendFeedback', { message: 'Second feedback', wantsResponse: false }) as { message_id: string };
-  await expect(Effect.runPromise(service.mutate(limited.message_id, { action: 'approve' }))).rejects.toThrow('rate limited'); expect(deliveries).toHaveLength(1);
+  await Effect.runPromise(service.mutate(limited.message_id, { action: 'approve' }));
+  expect((await prisma.channelMessage.findUniqueOrThrow({where:{id:limited.message_id}})).metadata).toMatchObject({cardState:'failed',outcomeText:expect.stringContaining('rate limited')}); expect(deliveries).toHaveLength(1);
  } finally {
   for (const key of keys) { if (saved[key] === undefined) delete process.env[key]; else process.env[key] = saved[key]; }
   server.stop(true); await prisma.idempotencyRecord.deleteMany({ where: { scope: `template-version:${botId}` } }); await prisma.bot.deleteMany({ where: { id: botId } }); await prisma.channel.deleteMany({ where: { id: channelId } }); await prisma.$disconnect(); await rm(root, { recursive: true, force: true });

@@ -201,3 +201,21 @@ test("Messages sends validate recipient and pass body as argv, never executable 
   });
   expect(calls).toBe(1);
 });
+
+test("multiple vaults retain separate identities, report attention, and disconnect individually", async()=>{
+ const root=await mkdtemp(join(tmpdir(),"multiple-vault-fixture-"));
+ try {
+  const settings=new CapabilitySettingsStore(join(root,"settings.json"));
+  await settings.update({account:"one",vault:"personal"});await settings.update({account:"two",vault:"work"});
+  const provider=new SavedCredentials(settings,async()=>"deny",async(_file,args)=>{
+   if(args.includes("two"))throw new Error("locked fixture vault");
+   return args[0]==="whoami" ? "{}" : JSON.stringify([fixtureLogin]);
+  });
+  expect(await provider.status()).toMatchObject({connectionCount:2,itemCount:1,connectionsNeedingAttention:1});
+  const list=await provider.list({});expect(list.credentials).toHaveLength(1);expect(list.unavailableConnections).toHaveLength(1);
+  await settings.update({removeCredentialConnection:"1password:two:work"});
+  expect(await provider.status()).toMatchObject({connectionCount:1,connectionsNeedingAttention:0});
+  await settings.update({messagesSendAll:true});expect((await settings.read()).messagesSendAll).toBe(true);
+  await settings.update({revoke:"messages"});expect((await settings.read()).messagesSendAll).toBe(false);
+ }finally{await rm(root,{recursive:true,force:true});}
+});

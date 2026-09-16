@@ -1,6 +1,7 @@
+import { spoolFile, type StagedFile } from "@openteam/plugin-sdk/file-spool";
 import { createHash } from "node:crypto";
 import type { PrismaClient } from "@openteam/db";
-import { effectiveToolPolicy, connectionNamespace } from "@openteam/plugin-sdk";
+import { fileTransferPolicy, connectionNamespace } from "@openteam/plugin-sdk";
 import {
   parseConnectorTransfer,
   CONNECTOR_TRANSFER_MAX_BYTES,
@@ -38,44 +39,30 @@ export class ConnectorFileTransfers {
       [
         c.id,
         c.name,
-        connectionNamespace(c.id),
+        connectionNamespace(c.id,c.alias),
         c.installation.pluginKey,
         `${c.installation.pluginKey} (account="${c.alias}")`,
       ].includes(connectionName)
     );
     if (matches.length !== 1)
-      throw new Error(
+      throw Object.assign(new Error(
         `Select one available file connection by ID: ${available.map((c) => `${c.name} account=${c.alias} id=${c.id}`).join(", ") || "none; connect Google Drive, OneDrive or Gmail"}`
-      );
+      ), {outcome:{kind:"unknown_connection",available:available.map(c=>`${c.installation.pluginKey} (account="${c.alias}")`)}});
     const connection = matches[0]!;
     if (connection.status !== "ready")
-      throw new Error("Authenticate this file connection before transferring files");
+      throw Object.assign(new Error("Authenticate this file connection before transferring files"),{outcome:{kind:"needs_auth"}});
     // Respect both the unified action's policy and existing connector file policy.
-    const policy = effectiveToolPolicy(
-      connection.policies,
-      tool,
-      botId,
-      tool === "upload_file" ? "prompt" : "allow"
-    );
-    const aliases =
-      tool === "upload_file"
-        ? ["create_file", "update_draft", "upload_file", "upload_drive_item"]
-        : ["download_file_content", "get_message", "download_file", "get_drive_item"];
-    const denied = toolSnapshot(connection.toolSnapshot).some(
-      (t) =>
-        aliases.includes(t.name) &&
-        (() => {
-          const p = effectiveToolPolicy(connection.policies, t.name, botId, t.defaultDecision);
-          return !p.enabled || p.decision === "deny";
-        })()
-    );
-    if (!policy.enabled || policy.decision === "deny" || denied)
-      throw new Error("File transfer is denied by this account's tool policy");
+    const policy = fileTransferPolicy(connection.policies, toolSnapshot(connection.toolSnapshot), botId, tool as "upload_file" | "download_file");
+    if (!policy.enabled)
+      throw Object.assign(new Error("File transfer is denied by this account's tool policy"), {outcome:{kind:"rejected",message:"This account's file policy denies the transfer."}});
     return { connection, decision: policy.decision };
   }
   async prepare(context: Context, raw: Record<string, any>) {
     const input = parseConnectorTransfer(raw.tool, raw.input);
-    const { connection, decision } = await this.resolve(context.botId, input.connection, raw.tool);
+    let resolved: Awaited<ReturnType<ConnectorFileTransfers["resolve"]>>;
+    try { resolved=await this.resolve(context.botId,input.connection,raw.tool); }
+    catch(error) { if((error as any).outcome)return {outcome:(error as any).outcome}; throw error; }
+    const {connection,decision}=resolved;
     const fingerprint = createHash("sha256")
       .update(
         canonicalJson({
@@ -118,7 +105,7 @@ export class ConnectorFileTransfers {
       ...(previous?.status === "completed" ? { result: previous.result } : {}),
     };
   }
-  async execute(context: Context, raw: Record<string, any>, signal?: AbortSignal) {
+  async execute(context: Context, raw: Record<string, any>, signal?: AbortSignal, transfer: {upload?:StagedFile;stream?:boolean} = {}) {
     const input = parseConnectorTransfer(raw.tool, raw.input);
     const { connection, decision } = await this.resolve(context.botId, input.connection, raw.tool);
     const record = await this.db.connectorFileTransfer.findUnique({
@@ -146,7 +133,7 @@ export class ConnectorFileTransfers {
     if (decision === "prompt" && raw.reviewed !== true)
       throw new Error("This transfer needs user approval");
     if (
-      raw.tool === "upload_file" &&
+      raw.tool === "upload_file" && !transfer.upload &&
       (!raw.sha256 ||
         !Number.isSafeInteger(raw.sizeBytes) ||
         raw.sizeBytes < 0 ||
@@ -155,9 +142,10 @@ export class ConnectorFileTransfers {
         raw.bytesBase64.length > Math.ceil(CONNECTOR_TRANSFER_MAX_BYTES / 3) * 4)
     )
       throw new Error("Invalid upload staging envelope");
-    const bytes = raw.tool === "upload_file" ? Buffer.from(raw.bytesBase64, "base64") : undefined;
+    const bytes = transfer.upload ? Bun.file(transfer.upload.path) : raw.tool === "upload_file" ? Buffer.from(raw.bytesBase64, "base64") : undefined;
+    if (transfer.upload && (transfer.upload.sizeBytes !== raw.sizeBytes || transfer.upload.sha256 !== raw.sha256)) throw new Error("Staged file bytes changed after review");
     if (
-      bytes &&
+      Buffer.isBuffer(bytes) &&
       (bytes.length !== raw.sizeBytes ||
         createHash("sha256").update(bytes).digest("hex") !== raw.sha256)
     )
@@ -175,6 +163,7 @@ export class ConnectorFileTransfers {
       throw new Error(
         "Transfer is already running or its write outcome is uncertain; inspect the destination before retrying"
       );
+    let stagedDownload: StagedFile | undefined;
     try {
       const api = this.provider(await this.token(connection));
       const upload = () =>
@@ -197,8 +186,10 @@ export class ConnectorFileTransfers {
                 { maxWait: 130_000, timeout: 130_000 }
               )
             : await upload()
-          : await api.download(connection.installation.pluginKey, input.source, signal);
-      const { bytes: downloaded, ...metadata } = result as Record<string, any>;
+          : transfer.stream ? await api.downloadStream(connection.installation.pluginKey, input.source, signal) : await api.download(connection.installation.pluginKey, input.source, signal);
+      const { bytes: downloaded, stream, ...metadata } = result as Record<string, any>;
+      const file = stagedDownload = stream ? await spoolFile(stream,{signal}) : undefined;
+      if (file) metadata.sizeBytes=file.sizeBytes;
       await this.db.connectorFileTransfer.update({
         where: { callId: context.callId },
         data: {
@@ -208,11 +199,13 @@ export class ConnectorFileTransfers {
       });
       return {
         ...metadata,
+        ...(file ? {file} : {}),
         ...(downloaded
           ? { bytesBase64: downloaded.toString("base64"), sizeBytes: downloaded.length }
           : {}),
       };
     } catch (error) {
+      await stagedDownload?.cleanup();
       await this.db.connectorFileTransfer.update({
         where: { callId: context.callId },
         data: { status: "failed" },

@@ -1,5 +1,6 @@
 import { pluginCatalog } from "../plugins/catalog";
 import { parseOpenTeamMarketplace } from "../plugins/openteam-marketplace";
+import { setTimeout as delay } from "node:timers/promises";
 import { createHash } from "node:crypto";
 import { ApiError, parseBotRecipe, type BotRecipe } from "@openteam/contracts";
 import type { PrismaClient } from "@openteam/db";
@@ -12,6 +13,7 @@ const unavailable = (message: string): never => {
   throw new ApiError(409, "review_unavailable", message);
 };
 export class ReviewActionService {
+  private readonly feedbackWaiters = new Set<string>();
   constructor(
     private readonly prisma: PrismaClient,
     private readonly messaging: AgentMessaging,
@@ -55,7 +57,7 @@ export class ReviewActionService {
           endpointHash: createHash("sha256").update(destination.href).digest("hex"),
         },
         content: "Review product feedback",
-        end_turn: true,
+        end_turn: false,
       });
       return result.acknowledgement;
     }
@@ -144,6 +146,34 @@ export class ReviewActionService {
       digest,
     };
   }
+  async sendFeedback(context: ToolContext, raw: unknown, signal?: AbortSignal) {
+    const ack = metadataRecord(await this.stage(context, "SendFeedback", raw));
+    const messageId = String(ack.message_id);
+    this.feedbackWaiters.add(messageId);
+    try {
+      for (;;) {
+        signal?.throwIfAborted();
+        const result = await this.prisma.$transaction(async tx => {
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`rich-message:${messageId}`}))`;
+          const message = await tx.channelMessage.findUniqueOrThrow({where:{id:messageId}});
+          const metadata = metadataRecord(message.metadata);
+          if (!metadata.cardState || ["pending","sending"].includes(String(metadata.cardState))) return null;
+          await tx.channelMessage.update({where:{id:messageId},data:{metadata:toJson({...metadata,outcomeEchoed:true})}});
+          return {feedbackStatus:metadata.cardState, wantsResponse:metadataRecord(metadata.review).wantsResponse, outcome:metadata.outcomeText};
+        });
+        if (result) return result;
+        await delay(250, undefined, {signal});
+      }
+    } finally {
+      this.feedbackWaiters.delete(messageId);
+      // If the invocation was cancelled after settlement, preserve the durable wake.
+      if (signal?.aborted) await this.prisma.$transaction(async tx => {
+        const message = await tx.channelMessage.findUnique({where:{id:messageId}});
+        const metadata = metadataRecord(message?.metadata);
+        if (message && metadata.outcomeId && !metadata.outcomeEchoed) await this.wake(tx,context.botId,message.channelId,messageId);
+      });
+    }
+  }
   mutate = (messageId: string, raw: unknown) =>
     serviceEffect(async () => {
       const input = metadataRecord(raw);
@@ -182,6 +212,12 @@ export class ReviewActionService {
             ))
         )
           return { message, claimed: false };
+        const failFeedback = async (text: string) => {
+          const updated = await tx.channelMessage.update({where:{id:messageId},data:{metadata:toJson({...metadata,cardState:"failed",outcomeId:crypto.randomUUID(),outcomeText:text,outcomeEchoed:false})}});
+          await appendEvent(tx,"channel.message.updated",messageId,{channelId:message.channelId,messageId});
+          await this.wake(tx,message.senderBotId!,message.channelId,messageId);
+          return {message:updated,claimed:false};
+        };
         if (input.action === "approve" && review.kind === "feedback") {
           if (
             process.env.OPENTEAM_FEEDBACK_ALLOW_AGENT !== "true" ||
@@ -190,8 +226,8 @@ export class ReviewActionService {
               .update(new URL(process.env.OPENTEAM_FEEDBACK_URL).href)
               .digest("hex") !== review.endpointHash
           )
-            return unavailable(
-              "The feedback destination or privacy settings changed. Stage a new review"
+            return failFeedback(
+              "The feedback destination or privacy settings changed. Nothing was sent; stage a new review"
             );
           await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('feedback-rate-limit'))`;
           const recent = await tx.channelMessage.findFirst({
@@ -203,7 +239,7 @@ export class ReviewActionService {
             },
           });
           if (recent)
-            return unavailable(
+            return failFeedback(
               "Feedback is rate limited. Try again after five minutes; nothing was sent"
             );
         }
@@ -396,6 +432,7 @@ export class ReviewActionService {
     channelId: string,
     messageId: string
   ) {
+    if (this.feedbackWaiters.has(messageId)) return;
     await this.messaging.enqueueWake(tx, {
       botId,
       channelId,

@@ -3,6 +3,7 @@ import { clientErrorMessage } from "@openteam/product-core/redaction";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
 import { SectionLabel, SettingsGroup, SettingsRow } from "./ui";
 import { NativeCapabilitySettings } from "./native-capabilities";
+import { MachineSettings } from "./machines";
 
 export default function ComputerSettings() {
   const [permissions, setPermissions] = useState<OpenTeamPermissionSettings | null>(null);
@@ -121,6 +122,7 @@ export default function ComputerSettings() {
           title="Execution on this computer"
         />
       </SettingsGroup>
+      <MachineSettings />
       <NativeCapabilitySettings />
       {permissionError ? (
         <div className="mt-3 px-2 text-[12px] text-red-600 dark:text-red-400">

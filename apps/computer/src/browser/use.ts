@@ -1,10 +1,11 @@
+import { snapshotAcrossFrames, refHandle, frameRefsByPage, referenceFill, referenceType, editableHandle, writeTargetFrameIsHidden, WRITE_TARGET_IS_HIDDEN_FN, gotoWithRecovery, navigationNote, recoverErrorPage, settleIntoErrorPage, isChromeErrorPage, markSecretFill, SPLIT_CHAR_GROUP_FN } from "./reference-driver";
 import { resolveReferenceSelectOptions } from "./reference-select";
 import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Browser, BrowserContext, ElementHandle, Frame, Locator, Page } from "playwright-core";
 import { outOfProcessPlaywright } from "./playwright-driver";
-import { normalizeFormDomain, type UserForm, type UserFormField } from "@openteam/contracts";
+import { normalizeFormDomain, formFieldIsSecret, type UserForm, type UserFormField } from "@openteam/contracts";
 import type { FormPageBinding } from "../user-form-host";
 import { redactSecrets } from "@openteam/shell-jobs";
 
@@ -162,30 +163,30 @@ export class BrowserUseSession {
     try {
       // Element handles bind review to this exact document and these exact fields.
       // A reload, replacement field, redirect or changed form refuses the fill.
-      return await binding.document.evaluate((root, { origin, username, password, userField, passwordField }) => {
-        if (root !== document.documentElement || !root.isConnected || location.origin !== origin) return false;
-        const eligible = (e: HTMLInputElement | null) => !e || (e.isConnected && e.ownerDocument === document && !e.disabled && !e.readOnly && !!e.getClientRects().length);
-        if (!eligible(userField) || !eligible(passwordField) || passwordField?.value || (userField?.value && userField.value !== username)) return false;
-        if (!passwordField && (!userField || username === undefined)) return false;
-        if (passwordField && userField && passwordField.form !== userField.form) return false;
-        const fill = (node: HTMLInputElement, value: string) => {
-          node.dataset.openteamPrivate = "true";
-          node.style.setProperty("-webkit-text-security", "disc", "important");
-          Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(node, value);
-          node.dispatchEvent(new Event("input", { bubbles: true })); node.dispatchEvent(new Event("change", { bubbles: true }));
-        };
-        if (userField && username !== undefined) fill(userField, username);
-        if (!root.isConnected || location.origin !== origin || !eligible(passwordField)) return false;
-        if (passwordField) fill(passwordField, password);
-        return true;
-      }, { ...credential, userField: binding.username, passwordField: binding.password });
+      const eligible = () => binding.document.evaluate((root,{origin,userField,passwordField,username})=>{
+        const live=(node:HTMLInputElement|null)=>!node || (node.isConnected&&node.ownerDocument===document&&!node.disabled&&!node.readOnly&&!!node.getClientRects().length);
+        return root===document.documentElement&&root.isConnected&&location.origin===origin&&live(userField)&&live(passwordField)&&(!passwordField||!passwordField.value)&&(!userField?.value||userField.value===username)&&(!passwordField||!userField||passwordField.form===userField.form);
+      },{origin:binding.origin,userField:binding.username,passwordField:binding.password,username:credential.username});
+      if(!await eligible())return false;
+      const page=await this.formPage({pageId:binding.pageId,domain:new URL(binding.origin).hostname});
+      if(binding.username && credential.username!==undefined)await referenceFill({page,element:binding.username,request:{element:"login username",value:credential.username,secret:true}});
+      if(!await eligible())return false;
+      if(binding.password)await referenceFill({page,element:binding.password,request:{element:"login password",value:credential.password,secret:true}});
+      return await binding.document.evaluate((root,origin)=>root===document.documentElement&&root.isConnected&&location.origin===origin,binding.origin);
     } catch { return false; }
   }
 
-  async importPrivateCookies(cookies: Array<Record<string, unknown>>): Promise<number> {
+  async importPrivateCookies(cookies: Array<Record<string, unknown>>): Promise<{injected:number;failed:number}> {
     this.registerPrivateValues(cookies.flatMap(cookie => typeof cookie.value === "string" ? [cookie.value] : []));
     const page = await this.ensurePage(); const cdp = await this.context.newCDPSession(page);
-    try { await cdp.send("Network.setCookies", { cookies: cookies as never }); return cookies.length; }
+    let injected = 0;
+    try {
+      for (const cookie of cookies) {
+        try { const result = await cdp.send("Network.setCookie", cookie as never); if (!result.success) break; injected++; }
+        catch { break; }
+      }
+      return {injected,failed:cookies.length-injected};
+    }
     finally { await cdp.detach(); }
   }
 
@@ -202,24 +203,36 @@ export class BrowserUseSession {
   async formPages(domain: string): Promise<FormPageBinding[]> {
     const pages: FormPageBinding[] = [];
     for (const page of this.leasedPages()) {
-      try { if (normalizeFormDomain(page.url()) === domain) pages.push({ pageId: await this.formPageId(page), domain }); } catch { /* Non-web tab. */ }
+      try { if (normalizeFormDomain(page.url()) === domain) pages.push({ pageId: await this.formPageId(page), domain, url: page.url() }); } catch { /* Non-web tab. */ }
     }
     return pages;
   }
 
   private async formPage(binding: FormPageBinding): Promise<Page> {
     for (const page of this.leasedPages()) if (await this.formPageId(page) === binding.pageId) {
-      if (normalizeFormDomain(page.url()) !== binding.domain) throw new Error("The form page changed domain");
+      if (normalizeFormDomain(page.url()) !== binding.domain) throw Object.assign(new Error("The form page changed domain"), {kind:"domain_mismatch",liveHost:normalizeFormDomain(page.url())});
+      if (binding.url && page.url() !== binding.url) throw Object.assign(new Error("The form page moved"), {kind:"page_moved"});
       return page;
     }
-    throw new Error("The form tab is no longer available");
+    throw Object.assign(new Error("The form tab is no longer available"), {kind:"page_moved"});
   }
 
   private async formHandle(page: Page, field: UserFormField): Promise<ElementHandle<HTMLElement>> {
     const target = field.target; if (!target) throw new Error("No fill target");
     let handle: ElementHandle<HTMLElement> | null = null;
-    if (target.kind === "ref") handle = await this.requireRef(page, target.value.replace(/^\[?ref=|\]$/g, ""));
-    else {
+    if (target.kind === "ref") {
+      try {handle = await this.requireRef(page, target.value.replace(/^\[?ref=|\]$/g, ""));}
+      catch {
+        // A stale ref can recover only by this field's own label, on the same consented page.
+        const candidates=[];
+        for(const frame of page.frames())if(sameOriginFrame(page.url(),frame.url())){
+          const locator=frame.getByLabel(field.label,{exact:true});
+          if(await locator.count()===1){const candidate=await locator.elementHandle();if(candidate)candidates.push(candidate);}
+        }
+        if(candidates.length!==1)throw Object.assign(new Error("The form control was replaced and its label is no longer unambiguous"),{kind:"page_moved"});
+        handle=candidates[0] as ElementHandle<HTMLElement>;
+      }
+    } else {
       const matches: ElementHandle<HTMLElement>[] = [];
       for (const frame of page.frames()) {
         if (!sameOriginFrame(page.url(), frame.url())) continue;
@@ -240,7 +253,7 @@ export class BrowserUseSession {
     const page = await this.formPage(binding); const reachable: string[] = [];
     for (const field of form.fields) if (field.target) {
       try {
-        const handle = await this.formHandle(page, field);
+        const handle = await editableHandle(await this.formHandle(page, field)) as ElementHandle<HTMLElement>;
         if (await handle.evaluate((node) => node.isConnected && !node.hasAttribute("disabled") && node.getAttribute("type") !== "hidden" && (node.matches("input,textarea,select") || node.isContentEditable))) reachable.push(field.id);
       } catch { /* Only a structurally reachable field is requested from the user. */ }
     }
@@ -248,55 +261,43 @@ export class BrowserUseSession {
   }
 
   async fillForm(binding: FormPageBinding, field: UserFormField, value: string | boolean): Promise<boolean> {
-    const page = await this.formPage(binding); const handle = await this.formHandle(page, field);
-    // The domain check and assignment run together in the element's document.
-    // No tool text, screenshot, trace, or error includes the submitted value.
-    return handle.evaluate((node, input) => {
-      let host = window.location.hostname.toLowerCase().replace(/^www\./, "");
-      if (!host && ["about:blank", "about:srcdoc"].includes(window.location.href)) { try { host = window.top!.location.hostname.toLowerCase().replace(/^www\./, ""); } catch { return false; } }
-      if (host !== input.domain || !node.isConnected || node.hasAttribute("disabled") || node.hasAttribute("readonly") || node.getAttribute("type") === "hidden") return false;
-      if (input.type === "checkbox") { if (!(node instanceof HTMLInputElement) || node.type !== "checkbox" || typeof input.value !== "boolean") return false; node.checked = input.value; }
-      else if (node instanceof HTMLInputElement || node instanceof HTMLTextAreaElement || node instanceof HTMLSelectElement) {
-        if (typeof input.value !== "string" || (node instanceof HTMLInputElement && ["file", "button", "submit", "reset", "image", "radio", "checkbox"].includes(node.type))) return false;
-        if (node instanceof HTMLSelectElement && ![...node.options].some((option) => option.value === input.value)) return false;
-        const prototype = node instanceof HTMLInputElement ? HTMLInputElement.prototype : node instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLSelectElement.prototype;
-        Object.getOwnPropertyDescriptor(prototype, "value")!.set!.call(node, input.value);
-      } else if (node.isContentEditable && typeof input.value === "string") node.textContent = input.value;
-      else return false;
-      node.dispatchEvent(new Event("input", { bubbles: true })); node.dispatchEvent(new Event("change", { bubbles: true }));
-      return true;
-    }, { domain: binding.domain, type: field.type, value });
+    const page = await this.formPage(binding);
+    const handle = await editableHandle(await this.formHandle(page, field)) as ElementHandle<HTMLElement>;
+    if (await handle.evaluate(WRITE_TARGET_IS_HIDDEN_FN) || await writeTargetFrameIsHidden(page, handle)) throw new Error("target_hidden");
+    if (!await handle.evaluate(node => node.isConnected && !node.hasAttribute("disabled") && !node.hasAttribute("readonly"))) throw new Error("target_unavailable");
+    if (field.type === "checkbox") {
+      if (typeof value !== "boolean") return false;
+      await handle.setChecked(value);
+      return handle.isChecked().then(checked => checked === value);
+    }
+    if (typeof value !== "string") return false;
+    this.registerPrivateValues([value]);
+    const secret = true; // Every submitted form value is write-only, including nonsecret fields.
+    if (field.type === "select") {
+      await handle.selectOption(value);
+      return handle.evaluate((node, expected) => (node as HTMLSelectElement).value === expected, value);
+    }
+    await referenceFill({ page, element: handle, request: { ref: field.target?.value, element: field.label, value, secret } });
+    return true;
   }
 
   async formCanSave(binding: FormPageBinding, field: UserFormField): Promise<boolean> {
     const handle = await this.formHandle(await this.formPage(binding), field);
     return handle.evaluate((node) => {
       const attributes = ["type", "autocomplete", "name", "id", "aria-label"].map((key) => node.getAttribute(key) ?? "").join(" ");
-      return node.isConnected && !/password|one-time|cc-|card|cvv|cvc|ssn|secret|token|passcode|credential|api.?key/i.test(attributes);
+      return node.isConnected && node.getAttribute("maxlength") !== "1" && !/password|one-time|cc-|card|cvv|cvc|ssn|secret|token|passcode|credential|api.?key/i.test(attributes);
     });
   }
 
   async submitForm(binding: FormPageBinding, field: UserFormField): Promise<boolean> {
     const page = await this.formPage(binding); const handle = await this.formHandle(page, field);
-    if (!(await handle.evaluate((node, domain) => node.isConnected && location.hostname.toLowerCase().replace(/^www\./, "") === domain, binding.domain))) return false;
+    if (!(await handle.evaluate((node, domain) => node.isConnected && location.hostname.toLowerCase() === domain, binding.domain))) return false;
     await handle.press("Enter"); return true;
   }
 
   async formSnapshot(binding: FormPageBinding): Promise<string> {
-    const page = await this.formPage(binding); await this.clearRefs(page);
-    const refs = new Map<string, ElementHandle<HTMLElement>>();
-    const lines = [`Form page: ${binding.domain}`];
-    const handles = await page.$$("input:not([type=hidden]),textarea,select,button");
-    for (const handle of handles.slice(0, 100)) {
-      const ref = `e${refs.size + 1}`;
-      refs.set(ref, handle as ElementHandle<HTMLElement>);
-      const details = await handle.evaluate((node) => ({
-        tag: node.tagName.toLowerCase(), type: node.getAttribute("type"),
-        name: node.getAttribute("aria-label") || [...((node as HTMLInputElement).labels ?? [])].map((label) => label.textContent ?? "").join(" ") || node.getAttribute("placeholder") || node.getAttribute("name") || node.getAttribute("id") || "",
-      })).catch(() => null);
-      if (details) lines.push(`[ref=${ref}] ${details.tag} ${details.type ?? ""} ${details.name}`);
-    }
-    this.refs.set(this.idFor(page), refs); return lines.join("\n");
+    const result = await this.captureSnapshot(await this.formPage({...binding,url:undefined}));
+    return redactSecrets(result.lines.join("\n"), [...this.privateValues]);
   }
 
   async execute(toolName: string, raw: unknown): Promise<AgentToolResult<Record<string, unknown>>> {
@@ -411,7 +412,7 @@ export class BrowserUseSession {
 
   private async requireRef(page: Page, value: unknown): Promise<ElementHandle<HTMLElement>> {
     if (typeof value !== "string") throw new Error("An element ref is required");
-    const handle = this.refs.get(this.idFor(page))?.get(value);
+    const handle = this.refs.get(this.idFor(page))?.get(value) ?? await refHandle(page, value) as ElementHandle<HTMLElement>;
     const connected = await handle?.evaluate((node) => node.isConnected).catch(() => false);
     if (!handle || !connected) {
       throw new Error(`Element ref ${value} is stale or unknown; take a fresh browser_snapshot`);
@@ -456,51 +457,30 @@ export class BrowserUseSession {
           })
         : await this.ensurePage(this.viewId(args));
     this.currentViewId = this.idFor(page);
-    await page.goto(args.url, { waitUntil: "domcontentloaded", timeout: 30_000 });
+    const outcome = await gotoWithRecovery(page, args.url, true);
     await this.clearRefs(page);
-    return this.pageState(page, `Navigated to ${page.url()}`);
+    const safeUrl = new URL(args.url); safeUrl.username = ""; safeUrl.password = "";
+    return this.pageState(page, `${args.newTab === true ? `Opened ${safeUrl.href} in a new tab` : `Navigated to ${safeUrl.href}`}${navigationNote(outcome)}`);
+  }
+
+  private async captureSnapshot(page: Page, args: JsonObject = {}) {
+    await this.clearRefs(page);
+    const result = await snapshotAcrossFrames(this.context, page, {
+      interactive: args.interactive === true,
+      maxDepth: typeof args.maxDepth === "number" ? args.maxDepth : 20,
+      selector: typeof args.selector === "string" && args.selector.length ? args.selector : undefined,
+      stableRefs: false,
+    });
+    frameRefsByPage.set(page, result.refOwners);
+    return result;
   }
 
   private async snapshot(args: JsonObject) {
     const page = await this.ensurePage(this.viewId(args));
-    const pageViewId = this.idFor(page);
-    await this.clearRefs(page);
-    const refs = new Map<string, ElementHandle<HTMLElement>>();
-    const lines = [
-      `Page ${pageViewId}: ${await page.title().catch(() => "")}`,
-      `URL: ${page.url()}`,
-    ];
-    let nextRef = 1;
-    const selector = typeof args.selector === "string" ? args.selector : undefined;
-    const maxDepth = typeof args.maxDepth === "number" ? args.maxDepth : 20;
-    for (const frame of page.frames()) {
-      if (frame !== page.mainFrame() && !sameOriginFrame(page.url(), frame.url())) {
-        lines.push(`[cross-origin frame not inspected: ${frame.url()}]`);
-        continue;
-      }
-      const frameEntries = await this.snapshotFrame(
-        frame,
-        selector,
-        refs,
-        nextRef,
-        maxDepth,
-        args.interactive === true
-      );
-      nextRef = frameEntries.nextRef;
-      if (frameEntries.lines.length > 0) {
-        const frameLabel =
-          frame === page.mainFrame() ? "Interactive elements:" : `Frame ${frame.url()}:`;
-        lines.push(frameLabel, ...frameEntries.lines);
-      }
-      if (nextRef > 500) {
-        lines.push("[interactive snapshot truncated at 500 elements]");
-        break;
-      }
-    }
-    this.refs.set(pageViewId, refs);
-    const result = await this.pageState(page, `Captured page snapshot (${refs.size} interactive refs)`, false, lines.join("\n"));
-    result.details = { ...result.details, refs: refs.size };
-    return result;
+    const result = await this.captureSnapshot(page, args);
+    const output = await this.pageState(page, `Captured page snapshot (${result.refCount} interactive refs)`, false, result.lines.join("\n"));
+    output.details = { ...output.details, refs: result.refCount, unreachableFrames: result.unreachableFrames, ...(result.selector ? { selectorMatched: result.selector.matched, selectorClosedShadow: result.selector.closedShadow } : {}) };
+    return output;
   }
 
   private async snapshotFrame(
@@ -621,7 +601,7 @@ export class BrowserUseSession {
         position: {x:box.width / 2 + (typeof args.offsetX === "number" ? args.offsetX : 0),y:box.height / 2 + (typeof args.offsetY === "number" ? args.offsetY : 0)}
       } : {}),
     });
-    return this.pageState(page, `Clicked ${args.element ?? args.ref}`);
+    return this.pageState(page, await this.recoverAfterAction(page, `Clicked ${args.element ?? args.ref}`));
   }
 
   private async mouseClick(args: JsonObject) {
@@ -636,25 +616,34 @@ export class BrowserUseSession {
       try { await page.waitForTimeout(args.holdDurationMs); }
       finally { await page.mouse.up({ button }); }
     } else await page.mouse.click(args.x, args.y, { button });
-    return this.pageState(page, `Clicked at (${args.x}, ${args.y})`);
+    return this.pageState(page, await this.recoverAfterAction(page, `Clicked at (${args.x}, ${args.y})`));
   }
 
   private async type(args: JsonObject) {
     const page = await this.ensurePage(this.viewId(args));
-    const handle = await this.requireRef(page, args.ref);
     if (typeof args.text !== "string") throw new Error("text is required");
-    if (args.clear === true) await handle.fill("");
-    await handle.type(args.text, args.slowly === true ? { delay: 40 } : undefined);
-    if (args.submit === true) await handle.press("Enter");
-    return this.pageState(page, `Typed into ${args.element ?? args.ref}`);
+    const result = await referenceType({ page, request: args });
+    return this.pageState(page, await this.recoverAfterAction(page, result.summary));
   }
 
   private async fill(args: JsonObject) {
     const page = await this.ensurePage(this.viewId(args));
-    const handle = await this.requireRef(page, args.ref);
     if (typeof args.value !== "string") throw new Error("value is required");
-    await handle.fill(args.value);
-    return this.pageState(page, `Filled ${args.element ?? args.ref}`);
+    const result = await referenceFill({ page, request: args });
+    return this.pageState(page, result.summary);
+  }
+
+  private async recoverAfterAction(page: Page, summary: string): Promise<string> {
+    await settleIntoErrorPage(this.context, page);
+    if (page.isClosed() || !isChromeErrorPage(page)) return summary;
+    try {
+      const outcome = await recoverErrorPage(this.context, page);
+      return summary + (outcome === undefined
+        ? ". The page now shows Chrome's error page: the load failed (a form submission is never replayed automatically). Use browser_navigate with the intended URL, or re-submit the form, to retry."
+        : `. The page landed on Chrome's error page, so it was reloaded automatically${navigationNote(outcome)}. Take a fresh browser_snapshot before acting on it.`);
+    } catch (error) {
+      return summary + `. The page landed on Chrome's error page and reloading it failed: ${error instanceof Error ? error.message : String(error)}`;
+    }
   }
 
   private async selectOption(args: JsonObject) {
@@ -679,7 +668,7 @@ export class BrowserUseSession {
       .replace(/\bshift\b/gi, "Shift")
       .replace(/\bmeta\b/gi, "Meta");
     await page.keyboard.press(key);
-    return this.pageState(page, `Pressed ${key}`);
+    return this.pageState(page, await this.recoverAfterAction(page, `Pressed ${key}`));
   }
 
   private async scroll(args: JsonObject) {
@@ -765,9 +754,12 @@ export class BrowserUseSession {
       throw new Error("This browser contains private login data. Use the page interaction tools; arbitrary CDP inspection is unavailable for this session.");
     }
     const session = await this.context.newCDPSession(page);
+    let timer:ReturnType<typeof setTimeout>|undefined;
     try {
-      const result = await session.send(args.method as never, (args.params ?? {}) as never);
-      const state = await this.pageState(page, `Ran CDP ${args.method}`, false, boundedJson(result));
+      const raw = await Promise.race([session.send(args.method as never, (args.params ?? {}) as never),new Promise<never>((_,reject)=>{timer=setTimeout(()=>reject(new Error("CDP request timed out")),25_000);})]);
+      const scrub=(value:unknown):any=>typeof value === "string" ? redactSecrets(value,[...this.privateValues]) : Array.isArray(value) ? value.map(scrub) : value && typeof value === "object" ? Object.fromEntries(Object.entries(value).map(([key,value])=>[key,scrub(value)])) : value;
+      const result=scrub(raw);
+      const state = await this.pageState(page, await this.recoverAfterAction(page, `Ran CDP ${args.method}`), false, boundedJson(result));
       state.details = {
         viewId: this.idFor(page),
         method: args.method,
@@ -775,6 +767,7 @@ export class BrowserUseSession {
       };
       return state;
     } finally {
+      clearTimeout(timer);
       await session.detach();
     }
   }

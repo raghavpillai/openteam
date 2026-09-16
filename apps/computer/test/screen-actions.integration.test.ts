@@ -112,6 +112,18 @@ describe.skipIf(process.platform !== "linux" || !Bun.which("Xvfb"))(
       }
     });
 
+    test("held clicks last for the requested duration and cancellation releases the button", async()=>{
+      await page.setContent(`<div style="position:fixed;inset:0"></div><script>window.events=[];for(const type of ['pointerdown','pointerup'])document.addEventListener(type,e=>events.push({type,t:performance.now(),buttons:e.buttons,trusted:e.isTrusted}));</script>`);
+      await performComputerUseAction({action:"click",x:300,y:300,holdDurationMs:180},env);
+      await page.waitForFunction(()=>(window as any).events.length===2);
+      let events=await page.evaluate(()=>(window as any).events);
+      expect(events[1].t-events[0].t).toBeGreaterThanOrEqual(150);expect(events[1].buttons).toBe(0);expect(events[1].trusted).toBe(true);
+      const abort=new AbortController();setTimeout(()=>abort.abort(),150);
+      await expect(performComputerUseAction({action:"click",x:300,y:300,holdDurationMs:2000},env,abort.signal)).rejects.toThrow();
+      await page.waitForFunction(()=>(window as any).events.length===4);
+      events=await page.evaluate(()=>(window as any).events);expect(events.at(-1).buttons).toBe(0);
+    });
+
     test("types exact multilingual text, emoji and newline with an inherited C locale", async () => {
       await page.setContent('<textarea id="field"></textarea>');
       await page.locator("#field").focus();

@@ -50,8 +50,9 @@ export class HostCapabilities {
       return this.receipts.execute(botId, callId, args, async () => {
         const grant = JSON.stringify([botId, "send", args.chatId ?? args.to]);
         const all = JSON.stringify([botId, "send", "*"]);
-        const allowed = (await this.settings.read()).messagesGrants;
-        const decision = allowed.includes(grant) || allowed.includes(all) ? "once" : await this.consent({
+        const sendSettings = await this.settings.read();
+        const allowed = sendSettings.messagesGrants;
+        const decision = sendSettings.messagesSendAll || allowed.includes(grant) || allowed.includes(all) ? "once" : await this.consent({
           title: "Send message?",
           allowAlways: true,
           detail: `To: ${args.to && args.recipientName ? args.recipientName + " — " : ""}${args.to ?? args.chatId}\nService: ${args.service ?? "auto"}\n\n${args.text}`,

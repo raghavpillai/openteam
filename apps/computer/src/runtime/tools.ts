@@ -1,3 +1,6 @@
+import { normalizeMainToolArguments } from "@openteam/contracts/reference-main-parsers";
+import { spoolFile } from "@openteam/plugin-sdk/file-spool";
+import { agentReadStream, agentWriteStream } from "../agent-file-stream";
 import { describeOutputLocation, buildUserFormRemapReceipt } from "@openteam/contracts/reference-formatters";
 import { renderDesktopResult, renderControlResult } from "@openteam/contracts/tool-results";
 import { describeUploadFileOutcome, describeDownloadFileOutcome, formatCookieOriginApprovalOutcome } from "@openteam/contracts/reference-formatters";
@@ -137,7 +140,7 @@ export class RuntimeTools {
       });
       if (!response.ok) throw new Error(`Shell completion delivery failed (${response.status})`);
     };
-    this.nativeToolExecutor = new NativeToolExecutor({ agentDir, controlToken, onShellComplete: deliverShellCompletion });
+    this.nativeToolExecutor = new NativeToolExecutor({ agentDir, controlToken, serverUrl: this.serverUrl, onShellComplete: deliverShellCompletion });
     this.hostShellCompletions = new HostShellCompletions(join(agentDir, "private-host-shells"), async (job) => {
       const result = await this.nativeToolExecutor.externalAwaitShell({ machineId: job.machineId, shell_id: job.shellId, block_until_ms: 0 });
       return result.details as unknown as import("@openteam/contracts/service-protocol").ShellAwaitResponse;
@@ -287,6 +290,7 @@ export class RuntimeTools {
     args: unknown,
     signal?: AbortSignal
   ): Promise<AgentToolResult<Record<string, unknown>>> {
+    args = normalizeMainToolArguments(tool,args);
     if (tool === "Task") args = expandPluginAgent(active.pluginRuntimePackages ?? [], args as Record<string, unknown>);
     if (active.readOnly && !["Read", "RecallMemory", "GetDynamicTools", "CallDynamicTool", "ListSections"].includes(tool)) throw new Error("This plugin agent is read-only");
     if (active.readOnly && tool === "Read" && (args as Record<string, unknown>).machineId) throw new Error("Read-only agents cannot access the user's computer");
@@ -394,7 +398,7 @@ export class RuntimeTools {
             mimeType: "image/png",
           },
         ],
-        details: { width: 1280, height: 800, path },
+        details: { width: frame.readUInt32BE(16), height: frame.readUInt32BE(20), path },
       };
     }
     if (tool === GET_DYNAMIC_TOOLS_TOOL.name) {
@@ -501,7 +505,7 @@ export class RuntimeTools {
     active: ActiveTurn,
     args: unknown
   ): Promise<AgentToolResult<Record<string, unknown>>> {
-    const input = Schema.decodeUnknownSync(ComputerUseInput)(args);
+    const input = Schema.decodeUnknownSync(ComputerUseInput)(normalizeMainToolArguments("Computer",args));
     const { then = [], description: _description, ...first } = input;
     const actions = [first, ...then];
     const frame = await this.screens.actComputerUse(active.screenBotId, active.cwd, actions);
@@ -523,8 +527,8 @@ export class RuntimeTools {
       ],
       details: {
         actions: actions.map((action) => action.action),
-        width: 1280,
-        height: 800,
+        width: frame.readUInt32BE(16),
+        height: frame.readUInt32BE(20),
         path,
       },
     };
@@ -623,10 +627,15 @@ export class RuntimeTools {
     const output = await this.nativeToolExecutor.desktopCapability(name, active.botId, args, signal, callId);
     if (name === "request_cookie_origin_approval" && output.kind === "collected") {
       signal?.throwIfAborted();
-      const browser = await this.privateBrowser(active);
-      this.rememberBrowserValues(active.screenBotId, output.cookies.map((cookie: any) => cookie.value));
-      const imported = await this.screens.withAgentBrowserInput(active.screenBotId, active.cwd, async leaseSignal => { signal?.throwIfAborted(); leaseSignal?.throwIfAborted(); return browser.importPrivateCookies(output.cookies); });
-      return { content: [{ type: "text", text: formatCookieOriginApprovalOutcome({ ...output, kind: "completed", injected: imported, decision: output.decision ?? "approve_once" }) }], details: { imported } };
+      let injected = 0, failed = output.cookies.length;
+      try {
+        const browser = await this.privateBrowser(active);
+        this.rememberBrowserValues(active.screenBotId, output.cookies.map((cookie: any) => cookie.value));
+        const result = await this.screens.withAgentBrowserInput(active.screenBotId, active.cwd, async leaseSignal => { signal?.throwIfAborted(); leaseSignal?.throwIfAborted(); return browser.importPrivateCookies(output.cookies); });
+        injected = result.injected; failed = result.failed;
+      } catch { signal?.throwIfAborted(); }
+      const outcome = {...output,kind:failed ? "failed" : "completed",stage:"inject",errorClass:"CookieInjectionFailed",injected,failed,decision:output.decision ?? "approve_once"};
+      return {content:[{type:"text",text:formatCookieOriginApprovalOutcome(outcome)}],details:{imported:injected,failed}};
     }
     if (name === "FetchIMessageAttachment") {
       if (typeof output.bytesBase64 !== "string" || typeof output.filename !== "string") throw new Error("Invalid attachment response");
@@ -664,13 +673,16 @@ export class RuntimeTools {
   }
 
   private async connectorTransfer(active: ActiveTurn, callId: string, tool: string, input: Record<string, any>, signal?: AbortSignal): Promise<AgentToolResult<Record<string, unknown>>> {
-    let bytes: Buffer | undefined;
+    let file: Awaited<ReturnType<typeof spoolFile>> | undefined;
     if (tool === "upload_file") {
-      bytes = await agentFileIO("read", await this.transferPath(active, input.sourcePath, false), signal);
-      if (bytes.length > CONNECTOR_TRANSFER_MAX_BYTES) throw new Error("File transfer exceeds 64 MiB");
+      const source=agentReadStream(await this.transferPath(active,input.sourcePath,false),signal);
+      try {file=await spoolFile(source.stream,{signal});await source.done;}
+      catch(error){await file?.cleanup();throw error;} finally {source.cancel();}
     }
-    const staged = { tool, input, ...(bytes ? { sha256: createHash("sha256").update(bytes).digest("hex"), sizeBytes: bytes.length } : {}) };
+    try {
+    const staged = {tool,input,...(file ? {sha256:file.sha256,sizeBytes:file.sizeBytes} : {})};
     const prepared = await this.privateControl(active, callId, "PrepareConnectorTransfer", staged, signal);
+    if (prepared.outcome) return {content:[{type:"text",text:(tool==="upload_file" ? describeUploadFileOutcome : describeDownloadFileOutcome)(prepared.outcome,input)!}],details:{}};
     if (tool === "upload_file" && prepared.status === "completed") return { content: [{ type: "text", text: describeUploadFileOutcome({ kind: "uploaded", ...prepared.result }, input)! }], details: { ...prepared.result } };
     let reviewed = false;
     if (prepared.decision === "prompt") {
@@ -681,15 +693,21 @@ export class RuntimeTools {
       if (decision !== "accept") throw new Error("File transfer declined. Do not retry unless asked.");
       reviewed = true;
     }
-    const output = await this.privateControl(active, callId, "ExecuteConnectorTransfer", { ...staged, input: { ...input, connection: prepared.connectionId }, reviewed, ...(bytes ? { bytesBase64: bytes.toString("base64") } : {}) }, signal);
+    const envelope={runId:active.runId,botId:active.botId,conversationId:active.conversationId,channelId:active.channelId,deliveryId:active.deliveryId,callId,tool:"ExecuteConnectorTransfer",arguments:{...staged,input:{...input,connection:prepared.connectionId},reviewed}};
+    const response=await fetch(`${this.serverUrl}/api/v0/internal/connector-transfer`,{method:"POST",headers:{authorization:`Bearer ${this.controlToken}`,"content-type":"application/octet-stream","x-openteam-transfer":Buffer.from(JSON.stringify(envelope)).toString("base64url")},body:file ? Bun.file(file.path) : undefined,signal});
+    if(!response.ok){const failure=await response.json().catch(()=>({})) as any;throw new Error(failure.error?.message ?? `Transfer failed (${response.status}); inspect the destination before retrying`);}
+    let output:Record<string,any>;
     if (tool === "download_file") {
-      if (typeof output.bytesBase64 !== "string") throw new Error("File service returned no download bytes");
-      const data = Buffer.from(output.bytesBase64, "base64"); if (data.length > CONNECTOR_TRANSFER_MAX_BYTES) throw new Error("Download exceeds 64 MiB");
-      const filename = basename(String(output.name)).replace(/[\\/\0]/g, "_");
-      const path = await this.transferPath(active, input.destination.path ?? join(active.cwd, "downloads", filename === "." || filename === ".." ? "download" : filename), true);
-      await agentFileIO("write", path, signal, data); output.boxPath = path; delete output.bytesBase64;
-    }
+      try {
+      output=JSON.parse(Buffer.from(response.headers.get("x-openteam-transfer-result") ?? "","base64url").toString());
+      const filename=basename(String(output.name)).replace(/[\\/\0]/g,"_");
+      const path=await this.transferPath(active,input.destination.path ?? join(active.cwd,"downloads",[".",".."].includes(filename) ? "download" : filename),true);
+      if(!response.body)throw new Error("File service returned no download stream");
+      output.sizeBytes=await agentWriteStream(path,response.body,signal);output.boxPath=path;
+      } catch(error) {await response.body?.cancel().catch(()=>{});throw error;}
+    } else output=await response.json() as Record<string,any>;
     return { content: [{ type: "text", text: tool === "upload_file" ? describeUploadFileOutcome({ kind: "uploaded", ...output }, input)! : describeDownloadFileOutcome({ kind: "downloaded", ...output }, input)! }], details: { ...output } };
+    } finally {await file?.cleanup();}
   }
 
   private async callControlPlaneTool(
@@ -699,7 +717,7 @@ export class RuntimeTools {
     args: unknown,
     signal?: AbortSignal
   ): Promise<AgentToolResult<Record<string, unknown>>> {
-    const timeout = AbortSignal.timeout(tool === "Task" ? 24 * 60 * 60_000 : ["SendToUser", "ReviewedExternalFileDelivery"].includes(tool) ? 5 * 60_000 : ["request_user_form", "DraftExternalMessage"].includes(tool) ? 120_000 : 30_000);
+    const timeout = AbortSignal.timeout(["Task", "SendFeedback", "InstallPlugin", "UninstallPlugin", "AddMcpServer", "UninstallMcpServer", "AuthenticateMcpServer", "RestartMcpServers", "RemoveMcpAccount", "RenameMcpAccount", "SetMcpInstructions"].includes(tool) ? 24 * 60 * 60_000 : ["SendToUser", "ReviewedExternalFileDelivery"].includes(tool) ? 5 * 60_000 : ["request_user_form", "DraftExternalMessage"].includes(tool) ? 120_000 : 30_000);
     const requestSignal = signal ? AbortSignal.any([signal, timeout]) : timeout;
     const response = await fetch(`${this.serverUrl}/api/v0/internal/tools/call`, {
       method: "POST",
@@ -736,6 +754,10 @@ export class RuntimeTools {
     if (tool === "Task" && body && typeof body === "object" &&
       (body as Record<string, unknown>).foregroundPending === true) {
       return this.callControlPlaneTool(active, callId, tool, args, requestSignal);
+    }
+    if (body && typeof body === "object" && (body as any).completed && ["InstallPlugin","UninstallPlugin","AddMcpServer","UninstallMcpServer","AuthenticateMcpServer","RestartMcpServers","RemoveMcpAccount","RenameMcpAccount","SetMcpInstructions"].includes(tool)) {
+      const fresh=await this.privateControl(active,`${callId}:catalog`,"RefreshToolCatalog",{},signal);
+      active.pluginNamespaces=fresh.namespaces;
     }
     if (tool === "WakeParent" && body && typeof body === "object" &&
       (body as Record<string, unknown>).woken === true) active.endTurnRequested = true;
@@ -856,12 +878,13 @@ export class RuntimeTools {
                 throw error;
               });
               if (!receipt) return {content:[{type:"text",text:buildUserFormRemapReceipt({kind:"no_hold"})}],details:{}};
+              if (receipt.unknownFieldIds) return {content:[{type:"text",text:buildUserFormRemapReceipt({kind:"unknown_fields",unknownFieldIds:receipt.unknownFieldIds,heldFieldIds:receipt.heldFieldIds})}],details:{}};
               const recorded = await this.callControlPlaneTool(turn, callId, "RecordUserFormRemap", receipt, signal);
               await this.userForms.acknowledgeRemap(turn.botId, receipt.formId);
               const text = recorded.content.find((part) => part.type === "text");
               const cardOutcome = text?.type === "text" ? JSON.parse(text.text) : undefined;
               const selected = new Set((args as any).targets.map((target: any) => target.fieldId));
-              const output = receipt.interrupted ? formatUserFormReceipt(receipt) : buildUserFormRemapReceipt({kind:"remapped",outcomes:receipt.fields.filter(field=>selected.has(field.id)).map(field=>({id:field.id,filled:field.status==="filled"})),notRemappedFieldIds:receipt.fields.filter(field=>!selected.has(field.id)).map(field=>field.id)});
+              const output = receipt.interrupted ? formatUserFormReceipt(receipt) : buildUserFormRemapReceipt({kind:"remapped",fillFailureKinds:receipt.fillFailureKinds,domainMismatch:receipt.domainMismatch,outcomes:receipt.fields.filter(field=>selected.has(field.id)).map(field=>({id:field.id,filled:field.status==="filled"})),notRemappedFieldIds:receipt.fields.filter(field=>!selected.has(field.id)).map(field=>field.id)});
               return { content: [{ type: "text", text: output }], details: { formReceipt: receipt, cardOutcome } };
             },
           };

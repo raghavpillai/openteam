@@ -274,6 +274,7 @@ export class ComputerRuntime {
       if (!authentication) {
         throw new Error(`Pi inference provider ${modelRef.providerId} is not configured`);
       }
+      if (!active.subagentType && active.requestSource !== "automation") await this.tools.userForms.beginTurn(active.botId, active.runId);
       await this.botStore?.openForWake(active.botId);
       await this.botStore?.recordRequestId(active.botId, active.runId);
       await this.botStore?.appendConversationEnvelope(active.botId, {
@@ -796,6 +797,11 @@ export class ComputerRuntime {
   }
 
   private async cleanup(active: ActiveTurn): Promise<void> {
+    if (!active.subagentType && active.requestSource !== "automation") {
+      // A storage failure must not retain the active turn or mask its original error.
+      // beginTurn also discards holds belonging to an interrupted previous turn.
+      await this.tools.userForms.endTurn(active.botId, active.runId).catch(() => console.warn("Form hold cleanup failed"));
+    }
     await active.closePluginSession?.().catch(()=>console.warn("Plugin session cleanup failed"));
     active.pluginAbortController?.abort();
     this.tools.cancelApprovals(active.runId);

@@ -1,3 +1,4 @@
+import { connectorTransferResponse, boundedRequest } from "./connector-transfer-http";
 import { automationWebhookBinding, receiveAutomationWebhook } from "./automation-webhooks";
 import { AdminBroadcastInput, DynamicToolCallRequest, ShellCompletionInput } from "@openteam/contracts";
 import { Effect } from "effect";
@@ -61,13 +62,21 @@ const server = Bun.serve({
   hostname: process.env.OPENTEAM_SERVER_HOST ?? "0.0.0.0",
   port,
   idleTimeout: 255,
-  maxRequestBodySize: 280 * 1024 * 1024,
+  maxRequestBodySize: Number.MAX_SAFE_INTEGER,
   async fetch(request, requestServer) {
     if (request.method === "OPTIONS")
       return new Response(null, { status: 204, headers: corsHeaders });
     const url = new URL(request.url);
     const path = url.pathname.replace(/^\/api\/v0(?=\/|$)/, "/api");
+    const networkRequest=request;
+    const requestIpServer={requestIP:()=>requestServer.requestIP(networkRequest)};
     try {
+      if(path==="/api/internal/connector-transfer" && request.method==="POST") {
+        if(!authorizedInternal(request))return json({error:{code:"unauthorized",message:"Unauthorized"}},401);
+        requestServer.timeout(networkRequest,0);
+        return await connectorTransferResponse(request,app.internalTools);
+      }
+      request=boundedRequest(request,280*1024*1024);
       const automationHook = path.match(/^\/api\/automation-hooks\/([a-zA-Z0-9_-]{1,100})$/);
       if (automationHook && request.method === "POST") {
         const native=await app.automationWebhooks.receive(automationHook[1]!,request);
@@ -93,7 +102,7 @@ const server = Bun.serve({
         }
         const loginRequest = authRequestWithClientIp(
           request,
-          requestServer,
+          requestIpServer,
           proxySecret,
           new URL("/api/auth/sign-in/username", request.url),
           await request.text(),
@@ -107,7 +116,7 @@ const server = Bun.serve({
       if (request.method === "POST" && url.pathname === "/api/auth/sign-out") {
         const authRequest = authRequestWithClientIp(
           request,
-          requestServer,
+          requestIpServer,
           proxySecret,
           undefined,
           undefined,
@@ -124,18 +133,23 @@ const server = Bun.serve({
       if (url.pathname.startsWith("/api/auth/")) {
         return withCors(
           await auth.handler(
-            authRequestWithClientIp(request, requestServer, proxySecret, undefined, undefined, {
+            authRequestWithClientIp(request, requestIpServer, proxySecret, undefined, undefined, {
               trustPrivateForwarder,
             })
           )
         );
       }
+      if(request.method === "GET" && path === "/api/internal/computer-display") {
+        if(!authorizedInternal(request))return json({error:"Unauthorized"},401);
+        return json(await app.machines.display());
+      }
       if (request.method === "POST" && path === "/api/internal/tools/call") {
         if (!authorizedInternal(request)) {
           return json({ error: { code: "unauthorized", message: "Unauthorized" } }, 401);
         }
+        requestServer.timeout(networkRequest, 0);
         return json(
-          await run(app.handleDynamicTool(await parseBody(request, DynamicToolCallRequest)))
+          await Effect.runPromise(app.handleDynamicTool(await parseBody(request, DynamicToolCallRequest)), {signal:request.signal})
         );
       }
       if (request.method === "POST" && path === "/api/internal/automation-events") {
@@ -159,6 +173,13 @@ const server = Bun.serve({
           return json({ error: { code: "unauthorized", message: "Unauthorized" } }, 401);
         }
         return json(await run(app.broadcast(await parseBody(request, AdminBroadcastInput))));
+      }
+      if (path.startsWith("/api/internal/machines")) {
+        if (!authorizedInternal(request)) return json({error:{code:"unauthorized",message:"Unauthorized"}},401);
+        if(path === "/api/internal/machines" && request.method === "GET")return json(await app.machines.list());
+        if(path === "/api/internal/machines/register" && request.method === "POST")return json(await app.machines.save(await request.json()));
+        if(path === "/api/internal/machines/observe" && request.method === "POST")return json(await app.machines.observe(await request.json()));
+        return json({error:{code:"not_found",message:"Not found"}},404);
       }
       if (path === "/api/internal/server-settings/web-search/credentials" || path === "/api/internal/server-settings/web-fetch/credentials") {
         if (!authorizedInternal(request))

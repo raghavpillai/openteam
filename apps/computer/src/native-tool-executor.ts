@@ -1,3 +1,6 @@
+import { MachineDirectory } from "./machine-directory";
+import { Readable } from "node:stream";
+import { agentReadStream, agentWriteStream } from "./agent-file-stream";
 import { formatBytes2 } from "@openteam/contracts/reference-formatters";
 import { renderReadText } from "@openteam/contracts/read-output";
 import { boundToolImage } from "./runtime/image-input";
@@ -87,6 +90,7 @@ export class NativeToolExecutor {
   private readonly shellJobs: ShellJobRegistry;
   private readonly terminalDir: string;
   private readonly hostBridgeUrl: string;
+  private readonly machines?: MachineDirectory;
   private readonly controlToken: string;
   private readonly agentDataCanonicalRoot: string;
 
@@ -94,6 +98,7 @@ export class NativeToolExecutor {
     agentDir: string;
     controlToken: string;
     hostBridgeUrl?: string;
+    serverUrl?: string;
     agentDataCanonicalRoot?: string;
     onShellComplete?: (job: ShellCompletion) => Promise<void>;
   }) {
@@ -104,6 +109,7 @@ export class NativeToolExecutor {
       options.hostBridgeUrl ??
       process.env.OPENTEAM_HOST_BRIDGE_URL ??
       "http://host.docker.internal:8791";
+    if(options.serverUrl)this.machines = new MachineDirectory(options.serverUrl,this.controlToken,this.hostBridgeUrl);
     this.agentDataCanonicalRoot = resolve(
       options.agentDataCanonicalRoot ??
         process.env.OPENTEAM_AGENT_DATA_CANONICAL_ROOT ??
@@ -324,13 +330,8 @@ export class NativeToolExecutor {
   }
 
   async listMachines(signal?: AbortSignal): Promise<AgentToolResult<Record<string, unknown>>> {
-    const response = await this.hostFetch(
-      HOST_BRIDGE_PATHS.machines,
-      {},
-      signal,
-      parseHostMachinesResponse
-    );
-    return textResult(JSON.stringify({ machines: response.machines.map(({ machineId, label }) => ({ machineId, label, connected: true })) }, null, 2), {
+    const response = this.machines ? {machines:await this.machines.list(signal)} : await this.hostFetch(HOST_BRIDGE_PATHS.machines,{},signal,parseHostMachinesResponse);
+    return textResult(JSON.stringify({ machines: response.machines.map(machine => ({ machineId:machine.machineId, label:machine.label, connected:(machine as HostMachine & {connected?:boolean}).connected ?? true })) }, null, 2), {
       machines: response.machines,
     });
   }
@@ -341,40 +342,39 @@ export class NativeToolExecutor {
     const computerPath = input.computer_path ?? basename(boxPath);
     // Use the agent UID for actual I/O and retain the extra protected-data fence.
     if (!toBox) await this.assertProtectedReadPath(await realpath(boxPath));
-    const bytes = toBox ? undefined : await agentFileIO("read", boxPath, signal);
+    const sourceSize = toBox ? undefined : (await stat(boxPath)).size;
     const permit = await this.hostFetch<{ transferId: string; path: string }>(HOST_BRIDGE_PATHS.transfer, {
       direction: toBox ? "read" : "write", path: computerPath, machineId: input.machineId,
-      ...(bytes ? { bytes: bytes.length } : {}), ...approvals,
+      ...(sourceSize !== undefined ? { bytes: sourceSize } : {}), ...approvals,
     }, signal);
-    const timeout = AbortSignal.timeout(600_000);
-    const response = await fetch(`${this.hostBridgeUrl}${HOST_BRIDGE_PATHS.transfer}/${encodeURIComponent(permit.transferId)}`, {
-      method: toBox ? "GET" : "PUT", headers: { authorization: `Bearer ${this.controlToken}`, "content-type": "application/octet-stream" },
-      ...(bytes ? { body: new Uint8Array(bytes) } : {}), signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
-    });
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({})) as { error?: string };
-      throw new Error(error.error ?? `File transfer failed (${response.status})`);
-    }
-    let size = bytes?.length ?? 0;
-    if (toBox) {
-      const chunks: Uint8Array[] = [];
-      if (!response.body) throw new Error("File transfer returned no body");
-      const reader = response.body.getReader();
-      try {
-        for (;;) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          size += value.length;
-          if (size > HOST_TRANSFER_MAX_BYTES) { await reader.cancel(); throw new Error("File exceeds the 256 MiB transfer limit"); }
-          chunks.push(value);
-        }
-      } finally { reader.releaseLock(); }
-      await agentFileIO("write", boxPath, signal, Buffer.concat(chunks));
-    }
+    const source = toBox ? undefined : agentReadStream(boxPath, signal);
+    let size=sourceSize ?? 0;
+    try {
+      const bridgeUrl = await this.machines?.endpoint(input.machineId,signal) ?? this.hostBridgeUrl;
+      const response = await fetch(`${bridgeUrl}${HOST_BRIDGE_PATHS.transfer}/${encodeURIComponent(permit.transferId)}`, {
+        method: toBox ? "GET" : "PUT", headers: { authorization: `Bearer ${this.controlToken}`, "content-type": "application/octet-stream" },
+        ...(source ? { body: Readable.toWeb(source.stream) as unknown as ReadableStream<Uint8Array>, duplex:"half" } : {}), signal,
+      });
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({})) as { error?: string };
+        throw new Error(error.error ?? `File transfer failed (${response.status})`);
+      }
+      if (toBox) {
+        if (!response.body) throw new Error("File transfer returned no body");
+        size = await agentWriteStream(boxPath,response.body,signal);
+      } else await source!.done;
+    } finally { source?.cancel(); }
+    const label = await this.machineLabel(input.machineId, signal);
+
     return textResult(toBox
-      ? `Copied ${permit.path} from ${input.machineId} into your box at ${boxPath} (${formatBytes2(size)}). Open it with Shell.`
-      : `Copied ${boxPath} from your box to ${input.machineId} at ${permit.path} (${formatBytes2(size)}). The user can open it there with Shell using that computer's machineId.`,
+      ? `Copied ${permit.path} from ${label} into your box at ${boxPath} (${formatBytes2(size)}). Open it with Shell.`
+      : `Copied ${boxPath} from your box to ${label} at ${permit.path} (${formatBytes2(size)}). The user can open it there with Shell using that computer's machineId.`,
     { box_path: boxPath, computer_path: permit.path, bytes: size, machineId: input.machineId });
+  }
+
+  private async machineLabel(machineId: string, signal?: AbortSignal): Promise<string> {
+    try { const rows = this.machines ? await this.machines.registered(signal) : (await this.hostFetch(HOST_BRIDGE_PATHS.machines,{},signal,parseHostMachinesResponse)).machines; return rows.find(machine=>machine.machineId === machineId)?.label ?? machineId; }
+    catch { return machineId; }
   }
 
   async autoReviewTask(
@@ -518,7 +518,9 @@ export class NativeToolExecutor {
     timeoutMs = 120_000
   ): Promise<T> {
     const timeout = AbortSignal.timeout(Math.ceil(timeoutMs));
-    const response = await fetch(`${this.hostBridgeUrl}${path}`, {
+    const machineId = (body as {machineId?:string})?.machineId;
+    const bridgeUrl = await this.machines?.endpoint(machineId,signal) ?? this.hostBridgeUrl;
+    const response = await fetch(`${bridgeUrl}${path}`, {
       method: "POST",
       headers: {
         authorization: `Bearer ${this.controlToken}`,

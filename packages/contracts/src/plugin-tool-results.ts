@@ -12,6 +12,7 @@ const server = (c: Row) => ({
   accountKey: c.account_label ?? c.alias ?? "default",
   transport: c.transport,
   toolCount: c.toolCount,
+  disabledToolCount:c.disabledToolCount,
   ...(c.pluginKey && !c.pluginKey.startsWith("custom-mcp-") ? { pluginId: c.pluginKey } : {}),
   statusDetail: c.statusMessage,
   customInstructions: c.customInstructions ?? "",

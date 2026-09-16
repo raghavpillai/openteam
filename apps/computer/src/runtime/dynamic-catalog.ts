@@ -1,3 +1,4 @@
+import { normalizeMainToolArguments } from "@openteam/contracts/reference-main-parsers";
 import { withReferenceContract, FIRST_PARTY_NAMESPACE_DESCRIPTION } from "@openteam/contracts/tool-contracts";
 import pluginToolSchemas from "../plugin-tool-schemas.json";
 import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
@@ -157,7 +158,7 @@ export function dynamicCatalog(
     description: tool.description,
     inputSchema: tool.inputSchema,
     source: "first-party",
-    decodeArguments: (args) => Schema.decodeUnknownSync(schema)(args),
+    decodeArguments: (args) => Schema.decodeUnknownSync(schema)(normalizeMainToolArguments(tool.name,args)),
     execute: (turn, callId, args, signal) =>
       callControlPlaneTool(turn, callId, tool.name, args, signal),
   });
@@ -217,7 +218,7 @@ export function dynamicCatalog(
                   ? ((args as Record<string, unknown>).plugin_id ?? (args as Record<string, unknown>).pluginKey)
                   : undefined;
               if (typeof pluginKey !== "string") throw new Error("pluginKey is required");
-              return { pluginKey: pluginKey.slice(0, 200) };
+              return { pluginKey: pluginKey.trim() };
             },
             execute: (turn: ActiveTurn, callId: string, args: unknown, signal?: AbortSignal) =>
               callControlPlaneTool(turn, callId, "GetPlugin", args, signal),
@@ -292,6 +293,7 @@ export function dynamicCatalog(
             "PluginCall",
             {
               connectionId: tool.connectionId,
+              namespace: namespace.name,
               toolName: tool.name,
               arguments: args,
               mcpDetails,
@@ -309,7 +311,13 @@ export function dynamicCatalog(
       namespaceStatus: "ready",
       tools: (active.requestSource === "automation"
         ? cursorTools.filter((tool) => !AUTOMATION_PARENT_ONLY_TOOLS.has(tool.name))
-        : cursorTools).map(withReferenceContract),
+        : cursorTools).map(withReferenceContract).map(tool => {
+          if (tool.name !== "upload_file" && tool.name !== "download_file") return tool;
+          const operation = tool.name === "upload_file" ? "upload" : "download";
+          const connections = active.pluginNamespaces.filter(namespace => namespace.fileTransfers?.[operation]);
+          if (!connections.length) return tool;
+          return { ...tool, description: tool.description + "\n\nAvailable file connections this turn:\n" + connections.map(namespace => `- ${namespace.name}${namespace.namespaceStatus === "ready" ? "" : " (authentication or connection recovery required)"}`).join("\n") };
+        }),
     },
     ...pluginNamespaces,
   ];

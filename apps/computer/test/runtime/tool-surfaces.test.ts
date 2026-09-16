@@ -431,6 +431,7 @@ describe("context turn reservation", () => {
       diagnostics: { activeTurns: number };
     };
     runtime.start = async () => {};
+    Object.assign((runtime as any).tools.userForms, { beginTurn: async () => {}, endTurn: async () => {} });
     runtime.authenticated = true;
     runtime.resolveModel = () => ({});
     runtime.modelRuntime = {
@@ -471,6 +472,7 @@ describe("context turn reservation", () => {
       diagnostics: { activeTurns: number };
     };
     runtime.start = async () => {};
+    Object.assign((runtime as any).tools.userForms, { beginTurn: async () => {}, endTurn: async () => {} });
     runtime.authenticated = true;
     runtime.resolveModel = () => ({});
     runtime.modelRuntime = {

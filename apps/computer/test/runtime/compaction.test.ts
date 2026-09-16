@@ -339,6 +339,7 @@ test("real Pi turns complete while summary generation runs, reopen, and adopt wi
     internals.compaction = coordinator;
     internals.compactionArchive = store;
     internals.tools = {
+      userForms: { beginTurn: async () => {}, endTurn: async () => {} },
       customTools: () => [],
       acknowledgeToolOutcomes: async () => {},
       cancelApprovals() {},
@@ -531,6 +532,7 @@ for (const scenario of [
       runtime.compaction = coordinator;
       runtime.compactionArchive = store;
       runtime.tools = {
+        userForms: { beginTurn: async () => {}, endTurn: async () => {} },
         customTools: () => [
           {
             name: "ReadBlue",

@@ -1,0 +1,45 @@
+import { spawn } from "node:child_process";
+import { Readable } from "node:stream";
+import { agentProcessIdentity, sanitizedAgentEnvironment } from "./agent-process";
+import { AGENT_FILE_IO_SCRIPT } from "./agent-file-io";
+
+function fileProcess(mode: "read" | "write", path: string, signal?: AbortSignal) {
+  const child = spawn(process.execPath, ["-e", AGENT_FILE_IO_SCRIPT, mode, path, String(Number.MAX_SAFE_INTEGER)], {
+    ...agentProcessIdentity(), env: sanitizedAgentEnvironment(process.env), stdio: ["pipe", "pipe", "pipe"], signal,
+  });
+  let errorText = "";
+  child.stderr.on("data", (data: Buffer) => { if (errorText.length < 8192) errorText += data.toString(); });
+  child.stdin.on("error", () => {});
+  const done = new Promise<void>((resolve,reject) => {
+    child.once("error",reject);
+    child.once("close",code => code === 0 ? resolve() : reject(new Error(errorText || "File transfer interrupted")));
+  });
+  // Install a rejection handler immediately; callers still await and receive the original failure.
+  void done.catch(()=>{});
+  return { child, done };
+}
+export function agentReadStream(path: string, signal?: AbortSignal) {
+  const {child,done} = fileProcess("read",path,signal);
+  child.stdin.end();
+  return { stream: child.stdout, done, cancel:()=>child.kill() };
+}
+export async function agentWriteStream(path: string, stream: ReadableStream<Uint8Array> | Readable, signal?: AbortSignal): Promise<number> {
+  const {child,done} = fileProcess("write",path,signal);
+  let bytes=0;
+  const reader=stream instanceof Readable ? undefined : stream.getReader();
+  const chunks=async function*(){if(reader){try{for(;;){const item=await reader.read();if(item.done)break;yield item.value;}}finally{await reader.cancel().catch(()=>{});reader.releaseLock();}}else yield* stream as Readable;};
+  try {
+    // Keep pipe writes bounded and wait for each write before reading more bytes.
+    for await (const chunk of chunks()) {
+      signal?.throwIfAborted();
+      for(let offset=0;offset<chunk.length;offset+=65536) {
+        const part=chunk.subarray(offset,offset+65536);
+        await new Promise<void>((resolve,reject)=>child.stdin.write(part,error=>error ? reject(error) : resolve()));
+        bytes+=part.length;
+      }
+    }
+    child.stdin.end();
+    await done;
+    return bytes;
+  } catch(error) {if(stream instanceof Readable)stream.destroy();child.kill(); try {await done;} catch(processError) {if(!signal?.aborted && processError instanceof Error && processError.message !== "File transfer interrupted") throw processError;} throw error;}
+}

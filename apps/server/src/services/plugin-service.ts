@@ -1,3 +1,4 @@
+import { setTimeout as delay } from "node:timers/promises";
 import { cancelPendingPluginWork } from "./plugin/pending-work";
 import { pluginToolArguments } from "./plugin/tool-arguments";
 import { connectionNamespace } from "@openteam/plugin-sdk";
@@ -229,7 +230,8 @@ export class PluginService {
       // Preserve the reviewed outcome. Acceptance by itself is not proof of a successful action.
       return {
         status: existing.status,
-        completed: existing.status === "accepted" && details.actionResult != null,
+        completed: existing.status === "accepted" && details.actionResult != null && !details.actionError,
+        ...(details.actionError ? {error:details.actionError} : {}),
         actionResult: details.actionResult,
         ...(existing.status === "accepted" ? await this.connectionStatuses() as object : {}),
         ...(existing.status === "accepted" && request.action === "InstallPlugin" && typeof args.pluginKey === "string" ? { detail: await this.catalogDetail(args.pluginKey) } : {}),
@@ -248,7 +250,7 @@ export class PluginService {
             arguments: redact(request.arguments),
             rawArguments: request.arguments,
             botId: request.botId,
-            effect: `Confirm ${request.action} in OpenTeam. Changes are available on the next bot turn.`,
+            effect: `Confirm ${request.action} in OpenTeam. The tool continues with the result after review.`,
           }),
         },
       });
@@ -259,6 +261,15 @@ export class PluginService {
       `${request.action} is waiting for user confirmation`
     );
   };
+
+  async waitForAction(request:Parameters<PluginService["requestAction"]>[0],signal?:AbortSignal) {
+    for (;;) {
+      signal?.throwIfAborted();
+      try {return await this.requestAction(request);}
+      catch(error){if(!(error instanceof ApiError)||error.code!=="plugin_action_required")throw error;}
+      await delay(250,undefined,{signal});
+    }
+  }
 
   resolveAction = async (
     detailsValue: unknown,
@@ -370,7 +381,7 @@ export class PluginService {
     if (!args.server_id) return args;
     if (typeof args.server_id !== "string") throw new ApiError(400, "server_id_invalid", "server_id must be a string");
     const connections = await this.prisma.pluginConnection.findMany({ include: { installation: true } });
-    const matches = connections.filter(c => c.id === args.server_id || connectionNamespace(c.id) === args.server_id || c.installation.pluginKey === args.server_id);
+    const matches = connections.filter(c => c.id === args.server_id || connectionNamespace(c.id,c.alias) === args.server_id || c.installation.pluginKey === args.server_id);
     if (!matches.length) throw new ApiError(404, "connection_not_found", "Server not found; use GetMcpServerStatus");
     const groups = new Set(matches.map(c => `${c.installationId}/${c.connectorKey}`));
     if (groups.size !== 1) throw new ApiError(409, "account_ambiguous", "Use a server identifier from GetMcpServerStatus");

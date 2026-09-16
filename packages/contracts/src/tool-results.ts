@@ -1,3 +1,4 @@
+import { describeTrigger } from "./reference-main-parsers";
 import { renderPluginResult } from "./plugin-tool-results";
 import {
   AUTO_FILL_ON_GUIDANCE,
@@ -123,7 +124,7 @@ export function renderControlResult(
           update: "Updated",
         } as Record<string, string>
       )[args.action];
-      return `${verb} routine "${result.name}" (folder ${result.folder ?? args.id})${["create", "update"].includes(args.action) ? ` — ${result.schedule}${result.enabled ? "" : ", paused"}` : ""}.`;
+      return `${verb} routine "${result.name}" (folder ${result.folder ?? args.id})${["create", "update"].includes(args.action) ? ` — ${describeTrigger(result.trigger ?? {type:"cron",schedule:result.schedule})}${result.enabled ? "" : ", paused"}` : ""}.`;
     }
     if (result.target === "avatar" && result.cleared)
       return "Cleared your picture — back to the default.";
@@ -134,6 +135,11 @@ export function renderControlResult(
     return "Showed the form to the user; your turn is over. When they submit, the host fills the browser and resumes you with a per-field receipt (fill statuses only — never the submitted values). If they dismiss it, you'll be resumed with that outcome. If they choose to do the step on the screen instead, the host hands them the box directly (same as request_box_help) and you'll be resumed when they hand it back.";
   if (name === "request_box_help" && result.sent)
     return "Handed the box to the user. They have control now; wait for them to hand it back, and you'll be resumed automatically.";
+  if (name === "SendFeedback" && result.feedbackStatus) {
+    if (result.feedbackStatus === "sent") return `Feedback sent to the configured OpenTeam support destination. They ${result.wantsResponse ? "asked for a reply" : "did not ask for a reply"}. Confirm to the user that it went through.`;
+    if (result.feedbackStatus === "dismissed") return "Feedback was not sent: the user did not approve sending it. Do not retry; ask the user what they would like to do instead.";
+    return String(result.outcome ?? "Feedback could not be confirmed. Do not retry automatically.");
+  }
   if (name === "SendFeedback" && result.sent)
     return "Feedback is staged for user review. Nothing has been sent to the feedback endpoint yet.";
   if (name === "TodoWrite" && Array.isArray(result.todos)) {

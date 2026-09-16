@@ -47,7 +47,6 @@ export const dynamicToolKey = (namespace: string, toolName: string): string =>
 
 const searchPattern = (source: string | undefined): { test(text: string): boolean } | null => {
   if (!source) return null;
-  if (source.length > 256) throw new Error("Tool search pattern must be at most 256 characters");
   try {
     return compileToolSearchPattern(source);
   } catch (error) {

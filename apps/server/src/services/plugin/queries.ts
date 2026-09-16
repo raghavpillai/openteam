@@ -16,7 +16,7 @@ import {
   PLUGIN_CONNECTION_STATUS_MAX_IDS,
 } from "@openteam/contracts";
 import type { Prisma, PrismaClient } from "@openteam/db";
-import { connectionNamespace, effectiveToolPolicy } from "@openteam/plugin-sdk";
+import { connectionNamespace, effectiveToolPolicy, fileTransferCapabilities } from "@openteam/plugin-sdk";
 import type { PluginDefinition } from "../../plugins/catalog";
 import { serviceEffect } from "../service-utils";
 import {
@@ -262,7 +262,7 @@ export class PluginQueries {
       where: { pluginKey },
       include: {
         connections: {
-          include: { _count: { select: { grants: { where: { enabled: true } } } } },
+          include: { policies:{where:{botId:null}}, _count: { select: { grants: { where: { enabled: true } } } } },
         },
       },
     });
@@ -306,10 +306,11 @@ export class PluginQueries {
       connections:
         installation?.connections.map((connection) => ({
           id: connection.id,
-          server_id: connectionNamespace(connection.id),
+          server_id: connectionNamespace(connection.id,connection.alias),
           name: connection.name,
           pluginKey: installation.pluginKey,
-          toolCount: toolSnapshot(connection.toolSnapshot).length,
+          toolCount: toolSnapshot(connection.toolSnapshot).filter(tool=>effectiveToolPolicy(connection.policies,tool.name,"",tool.defaultDecision).enabled).length,
+          disabledToolCount: toolSnapshot(connection.toolSnapshot).filter(tool=>!effectiveToolPolicy(connection.policies,tool.name,"",tool.defaultDecision).enabled).length,
           customInstructions: connection.instructions ?? "",
           statusMessage: connection.statusMessage,
           alias: connection.alias,
@@ -327,6 +328,7 @@ export class PluginQueries {
         where: connectionId ? { id: connectionId } : undefined,
         include: {
           installation: { select: { pluginKey: true, name: true } },
+          policies:{where:{botId:null}},
           _count: { select: { grants: { where: { enabled: true } } } },
         },
         orderBy: { createdAt: "asc" },
@@ -334,7 +336,7 @@ export class PluginQueries {
       .then((connections) =>
         connections.map((connection) => ({
           id: connection.id,
-          server_id: connectionNamespace(connection.id),
+          server_id: connectionNamespace(connection.id,connection.alias),
           account_label: connection.alias,
           transport: connection.transport,
           customInstructions: connection.instructions ?? "",
@@ -344,7 +346,8 @@ export class PluginQueries {
           alias: connection.alias,
           status: connection.status,
           statusMessage: connection.statusMessage,
-          toolCount: toolSnapshot(connection.toolSnapshot).length,
+          toolCount: toolSnapshot(connection.toolSnapshot).filter(tool=>effectiveToolPolicy(connection.policies,tool.name,"",tool.defaultDecision).enabled).length,
+          disabledToolCount: toolSnapshot(connection.toolSnapshot).filter(tool=>!effectiveToolPolicy(connection.policies,tool.name,"",tool.defaultDecision).enabled).length,
           grantedBotCount: connection._count.grants,
           lastCheckedAt: connection.lastCheckedAt?.toISOString() ?? null,
         }))
@@ -376,9 +379,10 @@ export class PluginQueries {
       orderBy: { connection: { createdAt: "asc" } },
     });
     return grants.map(({ connection }) => ({
-      name: connectionNamespace(connection.id),
+      name: connectionNamespace(connection.id,connection.alias),
       description: `${connection.installation.name}: ${connection.name}${connection.instructions ? `\nSaved instructions: ${connection.instructions}` : ""}`,
       namespaceStatus: statusForRuntime(connection.status),
+      fileTransfers: fileTransferCapabilities(connection.installation.pluginKey, connection.policies, toolSnapshot(connection.toolSnapshot), botId),
       tools: toolSnapshot(connection.toolSnapshot)
         .filter(
           (tool) =>

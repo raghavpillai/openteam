@@ -185,18 +185,26 @@ export class RunService {
         }
         const status: ApprovalStatus =
           decision === "accept" ? "accepted" : decision === "decline" ? "declined" : "cancelled";
-        const result = await this.resolvePluginAction?.(approval.details, decision);
-        await this.prisma.$transaction(async (tx) => {
+        return this.prisma.$transaction(async (tx) => {
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`plugin-action:${approvalId}`}))`;
+          const current = await tx.approval.findUniqueOrThrow({where:{id:approvalId}});
+          if (current.status !== "pending") return {ok:true,status:current.status};
+          let result: unknown;
+          let actionError: string | undefined;
+          try {
+            if (!this.resolvePluginAction) throw new Error("Plugin action service is unavailable");
+            result = await this.resolvePluginAction(current.details, decision);
+          } catch (error) {
+            actionError = error instanceof Error ? error.message : "The approved operation failed";
+            result = {status:"failed",error:actionError};
+          }
           await tx.approval.update({
             where: { id: approvalId },
-            data: { status, decision, resolvedAt: new Date(), details: toJson({ ...(approval.details as Record<string, unknown>), actionResult: result ?? null }) },
+            data: { status, decision, resolvedAt: new Date(), details: toJson({ ...(current.details as Record<string, unknown>), actionResult: result ?? null, ...(actionError ? {actionError} : {}) }) },
           });
-          await appendEvent(tx, "plugin.action.resolved", approvalId, {
-            approvalId,
-            decision,
-          });
-        });
-        return { ok: true, status, result };
+          await appendEvent(tx, "plugin.action.resolved", approvalId, {approvalId, decision});
+          return {ok: !actionError, status, result};
+        }, {maxWait:130_000,timeout:130_000});
       }
       if (approval.requestMethod === "plugin/tool") {
         if (decision === "never") {

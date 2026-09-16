@@ -1,3 +1,4 @@
+import {credentialConnections, credentialConnectionId} from "./capability-settings";
 import { createHash } from "node:crypto";
 import { credentialRules, matchCredentialRules } from "./credential-domain";
 import { nativeCommand, type NativeCommand } from "./native-command";
@@ -34,45 +35,33 @@ export class SavedCredentials {
     private readonly run: NativeCommand = nativeCommand
   ) {}
   async status(signal?: AbortSignal) {
-    const { credentialProvider } = await this.settings.read();
-    if (!credentialProvider)
-      return {
-        kind: "not-connected",
-        connected: false,
-        provider: "1password",
-        setup:
-          "In Computer settings, configure the 1Password account and vault IDs. Install the 1Password CLI and enable its desktop app integration.",
-      };
-    try {
-      await this.run(
-        "op",
-        ["whoami", "--account", credentialProvider.account, "--format=json"],
-        signal
-      );
-      const items = credentialJson(await this.run("op", ["item", "list", "--account", credentialProvider.account, "--vault", credentialProvider.vault, "--format=json"], signal));
-      if (!Array.isArray(items)) throw new Error("Invalid item metadata");
-      return {
-        kind: "connected", connectionCount: 1, itemCount: items.length, connectionsNeedingAttention: 0,
-        connected: true,
-        provider: "1password",
-        connection_id: `1password:${credentialProvider.account}:${credentialProvider.vault}`,
-      };
-    } catch {
-      return {
-        kind: "unavailable",
-        connected: false,
-        provider: "1password",
-        setup:
-          "Unlock 1Password, enable CLI desktop integration, and verify the configured account.",
-      };
-    }
+    const connections = credentialConnections(await this.settings.read());
+    if (!connections.length) return {kind:"not-connected",connected:false,provider:"1password",setup:"In Computer settings, connect a 1Password account and vault. Enable CLI integration in 1Password."};
+    const statuses = await Promise.all(connections.map(async config => {
+      const connection_id = credentialConnectionId(config);
+      try {
+        await this.run("op",["whoami","--account",config.account,"--format=json"],signal);
+        const items=credentialJson(await this.run("op",["item","list","--account",config.account,"--vault",config.vault,"--format=json"],signal));
+        if(!Array.isArray(items))throw new Error("Invalid item metadata");
+        return {connection_id,kind:"connected",itemCount:items.length,needsAttention:false};
+      } catch (error) {
+        signal?.throwIfAborted();
+        return {connection_id,kind:"unavailable",itemCount:0,needsAttention:true,setup:"Unlock 1Password and verify this account and vault."};
+      }
+    }));
+    return {kind:"connected",connected:statuses.some(item=>!item.needsAttention),provider:"1password",connectionCount:statuses.length,itemCount:statuses.reduce((sum,item)=>sum+item.itemCount,0),connectionsNeedingAttention:statuses.filter(item=>item.needsAttention).length,connections:statuses};
   }
+
   async list(args: { site?: string; query?: string }, signal?: AbortSignal) {
     const settings = await this.settings.read();
-    const config = settings.credentialProvider;
-    if (!config) return { credentials: [], ...(await this.status(signal)) };
+    const configurations = credentialConnections(settings);
+    if (!configurations.length) return { credentials: [], ...(await this.status(signal)) };
+    const unavailableConnections: string[] = [];
+    const allCredentials = [];
     const origin = args.site ? credentialOrigin(args.site) : null;
-    const raw = credentialJson(
+    for (const config of configurations) {
+    let raw: any;
+    try { raw = credentialJson(
       await this.run(
         "op",
         [
@@ -87,8 +76,8 @@ export class SavedCredentials {
         ],
         signal
       )
-    );
-    if (!Array.isArray(raw)) throw new Error("The credential provider returned invalid metadata");
+    ); } catch { signal?.throwIfAborted(); unavailableConnections.push(credentialConnectionId(config)); continue; }
+    if (!Array.isArray(raw)) { unavailableConnections.push(credentialConnectionId(config)); continue; }
     const connection_id = `1password:${config.account}:${config.vault}`;
     const credentials = raw.flatMap((item) => {
       const sites = (Array.isArray(item.urls) ? item.urls : []).flatMap((url: any) => {
@@ -121,11 +110,13 @@ export class SavedCredentials {
         },
       ];
     });
-    return { connected: true, credentials };
+    allCredentials.push(...credentials);
+    }
+    return { connected: unavailableConnections.length < configurations.length, credentials:allCredentials, unavailableConnections };
   }
   async automatic(site: string, signal?: AbortSignal) {
     const settings = await this.settings.read();
-    if (!settings.credentialProvider || !settings.autoFill.length) return { skipped: true };
+    if (!credentialConnections(settings).length || !settings.autoFill.length) return { skipped: true };
     const list = await this.list({ site }, signal);
     if (
       list.credentials.length !== 1 ||
@@ -172,7 +163,7 @@ export class SavedCredentials {
     const reviewedSettings = await this.settings.read();
     if ((reviewedSettings.revocationEpoch ?? 0) !== epoch)
       throw new Error("Credential access changed during review; list credentials again");
-    const config = reviewedSettings.credentialProvider;
+    const config = credentialConnections(reviewedSettings).find(provider => credentialConnectionId(provider) === item.connection_id);
     if (!config) throw new Error("Credential provider was disconnected");
     const raw = credentialJson(
       await this.run(

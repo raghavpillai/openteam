@@ -6,6 +6,16 @@ import { dispatchRoutes, effectRoute } from "./dispatch";
 export async function settingsRoutes(context: RouteContext): Promise<Response | undefined> {
   const { app, request, path } = context;
 
+  if(path === "/api/server-settings/computer-display") {
+    if(request.method==="GET")return json(await app.machines.display());
+    if(request.method==="PATCH")return json(await app.machines.saveDisplay(await request.json()));
+  }
+  if(path === "/api/server-settings/machines") {
+    if(request.method === "GET")return json(await app.machines.list(true));
+    if(request.method === "POST")return json(await app.machines.save(await request.json()));
+  }
+  const machine=path.match(/^\/api\/server-settings\/machines\/([^/]+)$/);
+  if(machine?.[1] && request.method === "DELETE")return json(await app.machines.remove(decodeURIComponent(machine[1])));
   if(path === "/api/server-settings/automation-webhooks") {
     if(request.method === "GET")return json(await app.automationWebhooks.list());
     if(request.method === "POST")return json(await app.automationWebhooks.save(await request.json()));

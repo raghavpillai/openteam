@@ -127,6 +127,7 @@ function formatCookieOriginApprovalOutcome(outcome) {
     return outcome.message;
   }
   if (outcome.kind === "failed") {
+    if (outcome.injected > 0) return `The user chose ${outcome.decision} for ${describeGrants(outcome.grants)}. Injected ${outcome.injected} cookie(s), but injection stopped before ${outcome.failed} remaining cookie(s). Some logins may already be active. Do not retry unless the user asks.`;
     if (outcome.errorClass === "ChromeCookieImportPermissionError" || outcome.errorClass === "ChromeSafeStoragePermissionError") {
       return `The user chose ${outcome.decision} for ${describeGrants(outcome.grants)}, but ${COOKIE_ORIGIN_APPROVAL_FAILURE_BY_STAGE[outcome.stage]} (${outcome.errorClass}). No cookies were injected. Ask the user to turn on OpenTeam in System Settings \u2192 Privacy & Security \u2192 Full Disk Access and Automation (Finder), click Always Allow on Chrome Safe Storage, then retry.`;
     }

@@ -85,7 +85,8 @@ export class FileTransferProvider {
   private async response(
     url: string,
     init: RequestInit = {},
-    authenticated = true
+    authenticated = true,
+    allowIncomplete = false
   ): Promise<Response> {
     let response: Response;
     try {
@@ -103,10 +104,8 @@ export class FileTransferProvider {
         "File provider connection failed or was cancelled; no automatic write retry was attempted"
       );
     }
-    if (!response.ok)
-      throw new Error(
-        `File provider request failed (${response.status}); no automatic write retry was attempted`
-      );
+    if (!response.ok && !(allowIncomplete && response.status === 308))
+      throw Object.assign(new Error(`File provider request failed (${response.status}); no automatic write retry was attempted`), {status:response.status});
     return response;
   }
   private async json(url: string, init: RequestInit = {}): Promise<any> {
@@ -145,6 +144,10 @@ export class FileTransferProvider {
     source: { fileId?: string; path?: string },
     signal?: AbortSignal
   ): Promise<{ id: string; name: string; mimeType: string; bytes: Buffer; webUrl?: string }> {
+    const result = await this.downloadStream(provider,source,signal);
+    return {...result,bytes:await this.bytes(new Response(result.stream))};
+  }
+  async downloadStream(provider:string,source:{fileId?:string;path?:string},signal?:AbortSignal): Promise<{id:string;name:string;mimeType:string;stream:ReadableStream<Uint8Array>;webUrl?:string}> {
     if (provider === "google-drive") {
       if (!source.fileId) throw new Error("Drive requires source.fileId");
       const id = source.fileId;
@@ -152,7 +155,6 @@ export class FileTransferProvider {
         `${drive}/files/${part(id)}?fields=id,name,mimeType,size,webViewLink&supportsAllDrives=true`,
         { signal }
       );
-      if (Number(file.size) > CONNECTOR_TRANSFER_MAX_BYTES) throw new Error("File exceeds 64 MiB");
       const native = exports[file.mimeType];
       if (file.mimeType?.startsWith("application/vnd.google-apps.") && !native)
         throw new Error("This Google native file type cannot be exported");
@@ -163,7 +165,7 @@ export class FileTransferProvider {
         id,
         name: file.name + (native && !file.name.endsWith(native[1]) ? native[1] : ""),
         mimeType: native?.[0] ?? file.mimeType,
-        bytes: await this.bytes(await this.response(url, { signal })),
+        stream: (await this.response(url, {signal})).body ?? new ReadableStream({start(c){c.close();}}),
         webUrl: file.webViewLink,
       };
     }
@@ -176,7 +178,6 @@ export class FileTransferProvider {
         { signal }
       );
       if (!file.file) throw new Error("Source is not a file");
-      if (file.size > CONNECTOR_TRANSFER_MAX_BYTES) throw new Error("File exceeds 64 MiB");
       const url = new URL(file["@microsoft.graph.downloadUrl"]);
       // Download URLs are short-lived bearer URLs from authenticated Graph metadata.
       if (url.protocol !== "https:" || url.username || url.password || url.port)
@@ -185,7 +186,7 @@ export class FileTransferProvider {
         id: file.id,
         name: file.name,
         mimeType: file.file.mimeType ?? mimeFor(file.name),
-        bytes: await this.bytes(await this.response(url.href, { signal }, false)),
+        stream: (await this.response(url.href, {signal}, false)).body ?? new ReadableStream({start(c){c.close();}}),
         webUrl: file.webUrl,
       };
     }
@@ -210,7 +211,7 @@ export class FileTransferProvider {
         id: source.fileId!,
         name: attachment.filename || `attachment-${ids[1]}`,
         mimeType: attachment.mimeType ?? "application/octet-stream",
-        bytes,
+        stream: new Response(new Uint8Array(bytes)).body!,
       };
     }
     throw new Error("Connection cannot transfer files");
@@ -224,13 +225,15 @@ export class FileTransferProvider {
     provider: string,
     sourceName: string,
     destination: Record<string, any>,
-    bytes: Buffer,
+    bytes: Buffer | Blob,
     signal?: AbortSignal
   ): Promise<Record<string, any>> {
-    if (bytes.length > CONNECTOR_TRANSFER_MAX_BYTES) throw new Error("File exceeds 64 MiB");
+    const size = Buffer.isBuffer(bytes) ? bytes.length : bytes.size;
+    const chunk = async (start:number,end:number) => Buffer.isBuffer(bytes) ? new Uint8Array(bytes.subarray(start,end)) : new Uint8Array(await bytes.slice(start,end).arrayBuffer());
     const name = destination.name ?? basename(sourceName);
     const mimeType = mimeFor(name);
     if (provider === "gmail") {
+      if (size > 25 * 1024 * 1024) throw new Error("Draft with attachments exceeds 25 MiB");
       if (
         !destination.draftId ||
         destination.path ||
@@ -245,7 +248,7 @@ export class FileTransferProvider {
         Buffer.from(draft.message.raw, "base64url"),
         name,
         mimeType,
-        bytes
+        Buffer.from(await chunk(0,size))
       );
       if (raw.length > 25 * 1024 * 1024) throw new Error("Draft with attachments exceeds 25 MiB");
       const latest = await this.json(`${gmail}/drafts/${part(destination.draftId)}?format=raw`, {
@@ -262,7 +265,7 @@ export class FileTransferProvider {
         }),
         signal,
       });
-      return { id: result.id, name, mimeType, sizeBytes: bytes.length, draftId: result.id };
+      return { id: result.id, name, mimeType, sizeBytes: size, draftId: result.id };
     }
     if (destination.draftId) throw new Error("draftId only applies to Gmail");
     if (provider === "google-drive") {
@@ -291,7 +294,7 @@ export class FileTransferProvider {
           headers: {
             "content-type": "application/json",
             "x-upload-content-type": mimeType,
-            "x-upload-content-length": String(bytes.length),
+            "x-upload-content-length": String(size),
           },
           body: JSON.stringify({ name, mimeType, parents: [parent] }),
           signal,
@@ -303,17 +306,24 @@ export class FileTransferProvider {
         !location.pathname.startsWith("/upload/drive/")
       )
         throw new Error("Invalid Drive upload session");
-      const file = await this.json(location.href, {
-        method: "PUT",
-        headers: { "content-type": mimeType },
-        body: new Uint8Array(bytes),
-        signal,
-      });
+      let file: any;
+      const block = 8 * 1024 * 1024; // Multiple of Drive's 256 KiB fragment unit.
+      for (let offset = 0; offset < Math.max(size,1); offset += block) {
+        const end = Math.min(size,offset+block);
+        const response = await this.response(location.href, {
+          method:"PUT",headers:{"content-type":mimeType,"content-range":size ? `bytes ${offset}-${end-1}/${size}` : "bytes */0"},
+          body:await chunk(offset,end),signal,
+        },true,true);
+        if (response.status === 308) {
+          if (end === size || response.headers.get("range") !== `bytes=0-${end-1}`) throw new Error("Drive did not confirm the uploaded range; inspect the destination before retrying");
+        } else { file=await response.json(); if(end!==size)throw new Error("Drive completed before receiving the full file"); }
+      }
+      if(!file?.id)throw new Error("Drive did not confirm completion; inspect the destination before retrying");
       return {
         id: file.id,
         name: file.name,
         mimeType: file.mimeType ?? mimeType,
-        sizeBytes: bytes.length,
+        sizeBytes: size,
         webUrl: file.webViewLink,
       };
     }
@@ -326,7 +336,7 @@ export class FileTransferProvider {
       const folder = await this.json(`${graph}${folderRoute}?$select=id,folder`, { signal });
       if (!folder.folder || !folder.id) throw new Error("OneDrive destination is not a folder");
       const parent = `/items/${part(folder.id)}`;
-      if (!bytes.length) {
+      if (!size) {
         const file = await this.json(
           `${graph}${parent}:/${part(name)}:/content?@microsoft.graph.conflictBehavior=${destination.overwrite ? "replace" : "fail"}`,
           {
@@ -358,14 +368,14 @@ export class FileTransferProvider {
       // Graph fragment sizes must be multiples of 320 KiB except the last fragment.
       const block = 10 * 320 * 1024;
       let result: any;
-      for (let offset = 0; offset < bytes.length; offset += block) {
-        const end = Math.min(bytes.length, offset + block);
+      for (let offset = 0; offset < size; offset += block) {
+        const end = Math.min(size, offset + block);
         const response = await this.response(
           url.href,
           {
             method: "PUT",
-            headers: { "content-range": `bytes ${offset}-${end - 1}/${bytes.length}` },
-            body: new Uint8Array(bytes.subarray(offset, end)),
+            headers: { "content-range": `bytes ${offset}-${end - 1}/${size}` },
+            body: await chunk(offset,end),
             signal,
           },
           false
@@ -380,7 +390,7 @@ export class FileTransferProvider {
         id: result.id,
         name: result.name,
         mimeType: result.file?.mimeType ?? mimeType,
-        sizeBytes: bytes.length,
+        sizeBytes: size,
         webUrl: result.webUrl,
       };
     }

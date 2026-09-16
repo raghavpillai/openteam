@@ -1,3 +1,4 @@
+import { normalizeMainToolArguments } from "@openteam/contracts/reference-main-parsers";
 import {
   AgentSendToUserInput,
   validateProcessSecretName,
@@ -47,8 +48,9 @@ export class InternalToolService {
     private readonly richMessages?: RichMessageService
   ) {}
 
-  execute = (request: DynamicToolCallRequest) =>
+  execute = (request: DynamicToolCallRequest, transfer: {upload?:import("@openteam/plugin-sdk/file-spool").StagedFile;stream?:boolean} = {}) =>
     serviceEffect(async (signal) => {
+      request={...request,arguments:normalizeMainToolArguments(request.tool,request.arguments)};
       const reviewedExternal=request.tool==="ReviewedExternalFileDelivery";
       if(reviewedExternal)request={...request,tool:"SendToUser"};
       const run = await this.prisma.run.findUnique({
@@ -90,11 +92,12 @@ export class InternalToolService {
         select: { id: true, parentBotId: true, parentRunId: true, subagentType: true },
       });
       // Private supervisor operation, never registered in any model catalog.
+      if (request.tool === "RefreshToolCatalog") return {namespaces:await this.plugins.dynamicNamespaces(childIdentity?.parentBotId ?? request.botId)};
       if (request.tool === "ReadProcessSecrets") return { environment: await processEnvironment(this.prisma, request.botId) };
       if (request.tool === "PrepareConnectorTransfer" || request.tool === "ExecuteConnectorTransfer") {
         if (childIdentity || run.origin === "routine") throw new ApiError(403, "parent_transfer_required", "File transfers with review must be performed by the parent bot");
         const args = request.arguments as Record<string, unknown>;
-        return request.tool === "PrepareConnectorTransfer" ? this.plugins.fileTransfers.prepare(context, args) : this.plugins.fileTransfers.execute(context, args, signal);
+        return request.tool === "PrepareConnectorTransfer" ? this.plugins.fileTransfers.prepare(context, args) : this.plugins.fileTransfers.execute(context, args, signal, transfer);
       }
       if (run.origin === "routine" && AUTOMATION_PARENT_ONLY_TOOLS.has(request.tool)) {
         throw new ApiError(403, "automation_tool_forbidden", "Use WakeParent to hand this communication or review to the parent agent");
@@ -170,7 +173,9 @@ export class InternalToolService {
       }
       if (request.tool === "SendFeedback" || request.tool === "create_bot_share_json") {
         if (!this.richMessages) throw new Error("Review service unavailable");
-        return this.richMessages.reviewActions.stage(context, request.tool, request.arguments);
+        return request.tool === "SendFeedback"
+          ? this.richMessages.reviewActions.sendFeedback(context, request.arguments, signal)
+          : this.richMessages.reviewActions.stage(context, request.tool, request.arguments);
       }
       if (request.tool === "DraftExternalMessage") {
         if (!this.richMessages) throw new Error("Draft service unavailable");
@@ -224,13 +229,13 @@ export class InternalToolService {
           "SetMcpInstructions",
         ].includes(request.tool)
       ) {
-        return this.plugins.requestAction({
+        return this.plugins.waitForAction({
           runId: request.runId,
           botId: request.botId,
           callId: request.callId,
           action: request.tool,
           arguments: request.arguments,
-        });
+        },signal);
       }
       if (request.tool === "PluginCall") {
         const input =
@@ -245,6 +250,7 @@ export class InternalToolService {
         }))?.origin === "routine";
         return this.plugins.invoke({
           connectionId: input.connectionId,
+          namespace: typeof input.namespace === "string" ? input.namespace : undefined,
           botId:
             childIdentity?.subagentType === "executor" ? childIdentity.parentBotId : request.botId,
           runId: request.runId,

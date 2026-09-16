@@ -1,5 +1,5 @@
 import { ApiError } from "@openteam/contracts";
-import { effectiveToolPolicy } from "@openteam/plugin-sdk";
+import { effectiveToolPolicy, connectionNamespace } from "@openteam/plugin-sdk";
 import type { PrismaClient } from "@openteam/db";
 import { appendEvent, toJson } from "../service-utils";
 import type { PluginTransport } from "./transport";
@@ -12,6 +12,7 @@ export class PluginInvocations {
   ) {}
   invoke = async (request: {
     connectionId: string;
+    namespace?: string;
     botId: string;
     runId: string;
     callId: string;
@@ -31,6 +32,7 @@ export class PluginInvocations {
     if (!connection || (connection.installation.status !== "installed" || connection.installation.mode === "disabled")) {
       throw new ApiError(404, "plugin_connection_unavailable", "Plugin connection is unavailable");
     }
+    if (request.namespace && request.namespace !== connectionNamespace(connection.id,connection.alias)) throw new ApiError(409,"plugin_identifier_stale","This account was renamed. Re-run GetMcpServerStatus or GetDynamicTools before calling its tools again.");
     if (connection.status !== "ready") {
       throw new ApiError(409, "plugin_connection_not_ready", "Plugin connection is not ready");
     }

@@ -1,3 +1,4 @@
+import { buildUserFormSubmittedAck, buildUserFormDismissedAck } from "./reference-form-results";
 export interface UserFormTarget {
   kind: "ref" | "selector" | "label";
   value: string;
@@ -40,6 +41,15 @@ export interface UserFormReceipt {
   snapshot?: string;
   heldUntil?: string;
   interrupted?: boolean;
+  title?: string;
+  domain?: string;
+  fieldTypes?: Record<string, UserFormField["type"]>;
+  requestedSubmit?: boolean;
+  fillFailureKinds?: Record<string, string>;
+  domainMismatch?: { liveHost?: string };
+  pageMoved?: { signal: "navigated" | "target_gone" };
+  unknownFieldIds?: string[];
+  heldFieldIds?: string[];
 }
 export type UserFormValues = Record<string, string | boolean>;
 
@@ -62,7 +72,7 @@ export function normalizeFormDomain(value: string): string {
   const url = new URL(value.includes("://") ? value : `https://${value}`);
   if (!["http:", "https:"].includes(url.protocol) || url.username || url.password)
     throw new Error("A valid destination domain is required");
-  return url.hostname.toLowerCase().replace(/^www\./, "");
+  return url.hostname.toLowerCase();
 }
 export function formFieldIsSecret(field: Pick<UserFormField, "type" | "secret">): boolean {
   return field.type === "password" || field.type === "otp" || field.secret === true;
@@ -233,6 +243,16 @@ export function parseFormRemap(value: unknown): Array<{ fieldId: string; target:
 }
 
 export function formatUserFormReceipt(receipt: UserFormReceipt): string {
+  if (receipt.title && !receipt.interrupted) {
+    const form = { title: receipt.title, domain: receipt.domain, submitAfterFill: receipt.requestedSubmit,
+      fields: receipt.fields.map(field => ({id:field.id,type:receipt.fieldTypes?.[field.id] ?? "text"})) };
+    if (receipt.status === "dismissed") return buildUserFormDismissedAck(form);
+    const held = receipt.fields.filter(field => field.status === "held").map(field => field.id);
+    return buildUserFormSubmittedAck(form, receipt.fields.map(field => ({id:field.id,filled:field.status === "filled",fillFailed:["held","dropped","unknown"].includes(field.status)})), receipt.domainMismatch,
+      {attempted:receipt.submitAttempted,succeeded:receipt.submitSucceeded}, receipt.fillFailureKinds,
+      receipt.pageMoved ? {...receipt.pageMoved,valueScrubbedFreshSnapshot:receipt.snapshot} : undefined,
+      held.length ? {fieldIds:held,valueScrubbedFreshSnapshot:receipt.snapshot} : undefined);
+  }
   return [
     `User form ${receipt.formId}: ${receipt.status}. No submitted values are returned.`,
     ...(receipt.interrupted
@@ -283,6 +303,13 @@ export function parseUserFormReceipt(raw: unknown): UserFormReceipt {
     fields,
     submitAttempted: value.submitAttempted,
     submitSucceeded: value.submitSucceeded,
+    ...(typeof value.title === "string" ? {title:value.title.slice(0,200)} : {}),
+    ...(typeof value.domain === "string" ? {domain:normalizeFormDomain(value.domain)} : {}),
+    ...(value.requestedSubmit === true ? {requestedSubmit:true} : {}),
+    ...(value.fieldTypes && typeof value.fieldTypes === "object" ? {fieldTypes:Object.fromEntries(Object.entries(value.fieldTypes).filter(([key,type]) => fields.some(field=>field.id===key) && ["text","email","tel","password","otp","number","date","select","textarea","checkbox"].includes(String(type)))) as Record<string,UserFormField["type"]>} : {}),
+    ...(value.fillFailureKinds && typeof value.fillFailureKinds === "object" ? {fillFailureKinds:Object.fromEntries(Object.entries(value.fillFailureKinds).filter(([key,kind])=>fields.some(field=>field.id===key) && ["driver_unavailable","target_gone","target_missing","in_unreachable_frame","in_closed_shadow","fill_op_failed","hidden_target","page_moved"].includes(String(kind)))) as Record<string,string>} : {}),
+    ...(value.domainMismatch && typeof value.domainMismatch === "object" ? {domainMismatch: typeof (value.domainMismatch as any).liveHost === "string" ? {liveHost:normalizeFormDomain((value.domainMismatch as any).liveHost)} : {}} : {}),
+    ...(value.pageMoved && typeof value.pageMoved === "object" && ["navigated","target_gone"].includes((value.pageMoved as any).signal) ? {pageMoved:{signal:(value.pageMoved as any).signal}} : {}),
     ...(value.interrupted === true ? { interrupted: true } : {}),
     ...(typeof value.snapshot === "string" ? { snapshot: value.snapshot.slice(0, 32000) } : {}),
     ...(typeof value.heldUntil === "string" && Number.isFinite(Date.parse(value.heldUntil))

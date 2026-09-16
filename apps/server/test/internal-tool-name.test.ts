@@ -74,13 +74,13 @@ describe("InternalToolService user-delivery tool name", () => {
   test("creates an explicit computer handoff and tells the agent to wait", async () => {
     const { deliveries, service } = serviceFixture();
     await expect(
-      Effect.runPromise(service.execute(request("request_box_help", { reason: "Finish 2FA" })))
+      Effect.runPromise(service.execute(request("request_box_help", { instruction: "Finish 2FA", reason: "auth" })))
     ).resolves.toMatchObject({ sent: true, waiting_for_user: true });
     expect(deliveries).toEqual([
       {
         type: "computer-handoff",
         content: "Finish 2FA",
-        computerHandoff: { reason: "Finish 2FA", category: "other" },
+        computerHandoff: { reason: "Finish 2FA", category: "auth" },
       },
     ]);
   });
@@ -127,7 +127,8 @@ describe("InternalToolService user-delivery tool name", () => {
     });
 
     for (const tool of ["ListAgents", "ListGroups", "request_box_help"]) {
-      await expect(Effect.runPromise(service.execute(request(tool, {})))).rejects.toThrow(
+      const args = tool === "request_box_help" ? { instruction: "Finish 2FA" } : {};
+      await expect(Effect.runPromise(service.execute(request(tool, args)))).rejects.toThrow(
         "parent-agent only"
       );
     }

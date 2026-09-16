@@ -8,7 +8,8 @@
     "./archive": "./src/archive.ts",
     "./json-schema": "./src/json-schema.ts",
     "./skill-markdown": "./src/skill-markdown.ts",
-    "./templates": "./src/templates.ts"
+    "./templates": "./src/templates.ts",
+    "./file-spool": "./src/file-spool.ts"
   },
   "scripts": {
     "build": "bun build src/index.ts --outdir dist --target browser",

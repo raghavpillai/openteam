@@ -623,7 +623,7 @@ export const ShellToolInput = Schema.Struct({
   block_until_ms: Schema.optional(Schema.Number.pipe(Schema.between(0, 7_140_000))),
   description: Schema.optional(Schema.String),
   working_directory: Schema.optional(Schema.String),
-  machineId: Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(200))),
+  machineId: Schema.optional(Schema.String),
   request_smart_mode_approval: Schema.optional(Schema.Boolean),
   smart_mode_block_reason: Schema.optional(Schema.String),
 });
@@ -632,8 +632,8 @@ export type ShellToolInput = typeof ShellToolInput.Type;
 export const AwaitShellInput = Schema.Struct({
   shell_id: Schema.optional(Schema.String.pipe(Schema.minLength(1))),
   block_until_ms: Schema.optional(Schema.Number.pipe(Schema.between(0, 7_140_000))),
-  pattern: Schema.optional(Schema.String.pipe(Schema.maxLength(4_096))),
-  machineId: Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(200))),
+  pattern: Schema.optional(Schema.String),
+  machineId: Schema.optional(Schema.String),
 });
 export type AwaitShellInput = typeof AwaitShellInput.Type;
 
@@ -641,13 +641,13 @@ export const ReadToolInput = Schema.Struct({
   path: Schema.String,
   offset: Schema.optional(Schema.Number.pipe(Schema.int())),
   limit: Schema.optional(Schema.Number.pipe(Schema.int(), Schema.greaterThan(0))),
-  machineId: Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(200))),
+  machineId: Schema.optional(Schema.String),
 });
 export type ReadToolInput = typeof ReadToolInput.Type;
 
 export const GetDynamicToolsInput = Schema.Struct({
   namespace: Schema.optional(Schema.String),
-  pattern: Schema.optional(Schema.String.pipe(Schema.maxLength(256))),
+  pattern: Schema.optional(Schema.String),
   toolName: Schema.optional(Schema.String),
 });
 export type GetDynamicToolsInput = typeof GetDynamicToolsInput.Type;
@@ -674,6 +674,7 @@ export const PluginDynamicNamespace = Schema.Struct({
   description: Schema.String,
   namespaceStatus: Schema.Literal("ready", "needsAuth", "error", "loading"),
   tools: Schema.Array(PluginToolDescriptor),
+  fileTransfers: Schema.optional(Schema.Struct({ upload: Schema.Boolean, download: Schema.Boolean })),
 });
 export type PluginDynamicNamespace = typeof PluginDynamicNamespace.Type;
 
@@ -940,15 +941,15 @@ const ComputerUseActionName = Schema.Literal(
 );
 const ComputerUseModifier = Schema.String.pipe(Schema.filter(value => value.split("+").every(key => ["ctrl","alt","shift","meta","super"].includes(key.toLowerCase()))));
 const ComputerUsePoint = Schema.Struct({
-  x: Schema.Number.pipe(Schema.int(), Schema.between(0, 1279)),
-  y: Schema.Number.pipe(Schema.int(), Schema.between(0, 799)),
+  x: Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(0)),
+  y: Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(0)),
 });
 const ComputerUseActionFields = {
   action: ComputerUseActionName,
-  x: Schema.optional(Schema.Number.pipe(Schema.int(), Schema.between(0, 1279))),
-  y: Schema.optional(Schema.Number.pipe(Schema.int(), Schema.between(0, 799))),
-  x2: Schema.optional(Schema.Number.pipe(Schema.int(), Schema.between(0, 1279))),
-  y2: Schema.optional(Schema.Number.pipe(Schema.int(), Schema.between(0, 799))),
+  x: Schema.optional(Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(0))),
+  y: Schema.optional(Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(0))),
+  x2: Schema.optional(Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(0))),
+  y2: Schema.optional(Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(0))),
   path: Schema.optional(
     Schema.Array(ComputerUsePoint)
   ),
@@ -1128,25 +1129,25 @@ export const UpdateStateInput = Schema.Struct({
     "leave",
     "clear"
   ),
-  fact: Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(20_000))),
+  fact: Schema.optional(Schema.String.pipe(Schema.minLength(1))),
   tier: Schema.optional(Schema.Literal("profile", "log", "note")),
   scope: Schema.optional(Schema.Literal("agent", "user", "project")),
-  project: Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(80))),
-  id: Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(120))),
-  name: Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(120))),
+  project: Schema.optional(Schema.String.pipe(Schema.minLength(1))),
+  id: Schema.optional(Schema.String.pipe(Schema.minLength(1))),
+  name: Schema.optional(Schema.String.pipe(Schema.minLength(1))),
   title: Schema.optional(Schema.String),
-  avatar_shape: Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(80))),
+  avatar_shape: Schema.optional(Schema.String.pipe(Schema.minLength(1))),
   avatar_color: Schema.optional(Schema.Union(Schema.Literal(...BOT_AVATAR_COLOR_NAMES), Schema.String.pipe(Schema.pattern(/^#[0-9a-fA-F]{6}$/)))),
-  description: Schema.optional(Schema.String.pipe(Schema.maxLength(2_000))),
-  prompt: Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(50_000))),
-  schedule: Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(500))),
+  description: Schema.optional(Schema.String),
+  prompt: Schema.optional(Schema.String.pipe(Schema.minLength(1))),
+  schedule: Schema.optional(Schema.String.pipe(Schema.minLength(1))),
   trigger: Schema.optional(Schema.Unknown),
   enabled: Schema.optional(Schema.Boolean),
-  body: Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(100_000))),
+  body: Schema.optional(Schema.String.pipe(Schema.minLength(1))),
   hidden_from_sidebar: Schema.optional(Schema.Boolean),
   notify_on_updates: Schema.optional(Schema.Boolean),
-  platform: Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(80))),
-  path: Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(2_000))),
+  platform: Schema.optional(Schema.String.pipe(Schema.minLength(1))),
+  path: Schema.optional(Schema.String.pipe(Schema.minLength(1))),
 });
 export type UpdateStateInput = typeof UpdateStateInput.Type;
 

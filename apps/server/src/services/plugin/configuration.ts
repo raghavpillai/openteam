@@ -72,7 +72,7 @@ export class PluginConfiguration {
       };
       return {
         connectionId: id,
-        namespace: connectionNamespace(id),
+        namespace: connectionNamespace(id,connection.alias),
         endpoint: connection.endpoint,
         command: typeof config.command === "string" ? config.command : null,
         runtime: desktopMcpProvider(config) ? "desktop" : "computer",

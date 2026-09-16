@@ -61,7 +61,7 @@ export class ScreenBroker {
   private readonly inputRevisions = new WeakMap<ScreenSession, number>();
   private readonly activeAgentInput = new WeakMap<ScreenSession, AbortController>();
 
-  constructor(private readonly home = process.env.HOME ?? "/home/box") {
+  constructor(private readonly home = process.env.HOME ?? "/home/box", private readonly displayDimensions:()=>Promise<{width:number;height:number}> = async()=>({width:WIDTH,height:HEIGHT})) {
     this.stateRoot = join(home, ".openteam");
     this.mappingPath = join(home, ".sand-window-assignments.json");
     this.browserBroker = new BrowserBroker(home);
@@ -72,6 +72,7 @@ export class ScreenBroker {
     if (this.destroyedBotIds.has(botId)) throw new Error("Graphical screen was destroyed");
     await this.loadMappings();
     if (this.destroyedBotIds.has(botId)) throw new Error("Graphical screen was destroyed");
+    const dimensions = await this.displayDimensions();
     let session = this.sessions.get(botId);
     if (!session) {
       const slot = await this.allocateSlot(botId);
@@ -85,6 +86,8 @@ export class ScreenBroker {
         session = {
           botId,
           cwd,
+          width:dimensions.width,
+          height:dimensions.height,
           slot,
           display: DISPLAY_BASE + slot,
           rfbPort: RFB_PORT_BASE + slot,
@@ -388,7 +391,7 @@ export class ScreenBroker {
       const display = `:${session.display}`;
       const xvfb = this.spawnLongLived(
         "Xvfb",
-        [display, "-screen", "0", `${WIDTH}x${HEIGHT}x24`, "-nolisten", "tcp", "-ac"],
+        [display, "-screen", "0", `${session.width ?? WIDTH}x${session.height ?? HEIGHT}x24`, "-nolisten", "tcp", "-ac"],
         session,
         environment(this.home, session),
         "/workspace",
@@ -605,8 +608,8 @@ export class ScreenBroker {
     return {
       botId: session.botId,
       state: session.state,
-      width: WIDTH,
-      height: HEIGHT,
+      width: session.width ?? WIDTH,
+      height: session.height ?? HEIGHT,
       display: session.display,
       viewerPort: session.viewerPort,
       viewerPassword: session.viewerPassword,

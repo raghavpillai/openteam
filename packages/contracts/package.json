@@ -31,7 +31,8 @@
     "./tool-contracts": "./src/tool-contracts.ts",
     "./reference-parsers": "./src/reference-parsers.ts",
     "./reference-formatters": "./src/reference-formatters.ts",
-    "./tool-results": "./src/tool-results.ts"
+    "./tool-results": "./src/tool-results.ts",
+    "./reference-main-parsers": "./src/reference-main-parsers.ts"
   },
   "scripts": {
     "build": "bun build src/index.ts --outdir dist --target bun",

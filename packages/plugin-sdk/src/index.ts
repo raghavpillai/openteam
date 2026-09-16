@@ -5,6 +5,7 @@ export * from "./package";
 export * from "./discovery";
 export * from "./desktop-runtime";
 export * from "./policy";
+export * from "./file-transfer-policy";
 export * from "./icons";
 export * from "./templates";
 export * from "./runtime-components";

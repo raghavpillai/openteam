@@ -53,7 +53,7 @@ export function NativeCapabilitySettings() {
       <SettingsGroup>
         <div className="space-y-3 py-3 text-sm">
           <p>
-            Connect a specific 1Password vault for saved website logins. Enable the 1Password CLI
+            Connect 1Password vaults for saved website logins. Enable the 1Password CLI
             integration in the 1Password desktop app first. Passwords stay out of conversations.
           </p>
           <div className="flex flex-wrap gap-2">
@@ -81,9 +81,16 @@ export function NativeCapabilitySettings() {
           </div>
           <p className="text-xs text-foreground-secondary">
             Each login fill asks for approval unless you have enabled automatic filling for that
-            item. Chrome cookie imports ask for the specific profile and site. Messages sends always
-            show the recipient and full message for review.
+            item. Chrome cookie imports ask for the specific profile and site. Messages sends ask for review unless you have explicitly allowed the recipient or enabled all sends below.
           </p>
+          {(settings?.credentialProviders ?? (settings?.credentialProvider ? [settings.credentialProvider] : [])).map(provider => <div key={`${provider.account}:${provider.vault}`} className="flex items-center justify-between gap-2 text-xs">
+            <span>{provider.account} / {provider.vault}</span>
+            <button className={button} disabled={busy} onClick={()=>void update({removeCredentialConnection:`1password:${provider.account}:${provider.vault}`})}>Disconnect vault</button>
+          </div>)}
+          <label className="flex items-start gap-2">
+            <input type="checkbox" checked={settings?.messagesSendAll ?? false} disabled={busy || !settings} onChange={event=>void update({messagesSendAll:event.target.checked})}/>
+            <span>Allow all Messages sends without asking each time<span className="block text-xs text-foreground-secondary">Applies to all bots and recipients on this Mac. Turn this off to restore per-message or per-recipient approval.</span></span>
+          </label>
           {settings?.credentialProvider && (
             <div className="space-y-2">
               <button

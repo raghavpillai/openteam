@@ -18,6 +18,7 @@ export interface FormPageBinding {
   pageId: string;
   domain: string;
   sessionId?: string;
+  url?: string;
 }
 export interface FormBrowser {
   prepare(form: UserForm): Promise<{ binding: FormPageBinding; reachable: string[] }>;
@@ -34,6 +35,7 @@ interface SavedForm {
   receipt?: UserFormReceipt;
   values?: UserFormValues;
   heldUntil?: number;
+  heldRunId?: string;
   remapped?: boolean;
   processing?: boolean;
   remapCallId?: string;
@@ -132,16 +134,7 @@ export class UserFormHost {
             delete state.forms[id];
             continue;
           }
-          if (saved.heldUntil && saved.heldUntil < Date.now()) {
-            delete saved.values;
-            delete saved.heldUntil;
-            if (saved.receipt) {
-              delete saved.receipt.heldUntil;
-              saved.receipt.fields = saved.receipt.fields.map((field) =>
-                field.status === "held" ? { ...field, status: "dropped" } : field
-              );
-            }
-          }
+
         }
         const checkpoint = async () => {
           const nonce = randomBytes(12);
@@ -167,6 +160,30 @@ export class UserFormHost {
       });
     this.chain = operation;
     return operation;
+  }
+
+  async beginTurn(botId: string, runId: string) {
+    return this.state(async state => {
+      for (const saved of Object.values(state.forms)) if (saved.botId === botId && saved.values) {
+        if (saved.heldRunId && saved.heldRunId !== runId) this.discardHold(saved);
+        else saved.heldRunId = runId;
+      }
+    });
+  }
+
+  async endTurn(botId: string, runId: string) {
+    return this.state(async state => {
+      for (const saved of Object.values(state.forms)) if (saved.botId === botId && saved.heldRunId === runId) this.discardHold(saved);
+    });
+  }
+
+  private discardHold(saved: SavedForm) {
+    delete saved.values; delete saved.heldUntil; delete saved.heldRunId;
+    if (saved.receipt) { delete saved.receipt.heldUntil; saved.receipt.fields = saved.receipt.fields.map(field => field.status === "held" ? {...field,status:"dropped"} : field); }
+  }
+
+  private receiptContext(saved: SavedForm) {
+    return {title:saved.form.title,domain:saved.form.domain,fieldTypes:Object.fromEntries(saved.form.fields.map(field=>[field.id,field.type])),requestedSubmit:saved.form.submitAfterFill};
   }
 
   async prepare(botId: string, formId: string, raw: unknown) {
@@ -270,6 +287,7 @@ export class UserFormHost {
       delete saved.values;
       return (saved.receipt = {
         formId,
+        ...this.receiptContext(saved),
         status: "dismissed",
         fields: [],
         submitAttempted: false,
@@ -309,8 +327,8 @@ export class UserFormHost {
       if (!candidate) throw new Error("No held form fields remain for this bot");
       const [formId, saved] = candidate;
       const held = saved.values!;
-      if (targets.some((target) => !Object.hasOwn(held, target.fieldId)))
-        throw new Error("Remap accepts only field IDs listed as HELD");
+      const unknownFieldIds = targets.filter(target => !Object.hasOwn(held,target.fieldId)).map(target=>target.fieldId);
+      if (unknownFieldIds.length) return {...saved.receipt!, unknownFieldIds, heldFieldIds:Object.keys(held)};
       const selected = new Set(targets.map((target) => target.fieldId));
       const dropped = Object.keys(held).filter((id) => !selected.has(id));
       const fields = targets.map((target) => ({
@@ -324,6 +342,8 @@ export class UserFormHost {
       await checkpoint();
       const original = saved.form;
       saved.form = { ...original, fields, submitAfterFill: false };
+      // A remap explicitly binds new targets on the same consented host.
+      if (saved.binding) delete saved.binding.url;
       const receipt = await this.fill(formId, saved, held, true);
       saved.form = original;
       delete saved.remapProcessing;
@@ -379,6 +399,7 @@ export class UserFormHost {
   ): Promise<UserFormReceipt> {
     const receipt: UserFormReceipt = {
       formId,
+      ...this.receiptContext(saved),
       status: "submitted",
       fields: [],
       submitAttempted: false,
@@ -393,13 +414,22 @@ export class UserFormHost {
         receipt.fields.push({ id: field.id, status: "unfilled" });
         continue;
       }
-      const filled = Boolean(
-        browser &&
-          saved.binding &&
-          (await browser.fill(saved.binding, field, value).catch(() => false))
-      );
-      receipt.fields.push({ id: field.id, status: filled ? "filled" : remap ? "dropped" : "held" });
-      if (!filled && !remap) held[field.id] = value;
+      let filled = false;
+      let failureKind = "driver_unavailable";
+      if (!receipt.domainMismatch && !receipt.pageMoved && browser && saved.binding) {
+        try { filled = await browser.fill(saved.binding, field, value); failureKind = "fill_op_failed"; }
+        catch (error) {
+          const failure = error as {kind?:string; liveHost?:string; message?:string};
+          const message = failure.message ?? "";
+          if (failure.kind === "domain_mismatch" || /changed domain/.test(message)) receipt.domainMismatch = {liveHost:failure.liveHost};
+          else if (failure.kind === "page_moved") receipt.pageMoved = {signal:"navigated"};
+          failureKind = failure.kind ?? (/stale|unknown.*ref/i.test(message) ? "target_gone" : /hidden/i.test(message) ? "hidden_target" : /missing|ambiguous/i.test(message) ? "target_missing" : /Cross-origin/i.test(message) ? "in_unreachable_frame" : "fill_op_failed");
+        }
+      }
+      if (!filled) (receipt.fillFailureKinds ??= {})[field.id] = receipt.pageMoved ? "page_moved" : failureKind;
+      const retain = !filled && !remap && !receipt.domainMismatch;
+      receipt.fields.push({ id: field.id, status: filled ? "filled" : retain ? "held" : "dropped" });
+      if (retain) held[field.id] = value;
     }
     if (
       saved.form.submitAfterFill &&
@@ -413,13 +443,17 @@ export class UserFormHost {
     ) {
       receipt.submitAttempted = true;
       receipt.submitSucceeded = await browser
-        .submit(saved.binding, saved.form.fields.find((field) => field.target)!)
+        .submit(saved.binding, saved.form.fields.filter((field) => field.target).at(-1)!)
         .catch(() => false);
+    }
+    if (receipt.domainMismatch) {
+      for (const id of Object.keys(held)) delete held[id];
+      receipt.fields = receipt.fields.map(field => field.status === "held" ? {...field,status:"dropped"} : field);
     }
     if (Object.keys(held).length) {
       saved.values = held;
-      saved.heldUntil = Date.now() + 15 * 60_000;
-      receipt.heldUntil = new Date(saved.heldUntil).toISOString();
+      delete saved.heldUntil;
+      delete saved.heldRunId;
       if (browser && saved.binding) {
         let snapshot = await browser
           .snapshot(saved.binding)

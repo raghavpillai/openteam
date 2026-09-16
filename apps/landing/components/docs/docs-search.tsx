@@ -159,7 +159,7 @@ export function DocsSearchButton() {
             <p className="docs-search-sr" role="status" aria-live="polite" aria-atomic="true">
               {failed ? "Search could not load." : !engine ? "Loading search." : query.trim() ? `${results.length}${results.length === 8 ? " top" : ""} results for ${query}` : "Suggested pages. Use arrow keys to navigate and Enter to open."}
             </p>
-            <ul id="docs-search-results" ref={list} role="listbox" aria-label={query.trim() ? "Search results" : "Suggested pages"} aria-busy={!engine && !failed}>
+            <ul id="docs-search-results" ref={list} role="listbox" data-suggestions={!query.trim() || undefined} aria-label={query.trim() ? "Search results" : "Suggested pages"} aria-busy={!engine && !failed}>
               {results.map((result, i) => {
                 const section = result.href.includes("#");
                 const Icon = section ? Hash : FileText;
@@ -178,7 +178,7 @@ export function DocsSearchButton() {
                     <span className="docs-search-result-copy">
                       <span className="docs-search-result-path">{result.group}{section && <> <span>/</span> {result.pageTitle}</>}</span>
                       <span className="docs-search-result-title"><Highlight text={result.title} matches={result.matches} /></span>
-                      {result.snippet && <span className="docs-search-result-snippet"><Highlight text={result.snippet} matches={result.matches} /></span>}
+                      {query.trim() && result.snippet && <span className="docs-search-result-snippet"><Highlight text={result.snippet} matches={result.matches} /></span>}
                     </span>
                     <CornerDownLeft className="docs-search-result-enter" size={16} aria-hidden="true" />
                   </li>

@@ -157,7 +157,9 @@ export function compileDocs(directory = docsDirectory): DocsData & { text: DocsT
         },
         code({ text, lang }) {
           const language = lang?.split(/\s/)[0] || "text";
-          return `<div class="docs-code"><div class="docs-code-label">${escapeHtml(language)}</div><pre><code>${escapeHtml(text)}</code></pre></div>\n`;
+          const labels: Record<string, string> = { sh: "Terminal", bash: "Bash", powershell: "PowerShell", json: "JSON", yaml: "YAML", text: "Text" };
+          const copy = '<button type="button" class="docs-code-copy" data-copy-code aria-label="Copy code" title="Copy code"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><g class="docs-code-copy-glyph"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></g><path class="docs-code-check-glyph" d="m5 12 4 4L19 6"/></svg></button>';
+          return `<div class="docs-code"><div class="docs-code-header"><span class="docs-code-label">${escapeHtml(labels[language] ?? language)}</span>${copy}</div><pre><code>${escapeHtml(text)}</code></pre></div>\n`;
         },
         table(token) {
           const renderRow = (cells: Tokens.TableCell[], header = false) =>

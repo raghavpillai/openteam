@@ -1,9 +1,25 @@
 "use client";
 
-import { List } from "lucide-react";
-import { useEffect, useState } from "react";
+import { ChevronDown, List } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 
 type Heading = { id: string; title: string };
+
+export function InlineTableOfContents({ headings }: { headings: Heading[] }) {
+  const details = useRef<HTMLDetailsElement>(null);
+  return (
+    <details className="docs-inline-toc" ref={details}>
+      <summary><List size={15} aria-hidden="true" /> On this page <ChevronDown size={15} aria-hidden="true" /></summary>
+      <nav aria-label="Page sections">
+        {headings.map((heading) => (
+          <a href={`#${heading.id}`} key={heading.id} onClick={() => { if (details.current) details.current.open = false; }}>
+            {heading.title}
+          </a>
+        ))}
+      </nav>
+    </details>
+  );
+}
 
 export function TableOfContents({ headings }: { headings: Heading[] }) {
   const [active, setActive] = useState(headings[0]?.id ?? "");

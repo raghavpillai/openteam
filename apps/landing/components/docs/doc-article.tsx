@@ -2,7 +2,8 @@ import { ArrowLeft, ArrowRight, ArrowUpRight, ChevronRight } from "lucide-react"
 import { GithubMark } from "@/components/brand";
 import { DocsLink } from "@/components/docs/docs-link";
 import { CopyPage } from "@/components/docs/copy-page";
-import { TableOfContents } from "@/components/docs/table-of-contents";
+import { InlineTableOfContents, TableOfContents } from "@/components/docs/table-of-contents";
+import { DocBody } from "@/components/docs/doc-body";
 import { docPages } from "@/lib/docs";
 import type { DocPage } from "@/lib/docs-types";
 
@@ -30,8 +31,9 @@ export function DocArticle({ page }: { page: DocPage }) {
             <h1 id={page.headings[0]?.id}>{page.title}</h1>
             {lead && <div className="docs-prose docs-lead" dangerouslySetInnerHTML={{ __html: lead[0] }} />}
           </header>
+          {headings.length > 1 && <InlineTableOfContents headings={headings} />}
           {/* HTML is compiled from checked-in Markdown, with raw HTML escaped. */}
-          <div className="docs-prose docs-article-body" dangerouslySetInnerHTML={{ __html: body }} />
+          <DocBody html={body} />
         </article>
         <div className="docs-source">
           <a href={page.sourceUrl} target="_blank" rel="noreferrer">

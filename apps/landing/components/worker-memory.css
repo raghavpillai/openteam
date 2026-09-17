@@ -22,7 +22,6 @@
 }
 .wm-chat-header { display: flex; align-items: center; gap: 8px; min-height: 56px; padding: 10px 17px; border-bottom: 1px solid #f0ece7; }
 .wm-chat-header strong { font-size: 14px; font-weight: 550; color: #514d46; }
-.wm-chat-header > span { margin-left: auto; color: #938b7f; font-size: 12px; animation: wm-appear 400ms both; }
 .wm-exchange { display: flex; flex-direction: column; gap: 18px; padding: 18px; animation: wm-appear 450ms both; }
 .wm-user-message { align-self: flex-end; max-width: 90%; border-radius: 16px 16px 4px 16px; background: #302f29; color: #fffdf8; padding: 11px 14px; font-size: 14px; line-height: 1.55; }
 .wm-user-message mark { padding: 1px 0; background: transparent; color: inherit; border-radius: 3px; transition: background 450ms, color 450ms; }
@@ -122,7 +121,6 @@
   .wm-studio { width: auto; }
   .wm-conversation { min-height: 270px; border-radius: 14px; }
   .wm-chat-header { gap: 7px; padding-inline: 13px; }
-  .wm-chat-header > span { font-size: 11px; max-width: 81px; text-align: right; line-height: 1.35; }
   .wm-exchange { padding: 15px 13px; gap: 16px; }
   .wm-user-message { padding: 10px 12px; max-width: 96%; }
   .wm-memory-head { flex-direction: row; justify-content: flex-start; gap: 15px; padding: 27px 6px 0; }
@@ -156,7 +154,6 @@
   .wm-scene { padding-inline: 16px; }
   .wm-conversation { min-height: 292px; }
   .wm-chat-header { gap: 5px; }
-  .wm-chat-header > span { max-width: 75px; }
   .wm-memory-head { gap: 9px; padding-inline: 0; }
   .wm-brain { width: 80px; height: 80px; }
   .wm-brain-core { width: 55px; height: 55px; }

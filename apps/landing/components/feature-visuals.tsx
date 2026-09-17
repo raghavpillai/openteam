@@ -125,7 +125,7 @@ export function FilesVisual() {
   const rows: [number, string, string, boolean][] = [
     [0, "workspace", "", false],
     [1, "quotes", "", false],
-    [2, "acme-quote.pdf", "Tue", false],
+    [2, "meridian-quote.pdf", "Tue", false],
     [2, "northwind-quote.pdf", "Tue", false],
     [2, "recommendation.md", "now", true],
     [1, "reports", "", false],

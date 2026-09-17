@@ -10,7 +10,7 @@ import "./meeting-routine.css";
 const meetings = [
   {
     time: "10:00 AM",
-    title: "Acme · Intro call",
+    title: "Meridian · Intro call",
     person: "Maya Chen",
     role: "Head of Operations",
     context:

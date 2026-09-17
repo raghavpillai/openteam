@@ -45,7 +45,7 @@ const connections = [
     color: "#925df2",
     action: "Reading the team’s renewal thread",
   },
-  { name: "Web search", icon: Globe2, color: "#27baae", action: "Checking Acme’s latest updates" },
+  { name: "Web search", icon: Globe2, color: "#27baae", action: "Checking Meridian’s latest updates" },
   {
     name: "Your tools",
     icon: Plug,
@@ -57,7 +57,7 @@ const connections = [
 const brief = [
   {
     label: "Who you’re meeting",
-    text: "Maya Patel · Finance lead, Acme",
+    text: "Maya Patel · Finance lead, Meridian",
     detail: "Tomorrow, 10:00 AM · 30 minutes",
     sources: [0, 1],
   },
@@ -68,7 +68,7 @@ const brief = [
   },
   {
     label: "What to review",
-    text: "Your last proposal and Acme’s finance hiring update.",
+    text: "Your last proposal and Meridian’s finance hiring update.",
     sources: [4, 5],
   },
 ] as const;
@@ -142,17 +142,29 @@ function pickSources(sources: number[], count: number) {
   return selected;
 }
 
+function BriefText({ text }: { text: string }) {
+  return text.split(" ").map((word, index) => (
+    <span className="ac-reveal-word" key={`${index}-${word}`} style={{ "--word-index": index } as CSSProperties}>
+      {word}{" "}
+    </span>
+  ));
+}
+
 /** Sources finish independently; answers appear only after their sources arrive. */
 function useConnectionActivity(playing: boolean) {
-  const [activity, setActivity] = useState({ active: [] as number[], completed: [] as number[] });
+  const [activity, setActivity] = useState({ active: [] as number[], completed: [] as number[], resetting: false });
   useEffect(() => {
     if (!playing) return;
     const done = activity.completed.length === connections.length;
     const starting = activity.active.length === 0;
-    const delay = done ? 5200 : starting ? 100 : 750 + Math.random() * 850;
+    const delay = activity.resetting ? 700 : done ? 5200 : starting ? 100 : 950 + Math.random() * 850;
     const timer = window.setTimeout(() => {
-      if (done || starting) {
-        setActivity({ active: pickSources(connections.map((_, index) => index), 2), completed: [] });
+      if (done && !activity.resetting) {
+        setActivity({ ...activity, resetting: true });
+        return;
+      }
+      if (activity.resetting || starting) {
+        setActivity({ active: pickSources(connections.map((_, index) => index), 2), completed: [], resetting: false });
         return;
       }
       const [finished] = pickSources(activity.active, 1);
@@ -160,7 +172,7 @@ function useConnectionActivity(playing: boolean) {
       const active = activity.active.filter((index) => index !== finished);
       const pending = connections.map((_, index) => index)
         .filter((index) => !completed.includes(index) && !active.includes(index));
-      setActivity({ active: [...active, ...pickSources(pending, 2 - active.length)], completed });
+      setActivity({ active: [...active, ...pickSources(pending, 2 - active.length)], completed, resetting: false });
     }, delay);
     return () => window.clearTimeout(timer);
   }, [activity, playing]);
@@ -169,7 +181,7 @@ function useConnectionActivity(playing: boolean) {
 
 export function AppConnections({ children }: { children: ReactNode }) {
   const { ref, playing, props } = useDemoCycle(1, 60_000);
-  const { active, completed } = useConnectionActivity(playing);
+  const { active, completed, resetting } = useConnectionActivity(playing);
   const done = completed.length === connections.length;
 
   return (
@@ -181,7 +193,7 @@ export function AppConnections({ children }: { children: ReactNode }) {
         </a>
       </div>
 
-      <div className="ac-workflow">
+      <div className="ac-workflow" data-resetting={resetting}>
         <ConnectionLines activeIndices={active} />
         <ConnectionLines activeIndices={active} mobile />
         {connections.map((connection, index) => (
@@ -196,18 +208,10 @@ export function AppConnections({ children }: { children: ReactNode }) {
               <ConnectionMark connection={connection} />
             </span>
             <strong>{connection.name}</strong>
-            <span className="ac-app-status">
-              {completed.includes(index) ? (
-                <>
-                  <Check size={11} /> Used in brief
-                </>
-              ) : active.includes(index) ? (
-                "Reading…"
-              ) : index === 5 ? (
-                "Custom MCP"
-              ) : (
-                "Connected"
-              )}
+            <span className="ac-app-status" data-state={completed.includes(index) ? "used" : active.includes(index) ? "reading" : "idle"}>
+              <span className="ac-status-idle" aria-hidden={completed.includes(index) || active.includes(index)}>{index === 5 ? "Custom MCP" : "Connected"}</span>
+              <span className="ac-status-reading" aria-hidden={!active.includes(index)}><i className="ac-reading-light" /> Reading…</span>
+              <span className="ac-status-used" aria-hidden={!completed.includes(index)}><Check size={11} /> Used in brief</span>
             </span>
           </div>
         ))}
@@ -225,19 +229,12 @@ export function AppConnections({ children }: { children: ReactNode }) {
             />
             <strong>Chief of staff</strong>
             <span data-done={done}>
-              {done ? (
-                <>
-                  <Check size={12} /> Ready
-                </>
-              ) : (
-                <>
-                  <i /> Working
-                </>
-              )}
+              <span className="ac-run-working" aria-hidden={done}><i /> Working</span>
+              <span className="ac-run-ready" aria-hidden={!done}><Check size={12} /> Ready</span>
             </span>
           </header>
           <div className="ac-chat-body">
-            <div className="ac-request">Prep me for my call with Maya at Acme.</div>
+            <div className="ac-request">Prep me for my call with Maya at Meridian.</div>
             <div className="ac-skill-run">
               <span className="ac-skill-icon">
                 <BookOpen size={18} />
@@ -248,28 +245,33 @@ export function AppConnections({ children }: { children: ReactNode }) {
                   <span>Reusable skill</span>
                 </div>
                 <div className="ac-current-source">
-                  {done ? (
-                    <span className="ac-source-read" key="done">
-                      <Check size={13} />
-                      <span>Brief ready, with sources attached</span>
+                  <span className="ac-source-read" data-visible={done} aria-hidden={!done}>
+                    <Check size={13} /><span>Brief ready, with sources attached</span>
+                  </span>
+                  {connections.map((connection, index) => (
+                    <span
+                      className="ac-source-read"
+                      key={connection.name}
+                      data-visible={active.includes(index)}
+                      aria-hidden={!active.includes(index)}
+                      style={{ "--source-slot": Math.max(0, active.indexOf(index)) } as CSSProperties}
+                    >
+                      <ConnectionMark connection={connection} size={13} />
+                      <span>{connection.action}</span>
                     </span>
-                  ) : (
-                    active.map((index) => (
-                      <span className="ac-source-read" key={connections[index].name}>
-                        <ConnectionMark connection={connections[index]} size={13} />
-                        <span>{connections[index].action}</span>
-                      </span>
-                    ))
-                  )}
+                  ))}
                 </div>
               </div>
             </div>
 
-            <div className="ac-brief" aria-label="Acme meeting brief">
+            <div className="ac-brief" aria-label="Meridian meeting brief">
               <div className="ac-brief-header">
                 <FileText size={16} />
-                <strong>acme-call-brief.md</strong>
-                <span>{done ? "Saved" : "Writing…"}</span>
+                <strong>meridian-call-brief.md</strong>
+                <span className="ac-file-state" data-done={done}>
+                  <span className="ac-run-working" aria-hidden={done}>Writing…</span>
+                  <span className="ac-run-ready" aria-hidden={!done}>Saved</span>
+                </span>
               </div>
               {brief.map((point) => {
                 const ready = point.sources.every((index) => completed.includes(index));
@@ -282,11 +284,11 @@ export function AppConnections({ children }: { children: ReactNode }) {
                   >
                     <div className="ac-brief-point-heading">
                       <span className="ac-brief-label">{point.label}</span>
-                      {ready && (
-                        <div
-                          className="ac-citations"
-                          aria-label={`Sources: ${point.sources.map((index) => connections[index].name).join(" and ")}`}
-                        >
+                      <div
+                        className="ac-citations"
+                        aria-hidden={!ready}
+                        aria-label={`Sources: ${point.sources.map((index) => connections[index].name).join(" and ")}`}
+                      >
                           {point.sources.map((index) => (
                             <span
                               key={index}
@@ -297,23 +299,22 @@ export function AppConnections({ children }: { children: ReactNode }) {
                               <span className="ac-citation-name">{connections[index].name}</span>
                             </span>
                           ))}
-                        </div>
-                      )}
-                    </div>
-                    {ready ? (
-                      <div className="ac-brief-answer">
-                        <strong>{point.text}</strong>
-                        {"detail" in point && <p>{point.detail}</p>}
                       </div>
-                    ) : (
+                    </div>
+                    <div className="ac-brief-point-body">
+                      <div className="ac-brief-answer" aria-hidden={!ready}>
+                        <strong><BriefText text={point.text} /></strong>
+                        {"detail" in point && <p><BriefText text={point.detail} /></p>}
+                      </div>
                       <div
                         className="ac-brief-pending"
+                        aria-hidden={ready}
                         aria-label={`Gathering ${point.label.toLowerCase()}`}
                       >
                         <i />
                         <i />
                       </div>
-                    )}
+                    </div>
                   </div>
                 );
               })}

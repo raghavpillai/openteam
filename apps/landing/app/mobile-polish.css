@@ -130,7 +130,7 @@
   .ot-home .ac-chat-header > strong { font-size: 14px; }
   .ot-home .ac-request { font-size: 14px; }
   .ot-home .ac-skill-name > strong { font-size: 13px; }
-  .ot-home .ac-current-source { font-size: 12px; min-height: 56px; }
+  .ot-home .ac-current-source { font-size: 12px; min-height: calc(var(--source-row-height) * 2); }
   .ot-home .ac-brief-header strong { font-size: 12px; }
   .ot-home .ac-brief-header > span { font-size: 11px; }
   .ot-home .ac-brief-answer > strong { font-size: 14px; }

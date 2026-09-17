@@ -9,24 +9,20 @@ import "./worker-memory.css";
 // Human-readable groupings illustrate relevance, not separate storage systems.
 const conversations = [
   {
-    when: "Last week",
     message: <>Keep my updates <mark>short</mark>. Lead with <mark>decisions I need to make</mark>.</>,
     reply: "I’ll put your decisions first and keep the background brief.",
   },
   {
-    when: "Monday",
-    message: <><mark>Maya owns Acme’s pilot</mark>. We’re aiming for <mark>Friday</mark>, pending security review.</>,
-    reply: "Acme pilot: Maya owns it, Friday is the target, and security is still open.",
+    message: <><mark>Maya owns Meridian’s pilot</mark>. We’re aiming for <mark>Friday</mark>, pending security review.</>,
+    reply: "Meridian pilot: Maya owns it, Friday is the target, and security is still open.",
   },
   {
-    when: "Today",
-    message: <>Acme moved to <mark>Monday</mark>. <mark>Security is cleared</mark>; they’re waiting on my go-ahead.</>,
+    message: <>Meridian moved to <mark>Monday</mark>. <mark>Security is cleared</mark>; they’re waiting on my go-ahead.</>,
     reply: "Updated: Monday kickoff, security cleared, and your go-ahead is next.",
   },
   {
-    when: "A new conversation",
-    message: <>Catch me up on <mark>Acme</mark>.</>,
-    reply: <><strong>Your decision:</strong> Give Maya the go-ahead for Monday’s kickoff.<br /><strong>Context:</strong> Acme’s security review is cleared.</>,
+    message: <>Catch me up on <mark>Meridian</mark>.</>,
+    reply: <><strong>Your decision:</strong> Give Maya the go-ahead for Monday’s kickoff.<br /><strong>Context:</strong> Meridian’s security review is cleared.</>,
   },
 ];
 const stages = [
@@ -58,7 +54,6 @@ export function WorkerMemory({ children }: { children?: ReactNode }) {
           <header className="wm-chat-header">
             <BotAvatar shape="helmet" color="#ff7a1a" size={28} mode={playing && !saved ? "thinking" : "idle"} />
             <strong>Chief of staff</strong>
-            <span key={conversationIndex}>{conversation.when}</span>
           </header>
           <div className="wm-exchange" key={conversationIndex}>
             <div className="wm-user-message" data-extracting={!saved && !recalling}>{conversation.message}</div>
@@ -112,12 +107,12 @@ export function WorkerMemory({ children }: { children?: ReactNode }) {
               <div className="wm-pocket-heading"><span><CalendarDays size={16} /></span><div><h3>Recent context</h3><span>People &amp; projects</span></div></div>
               <div className="wm-pocket-thoughts">
                 {hasProject ? (
-                  <div key="context"><MemoryThought fresh={stage === 4}>Acme pilot</MemoryThought><MemoryThought fresh={stage === 4}>Maya · owner</MemoryThought></div>
+                  <div key="context"><MemoryThought fresh={stage === 4}>Meridian pilot</MemoryThought><MemoryThought fresh={stage === 4}>Maya · owner</MemoryThought></div>
                 ) : <div className="wm-thought-placeholder"><span /><span /><small>Details from your day</small></div>}
               </div>
             </section>
             <section className="wm-pocket wm-pocket-task" data-active={stage >= 3} data-filled={hasProject}>
-              <div className="wm-pocket-heading"><span><Compass size={16} /></span><div><h3>Next milestone</h3><span>Acme kickoff</span></div></div>
+              <div className="wm-pocket-heading"><span><Compass size={16} /></span><div><h3>Next milestone</h3><span>Meridian kickoff</span></div></div>
               <div className="wm-pocket-thoughts">
                 {hasProject ? (
                   <div key={hasUpdate ? "updated" : "milestone"}>

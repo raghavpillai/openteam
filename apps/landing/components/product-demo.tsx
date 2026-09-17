@@ -38,7 +38,7 @@ const examples = [
     subheading: "Research / Team software",
     rows: [
       ["Northstar", "$144", "Included", "Best fit"],
-      ["Acme", "$216", "Add-on", "Runner-up"],
+      ["Meridian", "$216", "Add-on", "Runner-up"],
       ["Orbit", "$288", "Included", "Over budget"],
     ],
   },
@@ -110,7 +110,7 @@ function sampleFileContent(scenario: (typeof examples)[number]) {
     ? "Service,Uptime,Usage change,Status\n" +
         scenario.rows.map((row) => row.join(",")).join("\n") +
         "\n"
-    : `# ${scenario.heading}\n\n${scenario.reply}\n\n${scenario.id === "code" ? diff : table + "\n\n## Why Northstar\nThe required SSO feature is included. It costs $72 less per year than Acme and $144 less than Orbit. Acme requires an add-on; Orbit exceeds the sample budget.\n\n## Sample source notes\nNorthstar pricing page; Acme plan documentation; Orbit SSO documentation. These are fictional vendors in a product demonstration, not live citations."}\n\n---\nSample output from the OpenTeam interactive product demo. All data is illustrative.\n`;
+    : `# ${scenario.heading}\n\n${scenario.reply}\n\n${scenario.id === "code" ? diff : table + "\n\n## Why Northstar\nThe required SSO feature is included. It costs $72 less per year than Meridian and $144 less than Orbit. Meridian requires an add-on; Orbit exceeds the sample budget.\n\n## Sample source notes\nNorthstar pricing page; Meridian plan documentation; Orbit SSO documentation. These are fictional vendors in a product demonstration, not live citations."}\n\n---\nSample output from the OpenTeam interactive product demo. All data is illustrative.\n`;
 }
 
 function TrafficLights() {

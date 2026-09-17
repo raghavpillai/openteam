@@ -64,7 +64,7 @@ export function ScreenViewer() {
         <div className="absolute top-[30%] right-[4%] hidden h-[56%] w-[30%] overflow-hidden rounded-md bg-[#0f1115] shadow-[0_18px_40px_rgba(0,0,0,.45)] sm:block">
           <div className="h-6 bg-[#1b1e24]" />
           <div className="space-y-2 p-3 font-mono text-[9px] leading-none text-[#9ad7b4]">
-            {["$ ls quotes/", "acme-quote.pdf", "globex-quote.pdf", "northwind-quote.pdf"].map(
+            {["$ ls quotes/", "meridian-quote.pdf", "globex-quote.pdf", "northwind-quote.pdf"].map(
               (line, i) => (
                 <div
                   key={line}

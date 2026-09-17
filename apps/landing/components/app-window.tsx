@@ -279,7 +279,7 @@ export function AppWindow() {
                   </ul>
                 </div>
                 <p className="rise text-ink" style={{ "--d": "1650ms" } as React.CSSProperties}>
-                  Acme is cheapest over three years once support is included. Northwind looks
+                  Meridian is cheapest over three years once support is included. Northwind looks
                   cheaper up front but charges extra for priority support. I&apos;m saving the
                   comparison to{" "}
                   <span className="font-mono text-[11.5px]">
@@ -355,7 +355,7 @@ export function AppWindow() {
             <ul className="space-y-1 text-[11.5px]">
               {[
                 ["recommendation.md", "now"],
-                ["acme-quote.pdf", "Tue"],
+                ["meridian-quote.pdf", "Tue"],
                 ["northwind-quote.pdf", "Tue"],
                 ["globex-quote.pdf", "Tue"],
               ].map(([name, when]) => (

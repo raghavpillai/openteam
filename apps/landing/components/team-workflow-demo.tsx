@@ -155,7 +155,7 @@ export function TeamWorkflowDemo() {
             <p className="twd-date">Today, 9:41 AM</p>
             <div className="twd-message twd-user" aria-label="Message from you">
               <p className="twd-bubble">
-                Plan three nights in Boston for my Acme meetings. Find flexible travel options that
+                Plan three nights in Boston for my Meridian meetings. Find flexible travel options that
                 fit our company policy.
               </p>
             </div>

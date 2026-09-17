@@ -59,6 +59,7 @@
     list-style: none;
     cursor: pointer;
     padding: 10px 0;
+    transition: background-color 190ms, color 190ms;
   }
   .landing .ot-site-header .ot-mobile-menu > summary::-webkit-details-marker {
     display: none;
@@ -77,6 +78,7 @@
     background: #fbfbfb;
     box-shadow: 0 10px 25px #38383820;
     font-size: 14px;
+    transform-origin: top right;
   }
   .landing .ot-site-header .ot-mobile-menu nav a {
     padding: 10px;

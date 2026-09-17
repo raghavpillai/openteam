@@ -2,7 +2,7 @@
 
 import { ArrowUpRight } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { GithubMark, Wordmark } from "./brand";
 import { Button } from "./ui/button";
 import "./site-header.css";
@@ -19,7 +19,33 @@ const links = [
 
 export function SiteHeader({ home = false }: { home?: boolean }) {
   const menu = useRef<HTMLDetailsElement>(null);
+  const menuAnimation = useRef<Animation | null>(null);
+  const menuExpanded = useRef(false);
   const [current, setCurrent] = useState("");
+  const setMenuOpen = useCallback((open: boolean) => {
+    const details = menu.current;
+    const panel = details?.querySelector("nav");
+    if (!details || !panel || open === menuExpanded.current) return;
+
+    // Capture the current frame before cancelling so quick toggles reverse smoothly.
+    const style = getComputedStyle(panel);
+    const closed = { opacity: 0, transform: "translateY(-8px) scale(.98)" };
+    const from = details.open ? { opacity: style.opacity, transform: style.transform } : closed;
+    menuAnimation.current?.cancel();
+    menuExpanded.current = open;
+    details.open = true;
+    panel.inert = !open;
+    const animation = panel.animate(
+      [from, open ? { opacity: 1, transform: "translateY(0) scale(1)" } : closed],
+      { duration: open ? 260 : 190, easing: "cubic-bezier(.22,1,.36,1)" },
+    );
+    menuAnimation.current = animation;
+    animation.onfinish = () => {
+      if (menuAnimation.current !== animation) return;
+      details.open = open;
+      menuAnimation.current = null;
+    };
+  }, []);
   useEffect(() => {
     if (!home) return;
     const sections = links.map(([, id]) => document.getElementById(id));
@@ -47,12 +73,24 @@ export function SiteHeader({ home = false }: { home?: boolean }) {
   useEffect(() => {
     const dismissOutside = (event: PointerEvent) => {
       if (menu.current?.open && !menu.current.contains(event.target as Node)) {
-        menu.current.open = false;
+        setMenuOpen(false);
+      }
+    };
+    const dismissEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && menuExpanded.current) {
+        event.preventDefault();
+        setMenuOpen(false);
+        menu.current?.querySelector("summary")?.focus();
       }
     };
     document.addEventListener("pointerdown", dismissOutside);
-    return () => document.removeEventListener("pointerdown", dismissOutside);
-  }, []);
+    document.addEventListener("keydown", dismissEscape);
+    return () => {
+      document.removeEventListener("pointerdown", dismissOutside);
+      document.removeEventListener("keydown", dismissEscape);
+      menuAnimation.current?.cancel();
+    };
+  }, [setMenuOpen]);
   const prefix = home ? "" : "/";
   return (
     <header className="ot-header ot-site-header">
@@ -81,15 +119,13 @@ export function SiteHeader({ home = false }: { home?: boolean }) {
             Install <ArrowUpRight size={15} />
           </Button>
         </div>
-        <details className="ot-mobile-menu" ref={menu} onKeyDown={(event) => {
-          if (event.key === "Escape" && menu.current) {
-            menu.current.open = false;
-            menu.current.querySelector("summary")?.focus();
-          }
-        }}>
-          <summary>Menu</summary>
+        <details className="ot-mobile-menu" ref={menu}>
+          <summary onClick={(event) => {
+            event.preventDefault();
+            setMenuOpen(!menuExpanded.current);
+          }}>Menu</summary>
           <nav aria-label="Mobile navigation" onClick={(event) => {
-            if ((event.target as HTMLElement).closest("a") && menu.current) menu.current.open = false;
+            if ((event.target as HTMLElement).closest("a")) setMenuOpen(false);
           }}>
             {links.map(([label, id]) => (
               <a href={`${prefix}#${id}`} key={id} aria-current={current === id ? "location" : undefined}>

@@ -91,7 +91,6 @@
 .landing .ot-text-link { text-decoration: none; background-image: linear-gradient(currentColor,currentColor); background-repeat: no-repeat; background-position: left bottom; background-size: 0 1px; transition: background-size 260ms cubic-bezier(.22,1,.36,1); }
 .landing .ot-text-link:hover { background-size: 100% 1px; }
 .landing .ot-proof-strip > a > svg, .landing .ot-provider-logo { transform: none; }
-.ot-mobile-menu[open] nav { animation: ot-image-wipe-right 180ms cubic-bezier(.22,1,.36,1); }
 .ot-title-line > span { animation: ot-title-uncover 660ms cubic-bezier(.22,1,.36,1) both; }
 .ot-title-line + .ot-title-line > span { animation-delay: 85ms; }
 @media (max-width: 850px) {

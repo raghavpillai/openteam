@@ -233,7 +233,17 @@ export function MentionEditor({
   // erase a fast dictation result appended before the next React render.
   useLayoutEffect(() => {
     const editor = editorRef.current;
-    if (!editor || value || !editor.textContent) return;
+    if (!editor) return;
+    if (value) {
+      // Native editing already owns the matching DOM (including mention chips).
+      // An externally recovered draft must also be written into the editor.
+      if (mentionPlainText(editorSegments(editor)) !== value) {
+        editor.textContent = value;
+        onHeightChange?.(editor.scrollHeight);
+      }
+      return;
+    }
+    if (!editor.textContent) return;
     const keepCaret = document.activeElement === editor;
     editor.replaceChildren();
     if (keepCaret) {

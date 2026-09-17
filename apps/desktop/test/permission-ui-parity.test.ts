@@ -38,8 +38,8 @@ describe("Bot permission UI parity", () => {
     const value = await source();
     expect(value).toContain("gap-3 rounded-2xl bg-[#eeeeee] p-3");
     expect(value).toContain("dark:bg-[#262626]");
-    expect(value).toContain("text-[14px] font-medium leading-[22px]");
-    expect(value).toContain("h-8 rounded-lg px-2.5");
+    expect(value).toContain("text-[14px] font-medium leading-5");
+    expect(value).toContain("permission-button");
     expect(value).toContain("text-[13px] leading-[18px]");
     expect(value).toContain('entry.type !== "approval" || !isPendingLocalApproval(entry.approval)');
     expect(value).toContain('data-local-tool-permission-dock=""');
@@ -61,7 +61,7 @@ describe("Bot permission UI parity", () => {
     expect(value).toContain("overflow-auto whitespace-pre px-3 py-2");
     expect(value).toContain("approval-code-figure");
     expect(value).toContain("approval-copy-button absolute right-1.5 top-1.5");
-    expect(value).toContain("dark:bg-[#f0f0f0] dark:text-[#181818]");
+    expect(value).toContain("permission-button-primary");
     expect(css).toContain("@media (hover: hover) and (pointer: fine)");
     expect(css).toContain(".approval-code-figure:hover .approval-copy-button");
   });

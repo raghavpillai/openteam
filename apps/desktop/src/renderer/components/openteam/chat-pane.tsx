@@ -1,4 +1,10 @@
+import { PermissionIcon } from "./permission-icon";
+import { PermissionSpinner } from "./permission-spinner";
+import { NativeApprovalCard, type NativeApprovalPresentation } from "./native-approval-card";
+import "./permission-cards.css";
 import { usePluginMentions } from "../../hooks/use-plugin-mentions";
+import { PluginApprovalNextStep } from "./plugins/plugin-approval-next-step";
+import { DeliveryFooter } from "./delivery-footer";
 import type {
   ApprovalDecision,
   ApprovalView,
@@ -17,7 +23,6 @@ import {
   channelMessageAddress,
   type DurableSendPayload,
   type DurableSendRecord,
-  durableSendStatusLabel,
   messageAssets,
   messageDisplayProjection,
   messageMetadata,
@@ -71,15 +76,12 @@ import {
 import { cn } from "../../lib/cn";
 import {
   desktopDurableSendController,
-  desktopSendTransportSnapshot,
   discardDesktopDeliveryStages,
   stageDesktopDeliveryFile,
-  subscribeDesktopSendTransport,
 } from "../../lib/durable-sends";
 import { type MentionOption, mentionHandleFor } from "../../lib/mentions";
 import {
   formatIdleGapTimestamp,
-  formatOfflineDeliveryLabel,
   shouldShowIdleGapTimestamp,
 } from "../../lib/message-timestamps";
 import { addContextGaps } from "../../lib/search-context";
@@ -371,107 +373,6 @@ const copyRequestId = (message: ChannelMessageView) => {
   void navigator.clipboard.writeText(message.id).catch(() => undefined);
 };
 
-const DeliveryFooter = memo(function DeliveryFooter({
-  delivery,
-  onCancel,
-  onDelete,
-  onResend,
-}: {
-  delivery: DurableSendRecord | null;
-  onCancel: (nonce: string) => Promise<void>;
-  onDelete: (nonce: string) => Promise<void>;
-  onResend: (nonce: string) => Promise<void>;
-}) {
-  const [busy, setBusy] = useState(false);
-  const transportDown = useSyncExternalStore(
-    subscribeDesktopSendTransport,
-    desktopSendTransportSnapshot,
-    desktopSendTransportSnapshot
-  );
-  const currentOfflineAtMs = delivery?.queuedAtMs ?? null;
-  const [retainedOfflineAtMs, setRetainedOfflineAtMs] = useState(currentOfflineAtMs);
-  useEffect(() => {
-    if (currentOfflineAtMs !== null) setRetainedOfflineAtMs(currentOfflineAtMs);
-  }, [currentOfflineAtMs]);
-  const act = (operation: () => Promise<void>) => {
-    if (busy) return;
-    setBusy(true);
-    void operation()
-      .catch(() => undefined)
-      .finally(() => setBusy(false));
-  };
-  const actionClass =
-    "rounded px-0.5 text-[11px] font-medium leading-4 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35 disabled:opacity-50";
-  if (delivery?.phase === "failed") {
-    return (
-      <div
-        aria-label="Failed message actions"
-        className="mt-1 flex flex-wrap items-center justify-end gap-1 self-end text-[11px] leading-4"
-        data-failed-send-actions=""
-        role="group"
-      >
-        <span className="font-medium text-destructive" role="status">
-          {durableSendStatusLabel(delivery.phase)}
-        </span>
-        <button
-          className={actionClass}
-          disabled={busy}
-          onClick={() => act(() => onResend(delivery.nonce))}
-          type="button"
-        >
-          Resend
-        </button>
-        <button
-          className={actionClass}
-          disabled={busy}
-          onClick={() => act(() => onDelete(delivery.nonce))}
-          type="button"
-        >
-          Delete
-        </button>
-      </div>
-    );
-  }
-  if (delivery?.phase === "queued") {
-    return (
-      <div
-        className="mt-1 flex flex-wrap items-center justify-end gap-1 self-end text-[11px] leading-4 text-muted-foreground"
-        data-queued-send-notice=""
-        role="status"
-      >
-        <span>{durableSendStatusLabel(delivery.phase, transportDown)}</span>
-        <button
-          className={actionClass}
-          disabled={busy}
-          onClick={() => act(() => onCancel(delivery.nonce))}
-          type="button"
-        >
-          Cancel
-        </button>
-      </div>
-    );
-  }
-  const offlineAtMs = currentOfflineAtMs ?? retainedOfflineAtMs;
-  if (
-    offlineAtMs !== null &&
-    ((delivery?.phase === "accepted-awaiting-echo" && currentOfflineAtMs !== null) ||
-      (delivery === null && retainedOfflineAtMs !== null))
-  ) {
-    const clearing = delivery === null;
-    return (
-      <div
-        aria-hidden={clearing || undefined}
-        className="sent-while-offline-notice self-end text-[11px] leading-4 text-muted-foreground"
-        data-cleared={clearing || undefined}
-        data-sent-while-offline=""
-        role="status"
-      >
-        {formatOfflineDeliveryLabel(offlineAtMs)}
-      </div>
-    );
-  }
-  return null;
-});
 
 const MessageRow = memo(function MessageRow({
   message,
@@ -878,20 +779,13 @@ const MessageRow = memo(function MessageRow({
 });
 
 const approvalCardClass =
-  "flex w-full min-w-0 flex-col gap-3 rounded-2xl bg-[#eeeeee] p-3 text-[13px] text-[#141414] dark:bg-[#262626] dark:text-[#f0f0f0]";
+  "permission-surface permission-approval flex w-full min-w-0 flex-col gap-3 rounded-2xl bg-[#eeeeee] p-3 text-[13px] text-[#141414] dark:bg-[#262626] dark:text-[#f0f0f0]";
 const approvalContentClass = "flex w-full min-w-0 flex-col items-start gap-1";
 const approvalTitleClass =
-  "min-w-0 flex-1 text-[14px] font-medium leading-[22px] text-[#141414] dark:text-[#f0f0f0]";
-const approvalSecondaryTextClass = "text-[#141414]/[0.74] dark:text-[#f0f0f0]/[0.74]";
-const approvalButtonClass = "h-8 rounded-lg px-2.5 py-0 text-[14px] leading-[22px] shadow-none";
-const approvalPrimaryButtonClass = cn(
-  approvalButtonClass,
-  "bg-[#141414] text-[#fcfcfc] hover:bg-[#141414]/[0.74] dark:bg-[#f0f0f0] dark:text-[#181818] dark:hover:bg-[#f0f0f0]/[0.74]"
-);
-const approvalSecondaryButtonClass = cn(
-  approvalButtonClass,
-  "border-[#141414]/[0.08] bg-[#141414]/[0.04] text-[#141414] hover:bg-[#141414]/[0.14] hover:text-[#141414] dark:border-[#f0f0f0]/[0.08] dark:bg-[#f0f0f0]/[0.04] dark:text-[#f0f0f0] dark:hover:bg-[#f0f0f0]/[0.14] dark:hover:text-[#f0f0f0]"
-);
+  "min-w-0 flex-1 text-[14px] font-medium leading-5 tracking-[-0.15px]";
+const approvalSecondaryTextClass = "permission-secondary";
+const approvalPrimaryButtonClass = "permission-button permission-button-primary";
+const approvalSecondaryButtonClass = "permission-button permission-button-outline";
 
 const isLocalApproval = (approval: ApprovalView) =>
   approvalPresentation(approval).kind === "local-tool";
@@ -902,14 +796,38 @@ const isPendingLocalApproval = (approval: ApprovalView) =>
 const isResolvedLocalApproval = (approval: ApprovalView) =>
   approval.status !== "pending" && isLocalApproval(approval);
 
-function ApprovalCard({
+export function ApprovalCard({
   approval,
   onResolve,
 }: {
   approval: ApprovalView;
-  onResolve: (decision: ApprovalDecision) => Promise<void>;
+  onResolve: (decision: ApprovalDecision, selectedItems?: readonly string[]) => Promise<void>;
 }) {
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const inFlight = useRef(false);
+  const [resolving, setResolving] = useState(false);
+  const [error, setError] = useState("");
+  const latest = useRef(approval);
+  latest.current = approval;
+  useEffect(() => {
+    if (approval.status !== "pending") setError("");
+  }, [approval.status]);
+  const resolve = async (decision: ApprovalDecision, selectedItems?: readonly string[]) => {
+    if (inFlight.current || latest.current.status !== "pending") return;
+    inFlight.current = true;
+    setResolving(true);
+    setError("");
+    try {
+      await onResolve(decision, selectedItems);
+    } catch {
+      if (latest.current.status === "pending")
+        setError("We couldn't confirm your decision. Check this card before trying again.");
+    } finally {
+      inFlight.current = false;
+      setResolving(false);
+    }
+  };
+  const feedback = error ? <p role="alert" className="text-xs text-red-600">{error}</p> : null;
   const presentation = approvalPresentation(approval);
   const {
     details,
@@ -934,6 +852,11 @@ function ApprovalCard({
   }, [pending]);
   const localTool = presentation.kind === "local-tool";
   const autoReview = presentation.kind === "auto-review";
+  const pluginSetup = ["InstallPlugin", "AuthenticateMcpServer", "AddMcpServer"].includes(String(details.action));
+
+  const nativePresentation = details.presentation as NativeApprovalPresentation | undefined;
+  if (details.type === "nativeCapability" && (nativePresentation?.kind === "saved-login" || nativePresentation?.kind === "cookie-import"))
+    return <NativeApprovalCard approval={approval} presentation={nativePresentation} busy={resolving} error={error} onResolve={resolve} />;
 
   if (localTool) {
     if (!pending) {
@@ -941,7 +864,7 @@ function ApprovalCard({
         <div
           aria-label="Local tool permission result"
           className={cn(
-            "min-h-6 w-full min-w-0 truncate text-center text-[12px] leading-4",
+            "permission-surface permission-local-outcome",
             approvalSecondaryTextClass
           )}
           data-approval-id={approval.id}
@@ -949,7 +872,7 @@ function ApprovalCard({
           data-local-tool-permission-result=""
           title={statusLabel}
         >
-          {statusLabel}
+          <span className="min-w-0 truncate">{statusLabel}</span>
         </div>
       );
     }
@@ -965,20 +888,17 @@ function ApprovalCard({
         <div className={approvalContentClass}>
           <div className="flex w-full min-w-0 items-start gap-2">
             <span className="inline-flex h-[22px] shrink-0 items-center">
-              <TriangleAlert
-                aria-hidden="true"
-                className="size-4 text-[#d08770]"
-                strokeWidth={1.75}
-              />
+              <span className="inline-flex size-4 items-start"><PermissionIcon name="warning" className="size-3.5 text-[#c24e00] dark:text-[#ff8838]" /></span>
             </span>
             <div className={approvalTitleClass}>{effect ?? heading}</div>
             <button
               aria-label="Deny once"
               className="grid size-5 shrink-0 place-items-center rounded-md text-[#141414]/60 outline-none hover:bg-[#141414]/[0.04] hover:text-[#141414] focus-visible:ring-2 focus-visible:ring-ring/30 dark:text-[#f0f0f0]/60 dark:hover:bg-[#f0f0f0]/[0.04] dark:hover:text-[#f0f0f0]"
-              onClick={() => void onResolve("decline")}
+              disabled={resolving}
+              onClick={() => void resolve("decline")}
               type="button"
             >
-              <X className="size-3" strokeWidth={1.75} />
+              <PermissionIcon name="close" className="size-2.5" />
             </button>
           </div>
 
@@ -992,7 +912,7 @@ function ApprovalCard({
           </div>
           <div
             className={cn(
-              "text-[13px] leading-[18px] [overflow-wrap:anywhere]",
+              "text-[13px] leading-[18px] tracking-[-0.08px] [overflow-wrap:anywhere]",
               approvalSecondaryTextClass
             )}
           >
@@ -1009,18 +929,21 @@ function ApprovalCard({
           ) : null}
         </div>
 
+        {feedback}
         <div className="flex flex-wrap gap-2">
           {supportsAlwaysAllow ? (
             <Button
               className={approvalPrimaryButtonClass}
-              onClick={() => void onResolve("always_allow")}
+              disabled={resolving}
+              onClick={() => void resolve("always_allow")}
             >
               Always allow
             </Button>
           ) : null}
           <Button
             className={approvalSecondaryButtonClass}
-            onClick={() => void onResolve("accept")}
+            disabled={resolving}
+              onClick={() => void resolve("accept")}
             variant="outline"
           >
             Allow once
@@ -1028,7 +951,8 @@ function ApprovalCard({
           {supportsNever ? (
             <Button
               className={approvalSecondaryButtonClass}
-              onClick={() => void onResolve("never")}
+              disabled={resolving}
+              onClick={() => void resolve("never")}
               variant="outline"
             >
               Never
@@ -1051,22 +975,9 @@ function ApprovalCard({
         <div className={approvalContentClass}>
           <div className="flex w-full min-w-0 items-start gap-2">
             <div className={approvalTitleClass}>{presentation.title}</div>
-            <span
-              className={cn(
-                "inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-[13px] font-medium leading-[18px]",
-                pending
-                  ? "gap-1 bg-[#f1b467]/[0.22] pl-1 text-[#f1b467]"
-                  : approval.status === "declined"
-                    ? "bg-[#fc6b83]/[0.12] text-[#fc6b83]"
-                    : "text-[#141414] dark:text-[#f0f0f0]"
-              )}
-            >
-              {pending ? (
-                <LoaderCircle className="size-3.5 animate-spin" strokeWidth={1.7} />
-              ) : approval.status === "declined" ? (
-                <span aria-hidden="true" className="size-1.5 rounded-full bg-current" />
-              ) : null}
-              {statusLabel}
+            <span className={cn("approval-status", pending ? "approval-status-pending" : approval.status === "declined" ? "approval-status-denied" : approval.status === "accepted" ? "approval-status-allowed" : "approval-status-muted")}>
+              {pending ? <PermissionSpinner /> : <span aria-hidden="true" className="approval-status-dot" />}
+              <span>{statusLabel}</span>
             </span>
           </div>
 
@@ -1080,7 +991,7 @@ function ApprovalCard({
               >
                 Runs on your local computer
               </div>
-              <div className="text-[13px] leading-[1.45] text-[#141414] [overflow-wrap:anywhere] dark:text-[#f0f0f0]">
+              <div className="text-[13px] leading-[1.45] [overflow-wrap:anywhere]">
                 {reviewSummary}
               </div>
             </>
@@ -1088,7 +999,7 @@ function ApprovalCard({
           {pending && reason ? (
             <div
               className={cn(
-                "text-[13px] leading-[18px] [overflow-wrap:anywhere]",
+                "text-[13px] leading-[18px] tracking-[-0.08px] [overflow-wrap:anywhere]",
                 approvalSecondaryTextClass
               )}
             >
@@ -1096,18 +1007,10 @@ function ApprovalCard({
             </div>
           ) : null}
 
-          {rawDetails ? (
-            <ApprovalDetails
-              detailsLabel={detailsLabel}
-              open={detailsOpen}
-              rawDetails={rawDetails}
-              setOpen={setDetailsOpen}
-            />
-          ) : null}
           {!pending && resolution === "always_allow" ? (
             <div
               className={cn(
-                "text-[13px] leading-[18px] [overflow-wrap:anywhere]",
+                "text-[13px] leading-[18px] tracking-[-0.08px] [overflow-wrap:anywhere]",
                 approvalSecondaryTextClass
               )}
             >
@@ -1116,17 +1019,29 @@ function ApprovalCard({
               }`}
             </div>
           ) : null}
+          {rawDetails ? (
+            <ApprovalDetails
+              detailsLabel={detailsLabel}
+              open={detailsOpen}
+              rawDetails={rawDetails}
+              setOpen={setDetailsOpen}
+            />
+          ) : null}
+
         </div>
 
+        {pending && feedback}
         {pending ? (
           <div className="flex flex-wrap gap-2">
-            <Button className={approvalPrimaryButtonClass} onClick={() => void onResolve("accept")}>
+            <Button className={approvalPrimaryButtonClass} disabled={resolving}
+              onClick={() => void resolve("accept")}>
               Allow once
             </Button>
             {supportsAlwaysAllow ? (
               <Button
                 className={approvalSecondaryButtonClass}
-                onClick={() => void onResolve("always_allow")}
+                disabled={resolving}
+              onClick={() => void resolve("always_allow")}
                 variant="outline"
               >
                 Always allow
@@ -1134,7 +1049,8 @@ function ApprovalCard({
             ) : null}
             <Button
               className={approvalSecondaryButtonClass}
-              onClick={() => void onResolve("decline")}
+              disabled={resolving}
+              onClick={() => void resolve("decline")}
               variant="outline"
             >
               Deny
@@ -1157,7 +1073,7 @@ function ApprovalCard({
         ) : (
           <Check className="size-4 text-foreground-secondary" />
         )}
-        {pending ? (localTool ? effect : heading) : statusLabel}
+        {pending ? (localTool ? effect : heading) : pluginSetup && details.actionError ? "Plugin action failed" : statusLabel}
       </div>
       {pending && localTool ? (
         <p className="mb-2 text-xs leading-5 text-muted-foreground">
@@ -1172,26 +1088,32 @@ function ApprovalCard({
           {JSON.stringify(visibleArguments, null, 2)}
         </pre>
       ) : null}
+      {pending && feedback}
       {pending && (
         <div className="flex flex-wrap gap-2">
-          <Button onClick={() => void onResolve("decline")} size="sm" variant="outline">
+          <Button disabled={resolving}
+              onClick={() => void resolve("decline")} size="sm" variant="outline">
             Deny once
           </Button>
           {supportsAlwaysAllow ? (
-            <Button onClick={() => void onResolve("always_allow")} size="sm" variant="outline">
+            <Button disabled={resolving}
+              onClick={() => void resolve("always_allow")} size="sm" variant="outline">
               Always allow
             </Button>
           ) : null}
-          <Button onClick={() => void onResolve("accept")} size="sm">
+          <Button disabled={resolving}
+              onClick={() => void resolve("accept")} size="sm">
             <Check className="size-3.5" /> Allow once
           </Button>
           {supportsNever ? (
-            <Button onClick={() => void onResolve("never")} size="sm" variant="outline">
+            <Button disabled={resolving}
+              onClick={() => void resolve("never")} size="sm" variant="outline">
               Never
             </Button>
           ) : null}
         </div>
       )}
+      {pluginSetup && approval.status === "accepted" ? <PluginApprovalNextStep details={details} /> : null}
     </div>
   );
 }
@@ -1208,20 +1130,20 @@ function ApprovalDetails({
   setOpen: React.Dispatch<React.SetStateAction<boolean>>;
 }) {
   return (
-    <div className="flex w-full min-w-0 flex-col gap-1">
+    <div className="approval-disclosure flex w-full min-w-0 flex-col gap-1 pb-1">
       <button
         aria-expanded={open}
         className={cn(
-          "inline-flex items-center gap-1.5 self-start text-[13px] leading-[18px] outline-none hover:text-[#141414] focus-visible:ring-2 focus-visible:ring-ring/30 dark:hover:text-[#f0f0f0]",
+          "inline-flex items-center gap-1.5 self-start text-[13px] font-normal leading-[18px] outline-none hover:text-[#141414] focus-visible:ring-2 focus-visible:ring-ring/30 dark:hover:text-[#f0f0f0]",
           approvalSecondaryTextClass
         )}
         onClick={() => setOpen((value) => !value)}
         type="button"
       >
         {open ? (
-          <ChevronDown className="size-3.5" strokeWidth={1.75} />
+          <span className="grid size-3.5 place-items-center"><PermissionIcon name="down" className="size-2.5" /></span>
         ) : (
-          <ChevronRight className="size-3.5" strokeWidth={1.75} />
+          <span className="grid size-3.5 place-items-center"><PermissionIcon name="right" className="size-2.5" /></span>
         )}
         {open ? `Hide the ${detailsLabel}` : `Show the ${detailsLabel}`}
       </button>
@@ -1396,6 +1318,7 @@ export const ChatPane = memo(function ChatPane({
   const [composerRecovery, setComposerRecovery] = useState<{
     id: string;
     payload: DurableSendPayload;
+    message?: string;
     durable?: boolean;
   } | null>(null);
   const [threadState, setThreadState] = useState<{
@@ -1470,7 +1393,7 @@ export const ChatPane = memo(function ChatPane({
         message: messagesById.get(recovery.payload.replyToMessageId) as ChannelMessageView,
       });
     }
-    setComposerRecovery({ id: recovery.nonce, payload: recovery.payload, durable: true });
+    setComposerRecovery({ id: recovery.nonce, payload: recovery.payload, message: recovery.failure?.message, durable: true });
   }, [channel.id, channelRecoveries, composerRecovery, messagesById]);
   const messagesByAddress = useMemo(
     () =>
@@ -1795,8 +1718,8 @@ export const ChatPane = memo(function ChatPane({
       : { index, messageId: focusMessage.messageId, nonce: focusMessage.nonce };
   }, [focusMessage, messagesById, renderedTimeline]);
   const resolveApproval = useCallback(
-    (approvalId: string, decision: ApprovalDecision) =>
-      mutate(() => api.resolveApproval(approvalId, decision)).then((value) => {
+    (approvalId: string, decision: ApprovalDecision, selectedItems?: readonly string[]) =>
+      mutate(() => api.resolveApproval(approvalId, decision, selectedItems)).then((value) => {
         const body = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
         const result =
           body.result && typeof body.result === "object"
@@ -1933,7 +1856,7 @@ export const ChatPane = memo(function ChatPane({
                         >
                           <ApprovalCard
                             approval={entry.approval}
-                            onResolve={(decision) => resolveApproval(entry.approval.id, decision)}
+                            onResolve={(decision, selectedItems) => resolveApproval(entry.approval.id, decision, selectedItems)}
                           />
                         </div>
                       ) : (
@@ -2063,7 +1986,7 @@ export const ChatPane = memo(function ChatPane({
             >
               <ApprovalCard
                 approval={pendingLocalApproval}
-                onResolve={(decision) => resolveApproval(pendingLocalApproval.id, decision)}
+                onResolve={(decision, selectedItems) => resolveApproval(pendingLocalApproval.id, decision, selectedItems)}
               />
             </div>
           ) : (

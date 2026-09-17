@@ -8,6 +8,7 @@ import {
   remainingAttachmentCapacity,
 } from "@openteam/product-core/attachments";
 import type { DurableStagedAttachment } from "@openteam/product-core/durable-delivery";
+import { clientErrorMessage } from "@openteam/product-core/redaction";
 import { File, Paperclip, X } from "lucide-react";
 import type { ClipboardEvent, FormEvent, DragEvent as ReactDragEvent, RefObject } from "react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -120,6 +121,7 @@ export function PromptInput({
   reply?: { id: string; content: string } | null;
   recovery?: {
     id: string;
+    message?: string;
     payload: {
       content: string;
       attachments: AssetRef[];
@@ -258,7 +260,7 @@ export function PromptInput({
         recoveryOwned: true,
       })),
     ]);
-    setAttachmentError(null);
+    setAttachmentError(recovery.message ? `Message not sent: ${clientErrorMessage(recovery.message, "Try again.")}` : null);
     onRecoveryApplied?.();
     window.requestAnimationFrame(() => textareaRef.current?.focus());
   }, [onRecoveryApplied, recovery, replaceAttachments, value]);
@@ -561,7 +563,7 @@ export function PromptInput({
       setRichText(pendingRichText);
       replaceAttachments(recoverableAttachments);
       setAttachmentError(
-        error instanceof Error ? `Could not send file: ${error.message}` : "Could not send file."
+        `Message not sent: ${clientErrorMessage(error, "Try again. Your draft is still here.")}`
       );
     } finally {
       submitInFlight.current = false;
@@ -798,7 +800,7 @@ export function PromptInput({
           ) : null}
 
           {attachmentError && (
-            <div aria-live="polite" className="px-2 pb-1 text-[11px] text-destructive">
+            <div role="alert" className="px-2 pb-1 text-[11px] text-destructive">
               {attachmentError}
             </div>
           )}
@@ -852,7 +854,7 @@ export function PromptInput({
                     ? "top-px pb-1.5 pl-10 pr-[76px] pt-1.5"
                     : "top-px px-10 py-1.5"
               )}
-              disabled={Boolean(disabled)}
+              disabled={Boolean(disabled) || submitting}
               editorRef={textareaRef}
               onChange={(plainText, nextRichText) => {
                 setValue(plainText);

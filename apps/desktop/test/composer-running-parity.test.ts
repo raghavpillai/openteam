@@ -13,8 +13,8 @@ describe("OpenTeam-compatible composer while a Bot is working", () => {
     expect(promptInput).toContain(
       "const blocked = Boolean(disabled || submitting || staging || voice.active)"
     );
-    // Dictation keeps the draft editable; its shortcut handler owns Enter/Escape.
-    expect(promptInput).toContain("disabled={Boolean(disabled)}");
+    // Dictation keeps the draft editable; submission briefly locks its snapshot.
+    expect(promptInput).toContain("disabled={Boolean(disabled) || submitting}");
     expect(mentionEditor).toContain("const keepCaret = document.activeElement === editor");
     expect(mentionEditor).toContain("editor.focus({ preventScroll: true })");
     expect(promptInput).not.toContain('aria-label="Stop run"');

@@ -1,3 +1,4 @@
+import { approvalsForChannel } from "@openteam/product-core/activity";
 import { crossesUnreadBoundary, unreadChatMessageCount } from "../../src/chat-unread-boundary";
 import { useChatUnreadBoundary } from "../../src/hooks/use-chat-unread-boundary";
 import { ConversationMessageFrame } from "../../src/components/conversation-message-frame";
@@ -7,7 +8,7 @@ import { ChatChromeFade } from "../../src/components/chat-chrome-fade";
 import { useMessageFocus } from "../../src/hooks/use-message-focus";
 import { useChatScroll } from "../../src/hooks/use-chat-scroll";
 import { usePluginMentions } from "../../src/hooks/use-plugin-mentions";
-import type { BotView, ChannelMessageView } from "@openteam/contracts";
+import type { ApprovalView, BotView, ChannelMessageView } from "@openteam/contracts";
 import { addSidebarUnread } from "@openteam/contracts/client-preferences";
 import { mentionHandleFor } from "@openteam/product-core/mentions";
 import {
@@ -68,7 +69,9 @@ import { useOpenTeam } from "../../src/state/openteam-context";
 import { chatGlassTint, useChatTheme } from "../../src/chat-appearance";
 
 const metadataFor = messageMetadata;
-type ConversationTimelineEntry = ChannelMessageView | A2AActivityEntry<ChannelMessageView>;
+type ApprovalTimelineEntry = { type: "approval"; id: string; createdAt: string; approval: ApprovalView };
+type ConversationTimelineEntry = ChannelMessageView | A2AActivityEntry<ChannelMessageView> | ApprovalTimelineEntry;
+const isApprovalEntry = (entry: ConversationTimelineEntry): entry is ApprovalTimelineEntry => "type" in entry && entry.type === "approval";
 
 const isA2AActivity = (
   entry: ConversationTimelineEntry
@@ -212,6 +215,7 @@ export default function ConversationScreen() {
     setComposerRecovery({
       id: recovery.nonce,
       text: recovery.payload.content,
+      message: recovery.failure?.message,
       attachments: recovery.payload.attachments,
       stagedAttachments: recovery.payload.stagedAttachments,
       replyTarget: recovery.payload.replyToMessageId
@@ -235,13 +239,25 @@ export default function ConversationScreen() {
     () => messages.filter((message) => !threadRootByReplyId.has(message.id)),
     [messages, threadRootByReplyId]
   );
-  const timeline = useMemo<ConversationTimelineEntry[]>(
-    () =>
-      channel?.kind === "bot_dm"
-        ? collapseA2ATimeline(mainMessages, (message) => message)
-        : mainMessages,
-    [channel?.kind, mainMessages]
+  const channelApprovals = useMemo(
+    () => approvalsForChannel(channelId, snapshot.runs, snapshot.approvals),
+    [snapshot.approvals, snapshot.runs, channelId]
   );
+  const approvals = channelApprovals.filter((approval) => approval.status === "pending");
+  const timeline = useMemo<ConversationTimelineEntry[]>(() => {
+    const messages = channel?.kind === "bot_dm"
+      ? collapseA2ATimeline(mainMessages, (message) => message) : mainMessages;
+    const firstDate = mainMessages[0]?.createdAt;
+    const receipts: ApprovalTimelineEntry[] = channelApprovals
+      .filter((approval) => approval.status !== "pending" && (!firstDate || approval.createdAt >= firstDate))
+      .map((approval) => ({ type: "approval", id: `approval:${approval.id}`, createdAt: approval.createdAt, approval }));
+    if (!receipts.length) return messages;
+    return [...messages, ...receipts].sort((left, right) => {
+      const date = (entry: ConversationTimelineEntry) => isA2AActivity(entry) ? entry.entries[0]!.createdAt : entry.createdAt;
+      return Date.parse(date(left)) - Date.parse(date(right));
+    });
+  }, [channel?.kind, mainMessages, channelApprovals]);
+
   const activeThread = useMemo(() => {
     if (!threadRootId) return null;
     const existing = threads.get(threadRootId);
@@ -325,11 +341,7 @@ export default function ConversationScreen() {
   const activeRun = snapshot.runs.find(
     (run) => run.channelId === channelId && isActiveRunStatus(run.status)
   );
-  const approvals = activeRun
-    ? snapshot.approvals.filter(
-        (approval) => approval.runId === activeRun.id && approval.status === "pending"
-      )
-    : [];
+
   const name = bot?.name ?? channel?.name ?? "OpenTeam";
   const draftAccountIdentity =
     getAuthAccountIdForServer(connection.serverUrl) ??
@@ -350,12 +362,12 @@ export default function ConversationScreen() {
       const highest = highestVisibleSequence(
         viewableItems.map(({ isViewable, item }) => ({
           isViewable,
-          item: isA2AActivity(item) ? (item.entries.at(-1) ?? null) : item,
+          item: isApprovalEntry(item) ? null : isA2AActivity(item) ? (item.entries.at(-1) ?? null) : item,
         }))
       );
       if (highest) setVisibleReadSequence((current) => laterSequence(current, highest));
       const ids = viewableItems.flatMap(({ isViewable, item }) =>
-        !isViewable
+        !isViewable || isApprovalEntry(item)
           ? []
           : isA2AActivity(item)
             ? item.entries.map((message) => message.id)
@@ -586,7 +598,7 @@ export default function ConversationScreen() {
               {...MOBILE_VIRTUAL_LIST_TUNING}
               ref={listRef}
               data={timeline}
-              keyExtractor={(entry) => (isA2AActivity(entry) ? entry.id : messageRenderKey(entry))}
+              keyExtractor={(entry) => ((isA2AActivity(entry) || isApprovalEntry(entry)) ? entry.id : messageRenderKey(entry))}
               contentContainerStyle={[
                 styles.messages,
                 timeline.length === 0 && styles.emptyMessages,
@@ -631,11 +643,12 @@ export default function ConversationScreen() {
               scrollEventThrottle={32}
               viewabilityConfig={viewabilityConfig}
               renderItem={({ item, index }) => {
+                if (isApprovalEntry(item)) return <ApprovalCard approval={item.approval} onResolve={async () => {}} />;
                 const first = isA2AActivity(item) ? item.entries[0]! : item;
                 const last = isA2AActivity(item) ? item.entries.at(-1)! : item;
                 const previous = timeline[index - 1];
                 const previousMessage =
-                  previous && (isA2AActivity(previous) ? previous.entries.at(-1) : previous);
+                  previous && !isApprovalEntry(previous) ? (isA2AActivity(previous) ? previous.entries.at(-1) : previous) : undefined;
                 const frameProps = {
                   createdAt: first.createdAt,
                   previousCreatedAt: previousMessage?.createdAt,
@@ -776,7 +789,7 @@ export default function ConversationScreen() {
                     <ApprovalCard
                       key={approval.id}
                       approval={approval}
-                      onResolve={(decision) => resolveApproval(approval.id, decision)}
+                      onResolve={(decision, selectedItems) => resolveApproval(approval.id, decision, selectedItems)}
                     />
                   ))}
                   <WorkingIndicator

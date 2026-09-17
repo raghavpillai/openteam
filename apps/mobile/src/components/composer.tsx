@@ -53,6 +53,7 @@ export interface ReplyTarget {
 
 export interface ComposerRecovery {
   id: string;
+  message?: string;
   text: string;
   attachments: AssetRef[];
   stagedAttachments?: DurableStagedAttachment[];
@@ -380,6 +381,7 @@ export function Composer({
     draftHydrationGuardRef.current.markEdited("attachments");
     draftHydrationGuardRef.current.markEdited("reply");
     setText(recovery.text);
+    setAttachmentError(recovery.message ? `Message not sent: ${clientErrorMessage(recovery.message, "Try again.")}` : null);
     appliedRecoveryNonce.current = recovery.id;
     setRecoveryNonce(recovery.id);
     setInputHeight(Math.min(102, Math.max(22, recovery.text.split("\n").length * 22)));
@@ -1136,6 +1138,7 @@ export function Composer({
             <View style={styles.inputWrap}>
               <TextInput
                 accessibilityLabel={inputPlaceholder}
+                editable={!sending}
                 blurOnSubmit={false}
                 keyboardAppearance={theme.dark ? "dark" : "light"}
                 multiline

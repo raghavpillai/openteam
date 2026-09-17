@@ -1,7 +1,8 @@
 import type { ExternalDraft } from "@openteam/contracts/external-draft";
 import { externalDraftReviewEdits } from "@openteam/client-core/external-draft";
+import { clientErrorMessage } from "@openteam/product-core/redaction";
 import type { ChannelMessageView } from "@openteam/contracts";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Pressable, Text, TextInput, View } from "react-native";
 import { useOpenTeam } from "../state/openteam-context";
 import { useTheme } from "../theme";
@@ -18,13 +19,18 @@ export function MobileExternalDraftCard({
   const theme = useTheme();
   const api = useOpenTeam();
   const metadata = message.metadata as Record<string, unknown>;
-  const state = String(metadata.cardState ?? "pending");
+  const [unconfirmed, setUnconfirmed] = useState(false);
+  const state = unconfirmed ? "unconfirmed" : String(metadata.cardState ?? "pending");
   const [body, setBody] = useState(draft.body);
   const [subject, setSubject] = useState(draft.subject ?? "");
   const [to, setTo] = useState(draft.to?.join(", ") ?? "");
   const [cc, setCc] = useState(draft.cc?.join(", ") ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  useEffect(() => {
+    if (metadata.cardState && metadata.cardState !== "pending") setUnconfirmed(false);
+    if (metadata.cardState === "sent") setError("");
+  }, [metadata.cardState]);
   const act = async (action: "save" | "send" | "cancel" | "refresh") => {
     if (inFlight.current || readOnly) return;
     inFlight.current = true;
@@ -32,9 +38,20 @@ export function MobileExternalDraftCard({
     setError("");
     try {
       const edits = externalDraftReviewEdits(draft, action, { body, subject, to, cc });
-      await api.mutateExternalDraft(message.id, action, edits);
+      if (!(await api.mutateExternalDraft(message.id, action, edits))) {
+        throw new Error("Connection is not ready. Reconnect to check this draft.");
+      }
+      setUnconfirmed(false);
     } catch (error) {
-      setError(error instanceof Error ? error.message : "The draft could not be updated");
+      setError(clientErrorMessage(error, "The draft could not be updated"));
+      if (action === "send") {
+        setUnconfirmed(true);
+        try {
+          if (await api.mutateExternalDraft(message.id, "refresh")) setUnconfirmed(false);
+        } catch {
+          /* Reconcile before enabling another send. */
+        }
+      }
     } finally {
       inFlight.current = false;
       setBusy(false);
@@ -66,7 +83,7 @@ export function MobileExternalDraftCard({
   const button = (label: string, action: "save" | "send" | "cancel" | "refresh") => (
     <Pressable
       accessibilityRole="button"
-      disabled={busy || readOnly}
+      disabled={busy || readOnly || (action === "send" && !body.trim())}
       onPress={() => void act(action)}
       style={{ padding: 10, opacity: busy || readOnly ? 0.4 : 1 }}
     >
@@ -115,12 +132,24 @@ export function MobileExternalDraftCard({
       ) : (
         <>
           <Text style={text}>
-            {String(metadata.outcomeText ?? (state === "sending" ? "Sending…" : state))}
+            {String(
+              state === "unconfirmed"
+                ? "Delivery needs checking. No automatic resend will occur."
+                : state === "sent"
+                  ? "Message sent"
+                  : state === "dismissed"
+                    ? "Draft cancelled"
+                    : (metadata.outcomeText ?? (state === "sending" ? "Sending…" : state))
+            )}
           </Text>
-          {state === "sending" && button("Check delivery", "refresh")}
+          {(state === "sending" || state === "unconfirmed") && button("Check delivery", "refresh")}
         </>
       )}
-      {!!error && <Text style={{ color: "#dc2626" }}>{error}</Text>}
+      {!!error && (
+        <Text accessibilityRole="alert" style={{ color: theme.danger }}>
+          {error}
+        </Text>
+      )}
     </View>
   );
 }

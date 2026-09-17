@@ -1,3 +1,4 @@
+import { PermissionIcon } from "./permission-icon";
 import { MobileReviewActionCard } from "./review-action-card";
 import { parseExternalDraft } from "@openteam/contracts/external-draft";
 import { MobileExternalDraftCard } from "./external-draft-card";
@@ -12,6 +13,7 @@ import {
   projectRichMessage,
   richMessageMetadata as record,
   resolvedWidgetAnswers,
+  createWidgetDraftStore,
   secretRequestPlaceholder,
   toggleWidgetSelection,
   widgetOptionLetter,
@@ -19,9 +21,10 @@ import {
 } from "@openteam/product-core/rich-messages";
 import { SymbolView } from "expo-symbols";
 import { router } from "expo-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
-import { useTheme } from "../theme";
+import { useOpenTeam } from "../state/openteam-context";
+import { usePermissionTheme as useTheme } from "./permission-theme";
 import { BotMark } from "./bot-mark";
 import { parseUserForm } from "@openteam/contracts/review-cards";
 import { MobileUserFormCard } from "./user-form-card";
@@ -30,6 +33,8 @@ const actionFailed = (message: string) => {
   void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
   Alert.alert("Couldn’t complete the action", message);
 };
+
+const widgetDrafts = createWidgetDraftStore();
 
 export function MobileRichMessageCard({
   message,
@@ -51,17 +56,51 @@ export function MobileRichMessageCard({
   readOnly?: boolean;
 }) {
   const theme = useTheme();
+  const { connection } = useOpenTeam();
   const projection = projectRichMessage(message);
   const metadata = projection?.metadata ?? record(message.metadata);
   const [local, setLocal] = useState(metadata);
+  const widgetFlight = useRef(false);
+  const [widgetError, setWidgetError] = useState("");
+  const authoritative = useRef(metadata);
+  authoritative.current = metadata;
   useEffect(() => setLocal(record(message.metadata)), [message.metadata]);
+  const draftKey = JSON.stringify([connection?.serverUrl ?? "", message.id, metadata.widget]);
+  useEffect(() => {
+    if (
+      !widgetFlight.current &&
+      (local.widgetDismissed === true || typeof local.respondedValue === "string")
+    )
+      widgetDrafts.clear(draftKey);
+  }, [draftKey, local]);
   const cardStyle = [styles.card, { backgroundColor: theme.assistantBubble }];
-  if (metadata.type === "review-action" && metadata.review && typeof metadata.review === "object") return <MobileReviewActionCard message={message} readOnly={readOnly} />;
+  if (metadata.type === "review-action" && metadata.review && typeof metadata.review === "object")
+    return <MobileReviewActionCard message={message} readOnly={readOnly} />;
   if (metadata.type === "external-draft") {
-    try { return <MobileExternalDraftCard draft={parseExternalDraft(metadata.draft)} message={message} readOnly={readOnly} />; } catch { return null; }
+    try {
+      return (
+        <MobileExternalDraftCard
+          draft={parseExternalDraft(metadata.draft)}
+          message={message}
+          readOnly={readOnly}
+        />
+      );
+    } catch {
+      return null;
+    }
   }
   if (metadata.type === "user-form") {
-    try { return <MobileUserFormCard form={parseUserForm(metadata.form)} message={message} readOnly={readOnly} />; } catch { return null; }
+    try {
+      return (
+        <MobileUserFormCard
+          form={parseUserForm(metadata.form)}
+          message={message}
+          readOnly={readOnly}
+        />
+      );
+    } catch {
+      return null;
+    }
   }
 
   if (projection?.kind === "cloud-agent") {
@@ -81,6 +120,8 @@ export function MobileRichMessageCard({
       <SecretCard
         description={typeof request.description === "string" ? request.description : undefined}
         label={request.label}
+        name={typeof request.name === "string" ? request.name : undefined}
+        scope={request.scope === "personal" ? "personal" : "bot"}
         onSubmit={async (value) => {
           const accepted = await onSecretSubmit(value);
           if (accepted) setLocal((current) => ({ ...current, secretProvided: true }));
@@ -113,55 +154,15 @@ export function MobileRichMessageCard({
   const widget = projection.widget;
   if (local.widgetDismissed === true) {
     return (
-      <View accessibilityLabel="Dismissed question" style={[cardStyle, styles.dismissedFullCard]}>
-        <View style={[styles.headingRow, styles.cardHeading]}>
-          <View style={styles.headingCopy}>
-            <Text style={[styles.title, { color: theme.text }]}>{widget.prompt}</Text>
-            {widget.helpText ? (
-              <Text style={[styles.help, { color: theme.textMuted }]}>{widget.helpText}</Text>
-            ) : null}
-          </View>
+      <View
+        accessibilityLabel="Dismissed question"
+        style={[cardStyle, { flexDirection: "row", alignItems: "flex-start", gap: 8 }]}
+      >
+        <Text style={[styles.title, { color: theme.textMuted }]}>{widget.prompt}</Text>
+        <View style={[styles.dismissedPill, { backgroundColor: theme.surfacePressed }]}>
+          <View style={[styles.dismissedDot, { backgroundColor: theme.textMuted }]} />
+          <Text style={[styles.dismissed, { color: theme.textMuted }]}>Dismissed</Text>
         </View>
-        <View
-          style={[
-            styles.optionGroup,
-            styles.dismissedOptions,
-            { backgroundColor: theme.surfacePressed, borderColor: theme.separator },
-          ]}
-        >
-          {widget.options.map((option, index) => (
-            <View
-              key={`${optionValue(option)}:${option.label}`}
-              style={[
-                styles.option,
-                index > 0 && {
-                  borderTopColor: theme.separator,
-                  borderTopWidth: StyleSheet.hairlineWidth,
-                },
-              ]}
-            >
-              <View
-                style={[
-                  styles.key,
-                  { backgroundColor: theme.surfacePressed, borderColor: theme.separator },
-                ]}
-              >
-                <Text style={[styles.keyText, { color: theme.textMuted }]}>
-                  {widgetOptionLetter(index)}
-                </Text>
-              </View>
-              <View style={styles.optionCopy}>
-                <Text style={[styles.optionLabel, { color: theme.text }]}>{option.label}</Text>
-                {option.description ? (
-                  <Text style={[styles.help, { color: theme.textMuted }]}>
-                    {option.description}
-                  </Text>
-                ) : null}
-              </View>
-            </View>
-          ))}
-        </View>
-        <Text style={[styles.dismissedStatus, { color: theme.textMuted }]}>dismissed</Text>
       </View>
     );
   }
@@ -170,9 +171,6 @@ export function MobileRichMessageCard({
     return (
       <View accessibilityLabel="Answered question" style={cardStyle}>
         <Text style={[styles.title, { color: theme.text }]}>{widget.prompt}</Text>
-        {widget.helpText ? (
-          <Text style={[styles.help, { color: theme.textMuted }]}>{widget.helpText}</Text>
-        ) : null}
         <View
           accessibilityLabel="Your answer"
           style={[
@@ -188,51 +186,76 @@ export function MobileRichMessageCard({
               key={answer.value}
               style={[
                 styles.option,
+                { padding: 9 },
                 index > 0 && {
                   borderTopColor: theme.separator,
-                  borderTopWidth: StyleSheet.hairlineWidth,
+                  borderTopWidth: 0.5,
                 },
               ]}
             >
-              <Text style={[styles.optionLabel, { color: theme.text }]}>{answer.label}</Text>
-              <SymbolView name="checkmark" size={15} tintColor={theme.success} />
+              {answer.optionIndex !== null && (
+                <View
+                  style={[
+                    styles.key,
+                    {
+                      opacity: 0.4,
+                      backgroundColor: theme.surfacePressed,
+                      borderColor: theme.separator,
+                    },
+                  ]}
+                >
+                  <Text style={[styles.keyText, { color: theme.textMuted }]}>
+                    {widgetOptionLetter(answer.optionIndex)}
+                  </Text>
+                </View>
+              )}
+              <Text style={[styles.optionLabel, { color: theme.textMuted }]}>{answer.label}</Text>
+              <PermissionIcon name="check" size={14} tintColor={theme.textMuted} />
             </View>
           ))}
         </View>
       </View>
     );
   }
+  const answerWidget = async (value?: string) => {
+    if (widgetFlight.current || readOnly) return false;
+    const previous = authoritative.current;
+    widgetFlight.current = true;
+    setWidgetError("");
+    setLocal({
+      ...previous,
+      ...(value === undefined ? { widgetDismissed: true } : { respondedValue: value }),
+    });
+    try {
+      const accepted =
+        value === undefined ? await onWidgetDismiss() : await onWidgetResponse(value);
+      if (!accepted && authoritative.current === previous) {
+        setLocal(previous);
+        setWidgetError(
+          "We couldn't confirm your answer. Check the card in a moment before trying again."
+        );
+      }
+      if (accepted) widgetDrafts.clear(draftKey);
+      return accepted;
+    } catch {
+      if (authoritative.current === previous) {
+        setLocal(previous);
+        setWidgetError(
+          "We couldn't confirm your answer. Check the card in a moment before trying again."
+        );
+      }
+      return false;
+    } finally {
+      widgetFlight.current = false;
+    }
+  };
   return (
     <WidgetCard
+      draftKey={draftKey}
+      initialError={widgetError}
       readOnly={readOnly}
-      onDismiss={async () => {
-        const previous = local;
-        setLocal({ ...previous, widgetDismissed: true });
-        try {
-          const accepted = await onWidgetDismiss();
-          if (!accepted) {
-            setLocal(previous);
-            actionFailed("This question could not be dismissed. Please try again.");
-          }
-        } catch {
-          setLocal(previous);
-          actionFailed("This question could not be dismissed. Please try again.");
-        }
-      }}
-      onSubmit={async (value) => {
-        const previous = local;
-        setLocal({ ...previous, respondedValue: value });
-        try {
-          const accepted = await onWidgetResponse(value);
-          if (!accepted) {
-            setLocal(previous);
-            actionFailed("Your answer could not be sent. Please try again.");
-          }
-        } catch {
-          setLocal(previous);
-          actionFailed("Your answer could not be sent. Please try again.");
-        }
-      }}
+      onDismiss={() => answerWidget()}
+      onSubmit={answerWidget}
       widget={widget}
     />
   );
@@ -255,11 +278,13 @@ function ComputerHandoffCard({
 }) {
   const theme = useTheme();
   const [pending, setPending] = useState(false);
+  const inFlight = useRef(false);
   const [localState, setLocalState] = useState(state);
   useEffect(() => setLocalState(state), [state]);
   const terminal = ["completed", "skipped", "dismissed"].includes(localState);
   const mutate = async (action: "start" | "skip") => {
-    if (pending || readOnly || terminal || (action === "start" && !botId)) return;
+    if (inFlight.current || readOnly || terminal || (action === "start" && !botId)) return;
+    inFlight.current = true;
     setPending(true);
     try {
       const accepted = await onMutate(action);
@@ -278,6 +303,7 @@ function ComputerHandoffCard({
     } catch {
       actionFailed("The computer request could not be updated. Please try again.");
     } finally {
+      inFlight.current = false;
       setPending(false);
     }
   };
@@ -403,34 +429,53 @@ function CloudAgentCard({
 }
 
 function WidgetCard({
+  draftKey,
+  initialError,
   widget,
   onSubmit,
   onDismiss,
   readOnly,
 }: {
+  draftKey: string;
+  initialError?: string;
   widget: RichMessageWidget;
-  onSubmit: (value: string) => Promise<void>;
-  onDismiss: () => Promise<void>;
+  onSubmit: (value: string) => Promise<boolean>;
+  onDismiss: () => Promise<boolean>;
   readOnly: boolean;
 }) {
   const theme = useTheme();
-  const [selected, setSelected] = useState<Set<string>>(() => new Set());
-  const [custom, setCustom] = useState("");
+  const [selected, setSelected] = useState<Set<string>>(
+    () => new Set(widgetDrafts.read(draftKey).selected)
+  );
+  const [custom, setCustom] = useState(() => widgetDrafts.read(draftKey).custom);
+  useEffect(() => {
+    if (!readOnly) widgetDrafts.write(draftKey, custom, selected);
+  }, [draftKey, readOnly, custom, selected]);
   const [pending, setPending] = useState(false);
+  const inFlight = useRef(false);
+  const [error, setError] = useState(initialError ?? "");
   const answer = useMemo(
     () => widgetResponseValue(widget, selected, custom),
     [custom, selected, widget]
   );
-  const submit = async (value: string) => {
-    if (!value || pending || readOnly) return;
+  const mutate = async (value?: string) => {
+    if (inFlight.current || readOnly || (value !== undefined && !value.trim())) return;
+    inFlight.current = true;
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setPending(true);
+    setError("");
     try {
-      await onSubmit(value);
+      const accepted = value === undefined ? await onDismiss() : await onSubmit(value);
+      if (!accepted)
+        setError("We couldn't confirm your answer. Check this card before trying again.");
+    } catch {
+      setError("We couldn't confirm your answer. Check this card before trying again.");
     } finally {
+      inFlight.current = false;
       setPending(false);
     }
   };
+  const submit = (value: string) => mutate(value);
   return (
     <View
       accessibilityLabel={widget.prompt}
@@ -448,17 +493,17 @@ function WidgetCard({
           accessibilityRole="button"
           disabled={pending || readOnly}
           hitSlop={8}
-          onPress={() => void onDismiss()}
+          onPress={() => void mutate()}
           style={styles.dismissButton}
         >
-          <SymbolView name="xmark" size={13} tintColor={theme.textMuted} />
+          <PermissionIcon name="close" size={12} tintColor={theme.textMuted} />
         </Pressable>
       </View>
       <View
         style={[
           styles.optionGroup,
           {
-            backgroundColor: theme.surfacePressed,
+            backgroundColor: theme.options,
             borderColor: theme.separator,
           },
         ]}
@@ -473,7 +518,7 @@ function WidgetCard({
               disabled={pending || readOnly}
               key={`${value}\u0000${option.label}\u0000${option.description ?? ""}\u0000${option.style ?? ""}`}
               onPress={() => {
-                if (readOnly) return;
+                if (readOnly || inFlight.current) return;
                 if (!widget.multiSelect) {
                   void submit(value);
                   return;
@@ -483,12 +528,13 @@ function WidgetCard({
               }}
               style={({ pressed }) => [
                 styles.option,
+                { padding: 9 },
                 index > 0 && {
                   borderTopColor: theme.separator,
-                  borderTopWidth: StyleSheet.hairlineWidth,
+                  borderTopWidth: 0.5,
                 },
                 (pressed || active) && {
-                  backgroundColor: theme.surfacePressed,
+                  backgroundColor: theme.selected,
                 },
               ]}
             >
@@ -496,8 +542,8 @@ function WidgetCard({
                 style={[
                   styles.key,
                   {
-                    backgroundColor: theme.surfacePressed,
-                    borderColor: theme.separator,
+                    backgroundColor: theme.selected,
+                    borderColor: theme.dark ? "#fcfcfc0d" : "#1414140d",
                   },
                 ]}
               >
@@ -513,7 +559,7 @@ function WidgetCard({
                   </Text>
                 ) : null}
               </View>
-              {active ? <SymbolView name="checkmark" size={15} tintColor={theme.text} /> : null}
+              {active ? <PermissionIcon name="check" size={14} tintColor={theme.text} /> : null}
             </Pressable>
           );
         })}
@@ -530,13 +576,16 @@ function WidgetCard({
             onChangeText={setCustom}
             onSubmitEditing={() => void submit(widget.multiSelect ? answer : custom.trim())}
             placeholder="Type your own answer"
-            placeholderTextColor={theme.textFaint}
+            placeholderTextColor={theme.dark ? "#fcfcfc8f" : "#1414149c"}
             returnKeyType="send"
             secureTextEntry={false}
             spellCheck={false}
             style={[
               styles.input,
               {
+                flex: 1,
+                minWidth: 0,
+                lineHeight: 20,
                 backgroundColor: theme.field,
                 borderColor: theme.border,
                 color: theme.text,
@@ -556,6 +605,11 @@ function WidgetCard({
           ) : null}
         </View>
       ) : null}
+      {error ? (
+        <Text accessibilityRole="alert" style={{ color: theme.danger }}>
+          {error}
+        </Text>
+      ) : null}
       {widget.multiSelect && answer ? (
         <View style={styles.submitRow}>
           <Pressable
@@ -574,12 +628,16 @@ function WidgetCard({
 
 function SecretCard({
   label,
+  name,
+  scope,
   description,
   provided,
   onSubmit,
   readOnly,
 }: {
   label: string;
+  name?: string;
+  scope?: "personal" | "bot";
   description?: string;
   provided: boolean;
   onSubmit: (value: string) => Promise<boolean>;
@@ -588,32 +646,76 @@ function SecretCard({
   const theme = useTheme();
   const [value, setValue] = useState("");
   const [pending, setPending] = useState(false);
+  const inFlight = useRef(false);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    if (provided) {
+      setValue("");
+      setError("");
+    }
+  }, [provided]);
+  const botSecret = !!name && scope !== "personal";
+  const variableNote = name ? (
+    <Text style={{ color: theme.textMuted, fontSize: 14, lineHeight: 22, letterSpacing: -0.15 }}>
+      Saved securely {botSecret ? "for all users of this bot" : "for you"} and exposed as {name}
+    </Text>
+  ) : null;
   return (
     <View
       accessibilityLabel={label}
       style={[styles.card, styles.secretCard, { backgroundColor: theme.assistantBubble }]}
     >
+      {!provided && error ? (
+        <Text accessibilityRole="alert" style={{ color: theme.danger }}>
+          {error}
+        </Text>
+      ) : null}
       {provided ? (
         <View style={styles.savedCardRow}>
           <View style={styles.headingCopy}>
-            <Text style={[styles.title, { color: theme.text }]}>{label}</Text>
+            <Text
+              style={[styles.title, { color: theme.text, lineHeight: 22, letterSpacing: -0.15 }]}
+            >
+              {label}
+            </Text>
+            {variableNote}
             <Text style={[styles.help, { color: theme.textMuted }]}>
-              Saved securely and kept private.
+              {botSecret
+                ? "Saved for all users of this bot. Configure in bot settings."
+                : "Saved securely and kept private."}
             </Text>
           </View>
-          <View style={[styles.savedRow, { backgroundColor: theme.surfacePressed }]}>
-            <SymbolView name="checkmark" size={15} tintColor={theme.success} />
-            <Text style={[styles.optionLabel, { color: theme.success }]}>Saved</Text>
+          <View style={[styles.savedRow, { backgroundColor: theme.successBackground }]}>
+            <PermissionIcon name="check" size={12} tintColor={theme.success} />
+            <Text
+              style={{
+                color: theme.success,
+                fontSize: 14,
+                lineHeight: 22,
+                letterSpacing: -0.15,
+                fontWeight: "500",
+              }}
+            >
+              Saved
+            </Text>
           </View>
         </View>
       ) : (
         <>
-          <Text style={[styles.title, { color: theme.text }]}>{label}</Text>
-          {description ? (
-            <Text style={[styles.help, { color: theme.textMuted }]}>{description}</Text>
-          ) : null}
+          <View>
+            <Text
+              style={[styles.title, { color: theme.text, lineHeight: 22, letterSpacing: -0.15 }]}
+            >
+              {label}
+            </Text>
+            {variableNote}
+            {description ? (
+              <Text style={[styles.help, { color: theme.textMuted }]}>{description}</Text>
+            ) : null}
+          </View>
           <View style={styles.secretRow}>
             <TextInput
+              accessibilityLabel={label}
               autoCapitalize="none"
               autoComplete="off"
               editable={!pending && !readOnly}
@@ -639,7 +741,9 @@ function SecretCard({
               disabled={!value.trim() || pending || readOnly}
               onPress={async () => {
                 const secret = value;
-                if (!secret.trim() || pending || readOnly) return;
+                if (!secret.trim() || inFlight.current || readOnly || provided) return;
+                inFlight.current = true;
+                setError("");
                 setValue("");
                 setPending(true);
                 try {
@@ -647,12 +751,13 @@ function SecretCard({
                   if (accepted) {
                     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
                   } else {
-                    actionFailed("This value could not be saved. Enter it again to retry.");
+                    setError("This value could not be saved. Enter it again to retry.");
                   }
                 } catch {
-                  // The field remains empty so a submitted secret never lingers in memory.
-                  actionFailed("This value could not be saved. Enter it again to retry.");
+                  // Keep the submitted value out of the rendered field after every attempt.
+                  setError("This value could not be saved. Enter it again to retry.");
                 } finally {
+                  inFlight.current = false;
                   setPending(false);
                 }
               }}
@@ -666,7 +771,7 @@ function SecretCard({
             </Pressable>
           </View>
           <View style={styles.securityRow}>
-            <SymbolView name="checkmark.shield" size={15} tintColor={theme.textMuted} />
+            <PermissionIcon name="shield" size={12} tintColor={theme.textMuted} />
             <Text style={[styles.securityText, { color: theme.textMuted }]}>
               Stored securely, never shown to your Bot.
             </Text>
@@ -690,8 +795,8 @@ const styles = StyleSheet.create({
   cardHeading: {},
   headingRow: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
   headingCopy: { flex: 1 },
-  title: { flex: 1, fontSize: 14, lineHeight: 20, fontWeight: "600" },
-  help: { fontSize: 13, lineHeight: 18 },
+  title: { flex: 1, fontSize: 14, lineHeight: 20, fontWeight: "500" },
+  help: { fontSize: 14, lineHeight: 20 },
   dismissedFullCard: {},
   dismissedOptions: { opacity: 0.48 },
   dismissedPill: {
@@ -703,7 +808,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
   },
   dismissedDot: { width: 6, height: 6, borderRadius: 999 },
-  dismissed: { fontSize: 12, fontWeight: "600" },
+  dismissed: { fontSize: 13, lineHeight: 18, fontWeight: "500" },
   dismissedStatus: { opacity: 0.48, fontSize: 13, lineHeight: 18 },
   dismissButton: {
     width: 20,
@@ -715,7 +820,7 @@ const styles = StyleSheet.create({
     width: "100%",
     overflow: "hidden",
     borderRadius: 8,
-    borderWidth: StyleSheet.hairlineWidth,
+    borderWidth: 1,
   },
   option: {
     padding: 8,
@@ -724,21 +829,22 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   key: {
-    minWidth: 18,
+    width: 18,
+    height: 20,
     borderRadius: 4,
-    borderWidth: StyleSheet.hairlineWidth,
+    borderWidth: 1,
     paddingHorizontal: 4,
     paddingVertical: 1,
     alignItems: "center",
     justifyContent: "center",
   },
-  keyText: { fontSize: 11, fontWeight: "600" },
+  keyText: { fontSize: 11, lineHeight: 16, letterSpacing: 0.055, fontWeight: "400" },
   optionCopy: { flex: 1 },
-  optionLabel: { flex: 1, fontSize: 14, lineHeight: 19, fontWeight: "600" },
-  customRow: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
+  optionLabel: { flex: 1, fontSize: 14, lineHeight: 20, fontWeight: "400" },
+  customRow: { width: "100%", flexDirection: "row", alignItems: "flex-start", gap: 8 },
   input: {
     minHeight: 32,
-    borderWidth: StyleSheet.hairlineWidth,
+    borderWidth: 1,
     borderRadius: 8,
     paddingHorizontal: 10,
     paddingVertical: 5,
@@ -752,7 +858,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  submitText: { fontSize: 14, fontWeight: "600" },
+  submitText: { fontSize: 14, lineHeight: 20, fontWeight: "400" },
   handoffActions: { flexDirection: "row", justifyContent: "flex-end", gap: 8 },
   handoffSecondary: {
     minHeight: 32,
@@ -763,8 +869,8 @@ const styles = StyleSheet.create({
   secretCard: {},
   secretRow: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
   secretInput: { flex: 1 },
-  securityRow: { flexDirection: "row", alignItems: "flex-start", gap: 4 },
-  securityText: { flex: 1, fontSize: 12, lineHeight: 17 },
+  securityRow: { flexDirection: "row", alignItems: "center", gap: 4 },
+  securityText: { flex: 1, fontSize: 13, lineHeight: 18, letterSpacing: -0.08 },
   savedCardRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   savedRow: {
     flexDirection: "row",
@@ -772,7 +878,7 @@ const styles = StyleSheet.create({
     gap: 4,
     borderRadius: 999,
     paddingHorizontal: 12,
-    paddingVertical: 4,
+    paddingVertical: 6,
   },
   cloudAgentCard: { borderRadius: 20, padding: 10, gap: 10 },
   cloudAgentHeading: {

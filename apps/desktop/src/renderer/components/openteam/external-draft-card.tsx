@@ -1,6 +1,7 @@
 import type { ChannelMessageView } from "@openteam/contracts";
 import type { ExternalDraft } from "@openteam/contracts/external-draft";
 import { externalDraftReviewEdits } from "@openteam/client-core/external-draft";
+import { clientErrorMessage } from "@openteam/product-core/redaction";
 import { useEffect, useRef, useState } from "react";
 import { api } from "../../client/openteam-api";
 export function ExternalDraftCard({
@@ -19,7 +20,11 @@ export function ExternalDraftCard({
   const [cc, setCc] = useState(draft.cc?.join(", ") ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  useEffect(() => setState(String(metadata.cardState ?? "pending")), [metadata.cardState]);
+  const [outcome, setOutcome] = useState<string | null>(null);
+  useEffect(() => {
+    setState(String(metadata.cardState ?? "pending"));
+    if (metadata.cardState === "sent") setError("");
+  }, [metadata.cardState]);
   const act = async (action: "save" | "send" | "cancel" | "refresh") => {
     if (inFlight.current) return;
     inFlight.current = true;
@@ -29,8 +34,22 @@ export function ExternalDraftCard({
       const edits = externalDraftReviewEdits(draft, action, { body, subject, to, cc });
       const result = await api.mutateExternalDraft(message.id, action, edits);
       setState(String((result.message.metadata as Record<string, unknown>).cardState));
+      const nextMetadata = result.message.metadata as Record<string, unknown>;
+      setOutcome(typeof nextMetadata.outcomeText === "string" ? nextMetadata.outcomeText : null);
     } catch (error) {
-      setError(error instanceof Error ? error.message : "The draft could not be updated");
+      setError(clientErrorMessage(error, "The draft could not be updated"));
+      if (action === "send") {
+        setState("unconfirmed");
+        try {
+          const checked = await api.mutateExternalDraft(message.id, "refresh");
+          const next = checked.message.metadata as Record<string, unknown>;
+          setState(String(next.cardState ?? "unconfirmed"));
+          setOutcome(typeof next.outcomeText === "string" ? next.outcomeText : null);
+          if (next.cardState === "sent") setError("");
+        } catch {
+          /* Keep Check delivery available until the server can confirm the result. */
+        }
+      }
     } finally {
       inFlight.current = false;
       setBusy(false);
@@ -43,7 +62,8 @@ export function ExternalDraftCard({
       <p className="text-xs text-muted-foreground">
         Account:{" "}
         {String(
-          (metadata.draft as { verification?: { identity: string } }).verification?.identity ??
+          (metadata.draft as { verification?: { identity: string } } | undefined)?.verification
+            ?.identity ??
             draft.from ??
             draft.providerIdentifier
         )}
@@ -126,11 +146,12 @@ export function ExternalDraftCard({
                 : state === "dismissed"
                   ? "Draft cancelled"
                   : String(
-                      metadata.outcomeText ??
+                      outcome ??
+                        metadata.outcomeText ??
                         "Delivery needs checking. No automatic resend will occur."
                     )}
           </p>
-          {state === "sending" && (
+          {(state === "sending" || state === "unconfirmed") && (
             <button disabled={busy} onClick={() => void act("refresh")}>
               Check delivery
             </button>

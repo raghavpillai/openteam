@@ -22,7 +22,7 @@ test("iOS message motion preserves OpenTeam entrance and acknowledgement semanti
   expect(bubble).toContain("pending ? 0.55 : 1");
   expect(bubble).toContain('transformOrigin: isUser ? "100% 100%" : "0% 100%"');
   expect(route).toContain(
-    "keyExtractor={(entry) => (isA2AActivity(entry) ? entry.id : messageRenderKey(entry))}"
+    "keyExtractor={(entry) => ((isA2AActivity(entry) || isApprovalEntry(entry)) ? entry.id : messageRenderKey(entry))}"
   );
   expect(route).toContain("knownMessageKeys.current = new Set(mainMessages.map(messageRenderKey))");
   expect(route).not.toContain("knownMessageKeys.current.add");

@@ -219,6 +219,7 @@ export function ThreadSheet({
     setComposerRecovery({
       id: recovery.nonce,
       text: recovery.payload.content,
+      message: recovery.failure?.message,
       attachments: recovery.payload.attachments,
       stagedAttachments: recovery.payload.stagedAttachments,
       replyTarget: recovery.payload.replyToMessageId

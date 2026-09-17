@@ -1,3 +1,4 @@
+import "./permission-cards.css";
 import { ReviewActionCard } from "./review-action-card";
 import { parseExternalDraft } from "@openteam/contracts/external-draft";
 import { ExternalDraftCard } from "./external-draft-card";
@@ -13,6 +14,7 @@ import {
   parseRichMessageSecretRequest as secretFrom,
   parseRichMessageWidget as widgetFrom,
   resolvedWidgetAnswers,
+  createWidgetDraftStore,
   richMessageMetadata as record,
   secretRequestPlaceholder,
   toggleWidgetSelection,
@@ -21,8 +23,10 @@ import {
   widgetOptionValue as optionValue,
   widgetResponseValue,
 } from "@openteam/product-core/rich-messages";
-import { Check, MonitorUp, ShieldCheck, X } from "lucide-react";
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { MonitorUp } from "lucide-react";
+import { PermissionIcon } from "./permission-icon";
+import { Fragment, useEffect, useId, useMemo, useRef, useState } from "react";
+import { API_BASE } from "../../client/http";
 import { api } from "../../client/openteam-api";
 import { cn } from "../../lib/cn";
 import { openComputerHandoff } from "../../lib/computer-handoff";
@@ -96,36 +100,31 @@ const registerRichWidgetShortcut = (root: HTMLElement, handle: RichWidgetShortcu
 };
 
 const cardClass =
-  "rich-message-card flex w-full max-w-[520px] min-w-0 flex-col gap-2.5 overflow-hidden rounded-2xl bg-[#eeeeee] p-3 text-[13px] text-[#141414] dark:bg-[#262626] dark:text-[#f0f0f0]";
-const secondaryText = "text-[#141414]/60 dark:text-[#f0f0f0]/60";
-const optionGroupClass =
-  "flex w-full min-w-0 flex-col overflow-hidden rounded-lg border-[0.5px] border-solid border-black/10 bg-[#e8e8e8] dark:border-white/10 dark:bg-white/[0.035]";
-const optionRowClass =
-  "flex h-auto w-full min-w-0 items-center justify-start gap-2 p-2 text-left outline-offset-[-2px] disabled:opacity-50";
-const optionKeyClass =
-  "inline-flex min-w-[18px] shrink-0 items-center justify-center rounded border-[0.5px] border-solid border-black/[0.05] bg-black/[0.045] px-1 py-px text-[11px] font-medium text-black/60 dark:border-white/[0.06] dark:bg-white/[0.07] dark:text-white/60";
+  "permission-surface rich-message-card flex w-full max-w-[520px] min-w-0 flex-col gap-2.5 overflow-hidden rounded-2xl bg-[#eeeeee] p-3 text-[13px] text-[#141414] dark:bg-[#262626] dark:text-[#f0f0f0]";
+const secondaryText = "permission-secondary";
+const optionGroupClass = "widget-options";
+const optionRowClass = "widget-option";
+const optionKeyClass = "widget-option-key";
 
 function ResolvedWidget({ metadata, widget }: { metadata: RichMetadata; widget: Widget }) {
   const answer = String(metadata.respondedValue ?? "");
   const answers = resolvedWidgetAnswers(widget, answer);
   return (
-    <section className={cardClass} data-rich-widget-state="resolved" role="group">
+    <section className={cn(cardClass, "permission-widget")} data-rich-widget-state="resolved" role="group">
       <p className="m-0 min-w-0 text-[14px] font-medium leading-5">{widget.prompt}</p>
       <div aria-label="Your answer" className={optionGroupClass} role="group">
-        {answers.map(({ value, label, optionIndex }) => {
+        {answers.map(({ value, label, optionIndex }, index) => {
           return (
-            <div
-              className="flex w-full min-w-0 items-center gap-2 border-t-[0.5px] border-black/10 p-2 first:border-t-0 dark:border-white/10"
-              key={value}
-            >
+            <Fragment key={value}>
+            {index > 0 && <div className="widget-divider" />}
+            <div className="widget-option widget-option-resolved">
               {optionIndex !== null ? (
-                <span className={cn(optionKeyClass, "opacity-40")}>
-                  {widgetOptionLetter(optionIndex)}
-                </span>
+                <span className={optionKeyClass}><span>{widgetOptionLetter(optionIndex)}</span></span>
               ) : null}
-              <span className="min-w-0 flex-1 font-medium">{label}</span>
-              <Check aria-hidden="true" className="size-4 shrink-0" strokeWidth={2} />
+              <span className="widget-option-label min-w-0 flex-1">{label}</span>
+              <span className="inline-flex w-4 shrink-0"><PermissionIcon name="check" className="size-3.5" /></span>
             </div>
+            </Fragment>
           );
         })}
       </div>
@@ -137,24 +136,21 @@ function DismissedWidget({ widget }: { widget: Widget }) {
   return (
     <section
       aria-disabled="true"
-      className={cn(cardClass, "flex-row items-center gap-2")}
+      className={cn(cardClass, "permission-widget flex-row items-start gap-2")}
       data-rich-widget-state="dismissed"
       role="group"
     >
-      <p className={cn("m-0 min-w-0 flex-1 font-medium leading-5", secondaryText)}>
+      <p className={cn("m-0 min-w-0 flex-1 text-[14px] font-medium leading-5", secondaryText)}>
         {widget.prompt}
       </p>
-      <span
-        className={cn(
-          "inline-flex shrink-0 items-center gap-1.5 rounded-full bg-black/[0.04] px-2 py-0.5 text-xs font-medium dark:bg-white/[0.04]",
-          secondaryText
-        )}
-      >
-        <span aria-hidden="true" className="size-1.5 rounded-full bg-current" /> Dismissed
+      <span className="widget-dismissed-pill">
+        <span aria-hidden="true" className="size-1.5 rounded-full bg-current" /> <span>Dismissed</span>
       </span>
     </section>
   );
 }
+
+const widgetDrafts = createWidgetDraftStore();
 
 function WidgetCard({
   message,
@@ -166,53 +162,72 @@ function WidgetCard({
   widget: Widget;
 }) {
   const [localMetadata, setLocalMetadata] = useState(metadata);
-  const [selected, setSelected] = useState<Set<string>>(() => new Set());
-  const [custom, setCustom] = useState("");
+  const draftKey = JSON.stringify([API_BASE, message.id, widget]);
+  const [selected, setSelected] = useState<Set<string>>(
+    () => new Set(widgetDrafts.read(draftKey).selected)
+  );
+  const [custom, setCustom] = useState(() => widgetDrafts.read(draftKey).custom);
   const [pending, setPending] = useState(false);
+  const inFlight = useRef(false);
+  const [error, setError] = useState("");
+  const authoritative = useRef(metadata);
+  authoritative.current = metadata;
   const rootRef = useRef<HTMLFormElement>(null);
   const shortcutHandlerRef = useRef<RichWidgetShortcutHandler>(() => undefined);
   const titleId = useId();
-  useEffect(() => setLocalMetadata(metadata), [metadata]);
+  useEffect(() => {
+    setLocalMetadata(metadata);
+    setError("");
+  }, [metadata]);
   const settled =
     typeof localMetadata.respondedValue === "string" || localMetadata.widgetDismissed === true;
+  useEffect(() => {
+    if (settled && !pending) widgetDrafts.clear(draftKey);
+    else widgetDrafts.write(draftKey, custom, selected);
+  }, [draftKey, settled, pending, custom, selected]);
   const selectedValue = useMemo(
     () => widgetResponseValue(widget, selected, custom),
     [custom, selected, widget]
   );
 
-  const submit = async (value: string) => {
-    if (!value || pending || settled) return;
-    const previous = localMetadata;
+  const mutate = async (value?: string) => {
+    if (inFlight.current || settled || (value !== undefined && !value.trim())) return;
+    inFlight.current = true;
+    const previous = authoritative.current;
     setPending(true);
-    setLocalMetadata({ ...previous, respondedValue: value });
+    setError("");
+    setLocalMetadata({ ...previous, ...(value === undefined ? { widgetDismissed: true } : { respondedValue: value }) });
     try {
-      const result = await api.respondToWidget(message.id, value);
-      if (!result.accepted) setLocalMetadata(previous);
-      else setLocalMetadata(record(result.message.metadata));
+      const result =
+        value === undefined
+          ? await api.dismissWidget(message.id)
+          : await api.respondToWidget(message.id, value);
+      // Even a rejected duplicate contains the authoritative answer/dismissal.
+      if (authoritative.current === previous) {
+        const next = record(result.message.metadata);
+        setLocalMetadata(next);
+        if (
+          !result.accepted &&
+          typeof next.respondedValue !== "string" &&
+          next.widgetDismissed !== true
+        )
+          setError("We couldn't confirm your answer. Check this card before trying again.");
+      }
     } catch {
-      setLocalMetadata(previous);
+      if (authoritative.current === previous) {
+        setLocalMetadata(previous);
+        setError("We couldn't confirm your answer. Check the card in a moment before trying again.");
+      }
     } finally {
+      inFlight.current = false;
       setPending(false);
     }
   };
-
-  const dismiss = async () => {
-    if (pending || settled) return;
-    const previous = localMetadata;
-    setPending(true);
-    setLocalMetadata({ ...previous, widgetDismissed: true });
-    try {
-      const result = await api.dismissWidget(message.id);
-      if (!result.accepted) setLocalMetadata(previous);
-      else setLocalMetadata(record(result.message.metadata));
-    } catch {
-      setLocalMetadata(previous);
-    } finally {
-      setPending(false);
-    }
-  };
+  const submit = (value: string) => mutate(value);
+  const dismiss = () => mutate();
 
   const choose = (value: string) => {
+    if (inFlight.current || settled) return;
     if (!widget.multiSelect) {
       void submit(value);
       return;
@@ -243,7 +258,7 @@ function WidgetCard({
   return (
     <form
       aria-labelledby={titleId}
-      className={cardClass}
+      className={cn(cardClass, "permission-widget")}
       data-rich-widget-state="pending"
       onSubmit={(event) => {
         event.preventDefault();
@@ -262,13 +277,13 @@ function WidgetCard({
         </div>
         <button
           aria-label="Dismiss question"
-          className="grid size-5 shrink-0 place-items-center rounded-md hover:bg-black/[0.06] disabled:opacity-40 dark:hover:bg-white/[0.07]"
+          className="grid size-5 shrink-0 place-items-center rounded-md text-[#141414]/60 dark:text-[#f0f0f0]/60 hover:bg-black/[0.06] disabled:opacity-40 dark:hover:bg-white/[0.07]"
           disabled={pending}
           onClick={() => void dismiss()}
           title="Dismiss without answering"
           type="button"
         >
-          <X className="size-3.5" />
+          <PermissionIcon name="close" className="size-3" />
         </button>
       </div>
       <div className={optionGroupClass}>
@@ -276,42 +291,45 @@ function WidgetCard({
           const value = optionValue(option);
           const active = selected.has(value);
           return (
+            <Fragment key={`${value}-${index}`}>
+            {index > 0 && <div className="widget-divider" />}
             <button
               aria-keyshortcuts={widgetOptionLetter(index).toLowerCase()}
               aria-pressed={widget.multiSelect ? active : undefined}
-              className={cn(
-                optionRowClass,
-                "border-t-[0.5px] border-black/10 first:border-t-0 hover:bg-black/[0.055] dark:border-white/10 dark:hover:bg-white/[0.055]",
-                active && "bg-black/[0.105] dark:bg-white/[0.105]"
-              )}
+              className={optionRowClass}
               disabled={pending}
               key={`${value}-${index}`}
               onClick={() => choose(value)}
               type="button"
             >
-              <span className={optionKeyClass}>{widgetOptionLetter(index)}</span>
+              <span className={optionKeyClass}><span>{widgetOptionLetter(index)}</span></span>
               <span className="min-w-0 flex-1">
-                <span className="block font-medium">{option.label}</span>
+                <span className="widget-option-label">{option.label}</span>
                 {option.description ? (
-                  <span className={cn("mt-0.5 block leading-4", secondaryText)}>
+                  <span className="widget-option-description">
                     {option.description}
                   </span>
                 ) : null}
               </span>
-              {active ? <Check className="size-4 shrink-0" /> : null}
+              {active ? <span className="inline-flex w-4 shrink-0"><PermissionIcon name="check" className="size-3.5" /></span> : null}
             </button>
+            </Fragment>
           );
         })}
       </div>
       {widget.allowCustom ? (
         <div className="flex w-full min-w-0 items-start gap-2">
-          <div className="flex min-h-8 min-w-0 flex-1 basis-0 items-stretch rounded-lg border border-black/15 bg-white transition-colors duration-150 focus-within:border-black/30 dark:border-white/15 dark:bg-black/20 dark:focus-within:border-white/30">
+          <div className="widget-custom">
             <textarea
               aria-label="Custom answer"
               autoComplete="off"
-              className="block min-w-0 flex-1 resize-none overflow-y-hidden border-0 bg-transparent px-2.5 py-[5px] font-inherit text-current outline-none placeholder:text-black/35 dark:placeholder:text-white/35"
+
               disabled={pending}
-              onChange={(event) => setCustom(event.currentTarget.value)}
+              onChange={(event) => {
+                setCustom(event.currentTarget.value);
+                event.currentTarget.style.height = "auto";
+                event.currentTarget.style.height = `${event.currentTarget.scrollHeight}px`;
+              }}
               onKeyDown={(event) => {
                 if (event.key === "Enter" && !event.shiftKey) {
                   event.preventDefault();
@@ -326,7 +344,7 @@ function WidgetCard({
           </div>
           {custom.trim() && !widget.multiSelect ? (
             <button
-              className="rich-message-submit h-8 shrink-0 rounded-lg bg-[#141414] px-2.5 font-medium text-white disabled:opacity-40 dark:bg-[#f0f0f0] dark:text-[#181818]"
+              className="rich-message-submit widget-submit shrink-0 disabled:opacity-40"
               disabled={pending}
               type="submit"
             >
@@ -335,10 +353,15 @@ function WidgetCard({
           ) : null}
         </div>
       ) : null}
+      {error ? (
+        <p role="alert" className="m-0 text-xs text-red-600">
+          {error}
+        </p>
+      ) : null}
       {widget.multiSelect && selectedValue ? (
         <div className="flex w-full justify-end">
           <button
-            className="h-8 rounded-lg bg-[#141414] px-2.5 font-medium text-white disabled:opacity-40 dark:bg-[#f0f0f0] dark:text-[#181818]"
+            className="widget-submit disabled:opacity-40"
             disabled={pending}
             type="submit"
           >
@@ -362,19 +385,30 @@ function SecretCard({
   const [provided, setProvided] = useState(metadata.secretProvided === true);
   const [value, setValue] = useState("");
   const [pending, setPending] = useState(false);
+  const inFlight = useRef(false);
+  const [error, setError] = useState("");
+  const authoritative = useRef(metadata);
+  authoritative.current = metadata;
   const titleId = useId();
-  useEffect(() => setProvided(metadata.secretProvided === true), [metadata.secretProvided]);
+  useEffect(() => {
+    setProvided(metadata.secretProvided === true);
+    if (metadata.secretProvided === true) {
+      setValue("");
+      setError("");
+    }
+  }, [metadata.secretProvided]);
+  const botSecret = !!request.name && request.scope !== "personal";
+  const variableNote = request.name ? <span className="permission-copy">Saved securely {botSecret ? "for all users of this bot" : "for you"} and exposed as {request.name}</span> : null;
   if (provided) {
     return (
-      <section aria-labelledby={titleId} className={cn(cardClass, "flex-row items-center gap-2")}>
-        <span className="flex min-w-0 flex-1 flex-col">
-          <span className="text-[14px] font-medium" id={titleId}>
-            {request.label}
-          </span>
-          <span className={cn("text-[14px]", secondaryText)}>Saved securely and kept private.</span>
+      <section aria-labelledby={titleId} className={cn(cardClass, "permission-receipt")}>
+        <span className="permission-receipt-copy">
+          <span className="permission-title" id={titleId}>{request.label}</span>
+          {variableNote}
+          <span className="permission-copy">{botSecret ? "Saved for all users of this bot. Configure in bot settings." : "Saved securely and kept private."}</span>
         </span>
-        <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-500/10 px-3 py-1 font-medium text-emerald-600 dark:text-emerald-400">
-          <Check className="size-4" /> Saved
+        <span className="permission-pill permission-pill-success">
+          <PermissionIcon name="check" className="size-3" /><span className="permission-pill-label">Saved</span>
         </span>
       </section>
     );
@@ -382,39 +416,46 @@ function SecretCard({
   return (
     <form
       aria-labelledby={titleId}
-      className={cardClass}
+      className={cn(cardClass, "permission-secret")}
       onSubmit={async (event) => {
         event.preventDefault();
         const secret = value;
-        if (!secret.trim() || pending) return;
+        if (!secret.trim() || inFlight.current || provided) return;
+        inFlight.current = true;
+        const previous = authoritative.current;
+        setError("");
         setValue("");
         setPending(true);
         try {
           const result = await api.submitSecret(message.id, secret);
           if (result.accepted || record(result.message.metadata).secretProvided === true) {
             setProvided(true);
+          } else if (authoritative.current === previous) {
+            setError("This value could not be saved. Enter it again to retry.");
           }
         } catch {
-          // The card intentionally stays open with an empty secure field so the
-          // value is never retained in renderer state after a submit attempt.
+          if (authoritative.current === previous)
+            setError(
+              "We couldn't confirm this value was saved. Check this card before entering it again."
+            );
         } finally {
+          inFlight.current = false;
           setPending(false);
         }
       }}
     >
       <div className="flex min-w-0 flex-col">
-        <div className="text-[14px] font-medium" id={titleId}>
-          {request.label}
-        </div>
+        <span className="permission-title" id={titleId}>{request.label}</span>
+        {variableNote}
         {request.description ? (
-          <p className={cn("m-0 leading-5", secondaryText)}>{request.description}</p>
+          <p className="permission-copy">{request.description}</p>
         ) : null}
       </div>
       <div className="flex w-full min-w-0 items-start gap-2">
         <input
           aria-labelledby={titleId}
           autoComplete="off"
-          className="h-8 min-w-0 flex-1 rounded-lg border border-black/15 bg-white px-2.5 py-1.5 font-inherit outline-none transition-colors duration-150 placeholder:text-black/35 focus:border-black/30 dark:border-white/15 dark:bg-black/20 dark:placeholder:text-white/35 dark:focus:border-white/30"
+          className="permission-input h-8 min-w-0 flex-1"
           disabled={pending}
           onChange={(event) => setValue(event.currentTarget.value)}
           placeholder={secretRequestPlaceholder(request.label)}
@@ -423,18 +464,23 @@ function SecretCard({
           value={value}
         />
         <button
-          className="h-8 shrink-0 rounded-lg bg-[#141414] px-2.5 font-medium text-white disabled:opacity-35 dark:bg-[#f0f0f0] dark:text-[#181818]"
+          className="permission-button permission-button-primary"
           disabled={!value.trim() || pending}
           type="submit"
         >
           Save securely
         </button>
       </div>
-      <div className={cn("flex min-w-0 items-start gap-1 text-xs", secondaryText)}>
-        <span className="mt-[3px] flex shrink-0">
-          <ShieldCheck className="size-4" />
+      {error ? (
+        <p role="alert" className="m-0 text-xs text-red-600">
+          {error}
+        </p>
+      ) : null}
+      <div className={cn("permission-secret-note flex min-w-0 items-center gap-1 text-[13px] leading-[18px] tracking-[-0.08px]", secondaryText)}>
+        <span className="flex shrink-0">
+          <PermissionIcon name="shield" className="size-3" />
         </span>
-        <span className="min-w-0">Stored securely, never shown to your Bot.</span>
+        <span className="min-w-0">{botSecret ? "Saved for all users of this bot. Never shown to other bots." : "Stored securely, never shown to your Bot."}</span>
       </div>
     </form>
   );
@@ -453,7 +499,12 @@ function ComputerHandoffCard({
     typeof metadata.computerHandoffState === "string" ? metadata.computerHandoffState : "requested"
   );
   const [pending, setPending] = useState(false);
+  const inFlight = useRef(false);
+  const [error, setError] = useState("");
+  const authoritative = useRef(metadata);
+  authoritative.current = metadata;
   useEffect(() => {
+    setError("");
     setState(
       typeof metadata.computerHandoffState === "string"
         ? metadata.computerHandoffState
@@ -461,26 +512,30 @@ function ComputerHandoffCard({
     );
   }, [metadata.computerHandoffState]);
   const terminal = ["completed", "skipped", "dismissed"].includes(state);
-  const start = async () => {
-    if (!message.senderBotId || pending || terminal) return;
+  const mutate = async (action: "start" | "skip") => {
+    if (inFlight.current || terminal || (action === "start" && !message.senderBotId)) return;
+    inFlight.current = true;
+    const previous = authoritative.current;
     setPending(true);
+    setError("");
     try {
-      const result = await api.mutateComputerHandoff(message.id, "start");
+      const result = await api.mutateComputerHandoff(message.id, action);
+      if (authoritative.current !== previous) return;
       const next = record(result.message.metadata).computerHandoffState;
-      setState(typeof next === "string" ? next : "active");
-      openComputerHandoff({ botId: message.senderBotId, messageId: message.id });
+      if (typeof next === "string") setState(next);
+      if (action === "start" && next === "active" && message.senderBotId) {
+        openComputerHandoff({ botId: message.senderBotId, messageId: message.id });
+      } else if (
+        !result.accepted &&
+        !["completed", "skipped", "dismissed"].includes(String(next))
+      ) {
+        setError("The computer request could not be updated. Check this card before trying again.");
+      }
+    } catch {
+      if (authoritative.current === previous)
+        setError("The computer request could not be updated. Check this card before trying again.");
     } finally {
-      setPending(false);
-    }
-  };
-  const skip = async () => {
-    if (pending || terminal) return;
-    setPending(true);
-    try {
-      const result = await api.mutateComputerHandoff(message.id, "skip");
-      const next = record(result.message.metadata).computerHandoffState;
-      setState(typeof next === "string" ? next : "skipped");
-    } finally {
+      inFlight.current = false;
       setPending(false);
     }
   };
@@ -493,6 +548,11 @@ function ComputerHandoffCard({
           <p className={cn("m-0 mt-0.5 leading-5", secondaryText)}>{handoff.reason}</p>
         </div>
       </div>
+      {!terminal && error ? (
+        <p role="alert" className="m-0 text-xs text-red-600">
+          {error}
+        </p>
+      ) : null}
       {terminal ? (
         <div className={cn("text-xs font-medium capitalize", secondaryText)}>{state}</div>
       ) : (
@@ -500,7 +560,7 @@ function ComputerHandoffCard({
           <button
             className="h-8 rounded-lg px-2.5 font-medium text-foreground-secondary hover:bg-black/5 disabled:opacity-40 dark:hover:bg-white/5"
             disabled={pending}
-            onClick={() => void skip()}
+            onClick={() => void mutate("skip")}
             type="button"
           >
             Skip
@@ -508,7 +568,7 @@ function ComputerHandoffCard({
           <button
             className="h-8 rounded-lg bg-[#141414] px-2.5 font-medium text-white disabled:opacity-40 dark:bg-[#f0f0f0] dark:text-[#181818]"
             disabled={pending || !message.senderBotId}
-            onClick={() => void start()}
+            onClick={() => void mutate("start")}
             type="button"
           >
             {state === "active" ? "Return to computer" : "Take over"}
@@ -521,12 +581,21 @@ function ComputerHandoffCard({
 
 export function RichMessage({ message }: { message: ChannelMessageView }) {
   const metadata = record(message.metadata);
-  if (metadata.type === "review-action" && metadata.review && typeof metadata.review === "object") return <ReviewActionCard message={message} />;
+  if (metadata.type === "review-action" && metadata.review && typeof metadata.review === "object")
+    return <ReviewActionCard message={message} />;
   if (metadata.type === "external-draft") {
-    try { return <ExternalDraftCard draft={parseExternalDraft(metadata.draft)} message={message} />; } catch { return null; }
+    try {
+      return <ExternalDraftCard draft={parseExternalDraft(metadata.draft)} message={message} />;
+    } catch {
+      return null;
+    }
   }
   if (metadata.type === "user-form") {
-    try { return <UserFormCard form={parseUserForm(metadata.form)} message={message} />; } catch { return null; }
+    try {
+      return <UserFormCard form={parseUserForm(metadata.form)} message={message} />;
+    } catch {
+      return null;
+    }
   }
   if (metadata.type === "widget") {
     const widget = widgetFrom(metadata.widget);

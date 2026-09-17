@@ -7,6 +7,7 @@ import {
 import { durableSendStatusLabel } from "@openteam/product-core/durable-delivery";
 import {
   a2aProjectionFor,
+  messageMetadata,
   messageDisplayProjection,
   messageReactionPills,
   QUICK_REACTIONS,
@@ -14,6 +15,7 @@ import {
   withStableOccurrenceKeys,
 } from "@openteam/product-core/messages";
 import { formatOfflineDeliveryLabel } from "@openteam/product-core/timestamps";
+import { clientErrorMessage } from "@openteam/product-core/redaction";
 import * as Clipboard from "expo-clipboard";
 import * as Haptics from "../haptics";
 import { ReplySwipe } from "../reply-swipe";
@@ -159,6 +161,8 @@ export function MessageBubble({
   showSpeakerName?: boolean;
 }) {
   const theme = useChatTheme();
+  const deliveryMetadata = messageMetadata(message).clientDelivery as {failure?: {message?: unknown}} | undefined;
+  const deliveryError = typeof deliveryMetadata?.failure?.message === "string" ? clientErrorMessage(deliveryMetadata.failure.message, "The message could not be sent.") : null;
   const [actionsOpen, setActionsOpen] = useState(false);
   const [viewerItem, setViewerItem] = useState<ImageViewerItem | null>(null);
   const routineEvent = useMemo(() => routineChangedEventFor(message), [message]);
@@ -725,7 +729,7 @@ export function MessageBubble({
                 </Pressable>
               ) : null}
             </View>
-          ) : sentOfflineLabel ? (
+          ) : deliveryState === "pending" ? <Text accessibilityLiveRegion="polite" style={{color: theme.textMuted, fontSize: 11}}>Sending…</Text> : sentOfflineLabel ? (
             <Animated.Text
               accessibilityElementsHidden={currentSentOfflineAtMs === null}
               importantForAccessibility={
@@ -751,6 +755,7 @@ export function MessageBubble({
               {sentOfflineLabel}
             </Animated.Text>
           ) : null}
+          {deliveryState === "failed" && deliveryError ? <Text accessibilityRole="alert" style={{color: theme.danger, fontSize: 11}}>{deliveryError}</Text> : null}
         </Animated.View>
       </GestureDetector>
 

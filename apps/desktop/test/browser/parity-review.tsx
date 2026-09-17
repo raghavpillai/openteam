@@ -21,11 +21,15 @@ api.reviewRecipe = async () => recipe as never;
 const root = createRoot(document.getElementById('root')!);
 function Cards() { return <><h1>Review before continuing</h1><main><section id="form"><UserFormCard message={fm} form={form} /></section><section id="draft"><ExternalDraftCard message={dm} draft={draft} /></section><section id="template"><ReviewActionCard message={tm} /></section></main></>; }
 root.render(<React.StrictMode><Cards /></React.StrictMode>);
-const button = (scope: string, text: string) => [...document.querySelectorAll<HTMLButtonElement>(`${scope} button`)].find((node) => node.textContent === text)!;
+const button = (scope: string, text: string) => {
+ const found = [...document.querySelectorAll<HTMLButtonElement>(`${scope} button`)].find((node) => node.textContent === text);
+ if (!found) throw new Error(`Missing ${scope} button: ${text}`);
+ return found;
+};
 function setValue(node: HTMLInputElement | HTMLTextAreaElement, value: string) { const prototype = node.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype; Object.getOwnPropertyDescriptor(prototype, 'value')!.set!.call(node, value); node.dispatchEvent(new Event('input', { bubbles: true })); }
 (async () => {
  await wait(180);
- assert(document.querySelector<HTMLInputElement>('#form input[type=email]')!.value === 'prefilled@example.com', 'nonsecret prefill');
+ assert(document.querySelector<HTMLInputElement>('#form input[name=username]')!.value === 'prefilled@example.com', 'nonsecret prefill');
  assert(button('#form', 'Continue').disabled, 'required password blocks submission');
  setValue(document.querySelector<HTMLInputElement>('#form input[type=password]')!, 'fixture-secret'); await wait();
  assert(!document.body.textContent!.includes('fixture-secret'), 'password is masked');
@@ -38,7 +42,7 @@ function setValue(node: HTMLInputElement | HTMLTextAreaElement, value: string) {
  assert(delivered.find((item) => item.action === 'save').edits.body === 'Human reviewed body', 'edited body saved');
  assert(!delivered.some((item) => item.action === 'send'), 'save does not send');
  button('#draft', 'Send').click(); await wait(); assert(delivered.filter((item) => item.action === 'send').length === 1, 'reviewed send once'); assert(document.querySelector('#draft')!.textContent!.includes('Message sent'), 'confirmed send state');
- button('#template', 'Publish').click(); await wait(); document.querySelector<HTMLButtonElement>('#template [aria-label="Template actions"]')!.click(); await wait(); [...document.querySelectorAll<HTMLElement>('[role=menuitem]')].find((node) => node.textContent === 'Unpublish')!.click(); await wait();
+ button('#template', 'Publish').click(); await wait(); document.querySelector<HTMLButtonElement>('#template [aria-label="Template actions"]')!.dispatchEvent(new KeyboardEvent('keydown', {key:'ArrowDown', bubbles:true})); await wait(); [...document.querySelectorAll<HTMLElement>('[role=menuitem]')].find((node) => node.textContent === 'Unpublish')!.click(); await wait();
  assert(!!button('#template', 'Publish'), 'revoked template can be republished'); button('#template', 'Publish').click(); await wait();
  button('#template', 'Use template').click(); await wait(); assert(reviews.join(',') === 'approve,unpublish,approve,import', 'template action lifecycle');
  assert(!JSON.stringify(localStorage).includes('fixture-secret'), 'values absent from local storage');

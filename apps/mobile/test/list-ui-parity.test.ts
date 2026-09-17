@@ -257,9 +257,8 @@ describe("mobile virtual-list UI parity", () => {
     expect(profile).toContain("paddingTop: 0");
     expect(marketplace).toContain("<NativeToolbarButton");
     expect(marketplace).not.toContain("styles.filterMenu");
-    expect(richCard).toContain("styles.dismissedOptions");
-    expect(richCard).toContain("dismissedOptions: { opacity: 0.48 }");
-    expect(richCard).toContain("dismissedFullCard: {}");
+    expect(richCard).toContain('accessibilityLabel="Dismissed question"');
+    expect(richCard).toContain("styles.dismissedPill");
     expect(richCard).toContain('projection?.kind === "cloud-agent"');
     expect(richCard).toMatch(/>\s*Publish\s*<\/Text>/);
     expect(richCard).toMatch(/>\s*View details\s*<\/Text>/);
@@ -335,7 +334,7 @@ describe("mobile virtual-list UI parity", () => {
     expect(bubble).toContain("height: 60");
     expect(bubble).toContain("height: 44");
     const richCard = await source("src/components/rich-message-card.tsx");
-    expect(richCard).toContain("if (!value || pending || readOnly) return");
+    expect(richCard.includes("if (inFlight.current || readOnly || (value !== undefined && !value.trim())) return")).toBe(true);
     expect(richCard).toContain("editable={!pending && !readOnly}");
     expect(richCard).toContain("disabled={!value.trim() || pending || readOnly}");
   });
@@ -392,7 +391,10 @@ describe("mobile virtual-list UI parity", () => {
   test("plugin management covers install, accounts, removal, and Bot access", async () => {
     const manager = await source("src/components/plugin-manager-sheet.tsx");
 
-    expect(manager).toContain("installPlugin(plugin.key");
+    expect(manager).toContain("useInstallPlugin(");
+    expect(await source("src/components/plugins/use-install-plugin.ts")).toContain(
+      "installPlugin(plugin.key"
+    );
     expect(manager).toContain("uninstallPlugin(install.pluginKey)");
     expect(manager).toContain("authenticatePlugin(connection.id)");
     expect(manager).toContain("disconnectPlugin(connection.id)");

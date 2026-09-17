@@ -257,13 +257,13 @@ interface OpenTeamState {
     values: Record<string, string | boolean>,
     saveToVault?: boolean
   ) => Promise<boolean>;
-  dismissUserForm: (messageId: string) => Promise<boolean>;
+  dismissUserForm: (messageId: string, mode?: "dismissed" | "escalated") => Promise<boolean>;
   userFormPrefill: (messageId: string) => Promise<Record<string, string>>;
   mutateComputerHandoff: (
     messageId: string,
     action: "start" | "complete" | "skip" | "dismiss"
   ) => Promise<boolean>;
-  resolveApproval: (approvalId: string, decision: "accept" | "decline") => Promise<void>;
+  resolveApproval: (approvalId: string, decision: "accept" | "decline" | "always_allow" | "never", selectedItems?: readonly string[]) => Promise<void>;
   cancelRun: (runId: string) => Promise<void>;
   screenStatus: (botId: string) => Promise<ScreenStatusView>;
   screenAction: (botId: string, input: ScreenActionInput) => Promise<ScreenStatusView>;
@@ -1974,7 +1974,7 @@ export function OpenTeamProvider({ children }: { children: React.ReactNode }) {
       if (!client) throw new Error("Connect OpenTeam to a server before authorizing plugins.");
       const operationClient = client;
       const epoch = connectionEpochRef.current;
-      const result = await operationClient.authenticatePlugin(connectionId, true);
+      const result = await operationClient.authenticatePlugin(connectionId);
       if (!operationIsCurrent(operationClient, epoch)) {
         throw new Error("The OpenTeam server changed while authorizing this plugin.");
       }
@@ -2004,6 +2004,9 @@ export function OpenTeamProvider({ children }: { children: React.ReactNode }) {
       }
     ) => {
       if (!client || !sendController) {
+        if (connection.serverUrl) {
+          throw new Error("Message not sent. The server connection is not ready. Your draft is still here; reconnect and try again.");
+        }
         const localId = mutationId();
         acceptChannelMessages(channelId, [
           {
@@ -2044,7 +2047,7 @@ export function OpenTeamProvider({ children }: { children: React.ReactNode }) {
         },
       });
     },
-    [acceptChannelMessages, client, sendController]
+    [acceptChannelMessages, client, connection.serverUrl, sendController]
   );
 
   const resendFailedMessage = useCallback(
@@ -2167,11 +2170,11 @@ export function OpenTeamProvider({ children }: { children: React.ReactNode }) {
       action: "approve" | "cancel" | "refresh" | "import" | "unpublish",
       clientId?: string
     ) => {
-      if (!client) return;
+      if (!client) throw new Error("Connect OpenTeam before resolving this review.");
       const operationClient = client;
       const epoch = connectionEpochRef.current;
       const result = await client.mutateReviewAction(messageId, action, clientId);
-      if (!acceptRichMessageMutation(result.message, operationClient, epoch)) return;
+      if (!acceptRichMessageMutation(result.message, operationClient, epoch)) throw new Error("The connection changed. Check the review before trying again.");
       return { botId: result.botId };
     },
     [acceptRichMessageMutation, client]
@@ -2201,12 +2204,14 @@ export function OpenTeamProvider({ children }: { children: React.ReactNode }) {
     [acceptRichMessageMutation, client]
   );
   const dismissUserForm = useCallback(
-    async (messageId: string) => {
+    async (messageId: string, mode: "dismissed" | "escalated" = "dismissed") => {
       if (!client) return false;
       const operationClient = client;
       const epoch = connectionEpochRef.current;
-      const result = await client.dismissUserForm(messageId);
-      return acceptRichMessageMutation(result.message, operationClient, epoch);
+      const result = await client.dismissUserForm(messageId, mode);
+      const current = acceptRichMessageMutation(result.message, operationClient, epoch);
+      const metadata = result.message?.metadata as Record<string, unknown> | undefined;
+      return current && (mode !== "escalated" || metadata?.cardState === "escalated");
     },
     [acceptRichMessageMutation, client]
   );
@@ -2221,7 +2226,7 @@ export function OpenTeamProvider({ children }: { children: React.ReactNode }) {
       const operationClient = client;
       const epoch = connectionEpochRef.current;
       const result = await operationClient.mutateComputerHandoff(messageId, action);
-      return acceptRichMessageMutation(result.message, operationClient, epoch) && result.accepted;
+      return acceptRichMessageMutation(result.message, operationClient, epoch) && (result.accepted || (action === "start" && (result.message.metadata as Record<string, unknown>)?.computerHandoffState === "active"));
     },
     [acceptRichMessageMutation, client]
   );
@@ -2285,22 +2290,35 @@ export function OpenTeamProvider({ children }: { children: React.ReactNode }) {
   );
 
   const resolveApproval = useCallback(
-    async (approvalId: string, decision: "accept" | "decline") => {
+    async (approvalId: string, decision: "accept" | "decline" | "always_allow" | "never", selectedItems?: readonly string[]) => {
+      if (!client) throw new Error("Connect OpenTeam before resolving this approval.");
       const operationClient = client;
       const epoch = connectionEpochRef.current;
+      let authorizationUrl: string | null = null;
+      let resolvedStatus: string | null = null;
       if (operationClient) {
-        await operationClient.resolveApproval(approvalId, decision);
-        if (!operationIsCurrent(operationClient, epoch)) return;
+        const outcome = await operationClient.resolveApproval(approvalId, decision, selectedItems);
+        if (!operationIsCurrent(operationClient, epoch)) throw new Error("The connection changed. Check the approval before trying again.");
+        const body = outcome && typeof outcome === "object" ? outcome as Record<string, unknown> : {};
+        if (typeof body.status === "string") resolvedStatus = body.status;
+        const result = body.result && typeof body.result === "object" ? body.result as Record<string, unknown> : {};
+        if (typeof result.authorizationUrl === "string") {
+          const url = new URL(result.authorizationUrl);
+          if (["https:", "http:"].includes(url.protocol)) authorizationUrl = url.href;
+        }
       }
-      setSnapshot((current) => ({
+      if (resolvedStatus) setSnapshot((current) => ({
         ...current,
         approvals: current.approvals.map((approval) =>
           approval.id === approvalId
-            ? { ...approval, status: decision === "accept" ? "accepted" : "declined" }
+            ? { ...approval, status: resolvedStatus! }
             : approval
         ),
       }));
-      if (operationClient && operationIsCurrent(operationClient, epoch)) await refresh();
+      if (operationClient && operationIsCurrent(operationClient, epoch)) {
+        try { if (authorizationUrl) await Linking.openURL(authorizationUrl); }
+        finally { await refresh(); }
+      }
     },
     [client, operationIsCurrent, refresh]
   );

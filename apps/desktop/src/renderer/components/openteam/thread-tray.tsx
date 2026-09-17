@@ -6,17 +6,12 @@ import {
   durableSendIsInFlight,
   durableSendMessage,
   durableSendRenderKey,
-  durableSendStatusLabel,
 } from "@openteam/product-core/durable-delivery";
 import {
   messageDisplayProjection,
   messageRenderKey,
   threadReplyCountLabel,
 } from "@openteam/product-core/messages";
-import {
-  formatOfflineDeliveryLabel,
-  formatOfflineDeliveryTimestamp,
-} from "@openteam/product-core/timestamps";
 import { File, X } from "lucide-react";
 import {
   lazy,
@@ -26,14 +21,10 @@ import {
   useMemo,
   useRef,
   useState,
-  useSyncExternalStore,
 } from "react";
 import { api } from "../../client/openteam-api";
 import { useVirtualWindow } from "../../hooks/use-virtual-window";
-import {
-  desktopSendTransportSnapshot,
-  subscribeDesktopSendTransport,
-} from "../../lib/durable-sends";
+import { DeliveryFooter } from "./delivery-footer";
 import type { MentionOption } from "../../lib/mentions";
 import { MessageContent, MessageResponse } from "../ai-elements/message";
 import { PromptInput } from "../ai-elements/prompt-input";
@@ -55,20 +46,13 @@ const ThreadMessage = ({
   botById: ReadonlyMap<string, BotView>;
   delivery: DurableSendRecord | null;
   message: ChannelMessageView;
-  onCancelSend: (nonce: string) => void;
-  onDeleteSend: (nonce: string) => void;
-  onResendSend: (nonce: string) => void;
+  onCancelSend: (nonce: string) => Promise<unknown>;
+  onDeleteSend: (nonce: string) => Promise<unknown>;
+  onResendSend: (nonce: string) => Promise<unknown>;
 }) => {
   const bot = message.senderBotId ? botById.get(message.senderBotId) : undefined;
   const from = message.sender === "user" ? "user" : "assistant";
   const pending = delivery ? durableSendIsInFlight(delivery) : false;
-  const transportDown = useSyncExternalStore(
-    subscribeDesktopSendTransport,
-    desktopSendTransportSnapshot,
-    desktopSendTransportSnapshot
-  );
-  const offlineTime =
-    delivery?.queuedAtMs != null ? formatOfflineDeliveryTimestamp(delivery.queuedAtMs) : null;
   const display = messageDisplayProjection(message);
   const stagedImages = display.stagedAttachments.filter(
     (attachment) => attachment.kind === "image" && attachment.previewUri
@@ -85,10 +69,6 @@ const ThreadMessage = ({
       alt: attachment.alt ?? attachment.fileName,
     })),
   ];
-  const [retainedOfflineTime, setRetainedOfflineTime] = useState(offlineTime);
-  useEffect(() => {
-    if (offlineTime !== null) setRetainedOfflineTime(offlineTime);
-  }, [offlineTime]);
   return (
     <div
       className={`thread-message-row flex items-end gap-2 ${
@@ -134,45 +114,7 @@ const ThreadMessage = ({
             <MessageResponse>{display.displayContent}</MessageResponse>
           </MessageContent>
         )}
-        {delivery?.phase === "queued" ? (
-          <div
-            className="mt-1 flex items-center justify-end gap-1 text-[11px] leading-4 text-muted-foreground"
-            role="status"
-          >
-            <span>{durableSendStatusLabel(delivery.phase, transportDown)}</span>
-            <button onClick={() => onCancelSend(delivery.nonce)} type="button">
-              Cancel
-            </button>
-          </div>
-        ) : delivery?.phase === "failed" ? (
-          <div
-            aria-label="Failed message actions"
-            className="mt-1 flex items-center justify-end gap-1 text-[11px] leading-4"
-            role="group"
-          >
-            <span className="font-medium text-destructive" role="status">
-              {durableSendStatusLabel(delivery.phase)}
-            </span>
-            <button onClick={() => onResendSend(delivery.nonce)} type="button">
-              Resend
-            </button>
-            <button onClick={() => onDeleteSend(delivery.nonce)} type="button">
-              Delete
-            </button>
-          </div>
-        ) : (delivery?.phase === "accepted-awaiting-echo" && offlineTime) ||
-          (!delivery && retainedOfflineTime) ? (
-          <div
-            aria-hidden={!delivery || undefined}
-            className="sent-while-offline-notice text-[11px] leading-4 text-muted-foreground"
-            data-cleared={!delivery || undefined}
-            role="status"
-          >
-            {delivery?.queuedAtMs != null
-              ? formatOfflineDeliveryLabel(delivery.queuedAtMs)
-              : `Sent while offline · ${retainedOfflineTime}`}
-          </div>
-        ) : null}
+        <DeliveryFooter delivery={delivery} onCancel={onCancelSend} onDelete={onDeleteSend} onResend={onResendSend} />
       </div>
     </div>
   );
@@ -225,6 +167,7 @@ export function ThreadTray({
   const [composerRecovery, setComposerRecovery] = useState<{
     id: string;
     payload: DurableSendPayload;
+    message?: string;
     durable?: boolean;
   } | null>(null);
   const messages = useMemo(() => [root, ...replies], [replies, root]);
@@ -260,7 +203,7 @@ export function ThreadTray({
         messageIds.has(record.payload.replyToMessageId as string)
     );
     if (!recovery) return;
-    setComposerRecovery({ id: recovery.nonce, payload: recovery.payload, durable: true });
+    setComposerRecovery({ id: recovery.nonce, payload: recovery.payload, message: recovery.failure?.message, durable: true });
   }, [composerRecovery, messages, recoveries]);
   const { measureElement, scrollToIndex, totalSize, virtualItems } = useVirtualWindow({
     count: messages.length,
@@ -350,9 +293,9 @@ export function ThreadTray({
                     botById={botById}
                     delivery={deliveryByMessageId.get(message.id) ?? null}
                     message={message}
-                    onCancelSend={(nonce) => void cancelSend(nonce)}
-                    onDeleteSend={(nonce) => void onDeleteSend(nonce)}
-                    onResendSend={(nonce) => void onResendSend(nonce)}
+                    onCancelSend={cancelSend}
+                    onDeleteSend={onDeleteSend}
+                    onResendSend={onResendSend}
                   />
                   {virtualItem.index === 0 && (
                     <div className="mt-4 flex items-center gap-2 text-[11px] text-muted-foreground">

@@ -19,12 +19,12 @@ describe("Bot rich-message visual contract", () => {
     expect(source).toContain("rounded-2xl");
     expect(source).toContain("p-3");
     expect(source).toContain("gap-2.5");
-    expect(source).toContain("rounded-lg border-[0.5px]");
-    expect(source).toContain("gap-2 p-2");
-    expect(source).toContain("min-w-[18px]");
+    expect(source).toContain('const optionGroupClass = "widget-options"');
+    expect(source).toContain('const optionRowClass = "widget-option"');
+    expect(source).toContain('const optionKeyClass = "widget-option-key"');
     expect(source).toContain("size-5 shrink-0");
-    expect(source).toContain("min-h-8");
-    expect(source).toContain("px-2.5 py-[5px]");
+    expect(source).toContain('className="widget-custom"');
+
   });
 
   test("keeps the same renderer geometry on mobile", async () => {
@@ -35,7 +35,8 @@ describe("Bot rich-message visual contract", () => {
     expect(source).toContain("gap: 10");
     expect(source).toContain("borderRadius: 8");
     expect(source).toContain("padding: 8");
-    expect(source).toContain("minWidth: 18");
+    expect(source).toContain("width: 18");
+    expect(source).toContain("height: 20");
     expect(source).toMatch(/dismissButton:\s*\{\s*width: 20,\s*height: 20,/);
     expect(source).toContain("minHeight: 32");
   });

@@ -948,6 +948,10 @@ model PushDevice {
   installationId String             @unique
   platform       PushDevicePlatform
   pushToken      String             @unique
+  provider       String             @default("expo")
+  apnsEnvironment String?
+  apnsTopic      String?
+  notificationScope String?
   enabled        Boolean            @default(true)
   authRequired   Boolean            @default(true)
   authSessionId  String?

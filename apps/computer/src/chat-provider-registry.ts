@@ -194,7 +194,9 @@ export class ChatProviderRegistry {
       for (const [name, value] of Object.entries(auth.headers ?? {}))
         if (typeof value === "string") headers.set(name, value);
     if (id === "openai-codex") {
-      url = new URL("https://chatgpt.com/backend-api/codex/models?client_version=0.99.0");
+      // Older client versions can receive only hidden review models, leaving
+      // an authenticated subscription with an empty chat-model picker.
+      url = new URL("https://chatgpt.com/backend-api/codex/models?client_version=1.0.0");
       headers.set("authorization", `Bearer ${auth.apiKey}`);
       try {
         const claim = JSON.parse(Buffer.from(auth.apiKey!.split(".")[1]!, "base64url").toString());

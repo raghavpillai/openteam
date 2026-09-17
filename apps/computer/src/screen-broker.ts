@@ -60,6 +60,7 @@ export class ScreenBroker {
   private readonly inputQueues = new WeakMap<ScreenSession, Promise<void>>();
   private readonly inputRevisions = new WeakMap<ScreenSession, number>();
   private readonly activeAgentInput = new WeakMap<ScreenSession, AbortController>();
+  private readonly readySessions = new Map<string, Promise<ScreenSession>>();
 
   constructor(private readonly home = process.env.HOME ?? "/home/box", private readonly displayDimensions:()=>Promise<{width:number;height:number}> = async()=>({width:WIDTH,height:HEIGHT})) {
     this.stateRoot = join(home, ".openteam");
@@ -282,13 +283,24 @@ export class ScreenBroker {
     if (this.slotByBot.delete(botId)) await this.persistMappings();
   }
 
-  private async readySession(botId: string, cwd: string): Promise<ScreenSession> {
-    await this.ensure(botId, cwd);
-    const session = this.sessions.get(botId);
-    if (!session || session.state !== "ready") {
-      throw new Error(session?.error ?? "Graphical screen is unavailable");
-    }
-    return session;
+  private readySession(botId: string, cwd: string): Promise<ScreenSession> {
+    // Concurrent inputs must cross the same readiness barrier in arrival order.
+    // Separate health probes can finish out of order before withInput queues them.
+    const existing = this.readySessions.get(botId);
+    if (existing) return existing;
+    const pending = this.ensure(botId, cwd).then(() => {
+      const session = this.sessions.get(botId);
+      if (!session || session.state !== "ready") {
+        throw new Error(session?.error ?? "Graphical screen is unavailable");
+      }
+      return session;
+    });
+    this.readySessions.set(botId, pending);
+    const clear = () => {
+      if (this.readySessions.get(botId) === pending) this.readySessions.delete(botId);
+    };
+    void pending.then(clear, clear);
+    return pending;
   }
 
   private assertAgentControl(session: ScreenSession): void {

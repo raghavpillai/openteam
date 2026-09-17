@@ -194,8 +194,12 @@ export const RegisterPushDeviceInput = Schema.Struct({
   pushToken: Schema.String.pipe(
     Schema.minLength(20),
     Schema.maxLength(512),
-    Schema.pattern(/^(?:ExponentPushToken|ExpoPushToken)\[[A-Za-z0-9_-]+\]$/)
+    Schema.pattern(/^(?:(?:ExponentPushToken|ExpoPushToken)\[[A-Za-z0-9_-]+\]|(?:[a-fA-F0-9]{2}){32,100})$/)
   ),
+  provider: Schema.optional(Schema.Literal("expo", "apns")),
+  apnsEnvironment: Schema.optional(Schema.Literal("development", "production")),
+  apnsTopic: Schema.optional(Schema.String.pipe(Schema.pattern(/^[A-Za-z0-9][A-Za-z0-9.-]{2,199}$/))),
+  notificationScope: Schema.optional(Schema.String.pipe(Schema.pattern(/^[a-f0-9]{64}$/))),
   timeZone: Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(120))),
   locale: Schema.optional(Schema.String.pipe(Schema.minLength(2), Schema.maxLength(35))),
 });

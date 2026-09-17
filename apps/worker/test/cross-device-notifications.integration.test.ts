@@ -1,3 +1,5 @@
+import { generateKeyPairSync } from "node:crypto";
+import { ApnsClient } from "../src/apns";
 import { expect, test } from "bun:test";
 import { createPrismaClient } from "@openteam/db";
 import {
@@ -30,7 +32,12 @@ test.skipIf(!databaseUrl)(
         members: { create: { botId: bot.id, ordinal: 0 } },
       },
     });
-    const installationIds = [crypto.randomUUID(), crypto.randomUUID()];
+    const installationIds = [crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID()];
+    const native: Array<{headers: Record<string, string>; payload: any}> = [];
+    const signingKey = generateKeyPairSync("ec", { namedCurve: "prime256v1" }).privateKey.export({ type: "pkcs8", format: "pem" }).toString();
+    const apns = new ApnsClient({ keyId: "QA", teamId: "QA", topic: "dev.openteam.mobile.swift", privateKey: signingKey }, async (_, headers, body) => {
+      native.push({headers, payload: JSON.parse(body)}); return {status: 200};
+    });
     const sent: Array<{
       to: string;
       title?: string;
@@ -62,7 +69,8 @@ test.skipIf(!databaseUrl)(
         });
       }) as typeof fetch,
       null,
-      "disabled"
+      "disabled",
+      apns
     );
     const state = async () =>
       (await channelNotificationStates(prisma, [channel.id])).get(channel.id)!;
@@ -89,13 +97,14 @@ test.skipIf(!databaseUrl)(
     };
     try {
       await prisma.pushDevice.createMany({
-        data: installationIds.map((id) => ({
+        data: installationIds.slice(0, 2).map((id) => ({
           installationId: id,
           platform: "ios" as const,
           pushToken: `ExpoPushToken[${id}]`,
           authRequired: false,
         })),
       });
+      await Effect.runPromise(service.register({ installationId: installationIds[2]!, platform: "ios", provider: "apns", pushToken: "ab".repeat(32), apnsEnvironment: "development", apnsTopic: "dev.openteam.mobile.swift", notificationScope: "cd".repeat(32) }, { mode: "disabled" }));
       await sync();
       const userMessage = await prisma.channelMessage.create({
         data: { channelId: channel.id, sender: "user", content: "Please check" },
@@ -141,7 +150,7 @@ test.skipIf(!databaseUrl)(
       });
       expect(delivered).toHaveLength(1);
       expect(await prisma.channelNotification.count({ where: { channelId: channel.id } })).toBe(1);
-      expect(await prisma.outboxDelivery.count({ where: { topic: "push.notification" } })).toBe(2);
+      expect(await prisma.outboxDelivery.count({ where: { topic: "push.notification" } })).toBe(3);
 
       const secondContext = { ...context, callId: crypto.randomUUID() };
       await messaging.sendVisible(secondContext, { type: "text", content: "Second response" });
@@ -169,6 +178,7 @@ test.skipIf(!databaseUrl)(
         messagePushes.every((push) => push.data.messageSequence === second.sequence.toString())
       ).toBe(true);
       expect(new Set(messagePushes.map((push) => push.to)).size).toBe(2);
+      expect(native.filter(n => n.payload.data.kind === "message").map(n => n.payload.data.messageSequence)).toEqual([second.sequence.toString()]);
 
       await Effect.runPromise(
         service.markChannelRead(
@@ -194,6 +204,7 @@ test.skipIf(!databaseUrl)(
       expect(await unreadBadgeCount(prisma)).toBe(1);
       await drain();
       expect(sent.filter((push) => push.data.kind === "reaction")).toHaveLength(2);
+      expect(native.filter(n => n.payload.data.kind === "reaction")).toHaveLength(1);
       await Effect.runPromise(
         service.markChannelRead(
           channel.id,
@@ -224,6 +235,13 @@ test.skipIf(!databaseUrl)(
           },
         },
       });
+      const nativeRead = native.filter(n => n.payload.data.kind === "badge-sync").at(-1)!;
+      expect(nativeRead.headers["apns-push-type"]).toBe("background");
+      expect(nativeRead.payload.aps).toEqual({ "content-available": 1 });
+      expect(nativeRead.payload.data.readState).toMatchObject({ channelId: channel.id, lastReadSequence: second.sequence.toString(), lastReadNotificationSequence: reactionState.notificationCursor });
+      const snapshot = await Effect.runPromise(service.snapshot());
+      expect(snapshot.badgeCount).toBe(0);
+      expect(snapshot.readStates).toContainEqual(nativeRead.payload.data.readState);
       await messaging.reactToMessage(
         { ...context, callId: crypto.randomUUID() },
         { message_address: `t${userMessage.sequence}u`, emoji: "🔔" }

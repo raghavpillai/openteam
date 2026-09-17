@@ -58,20 +58,35 @@ export class NotificationService {
           "Refresh authentication before registering this push device"
         );
       }
+      const provider = input.provider ?? "expo";
+      if (provider === "apns" ? (
+        input.platform !== "ios" || !/^(?:[a-f0-9]{2}){32,100}$/i.test(input.pushToken) ||
+        !input.apnsEnvironment || !input.apnsTopic || !input.notificationScope
+      ) : !/^(?:ExponentPushToken|ExpoPushToken)\[[A-Za-z0-9_-]+\]$/.test(input.pushToken)) {
+        throw new ApiError(400, "invalid_push_registration", "The push token and delivery settings do not match");
+      }
+      const pushToken = provider === "apns" ? input.pushToken.toLowerCase() : input.pushToken;
+      const transport = {
+        provider,
+        apnsEnvironment: provider === "apns" ? input.apnsEnvironment : null,
+        apnsTopic: provider === "apns" ? input.apnsTopic : null,
+        notificationScope: provider === "apns" ? input.notificationScope : null,
+      };
       const now = new Date();
       const existingToken = await this.prisma.pushDevice.findUnique({
-        where: { pushToken: input.pushToken },
+        where: { pushToken },
         select: { installationId: true },
       });
       if (existingToken && existingToken.installationId !== input.installationId) {
-        await this.prisma.pushDevice.delete({ where: { pushToken: input.pushToken } });
+        await this.prisma.pushDevice.delete({ where: { pushToken } });
       }
       const device = await this.prisma.pushDevice.upsert({
         where: { installationId: input.installationId },
         create: {
+          ...transport,
           installationId: input.installationId,
           platform: input.platform,
-          pushToken: input.pushToken,
+          pushToken,
           authRequired: authentication.mode === "required",
           authSessionId: authentication.mode === "required" ? authentication.sessionId : null,
           timeZone: input.timeZone,
@@ -79,8 +94,9 @@ export class NotificationService {
           lastSeenAt: now,
         },
         update: {
+          ...transport,
           platform: input.platform,
-          pushToken: input.pushToken,
+          pushToken,
           authRequired: authentication.mode === "required",
           authSessionId: authentication.mode === "required" ? authentication.sessionId : null,
           timeZone: input.timeZone,
@@ -91,6 +107,20 @@ export class NotificationService {
       });
       return toView(device);
     });
+
+  // A background push can be coalesced by iOS. Fetch all read markers so reading
+  // multiple conversations on desktop still retires every acknowledged alert.
+  snapshot = () => serviceEffect(async () => this.prisma.$transaction(async (tx) => {
+    const event = await tx.event.findFirst({ orderBy: { sequence: "desc" }, select: { sequence: true } });
+    const [states, badgeCount] = await Promise.all([
+      tx.channelReadState.findMany({ select: { channelId: true, lastReadSequence: true, lastReadNotificationSequence: true } }),
+      unreadBadgeCount(tx),
+    ]);
+    return { cursor: (event?.sequence ?? 0n).toString(), badgeCount, readStates: states.map(s => ({
+      channelId: s.channelId, lastReadSequence: s.lastReadSequence.toString(),
+      lastReadNotificationSequence: s.lastReadNotificationSequence.toString(),
+    })) };
+  }, { isolationLevel: "RepeatableRead" }));
 
   disableForSession = (sessionId: string) =>
     serviceEffect(async () => {

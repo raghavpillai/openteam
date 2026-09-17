@@ -1,0 +1,8 @@
+.build/
+.build-*/
+.build-ios/
+.build-vnc/
+.swiftpm/
+*.xcuserstate
+xcuserdata/
+__pycache__/

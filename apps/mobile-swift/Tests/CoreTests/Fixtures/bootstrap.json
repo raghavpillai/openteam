@@ -1,0 +1,418 @@
+{
+  "cursor": "14",
+  "workspace": {
+    "root": "/workspace",
+    "sharedDirectory": "/workspace/shared",
+    "botsDirectory": "/workspace/bots",
+    "projectsDirectory": "/workspace/projects"
+  },
+  "bots": [
+    {
+      "id": "bot-research",
+      "name": "Research",
+      "title": "Research",
+      "description": "Finds the useful signal and brings it back.",
+      "instructions": "",
+      "icon": "helmet",
+      "color": "#FD6A3A",
+      "hasAvatar": false,
+      "notificationsEnabled": true,
+      "hiddenFromSidebar": false,
+      "defaultDirectory": "/workspace",
+      "status": "active",
+      "onboardingStatus": "completed",
+      "onboardingVersion": 1,
+      "onboardingCompletedAt": "2026-08-28T11:42:00.000Z",
+      "provisioningError": null,
+      "createdAt": "2026-08-28T11:42:00.000Z",
+      "updatedAt": "2026-08-28T12:00:00.000Z",
+      "conversationId": "conversation-research",
+      "dmChannelId": "channel-research"
+    },
+    {
+      "id": "bot-ops",
+      "name": "Ops",
+      "title": "Ops",
+      "description": "Keeps recurring work moving.",
+      "instructions": "",
+      "icon": "pod",
+      "color": "#7C5CFC",
+      "hasAvatar": false,
+      "notificationsEnabled": true,
+      "hiddenFromSidebar": false,
+      "defaultDirectory": "/workspace",
+      "status": "active",
+      "onboardingStatus": "completed",
+      "onboardingVersion": 1,
+      "onboardingCompletedAt": "2026-08-28T11:42:00.000Z",
+      "provisioningError": null,
+      "createdAt": "2026-08-28T11:42:00.000Z",
+      "updatedAt": "2026-08-28T11:42:00.000Z",
+      "conversationId": "conversation-ops",
+      "dmChannelId": "channel-ops"
+    },
+    {
+      "id": "bot-build",
+      "name": "Build",
+      "title": "Build",
+      "description": "Ships the implementation and reports the result.",
+      "instructions": "",
+      "icon": "chip",
+      "color": "#27baae",
+      "hasAvatar": false,
+      "notificationsEnabled": true,
+      "hiddenFromSidebar": false,
+      "defaultDirectory": "/workspace",
+      "status": "active",
+      "onboardingStatus": "completed",
+      "onboardingVersion": 1,
+      "onboardingCompletedAt": "2026-08-28T11:42:00.000Z",
+      "provisioningError": null,
+      "createdAt": "2026-08-28T11:42:00.000Z",
+      "updatedAt": "2026-08-28T11:42:00.000Z",
+      "conversationId": "conversation-build",
+      "dmChannelId": "channel-build"
+    }
+  ],
+  "channels": [
+    {
+      "id": "channel-research",
+      "kind": "bot_dm",
+      "name": "Research",
+      "description": "",
+      "hasAvatar": false,
+      "directKey": "bot-research",
+      "workingDirectory": "/workspace",
+      "members": [
+        {
+          "botId": "bot-research",
+          "ordinal": 0
+        }
+      ],
+      "createdAt": "2026-08-28T11:42:00.000Z",
+      "updatedAt": "2026-08-28T12:00:00.000Z"
+    },
+    {
+      "id": "channel-ops",
+      "kind": "bot_dm",
+      "name": "Ops",
+      "description": "",
+      "hasAvatar": false,
+      "directKey": "bot-ops",
+      "workingDirectory": "/workspace",
+      "members": [
+        {
+          "botId": "bot-ops",
+          "ordinal": 0
+        }
+      ],
+      "createdAt": "2026-08-28T11:42:00.000Z",
+      "updatedAt": "2026-08-28T11:42:00.000Z"
+    },
+    {
+      "id": "channel-build",
+      "kind": "bot_dm",
+      "name": "Build",
+      "description": "",
+      "hasAvatar": false,
+      "directKey": "bot-build",
+      "workingDirectory": "/workspace",
+      "members": [
+        {
+          "botId": "bot-build",
+          "ordinal": 0
+        }
+      ],
+      "createdAt": "2026-08-28T11:42:00.000Z",
+      "updatedAt": "2026-08-28T11:42:00.000Z"
+    }
+  ],
+  "channelMessages": [
+    {
+      "id": "message-1",
+      "sequence": "1",
+      "channelId": "channel-research",
+      "sender": "agent",
+      "senderBotId": "bot-research",
+      "sourceRunId": "run-research",
+      "content": "I pulled the current evidence into one concise brief. Want the implementation map next?",
+      "metadata": {
+        "address": "t1a0",
+        "reactions": [
+          {
+            "by": "me",
+            "emoji": "❤️"
+          }
+        ]
+      },
+      "createdAt": "2026-08-28T11:42:00.000Z"
+    },
+    {
+      "id": "message-2",
+      "sequence": "2",
+      "channelId": "channel-research",
+      "sender": "user",
+      "senderBotId": null,
+      "sourceRunId": null,
+      "content": "Yes — focus on the iPhone experience and the reuse boundary.",
+      "metadata": {
+        "replyTo": "message-1"
+      },
+      "createdAt": "2026-08-28T11:48:00.000Z"
+    },
+    {
+      "id": "message-3",
+      "sequence": "3",
+      "channelId": "channel-research",
+      "sender": "agent",
+      "senderBotId": "bot-research",
+      "sourceRunId": "run-research",
+      "content": "On it. I’m separating verified behavior from assumptions before writing the mobile shell.",
+      "metadata": {
+        "address": "t3a0"
+      },
+      "createdAt": "2026-08-28T12:00:00.000Z"
+    },
+    {
+      "id": "message-3a",
+      "sequence": "4",
+      "channelId": "channel-research",
+      "sender": "user",
+      "senderBotId": "bot-ops",
+      "sourceRunId": "run-research",
+      "content": "The iOS reference capture is organized and ready for the parity pass.",
+      "metadata": {
+        "fromAgent": {
+          "id": "bot-ops",
+          "name": "Ops"
+        }
+      },
+      "createdAt": "2026-08-28T12:00:01.000Z"
+    },
+    {
+      "id": "message-3b",
+      "sequence": "5",
+      "channelId": "channel-research",
+      "sender": "agent",
+      "senderBotId": "bot-research",
+      "sourceRunId": "run-research",
+      "content": "Thanks — I’m using it to verify the control and navigation layer now.",
+      "metadata": {
+        "toAgent": {
+          "id": "bot-ops",
+          "name": "Ops",
+          "kind": "agent"
+        }
+      },
+      "createdAt": "2026-08-28T12:00:02.000Z"
+    },
+    {
+      "id": "message-4",
+      "sequence": "1",
+      "channelId": "channel-ops",
+      "sender": "agent",
+      "senderBotId": "bot-ops",
+      "sourceRunId": null,
+      "content": "The daily review is paused until Monday.",
+      "metadata": {
+        "address": "t1a0"
+      },
+      "createdAt": "2026-08-28T11:42:00.000Z"
+    },
+    {
+      "id": "message-5",
+      "sequence": "1",
+      "channelId": "channel-build",
+      "sender": "agent",
+      "senderBotId": "bot-build",
+      "sourceRunId": null,
+      "content": "The iPhone shell is ready for its visual validation pass.",
+      "metadata": {
+        "address": "t1a0"
+      },
+      "createdAt": "2026-08-28T11:31:00.000Z"
+    }
+  ],
+  "channelRounds": [],
+  "runs": [
+    {
+      "id": "run-research",
+      "botId": "bot-research",
+      "conversationId": "conversation-research",
+      "status": "waiting_approval",
+      "runtimeTurnId": "turn-1",
+      "origin": "user",
+      "channelId": "channel-research",
+      "deliveryId": null,
+      "error": null,
+      "createdAt": "2026-08-28T11:42:00.000Z",
+      "updatedAt": "2026-08-28T12:00:00.000Z"
+    }
+  ],
+  "runItems": [],
+  "approvals": [
+    {
+      "id": "approval-1",
+      "runId": "run-research",
+      "runItemId": null,
+      "kind": "computer_action",
+      "status": "pending",
+      "details": {
+        "title": "Open the reference app",
+        "description": "Continue the live iPhone walkthrough."
+      },
+      "createdAt": "2026-08-28T12:00:00.000Z",
+      "ownerConversationId": "conversation-research",
+      "parentRunId": "run-research",
+      "parentToolCallId": null,
+      "subagentId": null
+    }
+  ],
+  "subagents": [],
+  "runtime": {
+    "server": "ready",
+    "database": "ready",
+    "queue": "ready",
+    "computer": "ready",
+    "inference": "ready"
+  },
+  "latestMessages": [
+    {
+      "id": "message-1",
+      "sequence": "1",
+      "channelId": "channel-research",
+      "sender": "agent",
+      "senderBotId": "bot-research",
+      "sourceRunId": "run-research",
+      "content": "I pulled the current evidence into one concise brief. Want the implementation map next?",
+      "metadata": {
+        "address": "t1a0",
+        "reactions": [
+          {
+            "by": "me",
+            "emoji": "❤️"
+          }
+        ]
+      },
+      "createdAt": "2026-08-28T11:42:00.000Z"
+    },
+    {
+      "id": "message-2",
+      "sequence": "2",
+      "channelId": "channel-research",
+      "sender": "user",
+      "senderBotId": null,
+      "sourceRunId": null,
+      "content": "Yes — focus on the iPhone experience and the reuse boundary.",
+      "metadata": {
+        "replyTo": "message-1"
+      },
+      "createdAt": "2026-08-28T11:48:00.000Z"
+    },
+    {
+      "id": "message-3",
+      "sequence": "3",
+      "channelId": "channel-research",
+      "sender": "agent",
+      "senderBotId": "bot-research",
+      "sourceRunId": "run-research",
+      "content": "On it. I’m separating verified behavior from assumptions before writing the mobile shell.",
+      "metadata": {
+        "address": "t3a0"
+      },
+      "createdAt": "2026-08-28T12:00:00.000Z"
+    },
+    {
+      "id": "message-3a",
+      "sequence": "4",
+      "channelId": "channel-research",
+      "sender": "user",
+      "senderBotId": "bot-ops",
+      "sourceRunId": "run-research",
+      "content": "The iOS reference capture is organized and ready for the parity pass.",
+      "metadata": {
+        "fromAgent": {
+          "id": "bot-ops",
+          "name": "Ops"
+        }
+      },
+      "createdAt": "2026-08-28T12:00:01.000Z"
+    },
+    {
+      "id": "message-3b",
+      "sequence": "5",
+      "channelId": "channel-research",
+      "sender": "agent",
+      "senderBotId": "bot-research",
+      "sourceRunId": "run-research",
+      "content": "Thanks — I’m using it to verify the control and navigation layer now.",
+      "metadata": {
+        "toAgent": {
+          "id": "bot-ops",
+          "name": "Ops",
+          "kind": "agent"
+        }
+      },
+      "createdAt": "2026-08-28T12:00:02.000Z"
+    },
+    {
+      "id": "message-4",
+      "sequence": "1",
+      "channelId": "channel-ops",
+      "sender": "agent",
+      "senderBotId": "bot-ops",
+      "sourceRunId": null,
+      "content": "The daily review is paused until Monday.",
+      "metadata": {
+        "address": "t1a0"
+      },
+      "createdAt": "2026-08-28T11:42:00.000Z"
+    },
+    {
+      "id": "message-5",
+      "sequence": "1",
+      "channelId": "channel-build",
+      "sender": "agent",
+      "senderBotId": "bot-build",
+      "sourceRunId": null,
+      "content": "The iPhone shell is ready for its visual validation pass.",
+      "metadata": {
+        "address": "t1a0"
+      },
+      "createdAt": "2026-08-28T11:31:00.000Z"
+    }
+  ],
+  "activeRuns": [
+    {
+      "id": "run-research",
+      "botId": "bot-research",
+      "conversationId": "conversation-research",
+      "status": "waiting_approval",
+      "runtimeTurnId": "turn-1",
+      "origin": "user",
+      "channelId": "channel-research",
+      "deliveryId": null,
+      "error": null,
+      "createdAt": "2026-08-28T11:42:00.000Z",
+      "updatedAt": "2026-08-28T12:00:00.000Z"
+    }
+  ],
+  "pendingApprovals": [
+    {
+      "id": "approval-1",
+      "runId": "run-research",
+      "runItemId": null,
+      "kind": "computer_action",
+      "status": "pending",
+      "details": {
+        "title": "Open the reference app",
+        "description": "Continue the live iPhone walkthrough."
+      },
+      "createdAt": "2026-08-28T12:00:00.000Z",
+      "ownerConversationId": "conversation-research",
+      "parentRunId": "run-research",
+      "parentToolCallId": null,
+      "subagentId": null
+    }
+  ]
+}

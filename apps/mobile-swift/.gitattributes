@@ -1,0 +1,3 @@
+# Bundled third-party output is kept byte-for-byte for offline rendering.
+Sources/App/Resources/MessageRenderer.html linguist-generated=true -whitespace
+Sources/App/Resources/MessageRenderer-LICENSES.txt linguist-generated=true -whitespace

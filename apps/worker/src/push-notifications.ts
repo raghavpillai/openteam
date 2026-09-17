@@ -10,6 +10,7 @@ import {
 } from "@openteam/contracts";
 import { Prisma, type PrismaClient } from "@openteam/db";
 import { unreadBadgeCount as countUnreadMessages } from "@openteam/messaging";
+import { ApnsClient } from "./apns";
 
 const EXPO_SEND_URL = "https://exp.host/--/api/v2/push/send";
 const EXPO_RECEIPTS_URL = "https://exp.host/--/api/v2/push/getReceipts";
@@ -179,6 +180,8 @@ export const expoPushMessage = (
   };
 };
 
+type PushAttempt = { delivery: ClaimedDelivery; device: Prisma.PushDeviceGetPayload<{}>; payload: PushNotificationPayload };
+
 export class PushNotificationDispatcher {
   private draining = false;
 
@@ -186,7 +189,8 @@ export class PushNotificationDispatcher {
     private readonly prisma: PrismaClient,
     private readonly request: typeof fetch = fetch,
     private readonly accessToken = process.env.EXPO_ACCESS_TOKEN?.trim() || null,
-    private readonly authMode = pushAuthenticationModeFromEnvironment()
+    private readonly authMode = pushAuthenticationModeFromEnvironment(),
+    private readonly apns = new ApnsClient()
   ) {}
 
   async drain(): Promise<void> {
@@ -301,62 +305,18 @@ export class PushNotificationDispatcher {
               });
             }
             if (attempted.length === 0) return;
-            const response = await this.request(EXPO_SEND_URL, {
-              method: "POST",
-              headers: this.headers(),
-              body: JSON.stringify(
-                attempted.map(({ device, payload }) =>
-                  expoPushMessage(device.pushToken, payload, currentBadgeCount)
-                )
-              ),
-              signal: AbortSignal.timeout(15_000),
-            });
-            if (!response.ok) throw new Error(`Expo push request failed (${response.status})`);
-            const body = (await response.json()) as { data?: PushTicket[] };
-            const tickets = Array.isArray(body.data) ? body.data : [];
-            for (const [index, item] of attempted.entries()) {
-              const ticket = tickets[index];
-              const deviceError = ticket?.details?.error === "DeviceNotRegistered";
-              if (deviceError) {
-                await tx.pushDevice.updateMany({
-                  where: { id: item.device.id },
-                  data: { enabled: false },
-                });
-              }
-              if (ticket?.status !== "ok" || typeof ticket.id !== "string") {
-                await tx.outboxDelivery.update({
-                  where: { id: item.delivery.id },
-                  data: {
-                    status: deviceError ? "delivered" : "failed",
-                    attempts: deviceError ? MAX_ATTEMPTS : item.delivery.attempts,
-                    deliveredAt: deviceError ? new Date() : null,
-                    availableAt: retryAt(item.delivery.attempts),
-                    error: json({
-                      message:
-                        typeof ticket?.message === "string"
-                          ? ticket.message
-                          : "Expo did not return a push ticket",
-                      details: ticket?.details ?? null,
-                    }),
-                  },
-                });
-                continue;
-              }
-              await tx.outboxDelivery.update({
-                where: { id: item.delivery.id },
-                data: { status: "delivered", deliveredAt: new Date(), error: Prisma.DbNull },
-              });
-              await tx.outboxDelivery.createMany({
-                data: {
-                  deliveryKey: `${item.delivery.deliveryKey}:receipt`,
-                  topic: "push.receipt",
-                  target: item.device.id,
-                  payload: json({ ticketId: ticket.id }),
-                  availableAt: new Date(Date.now() + RECEIPT_DELAY_MS),
-                },
-                skipDuplicates: true,
-              });
-            }
+            await Promise.all([
+              this.deliverNative(tx, attempted.filter(item => item.device.provider === "apns"), currentBadgeCount),
+              this.deliverExpo(tx, attempted.filter(item => item.device.provider !== "apns"), currentBadgeCount)
+                .catch(async error => {
+                  // An Expo outage must not roll back already accepted native pushes.
+                  for (const item of attempted.filter(item => item.device.provider !== "apns")) {
+                    await tx.outboxDelivery.update({ where: { id: item.delivery.id }, data: {
+                      status: "failed", availableAt: retryAt(item.delivery.attempts), error: json({ message: errorMessage(error) }),
+                    } });
+                  }
+                }),
+            ]);
           },
           {
             maxWait: PUSH_DELIVERY_TRANSACTION_TIMEOUT_MS,
@@ -375,6 +335,87 @@ export class PushNotificationDispatcher {
           });
         }
       }
+    }
+  }
+
+  private async deliverNative(tx: Prisma.TransactionClient, attempted: PushAttempt[], badgeCount: number) {
+    await Promise.all(attempted.map(async item => {
+      try {
+        const result = await this.apns.send(item.device, item.payload, badgeCount, item.delivery.deliveryKey);
+        const retired = result.status === 410 || (result.status === 400 && ["BadDeviceToken", "DeviceTokenNotForTopic"].includes(result.reason ?? ""));
+        if (retired) await tx.pushDevice.updateMany({ where: { id: item.device.id }, data: { enabled: false } });
+        await tx.outboxDelivery.update({ where: { id: item.delivery.id }, data: {
+          status: result.status === 200 || retired ? "delivered" : "failed",
+          deliveredAt: result.status === 200 || retired ? new Date() : null,
+          attempts: retired ? MAX_ATTEMPTS : item.delivery.attempts,
+          availableAt: retryAt(item.delivery.attempts),
+          error: result.status === 200 ? Prisma.DbNull : json({ message: `APNs rejected notification (${result.status})`, reason: result.reason ?? "Unknown" }),
+        } });
+      } catch (error) {
+        await tx.outboxDelivery.update({ where: { id: item.delivery.id }, data: {
+          status: "failed", availableAt: retryAt(item.delivery.attempts), error: json({ message: errorMessage(error) }),
+        } });
+      }
+    }));
+  }
+
+  private async deliverExpo(tx: Prisma.TransactionClient, attempted: PushAttempt[], currentBadgeCount: number) {
+    if (!attempted.length) return;
+    const response = await this.request(EXPO_SEND_URL, {
+      method: "POST",
+      headers: this.headers(),
+      body: JSON.stringify(
+        attempted.map(({ device, payload }) =>
+          expoPushMessage(device.pushToken, payload, currentBadgeCount)
+        )
+      ),
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!response.ok) throw new Error(`Expo push request failed (${response.status})`);
+    const body = (await response.json()) as { data?: PushTicket[] };
+    const tickets = Array.isArray(body.data) ? body.data : [];
+    for (const [index, item] of attempted.entries()) {
+      const ticket = tickets[index];
+      const deviceError = ticket?.details?.error === "DeviceNotRegistered";
+      if (deviceError) {
+        await tx.pushDevice.updateMany({
+          where: { id: item.device.id },
+          data: { enabled: false },
+        });
+      }
+      if (ticket?.status !== "ok" || typeof ticket.id !== "string") {
+        await tx.outboxDelivery.update({
+          where: { id: item.delivery.id },
+          data: {
+            status: deviceError ? "delivered" : "failed",
+            attempts: deviceError ? MAX_ATTEMPTS : item.delivery.attempts,
+            deliveredAt: deviceError ? new Date() : null,
+            availableAt: retryAt(item.delivery.attempts),
+            error: json({
+              message:
+                typeof ticket?.message === "string"
+                  ? ticket.message
+                  : "Expo did not return a push ticket",
+              details: ticket?.details ?? null,
+            }),
+          },
+        });
+        continue;
+      }
+      await tx.outboxDelivery.update({
+        where: { id: item.delivery.id },
+        data: { status: "delivered", deliveredAt: new Date(), error: Prisma.DbNull },
+      });
+      await tx.outboxDelivery.createMany({
+        data: {
+          deliveryKey: `${item.delivery.deliveryKey}:receipt`,
+          topic: "push.receipt",
+          target: item.device.id,
+          payload: json({ ticketId: ticket.id }),
+          availableAt: new Date(Date.now() + RECEIPT_DELAY_MS),
+        },
+        skipDuplicates: true,
+      });
     }
   }
 

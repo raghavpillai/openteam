@@ -7,7 +7,7 @@ import {
 } from "../src/services/notification-service";
 
 describe("NotificationService", () => {
-  test("migrates legacy registrations fail-closed and retires before Better Auth sign-out", async () => {
+  test("migrates legacy registrations fail-closed and retires devices before returning sign-out", async () => {
     const schema = await Bun.file(
       new URL("../../../packages/db/prisma/schema.prisma", import.meta.url)
     ).text();
@@ -27,7 +27,7 @@ describe("NotificationService", () => {
     );
     expect(signOutBranch.indexOf("disablePushDevicesForSession")).toBeGreaterThan(-1);
     expect(signOutBranch.indexOf("disablePushDevicesForSession")).toBeLessThan(
-      signOutBranch.indexOf("auth.handler(authRequest)")
+      signOutBranch.indexOf("return withCors(response)")
     );
   });
 
@@ -276,5 +276,21 @@ describe("NotificationService", () => {
     await Effect.runPromise(service.markChannelRead("00000000-0000-0000-0000-000000000001", "9"));
     expect(lastReadSequence).toBe(10n);
     expect(events).toHaveLength(1);
+  });
+});
+
+describe("native push registration", () => {
+  const input = {installationId:"swift-installation",platform:"ios" as const,provider:"apns" as const,pushToken:"AB".repeat(32),apnsEnvironment:"development" as const,apnsTopic:"dev.openteam.mobile.swift",notificationScope:"cd".repeat(32)};
+  test("persists native transport settings and normalizes a rotated APNs token", async () => {
+    let persisted: any;
+    const prisma = {pushDevice:{findUnique:async()=>null,upsert:async({create}:any)=>{persisted=create;return {...create,enabled:true};}}} as unknown as PrismaClient;
+    await Effect.runPromise(new NotificationService(prisma,"disabled").register(input,{mode:"disabled"}));
+    expect(persisted).toMatchObject({provider:"apns",apnsEnvironment:"development",apnsTopic:input.apnsTopic,notificationScope:input.notificationScope,pushToken:input.pushToken.toLowerCase(),authRequired:false});
+  });
+  test("rejects incomplete or mismatched native transports before touching the database", async () => {
+    const service = new NotificationService({} as PrismaClient,"disabled");
+    for (const invalid of [{...input,platform:"android"},{...input,apnsEnvironment:undefined},{...input,notificationScope:undefined},{...input,apnsTopic:undefined},{...input,pushToken:"a".repeat(65)},{...input,pushToken:"ExpoPushToken[abcdefghijklmnopqrstuvwxyz]"},{...input,provider:"expo"},{...input,provider:undefined}]) {
+      await expect(Effect.runPromise(service.register(invalid as typeof input,{mode:"disabled"}))).rejects.toThrow("push token and delivery settings");
+    }
   });
 });

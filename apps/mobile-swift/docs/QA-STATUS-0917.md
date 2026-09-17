@@ -1,0 +1,33 @@
+# Native iOS QA status — September 17, 2026
+
+This is a triage update, not a rerun or closure of the complete September 16 audit. The native TestFlight app remains a migration beta. Earlier audit tables describe the code at capture time; use the linked follow-ups for fixes made afterward.
+
+## Fix first
+
+| Priority | Finding | Current evidence / next fix |
+| --- | --- | --- |
+| P1 | QA-07: a queued send to a deleted conversation stops unrelated sends | The current `AppStore.flush()` still returns when a pending entry's channel is absent. Isolate that entry, preserve its contents, expose recovery/discard, and continue eligible sends. |
+| P1 | QA-09/10: plugin access fails or misrepresents permissions | `loadAccess()` still requests 100 rows against the API's maximum of 60. The Bot access toggle still changes enablement without granting a connected account and can remain on after disabling. Correct pagination and add real per-account access controls. |
+| P1 acceptance/deployment | Native push on the main installation | The running `openteam-worker-1` has none of the `OPENTEAM_APNS_*` settings. The current transport requires a signing key, key ID and team ID; TestFlight also requires topic `dev.openbot.mobile`. Deploy compatible server/worker/schema changes, configure APNs, then verify signed-iPhone delivery and background removal after desktop reads. A signed IPA alone does not close this. |
+
+The next group includes thread entry/nested-thread actions and search destinations (QA-03–06), attachment limits/queued previews (QA-11/17), VNC gestures and intermittent right-click (QA-12/18), avatar/group editing (QA-13/14), OAuth return/cancellation and plugin recovery (QA-15/16/19–22).
+
+QA-02 attachment/rich-message gestures and QA-08 notification read cursors were addressed by the [live-server follow-up](LIVE-SERVER-QA.md). The latest-message button and scroll geometry were changed during [haptic validation](HAPTICS-VALIDATION-0916.md); the earlier QA-23 screenshot failure should not be presented as a fresh reproduction without rerunning that exact case. Physical haptic feel and APNs/background acceptance remain separate device checks.
+
+## Local connection
+
+The main server responds at `http://100.94.42.50:8787` from this Mac. Use that address with the phone connected to the same Tailscale network. `/health` returns `ready` for server, database, queue, computer and inference; transcription is configured. `/api/auth/config` returns `required`.
+
+The existing HTTPS shortcut `https://office-mac-mini.tail658346.ts.net:10000` returns 502: its proxy points to loopback port 8787 while Docker publishes the server only on the Tailscale address. A direct self-tailnet proxy attempt timed out and was reverted; the original Tailscale configuration is preserved. The working direct URL is the one above. No server/worker container or main-account data was changed during this pass.
+
+## Screens and empty state
+
+Welcome, server setup/validation, username/password sign-in, and the conversation list are implemented native screens. Existing simulator tests were rerun after the UI change: invalid server input, a server with authentication disabled, rejected credentials, retry, and reaching the conversation list all passed (**2 tests, 0 failures**). These tests use isolated HTTP fixtures, not the main owner's credentials. Earlier real-server sign-in evidence is linked above.
+
+The home empty state is now one left-aligned, muted subheadline below the conversation section. The large icon, bold title treatment and extra instructional paragraph are removed. Actual light and dark simulator screenshots were inspected. The product change is confined to `HomeView.swift`; no new test was added for this presentation-only change.
+
+Evidence: [screenshots](../../../output/swift-empty-home-0917/review.html), [sign-in/main results](../../../output/swift-empty-home-0917/SignIn-Main.xcresult), [main-server health receipt](../../../output/swift-empty-home-0917/server-health.json). TestFlight packaging for this change is recorded under `output/testflight-native-13/`.
+
+## Account follow-up
+
+[Account identity and Re-auth](ACCOUNT-REAUTH-0917.md) fixes name persistence for offline startup and replaces the account sign-in metadata/direct server-change editor with a cancellable Re-auth flow. Validation and the TestFlight receipt are retained with that follow-up. This does not change the open priorities above.

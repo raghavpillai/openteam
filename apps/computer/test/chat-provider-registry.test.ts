@@ -257,6 +257,9 @@ describe("provider-first chat registry", () => {
     ]);
     expect(f.calls[0]?.url.origin).toBe("https://chatgpt.com");
     expect(f.calls[0]?.url.pathname).toBe("/backend-api/codex/models");
+    // The live subscription endpoint returns only a hidden review model for
+    // the old 0.99.0 client, even with a valid authenticated subscription.
+    expect(f.calls[0]?.url.searchParams.get("client_version")).toBe("1.0.0");
   });
   test("Google-compatible custom endpoints filter generation methods", async () => {
     const f = await fixture({

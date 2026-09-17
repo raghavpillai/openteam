@@ -41,6 +41,9 @@ export async function clientRoutes(context: RouteContext): Promise<Response | un
       201
     );
   }
+  if (request.method === "GET" && path === "/api/notification-state") {
+    return json(await run(app.notifications.snapshot()), 200, { "cache-control": "no-store" });
+  }
 
   if (request.method === "GET" && path === "/api/client-snapshot") {
     const startedAt = performance.now();

@@ -16,7 +16,7 @@ export function LandingEffects() {
     html.removeAttribute("data-motion-paused");
     try { localStorage.removeItem("openteam-motion-paused"); } catch { /* Storage is optional. */ }
     const targets = root.querySelectorAll<HTMLElement>(
-      ".ot-section-heading h2, .ot-feature-copy h2, .ot-scene-copy h2, .ot-faq h2, .ot-ownership h2, .dl-step-heading h2",
+      ".ot-section-heading h2, .ot-feature-copy h2, .ot-scene-copy h2, .ot-ownership h2, .dl-step-heading h2",
     );
     const sync = () => {
       observer?.disconnect();

@@ -14,12 +14,6 @@ import { BotAvatar } from "@/components/bot-avatar";
 import { ProductDemo } from "@/components/product-demo";
 import { TeamWorkflowDemo } from "@/components/team-workflow-demo";
 import { ComputerDemo, MobileDemo } from "@/components/app-demo-details";
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
 import "./landing.css";
 import "./monochrome.css";
@@ -32,44 +26,6 @@ import "./mobile-polish.css";
 import { WorkerProfiles } from "@/components/worker-showcase";
 
 const GITHUB = "https://github.com/raghavpillai/openteam";
-const questions = [
-  [
-    "What does OpenTeam do?",
-    "OpenTeam lets you run your own team of AI agents. Give each agent a role, connect apps through plugins, and message agents individually or in group chats. They can browse the web, run code, share files, and delegate work to each other. Conversations and saved memory persist between tasks, and agents keep running while your server stays on.",
-  ],
-  [
-    "What do I need to run it?",
-    "A machine that stays on, a running Docker Engine with Compose 2.20+, and a supported model account, API key, or compatible endpoint. Linux can run the engine directly; Docker Desktop supplies it on macOS and Windows. We recommend 8 GB of RAM and 8 GB of free disk space. Guided setup installs the server; the desktop app connects to it.",
-  ],
-  [
-    "Which model providers can I connect?",
-    "Connect a ChatGPT Plus/Pro or Claude Pro/Max account, use an OpenAI or Anthropic API key, or configure an OpenAI-, Anthropic-, or Google-compatible endpoint. Claude sign-in uses paid extra usage. Model access and other usage limits depend on your provider and plan.",
-  ],
-  [
-    "How do plugins work?",
-    "Plugins connect workers to apps and tools. Install a connector from the catalog, connect accounts, and choose which workers may use each connection. Allow individual tools, require approval, or deny them. Add a custom MCP server for internal tools, and save reusable instructions as skills.",
-  ],
-  [
-    "Can I watch or stop an agent?",
-    "Yes. View its live screen, inspect its files, or stop its current run. Take over the mouse and keyboard to sign in or complete a step, then return control to the agent. You can also require approval for individual connected tools.",
-  ],
-  [
-    "Will agents keep working when I close the app?",
-    "Server-side turns and schedules continue while your server stays on. Keep the OpenTeam desktop app running when work needs its approval bridge: launching delegated tasks, including computer-use workers, or accessing your physical computer.",
-  ],
-  [
-    "What does OpenTeam cost?",
-    "There is no OpenTeam subscription. You pay for the machine that runs it and any charges from your model provider.",
-  ],
-  [
-    "Where does my data live?",
-    "Chats, saved memory, files, and browser sessions are stored on your server. Model requests go to the inference provider you connect, and plugins communicate with the services you enable.",
-  ],
-  [
-    "How mature is OpenTeam?",
-    "OpenTeam is early software for people comfortable with Docker and a terminal. The desktop app supports macOS, Windows, and Linux; check the download page for available builds. The iPhone app must currently be built from source. It is not available through the App Store or TestFlight.",
-  ],
-];
 function GetStarted({
   children = "Install OpenTeam",
   className = "",
@@ -325,27 +281,6 @@ export default function Home() {
             </p>
           </div>
           <ModelConnections />
-        </section>
-        <section id="faq" className="ot-section ot-container ot-faq ot-bot-section">
-          <div>
-            <h2>
-              Setup, models,
-              <br />
-              <span>and costs.</span>
-            </h2>
-            <a className="ot-text-link" href={`${GITHUB}/issues`}>
-              Ask a question on GitHub <ArrowUpRight size={15} />
-            </a>
-          </div>
-          <Accordion>
-            {questions.map(([q, a]) => (
-              <AccordionItem key={q} value={q}>
-                <AccordionTrigger className="ot-faq-trigger">{q}</AccordionTrigger>
-                <AccordionContent className="ot-faq-answer">{a}</AccordionContent>
-              </AccordionItem>
-            ))}
-          </Accordion>
-          <SectionBot bot="operations" side="right" />
         </section>
         <section id="get-started" className="ot-start ot-container">
           <div className="ot-start-heading">

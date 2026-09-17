@@ -96,7 +96,6 @@ export function SiteHeader({ home = false }: { home?: boolean }) {
                 {label}
               </a>
             ))}
-            <a href={`${prefix}#faq`}>FAQ</a>
             <Link href="/docs">Docs</Link>
           </nav>
         </details>

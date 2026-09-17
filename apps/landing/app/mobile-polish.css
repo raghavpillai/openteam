@@ -116,7 +116,7 @@
   .ot-home .ws-machine .ot-scene-copy > p { color: #a0b2a6; font-size: 16px; }
   .ot-home .cw-scene .cw-window { margin: 0 -8px 24px; font-size: 13px; border-radius: 12px; }
   .ot-home .cw-titlebar { grid-template-columns: auto 1fr; gap: 18px; font-size: 12px; }
-  .ot-home .cw-file-row { min-height: 39px; }
+  .ot-home .cw-file-row { min-height: 28px; }
   .ot-home .wm-scene { padding: 28px 20px 20px; border-radius: 20px; gap: 26px; }
   .ot-home .wm-intro .ot-scene-copy > p { color: #81796c; }
   .ot-home .wm-studio { margin-inline: -8px; }

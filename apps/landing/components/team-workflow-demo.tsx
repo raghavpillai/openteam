@@ -1,8 +1,6 @@
 "use client";
 
 import {
-  ArrowLeft,
-  ArrowRight,
   FileJson,
   Check,
   ChevronsRight,
@@ -12,6 +10,7 @@ import {
   Settings,
 } from "lucide-react";
 import { useDemoCycle } from "./use-demo-cycle";
+import { DataStream } from "./data-stream";
 import { BotAvatar } from "./bot-avatar";
 import { DesktopMicIcon, DesktopPlusIcon } from "./desktop-demo-controls";
 import "./team-workflow-demo.css";
@@ -128,22 +127,7 @@ export function TeamWorkflowDemo() {
           />
           <span>Finance</span>
         </div>
-        <div className="twd-exchange-routes" aria-hidden="true">
-          <div className="twd-exchange-lane" data-direction="right" data-active={stage >= 3}>
-            <span className="twd-exchange-packet">
-              <FileText size={13} />
-              <span>cost-review.md</span>
-              <ArrowRight size={12} />
-            </span>
-          </div>
-          <div className="twd-exchange-lane" data-direction="left" data-active={stage >= 1}>
-            <span className="twd-exchange-packet">
-              <ArrowLeft size={12} />
-              <FileJson size={13} />
-              <span>travel-options.json</span>
-            </span>
-          </div>
-        </div>
+        <DataStream playing={playing} />
         <div className="twd-exchange-worker">
           <BotAvatar
             shape="pod"

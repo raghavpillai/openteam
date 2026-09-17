@@ -5,6 +5,10 @@ import Security
 enum LegacyInstallation {
   private static let marker = "native-upgrade-from-react-native-v1"
 
+  static func clear() throws {
+    try LegacySecureStorage.clear()
+  }
+
   static func migrate() throws {
     let defaults = UserDefaults.standard
     guard Bundle.main.bundleIdentifier == "dev.openbot.mobile", !defaults.bool(forKey: marker)

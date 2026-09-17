@@ -17,12 +17,12 @@ struct AccountConnectionView: View {
             "account-connection-status")
       }
       Section {
-        Button("Re-auth") {
+        Button("Re-auth", role: .destructive) {
           NativeHaptics.play(.light, source: "settings.re-auth")
           store.beginReauthentication()
-        }.accessibilityIdentifier("re-auth")
+        }.foregroundStyle(NativePalette.destructive).accessibilityIdentifier("re-auth")
       } footer: {
-        Text("Sign in again or change your server.")
+        Text("Clear all local data, then sign in again or change your server.")
       }
       Section("About") {
         LabeledContent(
@@ -35,14 +35,6 @@ struct AccountConnectionView: View {
         }
       }
     }.navigationTitle("Account").navigationBarTitleDisplayMode(.inline)
-      .sheet(
-        isPresented: Binding(
-          get: { store.reauthenticating },
-          set: { if !$0 { store.cancelReauthentication() } }
-        )
-      ) {
-        SignInView(reauthentication: true)
-      }
   }
 }
 

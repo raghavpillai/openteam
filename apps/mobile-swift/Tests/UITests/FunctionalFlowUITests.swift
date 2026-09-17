@@ -299,22 +299,22 @@ final class FunctionalFlowUITests: XCTestCase {
       (sourceState["sources"] as? [[String: Any]])?.first?["name"] as? String, "Native source"
     )
   }
-  func testInvalidServerChangeKeepsAccountAndSidebarSaveRetries() async throws {
+  func testReauthenticationInvalidServerRetryAndSidebarSaveRetries() async throws {
     let app = try await launch()
     app.buttons["settings-button"].tap()
     app.buttons["account-settings"].tap()
     app.buttons["re-auth"].tap()
-    app.buttons["clear-server"].tap()
+    app.textFields["server-field"].tap()
     app.textFields["server-field"].typeText("http://127.0.0.1:1")
     app.buttons["connect-button"].tap()
     error(app, "Could not reach")
     capture("account-invalid-server", app)
-    app.buttons["cancel-re-auth"].tap()
-    XCTAssertTrue(app.buttons["re-auth"].waitForExistence(timeout: 5))
-    XCTAssertEqual(
-      app.descendants(matching: .any).matching(identifier: "account-connection-status").firstMatch
-        .value as? String, "Connected")
-    app.navigationBars.buttons.firstMatch.tap()
+    XCTAssertFalse(app.buttons["settings-button"].exists)
+    app.buttons["clear-server"].tap()
+    app.textFields["server-field"].typeText(base)
+    app.buttons["connect-button"].tap()
+    XCTAssertTrue(app.buttons["settings-button"].waitForExistence(timeout: 12))
+    app.buttons["settings-button"].tap()
     find(app.buttons["More preferences"], app)
     app.buttons["More preferences"].tap()
     app.buttons["Organize conversations"].tap()

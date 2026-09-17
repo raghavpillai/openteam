@@ -18,7 +18,7 @@ QA-02 attachment/rich-message gestures and QA-08 notification read cursors were 
 
 The main server responds at `http://100.94.42.50:8787` from this Mac. Use that address with the phone connected to the same Tailscale network. `/health` returns `ready` for server, database, queue, computer and inference; transcription is configured. `/api/auth/config` returns `required`.
 
-The existing HTTPS shortcut `https://office-mac-mini.tail658346.ts.net:10000` returns 502: its proxy points to loopback port 8787 while Docker publishes the server only on the Tailscale address. A direct self-tailnet proxy attempt timed out and was reverted; the original Tailscale configuration is preserved. The working direct URL is the one above. No server/worker container or main-account data was changed during this pass.
+The HTTPS shortcut `https://office-mac-mini.tail658346.ts.net:10000` is now healthy. Its existing proxy targets loopback port 8787; the local installation now publishes that loopback port alongside the original Tailscale binding. Only `openteam-server-1` was recreated, retaining the same image, environment and volumes. Both URLs return ready health and the expected authentication challenge through the actual native API client. Phone connectivity itself still depends on its Tailscale connection. Receipt: `output/swift-destructive-reauth-0917/server-connectivity.json`.
 
 ## Screens and empty state
 
@@ -30,4 +30,4 @@ Evidence: [screenshots](../../../output/swift-empty-home-0917/review.html), [sig
 
 ## Account follow-up
 
-[Account identity and Re-auth](ACCOUNT-REAUTH-0917.md) fixes name persistence for offline startup and replaces the account sign-in metadata/direct server-change editor with a cancellable Re-auth flow. Validation and the TestFlight receipt are retained with that follow-up. This does not change the open priorities above.
+[Account identity and Re-auth](ACCOUNT-REAUTH-0917.md) fixes name persistence for offline startup and replaces the account sign-in metadata/direct server-change editor with a red, destructive Re-auth action that clears all local data offline and returns to server/sign-in. Validation and the TestFlight receipt are retained with that follow-up. This does not change the open priorities above.

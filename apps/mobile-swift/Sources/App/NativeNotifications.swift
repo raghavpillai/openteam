@@ -195,6 +195,7 @@ final class NativeNotifications {
         }
       }
       registering = nil
+      if current != epoch { registerToken() }
       // Token rotation during an in-flight registration must not lose the new token.
       if current == epoch, registeredKey == key, self.token != token { registerToken() }
     }
@@ -241,6 +242,25 @@ final class NativeNotifications {
     center.removeAllDeliveredNotifications()
     center.removeAllPendingNotificationRequests()
     Task { try? await center.setBadgeCount(0) }
+  }
+  /// Local reset must finish offline. Retire the old server registration independently.
+  func forgetLocally() {
+    let oldAPI = api
+    let installationID = defaults.string(forKey: "native-push-installation:" + reads.scope)
+    let pendingRegistration = registering
+    reset()
+    token = nil
+    enabled = true
+    failure = nil
+    changingPermission = false
+    UIApplication.shared.unregisterForRemoteNotifications()
+    Task {
+      await pendingRegistration?.value
+      if let oldAPI, let installationID {
+        _ = try? await oldAPI.request(
+          "/api/v0/notification-devices/" + API.segment(installationID), method: "DELETE")
+      }
+    }
   }
   private func clearDelivered() async {
     center.removeAllDeliveredNotifications()

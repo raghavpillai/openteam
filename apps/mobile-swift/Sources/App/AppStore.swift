@@ -9,7 +9,6 @@ final class AppStore {
   var phase: Phase = .starting
   var launchComplete = false
   var authPath: [AuthStep] = []
-  var reauthenticating = false
   var authError: String?
   var validatedServer: String?
   private var authGeneration = UUID()
@@ -134,6 +133,10 @@ final class AppStore {
       }
     #endif
     do {
+      if UserDefaults.standard.bool(forKey: LocalDataReset.pendingKey) {
+        beginReauthentication()
+        return
+      }
       try LegacyInstallation.migrate()
       server = UserDefaults.standard.string(forKey: "server") ?? server
       guard var saved = try SecureSession.read() else {
@@ -165,6 +168,7 @@ final class AppStore {
     authError = nil
   }
   func checkServer(feedback: Bool = false) async {
+    guard !UserDefaults.standard.bool(forKey: LocalDataReset.pendingKey) else { return }
     guard !connecting else { return }
     #if canImport(UIKit)
       if feedback { NativeHaptics.play(.light, source: "auth.submit") }
@@ -181,7 +185,7 @@ final class AppStore {
       server = candidate.baseURL.absoluteString
       validatedServer = server
       if mode == "required" {
-        authPath = reauthenticating ? [.credentials] : [.endpoint, .credentials]
+        authPath = [.endpoint, .credentials]
       } else {
         try await completeConnection(
           candidate, mode: mode, username: "", password: "", epoch: epoch)
@@ -201,6 +205,7 @@ final class AppStore {
     }
   }
   func connect(username: String, password: String, feedback: Bool = false) async {
+    guard !UserDefaults.standard.bool(forKey: LocalDataReset.pendingKey) else { return }
     guard !connecting else { return }
     #if canImport(UIKit)
       if feedback { NativeHaptics.play(.light, source: "auth.submit") }
@@ -216,7 +221,7 @@ final class AppStore {
       guard authGeneration == epoch, !Task.isCancelled else { return }
       validatedServer = candidate.baseURL.absoluteString
       if mode == "required", username.isEmpty || password.isEmpty {
-        authPath = reauthenticating ? [.credentials] : [.endpoint, .credentials]
+        authPath = [.endpoint, .credentials]
         throw APIError("Enter your OpenTeam username and password.")
       }
       try await completeConnection(
@@ -283,7 +288,6 @@ final class AppStore {
     online = true
     persist()
     UserDefaults.standard.set(server, forKey: "server")
-    reauthenticating = false
     startEvents()
     authError = nil
     authPath = []
@@ -330,11 +334,13 @@ final class AppStore {
     #endif
   }
   func persist() {
+    guard phase == .ready else { return }
     do { try disk?.save(state) } catch {
       self.error = "Could not save data on this iPhone: \(error.localizedDescription)"
     }
   }
   func saveDraft(_ value: Draft, channel: String) {
+    guard phase == .ready else { return }
     state.drafts[channel] = value
     persist()
   }
@@ -366,7 +372,7 @@ final class AppStore {
     } catch { self.error = error.localizedDescription }
   }
   func refresh() async {
-    guard let api, phase == .ready, !reauthenticating else { return }
+    guard let api, phase == .ready else { return }
     let epoch = generation
     do {
       let bootstrap = try await api.get("/api/v0/client-bootstrap", as: Bootstrap.self)
@@ -397,7 +403,7 @@ final class AppStore {
   }
   private func startEvents() {
     lifecycle?.cancel()
-    guard phase == .ready, foreground, !reauthenticating else { return }
+    guard phase == .ready, foreground else { return }
     let epoch = generation
     lifecycle = Task { [weak self] in
       guard let self else { return }
@@ -582,10 +588,10 @@ final class AppStore {
     }
   }
   func flush() async {
-    guard !sending, let api, online, !reauthenticating else { return }
+    guard !sending, let api, online else { return }
     sending = true
     let epoch = generation
-    defer { sending = false }
+    defer { if epoch == generation { sending = false } }
     // One request per nonce at a time; after a timeout, reconcile before resubmitting that same nonce.
     for pending in state.outbox where pending.failure == nil {
       guard epoch == generation, !Task.isCancelled, let channel = channel(pending.channelId) else {
@@ -808,30 +814,56 @@ final class AppStore {
     }
   }
   func beginReauthentication() {
-    guard phase == .ready, !reauthenticating else { return }
-    persist()
+    let defaults = UserDefaults.standard
+    defaults.set(true, forKey: LocalDataReset.pendingKey)
     lifecycle?.cancel()
+    lifecycle = nil
     generation = UUID()
     cancelAuthentication()
-    server = accountServer
-    validatedServer = nil
-    authPath = []
-    reauthenticating = true
-  }
-  func cancelReauthentication() {
-    guard reauthenticating else { return }
-    cancelAuthentication()
-    server = accountServer
-    authPath = []
-    validatedServer = nil
-    reauthenticating = false
     #if canImport(UIKit)
-      if let record {
-        NativeNotifications.shared.bind(record)
-        Task { await NativeNotifications.shared.resume() }
-      }
+      NativeNotifications.shared.forgetLocally()
     #endif
-    startEvents()
+    phase = .signedOut
+    record = nil
+    api = nil
+    disk = nil
+    state = SavedState()
+    histories = [:]
+    navigation = []
+    activeChannel = nil
+    focusedMessage = nil
+    pendingDeepLink = nil
+    busy = []
+    sending = false
+    online = false
+    server = ""
+    userName = ""
+    validatedServer = nil
+    error = nil
+    authPath = [.endpoint]
+    do {
+      if !testing {
+        try SecureSession.clear()
+        try LegacyInstallation.clear()
+      }
+      var directories = [testDirectory]
+      #if canImport(UIKit)
+        if !testing {
+          // These are inside this iOS app's sandbox, including the previous RN app's data.
+          directories = [.applicationSupportDirectory, .cachesDirectory, .documentDirectory]
+            .flatMap { FileManager.default.urls(for: $0, in: .userDomainMask) }
+          directories.append(FileManager.default.temporaryDirectory)
+        }
+      #endif
+      try LocalDataReset.erase(directories: directories)
+      URLCache.shared.removeAllCachedResponses()
+      HTTPCookieStorage.shared.cookies?.forEach { HTTPCookieStorage.shared.deleteCookie($0) }
+      if let domain = Bundle.main.bundleIdentifier { defaults.removePersistentDomain(forName: domain) }
+      defaults.removeObject(forKey: LocalDataReset.pendingKey)
+    } catch {
+      // A failed wipe never restores the old session, including after a relaunch.
+      authError = "Some local data could not be cleared. Restart the app to try again."
+    }
   }
   func handle(_ error: Error, quiet: Bool = false) {
     if error is CancellationError || (error as? URLError)?.code == .cancelled { return }

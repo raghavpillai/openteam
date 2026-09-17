@@ -1,7 +1,6 @@
 import SwiftUI
 
 struct SignInView: View {
-  var reauthentication = false
   @Environment(AppStore.self) private var store
   @Environment(\.colorScheme) private var colorScheme
   @Environment(\.dynamicTypeSize) private var typeSize
@@ -15,9 +14,7 @@ struct SignInView: View {
   var body: some View {
     @Bindable var store = store
     NavigationStack(path: $store.authPath) {
-      Group {
-        if reauthentication { endpoint } else { welcome }
-      }.navigationDestination(for: AppStore.AuthStep.self) { step in
+      welcome.navigationDestination(for: AppStore.AuthStep.self) { step in
         if step == .endpoint { endpoint } else { credentials }
       }
     }
@@ -135,7 +132,6 @@ struct SignInView: View {
       }
     }.navigationTitle("Server").navigationBarTitleDisplayMode(.inline)
       .scrollDismissesKeyboard(.interactively)
-      .toolbar { reauthenticationToolbar }
   }
 
   private var credentials: some View {
@@ -197,19 +193,8 @@ struct SignInView: View {
       }
     }.navigationTitle("Sign in").navigationBarTitleDisplayMode(.inline)
       .scrollDismissesKeyboard(.interactively)
-      .toolbar { reauthenticationToolbar }
       .onChange(of: username) { _, _ in store.authError = nil }
       .onChange(of: password) { _, _ in store.authError = nil }
-  }
-  @ToolbarContentBuilder private var reauthenticationToolbar: some ToolbarContent {
-    if reauthentication {
-      ToolbarItem(placement: .topBarTrailing) {
-        Button("Cancel") {
-          request?.cancel()
-          store.cancelReauthentication()
-        }.accessibilityIdentifier("cancel-re-auth")
-      }
-    }
   }
   private func submitLabel(_ title: String) -> some View {
     HStack {

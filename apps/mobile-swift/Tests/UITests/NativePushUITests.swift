@@ -295,4 +295,27 @@ import XCTest
     let retiredState2 = try await request("/__push/state")
     XCTAssertTrue(retiredState2["registration"] is NSNull)
   }
+  func testReauthenticationClearsLocallyWhenPushRetirementFails() async throws {
+    let app = try await launch()
+    let previous = try await waitRegistered()
+    _ = try await request("/__push/control", ["failUnregister": 1])
+    app.buttons["settings-button"].tap()
+    app.buttons["account-settings"].tap()
+    app.buttons["re-auth"].tap()
+    XCTAssertTrue(app.textFields["server-field"].waitForExistence(timeout: 5))
+    XCTAssertFalse(app.buttons["cancel-re-auth"].exists)
+    XCTAssertFalse(app.buttons["clear-server"].exists)
+    app.textFields["server-field"].tap()
+    app.textFields["server-field"].typeText(base)
+    app.buttons["connect-button"].tap()
+    XCTAssertTrue(app.buttons["settings-button"].waitForExistence(timeout: 12))
+    var replacement: [String: Any] = [:]
+    for _ in 0..<40 {
+      replacement = try await waitRegistered()
+      if replacement["installationId"] as? String != previous["installationId"] as? String { break }
+      try await Task.sleep(for: .milliseconds(250))
+    }
+    XCTAssertNotEqual(replacement["installationId"] as? String, previous["installationId"] as? String)
+    XCTAssertEqual(replacement["provider"] as? String, "apns")
+  }
 }

@@ -6,6 +6,8 @@ import type {
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../../../client/openteam-api";
 import { inputClass, PluginButton, PluginField, usePluginOperation } from "./plugin-ui";
+import { PluginAuthorization } from "./plugin-authorization";
+import { pluginAuthorization } from "@openteam/product-core/plugin-authorization";
 
 export function ConnectionConfiguration({
   connection,
@@ -89,6 +91,12 @@ export function ConnectionConfiguration({
   return (
     <div className="grid gap-5">
       {operation.feedback}
+      <PluginAuthorization connection={connection} busy={operation.busy}
+        onRetry={() => void operation.run(async () => {
+          const result = await api.authenticatePlugin(connection.id);
+          window.open(result.authorizationUrl, "_blank", "noopener,noreferrer");
+        })}
+        onCancel={() => { const session = pluginAuthorization(connection); if (session) void operation.run(() => api.cancelPluginAuthentication(connection.id, session.state)); }} />
       <div>
         <h3 className="font-medium">
           {connection.name} · {connection.alias}

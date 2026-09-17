@@ -24,6 +24,7 @@ import {
   canonicalJson,
   connectionConfigured,
   connectionView,
+  oauthAuthorizationExpiry,
   definitionFromManifest,
   jsonObject,
   namespaceName,
@@ -146,6 +147,7 @@ export class PluginQueries {
             "string"
               ? String(jsonObject(jsonObject(connection.credentials).oauth).authorizationUrl)
               : null,
+          authorizationExpiresAt: oauthAuthorizationExpiry(connection.credentials),
           configured: connectionConfigured(connection),
           tools: publicTools(connection.toolSnapshot),
         })),

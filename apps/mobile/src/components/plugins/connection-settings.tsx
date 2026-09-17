@@ -2,6 +2,7 @@ import { Linking, Pressable, Switch, Text, View } from "react-native";
 
 import { Button, Field, Choices } from "./plugin-controls";
 import type { PluginWorkspaceModel } from "./use-plugin-workspace";
+import { PluginAuthorization } from "./plugin-authorization";
 export function ConnectionSettings({ model }: { model: PluginWorkspaceModel }) {
   const {
     allConnections,
@@ -71,6 +72,7 @@ export function ConnectionSettings({ model }: { model: PluginWorkspaceModel }) {
       ))}
       {connection && config && (
         <>
+          <PluginAuthorization connection={connection} refresh={model.refresh} />
           {paragraph(
             connection.statusMessage ??
               (connection.transport === "stdio"

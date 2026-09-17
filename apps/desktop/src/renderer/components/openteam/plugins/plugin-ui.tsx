@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { api } from "../../../client/openteam-api";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
 
@@ -45,6 +45,7 @@ export function PluginField({
 }
 export function usePluginOperation(refresh: () => Promise<unknown>) {
   const [busy, setBusy] = useState(false);
+  const active = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const run = async (
@@ -52,7 +53,8 @@ export function usePluginOperation(refresh: () => Promise<unknown>) {
     success?: string,
     options: { refreshAfter?: boolean } = {}
   ) => {
-    if (busy) return false;
+    if (active.current) return false;
+    active.current = true;
     setBusy(true);
     setError(null);
     setMessage(null);
@@ -65,9 +67,11 @@ export function usePluginOperation(refresh: () => Promise<unknown>) {
       if (success) setMessage(success);
       return true;
     } catch (cause) {
+      if (options.refreshAfter !== false) await refresh().catch(() => undefined);
       setError(clientErrorMessage(cause, "Plugin operation failed"));
       return false;
     } finally {
+      active.current = false;
       setBusy(false);
     }
   };

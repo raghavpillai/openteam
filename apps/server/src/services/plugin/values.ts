@@ -412,6 +412,7 @@ export function connectionView(
       typeof jsonObject(jsonObject(connection.credentials).oauth).authorizationUrl === "string"
         ? String(jsonObject(jsonObject(connection.credentials).oauth).authorizationUrl)
         : null,
+    authorizationExpiresAt: oauthAuthorizationExpiry(connection.credentials),
     oauthRedirectUrl:
       connection.authType === "oauth" ? oauthRedirectUrl(publicUrl, connection.id) : null,
     canAuthenticate: connection.authType === "oauth" || connection.authType === "token",
@@ -422,4 +423,11 @@ export function connectionView(
         : null,
     tools: publicTools(connection.toolSnapshot),
   };
+}
+
+export function oauthAuthorizationExpiry(credentials: Prisma.JsonValue): string | null {
+  const oauth = jsonObject(jsonObject(credentials).oauth);
+  return typeof oauth.authorizationUrl === "string" && typeof oauth.stateCreatedAt === "number"
+    ? new Date(oauth.stateCreatedAt + 15 * 60_000).toISOString()
+    : null;
 }

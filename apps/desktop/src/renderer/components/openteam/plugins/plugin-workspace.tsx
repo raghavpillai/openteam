@@ -3,12 +3,12 @@ import type {
   PluginManagementView,
   PluginPackageView,
 } from "@openteam/contracts/plugin-management";
-import { useCallback, useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { api } from "../../../client/openteam-api";
-import { ConnectionConfiguration } from "./connection-configuration";
-import { PackageStudio } from "./package-studio";
+const ConnectionConfiguration = lazy(() => import("./connection-configuration").then(module => ({default:module.ConnectionConfiguration})));
+const PackageStudio = lazy(() => import("./package-studio").then(module => ({default:module.PackageStudio})));
 import { PluginMark } from "./plugin-mark";
-import { PrivateSkills } from "./private-skills";
+const PrivateSkills = lazy(() => import("./private-skills").then(module => ({default:module.PrivateSkills})));
 import {
   downloadPlugin,
   inputClass,
@@ -95,6 +95,7 @@ export default function PluginWorkspace({
         ))}
       </nav>
       <div className="min-h-0 flex-1 overflow-y-auto px-8 py-6">
+        <Suspense fallback={<p className="text-sm">Loading plugin management…</p>}>
         {operation.feedback}
         {!data ? (
           <p className="text-sm">Loading plugin management…</p>
@@ -403,6 +404,7 @@ export default function PluginWorkspace({
             )}
           </div>
         )}
+        </Suspense>
       </div>
     </div>
   );

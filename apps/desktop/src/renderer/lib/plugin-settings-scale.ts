@@ -35,6 +35,7 @@ const mergeConnectionStatus = (
     status: status.status,
     statusMessage: status.statusMessage,
     authorizationUrl: status.authorizationUrl,
+    authorizationExpiresAt: status.authorizationExpiresAt,
     configured: status.configured,
     tools: status.tools,
   };

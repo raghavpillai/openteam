@@ -12,6 +12,7 @@ import {
 import { Check, ChevronLeft, ChevronRight, LoaderCircle, Search } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api } from "../../../client/openteam-api";
+import { pluginAuthorization, pluginNeedsSetup } from "@openteam/product-core/plugin-authorization";
 import { cn } from "../../../lib/cn";
 import { PluginMark } from "./plugin-mark";
 import { MarketplaceCategories } from "./marketplace-categories";
@@ -277,13 +278,13 @@ export function InstalledPluginsView({
                       <button
                         className={pill}
                         disabled={busy === retry.id}
-                        onClick={() => (retry.configured ? onRetry(retry) : onOpen(plugin))}
+                        onClick={() => (pluginNeedsSetup(retry, plugin) ? onOpen(plugin) : onRetry(retry))}
                         type="button"
                       >
                         {busy === retry.id ? (
                           <LoaderCircle className="size-3 animate-spin" />
                         ) : null}
-                        {retry.configured ? "Retry" : "Set up"}
+                        {pluginAuthorization(retry) ? pluginAuthorization(retry)?.expired ? "Try again" : "Reopen" : pluginNeedsSetup(retry, plugin) ? "Set up" : retry.auth === "oauth" && retry.status === "needs_auth" ? "Authorize" : "Retry"}
                       </button>
                     ) : (
                       <span />

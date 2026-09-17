@@ -1,4 +1,5 @@
 import { pluginManagementRoutes } from "./plugin-management";
+import { pluginOAuthPage } from "./plugin-oauth-page";
 import {
   AddCustomMcpInput,
   ApiError,
@@ -25,21 +26,17 @@ export async function pluginMutationRoutes(context: RouteContext): Promise<Respo
     const code = url.searchParams.get("code");
     const state = url.searchParams.get("state");
     const oauthError = url.searchParams.get("error");
-    if (oauthError) {
-      if (connectionId && state) await run(app.plugins.cancelAuthentication(connectionId, state));
-      return new Response(
-        "<!doctype html><meta charset=utf-8><title>Authorization cancelled</title><style>body{font:16px system-ui;display:grid;place-items:center;min-height:100vh;margin:0;background:#171717;color:#f5f5f5}main{text-align:center}p{color:#a3a3a3}</style><main><h1>Authorization cancelled</h1><p>Return to OpenTeam to try again when you are ready.</p></main>",
-        { headers: { "content-type": "text/html; charset=utf-8" } }
-      );
+    if (!connectionId || !state || (!code && !oauthError)) return pluginOAuthPage("stale", 400);
+    try {
+      if (oauthError) {
+        await run(app.plugins.cancelAuthentication(connectionId, state));
+        return pluginOAuthPage(oauthError === "access_denied" ? "cancelled" : "failed");
+      }
+      await run(app.finishPluginAuthentication(connectionId, code!, state));
+      return pluginOAuthPage("connected");
+    } catch (cause) {
+      return pluginOAuthPage(cause instanceof ApiError && ["plugin_oauth_state_invalid", "plugin_oauth_session_changed", "connection_not_found"].includes(cause.code) ? "stale" : "failed", 400);
     }
-    if (!connectionId || !code || !state) {
-      throw new ApiError(400, "plugin_oauth_callback_invalid", "OAuth callback is incomplete");
-    }
-    await run(app.finishPluginAuthentication(connectionId, code, state));
-    return new Response(
-      "<!doctype html><meta charset=utf-8><title>Connected</title><style>body{font:16px system-ui;display:grid;place-items:center;min-height:100vh;margin:0;background:#171717;color:#f5f5f5}main{text-align:center}p{color:#a3a3a3}</style><main><h1>Plugin connected</h1><p>You can close this tab and return to OpenTeam.</p><script>setTimeout(()=>window.close(),900)</script></main>",
-      { headers: { "content-type": "text/html; charset=utf-8" } }
-    );
   }
 
   const connectionActionMatch = path.match(
@@ -61,6 +58,13 @@ export async function pluginMutationRoutes(context: RouteContext): Promise<Respo
   const connectionAuthenticateMatch = path.match(
     /^\/api\/plugin-connections\/([^/]+)\/authenticate$/
   );
+  const cancelAuthenticationMatch = path.match(/^\/api\/plugin-connections\/([^/]+)\/authenticate\/cancel$/);
+  if (request.method === "POST" && cancelAuthenticationMatch?.[1]) {
+    const input = await request.json().catch(() => null) as { state?: unknown } | null;
+    if (typeof input?.state !== "string" || !input.state || input.state.length > 4096)
+      throw new ApiError(400, "plugin_oauth_state_invalid", "The authorization session is missing. Refresh and try again.");
+    return json(await run(app.plugins.cancelAuthentication(cancelAuthenticationMatch[1], input.state)));
+  }
   if (request.method === "POST" && connectionAuthenticateMatch?.[1]) {
     const input = (await request.json().catch(() => ({}))) as { force?: unknown };
     return json(

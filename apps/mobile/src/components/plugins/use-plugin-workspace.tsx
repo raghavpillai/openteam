@@ -103,6 +103,7 @@ export function usePluginWorkspace({
         }
       }
     } catch (cause) {
+      await refresh().catch(() => undefined);
       if (feedback !== "none")
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       setError(clientErrorMessage(cause, "Plugin operation failed"));

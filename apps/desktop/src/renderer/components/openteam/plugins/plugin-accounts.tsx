@@ -2,6 +2,8 @@ import type { PluginConnectionView } from "@openteam/contracts";
 import { Check, LoaderCircle, SquarePen, Plus, Settings2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { cn } from "../../../lib/cn";
+import { pluginAuthorization } from "@openteam/product-core/plugin-authorization";
+import { PluginAuthorization } from "./plugin-authorization";
 
 const button =
   "inline-flex h-[26px] shrink-0 cursor-pointer items-center gap-1 rounded-full bg-[#77777717] px-3 text-[12px] outline-none transition-colors duration-120 ease-out hover:bg-[#7777772b] focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:cursor-default disabled:opacity-45";
@@ -14,13 +16,15 @@ export function PluginAccountRow({
   onRename,
   onConnect,
   onRemove,
+  onCancelAuthentication,
   children,
 }: {
   connection: PluginConnectionView;
   busy: boolean;
-  onRename: (name: string) => void;
+  onRename: (name: string) => Promise<boolean>;
   onConnect: () => void;
   onRemove: () => void;
+  onCancelAuthentication: () => void;
   children: React.ReactNode;
 }) {
   const [editing, setEditing] = useState(false);
@@ -29,6 +33,7 @@ export function PluginAccountRow({
   const [alias, setAlias] = useState(connection.alias);
   useEffect(() => setAlias(connection.alias), [connection.alias]);
   const ready = connection.status === "ready";
+  const authorization = pluginAuthorization(connection);
   const status = ready
     ? "Connected"
     : connection.status === "needs_auth"
@@ -36,10 +41,9 @@ export function PluginAccountRow({
       : connection.status === "error"
         ? "Connection error"
         : "Not connected";
-  const save = () => {
+  const save = async () => {
     if (alias.trim().length < 2 || busy) return;
-    onRename(alias.trim());
-    setEditing(false);
+    if (await onRename(alias.trim())) setEditing(false);
   };
   return (
     <div className="border-t border-black/[0.065] first:border-t-0 dark:border-white/[0.07]">
@@ -55,6 +59,8 @@ export function PluginAccountRow({
               onKeyDown={(e) => {
                 if (e.key === "Enter") save();
                 if (e.key === "Escape") {
+                  e.preventDefault();
+                  e.stopPropagation();
                   setAlias(connection.alias);
                   setEditing(false);
                 }
@@ -116,7 +122,7 @@ export function PluginAccountRow({
             {status}
           </span>
         )}
-        {!editing && !ready && (
+        {!editing && !ready && !authorization && (
           <button className={button} type="button" disabled={busy} onClick={onConnect}>
             {busy ? <LoaderCircle className="size-3 animate-spin" /> : null}
             {connection.configured ? "Retry" : "Set up"}
@@ -139,6 +145,8 @@ export function PluginAccountRow({
           </button>
         )}
       </div>
+      <PluginAuthorization connection={connection} busy={busy} onCancel={onCancelAuthentication} onRetry={onConnect} />
+      {connection.statusMessage && !ready && !authorization ? <p role="status" className="px-3.5 pb-3 text-[11px] text-foreground-secondary">{connection.statusMessage}</p> : null}
       {expanded && <div className="px-3 pb-3">{children}</div>}
     </div>
   );
@@ -151,7 +159,7 @@ export function AddPluginAccount({
 }: {
   connections: PluginConnectionView[];
   busy: boolean;
-  onAdd: (connection: PluginConnectionView, alias: string) => void;
+  onAdd: (connection: PluginConnectionView, alias: string) => Promise<boolean>;
 }) {
   const [open, setOpen] = useState(false);
   const [alias, setAlias] = useState("");
@@ -165,15 +173,16 @@ export function AddPluginAccount({
           className="flex flex-wrap items-center gap-2 p-3"
           onKeyDown={(event) => {
             if (event.key === "Escape") {
+              event.preventDefault();
+              event.stopPropagation();
               setOpen(false);
               setAlias("");
             }
           }}
-          onSubmit={(e) => {
+          onSubmit={async (e) => {
             e.preventDefault();
             const connection = choices.find((c) => c.connectorKey === connector);
-            if (connection && alias.trim().length >= 2) {
-              onAdd(connection, alias.trim());
+            if (connection && !busy && alias.trim().length >= 2 && await onAdd(connection, alias.trim())) {
               setOpen(false);
               setAlias("");
             }

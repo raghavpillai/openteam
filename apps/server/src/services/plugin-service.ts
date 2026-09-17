@@ -465,8 +465,18 @@ export class PluginService {
       ...(input.headers ? { headers: input.headers } : {}),
     });
 
-  authenticate = (connectionId: string, force = false) =>
-    serviceEffect(async () => {
+  private authenticationStarts = new Map<string, Promise<{ connectionId: string; status: string; authorizationUrl: string }>>();
+
+  authenticate = (connectionId: string, force = false) => serviceEffect(async () => {
+    const existing = this.authenticationStarts.get(connectionId);
+    if (existing) return existing;
+    const pending = this.beginAuthentication(connectionId, force);
+    this.authenticationStarts.set(connectionId, pending);
+    try { return await pending; }
+    finally { if (this.authenticationStarts.get(connectionId) === pending) this.authenticationStarts.delete(connectionId); }
+  });
+
+  private beginAuthentication = async (connectionId: string, force: boolean) => {
       const connection = await this.connectionOrThrow(connectionId);
       this.assertAvailable(connection);
       this.validateConfiguration(connection);
@@ -475,6 +485,13 @@ export class PluginService {
       }
       const current = jsonObject(connection.credentials);
       const previousOAuth = jsonObject(current.oauth);
+      if (!force && connection.status === "needs_auth" &&
+          previousOAuth.stateGeneration === connection.runtimeGeneration &&
+          typeof previousOAuth.stateCreatedAt === "number" &&
+          Date.now() - previousOAuth.stateCreatedAt < 15 * 60_000 &&
+          typeof previousOAuth.authorizationUrl === "string" && previousOAuth.state) {
+        return { connectionId, status: "needs_auth", authorizationUrl: previousOAuth.authorizationUrl };
+      }
       const oauth =
         !force && previousOAuth.clientInformation
           ? { clientInformation: previousOAuth.clientInformation }
@@ -522,6 +539,7 @@ export class PluginService {
         await this.prisma.pluginConnection.updateMany({
           where: { id: connectionId, runtimeGeneration: refreshed.runtimeGeneration },
           data: {
+            credentials: toJson({ ...current, oauth }),
             status: "needs_auth",
             statusMessage: message.includes("dynamic client registration")
               ? "Configure an OAuth client ID for this self-hosted connector."
@@ -539,7 +557,7 @@ export class PluginService {
         },
       });
       return { connectionId, status: "needs_auth", authorizationUrl: result.authorizationUrl };
-    });
+    };
 
   finishAuthentication = (connectionId: string, code: string, state: string) =>
     serviceEffect(async () => {
@@ -567,9 +585,14 @@ export class PluginService {
         const detail = String(
           redactConnectionSecrets(error instanceof Error ? error.message : String(error), latest)
         ).slice(0, 1500);
+        const credentials = jsonObject(latest.credentials);
+        const failedOAuth = { ...jsonObject(credentials.oauth) };
+        for (const key of ["state", "stateCreatedAt", "stateGeneration", "authorizationUrl", "codeVerifier"]) delete failedOAuth[key];
         await this.prisma.pluginConnection.updateMany({
           where: { id: connectionId, runtimeGeneration: connection.runtimeGeneration },
           data: {
+            runtimeGeneration: { increment: 1 },
+            credentials: toJson({ ...credentials, oauth: failedOAuth }),
             status: authorized ? "error" : "needs_auth",
             statusMessage: authorized
               ? `Authorization succeeded, but tool discovery failed: ${detail}`
@@ -791,6 +814,10 @@ export class PluginService {
       const updated = await this.prisma.pluginConnection.update({
         where: { id: connectionId },
         data: { alias },
+      }).catch((cause: unknown) => {
+        if (cause && typeof cause === "object" && "code" in cause && cause.code === "P2002")
+          throw new ApiError(409, "connection_alias_exists", "That account alias already exists");
+        throw cause;
       });
       await this.prisma.pluginActivity.create({
         data: {

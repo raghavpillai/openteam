@@ -18,14 +18,19 @@ export function PluginSetupSheet({
   onChange,
   onCancel,
   onInstall,
+  busy = false,
+  error,
 }: {
   plugin: PluginCatalogItemView;
   values: Record<string, string>;
   onChange: (key: string, value: string) => void;
   onCancel: () => void;
   onInstall: () => void;
+  busy?: boolean;
+  error?: string | null;
 }) {
   const theme = useTheme();
+  const fields = plugin.setupFields;
   return (
     <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onCancel}>
       <SafeAreaView edges={["bottom"]} style={{ flex: 1, backgroundColor: theme.background }}>
@@ -48,6 +53,8 @@ export function PluginSetupSheet({
             </Text>
             <NativeActionButton
               title="Install"
+              disabled={busy || fields.some(field => field.required && !values[field.key]?.trim() && field.default === undefined)}
+              busy={busy}
               variant="filled"
               onPress={onInstall}
               style={{ alignSelf: "center" }}
@@ -64,7 +71,8 @@ export function PluginSetupSheet({
             <Text style={{ color: theme.textMuted, fontSize: 15, lineHeight: 21 }}>
               {plugin.setup?.description || "Enter the credentials required by this plugin."}
             </Text>
-            {(plugin.setup?.fields ?? plugin.setupFields).map((field) => (
+            {error ? <Text accessibilityRole="alert" style={{color: theme.danger}}>{error}</Text> : null}
+            {fields.map((field) => (
               <View key={field.key} style={{ gap: 8 }}>
                 <Text style={{ color: theme.text, fontSize: 15 }}>{field.label}</Text>
                 <TextInput

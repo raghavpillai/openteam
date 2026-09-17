@@ -13,6 +13,7 @@ export function createOAuthMcpFixture(port = 0) {
   const observations = { refreshes: 0, calls: 0, authMethods: [] as string[] };
   let extraTool = false;
   let denyTokens = false;
+  let unavailable = false;
   const encoder = new TextEncoder();
   const tool = (name: string) => ({
     name,
@@ -26,6 +27,7 @@ export function createOAuthMcpFixture(port = 0) {
   });
   const server = Bun.serve({
     hostname: "127.0.0.1",
+    idleTimeout: 120,
     port,
     async fetch(request) {
       const url = new URL(request.url);
@@ -150,6 +152,7 @@ export function createOAuthMcpFixture(port = 0) {
         });
       }
       if (url.pathname === "/mcp") {
+        if (unavailable) return Response.json({error:"fixture_unavailable"},{status:503});
         const token = request.headers.get("authorization")?.replace(/^Bearer /i, "") ?? "";
         const account = tokens.get(token);
         if (!account || denyTokens)
@@ -211,6 +214,7 @@ export function createOAuthMcpFixture(port = 0) {
     server,
     observations,
     endpoint: `${server.url.origin}/mcp`,
+    setUnavailable: (value: boolean) => { unavailable = value; },
     registerClient: (id: string, redirectUri: string, secret?: string) =>
       clients.set(id, { redirectUris: [redirectUri], secret }),
     expireTokens: () => {

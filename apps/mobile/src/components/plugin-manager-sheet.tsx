@@ -1,4 +1,5 @@
 import { PluginSetupSheet } from "./plugins/plugin-setup-sheet";
+import { useInstallPlugin } from "./plugins/use-install-plugin";
 import { NativeActionButton, NativeToolbarButton } from "./native-controls";
 import * as Haptics from "../haptics";
 import { PluginMark } from "./plugins/plugin-mark";
@@ -37,6 +38,8 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useOpenTeam } from "../state/openteam-context";
 import { useTheme } from "../theme";
+import { PluginAuthorization } from "./plugins/plugin-authorization";
+import { pluginAuthorization, pluginNeedsSetup } from "@openteam/product-core/plugin-authorization";
 
 const emptySettings = (): PluginSettingsView => ({
   catalog: [],
@@ -65,9 +68,9 @@ export function PluginManagerSheet({
     authenticatePlugin,
     connectPlugin,
     disconnectPlugin,
-    installPlugin,
     pluginBotAccess,
     pluginSettings,
+    pluginOperation,
     setPluginEnablement,
     setPluginGrant,
     uninstallPlugin,
@@ -88,6 +91,10 @@ export function PluginManagerSheet({
   const [accessLoading, setAccessLoading] = useState(false);
   const settingsRequestId = useRef(0);
   const mutationInFlight = useRef(false);
+  const installAndConnect = useInstallPlugin(connection => {
+    setManagementConnectionId(connection.id);
+    setManagementOpen(true);
+  });
 
   const refresh = useCallback(async () => {
     const requestId = settingsRequestId.current + 1;
@@ -128,7 +135,7 @@ export function PluginManagerSheet({
 
   const mutate = useCallback(
     async (key: string, operation: () => Promise<void>, options: MutationOptions = {}) => {
-      if (mutationInFlight.current) return;
+      if (mutationInFlight.current) return false;
       mutationInFlight.current = true;
       setMutationKey(key);
       setError(null);
@@ -141,10 +148,13 @@ export function PluginManagerSheet({
         if (!options.optimistic && options.successFeedback !== false) {
           void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         }
+        return true;
       } catch (cause) {
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
         options.rollback?.();
+        if (options.refreshSettings !== false) await refresh();
         setError(clientErrorMessage(cause, "OpenTeam could not update this plugin."));
+        return false;
       } finally {
         mutationInFlight.current = false;
         setMutationKey(null);
@@ -218,9 +228,9 @@ export function PluginManagerSheet({
   }, [accessInstall, accessPluginKey]);
 
   const beginInstall = (plugin: PluginCatalogItemView) => {
-    const fields = plugin.setup?.fields ?? plugin.setupFields;
+    const fields = plugin.setupFields;
     if (fields.length === 0) {
-      void mutate(plugin.key, () => installPlugin(plugin.key));
+      void mutate(plugin.key, () => installAndConnect(plugin));
       return;
     }
     setSetupValues({});
@@ -297,17 +307,22 @@ export function PluginManagerSheet({
   };
 
   const connectionAction = (connection: PluginConnectionView) => {
-    if (connection.auth === "token" || !connection.configured) {
+    const catalog = data.installs.find(install => install.pluginKey === connection.pluginKey)?.catalog;
+    if (pluginNeedsSetup(connection, catalog)) {
       setManagementConnectionId(connection.id);
       setManagementOpen(true);
       return;
     }
     const key = `connection:${connection.id}`;
+    if (connection.status === "error") {
+      void mutate(key, async () => { await pluginOperation(api => api.restartPluginConnection(connection.id)); });
+      return;
+    }
     if (connection.status === "ready") {
       void mutate(key, () => disconnectPlugin(connection.id));
       return;
     }
-    if (connection.canAuthenticate || connection.status === "needs_auth") {
+    if (connection.auth === "oauth") {
       void mutate(
         key,
         async () => {
@@ -442,7 +457,10 @@ export function PluginManagerSheet({
                         title={
                           connection.status === "ready"
                             ? "Disconnect"
-                            : connection.canAuthenticate || connection.status === "needs_auth"
+                            : connection.status === "error" ? "Retry"
+                            : pluginAuthorization(connection) ? pluginAuthorization(connection)?.expired ? "Try again" : "Reopen"
+                            : pluginNeedsSetup(connection, install.catalog) ? "Set up"
+                            : connection.auth === "oauth"
                               ? "Authorize"
                               : "Connect"
                         }
@@ -453,6 +471,7 @@ export function PluginManagerSheet({
                       />
                     </View>
                   ))}
+                  {install.connections.map(connection => <PluginAuthorization key={`auth:${connection.id}`} connection={connection} refresh={refresh} />)}
                   <View style={styles.cardActions}>
                     {install.hasSkills || install.connections.length > 0 ? (
                       <NativeActionButton
@@ -664,14 +683,18 @@ export function PluginManagerSheet({
 
         {setupPlugin ? (
           <PluginSetupSheet
+            busy={Boolean(mutationKey)}
+            error={error}
             plugin={setupPlugin}
             values={setupValues}
             onChange={(key, value) => setSetupValues((current) => ({ ...current, [key]: value }))}
-            onCancel={() => setSetupPlugin(null)}
-            onInstall={() => {
+            onCancel={() => { setSetupPlugin(null); setSetupValues({}); }}
+            onInstall={async () => {
               const plugin = setupPlugin;
-              setSetupPlugin(null);
-              void mutate(plugin.key, () => installPlugin(plugin.key, setupValues));
+              if (await mutate(plugin.key, () => installAndConnect(plugin, setupValues))) {
+                setSetupPlugin(null);
+                setSetupValues({});
+              }
             }}
           />
         ) : null}

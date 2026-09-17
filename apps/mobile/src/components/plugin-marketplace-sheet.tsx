@@ -1,4 +1,5 @@
 import { PluginSetupSheet } from "./plugins/plugin-setup-sheet";
+import { useInstallPlugin } from "./plugins/use-install-plugin";
 import * as Haptics from "../haptics";
 import {
   PLUGIN_MARKETPLACE_CATEGORIES,
@@ -12,10 +13,12 @@ import type {
   PluginSettingsView,
 } from "@openteam/contracts";
 import { clientErrorMessage } from "@openteam/product-core/redaction";
+import { pluginAuthorization, pluginNeedsSetup } from "@openteam/product-core/plugin-authorization";
 import { SymbolView } from "expo-symbols";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  AppState,
   Linking,
   ScrollView,
   StyleSheet,
@@ -53,11 +56,11 @@ function MarketplaceRow({
   const connection = install?.connections[0];
   const actionLabel = !install
     ? "Add"
-    : connection?.status === "needs_auth" || connection?.canAuthenticate
-      ? "Authorize"
-      : connection && connection.status !== "ready"
-        ? "Connect"
-        : "Added";
+    : !connection || connection.status === "ready" ? "Added"
+    : connection.status === "error" ? "Retry"
+    : pluginAuthorization(connection) ? pluginAuthorization(connection)?.expired ? "Try again" : "Reopen"
+    : pluginNeedsSetup(connection, plugin) ? "Set up"
+    : connection.auth === "oauth" ? "Authorize" : "Connect";
   const primary = actionLabel === "Authorize";
   return (
     <View style={styles.pluginRow}>
@@ -114,7 +117,7 @@ export function PluginMarketplaceSheet({
   onClose: () => void;
 }) {
   const theme = useTheme();
-  const { authenticatePlugin, connectPlugin, installPlugin, pluginSettings } = useOpenTeam();
+  const { authenticatePlugin, connectPlugin, pluginSettings, pluginOperation } = useOpenTeam();
   const [data, setData] = useState<PluginSettingsView>(emptySettings);
   const [loading, setLoading] = useState(false);
   const [busyKey, setBusyKey] = useState<string | null>(null);
@@ -125,6 +128,8 @@ export function PluginMarketplaceSheet({
   const [setupPlugin, setSetupPlugin] = useState<PluginCatalogItemView | null>(null);
   const [setupValues, setSetupValues] = useState<Record<string, string>>({});
   const requestId = useRef(0);
+  const mutating = useRef(false);
+  const installAndConnect = useInstallPlugin(() => setInstalledOpen(true));
 
   const refresh = useCallback(async () => {
     const id = ++requestId.current;
@@ -145,6 +150,11 @@ export function PluginMarketplaceSheet({
   useEffect(() => {
     if (visible && !installedOpen) void refresh();
   }, [installedOpen, refresh, visible]);
+  useEffect(() => {
+    if (!visible || installedOpen) return;
+    const subscription = AppState.addEventListener("change", state => { if (state === "active") void refresh(); });
+    return () => subscription.remove();
+  }, [visible, installedOpen, refresh]);
 
   const installs = useMemo(
     () => new Map(data.installs.map((install) => [install.pluginKey, install] as const)),
@@ -171,7 +181,8 @@ export function PluginMarketplaceSheet({
     action: () => Promise<void>,
     options: { successFeedback?: boolean } = {}
   ) => {
-    if (busyKey) return;
+    if (mutating.current) return false;
+    mutating.current = true;
     setBusyKey(key);
     setError(null);
     try {
@@ -180,31 +191,43 @@ export function PluginMarketplaceSheet({
       if (options.successFeedback !== false) {
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       }
+      return true;
     } catch (cause) {
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      await refresh();
       setError(clientErrorMessage(cause, "OpenTeam could not update this plugin."));
+      return false;
     } finally {
+      mutating.current = false;
       setBusyKey(null);
     }
   };
 
   const beginInstall = (plugin: PluginCatalogItemView) => {
-    const fields = plugin.setup?.fields ?? plugin.setupFields;
+    const fields = plugin.setupFields;
     if (fields.length > 0) {
       setSetupPlugin(plugin);
       setSetupValues({});
       return;
     }
-    void mutate(plugin.key, () => installPlugin(plugin.key));
+    void mutate(plugin.key, () => installAndConnect(plugin));
   };
 
   const handleConnection = (connection: PluginConnectionView) => {
     const key = `connection:${connection.id}`;
+    if (connection.status === "error") {
+      void mutate(key, async () => { await pluginOperation(api => api.restartPluginConnection(connection.id)); });
+      return;
+    }
     if (connection.status === "ready") {
       setInstalledOpen(true);
       return;
     }
-    if (connection.canAuthenticate || connection.status === "needs_auth") {
+    if (pluginNeedsSetup(connection, installs.get(connection.pluginKey)?.catalog)) {
+      setInstalledOpen(true);
+      return;
+    }
+    if (connection.auth === "oauth") {
       void mutate(
         key,
         async () => {
@@ -367,14 +390,18 @@ export function PluginMarketplaceSheet({
 
       {setupPlugin ? (
         <PluginSetupSheet
+          busy={Boolean(busyKey)}
+          error={error}
           plugin={setupPlugin}
           values={setupValues}
           onChange={(key, value) => setSetupValues((current) => ({ ...current, [key]: value }))}
-          onCancel={() => setSetupPlugin(null)}
-          onInstall={() => {
+          onCancel={() => { setSetupPlugin(null); setSetupValues({}); }}
+          onInstall={async () => {
             const plugin = setupPlugin;
-            setSetupPlugin(null);
-            void mutate(plugin.key, () => installPlugin(plugin.key, setupValues));
+            if (await mutate(plugin.key, () => installAndConnect(plugin, setupValues))) {
+              setSetupPlugin(null);
+              setSetupValues({});
+            }
           }}
         />
       ) : null}

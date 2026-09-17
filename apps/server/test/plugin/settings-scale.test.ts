@@ -86,6 +86,7 @@ describe("bounded plugin settings projections", () => {
           status: "needs_auth",
           statusMessage: "Waiting for authentication",
           authorizationUrl: null,
+          authorizationExpiresAt: null,
           configured: true,
           tools: [],
         },

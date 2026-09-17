@@ -5,6 +5,7 @@ export { validateProcessSecretName } from "./process-secrets";
 import { MAX_INLINE_IMAGE_URL_LENGTH } from "./media-input";
 import cursorToolsDocument from "./cursor-tools.json";
 export * from "./review-cards";
+export { formatUserFormReceipt } from "./user-form-receipts";
 import nativeToolsDocument from "./native-tools.json";
 import type { ClientCapabilities } from "./capabilities";
 import { PI_REASONING_LEVELS, type RuntimeEngine } from "./inference";
@@ -804,6 +805,7 @@ export interface PluginConnectionView {
   statusMessage: string | null;
   instructions: string;
   authorizationUrl: string | null;
+  authorizationExpiresAt?: string | null;
   oauthRedirectUrl: string | null;
   canAuthenticate: boolean;
   configured: boolean;
@@ -857,6 +859,7 @@ export interface PluginConnectionStatusView {
   status: PluginConnectionView["status"];
   statusMessage: string | null;
   authorizationUrl: string | null;
+  authorizationExpiresAt?: string | null;
   configured: boolean;
   tools: PluginCatalogToolView[];
 }
@@ -1259,6 +1262,7 @@ export type DynamicToolCallRequest = typeof DynamicToolCallRequest.Type;
 
 export const ResolveApprovalInput = Schema.Struct({
   decision: ApprovalDecision,
+  selectedItems: Schema.optional(Schema.Array(Schema.String)),
 });
 export type ResolveApprovalInput = typeof ResolveApprovalInput.Type;
 
@@ -1321,6 +1325,7 @@ export type ShellCompletionInput = typeof ShellCompletionInput.Type;
 export const ComputerApprovalResolution = Schema.Struct({
   approvalId: Schema.String,
   decision: ApprovalDecision,
+  selectedItems: Schema.optional(Schema.Array(Schema.String)),
 });
 export type ComputerApprovalResolution = typeof ComputerApprovalResolution.Type;
 
@@ -1352,6 +1357,14 @@ export type ComputerEvent =
       turnId: string;
       itemId: string;
       details: unknown;
+    }
+  | {
+      type: "approval.action";
+      decision: "accept" | "always_allow";
+      selectedItems?: readonly string[];
+      approvalId: string;
+      turnId: string;
+      status: "running" | "completed" | "failed";
     }
   | {
       type: "context.state";

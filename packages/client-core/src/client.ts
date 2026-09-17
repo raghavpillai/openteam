@@ -398,6 +398,10 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
         `/api/v0/plugin-connections/${encodeURIComponent(connectionId)}/authenticate`,
         { method: "POST", body: JSON.stringify({ force }) }
       ),
+    cancelPluginAuthentication: (connectionId: string, state: string) =>
+      transport.request(`/api/v0/plugin-connections/${encodeURIComponent(connectionId)}/authenticate/cancel`, {
+        method: "POST", body: JSON.stringify({ state }),
+      }),
     restartPluginConnection: (connectionId: string) =>
       transport.request(`/api/v0/plugin-connections/${encodeURIComponent(connectionId)}/restart`, {
         method: "POST",
@@ -679,9 +683,9 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
       transport.request<RichMessageMutationView>(`/api/v0/channel-messages/${encodeURIComponent(messageId)}/user-form`, {
         method: "POST", body: JSON.stringify({ action: "submit", values, saveToVault }),
       }),
-    dismissUserForm: (messageId: string) =>
+    dismissUserForm: (messageId: string, mode: "dismissed" | "escalated" = "dismissed") =>
       transport.request<RichMessageMutationView>(`/api/v0/channel-messages/${encodeURIComponent(messageId)}/user-form`, {
-        method: "POST", body: JSON.stringify({ action: "dismiss" }),
+        method: "POST", body: JSON.stringify({ action: "dismiss", mode }),
       }),
     userFormPrefill: (messageId: string) =>
       transport.request<Record<string, string>>(`/api/v0/channel-messages/${encodeURIComponent(messageId)}/user-form/prefill`, { method: "POST", body: "{}" }),
@@ -695,10 +699,10 @@ export const createOpenTeamClient = (options: OpenTeamClientOptions) => {
       ),
     cancelRun: (runId: string) =>
       transport.request(`/api/v0/runs/${encodeURIComponent(runId)}/cancel`, { method: "POST" }),
-    resolveApproval: (approvalId: string, decision: ApprovalDecision) =>
+    resolveApproval: (approvalId: string, decision: ApprovalDecision, selectedItems?: readonly string[]) =>
       transport.request(`/api/v0/approvals/${encodeURIComponent(approvalId)}/resolve`, {
         method: "POST",
-        body: JSON.stringify({ decision }),
+        body: JSON.stringify({ decision, selectedItems }),
       }),
     registerPushDevice: (input: RegisterPushDeviceInput) =>
       transport.request("/api/v0/notification-devices", {

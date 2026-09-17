@@ -28,7 +28,7 @@ export async function readSiblingThread(db: PrismaClient, context: { botId: stri
     const channel = await tx.channel.findFirst({ where: { id: session.scopeId, archivedAt: null, members: { some: { botId: context.botId } } } });
     if (!channel) throw new ApiError(404, "sibling_unavailable", "Conversation is not readable by this agent");
     const rows = await tx.channelMessage.findMany({
-      where: { channelId: channel.id, sender: { in: ["user", "agent"] }, content: { not: "" } }, orderBy: { sequence: "desc" }, take: limit,
+      where: { channelId: channel.id, sender: { in: ["user", "agent"] } }, orderBy: { sequence: "desc" }, take: limit,
       select: { sequence: true, sender: true, content: true },
     });
     if (!rows.length) return `No readable transcript rows for session ${session_id}.`;

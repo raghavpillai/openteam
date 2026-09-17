@@ -9,6 +9,7 @@ import { clientErrorMessage } from "./redaction";
 export const DURABLE_SEND_SCHEMA_VERSION = 2;
 const DURABLE_SEND_LEGACY_SCHEMA_VERSION = 1;
 export const DURABLE_SEND_ACK_TIMEOUT_MS = 120_000;
+export const DURABLE_ATTACHMENT_COMMIT_TIMEOUT_MS = 120_000;
 export const DURABLE_SEND_JOURNAL_MAX_BYTES = 16 * 1024 * 1024;
 export const DURABLE_SEND_SCOPE_MAX_LENGTH = 2_048;
 
@@ -124,6 +125,7 @@ export interface DurableSendRuntime {
   createNonce?: () => string;
   now?: () => number;
   ackTimeoutMs?: number;
+  attachmentCommitTimeoutMs?: number;
   onTelemetry?: (event: DurableSendTelemetryEvent) => void;
 }
 
@@ -699,9 +701,7 @@ export const parseDurableSendJournal = (
   return {
     schemaVersion: DURABLE_SEND_SCHEMA_VERSION,
     scope: expectedScope,
-    records: [...byNonce.values()].sort(
-      (left, right) => left.createdAtMs - right.createdAtMs || left.nonce.localeCompare(right.nonce)
-    ),
+    records: [...byNonce.values()].sort((left, right) => left.createdAtMs - right.createdAtMs),
   };
 };
 
@@ -862,6 +862,7 @@ export const createDurableSendController = (
   const listeners = new Set<() => void>();
   const records = new Map<string, DurableSendRecord>();
   const inFlight = new Map<string, Promise<void>>();
+  const cancelAttachmentCommits = new Set<() => void>();
   let snapshot: readonly DurableSendRecord[] = [];
   let visibleSnapshot: readonly DurableSendRecord[] = [];
   let recoverySnapshot: readonly DurableSendRecord[] = [];
@@ -899,10 +900,19 @@ export const createDurableSendController = (
     }
   };
 
-  const publish = () => {
-    snapshot = [...records.values()].sort(
-      (left, right) => left.createdAtMs - right.createdAtMs || left.nonce.localeCompare(right.nonce)
+  const orderedRecords = () => {
+    // Equal timestamps preserve composition order, including a rolled-back local
+    // deletion. A nonce is an identity, not a chronological sorting key.
+    const order = new Map(snapshot.map((record, index) => [record.nonce, index]));
+    for (const record of records.values())
+      if (!order.has(record.nonce)) order.set(record.nonce, order.size);
+    return [...records.values()].sort(
+      (left, right) =>
+        left.createdAtMs - right.createdAtMs || order.get(left.nonce)! - order.get(right.nonce)!
     );
+  };
+  const publish = () => {
+    snapshot = orderedRecords();
     recoverySnapshot = snapshot.filter(
       (record) =>
         record.phase === "failed" &&
@@ -917,7 +927,7 @@ export const createDurableSendController = (
   const journal = (): DurableSendJournal => ({
     schemaVersion: DURABLE_SEND_SCHEMA_VERSION,
     scope,
-    records: snapshot.map((record) => ({ ...record })),
+    records: orderedRecords().map((record) => ({ ...record })),
   });
 
   const persist = (): Promise<void> => {
@@ -953,7 +963,7 @@ export const createDurableSendController = (
     acceptedAtMs = now()
   ) => {
     const current = records.get(record.nonce);
-    if (!current) return;
+    if (disposed || !current) return;
     if (acceptedMessagePromptDigest(message, current.target) !== current.promptDigest) {
       await fail(current, {
         code: "delivery_digest_mismatch",
@@ -977,7 +987,7 @@ export const createDurableSendController = (
 
   const fail = async (record: DurableSendRecord, failure: DurableSendFailure): Promise<void> => {
     const current = records.get(record.nonce);
-    if (!current) return;
+    if (disposed || !current) return;
     const failedAtMs = now();
     const next = replace({
       ...current,
@@ -992,7 +1002,7 @@ export const createDurableSendController = (
 
   const queue = async (record: DurableSendRecord, markComposedOffline = false): Promise<void> => {
     const current = records.get(record.nonce);
-    if (!current) return;
+    if (disposed || !current) return;
     // queuedAtMs is specifically the offline-composition marker used by
     // “Sent while offline”, not a generic time spent behind another send.
     const next = replace({
@@ -1010,8 +1020,10 @@ export const createDurableSendController = (
   };
 
   const resolve = async (record: DurableSendRecord): Promise<MessageDeliveryAcceptance | null> => {
+    if (disposed) return null;
     try {
-      return await runtime.resolveAcceptance(record);
+      const resolution = await runtime.resolveAcceptance(record);
+      return disposed ? null : resolution;
     } catch {
       return null;
     }
@@ -1060,7 +1072,41 @@ export const createDurableSendController = (
     return "wait";
   };
 
+  const commitAttachments = async (record: DurableSendRecord): Promise<AssetRef[]> => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let cancel = () => {};
+    try {
+      return await Promise.race([
+        runtime.commitStagedAttachments!(record),
+        new Promise<AssetRef[]>((_, reject) => {
+          cancel = () =>
+            reject(
+              Object.assign(new Error("Attachment upload interrupted. Your draft is saved."), {
+                code: "attachment_commit_interrupted",
+                status: 408,
+              })
+            );
+          cancelAttachmentCommits.add(cancel);
+          timer = setTimeout(
+            () =>
+              reject(
+                Object.assign(new Error("Attachment upload timed out. Your draft is saved."), {
+                  code: "attachment_commit_timeout",
+                  status: 408,
+                })
+              ),
+            runtime.attachmentCommitTimeoutMs ?? DURABLE_ATTACHMENT_COMMIT_TIMEOUT_MS
+          );
+        }),
+      ]);
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+      cancelAttachmentCommits.delete(cancel);
+    }
+  };
+
   const dispatchRecord = (record: DurableSendRecord): Promise<void> => {
+    if (disposed) return Promise.resolve();
     const existing = inFlight.get(record.nonce);
     if (existing) return existing;
     const task = (async () => {
@@ -1080,7 +1126,8 @@ export const createDurableSendController = (
         }
         let committed: AssetRef[];
         try {
-          committed = await runtime.commitStagedAttachments(current);
+          committed = await commitAttachments(current);
+          if (disposed || records.get(record.nonce) !== current) return;
           if (committed.length !== staged.length || !committed.every(assetRef)) {
             throw Object.assign(new Error("The attachment commit returned an invalid result."), {
               code: "attachment_commit_invalid",
@@ -1130,6 +1177,7 @@ export const createDurableSendController = (
           // them. Platform garbage collection can safely retry this cleanup.
         }
       }
+      if (disposed || !records.has(record.nonce)) return;
       const startedAtMs = now();
       const dispatching = replace({
         ...current,
@@ -1148,6 +1196,7 @@ export const createDurableSendController = (
         return;
       }
       try {
+        if (disposed || records.get(dispatching.nonce) !== dispatching) return;
         const result = await runtime.dispatch(dispatching);
         await accepted(dispatching, result.message);
       } catch (cause) {
@@ -1186,6 +1235,7 @@ export const createDurableSendController = (
     if (restoreRequest) return restoreRequest;
     restoreRequest = (async () => {
       const parsed = parseDurableSendJournal(await storage.read().catch(() => null), scope);
+      if (disposed) return;
       records.clear();
       for (const record of parsed.records) records.set(record.nonce, record);
       restored = true;
@@ -1211,6 +1261,7 @@ export const createDurableSendController = (
     async enqueue(input) {
       if (disposed) throw new Error("Durable delivery controller is disposed");
       await restore();
+      if (disposed) throw new Error("Durable delivery controller is disposed");
       const createdAtMs = now();
       const nonce = input.nonce ?? createNonce();
       if (
@@ -1275,6 +1326,7 @@ export const createDurableSendController = (
           await restore();
         }
         do {
+          if (disposed) return;
           flushAgain = false;
           const channelIds = [
             ...new Set(
@@ -1291,6 +1343,7 @@ export const createDurableSendController = (
                 (record) => record.target.channelId === channelId
               );
               for (const candidate of channelRecords) {
+                if (disposed) return;
                 const record = records.get(candidate.nonce);
                 if (
                   !record ||
@@ -1407,11 +1460,15 @@ export const createDurableSendController = (
           resolution.status === "pending" ||
           resolution.status === "unknown_durability"
         ) {
-          return null;
+          if (disposed) return null;
+          throw new Error(
+            "Delivery is still unconfirmed. Reconnect and check the conversation before resending."
+          );
         }
         const outcome = await applyResolution(failedRecord, resolution);
         if (outcome === "accepted") return records.get(nonce) ?? null;
       }
+      if (disposed) return null;
       const currentFailed = records.get(nonce);
       if (!currentFailed || currentFailed.phase !== "failed") return null;
       const createdAtMs = now();
@@ -1444,8 +1501,6 @@ export const createDurableSendController = (
       };
       records.delete(currentFailed.nonce);
       records.set(fresh.nonce, fresh);
-      publish();
-      emit(fresh, "resent");
       try {
         await persist();
       } catch (cause) {
@@ -1454,6 +1509,8 @@ export const createDurableSendController = (
         publish();
         throw cause;
       }
+      publish();
+      emit(fresh, "resent");
       if (fresh.phase !== "queued") void dispatchRecord(fresh);
       return fresh;
     },
@@ -1462,13 +1519,15 @@ export const createDurableSendController = (
       await restore();
       const record = records.get(nonce);
       if (!record || record.phase !== "failed") return null;
-      remove(nonce);
+      records.delete(nonce);
       try {
         await persist();
       } catch (cause) {
-        replace(record);
+        records.set(nonce, record);
+        publish();
         throw cause;
       }
+      publish();
       try {
         await runtime.discardStagedAttachments?.(record.payload.stagedAttachments ?? []);
       } catch {
@@ -1484,19 +1543,30 @@ export const createDurableSendController = (
       if (!record || record.phase !== "queued") return null;
       if (record.attemptCount > 0) {
         const resolution = await resolveLineage(record);
-        if (!resolution) return null;
+        if (disposed) return null;
+        if (
+          !resolution ||
+          resolution.status === "pending" ||
+          resolution.status === "unknown_durability"
+        ) {
+          throw new Error(
+            "Cannot cancel while delivery is unconfirmed. Reconnect and check the conversation."
+          );
+        }
         const outcome = await applyResolution(record, resolution);
         if (outcome !== "not_found" && outcome !== "failed") return null;
       }
       const current = records.get(nonce);
       if (!current || current.phase !== "queued") return null;
-      remove(nonce);
+      records.delete(nonce);
       try {
         await persist();
       } catch (cause) {
-        replace(current);
+        records.set(nonce, current);
+        publish();
         throw cause;
       }
+      publish();
       void controller.flush();
       emit(current, "cancelled");
       return current.payload;
@@ -1535,6 +1605,8 @@ export const createDurableSendController = (
       if (disposed) return;
       disposed = true;
       flushAgain = false;
+      for (const cancel of cancelAttachmentCommits) cancel();
+      cancelAttachmentCommits.clear();
       if (persistenceRetry !== null) {
         clearTimeout(persistenceRetry);
         persistenceRetry = null;

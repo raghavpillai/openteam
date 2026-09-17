@@ -1,4 +1,3 @@
-import { buildUserFormSubmittedAck, buildUserFormDismissedAck } from "./reference-form-results";
 export interface UserFormTarget {
   kind: "ref" | "selector" | "label";
   value: string;
@@ -34,7 +33,7 @@ export interface UserForm {
 }
 export interface UserFormReceipt {
   formId: string;
-  status: "submitted" | "dismissed";
+  status: "submitted" | "dismissed" | "escalated";
   fields: Array<{ id: string; status: "filled" | "held" | "unfilled" | "dropped" | "unknown" }>;
   submitAttempted: boolean;
   submitSucceeded: boolean;
@@ -242,44 +241,13 @@ export function parseFormRemap(value: unknown): Array<{ fieldId: string; target:
   });
 }
 
-export function formatUserFormReceipt(receipt: UserFormReceipt): string {
-  if (receipt.title && !receipt.interrupted) {
-    const form = { title: receipt.title, domain: receipt.domain, submitAfterFill: receipt.requestedSubmit,
-      fields: receipt.fields.map(field => ({id:field.id,type:receipt.fieldTypes?.[field.id] ?? "text"})) };
-    if (receipt.status === "dismissed") return buildUserFormDismissedAck(form);
-    const held = receipt.fields.filter(field => field.status === "held").map(field => field.id);
-    return buildUserFormSubmittedAck(form, receipt.fields.map(field => ({id:field.id,filled:field.status === "filled",fillFailed:["held","dropped","unknown"].includes(field.status)})), receipt.domainMismatch,
-      {attempted:receipt.submitAttempted,succeeded:receipt.submitSucceeded}, receipt.fillFailureKinds,
-      receipt.pageMoved ? {...receipt.pageMoved,valueScrubbedFreshSnapshot:receipt.snapshot} : undefined,
-      held.length ? {fieldIds:held,valueScrubbedFreshSnapshot:receipt.snapshot} : undefined);
-  }
-  return [
-    `User form ${receipt.formId}: ${receipt.status}. No submitted values are returned.`,
-    ...(receipt.interrupted
-      ? [
-          "The host was interrupted during this fill. Some values or the Enter press may have reached the page. Inspect the browser before retrying; the host will not automatically repeat the action.",
-        ]
-      : []),
-    ...receipt.fields.map((field) => `- ${field.id}: ${field.status.toUpperCase()}`),
-    ...(receipt.heldUntil
-      ? [
-          `Held values expire at ${receipt.heldUntil}. Use remap_user_form_targets only for HELD fields; omitted fields are discarded.`,
-        ]
-      : []),
-    ...(receipt.submitAttempted
-      ? [`Enter-submit: ${receipt.submitSucceeded ? "succeeded" : "failed"}.`]
-      : []),
-    ...(receipt.snapshot ? [receipt.snapshot] : []),
-  ].join("\n");
-}
-
 /** Whitelist the status-only host response before it reaches durable model data. */
 export function parseUserFormReceipt(raw: unknown): UserFormReceipt {
   const value = record(raw);
   if (
     typeof value.formId !== "string" ||
     !/^[a-f0-9]{64}$/.test(value.formId) ||
-    !["submitted", "dismissed"].includes(String(value.status)) ||
+    !["submitted", "dismissed", "escalated"].includes(String(value.status)) ||
     !Array.isArray(value.fields) ||
     value.fields.length > 8 ||
     typeof value.submitAttempted !== "boolean" ||

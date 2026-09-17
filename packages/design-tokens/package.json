@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./permission-icons": "./src/permission-icons.ts",
     "./appearance": "./src/appearance.ts",
     "./mobile-theme": "./src/mobile-theme.ts",
     "./robot-avatar-artwork": "./src/robot-avatar-artwork.ts",

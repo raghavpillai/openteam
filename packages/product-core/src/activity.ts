@@ -73,6 +73,23 @@ export const conversationApprovals = (
     );
 };
 
+/** Includes child requests by their owner, even after the parent turn has stopped. */
+export const approvalsForChannel = (
+  channelId: string,
+  runs: readonly RunView[],
+  approvals: readonly ApprovalView[]
+): ApprovalView[] => {
+  const channelRuns = runs.filter((run) => run.channelId === channelId);
+  const runIds = new Set(channelRuns.map((run) => run.id));
+  const conversations = new Set(channelRuns.map((run) => run.conversationId));
+  return approvals.filter(
+    (approval) =>
+      runIds.has(approval.runId) ||
+      runIds.has(approval.parentRunId) ||
+      conversations.has(approval.ownerConversationId)
+  );
+};
+
 const SUMMARY_CHARACTER_LIMIT = 1_500;
 const SUMMARY_DEPTH_LIMIT = 5;
 const SUMMARY_ENTRY_LIMIT = 32;
@@ -288,13 +305,15 @@ export const approvalPresentation = (
       ? `OpenTeam can ${localCapability} your computer this time.`
       : resolution === "always_allow"
         ? `OpenTeam can always ${localCapability} your computer.`
-        : approval.status === "declined"
-          ? `OpenTeam was not allowed to ${localCapability} your computer.`
-          : approval.status === "cancelled"
-            ? "Local computer approval was cancelled."
-            : approval.status === "expired"
-              ? "Local computer approval expired."
-              : "OpenTeam was not allowed to use your computer.";
+        : resolution === "never"
+          ? `OpenTeam cannot ${localCapability} your computer.`
+          : approval.status === "declined"
+            ? `OpenTeam was not allowed to ${localCapability} your computer.`
+            : approval.status === "cancelled"
+              ? "Local computer approval was cancelled."
+              : approval.status === "expired"
+                ? "Local computer approval expired."
+                : "OpenTeam was not allowed to use your computer.";
   const autoReviewStatus = pending
     ? "Approval needed"
     : approval.status === "accepted"
@@ -355,3 +374,30 @@ export const approvalPresentation = (
     proposedRule,
   };
 };
+
+/** Permission and execution are distinct: a successful decision does not prove a fill. */
+export function nativeApprovalOutcome(approval: Pick<ApprovalView, "status" | "details">) {
+  const details =
+    approval.details && typeof approval.details === "object" && !Array.isArray(approval.details)
+      ? (approval.details as Record<string, unknown>)
+      : {};
+  const action = details.actionState;
+  const hasAction = ["running", "completed", "failed"].includes(String(action));
+  const refused = ["declined", "expired", "cancelled"].includes(approval.status);
+  const filling = !refused && action === "running";
+  const failed = !refused && (!!details.actionError || action === "failed");
+  const pending = approval.status === "pending" && !hasAction && !failed;
+  const accepted = !refused && (approval.status === "accepted" || hasAction);
+  const status = failed
+    ? "Failed"
+    : accepted
+      ? details.resolution === "always_allow"
+        ? "Always allowed"
+        : "Allowed once"
+      : approval.status === "declined"
+        ? "Denied"
+        : approval.status === "expired"
+          ? "Expired"
+          : "Cancelled";
+  return { pending, accepted, filling, failed, status };
+}

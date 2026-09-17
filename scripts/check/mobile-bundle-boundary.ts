@@ -2,7 +2,7 @@ import { readdir } from "node:fs/promises";
 import { resolve } from "node:path";
 
 const root = resolve(import.meta.dir, "../..");
-const bundleDirectory = resolve(root, "apps/mobile/dist/_expo/static/js/ios");
+const bundleDirectory = resolve(root, process.env.OPENTEAM_MOBILE_BUNDLE_DIR ?? "apps/mobile/dist/_expo/static/js/ios");
 const forbidden = [
   "CallDynamicTool",
   "GetDynamicTools",

@@ -48,17 +48,30 @@ export interface HostTransferRequest extends HostApprovalTokens {
 
 export function parseHostTransferRequest(value: unknown): HostTransferRequest {
   if (!isRecord(value)) throw new Error("File transfer request is invalid");
-  if (value.direction !== "read" && value.direction !== "write") throw new Error("Invalid transfer direction");
+  if (value.direction !== "read" && value.direction !== "write")
+    throw new Error("Invalid transfer direction");
   const path = requiredString(value.path, "path").trim();
   if (!path || path.includes("\0") || path.length > 4096) throw new Error("Invalid file path");
   const machineId = requiredString(value.machineId, "machineId");
-  if (value.direction === "write" && (!Number.isSafeInteger(value.bytes) || Number(value.bytes) < 0 || Number(value.bytes) > HOST_TRANSFER_MAX_BYTES)) {
+  if (
+    value.direction === "write" &&
+    (!Number.isSafeInteger(value.bytes) ||
+      Number(value.bytes) < 0 ||
+      Number(value.bytes) > HOST_TRANSFER_MAX_BYTES)
+  ) {
     throw new Error(`File transfer supports at most ${HOST_TRANSFER_MAX_BYTES} bytes`);
   }
-  return { direction: value.direction, path, machineId,
+  return {
+    direction: value.direction,
+    path,
+    machineId,
     ...(value.direction === "write" ? { bytes: Number(value.bytes) } : {}),
-    ...(value.localApproval === "allow-once" || value.localApproval === "always" ? { localApproval: value.localApproval } : {}),
-    ...(value.autoReviewApproval === "allow-once" || value.autoReviewApproval === "always" ? { autoReviewApproval: value.autoReviewApproval } : {}),
+    ...(value.localApproval === "allow-once" || value.localApproval === "always"
+      ? { localApproval: value.localApproval }
+      : {}),
+    ...(value.autoReviewApproval === "allow-once" || value.autoReviewApproval === "always"
+      ? { autoReviewApproval: value.autoReviewApproval }
+      : {}),
   };
 }
 
@@ -121,6 +134,32 @@ export const parseComputerEvent = (value: unknown): ComputerEvent => {
         requiredString(value[field], field);
       }
       break;
+    case "approval.action": {
+      const approvalId = requiredString(value.approvalId, "approvalId");
+      const turnId = requiredString(value.turnId, "turnId");
+      if (!["running", "completed", "failed"].includes(String(value.status)))
+        throw new Error("Approval action status is invalid");
+      if (value.decision !== "accept" && value.decision !== "always_allow")
+        throw new Error("Approval action decision is invalid");
+      if (
+        value.selectedItems !== undefined &&
+        (!Array.isArray(value.selectedItems) ||
+          value.selectedItems.length > 32 ||
+          value.selectedItems.some((item) => typeof item !== "string" || item.length > 4096))
+      )
+        throw new Error("Approval action selection is invalid");
+      // Only public decision metadata crosses this event boundary.
+      return {
+        type,
+        approvalId,
+        turnId,
+        decision: value.decision,
+        status: value.status as "running" | "completed" | "failed",
+        ...(value.selectedItems === undefined
+          ? {}
+          : { selectedItems: value.selectedItems as string[] }),
+      };
+    }
     case "context.state":
       requiredString(value.contextSessionId, "contextSessionId");
       if (typeof value.epoch !== "number" || !Array.isArray(value.archives)) {
@@ -257,13 +296,38 @@ export type HostLocalToolPermission = "always" | "ask" | "never";
 export type HostApprovalToken = "allow-once" | "always";
 
 export interface HostApprovalTokens {
+  capabilityApprovals?: Array<{
+    token: string;
+    decision: HostApprovalToken;
+    selectedItems?: readonly string[];
+  }>;
   localApproval?: HostApprovalToken;
   autoReviewApproval?: HostApprovalToken;
+  /** Supervisor-only provenance; never a model-facing tool argument. */
+  reviewContext?: HostReviewContext;
+}
+
+export interface HostReviewContext {
+  runId: string;
+  botId: string;
+}
+export function parseHostReviewContext(value: unknown): HostReviewContext | undefined {
+  if (value === undefined) return undefined;
+  if (
+    !isRecord(value) ||
+    ![value.runId, value.botId].every(
+      (id) => typeof id === "string" && /^[\da-f]{8}(-[\da-f]{4}){3}-[\da-f]{12}$/i.test(id)
+    )
+  )
+    throw new Error("Invalid review execution context");
+  return { runId: value.runId as string, botId: value.botId as string };
 }
 
 export interface HostApprovalRequest {
-  gate: "local" | "auto-review";
-  requestMethod: "openteam/localTool" | "openteam/autoReview";
+  gate: "local" | "auto-review" | "capability";
+  requestMethod: "openteam/localTool" | "openteam/autoReview" | "openteam/capability";
+  /** Opaque, short-lived action binding. Not part of the visible card. */
+  token?: string;
   details: Record<string, unknown>;
 }
 
@@ -333,13 +397,23 @@ export const parseHostAwaitShellRequest = (raw: unknown): HostAwaitShellRequest 
     throw new Error("AwaitShell block_until_ms must be between 0 and 7140000");
   }
   const rawId = value.shell_id ?? value.task_id;
-  if (rawId !== undefined && typeof rawId !== "string" && !(typeof rawId === "number" && Number.isFinite(rawId))) throw new Error("AwaitShell shell_id must be a string or number");
+  if (
+    rawId !== undefined &&
+    typeof rawId !== "string" &&
+    !(typeof rawId === "number" && Number.isFinite(rawId))
+  )
+    throw new Error("AwaitShell shell_id must be a string or number");
   const id = rawId === undefined ? "" : String(rawId).trim();
   const shellId = id.toLowerCase() === "none" ? "" : id;
-  const blockMs = typeof value.block_until_ms === "number" && value.block_until_ms >= 0 ? Math.floor(value.block_until_ms) : 30_000;
+  const blockMs =
+    typeof value.block_until_ms === "number" && value.block_until_ms >= 0
+      ? Math.floor(value.block_until_ms)
+      : 30_000;
   return {
     ...(shellId ? { shell_id: shellId } : {}),
-    ...(shellId && typeof value.pattern === "string" && value.pattern.trim() ? { pattern: value.pattern } : {}),
+    ...(shellId && typeof value.pattern === "string" && value.pattern.trim()
+      ? { pattern: value.pattern }
+      : {}),
     ...(typeof value.machineId === "string" ? { machineId: value.machineId } : {}),
     block_until_ms: blockMs,
   };
@@ -370,7 +444,7 @@ export interface HostPermissionUpdateRequest {
 }
 
 export interface HostAutoReviewRequest extends HostApprovalTokens {
-  surface: "mcp" | "computer" | "automationWrite" | "cloudAgent" | "subagentLaunch";
+  surface: "boxShell" | "mcp" | "computer" | "automationWrite" | "cloudAgent" | "subagentLaunch";
   summary: string;
   target: string;
   command?: string;
@@ -406,6 +480,8 @@ export interface HostMachinesResponse {
 
 const approvalTokens = (value: Record<string, unknown>): HostApprovalTokens => {
   const tokens: HostApprovalTokens = {};
+  const reviewContext = parseHostReviewContext(value.reviewContext);
+  if (reviewContext) tokens.reviewContext = reviewContext;
   for (const field of ["localApproval", "autoReviewApproval"] as const) {
     const token = value[field];
     if (token !== undefined && token !== "allow-once" && token !== "always") {
@@ -481,7 +557,7 @@ export const parseHostPermissionUpdateRequest = (value: unknown): HostPermission
 export const parseHostAutoReviewRequest = (value: unknown): HostAutoReviewRequest => {
   const input = isRecord(value) ? value : {};
   if (
-    !["mcp", "computer", "automationWrite", "cloudAgent", "subagentLaunch"].includes(
+    !["boxShell", "mcp", "computer", "automationWrite", "cloudAgent", "subagentLaunch"].includes(
       String(input.surface)
     )
   ) {
@@ -507,8 +583,11 @@ export const parseHostAutoReviewRequest = (value: unknown): HostAutoReviewReques
 
 export const isHostApprovalRequest = (value: unknown): value is HostApprovalRequest =>
   isRecord(value) &&
-  (value.gate === "local" || value.gate === "auto-review") &&
-  (value.requestMethod === "openteam/localTool" || value.requestMethod === "openteam/autoReview") &&
+  ["local", "auto-review", "capability"].includes(String(value.gate)) &&
+  ["openteam/localTool", "openteam/autoReview", "openteam/capability"].includes(
+    String(value.requestMethod)
+  ) &&
+  (value.gate !== "capability" || typeof value.token === "string") &&
   isRecord(value.details);
 
 export const parseHostReadResponse = (value: unknown): HostReadResponse => {

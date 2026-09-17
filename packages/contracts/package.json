@@ -7,6 +7,7 @@
     ".": "./src/index.ts",
     "./bot-avatar": "./src/bot-avatar.ts",
     "./capabilities": "./src/capabilities.ts",
+    "./desktop-capability-names": "./src/desktop-capability-names.ts",
     "./desktop-capabilities": "./src/desktop-capabilities.ts",
     "./connector-transfers": "./src/connector-transfers.ts",
     "./media-input": "./src/media-input.ts",

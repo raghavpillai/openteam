@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { AssetRef, ChannelMessageView } from "@openteam/contracts";
 import {
   createDurableSendController,
+  classifyDurableSendError,
   DURABLE_SEND_SCHEMA_VERSION,
   type DurableSendJournal,
   type DurableSendRecord,
@@ -68,6 +69,58 @@ const memoryStorage = (initial: unknown = null) => {
 };
 
 describe("durable send controller", () => {
+  test("keeps queued and failed messages mounted when a local cancel, resend or delete cannot be saved", async () => {
+    const memory = memoryStorage();
+    let failWrites = false;
+    let offline = true;
+    let clock = 1000;
+    let nonce = 0;
+    const controller = createDurableSendController(
+      "action-failure",
+      {
+        read: memory.storage.read,
+        write: async (journal) => {
+          if (failWrites) throw new Error("Disk unavailable");
+          await memory.storage.write(journal);
+        },
+      },
+      {
+        now: () => clock,
+        ackTimeoutMs: 100,
+        createNonce: () => `nonce-visible-${++nonce}`,
+        isTransportDown: () => offline,
+        dispatch: async () => ({ message: acceptedMessage("message-visible") }),
+        resolveAcceptance: async () => ({ status: "not_found" }),
+        classifyError: () => "ambiguous",
+      }
+    );
+    const queued = await controller.enqueue(input);
+    const published: string[][] = [];
+    const unsubscribe = controller.subscribe(() =>
+      published.push(controller.getSnapshot().map((record) => record.nonce))
+    );
+    failWrites = true;
+    await expect(controller.cancelQueued(queued.nonce)).rejects.toThrow("Disk unavailable");
+    expect(published.every((rows) => rows.length === 1 && rows[0] === queued.nonce)).toBe(true);
+    expect(controller.getSnapshot()[0]?.phase).toBe("queued");
+    failWrites = false;
+    offline = false;
+    await controller.flush();
+    clock += 101;
+    await controller.expireAcknowledgements();
+    expect(controller.getSnapshot()[0]?.phase).toBe("failed");
+    published.length = 0;
+    failWrites = true;
+    await expect(controller.resendFailed(queued.nonce)).rejects.toThrow("Disk unavailable");
+    await expect(controller.deleteFailed(queued.nonce)).rejects.toThrow("Disk unavailable");
+    expect(published.every((rows) => rows.length === 1 && rows[0] === queued.nonce)).toBe(true);
+    expect((memory.read() as DurableSendJournal).records[0]?.nonce).toBe(queued.nonce);
+    failWrites = false;
+    await controller.deleteFailed(queued.nonce);
+    expect(controller.getSnapshot()).toEqual([]);
+    unsubscribe();
+    controller.dispose();
+  });
   test("journals before dispatch, accepts with one nonce, and retires on transcript echo", async () => {
     const memory = memoryStorage();
     const dispatches: DurableSendRecord[] = [];
@@ -854,5 +907,186 @@ describe("durable send controller", () => {
     expect(controller.getSnapshot()).toHaveLength(1);
     expect(controller.getSnapshot()[0]?.priorNonces).toEqual([failed.nonce]);
     expect(nonceCount).toBe(1);
+  });
+  test.each([
+    "enqueue-write",
+    "dispatch-write",
+    "attachment-commit",
+    "acceptance-probe",
+  ] as const)("stops dispatch after disposal during %s", async (boundary) => {
+    const hold = deferred<void>();
+    const entered = deferred<void>();
+    let writes = 0,
+      sends = 0;
+    let offline = boundary === "acceptance-probe";
+    const controller = createDurableSendController(
+      `dispose-${boundary}`,
+      {
+        read: async () => null,
+        write: async () => {
+          writes++;
+          if (
+            (boundary === "enqueue-write" && writes === 1) ||
+            (boundary === "dispatch-write" && writes === 2)
+          ) {
+            entered.resolve();
+            await hold.promise;
+          }
+        },
+      },
+      {
+        dispatch: async (record) => {
+          sends++;
+          return { message: acceptedMessage("accepted", { clientId: record.nonce }) };
+        },
+        resolveAcceptance: async () => {
+          if (boundary === "acceptance-probe") {
+            entered.resolve();
+            await hold.promise;
+          }
+          return { status: "not_found" };
+        },
+        classifyError: () => "ambiguous",
+        isTransportDown: () => offline,
+        commitStagedAttachments: async () => {
+          entered.resolve();
+          await hold.promise;
+          return [
+            {
+              assetId: "a".repeat(64),
+              fileName: "fixture.txt",
+              mimeType: "text/plain",
+              byteSize: 4,
+              kind: "text",
+            },
+          ];
+        },
+      }
+    );
+    const enqueued = controller.enqueue({
+      ...input,
+      payload: {
+        ...input.payload,
+        ...(boundary === "attachment-commit"
+          ? {
+              stagedAttachments: [
+                {
+                  stagingId: "stage-1",
+                  fileName: "fixture.txt",
+                  mimeType: "text/plain",
+                  byteSize: 4,
+                  kind: "text" as const,
+                },
+              ],
+            }
+          : {}),
+      },
+    });
+    if (boundary === "acceptance-probe") {
+      await enqueued;
+      offline = false;
+      void controller.flush();
+    }
+    await entered.promise;
+    controller.dispose();
+    hold.resolve();
+    await enqueued;
+    await Bun.sleep(10);
+    expect(sends).toBe(0);
+  });
+
+  test("preserves composition order for messages journaled in the same millisecond across restore", async () => {
+    const memory = memoryStorage();
+    let failWrite = false;
+    const controller = createDurableSendController(
+      "same-time",
+      {
+        read: memory.storage.read,
+        write: async (journal) => {
+          if (failWrite) throw new Error("Disk unavailable");
+          await memory.storage.write(journal);
+        },
+      },
+      {
+        now: () => 1000,
+        dispatch: async () => {
+          throw new Error("must remain offline");
+        },
+        resolveAcceptance: async () => ({ status: "not_found" }),
+        classifyError: () => "offline",
+        isTransportDown: () => true,
+      }
+    );
+    for (const nonce of ["nonce-order-z", "nonce-order-a", "nonce-order-m"])
+      await controller.enqueue({ ...input, nonce });
+    expect(controller.getSnapshot().map((row) => row.nonce)).toEqual([
+      "nonce-order-z",
+      "nonce-order-a",
+      "nonce-order-m",
+    ]);
+    expect(
+      parseDurableSendJournal(memory.read(), "same-time").records.map((row) => row.nonce)
+    ).toEqual(["nonce-order-z", "nonce-order-a", "nonce-order-m"]);
+    failWrite = true;
+    await expect(controller.cancelQueued("nonce-order-z")).rejects.toThrow("Disk unavailable");
+    expect(controller.getSnapshot().map((row) => row.nonce)).toEqual([
+      "nonce-order-z",
+      "nonce-order-a",
+      "nonce-order-m",
+    ]);
+    controller.dispose();
+  });
+  test("parks a timed-out attachment without sending, ignores its late result, and recovers once", async () => {
+    const memory = memoryStorage();
+    const stalled = deferred<AssetRef[]>();
+    const asset: AssetRef = {
+      assetId: "c".repeat(64),
+      fileName: "late.txt",
+      mimeType: "text/plain",
+      byteSize: 4,
+      kind: "text",
+    };
+    let commits = 0,
+      sends = 0;
+    const controller = createDurableSendController("attachment-deadline", memory.storage, {
+      attachmentCommitTimeoutMs: 5,
+      commitStagedAttachments: async () => (++commits === 1 ? stalled.promise : [asset]),
+      dispatch: async (record) => {
+        sends++;
+        return {
+          message: acceptedMessage("late-accepted", {
+            clientId: record.nonce,
+            metadata: { type: "text", attachments: [asset] },
+          }),
+        };
+      },
+      resolveAcceptance: async () => ({ status: "not_found" }),
+      classifyError: classifyDurableSendError,
+    });
+    await controller.enqueue({
+      ...input,
+      payload: {
+        ...input.payload,
+        stagedAttachments: [
+          {
+            stagingId: "stage-late",
+            fileName: "late.txt",
+            mimeType: "text/plain",
+            byteSize: 4,
+            kind: "text",
+          },
+        ],
+      },
+    });
+    await waitFor(() => controller.getSnapshot()[0]?.phase === "queued");
+    expect(sends).toBe(0);
+    expect(controller.getSnapshot()[0]?.payload.stagedAttachments).toHaveLength(1);
+    stalled.resolve([asset]);
+    await Bun.sleep(10);
+    expect(sends).toBe(0);
+    await controller.flush();
+    expect(sends).toBe(1);
+    expect(controller.getSnapshot()[0]?.phase).toBe("accepted-awaiting-echo");
+    controller.dispose();
   });
 });

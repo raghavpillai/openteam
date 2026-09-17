@@ -1,14 +1,5 @@
 import { referenceTool } from "./tool-contracts";
-export const DESKTOP_MESSAGES_TOOLS = [
-  "FindContacts",
-  "FindIMessageChats",
-  "ChatItems",
-  "SearchIMessages",
-  "IMessageActivity",
-  "FetchIMessageAttachment",
-  "SendIMessage",
-  "CheckIMessagePermissions",
-] as const;
+export { DESKTOP_MESSAGES_TOOLS } from "./desktop-capability-names";
 const string = { type: "string", minLength: 1 };
 const limit = {
   type: "integer",

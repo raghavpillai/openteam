@@ -15,6 +15,7 @@
     "./message-window": "./src/message-window.ts",
     "./messages": "./src/messages.ts",
     "./plugin-access": "./src/plugin-access.ts",
+    "./plugin-authorization": "./src/plugin-authorization.ts",
     "./redaction": "./src/redaction.ts",
     "./auth-feedback": "./src/auth-feedback.ts",
     "./rich-messages": "./src/rich-messages.ts",

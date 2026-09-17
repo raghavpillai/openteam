@@ -26,6 +26,9 @@ test.skipIf(!process.env.OPENTEAM_TEST_DATABASE_URL)("sibling reads visible boun
     expect(recent).toContain("most recent 20 rows");expect(recent).toContain("Visible row 36");expect(recent).not.toContain("Visible row 35");expect(recent).not.toContain("SYNTHETIC-PRIVATE");
     expect(recent).not.toContain("SYNTHETIC-SYSTEM-EVENT");
     expect((await readSiblingThread(db,context,{session_id:sibling.id,limit:50})).split("\n")).toHaveLength(52);
+    await db.channelMessage.create({data:{channelId:ids[1]!,sender:"user",content:"",metadata:{attachments:[{private:"NEVER-READ-BY-SIBLING"}]}}});
+    const empty = await readSiblingThread(db,context,{session_id:sibling.id,limit:1});
+    expect(empty).toContain("user: (empty)");expect(empty).not.toContain("NEVER-READ");
     await expect(readSiblingThread(db,context,{session_id:current.id})).rejects.toThrow("current conversation");
     await expect(readSiblingThread(db,context,{session_id:foreign.id})).rejects.toThrow("not readable");
     await db.channel.update({where:{id:ids[1]},data:{archivedAt:new Date()}});

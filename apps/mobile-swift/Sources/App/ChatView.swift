@@ -177,16 +177,14 @@ struct ChatView: View {
       .toolbar(.hidden, for: .navigationBar).background(
         NativeBackGesture().frame(width: 0, height: 0)
       )
-      .fullScreenCover(
-        isPresented: $details,
-        onDismiss: {
-          if let id = duplicatedChannel {
-            duplicatedChannel = nil
-            Task { await store.open(id) }
-          }
-        }
-      ) {
+      .navigationDestination(isPresented: $details) {
         ConversationDetails(channelID: channel.id, onDuplicate: { duplicatedChannel = $0 })
+      }
+      .onChange(of: details) { _, presented in
+        if !presented, let id = duplicatedChannel {
+          duplicatedChannel = nil
+          Task { await store.open(id) }
+        }
       }
       .fullScreenCover(isPresented: $computer) {
         if let bot = store.bot(for: channel) { ComputerView(bot: bot) }

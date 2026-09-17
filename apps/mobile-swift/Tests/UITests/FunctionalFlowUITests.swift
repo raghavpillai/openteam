@@ -121,37 +121,6 @@ final class FunctionalFlowUITests: XCTestCase {
     XCTAssertEqual(edited["name"] as? String, "Native edited bot")
     XCTAssertEqual(edited["icon"] as? String, "owl")
   }
-  func testMemoryLoadAndDeleteFailuresRecoverWithoutLosingProfileEdits() async throws {
-    let app = try await launch()
-    details(app)
-    replace(app.textFields["profile-name"], "Unsaved profile edit")
-    try await fail("GET /api/v0/bots/bot-research/memories")
-    find(app.buttons["Memory"], app)
-    app.buttons["Memory"].tap()
-    error(app)
-    capture("memory-load-error", app)
-    app.buttons["Try again"].tap()
-    XCTAssertTrue(
-      app.staticTexts["Prefers concise summaries and clear next steps."].waitForExistence(
-        timeout: 10))
-    capture("memory", app)
-    try await fail("DELETE /api/v0/bots/bot-research/memories")
-    app.buttons["Clear all"].tap()
-    app.buttons["Clear all memories"].tap()
-    error(app)
-    XCTAssertTrue(app.staticTexts["Prefers concise summaries and clear next steps."].exists)
-    app.buttons["Clear all"].tap()
-    app.buttons["Clear all memories"].tap()
-    XCTAssertTrue(app.staticTexts["No saved memories"].waitForExistence(timeout: 10))
-    capture("memory-empty", app)
-    let memoryState = try await state()
-    XCTAssertEqual((memoryState["memories"] as? [Any])?.count, 0)
-    app.navigationBars.buttons["Details"].tap()
-    for _ in 0..<4 where !app.textFields["profile-name"].exists {
-      app.collectionViews.firstMatch.swipeDown()
-    }
-    XCTAssertEqual(app.textFields["profile-name"].value as? String, "Unsaved profile edit")
-  }
   func testRoutineLostResponseRetriesOnceAndHistoryRecovers() async throws {
     let app = try await launch()
     details(app)

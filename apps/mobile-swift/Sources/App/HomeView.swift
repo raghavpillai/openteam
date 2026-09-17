@@ -11,6 +11,9 @@ struct HomeView: View {
   @State private var search = false
   @State private var pendingOpen: (channel: String, message: String?)?
   @State private var contentWidth: CGFloat = 390
+  @State private var renamingSection: String?
+  @State private var sectionName = ""
+  @State private var deletingSection: JSON?
   private var visible: [Channel] { store.channels.filter { !store.isHidden($0) } }
   private var sections: [JSON] { store.sidebar["sections"].array }
   var body: some View {
@@ -48,7 +51,9 @@ struct HomeView: View {
               collapsed: section["collapsed"].bool)
           }
           sectionView(
-            id: "", name: "Unassigned", collapsed: store.sidebar["unassignedCollapsed"].bool)
+            id: "", name: "Unassigned",
+            collapsed: !sections.isEmpty && store.sidebar["unassignedCollapsed"].bool,
+            showsHeading: !sections.isEmpty)
           if visible.isEmpty {
             Text("No conversations yet")
               .font(.subheadline).foregroundStyle(NativePalette.muted)
@@ -74,6 +79,35 @@ struct HomeView: View {
         }
         .refreshable { await store.refresh() }
         .sheet(isPresented: $settings) { SettingsView().referenceSheet() }
+        .alert(
+          "Rename section",
+          isPresented: Binding(
+            get: { renamingSection != nil }, set: { if !$0 { renamingSection = nil } }
+          )
+        ) {
+          TextField("Section name", text: $sectionName)
+          Button("Cancel", role: .cancel) { renamingSection = nil }
+          Button("Save") {
+            guard let id = renamingSection else { return }
+            let name = sectionName.trimmingCharacters(in: .whitespacesAndNewlines)
+            Task { await renameSection(id, name: name) }
+          }.disabled(
+            sectionName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+              || sectionName.count > 120)
+        }
+        .confirmationDialog(
+          "Delete section?",
+          isPresented: Binding(
+            get: { deletingSection != nil }, set: { if !$0 { deletingSection = nil } }
+          ), titleVisibility: .visible
+        ) {
+          Button("Delete section", role: .destructive) {
+            guard let section = deletingSection else { return }
+            Task { await deleteSection(section["id"].string) }
+          }
+        } message: {
+          Text("Its conversations will stay in your list.")
+        }
         .sheet(item: $creation, onDismiss: openSelectedConversation) { kind in
           CreateConversationView(group: kind == .group) { id in
             pendingOpen = (id, nil)
@@ -122,9 +156,14 @@ struct HomeView: View {
       .bottom, 10
     )
   }
-  func sectionView(id: String, name: String, collapsed: Bool) -> some View {
+  func sectionView(id: String, name: String, collapsed: Bool, showsHeading: Bool = true)
+    -> some View
+  {
+    let validIDs = Set(sections.map { $0["id"].string })
     let rows = visible.filter {
-      !store.pins.contains($0.id) && store.sidebar["sectionByChannel"][$0.id].string == id
+      let assigned = store.sidebar["sectionByChannel"][$0.id].string
+      return !store.pins.contains($0.id)
+        && (id.isEmpty ? !validIDs.contains(assigned) : assigned == id)
     }
     let order = store.sidebar["channelOrderByGroup"][id.isEmpty ? "unassigned" : id].array.map(
       \.string)
@@ -134,16 +173,37 @@ struct HomeView: View {
       return a.updatedAt > b.updatedAt
     }
     return VStack(alignment: .leading, spacing: 0) {
-      Button {
-        Task { await toggleSection(id) }
-      } label: {
-        HStack(spacing: 7) {
-          Text(collapsed ? "\(name) \(rows.count)" : name).font(.system(size: 14))
-          Image(systemName: collapsed ? "chevron.right" : "chevron.down").font(
-            .system(size: 11, weight: .medium)
-          ).foregroundStyle(NativePalette.faint)
-        }.foregroundStyle(NativePalette.muted).padding(.top, 14).frame(height: 46)
-      }.buttonStyle(.plain).accessibilityLabel(name + " section")
+      if showsHeading {
+        Button {
+          Task { await toggleSection(id) }
+        } label: {
+          HStack(spacing: 7) {
+            Text(collapsed ? "\(name) \(rows.count)" : name).font(.system(size: 14))
+            Image(systemName: collapsed ? "chevron.right" : "chevron.down").font(
+              .system(size: 11, weight: .medium)
+            ).foregroundStyle(NativePalette.faint)
+          }.foregroundStyle(NativePalette.muted).padding(.top, 14).frame(height: 46)
+            .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+        }.buttonStyle(.plain).accessibilityLabel(name + " section")
+          .accessibilityIdentifier("section-" + (id.isEmpty ? "unassigned" : id))
+          .contextMenu {
+            Button(
+              collapsed ? "Expand" : "Collapse",
+              systemImage: collapsed ? "chevron.down" : "chevron.up"
+            ) {
+              Task { await toggleSection(id) }
+            }
+            if !id.isEmpty {
+              Button("Rename", systemImage: "pencil") {
+                sectionName = name
+                renamingSection = id
+              }
+              Button("Delete section", systemImage: "trash", role: .destructive) {
+                deletingSection = sections.first { $0["id"].string == id }
+              }
+            }
+          }
+      }
       if !collapsed {
         if sorted.isEmpty, !id.isEmpty {
           Text("No chats").font(.system(size: 15)).foregroundStyle(NativePalette.faint)
@@ -197,6 +257,26 @@ struct HomeView: View {
     if let value = await store.mutate("/api/v0/settings/sidebar", method: "PATCH", body: next) {
       store.sidebar = value
     }
+  }
+  func renameSection(_ id: String, name: String) async {
+    guard !name.isEmpty, name.count <= 120 else { return }
+    var next = store.sidebar
+    var values = next["sections"].array
+    guard let index = values.firstIndex(where: { $0["id"].string == id }) else { return }
+    values[index]["name"] = .string(name)
+    next["sections"] = .array(values)
+    await saveSidebar(next)
+  }
+  func deleteSection(_ id: String) async {
+    var next = store.sidebar
+    next["sections"] = .array(next["sections"].array.filter { $0["id"].string != id })
+    next["sectionByChannel"] = .object(
+      next["sectionByChannel"].object.filter { $0.value.string != id })
+    next["channelOrderByGroup"] = .object(
+      next["channelOrderByGroup"].object.filter { $0.key != id })
+    // A formerly collapsed Unassigned group must not conceal the moved chats.
+    next["unassignedCollapsed"] = .bool(false)
+    await saveSidebar(next)
   }
   func toggleSection(_ id: String) async {
     var next = store.sidebar

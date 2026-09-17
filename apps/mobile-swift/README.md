@@ -97,7 +97,7 @@ The report preserves originals, hashes, explicit crops, test results and static 
 
 ## Functional and error-state review
 
-The current pass adds separate native welcome/server/sign-in screens, accessible error recovery, memory editing, sidebar organization, routine conflicts, plugin accounts/configuration/workspace tools, authenticated media previews, rich documents and computer handoff. Form failures retain input; expired sessions retain account-scoped drafts; failed sign-out retains the connection.
+The current pass adds separate native welcome/server/sign-in screens, accessible error recovery, sidebar organization, routine conflicts, plugin accounts/configuration/workspace tools, authenticated media previews, rich documents and computer handoff. Mobile memory management has been removed to follow the reference app. Form failures retain input; expired sessions retain account-scoped drafts; failed sign-out retains the connection.
 
 ```sh
 python3 apps/mobile-swift/scripts/export-functional-review.py \

@@ -237,7 +237,7 @@ struct ConversationDetails: View {
   var channel: Channel? { store.channel(channelID) }
   var bot: Bot? { channel.flatMap { store.bot(for: $0) } }
   var body: some View {
-    NavigationStack {
+    Group {
       NativeForm {
         if let channel {
           Section {
@@ -272,7 +272,7 @@ struct ConversationDetails: View {
                 icon = "classic"
                 color = "#A47952"
               }
-              .foregroundStyle(NativePalette.muted)
+              .foregroundStyle(NativePalette.link)
             } header: {
               Text("Character").font(.footnote).foregroundStyle(NativePalette.faint)
             } footer: {
@@ -321,13 +321,6 @@ struct ConversationDetails: View {
             refreshID: routineRefreshID, onAdd: { addingRoutine = true },
             onEdit: { editingRoutine = $0 })
           Section {
-            if let bot {
-              NavigationLink {
-                BotMemoryView(bot: bot)
-              } label: {
-                Label("Memory", systemImage: "brain")
-              }
-            }
             Button(
               store.isHidden(channel) ? "Show in conversations" : "Hide conversation",
               systemImage: "eye.slash"
@@ -364,6 +357,9 @@ struct ConversationDetails: View {
           }
         }
       }.navigationTitle("Details").navigationBarTitleDisplayMode(.inline)
+        .toolbar(.visible, for: .navigationBar)
+        .navigationBarBackButtonHidden()
+        .background(NativeBackGesture().frame(width: 0, height: 0))
         .scrollContentBackground(.hidden).background(NativePalette.background)
         .toolbarBackground(.hidden, for: .navigationBar)
         .scrollDismissesKeyboard(.interactively)

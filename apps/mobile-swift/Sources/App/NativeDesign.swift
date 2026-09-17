@@ -77,24 +77,21 @@ struct NativeGlass: ViewModifier {
   @Environment(\.colorScheme) private var scheme
   var radius: CGFloat = 22
   func body(content: Content) -> some View {
-    // Glass owns each control's backdrop and shadow. Keep the surrounding header
-    // and composer clear so scrolling content remains visible between controls.
-    // A faint neutral tint keeps light glass close to the reference's silver edge;
-    // white tint washes it out. Measured dark reference interiors are ~52/255
-    // over #141414, ~32/255 over black, and ~51/255 in the composer. Preserve
-    // clear glass's backdrop response rather than drawing a uniform gray fill.
+    // Regular glass diffuses the scrolling backdrop. Match the measured dark
+    // resting fill (~#333333 over #141414), but let iOS draw its adaptive rim;
+    // an extra white outline makes dark controls look flat and too bright.
     if #available(iOS 26, *) {
       content.glassEffect(
         (scheme == .dark
-          ? Glass.clear.tint(.white.opacity(0.056))
+          ? Glass.regular.tint(.white.opacity(0.127))
           : Glass.regular.tint(.black.opacity(0.025))).interactive(),
         in: RoundedRectangle(cornerRadius: radius)
       ).overlay {
-        RoundedRectangle(cornerRadius: radius)
-          .strokeBorder(
-            scheme == .dark ? .white.opacity(0.17) : .black.opacity(0.12), lineWidth: 0.5
-          )
-          .allowsHitTesting(false)
+        if scheme == .light {
+          RoundedRectangle(cornerRadius: radius)
+            .strokeBorder(.black.opacity(0.12), lineWidth: 0.5)
+            .allowsHitTesting(false)
+        }
       }
     } else {
       content.background(.regularMaterial, in: RoundedRectangle(cornerRadius: radius))

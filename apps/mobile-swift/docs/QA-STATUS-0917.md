@@ -33,3 +33,7 @@ Evidence: [screenshots](../../../output/swift-empty-home-0917/review.html), [sig
 ## Account follow-up
 
 [Account identity and Re-auth](ACCOUNT-REAUTH-0917.md) fixes name persistence for offline startup and replaces the account sign-in metadata/direct server-change editor with a red, destructive Re-auth action that clears all local data offline and returns to server/sign-in. Validation and the TestFlight receipt are retained with that follow-up. This does not change the open priorities above.
+
+## Glass, sections and details follow-up
+
+[The latest visual/navigation review](GLASS-SECTIONS-0917.md) verifies the matching flat background colors, refines dark Liquid Glass, removes the extra mobile Memory management screen, hides Unassigned when there are no sections, adds section long-press actions, and replaces modal chat details with native push navigation. Its focused checks do not close the broader findings above.

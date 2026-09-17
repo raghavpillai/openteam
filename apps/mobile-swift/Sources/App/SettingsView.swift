@@ -321,15 +321,6 @@ struct ConversationDetails: View {
             refreshID: routineRefreshID, onAdd: { addingRoutine = true },
             onEdit: { editingRoutine = $0 })
           Section {
-            Button(
-              store.isHidden(channel) ? "Show in conversations" : "Hide conversation",
-              systemImage: "eye.slash"
-            ) { Task { await store.hide(channel, hidden: !store.isHidden(channel)) } }
-            Button(store.pins.contains(channel.id) ? "Unpin" : "Pin", systemImage: "pin") {
-              Task { await store.togglePin(channel.id) }
-            }
-          }
-          Section {
             if let bot {
               Button("Duplicate bot", systemImage: "plus.square.on.square") {
                 Task {
@@ -353,7 +344,7 @@ struct ConversationDetails: View {
             }
             Button(channel.isGroup ? "Delete group" : "Delete bot", role: .destructive) {
               deleting = true
-            }
+            }.foregroundStyle(NativePalette.destructive)
           }
         }
       }.navigationTitle("Details").navigationBarTitleDisplayMode(.inline)
@@ -372,7 +363,9 @@ struct ConversationDetails: View {
             Button("Done") { focusedProfile = nil }.accessibilityLabel("Hide keyboard")
           }
           ToolbarItem(placement: .cancellationAction) {
-            Button("Done", systemImage: "chevron.left") { dismiss() }.labelStyle(.iconOnly)
+            Button { dismiss() } label: {
+              Image(systemName: "chevron.left").foregroundStyle(NativePalette.text)
+            }.accessibilityLabel("Done").accessibilityIdentifier("profile-back")
           }
           ToolbarItem(placement: .confirmationAction) {
             Button(saving ? "Saving…" : "Save") { Task { await save() } }.disabled(

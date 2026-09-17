@@ -59,6 +59,8 @@ import XCTest
       app.collectionViews.firstMatch.swipeUp()
       capture(theme + "-details-scrolled", app)
       XCTAssertFalse(app.buttons["Memory"].exists)
+      XCTAssertFalse(app.buttons["Hide conversation"].exists)
+      XCTAssertFalse(app.buttons["Pin"].exists)
       app.terminate()
     }
   }
@@ -124,6 +126,10 @@ import XCTest
   func testDetailsPushSupportsEdgeBackAndInstructionEdits() async throws {
     try await request("/__qa/scene", ["scene": "dark-chat-seven"])
     let app = launch(channel: "visual-chat")
+    app.buttons["conversation-details"].tap()
+    XCTAssertTrue(app.textFields["profile-name"].waitForExistence(timeout: 5))
+    app.buttons["profile-back"].tap()
+    XCTAssertTrue(app.buttons["conversation-details"].waitForExistence(timeout: 5))
     app.buttons["conversation-details"].tap()
     XCTAssertTrue(app.textFields["profile-name"].waitForExistence(timeout: 5))
     // A native navigation push supports the interactive left-edge pop.

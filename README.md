@@ -11,8 +11,6 @@ take over when needed, or come back when the work is done.
 
 [![OpenTeam desktop and iPhone apps showing the same vendor comparison and weekday pricing check](docs/images/openteam-desktop-mobile.png)](docs/images/openteam-desktop-mobile.png)
 
-*The same vendor comparison on desktop and iPhone, using sample data. Click to view full size.*
-
 ## What you can do
 
 - **Give bots a computer.** Each bot has its own screen and browser profile. All bots share a

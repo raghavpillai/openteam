@@ -112,15 +112,6 @@
   box-shadow: 0 5px 12px #293b2804, 0 15px 28px -22px color-mix(in srgb, var(--mc-accent) 45%, transparent);
   transition: border-color 400ms, box-shadow 400ms;
 }
-.mc-model-stack::before {
-  content: "";
-  position: absolute;
-  inset: 5px -5px -5px 5px;
-  z-index: -1;
-  border: 1px solid #e1e6dc;
-  border-radius: inherit;
-  background: #f4f6f1;
-}
 .mc-model-card {
   position: absolute;
   inset: 0;

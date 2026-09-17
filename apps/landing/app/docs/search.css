@@ -6,7 +6,7 @@
 .docs-search-trigger kbd, .docs-search-dialog kbd { display: inline-flex; align-items: center; justify-content: center; gap: 2px; min-width: 20px; height: 21px; padding: 0 4px; border: 1px solid #dedede; border-radius: 4px; background: #fff; color: #777; font-family: "Plex Mono", monospace; font-size: 11px; font-weight: 400; line-height: 1; box-shadow: 0 1px 1px #00000004; }
 .docs-search-backdrop { position: fixed; inset: 0; z-index: 70; background: #17171730; backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px); opacity: 1; transition: opacity 160ms ease; }
 .docs-search-backdrop[data-starting-style], .docs-search-backdrop[data-ending-style] { opacity: 0; }
-.docs-search-dialog { position: fixed; top: min(15vh, 140px); left: 50%; z-index: 71; display: flex; flex-direction: column; width: min(640px, calc(100vw - 40px)); max-height: calc(100dvh - min(15vh, 140px) - 32px); margin: 0; overflow: hidden; border: 1px solid #d6d6d6; border-radius: 12px; background: #fff; color: #171717; font-family: var(--font-sans), "Plex Sans", sans-serif; -webkit-font-smoothing: antialiased; box-shadow: 0 24px 80px #00000026, 0 8px 24px #0000000d, 0 0 0 1px #ffffff80 inset; outline: none; opacity: 1; transform: translateX(-50%) translateY(0) scale(1); transition: opacity 160ms, transform 180ms cubic-bezier(.2,.8,.2,1); }
+.docs-search-dialog { position: fixed; top: calc(var(--docs-search-top, 0px) + min(15vh, 140px)); left: 50%; z-index: 71; display: flex; flex-direction: column; width: min(640px, calc(100vw - 40px)); max-height: calc(var(--docs-search-height, 100dvh) - min(15vh, 140px) - 32px); margin: 0; overflow: hidden; border: 1px solid #d6d6d6; border-radius: 12px; background: #fff; color: #171717; font-family: var(--font-sans), "Plex Sans", sans-serif; -webkit-font-smoothing: antialiased; box-shadow: 0 24px 80px #00000026, 0 8px 24px #0000000d, 0 0 0 1px #ffffff80 inset; outline: none; opacity: 1; transform: translateX(-50%) translateY(0) scale(1); transition: opacity 160ms, transform 180ms cubic-bezier(.2,.8,.2,1); }
 .docs-search-dialog[data-starting-style], .docs-search-dialog[data-ending-style] { opacity: 0; transform: translateX(-50%) translateY(-6px) scale(.98); }
 .docs-search-dialog :focus-visible { outline: 2px solid #262626; outline-offset: 3px; }
 .docs-search-sr { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
@@ -47,31 +47,49 @@
 @media (max-width: 1100px) {
   .docs-header-quickstart { display: none; }
 }
+@media (max-width: 959px) {
+  .docs-search-trigger { height: 44px; }
+}
 @media (max-width: 800px) {
   .docs-header-inner { gap: 16px; }
-  .docs-search-trigger { flex: 0 0 38px; min-width: 38px; width: 38px; padding: 0; justify-content: center; margin-left: auto; background: transparent; }
+  .docs-search-trigger { flex: 0 0 44px; min-width: 44px; width: 44px; height: 44px; padding: 0; justify-content: center; margin-left: auto; background: transparent; }
   .docs-search-trigger > span { display: none; }
 }
 @media (max-width: 600px) {
   .docs-header-inner { gap: 12px; }
   .docs-header-label, .docs-brand-divider, .docs-github { display: none; }
-  .docs-search-trigger { height: 38px; }
-  .docs-search-dialog { top: 12px; width: calc(100vw - 24px); max-height: calc(100dvh - 24px); border-radius: 10px; }
+  .docs-search-dialog { top: calc(var(--docs-search-top, 0px) + 8px); width: calc(100vw - 16px); max-height: calc(var(--docs-search-height, 100dvh) - 16px); border-radius: 10px; }
   .docs-search-input-row { min-height: 60px; gap: 10px; padding-inline: 15px; }
   .docs-search-input-row input { height: 58px; font-size: 16px; }
-  .docs-search-close { min-height: 36px; min-width: 32px; padding: 0; border: 0; background: transparent; }
+  .docs-search-close { min-height: 44px; min-width: 44px; margin-right: -8px; padding: 0; border: 0; background: transparent; }
   .docs-search-close > span { display: none; }
   .docs-search-close > svg { display: block; }
   .docs-search-results-label { padding-left: 18px; }
   .docs-search-result { gap: 8px; padding-inline: 8px; }
   .docs-search-result-icon { width: 25px; }
   .docs-search-result-enter { display: none; }
-  .docs-search-footer { justify-content: flex-end; }
-  .docs-search-footer > span:first-child { display: none; }
+  .docs-search-footer { display: none; }
+  .docs-search-result-path { font-size: 12px; }
+  .docs-search-result-snippet { font-size: 14px; }
+}
+@media (max-height: 500px) {
+  .docs-search-dialog { top: calc(var(--docs-search-top, 0px) + 8px); max-height: calc(var(--docs-search-height, 100dvh) - 16px); }
+  .docs-search-input-row { min-height: 44px; padding-inline: 12px; gap: 10px; }
+  .docs-search-input-row input { height: 44px; font-size: 16px; }
+  .docs-search-close { min-height: 44px; min-width: 44px; margin-right: -8px; padding: 0; border: 0; background: transparent; }
+  .docs-search-close > span { display: none; }
+  .docs-search-close > svg { display: block; }
+  .docs-search-footer, .docs-search-results-label, .docs-search-result-snippet { display: none; }
+  .docs-search-body ul { padding-top: 4px; }
+  .docs-search-result, .docs-search-body ul[data-suggestions] .docs-search-result { padding-block: 7px; }
 }
 @media (max-width: 359px) {
   .docs-header-inner { gap: 8px; }
   .docs-install { padding-inline: 8px; font-size: 12px; }
+}
+@media (pointer: coarse) {
+  .docs-search-trigger { min-height: 44px; }
+  .docs-search-close { min-width: 44px; min-height: 44px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .docs-search-trigger, .docs-search-dialog, .docs-search-backdrop, .docs-search-dialog * { animation: none !important; transition: none !important; scroll-behavior: auto !important; }

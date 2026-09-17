@@ -37,7 +37,9 @@ export function DocsSearchButton() {
   const [failed, setFailed] = useState(false);
   const [mac, setMac] = useState(false);
   const input = useRef<HTMLInputElement>(null);
+  const popup = useRef<HTMLDivElement>(null);
   const list = useRef<HTMLUListElement>(null);
+  const keyboardNavigation = useRef(false);
   const navigating = useRef(false);
   const previousFocus = useRef<HTMLElement | null>(null);
   const results = useMemo(() => engine?.(query) ?? [], [engine, query]);
@@ -53,6 +55,7 @@ export function DocsSearchButton() {
       navigating.current = false;
       setQuery("");
       setActive(0);
+      keyboardNavigation.current = false;
       warmSearch();
     }
     setOpen(next);
@@ -86,8 +89,31 @@ export function DocsSearchButton() {
   }, [warmSearch]);
 
   useEffect(() => {
-    if (open) list.current?.children[active]?.scrollIntoView({ block: "nearest" });
+    if (open && keyboardNavigation.current) list.current?.children[active]?.scrollIntoView({ block: "nearest" });
   }, [active, results, open]);
+
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    if (!open || !viewport) return;
+    // iOS keeps the layout viewport tall when its keyboard covers the screen.
+    // Keep the modal and its scrolling results inside the actually visible area.
+    let frame = 0;
+    const update = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        popup.current?.style.setProperty("--docs-search-height", `${viewport.height}px`);
+        popup.current?.style.setProperty("--docs-search-top", `${viewport.offsetTop}px`);
+      });
+    };
+    update();
+    viewport.addEventListener("resize", update);
+    viewport.addEventListener("scroll", update);
+    return () => {
+      cancelAnimationFrame(frame);
+      viewport.removeEventListener("resize", update);
+      viewport.removeEventListener("scroll", update);
+    };
+  }, [open]);
 
   const select = (result: SearchResult) => {
     navigating.current = true;
@@ -99,6 +125,7 @@ export function DocsSearchButton() {
     if (event.nativeEvent.isComposing || !results.length) return;
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
+      keyboardNavigation.current = true;
       setActive((current) => (current + (event.key === "ArrowDown" ? 1 : -1) + results.length) % results.length);
     } else if (event.key === "Enter") {
       event.preventDefault();
@@ -123,6 +150,7 @@ export function DocsSearchButton() {
       <Dialog.Portal>
         <Dialog.Backdrop className="docs-search-backdrop" />
         <Dialog.Popup
+          ref={popup}
           id="docs-search-dialog"
           className="docs-search-dialog"
           initialFocus={input}
@@ -135,7 +163,12 @@ export function DocsSearchButton() {
             <input
               ref={input}
               value={query}
-              onChange={(event) => { setQuery(event.target.value); setActive(0); }}
+              onChange={(event) => {
+                setQuery(event.target.value);
+                setActive(0);
+                keyboardNavigation.current = false;
+                list.current?.scrollTo({ top: 0 });
+              }}
               onKeyDown={onKeyDown}
               id="docs-search-input"
               role="combobox"
@@ -147,6 +180,7 @@ export function DocsSearchButton() {
               placeholder="Search the documentation…"
               autoComplete="off"
               autoCorrect="off"
+              autoCapitalize="none"
               spellCheck={false}
               maxLength={200}
               enterKeyHint="go"
@@ -169,7 +203,11 @@ export function DocsSearchButton() {
                     id={`docs-search-result-${i}`}
                     role="option"
                     aria-selected={i === active}
-                    onPointerMove={() => setActive(i)}
+                    onPointerMove={(event) => {
+                      if (event.pointerType === "touch") return;
+                      keyboardNavigation.current = false;
+                      setActive(i);
+                    }}
                     onMouseDown={(event) => event.preventDefault()}
                     onClick={() => select(result)}
                     className="docs-search-result"

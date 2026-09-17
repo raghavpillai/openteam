@@ -120,18 +120,6 @@
   .ot-home .wm-scene { padding: 28px 20px 20px; border-radius: 20px; gap: 26px; }
   .ot-home .wm-intro .ot-scene-copy > p { color: #81796c; }
   .ot-home .wm-studio { margin-inline: -8px; }
-  .ot-home .wm-conversation { min-height: 274px; border-radius: 13px; }
-  .ot-home .wm-chat-header { padding-inline: 14px; }
-  .ot-home .wm-chat-header strong { font-size: 14px; }
-  .ot-home .wm-exchange { padding: 15px 14px; }
-  .ot-home .wm-scene .wm-worker-answer p { font-size: 14px; }
-  .ot-home .wm-transfer { height: 54px; }
-  .ot-home .wm-transfer > div { font-size: 12px; }
-  .ot-home .wm-files { border-radius: 12px; }
-  .ot-home .wm-file-tabs > span { font-size: 12px; padding-inline: 8px; }
-  .ot-home .wm-file-content { min-height: 282px; }
-  .ot-home .wm-code-line { font-size: 13px; line-height: 1.7; }
-  .ot-home .wm-scene .wm-recalled-facts p { font-size: 13px; }
 
   /* Let the examples read like native chat, with fewer nested gutters. */
   .ot-home .ac-workflow { padding: 12px 8px 8px; border-radius: 18px; }
@@ -223,8 +211,5 @@
   .ot-home .ws-worker-identity h3 { font-size: 22px; }
   .ot-home .ws-worker-card .ws-worker-instructions p { min-height: 252px; }
   .ot-home .ws-worker-result { margin-inline: -17px; margin-bottom: -17px; padding-inline: 17px; }
-  .ot-home .wm-conversation { min-height: 315px; }
-  .ot-home .wm-file-content { min-height: 310px; }
-  .ot-home .wm-files-header > span:last-child { display: none; }
   .ot-home .twd-header-members { display: none; }
 }

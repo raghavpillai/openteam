@@ -216,7 +216,7 @@ export default function Home() {
               <p>
                 Workers pick up useful preferences and context as you work together, then bring
                 those details into future conversations. Each has its own memory and can draw on
-                shared knowledge, all stored as readable files on your compute.
+                shared knowledge, all on compute you control.
               </p>
             </div>
           </WorkerMemory>

@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import {
   CalendarClock,
   ChevronsRight,
@@ -125,6 +125,8 @@ function TrafficLights() {
 
 export function ProductDemo() {
   const showcase = useRef<HTMLDivElement>(null);
+  const scenarioTabs = useRef<(HTMLButtonElement | null)[]>([]);
+  const panelId = useId();
   const progress = useRef<HTMLSpanElement>(null);
   const playback = useRef<Animation | null>(null);
   const [selected, setSelected] = useState(0);
@@ -138,6 +140,26 @@ export function ProductDemo() {
   const done = stage >= 4;
   const active = visible && documentVisible;
   const avatarMode = !active ? "still" : done ? "idle" : "thinking";
+
+  function selectScenario(index: number) {
+    setSelected(index);
+    setStage(0);
+    setRunId((id) => id + 1);
+  }
+
+  function handleTabKeyDown(event: KeyboardEvent<HTMLButtonElement>, index: number) {
+    let next: number;
+    switch (event.key) {
+      case "ArrowRight": next = (index + 1) % examples.length; break;
+      case "ArrowLeft": next = (index - 1 + examples.length) % examples.length; break;
+      case "Home": next = 0; break;
+      case "End": next = examples.length - 1; break;
+      default: return;
+    }
+    event.preventDefault();
+    selectScenario(next);
+    scenarioTabs.current[next]?.focus();
+  }
 
   useEffect(() => {
     const syncDocument = () => setDocumentVisible(!document.hidden);
@@ -228,9 +250,21 @@ export function ProductDemo() {
     >
       <div className="pd-scenarios">
         <span className="pd-try-label">Example Bots</span>
-        <div className="pd-scenario-buttons" aria-label="Example bots">
+        <div className="pd-scenario-buttons" role="tablist" aria-label="Example bots">
           {examples.map((item, i) => (
-            <div key={item.id} className={`pd-scenario ${selected === i ? "is-selected" : ""}`}>
+            <button
+              key={item.id}
+              ref={(element) => { scenarioTabs.current[i] = element; }}
+              type="button"
+              role="tab"
+              id={`${panelId}-${item.id}`}
+              aria-controls={panelId}
+              aria-selected={selected === i}
+              tabIndex={selected === i ? 0 : -1}
+              className={`pd-scenario ${selected === i ? "is-selected" : ""}`}
+              onClick={() => selectScenario(i)}
+              onKeyDown={(event) => handleTabKeyDown(event, i)}
+            >
               {i === 0 ? (
                 <Search size={14} />
               ) : i === 1 ? (
@@ -244,11 +278,17 @@ export function ProductDemo() {
                   <span key={runId} ref={progress} />
                 </span>
               )}
-            </div>
+            </button>
           ))}
         </div>
       </div>
-      <div className="dt-app dt-details-open">
+      <div
+        className="dt-app dt-details-open"
+        id={panelId}
+        role="tabpanel"
+        aria-labelledby={`${panelId}-${scenario.id}`}
+        tabIndex={0}
+      >
         <aside className="dt-sidebar" aria-label="Demo conversations">
           <div className="dt-sidebar-toolbar">
             <TrafficLights />
@@ -265,10 +305,13 @@ export function ProductDemo() {
           </div>
           <div className="dt-conversations">
             {examples.map((item, i) => (
-              <div
+              <button
                 key={item.id}
+                type="button"
                 className={`dt-conversation ${i === selected ? "is-active" : ""}`}
                 aria-label={`${item.name} example`}
+                aria-pressed={i === selected}
+                onClick={() => selectScenario(i)}
               >
                 <BotAvatar
                   shape={item.shape}
@@ -283,7 +326,7 @@ export function ProductDemo() {
                   </span>
                   <small>{i === selected && !done ? "Working…" : item.preview}</small>
                 </span>
-              </div>
+              </button>
             ))}
           </div>
           <div className="dt-sidebar-footer">

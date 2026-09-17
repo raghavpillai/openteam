@@ -823,6 +823,27 @@ button.dt-icon-button:hover {
 .pd-showcase .pd-scenario {
   position: relative;
   overflow: hidden;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  font-family: inherit;
+  cursor: pointer;
+}
+.pd-showcase .pd-scenario:not(.is-selected) {
+  background: transparent;
+}
+.pd-showcase .pd-scenario:not(.is-selected):hover {
+  background: #ffffff80;
+  color: #111;
+}
+.pd-showcase .dt-conversation:not(.is-active):hover {
+  background: #e8e8e8;
+}
+.pd-showcase .pd-scenario:focus-visible,
+.pd-showcase .dt-conversation:focus-visible {
+  outline: 2px solid #737373;
+  outline-offset: -2px;
 }
 .pd-task-progress {
   position: absolute;
@@ -902,4 +923,3 @@ button.dt-icon-button:hover {
 }
 
 .dt-search-placeholder { display: flex; align-items: center; }
-.pd-showcase .pd-scenario { display: inline-flex; align-items: center; justify-content: center; cursor: default; }

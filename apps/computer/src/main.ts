@@ -452,10 +452,10 @@ const server = Bun.serve({
       const formMatch = url.pathname.match(/^\/v1\/user-forms\/([^/]+)\/([^/]+)\/(prepare|submit|dismiss|prefill)$/);
       if (request.method === "POST" && formMatch) {
         const [, botId, formId, action] = formMatch;
-        const input = await request.json() as { form?: unknown; values?: unknown; saveToVault?: boolean };
+        const input = await request.json() as { form?: unknown; values?: unknown; saveToVault?: boolean; mode?: string };
         if (action === "prepare") return json(await runtime.userForms.prepare(botId!, formId!, input.form));
         if (action === "prefill") return json(await runtime.userForms.prefill(botId!, formId!));
-        if (action === "dismiss") return json(await runtime.userForms.dismiss(botId!, formId!));
+        if (action === "dismiss") return json(await runtime.userForms.dismiss(botId!, formId!, input.mode === "escalated" ? "escalated" : "dismissed"));
         return json(await runtime.userForms.submit(botId!, formId!, input.values, input.saveToVault === true));
       }
 
@@ -581,7 +581,7 @@ const server = Bun.serve({
 
       if (request.method === "POST" && url.pathname === COMPUTER_API_PATHS.approvalResolution) {
         const input = Schema.decodeUnknownSync(ComputerApprovalResolution)(await request.json());
-        await runtime.resolveApproval(input.approvalId, input.decision);
+        await runtime.resolveApproval(input.approvalId, input.decision, input.selectedItems);
         return json({ ok: true });
       }
 

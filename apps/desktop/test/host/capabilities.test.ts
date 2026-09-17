@@ -123,11 +123,13 @@ test("Chrome import decrypts only approved profile/host pairs, verifies v24 doma
     db.close(true);
     const settings = new CapabilitySettingsStore(join(root, "settings.json"));
     let decisions = 0;
+    let selectedItems: string[] | undefined;
     let reads = 0;
     const cookies = new ChromeCookies(
       settings,
-      async () => {
+      async (input) => {
         decisions++;
+        if (selectedItems) input.selectItems?.(selectedItems);
         return "always";
       },
       async (file, args, signal) => {
@@ -163,6 +165,13 @@ test("Chrome import decrypts only approved profile/host pairs, verifies v24 doma
     await settings.update({ revoke: "cookies" });
     await cookies.collect("bot-a", [".example.test"]);
     expect(decisions).toBe(3);
+    await settings.update({ revoke: "cookies" });
+    selectedItems = [JSON.stringify(["Default", ".example.test"])];
+    const scoped = await cookies.collect("bot-a", [".example.test", ".other.test"]);
+    expect(scoped.grants?.map((item) => item.origin)).toEqual([".example.test"]);
+    expect(scoped.cookies?.map((item) => item.domain)).toEqual([".example.test"]);
+    expect((await settings.read()).cookieGrants).toEqual([JSON.stringify(["bot-a", "Default", ".example.test"])]);
+
     expect(() =>
       decryptChromeCookie(
         encrypt(".other.test", "x").toString("hex"),

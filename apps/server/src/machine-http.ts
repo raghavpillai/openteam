@@ -5,6 +5,7 @@ import type { MachineService } from "./services/machine-service";
 export async function machineChannelResponse(
   machines: MachineService, request: Request, path: string,
   review: (value: unknown) => Promise<unknown>,
+  savedLogin?: (value: unknown) => Promise<unknown>,
 ) {
   const machine = await machines.authenticate(request);
   const prefix = "/api/machines/channel";
@@ -42,6 +43,10 @@ export async function machineChannelResponse(
     return Response.json(await machines.relay.poll(machine.machineId, connectionId, input.active as string[], request.signal));
   }
   if (path === `${prefix}/review` && request.method === "POST") return Response.json(await review(await readJson()));
+  if (path === `${prefix}/saved-login` && request.method === "POST" && savedLogin) {
+    if (!machines.relay.connected(machine.machineId)) throw new ApiError(409, "machine_offline", "Connect this computer before using saved logins");
+    return Response.json(await savedLogin(await readJson()), { headers: { "cache-control": "no-store" } });
+  }
   const operation = path.match(/^\/api\/machines\/channel\/requests\/([\da-f-]{36})\/(body|response|failure)$/i);
   if (operation?.[2] === "body" && request.method === "GET") return machines.relay.body(machine.machineId, connectionId, operation[1]!);
   if (operation?.[2] === "response" && request.method === "POST") return machines.relay.respond(machine.machineId, connectionId, operation[1]!, request);

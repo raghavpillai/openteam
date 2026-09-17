@@ -61,6 +61,6 @@ const routes = [
     "POST",
     /^\/api\/approvals\/([^/]+)\/(?:resolve|decision)$/,
     ResolveApprovalInput,
-    ({ app }, id, input) => app.resolveApproval(id, input.decision)
+    ({ app }, id, input) => app.resolveApproval(id, input.decision, input.selectedItems)
   ),
 ];

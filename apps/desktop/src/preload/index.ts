@@ -155,6 +155,22 @@ const notificationSnapshot = (value: unknown) => {
 
 contextBridge.exposeInMainWorld("openteam", {
   platform: process.platform,
+  visibility: {
+    subscribe: (callback: (visible: boolean) => void) => {
+      let active = true;
+      let receivedEvent = false;
+      const listener = (_event: Electron.IpcRendererEvent, visible: unknown) => {
+        if (typeof visible !== "boolean") return;
+        receivedEvent = true;
+        if (active) callback(visible);
+      };
+      ipcRenderer.on("openteam:window-visibility-changed", listener);
+      void ipcRenderer.invoke("openteam:window-visibility").then((visible) => {
+        if (active && !receivedEvent && typeof visible === "boolean") callback(visible);
+      }).catch(() => { /* Browser visibility remains the fallback during shutdown. */ });
+      return () => { active = false; ipcRenderer.removeListener("openteam:window-visibility-changed", listener); };
+    },
+  },
   auth: {
     connectMachine: (serverUrl: string) => ipcRenderer.invoke("openteam:machine:connect", serverUrl),
     machineStatus: () => ipcRenderer.invoke("openteam:machine:status"),
@@ -174,6 +190,10 @@ contextBridge.exposeInMainWorld("openteam", {
       authTokenStorageResult(await ipcRenderer.invoke("openteam:auth-token:clear")),
   },
   permissions: {
+    savedLoginAccounts: () => ipcRenderer.invoke("openteam:capabilities:accounts"),
+    connectSavedLogins: (input: { account: string; vaultName: string; connectionId?: string }) => ipcRenderer.invoke("openteam:capabilities:connect-login", input),
+    restartSavedLoginSetup: () => ipcRenderer.invoke("openteam:capabilities:restart-login"),
+    finishSavedLoginConnection: () => ipcRenderer.invoke("openteam:capabilities:finish-login"),
     listSavedLogins: () => ipcRenderer.invoke("openteam:capabilities:logins"),
     getCapabilities: () => ipcRenderer.invoke("openteam:capabilities:get"),
     updateCapabilities: (input: { account?: string; vault?: string; revoke?: "cookies" | "credentials" | "messages"; autoFill?: string[]; removeCredentialConnection?: string; messagesSendAll?: boolean }) => ipcRenderer.invoke("openteam:capabilities:update", input),

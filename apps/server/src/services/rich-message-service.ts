@@ -155,7 +155,7 @@ export class RichMessageService {
   formPrefill = (messageId: string) => serviceEffect(async () => {
     const message = await this.prisma.channelMessage.findUnique({ where: { id: messageId }, include: { channel: true } });
     const metadata = metadataRecord(message?.metadata); const form = stringRecord(metadata.form);
-    if (!message?.senderBotId || message.channel.archivedAt || metadata.type !== "user-form" || !form || typeof form.id !== "string" || metadata.cardState === "submitted" || metadata.cardState === "dismissed") throw new ApiError(404, "form_unavailable", "Pending form not found");
+    if (!message?.senderBotId || message.channel.archivedAt || metadata.type !== "user-form" || !form || typeof form.id !== "string" || ["submitted", "dismissed", "escalated"].includes(String(metadata.cardState))) throw new ApiError(404, "form_unavailable", "Pending form not found");
     return this.screens.userFormAction(message.senderBotId, form.id, "prefill", {});
   });
 
@@ -165,16 +165,16 @@ export class RichMessageService {
     const message = await this.prisma.channelMessage.findUnique({ where: { id: messageId }, include: { channel: true } });
     const metadata = metadataRecord(message?.metadata); const form = stringRecord(metadata.form);
     if (!message?.senderBotId || message.channel.archivedAt || metadata.type !== "user-form" || !form || typeof form.id !== "string") throw new ApiError(404, "form_unavailable", "Form not found");
-    if (metadata.cardState === "submitted" || metadata.cardState === "dismissed") return { accepted: false, message: messageView(message), runId: null };
+    if (["submitted", "dismissed", "escalated"].includes(String(metadata.cardState))) return { accepted: false, message: messageView(message), runId: null };
     // The request values stay on the human-to-host path. No database, event,
     // transcript, wake, log or returned message receives this object.
-    const receipt = parseUserFormReceipt(await this.screens.userFormAction(message.senderBotId, form.id, input.action as "submit" | "dismiss", { values: input.values, saveToVault: input.saveToVault === true }));
+    const receipt = parseUserFormReceipt(await this.screens.userFormAction(message.senderBotId, form.id, input.action as "submit" | "dismiss", { values: input.values, saveToVault: input.saveToVault === true, mode: input.mode === "escalated" ? "escalated" : "dismissed" }));
     if (receipt.formId !== form.id) throw new ApiError(502, "form_receipt_mismatch", "The host returned a different form receipt");
     return this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`rich-message:${messageId}`}))`;
       const current = await tx.channelMessage.findUniqueOrThrow({ where: { id: messageId } });
       const currentMetadata = metadataRecord(current.metadata);
-      if (currentMetadata.cardState === "submitted" || currentMetadata.cardState === "dismissed") return { accepted: false, message: messageView(current), runId: null };
+      if (["submitted", "dismissed", "escalated"].includes(String(currentMetadata.cardState))) return { accepted: false, message: messageView(current), runId: null };
       const updated = await tx.channelMessage.update({ where: { id: messageId }, data: { metadata: toJson({
         ...currentMetadata, cardState: receipt.status, formReceipt: receipt, outcomeId: randomUUID(), outcomeText: formatUserFormReceipt(receipt), outcomeEchoed: false,
       }) } });

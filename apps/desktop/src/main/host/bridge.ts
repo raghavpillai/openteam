@@ -16,6 +16,7 @@ import { listenForHostBridge } from "./bridge-listener";
 import { HostFileTransfers } from "./file-transfer";
 import { HostMcpManager } from "./mcp";
 import type { HostCapabilities } from "./capabilities";
+import { CapabilityApprovalRequired } from "./capability-approval";
 import type { HostJobPayload } from "./job-protocol";
 import {
   type AutoReviewMode,
@@ -211,7 +212,7 @@ export const startHostBridge = (options: {
     mode: options.autoReviewMode,
     promptLocal: (candidate) =>
       Promise.resolve(localApprovalDecision(input, candidate, machineId, machineLabel)),
-    review: options.reviewAction,
+    review: (action, rules) => options.reviewAction({ ...action, reviewContext: input.reviewContext }, rules),
     promptAutoReview: (candidate, result) =>
       Promise.resolve(
         autoReviewApprovalDecision(input, candidate, result, machineId, machineLabel)
@@ -407,7 +408,7 @@ export const startHostBridge = (options: {
       return json(response, 404, { error: "not_found" });
     } catch (error) {
       if (response.headersSent) { response.destroy(error instanceof Error ? error : undefined); return; }
-      if (error instanceof HostApprovalRequired) {
+      if (error instanceof HostApprovalRequired || error instanceof CapabilityApprovalRequired) {
         return json(response, 409, {
           error: "approval_required",
           approval: error.approval,

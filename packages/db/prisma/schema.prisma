@@ -1317,6 +1317,40 @@ model PluginPrivateSkill {
 }
 
 // Singleton configuration owned by the server, separate from agent-visible state.
+model SavedLoginConnection {
+  id String @id
+  accountId String
+  vaultId String
+  vaultName String
+  token String?
+  generation Int @default(0)
+  enabled Boolean @default(true)
+  expiresAt DateTime?
+  updatedAt DateTime @updatedAt
+  @@unique([accountId, vaultId])
+}
+
+model AutoReviewPolicy {
+  id String @id @default("global")
+  enabled Boolean @default(true)
+  allowInstructions String[] @default([])
+  blockInstructions String[] @default([])
+  updatedAt DateTime @updatedAt
+}
+
+model SavedLoginMint {
+  id String @id @default(uuid()) @db.Uuid
+  connectionId String
+  accountId String
+  vaultId String
+  vaultName String
+  expectedGeneration Int
+  expiresAt DateTime
+  providerExpiresAt DateTime?
+  tokenHash String?
+  completedAt DateTime?
+}
+
 model WebSearchSettings {
   id              String   @id @default("global")
   provider        String?

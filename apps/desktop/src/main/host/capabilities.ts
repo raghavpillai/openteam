@@ -1,29 +1,41 @@
-import { parseReferenceArguments } from "@openteam/contracts/reference-parsers";
-import { DESKTOP_MESSAGES_TOOLS } from "@openteam/contracts/desktop-capabilities";
-import { MacMessages, validateMessageSend } from "./messages";
-import { SavedCredentials } from "./credentials";
+import { DESKTOP_MESSAGES_TOOLS } from "@openteam/contracts/desktop-capability-names";
+import type { MacMessages } from "./messages";
+import type { SavedCredentials } from "./credentials";
 import { ChromeCookies } from "./chrome-cookies";
 import { CapabilitySettingsStore, type NativeConsent } from "./capability-settings";
 import type { NativeActionReceipts } from "./action-receipts";
+import { CapabilityApprovals } from "./capability-approval";
+import type { NativeCommand } from "./native-command";
 export class HostCapabilities {
-  private readonly credentials: SavedCredentials;
+  private credentials?: SavedCredentials;
   private readonly cookies: ChromeCookies;
+  private readonly approvals: CapabilityApprovals;
+  private readonly consent: NativeConsent;
   constructor(
     readonly settings: CapabilitySettingsStore,
-    private readonly consent: NativeConsent,
-    private readonly messages = new MacMessages(),
+    consent: NativeConsent,
+    private messages?: MacMessages,
     credentials?: SavedCredentials,
     cookies?: ChromeCookies,
     private readonly platform = process.platform,
-    private readonly receipts?: NativeActionReceipts
+    private readonly receipts?: NativeActionReceipts,
+    private readonly credentialCommand?: NativeCommand
   ) {
-    this.credentials = credentials ?? new SavedCredentials(settings, consent);
-    this.cookies = cookies ?? new ChromeCookies(settings, consent);
+    this.approvals = new CapabilityApprovals(consent);
+    this.consent = this.approvals.consent;
+    this.credentials = credentials;
+    this.cookies = cookies ?? new ChromeCookies(settings, this.consent);
   }
   async handle(value: unknown, signal?: AbortSignal): Promise<any> {
+    if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Invalid desktop request");
+    return this.approvals.run(value as Record<string, any>, (await this.settings.read()).revocationEpoch ?? 0,
+      () => this.execute(value, signal));
+  }
+  private async execute(value: unknown, signal?: AbortSignal): Promise<any> {
     if (!value || typeof value !== "object" || Array.isArray(value))
       throw new Error("Invalid desktop request");
     const { tool, botId, callId, arguments: rawArgs = {} } = value as Record<string, any>;
+    const { parseReferenceArguments } = await import("@openteam/contracts/reference-parsers");
     const args = ["ListCredentials", "GetCredentialProviderStatus", "request_cookie_origin_approval", ...DESKTOP_MESSAGES_TOOLS].includes(tool) ? parseReferenceArguments(tool, rawArgs) : rawArgs;
     if (
       typeof botId !== "string" ||
@@ -33,21 +45,29 @@ export class HostCapabilities {
       Array.isArray(args)
     )
       throw new Error("Invalid desktop request");
-    if (tool === "GetCredentialProviderStatus") return this.credentials.status(signal);
-    if (tool === "ListCredentials") return this.credentials.list(args, signal);
-    if (tool === "AutomaticSavedCredential") return this.credentials.automatic(args.site, signal);
-    if (tool === "UseSavedCredential") return this.credentials.use(args, signal);
+    if (["GetCredentialProviderStatus", "ListCredentials", "AutomaticSavedCredential", "UseSavedCredential"].includes(tool)) {
+      const { SavedCredentials } = await import("./credentials");
+      const credentials = this.credentials ??= new SavedCredentials(this.settings, this.consent, this.credentialCommand);
+      if (tool === "GetCredentialProviderStatus") return credentials.status(signal);
+      if (tool === "ListCredentials") return credentials.list(args, signal);
+      if (tool === "AutomaticSavedCredential") return credentials.automatic(args.site, signal);
+      return credentials.use(args, signal);
+    }
     if (this.platform !== "darwin")
       throw new Error("Messages, Contacts and Chrome login import require a connected Mac");
     if (tool === "request_cookie_origin_approval")
       return this.cookies.collect(botId, args.origins, signal);
     if (!(DESKTOP_MESSAGES_TOOLS as readonly string[]).includes(tool))
       throw new Error("Unknown desktop capability");
+    const { MacMessages, validateMessageSend } = await import("./messages");
+    const messages = this.messages ??= new MacMessages();
     const epoch = (await this.settings.read()).revocationEpoch ?? 0;
     if (tool === "SendIMessage") {
       validateMessageSend(args);
       if (!this.receipts) throw new Error("Durable send receipts are unavailable");
-      return this.receipts.execute(botId, callId, args, async () => {
+      // Review must finish before claiming the durable send receipt. A pending
+      // approval has not attempted a send and must remain safely retryable.
+      return this.receipts.execute(botId, callId, args, () => messages.execute(tool, args, signal), async () => {
         const grant = JSON.stringify([botId, "send", args.chatId ?? args.to]);
         const all = JSON.stringify([botId, "send", "*"]);
         const sendSettings = await this.settings.read();
@@ -65,7 +85,6 @@ export class HostCapabilities {
           return { ...state, messagesGrants: [...new Set([...state.messagesGrants, grant])] };
         });
         signal?.throwIfAborted();
-        return this.messages.execute(tool, args, signal);
       });
     }
     if (tool !== "CheckIMessagePermissions") {
@@ -89,7 +108,7 @@ export class HostCapabilities {
     signal?.throwIfAborted();
     if (((await this.settings.read()).revocationEpoch ?? 0) !== epoch)
       throw new Error("Messages access was revoked during review");
-    const result = await this.messages.execute(tool, args, signal);
+    const result = await messages.execute(tool, args, signal);
     if (
       result &&
       typeof result === "object" &&
@@ -103,7 +122,7 @@ export class HostCapabilities {
         ),
       ];
       try {
-        result.people = await this.messages.people(handles, signal);
+        result.people = await messages.people(handles, signal);
       } catch {
         result.people = {};
       }

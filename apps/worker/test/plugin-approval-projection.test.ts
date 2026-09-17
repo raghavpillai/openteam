@@ -7,6 +7,7 @@ test("completed turns preserve durable plugin approvals while expiring runtime a
     { requestMethod: "item/commandExecution/requestApproval", status: "pending" },
   ];
   const tx = {
+    $executeRaw: async () => 0,
     run: {
       findUniqueOrThrow: async () => ({ status: "running" }),
       findUnique: async () => ({

@@ -1,7 +1,7 @@
+import { OnePasswordProvisioning, brokerCredentialCommand, type SavedLoginBackend } from "./host/onepassword-provisioning";
 import { randomBytes } from "node:crypto";
 import { loadMachineIdentity } from "./host/machine-identity";
 import { DesktopMachineEnrollment } from "./host/machine-enrollment";
-import { SavedCredentials } from "./host/credentials";
 import { open, rename, unlink } from "node:fs/promises";
 import { hostname } from "node:os";
 import { extname, join } from "node:path";
@@ -52,6 +52,7 @@ import {
 import {
   type AutoReviewRuleKind,
   createPermissionSettingsStore,
+  synchronizePermissionSettings,
   type LocalToolPermission,
   type PermissionSettings,
   type PermissionSettingsStore,
@@ -64,6 +65,11 @@ import {
 } from "./update-status";
 
 let mainWindow: BrowserWindow | null = null;
+const isMainWindowVisible = () => Boolean(mainWindow && mainWindow.isVisible() && !mainWindow.isMinimized());
+ipcMain.handle("openteam:window-visibility", (event) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Window is unavailable");
+  return isMainWindowVisible();
+});
 let authTokenStore: DesktopAuthTokenStore | null = null;
 let permissionSettings: PermissionSettingsStore | null = null;
 let desktopNotifications: DesktopNotificationManager | null = null;
@@ -630,6 +636,7 @@ ipcMain.handle("openteam:machine:connect", (event, serverUrl: unknown) => {
   if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || url.search || url.hash) throw new Error("Invalid server URL");
   enrollmentServerUrl = url.href.replace(/\/$/, "");
   machineEnrollment?.configure(enrollmentServerUrl);
+  void syncReviewPolicy().catch(() => {});
   return { machineId: localMachine.machineId };
 });
 
@@ -843,19 +850,80 @@ const requirePermissionSettings = (event: Electron.IpcMainInvokeEvent) => {
 const nativeSettings = () => new CapabilitySettingsStore(join(app.getPath("userData"), "native-capabilities.json"));
 let capabilitySettings: CapabilitySettingsStore | undefined;
 const sharedCapabilitySettings = () => capabilitySettings ??= nativeSettings();
+const savedLoginBackend: SavedLoginBackend = async (operation, input) => {
+  if (operation === "operation") {
+    if (!machineEnrollment) throw new Error("Connect this desktop before using saved logins");
+    return machineEnrollment.savedLoginOperation(input);
+  }
+  const serverUrl = enrollmentServerUrl;
+  if (!serverUrl) throw new Error("Connect to your OpenTeam server before setting up saved logins");
+  const token = (await authTokenStore?.read())?.token;
+  if (enrollmentServerUrl !== serverUrl) throw new Error("The server changed during saved-login setup");
+  const response = await net.fetch(`${serverUrl}/api/server-settings/saved-logins${operation === "view" ? "" : `/${operation}`}`, {
+    method: operation === "view" ? "GET" : "POST",
+    headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
+    ...(operation === "view" ? {} : { body: JSON.stringify(input) }), signal: AbortSignal.timeout(60_000),
+  });
+  if (!response.ok) throw new Error("The saved-login server request failed. Check your connection and retry completion if setup was interrupted.");
+  return response.json();
+};
+let savedLoginProvisioning: OnePasswordProvisioning | undefined;
+let provisioningServerUrl: string | null = null;
+const provisioning = () => {
+  if (!savedLoginProvisioning || provisioningServerUrl !== enrollmentServerUrl) {
+    const serverUrl = enrollmentServerUrl;
+    provisioningServerUrl = serverUrl;
+    savedLoginProvisioning = new OnePasswordProvisioning(sharedCapabilitySettings(), (operation, input) => {
+      if (!serverUrl || enrollmentServerUrl !== serverUrl) throw new Error("The server changed during 1Password setup. Reconnect to the original server to finish setup.");
+      return savedLoginBackend(operation, input);
+    });
+  }
+  return savedLoginProvisioning;
+};
+const savedLoginCommand = () => brokerCredentialCommand(sharedCapabilitySettings(), savedLoginBackend);
+ipcMain.handle("openteam:capabilities:accounts", event => { requireAuthSender(event); return provisioning().accounts(); });
+ipcMain.handle("openteam:capabilities:connect-login", (event, input) => { requireAuthSender(event); return provisioning().connect(input); });
+ipcMain.handle("openteam:capabilities:finish-login", event => { requireAuthSender(event); return provisioning().finish(); });
+ipcMain.handle("openteam:capabilities:restart-login", event => { requireAuthSender(event); provisioning().acknowledgeUncertainSetup(); });
+
 ipcMain.handle("openteam:capabilities:get", async (event) => {
-  requirePermissionSettings(event); return sharedCapabilitySettings().read();
+  requirePermissionSettings(event); return provisioning().refresh().catch(() => sharedCapabilitySettings().read());
 });
 ipcMain.handle("openteam:capabilities:logins", async (event) => {
   requirePermissionSettings(event);
-  return new SavedCredentials(sharedCapabilitySettings(), async () => "deny").list({});
+  const { SavedCredentials } = await import("./host/credentials");
+  return new SavedCredentials(sharedCapabilitySettings(), async () => "deny", savedLoginCommand()).list({});
 });
 ipcMain.handle("openteam:capabilities:update", async (event, input: unknown) => {
   requirePermissionSettings(event);
   if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("Invalid native settings");
+  const update = input as { removeCredentialConnection?: string; revoke?: string };
+  if (update.removeCredentialConnection) await provisioning().disconnect(update.removeCredentialConnection);
+  if (update.revoke === "credentials") for (const provider of (await sharedCapabilitySettings().read()).credentialProviders ?? []) {
+    if (provider.broker) await provisioning().disconnect(`1password:${provider.account}:${provider.vault}`);
+  }
   return sharedCapabilitySettings().update(input);
 });
 
+const syncReviewPolicy = async (settings?: PermissionSettings) => {
+  const current = settings ?? await permissionSettings?.read();
+  const serverUrl = enrollmentServerUrl;
+  if (!serverUrl || !current) return;
+  const token = (await authTokenStore?.read())?.token;
+  if (enrollmentServerUrl !== serverUrl) throw new Error("The server changed while syncing Auto Review settings");
+  const headers = { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) };
+  const endpoint = `${serverUrl}/api/v0/server-settings/auto-review`;
+  if (!settings) {
+    const response = await net.fetch(endpoint, { headers, signal: AbortSignal.timeout(10_000) });
+    if (!response.ok) throw new Error("Could not load Auto Review settings from the server");
+    const remote = await response.json() as PermissionSettings["autoReview"] & { configured: boolean };
+    if (enrollmentServerUrl !== serverUrl) throw new Error("The server changed while syncing Auto Review settings");
+    if (remote.configured) { await permissionSettings?.update({ autoReview: remote }); return; }
+  }
+  const response = await net.fetch(endpoint, { method: "PATCH", headers, body: JSON.stringify(current.autoReview), signal: AbortSignal.timeout(10_000) });
+  if (!response.ok) throw new Error("Auto Review settings could not sync to the bot computer. Reconnect and try again.");
+};
+const syncedPermissionSettingsView = async (settings: PermissionSettings) => { await syncReviewPolicy(settings); return permissionSettingsView(settings); };
 const permissionSettingsView = (settings: PermissionSettings) => ({
   ...settings,
   machine: {
@@ -864,9 +932,11 @@ const permissionSettingsView = (settings: PermissionSettings) => ({
   },
 });
 
-ipcMain.handle("openteam:permissions:get", async (event) =>
-  permissionSettingsView(await requirePermissionSettings(event).read())
-);
+ipcMain.handle("openteam:permissions:get", async (event) => {
+  const settings = requirePermissionSettings(event);
+  await syncReviewPolicy().catch(() => {});
+  return permissionSettingsView(await settings.read());
+});
 ipcMain.handle("openteam:permissions:update", async (event, value: unknown) => {
   const input =
     value && typeof value === "object" && !Array.isArray(value)
@@ -888,7 +958,7 @@ ipcMain.handle("openteam:permissions:update", async (event, value: unknown) => {
   ) {
     throw new Error("No valid permission setting was provided");
   }
-  return permissionSettingsView(
+  return syncedPermissionSettingsView(
     await requirePermissionSettings(event).update({
       machineLabel,
       localToolPermission,
@@ -918,13 +988,13 @@ const permissionRuleInput = (value: unknown): { kind: AutoReviewRuleKind; instru
 
 ipcMain.handle("openteam:permissions:add-rule", async (event, value: unknown) => {
   const input = permissionRuleInput(value);
-  return permissionSettingsView(
+  return syncedPermissionSettingsView(
     await requirePermissionSettings(event).addRule(input.kind, input.instruction)
   );
 });
 ipcMain.handle("openteam:permissions:remove-rule", async (event, value: unknown) => {
   const input = permissionRuleInput(value);
-  return permissionSettingsView(
+  return syncedPermissionSettingsView(
     await requirePermissionSettings(event).removeRule(input.kind, input.instruction)
   );
 });
@@ -965,6 +1035,12 @@ const createWindow = async () => {
   });
 
   mainWindow.once("ready-to-show", () => mainWindow?.show());
+  const publishVisibility = () => mainWindow?.webContents.send("openteam:window-visibility-changed", isMainWindowVisible());
+  mainWindow.on("show", publishVisibility);
+  mainWindow.on("hide", publishVisibility);
+  mainWindow.on("minimize", publishVisibility);
+  mainWindow.on("restore", publishVisibility);
+  mainWindow.webContents.on("did-finish-load", publishVisibility);
   mainWindow.on("close", (event) => {
     if (process.platform === "darwin" && !isQuitting) {
       event.preventDefault();
@@ -1202,7 +1278,7 @@ if (!hasSingleInstanceLock) {
           port: bridgePort,
           hostname: legacyBridge ? "0.0.0.0" : "127.0.0.1",
           terminalDir: join(app.getPath("userData"), "host-terminals"),
-          permissionSettings: permissionSettings!,
+          permissionSettings: synchronizePermissionSettings(permissionSettings!, syncReviewPolicy),
           autoReviewMode,
           machineId: localMachine.machineId,
           machineLabel: localMachine.label,
@@ -1213,7 +1289,7 @@ if (!hasSingleInstanceLock) {
             const result = await dialog.showMessageBox({ type: "question", title: input.title, message: input.title,
               detail: input.detail, buttons, defaultId: 0, cancelId: 0, noLink: true });
             return result.response === 2 ? "always" : result.response === 1 ? "once" : "deny";
-          }, undefined, undefined, undefined, process.platform, new NativeActionReceipts(join(app.getPath("userData"), "native-action-receipts.json"))),
+          }, undefined, undefined, undefined, process.platform, new NativeActionReceipts(join(app.getPath("userData"), "native-action-receipts.json")), savedLoginCommand()),
         });
       try { hostBridge = await startBridge(port); }
       catch (error) {

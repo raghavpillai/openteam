@@ -4,14 +4,17 @@ export type CredentialTargetRule =
   | { kind: "exact-host-port"; scheme: string; host: string; port: number };
 const hostname = (url: URL) => url.hostname.toLowerCase().replace(/\.$/, "");
 const port = (url: URL) => Number(url.port || (url.protocol === "https:" ? 443 : 80));
-export function credentialRules(sites: string[]): CredentialTargetRule[] {
-  return sites.map((site) => {
-    const url = new URL(site);
+export function credentialRules(sites: Array<string | { href: string; autofillBehavior?: string }>): CredentialTargetRule[] {
+  return sites.flatMap((site): CredentialTargetRule[] => {
+    const behavior = typeof site === "string" ? undefined : site.autofillBehavior;
+    if (behavior !== undefined && !["AnywhereOnWebsite", "ExactDomain"].includes(behavior)) return [];
+    let url: URL;
+    try { url = new URL(typeof site === "string" ? site : site.href); } catch { return []; }
     const host = hostname(url);
     const domain = getDomain(host, { allowPrivateDomains: true });
-    return domain && url.protocol === "https:" && !url.port
+    return [behavior !== "ExactDomain" && domain && url.protocol === "https:" && !url.port
       ? { kind: "registrable-domain", registrableDomain: domain }
-      : { kind: "exact-host-port", scheme: url.protocol.slice(0, -1), host, port: port(url) };
+      : { kind: "exact-host-port", scheme: url.protocol.slice(0, -1), host, port: port(url) }];
   });
 }
 export function matchCredentialRules(

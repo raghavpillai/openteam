@@ -40,7 +40,7 @@ export class SavedCredentials {
     const statuses = await Promise.all(connections.map(async config => {
       const connection_id = credentialConnectionId(config);
       try {
-        await this.run("op",["whoami","--account",config.account,"--format=json"],signal);
+        if (!config.broker) await this.run("op",["whoami","--account",config.account,"--format=json"],signal);
         const items=credentialJson(await this.run("op",["item","list","--account",config.account,"--vault",config.vault,"--format=json"],signal));
         if(!Array.isArray(items))throw new Error("Invalid item metadata");
         return {connection_id,kind:"connected",itemCount:items.length,needsAttention:false};
@@ -87,7 +87,7 @@ export class SavedCredentials {
           return [];
         }
       });
-      const targetRules = credentialRules(sites);
+      const targetRules = credentialRules(item.urls ?? []);
       if (origin && !matchCredentialRules(targetRules, origin)) return [];
       if (args.query && !String(item.title).toLowerCase().includes(args.query.toLowerCase()))
         return [];
@@ -147,6 +147,7 @@ export class SavedCredentials {
     if (args.automatic !== true && !automaticAllowed) {
       const decision = await this.consent({
         title: "Use saved login?",
+        presentation: { kind: "saved-login", title: item.title, site: origin, category: item.category, purpose: String(args.purpose ?? "Sign in to continue the task") },
         detail: `${item.title}\n${origin}\n${String(args.purpose ?? "Sign in to continue the task")}\n\nOpenTeam will fill this browser page. The bot never receives the username or password.`,
       });
       if (decision === "deny")
@@ -190,7 +191,7 @@ export class SavedCredentials {
         return [];
       }
     });
-    if (!matchCredentialRules(credentialRules(sites), origin))
+    if (!matchCredentialRules(credentialRules(raw.urls ?? []), origin))
       throw new Error("The login target changed during retrieval");
     const username = raw.fields?.find((f: any) => f.purpose === "USERNAME")?.value;
     const password = raw.fields?.find((f: any) => f.purpose === "PASSWORD")?.value;

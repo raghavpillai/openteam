@@ -69,6 +69,13 @@ export class DesktopMachineEnrollment {
   }
 
   isConnected() { return !!this.current; }
+  async savedLoginOperation(value: unknown) {
+    const enrollment = this.current;
+    if (!enrollment) throw new Error("Connect this desktop before using saved logins");
+    const response = await this.channel(enrollment, "/saved-login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(value), signal: AbortSignal.timeout(60_000) });
+    if (!response.ok) throw new Error("Saved-login retrieval failed. Check the connection in Computer settings.");
+    return response.json();
+  }
   status() { return { connected: this.isConnected(), configured: !!this.serverUrl, error: this.connectionError }; }
 
   private async run(serverUrl: string, signal: AbortSignal) {

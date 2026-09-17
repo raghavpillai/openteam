@@ -1,7 +1,7 @@
 import { access, constants } from "node:fs/promises";
 import { delimiter, join } from "node:path";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import type { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { discoverAllTools, scopedProcessEnvironment } from "@openteam/plugin-sdk";
 
 export async function resolveOnePasswordCommand(): Promise<string> {
@@ -31,6 +31,9 @@ export class HostMcpManager {
     if (current) return current;
     const pending = (async () => {
       const executable = await this.command();
+      // Load the SDK and its schema validators only when a connection is used.
+      // Constructing the host bridge must not pay this cost on every app launch.
+      const { Client, StdioClientTransport } = await import("./mcp-runtime");
       const client = new Client({ name: "OpenTeam", version: "0.0.1" });
       const env = scopedProcessEnvironment(process.env);
       // 1Password's Linux desktop IPC needs these session locations, never app credentials.

@@ -165,7 +165,7 @@ try {
     }),
     /private login data/
   );
-  assert.equal(
+  assert.deepEqual(
     await browser.importPrivateCookies([
       {
         name: "fixture",
@@ -176,7 +176,7 @@ try {
         secure: false,
       },
     ]),
-    1
+    { injected: 1, failed: 0 }
   );
   assert(
     (await connection.contexts()[0]!.cookies()).some(

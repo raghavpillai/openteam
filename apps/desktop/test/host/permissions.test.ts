@@ -7,7 +7,7 @@ import {
   authorizeHostAction,
   type HostAction,
 } from "../../src/main/host/permissions";
-import { createPermissionSettingsStore } from "../../src/main/permission-settings";
+import { createPermissionSettingsStore, synchronizePermissionSettings } from "../../src/main/permission-settings";
 
 const temporaryDirectories: string[] = [];
 const action: HostAction = {
@@ -32,6 +32,49 @@ afterEach(async () => {
 });
 
 describe("host permission gates", () => {
+  test("host reviews load the shared policy and Always persists it without losing server rules", async () => {
+    const local = await store();
+    await local.update({ localToolPermission: "always" });
+    let remote = { isEnabled: true, allowInstructions: ["Allow reading reports"], blockInstructions: ["Ask before publishing"] };
+    const settings = synchronizePermissionSettings(local, async value => {
+      if (value) remote = structuredClone(value.autoReview);
+      else await local.update({ autoReview: structuredClone(remote) });
+    });
+    const result = await authorizeHostAction(action, {
+      settings, mode: "enforce", promptLocal: async () => "deny",
+      review: async (_action, rules) => {
+        expect(rules).toEqual(remote);
+        // Simulate another client adding a rule while this approval is pending.
+        remote.blockInstructions.push("Ask before deleting reports");
+        return { decision: "block", reason: "New write", proposedRule: "Allow creating report.txt in /workspace" };
+      },
+      promptAutoReview: async () => "always",
+    });
+    expect(result.allowed).toBe(true);
+    expect(remote.allowInstructions).toEqual(["Allow reading reports", "Allow creating report.txt in /workspace"]);
+    expect(remote.blockInstructions).toContain("Ask before deleting reports");
+    expect((await local.read()).localToolPermission).toBe("always");
+    remote.isEnabled = false;
+    expect((await settings.read()).autoReview.isEnabled).toBe(false);
+  });
+
+  test("a failed policy sync prevents the host action and a later retry can recover", async () => {
+    const local = await store();
+    let offline = true;
+    let reviews = 0;
+    const settings = synchronizePermissionSettings(local, async () => {
+      if (offline) throw new Error("Policy unavailable");
+    });
+    await expect(authorizeHostAction(action, {
+      settings, mode: "enforce", promptLocal: async () => "always",
+      review: async () => { reviews++; return { decision: "allow", reason: "Authorized" }; },
+      promptAutoReview: async () => "deny",
+    })).rejects.toThrow("Policy unavailable");
+    expect(reviews).toBe(0);
+    offline = false;
+    expect((await settings.read()).localToolPermission).toBe("ask");
+  });
+
   test("local denial stops before Auto Review", async () => {
     const settings = await store();
     let reviews = 0;

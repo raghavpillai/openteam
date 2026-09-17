@@ -285,7 +285,7 @@ export class UserFormHost {
     });
   }
 
-  async dismiss(botId: string, formId: string) {
+  async dismiss(botId: string, formId: string, mode: "dismissed" | "escalated" = "dismissed") {
     return this.state(async (state) => {
       const saved = this.requireForm(state, botId, formId);
       if (saved.receipt) return saved.receipt;
@@ -293,7 +293,7 @@ export class UserFormHost {
       return (saved.receipt = {
         formId,
         ...this.receiptContext(saved),
-        status: "dismissed",
+        status: mode,
         fields: [],
         submitAttempted: false,
         submitSucceeded: false,

@@ -1,10 +1,10 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-export interface CredentialProviderConnection { account: string; vault: string }
+export interface CredentialProviderConnection { account: string; vault: string; broker?: boolean; vaultName?: string }
 export const credentialConnectionId = (provider: CredentialProviderConnection) => `1password:${provider.account}:${provider.vault}`;
 export const credentialConnections = (settings: CapabilitySettings): CredentialProviderConnection[] => settings.credentialProviders ?? (settings.credentialProvider ? [settings.credentialProvider] : []);
 export interface CapabilitySettings {
-  credentialProvider: { account: string; vault: string } | null;
+  credentialProvider: CredentialProviderConnection | null;
   credentialProviders?: CredentialProviderConnection[];
   messagesSendAll?: boolean;
   autoFill: string[];
@@ -106,4 +106,6 @@ export type NativeConsent = (input: {
   title: string;
   detail: string;
   allowAlways?: boolean;
+  selectItems?: (items: readonly string[]) => void;
+  presentation?: { kind: "saved-login"; title: string; site: string; category: string; purpose: string } | { kind: "cookie-import"; items: Array<{ origin: string; profileId: string; profileDisplayName: string }> };
 }) => Promise<"once" | "always" | "deny">;

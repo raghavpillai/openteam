@@ -12,6 +12,9 @@ const crypto = require('node:crypto');
 const { Transform, Writable } = require('node:stream');
 const { pipeline } = require('node:stream/promises');
 const cancellation = new AbortController();
+// A signal may arrive before pipeline installs its error listeners, or during sync.
+// Keep stdin's cancellation error from exiting before the temporary file is removed.
+process.stdin.on('error', () => {});
 process.on('SIGTERM', () => { cancellation.abort(); process.stdin.destroy(new Error('File transfer cancelled')); });
 (async () => {
  const [mode, target, limitText] = process.argv.slice(1); const limit = Number(limitText);

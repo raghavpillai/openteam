@@ -83,10 +83,38 @@ export interface PermissionSettingsStore {
     machineLabel?: string;
     localToolPermission?: LocalToolPermission;
     autoReviewEnabled?: boolean;
+    autoReview?: PermissionSettings["autoReview"];
   }): Promise<PermissionSettings>;
   addRule(kind: AutoReviewRuleKind, instruction: string): Promise<PermissionSettings>;
   removeRule(kind: AutoReviewRuleKind, instruction: string): Promise<PermissionSettings>;
 }
+
+/** Host and box reviews share the owner's server policy; local access stays per machine. */
+export const synchronizePermissionSettings = (
+  store: PermissionSettingsStore,
+  sync: (settings?: PermissionSettings) => Promise<void>
+): PermissionSettingsStore => {
+  let pending = Promise.resolve();
+  const sequence = <T>(operation: () => Promise<T>): Promise<T> => {
+    const result = pending.then(operation);
+    pending = result.then(() => undefined, () => undefined);
+    return result;
+  };
+  const mutateReview = (operation: () => Promise<PermissionSettings>) => sequence(async () => {
+    await sync();
+    const settings = await operation();
+    await sync(settings);
+    return settings;
+  });
+  return {
+    read: () => sequence(async () => { await sync(); return store.read(); }),
+    update: input => input.autoReview !== undefined || input.autoReviewEnabled !== undefined
+      ? mutateReview(() => store.update(input))
+      : store.update(input),
+    addRule: (kind, instruction) => mutateReview(() => store.addRule(kind, instruction)),
+    removeRule: (kind, instruction) => mutateReview(() => store.removeRule(kind, instruction)),
+  };
+};
 
 export const createPermissionSettingsStore = (path: string): PermissionSettingsStore => {
   let writeSequence = Promise.resolve();
@@ -128,8 +156,8 @@ export const createPermissionSettingsStore = (path: string): PermissionSettingsS
         machineLabel: input.machineLabel?.trim().slice(0, 80) || settings.machineLabel,
         localToolPermission: input.localToolPermission ?? settings.localToolPermission,
         autoReview: {
-          ...settings.autoReview,
-          isEnabled: input.autoReviewEnabled ?? settings.autoReview.isEnabled,
+          ...(input.autoReview ?? settings.autoReview),
+          isEnabled: input.autoReviewEnabled ?? input.autoReview?.isEnabled ?? settings.autoReview.isEnabled,
         },
       })),
     addRule: (kind, instruction) =>

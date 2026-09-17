@@ -19,6 +19,7 @@ import { EventWakeup } from "./event-wakeup";
 import { AdministrationService } from "./services/administration-service";
 import { expireTimedOutApprovals } from "./services/approval-lifecycle";
 import { type AutoReviewInput, AutoReviewService } from "./services/auto-review-service";
+import { loadAutoReviewContext } from "./services/auto-review-context";
 import { BotService } from "./services/bot-service";
 import { ChannelService } from "./services/channel-service";
 import { InternalToolService } from "./services/internal-tool-service";
@@ -31,6 +32,8 @@ import { ScreenService } from "./services/screen-service";
 import { SearchService } from "./services/search-service";
 import { forwardServiceMethod, serviceEffect } from "./services/service-utils";
 import { WebFetchSettingsService } from "./services/web-fetch-settings";
+import { SavedLoginService } from "./services/saved-login-service";
+import { ReviewPolicyService } from "./services/review-policy-service";
 import { WebSearchSettingsService } from "./services/web-search-settings";
 import { SettingsService } from "./services/settings-service";
 import { SnapshotService } from "./services/snapshot-service";
@@ -46,6 +49,8 @@ const ASSET_ID = /^[a-f0-9]{64}$/;
 export class AppService {
   readonly transcription: TranscriptionService;
   readonly webSearchSettings: WebSearchSettingsService;
+  readonly savedLogins: SavedLoginService;
+  readonly reviewPolicy: ReviewPolicyService;
   readonly automationWebhooks: AutomationWebhooksService;
   readonly webFetchSettings: WebFetchSettingsService;
   private readonly settings: SettingsService;
@@ -89,6 +94,7 @@ export class AppService {
     const databaseUrl = process.env.DATABASE_URL;
     this.prisma = createPrismaClient(databaseUrl);
     this.webSearchSettings = new WebSearchSettingsService(this.prisma);
+    this.savedLogins = new SavedLoginService(this.prisma);
     this.machines = new MachineService(this.prisma, process.env.OPENTEAM_CONTROL_TOKEN ?? "local-compose-only-change-me", undefined, undefined, authMode === "disabled");
     this.webFetchSettings = new WebFetchSettingsService(this.prisma);
     this.boss = new PgBoss(databaseUrl ?? "");
@@ -164,8 +170,10 @@ export class AppService {
     );
     this.autoReview = new AutoReviewService(
       (path, init) => this.computerFetch(path, init),
-      () => this.agentData.loadInferenceSettings()
+      () => this.agentData.loadInferenceSettings(),
+      context => loadAutoReviewContext(this.prisma, context)
     );
+    this.reviewPolicy = new ReviewPolicyService(this.prisma, this.autoReview);
     this.runs = new RunService(
       this.prisma,
       (path, init) => this.computerFetch(path, init),

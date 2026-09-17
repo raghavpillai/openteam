@@ -13,6 +13,7 @@ type StoredApproval = {
 type StoredRun = {
   id: string;
   conversationId: string;
+  status?: string;
 };
 
 type StoredAttempt = {
@@ -33,6 +34,7 @@ export const approvalViews = (
   runs: readonly StoredRun[],
   attempts: readonly StoredAttempt[]
 ): ApprovalView[] => {
+  const runById = new Map(runs.map(run => [run.id, run]));
   const conversationByRunId = new Map(runs.map((run) => [run.id, run.conversationId]));
   const attemptByChildRunId = new Map(
     attempts.flatMap((attempt) =>
@@ -49,7 +51,11 @@ export const approvalViews = (
       runItemId: approval.runItemId,
       kind: approval.kind,
       status: approval.status,
-      details: approval.details,
+      details: (() => {
+        const details = approval.details as Record<string, unknown> | null;
+        return details?.actionState === "running" && ["completed", "failed", "cancelled", "interrupted"].includes(runById.get(approval.runId)?.status ?? "")
+          ? { ...details, actionState: "failed" } : approval.details;
+      })(),
       createdAt: approval.createdAt.toISOString(),
       ownerConversationId:
         conversationByRunId.get(parentRunId) ?? conversationByRunId.get(approval.runId) ?? "",

@@ -1,8 +1,10 @@
+// Contact normalization uses E.164 formatting and length checks only. The full
+// digit/type validation metadata is unnecessary for these operations.
 import {
   parsePhoneNumberFromString,
   isSupportedCountry,
   type CountryCode,
-} from "libphonenumber-js/max";
+} from "libphonenumber-js/min";
 import { nativeCommand, type NativeCommand } from "./native-command";
 
 export function normalizeContact(

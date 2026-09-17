@@ -1,4 +1,6 @@
 import { MachineDirectory } from "./machine-directory";
+import { AsyncLocalStorage } from "node:async_hooks";
+import type { HostReviewContext } from "@openteam/contracts/service-protocol";
 import { Readable } from "node:stream";
 import { agentReadStream, agentWriteStream } from "./agent-file-stream";
 import { formatBytes2 } from "@openteam/contracts/reference-formatters";
@@ -83,16 +85,21 @@ export class HostApprovalRequiredError extends Error {
 }
 
 export class NativeToolExecutor {
+  private readonly reviewContexts = new AsyncLocalStorage<HostReviewContext>();
+  withReviewContext<T>(context: HostReviewContext, execute: () => T): T {
+    return this.reviewContexts.run(context, execute);
+  }
   /** Private supervisor transport. Never return this envelope from a model tool. */
-  async desktopCapability(tool: string, botId: string, args: unknown, signal?: AbortSignal, callId?: string, channelId?: string): Promise<Record<string, any>> {
+  async desktopCapability(tool: string, botId: string, args: unknown, signal?: AbortSignal, callId?: string, channelId?: string, approvals: HostApprovalTokens = {}): Promise<Record<string, any>> {
     const machineId = await this.machines?.preferred(botId, channelId, signal);
-    return this.hostFetch(HOST_BRIDGE_PATHS.capabilities, { tool, botId, arguments: args, callId, machineId }, signal, undefined, 15 * 60_000);
+    return this.hostFetch(HOST_BRIDGE_PATHS.capabilities, { tool, botId, arguments: args, callId, machineId, ...approvals, chatApproval: true }, signal, undefined, 15 * 60_000);
   }
   private readonly shellJobs: ShellJobRegistry;
   private readonly terminalDir: string;
   private readonly hostBridgeUrl: string;
   private readonly machines?: MachineDirectory;
   private readonly controlToken: string;
+  private readonly serverUrl?: string;
   private readonly agentDataCanonicalRoot: string;
 
   constructor(options: {
@@ -106,6 +113,7 @@ export class NativeToolExecutor {
     this.terminalDir = resolve(options.agentDir, "terminals");
     this.shellJobs = new ShellJobRegistry({ directory: this.terminalDir, onComplete: options.onShellComplete });
     this.controlToken = options.controlToken;
+    this.serverUrl = options.serverUrl;
     this.hostBridgeUrl =
       options.hostBridgeUrl ??
       process.env.OPENTEAM_HOST_BRIDGE_URL ??
@@ -403,7 +411,22 @@ export class NativeToolExecutor {
       },
       ...approvals,
     } satisfies HostAutoReviewRequest;
-    await this.hostFetch(HOST_BRIDGE_PATHS.autoReview, request, signal);
+    await this.autoReviewAction(request, signal);
+  }
+
+  async autoReviewAction(input: HostAutoReviewRequest, signal?: AbortSignal, approvals: HostApprovalTokens = {}): Promise<void> {
+    if (this.serverUrl) {
+      const response = await fetch(`${this.serverUrl}/api/v0/internal/permissions/review-action`, {
+        method: "POST", headers: { authorization: `Bearer ${this.controlToken}`, "content-type": "application/json" },
+        body: JSON.stringify({ ...input, ...approvals, reviewContext: this.reviewContexts.getStore() }),
+        signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(30_000)]) : AbortSignal.timeout(30_000),
+      });
+      const result = await response.json() as Record<string, any>;
+      if (response.status === 409 && isHostApprovalRequest(result.approval)) throw new HostApprovalRequiredError(result.approval);
+      if (!response.ok || result.allowed !== true) throw new Error(typeof result.error === "string" ? result.error : "Auto Review is unavailable");
+      return;
+    }
+    await this.hostFetch(HOST_BRIDGE_PATHS.autoReview, { ...input, ...approvals }, signal);
   }
 
   async setLocalToolPermission(
@@ -528,7 +551,7 @@ export class NativeToolExecutor {
         authorization: `Bearer ${this.controlToken}`,
         "content-type": "application/json",
       },
-      body: JSON.stringify(body),
+      body: JSON.stringify({ ...(body as Record<string, unknown>), reviewContext: this.reviewContexts.getStore() }),
       signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
     }).catch((error) => {
       throw new Error(

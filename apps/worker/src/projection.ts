@@ -1,9 +1,11 @@
-import {
-  agentNotificationPresentation,
-  type ComputerEvent,
-} from "@openteam/contracts";
+import { agentNotificationPresentation, type ComputerEvent } from "@openteam/contracts";
 import type { Prisma, PrismaClient, RunItemKind, RunItemStatus } from "@openteam/db";
-import { type AgentDataStore, saveSilentAutomationResult, publishChannelNotification, publishMessageNotification } from "@openteam/messaging";
+import {
+  type AgentDataStore,
+  saveSilentAutomationResult,
+  publishChannelNotification,
+  publishMessageNotification,
+} from "@openteam/messaging";
 import { approvalReason } from "./push-notifications";
 
 const json = (value: unknown): Prisma.InputJsonValue =>
@@ -334,6 +336,54 @@ export class Projection {
         }
         break;
       }
+      case "approval.action":
+        await this.prisma.$transaction(async (tx) => {
+          const approval = await tx.approval.findFirst({
+            where: {
+              upstreamRequestId: event.approvalId,
+              runId,
+              requestMethod: "openteam/capability",
+            },
+          });
+          if (!approval) return;
+          const details = approval.details as Record<string, any>;
+          if (!["saved-login", "cookie-import"].includes(details.presentation?.kind)) return;
+          if (event.decision === "always_allow" && details.supportsAlwaysAllow !== true)
+            throw new Error("Unsupported native approval decision");
+          if (event.selectedItems !== undefined) {
+            const offered = new Set(
+              details.presentation?.kind === "cookie-import"
+                ? details.presentation.items.map((item: any) =>
+                    JSON.stringify([item.profileId, item.origin])
+                  )
+                : []
+            );
+            if (!event.selectedItems.length || event.selectedItems.some((key) => !offered.has(key)))
+              throw new Error("Native action reported unreviewed sites");
+          }
+          const patch = {
+            actionState: event.status,
+            resolution: event.decision,
+            ...(event.selectedItems === undefined ? {} : { selectedItems: event.selectedItems }),
+          };
+          // The runtime emits this only after a human decision. Persisting it also
+          // handles autofill completing before the initiating HTTP response returns.
+          const changed = await tx.$executeRaw`
+            UPDATE "Approval" a SET
+              "details" = a."details" || ${JSON.stringify(patch)}::jsonb,
+              "status" = 'accepted', "decision" = ${event.decision}, "resolvedAt" = COALESCE(a."resolvedAt", CURRENT_TIMESTAMP),
+              "updatedAt" = CURRENT_TIMESTAMP
+            WHERE a."upstreamRequestId" = ${event.approvalId} AND a."runId" = ${runId}::uuid
+              AND a."requestMethod" = 'openteam/capability'
+              AND a."status" IN ('pending', 'accepted')
+              AND a."details" #>> '{presentation,kind}' IN ('saved-login', 'cookie-import')
+              AND COALESCE(a."details" ->> 'actionState', 'running') = 'running'
+              AND EXISTS (SELECT 1 FROM "Run" r WHERE r."id" = a."runId"
+                AND r."status" IN ('queued', 'running', 'waiting_approval'))
+          `;
+          if (changed) await this.event(tx, "approval.action", runId, event);
+        });
+        break;
       case "approval.requested":
         await this.prisma.$transaction(async (tx) => {
           const runItem = await tx.runItem.findUnique({
@@ -507,6 +557,12 @@ export class Projection {
             },
             data: { status: "expired", resolvedAt: new Date() },
           });
+          await tx.$executeRaw`
+            UPDATE "Approval" SET "details" = "details" || '{"actionState":"failed"}'::jsonb,
+              "updatedAt" = CURRENT_TIMESTAMP
+            WHERE "runId" = ${runId}::uuid AND "requestMethod" = 'openteam/capability'
+              AND "details" ->> 'actionState' = 'running'
+          `;
           await this.event(tx, "run.completed", runId, {
             ...event,
             runId,

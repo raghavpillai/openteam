@@ -556,8 +556,8 @@ export class ComputerRuntime {
     }
   }
 
-  resolveApproval(approvalId: string, decision: ApprovalDecision): void {
-    return this.tools.resolveApproval(approvalId, decision);
+  resolveApproval(approvalId: string, decision: ApprovalDecision, selectedItems?: readonly string[]): void {
+    return this.tools.resolveApproval(approvalId, decision, selectedItems);
   }
 
   private async refreshAuthentication(): Promise<void> {

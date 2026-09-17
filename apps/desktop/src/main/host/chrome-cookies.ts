@@ -130,6 +130,14 @@ export class ChromeCookies {
     if (pending.length) {
       const decision = await this.consent({
         title: "Import Chrome logins?",
+        presentation: { kind: "cookie-import", items: pending.map((key) => pairs.get(key)!) },
+        selectItems: (selected) => {
+          const keys = new Set(selected);
+          for (const key of pending) {
+            const item = pairs.get(key)!;
+            if (!keys.has(JSON.stringify([item.profileId, item.origin]))) pairs.delete(key);
+          }
+        },
         detail: `Allow this bot (${botId}) to use cookies from:\n${pending
           .map((k) => {
             const p = pairs.get(k)!;
@@ -144,7 +152,7 @@ export class ChromeCookies {
         await this.settings.mutate((s) => {
           if ((s.revocationEpoch ?? 0) !== epoch)
             throw new Error("Cookie access changed during review");
-          return { ...s, cookieGrants: [...new Set([...s.cookieGrants, ...pending])] };
+          return { ...s, cookieGrants: [...new Set([...s.cookieGrants, ...pending.filter((key) => pairs.has(key))])] };
         });
     }
     if (((await this.settings.read()).revocationEpoch ?? 0) !== epoch)

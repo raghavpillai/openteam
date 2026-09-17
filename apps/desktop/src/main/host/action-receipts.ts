@@ -31,10 +31,21 @@ export class NativeActionReceipts {
     );
     return task;
   }
-  async execute(botId: string, callId: string, args: unknown, action: () => Promise<unknown>) {
+  async execute(botId: string, callId: string, args: unknown, action: () => Promise<unknown>, prepare?: () => Promise<void>) {
     if (!callId) throw new Error("A durable action call ID is required");
     const key = JSON.stringify([botId, callId]);
     const fingerprint = createHash("sha256").update(JSON.stringify(args)).digest("hex");
+    if (prepare) {
+      const completed = await this.mutate(receipts => {
+        const previous = receipts[key];
+        if (!previous) return null;
+        if (previous.fingerprint !== fingerprint) throw new Error("Native action call ID was reused with different arguments");
+        if (previous.status !== "completed") throw new Error("This native action's outcome is uncertain; do not repeat it automatically");
+        return previous;
+      });
+      if (completed) return completed.result;
+      await prepare();
+    }
     const prior = await this.mutate((receipts) => {
       const previous = receipts[key];
       if (previous) {

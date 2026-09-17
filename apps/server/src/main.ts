@@ -79,7 +79,7 @@ const server = Bun.serve({
       }
       if (path.startsWith("/api/machines/channel/")) {
         requestServer.timeout(networkRequest, 0);
-        return await machineChannelResponse(app.machines, request, path, value => app.autoReview.review(parseAutoReviewInput(value)));
+        return await machineChannelResponse(app.machines, request, path, value => app.autoReview.review(parseAutoReviewInput(value)), value => app.savedLogins.operation(value));
       }
       const machineRelay = path.match(/^\/api\/internal\/machines\/([\da-f-]{36})\/bridge(\/.*)$/i);
       if (machineRelay) {
@@ -181,6 +181,10 @@ const server = Bun.serve({
           return json({ error: { code: "unauthorized", message: "Unauthorized" } }, 401);
         }
         return json(await run(app.reviewPermission(parseAutoReviewInput(await request.json()))));
+      }
+      if (request.method === "POST" && path === "/api/internal/permissions/review-action") {
+        if (!authorizedInternal(request)) return json({ error: "Unauthorized" }, 401);
+        return await app.reviewPolicy.action(await request.json());
       }
       if (request.method === "POST" && path === "/api/internal/broadcast") {
         if (!authorizedInternal(request)) {

@@ -1,12 +1,15 @@
 import type { PermissionSettingsStore } from "../permission-settings";
+import type { HostReviewContext } from "@openteam/contracts/service-protocol";
 
 export type AutoReviewMode = "off" | "shadow" | "enforce";
 export type LocalPromptDecision = "deny" | "allow-once" | "always" | "never";
 export type AutoReviewPromptDecision = "deny" | "allow-once" | "always";
 
 export interface HostAction {
+  reviewContext?: HostReviewContext;
   surface:
     | "hostShell"
+    | "boxShell"
     | "hostRead"
     | "hostWrite"
     | "mcp"

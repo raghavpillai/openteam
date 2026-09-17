@@ -11,6 +11,7 @@ import { redactSecrets } from "@openteam/shell-jobs";
 
 type JsonObject = Record<string, unknown>;
 export interface LoginPageBinding {
+  focused?: boolean;
   pageId: string;
   origin: string;
   document: ElementHandle<HTMLElement>;
@@ -115,7 +116,7 @@ export class BrowserUseSession {
     const context = browser.contexts()[0];
     if (!context) throw new Error("Chromium did not provide a default browser context");
     const session = new BrowserUseSession(browser, context, artifactDirectory);
-    if (adoptExisting) for (const page of context.pages()) session.trackPage(page);
+    if (adoptExisting) { for (const page of context.pages()) session.trackPage(page); context.on("page", page => session.trackPage(page)); }
     else session.trackPage(await context.newPage());
     await session.ensurePage();
     return session;
@@ -130,11 +131,31 @@ export class BrowserUseSession {
   async currentLoginSite(): Promise<string | null> {
     try { return secureLoginOrigin((await this.ensurePage()).url()); } catch { return null; }
   }
-  async loginBinding(site: string): Promise<LoginPageBinding> {
+  async focusedLoginSite(): Promise<string | null> {
+    const focused = [];
+    for (const page of this.leasedPages()) {
+      try { if (await page.evaluate(() => document.hasFocus() && document.visibilityState === "visible")) focused.push(secureLoginOrigin(page.url())); } catch { /* Closed or non-web page. */ }
+    }
+    return focused.length === 1 ? focused[0]! : null;
+  }
+  watchLoginFocus(fill: (site: string) => Promise<unknown>): () => void {
+    let busy = false;
+    const timer = setInterval(async () => {
+      if (!this.connected) { clearInterval(timer); return; }
+      if (busy) return;
+      busy = true;
+      try { const site = await this.focusedLoginSite(); if (site) await fill(site); } catch { /* Passive fill never interrupts browser use. */ }
+      finally { busy = false; }
+    }, 1500);
+    timer.unref();
+    return () => clearInterval(timer);
+  }
+  async loginBinding(site: string, focused = false): Promise<LoginPageBinding> {
     const origin = secureLoginOrigin(site);
     const candidates = this.leasedPages().filter(page => { try { return new URL(page.url()).origin === origin; } catch { return false; } });
     if (candidates.length !== 1) throw new Error("Open exactly one browser tab for the requested login site before using its saved credential");
     const page = candidates[0]!;
+    if (focused && !await page.evaluate(() => globalThis.document.hasFocus() && globalThis.document.visibilityState === "visible")) throw new Error("The login page is not focused");
     const document = await page.$("html") as ElementHandle<HTMLElement> | null;
     const visible = async (selector: string) => {
       const handles = await page.$$(selector) as ElementHandle<HTMLInputElement>[];
@@ -152,7 +173,11 @@ export class BrowserUseSession {
       await document.dispose(); await Promise.all([...passwords,...users].map(handle=>handle.dispose()));
       throw new Error("The login password field is already filled");
     }
-    return { pageId: await this.formPageId(page), origin, document, password: passwords[0] ?? null, username: users[0] ?? null };
+    if (!passwords.length && users[0] && await users[0].evaluate(field => Boolean(field.value))) {
+      await document.dispose(); await Promise.all(users.map(handle => handle.dispose()));
+      throw new Error("The login username field is already filled");
+    }
+    return { pageId: await this.formPageId(page), origin, document, password: passwords[0] ?? null, username: users[0] ?? null, focused };
   }
   async releaseLoginBinding(binding: LoginPageBinding) {
     await Promise.all([binding.document,binding.password,binding.username].map(handle => handle?.dispose().catch(() => {})));
@@ -163,10 +188,10 @@ export class BrowserUseSession {
     try {
       // Element handles bind review to this exact document and these exact fields.
       // A reload, replacement field, redirect or changed form refuses the fill.
-      const eligible = () => binding.document.evaluate((root,{origin,userField,passwordField,username})=>{
+      const eligible = () => binding.document.evaluate((root,{origin,userField,passwordField,username,focused})=>{
         const live=(node:HTMLInputElement|null)=>!node || (node.isConnected&&node.ownerDocument===document&&!node.disabled&&!node.readOnly&&!!node.getClientRects().length);
-        return root===document.documentElement&&root.isConnected&&location.origin===origin&&live(userField)&&live(passwordField)&&(!passwordField||!passwordField.value)&&(!userField?.value||userField.value===username)&&(!passwordField||!userField||passwordField.form===userField.form);
-      },{origin:binding.origin,userField:binding.username,passwordField:binding.password,username:credential.username});
+        return (!focused || (document.hasFocus() && document.visibilityState === "visible"))&&root===document.documentElement&&root.isConnected&&location.origin===origin&&live(userField)&&live(passwordField)&&(!passwordField||!passwordField.value)&&(!userField?.value||userField.value===username)&&(!passwordField||!userField||passwordField.form===userField.form);
+      },{origin:binding.origin,userField:binding.username,passwordField:binding.password,username:credential.username,focused:binding.focused});
       if(!await eligible())return false;
       const page=await this.formPage({pageId:binding.pageId,domain:new URL(binding.origin).hostname});
       if(binding.username && credential.username!==undefined)await referenceFill({page,element:binding.username,request:{element:"login username",value:credential.username,secret:true}});

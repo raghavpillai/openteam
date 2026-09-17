@@ -126,3 +126,14 @@ test("a new turn discards holds left by an interrupted old turn", async () => {
   await restarted.beginTurn("bot","next");
   await expect(restarted.remap("bot",{targets:[{fieldId:"email",target:{kind:"ref",value:"e3"}}]})).rejects.toThrow("No held");
 });
+
+test("opening the screen settles a form without filling or retaining submitted values", async () => {
+  const f = await fixture();
+  await f.host.prepare("bot", "on-screen", form);
+  const receipt = await f.host.dismiss("bot", "on-screen", "escalated");
+  expect(receipt.status).toBe("escalated");
+  expect(receipt.fields).toEqual([]);
+  expect(formatUserFormReceipt(receipt)).toContain("on the screen instead");
+  expect(await f.host.submit("bot", "on-screen", { password: "never-filled" })).toEqual(receipt);
+  expect(f.fills).toEqual([]); expect(f.entered()).toBe(0);
+});

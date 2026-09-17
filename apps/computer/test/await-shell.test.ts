@@ -94,6 +94,8 @@ test("discovers and invokes AwaitShell locally across turns with bot scope", asy
   const { root } = await fixture();
   const runtime = new RuntimeTools({} as ScreenBroker, "http://unused.invalid", "test", root, root);
   (runtime as any).processSecrets = async () => ({});
+  // Review transport has its own end-to-end test; these fixtures isolate shell waiting.
+  (runtime as any).nativeToolExecutor.autoReviewAction = async () => {};
   const active = {
     runtimeProfile: "agent",
     botId: "bot-1",
@@ -218,6 +220,7 @@ test("new user input releases AwaitShell and sleep promptly without terminating 
   const {root}=await fixture();
   const runtime=new RuntimeTools({} as ScreenBroker,"http://unused.invalid","test",root,root);
   (runtime as any).processSecrets=async()=>({});
+  (runtime as any).nativeToolExecutor.autoReviewAction=async()=>{};
   const active={runId:"steered-run",runtimeProfile:"agent",botId:"bot-steer",cwd:root,pluginNamespaces:[],discoveredDynamicTools:new Set<string>()} as unknown as ActiveTurn;
   const tools=testTools(runtime,active),call=tools.find(t=>t.name==="CallDynamicTool")!;
   await tools.find(t=>t.name==="GetDynamicTools")!.execute("discover",{namespace:"cursor",toolName:"AwaitShell"});

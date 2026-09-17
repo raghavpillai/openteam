@@ -66,7 +66,7 @@ describe("approval restart parity", () => {
             return data;
           },
         },
-        run: { update: async () => ({}) },
+        run: { updateMany: async () => ({count:1}) },
         event: { create: async () => ({}) },
       };
       const prisma = {
@@ -98,4 +98,21 @@ describe("approval restart parity", () => {
       });
     }
   });
+});
+
+test("native cookie approval forwards the selected scope and rejects unreviewed sites", async () => {
+  const forwarded: unknown[] = [], updates: any[] = [];
+  const details = { type: "nativeCapability", supportsAlwaysAllow: true, presentation: { kind: "cookie-import", items: [{ origin: ".alpha.test", profileId: "Default", profileDisplayName: "Personal" }] } };
+  const tx = { $executeRaw: async (_sql: unknown, status: string, decision: string, patch: string) => updates.push({status, decision, details: {...details, ...JSON.parse(patch)}}), approval: { update: async ({ data }: any) => updates.push(data) }, run: { updateMany: async () => ({count:1}) }, event: { create: async () => ({}) } };
+  const prisma = { approval: { findUnique: async () => ({ id: "approval", runId: "run", upstreamRequestId: "runtime", requestMethod: "openteam/capability", status: "pending", details }) }, $transaction: async (f: any) => f(tx) };
+  const service = new RunService(prisma as never, async (_path, init) => { forwarded.push(JSON.parse(String(init?.body))); return Response.json({ ok: true }); });
+  const selectedItems = [JSON.stringify(["Default", ".alpha.test"])];
+  expect(await Effect.runPromise(service.resolveApproval("approval", "always_allow", selectedItems))).toMatchObject({ status: "accepted" });
+  expect(forwarded).toEqual([{ approvalId: "runtime", decision: "always_allow", selectedItems }]);
+  expect(updates[0].details.selectedItems).toEqual(selectedItems);
+  await expect(Effect.runPromise(service.resolveApproval("approval", "accept", ["unreviewed"]))).rejects.toThrow("Select only sites");
+  await expect(Effect.runPromise(service.resolveApproval("approval", "accept", []))).rejects.toThrow("Select only sites");
+  details.supportsAlwaysAllow = false;
+  await expect(Effect.runPromise(service.resolveApproval("approval", "always_allow", selectedItems))).rejects.toThrow("not supported");
+  expect(forwarded).toHaveLength(1);
 });

@@ -12,7 +12,8 @@ export function NativeCapabilitySettings() {
   >(null);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [account, setAccount] = useState("");
-  const [vault, setVault] = useState("");
+  const [vault, setVault] = useState("OpenTeam");
+  const [accounts, setAccounts] = useState<Array<{id:string;label:string}>>([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   useEffect(() => {
@@ -23,7 +24,7 @@ export function NativeCapabilitySettings() {
         if (active) {
           setSettings(value);
           setAccount(value.credentialProvider?.account ?? "");
-          setVault(value.credentialProvider?.vault ?? "");
+          setVault(value.credentialProvider?.vaultName ?? "OpenTeam");
         }
       })
       .catch(() => active && setError("Could not load native access settings"));
@@ -46,6 +47,12 @@ export function NativeCapabilitySettings() {
       setBusy(false);
     }
   };
+  const connect = async (renew?: {account:string;vault:string;vaultName?:string}) => {
+    setBusy(true); setError("");
+    try { setSettings(await window.openteam!.permissions.connectSavedLogins({ account: renew?.account ?? account, vaultName: renew?.vaultName ?? vault, ...(renew ? { connectionId: `1password:${renew.account}:${renew.vault}` } : {}) })); }
+    catch { setError("Could not finish 1Password setup. Approve setup in 1Password, or retry completion if the server connection was interrupted."); }
+    finally { setBusy(false); }
+  };
   const button = "rounded-lg bg-foreground/10 px-3 py-1.5 text-xs disabled:opacity-40";
   return (
     <>
@@ -57,34 +64,30 @@ export function NativeCapabilitySettings() {
             integration in the 1Password desktop app first. Passwords stay out of conversations.
           </p>
           <div className="flex flex-wrap gap-2">
-            <input
-              aria-label="1Password account ID"
-              placeholder="Account ID"
-              value={account}
-              onChange={(e) => setAccount(e.target.value)}
-              className="rounded border bg-background p-2"
-            />
-            <input
-              aria-label="1Password vault ID"
-              placeholder="Vault ID"
-              value={vault}
-              onChange={(e) => setVault(e.target.value)}
-              className="rounded border bg-background p-2"
-            />
-            <button
-              className={button}
-              disabled={busy || !account.trim() || !vault.trim()}
-              onClick={() => void update({ account, vault })}
-            >
-              Connect vault
-            </button>
+            <button className={button} disabled={busy} onClick={async () => {
+              setBusy(true); setError("");
+              try { const rows = await window.openteam!.permissions.savedLoginAccounts(); setAccounts(rows); setAccount(rows[0]?.id ?? ""); }
+              catch { setError("Install the signed 1Password CLI and enable its desktop integration, then try again."); }
+              finally { setBusy(false); }
+            }}>Choose 1Password account</button>
+            {accounts.length > 0 ? <select aria-label="1Password account" value={account} onChange={e => setAccount(e.target.value)} className="rounded border bg-background p-2">{accounts.map(row => <option key={row.id} value={row.id}>{row.label}</option>)}</select> : null}
+            <input aria-label="1Password vault name" placeholder="Vault name" value={vault} onChange={e => setVault(e.target.value)} className="rounded border bg-background p-2" />
+            <button className={button} disabled={busy || !account || !vault.trim()} onClick={() => void connect()}>Connect vault</button>
           </div>
+          <p className="text-xs text-foreground-secondary">Connect an existing vault by name or create a new one. OpenTeam provisions read-only access for 90 days. Only logins in this vault become available to bots; renew or disconnect below.</p>
+          {error ? <button className={button} disabled={busy} onClick={async () => {
+            setBusy(true);
+            try { setSettings(await window.openteam!.permissions.finishSavedLoginConnection()); setError(""); }
+            catch { setError("Connection completion is still unavailable. Try again when your server is reachable."); }
+            finally { setBusy(false); }
+          }}>Retry connection completion</button> : null}
           <p className="text-xs text-foreground-secondary">
             Each login fill asks for approval unless you have enabled automatic filling for that
             item. Chrome cookie imports ask for the specific profile and site. Messages sends ask for review unless you have explicitly allowed the recipient or enabled all sends below.
           </p>
           {(settings?.credentialProviders ?? (settings?.credentialProvider ? [settings.credentialProvider] : [])).map(provider => <div key={`${provider.account}:${provider.vault}`} className="flex items-center justify-between gap-2 text-xs">
-            <span>{provider.account} / {provider.vault}</span>
+            <span>{provider.vaultName ?? provider.vault}{provider.broker ? " · read-only service account" : " · legacy desktop access"}</span>
+            {provider.broker ? <button className={button} disabled={busy} onClick={() => void connect(provider)}>Renew access</button> : null}
             <button className={button} disabled={busy} onClick={()=>void update({removeCredentialConnection:`1password:${provider.account}:${provider.vault}`})}>Disconnect vault</button>
           </div>)}
           <label className="flex items-start gap-2">
@@ -172,6 +175,10 @@ export function NativeCapabilitySettings() {
             Revoking cookie imports prevents future imports. Sign out in the bot browser to end
             sessions already imported.
           </p>
+          {error ? <button className={button} disabled={busy} onClick={async () => {
+            try { await window.openteam!.permissions.restartSavedLoginSetup(); setError(""); }
+            catch { setError("Finish the pending connection before starting another setup."); }
+          }}>I reviewed the service accounts in 1Password — restart setup</button> : null}
           {error && (
             <p role="alert" className="text-red-600">
               {error}

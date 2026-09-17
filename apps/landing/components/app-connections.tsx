@@ -11,7 +11,7 @@ import {
   Mail,
   Plug,
 } from "lucide-react";
-import { type CSSProperties, type ReactNode } from "react";
+import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { BotAvatar } from "./bot-avatar";
 import { useDemoCycle } from "./use-demo-cycle";
 import "./connections-polish.css";
@@ -60,19 +60,16 @@ const brief = [
     text: "Maya Patel · Finance lead, Acme",
     detail: "Tomorrow, 10:00 AM · 30 minutes",
     sources: [0, 1],
-    readyAt: 1,
   },
   {
     label: "What to discuss",
     text: "Consolidating vendors before the September renewal.",
     sources: [2, 3],
-    readyAt: 3,
   },
   {
     label: "What to review",
     text: "Your last proposal and Acme’s finance hiring update.",
     sources: [4, 5],
-    readyAt: 5,
   },
 ] as const;
 
@@ -108,10 +105,10 @@ function ConnectionMark({
 }
 
 function ConnectionLines({
-  activeIndex,
+  activeIndices,
   mobile = false,
 }: {
-  activeIndex: number;
+  activeIndices: readonly number[];
   mobile?: boolean;
 }) {
   return (
@@ -124,7 +121,7 @@ function ConnectionLines({
       {(mobile ? mobilePaths : desktopPaths).map((path, index) => (
         <g
           key={path}
-          data-active={index === activeIndex}
+          data-active={activeIndices.includes(index)}
           style={{ "--source-color": connections[index].color } as CSSProperties}
         >
           <path d={path} pathLength={100} />
@@ -135,15 +132,45 @@ function ConnectionLines({
   );
 }
 
+function pickSources(sources: number[], count: number) {
+  const remaining = [...sources];
+  const selected: number[] = [];
+  while (remaining.length && selected.length < count) {
+    const index = Math.floor(Math.random() * remaining.length);
+    selected.push(...remaining.splice(index, 1));
+  }
+  return selected;
+}
+
+/** Sources finish independently; answers appear only after their sources arrive. */
+function useConnectionActivity(playing: boolean) {
+  const [activity, setActivity] = useState({ active: [] as number[], completed: [] as number[] });
+  useEffect(() => {
+    if (!playing) return;
+    const done = activity.completed.length === connections.length;
+    const starting = activity.active.length === 0;
+    const delay = done ? 5200 : starting ? 100 : 750 + Math.random() * 850;
+    const timer = window.setTimeout(() => {
+      if (done || starting) {
+        setActivity({ active: pickSources(connections.map((_, index) => index), 2), completed: [] });
+        return;
+      }
+      const [finished] = pickSources(activity.active, 1);
+      const completed = [...activity.completed, finished];
+      const active = activity.active.filter((index) => index !== finished);
+      const pending = connections.map((_, index) => index)
+        .filter((index) => !completed.includes(index) && !active.includes(index));
+      setActivity({ active: [...active, ...pickSources(pending, 2 - active.length)], completed });
+    }, delay);
+    return () => window.clearTimeout(timer);
+  }, [activity, playing]);
+  return activity;
+}
+
 export function AppConnections({ children }: { children: ReactNode }) {
-  const {
-    ref,
-    index: step,
-    playing,
-    props,
-  } = useDemoCycle(7, [1400, 1400, 1400, 1400, 1400, 1400, 6000]);
-  const done = step === connections.length;
-  const active = connections[Math.min(step, connections.length - 1)];
+  const { ref, playing, props } = useDemoCycle(1, 60_000);
+  const { active, completed } = useConnectionActivity(playing);
+  const done = completed.length === connections.length;
 
   return (
     <div className="ac-section ws-ui" ref={ref} {...props}>
@@ -155,14 +182,14 @@ export function AppConnections({ children }: { children: ReactNode }) {
       </div>
 
       <div className="ac-workflow">
-        <ConnectionLines activeIndex={step} />
-        <ConnectionLines activeIndex={step} mobile />
+        <ConnectionLines activeIndices={active} />
+        <ConnectionLines activeIndices={active} mobile />
         {connections.map((connection, index) => (
           <div
             className={`ac-app ac-app-${index}`}
             key={connection.name}
-            data-active={step === index}
-            data-used={step > index}
+            data-active={active.includes(index)}
+            data-used={completed.includes(index)}
             style={{ "--app-color": connection.color } as CSSProperties}
           >
             <span className="ac-app-logo">
@@ -170,11 +197,11 @@ export function AppConnections({ children }: { children: ReactNode }) {
             </span>
             <strong>{connection.name}</strong>
             <span className="ac-app-status">
-              {step > index ? (
+              {completed.includes(index) ? (
                 <>
                   <Check size={11} /> Used in brief
                 </>
-              ) : step === index ? (
+              ) : active.includes(index) ? (
                 "Reading…"
               ) : index === 5 ? (
                 "Custom MCP"
@@ -220,17 +247,19 @@ export function AppConnections({ children }: { children: ReactNode }) {
                   <strong>Meeting prep</strong>
                   <span>Reusable skill</span>
                 </div>
-                <div className="ac-current-source" key={step}>
+                <div className="ac-current-source">
                   {done ? (
-                    <>
+                    <span className="ac-source-read" key="done">
                       <Check size={13} />
                       <span>Brief ready, with sources attached</span>
-                    </>
+                    </span>
                   ) : (
-                    <>
-                      <ConnectionMark connection={active} size={13} />
-                      <span>{active.action}</span>
-                    </>
+                    active.map((index) => (
+                      <span className="ac-source-read" key={connections[index].name}>
+                        <ConnectionMark connection={connections[index]} size={13} />
+                        <span>{connections[index].action}</span>
+                      </span>
+                    ))
                   )}
                 </div>
               </div>
@@ -243,13 +272,13 @@ export function AppConnections({ children }: { children: ReactNode }) {
                 <span>{done ? "Saved" : "Writing…"}</span>
               </div>
               {brief.map((point) => {
-                const ready = step >= point.readyAt;
+                const ready = point.sources.every((index) => completed.includes(index));
                 return (
                   <div
                     className="ac-brief-point"
                     key={point.label}
                     data-ready={ready}
-                    data-active={point.sources.some((index) => index === step)}
+                    data-active={point.sources.some((index) => active.includes(index))}
                   >
                     <div className="ac-brief-point-heading">
                       <span className="ac-brief-label">{point.label}</span>
@@ -261,7 +290,7 @@ export function AppConnections({ children }: { children: ReactNode }) {
                           {point.sources.map((index) => (
                             <span
                               key={index}
-                              data-active={step === index}
+                              data-active={active.includes(index)}
                               title={connections[index].name}
                             >
                               <ConnectionMark connection={connections[index]} size={12} />

@@ -162,21 +162,6 @@
 .ac-app[data-active="true"] .ac-app-status {
   color: #48563f;
 }
-.ac-app::after {
-  content: "";
-  position: absolute;
-  inset: auto 15px 0;
-  height: 2px;
-  border-radius: 2px;
-  transform-origin: left;
-  background: var(--app-color);
-  opacity: 0;
-}
-.ac-app[data-active="true"]::after {
-  opacity: 0.55;
-  animation: ac-source-progress var(--cycle-duration) linear both;
-}
-
 .ac-conversation {
   grid-column: 2;
   grid-row: 1 / 4;
@@ -273,16 +258,22 @@
   color: #8e8598;
 }
 .ac-current-source {
-  display: flex;
-  align-items: center;
+  display: grid;
+  align-content: start;
   gap: 5px;
-  min-height: 20px;
-  margin-top: 4px;
+  min-height: 41px;
+  margin-top: 5px;
   color: #859079;
   font-size: 11px;
   line-height: 1.4;
+}
+.ac-source-read {
+  display: flex;
+  align-items: center;
+  gap: 5px;
   animation: ac-text-enter 300ms ease both;
 }
+.ac-source-read > svg { flex-shrink: 0; }
 .ac-current-source img {
   flex-shrink: 0;
   object-fit: contain;
@@ -390,7 +381,6 @@
 .ac-brief-pending > i:nth-child(2) {
   width: 60%;
 }
-.ac-section[data-playing="false"] .ac-app::after,
 .ac-section[data-playing="false"] .ac-chat-header i,
 .ac-section[data-playing="false"] .ac-brief-pending {
   animation-play-state: paused;
@@ -401,14 +391,6 @@
   }
   to {
     stroke-dashoffset: 0;
-  }
-}
-@keyframes ac-source-progress {
-  from {
-    transform: scaleX(0);
-  }
-  to {
-    transform: scaleX(1);
   }
 }
 @keyframes ac-working {
@@ -591,11 +573,13 @@
   }
   .ac-current-source {
     font-size: 10px;
-    min-height: 28px;
+    min-height: 48px;
+  }
+  .ac-source-read {
     align-items: flex-start;
   }
-  .ac-current-source > img,
-  .ac-current-source > svg {
+  .ac-source-read > img,
+  .ac-source-read > svg {
     margin-top: 1px;
   }
   .ac-brief-header {

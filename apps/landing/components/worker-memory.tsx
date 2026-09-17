@@ -9,30 +9,30 @@ import "./worker-memory.css";
 // Human-readable groupings illustrate relevance, not separate storage systems.
 const conversations = [
   {
-    when: "Getting to know you",
-    message: <>I prefer <mark>morning flights</mark>, <mark>nonstop</mark> if possible.</>,
-    reply: "Morning and nonstop. I’ll keep that in mind for future trips.",
+    when: "Last week",
+    message: <>Keep my updates <mark>short</mark>. Lead with <mark>decisions I need to make</mark>.</>,
+    reply: "I’ll put your decisions first and keep the background brief.",
+  },
+  {
+    when: "Monday",
+    message: <><mark>Maya owns Acme’s pilot</mark>. We’re aiming for <mark>Friday</mark>, pending security review.</>,
+    reply: "Acme pilot: Maya owns it, Friday is the target, and security is still open.",
   },
   {
     when: "Today",
-    message: <>I’m going to <mark>Boston, October 12–15</mark>. Keep this trip <mark>under $1,800</mark>.</>,
-    reply: "Got it. I’ll plan around those dates and your trip budget.",
-  },
-  {
-    when: "A little later",
-    message: <>Actually, allow <mark>$2,200 for Boston</mark>. I need a <mark>flexible return</mark>.</>,
-    reply: "Updated to $2,200 for Boston, with a flexible return.",
+    message: <>Acme moved to <mark>Monday</mark>. <mark>Security is cleared</mark>; they’re waiting on my go-ahead.</>,
+    reply: "Updated: Monday kickoff, security cleared, and your go-ahead is next.",
   },
   {
     when: "A new conversation",
-    message: <>Find flights for my <mark>Boston trip</mark>.</>,
-    reply: "I’ll look for morning, nonstop flights for October 12–15, with a flexible return and a $2,200 trip budget.",
+    message: <>Catch me up on <mark>Acme</mark>.</>,
+    reply: <><strong>Your decision:</strong> Give Maya the go-ahead for Monday’s kickoff.<br /><strong>Context:</strong> Acme’s security review is cleared.</>,
   },
 ];
 const stages = [
   "Noticing what matters", "Remembering your preferences", "Preferences remembered",
-  "Connecting the details", "Trip context remembered", "Updating what’s changed",
-  "New budget remembered", "Bringing it back to mind", "Remembered for this conversation",
+  "Connecting people and projects", "Project context remembered", "Updating what’s changed",
+  "Latest plan remembered", "Bringing it back to mind", "Remembered for this conversation",
 ];
 const durations = [1500, 1300, 2500, 1800, 3000, 1800, 3000, 1700, 5600];
 
@@ -47,7 +47,7 @@ export function WorkerMemory({ children }: { children?: ReactNode }) {
   const recalling = stage >= 7;
   const saved = [2, 4, 6, 8].includes(stage);
   const hasPreferences = stage >= 2;
-  const hasTrip = stage >= 4;
+  const hasProject = stage >= 4;
   const hasUpdate = stage >= 6;
 
   return (
@@ -56,21 +56,21 @@ export function WorkerMemory({ children }: { children?: ReactNode }) {
       <div className="wm-studio">
         <div className="wm-conversation">
           <header className="wm-chat-header">
-            <BotAvatar shape="pod" color="#925df2" size={28} mode={playing && !saved ? "thinking" : "idle"} />
-            <strong>Travel planner</strong>
+            <BotAvatar shape="helmet" color="#ff7a1a" size={28} mode={playing && !saved ? "thinking" : "idle"} />
+            <strong>Chief of staff</strong>
             <span key={conversationIndex}>{conversation.when}</span>
           </header>
           <div className="wm-exchange" key={conversationIndex}>
             <div className="wm-user-message" data-extracting={!saved && !recalling}>{conversation.message}</div>
             <div className="wm-worker-message">
-              <BotAvatar shape="pod" color="#925df2" size={22} mode={playing && !saved ? "thinking" : "idle"} />
+              <BotAvatar shape="helmet" color="#ff7a1a" size={22} mode={playing && !saved ? "thinking" : "idle"} />
               {saved ? (
                 <div className="wm-worker-answer" key={stage}>
                   {recalling && <span className="wm-recall-label"><Sparkles size={12} /> From your memory</span>}
                   <p>{conversation.reply}</p>
                 </div>
               ) : (
-                <span className="wm-typing" aria-label="Travel planner is thinking"><i /><i /><i /></span>
+                <span className="wm-typing" aria-label="Chief of staff is thinking"><i /><i /><i /></span>
               )}
             </div>
           </div>
@@ -88,7 +88,7 @@ export function WorkerMemory({ children }: { children?: ReactNode }) {
               <span className="wm-brain-spark wm-brain-spark-two" aria-hidden="true" />
             </div>
             <div className="wm-memory-title">
-              <strong>Travel planner’s memory</strong>
+              <strong>Chief of staff’s memory</strong>
               <span key={stage}>{saved ? <Check size={12} /> : <Sparkles size={12} />}{stages[stage]}</span>
             </div>
           </div>
@@ -104,25 +104,25 @@ export function WorkerMemory({ children }: { children?: ReactNode }) {
               <div className="wm-pocket-heading"><span><Sparkles size={16} /></span><div><h3>About you</h3><span>Lasting preferences</span></div></div>
               <div className="wm-pocket-thoughts">
                 {hasPreferences ? (
-                  <div key="preferences"><MemoryThought fresh={stage === 2}>Morning flights</MemoryThought><MemoryThought fresh={stage === 2}>Nonstop preferred</MemoryThought></div>
+                  <div key="preferences"><MemoryThought fresh={stage === 2}>Decisions first</MemoryThought><MemoryThought fresh={stage === 2}>Short updates</MemoryThought></div>
                 ) : <div className="wm-thought-placeholder"><span /><span /><small>Getting to know you</small></div>}
               </div>
             </section>
-            <section className="wm-pocket wm-pocket-today" data-active={stage === 3 || stage === 4 || recalling} data-filled={hasTrip}>
-              <div className="wm-pocket-heading"><span><CalendarDays size={16} /></span><div><h3>Recent context</h3><span>From today</span></div></div>
+            <section className="wm-pocket wm-pocket-today" data-active={stage === 3 || stage === 4 || recalling} data-filled={hasProject}>
+              <div className="wm-pocket-heading"><span><CalendarDays size={16} /></span><div><h3>Recent context</h3><span>People &amp; projects</span></div></div>
               <div className="wm-pocket-thoughts">
-                {hasTrip ? (
-                  <div key="context"><MemoryThought fresh={stage === 4}>Boston trip</MemoryThought><MemoryThought fresh={stage === 4}>October 12–15</MemoryThought></div>
+                {hasProject ? (
+                  <div key="context"><MemoryThought fresh={stage === 4}>Acme pilot</MemoryThought><MemoryThought fresh={stage === 4}>Maya · owner</MemoryThought></div>
                 ) : <div className="wm-thought-placeholder"><span /><span /><small>Details from your day</small></div>}
               </div>
             </section>
-            <section className="wm-pocket wm-pocket-task" data-active={stage >= 3} data-filled={hasTrip}>
-              <div className="wm-pocket-heading"><span><Compass size={16} /></span><div><h3>This trip</h3><span>Task details</span></div></div>
+            <section className="wm-pocket wm-pocket-task" data-active={stage >= 3} data-filled={hasProject}>
+              <div className="wm-pocket-heading"><span><Compass size={16} /></span><div><h3>Next milestone</h3><span>Acme kickoff</span></div></div>
               <div className="wm-pocket-thoughts">
-                {hasTrip ? (
-                  <div key={hasUpdate ? "updated" : "budget"}>
-                    <MemoryThought fresh={stage === 4 || stage === 6}><span className="wm-budget">{stage === 6 && <del>$1,800</del>}<strong>{hasUpdate ? "$2,200" : "$1,800"}</strong> budget</span></MemoryThought>
-                    {hasUpdate && <MemoryThought fresh={stage === 6}>Flexible return</MemoryThought>}
+                {hasProject ? (
+                  <div key={hasUpdate ? "updated" : "milestone"}>
+                    <MemoryThought fresh={stage === 4 || stage === 6}><span className="wm-revision">{stage === 6 && <del>Friday</del>}<strong>{hasUpdate ? "Monday" : "Friday"}</strong> kickoff</span></MemoryThought>
+                    <MemoryThought fresh={stage === 4 || stage === 6}>{hasUpdate ? "Security cleared" : "Security pending"}</MemoryThought>
                   </div>
                 ) : <div className="wm-thought-placeholder"><span /><span /><small>What matters for this task</small></div>}
               </div>

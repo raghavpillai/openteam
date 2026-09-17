@@ -85,8 +85,8 @@
 .wm-thought:nth-child(2) { animation-delay: 150ms; }
 .wm-thought > i { flex: 0 0 4px; width: 4px; height: 4px; border-radius: 50%; margin-top: 7px; background: var(--memory-color); }
 .wm-thought[data-fresh="true"] { color: var(--memory-color); }
-.wm-budget strong { font-weight: 550; }
-.wm-budget del { font-size: 11px; color: #b0a89a; margin-right: 4px; }
+.wm-revision strong { font-weight: 550; }
+.wm-revision del { font-size: 11px; color: #b0a89a; margin-right: 4px; }
 .wm-thought-placeholder > span { display: block; width: 88%; height: 5px; margin-bottom: 10px; background: #e8e3d95e; border-radius: 5px; }
 .wm-thought-placeholder > span:nth-child(2) { width: 63%; }
 .wm-thought-placeholder small { display: block; font-size: 12px; line-height: 1.5; color: #a89f91; }

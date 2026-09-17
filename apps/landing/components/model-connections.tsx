@@ -33,23 +33,32 @@ const team = [
 ] as const;
 
 function InferenceConnection({ mobile = false }: { mobile?: boolean }) {
-  // Continuous paths carry each worker's request through the server to the model,
-  // and the response all the way back. The server card sits over the shared trunk.
-  const routes = (mobile ? [50, 150, 250] : [36, 120, 204]).map((position) => ({
-    request: mobile
-      ? `M${position} 0 C${position} 24 144 24 144 50 V86 C144 104 138 104 138 122 V160`
-      : `M0 ${position} C30 ${position} 28 114 62 114 H106 C120 114 116 108 132 108 H200`,
-    response: mobile
-      ? `M162 160 V122 C162 104 156 104 156 86 V50 C156 24 ${position} 24 ${position} 0`
-      : `M200 132 H132 C116 132 120 126 106 126 H62 C28 126 30 ${position} 0 ${position}`,
-  }));
+  // Each worker has one bidirectional connection. The two model lanes split
+  // underneath the server card, so packets stay continuous through the server.
+  const serverPoint = mobile ? "M150 68" : "M84 120";
+  const toModel = mobile
+    ? "C150 78 144 78 144 86 C144 104 138 104 138 122 V160"
+    : "C96 120 94 114 106 114 C120 114 116 108 132 108 H200";
+  const fromModel = mobile
+    ? "M162 160 V122 C162 104 156 104 156 86 C156 78 150 78 150 68"
+    : "M200 132 H132 C116 132 120 126 106 126 C94 126 96 120 84 120";
+  const routes = (mobile ? [50, 150, 250] : [36, 120, 204]).map((position) => {
+    const toServer = mobile
+      ? `M${position} 0 C${position} 24 150 24 150 50 V68`
+      : `M0 ${position} C30 ${position} 28 120 62 120 H84`;
+    const toWorker = mobile
+      ? `V50 C150 24 ${position} 24 ${position} 0`
+      : `H62 C28 120 30 ${position} 0 ${position}`;
+    return { worker: toServer, request: `${toServer} ${toModel}`, response: `${fromModel} ${toWorker}` };
+  });
   return (
     <div className={`mc-link mc-link-${mobile ? "mobile" : "desktop"}`}>
       <svg viewBox={mobile ? "0 0 300 160" : "0 0 200 240"} preserveAspectRatio="none" aria-hidden="true">
+        <path className="mc-route" d={`${serverPoint} ${toModel}`} />
+        <path className="mc-route mc-return-route" d={fromModel} />
         {routes.map((route, index) => (
           <g key={index} style={{ "--mc-worker-delay": `${index * -1040}ms` } as CSSProperties}>
-            <path className="mc-route" d={route.request} />
-            <path className="mc-route mc-return-route" d={route.response} />
+            <path className="mc-route" d={route.worker} />
             <path className="mc-request-packet" d={route.request} pathLength="100" />
             <path className="mc-response-packet" d={route.response} pathLength="100" />
           </g>
